@@ -56,8 +56,8 @@ statement
     | EXPORT TABLE tableName=multipartIdentifier
         (PARTITION partition=identifierList)?
         (whereClause)?
-        TO filePath=constant
-        (PROPERTIES LEFT_PAREN fileProperties+=tvfProperty (COMMA fileProperties+=tvfProperty)* RIGHT_PAREN)?
+        TO filePath=STRING_LITERAL
+        (propertyClause)?
         (withRemoteStorageSystem)?                                     #export
     ;
 
@@ -96,17 +96,17 @@ planType
 
 withRemoteStorageSystem
     : WITH S3 LEFT_PAREN
-        brokerProperties+=remoteStorageProperty (COMMA brokerProperties+=remoteStorageProperty)*
+        brokerProperties=propertyItemList
         RIGHT_PAREN
     | WITH HDFS LEFT_PAREN
-        brokerProperties+=remoteStorageProperty (COMMA brokerProperties+=remoteStorageProperty)*
+        brokerProperties=propertyItemList
         RIGHT_PAREN
     | WITH LOCAL LEFT_PAREN
-        brokerProperties+=remoteStorageProperty (COMMA brokerProperties+=remoteStorageProperty)*
+        brokerProperties=propertyItemList
         RIGHT_PAREN
-    | WITH BROKER brokerName=constant
+    | WITH BROKER brokerName=identifierOrText
         (LEFT_PAREN
-        brokerProperties+=remoteStorageProperty (COMMA brokerProperties+=remoteStorageProperty)*
+        brokerProperties=propertyItemList
         RIGHT_PAREN)?
     ;
 
@@ -117,7 +117,7 @@ withRemoteStorageSystem
 outFileClause
     : INTO OUTFILE filePath=constant
         (FORMAT AS format=identifier)?
-        (PROPERTIES LEFT_PAREN properties+=property (COMMA properties+=property)* RIGHT_PAREN)?
+        (propertyClause)?
     ;
 
 query
@@ -293,21 +293,25 @@ relationPrimary
     : multipartIdentifier specifiedPartition? tabletList? tableAlias relationHint? lateralView*           #tableName
     | LEFT_PAREN query RIGHT_PAREN tableAlias lateralView*                                    #aliasedQuery
     | tvfName=identifier LEFT_PAREN
-      (properties+=property (COMMA properties+=property)*)?
+      (properties=propertyItemList)?
       RIGHT_PAREN tableAlias                                                                  #tableValuedFunction
     ;
 
-property
-    : key=propertyItem EQ value=propertyItem
+propertyClause
+    : PROPERTIES LEFT_PAREN fileProperties=propertyItemList RIGHT_PAREN
     ;
 
-propertyItem : identifier | constant ;
-
-remoteStorageProperty
-    : key=remoteStoragePropertyItem EQ value=remoteStoragePropertyItem
+propertyItemList
+    : properties+=propertyItem (COMMA properties+=propertyItem)*
     ;
 
-remoteStoragePropertyItem : identifier | constant ;
+propertyItem
+    : key=propertyKey EQ value=propertyValue
+    ;
+
+propertyKey : identifier | constant ;
+
+propertyValue : identifier | constant ;
 
 tableAlias
     : (AS? strictIdentifier identifierList?)?

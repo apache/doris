@@ -85,16 +85,16 @@ import org.apache.doris.nereids.DorisParser.PlanTypeContext;
 import org.apache.doris.nereids.DorisParser.PredicateContext;
 import org.apache.doris.nereids.DorisParser.PredicatedContext;
 import org.apache.doris.nereids.DorisParser.PrimitiveDataTypeContext;
-import org.apache.doris.nereids.DorisParser.PropertiesStatmentContext;
-import org.apache.doris.nereids.DorisParser.PropertyContext;
+import org.apache.doris.nereids.DorisParser.PropertyClauseContext;
 import org.apache.doris.nereids.DorisParser.PropertyItemContext;
+import org.apache.doris.nereids.DorisParser.PropertyItemListContext;
+import org.apache.doris.nereids.DorisParser.PropertyKeyContext;
+import org.apache.doris.nereids.DorisParser.PropertyValueContext;
 import org.apache.doris.nereids.DorisParser.QualifiedNameContext;
 import org.apache.doris.nereids.DorisParser.QueryContext;
 import org.apache.doris.nereids.DorisParser.QueryOrganizationContext;
 import org.apache.doris.nereids.DorisParser.RegularQuerySpecificationContext;
 import org.apache.doris.nereids.DorisParser.RelationContext;
-import org.apache.doris.nereids.DorisParser.RemoteStoragePropertyContext;
-import org.apache.doris.nereids.DorisParser.RemoteStoragePropertyItemContext;
 import org.apache.doris.nereids.DorisParser.SelectClauseContext;
 import org.apache.doris.nereids.DorisParser.SelectColumnClauseContext;
 import org.apache.doris.nereids.DorisParser.SelectHintContext;
@@ -123,6 +123,7 @@ import org.apache.doris.nereids.DorisParser.UserVariableContext;
 import org.apache.doris.nereids.DorisParser.WhereClauseContext;
 import org.apache.doris.nereids.DorisParser.WindowFrameContext;
 import org.apache.doris.nereids.DorisParser.WindowSpecContext;
+import org.apache.doris.nereids.DorisParser.WithRemoteStorageSystemContext;
 import org.apache.doris.nereids.DorisParserBaseVisitor;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.analyzer.UnboundAlias;
@@ -391,7 +392,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     public LogicalPlan visitExport(ExportContext ctx) {
         List<String> tableName = visitMultipartIdentifier(ctx.tableName);
         List<String> partitions = ctx.partition == null ? ImmutableList.of() : visitIdentifierList(ctx.partition);
-        String path = parseConstant(ctx.filePath);
+        String path = ctx.filePath.getText();
         String whereSql = null;
         if (ctx.whereClause() != null) {
             WhereClauseContext whereClauseContext = ctx.whereClause();
@@ -403,38 +404,50 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         }
 
         Map<String, String> filePropertiesMap = null;
-        if (!ctx.fileProperties.isEmpty()) {
-            filePropertiesMap = Maps.newHashMap();
-            for (TvfPropertyContext argument : ctx.fileProperties) {
-                String key = parseTVFPropertyItem(argument.key);
-                String value = parseTVFPropertyItem(argument.value);
-                filePropertiesMap.put(key, value);
-            }
+        if (ctx.propertyClause() != null) {
+            filePropertiesMap = visitPropertyClause(ctx.propertyClause());
         }
 
-        Map<String, String> brokerPropertiesMap = null;
         BrokerDesc brokerDesc = null;
         if (ctx.withRemoteStorageSystem() != null) {
-            brokerPropertiesMap = Maps.newHashMap();
-            for (RemoteStoragePropertyContext arg : ctx.withRemoteStorageSystem().brokerProperties) {
-                String key = parseRemoteStoragePropertyItem(arg.key);
-                String value = parseRemoteStoragePropertyItem(arg.value);
-                brokerPropertiesMap.put(key, value);
-            }
-
-            if (ctx.withRemoteStorageSystem().S3() != null) {
-                brokerDesc = new BrokerDesc("S3", StorageBackend.StorageType.S3, brokerPropertiesMap);
-            } else if (ctx.withRemoteStorageSystem().HDFS() != null) {
-                brokerDesc = new BrokerDesc("HDFS", StorageBackend.StorageType.HDFS, brokerPropertiesMap);
-            } else if (ctx.withRemoteStorageSystem().LOCAL() != null) {
-                brokerDesc = new BrokerDesc("HDFS", StorageType.LOCAL, brokerPropertiesMap);
-            } else if (ctx.withRemoteStorageSystem().BROKER() != null
-                    && ctx.withRemoteStorageSystem().constant().getText() != null) {
-                brokerDesc = new BrokerDesc(ctx.withRemoteStorageSystem().constant().getText(), brokerPropertiesMap);
-            }
+            brokerDesc = visitWithRemoteStorageSystem(ctx.withRemoteStorageSystem());
         }
 
         return new ExportCommand(tableName, partitions, whereSql, path, filePropertiesMap, brokerDesc);
+    }
+
+    @Override
+    public Map<String, String> visitPropertyClause(PropertyClauseContext ctx) {
+        return visitPropertyItemList(ctx.fileProperties);
+    }
+
+    @Override
+    public Map<String, String> visitPropertyItemList(PropertyItemListContext ctx) {
+        Builder<String, String> propertiesMap = ImmutableMap.builder();
+        for (PropertyItemContext argument : ctx.properties) {
+            String key = parsePropertyKey(argument.key);
+            String value = parsePropertyValue(argument.value);
+            propertiesMap.put(key, value);
+        }
+        return propertiesMap.build();
+    }
+
+    @Override
+    public BrokerDesc visitWithRemoteStorageSystem(WithRemoteStorageSystemContext ctx) {
+        BrokerDesc brokerDesc = null;
+
+        Map<String, String> brokerPropertiesMap = visitPropertyItemList(ctx.brokerProperties);
+
+        if (ctx.S3() != null) {
+            brokerDesc = new BrokerDesc("S3", StorageBackend.StorageType.S3, brokerPropertiesMap);
+        } else if (ctx.HDFS() != null) {
+            brokerDesc = new BrokerDesc("HDFS", StorageBackend.StorageType.HDFS, brokerPropertiesMap);
+        } else if (ctx.LOCAL() != null) {
+            brokerDesc = new BrokerDesc("HDFS", StorageType.LOCAL, brokerPropertiesMap);
+        } else if (ctx.BROKER() != null) {
+            brokerDesc = new BrokerDesc(visitIdentifierOrText(ctx.brokerName), brokerPropertiesMap);
+        }
+        return brokerDesc;
     }
 
     /**
@@ -698,14 +711,9 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         return ParserUtils.withOrigin(ctx, () -> {
             String functionName = ctx.tvfName.getText();
 
-            Builder<String, String> map = ImmutableMap.builder();
-            for (PropertyContext argument : ctx.properties) {
-                String key = parsePropertyItem(argument.key);
-                String value = parsePropertyItem(argument.value);
-                map.put(key, value);
-            }
+            Map<String, String> map = visitPropertyItemList(ctx.properties);
             LogicalPlan relation = new UnboundTVFRelation(StatementScopeIdGenerator.newRelationId(),
-                    functionName, new Properties(map.build()));
+                    functionName, new Properties(map));
             return withTableAlias(relation, ctx.tableAlias());
         });
     }
@@ -1580,11 +1588,10 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         if (ctx.format != null) {
             format = ctx.format.getText();
         }
-        Map<String, String> properties = Maps.newHashMap();
-        for (PropertyContext argument : ctx.properties) {
-            String key = parseConstant(argument.key.constant());
-            String value = parseConstant(argument.value.constant());
-            properties.put(key, value);
+
+        Map<String, String> properties = ImmutableMap.of();
+        if (ctx.propertyClause() != null) {
+            properties = visitPropertyClause(ctx.propertyClause());
         }
         Literal filePath = (Literal) visit(ctx.filePath);
         return new LogicalFileSink<>(filePath.getStringValue(), format, properties, ImmutableList.of(), plan);
@@ -2030,14 +2037,14 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         }
     }
 
-    private String parsePropertyItem(PropertyItemContext item) {
+    private String parsePropertyKey(PropertyKeyContext item) {
         if (item.constant() != null) {
             return parseConstant(item.constant());
         }
         return item.getText();
     }
 
-    private String parseRemoteStoragePropertyItem(RemoteStoragePropertyItemContext item) {
+    private String parsePropertyValue(PropertyValueContext item) {
         if (item.constant() != null) {
             return parseConstant(item.constant());
         }
