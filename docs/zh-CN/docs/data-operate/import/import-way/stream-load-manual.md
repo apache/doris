@@ -244,16 +244,16 @@ Stream Load 由于使用的是 HTTP 协议，所以所有导入任务有关的�
 
 ### 使用SQL表达Stream Load的参数
 
-可以在Header中添加一个`sql`的参数，去替代之前参数中的`column_separator`、`line_delimiter`、`where`、`columns`参数，方便使用。
+可以在Header中添加一个`sql`的参数，去替代之前参数中的`column_separator`、`line_delimiter`、`where`、`columns`等参数，方便使用。
 
 ```
-curl --location-trusted -u user:passwd [-H "sql: ${load_sql}"...] -T data.file -XPUT http://fe_host:http_port/api/{db}/{table}/_stream_load_with_sql
+curl --location-trusted -u user:passwd [-H "sql: ${load_sql}"...] -T data.file -XPUT http://fe_host:http_port/api/_http_stream
 
 
 # -- load_sql
-# insert into db.table (col, ...) select stream_col, ... from stream("property1"="value1");
+# insert into db.table (col, ...) select stream_col, ... from http_stream("property1"="value1");
 
-# stream
+# http_stream
 # (
 #     "column_separator" = ",",
 #     "format" = "CSV",
@@ -264,7 +264,7 @@ curl --location-trusted -u user:passwd [-H "sql: ${load_sql}"...] -T data.file -
 示例：
 
 ```
-curl  --location-trusted -u root: -T test.csv  -H "sql:insert into demo.example_tbl_1(user_id, age, cost) select c1, c4, c7 * 2 from stream("format" = "CSV", "column_separator" = "," ) where age >= 30"  http://127.0.0.1:28030/api/demo/example_tbl_1/_stream_load_with_sql
+curl  --location-trusted -u root: -T test.csv  -H "sql:insert into demo.example_tbl_1(user_id, age, cost) select c1, c4, c7 * 2 from http_stream("format" = "CSV", "column_separator" = "," ) where age >= 30"  http://127.0.0.1:28030/api/_http_stream
 ```
 
 
