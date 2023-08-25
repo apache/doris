@@ -231,6 +231,15 @@ Stream load uses HTTP protocol, so all parameters related to import tasks are se
 
   <version since="1.2.7">When `enable_profile` is true, the Stream Load profile will be printed to logs (be.INFO).</version>
 
++ memtable_on_sink_node
+
+  <version since="2.1.0">
+  Whether to enable MemTable on DataSink node when loading data, default is false.
+  </version>
+
+  Build MemTable on DataSink node, and send segments to other backends through brpc streaming.
+  It reduces duplicate work among replicas, and saves time in data serialization & deserialization.
+
 ### Use stream load with SQL
 
 You can add a `sql` parameter to the `Header` to replace the `column_separator`, `line_delimiter`, `where`, `columns` in the previous parameter, which is convenient to use.
