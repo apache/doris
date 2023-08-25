@@ -24,12 +24,14 @@ import org.apache.doris.analysis.ListPartitionDesc;
 import org.apache.doris.analysis.PartitionDesc;
 import org.apache.doris.analysis.RangePartitionDesc;
 import org.apache.doris.analysis.TableName;
+import org.apache.doris.catalog.AggregateType;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Index;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.cluster.ClusterNamespace;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.nereids.exceptions.AnalysisException;
@@ -159,6 +161,53 @@ public class CreateTableInfo {
             dbName = ClusterNamespace.getFullName(ctx.getClusterName(), dbName);
         }
 
+        boolean isEnableMergeOnWrite = false;
+        if (keysType.equals(KeysType.UNIQUE_KEYS) && properties != null) {
+            try {
+                isEnableMergeOnWrite = PropertyAnalyzer.analyzeUniqueKeyMergeOnWrite(properties);
+            } catch (Exception e) {
+                throw new AnalysisException(e.getMessage(), e.getCause());
+            }
+        }
+
+        // add hidden column
+        if (Config.enable_batch_delete_by_default && keysType.equals(KeysType.UNIQUE_KEYS)) {
+            if (isEnableMergeOnWrite) {
+                columns.add(ColumnDefinition.newDeleteSignColumnDefinition(AggregateType.NONE));
+            } else {
+                columns.add(ColumnDefinition.newDeleteSignColumnDefinition(AggregateType.REPLACE));
+            }
+        }
+
+        // add a hidden column as row store
+        boolean storeRowColumn = false;
+        try {
+            storeRowColumn = PropertyAnalyzer.analyzeStoreRowColumn(properties);
+        } catch (Exception e) {
+            throw new AnalysisException(e.getMessage(), e.getCause());
+        }
+        if (storeRowColumn) {
+            if (keysType.equals(KeysType.AGG_KEYS)) {
+                throw new AnalysisException("Aggregate table can't support row column now");
+            }
+            if (keysType.equals(KeysType.UNIQUE_KEYS)) {
+                if (isEnableMergeOnWrite) {
+                    columns.add(ColumnDefinition.newRowStoreColumnDefinition(AggregateType.NONE));
+                } else {
+                    columns.add(ColumnDefinition.newRowStoreColumnDefinition(AggregateType.REPLACE));
+                }
+            } else {
+                columns.add(ColumnDefinition.newRowStoreColumnDefinition(null));
+            }
+        }
+        if (Config.enable_hidden_version_column_by_default && keysType.equals(KeysType.UNIQUE_KEYS)) {
+            if (isEnableMergeOnWrite) {
+                columns.add(ColumnDefinition.newVersionColumnDefinition(AggregateType.NONE));
+            } else {
+                columns.add(ColumnDefinition.newVersionColumnDefinition(AggregateType.REPLACE));
+            }
+        }
+
         // analyze partitions
         Map<String, ColumnDefinition> columnMap = columns.stream()
                 .collect(Collectors.toMap(ColumnDefinition::getName, c -> c));
@@ -234,14 +283,6 @@ public class CreateTableInfo {
                     + " set 'true' when create olap table by default.");
         }
 
-        boolean isEnableMergeOnWrite = false;
-        if (keysType.equals(KeysType.UNIQUE_KEYS) && properties != null) {
-            try {
-                isEnableMergeOnWrite = PropertyAnalyzer.analyzeUniqueKeyMergeOnWrite(properties);
-            } catch (Exception e) {
-                throw new AnalysisException(e.getMessage(), e.getCause());
-            }
-        }
         final boolean finalEnableMergeOnWrite = isEnableMergeOnWrite;
         Set<String> keysSet = Sets.newHashSet(keys);
         columns.forEach(c -> c.validate(keysSet, finalEnableMergeOnWrite, keysType));
