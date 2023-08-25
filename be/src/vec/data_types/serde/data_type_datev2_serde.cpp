@@ -23,6 +23,7 @@
 
 #include "gutil/casts.h"
 #include "vec/columns/column_const.h"
+#include "vec/io/io_helper.h"
 
 namespace doris {
 namespace vectorized {

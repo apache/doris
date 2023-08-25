@@ -26,6 +26,7 @@
 #include "gutil/casts.h"
 #include "vec/columns/column_decimal.h"
 #include "vec/common/arithmetic_overflow.h"
+#include "vec/io/io_helper.h"
 
 namespace doris {
 
