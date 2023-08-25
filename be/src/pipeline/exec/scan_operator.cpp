@@ -1292,18 +1292,14 @@ Status ScanOperatorX::try_close(RuntimeState* state) {
     return Status::OK();
 }
 
-Status ScanOperatorX::close(RuntimeState* state) {
-    if (is_closed()) {
+Status ScanLocalState::close(RuntimeState* state) {
+    if (_closed) {
         return Status::OK();
     }
-    auto local_state_ptr = state->get_local_state(id());
-    auto& local_state = local_state_ptr->cast<ScanLocalState>();
-    if (local_state._scanner_ctx.get()) {
-        local_state._scanner_ctx->clear_and_join(
-                reinterpret_cast<ScanLocalState*>(local_state_ptr.get()), state);
+    if (_scanner_ctx.get()) {
+        _scanner_ctx->clear_and_join(reinterpret_cast<ScanLocalState*>(this), state);
     }
-    _is_closed = true;
-    return OperatorXBase::close(state);
+    return PipelineXLocalState::close(state);
 }
 
 Status ScanOperatorX::get_block(RuntimeState* state, vectorized::Block* block,

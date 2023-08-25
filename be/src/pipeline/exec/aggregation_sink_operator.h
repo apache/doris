@@ -53,6 +53,7 @@ public:
     AggSinkLocalState(DataSinkOperatorX* parent, RuntimeState* state);
 
     virtual Status init(RuntimeState* state, LocalSinkStateInfo& info) override;
+    virtual Status close(RuntimeState* state) override;
 
     Status try_spill_disk(bool eos = false);
 
@@ -325,7 +326,6 @@ public:
     virtual Status sink(RuntimeState* state, vectorized::Block* in_block,
                         SourceState source_state) override;
 
-    virtual Status close(RuntimeState* state) override;
     virtual bool can_write(RuntimeState* state) override { return true; }
 
     void get_dependency(DependencySPtr& dependency) override {

@@ -45,13 +45,14 @@ public:
 };
 
 class SortSourceOperatorX;
-class SortLocalState : public PipelineXLocalState {
+class SortLocalState final : public PipelineXLocalState {
     ENABLE_FACTORY_CREATOR(SortLocalState);
 
 public:
     SortLocalState(RuntimeState* state, OperatorXBase* parent);
 
     Status init(RuntimeState* state, LocalStateInfo& info) override;
+    Status close(RuntimeState* state) override;
 
 private:
     friend class SortSourceOperatorX;
@@ -73,7 +74,6 @@ public:
     Status get_block(RuntimeState* state, vectorized::Block* block,
                      SourceState& source_state) override;
 
-    Status close(RuntimeState* state) override;
     bool is_source() const override { return true; }
 
 private:

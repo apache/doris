@@ -82,6 +82,7 @@ public:
               _serializer(this) {}
 
     Status init(RuntimeState* state, LocalSinkStateInfo& info) override;
+    Status close(RuntimeState* state) override;
 
     Status serialize_block(vectorized::Block* src, PBlock* dest, int num_receivers = 1);
     void register_channels(pipeline::ExchangeSinkBuffer<ExchangeSinkLocalState>* buffer);
@@ -181,7 +182,6 @@ public:
     Status serialize_block(ExchangeSinkLocalState& stete, vectorized::Block* src, PBlock* dest,
                            int num_receivers = 1);
 
-    Status close(RuntimeState* state) override;
     Status try_close(RuntimeState* state) override;
     bool can_write(RuntimeState* state) override;
     bool is_pending_finish(RuntimeState* state) const override;

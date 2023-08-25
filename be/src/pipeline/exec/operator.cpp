@@ -127,21 +127,10 @@ void OperatorXBase::_init_runtime_profile() {
 }
 
 Status OperatorXBase::close(RuntimeState* state) {
-    if (_is_closed) {
-        return Status::OK();
-    }
-    auto local_state = state->get_local_state(id());
-    Status result;
     if (_child_x && !is_source()) {
-        _child_x->close(state);
+        RETURN_IF_ERROR(_child_x->close(state));
     }
-    if (local_state->_rows_returned_counter != nullptr) {
-        COUNTER_SET(local_state->_rows_returned_counter, local_state->_num_rows_returned);
-    }
-
-    local_state->profile()->add_to_span(local_state->_span);
-    _is_closed = true;
-    return Status::OK();
+    return state->get_local_state(id())->close(state);
 }
 
 Status PipelineXLocalState::init(RuntimeState* state, LocalStateInfo& /*info*/) {
