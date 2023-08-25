@@ -118,8 +118,8 @@ public class ColumnDefinition {
 
     public Column translateToCatalogStyle() {
         return new Column(name, type.toCatalogDataType(), isKey, aggType, isNull,
-                false, null, comment, isVisible,
-                null, 0, defaultValue.map(ExpressionTrait::toSql).orElse(null));
+                false, defaultValue.map(ExpressionTrait::toSql).orElse(null), comment, isVisible,
+                null, Column.COLUMN_UNIQUE_ID_INIT_VALUE, defaultValue.map(ExpressionTrait::toSql).orElse(null));
     }
 
     // hidden column
