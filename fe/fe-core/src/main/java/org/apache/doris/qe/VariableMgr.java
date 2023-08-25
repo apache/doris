@@ -392,6 +392,26 @@ public class VariableMgr {
         }
     }
 
+    public static void setGlobalBroadcastScaleFactor(double factor) {
+        wlock.lock();
+        try {
+            VarContext ctx = ctxByVarName.get(SessionVariable.BROADCAST_RIGHT_TABLE_SCALE_FACTOR);
+            try {
+                setValue(ctx.getObj(), ctx.getField(), String.valueOf(factor));
+            } catch (DdlException e) {
+                LOG.warn("failed to set global variable: {}", SessionVariable.BROADCAST_RIGHT_TABLE_SCALE_FACTOR, e);
+                return;
+            }
+
+            // write edit log
+            GlobalVarPersistInfo info = new GlobalVarPersistInfo(defaultSessionVariable,
+                    Lists.newArrayList(SessionVariable.BROADCAST_RIGHT_TABLE_SCALE_FACTOR));
+            Env.getCurrentEnv().getEditLog().logGlobalVariableV2(info);
+        } finally {
+            wlock.unlock();
+        }
+    }
+
     public static void setLowerCaseTableNames(int mode) throws DdlException {
         VarContext ctx = ctxByVarName.get(GlobalVariable.LOWER_CASE_TABLE_NAMES);
         setGlobalVarAndWriteEditLog(ctx, GlobalVariable.LOWER_CASE_TABLE_NAMES, "" + mode);
