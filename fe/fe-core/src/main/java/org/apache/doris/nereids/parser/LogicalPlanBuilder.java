@@ -1894,7 +1894,9 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     @Override
     public PartitionDefinition visitFixedPartitionDef(FixedPartitionDefContext ctx) {
         String partitionName = ctx.partitionName.getText();
-        return new FixedRangePartition(partitionName, null, null);
+        List<Expression> lowerBounds = visitConstantSeq(ctx.lower);
+        List<Expression> upperBounds = visitConstantSeq(ctx.upper);
+        return new FixedRangePartition(partitionName, lowerBounds, upperBounds);
     }
 
     @Override
