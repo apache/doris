@@ -460,13 +460,13 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
 
     @Override
     public Map<String, String> visitPropertyItemList(PropertyItemListContext ctx) {
-        Builder<String, String> propertiesMap = ImmutableMap.builder();
+        Map<String, String> propertiesMap = Maps.newHashMap();
         for (PropertyItemContext argument : ctx.properties) {
             String key = parsePropertyKey(argument.key);
             String value = parsePropertyValue(argument.value);
             propertiesMap.put(key, value);
         }
-        return propertiesMap.build();
+        return propertiesMap;
     }
 
     @Override
