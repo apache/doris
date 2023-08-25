@@ -72,6 +72,8 @@ private:
 
     bool _should_push_down_common_expr() override;
 
+    bool _storage_no_merge() override;
+
     Status _init_scanners(std::list<vectorized::VScannerSPtr>* scanners) override;
 
     void add_filter_info(int id, const PredicateFilterInfo& info);

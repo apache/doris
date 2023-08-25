@@ -228,6 +228,8 @@ protected:
 
     virtual bool _should_push_down_common_expr() { return false; }
 
+    virtual bool _storage_no_merge() { return false; }
+
     virtual PushDownType _should_push_down_bloom_filter() { return PushDownType::UNACCEPTABLE; }
 
     virtual PushDownType _should_push_down_bitmap_filter() { return PushDownType::UNACCEPTABLE; }
