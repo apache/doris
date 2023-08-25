@@ -148,7 +148,7 @@ public abstract class AbstractSelectMaterializedIndexRule {
     }
 
     protected static boolean containsAllColumn(Expression expression, Set<String> mvColumnNames) {
-        if (mvColumnNames.contains(Column.getNameWithoutMvPrefix(expression.toSql()))) {
+        if (mvColumnNames.contains(expression.toSql())) {
             return true;
         }
         if (expression.children().isEmpty()) {
@@ -412,7 +412,7 @@ public abstract class AbstractSelectMaterializedIndexRule {
                 }
             }
             if (!isPushed) {
-                if (org.apache.doris.analysis.CreateMaterializedViewStmt.isMVColumnAggregate(mvSlot.getName())) {
+                if (org.apache.doris.analysis.CreateMaterializedViewStmt.isMVColumn(mvSlot.getName())) {
                     mvNameToMvSlot.put(normalizeName(
                             org.apache.doris.analysis.CreateMaterializedViewStmt.mvColumnBreaker(mvSlot.getName())),
                             mvSlot);
