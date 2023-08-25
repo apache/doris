@@ -358,6 +358,9 @@ public class DateLiteral extends LiteralExpr {
             Preconditions.checkArgument(type.isDateType());
             TemporalAccessor dateTime = null;
             boolean parsed = false;
+
+            s = skipTrailingNonDigit(s);
+
             if (!s.contains("-")) {
                 // handle format like 20210106, but should not handle 2021-1-6
                 for (DateTimeFormatter formatter : formatterList) {
@@ -1706,5 +1709,13 @@ public class DateLiteral extends LiteralExpr {
         minute = 0;
         second = 0;
         microsecond = 0;
+    }
+
+    private static String skipTrailingNonDigit(String str) {
+        int split = str.length() - 1;
+        for (; split > 0 && !Character.isDigit(str.charAt(split)) && str.charAt(split) != '.'; split--) {
+            ;
+        }
+        return str.substring(0, split + 1);
     }
 }

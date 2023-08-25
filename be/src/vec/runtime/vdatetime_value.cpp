@@ -1836,6 +1836,9 @@ bool DateV2Value<T>::from_date_str(const char* date_str, int len, int scale) {
     while (ptr < end && isspace(*ptr)) {
         ptr++;
     }
+    while (ptr < end && isalpha(*(end - 1))) {
+        end--;
+    }
     if (ptr == end || !isdigit(*ptr)) {
         return false;
     }
