@@ -1048,7 +1048,6 @@ public class RestoreJob extends AbstractJob {
                             localTbl.getTimeSeriesCompactionFileCountThreshold(),
                             localTbl.getTimeSeriesCompactionTimeThresholdSeconds(),
                             localTbl.storeRowColumn(),
-                            localTbl.isDynamicSchema(),
                             binlogConfig);
 
                     task.setInRestoreMode(true);

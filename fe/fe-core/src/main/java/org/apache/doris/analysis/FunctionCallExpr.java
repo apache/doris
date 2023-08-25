@@ -1191,6 +1191,21 @@ public class FunctionCallExpr extends Expr {
             }
             fn.setReturnType(getChild(0).getType());
         }
+
+        // make nested type with function param can be Compatible otherwise be will not deal with type
+        if (fnName.getFunction().equalsIgnoreCase("array_position")
+                || fnName.getFunction().equalsIgnoreCase("array_contains")
+                || fnName.getFunction().equalsIgnoreCase("countequal")) {
+            Type[] childTypes = collectChildReturnTypes();
+            Type compatibleType = ((ArrayType) childTypes[0]).getItemType();
+            for (int i = 1; i < childTypes.length; ++i) {
+                compatibleType = Type.getAssignmentCompatibleType(compatibleType, childTypes[i], true);
+                if (compatibleType == Type.INVALID) {
+                    throw new AnalysisException(getFunctionNotFoundError(collectChildReturnTypes()));
+                }
+                uncheckedCastChild(compatibleType, i);
+            }
+        }
     }
 
     // Provide better error message for some aggregate builtins. These can be
@@ -1698,8 +1713,6 @@ public class FunctionCallExpr extends Expr {
                         || fnName.getFunction().equalsIgnoreCase("array_shuffle")
                         || fnName.getFunction().equalsIgnoreCase("shuffle")
                         || fnName.getFunction().equalsIgnoreCase("array_except")
-                        || fnName.getFunction().equalsIgnoreCase("array_contains")
-                        || fnName.getFunction().equalsIgnoreCase("array_position")
                         || fnName.getFunction().equalsIgnoreCase("width_bucket"))
                         && (args[ix].isDecimalV3() || (children.get(0).getType().isArrayType()
                         && (((ArrayType) children.get(0).getType()).getItemType().isDecimalV3())

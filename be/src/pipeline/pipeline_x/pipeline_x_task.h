@@ -50,7 +50,7 @@ class PipelineXTask : public PipelineTask {
 public:
     PipelineXTask(PipelinePtr& pipeline, uint32_t index, RuntimeState* state,
                   PipelineFragmentContext* fragment_context, RuntimeProfile* parent_profile,
-                  const std::vector<TScanRangeParams>& scan_ranges);
+                  const std::vector<TScanRangeParams>& scan_ranges, const int sender_id);
 
     Status prepare(RuntimeState* state) override;
 
@@ -63,13 +63,15 @@ public:
     // must be call after all pipeline task is finish to release resource
     Status close() override;
 
-    bool source_can_read() override { return _source->can_read(_state); }
+    bool source_can_read() override {
+        return _source->can_read(_state) || _ignore_blocking_source();
+    }
 
     bool runtime_filters_are_ready_or_timeout() override {
         return _source->runtime_filters_are_ready_or_timeout();
     }
 
-    bool sink_can_write() override { return _sink->can_write(_state); }
+    bool sink_can_write() override { return _sink->can_write(_state) || _ignore_blocking_sink(); }
 
     Status finalize() override;
 
@@ -96,10 +98,22 @@ public:
 
     DependencySPtr& get_downstream_dependency() { return _downstream_dependency; }
     void set_upstream_dependency(DependencySPtr& upstream_dependency) {
-        _upstream_dependency = upstream_dependency;
+        _upstream_dependency.insert({upstream_dependency->id(), upstream_dependency});
     }
 
 private:
+    [[nodiscard]] bool _ignore_blocking_sink() { return _root->can_terminate_early(_state); }
+
+    [[nodiscard]] bool _ignore_blocking_source() {
+        for (size_t i = 1; i < _operators.size(); i++) {
+            if (_operators[i]->can_terminate_early(_state)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    using DependencyMap = std::map<int, DependencySPtr>;
     Status _open() override;
 
     const std::vector<TScanRangeParams> _scan_ranges;
@@ -109,7 +123,9 @@ private:
     OperatorXPtr _root;
     DataSinkOperatorXPtr _sink;
 
-    DependencySPtr _upstream_dependency;
+    const int _sender_id;
+
+    DependencyMap _upstream_dependency;
     DependencySPtr _downstream_dependency;
 };
 } // namespace doris::pipeline

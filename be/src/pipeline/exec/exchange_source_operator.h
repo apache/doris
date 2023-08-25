@@ -59,6 +59,7 @@ class ExchangeLocalState : public PipelineXLocalState {
     std::shared_ptr<doris::vectorized::VDataStreamRecvr> stream_recvr;
     doris::vectorized::VSortExecExprs vsort_exec_exprs;
     int64_t num_rows_skipped;
+    bool is_ready;
 };
 
 class ExchangeSourceOperatorX final : public OperatorXBase {
@@ -83,7 +84,6 @@ private:
     friend class ExchangeLocalState;
     const int _num_senders;
     const bool _is_merging;
-    bool _is_ready;
     RowDescriptor _input_row_desc;
     std::shared_ptr<QueryStatisticsRecvr> _sub_plan_query_statistics_recvr;
 

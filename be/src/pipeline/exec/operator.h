@@ -203,9 +203,6 @@ public:
     }
 
     Status set_child(OperatorXPtr child) {
-        if (is_source()) {
-            return Status::OK();
-        }
         _child_x = std::move(child);
         return Status::OK();
     }
@@ -215,6 +212,8 @@ public:
     virtual bool runtime_filters_are_ready_or_timeout() { return true; } // for source
 
     virtual bool can_write() { return false; } // for sink
+
+    [[nodiscard]] virtual bool can_terminate_early() { return false; }
 
     /**
      * The main method to execute a pipeline task.
@@ -268,7 +267,7 @@ protected:
     // Used on pipeline X
     OperatorXPtr _child_x;
 
-    bool _is_closed = false;
+    bool _is_closed;
 };
 
 /**
@@ -340,6 +339,8 @@ public:
             : OperatorBase(builder), _node(reinterpret_cast<NodeType*>(node)) {}
 
     ~StreamingOperator() override = default;
+
+    [[nodiscard]] bool can_terminate_early() override { return _node->can_terminate_early(); }
 
     Status prepare(RuntimeState* state) override {
         _node->increase_ref();
@@ -485,6 +486,12 @@ struct LocalStateInfo {
     Dependency* dependency;
 };
 
+// This struct is used only for initializing local sink state.
+struct LocalSinkStateInfo {
+    const int sender_id;
+    Dependency* dependency;
+};
+
 class PipelineXLocalState {
 public:
     PipelineXLocalState(RuntimeState* state, OperatorXBase* parent)
@@ -512,6 +519,7 @@ public:
 
     bool reached_limit() const;
     void reached_limit(vectorized::Block* block, bool* eos);
+    void reached_limit(vectorized::Block* block, SourceState& source_state);
     RuntimeProfile* profile() { return _runtime_profile.get(); }
 
     MemTracker* mem_tracker() { return _mem_tracker.get(); }
@@ -566,7 +574,6 @@ public:
               _type(tnode.node_type),
               _pool(pool),
               _tuple_ids(tnode.row_tuples),
-              _children(nullptr),
               _row_descriptor(descs, tnode.row_tuples, tnode.nullable_tuples),
               _resource_profile(tnode.resource_profile),
               _limit(tnode.limit),
@@ -591,6 +598,10 @@ public:
     virtual Status open(RuntimeState* state) override;
 
     Status finalize(RuntimeState* state) override { return Status::OK(); }
+
+    [[nodiscard]] bool can_terminate_early() override { return false; }
+
+    [[nodiscard]] virtual bool can_terminate_early(RuntimeState* state) { return false; }
 
     bool can_read() override {
         LOG(FATAL) << "should not reach here!";
@@ -668,7 +679,6 @@ protected:
 
     vectorized::VExprContextSPtrs _conjuncts;
 
-    OperatorXBase* _children;
     RowDescriptor _row_descriptor;
 
     std::unique_ptr<RowDescriptor> _output_row_descriptor;
@@ -694,7 +704,7 @@ public:
             : _parent(parent_), _state(state_) {}
     virtual ~PipelineXSinkLocalState() {}
 
-    virtual Status init(RuntimeState* state, Dependency* dependency) { return Status::OK(); }
+    virtual Status init(RuntimeState* state, LocalSinkStateInfo& info);
     template <class TARGET>
     TARGET& cast() {
         DCHECK(dynamic_cast<TARGET*>(this));
@@ -734,7 +744,7 @@ public:
 
     virtual Status init(const TDataSink& tsink) override { return Status::OK(); }
 
-    virtual Status setup_local_state(RuntimeState* state, Dependency* dependency) = 0;
+    virtual Status setup_local_state(RuntimeState* state, LocalSinkStateInfo& info) = 0;
 
     template <class TARGET>
     TARGET& cast() {

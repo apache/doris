@@ -33,18 +33,20 @@ AggLocalState::AggLocalState(RuntimeState* state, OperatorXBase* parent)
           _serialize_result_timer(nullptr),
           _hash_table_iterate_timer(nullptr),
           _insert_keys_to_column_timer(nullptr),
-          _serialize_data_timer(nullptr) {}
+          _serialize_data_timer(nullptr),
+          _hash_table_size_counter(nullptr) {}
 
 Status AggLocalState::init(RuntimeState* state, LocalStateInfo& info) {
     RETURN_IF_ERROR(PipelineXLocalState::init(state, info));
     _dependency = (AggDependency*)info.dependency;
-    _shared_state = ((AggSharedState*)_dependency->shared_state());
+    _shared_state = (AggSharedState*)_dependency->shared_state();
     _agg_data = _shared_state->agg_data.get();
     _get_results_timer = ADD_TIMER(profile(), "GetResultsTime");
     _serialize_result_timer = ADD_TIMER(profile(), "SerializeResultTime");
     _hash_table_iterate_timer = ADD_TIMER(profile(), "HashTableIterateTime");
     _insert_keys_to_column_timer = ADD_TIMER(profile(), "InsertKeysToColumnTime");
     _serialize_data_timer = ADD_TIMER(profile(), "SerializeDataTime");
+    _hash_table_size_counter = ADD_COUNTER(profile(), "HashTableSize", TUnit::UNIT);
     auto& p = _parent->cast<AggSourceOperatorX>();
     if (p._without_key) {
         if (p._needs_finalize) {
@@ -525,6 +527,16 @@ Status AggSourceOperatorX::close(RuntimeState* state) {
     }
     if (local_state._executor.close) {
         local_state._executor.close();
+    }
+
+    /// _hash_table_size_counter may be null if prepare failed.
+    if (local_state._hash_table_size_counter) {
+        std::visit(
+                [&](auto&& agg_method) {
+                    COUNTER_SET(local_state._hash_table_size_counter,
+                                int64_t(agg_method.data.size()));
+                },
+                local_state._agg_data->method_variant);
     }
 
     local_state._shared_state->agg_data = nullptr;

@@ -124,9 +124,10 @@ private:
     // of it in pipeline task not the fragment_context
     DataSinkOperatorXPtr _sink;
 
-    size_t _sink_idx = 0;
-
     std::atomic_bool _canceled = false;
+
+    // `_dag` manage dependencies between pipelines by pipeline ID
+    std::map<PipelineId, std::vector<PipelineId>> _dag;
 };
 } // namespace pipeline
 } // namespace doris

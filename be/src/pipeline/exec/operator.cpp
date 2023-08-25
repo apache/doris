@@ -29,7 +29,10 @@ class RuntimeState;
 namespace doris::pipeline {
 
 OperatorBase::OperatorBase(OperatorBuilderBase* operator_builder)
-        : _operator_builder(operator_builder), _is_closed(false) {}
+        : _operator_builder(operator_builder),
+          _child(nullptr),
+          _child_x(nullptr),
+          _is_closed(false) {}
 
 bool OperatorBase::is_sink() const {
     return _operator_builder->is_sink();
@@ -57,6 +60,11 @@ std::string OperatorBase::debug_string() const {
     ss << ", is_sink: " << is_sink() << ", is_closed: " << _is_closed;
     ss << ", is_pending_finish: " << is_pending_finish();
     return ss.str();
+}
+
+Status PipelineXSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& info) {
+    _mem_tracker = std::make_unique<MemTracker>(_parent->get_name());
+    return Status::OK();
 }
 
 std::string OperatorXBase::debug_string() const {
@@ -96,8 +104,8 @@ Status OperatorXBase::prepare(RuntimeState* state) {
 
     RETURN_IF_ERROR(vectorized::VExpr::prepare(_projections, state, intermediate_row_desc()));
 
-    if (_children) {
-        RETURN_IF_ERROR(_children->prepare(state));
+    if (_child_x && !is_source()) {
+        RETURN_IF_ERROR(_child_x->prepare(state));
     }
 
     return Status::OK();
@@ -124,7 +132,9 @@ Status OperatorXBase::close(RuntimeState* state) {
     }
     auto local_state = state->get_local_state(id());
     Status result;
-    _children->close(state);
+    if (_child_x && !is_source()) {
+        _child_x->close(state);
+    }
     if (local_state->_rows_returned_counter != nullptr) {
         COUNTER_SET(local_state->_rows_returned_counter, local_state->_num_rows_returned);
     }
@@ -218,6 +228,16 @@ void PipelineXLocalState::reached_limit(vectorized::Block* block, bool* eos) {
     if (_parent->_limit != -1 and _num_rows_returned + block->rows() >= _parent->_limit) {
         block->set_num_rows(_parent->_limit - _num_rows_returned);
         *eos = true;
+    }
+
+    _num_rows_returned += block->rows();
+    COUNTER_SET(_rows_returned_counter, _num_rows_returned);
+}
+
+void PipelineXLocalState::reached_limit(vectorized::Block* block, SourceState& source_state) {
+    if (_parent->_limit != -1 and _num_rows_returned + block->rows() >= _parent->_limit) {
+        block->set_num_rows(_parent->_limit - _num_rows_returned);
+        source_state = SourceState::FINISHED;
     }
 
     _num_rows_returned += block->rows();

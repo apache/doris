@@ -60,13 +60,13 @@ Status Channel<Parent>::init(RuntimeState* state) {
     }
 
     // initialize brpc request
-    _finst_id.set_hi(_fragment_instance_id.hi);
-    _finst_id.set_lo(_fragment_instance_id.lo);
-    _brpc_request.set_allocated_finst_id(&_finst_id);
+    _brpc_request.mutable_finst_id()->set_hi(_fragment_instance_id.hi);
+    _brpc_request.mutable_finst_id()->set_lo(_fragment_instance_id.lo);
+    _finst_id = _brpc_request.finst_id();
 
-    _query_id.set_hi(state->query_id().hi);
-    _query_id.set_lo(state->query_id().lo);
-    _brpc_request.set_allocated_query_id(&_query_id);
+    _brpc_request.mutable_query_id()->set_hi(state->query_id().hi);
+    _brpc_request.mutable_query_id()->set_lo(state->query_id().lo);
+    _query_id = _brpc_request.query_id();
 
     _brpc_request.set_node_id(_dest_node_id);
     _brpc_request.set_sender_id(_parent->sender_id());
@@ -293,10 +293,10 @@ VDataStreamSender::VDataStreamSender(RuntimeState* state, ObjectPool* pool, int 
                                      const RowDescriptor& row_desc, const TDataStreamSink& sink,
                                      const std::vector<TPlanFragmentDestination>& destinations,
                                      bool send_query_statistics_with_every_batch)
-        : _sender_id(sender_id),
+        : DataSink(row_desc),
+          _sender_id(sender_id),
           _state(state),
           _pool(pool),
-          _row_desc(row_desc),
           _current_channel_idx(0),
           _part_type(sink.output_partition.type),
           _profile(nullptr),
@@ -358,10 +358,10 @@ VDataStreamSender::VDataStreamSender(RuntimeState* state, ObjectPool* pool, int 
                                      const RowDescriptor& row_desc, PlanNodeId dest_node_id,
                                      const std::vector<TPlanFragmentDestination>& destinations,
                                      bool send_query_statistics_with_every_batch)
-        : _sender_id(sender_id),
+        : DataSink(row_desc),
+          _sender_id(sender_id),
           _state(state),
           _pool(pool),
-          _row_desc(row_desc),
           _current_channel_idx(0),
           _part_type(TPartitionType::UNPARTITIONED),
           _profile(nullptr),

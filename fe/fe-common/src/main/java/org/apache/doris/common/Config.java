@@ -2087,7 +2087,7 @@ public class Config extends ConfigBase {
     public static int force_olap_table_replication_num = 0;
 
     @ConfField
-    public static int full_auto_analyze_simultaneously_running_task_num = 5;
+    public static int full_auto_analyze_simultaneously_running_task_num = 1;
 
     @ConfField
     public static int cpu_resource_limit_per_analyze_task = 1;
@@ -2112,6 +2112,14 @@ public class Config extends ConfigBase {
             "Whether to use mysql's bigint type to return Doris's largeint type"})
     public static boolean use_mysql_bigint_for_largeint = false;
 
+    @ConfField(description = {
+            "是否开启列权限",
+            "Whether to enable col auth"})
+    public static boolean enable_col_auth = false;
+
     @ConfField
     public static boolean forbid_running_alter_job = false;
+
+    @ConfField
+    public static int table_stats_health_threshold = 80;
 }

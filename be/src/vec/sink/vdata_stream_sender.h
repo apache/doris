@@ -125,8 +125,6 @@ public:
 
     bool channel_all_can_write();
 
-    const RowDescriptor& row_desc() { return _row_desc; }
-
     int sender_id() const { return _sender_id; }
 
     RuntimeProfile::Counter* brpc_wait_timer() { return _brpc_wait_timer; }
@@ -173,7 +171,6 @@ protected:
 
     RuntimeState* _state;
     ObjectPool* _pool;
-    const RowDescriptor& _row_desc;
 
     int _current_channel_idx; // index of current channel to send to if _random == true
 
@@ -267,9 +264,6 @@ public:
         if (_closure != nullptr && _closure->unref()) {
             delete _closure;
         }
-        // release this before request desctruct
-        _brpc_request.release_finst_id();
-        _brpc_request.release_query_id();
     }
 
     // Initialize channel.

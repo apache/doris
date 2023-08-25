@@ -17,23 +17,29 @@
 
 #pragma once
 
+#include "pipeline/exec/data_queue.h"
+#include "vec/common/sort/sorter.h"
 #include "vec/exec/vaggregation_node.h"
+#include "vec/exec/vanalytic_eval_node.h"
 
-namespace doris::pipeline {
+namespace doris {
+namespace pipeline {
 class Dependency;
 using DependencySPtr = std::shared_ptr<Dependency>;
 
 class Dependency {
 public:
-    Dependency() : _done(false) {}
+    Dependency(int id) : _id(id), _done(false) {}
     virtual ~Dependency() = default;
 
     [[nodiscard]] bool done() const { return _done; }
     void set_done() { _done = true; }
 
     virtual void* shared_state() = 0;
+    [[nodiscard]] int id() const { return _id; }
 
 private:
+    int _id;
     std::atomic<bool> _done;
 };
 
@@ -42,6 +48,7 @@ public:
     AggSharedState() {
         agg_data = std::make_unique<vectorized::AggregatedDataVariants>();
         agg_arena_pool = std::make_unique<vectorized::Arena>();
+        data_queue = std::make_unique<DataQueue>(1);
     }
     void init_spill_partition_helper(size_t spill_partition_count_bits) {
         spill_partition_helper =
@@ -59,11 +66,12 @@ public:
     size_t input_num_rows = 0;
     std::vector<vectorized::AggregateDataPtr> values;
     std::unique_ptr<vectorized::Arena> agg_profile_arena;
+    std::unique_ptr<DataQueue> data_queue;
 };
 
 class AggDependency final : public Dependency {
 public:
-    AggDependency() : Dependency() {
+    AggDependency(int id) : Dependency(id) {
         _mem_tracker = std::make_unique<MemTracker>("AggregateOperator:");
     }
     ~AggDependency() override = default;
@@ -118,4 +126,62 @@ private:
     MemoryRecord _mem_usage_record;
     std::unique_ptr<MemTracker> _mem_tracker;
 };
-} // namespace doris::pipeline
+
+struct SortSharedState {
+public:
+    std::unique_ptr<vectorized::Sorter> sorter;
+};
+
+class SortDependency final : public Dependency {
+public:
+    SortDependency(int id) : Dependency(id) {}
+    ~SortDependency() override = default;
+    void* shared_state() override { return (void*)&_sort_state; };
+
+private:
+    SortSharedState _sort_state;
+};
+
+struct AnalyticSharedState {
+public:
+    AnalyticSharedState() = default;
+
+    int64_t current_row_position = 0;
+    vectorized::BlockRowPos partition_by_end;
+    vectorized::VExprContextSPtrs partition_by_eq_expr_ctxs;
+    int64_t input_total_rows = 0;
+    vectorized::BlockRowPos all_block_end;
+    std::vector<vectorized::Block> input_blocks;
+    bool input_eos = false;
+    std::atomic_bool need_more_input = true;
+    vectorized::BlockRowPos found_partition_end;
+    std::vector<int64_t> origin_cols;
+    vectorized::VExprContextSPtrs order_by_eq_expr_ctxs;
+    std::vector<int64_t> input_block_first_row_positions;
+    std::vector<std::vector<vectorized::MutableColumnPtr>> agg_input_columns;
+
+    // TODO: maybe global?
+    std::vector<int64_t> partition_by_column_idxs;
+    std::vector<int64_t> ordey_by_column_idxs;
+};
+
+class AnalyticDependency final : public Dependency {
+public:
+    AnalyticDependency(int id) : Dependency(id) {}
+    ~AnalyticDependency() override = default;
+
+    void* shared_state() override { return (void*)&_analytic_state; };
+
+    vectorized::BlockRowPos get_partition_by_end();
+
+    bool whether_need_next_partition(vectorized::BlockRowPos found_partition_end);
+    vectorized::BlockRowPos compare_row_to_find_end(int idx, vectorized::BlockRowPos start,
+                                                    vectorized::BlockRowPos end,
+                                                    bool need_check_first = false);
+
+private:
+    AnalyticSharedState _analytic_state;
+};
+
+} // namespace pipeline
+} // namespace doris

@@ -23,7 +23,6 @@
 #include <arrow/util/decimal.h>
 
 #include "arrow/type.h"
-#include "gutil/casts.h"
 #include "vec/columns/column_decimal.h"
 #include "vec/common/arithmetic_overflow.h"
 #include "vec/io/io_helper.h"
@@ -70,7 +69,7 @@ template <typename T>
 Status DataTypeDecimalSerDe<T>::deserialize_one_cell_from_text(IColumn& column, Slice& slice,
                                                                const FormatOptions& options) const {
     auto& column_data = assert_cast<ColumnDecimal<T>&>(column).get_data();
-    T val = 0;
+    T val = {};
     if (ReadBuffer rb(slice.data, slice.size);
         !read_decimal_text_impl<get_primitive_type(), T>(val, rb, precision, scale)) {
         return Status::InvalidArgument("parse decimal fail, string: '{}', primitive type: '{}'",
@@ -104,7 +103,7 @@ void DataTypeDecimalSerDe<T>::write_column_to_arrow(const IColumn& column, const
             checkArrowStatus(builder.Append(value), column.get_name(),
                              array_builder->type()->name());
         }
-    } else if constexpr (std::is_same_v<T, Decimal<Int128I>>) {
+    } else if constexpr (std::is_same_v<T, Decimal128I>) {
         std::shared_ptr<arrow::DataType> s_decimal_ptr =
                 std::make_shared<arrow::Decimal128Type>(38, col.get_scale());
         for (size_t i = start; i < end; ++i) {
@@ -158,7 +157,7 @@ template <typename T>
 void DataTypeDecimalSerDe<T>::read_column_from_arrow(IColumn& column,
                                                      const arrow::Array* arrow_array, int start,
                                                      int end, const cctz::time_zone& ctz) const {
-    auto concrete_array = down_cast<const arrow::DecimalArray*>(arrow_array);
+    auto concrete_array = dynamic_cast<const arrow::DecimalArray*>(arrow_array);
     const auto* arrow_decimal_type =
             static_cast<const arrow::DecimalType*>(arrow_array->type().get());
     const auto arrow_scale = arrow_decimal_type->scale();

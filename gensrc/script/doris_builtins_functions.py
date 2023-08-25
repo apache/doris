@@ -114,6 +114,38 @@ visible_functions = {
 
         [['element_at', '%element_extract%'], 'T', ['ARRAY<T>', 'BIGINT'], 'ALWAYS_NULLABLE', ['T']],
 
+        [['l1_distance'], 'DOUBLE', ['ARRAY_TINYINT', 'ARRAY_TINYINT'], 'ALWAYS_NULLABLE'],
+        [['l1_distance'], 'DOUBLE', ['ARRAY_SMALLINT', 'ARRAY_SMALLINT'], 'ALWAYS_NULLABLE'],
+        [['l1_distance'], 'DOUBLE', ['ARRAY_INT', 'ARRAY_INT'], 'ALWAYS_NULLABLE'],
+        [['l1_distance'], 'DOUBLE', ['ARRAY_BIGINT', 'ARRAY_BIGINT'], 'ALWAYS_NULLABLE'],
+        [['l1_distance'], 'DOUBLE', ['ARRAY_LARGEINT', 'ARRAY_LARGEINT'], 'ALWAYS_NULLABLE'],
+        [['l1_distance'], 'DOUBLE', ['ARRAY_FLOAT', 'ARRAY_FLOAT'], 'ALWAYS_NULLABLE'],
+        [['l1_distance'], 'DOUBLE', ['ARRAY_DOUBLE', 'ARRAY_DOUBLE'], 'ALWAYS_NULLABLE'],
+
+        [['l2_distance'], 'DOUBLE', ['ARRAY_TINYINT', 'ARRAY_TINYINT'], 'ALWAYS_NULLABLE'],
+        [['l2_distance'], 'DOUBLE', ['ARRAY_SMALLINT', 'ARRAY_SMALLINT'], 'ALWAYS_NULLABLE'],
+        [['l2_distance'], 'DOUBLE', ['ARRAY_INT', 'ARRAY_INT'], 'ALWAYS_NULLABLE'],
+        [['l2_distance'], 'DOUBLE', ['ARRAY_BIGINT', 'ARRAY_BIGINT'], 'ALWAYS_NULLABLE'],
+        [['l2_distance'], 'DOUBLE', ['ARRAY_LARGEINT', 'ARRAY_LARGEINT'], 'ALWAYS_NULLABLE'],
+        [['l2_distance'], 'DOUBLE', ['ARRAY_FLOAT', 'ARRAY_FLOAT'], 'ALWAYS_NULLABLE'],
+        [['l2_distance'], 'DOUBLE', ['ARRAY_DOUBLE', 'ARRAY_DOUBLE'], 'ALWAYS_NULLABLE'],
+
+        [['cosine_distance'], 'DOUBLE', ['ARRAY_TINYINT', 'ARRAY_TINYINT'], 'ALWAYS_NULLABLE'],
+        [['cosine_distance'], 'DOUBLE', ['ARRAY_SMALLINT', 'ARRAY_SMALLINT'], 'ALWAYS_NULLABLE'],
+        [['cosine_distance'], 'DOUBLE', ['ARRAY_INT', 'ARRAY_INT'], 'ALWAYS_NULLABLE'],
+        [['cosine_distance'], 'DOUBLE', ['ARRAY_BIGINT', 'ARRAY_BIGINT'], 'ALWAYS_NULLABLE'],
+        [['cosine_distance'], 'DOUBLE', ['ARRAY_LARGEINT', 'ARRAY_LARGEINT'], 'ALWAYS_NULLABLE'],
+        [['cosine_distance'], 'DOUBLE', ['ARRAY_FLOAT', 'ARRAY_FLOAT'], 'ALWAYS_NULLABLE'],
+        [['cosine_distance'], 'DOUBLE', ['ARRAY_DOUBLE', 'ARRAY_DOUBLE'], 'ALWAYS_NULLABLE'],
+
+        [['inner_product'], 'DOUBLE', ['ARRAY_TINYINT', 'ARRAY_TINYINT'], 'ALWAYS_NULLABLE'],
+        [['inner_product'], 'DOUBLE', ['ARRAY_SMALLINT', 'ARRAY_SMALLINT'], 'ALWAYS_NULLABLE'],
+        [['inner_product'], 'DOUBLE', ['ARRAY_INT', 'ARRAY_INT'], 'ALWAYS_NULLABLE'],
+        [['inner_product'], 'DOUBLE', ['ARRAY_BIGINT', 'ARRAY_BIGINT'], 'ALWAYS_NULLABLE'],
+        [['inner_product'], 'DOUBLE', ['ARRAY_LARGEINT', 'ARRAY_LARGEINT'], 'ALWAYS_NULLABLE'],
+        [['inner_product'], 'DOUBLE', ['ARRAY_FLOAT', 'ARRAY_FLOAT'], 'ALWAYS_NULLABLE'],
+        [['inner_product'], 'DOUBLE', ['ARRAY_DOUBLE', 'ARRAY_DOUBLE'], 'ALWAYS_NULLABLE'],
+
         [['arrays_overlap'], 'BOOLEAN', ['ARRAY_BOOLEAN', 'ARRAY_BOOLEAN'], 'ALWAYS_NULLABLE'],
         [['arrays_overlap'], 'BOOLEAN', ['ARRAY_TINYINT', 'ARRAY_TINYINT'], 'ALWAYS_NULLABLE'],
         [['arrays_overlap'], 'BOOLEAN', ['ARRAY_SMALLINT', 'ARRAY_SMALLINT'], 'ALWAYS_NULLABLE'],
@@ -1758,11 +1790,11 @@ visible_functions = {
 
     #bitmap function
     "Bitmap": [
-        [['to_bitmap'], 'BITMAP', ['VARCHAR'], 'ALWAYS_NULLABLE'],
+        [['to_bitmap'], 'BITMAP', ['VARCHAR'], 'ALWAYS_NOT_NULLABLE'],
         [['to_bitmap_with_check'], 'BITMAP', ['VARCHAR'], 'ALWAYS_NOT_NULLABLE'],
-        [['to_bitmap'], 'BITMAP', ['STRING'], 'ALWAYS_NULLABLE'],
+        [['to_bitmap'], 'BITMAP', ['STRING'], 'ALWAYS_NOT_NULLABLE'],
         [['to_bitmap_with_check'], 'BITMAP', ['STRING'], 'ALWAYS_NOT_NULLABLE'],
-        [['to_bitmap'], 'BITMAP', ['BIGINT'], 'ALWAYS_NULLABLE'],
+        [['to_bitmap'], 'BITMAP', ['BIGINT'], 'ALWAYS_NOT_NULLABLE'],
         [['to_bitmap_with_check'], 'BITMAP', ['BIGINT'], 'ALWAYS_NOT_NULLABLE'],
         [['bitmap_hash'], 'BITMAP', ['VARCHAR'], 'ALWAYS_NOT_NULLABLE'],
         [['bitmap_hash64'], 'BITMAP', ['VARCHAR'], 'ALWAYS_NOT_NULLABLE'],

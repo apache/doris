@@ -86,6 +86,7 @@ import org.apache.doris.resource.workloadgroup.WorkloadGroup;
 import org.apache.doris.scheduler.job.Job;
 import org.apache.doris.scheduler.job.JobTask;
 import org.apache.doris.statistics.AnalysisInfo;
+import org.apache.doris.statistics.TableStats;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.Frontend;
 import org.apache.doris.transaction.TransactionState;
@@ -1088,6 +1089,10 @@ public class EditLog {
                     env.replayAutoIncrementIdUpdateLog((AutoIncrementIdUpdateLog) journal.getData());
                     break;
                 }
+                case OperationType.OP_UPDATE_TABLE_STATS: {
+                    env.getAnalysisManager().replayUpdateTableStatsStatus((TableStats) journal.getData());
+                    break;
+                }
                 default: {
                     IOException e = new IOException();
                     LOG.error("UNKNOWN Operation Type {}", opCode, e);
@@ -1905,5 +1910,9 @@ public class EditLog {
 
     public void logUpdateAutoIncrementId(AutoIncrementIdUpdateLog log) {
         logEdit(OperationType.OP_UPDATE_AUTO_INCREMENT_ID, log);
+    }
+
+    public void logCreateTableStats(TableStats tableStats) {
+        logEdit(OperationType.OP_UPDATE_TABLE_STATS, tableStats);
     }
 }

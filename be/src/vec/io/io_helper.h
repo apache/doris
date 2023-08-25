@@ -63,13 +63,12 @@ void write_text(Decimal<T> value, UInt32 scale, std::ostream& ostr) {
         }
     }
 
-    using Type = std::conditional_t<std::is_same_v<T, Int128I>, int128_t, T>;
-    Type whole_part = value;
+    T whole_part = value;
 
     if (scale) {
-        whole_part = value / decimal_scale_multiplier<Type>(scale);
+        whole_part = value / decimal_scale_multiplier<T>(scale);
     }
-    if constexpr (std::is_same_v<T, __int128_t> || std::is_same_v<T, Int128I>) {
+    if constexpr (std::is_same_v<T, __int128_t>) {
         ostr << int128_to_string(whole_part);
     } else {
         ostr << whole_part;
@@ -352,17 +351,17 @@ bool read_decimal_text_impl(T& x, ReadBuffer& buf, UInt32 precision, UInt32 scal
     if constexpr (!std::is_same_v<Decimal128, T>) {
         StringParser::ParseResult result = StringParser::PARSE_SUCCESS;
 
-        x.value = StringParser::string_to_decimal<P, typename T::NativeType>(
-                (const char*)buf.position(), buf.count(), precision, scale, &result);
+        x.value = StringParser::string_to_decimal<P>((const char*)buf.position(), buf.count(),
+                                                     precision, scale, &result);
         // only to match the is_all_read() check to prevent return null
         buf.position() = buf.end();
         return result == StringParser::PARSE_SUCCESS || result == StringParser::PARSE_UNDERFLOW;
     } else {
         StringParser::ParseResult result = StringParser::PARSE_SUCCESS;
 
-        x.value = StringParser::string_to_decimal<TYPE_DECIMALV2, __int128>(
-                buf.position(), buf.count(), DecimalV2Value::PRECISION, DecimalV2Value::SCALE,
-                &result);
+        x.value = StringParser::string_to_decimal<TYPE_DECIMALV2>(buf.position(), buf.count(),
+                                                                  DecimalV2Value::PRECISION,
+                                                                  DecimalV2Value::SCALE, &result);
 
         // only to match the is_all_read() check to prevent return null
         buf.position() = buf.end();
