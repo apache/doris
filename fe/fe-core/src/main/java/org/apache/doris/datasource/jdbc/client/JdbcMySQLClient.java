@@ -129,7 +129,6 @@ public class JdbcMySQLClient extends JdbcClient {
             rs = getColumns(databaseMetaData, catalogName, dbName, tableName);
             List<String> primaryKeys = getPrimaryKeys(databaseMetaData, catalogName, dbName, tableName);
             Map<String, String> mapFieldtoType = null;
-            mapFieldtoType = getJdbcColumnsTypeInfo(dbName, tableName);
             while (rs.next()) {
                 JdbcFieldSchema field = new JdbcFieldSchema();
                 field.setColumnName(rs.getString("COLUMN_NAME"));
