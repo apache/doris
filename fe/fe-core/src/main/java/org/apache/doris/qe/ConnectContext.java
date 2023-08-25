@@ -40,7 +40,6 @@ import org.apache.doris.plugin.AuditEvent.AuditEventBuilder;
 import org.apache.doris.resource.Tag;
 import org.apache.doris.statistics.ColumnStatistic;
 import org.apache.doris.statistics.Histogram;
-import org.apache.doris.task.LoadTaskInfo;
 import org.apache.doris.thrift.TUniqueId;
 import org.apache.doris.transaction.TransactionEntry;
 import org.apache.doris.transaction.TransactionStatus;
@@ -67,19 +66,16 @@ import java.util.Set;
 // connect with its connection id.
 // Use `volatile` to make the reference change atomic.
 public class ConnectContext {
-    private static final Logger LOG = LogManager.getLogger(ConnectContext.class);
     protected static ThreadLocal<ConnectContext> threadLocalInfo = new ThreadLocal<>();
-
+    private static final Logger LOG = LogManager.getLogger(ConnectContext.class);
     private static final String SSL_PROTOCOL = "TLS";
 
     // set this id before analyze
     protected volatile long stmtId;
     protected volatile long forwardedStmtId;
 
-    // set for stream load with sql
-    protected volatile TUniqueId loadId;
+    // set for http_stream
     protected volatile long backendId;
-    protected volatile LoadTaskInfo streamLoadInfo;
 
     protected volatile TUniqueId queryId;
     protected volatile String traceId;
@@ -142,7 +138,8 @@ public class ConnectContext {
     // This property will only be set when the query starts to execute.
     // So in the query planning stage, do not use any value in this attribute.
     protected QueryDetail queryDetail = null;
-
+    // This context is used for SSL connection between server and mysql client.
+    private final MysqlSslContext mysqlSslContext = new MysqlSslContext(SSL_PROTOCOL);
     // If set to true, the nondeterministic function will not be rewrote to constant.
     private boolean notEvalNondeterministicFunction = false;
     // The resource tag is used to limit the node resources that the user can use for query.
@@ -153,24 +150,49 @@ public class ConnectContext {
     // If set to true, the resource tags set in resourceTags will be used to limit the query resources.
     // If set to false, the system will not restrict query resources.
     private boolean isResourceTagsSet = false;
-
     private String sqlHash;
-
     private JSONObject minidump = null;
-
     // The FE ip current connected
     private String currentConnectedFEIp = "";
-
     private InsertResult insertResult;
-
     private SessionContext sessionContext;
-
-    // This context is used for SSL connection between server and mysql client.
-    private final MysqlSslContext mysqlSslContext = new MysqlSslContext(SSL_PROTOCOL);
-
     private StatsErrorEstimator statsErrorEstimator;
 
     private Map<String, String> resultAttachedInfo;
+    private StatementContext statementContext;
+    private Map<String, PrepareStmtContext> preparedStmtCtxs = Maps.newHashMap();
+    private List<TableIf> tables = null;
+    private Map<String, ColumnStatistic> totalColumnStatisticMap = new HashMap<>();
+    private Map<String, Histogram> totalHistogramMap = new HashMap<>();
+
+    public ConnectContext() {
+        this(null);
+    }
+
+    public ConnectContext(StreamConnection connection) {
+        state = new QueryState();
+        returnRows = 0;
+        serverCapability = MysqlCapability.DEFAULT_CAPABILITY;
+        isKilled = false;
+        if (connection != null) {
+            mysqlChannel = new MysqlChannel(connection);
+        } else {
+            mysqlChannel = new DummyMysqlChannel();
+        }
+        sessionVariable = VariableMgr.newSessionVariable();
+        command = MysqlCommand.COM_SLEEP;
+        if (Config.use_fuzzy_session_variable) {
+            sessionVariable.initFuzzyModeVariables();
+        }
+    }
+
+    public static ConnectContext get() {
+        return threadLocalInfo.get();
+    }
+
+    public static void remove() {
+        threadLocalInfo.remove();
+    }
 
     public void setUserQueryTimeout(int queryTimeout) {
         if (queryTimeout > 0) {
@@ -184,13 +206,6 @@ public class ConnectContext {
         }
     }
 
-    private StatementContext statementContext;
-    private Map<String, PrepareStmtContext> preparedStmtCtxs = Maps.newHashMap();
-
-    private List<TableIf> tables = null;
-
-    private Map<String, ColumnStatistic> totalColumnStatisticMap = new HashMap<>();
-
     public Map<String, ColumnStatistic> getTotalColumnStatisticMap() {
         return totalColumnStatisticMap;
     }
@@ -198,8 +213,6 @@ public class ConnectContext {
     public void setTotalColumnStatisticMap(Map<String, ColumnStatistic> totalColumnStatisticMap) {
         this.totalColumnStatisticMap = totalColumnStatisticMap;
     }
-
-    private Map<String, Histogram> totalHistogramMap = new HashMap<>();
 
     public Map<String, Histogram> getTotalHistogramMap() {
         return totalHistogramMap;
@@ -230,14 +243,6 @@ public class ConnectContext {
         return insertResult;
     }
 
-    public static ConnectContext get() {
-        return threadLocalInfo.get();
-    }
-
-    public static void remove() {
-        threadLocalInfo.remove();
-    }
-
     public void setIsSend(boolean isSend) {
         this.isSend = isSend;
     }
@@ -252,27 +257,6 @@ public class ConnectContext {
 
     public boolean notEvalNondeterministicFunction() {
         return notEvalNondeterministicFunction;
-    }
-
-    public ConnectContext() {
-        this(null);
-    }
-
-    public ConnectContext(StreamConnection connection) {
-        state = new QueryState();
-        returnRows = 0;
-        serverCapability = MysqlCapability.DEFAULT_CAPABILITY;
-        isKilled = false;
-        if (connection != null) {
-            mysqlChannel = new MysqlChannel(connection);
-        } else {
-            mysqlChannel = new DummyMysqlChannel();
-        }
-        sessionVariable = VariableMgr.newSessionVariable();
-        command = MysqlCommand.COM_SLEEP;
-        if (Config.use_fuzzy_session_variable) {
-            sessionVariable.initFuzzyModeVariables();
-        }
     }
 
     public boolean isTxnModel() {
@@ -326,24 +310,16 @@ public class ConnectContext {
         return stmtId;
     }
 
+    public void setStmtId(long stmtId) {
+        this.stmtId = stmtId;
+    }
+
     public long getBackendId() {
         return backendId;
     }
 
     public void setBackendId(long backendId) {
         this.backendId = backendId;
-    }
-
-    public TUniqueId getLoadId() {
-        return loadId;
-    }
-
-    public void setLoadId(TUniqueId loadId) {
-        this.loadId = loadId;
-    }
-
-    public void setStmtId(long stmtId) {
-        this.stmtId = stmtId;
     }
 
     public long getForwardedStmtId() {
@@ -362,12 +338,12 @@ public class ConnectContext {
         this.remoteIP = remoteIP;
     }
 
-    public void setQueryDetail(QueryDetail queryDetail) {
-        this.queryDetail = queryDetail;
-    }
-
     public QueryDetail getQueryDetail() {
         return queryDetail;
+    }
+
+    public void setQueryDetail(QueryDetail queryDetail) {
+        this.queryDetail = queryDetail;
     }
 
     public AuditEventBuilder getAuditEventBuilder() {
@@ -390,13 +366,13 @@ public class ConnectContext {
         this.txnEntry = txnEntry;
     }
 
+    public Env getEnv() {
+        return env;
+    }
+
     public void setEnv(Env env) {
         this.env = env;
         defaultCatalog = env.getInternalCatalog().getName();
-    }
-
-    public Env getEnv() {
-        return env;
     }
 
     public String getQualifiedUser() {
@@ -548,12 +524,12 @@ public class ConnectContext {
         currentDbId = dbInstance.map(DatabaseIf::getId).orElse(-1L);
     }
 
-    public void setExecutor(StmtExecutor executor) {
-        this.executor = executor;
-    }
-
     public StmtExecutor getExecutor() {
         return executor;
+    }
+
+    public void setExecutor(StmtExecutor executor) {
+        this.executor = executor;
     }
 
     public void cleanup() {
@@ -712,12 +688,12 @@ public class ConnectContext {
         this.isResourceTagsSet = !this.resourceTags.isEmpty();
     }
 
-    public void setCurrentConnectedFEIp(String ip) {
-        this.currentConnectedFEIp = ip;
-    }
-
     public String getCurrentConnectedFEIp() {
         return currentConnectedFEIp;
+    }
+
+    public void setCurrentConnectedFEIp(String ip) {
+        this.currentConnectedFEIp = ip;
     }
 
     /**
@@ -736,12 +712,40 @@ public class ConnectContext {
         }
     }
 
+    public Map<String, String> getResultAttachedInfo() {
+        return resultAttachedInfo;
+    }
+
     public void setResultAttachedInfo(Map<String, String> resultAttachedInfo) {
         this.resultAttachedInfo = resultAttachedInfo;
     }
 
-    public Map<String, String> getResultAttachedInfo() {
-        return resultAttachedInfo;
+    public void startAcceptQuery(ConnectProcessor connectProcessor) {
+        mysqlChannel.startAcceptQuery(this, connectProcessor);
+    }
+
+    public void suspendAcceptQuery() {
+        mysqlChannel.suspendAcceptQuery();
+    }
+
+    public void resumeAcceptQuery() {
+        mysqlChannel.resumeAcceptQuery();
+    }
+
+    public void stopAcceptQuery() throws IOException {
+        mysqlChannel.stopAcceptQuery();
+    }
+
+    public String getQueryIdentifier() {
+        return "stmt[" + stmtId + ", " + DebugUtil.printId(queryId) + "]";
+    }
+
+    public StatsErrorEstimator getStatsErrorEstimator() {
+        return statsErrorEstimator;
+    }
+
+    public void setStatsErrorEstimator(StatsErrorEstimator statsErrorEstimator) {
+        this.statsErrorEstimator = statsErrorEstimator;
     }
 
     public class ThreadInfo {
@@ -771,35 +775,6 @@ public class ConnectContext {
             }
             return row;
         }
-    }
-
-
-    public void startAcceptQuery(ConnectProcessor connectProcessor) {
-        mysqlChannel.startAcceptQuery(this, connectProcessor);
-    }
-
-    public void suspendAcceptQuery() {
-        mysqlChannel.suspendAcceptQuery();
-    }
-
-    public void resumeAcceptQuery() {
-        mysqlChannel.resumeAcceptQuery();
-    }
-
-    public void stopAcceptQuery() throws IOException {
-        mysqlChannel.stopAcceptQuery();
-    }
-
-    public String getQueryIdentifier() {
-        return "stmt[" + stmtId + ", " + DebugUtil.printId(queryId) + "]";
-    }
-
-    public StatsErrorEstimator getStatsErrorEstimator() {
-        return statsErrorEstimator;
-    }
-
-    public void setStatsErrorEstimator(StatsErrorEstimator statsErrorEstimator) {
-        this.statsErrorEstimator = statsErrorEstimator;
     }
 }
 

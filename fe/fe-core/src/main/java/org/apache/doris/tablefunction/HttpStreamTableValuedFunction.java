@@ -17,8 +17,8 @@
 
 package org.apache.doris.tablefunction;
 
-import org.apache.doris.analysis.StorageBackend.StorageType;
 import org.apache.doris.analysis.BrokerDesc;
+import org.apache.doris.analysis.StorageBackend.StorageType;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.thrift.TFileType;
 
@@ -33,8 +33,8 @@ import java.util.Map;
  * http_stream("FORMAT" = "csv").
  */
 public class HttpStreamTableValuedFunction extends ExternalFileTableValuedFunction {
-    private static final Logger LOG = LogManager.getLogger(HttpStreamTableValuedFunction.class);
     public static final String NAME = "http_stream";
+    private static final Logger LOG = LogManager.getLogger(HttpStreamTableValuedFunction.class);
 
     public HttpStreamTableValuedFunction(Map<String, String> params) throws AnalysisException {
         Map<String, String> validParams = new CaseInsensitiveMap();

@@ -271,12 +271,12 @@ public abstract class FileQueryScanNode extends FileScanNode {
                 rangeDesc.setFileSize(-1);
                 curLocations.getScanRange().getExtScanRange().getFileScanRange().addToRanges(rangeDesc);
                 curLocations.getScanRange().getExtScanRange().getFileScanRange().setParams(params);
+
                 TScanRangeLocation location = new TScanRangeLocation();
-                // Use consistent hash to assign the same scan range into the same backend among different queries
-                Backend selectedBackend = ConnectContext.get().getSessionVariable().enableFileCache
-                        ? backendPolicy.getNextConsistentBe(curLocations) : backendPolicy.getNextBe();
-                location.setBackendId(selectedBackend.getId());
-                location.setServer(new TNetworkAddress(selectedBackend.getHost(), selectedBackend.getBePort()));
+                long backendId = ConnectContext.get().getBackendId();
+                Backend backend = Env.getCurrentSystemInfo().getIdToBackend().get(backendId);
+                location.setBackendId(backendId);
+                location.setServer(new TNetworkAddress(backend.getHost(), backend.getBePort()));
                 curLocations.addToLocations(location);
                 scanRangeLocations.add(curLocations);
             }

@@ -630,11 +630,6 @@ struct TStreamLoadMultiTablePutResult {
     3: optional list<PaloInternalService.TPipelineFragmentParams> pipeline_params
 }
 
-// StreamLoadWith request status
-struct TStreamLoadWithLoadStatusRequest {
-    1: optional Types.TUniqueId loadId
-}
-
 struct TStreamLoadWithLoadStatusResult {
     1: optional Status.TStatus status
     2: optional i64 txn_id
@@ -1156,7 +1151,6 @@ service FrontendService {
     TWaitingTxnStatusResult waitingTxnStatus(1: TWaitingTxnStatusRequest request)
 
     TStreamLoadPutResult streamLoadPut(1: TStreamLoadPutRequest request)
-    TStreamLoadWithLoadStatusResult streamLoadWithLoadStatus(1: TStreamLoadWithLoadStatusRequest request)
 
     TStreamLoadMultiTablePutResult streamLoadMultiTablePut(1: TStreamLoadPutRequest request)
 

@@ -68,23 +68,20 @@
 namespace doris {
 using namespace ErrorCode;
 
-DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(streaming_load_with_sql_requests_total, MetricUnit::REQUESTS);
-DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(streaming_load_with_sql_duration_ms, MetricUnit::MILLISECONDS);
-DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(streaming_load_with_sql_current_processing,
-                                   MetricUnit::REQUESTS);
+DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(http_stream_requests_total, MetricUnit::REQUESTS);
+DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(http_stream_duration_ms, MetricUnit::MILLISECONDS);
+DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(http_stream_current_processing, MetricUnit::REQUESTS);
 
 HttpStreamAction::HttpStreamAction(ExecEnv* exec_env) : _exec_env(exec_env) {
-    _stream_load_with_sql_entity =
-            DorisMetrics::instance()->metric_registry()->register_entity("stream_load_with_sql");
-    INT_COUNTER_METRIC_REGISTER(_stream_load_with_sql_entity,
-                                streaming_load_with_sql_requests_total);
-    INT_COUNTER_METRIC_REGISTER(_stream_load_with_sql_entity, streaming_load_with_sql_duration_ms);
-    INT_GAUGE_METRIC_REGISTER(_stream_load_with_sql_entity,
-                              streaming_load_with_sql_current_processing);
+    _http_stream_entity =
+            DorisMetrics::instance()->metric_registry()->register_entity("http_stream");
+    INT_COUNTER_METRIC_REGISTER(_http_stream_entity, http_stream_requests_total);
+    INT_COUNTER_METRIC_REGISTER(_http_stream_entity, http_stream_duration_ms);
+    INT_GAUGE_METRIC_REGISTER(_http_stream_entity, http_stream_current_processing);
 }
 
 HttpStreamAction::~HttpStreamAction() {
-    DorisMetrics::instance()->metric_registry()->deregister_entity(_stream_load_with_sql_entity);
+    DorisMetrics::instance()->metric_registry()->deregister_entity(_http_stream_entity);
 }
 
 void HttpStreamAction::handle(HttpRequest* req) {
@@ -126,13 +123,12 @@ void HttpStreamAction::handle(HttpRequest* req) {
         _save_stream_load_record(ctx, str);
     }
     // update statistics
-    streaming_load_with_sql_requests_total->increment(1);
-    streaming_load_with_sql_duration_ms->increment(ctx->load_cost_millis);
-    streaming_load_with_sql_current_processing->increment(-1);
+    http_stream_requests_total->increment(1);
+    http_stream_duration_ms->increment(ctx->load_cost_millis);
+    http_stream_current_processing->increment(-1);
 }
 
-Status HttpStreamAction::_handle(HttpRequest* http_req,
-                                        std::shared_ptr<StreamLoadContext> ctx) {
+Status HttpStreamAction::_handle(HttpRequest* http_req, std::shared_ptr<StreamLoadContext> ctx) {
     if (ctx->body_bytes > 0 && ctx->receive_bytes != ctx->body_bytes) {
         LOG(WARNING) << "recevie body don't equal with body bytes, body_bytes=" << ctx->body_bytes
                      << ", receive_bytes=" << ctx->receive_bytes << ", id=" << ctx->id;
@@ -150,7 +146,7 @@ Status HttpStreamAction::_handle(HttpRequest* http_req,
 }
 
 int HttpStreamAction::on_header(HttpRequest* req) {
-    streaming_load_with_sql_current_processing->increment(1);
+    http_stream_current_processing->increment(1);
 
     std::shared_ptr<StreamLoadContext> ctx = std::make_shared<StreamLoadContext>(_exec_env);
     req->set_handler_ctx(ctx);
@@ -176,7 +172,7 @@ int HttpStreamAction::on_header(HttpRequest* req) {
         // add new line at end
         str = str + '\n';
         HttpChannel::send_reply(req, str);
-        streaming_load_with_sql_current_processing->increment(-1);
+        http_stream_current_processing->increment(-1);
         if (config::enable_stream_load_record) {
             str = ctx->prepare_stream_load_record(str);
             _save_stream_load_record(ctx, str);
@@ -186,15 +182,14 @@ int HttpStreamAction::on_header(HttpRequest* req) {
     return 0;
 }
 
-// TODO The parameters of this function may need to be refactored because the parameters in HttpRequest are not sufficient.
-Status HttpStreamAction::_on_header(HttpRequest* http_req,
-                                           std::shared_ptr<StreamLoadContext> ctx) {
+Status HttpStreamAction::_on_header(HttpRequest* http_req, std::shared_ptr<StreamLoadContext> ctx) {
     // auth information
     if (!parse_basic_auth(*http_req, &ctx->auth)) {
         LOG(WARNING) << "parse basic authorization failed." << ctx->brief();
         return Status::InternalError("no valid Basic authorization");
     }
 
+    // TODO(zs) : need Need to request an FE to obtain information such as format
     // check content length
     ctx->body_bytes = 0;
     size_t csv_max_body_bytes = config::streaming_load_max_mb * 1024 * 1024;
@@ -217,7 +212,7 @@ Status HttpStreamAction::_on_header(HttpRequest* http_req,
     RETURN_IF_ERROR(_exec_env->new_load_stream_mgr()->put(ctx->id, ctx));
 
     // Here, transactions are set from fe's NativeInsertStmt.
-    // TODO : How to support two_phase_commit
+    // TODO(zs) : How to support two_phase_commit
 
     return Status::OK();
 }
@@ -244,7 +239,7 @@ void HttpStreamAction::on_chunk_data(HttpRequest* req) {
         auto st = ctx->body_sink->append(bb);
         // schema_buffer stores a row of data for parsing column information
         bool is_end = std::find(bb->ptr, bb->ptr + remove_bytes, '\n') != bb->ptr + remove_bytes;
-        if(is_end) {
+        if (is_end) {
             ctx->schema_buffer->put_bytes(bb->ptr, remove_bytes);
             ctx->status = _process_put(req, ctx);
             is_put = false;
@@ -280,13 +275,11 @@ void HttpStreamAction::free_handler_ctx(std::shared_ptr<void> param) {
 }
 
 Status HttpStreamAction::_process_put(HttpRequest* http_req,
-                                             std::shared_ptr<StreamLoadContext> ctx) {
+                                      std::shared_ptr<StreamLoadContext> ctx) {
     TStreamLoadPutRequest request;
     set_request_auth(&request, ctx->auth);
-    request.formatType = ctx->format;
     request.__set_load_sql(http_req->header(HTTP_SQL));
     request.__set_loadId(ctx->id.to_thrift());
-    request.fileType = TFileType::FILE_STREAM;
     request.__set_label(ctx->label);
     if (_exec_env->master_info()->__isset.backend_id) {
         request.__set_backend_id(_exec_env->master_info()->backend_id);
@@ -315,7 +308,7 @@ Status HttpStreamAction::_process_put(HttpRequest* http_req,
 }
 
 void HttpStreamAction::_save_stream_load_record(std::shared_ptr<StreamLoadContext> ctx,
-                                                       const std::string& str) {
+                                                const std::string& str) {
     auto stream_load_recorder = StorageEngine::instance()->get_stream_load_recorder();
     if (stream_load_recorder != nullptr) {
         std::string key =

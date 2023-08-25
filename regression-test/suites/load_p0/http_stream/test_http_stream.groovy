@@ -17,7 +17,7 @@
 
 import java.util.Random;
 
-suite("test_stream_load_with_sql", "p0") {
+suite("test_http_stream", "p0") {
 
     // csv desc
     // | c1  | c2   | c3     | c4      | c5      | c6       | c7     | c8       |
@@ -26,8 +26,8 @@ suite("test_stream_load_with_sql", "p0") {
     // | float | double | decimal | decimalv3 | date | datev2 | datetime | datetimev2 |
 
     // 1. test column with currenttimestamp default value
-    def tableName1 = "test_stream_load_with_sql_current_timestamp"
-    def db = "regression_test_load_p0_stream_load_with_sql"
+    def tableName1 = "test_http_stream_current_timestamp"
+    def db = "regression_test_load_p0_http_stream"
     try {
         sql """
         CREATE TABLE IF NOT EXISTS ${tableName1} (
@@ -47,15 +47,15 @@ suite("test_stream_load_with_sql", "p0") {
         streamLoad {
             set 'version', '1'
             set 'sql', """
-                    insert into ${db}.${tableName1} (id, name) select c1, c2 from stream("format"="csv")
+                    insert into ${db}.${tableName1} (id, name) select c1, c2 from http_stream("format"="csv")
                     """
             time 10000
-            file 'test_stream_load_with_sql.csv'
+            file 'test_http_stream.csv'
             check { result, exception, startTime, endTime ->
                 if (exception != null) {
                     throw exception
                 }
-                log.info("Stream load result: ${result}".toString())
+                log.info("http_stream result: ${result}".toString())
                 def json = parseJson(result)
                 assertEquals("success", json.Status.toLowerCase())
                 assertEquals(11, json.NumberTotalRows)
@@ -69,7 +69,7 @@ suite("test_stream_load_with_sql", "p0") {
     }
 
     // 2. test change column order
-    def tableName2 = "test_stream_load_with_sql_change_column_order"
+    def tableName2 = "test_http_stream_change_column_order"
 
     try {
         sql """
@@ -90,15 +90,15 @@ suite("test_stream_load_with_sql", "p0") {
         streamLoad {
             set 'version', '1'
             set 'sql', """
-                    insert into ${db}.${tableName2} select c1, c6, c2, c7, c11, c9 from stream("format"="csv")
+                    insert into ${db}.${tableName2} select c1, c6, c2, c7, c11, c9 from http_stream("format"="csv")
                     """
             time 10000
-            file 'test_stream_load_with_sql.csv'
+            file 'test_http_stream.csv'
             check { result, exception, startTime, endTime ->
                 if (exception != null) {
                     throw exception
                 }
-                log.info("Stream load result: ${result}".toString())
+                log.info("http_stream result: ${result}".toString())
                 def json = parseJson(result)
                 assertEquals("success", json.Status.toLowerCase())
                 assertEquals(11, json.NumberTotalRows)
@@ -112,7 +112,7 @@ suite("test_stream_load_with_sql", "p0") {
     }
 
     // 3. test with function
-    def tableName3 = "test_stream_load_with_sql_function"
+    def tableName3 = "test_http_stream_function"
 
     try {
         sql """
@@ -132,15 +132,15 @@ suite("test_stream_load_with_sql", "p0") {
         streamLoad {
             set 'version', '1'
             set 'sql', """
-                    insert into ${db}.${tableName3} select c1, c2, year(c14), month(c14), day(c14) from stream("format"="csv")
+                    insert into ${db}.${tableName3} select c1, c2, year(c14), month(c14), day(c14) from http_stream("format"="csv")
                     """
             time 10000
-            file 'test_stream_load_with_sql.csv'
+            file 'test_http_stream.csv'
             check { result, exception, startTime, endTime ->
                 if (exception != null) {
                     throw exception
                 }
-                log.info("Stream load result: ${result}".toString())
+                log.info("http_stream result: ${result}".toString())
                 def json = parseJson(result)
                 assertEquals("success", json.Status.toLowerCase())
                 assertEquals(11, json.NumberTotalRows)
@@ -154,7 +154,7 @@ suite("test_stream_load_with_sql", "p0") {
     }
 
     // 4. test column number mismatch
-    def tableName4 = "test_stream_load_with_sql_column_number_mismatch"
+    def tableName4 = "test_http_stream_column_number_mismatch"
 
     try {
         sql """
@@ -172,15 +172,15 @@ suite("test_stream_load_with_sql", "p0") {
         streamLoad {
             set 'version', '1'
             set 'sql', """
-                    insert into  ${db}.${tableName4} select c1, c2, c6, c3 from stream("format"="csv")
+                    insert into  ${db}.${tableName4} select c1, c2, c6, c3 from http_stream("format"="csv")
                     """
             time 10000
-            file 'test_stream_load_with_sql.csv'
+            file 'test_http_stream.csv'
             check { result, exception, startTime, endTime ->
                 if (exception != null) {
                     throw exception
                 }
-                log.info("Stream load result: ${result}".toString())
+                log.info("http_stream result: ${result}".toString())
                 def json = parseJson(result)
                 assertEquals("fail", json.Status.toLowerCase())
             }
@@ -192,7 +192,7 @@ suite("test_stream_load_with_sql", "p0") {
     }
 
     // 5. test with default value
-    def tableName5 = "test_stream_load_with_sql_default_value"
+    def tableName5 = "test_http_stream_default_value"
 
     try {
         sql """
@@ -212,15 +212,15 @@ suite("test_stream_load_with_sql", "p0") {
         streamLoad {
             set 'version', '1'
             set 'sql', """
-                    insert into  ${db}.${tableName5} (id, name, date) select c1, c2, c13 from stream("format"="csv")
+                    insert into  ${db}.${tableName5} (id, name, date) select c1, c2, c13 from http_stream("format"="csv")
                     """
             time 10000
-            file 'test_stream_load_with_sql.csv'
+            file 'test_http_stream.csv'
             check { result, exception, startTime, endTime ->
                 if (exception != null) {
                     throw exception
                 }
-                log.info("Stream load result: ${result}".toString())
+                log.info("http_stream result: ${result}".toString())
                 def json = parseJson(result)
                 assertEquals("success", json.Status.toLowerCase())
                 assertEquals(11, json.NumberTotalRows)
@@ -234,7 +234,7 @@ suite("test_stream_load_with_sql", "p0") {
     }
 
     // 6. test some column type
-    def tableName6 = "test_stream_load_with_sql_column_type"
+    def tableName6 = "test_http_stream_column_type"
 
     try {
         sql """
@@ -265,15 +265,15 @@ suite("test_stream_load_with_sql", "p0") {
         streamLoad {
             set 'version', '1'
             set 'sql', """
-                    insert into  ${db}.${tableName6} select * from stream("format"="csv")
+                    insert into  ${db}.${tableName6} select * from http_stream("format"="csv")
                     """
             time 10000
-            file 'test_stream_load_with_sql.csv'
+            file 'test_http_stream.csv'
             check { result, exception, startTime, endTime ->
                 if (exception != null) {
                     throw exception
                 }
-                log.info("Stream load result: ${result}".toString())
+                log.info("http_stream result: ${result}".toString())
                 def json = parseJson(result)
                 assertEquals("success", json.Status.toLowerCase())
                 assertEquals(11, json.NumberTotalRows)
@@ -287,7 +287,7 @@ suite("test_stream_load_with_sql", "p0") {
     }
 
     // 7. test duplicate key
-    def tableName7 = "test_stream_load_with_sql_duplicate_key"
+    def tableName7 = "test_http_stream_duplicate_key"
 
     try {
         sql """
@@ -312,15 +312,15 @@ suite("test_stream_load_with_sql", "p0") {
         streamLoad {
             set 'version', '1'
             set 'sql', """
-                    insert into  ${db}.${tableName7} select * from stream("format"="csv")
+                    insert into  ${db}.${tableName7} select * from http_stream("format"="csv")
                     """
             time 10000
-            file 'test_stream_load_with_sql_data_model.csv'
+            file 'test_http_stream_data_model.csv'
             check { result, exception, startTime, endTime ->
                 if (exception != null) {
                     throw exception
                 }
-                log.info("Stream load result: ${result}".toString())
+                log.info("http_stream result: ${result}".toString())
                 def json = parseJson(result)
                 assertEquals("success", json.Status.toLowerCase())
                 assertEquals(11, json.NumberTotalRows)
@@ -334,7 +334,7 @@ suite("test_stream_load_with_sql", "p0") {
     }
 
     // 8. test merge on read unique key
-    def tableName8 = "test_stream_load_with_sql_unique_key_merge_on_read"
+    def tableName8 = "test_http_stream_unique_key_merge_on_read"
 
     try {
         sql """
@@ -359,15 +359,15 @@ suite("test_stream_load_with_sql", "p0") {
         streamLoad {
             set 'version', '1'
             set 'sql', """
-                    insert into  ${db}.${tableName8} select * from stream("format"="csv")
+                    insert into  ${db}.${tableName8} select * from http_stream("format"="csv")
                     """
             time 10000
-            file 'test_stream_load_with_sql_data_model.csv'
+            file 'test_http_stream_data_model.csv'
             check { result, exception, startTime, endTime ->
                 if (exception != null) {
                     throw exception
                 }
-                log.info("Stream load result: ${result}".toString())
+                log.info("http_stream result: ${result}".toString())
                 def json = parseJson(result)
                 assertEquals("success", json.Status.toLowerCase())
                 assertEquals(11, json.NumberTotalRows)
@@ -381,7 +381,7 @@ suite("test_stream_load_with_sql", "p0") {
     }
 
     // 9. test merge on write unique key
-    def tableName9 = "test_stream_load_with_sql_unique_key_merge_on_write"
+    def tableName9 = "test_http_stream_unique_key_merge_on_write"
 
     try {
         sql """
@@ -407,15 +407,15 @@ suite("test_stream_load_with_sql", "p0") {
         streamLoad {
             set 'version', '1'
             set 'sql', """
-                    insert into  ${db}.${tableName9} select * from stream("format"="csv")
+                    insert into  ${db}.${tableName9} select * from http_stream("format"="csv")
                     """
             time 10000
-            file 'test_stream_load_with_sql_data_model.csv'
+            file 'test_http_stream_data_model.csv'
             check { result, exception, startTime, endTime ->
                 if (exception != null) {
                     throw exception
                 }
-                log.info("Stream load result: ${result}".toString())
+                log.info("http_stream result: ${result}".toString())
                 def json = parseJson(result)
                 assertEquals("success", json.Status.toLowerCase())
                 assertEquals(11, json.NumberTotalRows)
@@ -429,7 +429,7 @@ suite("test_stream_load_with_sql", "p0") {
     }
 
     // 10. test stream load multiple times
-    def tableName10 = "test_stream_load_with_sql_multiple_times"
+    def tableName10 = "test_http_stream_multiple_times"
     Random rd = new Random()
     def disable_auto_compaction = "false"
     if (rd.nextBoolean()) {
@@ -455,15 +455,15 @@ suite("test_stream_load_with_sql", "p0") {
             streamLoad {
                 set 'version', '1'
                 set 'sql', """
-                    insert into  ${db}.${tableName10} select * from stream("format"="csv")
+                    insert into  ${db}.${tableName10} select * from http_stream("format"="csv")
                     """
                 time 10000
-                file 'test_stream_load_with_sql_multiple_times.csv'
+                file 'test_http_stream_multiple_times.csv'
                 check { result, exception, startTime, endTime ->
                     if (exception != null) {
                         throw exception
                     }
-                    log.info("Stream load result: ${result}".toString())
+                    log.info("http_stream result: ${result}".toString())
                     def json = parseJson(result)
                     assertEquals("success", json.Status.toLowerCase())
                     assertEquals(500, json.NumberTotalRows)
@@ -478,7 +478,7 @@ suite("test_stream_load_with_sql", "p0") {
     }
 
     // 11. test column separator
-    def tableName11 = "test_stream_load_with_sql_column_separator"
+    def tableName11 = "test_http_stream_column_separator"
     try {
         sql """
         CREATE TABLE IF NOT EXISTS ${tableName11} (
@@ -498,15 +498,15 @@ suite("test_stream_load_with_sql", "p0") {
         streamLoad {
             set 'version', '1'
             set 'sql', """
-                    insert into ${db}.${tableName11} (id, name) select c1, c2 from stream("format"="csv", "column_separator"="--")
+                    insert into ${db}.${tableName11} (id, name) select c1, c2 from http_stream("format"="csv", "column_separator"="--")
                     """
             time 10000
-            file 'test_stream_load_with_sql_column_separator.csv'
+            file 'test_http_stream_column_separator.csv'
             check { result, exception, startTime, endTime ->
                 if (exception != null) {
                     throw exception
                 }
-                log.info("Stream load result: ${result}".toString())
+                log.info("http_stream result: ${result}".toString())
                 def json = parseJson(result)
                 assertEquals("success", json.Status.toLowerCase())
                 assertEquals(11, json.NumberTotalRows)
@@ -520,7 +520,7 @@ suite("test_stream_load_with_sql", "p0") {
     }
 
     // 12. test line delimiter
-    def tableName12 = "test_stream_load_with_sql_line_delimiter"
+    def tableName12 = "test_http_stream_line_delimiter"
     try {
         sql """
         CREATE TABLE IF NOT EXISTS ${tableName12} (
@@ -540,15 +540,15 @@ suite("test_stream_load_with_sql", "p0") {
         streamLoad {
             set 'version', '1'
             set 'sql', """
-                    insert into ${db}.${tableName12} (id, name) select c1, c2 from stream("format"="csv", "line_delimiter"="||")
+                    insert into ${db}.${tableName12} (id, name) select c1, c2 from http_stream("format"="csv", "line_delimiter"="||")
                     """
             time 10000
-            file 'test_stream_load_with_sql_line_delimiter.csv'
+            file 'test_http_stream_line_delimiter.csv'
             check { result, exception, startTime, endTime ->
                 if (exception != null) {
                     throw exception
                 }
-                log.info("Stream load result: ${result}".toString())
+                log.info("http_stream result: ${result}".toString())
                 def json = parseJson(result)
                 assertEquals("success", json.Status.toLowerCase())
                 assertEquals(11, json.NumberTotalRows)
@@ -561,12 +561,51 @@ suite("test_stream_load_with_sql", "p0") {
         try_sql "DROP TABLE IF EXISTS ${tableName12}"
     }
 
-    // 13. test parquet orc case
-    def tableName13 = "test_parquet_orc_case"
+    // 13. test functions and aggregation operations
+    def tableName13 = "test_http_stream_agg"
     try {
-        sql """ DROP TABLE IF EXISTS ${tableName13} """
         sql """
-            CREATE TABLE IF NOT EXISTS ${tableName13} (
+        CREATE TABLE IF NOT EXISTS ${tableName13} (
+            name CHAR(10),
+            agg1 string
+        )
+        DISTRIBUTED BY HASH(name) BUCKETS 1
+        PROPERTIES (
+          "replication_num" = "1"
+        )
+        """
+
+        streamLoad {
+            set 'version', '1'
+            set 'sql', """
+                    insert into ${db}.${tableName13} (name, agg1) select c2, GROUP_CONCAT(c1, ' ') from http_stream("format"="csv")
+                    group by c2
+                    """
+            time 10000
+            file 'test_http_stream_multiple_times.csv'
+            check { result, exception, startTime, endTime ->
+                if (exception != null) {
+                    throw exception
+                }
+                log.info("http_stream result: ${result}".toString())
+                def json = parseJson(result)
+                assertEquals("success", json.Status.toLowerCase())
+                assertEquals(443, json.NumberTotalRows)
+                assertEquals(0, json.NumberFilteredRows)
+            }
+        }
+
+        qt_sql13 "select name, agg1 from ${tableName13}"
+    } finally {
+        try_sql "DROP TABLE IF EXISTS ${tableName13}"
+    }
+
+    // 14. test parquet orc case
+    def tableName14 = "test_parquet_orc_case"
+    try {
+        sql """ DROP TABLE IF EXISTS ${tableName14} """
+        sql """
+            CREATE TABLE IF NOT EXISTS ${tableName14} (
                 `WatchId` char(128),
                 `JavaEnable` smallint,
                 `Title` string,
@@ -709,85 +748,85 @@ suite("test_stream_load_with_sql", "p0") {
         // streamLoad {
         //     set 'version', '1'
         //     set 'sql', """
-        //             insert into ${db}.${tableName13} select * from stream("format"="parquet")
+        //             insert into ${db}.${tableName14} select * from http_stream("format"="parquet")
         //             """
         //     time 10000
         //     set 'format', 'parquet'
-        //     file 'test_stream_load_with_sql_parquet_case.parquet'
+        //     file 'test_http_stream_parquet_case.parquet'
         //     check { result, exception, startTime, endTime ->
         //         if (exception != null) {
         //             throw exception
         //         }
-        //         log.info("Stream load result: ${result}".toString())
+        //         log.info("http_stream result: ${result}".toString())
         //         def json = parseJson(result)
         //         assertEquals("success", json.Status.toLowerCase())
         //     }
         // }
-        // qt_sql13 "select * from ${tableName13} order by WatchId"
-        sql """truncate table ${tableName13}"""
+        // qt_sql13 "select * from ${tableName14} order by WatchId"
+        sql """truncate table ${tableName14}"""
 
         // streamLoad {
         //     set 'version', '1'
         //     set 'sql', """
-        //             insert into ${db}.${tableName13} select * from stream("format"="parquet")
+        //             insert into ${db}.${tableName14} select * from http_stream("format"="parquet")
         //             """
         //     time 10000
         //     set 'format', 'parquet'
-        //     file 'test_stream_load_with_sql_parquet_case.parquet'
+        //     file 'test_http_stream_parquet_case.parquet'
         //     check { result, exception, startTime, endTime ->
         //         if (exception != null) {
         //             throw exception
         //         }
-        //         log.info("Stream load result: ${result}".toString())
+        //         log.info("http_stream result: ${result}".toString())
         //         def json = parseJson(result)
         //         assertEquals("success", json.Status.toLowerCase())
         //     }
         // }
-        // qt_sql13 "select * from ${tableName13} order by WatchId"
-        sql """truncate table ${tableName13}"""
+        // qt_sql13 "select * from ${tableName14} order by WatchId"
+        sql """truncate table ${tableName14}"""
 
         // streamLoad {
         //     set 'version', '1'
         //     set 'sql', """
-        //             insert into ${db}.${tableName13} select * from stream("format"="parquet")
+        //             insert into ${db}.${tableName14} select * from http_stream("format"="parquet")
         //             """
         //     time 10000
         //     set 'format', 'parquet'
-        //     file 'test_stream_load_with_sql_parquet_case.parquet'
+        //     file 'test_http_stream_parquet_case.parquet'
         //     check { result, exception, startTime, endTime ->
         //         if (exception != null) {
         //             throw exception
         //         }
-        //         log.info("Stream load result: ${result}".toString())
+        //         log.info("http_stream result: ${result}".toString())
         //         def json = parseJson(result)
         //         assertEquals("success", json.Status.toLowerCase())
         //     }
         // }
-        // qt_sql13 "select * from ${tableName13} order by WatchId"
-        sql """truncate table ${tableName13}"""
+        // qt_sql13 "select * from ${tableName14} order by WatchId"
+        sql """truncate table ${tableName14}"""
 
         // streamLoad {
         //     set 'version', '1'
         //     set 'sql', """
-        //             insert into ${db}.${tableName13} select * from stream("format"="orc")
+        //             insert into ${db}.${tableName14} select * from http_stream("format"="orc")
         //             """
         //     time 10000
         //     set 'format', 'orc'
-        //     file 'test_stream_load_with_sql_orc_case.orc'
+        //     file 'test_http_stream_orc_case.orc'
         //     check { result, exception, startTime, endTime ->
         //         if (exception != null) {
         //             throw exception
         //         }
-        //         log.info("Stream load result: ${result}".toString())
+        //         log.info("http_stream result: ${result}".toString())
         //         def json = parseJson(result)
         //         assertEquals("success", json.Status.toLowerCase())
         //     }
         // }
-        // qt_sql13 "select * from ${tableName13} order by WatchId"
-        sql """truncate table ${tableName13}"""
+        // qt_sql13 "select * from ${tableName14} order by WatchId"
+        sql """truncate table ${tableName14}"""
 
     } finally {
-        try_sql "DROP TABLE IF EXISTS ${tableName13}"
+        try_sql "DROP TABLE IF EXISTS ${tableName14}"
     }
 }
 

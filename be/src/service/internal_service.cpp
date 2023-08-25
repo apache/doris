@@ -559,7 +559,7 @@ void PInternalServiceImpl::fetch_table_schema(google::protobuf::RpcController* c
         }
         const TFileRangeDesc& range = file_scan_range.ranges.at(0);
         const TFileScanRangeParams& params = file_scan_range.params;
-        
+
         // make sure profile is desctructed after reader cause PrefetchBufferedReader
         // might asynchronouslly access the profile
         std::unique_ptr<RuntimeProfile> profile =
