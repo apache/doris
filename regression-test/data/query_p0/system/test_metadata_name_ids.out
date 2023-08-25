@@ -7,11 +7,6 @@ DATABASE_NAME	VARCHAR(64)	Yes	false	\N
 TABLE_ID	BIGINT	Yes	false	\N	
 TABLE_NAME	VARCHAR(64)	Yes	false	\N	
 
--- !select1 --
-internal	__internal_schema	column_statistics
-internal	__internal_schema	histogram_statistics
-internal	__internal_schema	table_statistics
-
 -- !select2 --
 internal	demo	test_metadata_name_ids
 

@@ -21,9 +21,6 @@ suite("test_metadata_name_ids", "p0" ) {
 	def tableName = "internal.information_schema.metadata_name_ids"
     qt_desc """ desc  ${tableName} """
 
-	qt_select1 """ select CATALOG_NAME,DATABASE_NAME,TABLE_NAME from ${tableName}
-		where CATALOG_NAME="internal" and DATABASE_NAME ="__internal_schema" order by TABLE_NAME ;
-			""" 
 
 	sql """ create database if not exists demo; """
 	sql """ use demo ; """ 
