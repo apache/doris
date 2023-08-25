@@ -48,7 +48,7 @@ public class FixedRangePartition extends PartitionDefinition {
     }
 
     @Override
-    public void validate(Map<String, String> properties, DataType partitionDataType) {
+    public void validate(Map<String, String> properties) {
         try {
             replicaAllocation = PropertyAnalyzer.analyzeReplicaAllocation(properties, "");
         } catch (Exception e) {
