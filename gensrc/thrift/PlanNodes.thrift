@@ -403,6 +403,9 @@ struct TFileRangeDesc {
     9: optional i64 modification_time
     10: optional Types.TFileType file_type;
     11: optional TFileCompressType compress_type;
+    // for hive table, different files may have different fs,
+    // so fs_name should be with TFileRangeDesc
+    12: optional string fs_name
 }
 
 // TFileScanRange represents a set of descriptions of a file and the rules for reading and converting it.

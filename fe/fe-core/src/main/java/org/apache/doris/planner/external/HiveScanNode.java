@@ -336,7 +336,7 @@ public class HiveScanNode extends FileQueryScanNode {
 
     @Override
     protected Map<String, String> getLocationProperties() throws UserException  {
-        return hmsTable.getCatalogProperties();
+        return hmsTable.getHadoopProperties();
     }
 
     @Override
