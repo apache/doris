@@ -662,8 +662,8 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         // TODO: it is weird update label in this way
         // set label for explain
         for (Slot slot : slots) {
-            String tableColumnName = "_table_valued_function_" + tvfRelation.getFunction().getName()
-                    + "." + slots.get(0).getName();
+            String tableColumnName = TableValuedFunctionIf.TVF_TABLE_PREFIX + tvfRelation.getFunction().getName()
+                    + "." + slot.getName();
             context.findSlotRef(slot.getExprId()).setLabel(tableColumnName);
         }
 
