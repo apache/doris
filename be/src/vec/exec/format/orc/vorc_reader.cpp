@@ -398,7 +398,7 @@ static std::unordered_map<orc::TypeKind, orc::PredicateDataType> TYPEKIND_TO_PRE
         {orc::TypeKind::TIMESTAMP, orc::PredicateDataType::TIMESTAMP},
         {orc::TypeKind::BOOLEAN, orc::PredicateDataType::BOOLEAN}};
 
-template <typename CppType>
+template <PrimitiveType primitive_type>
 std::tuple<bool, orc::Literal> convert_to_orc_literal(const orc::Type* type, const void* value,
                                                       int precision, int scale) {
     try {
@@ -429,13 +429,13 @@ std::tuple<bool, orc::Literal> convert_to_orc_literal(const orc::Type* type, con
         }
         case orc::TypeKind::DECIMAL: {
             int128_t decimal_value;
-            if constexpr (std::is_same_v<CppType, DecimalV2Value>) {
+            if constexpr (primitive_type == TYPE_DECIMALV2) {
                 decimal_value = *reinterpret_cast<const int128_t*>(value);
                 precision = DecimalV2Value::PRECISION;
                 scale = DecimalV2Value::SCALE;
-            } else if constexpr (std::is_same_v<CppType, int32_t>) {
+            } else if constexpr (primitive_type == TYPE_DECIMAL32) {
                 decimal_value = *((int32_t*)value);
-            } else if constexpr (std::is_same_v<CppType, int64_t>) {
+            } else if constexpr (primitive_type == TYPE_DECIMAL64) {
                 decimal_value = *((int64_t*)value);
             } else {
                 decimal_value = *((int128_t*)value);
@@ -447,12 +447,12 @@ std::tuple<bool, orc::Literal> convert_to_orc_literal(const orc::Type* type, con
         case orc::TypeKind::DATE: {
             int64_t day_offset;
             static const cctz::time_zone utc0 = cctz::utc_time_zone();
-            if constexpr (std::is_same_v<CppType, VecDateTimeValue>) {
+            if constexpr (primitive_type == TYPE_DATE) {
                 const VecDateTimeValue date_v1 = *reinterpret_cast<const VecDateTimeValue*>(value);
                 cctz::civil_day civil_date(date_v1.year(), date_v1.month(), date_v1.day());
                 day_offset =
                         cctz::convert(civil_date, utc0).time_since_epoch().count() / (24 * 60 * 60);
-            } else {
+            } else { // primitive_type == TYPE_DATEV2
                 const DateV2Value<DateV2ValueType> date_v2 =
                         *reinterpret_cast<const DateV2Value<DateV2ValueType>*>(value);
                 cctz::civil_day civil_date(date_v2.year(), date_v2.month(), date_v2.day());
@@ -466,7 +466,7 @@ std::tuple<bool, orc::Literal> convert_to_orc_literal(const orc::Type* type, con
             int32_t nanos;
             static const cctz::time_zone utc0 = cctz::utc_time_zone();
             // TODO: ColumnValueRange has lost the precision of microsecond
-            if constexpr (std::is_same_v<CppType, VecDateTimeValue>) {
+            if constexpr (primitive_type == TYPE_DATETIME) {
                 const VecDateTimeValue datetime_v1 =
                         *reinterpret_cast<const VecDateTimeValue*>(value);
                 cctz::civil_second civil_seconds(datetime_v1.year(), datetime_v1.month(),
@@ -474,7 +474,7 @@ std::tuple<bool, orc::Literal> convert_to_orc_literal(const orc::Type* type, con
                                                  datetime_v1.minute(), datetime_v1.second());
                 seconds = cctz::convert(civil_seconds, utc0).time_since_epoch().count();
                 nanos = 0;
-            } else {
+            } else { // primitive_type == TYPE_DATETIMEV2
                 const DateV2Value<DateTimeV2ValueType> datetime_v2 =
                         *reinterpret_cast<const DateV2Value<DateTimeV2ValueType>*>(value);
                 cctz::civil_second civil_seconds(datetime_v2.year(), datetime_v2.month(),
@@ -499,7 +499,6 @@ std::tuple<bool, orc::Literal> convert_to_orc_literal(const orc::Type* type, con
 template <PrimitiveType primitive_type>
 std::vector<OrcPredicate> value_range_to_predicate(
         const ColumnValueRange<primitive_type>& col_val_range, const orc::Type* type) {
-    using CppType = typename PrimitiveTypeTraits<primitive_type>::CppType;
     std::vector<OrcPredicate> predicates;
     orc::PredicateDataType predicate_data_type;
     auto type_it = TYPEKIND_TO_PREDICATE_TYPE.find(type->getKind());
@@ -516,7 +515,7 @@ std::vector<OrcPredicate> value_range_to_predicate(
         in_predicate.data_type = predicate_data_type;
         in_predicate.op = SQLFilterOp::FILTER_IN;
         for (const auto& value : col_val_range.get_fixed_value_set()) {
-            auto [valid, literal] = convert_to_orc_literal<CppType>(
+            auto [valid, literal] = convert_to_orc_literal<primitive_type>(
                     type, &value, col_val_range.precision(), col_val_range.scale());
             if (valid) {
                 in_predicate.literals.push_back(literal);
@@ -543,7 +542,7 @@ std::vector<OrcPredicate> value_range_to_predicate(
     if (low_value < high_value) {
         if (!col_val_range.is_low_value_mininum() ||
             SQLFilterOp::FILTER_LARGER_OR_EQUAL != low_op) {
-            auto [valid, low_literal] = convert_to_orc_literal<CppType>(
+            auto [valid, low_literal] = convert_to_orc_literal<primitive_type>(
                     type, &low_value, col_val_range.precision(), col_val_range.scale());
             if (valid) {
                 OrcPredicate low_predicate;
@@ -556,7 +555,7 @@ std::vector<OrcPredicate> value_range_to_predicate(
         }
         if (!col_val_range.is_high_value_maximum() ||
             SQLFilterOp::FILTER_LESS_OR_EQUAL != high_op) {
-            auto [valid, high_literal] = convert_to_orc_literal<CppType>(
+            auto [valid, high_literal] = convert_to_orc_literal<primitive_type>(
                     type, &high_value, col_val_range.precision(), col_val_range.scale());
             if (valid) {
                 OrcPredicate high_predicate;
@@ -1753,15 +1752,26 @@ bool OrcReader::_can_filter_by_dict(int slot_id) {
     }
 
     // TODO：check expr like 'a > 10 is null', 'a > 10' should can be filter by dict.
-    for (auto& ctx : _slot_id_to_filter_conjuncts->at(slot_id)) {
-        const auto& root_expr = ctx->root();
-        if (root_expr->node_type() == TExprNodeType::FUNCTION_CALL) {
+    std::function<bool(const VExpr* expr)> visit_function_call = [&](const VExpr* expr) {
+        if (expr->node_type() == TExprNodeType::FUNCTION_CALL) {
             std::string is_null_str;
-            std::string function_name = root_expr->fn().name.function_name;
+            std::string function_name = expr->fn().name.function_name;
             if (function_name.compare("is_null_pred") == 0 ||
                 function_name.compare("is_not_null_pred") == 0) {
                 return false;
             }
+        } else {
+            for (auto& child : expr->children()) {
+                if (!visit_function_call(child.get())) {
+                    return false;
+                }
+            }
+        }
+        return true;
+    };
+    for (auto& ctx : _slot_id_to_filter_conjuncts->at(slot_id)) {
+        if (!visit_function_call(ctx->root().get())) {
+            return false;
         }
     }
     return true;

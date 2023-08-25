@@ -510,7 +510,7 @@ Status ScalarColumnWriter::append_nulls(size_t num_rows) {
         _bitmap_index_builder->add_nulls(num_rows);
     }
     if (_opts.inverted_index) {
-        _inverted_index_builder->add_nulls(num_rows);
+        RETURN_IF_ERROR(_inverted_index_builder->add_nulls(num_rows));
     }
     if (_opts.need_bloom_filter) {
         _bloom_filter_index_builder->add_nulls(num_rows);
@@ -545,7 +545,8 @@ Status ScalarColumnWriter::append_data_in_current_page(const uint8_t* data, size
         _bitmap_index_builder->add_values(data, *num_written);
     }
     if (_opts.inverted_index) {
-        _inverted_index_builder->add_values(get_field()->name(), data, *num_written);
+        RETURN_IF_ERROR(
+                _inverted_index_builder->add_values(get_field()->name(), data, *num_written));
     }
     if (_opts.need_bloom_filter) {
         _bloom_filter_index_builder->add_values(data, *num_written);
@@ -934,8 +935,8 @@ Status ArrayColumnWriter::append_data(const uint8_t** ptr, size_t num_rows) {
                 auto writer = dynamic_cast<ScalarColumnWriter*>(_item_writer.get());
                 if (writer != nullptr) {
                     //NOTE: use array field name as index field, but item_writer size should be used when moving item_data_ptr
-                    _inverted_index_builder->add_array_values(_item_writer->get_field()->size(),
-                                                              col_cursor, 1);
+                    RETURN_IF_ERROR(_inverted_index_builder->add_array_values(
+                            _item_writer->get_field()->size(), col_cursor, 1));
                 }
             }
         }

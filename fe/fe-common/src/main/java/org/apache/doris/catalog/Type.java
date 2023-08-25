@@ -90,6 +90,7 @@ public abstract class Type {
     public static final ScalarType DEFAULT_DECIMALV3 = DEFAULT_DECIMAL32;
     public static final ScalarType DEFAULT_DATETIMEV2 = ScalarType.createDatetimeV2Type(0);
     public static final ScalarType DATETIMEV2 = DEFAULT_DATETIMEV2;
+    public static final ScalarType DATETIMEV2_WITH_MAX_SCALAR = ScalarType.createDatetimeV2Type(6);
     public static final ScalarType DEFAULT_TIMEV2 = ScalarType.createTimeV2Type(0);
     public static final ScalarType DECIMALV2 = DEFAULT_DECIMALV2;
     public static final ScalarType DECIMAL32 = DEFAULT_DECIMAL32;

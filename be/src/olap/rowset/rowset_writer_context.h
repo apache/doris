@@ -40,10 +40,12 @@ struct RowsetWriterContext {
     RowsetWriterContext()
             : tablet_id(0),
               tablet_schema_hash(0),
+              index_id(0),
               partition_id(0),
               rowset_type(BETA_ROWSET),
               rowset_state(PREPARED),
               version(Version(0, 0)),
+              sender_id(0),
               txn_id(0),
               tablet_uid(0, 0),
               segments_overlap(OVERLAP_UNKNOWN) {
@@ -54,6 +56,7 @@ struct RowsetWriterContext {
     RowsetId rowset_id;
     int64_t tablet_id;
     int64_t tablet_schema_hash;
+    int64_t index_id;
     int64_t partition_id;
     RowsetTypePB rowset_type;
     io::FileSystemSPtr fs;
@@ -64,6 +67,8 @@ struct RowsetWriterContext {
     RowsetStatePB rowset_state;
     // properties for non-pending rowset
     Version version;
+
+    int sender_id;
 
     // properties for pending rowset
     int64_t txn_id;

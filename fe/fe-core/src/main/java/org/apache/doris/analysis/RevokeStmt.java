@@ -133,7 +133,7 @@ public class RevokeStmt extends DdlStmt {
         } else if (roles != null) {
             for (int i = 0; i < roles.size(); i++) {
                 String originalRoleName = roles.get(i);
-                FeNameFormat.checkRoleName(originalRoleName, false /* can not be admin */, "Can not revoke role");
+                FeNameFormat.checkRoleName(originalRoleName, true /* can be admin */, "Can not revoke role");
                 roles.set(i, ClusterNamespace.getFullName(analyzer.getClusterName(), originalRoleName));
             }
         }

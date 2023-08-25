@@ -434,15 +434,11 @@ public:
                        : 0;
     }
 
-    bool enable_insert_strict() const {
-        return _query_options.__isset.enable_insert_strict && _query_options.enable_insert_strict;
-    }
-
     inline bool enable_sub_pred_v2() const {
         return _query_options.__isset.enable_delete_sub_predicate_v2 &&
                _query_options.enable_delete_sub_predicate_v2;
     }
-
+  
     void emplace_local_state(int id, std::shared_ptr<doris::pipeline::PipelineXLocalState> state);
 
     std::shared_ptr<doris::pipeline::PipelineXLocalState> get_local_state(int id);
