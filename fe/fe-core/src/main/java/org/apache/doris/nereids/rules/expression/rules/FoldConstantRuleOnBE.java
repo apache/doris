@@ -30,7 +30,6 @@ import org.apache.doris.nereids.glue.translator.ExpressionTranslator;
 import org.apache.doris.nereids.rules.expression.AbstractExpressionRewriteRule;
 import org.apache.doris.nereids.rules.expression.ExpressionRewriteContext;
 import org.apache.doris.nereids.trees.expressions.Alias;
-import org.apache.doris.nereids.trees.expressions.Between;
 import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
@@ -124,10 +123,6 @@ public class FoldConstantRuleOnBE extends AbstractExpressionRewriteRule {
             }
             // skip literal expr
             if (expr.isLiteral()) {
-                return;
-            }
-            // skip BetweenPredicate need to be rewrite to CompoundPredicate
-            if (expr instanceof Between) {
                 return;
             }
             String id = idGenerator.getNextId().toString();

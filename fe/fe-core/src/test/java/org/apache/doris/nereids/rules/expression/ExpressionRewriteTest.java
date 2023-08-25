@@ -17,7 +17,6 @@
 
 package org.apache.doris.nereids.rules.expression;
 
-import org.apache.doris.nereids.rules.expression.rules.BetweenToCompoundRule;
 import org.apache.doris.nereids.rules.expression.rules.DistinctPredicatesRule;
 import org.apache.doris.nereids.rules.expression.rules.ExtractCommonFactorRule;
 import org.apache.doris.nereids.rules.expression.rules.InPredicateDedup;
@@ -161,16 +160,6 @@ public class ExpressionRewriteTest extends ExpressionRewriteTestHelper {
         assertRewrite("(a or b) and (a and true)", "a");
 
         assertRewrite("(a or b) and (a or true)", "a or b");
-
-    }
-
-    @Test
-    public void testBetweenToCompoundRule() {
-        executor = new ExpressionRuleExecutor(ImmutableList.of(BetweenToCompoundRule.INSTANCE,
-                SimplifyNotExprRule.INSTANCE));
-
-        assertRewrite("a between c and d", "(a >= c) and (a <= d)");
-        assertRewrite("a not between c and d)", "(a < c) or (a > d)");
 
     }
 
