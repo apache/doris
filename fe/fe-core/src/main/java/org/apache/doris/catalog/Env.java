@@ -4575,7 +4575,9 @@ public class Env {
                 .buildCompactionPolicy()
                 .buildTimeSeriesCompactionGoalSizeMbytes()
                 .buildTimeSeriesCompactionFileCountThreshold()
-                .buildTimeSeriesCompactionTimeThresholdSeconds();
+                .buildTimeSeriesCompactionTimeThresholdSeconds()
+                .buildSkipWriteIndexOnLoad()
+                .buildEnableSingleReplicaCompaction();
 
         // need to update partition info meta
         for (Partition partition : table.getPartitions()) {

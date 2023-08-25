@@ -211,14 +211,6 @@ public class Alter {
         } else if (currentAlterOps.checkIsBeingSynced(alterClauses)) {
             olapTable.setIsBeingSynced(currentAlterOps.isBeingSynced(alterClauses));
             needProcessOutsideTableLock = true;
-        } else if (currentAlterOps.checkCompactionPolicy(alterClauses)) {
-            needProcessOutsideTableLock = true;
-        } else if (currentAlterOps.checkTimeSeriesCompactionGoalSizeMbytes(alterClauses)) {
-            needProcessOutsideTableLock = true;
-        } else if (currentAlterOps.checkTimeSeriesCompactionFileCountThreshold(alterClauses)) {
-            needProcessOutsideTableLock = true;
-        } else if (currentAlterOps.checkTimeSeriesCompactionTimeThresholdSeconds(alterClauses)) {
-            needProcessOutsideTableLock = true;
         } else if (currentAlterOps.checkBinlogConfigChange(alterClauses)) {
             if (!Config.enable_feature_binlog) {
                 throw new DdlException("Binlog feature is not enabled");
@@ -528,7 +520,11 @@ public class Alter {
                         || properties
                             .containsKey(PropertyAnalyzer.PROPERTIES_TIME_SERIES_COMPACTION_FILE_COUNT_THRESHOLD)
                         || properties
-                            .containsKey(PropertyAnalyzer.PROPERTIES_TIME_SERIES_COMPACTION_TIME_THRESHOLD_SECONDS));
+                            .containsKey(PropertyAnalyzer.PROPERTIES_TIME_SERIES_COMPACTION_TIME_THRESHOLD_SECONDS)
+                        || properties
+                            .containsKey(PropertyAnalyzer.PROPERTIES_ENABLE_SINGLE_REPLICA_COMPACTION)
+                        || properties
+                            .containsKey(PropertyAnalyzer.PROPERTIES_SKIP_WRITE_INDEX_ON_LOAD));
                 ((SchemaChangeHandler) schemaChangeHandler).updateTableProperties(db, tableName, properties);
             } else {
                 throw new DdlException("Invalid alter operation: " + alterClause.getOpType());
