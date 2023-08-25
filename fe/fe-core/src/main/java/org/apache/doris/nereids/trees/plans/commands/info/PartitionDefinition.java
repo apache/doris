@@ -19,7 +19,6 @@ package org.apache.doris.nereids.trees.plans.commands.info;
 
 import org.apache.doris.analysis.AllPartitionDesc;
 import org.apache.doris.nereids.types.DataType;
-import org.apache.doris.nereids.util.Utils;
 
 import java.util.List;
 import java.util.Map;
