@@ -1091,7 +1091,7 @@ TEST_F(LoadStreamMgrTest, two_client_one_index_one_tablet_three_segment) {
 
     EXPECT_EQ(g_response_stat.num, 0);
     // CLOSE_LOAD
-    close_load(clients[0], 1);
+    close_load(clients[1], 1);
     wait_for_ack(1);
     EXPECT_EQ(g_response_stat.num, 1);
     EXPECT_EQ(g_response_stat.success_tablet_ids.size(), 0);
