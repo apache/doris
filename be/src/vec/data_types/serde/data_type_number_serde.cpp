@@ -22,6 +22,9 @@
 #include <type_traits>
 
 #include "gutil/casts.h"
+#include "gutil/strings/numbers.h"
+#include "util/mysql_global.h"
+#include "vec/io/io_helper.h"
 
 namespace doris {
 namespace vectorized {

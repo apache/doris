@@ -17,7 +17,8 @@
 
 #include "data_type_jsonb_serde.h"
 
-#include <arrow/array/builder_binary.h>
+#include "arrow/array/builder_binary.h"
+#include "runtime/jsonb_value.h"
 namespace doris {
 namespace vectorized {
 

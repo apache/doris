@@ -29,6 +29,7 @@
 #include "vec/columns/column_nullable.h"
 #include "vec/common/pod_array.h"
 #include "vec/common/pod_array_fwd.h"
+#include "vec/common/string_buffer.hpp"
 #include "vec/core/types.h"
 
 namespace arrow {

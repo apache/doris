@@ -63,8 +63,9 @@ public:
         __builtin_unreachable();
     }
 
-    DataTypeDecimalSerDe(int scale_)
+    DataTypeDecimalSerDe(int scale_, int precision_)
             : scale(scale_),
+	      precision(precision_),
               scale_multiplier(decimal_scale_multiplier<typename T::NativeType>(scale)) {}
 
     void serialize_one_cell_to_text(const IColumn& column, int row_num, BufferWritable& bw,
@@ -105,6 +106,7 @@ private:
                                   int row_idx, bool col_const) const;
 
     int scale;
+    int precision;
     const T::NativeType scale_multiplier;
     mutable char buf[T::max_string_length()];
 };
