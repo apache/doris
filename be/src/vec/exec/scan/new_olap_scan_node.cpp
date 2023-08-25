@@ -382,14 +382,6 @@ Status NewOlapScanNode::_should_push_down_function_filter(VectorizedFnCall* fn_c
     return Status::OK();
 }
 
-bool NewOlapScanNode::_should_push_down_common_expr() {
-    return _state->enable_common_expr_pushdown() &&
-           (_olap_scan_node.keyType == TKeysType::DUP_KEYS ||
-            (_olap_scan_node.keyType == TKeysType::UNIQUE_KEYS &&
-             _olap_scan_node.__isset.enable_unique_key_merge_on_write &&
-             _olap_scan_node.enable_unique_key_merge_on_write));
-}
-
 // PlanFragmentExecutor will call this method to set scan range
 // Doris scan range is defined in thrift file like this
 // struct TPaloScanRange {
@@ -434,7 +426,7 @@ Status NewOlapScanNode::_init_scanners(std::list<VScannerSPtr>* scanners) {
                 message += conjunct->root()->debug_string();
             }
         }
-        _runtime_profile->add_info_string("RemainedDownPredicates", message);
+        _runtime_profile->add_info_string("RemainedPredicates", message);
     }
 
     if (!_olap_scan_node.output_column_unique_ids.empty()) {
@@ -451,7 +443,7 @@ Status NewOlapScanNode::_init_scanners(std::list<VScannerSPtr>* scanners) {
     }
     int scanners_per_tablet = std::max(1, 64 / (int)_scan_ranges.size());
 
-    bool is_duplicate_key = false;
+    bool is_dup_mow_key = false;
     size_t segment_count = 0;
     std::vector<std::vector<RowSetSplits>> rowset_splits_vector(_scan_ranges.size());
     std::vector<std::vector<size_t>> tablet_rs_seg_count(_scan_ranges.size());
@@ -468,8 +460,10 @@ Status NewOlapScanNode::_init_scanners(std::list<VScannerSPtr>* scanners) {
                                                                                        true);
             RETURN_IF_ERROR(status);
 
-            is_duplicate_key = tablet->keys_type() == DUP_KEYS;
-            if (!is_duplicate_key) {
+            is_dup_mow_key =
+                    tablet->keys_type() == DUP_KEYS || (tablet->keys_type() == UNIQUE_KEYS &&
+                                                        tablet->enable_unique_key_merge_on_write());
+            if (!is_dup_mow_key) {
                 break;
             }
 
@@ -500,7 +494,7 @@ Status NewOlapScanNode::_init_scanners(std::list<VScannerSPtr>* scanners) {
         }
     }
 
-    if (is_duplicate_key) {
+    if (is_dup_mow_key) {
         auto build_new_scanner = [&](const TPaloScanRange& scan_range,
                                      const std::vector<OlapScanRange*>& key_ranges,
                                      const std::vector<RowSetSplits>& rs_splits) {

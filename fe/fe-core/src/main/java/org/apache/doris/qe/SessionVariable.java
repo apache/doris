@@ -953,7 +953,7 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = ENABLE_SHARE_HASH_TABLE_FOR_BROADCAST_JOIN, fuzzy = true)
     public boolean enableShareHashTableForBroadcastJoin = true;
 
-    @VariableMgr.VarAttr(name = ENABLE_HASH_JOIN_EARLY_START_PROBE, fuzzy = true)
+    @VariableMgr.VarAttr(name = ENABLE_HASH_JOIN_EARLY_START_PROBE, fuzzy = false)
     public boolean enableHashJoinEarlyStartProbe = false;
 
     @VariableMgr.VarAttr(name = ENABLE_UNICODE_NAME_SUPPORT)
@@ -1137,7 +1137,7 @@ public class SessionVariable implements Serializable, Writable {
         this.partitionedHashJoinRowsThreshold = random.nextBoolean() ? 8 : 1048576;
         this.partitionedHashAggRowsThreshold = random.nextBoolean() ? 8 : 1048576;
         this.enableShareHashTableForBroadcastJoin = random.nextBoolean();
-        this.enableHashJoinEarlyStartProbe = random.nextBoolean();
+        // this.enableHashJoinEarlyStartProbe = random.nextBoolean();
         int randomInt = random.nextInt(4);
         if (randomInt % 2 == 0) {
             this.rewriteOrToInPredicateThreshold = 100000;

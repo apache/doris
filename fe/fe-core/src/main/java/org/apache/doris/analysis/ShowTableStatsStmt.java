@@ -150,6 +150,21 @@ public class ShowTableStatsStmt extends ShowStmt {
         return new ShowResultSet(getMetaData(), result);
     }
 
+    public ShowResultSet constructResultSet(long rowCount) {
+        List<List<String>> result = Lists.newArrayList();
+        List<String> row = Lists.newArrayList();
+        row.add("");
+        row.add("");
+        row.add(String.valueOf(rowCount));
+        row.add("");
+        row.add("");
+        row.add("");
+        row.add("");
+        row.add("");
+        result.add(row);
+        return new ShowResultSet(getMetaData(), result);
+    }
+
     public boolean isCached() {
         return cached;
     }

@@ -32,6 +32,7 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.View;
+import org.apache.doris.catalog.external.ExternalTable;
 import org.apache.doris.catalog.external.HMSExternalTable;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
@@ -285,9 +286,7 @@ public class AnalysisManager extends Daemon implements Writable {
                 // columnNames null means to add all visitable columns.
                 // Will get all the visible columns in analyzeTblStmt.check()
                 AnalyzeTblStmt analyzeTblStmt = new AnalyzeTblStmt(analyzeProperties, tableName,
-                        table.getBaseSchema().stream().filter(c -> !StatisticsUtil.isUnsupportedType(c.getType())).map(
-                                Column::getName).collect(
-                                Collectors.toList()), db.getId(), table);
+                        null, db.getId(), table);
                 try {
                     analyzeTblStmt.check();
                 } catch (AnalysisException analysisException) {
@@ -334,11 +333,10 @@ public class AnalysisManager extends Daemon implements Writable {
 
         boolean isSync = stmt.isSync();
         Map<Long, BaseAnalysisTask> analysisTaskInfos = new HashMap<>();
+        createTaskForEachColumns(jobInfo, analysisTaskInfos, isSync);
         if (stmt.isAllColumns()
                 && StatisticsUtil.isExternalTable(jobInfo.catalogName, jobInfo.dbName, jobInfo.tblName)) {
-            createTaskForExternalTable(jobInfo, analysisTaskInfos, isSync);
-        } else {
-            createTaskForEachColumns(jobInfo, analysisTaskInfos, isSync);
+            createTableLevelTaskForExternalTable(jobInfo, analysisTaskInfos, isSync);
         }
         if (isSync) {
             syncExecute(analysisTaskInfos.values());
@@ -583,7 +581,7 @@ public class AnalysisManager extends Daemon implements Writable {
     }
 
     @VisibleForTesting
-    public void createTaskForExternalTable(AnalysisInfo jobInfo,
+    public void createTableLevelTaskForExternalTable(AnalysisInfo jobInfo,
             Map<Long, BaseAnalysisTask> analysisTasks,
             boolean isSync) throws DdlException {
 
@@ -616,6 +614,10 @@ public class AnalysisManager extends Daemon implements Writable {
     public void updateTableStats(AnalysisInfo jobInfo) {
         TableIf tbl = StatisticsUtil.findTable(jobInfo.catalogName,
                 jobInfo.dbName, jobInfo.tblName);
+        // External Table update table stats after table level task finished.
+        if (tbl instanceof ExternalTable) {
+            return;
+        }
         // TODO: set updatedRows to 0, when loadedRows of transaction info is ready.
         updateTableStatsStatus(new TableStats(tbl.getId(), tbl.estimatedRowCount(), jobInfo));
     }

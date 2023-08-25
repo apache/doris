@@ -778,6 +778,11 @@ DECLARE_mInt32(mem_tracker_consume_min_size_bytes);
 // In most cases, it does not need to be modified.
 DECLARE_mDouble(tablet_version_graph_orphan_vertex_ratio);
 
+// number of brpc stream per OlapTableSinkV2
+DECLARE_Int32(num_streams_per_sink);
+// timeout for open stream sink rpc in ms
+DECLARE_Int64(open_stream_sink_timeout_ms);
+
 // max send batch parallelism for OlapTableSink
 // The value set by the user for send_batch_parallelism is not allowed to exceed max_send_batch_parallelism_per_job,
 // if exceed, the value of send_batch_parallelism would be max_send_batch_parallelism_per_job
@@ -937,6 +942,9 @@ DECLARE_Int32(doris_remote_scanner_thread_pool_queue_size);
 
 // limit the queue of pending batches which will be sent by a single nodechannel
 DECLARE_mInt64(nodechannel_pending_queue_max_bytes);
+
+// The batch size for sending data by brpc streaming client
+DECLARE_mInt64(brpc_streaming_client_batch_bytes);
 
 // Max waiting time to wait the "plan fragment start" rpc.
 // If timeout, the fragment will be cancelled.

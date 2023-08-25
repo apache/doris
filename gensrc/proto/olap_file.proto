@@ -115,6 +115,13 @@ message RowsetMetaPB {
     optional SegmentsOverlapPB segments_overlap_pb = 51 [default = OVERLAP_UNKNOWN];
 }
 
+message SegmentStatisticsPB {
+    optional int64 row_num = 1;
+    optional int64 data_size = 2;
+    optional int64 index_size = 3;
+    optional KeyBoundsPB key_bounds = 4;
+}
+
 // kv value for reclaiming remote rowset
 message RemoteRowsetGcPB {
     required string resource_id = 1;

@@ -203,9 +203,6 @@ public:
     }
 
     Status set_child(OperatorXPtr child) {
-        if (is_source()) {
-            return Status::OK();
-        }
         _child_x = std::move(child);
         return Status::OK();
     }
@@ -215,6 +212,8 @@ public:
     virtual bool runtime_filters_are_ready_or_timeout() { return true; } // for source
 
     virtual bool can_write() { return false; } // for sink
+
+    [[nodiscard]] virtual bool can_terminate_early() { return false; }
 
     /**
      * The main method to execute a pipeline task.
@@ -268,7 +267,7 @@ protected:
     // Used on pipeline X
     OperatorXPtr _child_x;
 
-    bool _is_closed = false;
+    bool _is_closed;
 };
 
 /**
@@ -340,6 +339,8 @@ public:
             : OperatorBase(builder), _node(reinterpret_cast<NodeType*>(node)) {}
 
     ~StreamingOperator() override = default;
+
+    [[nodiscard]] bool can_terminate_early() override { return _node->can_terminate_early(); }
 
     Status prepare(RuntimeState* state) override {
         _node->increase_ref();
@@ -504,6 +505,17 @@ public:
     virtual ~PipelineXLocalState() {}
 
     virtual Status init(RuntimeState* state, LocalStateInfo& info);
+    virtual Status close(RuntimeState* state) {
+        if (_closed) {
+            return Status::OK();
+        }
+        if (_rows_returned_counter != nullptr) {
+            COUNTER_SET(_rows_returned_counter, _num_rows_returned);
+        }
+        profile()->add_to_span(_span);
+        _closed = true;
+        return Status::OK();
+    }
     template <class TARGET>
     TARGET& cast() {
         return reinterpret_cast<TARGET&>(*this);
@@ -561,6 +573,7 @@ protected:
     vectorized::VExprContextSPtrs _conjuncts;
     vectorized::VExprContextSPtrs _projections;
     bool _init = false;
+    bool _closed = false;
     vectorized::Block _origin_block;
 };
 
@@ -573,7 +586,6 @@ public:
               _type(tnode.node_type),
               _pool(pool),
               _tuple_ids(tnode.row_tuples),
-              _children(nullptr),
               _row_descriptor(descs, tnode.row_tuples, tnode.nullable_tuples),
               _resource_profile(tnode.resource_profile),
               _limit(tnode.limit),
@@ -598,6 +610,10 @@ public:
     virtual Status open(RuntimeState* state) override;
 
     Status finalize(RuntimeState* state) override { return Status::OK(); }
+
+    [[nodiscard]] bool can_terminate_early() override { return false; }
+
+    [[nodiscard]] virtual bool can_terminate_early(RuntimeState* state) { return false; }
 
     bool can_read() override {
         LOG(FATAL) << "should not reach here!";
@@ -675,7 +691,6 @@ protected:
 
     vectorized::VExprContextSPtrs _conjuncts;
 
-    OperatorXBase* _children;
     RowDescriptor _row_descriptor;
 
     std::unique_ptr<RowDescriptor> _output_row_descriptor;
@@ -701,7 +716,14 @@ public:
             : _parent(parent_), _state(state_) {}
     virtual ~PipelineXSinkLocalState() {}
 
-    virtual Status init(RuntimeState* state, LocalSinkStateInfo& info) { return Status::OK(); }
+    virtual Status init(RuntimeState* state, LocalSinkStateInfo& info);
+    virtual Status close(RuntimeState* state) {
+        if (_closed) {
+            return Status::OK();
+        }
+        _closed = true;
+        return Status::OK();
+    }
     template <class TARGET>
     TARGET& cast() {
         DCHECK(dynamic_cast<TARGET*>(this));
@@ -726,6 +748,9 @@ protected:
     std::unique_ptr<MemTracker> _mem_tracker;
     // Maybe this will be transferred to BufferControlBlock.
     std::shared_ptr<QueryStatistics> _query_statistics;
+    // Set to true after close() has been called. subclasses should check and set this in
+    // close().
+    bool _closed = false;
 };
 
 class DataSinkOperatorX : public OperatorBase {
@@ -758,7 +783,9 @@ public:
         dependency.reset((Dependency*)nullptr);
     }
 
-    Status close(RuntimeState* state) override { return Status::OK(); }
+    virtual Status close(RuntimeState* state) override {
+        return state->get_sink_local_state(id())->close(state);
+    }
 
     bool can_read() override {
         LOG(FATAL) << "should not reach here!";
@@ -797,9 +824,6 @@ public:
 
 protected:
     const int _id;
-    // Set to true after close() has been called. subclasses should check and set this in
-    // close().
-    bool _closed;
     std::string _name;
 
     // Maybe this will be transferred to BufferControlBlock.

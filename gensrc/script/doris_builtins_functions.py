@@ -1724,6 +1724,8 @@ visible_functions = {
         [['jsonb_extract_int'], 'INT', ['JSONB', 'STRING'], 'ALWAYS_NULLABLE'],
         [['jsonb_extract_bigint'], 'BIGINT', ['JSONB', 'VARCHAR'], 'ALWAYS_NULLABLE'],
         [['jsonb_extract_bigint'], 'BIGINT', ['JSONB', 'STRING'], 'ALWAYS_NULLABLE'],
+        [['jsonb_extract_largeint'], 'LARGEINT', ['JSONB', 'VARCHAR'], 'ALWAYS_NULLABLE'],
+        [['jsonb_extract_largeint'], 'LARGEINT', ['JSONB', 'STRING'], 'ALWAYS_NULLABLE'],
         [['jsonb_extract_double'], 'DOUBLE', ['JSONB', 'VARCHAR'], 'ALWAYS_NULLABLE'],
         [['jsonb_extract_double'], 'DOUBLE', ['JSONB', 'STRING'], 'ALWAYS_NULLABLE'],
         [['jsonb_extract_string'], 'STRING', ['JSONB', 'VARCHAR'], 'ALWAYS_NULLABLE'],
@@ -1754,6 +1756,8 @@ visible_functions = {
         [['json_extract_int'], 'INT', ['JSONB', 'STRING'], 'ALWAYS_NULLABLE'],
         [['json_extract_bigint'], 'BIGINT', ['JSONB', 'VARCHAR'], 'ALWAYS_NULLABLE'],
         [['json_extract_bigint'], 'BIGINT', ['JSONB', 'STRING'], 'ALWAYS_NULLABLE'],
+        [['json_extract_largeint'], 'LARGEINT', ['JSONB', 'VARCHAR'], 'ALWAYS_NULLABLE'],
+        [['json_extract_largeint'], 'LARGEINT', ['JSONB', 'STRING'], 'ALWAYS_NULLABLE'],
         [['json_extract_double'], 'DOUBLE', ['JSONB', 'VARCHAR'], 'ALWAYS_NULLABLE'],
         [['json_extract_double'], 'DOUBLE', ['JSONB', 'STRING'], 'ALWAYS_NULLABLE'],
         [['json_extract_string'], 'STRING', ['JSONB', 'VARCHAR'], 'ALWAYS_NULLABLE'],
@@ -1790,11 +1794,11 @@ visible_functions = {
 
     #bitmap function
     "Bitmap": [
-        [['to_bitmap'], 'BITMAP', ['VARCHAR'], 'ALWAYS_NULLABLE'],
+        [['to_bitmap'], 'BITMAP', ['VARCHAR'], 'ALWAYS_NOT_NULLABLE'],
         [['to_bitmap_with_check'], 'BITMAP', ['VARCHAR'], 'ALWAYS_NOT_NULLABLE'],
-        [['to_bitmap'], 'BITMAP', ['STRING'], 'ALWAYS_NULLABLE'],
+        [['to_bitmap'], 'BITMAP', ['STRING'], 'ALWAYS_NOT_NULLABLE'],
         [['to_bitmap_with_check'], 'BITMAP', ['STRING'], 'ALWAYS_NOT_NULLABLE'],
-        [['to_bitmap'], 'BITMAP', ['BIGINT'], 'ALWAYS_NULLABLE'],
+        [['to_bitmap'], 'BITMAP', ['BIGINT'], 'ALWAYS_NOT_NULLABLE'],
         [['to_bitmap_with_check'], 'BITMAP', ['BIGINT'], 'ALWAYS_NOT_NULLABLE'],
         [['bitmap_hash'], 'BITMAP', ['VARCHAR'], 'ALWAYS_NOT_NULLABLE'],
         [['bitmap_hash64'], 'BITMAP', ['VARCHAR'], 'ALWAYS_NOT_NULLABLE'],

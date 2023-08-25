@@ -172,6 +172,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonbExtractB
 import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonbExtractDouble;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonbExtractInt;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonbExtractIsnull;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonbExtractLargeint;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonbExtractString;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonbParse;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonbParseErrorToInvalid;
@@ -229,6 +230,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.NullIf;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.NullOrEmpty;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Nvl;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ParseUrl;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Password;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Pi;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Pmod;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Positive;
@@ -973,6 +975,10 @@ public interface ScalarFunctionVisitor<R, C> {
         return visitScalarFunction(jsonbExtractBigint, context);
     }
 
+    default R visitJsonbExtractLargeint(JsonbExtractLargeint jsonbExtractLargeint, C context) {
+        return visitScalarFunction(jsonbExtractLargeint, context);
+    }
+
     default R visitJsonbExtractBool(JsonbExtractBool jsonbExtractBool, C context) {
         return visitScalarFunction(jsonbExtractBool, context);
     }
@@ -1203,6 +1209,10 @@ public interface ScalarFunctionVisitor<R, C> {
 
     default R visitParseUrl(ParseUrl parseUrl, C context) {
         return visitScalarFunction(parseUrl, context);
+    }
+
+    default R visitPassword(Password password, C context) {
+        return visitScalarFunction(password, context);
     }
 
     default R visitPi(Pi pi, C context) {

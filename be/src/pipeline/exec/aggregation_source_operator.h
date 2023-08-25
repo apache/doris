@@ -48,12 +48,13 @@ public:
 };
 
 class AggSourceOperatorX;
-class AggLocalState : public PipelineXLocalState {
+class AggLocalState final : public PipelineXLocalState {
 public:
     ENABLE_FACTORY_CREATOR(AggLocalState);
     AggLocalState(RuntimeState* state, OperatorXBase* parent);
 
     Status init(RuntimeState* state, LocalStateInfo& info) override;
+    Status close(RuntimeState* state) override;
 
     void make_nullable_output_key(vectorized::Block* block);
 
@@ -118,7 +119,6 @@ public:
     virtual Status get_block(RuntimeState* state, vectorized::Block* block,
                              SourceState& source_state) override;
 
-    Status close(RuntimeState* state) override;
     bool is_source() const override { return true; }
 
 private:

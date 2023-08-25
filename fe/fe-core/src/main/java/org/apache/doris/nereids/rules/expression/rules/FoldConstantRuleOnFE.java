@@ -52,6 +52,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.CurrentUser;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Database;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Date;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.If;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Password;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.User;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Version;
 import org.apache.doris.nereids.trees.expressions.literal.ArrayLiteral;
@@ -63,6 +64,7 @@ import org.apache.doris.nereids.trees.expressions.literal.DateTimeV2Literal;
 import org.apache.doris.nereids.trees.expressions.literal.DateV2Literal;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.StringLikeLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
 import org.apache.doris.nereids.types.BooleanType;
@@ -70,7 +72,9 @@ import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.qe.GlobalVariable;
 
+import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
+import org.apache.commons.codec.digest.DigestUtils;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -442,6 +446,15 @@ public class FoldConstantRuleOnFE extends AbstractExpressionRewriteRule {
             return checkedExpr.get();
         }
         return ExpressionEvaluator.INSTANCE.eval(arithmetic);
+    }
+
+    @Override
+    public Expression visitPassword(Password password, ExpressionRewriteContext context) {
+        Preconditions.checkArgument(password.child(0) instanceof StringLikeLiteral,
+                "argument of password must be string literal");
+        String s = ((StringLikeLiteral) password.child()).value;
+        return new StringLiteral("*" + DigestUtils.sha1Hex(
+                DigestUtils.sha1(s.getBytes())).toUpperCase());
     }
 
     @Override
