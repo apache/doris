@@ -55,7 +55,7 @@ struct UInt128 {
     bool operator<=(const UInt128 rhs) const { return tuple() <= rhs.tuple(); }
     bool operator>(const UInt128 rhs) const { return tuple() > rhs.tuple(); }
     bool operator>=(const UInt128 rhs) const { return tuple() >= rhs.tuple(); }
-
+    auto operator<=>(const UInt128 rhs) const { return tuple() <=> rhs.tuple(); }
     UInt128 operator<<(const UInt128& rhs) const {
         const uint64_t shift = rhs.low;
         if (((bool)rhs.high) || (shift >= 128)) {
