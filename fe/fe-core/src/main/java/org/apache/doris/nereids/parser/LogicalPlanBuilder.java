@@ -469,17 +469,6 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         return logicalPlans;
     }
 
-    @Override
-    public Properties visitPropertiesStatment(PropertiesStatmentContext ctx) {
-        Builder<String, String> map = ImmutableMap.builder();
-        for (PropertyContext argument : ctx.properties) {
-            String key = parsePropertyItem(argument.key);
-            String value = parsePropertyItem(argument.value);
-            map.put(key, value);
-        }
-        return new Properties(map.build());
-    }
-
     /* ********************************************************************************************
      * Plan parsing
      * ******************************************************************************************** */

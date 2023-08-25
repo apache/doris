@@ -61,9 +61,6 @@ statement
         (withRemoteStorageSystem)?                                     #export
     ;
 
-propertiesStatment
-    : properties+=property (COMMA properties+=property)*
-    ;
 
 
 // -----------------Command accessories-----------------
