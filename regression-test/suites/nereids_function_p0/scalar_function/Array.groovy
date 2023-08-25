@@ -809,4 +809,45 @@ suite("nereids_scalar_fn_Array") {
     order_qt_sql_size_DateV2 "select size(kadtv2) from fn_test"
     order_qt_sql_size_DateV2_notnull "select size(kadtv2) from fn_test_not_nullable"
 
+    // split_by_string
+    order_qt_sql_split_by_string_Char "select split_by_string(kchrs1, ',') from fn_test"
+    order_qt_sql_split_by_string_Char_notnull "select split_by_string(kchrs1, ',') from fn_test_not_nullable"
+    order_qt_sql_split_by_string_VarChar "select split_by_string(kvchrs1, ',') from fn_test"
+    order_qt_sql_split_by_string_VarChar_notnull "select split_by_string(kvchrs1, ',') from fn_test_not_nullable"
+    order_qt_sql_split_by_string_String "select split_by_string(kstr, ',') from fn_test"
+    order_qt_sql_split_by_string_String_notnull "select split_by_string(kstr, ',') from fn_test_not_nullable"
+
+    // tokenize
+    order_qt_sql_tokenize_Char "select tokenize(kchrs1, '') from fn_test"
+    order_qt_sql_tokenize_Char_notnull "select tokenize(kchrs1, '') from fn_test_not_nullable"
+    order_qt_sql_tokenize_VarChar "select tokenize(kvchrs1, null) from fn_test"
+    order_qt_sql_tokenize_VarChar_notnull "select tokenize(kvchrs1, '') from fn_test_not_nullable"
+    order_qt_sql_tokenize_String "select tokenize(kstr, '') from fn_test"
+    order_qt_sql_tokenize_String_notnull "select tokenize(kstr, null) from fn_test_not_nullable"
+
+    test {
+        sql "select tokenize('arg1','xxx = yyy,zzz');"
+        check{result, exception, startTime, endTime ->
+            assertTrue(exception != null)
+            logger.info(exception.message)
+        }
+    }
+
+    test {
+        sql "select tokenize('arg1','2');"
+        check{result, exception, startTime, endTime ->
+            assertTrue(exception != null)
+            logger.info(exception.message)
+        }
+    }
+
+    test {
+        sql "select tokenize(kstr, kstr) from fn_test"
+        check{result, exception, startTime, endTime ->
+            assertTrue(exception != null)
+            logger.info(exception.message)
+        }
+    }
+
+
 }

@@ -19,8 +19,8 @@ package org.apache.doris.nereids.trees.expressions.functions.table;
 
 import org.apache.doris.catalog.FunctionSignature;
 import org.apache.doris.nereids.exceptions.AnalysisException;
+import org.apache.doris.nereids.trees.expressions.Properties;
 import org.apache.doris.nereids.trees.expressions.Slot;
-import org.apache.doris.nereids.trees.expressions.TVFProperties;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.coercion.AnyDataType;
 import org.apache.doris.statistics.Statistics;
@@ -33,7 +33,7 @@ import java.util.Map;
 
 /** hdfs */
 public class Hdfs extends TableValuedFunction {
-    public Hdfs(TVFProperties properties) {
+    public Hdfs(Properties properties) {
         super("hdfs", properties);
     }
 
