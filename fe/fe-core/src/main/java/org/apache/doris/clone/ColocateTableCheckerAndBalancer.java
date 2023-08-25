@@ -181,8 +181,6 @@ public class ColocateTableCheckerAndBalancer extends MasterDaemon {
     private class GlobalColocateStatistic {
         private Map<Long, BackendBuckets> backendBucketsMap = Maps.newHashMap();
         private Map<GroupId, List<BucketStatistic>> groupBucketsMap = Maps.newHashMap();
-        private int totalReplicaNum = 0;
-        private long totalReplicaDataSize = 0;
         private BackendBuckets dummyBeBuckets = new BackendBuckets(0, groupBucketsMap);
 
         public GlobalColocateStatistic() {
@@ -211,6 +209,10 @@ public class ColocateTableCheckerAndBalancer extends MasterDaemon {
             }
 
             return true;
+        }
+
+        public int getBackendTotalBucketNum(long backendId) {
+            return backendBucketsMap.getOrDefault(backendId, dummyBeBuckets).getTotalBucketsNum();
         }
 
         public long getBackendTotalReplicaDataSize(long backendId) {
@@ -242,8 +244,6 @@ public class ColocateTableCheckerAndBalancer extends MasterDaemon {
                         backendBucketsMap.put(backendId, backendBuckets);
                     }
                     backendBuckets.addGroupTablet(groupId, tabletOrderIdx);
-                    totalReplicaNum += totalReplicaNumPerBucket;
-                    totalReplicaDataSize += totalReplicaDataSizes.get(tabletOrderIdx);
                 }
             }
             groupBucketsMap.put(groupId, bucketStatistics);
@@ -288,16 +288,6 @@ public class ColocateTableCheckerAndBalancer extends MasterDaemon {
             // even if they are unbalanced.
 
             return false;
-        }
-
-        public double getColocateLoadScore(long beId) {
-            int backendNum = backendBucketsMap.size();
-            BackendBuckets backendBuckets = backendBucketsMap.getOrDefault(beId, dummyBeBuckets);
-            double replicaNumScore = totalReplicaNum == 0 ? 0.0
-                    : ((double) backendBuckets.getTotalReplicaNum()) * backendNum / totalReplicaNum;
-            double replicaDataSizeScore = totalReplicaDataSize == 0 ? 0.0
-                    : ((double) backendBuckets.getTotalReplicaDataSize()) * backendNum / totalReplicaDataSize;
-            return 0.5 * replicaNumScore + 0.5 * replicaDataSizeScore;
         }
     }
 
@@ -993,26 +983,28 @@ public class ColocateTableCheckerAndBalancer extends MasterDaemon {
                     if (!entry1.getValue().equals(entry2.getValue())) {
                         return (int) (entry2.getValue() - entry1.getValue());
                     }
-                    double colocateScore1 = globalColocateStatistic.getColocateLoadScore(entry1.getKey());
-                    double colocateScore2 = globalColocateStatistic.getColocateLoadScore(entry2.getKey());
-                    if (Math.abs(colocateScore1 - colocateScore2) >= 1e-6) {
-                        return colocateScore1 < colocateScore2 ? 1 : -1;
+
+                    // From java 7, sorting needs to satisfy reflexivity, transitivity and symmetry.
+                    // Otherwise it will raise exception "Comparison method violates its general contract".
+
+                    int totalBucketNum1 = globalColocateStatistic.getBackendTotalBucketNum(entry1.getKey());
+                    int totalBucketNum2 = globalColocateStatistic.getBackendTotalBucketNum(entry2.getKey());
+                    if (totalBucketNum1 != totalBucketNum2) {
+                        return Integer.compare(totalBucketNum2, totalBucketNum1);
                     }
 
                     BackendLoadStatistic beStat1 = statistic.getBackendLoadStatistic(entry1.getKey());
                     BackendLoadStatistic beStat2 = statistic.getBackendLoadStatistic(entry2.getKey());
                     if (beStat1 == null || beStat2 == null) {
-                        return 0;
+                        if (beStat1 == null && beStat2 == null) {
+                            return 0;
+                        } else {
+                            return beStat1 == null ? 1 : -1;
+                        }
                     }
                     double loadScore1 = beStat1.getMixLoadScore();
                     double loadScore2 = beStat2.getMixLoadScore();
-                    if (Math.abs(loadScore1 - loadScore2) < 1e-6) {
-                        return 0;
-                    } else if (loadScore2 > loadScore1) {
-                        return 1;
-                    } else {
-                        return -1;
-                    }
+                    return Double.compare(loadScore2, loadScore1);
                 })
                 .collect(Collectors.toList());
     }
