@@ -3134,4 +3134,9 @@ public class InternalCatalog implements CatalogIf<Database> {
         OlapTable olapTable = (OlapTable) db.getTableOrMetaException(log.getTableId(), TableType.OLAP);
         olapTable.getAutoIncrementGenerator().applyChange(log.getColumnId(), log.getBatchEndId());
     }
+
+    @Override
+    public boolean enableAutoAnalyze() {
+        return true;
+    }
 }
