@@ -908,6 +908,7 @@ Status FragmentMgr::exec_plan_fragment(const TPipelineFragmentParams& params,
             auto prepare_st = context->prepare(params, i);
             if (!prepare_st.ok()) {
                 context->close_if_prepare_failed();
+                context->update_status(prepare_st);
                 return prepare_st;
             }
         }
