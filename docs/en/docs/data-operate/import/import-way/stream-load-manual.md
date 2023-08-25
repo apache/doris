@@ -182,10 +182,6 @@ Stream load uses HTTP protocol, so all parameters related to import tasks are se
 
   Stream load import can enable two-stage transaction commit mode: in the stream load process, the data is written and the information is returned to the user. At this time, the data is invisible and the transaction status is `PRECOMMITTED`. After the user manually triggers the commit operation, the data is visible.
 
-+ enable_profile
-
-  <version since="1.2.7">When `enable_profile` is true, the Stream Load profile will be printed to logs (be.INFO).</version>
-
   Example：
 
     1. Initiate a stream load pre-commit operation
@@ -230,6 +226,10 @@ Stream load uses HTTP protocol, so all parameters related to import tasks are se
       "msg": "transaction [18037] abort successfully."
   }
   ```
+
++ enable_profile
+
+  <version since="1.2.7">When `enable_profile` is true, the Stream Load profile will be printed to logs (be.INFO).</version>
 
 ### Use stream load with SQL
 
