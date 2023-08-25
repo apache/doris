@@ -271,6 +271,50 @@ public:
         return Status::OK();
     }
 
+    Status add_array_values(size_t field_size, const void* value_ptr, const uint8_t* offsets_ptr,
+                            size_t count) override {
+        if constexpr (field_is_slice_type(field_type)) {
+            if (_field == nullptr || _index_writer == nullptr) {
+                LOG(ERROR) << "field or index writer is null in inverted index writer.";
+                return Status::InternalError(
+                        "field or index writer is null in inverted index writer");
+            }
+            for (int i = 0; i < count; ++i) {
+                // offsets[i+1] is now row element count
+                std::vector<std::string> strings;
+                // [0, 3, 6]
+                // [1,2,3,4,5,6]
+                auto start_off = offsets_ptr[i];
+                auto end_off = offsets_ptr[i + 1];
+                for (auto j = start_off; j < end_off; ++j) {
+                    auto* v = (Slice*)((const uint8_t*)value_ptr + j * field_size);
+                    strings.emplace_back(std::string(v->get_data(), v->get_size()));
+                }
+
+                auto value = join(strings, " ");
+                new_fulltext_field(value.c_str(), value.length());
+                _rid++;
+                _index_writer->addDocument(_doc.get());
+            }
+        } else if constexpr (field_is_numeric_type(field_type)) {
+            for (int i = 0; i < count; ++i) {
+                auto start_off = offsets_ptr[i];
+                auto end_off = offsets_ptr[i + 1];
+                for (size_t j = start_off; j < end_off; ++j) {
+                    const CppType* p = reinterpret_cast<const CppType*>(value_ptr) + j * field_size;
+                    std::string new_value;
+                    size_t value_length = sizeof(CppType);
+
+                    _value_key_coder->full_encode_ascending(p, &new_value);
+                    _bkd_writer->add((const uint8_t*)new_value.c_str(), value_length, _rid);
+                }
+                _row_ids_seen_for_bkd++;
+                _rid++;
+            }
+        }
+        return Status::OK();
+    }
+
     Status add_array_values(size_t field_size, const CollectionValue* values,
                             size_t count) override {
         if constexpr (field_is_slice_type(field_type)) {
