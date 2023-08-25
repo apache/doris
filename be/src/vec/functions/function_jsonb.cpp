@@ -548,7 +548,7 @@ public:
                                          rdata.size()));
             }
 
-            json_path_list[pi] = path;
+            json_path_list[pi] = std::move(path);
 
             return Status::OK();
         };
