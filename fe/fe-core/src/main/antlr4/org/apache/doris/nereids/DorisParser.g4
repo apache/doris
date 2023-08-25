@@ -56,7 +56,7 @@ statement
     | EXPORT TABLE tableName=multipartIdentifier
         (PARTITION partition=identifierList)?
         (whereClause)?
-        TO filePath=STRING_LITERAL
+        TO filePath=constant
         (propertyClause)?
         (withRemoteStorageSystem)?                                     #export
     ;

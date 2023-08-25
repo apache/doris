@@ -391,7 +391,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     public LogicalPlan visitExport(ExportContext ctx) {
         List<String> tableName = visitMultipartIdentifier(ctx.tableName);
         List<String> partitions = ctx.partition == null ? ImmutableList.of() : visitIdentifierList(ctx.partition);
-        String path = ctx.filePath.getText();
+        String path = parseConstant(ctx.filePath);
         String whereSql = null;
         if (ctx.whereClause() != null) {
             WhereClauseContext whereClauseContext = ctx.whereClause();
