@@ -438,8 +438,7 @@ Status HdfsFileSystemCache::_create_fs(const THdfsParams& hdfs_params, const std
     *is_kerberos = builder.is_need_kinit();
     hdfsFS hdfs_fs = hdfsBuilderConnect(builder.get());
     if (hdfs_fs == nullptr) {
-        return Status::IOError("faield to connect to hdfs {}: {}", hdfs_params.fs_name,
-                               hdfs_error());
+        return Status::IOError("faield to connect to hdfs {}: {}", fs_name, hdfs_error());
     }
     *fs = hdfs_fs;
     return Status::OK();
