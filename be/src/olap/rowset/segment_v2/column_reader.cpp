@@ -830,6 +830,7 @@ Status OffsetFileColumnIterator::_calculate_offsets(
     auto& offsets_data = column_offsets.get_data();
     ordinal_t first_column_offset = offsets_data[start - 1]; // -1 is valid
     ordinal_t first_storage_offset = offsets_data[start];
+    DCHECK(next_storage_offset >= first_storage_offset);
     for (ssize_t i = start; i < offsets_data.size() - 1; ++i) {
         offsets_data[i] = first_column_offset + (offsets_data[i + 1] - first_storage_offset);
     }
