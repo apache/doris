@@ -557,8 +557,7 @@ Status AggSourceOperatorX::setup_local_state(RuntimeState* state, LocalStateInfo
 }
 
 bool AggSourceOperatorX::can_read(RuntimeState* state) {
-    auto& local_state = state->get_local_state(id())->cast<AggLocalState>();
-    return local_state._dependency->done();
+    return state->get_local_state(id())->cast<AggLocalState>()._dependency->done();
 }
 
 } // namespace pipeline

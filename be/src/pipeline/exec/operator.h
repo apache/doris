@@ -36,6 +36,8 @@
 #include "runtime/runtime_state.h"
 #include "util/runtime_profile.h"
 #include "vec/core/block.h"
+#include "vec/runtime/vdata_stream_recvr.h"
+#include "vec/sink/vresult_sink.h"
 
 namespace doris {
 class DataSink;
@@ -484,12 +486,14 @@ protected:
 struct LocalStateInfo {
     const std::vector<TScanRangeParams> scan_ranges;
     Dependency* dependency;
+    std::shared_ptr<vectorized::VDataStreamRecvr> recvr;
 };
 
 // This struct is used only for initializing local sink state.
 struct LocalSinkStateInfo {
     const int sender_id;
     Dependency* dependency;
+    std::shared_ptr<BufferControlBlock> sender;
 };
 
 class PipelineXLocalState {
@@ -674,6 +678,7 @@ public:
     }
 
     virtual bool is_source() const override { return false; }
+    [[nodiscard]] virtual bool need_to_create_exch_recv() const { return false; }
 
     Status get_next_after_projects(RuntimeState* state, vectorized::Block* block,
                                    SourceState& source_state);
@@ -767,6 +772,8 @@ public:
     virtual Status init(const TDataSink& tsink) override { return Status::OK(); }
 
     virtual Status setup_local_state(RuntimeState* state, LocalSinkStateInfo& info) = 0;
+
+    [[nodiscard]] virtual bool need_to_create_result_sender() const { return false; }
 
     template <class TARGET>
     TARGET& cast() {
