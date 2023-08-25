@@ -382,14 +382,17 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
                 .forEach(exprId -> outputExprs.add(context.findSlotRef(exprId)));
         rootFragment.setOutputExprs(outputExprs);
 
+        // generate colLabels
+        List<String> labels = fileSink.getOutput().stream().map(NamedExpression::getName).collect(Collectors.toList());
+
         // TODO: should not call legacy planner analyze in Nereids
         try {
-            outFile.analyze(null, outputExprs,
-                    fileSink.getOutput().stream().map(NamedExpression::getName).collect(Collectors.toList()));
+            outFile.analyze(null, outputExprs, labels);
         } catch (Exception e) {
             throw new AnalysisException(e.getMessage(), e.getCause());
         }
-        ResultFileSink sink = new ResultFileSink(rootFragment.getPlanRoot().getId(), outFile);
+        ResultFileSink sink = new ResultFileSink(rootFragment.getPlanRoot().getId(), outFile,
+                (ArrayList<String>) labels);
 
         rootFragment.setSink(sink);
         return rootFragment;
@@ -437,7 +440,9 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         TableRef ref = new TableRef(tableName, null, null);
         BaseTableRef tableRef = new BaseTableRef(ref, table, tableName);
         tupleDescriptor.setRef(tableRef);
-
+        if (fileScan.getStats() != null) {
+            scanNode.setCardinality((long) fileScan.getStats().getRowCount());
+        }
         Utils.execWithUncheckedException(scanNode::init);
         context.addScanNode(scanNode);
         ScanNode finalScanNode = scanNode;

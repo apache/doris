@@ -102,6 +102,7 @@ bool ExchangeSinkLocalState::transfer_large_data_by_brpc() const {
 }
 
 Status ExchangeSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& info) {
+    RETURN_IF_ERROR(PipelineXSinkLocalState::init(state, info));
     _sender_id = info.sender_id;
     _broadcast_pb_blocks.resize(config::num_broadcast_buffer);
     _broadcast_pb_block_idx = 0;
@@ -128,7 +129,6 @@ Status ExchangeSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& inf
     std::string title = "VDataStreamSender (dst_id={}, dst_fragments=[{}])";
     _profile = p._pool->add(new RuntimeProfile(title));
     SCOPED_TIMER(_profile->total_time_counter());
-    _mem_tracker = std::make_unique<MemTracker>("ExchangeSinkLocalState:");
     SCOPED_CONSUME_MEM_TRACKER(_mem_tracker.get());
 
     int local_size = 0;
@@ -554,15 +554,13 @@ Status ExchangeSinkOperatorX::try_close(RuntimeState* state) {
     return final_st;
 }
 
-Status ExchangeSinkOperatorX::close(RuntimeState* state) {
-    auto& local_state = state->get_sink_local_state(id())->cast<ExchangeSinkLocalState>();
+Status ExchangeSinkLocalState::close(RuntimeState* state) {
     if (_closed) {
         return Status::OK();
     }
-    RETURN_IF_ERROR(DataSinkOperatorX::close(state));
-    local_state._sink_buffer->update_profile(local_state.profile());
-    local_state._sink_buffer->close();
-    return Status::OK();
+    _sink_buffer->update_profile(profile());
+    _sink_buffer->close();
+    return PipelineXSinkLocalState::close(state);
 }
 
 bool ExchangeSinkOperatorX::can_write(RuntimeState* state) {

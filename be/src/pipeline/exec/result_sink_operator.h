@@ -41,7 +41,7 @@ public:
     bool can_write() override;
 };
 
-class ResultSinkLocalState : public PipelineXSinkLocalState {
+class ResultSinkLocalState final : public PipelineXSinkLocalState {
     ENABLE_FACTORY_CREATOR(ResultSinkLocalState);
 
 public:
@@ -49,6 +49,8 @@ public:
             : PipelineXSinkLocalState(parent, state) {}
 
     Status init(RuntimeState* state, LocalSinkStateInfo& info) override;
+
+    Status close(RuntimeState* state) override;
 
 private:
     friend class ResultSinkOperatorX;
@@ -71,7 +73,6 @@ public:
     Status sink(RuntimeState* state, vectorized::Block* in_block,
                 SourceState source_state) override;
 
-    Status close(RuntimeState* state) override;
     bool can_write(RuntimeState* state) override;
 
 private:

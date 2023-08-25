@@ -520,33 +520,34 @@ void AggLocalState::make_nullable_output_key(vectorized::Block* block) {
     }
 }
 
-Status AggSourceOperatorX::close(RuntimeState* state) {
-    auto& local_state = state->get_local_state(id())->cast<AggLocalState>();
-    for (auto* aggregate_evaluator : local_state._shared_state->aggregate_evaluators) {
+Status AggLocalState::close(RuntimeState* state) {
+    if (_closed) {
+        return Status::OK();
+    }
+    for (auto* aggregate_evaluator : _shared_state->aggregate_evaluators) {
         aggregate_evaluator->close(state);
     }
-    if (local_state._executor.close) {
-        local_state._executor.close();
+    if (_executor.close) {
+        _executor.close();
     }
 
     /// _hash_table_size_counter may be null if prepare failed.
-    if (local_state._hash_table_size_counter) {
+    if (_hash_table_size_counter) {
         std::visit(
                 [&](auto&& agg_method) {
-                    COUNTER_SET(local_state._hash_table_size_counter,
-                                int64_t(agg_method.data.size()));
+                    COUNTER_SET(_hash_table_size_counter, int64_t(agg_method.data.size()));
                 },
-                local_state._agg_data->method_variant);
+                _agg_data->method_variant);
     }
 
-    local_state._shared_state->agg_data = nullptr;
-    local_state._shared_state->aggregate_data_container = nullptr;
-    local_state._shared_state->agg_arena_pool = nullptr;
-    local_state._shared_state->agg_profile_arena = nullptr;
+    _shared_state->agg_data = nullptr;
+    _shared_state->aggregate_data_container = nullptr;
+    _shared_state->agg_arena_pool = nullptr;
+    _shared_state->agg_profile_arena = nullptr;
 
     std::vector<vectorized::AggregateDataPtr> tmp_values;
-    local_state._shared_state->values.swap(tmp_values);
-    return Status::OK();
+    _shared_state->values.swap(tmp_values);
+    return PipelineXLocalState::close(state);
 }
 
 Status AggSourceOperatorX::setup_local_state(RuntimeState* state, LocalStateInfo& info) {

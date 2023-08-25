@@ -20,6 +20,7 @@
 #include "pipeline/exec/data_queue.h"
 #include "vec/common/sort/sorter.h"
 #include "vec/exec/vaggregation_node.h"
+#include "vec/exec/vanalytic_eval_node.h"
 
 namespace doris {
 namespace pipeline {
@@ -139,6 +140,47 @@ public:
 
 private:
     SortSharedState _sort_state;
+};
+
+struct AnalyticSharedState {
+public:
+    AnalyticSharedState() = default;
+
+    int64_t current_row_position = 0;
+    vectorized::BlockRowPos partition_by_end;
+    vectorized::VExprContextSPtrs partition_by_eq_expr_ctxs;
+    int64_t input_total_rows = 0;
+    vectorized::BlockRowPos all_block_end;
+    std::vector<vectorized::Block> input_blocks;
+    bool input_eos = false;
+    std::atomic_bool need_more_input = true;
+    vectorized::BlockRowPos found_partition_end;
+    std::vector<int64_t> origin_cols;
+    vectorized::VExprContextSPtrs order_by_eq_expr_ctxs;
+    std::vector<int64_t> input_block_first_row_positions;
+    std::vector<std::vector<vectorized::MutableColumnPtr>> agg_input_columns;
+
+    // TODO: maybe global?
+    std::vector<int64_t> partition_by_column_idxs;
+    std::vector<int64_t> ordey_by_column_idxs;
+};
+
+class AnalyticDependency final : public Dependency {
+public:
+    AnalyticDependency(int id) : Dependency(id) {}
+    ~AnalyticDependency() override = default;
+
+    void* shared_state() override { return (void*)&_analytic_state; };
+
+    vectorized::BlockRowPos get_partition_by_end();
+
+    bool whether_need_next_partition(vectorized::BlockRowPos found_partition_end);
+    vectorized::BlockRowPos compare_row_to_find_end(int idx, vectorized::BlockRowPos start,
+                                                    vectorized::BlockRowPos end,
+                                                    bool need_check_first = false);
+
+private:
+    AnalyticSharedState _analytic_state;
 };
 
 } // namespace pipeline

@@ -43,6 +43,7 @@
 // IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/status.h"
+#include "runtime/exec_env.h"
 #include "runtime/runtime_state.h"
 #include "udf/udf.h"
 #include "util/jsonb_document.h"
@@ -125,13 +126,13 @@ struct TimeCast {
     // '300' -> 00:03:00 '20:23' ->  20:23:00 '20:23:24' -> 20:23:24
     template <typename T>
     static bool try_parse_time(char* s, size_t len, T& x, const cctz::time_zone& local_time_zone,
-                               ZoneList& time_zone_cache) {
+                               ZoneList& time_zone_cache, std::shared_mutex& cache_lock) {
         /// TODO: Maybe we can move Timecast to the io_helper.
         if (try_as_time(s, len, x, local_time_zone)) {
             return true;
         } else {
             if (VecDateTimeValue dv {};
-                dv.from_date_str(s, len, local_time_zone, time_zone_cache)) {
+                dv.from_date_str(s, len, local_time_zone, time_zone_cache, &cache_lock)) {
                 // can be parse as a datetime
                 x = dv.hour() * 3600 + dv.minute() * 60 + dv.second();
                 return true;
@@ -615,6 +616,8 @@ struct ConvertImplNumberToJsonb {
                 writer.writeInt32(data[i]);
             } else if constexpr (std::is_same_v<ColumnInt64, ColumnType>) {
                 writer.writeInt64(data[i]);
+            } else if constexpr (std::is_same_v<ColumnInt128, ColumnType>) {
+                writer.writeInt128(data[i]);
             } else if constexpr (std::is_same_v<ColumnFloat64, ColumnType>) {
                 writer.writeDouble(data[i]);
             } else {
@@ -720,7 +723,7 @@ struct ConvertImplFromJsonb {
                     }
                 } else if constexpr (type_index == TypeIndex::Int8) {
                     if (value->isInt8()) {
-                        res[i] = ((const JsonbIntVal*)value)->val();
+                        res[i] = (int8_t)((const JsonbIntVal*)value)->val();
                     } else {
                         null_map[i] = 1;
                         res[i] = 0;
@@ -742,7 +745,15 @@ struct ConvertImplFromJsonb {
                 } else if constexpr (type_index == TypeIndex::Int64) {
                     if (value->isInt8() || value->isInt16() || value->isInt32() ||
                         value->isInt64()) {
-                        res[i] = ((const JsonbIntVal*)value)->val();
+                        res[i] = (int64_t)((const JsonbIntVal*)value)->val();
+                    } else {
+                        null_map[i] = 1;
+                        res[i] = 0;
+                    }
+                } else if constexpr (type_index == TypeIndex::Int128) {
+                    if (value->isInt8() || value->isInt16() || value->isInt32() ||
+                        value->isInt64() || value->isInt128()) {
+                        res[i] = (int128_t)((const JsonbIntVal*)value)->val();
                     } else {
                         null_map[i] = 1;
                         res[i] = 0;
@@ -843,22 +854,24 @@ struct NameToDateTime {
 template <typename DataType, typename Additions = void*, typename FromDataType = void*>
 bool try_parse_impl(typename DataType::FieldType& x, ReadBuffer& rb,
                     const cctz::time_zone& local_time_zone, ZoneList& time_zone_cache,
+                    std::shared_mutex& cache_lock,
                     Additions additions [[maybe_unused]] = Additions()) {
     if constexpr (IsDateTimeType<DataType>) {
-        return try_read_datetime_text(x, rb);
+        return try_read_datetime_text(x, rb, local_time_zone, time_zone_cache, cache_lock);
     }
 
     if constexpr (IsDateType<DataType>) {
-        return try_read_date_text(x, rb);
+        return try_read_date_text(x, rb, local_time_zone, time_zone_cache, cache_lock);
     }
 
     if constexpr (IsDateV2Type<DataType>) {
-        return try_read_date_v2_text(x, rb, local_time_zone, time_zone_cache);
+        return try_read_date_v2_text(x, rb, local_time_zone, time_zone_cache, cache_lock);
     }
 
     if constexpr (IsDateTimeV2Type<DataType>) {
         UInt32 scale = additions;
-        return try_read_datetime_v2_text(x, rb, local_time_zone, time_zone_cache, scale);
+        return try_read_datetime_v2_text(x, rb, local_time_zone, time_zone_cache, cache_lock,
+                                         scale);
     }
 
     if constexpr (std::is_same_v<DataTypeString, FromDataType> &&
@@ -867,7 +880,8 @@ bool try_parse_impl(typename DataType::FieldType& x, ReadBuffer& rb,
         auto len = rb.count();
         auto s = rb.position();
         rb.position() = rb.end(); // make is_all_read = true
-        auto ret = TimeCast::try_parse_time(s, len, x, local_time_zone, time_zone_cache);
+        auto ret =
+                TimeCast::try_parse_time(s, len, x, local_time_zone, time_zone_cache, cache_lock);
         x *= (1000 * 1000);
         return ret;
     }
@@ -1317,10 +1331,8 @@ struct ConvertThroughParsing {
                                             ColumnDecimal<ToFieldType>, ColumnVector<ToFieldType>>;
 
         // For datelike type, only from FunctionConvertFromString. So we can use its' context。
-        auto convert_ctx = reinterpret_cast<ConvertTzCtx*>(
-                context->get_function_state(FunctionContext::FunctionStateScope::THREAD_LOCAL));
-        ZoneList time_zone_cache_;
-        auto& time_zone_cache = convert_ctx ? convert_ctx->time_zone_cache : time_zone_cache_;
+        ZoneList& time_zone_cache = context->state()->exec_env()->global_zone_cache();
+        std::shared_mutex& cache_lock = context->state()->exec_env()->zone_cache_rw_lock();
 
         const IColumn* col_from = block.get_by_position(arguments[0]).column.get();
         const ColumnString* col_from_string = check_and_get_column<ColumnString>(col_from);
@@ -1376,17 +1388,17 @@ struct ConvertThroughParsing {
                         if constexpr (IsDataTypeDecimal<ToDataType>) {
                             parsed = try_parse_impl<ToDataType>(
                                     vec_to[i], read_buffer, context->state()->timezone_obj(),
-                                    time_zone_cache, vec_to.get_scale());
+                                    time_zone_cache, cache_lock, vec_to.get_scale());
                         } else if constexpr (IsDataTypeDateTimeV2<ToDataType>) {
                             auto type = check_and_get_data_type<DataTypeDateTimeV2>(
                                     block.get_by_position(result).type.get());
-                            parsed = try_parse_impl<ToDataType>(vec_to[i], read_buffer,
-                                                                context->state()->timezone_obj(),
-                                                                time_zone_cache, type->get_scale());
+                            parsed = try_parse_impl<ToDataType>(
+                                    vec_to[i], read_buffer, context->state()->timezone_obj(),
+                                    time_zone_cache, cache_lock, type->get_scale());
                         } else {
                             parsed = try_parse_impl<ToDataType, void*, FromDataType>(
                                     vec_to[i], read_buffer, context->state()->timezone_obj(),
-                                    time_zone_cache);
+                                    time_zone_cache, cache_lock);
                         }
                         (*vec_null_map_to)[i] = !parsed || !is_all_read(read_buffer);
                         if constexpr (is_load_ && is_strict_insert_) {
@@ -1441,14 +1453,6 @@ public:
 
     ColumnNumbers get_arguments_that_are_always_constant() const override { return {1}; }
 
-    Status open(FunctionContext* context, FunctionContext::FunctionStateScope scope) override {
-        if (scope != FunctionContext::THREAD_LOCAL) {
-            return Status::OK();
-        }
-        context->set_function_state(scope, std::make_unique<ConvertTzCtx>());
-        return Status::OK();
-    }
-
     // This function should not be called for get DateType Ptr
     // using the FunctionCast::get_return_type_impl
     DataTypePtr get_return_type_impl(const ColumnsWithTypeAndName& arguments) const override {
@@ -1456,8 +1460,9 @@ public:
         if constexpr (IsDataTypeDecimal<ToDataType>) {
             LOG(FATAL) << "Someting wrong with toDecimalNNOrZero() or toDecimalNNOrNull()";
 
-        } else
+        } else {
             res = std::make_shared<ToDataType>();
+        }
 
         return res;
     }
@@ -1798,6 +1803,8 @@ private:
             return &ConvertImplFromJsonb<TypeIndex::Int32, ColumnInt32>::execute;
         case TypeIndex::Int64:
             return &ConvertImplFromJsonb<TypeIndex::Int64, ColumnInt64>::execute;
+        case TypeIndex::Int128:
+            return &ConvertImplFromJsonb<TypeIndex::Int128, ColumnInt128>::execute;
         case TypeIndex::Float64:
             return &ConvertImplFromJsonb<TypeIndex::Float64, ColumnFloat64>::execute;
         default:
@@ -1822,6 +1829,8 @@ private:
             return &ConvertImplNumberToJsonb<ColumnInt32>::execute;
         case TypeIndex::Int64:
             return &ConvertImplNumberToJsonb<ColumnInt64>::execute;
+        case TypeIndex::Int128:
+            return &ConvertImplNumberToJsonb<ColumnInt128>::execute;
         case TypeIndex::Float64:
             return &ConvertImplNumberToJsonb<ColumnFloat64>::execute;
         case TypeIndex::String:
