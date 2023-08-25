@@ -65,7 +65,7 @@ private:
 class ResultSinkOperatorX final : public DataSinkOperatorX {
 public:
     ResultSinkOperatorX(const RowDescriptor& row_desc, const std::vector<TExpr>& select_exprs,
-                        const TResultSink& sink, int buffer_size);
+                        const TResultSink& sink);
     Status prepare(RuntimeState* state) override;
     Status open(RuntimeState* state) override;
     Status setup_local_state(RuntimeState* state, LocalSinkStateInfo& info) override;
@@ -74,6 +74,8 @@ public:
                 SourceState source_state) override;
 
     bool can_write(RuntimeState* state) override;
+
+    [[nodiscard]] bool need_to_create_result_sender() const override { return true; }
 
 private:
     friend class ResultSinkLocalState;
@@ -89,7 +91,6 @@ private:
     // Owned by the RuntimeState.
     const std::vector<TExpr>& _t_output_expr;
     vectorized::VExprContextSPtrs _output_vexpr_ctxs;
-    int _buf_size; // Allocated from _pool
 
     // for fetch data by rowids
     TFetchOption _fetch_option;
