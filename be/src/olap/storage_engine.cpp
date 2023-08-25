@@ -166,13 +166,15 @@ Status StorageEngine::load_data_dirs(const std::vector<DataDir*>& data_dirs) {
     std::vector<std::thread> threads;
     std::vector<Status> results(data_dirs.size());
     for (size_t i = 0; i < data_dirs.size(); ++i) {
-        threads.emplace_back([&results, data_dir = data_dirs[i]](size_t index) {
-            results[index] = data_dir->load();
-            if (!results[index].ok()) {
-                LOG(WARNING) << "io error when init load tables. res=" << results[index]
-                             << ", data dir=" << data_dir->path();
-            }
-        }, i);
+        threads.emplace_back(
+                [&results, data_dir = data_dirs[i]](size_t index) {
+                    results[index] = data_dir->load();
+                    if (!results[index].ok()) {
+                        LOG(WARNING) << "io error when init load tables. res=" << results[index]
+                                     << ", data dir=" << data_dir->path();
+                    }
+                },
+                i);
     }
     for (auto& thread : threads) {
         thread.join();
