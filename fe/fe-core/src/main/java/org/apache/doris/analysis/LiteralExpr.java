@@ -267,4 +267,10 @@ public abstract class LiteralExpr extends Expr implements Comparable<LiteralExpr
     public String toString() {
         return getStringValue();
     }
+
+    @Override
+    protected Expr substituteImpl(ExprSubstitutionMap smap, ExprSubstitutionMap disjunctsMap,
+            Analyzer analyzer) {
+        return this;
+    }
 }
