@@ -23,7 +23,7 @@ import java.nio.file.Paths
 
 suite("test_outfile_exception") {
     
-    def tableName = "outfile_test"
+    def tableName = "outfile_exception_test"
     sql """ DROP TABLE IF EXISTS ${tableName} """
     sql """
     CREATE TABLE IF NOT EXISTS ${tableName} (

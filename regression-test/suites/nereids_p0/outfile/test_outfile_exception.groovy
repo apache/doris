@@ -25,7 +25,7 @@ suite("test_outfile_exception") {
     sql 'set enable_nereids_planner=true'
     sql 'set enable_fallback_to_original_planner=false'
     
-    def tableName = "outfile_test"
+    def tableName = "test_outfile_exception"
     sql """ DROP TABLE IF EXISTS ${tableName} """
     sql """
     CREATE TABLE IF NOT EXISTS ${tableName} (
