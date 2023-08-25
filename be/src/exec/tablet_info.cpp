@@ -155,7 +155,7 @@ Status OlapTableSchemaParam::init(const TOlapTableSchemaParam& tschema) {
             for (auto& tindex_desc : t_index.indexes_desc) {
                 std::vector<int32_t> column_unique_ids(tindex_desc.columns.size());
                 for (size_t i = 0; i < tindex_desc.columns.size(); i++) {
-                    auto it = slots_map.find(tindex_desc.columns[i]);
+                    auto it = slots_map.find(to_lower(tindex_desc.columns[i]));
                     if (it != std::end(slots_map)) {
                         column_unique_ids[i] = it->second->col_unique_id();
                     }
