@@ -845,11 +845,11 @@ bool try_parse_impl(typename DataType::FieldType& x, ReadBuffer& rb,
                     const cctz::time_zone& local_time_zone, ZoneList& time_zone_cache,
                     Additions additions [[maybe_unused]] = Additions()) {
     if constexpr (IsDateTimeType<DataType>) {
-        return try_read_datetime_text(x, rb);
+        return try_read_datetime_text(x, rb, local_time_zone, time_zone_cache);
     }
 
     if constexpr (IsDateType<DataType>) {
-        return try_read_date_text(x, rb);
+        return try_read_date_text(x, rb, local_time_zone, time_zone_cache);
     }
 
     if constexpr (IsDateV2Type<DataType>) {

@@ -269,6 +269,33 @@ bool read_int_text_impl(T& x, ReadBuffer& buf) {
 }
 
 template <typename T>
+bool read_date_text_impl(T& x, ReadBuffer& buf) {
+    static_assert(std::is_same_v<Int64, T>);
+    auto dv = binary_cast<Int64, VecDateTimeValue>(x);
+    auto ans = dv.from_date_str(buf.position(), buf.count());
+    dv.cast_to_date();
+
+    // only to match the is_all_read() check to prevent return null
+    buf.position() = buf.end();
+    x = binary_cast<VecDateTimeValue, Int64>(dv);
+    return ans;
+}
+
+template <typename T>
+bool read_date_text_impl(T& x, ReadBuffer& buf, const cctz::time_zone& local_time_zone,
+                         ZoneList& time_zone_cache) {
+    static_assert(std::is_same_v<Int64, T>);
+    auto dv = binary_cast<Int64, VecDateTimeValue>(x);
+    auto ans = dv.from_date_str(buf.position(), buf.count(), local_time_zone, time_zone_cache);
+    dv.cast_to_date();
+
+    // only to match the is_all_read() check to prevent return null
+    buf.position() = buf.end();
+    x = binary_cast<VecDateTimeValue, Int64>(dv);
+    return ans;
+}
+
+template <typename T>
 bool read_datetime_text_impl(T& x, ReadBuffer& buf) {
     static_assert(std::is_same_v<Int64, T>);
     auto dv = binary_cast<Int64, VecDateTimeValue>(x);
@@ -282,11 +309,12 @@ bool read_datetime_text_impl(T& x, ReadBuffer& buf) {
 }
 
 template <typename T>
-bool read_date_text_impl(T& x, ReadBuffer& buf) {
+bool read_datetime_text_impl(T& x, ReadBuffer& buf, const cctz::time_zone& local_time_zone,
+                             ZoneList& time_zone_cache) {
     static_assert(std::is_same_v<Int64, T>);
     auto dv = binary_cast<Int64, VecDateTimeValue>(x);
-    auto ans = dv.from_date_str(buf.position(), buf.count());
-    dv.cast_to_date();
+    auto ans = dv.from_date_str(buf.position(), buf.count(), local_time_zone, time_zone_cache);
+    dv.to_datetime();
 
     // only to match the is_all_read() check to prevent return null
     buf.position() = buf.end();
@@ -421,13 +449,15 @@ bool try_read_decimal_text(T& x, ReadBuffer& in, UInt32 precision, UInt32 scale)
 }
 
 template <typename T>
-bool try_read_datetime_text(T& x, ReadBuffer& in) {
-    return read_datetime_text_impl<T>(x, in);
+bool try_read_datetime_text(T& x, ReadBuffer& in, const cctz::time_zone& local_time_zone,
+                            ZoneList& time_zone_cache) {
+    return read_datetime_text_impl<T>(x, in, local_time_zone, time_zone_cache);
 }
 
 template <typename T>
-bool try_read_date_text(T& x, ReadBuffer& in) {
-    return read_date_text_impl<T>(x, in);
+bool try_read_date_text(T& x, ReadBuffer& in, const cctz::time_zone& local_time_zone,
+                        ZoneList& time_zone_cache) {
+    return read_date_text_impl<T>(x, in, local_time_zone, time_zone_cache);
 }
 
 template <typename T>
