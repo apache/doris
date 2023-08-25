@@ -29,7 +29,7 @@ PhysicalTopN
 --------------------------------------PhysicalOlapScan[date_dim]
 ------------------------------PhysicalDistribute
 --------------------------------PhysicalProject
-----------------------------------filter((cast(t_time as BIGINT) <= 77621)(cast(t_time as BIGINT) >= 48821))
+----------------------------------filter((cast(t_time as BIGINT) <= 77621)(time_dim.t_time >= 48821))
 ------------------------------------PhysicalOlapScan[time_dim]
 --------------------------PhysicalDistribute
 ----------------------------PhysicalProject
@@ -56,7 +56,7 @@ PhysicalTopN
 --------------------------------------PhysicalOlapScan[date_dim]
 ------------------------------PhysicalDistribute
 --------------------------------PhysicalProject
-----------------------------------filter((cast(t_time as BIGINT) <= 77621)(cast(t_time as BIGINT) >= 48821))
+----------------------------------filter((time_dim.t_time >= 48821)(cast(t_time as BIGINT) <= 77621))
 ------------------------------------PhysicalOlapScan[time_dim]
 --------------------------PhysicalDistribute
 ----------------------------PhysicalProject

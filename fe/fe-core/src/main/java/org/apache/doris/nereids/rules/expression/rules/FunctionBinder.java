@@ -26,7 +26,6 @@ import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.rules.analysis.ArithmeticFunctionBinder;
 import org.apache.doris.nereids.rules.expression.AbstractExpressionRewriteRule;
 import org.apache.doris.nereids.rules.expression.ExpressionRewriteContext;
-import org.apache.doris.nereids.trees.expressions.Between;
 import org.apache.doris.nereids.trees.expressions.BinaryArithmetic;
 import org.apache.doris.nereids.trees.expressions.BitNot;
 import org.apache.doris.nereids.trees.expressions.CaseWhen;
@@ -221,14 +220,6 @@ public class FunctionBinder extends AbstractExpressionRewriteRule {
                 .map(e -> e.accept(this, context)).collect(Collectors.toList());
         InPredicate newInPredicate = inPredicate.withChildren(rewrittenChildren);
         return TypeCoercionUtils.processInPredicate(newInPredicate);
-    }
-
-    @Override
-    public Expression visitBetween(Between between, ExpressionRewriteContext context) {
-        List<Expression> rewrittenChildren = between.children().stream()
-                .map(e -> e.accept(this, context)).collect(Collectors.toList());
-        Between newBetween = between.withChildren(rewrittenChildren);
-        return TypeCoercionUtils.processBetween(newBetween);
     }
 
     @Override

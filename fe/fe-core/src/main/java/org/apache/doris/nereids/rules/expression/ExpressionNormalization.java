@@ -18,7 +18,6 @@
 package org.apache.doris.nereids.rules.expression;
 
 import org.apache.doris.nereids.rules.expression.check.CheckCast;
-import org.apache.doris.nereids.rules.expression.rules.BetweenToCompoundRule;
 import org.apache.doris.nereids.rules.expression.rules.DigitalMaskingConvert;
 import org.apache.doris.nereids.rules.expression.rules.FoldConstantRule;
 import org.apache.doris.nereids.rules.expression.rules.InPredicateDedup;
@@ -44,7 +43,6 @@ public class ExpressionNormalization extends ExpressionRewrite {
     public static final List<ExpressionRewriteRule> NORMALIZE_REWRITE_RULES = ImmutableList.of(
             SupportJavaDateFormatter.INSTANCE,
             NormalizeBinaryPredicatesRule.INSTANCE,
-            BetweenToCompoundRule.INSTANCE,
             InPredicateDedup.INSTANCE,
             InPredicateToEqualToRule.INSTANCE,
             SimplifyNotExprRule.INSTANCE,
