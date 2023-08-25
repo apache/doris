@@ -51,7 +51,7 @@ suite("test_tz_streamload") {
     streamLoad {
         table "${table1}"
         set 'column_separator', ','
-        set 'time_zone', '+02:00'
+        set 'timezone', '+02:00'
         file "test_tz_streamload.csv"
         time 20000
     }
