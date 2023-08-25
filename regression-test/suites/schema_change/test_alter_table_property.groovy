@@ -45,4 +45,7 @@ suite("test_alter_table_property") {
     def showResult2 = sql """show create table ${tableName}"""
     logger.info("${showResult2}")
     assertTrue(showResult2.toString().containsIgnoreCase('"enable_single_replica_compaction" = "true"'))
+
+    sql """ DROP TABLE IF EXISTS ${tableName} """
+    sql """sync"""
 }
