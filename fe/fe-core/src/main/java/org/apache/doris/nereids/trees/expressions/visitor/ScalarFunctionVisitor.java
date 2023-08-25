@@ -230,6 +230,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.NullIf;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.NullOrEmpty;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Nvl;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ParseUrl;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Password;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Pi;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Pmod;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Positive;
@@ -1208,6 +1209,10 @@ public interface ScalarFunctionVisitor<R, C> {
 
     default R visitParseUrl(ParseUrl parseUrl, C context) {
         return visitScalarFunction(parseUrl, context);
+    }
+
+    default R visitPassword(Password password, C context) {
+        return visitScalarFunction(password, context);
     }
 
     default R visitPi(Pi pi, C context) {
