@@ -134,15 +134,21 @@ public class BrokerUtil {
         }
         String[] columns = new String[columnsFromPath.size()];
         int size = 0;
+        boolean skipOnce = true;
         for (int i = strings.length - 2; i >= 0; i--) {
             String str = strings[i];
             if (str != null && str.isEmpty()) {
                 continue;
             }
             if (str == null || !str.contains("=")) {
+                if (skipOnce) {
+                    skipOnce = false;
+                    continue;
+                }
                 throw new UserException("Fail to parse columnsFromPath, expected: "
                         + columnsFromPath + ", filePath: " + filePath);
             }
+            skipOnce = false;
             String[] pair = str.split("=", 2);
             if (pair.length != 2) {
                 throw new UserException("Fail to parse columnsFromPath, expected: "
