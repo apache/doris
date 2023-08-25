@@ -52,6 +52,7 @@ public:
     AnalyticLocalState(RuntimeState* state, OperatorXBase* parent);
 
     Status init(RuntimeState* state, LocalStateInfo& info) override;
+    Status close(RuntimeState* state) override;
 
     Status init_result_columns();
 
@@ -126,7 +127,6 @@ public:
     Status get_block(RuntimeState* state, vectorized::Block* block,
                      SourceState& source_state) override;
 
-    Status close(RuntimeState* state) override;
     bool is_source() const override { return true; }
 
     Status init(const TPlanNode& tnode, RuntimeState* state) override;

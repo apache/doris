@@ -554,15 +554,13 @@ Status ExchangeSinkOperatorX::try_close(RuntimeState* state) {
     return final_st;
 }
 
-Status ExchangeSinkOperatorX::close(RuntimeState* state) {
-    auto& local_state = state->get_sink_local_state(id())->cast<ExchangeSinkLocalState>();
+Status ExchangeSinkLocalState::close(RuntimeState* state) {
     if (_closed) {
         return Status::OK();
     }
-    RETURN_IF_ERROR(DataSinkOperatorX::close(state));
-    local_state._sink_buffer->update_profile(local_state.profile());
-    local_state._sink_buffer->close();
-    return Status::OK();
+    _sink_buffer->update_profile(profile());
+    _sink_buffer->close();
+    return PipelineXSinkLocalState::close(state);
 }
 
 bool ExchangeSinkOperatorX::can_write(RuntimeState* state) {
