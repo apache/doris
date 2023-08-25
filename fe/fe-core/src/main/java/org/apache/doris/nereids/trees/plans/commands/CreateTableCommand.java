@@ -90,9 +90,9 @@ public class CreateTableCommand extends Command implements ForwardWithSync {
         if (slots.size() != ctasCols.size()) {
             throw new AnalysisException("ctas column size is not equal to the query's");
         }
-        List<ColumnDefinition> columnsOfQuery = Lists.newArrayList(slots.stream()
+        List<ColumnDefinition> columnsOfQuery = slots.stream()
                 .map(s -> new ColumnDefinition(s.getName(), s.getDataType(), s.nullable()))
-                .collect(Collectors.toList()));
+                .collect(Collectors.toList());
         createTableInfo.validateCreateTableAsSelect(columnsOfQuery, ctx);
 
         CreateTableStmt createTableStmt = createTableInfo.translateToCatalogStyle();

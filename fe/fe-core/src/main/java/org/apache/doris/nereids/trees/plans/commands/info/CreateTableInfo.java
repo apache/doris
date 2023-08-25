@@ -81,7 +81,7 @@ public class CreateTableInfo {
         this.dbName = dbName;
         this.tableName = tableName;
         this.ctasColumns = null;
-        this.columns = Utils.copyRequiredList(columns);
+        this.columns = Utils.copyRequiredMutableList(columns);
         this.indexes = Utils.copyRequiredList(indexes);
         this.engineName = engineName;
         this.keysType = keysType;

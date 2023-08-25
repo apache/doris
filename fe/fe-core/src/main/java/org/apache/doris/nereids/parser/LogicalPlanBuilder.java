@@ -1786,7 +1786,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                     ctx.EXISTS() != null,
                     dbName,
                     tableName,
-                    Lists.newArrayList(visitColumnDefs(ctx.columnDefs())),
+                    visitColumnDefs(ctx.columnDefs()),
                     ImmutableList.of(),
                     engineName,
                     keysType,
