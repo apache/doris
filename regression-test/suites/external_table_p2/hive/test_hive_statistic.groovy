@@ -234,11 +234,11 @@ suite("test_hive_statistic", "p2,external,hive,external_remote,external_remote_h
         sql """analyze database `statistics` with sync"""
         result = sql """show table stats statistics"""
         assertTrue(result.size() == 1)
-        assertTrue(result[0][0] == "100")
+        assertTrue(result[0][2] == "100")
 
         result = sql """show table cached stats statistics"""
         assertTrue(result.size() == 1)
-        assertTrue(result[0][0] == "100")
+        assertTrue(result[0][2] == "100")
 
         sql """drop stats statistics"""
         result = sql """show column cached stats statistics"""

@@ -72,6 +72,7 @@ public class ExternalTable implements TableIf, Writable, GsonPostProcessable {
     @SerializedName(value = "lastUpdateTime")
     protected long lastUpdateTime;
 
+    protected long dbId;
     protected boolean objectCreated;
     protected ExternalCatalog catalog;
     protected ReentrantReadWriteLock rwLock = new ReentrantReadWriteLock(true);
@@ -113,6 +114,7 @@ public class ExternalTable implements TableIf, Writable, GsonPostProcessable {
         try {
             // getDbOrAnalysisException will call makeSureInitialized in ExternalCatalog.
             ExternalDatabase db = catalog.getDbOrAnalysisException(dbName);
+            dbId = db.getId();
             db.makeSureInitialized();
         } catch (AnalysisException e) {
             Util.logAndThrowRuntimeException(LOG, String.format("Exception to get db %s", dbName), e);
