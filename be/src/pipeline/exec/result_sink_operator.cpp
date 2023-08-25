@@ -155,17 +155,14 @@ Status ResultSinkOperatorX::_second_phase_fetch_data(RuntimeState* state,
     return Status::OK();
 }
 
-Status ResultSinkOperatorX::close(RuntimeState* state) {
+Status ResultSinkLocalState::close(RuntimeState* state) {
     if (_closed) {
         return Status::OK();
     }
-
     Status final_status = Status::OK();
-
-    auto& local_state = state->get_sink_local_state(id())->cast<ResultSinkLocalState>();
-    if (local_state._writer) {
+    if (_writer) {
         // close the writer
-        Status st = local_state._writer->close();
+        Status st = _writer->close();
         if (!st.ok() && final_status.ok()) {
             // close file writer failed, should return this error to client
             final_status = st;
@@ -173,15 +170,17 @@ Status ResultSinkOperatorX::close(RuntimeState* state) {
     }
 
     // close sender, this is normal path end
-    if (local_state._sender) {
-        if (local_state._writer)
-            local_state._sender->update_num_written_rows(local_state._writer->get_written_rows());
-        local_state._sender->update_max_peak_memory_bytes();
-        local_state._sender->close(final_status);
+    if (_sender) {
+        if (_writer) {
+            _sender->update_num_written_rows(_writer->get_written_rows());
+        }
+        _sender->update_max_peak_memory_bytes();
+        _sender->close(final_status);
     }
     state->exec_env()->result_mgr()->cancel_at_time(
             time(nullptr) + config::result_buffer_cancelled_interval_time,
             state->fragment_instance_id());
+    RETURN_IF_ERROR(PipelineXSinkLocalState::close(state));
     return final_status;
 }
 
