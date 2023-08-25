@@ -39,6 +39,7 @@ import org.apache.doris.planner.PlanFragmentId;
 import org.apache.doris.planner.PlanNode;
 import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.planner.ScanNode;
+import org.apache.doris.thrift.TPushAggOp;
 
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.Lists;
@@ -86,6 +87,8 @@ public class PlanTranslatorContext {
     private final Map<CTEId, PlanFragment> cteProduceFragments = Maps.newHashMap();
 
     private final Map<CTEId, PhysicalCTEProducer> cteProducerMap = Maps.newHashMap();
+
+    private final Map<Long, TPushAggOp> tablePushAggOp = Maps.newHashMap();
 
     public PlanTranslatorContext(CascadesContext ctx) {
         this.translator = new RuntimeFilterTranslator(ctx.getRuntimeFilterContext());
@@ -220,5 +223,13 @@ public class PlanTranslatorContext {
 
     public DescriptorTable getDescTable() {
         return descTable;
+    }
+
+    public void setTablePushAggOp(Long tableId, TPushAggOp aggOp) {
+        tablePushAggOp.put(tableId, aggOp);
+    }
+
+    public TPushAggOp getTablePushAggOp(Long tableId) {
+        return tablePushAggOp.getOrDefault(tableId, TPushAggOp.NONE);
     }
 }
