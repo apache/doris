@@ -24,6 +24,7 @@ import org.apache.doris.catalog.ReplicaAllocation;
 import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.types.DataType;
 
 import com.google.common.collect.Maps;
 
@@ -36,8 +37,8 @@ import java.util.stream.Collectors;
  */
 public class FixedRangePartition extends PartitionDefinition {
     private final String partitionName;
-    private final List<Expression> lowerBounds;
-    private final List<Expression> upperBounds;
+    private List<Expression> lowerBounds;
+    private List<Expression> upperBounds;
     private ReplicaAllocation replicaAllocation = ReplicaAllocation.DEFAULT_ALLOCATION;
 
     public FixedRangePartition(String partitionName, List<Expression> lowerBounds, List<Expression> upperBounds) {
@@ -47,12 +48,15 @@ public class FixedRangePartition extends PartitionDefinition {
     }
 
     @Override
-    public void validate(Map<String, String> properties) {
+    public void validate(Map<String, String> properties, DataType partitionDataType) {
         try {
             replicaAllocation = PropertyAnalyzer.analyzeReplicaAllocation(properties, "");
         } catch (Exception e) {
             throw new AnalysisException(e.getMessage(), e.getCause());
         }
+        final DataType type = partitionDataType;
+        lowerBounds = lowerBounds.stream().map(e -> e.castTo(type)).collect(Collectors.toList());
+        upperBounds = upperBounds.stream().map(e -> e.castTo(type)).collect(Collectors.toList());
     }
 
     /**
