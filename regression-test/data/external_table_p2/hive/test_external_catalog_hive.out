@@ -126,3 +126,39 @@ Z6n2t4XA2n7CXTECJ,PE,iBbsCh0RE1Dd2A,z48
 -- !null_expr_dict_filter_parquet --
 4844	4363
 
+-- !par_fields_in_file_orc1 --
+1	Alice	100.0	2023	8
+2	Bob	150.0	2023	8
+
+-- !par_fields_in_file_parquet1 --
+1	Alice	100.0	2023	8
+2	Bob	150.0	2023	8
+
+-- !par_fields_in_file_orc2 --
+1	Alice	100.0	2023	8
+2	Bob	150.0	2023	8
+
+-- !par_fields_in_file_parquet2 --
+1	Alice	100.0	2023	8
+2	Bob	150.0	2023	8
+
+-- !par_fields_in_file_orc3 --
+1	Alice	100.0	2023	8
+2	Bob	150.0	2023	8
+
+-- !par_fields_in_file_parquet3 --
+1	Alice	100.0	2023	8
+2	Bob	150.0	2023	8
+
+-- !par_fields_in_file_orc4 --
+1	Alice	100.0	2023	8
+2	Bob	150.0	2023	8
+
+-- !par_fields_in_file_parquet4 --
+1	Alice	100.0	2023	8
+2	Bob	150.0	2023	8
+
+-- !par_fields_in_file_orc5 --
+
+-- !par_fields_in_file_parquet5 --
+
