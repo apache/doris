@@ -356,7 +356,7 @@ Status ScanLocalState::_normalize_predicate(const vectorized::VExprSPtr& conjunc
             }
 
             if (pdt == vectorized::VScanNode::PushDownType::ACCEPTABLE &&
-                _is_key_column(slot->col_name())) {
+                (_is_key_column(slot->col_name()) || _storage_no_merge())) {
                 output_expr = nullptr;
                 return Status::OK();
             } else {
