@@ -48,11 +48,7 @@ Status ExchangeLocalState::init(RuntimeState* state, LocalStateInfo& info) {
         return Status::OK();
     }
     RETURN_IF_ERROR(PipelineXLocalState::init(state, info));
-    auto& parent_ref = _parent->cast<ExchangeSourceOperatorX>();
-    stream_recvr = _state->exec_env()->vstream_mgr()->create_recvr(
-            _state, parent_ref._input_row_desc, _state->fragment_instance_id(), parent_ref._id,
-            parent_ref._num_senders, profile(), parent_ref._is_merging,
-            parent_ref._sub_plan_query_statistics_recvr);
+    stream_recvr = info.recvr;
     RETURN_IF_ERROR(_parent->cast<ExchangeSourceOperatorX>()._vsort_exec_exprs.clone(
             state, vsort_exec_exprs));
     _init = true;
