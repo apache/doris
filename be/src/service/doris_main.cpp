@@ -424,9 +424,9 @@ int main(int argc, char** argv) {
         }
 
         file_cache_init_pool->wait();
-        for (int i = 0; i < cache_status.size(); ++i) {
-            if (!cache_status[i].ok()) {
-                LOG(FATAL) << "failed to init file cache: " << i << ", err: " << cache_status[i];
+        for (const auto& status : cache_status) {
+            if (!status.ok()) {
+                LOG(FATAL) << "failed to init file cache, err: " << status;
                 exit(-1);
             }
         }
