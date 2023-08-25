@@ -54,6 +54,43 @@ Status DataTypeJsonbSerDe::write_column_to_mysql(const IColumn& column,
     return _write_column_to_mysql(column, row_buffer, row_idx, col_const);
 }
 
+void DataTypeJsonbSerDe::serialize_column_to_text(const IColumn& column, int start_idx, int end_idx,
+                                                  BufferWritable& bw,
+                                                  FormatOptions& options) const {
+    SERIALIZE_COLUMN_TO_TEXT()
+}
+
+void DataTypeJsonbSerDe::serialize_one_cell_to_text(const IColumn& column, int row_num,
+                                                    BufferWritable& bw,
+                                                    FormatOptions& options) const {
+    auto result = check_column_const_set_readability(column, row_num);
+    ColumnPtr ptr = result.first;
+    row_num = result.second;
+
+    const StringRef& s = assert_cast<const ColumnString&>(*ptr).get_data_at(row_num);
+    if (s.size > 0) {
+        bw.write(s.data, s.size);
+    }
+}
+
+Status DataTypeJsonbSerDe::deserialize_column_from_text_vector(IColumn& column,
+                                                               std::vector<Slice>& slices,
+                                                               int* num_deserialized,
+                                                               const FormatOptions& options) const {
+    DESERIALIZE_COLUMN_FROM_TEXT_VECTOR()
+    return Status::OK();
+}
+
+Status DataTypeJsonbSerDe::deserialize_one_cell_from_text(IColumn& column, Slice& slice,
+                                                          const FormatOptions& options) const {
+    JsonBinaryValue value;
+    RETURN_IF_ERROR(value.from_json_string(slice.data, slice.size));
+
+    auto& column_string = assert_cast<ColumnString&>(column);
+    column_string.insert_data(value.value(), value.size());
+    return Status::OK();
+}
+
 void DataTypeJsonbSerDe::write_column_to_arrow(const IColumn& column, const NullMap* null_map,
                                                arrow::ArrayBuilder* array_builder, int start,
                                                int end) const {

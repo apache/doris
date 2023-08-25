@@ -32,6 +32,55 @@ namespace doris {
 namespace vectorized {
 
 template <typename T>
+void DataTypeDecimalSerDe<T>::serialize_column_to_text(const IColumn& column, int start_idx,
+                                                       int end_idx, BufferWritable& bw,
+                                                       FormatOptions& options) const {
+    SERIALIZE_COLUMN_TO_TEXT()
+}
+
+template <typename T>
+void DataTypeDecimalSerDe<T>::serialize_one_cell_to_text(const IColumn& column, int row_num,
+                                                         BufferWritable& bw,
+                                                         FormatOptions& options) const {
+    auto result = check_column_const_set_readability(column, row_num);
+    ColumnPtr ptr = result.first;
+    row_num = result.second;
+
+    auto& col = assert_cast<const ColumnDecimal<T>&>(*ptr);
+    if constexpr (!IsDecimalV2<T>) {
+        T value = col.get_element(row_num);
+        auto decimal_str = value.to_string(scale);
+        bw.write(decimal_str.data(), decimal_str.size());
+    } else {
+        auto length = col.get_element(row_num).to_string(buf, scale, scale_multiplier);
+        bw.write(buf, length);
+    }
+}
+
+template <typename T>
+Status DataTypeDecimalSerDe<T>::deserialize_column_from_text_vector(
+        IColumn& column, std::vector<Slice>& slices, int* num_deserialized,
+        const FormatOptions& options) const {
+    DESERIALIZE_COLUMN_FROM_TEXT_VECTOR()
+    return Status::OK();
+}
+
+template <typename T>
+Status DataTypeDecimalSerDe<T>::deserialize_one_cell_from_text(IColumn& column, Slice& slice,
+                                                               const FormatOptions& options) const {
+    auto& column_data = assert_cast<ColumnDecimal<T>&>(column).get_data();
+    T val = 0;
+    if (ReadBuffer rb(slice.data, slice.size);
+        !read_decimal_text_impl<get_primitive_type(), T>(val, rb, precision, scale)) {
+        return Status::InvalidArgument("parse decimal fail, string: '{}', primitive type: '{}'",
+                                       std::string(rb.position(), rb.count()).c_str(),
+                                       get_primitive_type());
+    }
+    column_data.emplace_back(val);
+    return Status::OK();
+}
+
+template <typename T>
 void DataTypeDecimalSerDe<T>::write_column_to_arrow(const IColumn& column, const NullMap* null_map,
                                                     arrow::ArrayBuilder* array_builder, int start,
                                                     int end) const {

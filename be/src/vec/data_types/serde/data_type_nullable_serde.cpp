@@ -38,6 +38,56 @@ namespace doris {
 namespace vectorized {
 class Arena;
 
+void DataTypeNullableSerDe::serialize_column_to_text(const IColumn& column, int start_idx,
+                                                     int end_idx, BufferWritable& bw,
+                                                     FormatOptions& options) const {
+    SERIALIZE_COLUMN_TO_TEXT()
+}
+
+void DataTypeNullableSerDe::serialize_one_cell_to_text(const IColumn& column, int row_num,
+                                                       BufferWritable& bw,
+                                                       FormatOptions& options) const {
+    auto result = check_column_const_set_readability(column, row_num);
+    ColumnPtr ptr = result.first;
+    row_num = result.second;
+
+    const auto& col_null = assert_cast<const ColumnNullable&>(*ptr);
+    if (col_null.is_null_at(row_num)) {
+        bw.write("NULL", 4);
+    } else {
+        nested_serde->serialize_one_cell_to_text(col_null.get_nested_column(), row_num, bw,
+                                                 options);
+    }
+}
+
+Status DataTypeNullableSerDe::deserialize_column_from_text_vector(
+        IColumn& column, std::vector<Slice>& slices, int* num_deserialized,
+        const FormatOptions& options) const {
+    DESERIALIZE_COLUMN_FROM_TEXT_VECTOR()
+    return Status::OK();
+}
+
+Status DataTypeNullableSerDe::deserialize_one_cell_from_text(IColumn& column, Slice& slice,
+                                                             const FormatOptions& options) const {
+    auto& null_column = assert_cast<ColumnNullable&>(column);
+    // TODO(Amory) make null literal configurable
+    if (slice.size == 4 && slice[0] == 'N' && slice[1] == 'U' && slice[2] == 'L' &&
+        slice[3] == 'L') {
+        null_column.insert_data(nullptr, 0);
+        return Status::OK();
+    }
+    auto st = nested_serde->deserialize_one_cell_from_text(null_column.get_nested_column(), slice,
+                                                           options);
+    if (!st.ok()) {
+        // fill null if fail
+        null_column.insert_data(nullptr, 0); // 0 is meaningless here
+        return Status::OK();
+    }
+    // fill not null if success
+    null_column.get_null_map_data().push_back(0);
+    return Status::OK();
+}
+
 Status DataTypeNullableSerDe::write_column_to_pb(const IColumn& column, PValues& result, int start,
                                                  int end) const {
     int row_count = end - start;

@@ -37,6 +37,40 @@ namespace doris {
 namespace vectorized {
 class IColumn;
 
+void DataTypeHLLSerDe::serialize_column_to_text(const IColumn& column, int start_idx, int end_idx,
+                                                BufferWritable& bw, FormatOptions& options) const {
+    SERIALIZE_COLUMN_TO_TEXT()
+}
+
+void DataTypeHLLSerDe::serialize_one_cell_to_text(const IColumn& column, int row_num,
+                                                  BufferWritable& bw,
+                                                  FormatOptions& options) const {
+    auto col_row = check_column_const_set_readability(column, row_num);
+    ColumnPtr ptr = col_row.first;
+    row_num = col_row.second;
+    auto& data = const_cast<HyperLogLog&>(assert_cast<const ColumnHLL&>(*ptr).get_element(row_num));
+    std::unique_ptr<char[]> buf = std::make_unique<char[]>(data.max_serialized_size());
+    size_t size = data.serialize((uint8*)buf.get());
+    bw.write(buf.get(), size);
+}
+
+Status DataTypeHLLSerDe::deserialize_column_from_text_vector(IColumn& column,
+                                                             std::vector<Slice>& slices,
+                                                             int* num_deserialized,
+                                                             const FormatOptions& options) const {
+    DESERIALIZE_COLUMN_FROM_TEXT_VECTOR()
+    return Status::OK();
+}
+
+Status DataTypeHLLSerDe::deserialize_one_cell_from_text(IColumn& column, Slice& slice,
+                                                        const FormatOptions& options) const {
+    auto& data_column = assert_cast<ColumnHLL&>(column);
+
+    HyperLogLog hyper_log_log(slice);
+    data_column.insert_value(hyper_log_log);
+    return Status::OK();
+}
+
 Status DataTypeHLLSerDe::write_column_to_pb(const IColumn& column, PValues& result, int start,
                                             int end) const {
     auto ptype = result.mutable_type();
