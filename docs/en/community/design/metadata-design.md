@@ -29,7 +29,7 @@ under the License.
 
 ## Noun Interpretation
 
-* FE: Frontend, the front-end node of Doris. Mainly responsible for receiving and returning client requests, metadata, cluster management, query plan generation and so on.
+* FE: Frontend, the front-end node of Doris. Mainly responsible for receiving and responding client requests, metadata, cluster management, query plan generation and so on.
 * BE: Backend, the back-end node of Doris. Mainly responsible for data storage and management, query plan execution and other work.
 * bdbje: [Oracle Berkeley DB Java Edition](http://www.oracle.com/technetwork/database/berkeleydb/overview/index-093405.html). In Doris, we use bdbje to persist metadata operation logs and high availability of FE.
 
@@ -73,7 +73,7 @@ The data flow of metadata is as follows:
 
 2. After the log is written to bdbje, bdbje copies the log to other non-leader FE nodes according to the policy (write most/write all). The non-leader FE node modifies its metadata memory image by playback of the log, and completes the synchronization with the metadata of the leader node.
 
-3. The number of log entries of the leader node reaches the threshold (default 10w) and meets the checkpoint thread execution cycle (default 60 seconds). Checkpoint reads existing image files and subsequent logs and replays a new mirror copy of metadata in memory. The copy is then written to disk to form a new image. The reason for this is to regenerate a mirror copy instead of writing an existing image to an image, mainly considering that the write operation will be blocked during writing the image plus read lock. So every checkpoint takes up twice as much memory space.
+3. The number of log entries of the leader node reaches the threshold (default 5w) and meets the checkpoint thread execution cycle (default 60 seconds). Checkpoint reads existing image files and subsequent logs and replays a new mirror copy of metadata in memory. The copy is then written to disk to form a new image. The reason for this is to regenerate a mirror copy instead of writing an existing image to an image, mainly considering that the write operation will be blocked during writing the image plus read lock. So every checkpoint takes up twice as much memory space.
 
 4. After the image file is generated, the leader node notifies other non-leader nodes that a new image has been generated. Non-leader actively pulls the latest image files through HTTP to replace the old local files.
 
@@ -92,7 +92,7 @@ The data flow of metadata is as follows:
 * `Image.[logid]`is the latest image file. The suffix `logid` indicates the ID of the last log contained in the image.
 * `Image.ckpt` is the image file being written. If it is successfully written, it will be renamed `image.[logid]` and replaced with the original image file.
 * The`cluster_id` is recorded in the `VERSION` file. `Cluster_id` uniquely identifies a Doris cluster. It is a 32-bit integer randomly generated at the first startup of leader. You can also specify a cluster ID through the Fe configuration item `cluster_id'.
-* The role of FE itself recorded in the `ROLE` file. There are only `FOLLOWER` and `OBSERVER`. Where `FOLLOWER` denotes FE as an optional node. (Note: Even the leader node has a role of `FOLLOWER`)
+* The role of FE itself is recorded in the `ROLE` file. There are only `FOLLOWER` and `OBSERVER`. Where `FOLLOWER` denotes FE as an optional node. (Note: Even the leader node has a role of `FOLLOWER`)
 
 ### Start-up process
 

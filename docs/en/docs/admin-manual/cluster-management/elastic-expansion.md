@@ -57,7 +57,7 @@ The first FE to start automatically becomes Master. On this basis, several Follo
 
 `bin/start_fe.sh --helper host:edit_log_port --daemon`
 
-The host is the node IP of Master, and the edit\_log\_port in Lead's configuration file fe.conf. The --helper is only required when follower/observer is first startup.
+The host is the node IP of Master, and the edit_log_port in Master's configuration file fe.conf. The --helper is only required when follower/observer first startups.
 
 #### Add Follower or Observer to the cluster
 
