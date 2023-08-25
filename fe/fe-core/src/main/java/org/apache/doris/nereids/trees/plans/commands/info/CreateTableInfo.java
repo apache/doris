@@ -68,7 +68,7 @@ public class CreateTableInfo {
     private final List<PartitionDefinition> partitions;
     private final DistributionDescriptor distribution;
     private final List<RollupDefinition> rollups;
-    private final Map<String, String> properties;
+    private Map<String, String> properties;
 
     /**
      * constructor for create table
@@ -153,6 +153,9 @@ public class CreateTableInfo {
         if (!engineName.equals("olap")) {
             throw new AnalysisException("currently Nereids support olap engine only");
         }
+        if (properties == null) {
+            properties = Maps.newHashMap();
+        }
 
         // analyze table name
         if (dbName == null) {
@@ -180,7 +183,7 @@ public class CreateTableInfo {
         }
 
         // add a hidden column as row store
-        boolean storeRowColumn = false;
+        boolean storeRowColumn;
         try {
             storeRowColumn = PropertyAnalyzer.analyzeStoreRowColumn(properties);
         } catch (Exception e) {
@@ -230,7 +233,11 @@ public class CreateTableInfo {
                     throw new AnalysisException("Floating point type column can not be partition column");
                 }
             });
-            partitions.forEach(p -> p.validate(Maps.newHashMap(properties)));
+            partitions.forEach(p -> {
+                p.setPartitionTypes(partitionColumns.stream().map(s -> columnMap.get(s).getType())
+                        .collect(Collectors.toList()));
+                p.validate(Maps.newHashMap(properties));
+            });
         }
 
         // analyze distribution descriptor

@@ -18,15 +18,23 @@
 package org.apache.doris.nereids.trees.plans.commands.info;
 
 import org.apache.doris.analysis.AllPartitionDesc;
+import org.apache.doris.nereids.types.DataType;
+import org.apache.doris.nereids.util.Utils;
 
+import java.util.List;
 import java.util.Map;
 
 /**
  * abstract class for partition definition
  */
 public abstract class PartitionDefinition {
+    protected List<DataType> partitionTypes;
+
     public abstract AllPartitionDesc translateToCatalogStyle();
 
-    public void validate(Map<String, String> properties) {
+    public abstract void validate(Map<String, String> properties);
+
+    public void setPartitionTypes(List<DataType> partitionTypes) {
+        this.partitionTypes = partitionTypes;
     }
 }

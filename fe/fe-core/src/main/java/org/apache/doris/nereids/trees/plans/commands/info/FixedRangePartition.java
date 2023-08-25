@@ -54,7 +54,7 @@ public class FixedRangePartition extends PartitionDefinition {
         } catch (Exception e) {
             throw new AnalysisException(e.getMessage(), e.getCause());
         }
-        final DataType type = partitionDataType;
+        final DataType type = partitionTypes.get(0);
         lowerBounds = lowerBounds.stream().map(e -> e.castTo(type)).collect(Collectors.toList());
         upperBounds = upperBounds.stream().map(e -> e.castTo(type)).collect(Collectors.toList());
     }
