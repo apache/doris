@@ -316,22 +316,24 @@ Status OrcReader::_init_read_columns() {
             _missing_cols.emplace_back(col_name);
         } else {
             int pos = std::distance(orc_cols_lower_case.begin(), iter);
+            std::string read_col;
             if (_is_acid && i < _column_names->size() - TransactionalHive::READ_PARAMS.size()) {
-                auto read_col = fmt::format(
+                read_col = fmt::format(
                         "{}.{}",
                         TransactionalHive::ACID_COLUMN_NAMES[TransactionalHive::ROW_OFFSET],
                         orc_cols[pos]);
                 _read_cols.emplace_back(read_col);
             } else {
-                _read_cols.emplace_back(orc_cols[pos]);
+                read_col = orc_cols[pos];
+                _read_cols.emplace_back(read_col);
             }
             _read_cols_lower_case.emplace_back(col_name);
             // For hive engine, store the orc column name to schema column name map.
             // This is for Hive 1.x orc file with internal column name _col0, _col1...
             if (_is_hive) {
-                _file_col_to_schema_col[orc_cols[pos]] = col_name;
+                _removed_acid_file_col_name_to_schema_col[orc_cols[pos]] = col_name;
             }
-            _col_name_to_file_col_name[col_name] = orc_cols[pos];
+            _col_name_to_file_col_name[col_name] = read_col;
         }
     }
     return Status::OK();
@@ -804,7 +806,7 @@ Status OrcReader::_init_select_types(const orc::Type& type, int idx) {
         // For hive engine, translate the column name in orc file to schema column name.
         // This is for Hive 1.x which use internal column name _col0, _col1...
         if (_is_hive) {
-            name = _file_col_to_schema_col[type.getFieldName(i)];
+            name = _removed_acid_file_col_name_to_schema_col[type.getFieldName(i)];
         } else {
             name = _get_field_name_lower_case(&type, i);
         }
