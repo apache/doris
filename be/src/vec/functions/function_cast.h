@@ -86,7 +86,6 @@
 #include "vec/functions/function_helpers.h"
 #include "vec/io/reader_buffer.h"
 #include "vec/runtime/vdatetime_value.h"
-#include "vec/utils/template_helpers.hpp"
 
 class DateLUTImpl;
 
@@ -1357,58 +1356,35 @@ struct ConvertThroughParsing {
             offsets = &col_from_string->get_offsets();
         }
 
-        bool is_load = (context && context->state()->query_type() == TQueryType::type::LOAD);
-        bool is_strict_insert = (context && context->state()->enable_insert_strict());
         size_t current_offset = 0;
-        auto status = std::visit(
-                [&](auto is_load_, auto is_strict_insert_) {
-                    for (size_t i = 0; i < size; ++i) {
-                        size_t next_offset = std::is_same_v<FromDataType, DataTypeString>
-                                                     ? (*offsets)[i]
-                                                     : (current_offset + fixed_string_size);
-                        size_t string_size = std::is_same_v<FromDataType, DataTypeString>
-                                                     ? next_offset - current_offset
-                                                     : fixed_string_size;
+        for (size_t i = 0; i < size; ++i) {
+            size_t next_offset = std::is_same_v<FromDataType, DataTypeString>
+                                         ? (*offsets)[i]
+                                         : (current_offset + fixed_string_size);
+            size_t string_size = std::is_same_v<FromDataType, DataTypeString>
+                                         ? next_offset - current_offset
+                                         : fixed_string_size;
 
-                        ReadBuffer read_buffer(&(*chars)[current_offset], string_size);
+            ReadBuffer read_buffer(&(*chars)[current_offset], string_size);
 
-                        bool parsed;
-                        if constexpr (IsDataTypeDecimal<ToDataType>) {
-                            parsed = try_parse_impl<ToDataType>(
-                                    vec_to[i], read_buffer, context->state()->timezone_obj(),
-                                    time_zone_cache, vec_to.get_scale());
-                        } else if constexpr (IsDataTypeDateTimeV2<ToDataType>) {
-                            auto type = check_and_get_data_type<DataTypeDateTimeV2>(
-                                    block.get_by_position(result).type.get());
-                            parsed = try_parse_impl<ToDataType>(vec_to[i], read_buffer,
-                                                                context->state()->timezone_obj(),
-                                                                time_zone_cache, type->get_scale());
-                        } else {
-                            parsed = try_parse_impl<ToDataType, void*, FromDataType>(
-                                    vec_to[i], read_buffer, context->state()->timezone_obj(),
-                                    time_zone_cache);
-                        }
-                        (*vec_null_map_to)[i] = !parsed || !is_all_read(read_buffer);
-                        if constexpr (is_load_ && is_strict_insert_) {
-                            if (string_size != 0 && (*vec_null_map_to)[i]) {
-                                return Status::InternalError(
-                                        "Invalid value {} in strict mode for function {}, source "
-                                        "column {}, from "
-                                        "type "
-                                        "{} to type {}",
-                                        std::string((char*)&(*chars)[current_offset], string_size),
-                                        Name::name, col_from->get_name(), FromDataType().get_name(),
-                                        ToDataType().get_name());
-                            }
-                        }
-
-                        current_offset = next_offset;
-                    }
-                    return Status::OK();
-                },
-                make_bool_variant(is_load), make_bool_variant(is_strict_insert));
-
-        RETURN_IF_ERROR(status);
+            bool parsed;
+            if constexpr (IsDataTypeDecimal<ToDataType>) {
+                parsed = try_parse_impl<ToDataType>(vec_to[i], read_buffer,
+                                                    context->state()->timezone_obj(),
+                                                    time_zone_cache, vec_to.get_scale());
+            } else if constexpr (IsDataTypeDateTimeV2<ToDataType>) {
+                auto type = check_and_get_data_type<DataTypeDateTimeV2>(
+                        block.get_by_position(result).type.get());
+                parsed = try_parse_impl<ToDataType>(vec_to[i], read_buffer,
+                                                    context->state()->timezone_obj(),
+                                                    time_zone_cache, type->get_scale());
+            } else {
+                parsed = try_parse_impl<ToDataType, void*, FromDataType>(
+                        vec_to[i], read_buffer, context->state()->timezone_obj(), time_zone_cache);
+            }
+            (*vec_null_map_to)[i] = !parsed || !is_all_read(read_buffer);
+            current_offset = next_offset;
+        }
 
         block.get_by_position(result).column =
                 ColumnNullable::create(std::move(col_to), std::move(col_null_map_to));
