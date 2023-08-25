@@ -20,6 +20,7 @@
 #include <stddef.h>
 
 #include <algorithm>
+#include <atomic>
 #include <map>
 #include <memory>
 #include <shared_mutex>
@@ -94,14 +95,11 @@ public:
         return &s_exec_env;
     }
 
-    // only used for test
-    ExecEnv();
-
     // Empty destructor because the compiler-generated one requires full
     // declarations for classes in scoped_ptrs.
     ~ExecEnv();
 
-    bool initialized() const { return _is_init; }
+    static bool ready() { return _s_init.load(std::memory_order_acquire); }
     const std::string& token() const;
     ExternalScanContextMgr* external_scan_context_mgr() { return _external_scan_context_mgr; }
     doris::vectorized::VDataStreamMgr* vstream_mgr() { return _vstream_mgr; }
@@ -200,6 +198,8 @@ public:
     }
 
 private:
+    ExecEnv();
+
     Status _init(const std::vector<StorePath>& store_paths);
     void _destroy();
 
@@ -208,7 +208,7 @@ private:
     void _register_metrics();
     void _deregister_metrics();
 
-    bool _is_init;
+    inline static std::atomic_bool _s_ready {false};
     std::vector<StorePath> _store_paths;
 
     // Leave protected so that subclasses can override

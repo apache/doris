@@ -190,7 +190,7 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths) {
     RETURN_IF_ERROR(_load_channel_mgr->init(MemInfo::mem_limit()));
     _heartbeat_flags = new HeartbeatFlags();
     _register_metrics();
-    _is_init = true;
+    _s_ready = true;
     return Status::OK();
 }
 
@@ -379,9 +379,11 @@ void ExecEnv::_deregister_metrics() {
 
 void ExecEnv::_destroy() {
     //Only destroy once after init
-    if (!_is_init) {
+    if (!ready()) {
         return;
     }
+    // Memory barrier to prevent other threads from accessing destructed resources
+    _s_ready = false; 
     _deregister_metrics();
     SAFE_DELETE(_internal_client_cache);
     SAFE_DELETE(_function_client_cache);
@@ -422,8 +424,6 @@ void ExecEnv::_destroy() {
     _page_no_cache_mem_tracker.reset();
     _brpc_iobuf_block_memory_tracker.reset();
     InvertedIndexSearcherCache::reset_global_instance();
-
-    _is_init = false;
 }
 
 void ExecEnv::destroy(ExecEnv* env) {
