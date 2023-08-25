@@ -99,7 +99,7 @@ public:
     // declarations for classes in scoped_ptrs.
     ~ExecEnv();
 
-    static bool ready() { return _s_init.load(std::memory_order_acquire); }
+    static bool ready() { return _s_ready.load(std::memory_order_acquire); }
     const std::string& token() const;
     ExternalScanContextMgr* external_scan_context_mgr() { return _external_scan_context_mgr; }
     doris::vectorized::VDataStreamMgr* vstream_mgr() { return _vstream_mgr; }

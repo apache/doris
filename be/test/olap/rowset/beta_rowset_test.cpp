@@ -73,7 +73,7 @@ namespace doris {
 using namespace ErrorCode;
 
 static const uint32_t MAX_PATH_LEN = 1024;
-inline StorageEngine* k_engine = nullptr;
+static std::unique_ptr<StorageEngine> k_engine;
 static const std::string kTestDir = "./data_test/data/beta_rowset_test";
 
 class BetaRowsetTest : public testing::Test {
@@ -104,17 +104,13 @@ public:
         EXPECT_TRUE(s.ok()) << s.to_string();
 
         ExecEnv* exec_env = doris::ExecEnv::GetInstance();
-        exec_env->set_storage_engine(k_engine);
+        exec_env->set_storage_engine(k_engine.get());
 
         EXPECT_TRUE(io::global_local_filesystem()->create_directory(kTestDir).ok());
     }
 
     static void TearDownTestSuite() {
-        if (k_engine != nullptr) {
-            k_engine->stop();
-            delete k_engine;
-            k_engine = nullptr;
-        }
+        k_engine.reset();
     }
 
 protected:

@@ -61,7 +61,7 @@
 namespace doris {
 class OlapMeta;
 
-static StorageEngine* k_engine = nullptr;
+static std::unique_ptr<StorageEngine> k_engine;
 
 static const std::string kTestDir = "./ut_dir/remote_rowset_gc_test";
 static constexpr int64_t kResourceId = 10000;
@@ -106,11 +106,7 @@ public:
     }
 
     static void TearDownTestSuite() {
-        if (k_engine != nullptr) {
-            k_engine->stop();
-            delete k_engine;
-            k_engine = nullptr;
-        }
+        k_engine.reset();
     }
 };
 
