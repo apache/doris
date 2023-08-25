@@ -480,6 +480,10 @@ public class SlotRef extends Expr {
         this.table = table;
     }
 
+    public TableIf getTableDirect() {
+        return this.table;
+    }
+
     public TableIf getTable() {
         if (desc == null && table != null) {
             return table;

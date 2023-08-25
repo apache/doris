@@ -25,6 +25,7 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ClientPool;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.util.BrokerUtil;
+import org.apache.doris.datasource.property.PropertyConverter;
 import org.apache.doris.fs.operations.BrokerFileOperations;
 import org.apache.doris.fs.operations.OpParams;
 import org.apache.doris.service.FrontendOptions;
@@ -74,6 +75,7 @@ public class BrokerFileSystem extends RemoteFileSystem {
 
     public BrokerFileSystem(String name, Map<String, String> properties) {
         super(name, StorageBackend.StorageType.BROKER);
+        properties.putAll(PropertyConverter.convertToHadoopFSProperties(properties));
         this.properties = properties;
         this.operations = new BrokerFileOperations(name, properties);
     }

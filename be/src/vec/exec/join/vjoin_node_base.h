@@ -74,6 +74,8 @@ public:
 
     virtual Status init(const TPlanNode& tnode, RuntimeState* state = nullptr) override;
 
+    [[nodiscard]] bool can_terminate_early() override { return _short_circuit_for_probe; }
+
 protected:
     // Construct the intermediate blocks to store the results from join operation.
     void _construct_mutable_join_block();

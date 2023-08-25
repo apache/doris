@@ -32,8 +32,7 @@ suite("q5") {
     
 sql 'set be_number_for_test=3'
 
-    qt_select """
-    explain shape plan
+    String q5 = """
     select 
         n_name,
         sum(l_extendedprice * (1 - l_discount)) as revenue
@@ -59,4 +58,12 @@ sql 'set be_number_for_test=3'
     order by
         revenue desc;
     """
+
+    memo = sql " explain memo plan ${q5}"
+
+    println("q5 memo >>>")
+    println(memo)
+
+    qt_select "explain shape plan ${q5}"
+    
 }

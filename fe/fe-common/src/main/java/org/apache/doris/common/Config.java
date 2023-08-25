@@ -1617,7 +1617,7 @@ public class Config extends ConfigBase {
      * Max data version of backends serialize block.
      */
     @ConfField(mutable = false)
-    public static int max_be_exec_version = 2;
+    public static int max_be_exec_version = 3;
 
     /**
      * Min data version of backends serialize block.
@@ -2092,4 +2092,7 @@ public class Config extends ConfigBase {
             "是否用 mysql 的 bigint 类型来返回 Doris 的 largeint 类型",
             "Whether to use mysql's bigint type to return Doris's largeint type"})
     public static boolean use_mysql_bigint_for_largeint = false;
+
+    @ConfField
+    public static boolean forbid_running_alter_job = false;
 }

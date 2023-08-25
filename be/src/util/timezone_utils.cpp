@@ -54,6 +54,11 @@ void TimezoneUtils::load_timezone_names() {
     path += tzdir;
     path += '/';
 
+    if (!std::filesystem::exists(path)) {
+        LOG_WARNING("Cannot find system tzfile. Abandon to preload timezone name cache.");
+        return;
+    }
+
     auto path_prefix_len = path.size();
     for (auto const& dir_entry : std::filesystem::recursive_directory_iterator {path}) {
         if (dir_entry.is_regular_file()) {

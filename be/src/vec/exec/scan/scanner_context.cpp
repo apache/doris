@@ -104,9 +104,6 @@ Status ScannerContext::init() {
             limit == -1 ? _batch_size : std::min(static_cast<int64_t>(_batch_size), limit);
     _block_per_scanner = (doris_scanner_row_num + (real_block_size - 1)) / real_block_size;
     _free_blocks_capacity = _max_thread_num * _block_per_scanner;
-    auto pre_alloc_block_count = _max_thread_num * _block_per_scanner;
-
-    _init_free_block(pre_alloc_block_count, real_block_size);
 
 #ifndef BE_TEST
     // 3. get thread token
@@ -124,19 +121,6 @@ Status ScannerContext::init() {
                                                thread_token == nullptr ? "False" : "True");
 
     return Status::OK();
-}
-
-void ScannerContext::_init_free_block(int pre_alloc_block_count, int real_block_size) {
-    // The free blocks is used for final output block of scanners.
-    // So use _output_tuple_desc;
-    int64_t free_blocks_memory_usage = 0;
-    for (int i = 0; i < pre_alloc_block_count; ++i) {
-        auto block = vectorized::Block::create_unique(_output_tuple_desc->slots(), real_block_size,
-                                                      true /*ignore invalid slots*/);
-        free_blocks_memory_usage += block->allocated_bytes();
-        _free_blocks.enqueue(std::move(block));
-    }
-    _free_blocks_memory_usage->add(free_blocks_memory_usage);
 }
 
 vectorized::BlockUPtr ScannerContext::get_free_block(bool* has_free_block,

@@ -22,6 +22,10 @@ suite("test_clickhouse_jdbc_catalog", "p0") {
         String internal_db_name = "regression_test_jdbc_catalog_p0";
         String ex_db_name = "doris_test";
         String clickhouse_port = context.config.otherConfigs.get("clickhouse_22_port");
+        String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
+        String s3_endpoint = getS3Endpoint()
+        String bucket = getS3BucketName()
+        String driver_url = "https://${bucket}.${s3_endpoint}/regression/jdbc_driver/clickhouse-jdbc-0.4.2-all.jar"
 
         String inDorisTable = "doris_in_tb";
 
@@ -31,8 +35,8 @@ suite("test_clickhouse_jdbc_catalog", "p0") {
                     "type"="jdbc",
                     "user"="default",
                     "password"="123456",
-                    "jdbc_url" = "jdbc:clickhouse://127.0.0.1:${clickhouse_port}/doris_test",
-                    "driver_url" = "https://doris-community-test-1308700295.cos.ap-hongkong.myqcloud.com/jdbc_driver/clickhouse-jdbc-0.4.2-all.jar",
+                    "jdbc_url" = "jdbc:clickhouse://${externalEnvIp}:${clickhouse_port}/doris_test",
+                    "driver_url" = "${driver_url}",
                     "driver_class" = "com.clickhouse.jdbc.ClickHouseDriver"
         );"""
 
@@ -58,6 +62,10 @@ suite("test_clickhouse_jdbc_catalog", "p0") {
         order_qt_filter  """ select k1,k2 from type where 1 = 1 order by 1 ; """
         order_qt_filter2  """ select k1,k2 from type where 1 = 1 and  k1 = true order by 1 ; """
         order_qt_filter3  """ select k1,k2 from type where k1 = true order by 1 ; """
+        sql "set jdbc_clickhouse_query_final = true;"
+        order_qt_final1 """select * from final_test"""
+        sql "set jdbc_clickhouse_query_final = false;"
+        order_qt_final2 """select * from final_test"""
 
         sql """ drop catalog if exists ${catalog_name} """
     }
