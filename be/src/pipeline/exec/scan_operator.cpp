@@ -110,15 +110,9 @@ bool ScanLocalState::should_run_serial() const {
 }
 
 Status ScanLocalState::init(RuntimeState* state, LocalStateInfo& info) {
-    if (_init) {
-        return Status::OK();
-    }
-
-    auto& p = _parent->cast<ScanOperatorX>();
-
-    set_scan_ranges(info.scan_ranges);
-
     RETURN_IF_ERROR(PipelineXLocalState::init(state, info));
+    auto& p = _parent->cast<ScanOperatorX>();
+    set_scan_ranges(info.scan_ranges);
     _common_expr_ctxs_push_down.resize(p._common_expr_ctxs_push_down.size());
     for (size_t i = 0; i < _common_expr_ctxs_push_down.size(); i++) {
         RETURN_IF_ERROR(
@@ -154,9 +148,7 @@ Status ScanLocalState::init(RuntimeState* state, LocalStateInfo& info) {
         RETURN_IF_ERROR(_scanner_ctx->init());
         RETURN_IF_ERROR(state->exec_env()->scanner_scheduler()->submit(_scanner_ctx.get()));
     }
-    RETURN_IF_ERROR(status);
-    _init = true;
-    return Status::OK();
+    return status;
 }
 
 Status ScanLocalState::_normalize_conjuncts() {
