@@ -168,6 +168,51 @@ SELECT * FROM table_name WHERE ts > '2023-01-01 00:00:00';
 SELECT * FROM table_name WHERE op_type IN ('add', 'delete');
 ```
 
+- Tokenization Function
+
+To evaluate the actual effects of tokenization or to tokenize a block of text, the `tokenize` function can be utilized.
+```sql
+mysql> SELECT TOKENIZE('武汉长江大桥','"parser"="chinese","parser_mode"="fine_grained");
++-----------------------------------------------------------------------------------+
+| tokenize('武汉长江大桥', '"parser"="chinese","parser_mode"="fine_grained"')       |
++-----------------------------------------------------------------------------------+
+| ["武汉", "武汉长江大桥", "长江", "长江大桥", "大桥"]                              |
++-----------------------------------------------------------------------------------+
+1 row in set (0.02 sec)
+
+mysql> SELECT TOKENIZE('武汉市长江大桥','"parser"="chinese","parser_mode"="fine_grained");
++--------------------------------------------------------------------------------------+
+| tokenize('武汉市长江大桥', '"parser"="chinese","parser_mode"="fine_grained"')        |
++--------------------------------------------------------------------------------------+
+| ["武汉", "武汉市", "市长", "长江", "长江大桥", "大桥"]                               |
++--------------------------------------------------------------------------------------+
+1 row in set (0.02 sec)
+
+mysql> SELECT TOKENIZE('武汉市长江大桥','"parser"="chinese","parser_mode"="coarse_grained");
++----------------------------------------------------------------------------------------+
+| tokenize('武汉市长江大桥', '"parser"="chinese","parser_mode"="coarse_grained"')        |
++----------------------------------------------------------------------------------------+
+| ["武汉市", "长江大桥"]                                                                 |
++----------------------------------------------------------------------------------------+
+1 row in set (0.02 sec)
+
+mysql> SELECT TOKENIZE('I love CHINA','"parser"="english");
++------------------------------------------------+
+| tokenize('I love CHINA', '"parser"="english"') |
++------------------------------------------------+
+| ["i", "love", "china"]                         |
++------------------------------------------------+
+1 row in set (0.02 sec)
+
+mysql> SELECT TOKENIZE('I love CHINA 我爱我的祖国','"parser"="unicode");
++-------------------------------------------------------------------+
+| tokenize('I love CHINA 我爱我的祖国', '"parser"="unicode"')       |
++-------------------------------------------------------------------+
+| ["i", "love", "china", "我", "爱", "我", "的", "祖", "国"]        |
++-------------------------------------------------------------------+
+1 row in set (0.02 sec)
+```
+
 ## Examples
 
 This example will demostrate inverted index creation, fulltext query, normal query using a hackernews dataset with 1 million rows. The performanc comparation between using  and without inverted index will also be showed.
