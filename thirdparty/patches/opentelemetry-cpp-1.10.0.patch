@@ -1,21 +1,6 @@
-diff --git a/CMakeLists.txt b/CMakeLists.txt
-index f4fa0649..a64e74bc 100644
---- a/CMakeLists.txt
-+++ b/CMakeLists.txt
-@@ -118,9 +118,8 @@ option(WITH_GSL
- 
- option(WITH_ABSEIL "Whether to use Abseil for C++latest features" OFF)
- 
-+set(OPENTELEMETRY_INSTALL_default ON)
- if(NOT CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
--  set(OPENTELEMETRY_INSTALL_default ON)
--else()
-   set(OPENTELEMETRY_INSTALL_default OFF)
- endif()
- option(OPENTELEMETRY_INSTALL "Whether to install opentelemetry targets"
 diff --git a/api/include/opentelemetry/common/threadlocal.h b/api/include/opentelemetry/common/threadlocal.h
 new file mode 100644
-index 00000000..23a39e14
+index 00000000..623a6454
 --- /dev/null
 +++ b/api/include/opentelemetry/common/threadlocal.h
 @@ -0,0 +1,123 @@
@@ -26,12 +11,12 @@ index 00000000..23a39e14
 +
 +#include "opentelemetry/version.h"
 +
-+//
++
 +// GCC can be told that a certain branch is not likely to be taken (for
 +// instance, a CHECK failure), and use that information in static analysis.
 +// Giving it this information can help it optimize for the common case in
 +// the absence of better information (ie. -fprofile-arcs).
-+//
++
 +#define LIKELY(expr) __builtin_expect(!!(expr), 1)
 +#define UNLIKELY(expr) __builtin_expect(!!(expr), 0)
 +
@@ -144,27 +129,27 @@ index 00000000..23a39e14
 +OPENTELEMETRY_END_NAMESPACE
 \ No newline at end of file
 diff --git a/api/include/opentelemetry/context/runtime_context.h b/api/include/opentelemetry/context/runtime_context.h
-index bec96a9a..2349a29c 100644
+index 2cd5b0ff..9e3c5c47 100644
 --- a/api/include/opentelemetry/context/runtime_context.h
 +++ b/api/include/opentelemetry/context/runtime_context.h
 @@ -5,6 +5,7 @@
- 
+
  #include "opentelemetry/common/macros.h"
  #include "opentelemetry/context/context.h"
 +#include "opentelemetry/common/threadlocal.h"
- 
- OPENTELEMETRY_BEGIN_NAMESPACE
- namespace context
-@@ -189,7 +190,7 @@ class ThreadLocalContextStorage : public RuntimeContextStorage
+ #include "opentelemetry/nostd/shared_ptr.h"
+ #include "opentelemetry/nostd/string_view.h"
+ #include "opentelemetry/nostd/unique_ptr.h"
+@@ -193,7 +194,7 @@ class ThreadLocalContextStorage : public RuntimeContextStorage
    ThreadLocalContextStorage() noexcept = default;
- 
+
    // Return the current context.
 -  Context GetCurrent() noexcept override { return GetStack().Top(); }
 +  Context GetCurrent() noexcept override { return GetStack()->Top(); }
- 
+
    // Resets the context to the value previous to the passed in token. This will
    // also detach all child contexts of the passed in token.
-@@ -197,23 +198,23 @@ class ThreadLocalContextStorage : public RuntimeContextStorage
+@@ -201,23 +202,23 @@ class ThreadLocalContextStorage : public RuntimeContextStorage
    bool Detach(Token &token) noexcept override
    {
      // In most cases, the context to be detached is on the top of the stack.
@@ -175,26 +160,26 @@ index bec96a9a..2349a29c 100644
 +      GetStack()->Pop();
        return true;
      }
- 
+
 -    if (!GetStack().Contains(token))
 +    if (!GetStack()->Contains(token))
      {
        return false;
      }
- 
+
 -    while (!(token == GetStack().Top()))
 +    while (!(token == GetStack()->Top()))
      {
 -      GetStack().Pop();
 +      GetStack()->Pop();
      }
- 
+
 -    GetStack().Pop();
 +    GetStack()->Pop();
- 
+
      return true;
    }
-@@ -222,14 +223,14 @@ class ThreadLocalContextStorage : public RuntimeContextStorage
+@@ -226,14 +227,14 @@ class ThreadLocalContextStorage : public RuntimeContextStorage
    // that can be used to reset to the previous Context.
    nostd::unique_ptr<Token> Attach(const Context &context) noexcept override
    {
@@ -202,19 +187,19 @@ index bec96a9a..2349a29c 100644
 +    GetStack()->Push(context);
      return CreateToken(context);
    }
- 
+
 -private:
    // A nested class to store the attached contexts in a stack.
    class Stack
    {
 +  public:
      friend class ThreadLocalContextStorage;
- 
+
      Stack() noexcept : size_(0), capacity_(0), base_(nullptr) {}
-@@ -316,9 +317,10 @@ class ThreadLocalContextStorage : public RuntimeContextStorage
+@@ -320,9 +321,10 @@ class ThreadLocalContextStorage : public RuntimeContextStorage
      Context *base_;
    };
- 
+
 -  OPENTELEMETRY_API_SINGLETON Stack &GetStack()
 +  OPENTELEMETRY_API_SINGLETON Stack *GetStack()
    {
@@ -231,20 +216,32 @@ index 2e8f3bb6..224e6463 100644
 @@ -1,7 +1,7 @@
  # Copyright The OpenTelemetry Authors
  # SPDX-License-Identifier: Apache-2.0
- 
+
 -add_library(opentelemetry_sdk INTERFACE)
 +add_library(opentelemetry_sdk INTERFACE ../api/include/opentelemetry/common/threadlocal.h)
  target_include_directories(
    opentelemetry_sdk
    INTERFACE "$<BUILD_INTERFACE:${CMAKE_CURRENT_LIST_DIR}/include>"
+diff --git a/sdk/include/opentelemetry/sdk/metrics/data/circular_buffer.h b/sdk/include/opentelemetry/sdk/metrics/data/circular_buffer.h
+index 1608a3a0..6af2bd06 100644
+--- a/sdk/include/opentelemetry/sdk/metrics/data/circular_buffer.h
++++ b/sdk/include/opentelemetry/sdk/metrics/data/circular_buffer.h
+@@ -7,6 +7,7 @@
+
+ #include <limits>
+ #include <vector>
++#include <stdint.h>
+
+ OPENTELEMETRY_BEGIN_NAMESPACE
+ namespace sdk
 diff --git a/sdk/src/common/CMakeLists.txt b/sdk/src/common/CMakeLists.txt
-index b23a93e8..1cc0e0f2 100644
+index 7bb645f5..041d8ede 100644
 --- a/sdk/src/common/CMakeLists.txt
 +++ b/sdk/src/common/CMakeLists.txt
 @@ -1,7 +1,7 @@
  # Copyright The OpenTelemetry Authors
  # SPDX-License-Identifier: Apache-2.0
- 
+
 -set(COMMON_SRCS random.cc core.cc global_log_handler.cc env_variables.cc)
 +set(COMMON_SRCS random.cc core.cc global_log_handler.cc env_variables.cc threadlocal.cc)
  if(WIN32)
@@ -256,26 +253,26 @@ index 77b88cfa..dc71f9c1 100644
 +++ b/sdk/src/common/random.cc
 @@ -3,6 +3,7 @@
  // SPDX-License-Identifier: Apache-2.0
- 
+
  #include "src/common/random.h"
 +#include "opentelemetry/common/threadlocal.h"
  #include "src/common/platform/fork.h"
- 
+
  #include <cstring>
 @@ -29,33 +30,37 @@ class TlsRandomNumberGenerator
      platform::AtFork(nullptr, nullptr, OnFork);
    }
- 
+
 -  static FastRandomNumberGenerator &engine() noexcept { return engine_; }
 +  static FastRandomNumberGenerator *engine() noexcept { return engine_; }
- 
+
  private:
 -  static thread_local FastRandomNumberGenerator engine_;
 +  // static thread_local FastRandomNumberGenerator engine_;
 +  DECLARE_STATIC_THREAD_LOCAL_TELEMETRY(FastRandomNumberGenerator, engine_);
- 
+
    static void OnFork() noexcept { Seed(); }
- 
+
    static void Seed() noexcept
    {
 +    INIT_STATIC_THREAD_LOCAL_TELEMETRY(FastRandomNumberGenerator, engine_);
@@ -285,12 +282,12 @@ index 77b88cfa..dc71f9c1 100644
 +    engine_->seed(seed_seq);
    }
  };
- 
+
 -thread_local FastRandomNumberGenerator TlsRandomNumberGenerator::engine_{};
 +// thread_local FastRandomNumberGenerator TlsRandomNumberGenerator::engine_{};
 +DEFINE_STATIC_THREAD_LOCAL_TELEMETRY(FastRandomNumberGenerator, TlsRandomNumberGenerator, engine_);
  }  // namespace
- 
+
 -FastRandomNumberGenerator &Random::GetRandomNumberGenerator() noexcept
 +FastRandomNumberGenerator *Random::GetRandomNumberGenerator() noexcept
  {
@@ -299,13 +296,13 @@ index 77b88cfa..dc71f9c1 100644
 +  BLOCK_STATIC_THREAD_LOCAL_TELEMTRY(TlsRandomNumberGenerator, random_number_generator);
    return TlsRandomNumberGenerator::engine();
  }
- 
+
  uint64_t Random::GenerateRandom64() noexcept
  {
 -  return GetRandomNumberGenerator()();
 +  return GetRandomNumberGenerator()->operator()();
  }
- 
+
  void Random::GenerateRandomBuffer(opentelemetry::nostd::span<uint8_t> buffer) noexcept
 diff --git a/sdk/src/common/random.h b/sdk/src/common/random.h
 index ecd6dabc..1aaa2204 100644
