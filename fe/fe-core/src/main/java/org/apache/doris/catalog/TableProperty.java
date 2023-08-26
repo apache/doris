@@ -128,6 +128,8 @@ public class TableProperty implements Writable {
                 buildTimeSeriesCompactionGoalSizeMbytes();
                 buildTimeSeriesCompactionFileCountThreshold();
                 buildTimeSeriesCompactionTimeThresholdSeconds();
+                buildSkipWriteIndexOnLoad();
+                buildEnableSingleReplicaCompaction();
                 break;
             default:
                 break;
