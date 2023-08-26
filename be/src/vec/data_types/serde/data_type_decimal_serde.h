@@ -65,7 +65,7 @@ public:
 
     DataTypeDecimalSerDe(int scale_, int precision_)
             : scale(scale_),
-	      precision(precision_),
+              precision(precision_),
               scale_multiplier(decimal_scale_multiplier<typename T::NativeType>(scale)) {}
 
     void serialize_one_cell_to_text(const IColumn& column, int row_num, BufferWritable& bw,
