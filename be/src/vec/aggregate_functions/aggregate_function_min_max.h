@@ -175,11 +175,10 @@ template <typename T>
 struct SingleValueDataDecimal {
 private:
     using Self = SingleValueDataDecimal;
-    using Type = typename NativeType<T>::Type;
 
     bool has_value =
             false; /// We need to remember if at least one value has been passed. This is necessary for AggregateFunctionIf.
-    Type value;
+    T value;
 
 public:
     SingleValueDataDecimal() = default;

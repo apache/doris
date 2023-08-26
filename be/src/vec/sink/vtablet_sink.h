@@ -408,8 +408,6 @@ public:
 
     size_t get_pending_bytes() const;
 
-    const RowDescriptor& row_desc() { return _input_row_desc; }
-
     // Returns the runtime profile for the sink.
     RuntimeProfile* profile() override { return _profile; }
 
@@ -441,7 +439,6 @@ private:
     std::shared_ptr<MemTracker> _mem_tracker;
 
     ObjectPool* _pool;
-    const RowDescriptor& _input_row_desc;
 
     // unique load id
     PUniqueId _load_id;

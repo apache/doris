@@ -314,7 +314,7 @@ public class CreateTableStmtTest {
         CreateTableStmt stmt = new CreateTableStmt(false, false, tblNameNoDb, cols, "olap",
                 new KeysDesc(KeysType.AGG_KEYS, colsName), null, new RandomDistributionDesc(10), null, null, "");
         expectedEx.expect(AnalysisException.class);
-        expectedEx.expectMessage("Key column can not set bitmap or hll type:col3");
+        expectedEx.expectMessage("Key column can not set complex type:col3");
         stmt.analyze(analyzer);
 
         cols.remove(bitmap);
@@ -324,26 +324,17 @@ public class CreateTableStmtTest {
         stmt = new CreateTableStmt(false, false, tblNameNoDb, cols, "olap", new KeysDesc(KeysType.AGG_KEYS, colsName),
                 null, new RandomDistributionDesc(10), null, null, "");
         expectedEx.expect(AnalysisException.class);
-        expectedEx.expectMessage("Key column can not set bitmap or hll type:col3");
+        expectedEx.expectMessage("Key column can not set complex type:col3");
         stmt.analyze(analyzer);
     }
 
     @Test
-    public void testBmpHllNoAggTab() throws Exception {
-        ColumnDef bitmap = new ColumnDef("col3", new TypeDef(ScalarType.createType(PrimitiveType.BITMAP)));
-        cols.add(bitmap);
-        CreateTableStmt stmt = new CreateTableStmt(false, false, tblNameNoDb, cols, "olap",
-                new KeysDesc(KeysType.DUP_KEYS, colsName), null, new RandomDistributionDesc(10), null, null, "");
-        expectedEx.expect(AnalysisException.class);
-        expectedEx.expectMessage(
-                "Aggregate type `col3` bitmap NONE NOT NULL COMMENT \"\" is not compatible with primitive type bitmap");
-        stmt.analyze(analyzer);
-
-        cols.remove(bitmap);
+    public void testHllNoAggTab() throws Exception {
         ColumnDef hll = new ColumnDef("col3", new TypeDef(ScalarType.createType(PrimitiveType.HLL)));
         cols.add(hll);
-        stmt = new CreateTableStmt(false, false, tblNameNoDb, cols, "olap", new KeysDesc(KeysType.DUP_KEYS, colsName),
-                null, new RandomDistributionDesc(10), null, null, "");
+        CreateTableStmt stmt = new CreateTableStmt(false, false, tblNameNoDb, cols, "olap",
+                        new KeysDesc(KeysType.DUP_KEYS, colsName), null, new RandomDistributionDesc(10),
+                                        null, null, "");
         expectedEx.expect(AnalysisException.class);
         expectedEx.expectMessage(
                 "Aggregate type `col3` hll NONE NOT NULL COMMENT \"\" is not compatible with primitive type hll");

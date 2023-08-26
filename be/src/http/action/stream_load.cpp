@@ -414,9 +414,6 @@ Status StreamLoadAction::_process_put(HttpRequest* http_req,
     if (!http_req->header(HTTP_TIMEZONE).empty()) {
         request.__set_timezone(http_req->header(HTTP_TIMEZONE));
     }
-    if (!http_req->header(HTTP_TIME_ZONE).empty()) {
-        request.__set_timezone(http_req->header(HTTP_TIME_ZONE));
-    }
     if (!http_req->header(HTTP_EXEC_MEM_LIMIT).empty()) {
         try {
             request.__set_execMemLimit(std::stoll(http_req->header(HTTP_EXEC_MEM_LIMIT)));
@@ -549,6 +546,10 @@ Status StreamLoadAction::_process_put(HttpRequest* http_req,
         } else {
             request.__set_partial_update(false);
         }
+    }
+    if (!http_req->header(HTTP_MEMTABLE_ON_SINKNODE).empty()) {
+        bool value = iequal(http_req->header(HTTP_MEMTABLE_ON_SINKNODE), "true");
+        request.__set_memtable_on_sink_node(value);
     }
 
 #ifndef BE_TEST

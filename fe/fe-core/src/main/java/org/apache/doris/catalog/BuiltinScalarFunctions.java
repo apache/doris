@@ -28,6 +28,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.Array;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayAvg;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayCompact;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayContains;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayCumSum;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayDifference;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayDistinct;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayEnumerate;
@@ -36,12 +37,13 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayIntersec
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayJoin;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayMax;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayMin;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayPopback;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayPopBack;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayPopFront;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayPosition;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayProduct;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayRange;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayRemove;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.ArraySize;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayReverseSort;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArraySlice;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArraySort;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArraySum;
@@ -123,8 +125,6 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.Dround;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Dsqrt;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.E;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ElementAt;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.ElementExtract;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.ElementSlice;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Elt;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.EndsWith;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.EsQuery;
@@ -227,6 +227,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.NullIf;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.NullOrEmpty;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Nvl;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ParseUrl;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Password;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Pi;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Pmod;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Positive;
@@ -259,7 +260,6 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.SecondsDiff;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.SecondsSub;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Sign;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Sin;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.Size;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Sleep;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Sm3;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Sm3sum;
@@ -365,6 +365,7 @@ public class BuiltinScalarFunctions implements FunctionHelper {
             scalar(ArrayAvg.class, "array_avg"),
             scalar(ArrayCompact.class, "array_compact"),
             scalar(ArrayContains.class, "array_contains"),
+            scalar(ArrayCumSum.class, "array_cum_sum"),
             scalar(ArrayDifference.class, "array_difference"),
             scalar(ArrayDistinct.class, "array_distinct"),
             scalar(ArrayEnumerate.class, "array_enumerate"),
@@ -373,12 +374,13 @@ public class BuiltinScalarFunctions implements FunctionHelper {
             scalar(ArrayJoin.class, "array_join"),
             scalar(ArrayMax.class, "array_max"),
             scalar(ArrayMin.class, "array_min"),
-            scalar(ArrayPopback.class, "array_popback"),
+            scalar(ArrayPopBack.class, "array_popback"),
+            scalar(ArrayPopFront.class, "array_popfront"),
             scalar(ArrayPosition.class, "array_position"),
             scalar(ArrayProduct.class, "array_product"),
             scalar(ArrayRange.class, "array_range"),
             scalar(ArrayRemove.class, "array_remove"),
-            scalar(ArraySize.class, "array_size"),
+            scalar(ArrayReverseSort.class, "array_reverse_sort"),
             scalar(ArraySlice.class, "array_slice"),
             scalar(ArraySort.class, "array_sort"),
             scalar(ArraySum.class, "array_sum"),
@@ -414,7 +416,7 @@ public class BuiltinScalarFunctions implements FunctionHelper {
             scalar(BitmapToString.class, "bitmap_to_string"),
             scalar(BitmapXor.class, "bitmap_xor"),
             scalar(BitmapXorCount.class, "bitmap_xor_count"),
-            scalar(Cardinality.class, "cardinality"),
+            scalar(Cardinality.class, "array_size", "cardinality", "size"),
             scalar(Cbrt.class, "cbrt"),
             scalar(Ceil.class, "ceil", "ceiling"),
             scalar(CharacterLength.class, "char_length", "character_length"),
@@ -460,8 +462,6 @@ public class BuiltinScalarFunctions implements FunctionHelper {
             scalar(Dsqrt.class, "dsqrt"),
             scalar(E.class, "e"),
             scalar(ElementAt.class, "element_at"),
-            scalar(ElementExtract.class, "%element_extract%"),
-            scalar(ElementSlice.class, "%element_slice%"),
             scalar(Elt.class, "elt"),
             scalar(EndsWith.class, "ends_with"),
             scalar(EsQuery.class, "esquery"),
@@ -564,6 +564,7 @@ public class BuiltinScalarFunctions implements FunctionHelper {
             scalar(NullOrEmpty.class, "null_or_empty"),
             scalar(Nvl.class, "ifnull", "nvl"),
             scalar(ParseUrl.class, "parse_url"),
+            scalar(Password.class, "password"),
             scalar(Pi.class, "pi"),
             scalar(Pmod.class, "pmod"),
             scalar(Positive.class, "positive"),
@@ -596,11 +597,9 @@ public class BuiltinScalarFunctions implements FunctionHelper {
             scalar(SecToTime.class, "sec_to_time"),
             scalar(Sign.class, "sign"),
             scalar(Sin.class, "sin"),
-            scalar(Size.class, "size"),
             scalar(Sleep.class, "sleep"),
             scalar(Sm3.class, "sm3"),
-            scalar(Sm3sum.class,
-                    "sm3sum"),
+            scalar(Sm3sum.class, "sm3sum"),
             scalar(Sm4Decrypt.class, "sm4_decrypt"),
             scalar(Sm4DecryptV2.class, "sm4_decrypt_v2"),
             scalar(Sm4Encrypt.class, "sm4_encrypt"),

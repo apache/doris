@@ -94,10 +94,7 @@ public:
     }
     void to_string(const IColumn& column, size_t row_num, BufferWritable& ostr) const override;
 
-    [[noreturn]] virtual Field get_default() const override {
-        LOG(FATAL) << "Method get_default() is not implemented for data type " << get_name();
-        __builtin_unreachable();
-    }
+    Field get_default() const override { return BitmapValue(); }
 
     [[noreturn]] Field get_field(const TExprNode& node) const override {
         LOG(FATAL) << "Unimplemented get_field for BitMap";

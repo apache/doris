@@ -54,6 +54,7 @@
 #include "olap/binlog.h"
 #include "olap/cumulative_compaction.h"
 #include "olap/data_dir.h"
+#include "olap/full_compaction.h"
 #include "olap/memtable_flush_executor.h"
 #include "olap/olap_define.h"
 #include "olap/olap_meta.h"
@@ -1148,6 +1149,11 @@ void StorageEngine::create_cumulative_compaction(
 void StorageEngine::create_base_compaction(TabletSharedPtr best_tablet,
                                            std::shared_ptr<BaseCompaction>& base_compaction) {
     base_compaction.reset(new BaseCompaction(best_tablet));
+}
+
+void StorageEngine::create_full_compaction(TabletSharedPtr best_tablet,
+                                           std::shared_ptr<FullCompaction>& full_compaction) {
+    full_compaction.reset(new FullCompaction(best_tablet));
 }
 
 void StorageEngine::create_single_replica_compaction(

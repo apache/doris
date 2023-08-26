@@ -187,6 +187,9 @@ public:
     void create_base_compaction(TabletSharedPtr best_tablet,
                                 std::shared_ptr<BaseCompaction>& base_compaction);
 
+    void create_full_compaction(TabletSharedPtr best_tablet,
+                                std::shared_ptr<FullCompaction>& full_compaction);
+
     void create_single_replica_compaction(
             TabletSharedPtr best_tablet,
             std::shared_ptr<SingleReplicaCompaction>& single_replica_compaction,

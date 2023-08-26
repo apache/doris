@@ -122,6 +122,7 @@ import org.apache.doris.resource.workloadgroup.WorkloadGroup;
 import org.apache.doris.scheduler.job.Job;
 import org.apache.doris.scheduler.job.JobTask;
 import org.apache.doris.statistics.AnalysisInfo;
+import org.apache.doris.statistics.TableStats;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.Frontend;
 import org.apache.doris.transaction.TransactionState;
@@ -855,6 +856,11 @@ public class JournalEntity implements Writable {
             }
             case OperationType.OP_BARRIER: {
                 data = BarrierLog.read(in);
+                isRead = true;
+                break;
+            }
+            case OperationType.OP_UPDATE_TABLE_STATS: {
+                data = TableStats.read(in);
                 isRead = true;
                 break;
             }

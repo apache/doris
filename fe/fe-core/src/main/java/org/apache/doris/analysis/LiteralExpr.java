@@ -402,4 +402,10 @@ public abstract class LiteralExpr extends Expr implements Comparable<LiteralExpr
     public boolean matchExprs(List<Expr> exprs, SelectStmt stmt, boolean ignoreAlias, TupleDescriptor tuple) {
         return true;
     }
+
+    @Override
+    protected Expr substituteImpl(ExprSubstitutionMap smap, ExprSubstitutionMap disjunctsMap,
+            Analyzer analyzer) {
+        return this;
+    }
 }

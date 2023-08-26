@@ -38,7 +38,7 @@ statement
     | CREATE ROW POLICY (IF NOT EXISTS)? name=identifier
         ON table=multipartIdentifier
         AS type=(RESTRICTIVE | PERMISSIVE)
-        TO user=userIdentify
+        TO (user=userIdentify | ROLE roleName=identifier)
         USING LEFT_PAREN booleanExpression RIGHT_PAREN                 #createRowPolicy
     | explain? INSERT INTO tableName=multipartIdentifier
         (PARTITION partition=identifierList)?  // partition define
@@ -55,11 +55,16 @@ statement
         whereClause                                                    #delete
     ;
 
+propertiesStatment
+    : properties+=property (COMMA properties+=property)*
+    ;
+
+
 // -----------------Command accessories-----------------
 
 identifierOrText
     : errorCapturingIdentifier
-    | STRING
+    | STRING_LITERAL
     ;
 
 userIdentify
@@ -89,7 +94,7 @@ planType
 outFileClause
     : INTO OUTFILE filePath=constant
         (FORMAT AS format=identifier)?
-        (PROPERTIES LEFT_PAREN properties+=tvfProperty (COMMA properties+=tvfProperty)* RIGHT_PAREN)?
+        (PROPERTIES LEFT_PAREN properties+=property (COMMA properties+=property)* RIGHT_PAREN)?
     ;
 
 query
@@ -262,18 +267,18 @@ identifierSeq
     ;
 
 relationPrimary
-    : multipartIdentifier specifiedPartition? tableAlias relationHint? lateralView*           #tableName
+    : multipartIdentifier specifiedPartition? tabletList? tableAlias relationHint? lateralView*           #tableName
     | LEFT_PAREN query RIGHT_PAREN tableAlias lateralView*                                    #aliasedQuery
     | tvfName=identifier LEFT_PAREN
-      (properties+=tvfProperty (COMMA properties+=tvfProperty)*)?
+      (properties+=property (COMMA properties+=property)*)?
       RIGHT_PAREN tableAlias                                                                  #tableValuedFunction
     ;
 
-tvfProperty
-    : key=tvfPropertyItem EQ value=tvfPropertyItem
+property
+    : key=propertyItem EQ value=propertyItem
     ;
 
-tvfPropertyItem : identifier | constant ;
+propertyItem : identifier | constant ;
 
 tableAlias
     : (AS? strictIdentifier identifierList?)?
@@ -281,6 +286,10 @@ tableAlias
 
 multipartIdentifier
     : parts+=errorCapturingIdentifier (DOT parts+=errorCapturingIdentifier)*
+    ;
+
+tabletList
+    : TABLET LEFT_PAREN tabletIdList+=INTEGER_VALUE (COMMA tabletIdList+=INTEGER_VALUE)*  RIGHT_PAREN
     ;
 
 // -----------------Expression-----------------
@@ -366,10 +375,13 @@ primaryExpression
     | qualifiedName DOT ASTERISK                                                               #star
     | functionIdentifier LEFT_PAREN ((DISTINCT|ALL)? arguments+=expression
       (COMMA arguments+=expression)* (ORDER BY sortItem (COMMA sortItem)*)?)? RIGHT_PAREN
-      (OVER windowSpec)?                                                                        #functionCall
+      (OVER windowSpec)?                                                                       #functionCall
+    | value=primaryExpression LEFT_BRACKET index=valueExpression RIGHT_BRACKET                 #elementAt
+    | value=primaryExpression LEFT_BRACKET begin=valueExpression
+      COLON (end=valueExpression)? RIGHT_BRACKET                                               #arraySlice
     | LEFT_PAREN query RIGHT_PAREN                                                             #subqueryExpression
-    | ATSIGN identifierOrText                                                                        #userVariable
-    | DOUBLEATSIGN (kind=(GLOBAL | SESSION) DOT)? identifier                                     #systemVariable
+    | ATSIGN identifierOrText                                                                  #userVariable
+    | DOUBLEATSIGN (kind=(GLOBAL | SESSION) DOT)? identifier                                   #systemVariable
     | identifier                                                                               #columnReference
     | base=primaryExpression DOT fieldName=identifier                                          #dereference
     | LEFT_PAREN expression RIGHT_PAREN                                                        #parenthesizedExpression
@@ -425,10 +437,10 @@ specifiedPartition
 constant
     : NULL                                                                                     #nullLiteral
     | interval                                                                                 #intervalLiteral
-    | type=(DATE | DATEV2 | TIMESTAMP) STRING                                                  #typeConstructor
+    | type=(DATE | DATEV2 | TIMESTAMP) STRING_LITERAL                                                  #typeConstructor
     | number                                                                                   #numericLiteral
     | booleanValue                                                                             #booleanLiteral
-    | STRING                                                                                   #stringLiteral
+    | STRING_LITERAL                                                                                   #stringLiteral
     ;
 
 comparisonOperator
@@ -452,7 +464,23 @@ unitIdentifier
     ;
 
 dataType
-    : identifier (LEFT_PAREN (ASTERISK | INTEGER_VALUE (COMMA INTEGER_VALUE)*) RIGHT_PAREN)?     #primitiveDataType
+    : complex=ARRAY LT dataType GT                              #complexDataType
+    | complex=MAP LT dataType COMMA dataType GT                 #complexDataType
+    | complex=STRUCT LT complexColTypeList GT                   #complexDataType
+    | identifier (LEFT_PAREN INTEGER_VALUE
+      (COMMA INTEGER_VALUE)* RIGHT_PAREN)?                      #primitiveDataType
+    ;
+
+complexColTypeList
+    : complexColType (COMMA complexColType)*
+    ;
+
+complexColType
+    : identifier COLON dataType commentSpec?
+    ;
+
+commentSpec
+    : COMMENT STRING_LITERAL
     ;
 
 // this rule is used for explicitly capturing wrong identifiers such as test-table, which should actually be `test-table`

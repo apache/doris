@@ -205,6 +205,10 @@ public class JdbcScanNode extends ExternalScanNode {
             sql.append(" LIMIT ").append(limit);
         }
 
+        if (jdbcType == TOdbcTableType.CLICKHOUSE
+                && ConnectContext.get().getSessionVariable().jdbcClickhouseQueryFinal) {
+            sql.append(" SETTINGS final = 1");
+        }
         return sql.toString();
     }
 

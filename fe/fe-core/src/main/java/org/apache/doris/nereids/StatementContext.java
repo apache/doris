@@ -35,6 +35,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.OriginStatement;
 
+import com.google.common.base.Stopwatch;
 import com.google.common.base.Supplier;
 import com.google.common.base.Suppliers;
 import com.google.common.collect.ImmutableList;
@@ -53,6 +54,8 @@ import javax.annotation.concurrent.GuardedBy;
 public class StatementContext {
 
     private ConnectContext connectContext;
+
+    private final Stopwatch stopwatch = Stopwatch.createUnstarted();
 
     @GuardedBy("this")
     private final Map<String, Supplier<Object>> contextCacheMap = Maps.newLinkedHashMap();
@@ -106,6 +109,10 @@ public class StatementContext {
 
     public OriginStatement getOriginStatement() {
         return originStatement;
+    }
+
+    public Stopwatch getStopwatch() {
+        return stopwatch;
     }
 
     public void setMaxNAryInnerJoin(int maxNAryInnerJoin) {
