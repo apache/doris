@@ -683,6 +683,15 @@ Translated with www.DeepL.com/Translator (free version)
   
   It is used for the ReplacingMergeTree table engine of ClickHouse to deduplicate queries.
 
+* `enable_memtable_on_sink_node`
+
+  <version since="2.1.0">
+  Whether to enable MemTable on DataSink node when loading data, default is false.
+  </version>
+
+  Build MemTable on DataSink node, and send segments to other backends through brpc streaming.
+  It reduces duplicate work among replicas, and saves time in data serialization & deserialization.
+
 ***
 
 #### Supplementary instructions on statement execution timeout control

@@ -408,32 +408,25 @@ int main(int argc, char** argv) {
                 .set_max_threads(cache_paths.size())
                 .build(&file_cache_init_pool);
 
-        std::vector<doris::Status> cache_status;
+        std::list<doris::Status> cache_status;
         for (auto& cache_path : cache_paths) {
             if (cache_path_set.find(cache_path.path) != cache_path_set.end()) {
                 LOG(WARNING) << fmt::format("cache path {} is duplicate", cache_path.path);
                 continue;
             }
 
-            cache_status.push_back(Status::OK());
             RETURN_IF_ERROR(file_cache_init_pool->submit_func(
                     std::bind(&doris::io::FileCacheFactory::create_file_cache,
                               &(doris::io::FileCacheFactory::instance()), cache_path.path,
-                              cache_path.init_settings(), &(cache_status.back()))));
+                              cache_path.init_settings(), &(cache_status.emplace_back()))));
 
             cache_path_set.emplace(cache_path.path);
-            // Status st = doris::io::FileCacheFactory::instance().create_file_cache(
-            //         cache_path.path, cache_path.init_settings());
-            // if (!st) {
-            //     LOG(FATAL) << st;
-            //     exit(-1);
-            // }
         }
 
         file_cache_init_pool->wait();
-        for (int i = 0; i < cache_status.size(); ++i) {
-            if (!cache_status[i].ok()) {
-                LOG(FATAL) << "failed to init file cache: " << i << ", err: " << cache_status[i];
+        for (const auto& status : cache_status) {
+            if (!status.ok()) {
+                LOG(FATAL) << "failed to init file cache, err: " << status;
                 exit(-1);
             }
         }

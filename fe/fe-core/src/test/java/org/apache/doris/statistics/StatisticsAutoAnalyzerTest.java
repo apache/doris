@@ -177,7 +177,7 @@ public class StatisticsAutoAnalyzerTest {
 
         new MockUp<StatisticsAutoAnalyzer>() {
             @Mock
-            public Set<String> findReAnalyzeNeededPartitions(TableIf table, long lastExecTimeInMs) {
+            protected Set<String> findReAnalyzeNeededPartitions(TableIf table, TableStats tableStats)  {
                 Set<String> partitionNames = new HashSet<>();
                 partitionNames.add("p1");
                 partitionNames.add("p2");
