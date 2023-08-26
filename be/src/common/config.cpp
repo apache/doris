@@ -766,6 +766,7 @@ DEFINE_mInt32(max_remote_storage_count, "10");
 // and the valid values are: 0.9.0.x, 0.8.x.y.
 DEFINE_String(kafka_api_version_request, "true");
 DEFINE_String(kafka_broker_version_fallback, "0.10.0");
+DEFINE_String(kafka_debug, "disable");
 
 // The number of pool siz of routine load consumer.
 // If you meet the error describe in https://github.com/edenhill/librdkafka/issues/3608
