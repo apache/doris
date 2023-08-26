@@ -505,7 +505,7 @@ Status ColumnReader::_load_inverted_index_index(const TabletIndex* index_meta) {
     InvertedIndexParserType parser_type = get_inverted_index_parser_type_from_string(
             get_parser_string_from_properties(index_meta->properties()));
     FieldType type;
-    if ((FieldType)_meta_type == FieldType::OLAP_FIELD_TYPE_ARRAY) {
+    if (_meta_type == FieldType::OLAP_FIELD_TYPE_ARRAY) {
         type = _meta_children_column_type;
     } else {
         type = _type_info->type();
