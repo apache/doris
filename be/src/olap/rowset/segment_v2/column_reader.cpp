@@ -74,7 +74,8 @@ Status ColumnReader::create(const ColumnReaderOptions& opts, const ColumnMetaPB&
                             uint64_t num_rows, const io::FileReaderSPtr& file_reader,
                             std::unique_ptr<ColumnReader>* reader) {
     if (is_scalar_type((FieldType)meta.type())) {
-        std::unique_ptr<ColumnReader> reader_local(new ColumnReader(opts, num_rows, file_reader));
+        std::unique_ptr<ColumnReader> reader_local(
+                new ColumnReader(opts, meta, num_rows, file_reader));
         RETURN_IF_ERROR(reader_local->init(&meta));
         *reader = std::move(reader_local);
         return Status::OK();
@@ -86,7 +87,7 @@ Status ColumnReader::create(const ColumnReaderOptions& opts, const ColumnMetaPB&
             DCHECK(meta.children_columns_size() >= 1);
             // create struct column reader
             std::unique_ptr<ColumnReader> struct_reader(
-                    new ColumnReader(opts, num_rows, file_reader));
+                    new ColumnReader(opts, meta, num_rows, file_reader));
             struct_reader->_sub_readers.reserve(meta.children_columns_size());
             for (size_t i = 0; i < meta.children_columns_size(); i++) {
                 std::unique_ptr<ColumnReader> sub_reader;
@@ -121,7 +122,7 @@ Status ColumnReader::create(const ColumnReaderOptions& opts, const ColumnMetaPB&
             // The num rows of the array reader equals to the num rows of the length reader.
             num_rows = meta.children_columns(1).num_rows();
             std::unique_ptr<ColumnReader> array_reader(
-                    new ColumnReader(opts, num_rows, file_reader));
+                    new ColumnReader(opts, meta, num_rows, file_reader));
             //  array reader do not need to init
             array_reader->_sub_readers.resize(meta.children_columns_size());
             array_reader->_sub_readers[0] = std::move(item_reader);
@@ -155,7 +156,8 @@ Status ColumnReader::create(const ColumnReaderOptions& opts, const ColumnMetaPB&
 
             // The num rows of the map reader equals to the num rows of the length reader.
             num_rows = meta.children_columns(2).num_rows();
-            std::unique_ptr<ColumnReader> map_reader(new ColumnReader(opts, num_rows, file_reader));
+            std::unique_ptr<ColumnReader> map_reader(
+                    new ColumnReader(opts, meta, num_rows, file_reader));
             map_reader->_sub_readers.resize(meta.children_columns_size());
 
             map_reader->_sub_readers[0] = std::move(key_reader);
@@ -174,13 +176,22 @@ Status ColumnReader::create(const ColumnReaderOptions& opts, const ColumnMetaPB&
     }
 }
 
-ColumnReader::ColumnReader(const ColumnReaderOptions& opts, uint64_t num_rows,
-                           io::FileReaderSPtr file_reader)
+ColumnReader::ColumnReader(const ColumnReaderOptions& opts, const ColumnMetaPB& meta,
+                           uint64_t num_rows, io::FileReaderSPtr file_reader)
         : _opts(opts),
           _num_rows(num_rows),
           _file_reader(std::move(file_reader)),
           _dict_encoding_type(UNKNOWN_DICT_ENCODING),
-          _use_index_page_cache(!config::disable_storage_page_cache) {}
+          _use_index_page_cache(!config::disable_storage_page_cache) {
+    _meta_length = meta.length();
+    _meta_type = (FieldType)meta.type();
+    if (_meta_type == FieldType::OLAP_FIELD_TYPE_ARRAY) {
+        _meta_children_column_type = (FieldType)meta.children_columns(0).type();
+    }
+    _meta_is_nullable = meta.is_nullable();
+    _meta_dict_page = meta.dict_page();
+    _meta_compression = meta.compression();
+}
 
 ColumnReader::~ColumnReader() = default;
 
@@ -222,15 +233,6 @@ Status ColumnReader::init(const ColumnMetaPB* meta) {
         return Status::Corruption("Bad file {}: missing ordinal index for column {}",
                                   _file_reader->path().native(), meta->column_id());
     }
-
-    _meta_length = meta->length();
-    _meta_type = (FieldType)meta->type();
-    if (_meta_type == FieldType::OLAP_FIELD_TYPE_ARRAY) {
-        _meta_children_column_type = (FieldType)meta->children_columns(0).type();
-    }
-    _meta_is_nullable = meta->is_nullable();
-    _meta_dict_page = meta->dict_page();
-    _meta_compression = meta->compression();
     return Status::OK();
 }
 

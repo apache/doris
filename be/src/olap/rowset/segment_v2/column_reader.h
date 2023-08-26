@@ -185,7 +185,7 @@ public:
     void disable_index_meta_cache() { _use_index_page_cache = false; }
 
 private:
-    ColumnReader(const ColumnReaderOptions& opts, uint64_t num_rows,
+    ColumnReader(const ColumnReaderOptions& opts, const ColumnMetaPB& meta, uint64_t num_rows,
                  io::FileReaderSPtr file_reader);
     Status init(const ColumnMetaPB* meta);
 
