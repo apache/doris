@@ -184,18 +184,22 @@ public class HiveScanNode extends FileQueryScanNode {
                         hmsTable.getDbName(), hmsTable.getName(), partitionColumnTypes);
                 Map<Long, PartitionItem> idToPartitionItem = hivePartitionValues.getIdToPartitionItem();
                 this.totalPartitionNum = idToPartitionItem.size();
-                ListPartitionPrunerV2 pruner = new ListPartitionPrunerV2(idToPartitionItem,
-                        hmsTable.getPartitionColumns(), columnNameToRange,
-                        hivePartitionValues.getUidToPartitionRange(),
-                        hivePartitionValues.getRangeToId(),
-                        hivePartitionValues.getSingleColumnRangeMap(),
-                        true);
-                Collection<Long> filteredPartitionIds = pruner.prune();
-                LOG.debug("hive partition fetch and prune for table {}.{} cost: {} ms",
-                        hmsTable.getDbName(), hmsTable.getName(), (System.currentTimeMillis() - start));
-                partitionItems = Lists.newArrayListWithCapacity(filteredPartitionIds.size());
-                for (Long id : filteredPartitionIds) {
-                    partitionItems.add(idToPartitionItem.get(id));
+                if (!conjuncts.isEmpty()) {
+                    ListPartitionPrunerV2 pruner = new ListPartitionPrunerV2(idToPartitionItem,
+                            hmsTable.getPartitionColumns(), columnNameToRange,
+                            hivePartitionValues.getUidToPartitionRange(),
+                            hivePartitionValues.getRangeToId(),
+                            hivePartitionValues.getSingleColumnRangeMap(),
+                            true);
+                    Collection<Long> filteredPartitionIds = pruner.prune();
+                    LOG.debug("hive partition fetch and prune for table {}.{} cost: {} ms",
+                            hmsTable.getDbName(), hmsTable.getName(), (System.currentTimeMillis() - start));
+                    partitionItems = Lists.newArrayListWithCapacity(filteredPartitionIds.size());
+                    for (Long id : filteredPartitionIds) {
+                        partitionItems.add(idToPartitionItem.get(id));
+                    }
+                } else {
+                    partitionItems = idToPartitionItem.values();
                 }
             } else {
                 // partitions has benn pruned by Nereids, in PruneFileScanPartition,
@@ -209,7 +213,8 @@ public class HiveScanNode extends FileQueryScanNode {
             // get partitions from cache
             List<List<String>> partitionValuesList = Lists.newArrayListWithCapacity(partitionItems.size());
             for (PartitionItem item : partitionItems) {
-                partitionValuesList.add(((ListPartitionItem) item).getItems().get(0).getPartitionValuesAsStringList());
+                partitionValuesList.add(
+                        ((ListPartitionItem) item).getItems().get(0).getPartitionValuesAsStringListForHive());
             }
             resPartitions = cache.getAllPartitionsWithCache(hmsTable.getDbName(), hmsTable.getName(),
                     partitionValuesList);

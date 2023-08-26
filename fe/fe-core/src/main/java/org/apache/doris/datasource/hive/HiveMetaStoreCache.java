@@ -310,7 +310,7 @@ public class HiveMetaStoreCache {
             values.add(new PartitionValue(partitionValue, HIVE_DEFAULT_PARTITION.equals(partitionValue)));
         }
         try {
-            PartitionKey key = PartitionKey.createListPartitionKeyWithTypes(values, types);
+            PartitionKey key = PartitionKey.createListPartitionKeyWithTypes(values, types, true);
             return new ListPartitionItem(Lists.newArrayList(key));
         } catch (AnalysisException e) {
             throw new CacheException("failed to convert hive partition %s to list partition in catalog %s",

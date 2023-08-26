@@ -53,12 +53,14 @@ import java.util.zip.CRC32;
 public class PartitionKey implements Comparable<PartitionKey>, Writable {
     private static final Logger LOG = LogManager.getLogger(PartitionKey.class);
     private List<LiteralExpr> keys;
+    private List<String> originHiveKeys;
     private List<PrimitiveType> types;
     private boolean isDefaultListPartitionKey = false;
 
     // constructor for partition prune
     public PartitionKey() {
         keys = Lists.newArrayList();
+        originHiveKeys = Lists.newArrayList();
         types = Lists.newArrayList();
     }
 
@@ -101,7 +103,8 @@ public class PartitionKey implements Comparable<PartitionKey>, Writable {
         return partitionKey;
     }
 
-    public static PartitionKey createListPartitionKeyWithTypes(List<PartitionValue> values, List<Type> types)
+    public static PartitionKey createListPartitionKeyWithTypes(List<PartitionValue> values, List<Type> types,
+            boolean isHive)
             throws AnalysisException {
         // for multi list partition:
         //
@@ -134,6 +137,9 @@ public class PartitionKey implements Comparable<PartitionKey>, Writable {
         PartitionKey partitionKey = new PartitionKey();
         for (int i = 0; i < values.size(); i++) {
             partitionKey.keys.add(values.get(i).getValue(types.get(i)));
+            if (isHive) {
+                partitionKey.originHiveKeys.add(values.get(i).getStringValue());
+            }
             partitionKey.types.add(types.get(i).getPrimitiveType());
         }
         if (values.isEmpty()) {
@@ -151,7 +157,7 @@ public class PartitionKey implements Comparable<PartitionKey>, Writable {
     public static PartitionKey createListPartitionKey(List<PartitionValue> values, List<Column> columns)
             throws AnalysisException {
         List<Type> types = columns.stream().map(c -> c.getType()).collect(Collectors.toList());
-        return createListPartitionKeyWithTypes(values, types);
+        return createListPartitionKeyWithTypes(values, types, false);
     }
 
     public void pushColumn(LiteralExpr keyValue, PrimitiveType keyType) {
@@ -203,6 +209,11 @@ public class PartitionKey implements Comparable<PartitionKey>, Writable {
 
     public List<String> getPartitionValuesAsStringList() {
         return keys.stream().map(k -> k.getStringValue()).collect(Collectors.toList());
+    }
+
+    public List<String> getPartitionValuesAsStringListForHive() {
+        Preconditions.checkState(originHiveKeys.size() == keys.size());
+        return originHiveKeys;
     }
 
     public static int compareLiteralExpr(LiteralExpr key1, LiteralExpr key2) {
