@@ -73,6 +73,7 @@ import com.google.common.collect.Maps;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.net.URI;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
@@ -358,9 +359,8 @@ public abstract class FileQueryScanNode extends FileScanNode {
             Map<String, String> locationProperties) throws UserException {
         if (locationType == TFileType.FILE_HDFS || locationType == TFileType.FILE_BROKER) {
             if (!params.isSetHdfsParams()) {
-                String fsName = getFsName(fileSplit);
                 THdfsParams tHdfsParams = HdfsResource.generateHdfsParam(locationProperties);
-                tHdfsParams.setFsName(fsName);
+                // tHdfsParams.setFsName(getFsName(fileSplit));
                 params.setHdfsParams(tHdfsParams);
             }
 
@@ -413,14 +413,10 @@ public abstract class FileQueryScanNode extends FileScanNode {
         rangeDesc.setColumnsFromPathKeys(columnsFromPathKeys);
 
         rangeDesc.setFileType(locationType);
+        rangeDesc.setPath(fileSplit.getPath().toString());
         if (locationType == TFileType.FILE_HDFS) {
-            rangeDesc.setPath(fileSplit.getPath().toUri().getPath());
-        } else if (locationType == TFileType.FILE_S3
-                || locationType == TFileType.FILE_BROKER
-                || locationType == TFileType.FILE_LOCAL
-                || locationType == TFileType.FILE_NET) {
-            // need full path
-            rangeDesc.setPath(fileSplit.getPath().toString());
+            URI fileUri = fileSplit.getPath().toUri();
+            rangeDesc.setFsName(fileUri.getScheme() + "://" + fileUri.getAuthority());
         }
         rangeDesc.setModificationTime(fileSplit.getModificationTime());
         return rangeDesc;

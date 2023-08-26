@@ -291,6 +291,9 @@ void ParquetReader::_init_file_description() {
     _file_description.path = _scan_range.path;
     _file_description.start_offset = _scan_range.start_offset;
     _file_description.file_size = _scan_range.__isset.file_size ? _scan_range.file_size : 0;
+    if (_scan_range.__isset.fs_name) {
+        _file_description.fs_name = _scan_range.fs_name;
+    }
 }
 
 Status ParquetReader::init_reader(
