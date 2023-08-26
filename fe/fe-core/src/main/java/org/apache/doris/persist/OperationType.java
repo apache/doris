@@ -215,7 +215,11 @@ public class OperationType {
 
     // set table replication_num config 266
     public static final short OP_MODIFY_REPLICATION_NUM = 266;
-    // set table in memory
+    // set table in memory (confusion)
+    // The actual opcode now represents
+    // modify table properties: inMemory, StoragePolicy, IsBeingSynced, CompactionPolicy,
+    // TimeSeriesCompactionFileCountThreshold, SeriesCompactionTimeThresholdSeconds,
+    // SkipWriteIndexOnLoad, EnableSingleReplicaCompaction.
     public static final short OP_MODIFY_IN_MEMORY = 267;
 
     // set table default distribution bucket num
