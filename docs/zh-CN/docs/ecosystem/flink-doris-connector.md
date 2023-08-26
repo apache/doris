@@ -206,7 +206,7 @@ executionBuilder.setLabelPrefix("label-doris") //streamload label prefix
                 .setDeletable(false)
                 .setStreamLoadProp(properties); //streamload params
 
-//flink rowdata‘s schema
+//flink rowdata's schema
 String[] fields = {"city", "longitude", "latitude", "destroy_date"};
 DataType[] types = {DataTypes.VARCHAR(256), DataTypes.DOUBLE(), DataTypes.DOUBLE(), DataTypes.DATE()};
 

@@ -90,7 +90,7 @@ struct TScanBatchResult {
   1: required Status.TStatus status
 
   // If true, reached the end of the result stream; subsequent calls to
-  // getNext() won’t return any more results. Required.
+  // getNext() won't return any more results. Required.
   2: optional bool eos
 
   // A batch of rows of arrow format to return, if any exist. The number of rows in the batch

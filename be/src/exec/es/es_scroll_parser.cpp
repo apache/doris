@@ -485,7 +485,7 @@ Status ScrollParser::fill_columns(const TupleDescriptor* tuple_desc,
         case TYPE_CHAR:
         case TYPE_VARCHAR:
         case TYPE_STRING: {
-            // sometimes elasticsearch user post some not-string value to Elasticsearch Index.
+            // sometimes elasticsearch users post some not-string value to elasticsearch index.
             // because of reading value from _source, we can not process all json type and then just transfer the value to original string representation
             // this may be a tricky, but we can work around this issue
             std::string val;
