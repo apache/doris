@@ -18,7 +18,9 @@
 #pragma once
 
 #include <bzlib.h>
+#include <lz4/lz4.h>
 #include <lz4/lz4frame.h>
+#include <lz4/lz4hc.h>
 #include <snappy.h>
 #include <stddef.h>
 #include <stdint.h>
