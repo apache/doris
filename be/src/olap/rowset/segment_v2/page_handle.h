@@ -72,7 +72,7 @@ public:
     }
 
     // the return slice contains uncompressed page body, page footer, and footer size
-    Slice data() const {
+    [[nodiscard]] Slice data() const {
         if (_is_data_owner) {
             return Slice(_data->data(), _data->size());
         } else {

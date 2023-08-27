@@ -76,16 +76,16 @@ public:
     // Create a slice that refers to s[0,strlen(s)-1]
     CacheKey(const char* s) : _data(s), _size(strlen(s)) {}
 
-    ~CacheKey() {}
+    ~CacheKey() = default;
 
     // Return a pointer to the beginning of the referenced data
-    const char* data() const { return _data; }
+    [[nodiscard]] const char* data() const { return _data; }
 
     // Return the length (in bytes) of the referenced data
-    size_t size() const { return _size; }
+    [[nodiscard]] size_t size() const { return _size; }
 
     // Return true if the length of the referenced data is zero
-    bool empty() const { return _size == 0; }
+    [[nodiscard]] bool empty() const { return _size == 0; }
 
     // Return the ith byte in the referenced data.
     // REQUIRES: n < size()
@@ -108,7 +108,7 @@ public:
     }
 
     // Return a string that contains the copy of the referenced data.
-    std::string to_string() const { return std::string(_data, _size); }
+    [[nodiscard]] std::string to_string() const { return std::string(_data, _size); }
 
     bool operator==(const CacheKey& other) const {
         return ((size() == other.size()) && (memcmp(data(), other.data(), size()) == 0));
@@ -116,7 +116,7 @@ public:
 
     bool operator!=(const CacheKey& other) const { return !(*this == other); }
 
-    int compare(const CacheKey& b) const {
+    [[nodiscard]] int compare(const CacheKey& b) const {
         const size_t min_len = (_size < b._size) ? _size : b._size;
         int r = memcmp(_data, b._data, min_len);
         if (r == 0) {
@@ -132,7 +132,7 @@ public:
     uint32_t hash(const char* data, size_t n, uint32_t seed) const;
 
     // Return true if "x" is a prefix of "*this"
-    bool starts_with(const CacheKey& x) const {
+    [[nodiscard]] bool starts_with(const CacheKey& x) const {
         return ((_size >= x._size) && (memcmp(_data, x._data, x._size) == 0));
     }
 
@@ -159,7 +159,7 @@ using CacheValueTimeExtractor = std::function<int64_t(const void*)>;
 
 class Cache {
 public:
-    Cache() {}
+    Cache() = default;
 
     // Destroys all existing entries by calling the "deleter"
     // function that was passed to the constructor.
@@ -257,7 +257,7 @@ struct LRUHandle {
     LRUCacheType type;
     char key_data[1]; // Beginning of key
 
-    CacheKey key() const {
+    [[nodiscard]] CacheKey key() const {
         // For cheaper lookups, we allow a temporary Handle object
         // to store a pointer to a key in "value".
         if (next == this) {
@@ -299,7 +299,7 @@ public:
     // Return whether h is found and removed.
     bool remove(const LRUHandle* h);
 
-    uint32_t element_count() const;
+    [[nodiscard]] uint32_t element_count() const;
 
 private:
     FRIEND_TEST(CacheTest, HandleTableTest);
@@ -349,10 +349,10 @@ public:
     void set_cache_value_time_extractor(CacheValueTimeExtractor cache_value_time_extractor);
     void set_cache_value_check_timestamp(bool cache_value_check_timestamp);
 
-    uint64_t get_lookup_count() const { return _lookup_count; }
-    uint64_t get_hit_count() const { return _hit_count; }
-    size_t get_usage() const { return _usage; }
-    size_t get_capacity() const { return _capacity; }
+    [[nodiscard]] uint64_t get_lookup_count() const { return _lookup_count; }
+    [[nodiscard]] uint64_t get_hit_count() const { return _hit_count; }
+    [[nodiscard]] size_t get_usage() const { return _usage; }
+    [[nodiscard]] size_t get_capacity() const { return _capacity; }
 
 private:
     void _lru_remove(LRUHandle* e);
@@ -402,18 +402,18 @@ public:
                              CacheValueTimeExtractor cache_value_time_extractor,
                              bool cache_value_check_timestamp, uint32_t element_count_capacity = 0);
     // TODO(fdy): 析构时清除所有cache元素
-    virtual ~ShardedLRUCache();
-    virtual Handle* insert(const CacheKey& key, void* value, size_t charge,
+     ~ShardedLRUCache() override;
+    Handle* insert(const CacheKey& key, void* value, size_t charge,
                            void (*deleter)(const CacheKey& key, void* value),
                            CachePriority priority = CachePriority::NORMAL,
                            size_t bytes = -1) override;
-    virtual Handle* lookup(const CacheKey& key) override;
-    virtual void release(Handle* handle) override;
-    virtual void erase(const CacheKey& key) override;
-    virtual void* value(Handle* handle) override;
+     Handle* lookup(const CacheKey& key) override;
+     void release(Handle* handle) override;
+     void erase(const CacheKey& key) override;
+     void* value(Handle* handle) override;
     Slice value_slice(Handle* handle) override;
-    virtual uint64_t new_id() override;
-    virtual int64_t prune() override;
+     uint64_t new_id() override;
+     int64_t prune() override;
     int64_t prune_if(CacheValuePredicate pred, bool lazy_mode = false) override;
     int64_t mem_consumption() override;
     int64_t get_usage() override;
@@ -424,7 +424,7 @@ private:
 
 private:
     static uint32_t _hash_slice(const CacheKey& s);
-    uint32_t _shard(uint32_t hash) {
+    uint32_t _shard(uint32_t hash) const {
         return _num_shard_bits > 0 ? (hash >> (32 - _num_shard_bits)) : 0;
     }
 
@@ -448,6 +448,10 @@ private:
     std::unique_ptr<bvar::PerSecond<bvar::Adder<uint64_t>>> _hit_count_per_second;
     std::unique_ptr<bvar::Adder<uint64_t>> _lookup_count_bvar;
     std::unique_ptr<bvar::PerSecond<bvar::Adder<uint64_t>>> _lookup_count_per_second;
+};
+
+class TwoQueueLRUCache {
+private:
 };
 
 } // namespace doris

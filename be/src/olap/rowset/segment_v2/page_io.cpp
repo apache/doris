@@ -44,8 +44,6 @@
 namespace doris {
 namespace segment_v2 {
 
-using strings::Substitute;
-
 Status PageIO::compress_page_body(BlockCompressionCodec* codec, double min_space_saving,
                                   const std::vector<Slice>& body, OwnedSlice* compressed_body) {
     size_t uncompressed_size = Slice::compute_total_size(body);
