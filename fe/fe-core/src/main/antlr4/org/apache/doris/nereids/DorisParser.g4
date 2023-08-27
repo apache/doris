@@ -397,6 +397,18 @@ primaryExpression
                 (INTERVAL unitsAmount=valueExpression  unit=datetimeUnit
                 | unitsAmount=valueExpression)
             RIGHT_PAREN                                                                        #date_sub
+    | name=DATE_FLOOR
+            LEFT_PAREN
+                timestamp=valueExpression COMMA
+                (INTERVAL unitsAmount=valueExpression  unit=datetimeUnit
+                | unitsAmount=valueExpression)
+            RIGHT_PAREN                                                                        #date_floor 
+    | name=DATE_CEIL
+            LEFT_PAREN
+                timestamp=valueExpression COMMA
+                (INTERVAL unitsAmount=valueExpression  unit=datetimeUnit
+                | unitsAmount=valueExpression)
+            RIGHT_PAREN                                                                        #date_ceil
     | CASE whenClause+ (ELSE elseExpression=expression)? END                                   #searchedCase
     | CASE value=expression whenClause+ (ELSE elseExpression=expression)? END                  #simpleCase
     | name=CAST LEFT_PAREN expression AS dataType RIGHT_PAREN                                  #cast
@@ -614,8 +626,10 @@ nonReserved
     | DATE
     | DATEV2
     | DATE_ADD
+    | DATE_CEIL
     | DATEDIFF
     | DATE_DIFF
+    | DATE_FLOOR
     | DAY
     | DBPROPERTIES
     | DEFINED

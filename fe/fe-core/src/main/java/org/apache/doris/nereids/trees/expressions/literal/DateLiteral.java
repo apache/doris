@@ -222,6 +222,34 @@ public class DateLiteral extends Literal {
         return LocalDateTime.of(((int) getYear()), ((int) getMonth()), ((int) getDay()), 0, 0, 0);
     }
 
+    public long daynr() {
+        return calcDaynr(this.year, this.month, this.day);
+    }
+
+    // calculate the number of days from year 0000-00-00 to year-month-day
+    private long calcDaynr(long year, long month, long day) {
+        long delsum = 0;
+        long y = year;
+
+        if (year == 0 && month == 0) {
+            return 0;
+        }
+
+        /* Cast to int to be able to handle month == 0 */
+        delsum = 365 * y + 31 * (month - 1) + day;
+        if (month <= 2) {
+            // No leap year
+            y--;
+        } else {
+            // This is great!!!
+            // 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12
+            // 0, 0, 3, 3, 4, 4, 5, 5, 5,  6,  7,  8
+            delsum -= (month * 4 + 23) / 10;
+        }
+        // Every 400 year has 97 leap year, 100, 200, 300 are not leap year.
+        return delsum + y / 4 - y / 100 + y / 400;
+    }
+
     public static Expression fromJavaDateType(LocalDateTime dateTime) {
         return isDateOutOfRange(dateTime)
                 ? new NullLiteral(DateType.INSTANCE)
