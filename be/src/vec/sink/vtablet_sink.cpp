@@ -286,6 +286,8 @@ void VNodeChannel::try_send_block(RuntimeState* state) {
     // tablet_ids has already set when add row
     request.set_packet_seq(_next_packet_seq);
     auto block = mutable_block->to_block();
+    CHECK(block.rows() == request.tablet_ids_size())
+        << "block rows: " << block.rows() << ", tablet_ids_size: " << request.tablet_ids_size();
     if (block.rows() > 0) {
         SCOPED_ATOMIC_TIMER(&_serialize_batch_ns);
         size_t uncompressed_bytes = 0, compressed_bytes = 0;
@@ -297,6 +299,10 @@ void VNodeChannel::try_send_block(RuntimeState* state) {
             cancel(fmt::format("{}, err: {}", channel_info(), st.to_string()));
             _add_block_closure->clear_in_flight();
             return;
+        }
+        {
+            vectorized::Block tmp_block(*request.mutable_block());
+            CHECK(block.rows() == tmp_block.rows());
         }
         if (compressed_bytes >= double(config::brpc_max_body_size) * 0.95f) {
             LOG(WARNING) << "send block too large, this rpc may failed. send size: "

@@ -467,6 +467,7 @@ Status TabletsChannel::add_batch(const TabletWriterAddRequest& request,
         }
     }
 
+    size_t row_count = 0;
     auto get_send_data = [&]() {
         if constexpr (std::is_same_v<TabletWriterAddRequest, PTabletWriterAddBatchRequest>) {
             return RowBatch(*_row_desc, request.row_batch());
@@ -476,6 +477,13 @@ Status TabletsChannel::add_batch(const TabletWriterAddRequest& request,
     };
 
     auto send_data = get_send_data();
+    if constexpr (std::is_same_v<TabletWriterAddRequest, PTabletWriterAddBatchRequest>) {
+        row_count = send_data.num_rows();
+    } else {
+        row_count = send_data.rows();
+    }
+    CHECK(row_count == request.tablet_ids_size())
+            << "block rows: " << row_count << ", tablet_ids_size: " << request.tablet_ids_size();
     google::protobuf::RepeatedPtrField<PTabletError>* tablet_errors =
             response->mutable_tablet_errors();
     for (const auto& tablet_to_rowidxs_it : tablet_to_rowidxs) {
