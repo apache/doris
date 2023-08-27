@@ -144,10 +144,6 @@ public class RebalancerTestUtil {
             if (db == null) {
                 continue;
             }
-            if (db.getFullName().indexOf("__internal_schema") >= 0
-                    || db.getFullName().indexOf("information_schema") >= 0) {
-                continue;
-            }
 
             if (db.isMysqlCompatibleDatabase()) {
                 continue;

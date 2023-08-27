@@ -34,6 +34,7 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.DdlExecutor;
+import org.apache.doris.resource.Tag;
 import org.apache.doris.system.Backend;
 import org.apache.doris.utframe.UtFrameUtils;
 
@@ -46,6 +47,7 @@ import org.junit.Test;
 import java.io.File;
 import java.util.List;
 import java.util.Map;
+import java.util.Random;
 import java.util.Set;
 import java.util.UUID;
 
@@ -60,11 +62,14 @@ public class ColocateTableCheckerAndBalancerPerfTest {
     @BeforeClass
     public static void beforeClass() throws Exception {
         FeConstants.runningUnitTest = true;
+        FeConstants.enableInternalSchemaDb = false;
         FeConstants.tablet_checker_interval_ms = 100;
         Config.enable_round_robin_create_tablet = false;
         Config.disable_balance = true;
         Config.schedule_batch_size = 400;
         Config.schedule_slot_num_per_hdd_path = 1000;
+        Config.disable_colocate_balance = true;
+        Config.disable_tablet_scheduler = true;
         UtFrameUtils.createDorisClusterWithMultiTag(runningDir, 6);
 
         backends = Env.getCurrentSystemInfo().getIdToBackend().values().asList();
@@ -76,8 +81,10 @@ public class ColocateTableCheckerAndBalancerPerfTest {
                         diskInfo.getTotalCapacityB() - diskInfo.getDataUsedCapacityB());
             }
         }
+        Map<String, String> tagMap = Maps.newHashMap();
+        tagMap.put(Tag.TYPE_LOCATION, "zone_a");
         for (int i = 0; i < TEMP_DISALBE_BE_NUM; i++) {
-            backends.get(i).setAlive(false);
+            backends.get(i).setTagMap(tagMap);
         }
 
         // create connect context
@@ -92,25 +99,37 @@ public class ColocateTableCheckerAndBalancerPerfTest {
 
     @Test
     public void testRelocateAndBalance() throws Exception {
-        Config.disable_colocate_balance = true;
-        Config.disable_tablet_scheduler = true;
 
         Env env = Env.getCurrentEnv();
         String createDbStmtStr = "create database test;";
         CreateDbStmt createDbStmt = (CreateDbStmt) UtFrameUtils.parseAndAnalyzeStmt(createDbStmtStr, connectContext);
         DdlExecutor.execute(env, createDbStmt);
 
-        final int tableNum = 100;
-        for (int tableIndex = 0; tableIndex <= tableNum; tableIndex++) {
-            String sql = String.format("CREATE TABLE test.table_%s\n"
-                    + "( k1 int, k2 int, v1 int )\n"
-                    + "ENGINE=OLAP\n"
-                    + "UNIQUE KEY (k1,k2)\n"
-                    + "DISTRIBUTED BY HASH(k2) BUCKETS 10\n"
-                    + "PROPERTIES('colocate_with' = 'group_%s');",
-                    tableIndex, tableIndex);
-            CreateTableStmt createTableStmt = (CreateTableStmt) UtFrameUtils.parseAndAnalyzeStmt(sql, connectContext);
-            DdlExecutor.execute(env, createTableStmt);
+        Random random = new Random();
+        final int groupNum = 100;
+        for (int groupIndex = 0; groupIndex <= groupNum; groupIndex++) {
+            int tableNum = 1 + random.nextInt(10);
+            for (int tableIndex = 0; tableIndex < tableNum; tableIndex++) {
+                String sql = String.format("CREATE TABLE test.table_%s_%s\n"
+                        + "( k1 int, k2 int, v1 int )\n"
+                        + "ENGINE=OLAP\n"
+                        + "UNIQUE KEY (k1,k2)\n"
+                        + "DISTRIBUTED BY HASH(k2) BUCKETS 11\n"
+                        + "PROPERTIES('colocate_with' = 'group_%s');",
+                        groupIndex, tableIndex, groupIndex);
+                CreateTableStmt createTableStmt = (CreateTableStmt) UtFrameUtils.parseAndAnalyzeStmt(sql, connectContext);
+                try {
+                    DdlExecutor.execute(env, createTableStmt);
+                } catch (Exception e) {
+                    e.printStackTrace();
+                    throw e;
+                }
+
+                BalanceStatistic beforeBalanceStatistic = BalanceStatistic.getCurrentBalanceStatistic();
+                Assert.assertEquals("group: " + groupIndex + ", table: " + tableIndex + ", "
+                        + beforeBalanceStatistic.getBackendTotalReplicaNum(),
+                        0, beforeBalanceStatistic.getBeMinTotalReplicaNum());
+            }
         }
 
         ColocateTableIndex colocateIndex = env.getColocateTableIndex();
@@ -120,6 +139,8 @@ public class ColocateTableCheckerAndBalancerPerfTest {
         RebalancerTestUtil.updateReplicaPathHash();
 
         BalanceStatistic beforeBalanceStatistic = BalanceStatistic.getCurrentBalanceStatistic();
+        Assert.assertEquals("" + beforeBalanceStatistic.getBackendTotalReplicaNum(),
+                0, beforeBalanceStatistic.getBeMinTotalReplicaNum());
 
         // all groups stable
         Thread.sleep(1000);
@@ -128,7 +149,10 @@ public class ColocateTableCheckerAndBalancerPerfTest {
 
         // after enable colocate balance and some backends return,  it should relocate all groups.
         // and they will be unstable
-        backends.forEach(be -> be.setAlive(true));
+        Map<String, String> tagMap = backends.get(TEMP_DISALBE_BE_NUM).getTagMap();
+        for (int i = 0; i < TEMP_DISALBE_BE_NUM; i++) {
+            backends.get(i).setTagMap(tagMap);
+        }
         Config.disable_colocate_balance = false;
         Thread.sleep(1000);
         Assert.assertTrue("some groups are stable",
@@ -147,7 +171,7 @@ public class ColocateTableCheckerAndBalancerPerfTest {
                 break;
             }
 
-            Assert.assertTrue("some groups are unstable", i < 120);
+            Assert.assertTrue("some groups are unstable", i < 40);
         }
 
         System.out.println("=== before colocate relocate and balance:");
