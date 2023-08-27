@@ -80,7 +80,7 @@ public class ColocateTableCheckerAndBalancer extends MasterDaemon {
         return INSTANCE;
     }
 
-    private class BucketStatistic {
+    public static class BucketStatistic {
         public int tabletOrderIdx;
         public int totalReplicaNum;
         public long totalReplicaDataSize;
@@ -90,16 +90,51 @@ public class ColocateTableCheckerAndBalancer extends MasterDaemon {
             this.totalReplicaNum = totalReplicaNum;
             this.totalReplicaDataSize = totalReplicaDataSize;
         }
+
+        @Override
+        public boolean equals(Object obj) {
+            if (!(obj instanceof BucketStatistic)) {
+                return false;
+            }
+
+            BucketStatistic other = (BucketStatistic) obj;
+            return tabletOrderIdx == other.tabletOrderIdx && totalReplicaNum == other.totalReplicaNum
+                    && totalReplicaDataSize == other.totalReplicaDataSize;
+        }
+
+        @Override
+        public String toString() {
+            return "{ orderIdx: " + tabletOrderIdx + ", total replica num: " + totalReplicaNum
+                    + ", total data size: " + totalReplicaDataSize + " }";
+        }
     }
 
-    private class BackendBuckets {
+    public static class BackendBuckets {
         private long beId;
         private Map<GroupId, List<Integer>>  groupTabletOrderIndices = Maps.newHashMap();
-        private Map<GroupId, List<BucketStatistic>> groupBucketsMap;
 
-        public BackendBuckets(long beId, Map<GroupId, List<BucketStatistic>> groupBucketsMap) {
+        public BackendBuckets(long beId) {
             this.beId = beId;
-            this.groupBucketsMap = groupBucketsMap;
+        }
+
+        // for test
+        public Map<GroupId, List<Integer>> getGroupTabletOrderIndices() {
+            return groupTabletOrderIndices;
+        }
+
+        @Override
+        public boolean equals(Object obj) {
+            if (!(obj instanceof BackendBuckets)) {
+                return false;
+            }
+
+            BackendBuckets other = (BackendBuckets) obj;
+            return beId == other.beId && groupTabletOrderIndices.equals(other.groupTabletOrderIndices);
+        }
+
+        @Override
+        public String toString() {
+            return "{ backendId: " + beId + ", group order index: " + groupTabletOrderIndices + " }";
         }
 
         public void addGroupTablet(GroupId groupId, int tabletOrderIdx) {
@@ -132,10 +167,10 @@ public class ColocateTableCheckerAndBalancer extends MasterDaemon {
             return indices.indexOf(Integer.valueOf(tabletOrderIdx)) >= 0;
         }
 
-        public int getTotalReplicaNum() {
+        public int getTotalReplicaNum(Map<GroupId, List<BucketStatistic>> allGroupBucketsMap) {
             int totalReplicaNum = 0;
             for (Map.Entry<GroupId, List<Integer>> entry : groupTabletOrderIndices.entrySet()) {
-                List<BucketStatistic> bucketStatistics = groupBucketsMap.get(entry.getKey());
+                List<BucketStatistic> bucketStatistics = allGroupBucketsMap.get(entry.getKey());
                 if (bucketStatistics != null) {
                     for (int tabletOrderIdx : entry.getValue()) {
                         if (tabletOrderIdx < bucketStatistics.size()) {
@@ -148,10 +183,10 @@ public class ColocateTableCheckerAndBalancer extends MasterDaemon {
             return totalReplicaNum;
         }
 
-        public long getTotalReplicaDataSize() {
+        public long getTotalReplicaDataSize(Map<GroupId, List<BucketStatistic>> allGroupBucketsMap) {
             long totalReplicaDataSize = 0;
             for (Map.Entry<GroupId, List<Integer>> entry : groupTabletOrderIndices.entrySet()) {
-                List<BucketStatistic> bucketStatistics = groupBucketsMap.get(entry.getKey());
+                List<BucketStatistic> bucketStatistics = allGroupBucketsMap.get(entry.getKey());
                 if (bucketStatistics != null) {
                     for (int tabletOrderIdx : entry.getValue()) {
                         if (tabletOrderIdx < bucketStatistics.size()) {
@@ -178,12 +213,60 @@ public class ColocateTableCheckerAndBalancer extends MasterDaemon {
         }
     }
 
-    private class GlobalColocateStatistic {
+    public static class GlobalColocateStatistic {
         private Map<Long, BackendBuckets> backendBucketsMap = Maps.newHashMap();
-        private Map<GroupId, List<BucketStatistic>> groupBucketsMap = Maps.newHashMap();
-        private BackendBuckets dummyBeBuckets = new BackendBuckets(0, groupBucketsMap);
+        private Map<GroupId, List<BucketStatistic>> allGroupBucketsMap = Maps.newHashMap();
+        private static final BackendBuckets DUMMY_BE = new BackendBuckets(0);
 
         public GlobalColocateStatistic() {
+        }
+
+        @Override
+        public boolean equals(Object obj) {
+            if (!(obj instanceof GlobalColocateStatistic)) {
+                return false;
+            }
+
+            GlobalColocateStatistic other = (GlobalColocateStatistic) obj;
+            return backendBucketsMap.equals(other.backendBucketsMap)
+                    && allGroupBucketsMap.equals(other.allGroupBucketsMap);
+        }
+
+        @Override
+        public String toString() {
+            return "{ backends: " + backendBucketsMap + ", groups: " + allGroupBucketsMap + " }";
+        }
+
+        // for test
+        Map<Long, BackendBuckets> getBackendBucketsMap() {
+            return backendBucketsMap;
+        }
+
+        Map<GroupId, List<BucketStatistic>> getAllGroupBucketsMap() {
+            return allGroupBucketsMap;
+        }
+
+        GlobalColocateStatistic copy() {
+            GlobalColocateStatistic copiedColocateStat = new GlobalColocateStatistic();
+            for (Map.Entry<Long, BackendBuckets> entry : backendBucketsMap.entrySet()) {
+                long beId = entry.getKey();
+                BackendBuckets copiedBackendBuckets = new BackendBuckets(beId);
+                entry.getValue().groupTabletOrderIndices.forEach(
+                        (groupId, tabletOrderIndices) ->
+                                copiedBackendBuckets.groupTabletOrderIndices.put(groupId,
+                                        Lists.newArrayList(tabletOrderIndices)));
+                copiedColocateStat.backendBucketsMap.put(beId, copiedBackendBuckets);
+            }
+
+            allGroupBucketsMap.forEach((groupId, bucketStatistics) -> {
+                List<BucketStatistic> copiedBucketStatistics = Lists.newArrayList();
+                bucketStatistics.forEach(bucketStat -> copiedBucketStatistics.add(
+                        new BucketStatistic(bucketStat.tabletOrderIdx, bucketStat.totalReplicaNum,
+                                bucketStat.totalReplicaDataSize)));
+                copiedColocateStat.allGroupBucketsMap.put(groupId, copiedBucketStatistics);
+            });
+
+            return copiedColocateStat;
         }
 
         public boolean moveTablet(GroupId groupId, int tabletOrderIdx,
@@ -195,7 +278,7 @@ public class ColocateTableCheckerAndBalancer extends MasterDaemon {
 
             BackendBuckets destBackendBuckets = backendBucketsMap.get(destBeId);
             if (destBackendBuckets == null) {
-                destBackendBuckets = new BackendBuckets(destBeId, groupBucketsMap);
+                destBackendBuckets = new BackendBuckets(destBeId);
                 backendBucketsMap.put(destBeId, destBackendBuckets);
             }
             if (destBackendBuckets.containsGroupTablet(groupId, tabletOrderIdx)) {
@@ -212,15 +295,16 @@ public class ColocateTableCheckerAndBalancer extends MasterDaemon {
         }
 
         public int getBackendTotalBucketNum(long backendId) {
-            return backendBucketsMap.getOrDefault(backendId, dummyBeBuckets).getTotalBucketsNum();
+            return backendBucketsMap.getOrDefault(backendId, DUMMY_BE).getTotalBucketsNum();
         }
 
         public long getBackendTotalReplicaDataSize(long backendId) {
-            return backendBucketsMap.getOrDefault(backendId, dummyBeBuckets).getTotalReplicaDataSize();
+            return backendBucketsMap.getOrDefault(backendId, DUMMY_BE)
+                    .getTotalReplicaDataSize(allGroupBucketsMap);
         }
 
         public long getBucketTotalReplicaDataSize(GroupId groupId, int tabletOrderIdx) {
-            List<BucketStatistic> bucketStatistics = groupBucketsMap.get(groupId);
+            List<BucketStatistic> bucketStatistics = allGroupBucketsMap.get(groupId);
             if (bucketStatistics != null && tabletOrderIdx < bucketStatistics.size()) {
                 return bucketStatistics.get(tabletOrderIdx).totalReplicaDataSize;
             } else {
@@ -240,19 +324,19 @@ public class ColocateTableCheckerAndBalancer extends MasterDaemon {
                 for (long backendId : backendBucketsSeq.get(tabletOrderIdx)) {
                     BackendBuckets backendBuckets = backendBucketsMap.get(backendId);
                     if (backendBuckets == null) {
-                        backendBuckets = new BackendBuckets(backendId, groupBucketsMap);
+                        backendBuckets = new BackendBuckets(backendId);
                         backendBucketsMap.put(backendId, backendBuckets);
                     }
                     backendBuckets.addGroupTablet(groupId, tabletOrderIdx);
                 }
             }
-            groupBucketsMap.put(groupId, bucketStatistics);
+            allGroupBucketsMap.put(groupId, bucketStatistics);
         }
 
         public boolean isMoveTabletMoreBalance(GroupId groupId, int tabletOrderIdx,
                 long srcBeId, long destBeId) {
-            BackendBuckets srcBackendBuckets = backendBucketsMap.getOrDefault(srcBeId, dummyBeBuckets);
-            BackendBuckets destBackendBuckets = backendBucketsMap.getOrDefault(destBeId, dummyBeBuckets);
+            BackendBuckets srcBackendBuckets = backendBucketsMap.getOrDefault(srcBeId, DUMMY_BE);
+            BackendBuckets destBackendBuckets = backendBucketsMap.getOrDefault(destBeId, DUMMY_BE);
             int groupBucketNumDiff = srcBackendBuckets.getGroupBucketsNum(groupId)
                     - destBackendBuckets.getGroupBucketsNum(groupId);
             if (groupBucketNumDiff > 1) {
@@ -987,11 +1071,13 @@ public class ColocateTableCheckerAndBalancer extends MasterDaemon {
                     // From java 7, sorting needs to satisfy reflexivity, transitivity and symmetry.
                     // Otherwise it will raise exception "Comparison method violates its general contract".
 
+                    /*
                     int totalBucketNum1 = globalColocateStatistic.getBackendTotalBucketNum(entry1.getKey());
                     int totalBucketNum2 = globalColocateStatistic.getBackendTotalBucketNum(entry2.getKey());
                     if (totalBucketNum1 != totalBucketNum2) {
                         return Integer.compare(totalBucketNum2, totalBucketNum1);
                     }
+                    */
 
                     BackendLoadStatistic beStat1 = statistic.getBackendLoadStatistic(entry1.getKey());
                     BackendLoadStatistic beStat2 = statistic.getBackendLoadStatistic(entry2.getKey());
