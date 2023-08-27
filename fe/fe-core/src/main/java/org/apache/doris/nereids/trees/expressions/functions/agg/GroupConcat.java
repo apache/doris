@@ -42,9 +42,9 @@ public class GroupConcat extends NullableAggregateFunction
     public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
             FunctionSignature.ret(VarcharType.SYSTEM_DEFAULT).args(VarcharType.SYSTEM_DEFAULT),
             FunctionSignature.ret(VarcharType.SYSTEM_DEFAULT)
-                    .varArgs(VarcharType.SYSTEM_DEFAULT, AnyDataType.INSTANCE),
+                    .varArgs(VarcharType.SYSTEM_DEFAULT, AnyDataType.INSTANCE_WITHOUT_INDEX),
             FunctionSignature.ret(VarcharType.SYSTEM_DEFAULT)
-                    .varArgs(VarcharType.SYSTEM_DEFAULT, VarcharType.SYSTEM_DEFAULT, AnyDataType.INSTANCE)
+                    .varArgs(VarcharType.SYSTEM_DEFAULT, VarcharType.SYSTEM_DEFAULT, AnyDataType.INSTANCE_WITHOUT_INDEX)
     );
 
     private final int nonOrderArguments;

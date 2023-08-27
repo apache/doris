@@ -319,7 +319,7 @@ true
 \N
 
 -- !sql_bitmap_has_all_Bitmap_Bitmap --
-\N
+true
 true
 true
 true
@@ -348,7 +348,7 @@ true
 true
 
 -- !sql_bitmap_has_any_Bitmap_Bitmap --
-\N
+false
 true
 true
 true
@@ -696,7 +696,7 @@ true
 \N
 
 -- !sql_bitmap_to_string_Bitmap --
-\N
+
 1
 2
 3

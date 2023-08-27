@@ -53,6 +53,23 @@ Status Pipeline::add_operator(OperatorBuilderPtr& op) {
     return Status::OK();
 }
 
+Status Pipeline::add_operator(OperatorXPtr& op) {
+    if (_operators.empty() && !op->is_source()) {
+        return Status::InternalError("Should set source before other operator");
+    }
+    _operators.emplace_back(op);
+    return Status::OK();
+}
+
+Status Pipeline::prepare(RuntimeState* state) {
+    // TODO
+    RETURN_IF_ERROR(_operators.back()->prepare(state));
+    RETURN_IF_ERROR(_operators.back()->open(state));
+    RETURN_IF_ERROR(_sink_x->prepare(state));
+    RETURN_IF_ERROR(_sink_x->open(state));
+    return Status::OK();
+}
+
 Status Pipeline::set_sink(OperatorBuilderPtr& sink_) {
     if (_sink) {
         return Status::InternalError("set sink twice");
@@ -61,6 +78,17 @@ Status Pipeline::set_sink(OperatorBuilderPtr& sink_) {
         return Status::InternalError("should set a sink operator but {}", typeid(sink_).name());
     }
     _sink = sink_;
+    return Status::OK();
+}
+
+Status Pipeline::set_sink(DataSinkOperatorXPtr& sink) {
+    if (_sink_x) {
+        return Status::InternalError("set sink twice");
+    }
+    if (!sink->is_sink()) {
+        return Status::InternalError("should set a sink operator but {}", typeid(sink).name());
+    }
+    _sink_x = sink;
     return Status::OK();
 }
 

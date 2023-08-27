@@ -614,6 +614,7 @@ struct TStreamLoadPutRequest {
     51: optional i8 enclose
     // only valid when file type is CSV
     52: optional i8 escape
+    53: optional bool memtable_on_sink_node;
 }
 
 struct TStreamLoadPutResult {
@@ -1101,7 +1102,7 @@ struct TGetBinlogLagResult {
 
 struct TUpdateFollowerStatsCacheRequest {
     1: optional string key;
-    2: optional string colStats;
+    2: list<string> statsRows;
 }
 
 struct TAutoIncrementRangeRequest {

@@ -1381,6 +1381,13 @@ public class Env {
                 VariableMgr.setGlobalPipelineTask(newVal);
                 LOG.info("upgrade FE from 1.x to 2.0, set parallel_pipeline_task_num "
                         + "to parallel_fragment_exec_instance_num: {}", newVal);
+
+                // similar reason as above, need to upgrade broadcast scale factor during 1.2 to 2.x
+                // if the default value has been upgraded
+                double newBcFactorVal = VariableMgr.newSessionVariable().getBroadcastRightTableScaleFactor();
+                VariableMgr.setGlobalBroadcastScaleFactor(newBcFactorVal);
+                LOG.info("upgrade FE from 1.x to 2.x, set broadcast_right_table_scale_factor "
+                        + "to new default value: {}", newBcFactorVal);
             }
         }
 
@@ -3188,12 +3195,6 @@ public class Env {
                 sb.append(olapTable.getTimeSeriesCompactionTimeThresholdSeconds()).append("\"");
             }
 
-            // dynamic schema
-            if (olapTable.isDynamicSchema()) {
-                sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_DYNAMIC_SCHEMA).append("\" = \"");
-                sb.append(olapTable.isDynamicSchema()).append("\"");
-            }
-
             // disable auto compaction
             sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_DISABLE_AUTO_COMPACTION).append("\" = \"");
             sb.append(olapTable.disableAutoCompaction()).append("\"");
@@ -3755,7 +3756,7 @@ public class Env {
         return timerJobManager;
     }
 
-    public TransientTaskManager getMemoryTaskManager() {
+    public TransientTaskManager getTransientTaskManager() {
         return transientTaskManager;
     }
 
@@ -4581,7 +4582,9 @@ public class Env {
                 .buildCompactionPolicy()
                 .buildTimeSeriesCompactionGoalSizeMbytes()
                 .buildTimeSeriesCompactionFileCountThreshold()
-                .buildTimeSeriesCompactionTimeThresholdSeconds();
+                .buildTimeSeriesCompactionTimeThresholdSeconds()
+                .buildSkipWriteIndexOnLoad()
+                .buildEnableSingleReplicaCompaction();
 
         // need to update partition info meta
         for (Partition partition : table.getPartitions()) {

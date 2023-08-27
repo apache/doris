@@ -1191,6 +1191,10 @@ public:
         _is_shared = other._is_shared;
         _bitmap = std::move(other._bitmap);
         _set = std::move(other._set);
+
+        other._type = EMPTY;
+        other._is_shared = false;
+        other._bitmap = nullptr;
     }
 
     BitmapValue& operator=(const BitmapValue& other) {
@@ -1844,24 +1848,6 @@ public:
             break;
         }
         return *this;
-    }
-
-    bool operator==(const BitmapValue& rhs) const {
-        if (_type != rhs._type) return false;
-
-        switch (_type) {
-        case BitmapValue::BitmapDataType::EMPTY:
-            return true;
-        case BitmapValue::BitmapDataType::SINGLE:
-            return _sv == rhs._sv;
-        case BitmapValue::BitmapDataType::BITMAP:
-            return _bitmap == rhs._bitmap;
-        case BitmapValue::BitmapDataType::SET:
-            return _set == rhs._set;
-        default:
-            CHECK(false) << _type;
-        }
-        return false;
     }
 
     // check if value x is present

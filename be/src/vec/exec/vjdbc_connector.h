@@ -97,12 +97,17 @@ public:
     Status abort_trans() override; // should be call after transaction abort
     Status finish_trans() override; // should be call after transaction commit
 
+    Status init_to_write(doris::RuntimeProfile* profile) override {
+        init_profile(profile);
+        return Status::OK();
+    }
+
     JdbcStatistic& get_jdbc_statistic() { return _jdbc_statistic; }
 
     Status close() override;
 
 protected:
-    const JdbcConnectorParam& _conn_param;
+    JdbcConnectorParam _conn_param;
 
 private:
     Status _register_func_id(JNIEnv* env);

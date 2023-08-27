@@ -38,9 +38,15 @@ namespace doris {
 namespace vectorized {
 class Arena;
 
+void DataTypeNullableSerDe::serialize_column_to_text(const IColumn& column, int start_idx,
+                                                     int end_idx, BufferWritable& bw,
+                                                     FormatOptions& options) const {
+    SERIALIZE_COLUMN_TO_TEXT()
+}
+
 void DataTypeNullableSerDe::serialize_one_cell_to_text(const IColumn& column, int row_num,
                                                        BufferWritable& bw,
-                                                       const FormatOptions& options) const {
+                                                       FormatOptions& options) const {
     auto result = check_column_const_set_readability(column, row_num);
     ColumnPtr ptr = result.first;
     row_num = result.second;
@@ -48,30 +54,36 @@ void DataTypeNullableSerDe::serialize_one_cell_to_text(const IColumn& column, in
     const auto& col_null = assert_cast<const ColumnNullable&>(*ptr);
     if (col_null.is_null_at(row_num)) {
         bw.write("NULL", 4);
-        bw.commit();
     } else {
         nested_serde->serialize_one_cell_to_text(col_null.get_nested_column(), row_num, bw,
                                                  options);
     }
 }
 
-Status DataTypeNullableSerDe::deserialize_one_cell_from_text(IColumn& column, ReadBuffer& rb,
+Status DataTypeNullableSerDe::deserialize_column_from_text_vector(
+        IColumn& column, std::vector<Slice>& slices, int* num_deserialized,
+        const FormatOptions& options) const {
+    DESERIALIZE_COLUMN_FROM_TEXT_VECTOR()
+    return Status::OK();
+}
+
+Status DataTypeNullableSerDe::deserialize_one_cell_from_text(IColumn& column, Slice& slice,
                                                              const FormatOptions& options) const {
     auto& null_column = assert_cast<ColumnNullable&>(column);
     // TODO(Amory) make null literal configurable
-    if (rb.count() == 4 && *(rb.position()) == 'N' && *(rb.position() + 1) == 'U' &&
-        *(rb.position() + 2) == 'L' && *(rb.position() + 3) == 'L') {
+    if (slice.size == 4 && slice[0] == 'N' && slice[1] == 'U' && slice[2] == 'L' &&
+        slice[3] == 'L') {
         null_column.insert_data(nullptr, 0);
         return Status::OK();
     }
-    auto st = nested_serde->deserialize_one_cell_from_text(null_column.get_nested_column(), rb,
+    auto st = nested_serde->deserialize_one_cell_from_text(null_column.get_nested_column(), slice,
                                                            options);
     if (!st.ok()) {
         // fill null if fail
         null_column.insert_data(nullptr, 0); // 0 is meaningless here
         return Status::OK();
     }
-    // fill not null if succ
+    // fill not null if success
     null_column.get_null_map_data().push_back(0);
     return Status::OK();
 }
@@ -97,7 +109,7 @@ Status DataTypeNullableSerDe::read_column_from_pb(IColumn& column, const PValues
     auto& col = reinterpret_cast<ColumnNullable&>(column);
     auto& null_map_data = col.get_null_map_data();
     auto& nested = col.get_nested_column();
-    if (Status st = nested_serde->read_column_from_pb(nested, arg); st != Status::OK()) {
+    if (Status st = nested_serde->read_column_from_pb(nested, arg); !st.ok()) {
         return st;
     }
     null_map_data.resize(nested.size());

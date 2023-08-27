@@ -65,8 +65,6 @@ public:
 private:
     Status _prepare_vexpr(RuntimeState* state);
 
-    // Owned by the RuntimeState.
-    const RowDescriptor& _row_desc;
     std::shared_ptr<arrow::Schema> _arrow_schema;
 
     BlockQueueSharedPtr _queue;

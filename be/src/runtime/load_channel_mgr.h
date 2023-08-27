@@ -71,12 +71,6 @@ private:
 
     Status _start_bg_worker();
 
-    void _register_channel_all_writers(std::shared_ptr<doris::LoadChannel> channel) {
-        for (auto& [_, tablet_channel] : channel->get_tablets_channels()) {
-            tablet_channel->register_memtable_memory_limiter();
-        }
-    }
-
 protected:
     // lock protect the load channel map
     std::mutex _lock;

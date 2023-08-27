@@ -25,7 +25,6 @@ import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionVisit
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.visitor.CustomRewriter;
-import org.apache.doris.nereids.types.ArrayType;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.JsonType;
 import org.apache.doris.nereids.types.MapType;
@@ -41,7 +40,7 @@ import java.util.Set;
 public class CheckDataTypes implements CustomRewriter {
 
     private static final Set<Class<? extends DataType>> UNSUPPORTED_TYPE = ImmutableSet.of(
-            MapType.class, StructType.class, JsonType.class, ArrayType.class);
+            MapType.class, StructType.class, JsonType.class);
 
     @Override
     public Plan rewriteRoot(Plan rootPlan, JobContext jobContext) {
@@ -51,20 +50,20 @@ public class CheckDataTypes implements CustomRewriter {
 
     private void checkPlan(Plan plan) {
         if (plan instanceof LogicalJoin) {
-            checkLogicalJoin((LogicalJoin) plan);
+            checkLogicalJoin((LogicalJoin<? extends Plan, ? extends Plan>) plan);
         }
         plan.getExpressions().forEach(ExpressionChecker.INSTANCE::check);
-        plan.children().forEach(child -> checkPlan(child));
+        plan.children().forEach(this::checkPlan);
     }
 
-    private void checkLogicalJoin(LogicalJoin plan) {
-        plan.getHashJoinConjuncts().stream().forEach(expr -> {
-            DataType leftType = ((Expression) expr).child(0).getDataType();
-            DataType rightType = ((Expression) expr).child(1).getDataType();
+    private void checkLogicalJoin(LogicalJoin<? extends Plan, ? extends Plan> plan) {
+        plan.getHashJoinConjuncts().forEach(expr -> {
+            DataType leftType = expr.child(0).getDataType();
+            DataType rightType = expr.child(1).getDataType();
             if (!leftType.acceptsType(rightType)) {
                 throw new AnalysisException(
                         String.format("type %s is not same as %s in hash join condition %s",
-                                leftType, rightType, ((Expression) expr).toSql()));
+                                leftType, rightType, expr.toSql()));
             }
         });
     }

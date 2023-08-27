@@ -231,6 +231,10 @@ struct TQueryOptions {
   77: optional bool truncate_char_or_varchar_columns = false
 
   78: optional bool enable_hash_join_early_start_probe = false
+
+  79: optional bool enable_pipeline_x_engine = false;
+
+  80: optional bool enable_memtable_on_sink_node = false;
 }
 
 

@@ -79,6 +79,7 @@
 #include "olap/cumulative_compaction_policy.h"
 #include "olap/cumulative_compaction_time_series_policy.h"
 #include "olap/delete_bitmap_calculator.h"
+#include "olap/full_compaction.h"
 #include "olap/memtable.h"
 #include "olap/olap_common.h"
 #include "olap/olap_define.h"
@@ -1723,7 +1724,7 @@ Status Tablet::prepare_compaction_and_calculate_permits(CompactionType compactio
             return Status::OK();
         }
         compaction_rowsets = _cumulative_compaction->get_input_rowsets();
-    } else {
+    } else if (compaction_type == CompactionType::BASE_COMPACTION) {
         DCHECK_EQ(compaction_type, CompactionType::BASE_COMPACTION);
         MonotonicStopWatch watch;
         watch.start();
@@ -1754,6 +1755,24 @@ Status Tablet::prepare_compaction_and_calculate_permits(CompactionType compactio
             return Status::OK();
         }
         compaction_rowsets = _base_compaction->get_input_rowsets();
+    } else {
+        DCHECK_EQ(compaction_type, CompactionType::FULL_COMPACTION);
+        MonotonicStopWatch watch;
+        watch.start();
+        StorageEngine::instance()->create_full_compaction(tablet, _full_compaction);
+        Status res = _full_compaction->prepare_compact();
+        if (!res.ok()) {
+            set_last_full_compaction_failure_time(UnixMillis());
+            *permits = 0;
+            if (!res.is<BE_NO_SUITABLE_VERSION>()) {
+                return Status::InternalError("prepare full compaction with err: {}", res);
+            }
+            // return OK if OLAP_ERR_BE_NO_SUITABLE_VERSION, so that we don't need to
+            // print too much useless logs.
+            // And because we set permits to 0, so even if we return OK here, nothing will be done.
+            return Status::OK();
+        }
+        compaction_rowsets = _full_compaction->get_input_rowsets();
     }
     *permits = 0;
     for (auto rowset : compaction_rowsets) {
@@ -1839,7 +1858,7 @@ void Tablet::execute_compaction(CompactionType compaction_type) {
             return;
         }
         set_last_cumu_compaction_failure_time(0);
-    } else {
+    } else if (compaction_type == CompactionType::BASE_COMPACTION) {
         DCHECK_EQ(compaction_type, CompactionType::BASE_COMPACTION);
         MonotonicStopWatch watch;
         watch.start();
@@ -1863,14 +1882,28 @@ void Tablet::execute_compaction(CompactionType compaction_type) {
             return;
         }
         set_last_base_compaction_failure_time(0);
+    } else {
+        DCHECK_EQ(compaction_type, CompactionType::FULL_COMPACTION);
+        MonotonicStopWatch watch;
+        watch.start();
+        Status res = _full_compaction->execute_compact();
+        if (!res.ok()) {
+            set_last_full_compaction_failure_time(UnixMillis());
+            LOG(WARNING) << "failed to do full compaction. res=" << res
+                         << ", tablet=" << full_name();
+            return;
+        }
+        set_last_full_compaction_failure_time(0);
     }
 }
 
 void Tablet::reset_compaction(CompactionType compaction_type) {
     if (compaction_type == CompactionType::CUMULATIVE_COMPACTION) {
         _cumulative_compaction.reset();
-    } else {
+    } else if (compaction_type == CompactionType::BASE_COMPACTION) {
         _base_compaction.reset();
+    } else {
+        _full_compaction.reset();
     }
 }
 
@@ -3230,8 +3263,8 @@ Status Tablet::update_delete_bitmap_without_lock(const RowsetSharedPtr& rowset) 
     auto token = StorageEngine::instance()->calc_delete_bitmap_executor()->create_token();
     RETURN_IF_ERROR(calc_delete_bitmap(rowset, segments, specified_rowsets, delete_bitmap,
                                        cur_version - 1, token.get()));
-    token->wait();
-    token->get_delete_bitmap(delete_bitmap);
+    RETURN_IF_ERROR(token->wait());
+    RETURN_IF_ERROR(token->get_delete_bitmap(delete_bitmap));
     size_t total_rows = std::accumulate(
             segments.begin(), segments.end(), 0,
             [](size_t sum, const segment_v2::SegmentSharedPtr& s) { return sum += s->num_rows(); });
@@ -3331,8 +3364,8 @@ Status Tablet::update_delete_bitmap(const RowsetSharedPtr& rowset,
     auto token = StorageEngine::instance()->calc_delete_bitmap_executor()->create_token();
     RETURN_IF_ERROR(calc_delete_bitmap(rowset, segments, specified_rowsets, delete_bitmap,
                                        cur_version - 1, token.get(), rowset_writer));
-    token->wait();
-    token->get_delete_bitmap(delete_bitmap);
+    RETURN_IF_ERROR(token->wait());
+    RETURN_IF_ERROR(token->get_delete_bitmap(delete_bitmap));
     size_t total_rows = std::accumulate(
             segments.begin(), segments.end(), 0,
             [](size_t sum, const segment_v2::SegmentSharedPtr& s) { return sum += s->num_rows(); });

@@ -60,6 +60,11 @@ CREATE CATALOG `paimon_hdfs` PROPERTIES (
 
 #### S3
 
+>注意：
+>
+> 用户需要手动下载[paimon-s3-0.4.0-incubating.jar](https://repo.maven.apache.org/maven2/org/apache/paimon/paimon-s3/0.4.0-incubating/paimon-s3-0.4.0-incubating.jar)
+> 放在${DORIS_HOME}/be/lib/java_extensions/preload-extensions目录下并重启be
+
 ```sql
 CREATE CATALOG `paimon_s3` PROPERTIES (
     "type" = "paimon",
@@ -72,6 +77,11 @@ CREATE CATALOG `paimon_s3` PROPERTIES (
 ```
 
 #### OSS
+
+>注意：
+>
+> 用户需要手动下载[paimon-oss-0.4.0-incubating.jar](https://repo.maven.apache.org/maven2/org/apache/paimon/paimon-oss/0.4.0-incubating/paimon-oss-0.4.0-incubating.jar)
+> 放在${DORIS_HOME}/be/lib/java_extensions/preload-extensions目录下并重启be
 
 ```sql
 CREATE CATALOG `paimon_oss` PROPERTIES (

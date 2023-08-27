@@ -93,9 +93,14 @@ DeltaWriter::~DeltaWriter() {
 }
 
 Status DeltaWriter::init() {
-    _rowset_builder.init();
-    _memtable_writer->init(_rowset_builder.rowset_writer(), _rowset_builder.tablet_schema(),
-                           _rowset_builder.tablet()->enable_unique_key_merge_on_write());
+    if (_is_init) {
+        return Status::OK();
+    }
+    RETURN_IF_ERROR(_rowset_builder.init());
+    RETURN_IF_ERROR(
+            _memtable_writer->init(_rowset_builder.rowset_writer(), _rowset_builder.tablet_schema(),
+                                   _rowset_builder.tablet()->enable_unique_key_merge_on_write()));
+    ExecEnv::GetInstance()->memtable_memory_limiter()->register_writer(_memtable_writer);
     _is_init = true;
     return Status::OK();
 }
@@ -271,7 +276,7 @@ void DeltaWriter::_request_slave_tablet_pull_rowset(PNodeInfo node_info) {
     closure->cntl.set_timeout_ms(config::slave_replica_writer_rpc_timeout_sec * 1000);
     closure->cntl.ignore_eovercrowded();
     stub->request_slave_tablet_pull_rowset(&closure->cntl, &request, &closure->result, closure);
-    request.release_rowset_meta();
+    static_cast<void>(request.release_rowset_meta());
 
     closure->join();
     if (closure->cntl.Failed()) {

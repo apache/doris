@@ -282,7 +282,7 @@ Status TxnManager::commit_txn(OlapMeta* meta, TPartitionId partition_id,
     if (!is_recovery) {
         Status save_status = RowsetMetaManager::save(meta, tablet_uid, rowset_ptr->rowset_id(),
                                                      rowset_ptr->rowset_meta()->get_rowset_pb());
-        if (save_status != Status::OK()) {
+        if (!save_status.ok()) {
             return Status::Error<ROWSET_SAVE_FAILED>(
                     "save committed rowset failed. when commit txn rowset_id: {}, tablet id: {}, "
                     "txn id: {}",

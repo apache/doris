@@ -121,9 +121,10 @@ void BlockedTaskScheduler::_schedule() {
             } else if (task->fragment_context()->is_canceled()) {
                 _make_task_run(local_blocked_tasks, iter, ready_tasks);
             } else if (task->query_context()->is_timeout(now)) {
-                LOG(WARNING) << "Timeout, query_id=" << print_id(task->query_context()->query_id)
+                LOG(WARNING) << "Timeout, query_id=" << print_id(task->query_context()->query_id())
                              << ", instance_id="
-                             << print_id(task->fragment_context()->get_fragment_instance_id());
+                             << print_id(task->fragment_context()->get_fragment_instance_id())
+                             << ", task info: " << task->debug_string();
 
                 task->fragment_context()->cancel(PPlanFragmentCancelReason::TIMEOUT);
                 _make_task_run(local_blocked_tasks, iter, ready_tasks);

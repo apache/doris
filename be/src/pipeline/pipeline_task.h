@@ -113,16 +113,20 @@ public:
                  OperatorPtr& sink, PipelineFragmentContext* fragment_context,
                  RuntimeProfile* parent_profile);
 
-    Status prepare(RuntimeState* state);
+    PipelineTask(PipelinePtr& pipeline, uint32_t index, RuntimeState* state,
+                 PipelineFragmentContext* fragment_context, RuntimeProfile* parent_profile);
+    virtual ~PipelineTask() = default;
 
-    Status execute(bool* eos);
+    virtual Status prepare(RuntimeState* state);
+
+    virtual Status execute(bool* eos);
 
     // Try to close this pipeline task. If there are still some resources need to be released after `try_close`,
     // this task will enter the `PENDING_FINISH` state.
-    Status try_close();
+    virtual Status try_close();
     // if the pipeline create a bunch of pipeline task
     // must be call after all pipeline task is finish to release resource
-    Status close();
+    virtual Status close();
 
     void put_in_runnable_queue() {
         _schedule_time++;
@@ -134,7 +138,7 @@ public:
     PipelineTaskState get_state() { return _cur_state; }
     void set_state(PipelineTaskState state);
 
-    bool is_pending_finish() {
+    virtual bool is_pending_finish() {
         bool source_ret = _source->is_pending_finish();
         if (source_ret) {
             return true;
@@ -151,15 +155,15 @@ public:
         return false;
     }
 
-    bool source_can_read() { return _source->can_read(); }
+    virtual bool source_can_read() { return _source->can_read() || _ignore_blocking_source(); }
 
-    bool runtime_filters_are_ready_or_timeout() {
+    virtual bool runtime_filters_are_ready_or_timeout() {
         return _source->runtime_filters_are_ready_or_timeout();
     }
 
-    bool sink_can_write() { return _sink->can_write(); }
+    virtual bool sink_can_write() { return _sink->can_write() || _ignore_blocking_sink(); }
 
-    Status finalize();
+    virtual Status finalize();
 
     PipelineFragmentContext* fragment_context() { return _fragment_context; }
 
@@ -184,7 +188,7 @@ public:
 
     OperatorPtr get_root() { return _root; }
 
-    std::string debug_string();
+    virtual std::string debug_string();
 
     taskgroup::TaskGroupPipelineTaskEntity* get_task_group_entity() const;
 
@@ -242,24 +246,22 @@ public:
         }
     }
 
-private:
+    TUniqueId instance_id() const { return _state->fragment_instance_id(); }
+
+protected:
     void _finish_p_dependency() {
         for (const auto& p : _pipeline->_parents) {
             p.lock()->finish_one_dependency(_previous_schedule_id);
         }
     }
 
-    Status _open();
+    virtual Status _open();
     void _init_profile();
     void _fresh_profile_counter();
 
     uint32_t _index;
     PipelinePtr _pipeline;
     bool _dependency_finish = false;
-    Operators _operators; // left is _source, right is _root
-    OperatorPtr _source;
-    OperatorPtr _root;
-    OperatorPtr _sink;
 
     bool _prepared;
     bool _opened;
@@ -344,5 +346,46 @@ private:
     int64_t _close_pipeline_time = 0;
 
     RuntimeProfile::Counter* _pip_task_total_timer;
+
+private:
+    /**
+     * Consider the query plan below:
+     *
+     *      ExchangeSource     JoinBuild1
+     *            \              /
+     *         JoinProbe1 (Right Outer)    JoinBuild2
+     *                   \                   /
+     *                 JoinProbe2 (Right Outer)
+     *                          |
+     *                        Sink
+     *
+     * Assume JoinBuild1/JoinBuild2 outputs 0 rows, this pipeline task should not be blocked by ExchangeSource
+     * because we have a determined conclusion that JoinProbe1/JoinProbe2 will also output 0 rows.
+     *
+     * Assume JoinBuild2 outputs > 0 rows, this pipeline task may be blocked by Sink because JoinProbe2 will
+     * produce more data.
+     *
+     * Assume both JoinBuild2 outputs 0 rows this pipeline task should not be blocked by ExchangeSource
+     * and Sink because JoinProbe2 will always produce 0 rows and terminate early.
+     *
+     * In a nutshell, we should follow the rules:
+     * 1. if any operator in pipeline can terminate early, this task should never be blocked by source operator.
+     * 2. if the last operator (except sink) can terminate early, this task should never be blocked by sink operator.
+     */
+    [[nodiscard]] bool _ignore_blocking_sink() { return _root->can_terminate_early(); }
+
+    [[nodiscard]] bool _ignore_blocking_source() {
+        for (size_t i = 1; i < _operators.size(); i++) {
+            if (_operators[i]->can_terminate_early()) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    Operators _operators; // left is _source, right is _root
+    OperatorPtr _source;
+    OperatorPtr _root;
+    OperatorPtr _sink;
 };
 } // namespace doris::pipeline

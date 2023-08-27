@@ -480,7 +480,7 @@ Status FieldDescriptor::parse_map_field(const std::vector<tparquet::SchemaElemen
     }
     auto& map_key = t_schemas[curr_pos + 2];
     if (!is_required_node(map_key)) {
-        return Status::InvalidArgument("the third level(map key) in map group must be required");
+        LOG(WARNING) << "Filed " << map_schema.name << " is map type, but with nullable key column";
     }
 
     if (map_key_value.num_children == 1) {

@@ -44,5 +44,41 @@ public:
     Status open(RuntimeState*) override { return Status::OK(); }
 };
 
+class SortSourceOperatorX;
+class SortLocalState final : public PipelineXLocalState {
+    ENABLE_FACTORY_CREATOR(SortLocalState);
+
+public:
+    SortLocalState(RuntimeState* state, OperatorXBase* parent);
+
+    Status init(RuntimeState* state, LocalStateInfo& info) override;
+    Status close(RuntimeState* state) override;
+
+private:
+    friend class SortSourceOperatorX;
+
+    SortDependency* _dependency;
+    SortSharedState* _shared_state;
+
+    RuntimeProfile::Counter* _get_next_timer = nullptr;
+};
+
+class SortSourceOperatorX final : public OperatorXBase {
+public:
+    SortSourceOperatorX(ObjectPool* pool, const TPlanNode& tnode, const DescriptorTbl& descs,
+                        std::string op_name);
+    bool can_read(RuntimeState* state) override;
+
+    Status setup_local_state(RuntimeState* state, LocalStateInfo& info) override;
+
+    Status get_block(RuntimeState* state, vectorized::Block* block,
+                     SourceState& source_state) override;
+
+    bool is_source() const override { return true; }
+
+private:
+    friend class SortLocalState;
+};
+
 } // namespace pipeline
 } // namespace doris
