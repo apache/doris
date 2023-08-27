@@ -1,7 +1,7 @@
 ---
 {
     "title": "date_ceil",
-    "language": "zh-CN"
+    "language": "en"
 }
 ---
 
@@ -31,13 +31,13 @@ under the License.
 `DATETIME DATE_CEIL(DATETIME datetime, INTERVAL period type)`
 
 
-将日期转化为指定的时间间隔周期的最近上取整时刻。
+Convert the date to the nearest rounding up time of the specified time interval period.
 
-datetime 参数是合法的日期表达式。
+The datetime parameter is a valid date expression.
 
-period 参数是指定每个周期有多少个单位组成，开始的时间起点为0001-01-01T00:00:00.
+The period parameter specifies how many units each cycle consists of, starting from 0001-01-01T00:00:00
 
-type 参数可以是下列值：YEAR, MONTH, DAY, HOUR, MINUTE, SECOND.
+type ：YEAR, MONTH, DAY, HOUR, MINUTE, SECOND.
 
 ### example
 
