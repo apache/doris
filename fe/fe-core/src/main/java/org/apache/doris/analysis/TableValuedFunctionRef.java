@@ -41,7 +41,7 @@ public class TableValuedFunctionRef extends TableRef {
     private Map<String, String> params;
 
     public TableValuedFunctionRef(String funcName, String alias, Map<String, String> params) throws AnalysisException {
-        super(new TableName(null, null, "_table_valued_function_" + funcName), alias);
+        super(new TableName(null, null, TableValuedFunctionIf.TVF_TABLE_PREFIX + funcName), alias);
         this.funcName = funcName;
         this.params = params;
         this.tableFunction = TableValuedFunctionIf.getTableFunction(funcName, params);
@@ -49,7 +49,7 @@ public class TableValuedFunctionRef extends TableRef {
         if (hasExplicitAlias()) {
             return;
         }
-        aliases = new String[] { "_table_valued_function_" + funcName };
+        aliases = new String[] { TableValuedFunctionIf.TVF_TABLE_PREFIX + funcName };
     }
 
     public TableValuedFunctionRef(TableValuedFunctionRef other) {

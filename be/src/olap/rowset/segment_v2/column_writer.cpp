@@ -510,7 +510,7 @@ Status ScalarColumnWriter::append_nulls(size_t num_rows) {
         _bitmap_index_builder->add_nulls(num_rows);
     }
     if (_opts.inverted_index) {
-        _inverted_index_builder->add_nulls(num_rows);
+        RETURN_IF_ERROR(_inverted_index_builder->add_nulls(num_rows));
     }
     if (_opts.need_bloom_filter) {
         _bloom_filter_index_builder->add_nulls(num_rows);
@@ -545,7 +545,8 @@ Status ScalarColumnWriter::append_data_in_current_page(const uint8_t* data, size
         _bitmap_index_builder->add_values(data, *num_written);
     }
     if (_opts.inverted_index) {
-        _inverted_index_builder->add_values(get_field()->name(), data, *num_written);
+        RETURN_IF_ERROR(
+                _inverted_index_builder->add_values(get_field()->name(), data, *num_written));
     }
     if (_opts.need_bloom_filter) {
         _bloom_filter_index_builder->add_values(data, *num_written);
@@ -934,52 +935,6 @@ Status ArrayColumnWriter::append_data(const uint8_t** ptr, size_t num_rows) {
     RETURN_IF_ERROR(_offset_writer->append_data(&offsets_ptr, num_rows));
     return Status::OK();
 }
-
-//// Now we can only write data one by one.
-//Status ArrayColumnWriter::append_data(const uint8_t** ptr, size_t num_rows) {
-//    size_t remaining = num_rows;
-//    const auto* col_cursor = reinterpret_cast<const CollectionValue*>(*ptr);
-//    while (remaining > 0) {
-//        // TODO llj: bulk write
-//        size_t num_written = 1;
-//        ordinal_t next_item_ordinal = _item_writer->get_next_rowid();
-//        RETURN_IF_ERROR(_offset_writer->append_data_in_current_page(
-//                reinterpret_cast<uint8_t*>(&next_item_ordinal), &num_written));
-//        if (num_written <
-//            1) { // page is full, write first item offset and update current length page's start ordinal
-//            RETURN_IF_ERROR(_offset_writer->finish_current_page());
-//        } else {
-//            // write child item.
-//            if (_item_writer->is_nullable()) {
-//                auto* item_data_ptr = const_cast<CollectionValue*>(col_cursor)->mutable_data();
-//                for (size_t i = 0; i < col_cursor->length(); ++i) {
-//                    RETURN_IF_ERROR(_item_writer->append(col_cursor->is_null_at(i), item_data_ptr));
-//                    item_data_ptr = (uint8_t*)item_data_ptr + _item_writer->get_field()->size();
-//                }
-//            } else {
-//                const void* data = col_cursor->data();
-//                RETURN_IF_ERROR(_item_writer->append_data(reinterpret_cast<const uint8_t**>(&data),
-//                                                          col_cursor->length()));
-//            }
-//            if (_opts.inverted_index) {
-//                auto writer = dynamic_cast<ScalarColumnWriter*>(_item_writer.get());
-//                if (writer != nullptr) {
-//                    //NOTE: use array field name as index field, but item_writer size should be used when moving item_data_ptr
-//                    _inverted_index_builder->add_array_values(_item_writer->get_field()->size(),
-//                                                              col_cursor, 1);
-//                }
-//            }
-//        }
-//        remaining -= num_written;
-//        col_cursor += num_written;
-//        *ptr += num_written * sizeof(CollectionValue);
-//    }
-//
-//    if (is_nullable()) {
-//        return write_null_column(num_rows, false);
-//    }
-//    return Status::OK();
-//}
 
 uint64_t ArrayColumnWriter::estimate_buffer_size() {
     return _offset_writer->estimate_buffer_size() +

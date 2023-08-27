@@ -24,6 +24,7 @@ import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.thrift.TExprNode;
@@ -146,6 +147,15 @@ public class TimestampArithmeticExpr extends Expr {
             return Type.DATEV2;
         }
         if (PrimitiveType.isImplicitCast(t1, PrimitiveType.DATETIME)) {
+            if (Config.enable_date_conversion) {
+                if (t1 == PrimitiveType.NULL_TYPE) {
+                    getChild(0).type = Type.DATETIMEV2_WITH_MAX_SCALAR;
+                }
+                return Type.DATETIMEV2_WITH_MAX_SCALAR;
+            }
+            if (t1 == PrimitiveType.NULL_TYPE) {
+                getChild(0).type = Type.DATETIME;
+            }
             return Type.DATETIME;
         }
         return Type.INVALID;

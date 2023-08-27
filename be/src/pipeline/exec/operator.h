@@ -36,6 +36,8 @@
 #include "runtime/runtime_state.h"
 #include "util/runtime_profile.h"
 #include "vec/core/block.h"
+#include "vec/runtime/vdata_stream_recvr.h"
+#include "vec/sink/vresult_sink.h"
 
 namespace doris {
 class DataSink;
@@ -203,9 +205,6 @@ public:
     }
 
     Status set_child(OperatorXPtr child) {
-        if (is_source()) {
-            return Status::OK();
-        }
         _child_x = std::move(child);
         return Status::OK();
     }
@@ -270,7 +269,7 @@ protected:
     // Used on pipeline X
     OperatorXPtr _child_x;
 
-    bool _is_closed = false;
+    bool _is_closed;
 };
 
 /**
@@ -487,12 +486,14 @@ protected:
 struct LocalStateInfo {
     const std::vector<TScanRangeParams> scan_ranges;
     Dependency* dependency;
+    std::shared_ptr<vectorized::VDataStreamRecvr> recvr;
 };
 
 // This struct is used only for initializing local sink state.
 struct LocalSinkStateInfo {
     const int sender_id;
     Dependency* dependency;
+    std::shared_ptr<BufferControlBlock> sender;
 };
 
 class PipelineXLocalState {
@@ -508,6 +509,17 @@ public:
     virtual ~PipelineXLocalState() {}
 
     virtual Status init(RuntimeState* state, LocalStateInfo& info);
+    virtual Status close(RuntimeState* state) {
+        if (_closed) {
+            return Status::OK();
+        }
+        if (_rows_returned_counter != nullptr) {
+            COUNTER_SET(_rows_returned_counter, _num_rows_returned);
+        }
+        profile()->add_to_span(_span);
+        _closed = true;
+        return Status::OK();
+    }
     template <class TARGET>
     TARGET& cast() {
         return reinterpret_cast<TARGET&>(*this);
@@ -565,6 +577,7 @@ protected:
     vectorized::VExprContextSPtrs _conjuncts;
     vectorized::VExprContextSPtrs _projections;
     bool _init = false;
+    bool _closed = false;
     vectorized::Block _origin_block;
 };
 
@@ -577,7 +590,6 @@ public:
               _type(tnode.node_type),
               _pool(pool),
               _tuple_ids(tnode.row_tuples),
-              _children(nullptr),
               _row_descriptor(descs, tnode.row_tuples, tnode.nullable_tuples),
               _resource_profile(tnode.resource_profile),
               _limit(tnode.limit),
@@ -602,6 +614,10 @@ public:
     virtual Status open(RuntimeState* state) override;
 
     Status finalize(RuntimeState* state) override { return Status::OK(); }
+
+    [[nodiscard]] bool can_terminate_early() override { return false; }
+
+    [[nodiscard]] virtual bool can_terminate_early(RuntimeState* state) { return false; }
 
     bool can_read() override {
         LOG(FATAL) << "should not reach here!";
@@ -662,6 +678,7 @@ public:
     }
 
     virtual bool is_source() const override { return false; }
+    [[nodiscard]] virtual bool need_to_create_exch_recv() const { return false; }
 
     Status get_next_after_projects(RuntimeState* state, vectorized::Block* block,
                                    SourceState& source_state);
@@ -679,7 +696,6 @@ protected:
 
     vectorized::VExprContextSPtrs _conjuncts;
 
-    OperatorXBase* _children;
     RowDescriptor _row_descriptor;
 
     std::unique_ptr<RowDescriptor> _output_row_descriptor;
@@ -705,7 +721,14 @@ public:
             : _parent(parent_), _state(state_) {}
     virtual ~PipelineXSinkLocalState() {}
 
-    virtual Status init(RuntimeState* state, LocalSinkStateInfo& info) { return Status::OK(); }
+    virtual Status init(RuntimeState* state, LocalSinkStateInfo& info);
+    virtual Status close(RuntimeState* state) {
+        if (_closed) {
+            return Status::OK();
+        }
+        _closed = true;
+        return Status::OK();
+    }
     template <class TARGET>
     TARGET& cast() {
         DCHECK(dynamic_cast<TARGET*>(this));
@@ -730,6 +753,9 @@ protected:
     std::unique_ptr<MemTracker> _mem_tracker;
     // Maybe this will be transferred to BufferControlBlock.
     std::shared_ptr<QueryStatistics> _query_statistics;
+    // Set to true after close() has been called. subclasses should check and set this in
+    // close().
+    bool _closed = false;
 };
 
 class DataSinkOperatorX : public OperatorBase {
@@ -747,6 +773,8 @@ public:
 
     virtual Status setup_local_state(RuntimeState* state, LocalSinkStateInfo& info) = 0;
 
+    [[nodiscard]] virtual bool need_to_create_result_sender() const { return false; }
+
     template <class TARGET>
     TARGET& cast() {
         DCHECK(dynamic_cast<TARGET*>(this));
@@ -762,7 +790,9 @@ public:
         dependency.reset((Dependency*)nullptr);
     }
 
-    Status close(RuntimeState* state) override { return Status::OK(); }
+    virtual Status close(RuntimeState* state) override {
+        return state->get_sink_local_state(id())->close(state);
+    }
 
     bool can_read() override {
         LOG(FATAL) << "should not reach here!";
@@ -801,9 +831,6 @@ public:
 
 protected:
     const int _id;
-    // Set to true after close() has been called. subclasses should check and set this in
-    // close().
-    bool _closed;
     std::string _name;
 
     // Maybe this will be transferred to BufferControlBlock.

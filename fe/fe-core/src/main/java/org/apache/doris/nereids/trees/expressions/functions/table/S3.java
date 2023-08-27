@@ -19,8 +19,8 @@ package org.apache.doris.nereids.trees.expressions.functions.table;
 
 import org.apache.doris.catalog.FunctionSignature;
 import org.apache.doris.nereids.exceptions.AnalysisException;
+import org.apache.doris.nereids.trees.expressions.Properties;
 import org.apache.doris.nereids.trees.expressions.Slot;
-import org.apache.doris.nereids.trees.expressions.TVFProperties;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.coercion.AnyDataType;
 import org.apache.doris.statistics.Statistics;
@@ -33,7 +33,7 @@ import java.util.Map;
 
 /** s3 */
 public class S3 extends TableValuedFunction {
-    public S3(TVFProperties properties) {
+    public S3(Properties properties) {
         super("s3", properties);
     }
 

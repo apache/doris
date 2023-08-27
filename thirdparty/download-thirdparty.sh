@@ -231,12 +231,21 @@ cd -
 echo "Finished patching ${ABSEIL_SOURCE}"
 
 # glog patch
-cd "${TP_SOURCE_DIR}/${GLOG_SOURCE}"
-if [[ ! -f "${PATCHED_MARK}" ]]; then
-    patch -p1 <"${TP_PATCH_DIR}/glog-0.4.0.patch"
-    touch "${PATCHED_MARK}"
+if [[ "${GLOG_SOURCE}" == "glog-0.4.0" ]]; then
+    cd "${TP_SOURCE_DIR}/${GLOG_SOURCE}"
+    if [[ ! -f "${PATCHED_MARK}" ]]; then
+        patch -p1 <"${TP_PATCH_DIR}/glog-0.4.0.patch"
+        touch "${PATCHED_MARK}"
+    fi
+    cd -
+elif [[ "${GLOG_SOURCE}" == "glog-0.6.0" ]]; then
+    cd "${TP_SOURCE_DIR}/${GLOG_SOURCE}"
+    if [[ ! -f "${PATCHED_MARK}" ]]; then
+        patch -p1 <"${TP_PATCH_DIR}/glog-0.6.0.patch"
+        touch "${PATCHED_MARK}"
+    fi
+    cd -
 fi
-cd -
 echo "Finished patching ${GLOG_SOURCE}"
 
 # gtest patch
@@ -307,15 +316,16 @@ fi
 echo "Finished patching ${ROCKSDB_SOURCE}"
 
 # opentelemetry patch is used to solve the problem that threadlocal depends on GLIBC_2.18
+# fix error: unknown type name 'uint64_t'
 # see: https://github.com/apache/doris/pull/7911
-if [[ "${OPENTELEMETRY_SOURCE}" == "opentelemetry-cpp-1.8.3" ]]; then
+if [[ "${OPENTELEMETRY_SOURCE}" == "opentelemetry-cpp-1.10.0" ]]; then
     rm -rf "${TP_SOURCE_DIR}/${OPENTELEMETRY_SOURCE}/third_party/opentelemetry-proto"/*
     cp -r "${TP_SOURCE_DIR}/${OPENTELEMETRY_PROTO_SOURCE}"/* "${TP_SOURCE_DIR}/${OPENTELEMETRY_SOURCE}/third_party/opentelemetry-proto"
     mkdir -p "${TP_SOURCE_DIR}/${OPENTELEMETRY_SOURCE}/third_party/opentelemetry-proto/.git"
 
     cd "${TP_SOURCE_DIR}/${OPENTELEMETRY_SOURCE}"
     if [[ ! -f "${PATCHED_MARK}" ]]; then
-        patch -p1 <"${TP_PATCH_DIR}/opentelemetry-cpp-1.8.3.patch"
+        patch -p1 <"${TP_PATCH_DIR}/opentelemetry-cpp-1.10.0.patch"
         touch "${PATCHED_MARK}"
     fi
     cd -
@@ -323,10 +333,10 @@ fi
 echo "Finished patching ${OPENTELEMETRY_SOURCE}"
 
 # arrow patch is used to get the raw orc reader for filter prune.
-if [[ "${ARROW_SOURCE}" == "apache-arrow-7.0.0" ]]; then
+if [[ "${ARROW_SOURCE}" == "arrow-apache-arrow-13.0.0" ]]; then
     cd "${TP_SOURCE_DIR}/${ARROW_SOURCE}"
     if [[ ! -f "${PATCHED_MARK}" ]]; then
-        patch -p1 <"${TP_PATCH_DIR}/apache-arrow-7.0.0.patch"
+        patch -p1 <"${TP_PATCH_DIR}/apache-arrow-13.0.0.patch"
         touch "${PATCHED_MARK}"
     fi
     cd -

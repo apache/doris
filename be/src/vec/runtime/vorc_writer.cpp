@@ -61,10 +61,11 @@ VOrcOutputStream::~VOrcOutputStream() {
 void VOrcOutputStream::close() {
     if (!_is_closed) {
         Status st = _file_writer->close();
+        _is_closed = true;
         if (!st.ok()) {
             LOG(WARNING) << "close orc output stream failed: " << st;
+            throw std::runtime_error(st.to_string());
         }
-        _is_closed = true;
     }
 }
 
@@ -115,10 +116,15 @@ int64_t VOrcWriterWrapper::written_len() {
     return _output_stream->getLength();
 }
 
-void VOrcWriterWrapper::close() {
+Status VOrcWriterWrapper::close() {
     if (_writer != nullptr) {
-        _writer->close();
+        try {
+            _writer->close();
+        } catch (const std::exception& e) {
+            return Status::IOError(e.what());
+        }
     }
+    return Status::OK();
 }
 
 #define RETURN_WRONG_TYPE \

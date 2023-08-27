@@ -387,21 +387,20 @@ Status StreamingAggSinkOperatorX::setup_local_state(RuntimeState* state, LocalSi
     return local_state->init(state, info);
 }
 
-Status StreamingAggSinkOperatorX::close(RuntimeState* state) {
-    auto& local_state = state->get_sink_local_state(id())->cast<StreamingAggSinkLocalState>();
-    if (local_state._shared_state->data_queue &&
-        !local_state._shared_state->data_queue->is_finish()) {
+Status StreamingAggSinkLocalState::close(RuntimeState* state) {
+    if (_closed) {
+        return Status::OK();
+    }
+    if (_shared_state->data_queue && !_shared_state->data_queue->is_finish()) {
         // finish should be set, if not set here means error.
-        local_state._shared_state->data_queue->set_canceled();
+        _shared_state->data_queue->set_canceled();
     }
-    if (local_state._shared_state->data_queue) {
-        COUNTER_SET(local_state._queue_size_counter,
-                    local_state._shared_state->data_queue->max_size_of_queue());
-        COUNTER_SET(local_state._queue_byte_size_counter,
-                    local_state._shared_state->data_queue->max_bytes_in_queue());
+    if (_shared_state->data_queue) {
+        COUNTER_SET(_queue_size_counter, _shared_state->data_queue->max_size_of_queue());
+        COUNTER_SET(_queue_byte_size_counter, _shared_state->data_queue->max_bytes_in_queue());
     }
-    local_state._preagg_block.clear();
-    return AggSinkOperatorX::close(state);
+    _preagg_block.clear();
+    return AggSinkLocalState::close(state);
 }
 
 } // namespace doris::pipeline
