@@ -67,14 +67,16 @@ Status OrdinalIndexWriter::finish(io::FileWriter* file_writer, ColumnIndexMetaPB
     return Status::OK();
 }
 
-Status OrdinalIndexReader::load(bool use_page_cache, bool kept_in_memory, const OrdinalIndexPB* index_meta) {
+Status OrdinalIndexReader::load(bool use_page_cache, bool kept_in_memory,
+                                const OrdinalIndexPB* index_meta) {
     // TODO yyq: implement a new once flag to avoid status construct.
     return _load_once.call([this, use_page_cache, kept_in_memory, index_meta] {
         return _load(use_page_cache, kept_in_memory, index_meta);
     });
 }
 
-Status OrdinalIndexReader::_load(bool use_page_cache, bool kept_in_memory, const OrdinalIndexPB* index_meta) {
+Status OrdinalIndexReader::_load(bool use_page_cache, bool kept_in_memory,
+                                 const OrdinalIndexPB* index_meta) {
     if (index_meta->root_page().is_root_data_page()) {
         // only one data page, no index page
         _num_pages = 1;
