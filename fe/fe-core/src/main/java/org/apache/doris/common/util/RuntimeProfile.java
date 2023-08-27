@@ -303,6 +303,39 @@ public class RuntimeProfile {
         }
     }
 
+    public void simplePrint(StringBuilder builder, String prefix) {
+        Counter counter = this.counterMap.get("TotalTime");
+        Preconditions.checkState(counter != null);
+        // 1. profile name
+        builder.append(prefix).append(name).append(":");
+        builder.append("\n");
+
+        // 2. info String
+        for (String key : this.infoStringsDisplayOrder) {
+            builder.append(prefix);
+            if (SummaryProfile.EXECUTION_SUMMARY_KEYS_IDENTATION.containsKey(key)) {
+                for (int i = 0; i < SummaryProfile.EXECUTION_SUMMARY_KEYS_IDENTATION.get(key); i++) {
+                    builder.append("  ");
+                }
+            }
+            builder.append("   - ").append(key).append(": ")
+                    .append(this.infoStrings.get(key)).append("\n");
+        }
+
+        // 3. counters
+        printChildCounters(prefix + "|", ROOT_COUNTER, builder);
+
+        // 4. children
+
+        for (int i = 0; i < childList.size(); i++) {
+            Pair<RuntimeProfile, Boolean> pair = childList.get(i);
+            boolean indent = pair.second;
+            RuntimeProfile profile = pair.first;
+            profile.simplePrint(builder, prefix + (indent ? " " : ""));
+        }
+
+    }
+
     public void simpleProfile(int depth, int profileLevel) {
         if (depth == FRAGMENT_DEPTH) {
             mergeMutiInstance(childList, profileLevel);
@@ -506,7 +539,9 @@ public class RuntimeProfile {
             if (profileLevel == 0) {
                 String maxCounterName = MAX_TIME_PRE + counterName;
                 Counter maxCounter = src.counterMap.get(maxCounterName);
-                counter.setValue(maxCounter.getValue());
+                if (maxCounter != null) {
+                    counter.setValue(maxCounter.getValue());
+                }
             }
         } else {
             if (rhsCounter.size() == 0) {
@@ -530,7 +565,11 @@ public class RuntimeProfile {
         }
         StringBuilder builder = new StringBuilder();
         simpleProfile(0, profileLevel);
-        prettyPrint(builder, "");
+        if (profileLevel == 0) {
+            simplePrint(builder, "");
+        } else {
+            prettyPrint(builder, "");
+        }
         return builder.toString();
     }
 
