@@ -32,11 +32,6 @@ public class HiveSplit extends FileSplit {
         this.acidInfo = acidInfo;
     }
 
-    public HiveSplit(Path path, long start, long length, long fileLength, String[] hosts, AcidInfo acidInfo) {
-        super(path, start, length, fileLength, hosts, null);
-        this.acidInfo = acidInfo;
-    }
-
     @Override
     public Object getInfo() {
         return acidInfo;

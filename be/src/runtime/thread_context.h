@@ -99,6 +99,7 @@ class ThreadContext;
 class MemTracker;
 class RuntimeState;
 
+inline bool k_doris_run = false;
 extern bool k_doris_exit;
 extern bthread_key_t btls_key;
 
@@ -155,7 +156,8 @@ class ThreadContext {
 public:
     ThreadContext() {
         thread_mem_tracker_mgr.reset(new ThreadMemTrackerMgr());
-        if (ExecEnv::GetInstance()->initialized()) thread_mem_tracker_mgr->init();
+        if (doris::k_doris_run && ExecEnv::GetInstance()->initialized())
+            thread_mem_tracker_mgr->init();
     }
 
     ~ThreadContext() { thread_context_ptr.init = false; }
@@ -389,7 +391,7 @@ private:
     do {                                                                                           \
         if (doris::thread_context_ptr.init) {                                                      \
             doris::thread_context()->consume_memory(size);                                         \
-        } else if (doris::ExecEnv::GetInstance()->initialized()) {                                 \
+        } else if (doris::k_doris_run && doris::ExecEnv::GetInstance()->initialized()) {           \
             doris::ExecEnv::GetInstance()->orphan_mem_tracker_raw()->consume_no_update_peak(size); \
         }                                                                                          \
     } while (0)
@@ -397,7 +399,7 @@ private:
     do {                                                                                     \
         if (doris::thread_context_ptr.init) {                                                \
             doris::thread_context()->consume_memory(-size);                                  \
-        } else if (doris::ExecEnv::GetInstance()->initialized()) {                           \
+        } else if (doris::k_doris_run && doris::ExecEnv::GetInstance()->initialized()) {     \
             doris::ExecEnv::GetInstance()->orphan_mem_tracker_raw()->consume_no_update_peak( \
                     -size);                                                                  \
         }                                                                                    \

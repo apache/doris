@@ -361,7 +361,7 @@ public:
                     cntl->SetFailed("Tablet not found");
                     status->set_status_code(TStatusCode::NOT_FOUND);
                     response->set_allocated_status(status.get());
-                    response->release_status();
+                    static_cast<void>(response->release_status());
                     return;
                 }
                 auto resp = response->add_tablet_schemas();
@@ -381,7 +381,7 @@ public:
                 cntl->SetFailed("Fail to accept stream");
                 status->set_status_code(TStatusCode::CANCELLED);
                 response->set_allocated_status(status.get());
-                response->release_status();
+                static_cast<void>(response->release_status());
                 return;
             }
 
@@ -389,7 +389,7 @@ public:
 
             status->set_status_code(TStatusCode::OK);
             response->set_allocated_status(status.get());
-            response->release_status();
+            static_cast<void>(response->release_status());
         }
 
     private:

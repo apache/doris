@@ -103,7 +103,7 @@ public:
 
     virtual Status write(const Block& block) = 0;
 
-    virtual void close() = 0;
+    virtual Status close() = 0;
 
     virtual int64_t written_len() = 0;
 
@@ -129,7 +129,7 @@ public:
 
     Status write(const Block& block) override;
 
-    void close() override;
+    Status close() override;
 
     int64_t written_len() override;
 
