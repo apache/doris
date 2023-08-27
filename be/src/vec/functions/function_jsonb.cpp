@@ -574,15 +574,18 @@ public:
                 inner_loop_impl(i, res_data, res_offsets, null_map, writer, formater, l_raw, l_size,
                                 json_path_list[0]);
             } else { // will make array string to user
-                // doc is NOT necessary to be deleted since JsonbDocument will not allocate memory
-                JsonbDocument* doc = JsonbDocument::createDocument(l_raw, l_size);
-                if (UNLIKELY(!doc || !doc->getValue())) {
-                    writer->writeNull();
-                    continue;
-                }
                 writer->reset();
                 writer->writeStartArray();
+
+                // doc is NOT necessary to be deleted since JsonbDocument will not allocate memory
+                JsonbDocument* doc = JsonbDocument::createDocument(l_raw, l_size);
+
                 for (size_t pi = 0; pi < rdata_columns.size(); ++pi) {
+                    if (UNLIKELY(!doc || !doc->getValue())) {
+                        writer->writeNull();
+                        continue;
+                    }
+
                     if (!path_const[pi]) {
                         RETURN_IF_ERROR(parse_json_path(i, pi));
                     }
