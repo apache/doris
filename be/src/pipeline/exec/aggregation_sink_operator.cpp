@@ -59,6 +59,7 @@ AggSinkLocalState::AggSinkLocalState(DataSinkOperatorX* parent, RuntimeState* st
           _max_row_size_counter(nullptr) {}
 
 Status AggSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& info) {
+    RETURN_IF_ERROR(PipelineXSinkLocalState::init(state, info));
     _dependency = (AggDependency*)info.dependency;
     _shared_state = (AggSharedState*)_dependency->shared_state();
     _agg_data = _shared_state->agg_data.get();
@@ -78,7 +79,6 @@ Status AggSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& info) {
     for (size_t i = 0; i < _shared_state->probe_expr_ctxs.size(); i++) {
         RETURN_IF_ERROR(p._probe_expr_ctxs[i]->clone(state, _shared_state->probe_expr_ctxs[i]));
     }
-    _profile = p._pool->add(new RuntimeProfile("AggSinkLocalState"));
     _memory_usage_counter = ADD_LABEL_COUNTER(profile(), "MemoryUsage");
     _hash_table_memory_usage =
             ADD_CHILD_COUNTER(profile(), "HashTable", TUnit::BYTES, "MemoryUsage");

@@ -22,6 +22,8 @@
 // IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/config.h"
+#include "common/exception.h"
+#include "common/status.h"
 #include "olap/hll.h"
 #include "olap/olap_common.h"
 #include "olap/tablet_schema.h"
@@ -189,6 +191,10 @@ void OlapBlockDataConvertor::set_source_content(const vectorized::Block* block, 
            block->columns() == _convertors.size());
     size_t cid = 0;
     for (const auto& typed_column : *block) {
+        if (typed_column.column->size() != block->rows()) {
+            throw Exception(ErrorCode::INTERNAL_ERROR, "input invalid block, block={}",
+                            block->dump_structure());
+        }
         _convertors[cid]->set_source_column(typed_column, row_pos, num_rows);
         ++cid;
     }
