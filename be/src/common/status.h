@@ -276,7 +276,7 @@ E(INVERTED_INDEX_BUILD_WAITTING, -6008);
 
 // clang-format off
 // whether to capture stacktrace
-inline bool capture_stacktrace(int code) {
+constexpr bool capture_stacktrace(int code) {
     return code != ErrorCode::OK
         && code != ErrorCode::END_OF_FILE
         && code != ErrorCode::MEM_LIMIT_EXCEEDED
@@ -376,10 +376,10 @@ public:
 
     static Status OK() { return Status(); }
 
-#define ERROR_CTOR(name, code)                                                  \
-    template <typename... Args>                                                 \
-    static Status name(std::string_view msg, Args&&... args) {                  \
-        return Error<ErrorCode::code, false>(msg, std::forward<Args>(args)...); \
+#define ERROR_CTOR(name, code)                                                 \
+    template <typename... Args>                                                \
+    static Status name(std::string_view msg, Args&&... args) {                 \
+        return Error<ErrorCode::code, true>(msg, std::forward<Args>(args)...); \
     }
 
     ERROR_CTOR(PublishTimeout, PUBLISH_TIMEOUT)
