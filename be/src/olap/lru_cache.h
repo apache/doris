@@ -13,6 +13,7 @@
 #include <string.h>
 
 #include <atomic>
+#include <cstddef>
 #include <functional>
 #include <memory>
 #include <set>
@@ -327,7 +328,7 @@ using LRUHandleSortedSet = std::set<std::pair<int64_t, LRUHandle*>>;
 class LRUCache {
 public:
     LRUCache(LRUCacheType type);
-    ~LRUCache();
+    virtual ~LRUCache();
 
     // Separate from constructor so caller can easily make an array of LRUCache
     void set_capacity(size_t capacity) { _capacity = capacity; }
@@ -336,15 +337,16 @@ public:
     }
 
     // Like Cache methods, but with an extra "hash" parameter.
-    Cache::Handle* insert(const CacheKey& key, uint32_t hash, void* value, size_t charge,
-                          void (*deleter)(const CacheKey& key, void* value),
-                          MemTrackerLimiter* tracker,
-                          CachePriority priority = CachePriority::NORMAL, size_t bytes = -1);
-    Cache::Handle* lookup(const CacheKey& key, uint32_t hash);
-    void release(Cache::Handle* handle);
-    void erase(const CacheKey& key, uint32_t hash);
-    int64_t prune();
-    int64_t prune_if(CacheValuePredicate pred, bool lazy_mode = false);
+    virtual Cache::Handle* insert(const CacheKey& key, uint32_t hash, void* value, size_t charge,
+                                  void (*deleter)(const CacheKey& key, void* value),
+                                  MemTrackerLimiter* tracker,
+                                  CachePriority priority = CachePriority::NORMAL,
+                                  size_t bytes = -1);
+    virtual Cache::Handle* lookup(const CacheKey& key, uint32_t hash);
+    virtual void release(Cache::Handle* handle);
+    virtual void erase(const CacheKey& key, uint32_t hash);
+    virtual int64_t prune();
+    virtual int64_t prune_if(CacheValuePredicate pred, bool lazy_mode = false);
 
     void set_cache_value_time_extractor(CacheValueTimeExtractor cache_value_time_extractor);
     void set_cache_value_check_timestamp(bool cache_value_check_timestamp);
@@ -354,16 +356,15 @@ public:
     [[nodiscard]] size_t get_usage() const { return _usage; }
     [[nodiscard]] size_t get_capacity() const { return _capacity; }
 
-private:
+protected:
     void _lru_remove(LRUHandle* e);
     void _lru_append(LRUHandle* list, LRUHandle* e);
     bool _unref(LRUHandle* e);
-    void _evict_from_lru(size_t total_size, LRUHandle** to_remove_head);
+    virtual void _evict_from_lru(size_t total_size, LRUHandle** to_remove_head);
     void _evict_from_lru_with_time(size_t total_size, LRUHandle** to_remove_head);
-    void _evict_one_entry(LRUHandle* e);
+    virtual void _evict_one_entry(LRUHandle* e);
     bool _check_element_count_limit();
 
-private:
     LRUCacheType _type;
 
     // Initialized before use.
@@ -402,18 +403,17 @@ public:
                              CacheValueTimeExtractor cache_value_time_extractor,
                              bool cache_value_check_timestamp, uint32_t element_count_capacity = 0);
     // TODO(fdy): 析构时清除所有cache元素
-     ~ShardedLRUCache() override;
+    ~ShardedLRUCache() override;
     Handle* insert(const CacheKey& key, void* value, size_t charge,
-                           void (*deleter)(const CacheKey& key, void* value),
-                           CachePriority priority = CachePriority::NORMAL,
-                           size_t bytes = -1) override;
-     Handle* lookup(const CacheKey& key) override;
-     void release(Handle* handle) override;
-     void erase(const CacheKey& key) override;
-     void* value(Handle* handle) override;
+                   void (*deleter)(const CacheKey& key, void* value),
+                   CachePriority priority = CachePriority::NORMAL, size_t bytes = -1) override;
+    Handle* lookup(const CacheKey& key) override;
+    void release(Handle* handle) override;
+    void erase(const CacheKey& key) override;
+    void* value(Handle* handle) override;
     Slice value_slice(Handle* handle) override;
-     uint64_t new_id() override;
-     int64_t prune() override;
+    uint64_t new_id() override;
+    int64_t prune() override;
     int64_t prune_if(CacheValuePredicate pred, bool lazy_mode = false) override;
     int64_t mem_consumption() override;
     int64_t get_usage() override;
@@ -450,8 +450,42 @@ private:
     std::unique_ptr<bvar::PerSecond<bvar::Adder<uint64_t>>> _lookup_count_per_second;
 };
 
-class TwoQueueLRUCache {
+/// refer to https://www.vldb.org/conf/1994/P439.PDF
+class TwoQueueLRUCache : LRUCache {
+public:
+    Cache::Handle* insert(const CacheKey& key, uint32_t hash, void* value, size_t charge,
+                          void (*deleter)(const CacheKey& key, void* value),
+                          MemTrackerLimiter* tracker,
+                          CachePriority priority = CachePriority::NORMAL,
+                          size_t bytes = -1) override;
+    Cache::Handle* lookup(const CacheKey& key, uint32_t hash) override;
+    void release(Cache::Handle* handle) override;
+    void erase(const CacheKey& key, uint32_t hash) override;
+    int64_t prune() override;
+    int64_t prune_if(CacheValuePredicate pred, bool lazy_mode = false) override;
+
+protected:
+    // TODO(tsy): mod interface name
+    void _evict_from_lru(size_t total_size, LRUHandle** to_remove_head) override;
+    void _evict_one_entry(LRUHandle* e) override;
 private:
+    /// note: the `A1out` in paper consists from history_table and history_queue
+    HandleTable _history_table;
+    LRUHandle _history_normal;
+    LRUHandle _history_durable;
+
+    // the `A1in` in paper
+    LRUHandle _recent_queue_normal;
+    LRUHandle _recent_queue_durable;
+
+    // size limit
+    size_t _kin;
+    size_t _kout;
+    size_t _km;
+    // real size
+    size_t _in_size;
+    size_t _out_size;
+    size_t _am_size;
 };
 
 } // namespace doris

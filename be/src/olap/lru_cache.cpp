@@ -6,6 +6,7 @@
 
 #include <stdlib.h>
 
+#include <cstddef>
 #include <mutex>
 #include <new>
 #include <sstream>
@@ -668,6 +669,65 @@ void ShardedLRUCache::update_cache_metrics() const {
 Cache* new_lru_cache(const std::string& name, size_t capacity, LRUCacheType type,
                      uint32_t num_shards) {
     return new ShardedLRUCache(name, capacity, type, num_shards);
+}
+
+void TwoQueueLRUCache::_evict_from_lru(size_t total_size, LRUHandle** to_remove_head) {
+    for (size_t total_usage = _usage + total_size; total_usage > _capacity;
+         total_usage = _usage + total_size) {
+        if (_in_size > _kin && _recent_queue_normal.next != &_recent_queue_normal) {
+            // evict from a1in and record to a1out
+            LRUHandle* old = _recent_queue_normal.next;
+            DCHECK(old->priority == CachePriority::NORMAL);
+            _evict_one_entry(old);
+            old->next = *to_remove_head;
+            *to_remove_head = old;
+            _in_size -= old->total_size;
+        } else if (_am_size > _km && _lru_normal.next != &_lru_normal) {
+            // evict from am
+            LRUHandle* old = _lru_normal.next;
+            DCHECK(old->priority == CachePriority::NORMAL);
+            _evict_one_entry(old);
+            old->next = *to_remove_head;
+            *to_remove_head = old;
+            _am_size -= old->total_size;
+        } else {
+            break;
+        }
+        _usage = _in_size + _am_size;
+    }
+
+    for (size_t total_usage = _usage + total_size; total_usage > _capacity;
+         total_usage = _usage + total_size) {
+        if (_in_size > _kin && _recent_queue_normal.next != &_recent_queue_normal) {
+            // evict from a1in and record to a1out
+            LRUHandle* old = _recent_queue_durable.next;
+            DCHECK(old->priority == CachePriority::NORMAL);
+            _evict_one_entry(old);
+            old->next = *to_remove_head;
+            *to_remove_head = old;
+            _in_size -= old->total_size;
+        } else if (_am_size > _km && _lru_normal.next != &_lru_normal) {
+            // evict from am
+            LRUHandle* old = _lru_durable.next;
+            DCHECK(old->priority == CachePriority::NORMAL);
+            _evict_one_entry(old);
+            old->next = *to_remove_head;
+            *to_remove_head = old;
+            _am_size -= old->total_size;
+        } else {
+            break;
+        }
+        _usage = _in_size + _am_size;
+    }
+}
+
+void TwoQueueLRUCache::_evict_one_entry(LRUHandle* e) {
+    DCHECK(e->in_cache);
+    _lru_remove(e);
+    bool removed = _table.remove(e);
+    DCHECK(removed);
+    e->in_cache = false;
+    _unref(e);
 }
 
 } // namespace doris
