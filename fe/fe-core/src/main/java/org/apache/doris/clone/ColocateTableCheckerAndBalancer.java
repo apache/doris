@@ -230,12 +230,14 @@ public class ColocateTableCheckerAndBalancer extends MasterDaemon {
 
             GlobalColocateStatistic other = (GlobalColocateStatistic) obj;
             return backendBucketsMap.equals(other.backendBucketsMap)
-                    && allGroupBucketsMap.equals(other.allGroupBucketsMap);
+                    && allGroupBucketsMap.equals(other.allGroupBucketsMap)
+                    && allTagBucketNum.equals(other.allTagBucketNum);
         }
 
         @Override
         public String toString() {
-            return "{ backends: " + backendBucketsMap + ", groups: " + allGroupBucketsMap + " }";
+            return "{ backends: " + backendBucketsMap + ", groups: " + allGroupBucketsMap
+                    + ", tag bucket num: " + allTagBucketNum + " }";
         }
 
         Map<Long, BackendBuckets> getBackendBucketsMap() {
