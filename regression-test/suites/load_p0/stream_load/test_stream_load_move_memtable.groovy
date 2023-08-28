@@ -138,7 +138,7 @@ suite("test_stream_load_move_memtable", "p0") {
     assertEquals(3, rowCount[0][0])
 
     // test load_nullable_to_not_nullable
-    def tableName2 = "load_nullable_to_not_nullable"
+    def tableName2 = "load_nullable_to_not_nullable_mm"
     sql """ DROP TABLE IF EXISTS ${tableName2} """
     sql """
     CREATE TABLE IF NOT EXISTS `${tableName2}` (
@@ -187,13 +187,13 @@ suite("test_stream_load_move_memtable", "p0") {
     order_qt_sql1 " SELECT * FROM ${tableName2}"
 
     // test common case
-    def tableName3 = "test_all"
-    def tableName4 = "test_less_col"
-    def tableName5 = "test_bitmap_and_hll"
-    def tableName6 = "test_unique_key"
-    def tableName7 = "test_unique_key_with_delete"
-    def tableName8 = "test_array"
-    def tableName10 = "test_struct"
+    def tableName3 = "test_all_mm"
+    def tableName4 = "test_less_col_mm"
+    def tableName5 = "test_bitmap_and_hll_mm"
+    def tableName6 = "test_unique_key_mm"
+    def tableName7 = "test_unique_key_with_delete_mm"
+    def tableName8 = "test_array_mm"
+    def tableName10 = "test_struct_mm"
     sql """ DROP TABLE IF EXISTS ${tableName3} """
     sql """ DROP TABLE IF EXISTS ${tableName4} """
     sql """ DROP TABLE IF EXISTS ${tableName5} """
