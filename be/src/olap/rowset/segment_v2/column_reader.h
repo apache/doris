@@ -489,8 +489,7 @@ private:
 // Cache the sub column iterators and columns to reduce data read amplification
 class CachedStreamIterator : public ColumnIterator {
 public:
-    CachedStreamIterator(const vectorized::PathInData& path)
-            : _path(path) {}
+    CachedStreamIterator(const vectorized::PathInData& path) : _path(path) {}
 
     ~CachedStreamIterator() override = default;
 
