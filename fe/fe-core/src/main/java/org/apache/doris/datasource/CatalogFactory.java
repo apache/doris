@@ -148,7 +148,8 @@ public class CatalogFactory {
             try {
                 catalog.initAccessController(true);
             } catch (Exception e) {
-                throw new DdlException(e.getMessage());
+                LOG.warn("Failed to init access controller", e);
+                throw new DdlException("Failed to init access controller: " + e.getMessage());
             }
         }
         return catalog;
