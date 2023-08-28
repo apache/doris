@@ -77,7 +77,7 @@ Status ColumnReader::create(const ColumnReaderOptions& opts, const ColumnMetaPB&
     if (is_scalar_type((FieldType)meta.type())) {
         std::unique_ptr<ColumnReader> reader_local(
                 new ColumnReader(opts, meta, num_rows, file_reader));
-        RETURN_IF_ERROR(reader_local->init());
+        RETURN_IF_ERROR(reader_local->init(&meta));
         *reader = std::move(reader_local);
         return Status::OK();
     } else {
@@ -179,24 +179,32 @@ Status ColumnReader::create(const ColumnReaderOptions& opts, const ColumnMetaPB&
 
 ColumnReader::ColumnReader(const ColumnReaderOptions& opts, const ColumnMetaPB& meta,
                            uint64_t num_rows, io::FileReaderSPtr file_reader)
-        : _meta(meta),
-          _opts(opts),
+        : _opts(opts),
           _num_rows(num_rows),
           _file_reader(std::move(file_reader)),
           _dict_encoding_type(UNKNOWN_DICT_ENCODING),
-          _use_index_page_cache(!config::disable_storage_page_cache) {}
+          _use_index_page_cache(!config::disable_storage_page_cache) {
+    _meta_length = meta.length();
+    _meta_type = (FieldType)meta.type();
+    if (_meta_type == FieldType::OLAP_FIELD_TYPE_ARRAY) {
+        _meta_children_column_type = (FieldType)meta.children_columns(0).type();
+    }
+    _meta_is_nullable = meta.is_nullable();
+    _meta_dict_page = meta.dict_page();
+    _meta_compression = meta.compression();
+}
 
 ColumnReader::~ColumnReader() = default;
 
-Status ColumnReader::init() {
-    _type_info = get_type_info(&_meta);
+Status ColumnReader::init(const ColumnMetaPB* meta) {
+    _type_info = get_type_info(meta);
     if (_type_info == nullptr) {
-        return Status::NotSupported("unsupported typeinfo, type={}", _meta.type());
+        return Status::NotSupported("unsupported typeinfo, type={}", meta->type());
     }
-    RETURN_IF_ERROR(EncodingInfo::get(_type_info.get(), _meta.encoding(), &_encoding_info));
+    RETURN_IF_ERROR(EncodingInfo::get(_type_info.get(), meta->encoding(), &_encoding_info));
 
-    for (int i = 0; i < _meta.indexes_size(); i++) {
-        auto& index_meta = _meta.indexes(i);
+    for (int i = 0; i < meta->indexes_size(); i++) {
+        auto& index_meta = meta->indexes(i);
         switch (index_meta.type()) {
         case ORDINAL_INDEX:
             _ordinal_index_meta = &index_meta.ordinal_index();
@@ -223,7 +231,7 @@ Status ColumnReader::init() {
     // the item writer doesn't write any data and the corresponding ordinal index is empty.
     if (_ordinal_index_meta == nullptr && !is_empty()) {
         return Status::Corruption("Bad file {}: missing ordinal index for column {}",
-                                  _file_reader->path().native(), _meta.column_id());
+                                  _file_reader->path().native(), meta->column_id());
     }
     return Status::OK();
 }
@@ -280,8 +288,8 @@ Status ColumnReader::get_row_ranges_by_zone_map(
 Status ColumnReader::next_batch_of_zone_map(size_t* n, vectorized::MutableColumnPtr& dst) const {
     // TODO: this work to get min/max value seems should only do once
     FieldType type = _type_info->type();
-    std::unique_ptr<WrapperField> min_value(WrapperField::create_by_type(type, _meta.length()));
-    std::unique_ptr<WrapperField> max_value(WrapperField::create_by_type(type, _meta.length()));
+    std::unique_ptr<WrapperField> min_value(WrapperField::create_by_type(type, _meta_length));
+    std::unique_ptr<WrapperField> max_value(WrapperField::create_by_type(type, _meta_length));
     _parse_zone_map_skip_null(_zone_map_index_meta->segment_zone_map(), min_value.get(),
                               max_value.get());
 
@@ -321,8 +329,8 @@ bool ColumnReader::match_condition(const AndBlockColumnPredicate* col_predicates
         return true;
     }
     FieldType type = _type_info->type();
-    std::unique_ptr<WrapperField> min_value(WrapperField::create_by_type(type, _meta.length()));
-    std::unique_ptr<WrapperField> max_value(WrapperField::create_by_type(type, _meta.length()));
+    std::unique_ptr<WrapperField> min_value(WrapperField::create_by_type(type, _meta_length));
+    std::unique_ptr<WrapperField> max_value(WrapperField::create_by_type(type, _meta_length));
     _parse_zone_map(_zone_map_index_meta->segment_zone_map(), min_value.get(), max_value.get());
 
     return _zone_map_match_condition(_zone_map_index_meta->segment_zone_map(), min_value.get(),
@@ -387,8 +395,8 @@ Status ColumnReader::_get_filtered_pages(
     FieldType type = _type_info->type();
     const std::vector<ZoneMapPB>& zone_maps = _zone_map_index->page_zone_maps();
     int32_t page_size = _zone_map_index->num_pages();
-    std::unique_ptr<WrapperField> min_value(WrapperField::create_by_type(type, _meta.length()));
-    std::unique_ptr<WrapperField> max_value(WrapperField::create_by_type(type, _meta.length()));
+    std::unique_ptr<WrapperField> min_value(WrapperField::create_by_type(type, _meta_length));
+    std::unique_ptr<WrapperField> max_value(WrapperField::create_by_type(type, _meta_length));
     for (int32_t i = 0; i < page_size; ++i) {
         if (zone_maps[i].pass_all()) {
             page_indexes->push_back(i);
@@ -495,8 +503,8 @@ Status ColumnReader::_load_inverted_index_index(const TabletIndex* index_meta) {
     InvertedIndexParserType parser_type = get_inverted_index_parser_type_from_string(
             get_parser_string_from_properties(index_meta->properties()));
     FieldType type;
-    if ((FieldType)_meta.type() == FieldType::OLAP_FIELD_TYPE_ARRAY) {
-        type = (FieldType)_meta.children_columns(0).type();
+    if (_meta_type == FieldType::OLAP_FIELD_TYPE_ARRAY) {
+        type = _meta_children_column_type;
     } else {
         type = _type_info->type();
     }
@@ -565,11 +573,11 @@ Status ColumnReader::new_iterator(ColumnIterator** iterator) {
         *iterator = new EmptyFileColumnIterator();
         return Status::OK();
     }
-    if (is_scalar_type((FieldType)_meta.type())) {
+    if (is_scalar_type((FieldType)_meta_type)) {
         *iterator = new FileColumnIterator(this);
         return Status::OK();
     } else {
-        auto type = (FieldType)_meta.type();
+        auto type = (FieldType)_meta_type;
         switch (type) {
         case FieldType::OLAP_FIELD_TYPE_STRUCT: {
             std::vector<ColumnIterator*> sub_column_iterators;

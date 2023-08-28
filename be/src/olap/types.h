@@ -607,7 +607,7 @@ bool is_scalar_type(FieldType field_type);
 
 const TypeInfo* get_scalar_type_info(FieldType field_type);
 
-TypeInfoPtr get_type_info(segment_v2::ColumnMetaPB* column_meta_pb);
+TypeInfoPtr get_type_info(const segment_v2::ColumnMetaPB* column_meta_pb);
 
 TypeInfoPtr get_type_info(const TabletColumn* col);
 

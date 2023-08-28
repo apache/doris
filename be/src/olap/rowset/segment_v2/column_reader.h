@@ -133,7 +133,7 @@ public:
                      PageHandle* handle, Slice* page_body, PageFooterPB* footer,
                      BlockCompressionCodec* codec) const;
 
-    bool is_nullable() const { return _meta.is_nullable(); }
+    bool is_nullable() const { return _meta_is_nullable; }
 
     const EncodingInfo* encoding_info() const { return _encoding_info; }
 
@@ -167,11 +167,11 @@ public:
     Status get_row_ranges_by_bloom_filter(const AndBlockColumnPredicate* col_predicates,
                                           RowRanges* row_ranges);
 
-    PagePointer get_dict_page_pointer() const { return _meta.dict_page(); }
+    PagePointer get_dict_page_pointer() const { return _meta_dict_page; }
 
     bool is_empty() const { return _num_rows == 0; }
 
-    CompressionTypePB get_compression() const { return _meta.compression(); }
+    CompressionTypePB get_compression() const { return _meta_compression; }
 
     uint64_t num_rows() const { return _num_rows; }
 
@@ -189,7 +189,7 @@ public:
 private:
     ColumnReader(const ColumnReaderOptions& opts, const ColumnMetaPB& meta, uint64_t num_rows,
                  io::FileReaderSPtr file_reader);
-    Status init();
+    Status init(const ColumnMetaPB* meta);
 
     // Read column inverted indexes into memory
     // May be called multiple times, subsequent calls will no op.
@@ -222,7 +222,13 @@ private:
     Status _calculate_row_ranges(const std::vector<uint32_t>& page_indexes, RowRanges* row_ranges);
 
 private:
-    ColumnMetaPB _meta;
+    int64_t _meta_length;
+    FieldType _meta_type;
+    FieldType _meta_children_column_type;
+    bool _meta_is_nullable;
+    PagePointer _meta_dict_page;
+    CompressionTypePB _meta_compression;
+
     ColumnReaderOptions _opts;
     uint64_t _num_rows;
 
