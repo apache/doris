@@ -203,7 +203,7 @@ suite("test_ctas") {
             DROP TABLE IF EXISTS ctas_113815
         """
     }
-    
+
     try {
         sql '''create table a (
                 id int not null,
@@ -229,7 +229,7 @@ suite("test_ctas") {
         sql 'insert into b values(1, 22);'
 
         sql 'create table c properties("replication_num"="1") as select a.id, a.name, b.age from a left join b on a.id = b.id;'
-        
+
         String desc = sql 'desc c'
         assertTrue(desc.contains('Yes'))
     } finally {
