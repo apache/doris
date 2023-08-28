@@ -7237,6 +7237,10 @@ admin_stmt ::=
     {:
         RESULT = new AdminCopyTabletStmt(tabletId, properties);
     :}
+    | KW_ADMIN KW_SET KW_TABLE table_name:name KW_STATUS opt_properties:properties
+    {:
+        RESULT = new AdminSetTableStatusStmt(name, properties);
+    :}
     ;
 
 truncate_stmt ::=
