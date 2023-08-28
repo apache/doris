@@ -998,7 +998,9 @@ void get_json_by_column_tree(rapidjson::Value& root, rapidjson::Document::Alloca
 }
 
 bool ColumnObject::serialize_one_row_to_string(int row, std::string* output) const {
-    CHECK(is_finalized());
+    if (!is_finalized()) {
+        const_cast<ColumnObject*>(this)->finalize();
+    }
     rapidjson::StringBuffer buf;
     if (is_scalar_variant()) {
         auto type = get_root_type();
@@ -1014,7 +1016,9 @@ bool ColumnObject::serialize_one_row_to_string(int row, std::string* output) con
 }
 
 bool ColumnObject::serialize_one_row_to_string(int row, BufferWritable& output) const {
-    CHECK(is_finalized());
+    if (!is_finalized()) {
+        const_cast<ColumnObject*>(this)->finalize();
+    }
     if (is_scalar_variant()) {
         auto type = get_root_type();
         type->to_string(*get_root(), row, output);
@@ -1031,6 +1035,16 @@ bool ColumnObject::serialize_one_row_to_string(int row, BufferWritable& output) 
 bool ColumnObject::serialize_one_row_to_json_format(int row, rapidjson::StringBuffer* output,
                                                     bool* is_null) const {
     CHECK(is_finalized());
+    if (subcolumns.empty()) {
+        if (is_null != nullptr) {
+            *is_null = true;
+        } else {
+            rapidjson::Value root(rapidjson::kNullType);
+            rapidjson::Writer<rapidjson::StringBuffer> writer(*output);
+            return root.Accept(writer);
+        }
+        return true;
+    }
     CHECK(size() > row);
     rapidjson::StringBuffer buffer;
     rapidjson::Value root(rapidjson::kNullType);

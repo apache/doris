@@ -97,10 +97,10 @@ suite("regression_test_variant", "variant_type"){
             qt_sql_1_1 "select k, v, cast(v:b as string) from  ${table_name} where  length(cast(v:b as string)) > 4 order  by k, cast(v as string)"
             // cast v:b as int should be correct
             // TODO FIX ME
-            // qt_sql_1_2 "select v:b, v:b.c, v from  ${table_name}  order by k desc limit 10000;"
-            // qt_sql_1_3 "select v:b from ${table_name} where cast(v:b as int) > 0;"
-            // qt_sql_1_4 "select k, v:b, v:b.c, v:a from ${table_name} where k > 10 order by k desc limit 10000;"
-            // qt_sql_1_5 "select cast(v:b as string) from ${table_name} order by k"
+            qt_sql_1_2 "select v:b, v:b.c, v from  ${table_name}  order by k desc limit 10000;"
+            qt_sql_1_3 "select v:b from ${table_name} where cast(v:b as int) > 0;"
+            qt_sql_1_4 "select k, v:b, v:b.c, v:a from ${table_name} where k > 10 order by k desc limit 10000;"
+            qt_sql_1_5 "select cast(v:b as string) from ${table_name} order by k"
             verify table_name 
         }
         
