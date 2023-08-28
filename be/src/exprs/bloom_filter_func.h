@@ -218,7 +218,11 @@ public:
         set_filter_id(other_func->_filter_id);
     }
 
-    void set_filter_id(int filter_id) { _filter_id = filter_id; }
+    void set_filter_id(int filter_id) {
+        if (_filter_id == -1) {
+            _filter_id = filter_id;
+        }
+    }
 
     int get_filter_id() const { return _filter_id; }
 

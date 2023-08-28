@@ -1482,6 +1482,7 @@ void IRuntimeFilter::init_profile(RuntimeProfile* parent_profile) {
     }
     parent_profile->add_child(_profile.get(), true, nullptr);
     _profile->add_info_string("Info", _format_status());
+    _wrapper->set_filter_id(_filter_id);
     if (_runtime_filter_type == RuntimeFilterType::IN_OR_BLOOM_FILTER) {
         update_runtime_filter_type_to_profile();
     }
@@ -1490,7 +1491,6 @@ void IRuntimeFilter::init_profile(RuntimeProfile* parent_profile) {
 void IRuntimeFilter::update_runtime_filter_type_to_profile() {
     if (_profile != nullptr) {
         _profile->add_info_string("RealRuntimeFilterType", to_string(_wrapper->get_real_type()));
-        _wrapper->set_filter_id(_filter_id);
     }
 }
 
