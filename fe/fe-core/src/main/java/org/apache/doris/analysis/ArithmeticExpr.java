@@ -530,8 +530,8 @@ public class ArithmeticExpr extends Expr {
                     scale = t1Scale + t2Scale;
                     precision = t1Precision + t2Precision;
                 } else if (op == Operator.DIVIDE) {
-                    precision = t1TargetType.getPrecision() + t2Scale;
-                    scale = t1Scale;
+                    precision = t1TargetType.getPrecision() + t2Scale + 4;
+                    scale = t1Scale + 4;
                 } else if (op == Operator.ADD || op == Operator.SUBTRACT) {
                     // target type: DECIMALV3(max(widthOfIntPart1, widthOfIntPart2) + max(scale1, scale2) + 1,
                     // max(scale1, scale2))
@@ -557,13 +557,25 @@ public class ArithmeticExpr extends Expr {
                     if (((ScalarType) type).getScalarScale() != ((ScalarType) children.get(1).type).getScalarScale()) {
                         castChild(type, 1);
                     }
-                } else if (op == Operator.DIVIDE && (t2Scale != 0) && t1.isDecimalV3()) {
-                    int targetScale = t1Scale + t2Scale;
-                    if (precision < targetScale) {
+                } else if (op == Operator.DIVIDE && t1TargetType.isDecimalV3()) {
+                    int leftPrecision = t1Precision + t2Scale + 4;
+                    int leftScale = t1Scale + t2Scale + 4;
+                    if (leftPrecision > ScalarType.MAX_DECIMAL128_PRECISION) {
+                        leftPrecision = ScalarType.MAX_DECIMAL128_PRECISION;
+                    }
+                    if (leftPrecision < leftScale) {
                         type = castBinaryOp(Type.DOUBLE);
                         break;
                     }
-                    castChild(ScalarType.createDecimalV3Type(precision, targetScale), 0);
+                    Expr child = getChild(0);
+                    if (child instanceof DecimalLiteral) {
+                        DecimalLiteral literalChild = (DecimalLiteral) child;
+                        Expr newChild = literalChild
+                                .castToDecimalV3ByDivde(ScalarType.createDecimalV3Type(leftPrecision, leftScale));
+                        setChild(0, newChild);
+                    } else {
+                        castChild(ScalarType.createDecimalV3Type(leftPrecision, leftScale), 0);
+                    }
                 } else if (op == Operator.MOD) {
                     castChild(type, 0);
                     castChild(type, 1);

@@ -64,6 +64,8 @@ public class CastExpr extends Expr {
 
     private static final Map<Pair<Type, Type>, Function.NullableMode> TYPE_NULLABLE_MODE;
 
+    private boolean notFold = false;
+
     static {
         TYPE_NULLABLE_MODE = Maps.newHashMap();
         for (ScalarType fromType : Type.getSupportedTypes()) {
@@ -88,6 +90,14 @@ public class CastExpr extends Expr {
     // only used restore from readFields.
     public CastExpr() {
 
+    }
+
+    public void setNotFold(boolean notFold) {
+        this.notFold = notFold;
+    }
+
+    public boolean isNotFold() {
+        return this.notFold;
     }
 
     public CastExpr(Type targetType, Expr e) {
