@@ -26,6 +26,7 @@
 #include <atomic>
 // IWYU pragma: no_include <bits/chrono.h>
 #include <chrono> // IWYU pragma: keep
+#include <cstddef>
 #include <filesystem>
 #include <memory>
 #include <new>
@@ -385,16 +386,29 @@ Status DataDir::load() {
             // copy the delete sub pred v1 to check then
             auto orig_delete_sub_pred = rowset_meta->delete_predicate().sub_predicates();
             auto* delete_pred = rowset_meta->mutable_delete_pred_pb();
-            DeleteHandler::convert_to_sub_pred_v2(delete_pred, rowset_meta->tablet_schema());
-            LOG(INFO) << fmt::format(
-                    "convert rowset with old delete pred: rowset_id={}, tablet_id={}",
-                    rowset_id.to_string(), tablet_uid.to_string());
-            CHECK_EQ(orig_delete_sub_pred, delete_pred->sub_predicates())
-                    << "inconsistent sub predicate v1 after conversion";
-            std::string result;
-            rowset_meta->serialize(&result);
-            std::string key = ROWSET_PREFIX + tablet_uid.to_string() + "_" + rowset_id.to_string();
-            _meta->put(META_COLUMN_FAMILY_INDEX, key, result);
+
+            if ((!delete_pred->sub_predicates().empty() &&
+                 delete_pred->sub_predicates_v2().empty()) ||
+                (!delete_pred->in_predicates().empty() &&
+                 delete_pred->in_predicates()[0].has_column_unique_id())) {
+                // convert pred and write only when delete sub pred v2 is not set or there is in list pred to be set column uid
+                DeleteHandler::convert_to_sub_pred_v2(delete_pred, rowset_meta->tablet_schema());
+                LOG(INFO) << fmt::format(
+                        "convert rowset with old delete pred: rowset_id={}, tablet_id={}",
+                        rowset_id.to_string(), tablet_uid.to_string());
+                CHECK_EQ(orig_delete_sub_pred.size(), delete_pred->sub_predicates().size())
+                        << "inconsistent sub predicate v1 after conversion";
+                for (size_t i = 0; i < orig_delete_sub_pred.size(); ++i) {
+                    CHECK_STREQ(orig_delete_sub_pred.Get(i).c_str(),
+                                delete_pred->sub_predicates().Get(i).c_str())
+                            << "inconsistent sub predicate v1 after conversion";
+                }
+                std::string result;
+                rowset_meta->serialize(&result);
+                std::string key =
+                        ROWSET_PREFIX + tablet_uid.to_string() + "_" + rowset_id.to_string();
+                _meta->put(META_COLUMN_FAMILY_INDEX, key, result);
+            }
         }
         dir_rowset_metas.push_back(rowset_meta);
         return true;
