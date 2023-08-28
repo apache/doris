@@ -205,7 +205,8 @@ void get_column_by_type(const vectorized::DataTypePtr& data_type, const std::str
         column.set_default_value("[]");
         return;
     }
-    if (WhichDataType(*data_type).is_string()) {
+    // size is not fixed when type is string or json
+    if (WhichDataType(*data_type).is_string() || WhichDataType(*data_type).is_json()) {
         return;
     }
     if (WhichDataType(*data_type).is_simple()) {
