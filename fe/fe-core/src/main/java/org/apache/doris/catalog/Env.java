@@ -31,6 +31,7 @@ import org.apache.doris.analysis.AdminCleanTrashStmt;
 import org.apache.doris.analysis.AdminCompactTableStmt;
 import org.apache.doris.analysis.AdminSetConfigStmt;
 import org.apache.doris.analysis.AdminSetReplicaStatusStmt;
+import org.apache.doris.analysis.AdminSetTableStatusStmt;
 import org.apache.doris.analysis.AlterDatabasePropertyStmt;
 import org.apache.doris.analysis.AlterDatabaseQuotaStmt;
 import org.apache.doris.analysis.AlterDatabaseQuotaStmt.QuotaType;
@@ -85,6 +86,7 @@ import org.apache.doris.catalog.ColocateTableIndex.GroupId;
 import org.apache.doris.catalog.DistributionInfo.DistributionInfoType;
 import org.apache.doris.catalog.MaterializedIndex.IndexExtState;
 import org.apache.doris.catalog.MetaIdGenerator.IdGeneratorBuffer;
+import org.apache.doris.catalog.OlapTable.OlapTableState;
 import org.apache.doris.catalog.Replica.ReplicaStatus;
 import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.clone.ColocateTableCheckerAndBalancer;
@@ -191,6 +193,7 @@ import org.apache.doris.persist.RefreshExternalTableInfo;
 import org.apache.doris.persist.ReplacePartitionOperationLog;
 import org.apache.doris.persist.ReplicaPersistInfo;
 import org.apache.doris.persist.SetReplicaStatusOperationLog;
+import org.apache.doris.persist.SetTableStatusOperationLog;
 import org.apache.doris.persist.Storage;
 import org.apache.doris.persist.StorageInfo;
 import org.apache.doris.persist.TableInfo;
@@ -5248,6 +5251,40 @@ public class Env {
                 break;
             default:
                 break;
+        }
+    }
+
+    public void setTableStatus(AdminSetTableStatusStmt stmt) throws MetaNotFoundException {
+        String dbName = stmt.getDbName();
+        String tableName = stmt.getTblName();
+        setTableStatusInternal(dbName, tableName, stmt.getTableState(), false);
+    }
+
+    public void replaySetTableStatus(SetTableStatusOperationLog log) throws MetaNotFoundException {
+        setTableStatusInternal(log.getDbName(), log.getTblName(), log.getState(), true);
+    }
+
+    public void setTableStatusInternal(String dbName, String tableName, OlapTableState state, boolean isReplay)
+            throws MetaNotFoundException {
+        Database db = getInternalCatalog().getDbOrMetaException(dbName);
+        OlapTable olapTable = (OlapTable) db.getTableOrMetaException(tableName, TableType.OLAP);
+        olapTable.writeLockOrMetaException();
+        try {
+            OlapTableState oldState = olapTable.getState();
+            if (state != null && oldState != state) {
+                olapTable.setState(state);
+                if (!isReplay) {
+                    SetTableStatusOperationLog log = new SetTableStatusOperationLog(dbName, tableName, state);
+                    editLog.logSetTableStatus(log);
+                }
+                LOG.info("set table {} state from {} to {}. is replay: {}.",
+                            tableName, oldState, state, isReplay);
+            } else {
+                LOG.warn("ignore set same state {} for table {}. is replay: {}.",
+                            olapTable.getState(), tableName, isReplay);
+            }
+        } finally {
+            olapTable.writeUnlock();
         }
     }
 

@@ -555,6 +555,11 @@ public class EditLog {
                     Env.getCurrentGlobalTransactionMgr().replayBatchRemoveTransactionV2(operation);
                     break;
                 }
+                case OperationType.OP_SET_TABLE_STATUS: {
+                    final SetTableStatusOperationLog log = (SetTableStatusOperationLog) journal.getData();
+                    env.replaySetTableStatus(log);
+                    break;
+                }
                 case OperationType.OP_CREATE_REPOSITORY: {
                     Repository repository = (Repository) journal.getData();
                     env.getBackupHandler().getRepoMgr().addAndInitRepoIfNotExist(repository, true);
@@ -1744,6 +1749,10 @@ public class EditLog {
 
     public void logBatchRemoveTransactions(BatchRemoveTransactionsOperationV2 op) {
         logEdit(OperationType.OP_BATCH_REMOVE_TXNS_V2, op);
+    }
+
+    public void logSetTableStatus(SetTableStatusOperationLog log) {
+        logEdit(OperationType.OP_SET_TABLE_STATUS, log);
     }
 
     public void logModifyComment(ModifyCommentOperationLog op) {
