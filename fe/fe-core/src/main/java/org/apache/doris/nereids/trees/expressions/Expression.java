@@ -31,6 +31,7 @@ import org.apache.doris.nereids.types.ArrayType;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.MapType;
 import org.apache.doris.nereids.types.StructType;
+import org.apache.doris.nereids.types.coercion.AnyDataType;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
@@ -105,6 +106,10 @@ public abstract class Expression extends AbstractTreeNode<Expression> implements
     }
 
     private boolean checkPrimitiveInputDataTypesWithExpectType(DataType input, DataType expected) {
+        // These type will throw exception when invoke toCatalogDataType()
+        if (expected instanceof AnyDataType) {
+            return expected.acceptsType(input);
+        }
         // TODO: complete the cast logic like FunctionCallExpr.analyzeImpl
         boolean legacyCastCompatible = false;
         try {
