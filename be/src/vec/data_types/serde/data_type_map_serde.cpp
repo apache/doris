@@ -29,11 +29,11 @@ namespace doris {
 namespace vectorized {
 class Arena;
 
-void DataTypeMapSerDe::serialize_column_to_text(const IColumn& column, int start_idx, int end_idx,
+void DataTypeMapSerDe::serialize_column_to_json(const IColumn& column, int start_idx, int end_idx,
                                                 BufferWritable& bw, FormatOptions& options) const {
-    SERIALIZE_COLUMN_TO_TEXT()
+    SERIALIZE_COLUMN_TO_JSON()
 }
-void DataTypeMapSerDe::serialize_one_cell_to_text(const IColumn& column, int row_num,
+void DataTypeMapSerDe::serialize_one_cell_to_json(const IColumn& column, int row_num,
                                                   BufferWritable& bw,
                                                   FormatOptions& options) const {
     auto result = check_column_const_set_readability(column, row_num);
@@ -54,15 +54,15 @@ void DataTypeMapSerDe::serialize_one_cell_to_text(const IColumn& column, int row
             bw.write(&options.collection_delim, 1);
             bw.write(" ", 1);
         }
-        key_serde->serialize_one_cell_to_text(nested_keys_column, i, bw, options);
+        key_serde->serialize_one_cell_to_json(nested_keys_column, i, bw, options);
         bw.write(&options.map_key_delim, 1);
-        value_serde->serialize_one_cell_to_text(nested_values_column, i, bw, options);
+        value_serde->serialize_one_cell_to_json(nested_values_column, i, bw, options);
     }
     bw.write("}", 1);
 }
-Status DataTypeMapSerDe::deserialize_one_cell_from_csv(IColumn& column, Slice& slice,
-                                                       const FormatOptions& options,
-                                                       int nesting_level) const {
+Status DataTypeMapSerDe::deserialize_one_cell_from_hive_text(IColumn& column, Slice& slice,
+                                                             const FormatOptions& options,
+                                                             int nesting_level) const {
     DCHECK(!slice.empty());
     auto& array_column = assert_cast<ColumnMap&>(column);
     auto& offsets = array_column.get_offsets();
@@ -99,14 +99,14 @@ Status DataTypeMapSerDe::deserialize_one_cell_from_csv(IColumn& column, Slice& s
 
     int num_keys = 0, num_values = 0;
     Status st;
-    st = key_serde->deserialize_column_from_csv_vector(nested_key_column, key_slices, &num_keys,
-                                                       options, nesting_level + 2);
+    st = key_serde->deserialize_column_from_hive_text_vector(nested_key_column, key_slices,
+                                                             &num_keys, options, nesting_level + 2);
     if (st != Status::OK()) {
         return st;
     }
 
-    st = value_serde->deserialize_column_from_csv_vector(nested_val_column, value_slices,
-                                                         &num_values, options, nesting_level + 2);
+    st = value_serde->deserialize_column_from_hive_text_vector(
+            nested_val_column, value_slices, &num_values, options, nesting_level + 2);
     if (st != Status::OK()) {
         return st;
     }
@@ -117,17 +117,17 @@ Status DataTypeMapSerDe::deserialize_one_cell_from_csv(IColumn& column, Slice& s
     return Status::OK();
 }
 
-Status DataTypeMapSerDe::deserialize_column_from_csv_vector(IColumn& column,
-                                                            std::vector<Slice>& slices,
-                                                            int* num_deserialized,
-                                                            const FormatOptions& options,
-                                                            int nesting_level) const {
-    DESERIALIZE_COLUMN_FROM_CSV_VECTOR();
+Status DataTypeMapSerDe::deserialize_column_from_hive_text_vector(IColumn& column,
+                                                                  std::vector<Slice>& slices,
+                                                                  int* num_deserialized,
+                                                                  const FormatOptions& options,
+                                                                  int nesting_level) const {
+    DESERIALIZE_COLUMN_FROM_HIVE_TEXT_VECTOR();
     return Status::OK();
 }
-void DataTypeMapSerDe::serialize_one_cell_to_csv(const IColumn& column, int row_num,
-                                                 BufferWritable& bw, FormatOptions& options,
-                                                 int nesting_level) const {
+void DataTypeMapSerDe::serialize_one_cell_to_hive_text(const IColumn& column, int row_num,
+                                                       BufferWritable& bw, FormatOptions& options,
+                                                       int nesting_level) const {
     auto result = check_column_const_set_readability(column, row_num);
     ColumnPtr ptr = result.first;
     row_num = result.second;
@@ -148,21 +148,22 @@ void DataTypeMapSerDe::serialize_one_cell_to_csv(const IColumn& column, int row_
         if (i != start) {
             bw.write(collection_delimiter);
         }
-        key_serde->serialize_one_cell_to_csv(nested_keys_column, i, bw, options, nesting_level + 2);
+        key_serde->serialize_one_cell_to_hive_text(nested_keys_column, i, bw, options,
+                                                   nesting_level + 2);
         bw.write(map_kv_delimiter);
-        value_serde->serialize_one_cell_to_csv(nested_values_column, i, bw, options,
-                                               nesting_level + 2);
+        value_serde->serialize_one_cell_to_hive_text(nested_values_column, i, bw, options,
+                                                     nesting_level + 2);
     }
 }
 
-Status DataTypeMapSerDe::deserialize_column_from_text_vector(IColumn& column,
+Status DataTypeMapSerDe::deserialize_column_from_json_vector(IColumn& column,
                                                              std::vector<Slice>& slices,
                                                              int* num_deserialized,
                                                              const FormatOptions& options) const {
-    DESERIALIZE_COLUMN_FROM_TEXT_VECTOR()
+    DESERIALIZE_COLUMN_FROM_JSON_VECTOR()
     return Status::OK();
 }
-Status DataTypeMapSerDe::deserialize_one_cell_from_text(IColumn& column, Slice& slice,
+Status DataTypeMapSerDe::deserialize_one_cell_from_json(IColumn& column, Slice& slice,
                                                         const FormatOptions& options) const {
     DCHECK(!slice.empty());
     auto& array_column = assert_cast<ColumnMap&>(column);
@@ -229,7 +230,7 @@ Status DataTypeMapSerDe::deserialize_one_cell_from_text(IColumn& column, Slice& 
                 next.remove_suffix(1);
             }
             if (Status st =
-                        key_serde->deserialize_one_cell_from_text(nested_key_column, next, options);
+                        key_serde->deserialize_one_cell_from_json(nested_key_column, next, options);
                 !st.ok()) {
                 nested_key_column.pop_back(elem_deserialized);
                 nested_val_column.pop_back(elem_deserialized);
@@ -247,7 +248,7 @@ Status DataTypeMapSerDe::deserialize_one_cell_from_text(IColumn& column, Slice& 
             next.trim_prefix();
             if (options.converted_from_string) next.trim_quote();
 
-            if (Status st = value_serde->deserialize_one_cell_from_text(nested_val_column, next,
+            if (Status st = value_serde->deserialize_one_cell_from_json(nested_val_column, next,
                                                                         options);
                 !st.ok()) {
                 nested_key_column.pop_back(elem_deserialized + 1);
@@ -268,7 +269,7 @@ Status DataTypeMapSerDe::deserialize_one_cell_from_text(IColumn& column, Slice& 
         if (options.converted_from_string) next.trim_quote();
 
         if (Status st =
-                    value_serde->deserialize_one_cell_from_text(nested_val_column, next, options);
+                    value_serde->deserialize_one_cell_from_json(nested_val_column, next, options);
             !st.ok()) {
             nested_key_column.pop_back(elem_deserialized + 1);
             nested_val_column.pop_back(elem_deserialized);

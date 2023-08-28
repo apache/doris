@@ -139,6 +139,7 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
     private TFileCompressType compressionType;
     private String headerType = "";
 
+    private boolean useHiveTextSerde = false;
     private String columnSeparator = DEFAULT_COLUMN_SEPARATOR;
     private String lineDelimiter = DEFAULT_LINE_DELIMITER;
     private String jsonRoot = "";
@@ -201,6 +202,10 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
         switch (formatString) {
             case "csv":
                 this.fileFormatType = TFileFormatType.FORMAT_CSV_PLAIN;
+                break;
+            case "hive_text":
+                this.fileFormatType = TFileFormatType.FORMAT_CSV_PLAIN;
+                this.useHiveTextSerde = true;
                 break;
             case "csv_with_names":
                 this.headerType = FeConstants.csv_with_names;
@@ -489,6 +494,7 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
         TFileScanRangeParams fileScanRangeParams = new TFileScanRangeParams();
         fileScanRangeParams.setFormatType(fileFormatType);
         fileScanRangeParams.setProperties(locationProperties);
+        fileScanRangeParams.setUseHiveTextSerde(useHiveTextSerde);
         fileScanRangeParams.setFileAttributes(getFileAttributes());
         ConnectContext ctx = ConnectContext.get();
         fileScanRangeParams.setLoadId(ctx.queryId());

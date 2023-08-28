@@ -33,13 +33,13 @@ namespace doris {
 namespace vectorized {
 class Arena;
 
-void DataTypeStringSerDe::serialize_column_to_text(const IColumn& column, int start_idx,
+void DataTypeStringSerDe::serialize_column_to_json(const IColumn& column, int start_idx,
                                                    int end_idx, BufferWritable& bw,
                                                    FormatOptions& options) const {
-    SERIALIZE_COLUMN_TO_TEXT()
+    SERIALIZE_COLUMN_TO_JSON()
 }
 
-void DataTypeStringSerDe::serialize_one_cell_to_text(const IColumn& column, int row_num,
+void DataTypeStringSerDe::serialize_one_cell_to_json(const IColumn& column, int row_num,
                                                      BufferWritable& bw,
                                                      FormatOptions& options) const {
     auto result = check_column_const_set_readability(column, row_num);
@@ -50,10 +50,10 @@ void DataTypeStringSerDe::serialize_one_cell_to_text(const IColumn& column, int 
     bw.write(value.data, value.size);
 }
 
-Status DataTypeStringSerDe::deserialize_column_from_text_vector(
+Status DataTypeStringSerDe::deserialize_column_from_json_vector(
         IColumn& column, std::vector<Slice>& slices, int* num_deserialized,
         const FormatOptions& options) const {
-    DESERIALIZE_COLUMN_FROM_TEXT_VECTOR()
+    DESERIALIZE_COLUMN_FROM_JSON_VECTOR()
     return Status::OK();
 }
 static void escape_string(const char* src, size_t& len, char escape_char) {
@@ -79,7 +79,7 @@ static void escape_string(const char* src, size_t& len, char escape_char) {
     len = dest_ptr - start;
 }
 
-Status DataTypeStringSerDe::deserialize_one_cell_from_text(IColumn& column, Slice& slice,
+Status DataTypeStringSerDe::deserialize_one_cell_from_json(IColumn& column, Slice& slice,
                                                            const FormatOptions& options) const {
     auto& column_data = assert_cast<ColumnString&>(column);
     if (options.escape_char != 0) {

@@ -381,6 +381,7 @@ struct TFileScanRangeParams {
     19: optional map<string, i32> slot_name_to_schema_pos
     20: optional list<Exprs.TExpr> pre_filter_exprs_list
     21: optional Types.TUniqueId load_id
+    22: optional bool use_hive_text_serde // for text fileformat , if variable is true ,CsvReader will use hive_text_serde,else use json serde.
 }
 
 struct TFileRangeDesc {

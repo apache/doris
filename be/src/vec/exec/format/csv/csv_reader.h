@@ -285,6 +285,7 @@ private:
     // save source text which have been splitted.
     std::vector<Slice> _split_values;
     std::unique_ptr<LineFieldSplitterIf> _fields_splitter;
+    bool _use_hive_text_serde; //use hive_text serde  or  use  json serde
 };
 } // namespace vectorized
 } // namespace doris

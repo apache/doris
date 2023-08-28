@@ -31,13 +31,13 @@ namespace doris {
 namespace vectorized {
 class Arena;
 
-void DataTypeArraySerDe::serialize_column_to_text(const IColumn& column, int start_idx, int end_idx,
+void DataTypeArraySerDe::serialize_column_to_json(const IColumn& column, int start_idx, int end_idx,
                                                   BufferWritable& bw,
                                                   FormatOptions& options) const {
-    SERIALIZE_COLUMN_TO_TEXT()
+    SERIALIZE_COLUMN_TO_JSON()
 }
 
-void DataTypeArraySerDe::serialize_one_cell_to_text(const IColumn& column, int row_num,
+void DataTypeArraySerDe::serialize_one_cell_to_json(const IColumn& column, int row_num,
                                                     BufferWritable& bw,
                                                     FormatOptions& options) const {
     auto result = check_column_const_set_readability(column, row_num);
@@ -57,19 +57,19 @@ void DataTypeArraySerDe::serialize_one_cell_to_text(const IColumn& column, int r
     //  add ' ' to keep same with origin format with array
     options.field_delim = options.collection_delim;
     options.field_delim += " ";
-    nested_serde->serialize_column_to_text(nested_column, offset, next_offset, bw, options);
+    nested_serde->serialize_column_to_json(nested_column, offset, next_offset, bw, options);
     bw.write("]", 1);
 }
 
-Status DataTypeArraySerDe::deserialize_column_from_text_vector(IColumn& column,
+Status DataTypeArraySerDe::deserialize_column_from_json_vector(IColumn& column,
                                                                std::vector<Slice>& slices,
                                                                int* num_deserialized,
                                                                const FormatOptions& options) const {
-    DESERIALIZE_COLUMN_FROM_TEXT_VECTOR();
+    DESERIALIZE_COLUMN_FROM_JSON_VECTOR();
     return Status::OK();
 }
 
-Status DataTypeArraySerDe::deserialize_one_cell_from_text(IColumn& column, Slice& slice,
+Status DataTypeArraySerDe::deserialize_one_cell_from_json(IColumn& column, Slice& slice,
                                                           const FormatOptions& options) const {
     DCHECK(!slice.empty());
     auto& array_column = assert_cast<ColumnArray&>(column);
@@ -126,14 +126,14 @@ Status DataTypeArraySerDe::deserialize_one_cell_from_text(IColumn& column, Slice
     if (options.converted_from_string) slices.back().trim_quote();
 
     int elem_deserialized = 0;
-    Status st = nested_serde->deserialize_column_from_text_vector(nested_column, slices,
+    Status st = nested_serde->deserialize_column_from_json_vector(nested_column, slices,
                                                                   &elem_deserialized, options);
     offsets.emplace_back(offsets.back() + elem_deserialized);
     return st;
 }
-Status DataTypeArraySerDe::deserialize_one_cell_from_csv(IColumn& column, Slice& slice,
-                                                         const FormatOptions& options,
-                                                         int nesting_level) const {
+Status DataTypeArraySerDe::deserialize_one_cell_from_hive_text(IColumn& column, Slice& slice,
+                                                               const FormatOptions& options,
+                                                               int nesting_level) const {
     auto& array_column = assert_cast<ColumnArray&>(column);
     auto& offsets = array_column.get_offsets();
     IColumn& nested_column = array_column.get_data();
@@ -151,22 +151,22 @@ Status DataTypeArraySerDe::deserialize_one_cell_from_csv(IColumn& column, Slice&
     }
 
     int elem_deserialized = 0;
-    Status status = nested_serde->deserialize_column_from_csv_vector(
+    Status status = nested_serde->deserialize_column_from_hive_text_vector(
             nested_column, slices, &elem_deserialized, options, nesting_level + 1);
     offsets.emplace_back(offsets.back() + elem_deserialized);
     return status;
 }
-Status DataTypeArraySerDe::deserialize_column_from_csv_vector(IColumn& column,
-                                                              std::vector<Slice>& slices,
-                                                              int* num_deserialized,
-                                                              const FormatOptions& options,
-                                                              int nesting_level) const {
-    DESERIALIZE_COLUMN_FROM_CSV_VECTOR();
+Status DataTypeArraySerDe::deserialize_column_from_hive_text_vector(IColumn& column,
+                                                                    std::vector<Slice>& slices,
+                                                                    int* num_deserialized,
+                                                                    const FormatOptions& options,
+                                                                    int nesting_level) const {
+    DESERIALIZE_COLUMN_FROM_HIVE_TEXT_VECTOR();
     return Status::OK();
 }
-void DataTypeArraySerDe::serialize_one_cell_to_csv(const IColumn& column, int row_num,
-                                                   BufferWritable& bw, FormatOptions& options,
-                                                   int nesting_level) const {
+void DataTypeArraySerDe::serialize_one_cell_to_hive_text(const IColumn& column, int row_num,
+                                                         BufferWritable& bw, FormatOptions& options,
+                                                         int nesting_level) const {
     auto result = check_column_const_set_readability(column, row_num);
     ColumnPtr ptr = result.first;
     row_num = result.second;
@@ -184,7 +184,8 @@ void DataTypeArraySerDe::serialize_one_cell_to_csv(const IColumn& column, int ro
         if (i != start) {
             bw.write(delimiter);
         }
-        nested_serde->serialize_one_cell_to_csv(nested_column, i, bw, options, nesting_level + 1);
+        nested_serde->serialize_one_cell_to_hive_text(nested_column, i, bw, options,
+                                                      nesting_level + 1);
     }
 }
 

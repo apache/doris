@@ -41,30 +41,31 @@ namespace cctz {
 class time_zone;
 } // namespace cctz
 
-#define SERIALIZE_COLUMN_TO_TEXT()                                            \
+#define SERIALIZE_COLUMN_TO_JSON()                                            \
     for (size_t i = start_idx; i < end_idx; ++i) {                            \
         if (i != start_idx) {                                                 \
             bw.write(options.field_delim.data(), options.field_delim.size()); \
         }                                                                     \
-        serialize_one_cell_to_text(column, i, bw, options);                   \
+        serialize_one_cell_to_json(column, i, bw, options);                   \
     }
 
-#define DESERIALIZE_COLUMN_FROM_TEXT_VECTOR()                                       \
+#define DESERIALIZE_COLUMN_FROM_JSON_VECTOR()                                       \
     for (int i = 0; i < slices.size(); ++i) {                                       \
-        if (Status st = deserialize_one_cell_from_text(column, slices[i], options); \
+        if (Status st = deserialize_one_cell_from_json(column, slices[i], options); \
             st != Status::OK()) {                                                   \
             return st;                                                              \
         }                                                                           \
         ++*num_deserialized;                                                        \
     }
 
-#define DESERIALIZE_COLUMN_FROM_CSV_VECTOR()                                                      \
-    for (int i = 0; i < slices.size(); ++i) {                                                     \
-        if (Status st = deserialize_one_cell_from_csv(column, slices[i], options, nesting_level); \
-            st != Status::OK()) {                                                                 \
-            return st;                                                                            \
-        }                                                                                         \
-        ++*num_deserialized;                                                                      \
+#define DESERIALIZE_COLUMN_FROM_HIVE_TEXT_VECTOR()                                      \
+    for (int i = 0; i < slices.size(); ++i) {                                           \
+        if (Status st = deserialize_one_cell_from_hive_text(column, slices[i], options, \
+                                                            nesting_level);             \
+            st != Status::OK()) {                                                       \
+            return st;                                                                  \
+        }                                                                               \
+        ++*num_deserialized;                                                            \
     }
 
 namespace doris {
@@ -159,34 +160,36 @@ public:
     DataTypeSerDe();
     virtual ~DataTypeSerDe();
     // Text serializer and deserializer with formatOptions to handle different text format
-    virtual void serialize_one_cell_to_text(const IColumn& column, int row_num, BufferWritable& bw,
+    virtual void serialize_one_cell_to_json(const IColumn& column, int row_num, BufferWritable& bw,
                                             FormatOptions& options) const = 0;
 
     // this function serialize multi-column to one row text to avoid virtual function call in complex type nested loop
-    virtual void serialize_column_to_text(const IColumn& column, int start_idx, int end_idx,
+    virtual void serialize_column_to_json(const IColumn& column, int start_idx, int end_idx,
                                           BufferWritable& bw, FormatOptions& options) const = 0;
 
-    virtual Status deserialize_one_cell_from_text(IColumn& column, Slice& slice,
+    virtual Status deserialize_one_cell_from_json(IColumn& column, Slice& slice,
                                                   const FormatOptions& options) const = 0;
     // deserialize text vector is to avoid virtual function call in complex type nested loop
-    virtual Status deserialize_column_from_text_vector(IColumn& column, std::vector<Slice>& slices,
+    virtual Status deserialize_column_from_json_vector(IColumn& column, std::vector<Slice>& slices,
                                                        int* num_deserialized,
                                                        const FormatOptions& options) const = 0;
 
-    virtual Status deserialize_one_cell_from_csv(IColumn& column, Slice& slice,
-                                                 const FormatOptions& options,
+    virtual Status deserialize_one_cell_from_hive_text(IColumn& column, Slice& slice,
+                                                       const FormatOptions& options,
+                                                       int nesting_level = 1) const {
+        return deserialize_one_cell_from_json(column, slice, options);
+    };
+    virtual Status deserialize_column_from_hive_text_vector(IColumn& column,
+                                                            std::vector<Slice>& slices,
+                                                            int* num_deserialized,
+                                                            const FormatOptions& options,
+                                                            int nesting_level = 1) const {
+        return deserialize_column_from_json_vector(column, slices, num_deserialized, options);
+    };
+    virtual void serialize_one_cell_to_hive_text(const IColumn& column, int row_num,
+                                                 BufferWritable& bw, FormatOptions& options,
                                                  int nesting_level = 1) const {
-        return deserialize_one_cell_from_text(column, slice, options);
-    };
-    virtual Status deserialize_column_from_csv_vector(IColumn& column, std::vector<Slice>& slices,
-                                                      int* num_deserialized,
-                                                      const FormatOptions& options,
-                                                      int nesting_level = 1) const {
-        return deserialize_column_from_text_vector(column, slices, num_deserialized, options);
-    };
-    virtual void serialize_one_cell_to_csv(const IColumn& column, int row_num, BufferWritable& bw,
-                                           FormatOptions& options, int nesting_level = 1) const {
-        serialize_one_cell_to_text(column, row_num, bw, options);
+        serialize_one_cell_to_json(column, row_num, bw, options);
     }
 
     // Protobuf serializer and deserializer

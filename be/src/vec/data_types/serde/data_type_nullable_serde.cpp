@@ -38,13 +38,13 @@ namespace doris {
 namespace vectorized {
 class Arena;
 
-void DataTypeNullableSerDe::serialize_column_to_text(const IColumn& column, int start_idx,
+void DataTypeNullableSerDe::serialize_column_to_json(const IColumn& column, int start_idx,
                                                      int end_idx, BufferWritable& bw,
                                                      FormatOptions& options) const {
-    SERIALIZE_COLUMN_TO_TEXT()
+    SERIALIZE_COLUMN_TO_JSON()
 }
 
-void DataTypeNullableSerDe::serialize_one_cell_to_text(const IColumn& column, int row_num,
+void DataTypeNullableSerDe::serialize_one_cell_to_json(const IColumn& column, int row_num,
                                                        BufferWritable& bw,
                                                        FormatOptions& options) const {
     auto result = check_column_const_set_readability(column, row_num);
@@ -55,21 +55,22 @@ void DataTypeNullableSerDe::serialize_one_cell_to_text(const IColumn& column, in
     if (col_null.is_null_at(row_num)) {
         bw.write("NULL", 4);
     } else {
-        nested_serde->serialize_one_cell_to_text(col_null.get_nested_column(), row_num, bw,
+        nested_serde->serialize_one_cell_to_json(col_null.get_nested_column(), row_num, bw,
                                                  options);
     }
 }
 
-Status DataTypeNullableSerDe::deserialize_column_from_text_vector(
+Status DataTypeNullableSerDe::deserialize_column_from_json_vector(
         IColumn& column, std::vector<Slice>& slices, int* num_deserialized,
         const FormatOptions& options) const {
-    DESERIALIZE_COLUMN_FROM_TEXT_VECTOR()
+    DESERIALIZE_COLUMN_FROM_JSON_VECTOR()
     return Status::OK();
 }
 
-void DataTypeNullableSerDe::serialize_one_cell_to_csv(const IColumn& column, int row_num,
-                                                      BufferWritable& bw, FormatOptions& options,
-                                                      int nesting_level) const {
+void DataTypeNullableSerDe::serialize_one_cell_to_hive_text(const IColumn& column, int row_num,
+                                                            BufferWritable& bw,
+                                                            FormatOptions& options,
+                                                            int nesting_level) const {
     auto result = check_column_const_set_readability(column, row_num);
     ColumnPtr ptr = result.first;
     row_num = result.second;
@@ -78,14 +79,14 @@ void DataTypeNullableSerDe::serialize_one_cell_to_csv(const IColumn& column, int
     if (col_null.is_null_at(row_num)) {
         bw.write("\\N", 2);
     } else {
-        nested_serde->serialize_one_cell_to_csv(col_null.get_nested_column(), row_num, bw, options,
-                                                nesting_level);
+        nested_serde->serialize_one_cell_to_hive_text(col_null.get_nested_column(), row_num, bw,
+                                                      options, nesting_level);
     }
 }
 
-Status DataTypeNullableSerDe::deserialize_one_cell_from_csv(IColumn& column, Slice& slice,
-                                                            const FormatOptions& options,
-                                                            int nesting_level) const {
+Status DataTypeNullableSerDe::deserialize_one_cell_from_hive_text(IColumn& column, Slice& slice,
+                                                                  const FormatOptions& options,
+                                                                  int nesting_level) const {
     auto& null_column = assert_cast<ColumnNullable&>(column);
     // TODO(Amory) make null literal configurable
     if (slice.size == 2 && slice[0] == '\\' && slice[1] == 'N') {
@@ -93,8 +94,8 @@ Status DataTypeNullableSerDe::deserialize_one_cell_from_csv(IColumn& column, Sli
         return Status::OK();
     }
 
-    auto st = nested_serde->deserialize_one_cell_from_csv(null_column.get_nested_column(), slice,
-                                                          options, nesting_level);
+    auto st = nested_serde->deserialize_one_cell_from_hive_text(null_column.get_nested_column(),
+                                                                slice, options, nesting_level);
     if (!st.ok()) {
         // fill null if fail
         null_column.insert_data(nullptr, 0); // 0 is meaningless here
@@ -105,16 +106,16 @@ Status DataTypeNullableSerDe::deserialize_one_cell_from_csv(IColumn& column, Sli
     null_column.get_null_map_data().push_back(0);
     return Status::OK();
 }
-Status DataTypeNullableSerDe::deserialize_column_from_csv_vector(IColumn& column,
-                                                                 std::vector<Slice>& slices,
-                                                                 int* num_deserialized,
-                                                                 const FormatOptions& options,
-                                                                 int nesting_level) const {
-    DESERIALIZE_COLUMN_FROM_CSV_VECTOR();
+Status DataTypeNullableSerDe::deserialize_column_from_hive_text_vector(IColumn& column,
+                                                                       std::vector<Slice>& slices,
+                                                                       int* num_deserialized,
+                                                                       const FormatOptions& options,
+                                                                       int nesting_level) const {
+    DESERIALIZE_COLUMN_FROM_HIVE_TEXT_VECTOR();
     return Status::OK();
 }
 
-Status DataTypeNullableSerDe::deserialize_one_cell_from_text(IColumn& column, Slice& slice,
+Status DataTypeNullableSerDe::deserialize_one_cell_from_json(IColumn& column, Slice& slice,
                                                              const FormatOptions& options) const {
     auto& null_column = assert_cast<ColumnNullable&>(column);
     // TODO(Amory) make null literal configurable
@@ -123,7 +124,7 @@ Status DataTypeNullableSerDe::deserialize_one_cell_from_text(IColumn& column, Sl
         null_column.insert_data(nullptr, 0);
         return Status::OK();
     }
-    auto st = nested_serde->deserialize_one_cell_from_text(null_column.get_nested_column(), slice,
+    auto st = nested_serde->deserialize_one_cell_from_json(null_column.get_nested_column(), slice,
                                                            options);
     if (!st.ok()) {
         // fill null if fail

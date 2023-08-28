@@ -185,8 +185,10 @@ CsvReader::CsvReader(RuntimeState* state, RuntimeProfile* profile, ScannerCounte
     _split_values.reserve(_file_slot_descs.size());
     _init_system_properties();
     _init_file_description();
+    _serdes = vectorized::create_data_type_serdes(_file_slot_descs);
+    _use_hive_text_serde = this->_params.use_hive_text_serde;
 }
-
+//
 CsvReader::CsvReader(RuntimeProfile* profile, const TFileScanRangeParams& params,
                      const TFileRangeDesc& range,
                      const std::vector<SlotDescriptor*>& file_slot_descs, io::IOContext* io_ctx)
@@ -209,6 +211,8 @@ CsvReader::CsvReader(RuntimeProfile* profile, const TFileScanRangeParams& params
     _size = _range.size;
     _init_system_properties();
     _init_file_description();
+    _serdes = vectorized::create_data_type_serdes(_file_slot_descs);
+    _use_hive_text_serde = this->_params.use_hive_text_serde;
 }
 
 CsvReader::~CsvReader() = default;
@@ -300,7 +304,6 @@ Status CsvReader::init_reader(bool is_load) {
     _options.escape_char = _escape;
     _options.collection_delim = _params.file_attributes.text_params.collection_delimiter[0];
     _options.map_key_delim = _params.file_attributes.text_params.mapkv_delimiter[0];
-    _serdes = vectorized::create_data_type_serdes(_file_slot_descs);
 
     if (_params.file_attributes.__isset.trim_double_quotes) {
         _trim_double_quotes = _params.file_attributes.trim_double_quotes;
@@ -576,7 +579,11 @@ Status CsvReader::_fill_dest_columns(const Slice& line, Block* block,
                 col_idx < _split_values.size() ? _split_values[col_idx] : _s_null_slice;
         // For load task, we always read "string" from file, so use "write_string_column"
         Slice slice {value.data, value.size};
-        _serdes[i]->deserialize_one_cell_from_csv(*columns[i], slice, _options);
+        if (_use_hive_text_serde) {
+            _serdes[i]->deserialize_one_cell_from_hive_text(*columns[i], slice, _options);
+        } else {
+            _serdes[i]->deserialize_one_cell_from_json(*columns[i], slice, _options);
+        }
     }
     ++(*rows);
 
@@ -738,7 +745,6 @@ Status CsvReader::_prepare_parse(size_t* read_line, bool* is_parse_name) {
     _options.escape_char = _escape;
     _options.collection_delim = _params.file_attributes.text_params.collection_delimiter[0];
     _options.map_key_delim = _params.file_attributes.text_params.mapkv_delimiter[0];
-    _serdes = vectorized::create_data_type_serdes(_file_slot_descs);
 
     // create decompressor.
     // _decompressor may be nullptr if this is not a compressed file
