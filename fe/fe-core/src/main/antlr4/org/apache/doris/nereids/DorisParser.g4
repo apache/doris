@@ -826,5 +826,8 @@ nonReserved
     | WITHIN
     | YEAR
     | ZONE
+    | S3
+    | HDFS
+    | BROKER
 //--DEFAULT-NON-RESERVED-END
     ;
