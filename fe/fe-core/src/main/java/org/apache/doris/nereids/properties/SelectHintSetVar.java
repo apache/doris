@@ -17,25 +17,38 @@
 
 package org.apache.doris.nereids.properties;
 
-import java.util.Objects;
+import java.util.Map;
+import java.util.Optional;
+import java.util.stream.Collectors;
 
 /**
  * select hint.
  * e.g. set_var(query_timeout='1800', exec_mem_limit='2147483648')
  */
-public class SelectHint {
-    // e.g. set_var
-    private String hintName;
+public class SelectHintSetVar extends SelectHint {
+    // e.g. query_timeout='1800', exec_mem_limit='2147483648'
+    private final Map<String, Optional<String>> parameters;
 
-    public SelectHint(String hintName) {
-        this.hintName = Objects.requireNonNull(hintName, "hintName can not be null");
+    public SelectHintSetVar(String hintName, Map<String, Optional<String>> parameters) {
+        super(hintName);
+        this.parameters = parameters;
     }
 
-    public void setHintName(String hintName) {
-        this.hintName = hintName;
+    public Map<String, Optional<String>> getParameters() {
+        return parameters;
     }
 
-    public String getHintName() {
-        return hintName;
+    @Override
+    public String toString() {
+        String kvString = parameters
+                .entrySet()
+                .stream()
+                .map(kv ->
+                        kv.getValue().isPresent()
+                        ? kv.getKey() + "='" + kv.getValue().get() + "'"
+                        : kv.getKey()
+                )
+                .collect(Collectors.joining(", "));
+        return super.getHintName() + "(" + kvString + ")";
     }
 }

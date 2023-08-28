@@ -29,7 +29,7 @@ public class SemiJoinCommute extends OneRewriteRuleFactory {
     @Override
     public Rule build() {
         return logicalJoin()
-                .when(join -> join.getJoinType().isRightSemiOrAntiJoin())
+                .when(join -> join.getJoinType().isRightSemiOrAntiJoin() || join.getJoinType().isRightOuterJoin())
                 .whenNot(join -> ConnectContext.get().getSessionVariable().isDisableJoinReorder())
                 .whenNot(LogicalJoin::hasJoinHint)
                 .whenNot(LogicalJoin::isMarkJoin)
