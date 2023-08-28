@@ -172,6 +172,7 @@ import org.apache.doris.nereids.properties.SelectHint;
 import org.apache.doris.nereids.properties.SelectHintLeading;
 import org.apache.doris.nereids.properties.SelectHintSetVar;
 import org.apache.doris.nereids.trees.expressions.Add;
+import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.And;
 import org.apache.doris.nereids.trees.expressions.BitAnd;
 import org.apache.doris.nereids.trees.expressions.BitNot;
@@ -314,6 +315,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalHaving;
 import org.apache.doris.nereids.trees.plans.logical.LogicalIntersect;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalLimit;
+import org.apache.doris.nereids.trees.plans.logical.LogicalOneRowRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalRepeat;
@@ -746,14 +748,15 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                         throw new AnalysisException("invalid inline table");
                     }
                 }).collect(Collectors.toList());
-
-        List<String> tableAlias;
-        if (ctx.tableAlias() != null) {
-            tableAlias = visitIdentifierList(ctx.tableAlias().identifierList());
-        } else {
-            tableAlias = ImmutableList.of();
+        LogicalPlan relation = new LogicalOneRowRelation(
+                StatementScopeIdGenerator.newRelationId(),
+                exprs.get(0).stream().map(e -> new Alias(e, e.toSql())).collect(Collectors.toList()));
+        for (List<Expression> exprList : exprs.subList(1, exprs.size())) {
+            relation = new LogicalUnion(Qualifier.ALL, ImmutableList.of(relation, new LogicalOneRowRelation(
+                    StatementScopeIdGenerator.newRelationId(),
+                    exprList.stream().map(e -> new Alias(e, e.toSql())).collect(Collectors.toList()))));
         }
-        return null;
+        return withTableAlias(relation, ctx.tableAlias());
     }
 
     /**
