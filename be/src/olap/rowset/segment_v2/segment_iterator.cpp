@@ -1585,9 +1585,11 @@ void SegmentIterator::_init_current_block(
         if (!_segment->is_same_file_col_type_with_expected(cid, *_schema)) {
             // Will be converted to PredicateColumnType<T> if it's a predicate column
             auto file_column_type = _segment->get_data_type_of(*column_desc);
-            VLOG_DEBUG << fmt::format("Recreate column with expected type {}, file column type {}",
-                                      block->get_by_position(i).type->get_name(),
-                                      file_column_type->get_name());
+            VLOG_DEBUG << fmt::format(
+                    "Recreate column with expected type {}, file column type {}, col_name {}, "
+                    "col_path {}",
+                    block->get_by_position(i).type->get_name(), file_column_type->get_name(),
+                    column_desc->name(), column_desc->path().get_path());
             // TODO reuse
             current_columns[cid] = file_column_type->create_column();
             current_columns[cid]->reserve(_opts.block_row_max);
@@ -1824,6 +1826,10 @@ Status SegmentIterator::_convert_to_expected_type(const std::vector<ColumnId>& c
             vectorized::ColumnPtr expected;
             vectorized::ColumnPtr original =
                     _current_return_columns[i]->assume_mutable()->get_ptr();
+            if (original->is_variant()) {
+                // Already converted in _path_reader->finalize()
+                continue;
+            }
             RETURN_IF_ERROR(vectorized::schema_util::cast_column({original, file_column_type, ""},
                                                                  expected_type, &expected));
             // wrap predicate column

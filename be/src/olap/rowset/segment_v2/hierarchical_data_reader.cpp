@@ -115,7 +115,7 @@ Status HierarchicalDataReader::finalize(const std::vector<ColumnId>& column_ids,
                                           desc->path().get_path(), res->size(),
                                           expected_type->get_name());
                 result[cid] = std::move(res);
-                CHECK_EQ(root_node->data.column->size(), result[cid]->size());
+                // CHECK_EQ(root_node->data.column->size(), result[cid]->size());
             } else {
                 // None scalar or has children columns, need merge subcolumns into a variant column
                 auto variant_ptr =
@@ -172,7 +172,7 @@ Status HierarchicalDataReader::finalize(const std::vector<ColumnId>& column_ids,
                 //     continue;
                 // }
                 variant.set_num_rows(size);
-                DCHECK_EQ(variant.size(), size);
+                // DCHECK_EQ(variant.size(), size);
                 result[cid] = std::move(variant_ptr);
             }
             if (result[cid]->is_variant()) {

@@ -1440,6 +1440,7 @@ void DefaultValueColumnIterator::_insert_many_default(vectorized::MutableColumnP
 
 Status VariantColumnIterator::next_batch(size_t* n, vectorized::MutableColumnPtr& dst,
                                          bool* has_null) {
+    size_t size = dst->size();
     auto& obj = assert_cast<vectorized::ColumnObject&>(*dst);
     if (obj.is_null_root()) {
         obj.create_root();
@@ -1447,11 +1448,20 @@ Status VariantColumnIterator::next_batch(size_t* n, vectorized::MutableColumnPtr
     auto root_column = obj.get_root();
     RETURN_IF_ERROR(_inner_iter->next_batch(n, root_column, has_null));
     obj.incr_num_rows(*n);
+    for (auto& entry : obj.get_subcolumns()) {
+        if (entry->data.size() != size + *n) {
+            entry->data.insertManyDefaults(*n);
+        }
+    }
+#ifndef NDEBUG
+    obj.check_consistency();
+#endif
     return Status::OK();
 }
 
 Status VariantColumnIterator::read_by_rowids(const rowid_t* rowids, const size_t count,
                                              vectorized::MutableColumnPtr& dst) {
+    size_t size = dst->size();
     auto& obj = assert_cast<vectorized::ColumnObject&>(*dst);
     if (obj.is_null_root()) {
         obj.create_root();
@@ -1459,6 +1469,14 @@ Status VariantColumnIterator::read_by_rowids(const rowid_t* rowids, const size_t
     auto root_column = obj.get_root();
     RETURN_IF_ERROR(_inner_iter->read_by_rowids(rowids, count, root_column));
     obj.incr_num_rows(count);
+    for (auto& entry : obj.get_subcolumns()) {
+        if (entry->data.size() != size + count) {
+            entry->data.insertManyDefaults(count);
+        }
+    }
+#ifndef NDEBUG
+    obj.check_consistency();
+#endif
     return Status::OK();
 }
 
