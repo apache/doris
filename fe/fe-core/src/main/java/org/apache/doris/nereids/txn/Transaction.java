@@ -232,8 +232,4 @@ public class Transaction {
         // update it, so that user can get loaded rows in fe.audit.log
         ctx.updateReturnRows((int) loadedRows);
     }
-
-    public void executeInsertIntoValuesCommand(StmtExecutor executor) {
-
-    }
 }
