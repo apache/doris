@@ -682,7 +682,9 @@ bool SegmentIterator::_check_apply_by_inverted_index(ColumnPredicate* pred, bool
     }
 
     // Function filter no apply inverted index
-    if (dynamic_cast<LikeColumnPredicate*>(pred)) {
+    if (dynamic_cast<LikeColumnPredicate<TYPE_VARCHAR>*>(pred) != nullptr ||
+        dynamic_cast<LikeColumnPredicate<TYPE_CHAR>*>(pred) != nullptr ||
+        dynamic_cast<LikeColumnPredicate<TYPE_STRING>*>(pred) != nullptr) {
         return false;
     }
 

@@ -57,7 +57,7 @@ public:
         return _vcollect_iter.update_profile(profile);
     }
 
-    ColumnPredicate* _parse_to_predicate(const FunctionFilter& function_filter) override;
+    //ColumnPredicate* _parse_to_predicate(const FunctionFilter& function_filter) override;
 
 private:
     // Directly read row from rowset and pass to upper caller. No need to do aggregation.

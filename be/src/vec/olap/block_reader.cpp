@@ -503,7 +503,7 @@ bool BlockReader::_get_next_row_same() {
     }
 }
 
-ColumnPredicate* BlockReader::_parse_to_predicate(const FunctionFilter& function_filter) {
+/*ColumnPredicate* BlockReader::_parse_to_predicate(const FunctionFilter& function_filter) {
     int32_t index = _tablet_schema->field_index(function_filter._col_name);
     if (index < 0) {
         return nullptr;
@@ -512,6 +512,6 @@ ColumnPredicate* BlockReader::_parse_to_predicate(const FunctionFilter& function
     // currently only support like predicate
     return new LikeColumnPredicate(function_filter._opposite, index, function_filter._fn_ctx,
                                    function_filter._string_param);
-}
+}*/
 
 } // namespace doris::vectorized
