@@ -35,7 +35,7 @@ import java.util.Map;
 /**
  * export table
  */
-public class ExportCommand extends Command {
+public class ExportCommand extends Command implements ForwardWithSync {
     private List<String> nameParts;
     private String whereSql;
     private String path;
