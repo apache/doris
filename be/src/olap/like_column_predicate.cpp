@@ -97,10 +97,8 @@ uint16_t LikeColumnPredicate<T>::evaluate(const vectorized::IColumn& column, uin
                     nested_col);
             if (!nullable_col->has_null()) {
                 vectorized::ColumnUInt8::Container res(size, 0);
-                vectorized::PredicateColumnSliceType* tmp =
-                        (vectorized::PredicateColumnSliceType*)str_col;
                 (_state->predicate_like_function)(
-                        const_cast<vectorized::LikeSearchState*>(&_like_state), (*tmp), pattern,
+                        const_cast<vectorized::LikeSearchState*>(&_like_state), *str_col, pattern,
                         res, sel, size);
                 for (uint16_t i = 0; i != size; i++) {
                     uint16_t idx = sel[i];
@@ -141,14 +139,13 @@ uint16_t LikeColumnPredicate<T>::evaluate(const vectorized::IColumn& column, uin
                 new_size += _opposite ^ flag;
             }
         } else {
-            auto* str_col =
+            const vectorized::PredicateColumnType<T>* str_col =
                     vectorized::check_and_get_column<vectorized::PredicateColumnType<T>>(column);
-            vectorized::PredicateColumnSliceType* tmp =
-                    (vectorized::PredicateColumnSliceType*)str_col;
+
             vectorized::ColumnUInt8::Container res(size, 0);
             (_state->predicate_like_function)(
-                    const_cast<vectorized::LikeSearchState*>(&_like_state), *tmp, pattern, res, sel,
-                    size);
+                    const_cast<vectorized::LikeSearchState*>(&_like_state), *str_col, pattern, res,
+                    sel, size);
             for (uint16_t i = 0; i != size; i++) {
                 uint16_t idx = sel[i];
                 sel[new_size] = idx;
@@ -160,7 +157,6 @@ uint16_t LikeColumnPredicate<T>::evaluate(const vectorized::IColumn& column, uin
 }
 
 template class LikeColumnPredicate<TYPE_CHAR>;
-template class LikeColumnPredicate<TYPE_VARCHAR>;
 template class LikeColumnPredicate<TYPE_STRING>;
 
 } //namespace doris

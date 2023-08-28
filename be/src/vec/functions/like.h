@@ -117,8 +117,7 @@ using LikeFn = std::function<doris::Status(LikeSearchState*, const ColumnString&
                                            ColumnUInt8::Container&)>;
 
 using PredicateColumnSliceType =
-        std::variant<PredicateColumnType<TYPE_STRING>, PredicateColumnType<TYPE_CHAR>,
-                     PredicateColumnType<TYPE_VARCHAR>>;
+        std::variant<PredicateColumnType<TYPE_STRING>, PredicateColumnType<TYPE_CHAR>>;
 
 using LikePredicateFn = std::function<doris::Status(
         LikeSearchState*, const PredicateColumnSliceType&, const StringRef&,

@@ -40,14 +40,15 @@ namespace doris::vectorized {
  */
 template <PrimitiveType Type>
 class PredicateColumnType final : public COWHelper<IColumn, PredicateColumnType<Type>> {
+public:
+    PredicateColumnType(const PredicateColumnType& src) : data(src.data.begin(), src.data.end()) {}
+
 private:
     PredicateColumnType() {}
     PredicateColumnType(const size_t n) : data(n) {}
     friend class COWHelper<IColumn, PredicateColumnType<Type>>;
     using T = typename PredicatePrimitiveTypeTraits<Type>::PredicateFieldType;
     using ColumnType = typename PrimitiveTypeTraits<Type>::ColumnType;
-
-    PredicateColumnType(const PredicateColumnType& src) : data(src.data.begin(), src.data.end()) {}
 
     uint64_t get_date_at(uint16_t idx) {
         const T val = data[idx];
