@@ -117,7 +117,6 @@ public:
         LOG(FATAL) << "Not implemented";
     }
 
-
     MutableColumns scatter(ColumnIndex num_columns, const Selector& selector) const override {
         if (s != selector.size()) {
             LOG(FATAL) << "Size of selector doesn't match size of column.";
