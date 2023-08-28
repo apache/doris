@@ -120,7 +120,13 @@ public:
     void operator()(const DecimalField<Decimal128I>& x, JsonbWriter* writer) const {
         throw doris::Exception(doris::ErrorCode::NOT_IMPLEMENTED_ERROR, "Not implemeted");
     }
-    void operator()(const AggregateFunctionStateData& x, JsonbWriter* writer) const {
+    void operator()(const doris::QuantileState<double>& x, JsonbWriter* writer) const {
+        throw doris::Exception(doris::ErrorCode::NOT_IMPLEMENTED_ERROR, "Not implemeted");
+    }
+    void operator()(const HyperLogLog& x, JsonbWriter* writer) const {
+        throw doris::Exception(doris::ErrorCode::NOT_IMPLEMENTED_ERROR, "Not implemeted");
+    }
+    void operator()(const BitmapValue& x, JsonbWriter* writer) const {
         throw doris::Exception(doris::ErrorCode::NOT_IMPLEMENTED_ERROR, "Not implemeted");
     }
     void operator()(const VariantMap& x, JsonbWriter* writer) const {
