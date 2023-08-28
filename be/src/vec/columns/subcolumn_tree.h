@@ -61,6 +61,12 @@ public:
             path = other->path;
         }
 
+        // modify data and kind
+        void modify_to_scalar(NodeData&& other_data) {
+            data = std::move(other_data);
+            kind = Kind::SCALAR;
+        }
+
         void add_child(std::string_view key, std::shared_ptr<Node> next_node) {
             next_node->parent = this;
             StringRef key_ref {strings_pool.insert(key.data(), key.length()), key.length()};

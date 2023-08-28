@@ -1941,6 +1941,7 @@ private:
                 Status st = wrapper(context, tmp_block, {0}, 1, input_rows_count);
                 if (!st.ok()) {
                     // Fill with default values, which is null
+                    col_to->assume_mutable()->insert_many_defaults(input_rows_count);
                     col_to = make_nullable(col_to, true);
                 } else {
                     col_to = tmp_block.get_by_position(1).column;
@@ -1958,6 +1959,7 @@ private:
                     // is also acceptable
                     // return Status::InvalidArgument(fmt::format("Could not cast from variant to {}",
                     //                                            data_type_to->get_name()));
+                    col_to->assume_mutable()->insert_many_defaults(input_rows_count);
                     col_to = make_nullable(col_to, true);
                 } else if (WhichDataType(data_type_to).is_string()) {
                     return ConvertImplGenericToString::execute2(context, block, arguments, result,
@@ -1967,6 +1969,8 @@ private:
                             .insert_many_defaults(input_rows_count);
                 }
             }
+            CHECK_EQ(col_to->size(), input_rows_count);
+            CHECK_EQ(col_to->size(), block.rows());
 
             block.replace_by_position(result, std::move(col_to));
             return Status::OK();
