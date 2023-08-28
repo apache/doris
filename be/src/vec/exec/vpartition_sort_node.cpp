@@ -166,7 +166,7 @@ void VPartitionSortNode::_emplace_into_hash_table(const ColumnRawPtrs& key_colum
                                                     batch_size);
                 }
             },
-            _partitioned_data->_partition_method_variant);
+            _partitioned_data->method_variant);
 }
 
 Status VPartitionSortNode::sink(RuntimeState* state, vectorized::Block* input_block, bool eos) {
@@ -181,7 +181,8 @@ Status VPartitionSortNode::sink(RuntimeState* state, vectorized::Block* input_bl
             _value_places[0]->append_whole_block(input_block, child(0)->row_desc());
         } else {
             //just simply use partition num to check
-            if (_num_partition > 512 && child_input_rows < 10000 * _num_partition) {
+            if (_num_partition > config::partition_topn_partition_threshold &&
+                child_input_rows < 10000 * _num_partition) {
                 {
                     std::lock_guard<std::mutex> lock(_buffer_mutex);
                     _blocks_buffer.push(std::move(*input_block));

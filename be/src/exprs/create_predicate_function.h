@@ -49,13 +49,12 @@ public:
             using Set = std::conditional_t<
                     std::is_same_v<CppType, StringRef>, StringSet<>,
                     HybridSet<type,
-                              FixedContainer<typename VecPrimitiveTypeTraits<type>::CppType, N>>>;
+                              FixedContainer<typename PrimitiveTypeTraits<type>::CppType, N>>>;
             return new Set();
         } else {
             using Set = std::conditional_t<
                     std::is_same_v<CppType, StringRef>, StringSet<>,
-                    HybridSet<type,
-                              DynamicContainer<typename VecPrimitiveTypeTraits<type>::CppType>>>;
+                    HybridSet<type, DynamicContainer<typename PrimitiveTypeTraits<type>::CppType>>>;
             return new Set();
         }
     }

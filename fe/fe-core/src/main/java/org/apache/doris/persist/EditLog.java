@@ -61,6 +61,8 @@ import org.apache.doris.journal.local.LocalJournal;
 import org.apache.doris.load.DeleteHandler;
 import org.apache.doris.load.DeleteInfo;
 import org.apache.doris.load.ExportJob;
+import org.apache.doris.load.ExportJobState;
+import org.apache.doris.load.ExportJobStateTransfer;
 import org.apache.doris.load.ExportMgr;
 import org.apache.doris.load.LoadJob;
 import org.apache.doris.load.StreamLoadRecordMgr.FetchStreamLoadRecord;
@@ -84,6 +86,7 @@ import org.apache.doris.resource.workloadgroup.WorkloadGroup;
 import org.apache.doris.scheduler.job.Job;
 import org.apache.doris.scheduler.job.JobTask;
 import org.apache.doris.statistics.AnalysisInfo;
+import org.apache.doris.statistics.TableStats;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.Frontend;
 import org.apache.doris.transaction.TransactionState;
@@ -365,7 +368,7 @@ public class EditLog {
                     break;
                 }
                 case OperationType.OP_EXPORT_UPDATE_STATE: {
-                    ExportJob.StateTransfer op = (ExportJob.StateTransfer) journal.getData();
+                    ExportJobStateTransfer op = (ExportJobStateTransfer) journal.getData();
                     ExportMgr exportMgr = env.getExportMgr();
                     exportMgr.replayUpdateJobState(op);
                     break;
@@ -550,6 +553,11 @@ public class EditLog {
                     final BatchRemoveTransactionsOperationV2 operation =
                             (BatchRemoveTransactionsOperationV2) journal.getData();
                     Env.getCurrentGlobalTransactionMgr().replayBatchRemoveTransactionV2(operation);
+                    break;
+                }
+                case OperationType.OP_SET_TABLE_STATUS: {
+                    final SetTableStatusOperationLog log = (SetTableStatusOperationLog) journal.getData();
+                    env.replaySetTableStatus(log);
                     break;
                 }
                 case OperationType.OP_CREATE_REPOSITORY: {
@@ -1086,6 +1094,10 @@ public class EditLog {
                     env.replayAutoIncrementIdUpdateLog((AutoIncrementIdUpdateLog) journal.getData());
                     break;
                 }
+                case OperationType.OP_UPDATE_TABLE_STATS: {
+                    env.getAnalysisManager().replayUpdateTableStatsStatus((TableStats) journal.getData());
+                    break;
+                }
                 default: {
                     IOException e = new IOException();
                     LOG.error("UNKNOWN Operation Type {}", opCode, e);
@@ -1461,8 +1473,8 @@ public class EditLog {
         logEdit(OperationType.OP_EXPORT_CREATE, job);
     }
 
-    public void logExportUpdateState(long jobId, ExportJob.JobState newState) {
-        ExportJob.StateTransfer transfer = new ExportJob.StateTransfer(jobId, newState);
+    public void logExportUpdateState(long jobId, ExportJobState newState) {
+        ExportJobStateTransfer transfer = new ExportJobStateTransfer(jobId, newState);
         logEdit(OperationType.OP_EXPORT_UPDATE_STATE, transfer);
     }
 
@@ -1739,6 +1751,10 @@ public class EditLog {
         logEdit(OperationType.OP_BATCH_REMOVE_TXNS_V2, op);
     }
 
+    public void logSetTableStatus(SetTableStatusOperationLog log) {
+        logEdit(OperationType.OP_SET_TABLE_STATUS, log);
+    }
+
     public void logModifyComment(ModifyCommentOperationLog op) {
         logEdit(OperationType.OP_MODIFY_COMMENT, op);
     }
@@ -1903,5 +1919,9 @@ public class EditLog {
 
     public void logUpdateAutoIncrementId(AutoIncrementIdUpdateLog log) {
         logEdit(OperationType.OP_UPDATE_AUTO_INCREMENT_ID, log);
+    }
+
+    public void logCreateTableStats(TableStats tableStats) {
+        logEdit(OperationType.OP_UPDATE_TABLE_STATS, tableStats);
     }
 }

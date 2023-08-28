@@ -253,7 +253,7 @@ Status IndexBuilder::_write_inverted_index_data(TabletSchemaSPtr tablet_schema, 
         auto inverted_index = _alter_inverted_indexes[i];
         auto index_id = inverted_index.index_id;
         auto converted_result = _olap_data_convertor->convert_column_data(i);
-        if (converted_result.first != Status::OK()) {
+        if (!converted_result.first.ok()) {
             LOG(WARNING) << "failed to convert block, errcode: " << converted_result.first;
             return converted_result.first;
         }
@@ -449,8 +449,8 @@ Status IndexBuilder::modify_rowsets(const Merger::Statistics* stats) {
 
     if (_tablet->keys_type() == KeysType::UNIQUE_KEYS &&
         _tablet->enable_unique_key_merge_on_write()) {
-        std::lock_guard<std::mutex> wlock(_tablet->get_rowset_update_lock());
-        std::shared_lock<std::shared_mutex> rlock(_tablet->get_header_lock());
+        std::lock_guard<std::mutex> rowset_update_wlock(_tablet->get_rowset_update_lock());
+        std::lock_guard<std::shared_mutex> meta_wlock(_tablet->get_header_lock());
         DeleteBitmapPtr delete_bitmap = std::make_shared<DeleteBitmap>(_tablet->tablet_id());
         for (auto i = 0; i < _input_rowsets.size(); ++i) {
             RowsetId input_rowset_id = _input_rowsets[i]->rowset_id();

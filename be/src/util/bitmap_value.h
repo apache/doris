@@ -1191,6 +1191,10 @@ public:
         _is_shared = other._is_shared;
         _bitmap = std::move(other._bitmap);
         _set = std::move(other._set);
+
+        other._type = EMPTY;
+        other._is_shared = false;
+        other._bitmap = nullptr;
     }
 
     BitmapValue& operator=(const BitmapValue& other) {

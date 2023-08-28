@@ -40,17 +40,7 @@ public abstract class AbstractTreeNode<NODE_TYPE extends TreeNode<NODE_TYPE>>
     // https://github.com/apache/doris/pull/9807#discussion_r884829067
 
     public AbstractTreeNode(NODE_TYPE... children) {
-        this(Optional.empty(), children);
-    }
-
-    /**
-     * Constructor for plan node.
-     *
-     * @param groupExpression group expression related to the plan of this node
-     * @param children children of this node
-     */
-    public AbstractTreeNode(Optional<GroupExpression> groupExpression, NODE_TYPE... children) {
-        this.children = ImmutableList.copyOf(children);
+        this(Optional.empty(), ImmutableList.copyOf(children));
     }
 
     public AbstractTreeNode(Optional<GroupExpression> groupExpression, List<NODE_TYPE> children) {

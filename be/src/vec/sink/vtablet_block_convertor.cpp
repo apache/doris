@@ -131,33 +131,6 @@ DecimalV2Value OlapTableBlockConvertor::_get_decimalv2_min_or_max(const TypeDesc
     return value;
 }
 
-template <typename DecimalType, bool IsMin>
-DecimalType OlapTableBlockConvertor::_get_decimalv3_min_or_max(const TypeDescriptor& type) {
-    std::map<int, typename DecimalType::NativeType>* pmap;
-    if constexpr (std::is_same_v<DecimalType, vectorized::Decimal32>) {
-        pmap = IsMin ? &_min_decimal32_val : &_max_decimal32_val;
-    } else if constexpr (std::is_same_v<DecimalType, vectorized::Decimal64>) {
-        pmap = IsMin ? &_min_decimal64_val : &_max_decimal64_val;
-    } else {
-        pmap = IsMin ? &_min_decimal128_val : &_max_decimal128_val;
-    }
-
-    // found
-    auto iter = pmap->find(type.precision);
-    if (iter != pmap->end()) {
-        return iter->second;
-    }
-
-    typename DecimalType::NativeType value;
-    if constexpr (IsMin) {
-        value = vectorized::min_decimal_value<DecimalType>(type.precision);
-    } else {
-        value = vectorized::max_decimal_value<DecimalType>(type.precision);
-    }
-    pmap->emplace(type.precision, value);
-    return value;
-}
-
 Status OlapTableBlockConvertor::_validate_column(RuntimeState* state, const TypeDescriptor& type,
                                                  bool is_nullable, vectorized::ColumnPtr column,
                                                  size_t slot_index, bool* stop_processing,
@@ -293,12 +266,11 @@ Status OlapTableBlockConvertor::_validate_column(RuntimeState* state, const Type
         break;
     }
     case TYPE_DECIMAL32: {
-#define CHECK_VALIDATION_FOR_DECIMALV3(ColumnDecimalType, DecimalType)                             \
-    auto column_decimal = const_cast<vectorized::ColumnDecimal<vectorized::ColumnDecimalType>*>(   \
-            assert_cast<const vectorized::ColumnDecimal<vectorized::ColumnDecimalType>*>(          \
-                    real_column_ptr.get()));                                                       \
-    const auto& max_decimal = _get_decimalv3_min_or_max<vectorized::DecimalType, false>(type);     \
-    const auto& min_decimal = _get_decimalv3_min_or_max<vectorized::DecimalType, true>(type);      \
+#define CHECK_VALIDATION_FOR_DECIMALV3(DecimalType)                                                \
+    auto column_decimal = const_cast<vectorized::ColumnDecimal<DecimalType>*>(                     \
+            assert_cast<const vectorized::ColumnDecimal<DecimalType>*>(real_column_ptr.get()));    \
+    const auto& max_decimal = type_limit<DecimalType>::max();                                      \
+    const auto& min_decimal = type_limit<DecimalType>::min();                                      \
     for (size_t j = 0; j < column->size(); ++j) {                                                  \
         auto row = rows ? (*rows)[j] : j;                                                          \
         if (row == last_invalid_row) {                                                             \
@@ -320,17 +292,18 @@ Status OlapTableBlockConvertor::_validate_column(RuntimeState* state, const Type
             }                                                                                      \
         }                                                                                          \
     }
-        CHECK_VALIDATION_FOR_DECIMALV3(Decimal32, Decimal32);
+        CHECK_VALIDATION_FOR_DECIMALV3(vectorized::Decimal32);
         break;
     }
     case TYPE_DECIMAL64: {
-        CHECK_VALIDATION_FOR_DECIMALV3(Decimal64, Decimal64);
+        CHECK_VALIDATION_FOR_DECIMALV3(vectorized::Decimal64);
         break;
     }
     case TYPE_DECIMAL128I: {
-        CHECK_VALIDATION_FOR_DECIMALV3(Decimal128I, Decimal128);
+        CHECK_VALIDATION_FOR_DECIMALV3(vectorized::Decimal128I);
         break;
     }
+#undef CHECK_VALIDATION_FOR_DECIMALV3
     case TYPE_ARRAY: {
         const auto column_array =
                 assert_cast<const vectorized::ColumnArray*>(real_column_ptr.get());

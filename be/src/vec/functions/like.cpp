@@ -272,27 +272,14 @@ Status FunctionLikeBase::regexp_fn_scalar(LikeSearchState* state, const StringRe
                                           const StringRef& pattern, unsigned char* result) {
     std::string re_pattern(pattern.data, pattern.size);
 
-    hs_database_t* database = nullptr;
-    hs_scratch_t* scratch = nullptr;
-    if (hs_prepare(nullptr, re_pattern.c_str(), &database, &scratch).ok()) { // use hyperscan
-        auto ret = hs_scan(database, val.data, val.size, 0, scratch,
-                           doris::vectorized::LikeSearchState::hs_match_handler, (void*)result);
-        if (ret != HS_SUCCESS && ret != HS_SCAN_TERMINATED) {
-            return Status::RuntimeError(fmt::format("hyperscan error: {}", ret));
-        }
-
-        hs_free_scratch(scratch);
-        hs_free_database(database);
-    } else { // fallback to re2
-        RE2::Options opts;
-        opts.set_never_nl(false);
-        opts.set_dot_nl(true);
-        re2::RE2 re(re_pattern, opts);
-        if (re.ok()) {
-            *result = RE2::PartialMatch(re2::StringPiece(val.data, val.size), re);
-        } else {
-            return Status::RuntimeError("Invalid pattern: {}", pattern.debug_string());
-        }
+    RE2::Options opts;
+    opts.set_never_nl(false);
+    opts.set_dot_nl(true);
+    re2::RE2 re(re_pattern, opts);
+    if (re.ok()) {
+        *result = RE2::PartialMatch(re2::StringPiece(val.data, val.size), re);
+    } else {
+        return Status::RuntimeError("Invalid pattern: {}", pattern.debug_string());
     }
 
     return Status::OK();

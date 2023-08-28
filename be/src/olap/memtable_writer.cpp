@@ -130,11 +130,11 @@ Status MemTableWriter::_flush_memtable_async() {
     return _flush_token->submit(std::move(_mem_table));
 }
 
-Status MemTableWriter::flush_memtable_and_wait(bool need_wait) {
+Status MemTableWriter::flush_async() {
     std::lock_guard<std::mutex> l(_lock);
-    if (!_is_init) {
-        // This writer is not initialized before flushing. Do nothing
-        // But we return OK instead of Status::Error<ALREADY_CANCELLED>(),
+    if (!_is_init || _is_closed) {
+        // This writer is uninitialized or closed before flushing, do nothing.
+        // We return OK instead of NOT_INITIALIZED or ALREADY_CLOSED.
         // Because this method maybe called when trying to reduce mem consumption,
         // and at that time, the writer may not be initialized yet and that is a normal case.
         return Status::OK();
@@ -149,24 +149,15 @@ Status MemTableWriter::flush_memtable_and_wait(bool need_wait) {
                 << ", load id: " << print_id(_req.load_id);
     auto s = _flush_memtable_async();
     _reset_mem_table();
-    if (UNLIKELY(!s.ok())) {
-        return s;
-    }
-
-    if (need_wait) {
-        // wait all memtables in flush queue to be flushed.
-        SCOPED_RAW_TIMER(&_wait_flush_time_ns);
-        RETURN_IF_ERROR(_flush_token->wait());
-    }
-    return Status::OK();
+    return s;
 }
 
 Status MemTableWriter::wait_flush() {
     {
         std::lock_guard<std::mutex> l(_lock);
-        if (!_is_init) {
-            // return OK instead of Status::Error<ALREADY_CANCELLED>() for same reason
-            // as described in flush_memtable_and_wait()
+        if (!_is_init || _is_closed) {
+            // return OK instead of NOT_INITIALIZED or ALREADY_CLOSED for same reason
+            // as described in flush_async()
             return Status::OK();
         }
         if (_is_cancelled) {

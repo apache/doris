@@ -549,6 +549,18 @@ Status TabletManager::_drop_tablet_unlocked(TTabletId tablet_id, TReplicaId repl
     _remove_tablet_from_partition(to_drop_tablet);
     tablet_map_t& tablet_map = _get_tablet_map(tablet_id);
     tablet_map.erase(tablet_id);
+    {
+        std::shared_lock rlock(to_drop_tablet->get_header_lock());
+        static auto recycle_segment_cache = [](const auto& rowset_map) {
+            for (auto& [_, rowset] : rowset_map) {
+                // If the tablet was deleted, it need to remove all rowsets fds directly
+                SegmentLoader::instance()->erase_segments(
+                        SegmentCache::CacheKey(rowset->rowset_id()));
+            }
+        };
+        recycle_segment_cache(to_drop_tablet->rowset_map());
+        recycle_segment_cache(to_drop_tablet->stale_rowset_map());
+    }
     if (!keep_files) {
         // drop tablet will update tablet meta, should lock
         std::lock_guard<std::shared_mutex> wrlock(to_drop_tablet->get_header_lock());
@@ -1124,7 +1136,7 @@ Status TabletManager::start_trash_sweep() {
                     (*it)->tablet_meta()->save(meta_file_path);
                     LOG(INFO) << "start to move tablet to trash. " << tablet_path;
                     Status rm_st = (*it)->data_dir()->move_to_trash(tablet_path);
-                    if (rm_st != Status::OK()) {
+                    if (!rm_st.ok()) {
                         LOG(WARNING) << "fail to move dir to trash. " << tablet_path;
                         ++it;
                         continue;

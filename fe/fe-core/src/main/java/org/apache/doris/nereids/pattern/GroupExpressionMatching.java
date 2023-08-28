@@ -161,7 +161,8 @@ public class GroupExpressionMatching implements Iterable<Plan> {
 
             // assemble all combination of plan tree by current root plan and children plan
             while (offset < childrenPlans.size()) {
-                ImmutableList.Builder<Plan> childrenBuilder = ImmutableList.builder();
+                ImmutableList.Builder<Plan> childrenBuilder =
+                        ImmutableList.builderWithExpectedSize(childrenPlans.size());
                 for (int i = 0; i < childrenPlans.size(); i++) {
                     childrenBuilder.add(childrenPlans.get(i).get(childrenPlanIndex[i]));
                 }

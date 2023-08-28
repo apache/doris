@@ -415,7 +415,9 @@ public class S3TvfLoadStmt extends NativeInsertStmt {
         // rewrite where predicate and order by elements
         final SelectStmt selectStmt = (SelectStmt) getQueryStmt();
         rewriteSlotRefInExpr(selectStmt.getWhereClause());
-        selectStmt.getOrderByElements().forEach(orderByElement -> rewriteSlotRefInExpr(orderByElement.getExpr()));
+        if (selectStmt.getOrderByElements() != null) {
+            selectStmt.getOrderByElements().forEach(orderByElement -> rewriteSlotRefInExpr(orderByElement.getExpr()));
+        }
     }
 
     private void rewriteSlotRefInExpr(Expr expr) {

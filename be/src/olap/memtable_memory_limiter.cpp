@@ -124,7 +124,7 @@ void MemTableMemoryLimiter::handle_memtable_flush() {
             }
             int64_t mem_size = mem_item.mem_size;
             writers_to_reduce_mem.emplace_back(writer, mem_size);
-            st = writer->flush_memtable_and_wait(false);
+            st = writer->flush_async();
             if (!st.ok()) {
                 auto err_msg = fmt::format(
                         "tablet writer failed to reduce mem consumption by flushing memtable, "

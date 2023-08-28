@@ -1,3 +1,5 @@
+import org.junit.Assert
+
 // Licensed to the Apache Software Foundation (ASF) under one
 // or more contributor license agreements.  See the NOTICE file
 // distributed with this work for additional information
@@ -17,21 +19,31 @@
 
 // This suit test the `backends` tvf
 suite("test_local_tvf_with_complex_type", "p0") {
-    List<List<Object>> table =  sql """ select * from backends(); """
-    assertTrue(table.size() > 0)
-    def be_id = table[0][0]
+    List<List<Object>> backends =  sql """ show backends """
     def dataFilePath = context.config.dataPath + "/external_table_p0/tvf/"
+
+    assertTrue(backends.size() > 0)
+    def be_id = backends[0][0]
+        // cluster mode need to make sure all be has this data
+        def outFilePath="/"
+        def transFile01="${dataFilePath}/complex_type.orc"
+        def transFile02="${dataFilePath}/complex_type.parquet"
+        for (List<Object> backend : backends) {
+            def be_host = backend[1]
+            scpFiles ("root", be_host, transFile01, outFilePath, false);
+            scpFiles ("root", be_host, transFile02, outFilePath, false);
+        }
 
     qt_sql """
         select * from local(
-            "file_path" = "${dataFilePath}/complex_type.orc",
+            "file_path" = "${outFilePath}/complex_type.orc",
             "backend_id" = "${be_id}",
             "format" = "orc");"""
 
 
     qt_sql """
         select * from local(
-            "file_path" = "${dataFilePath}/complex_type.parquet",
+            "file_path" = "${outFilePath}/complex_type.parquet",
             "backend_id" = "${be_id}",
             "format" = "parquet"); """
 
