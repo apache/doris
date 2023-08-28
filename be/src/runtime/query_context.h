@@ -133,11 +133,31 @@ public:
     }
 
     [[nodiscard]] bool is_cancelled() const { return _is_cancelled.load(); }
-    void set_is_cancelled(bool v) {
+    bool cancel(bool v, std::string msg, Status new_status) {
+        if (_is_cancelled) {
+            return false;
+        }
         _is_cancelled.store(v);
-        // Create a error status, so that we could print error stack, and
-        // we could know which path call cancel.
-        LOG(INFO) << "task is cancelled, st = " << Status::Error<ErrorCode::CANCELLED>("");
+
+        set_ready_to_execute(true);
+        set_exec_status(new_status);
+        return true;
+    }
+
+    void set_exec_status(Status new_status) {
+        if (new_status.ok()) {
+            return;
+        }
+        std::lock_guard<std::mutex> l(_exec_status_lock);
+        if (!_exec_status.ok()) {
+            return;
+        }
+        _exec_status = new_status;
+    }
+
+    [[nodiscard]] Status exec_status() {
+        std::lock_guard<std::mutex> l(_exec_status_lock);
+        return _exec_status;
     }
 
     void set_ready_to_execute_only() {
@@ -254,6 +274,11 @@ private:
     taskgroup::TaskGroupPtr _task_group;
     std::unique_ptr<RuntimeFilterMgr> _runtime_filter_mgr;
     const TQueryOptions _query_options;
+
+    std::mutex _exec_status_lock;
+    // All pipeline tasks use the same query context to report status. So we need a `_exec_status`
+    // to report the real message if failed.
+    Status _exec_status = Status::OK();
 };
 
 } // namespace doris

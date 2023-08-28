@@ -99,8 +99,6 @@ struct BroadcastTransmitInfo {
     bool eos;
 };
 
-class PipelineFragmentContext;
-
 template <typename T>
 class SelfDeleteClosure : public google::protobuf::Closure {
 public:
@@ -167,7 +165,7 @@ struct ExchangeRpcContext {
 template <typename Parent>
 class ExchangeSinkBuffer {
 public:
-    ExchangeSinkBuffer(PUniqueId, int, PlanNodeId, int, PipelineFragmentContext*);
+    ExchangeSinkBuffer(PUniqueId, int, PlanNodeId, int, QueryContext*);
     ~ExchangeSinkBuffer();
     void register_sink(TUniqueId);
 
@@ -207,7 +205,7 @@ private:
     int _sender_id;
     int _be_number;
     std::atomic<int64_t> _rpc_count = 0;
-    PipelineFragmentContext* _context;
+    QueryContext* _context;
 
     Status _send_rpc(InstanceLoId);
     // must hold the _instance_to_package_queue_mutex[id] mutex to opera
