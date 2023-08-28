@@ -43,6 +43,7 @@ import org.apache.doris.catalog.Type;
 import org.apache.doris.catalog.View;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
+import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.common.telemetry.Telemetry;
@@ -133,6 +134,7 @@ public class OlapQueryCacheTest {
     public static void start() {
         MetricRepo.init();
         try {
+            FeConstants.enableInternalSchemaDb = false;
             FrontendOptions.init();
             context = new ConnectContext();
             Config.cache_enable_sql_mode = true;
