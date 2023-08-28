@@ -67,13 +67,20 @@ AgentServer::AgentServer(ExecEnv* exec_env, const TMasterInfo& master_info)
 #define CREATE_AND_START_THREAD(type, pool_name)
 #endif // BE_TEST
 
+#ifndef BE_TEST
+    // Both PUSH and REALTIME_PUSH type use _push_load_workers
+    _push_load_workers.reset(new PushTaskPool(exec_env, TaskWorkerPool::ThreadModel::MULTI_THREADS,
+                                              PushTaskPool::PushWokerType::LOAD_V2));
+    _push_load_workers->start();
+    _push_delete_workers.reset(new PushTaskPool(exec_env,
+                                                TaskWorkerPool::ThreadModel::MULTI_THREADS,
+                                                PushTaskPool::PushWokerType::DELETE));
+    _push_delete_workers->start();
+#endif
     CREATE_AND_START_POOL(CREATE_TABLE, _create_tablet_workers);
     CREATE_AND_START_POOL(DROP_TABLE, _drop_tablet_workers);
-    // Both PUSH and REALTIME_PUSH type use _push_workers
-    CREATE_AND_START_POOL(PUSH, _push_workers);
     CREATE_AND_START_POOL(PUBLISH_VERSION, _publish_version_workers);
     CREATE_AND_START_POOL(CLEAR_TRANSACTION_TASK, _clear_transaction_task_workers);
-    CREATE_AND_START_POOL(DELETE, _delete_workers);
     CREATE_AND_START_POOL(ALTER_TABLE, _alter_tablet_workers);
     CREATE_AND_START_POOL(CLONE, _clone_workers);
     CREATE_AND_START_POOL(STORAGE_MEDIUM_MIGRATE, _storage_medium_migrate_workers);
@@ -165,9 +172,9 @@ void AgentServer::submit_tasks(TAgentResult& agent_result,
             }
             if (task.push_req.push_type == TPushType::LOAD ||
                 task.push_req.push_type == TPushType::LOAD_V2) {
-                _push_workers->submit_task(task);
+                _push_load_workers->submit_task(task);
             } else if (task.push_req.push_type == TPushType::DELETE) {
-                _delete_workers->submit_task(task);
+                _push_delete_workers->submit_task(task);
             } else {
                 ret_st = Status::InvalidArgument(
                         "task(signature={}, type={}, push_type={}) has wrong push_type", signature,
