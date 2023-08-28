@@ -533,6 +533,7 @@ Status VCollectIterator::Level0Iterator::_refresh_current_row() {
     } while (!_is_empty());
     _ref.row_pos = -1;
     _current = -1;
+    _rs_reader = nullptr;
     return Status::Error<END_OF_FILE>("");
 }
 

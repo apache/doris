@@ -272,6 +272,9 @@ Status NewOlapScanner::open(RuntimeState* state) {
         return Status::InternalError(ss.str());
     }
 
+    // Do not hold rs_splits any more to release memory.
+    _tablet_reader_params.rs_splits.clear();
+
     return Status::OK();
 }
 
