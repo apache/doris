@@ -130,6 +130,7 @@ public class JdbcExternalCatalog extends ExternalCatalog {
     @Override
     protected void initLocalObjectsImpl() {
         JdbcClientConfig jdbcClientConfig = new JdbcClientConfig()
+                .setCatalog(this.name)
                 .setUser(getJdbcUser())
                 .setPassword(getJdbcPasswd())
                 .setJdbcUrl(getJdbcUrl())

@@ -88,6 +88,7 @@ import org.apache.doris.qe.QueryState;
 import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.qe.VariableMgr;
 import org.apache.doris.statistics.ColumnStatistic;
+import org.apache.doris.statistics.ResultRow;
 import org.apache.doris.statistics.StatisticsCacheKey;
 import org.apache.doris.statistics.query.QueryStats;
 import org.apache.doris.system.Backend;
@@ -2942,9 +2943,15 @@ public class FrontendServiceImpl implements FrontendService.Iface {
 
     @Override
     public TStatus updateStatsCache(TUpdateFollowerStatsCacheRequest request) throws TException {
-        StatisticsCacheKey key = GsonUtils.GSON.fromJson(request.key, StatisticsCacheKey.class);
-        ColumnStatistic columnStatistic = GsonUtils.GSON.fromJson(request.colStats, ColumnStatistic.class);
-        Env.getCurrentEnv().getStatisticsCache().putCache(key, columnStatistic);
+        StatisticsCacheKey k = GsonUtils.GSON.fromJson(request.key, StatisticsCacheKey.class);
+        List<ResultRow> rows = request.statsRows.stream()
+                .map(s -> GsonUtils.GSON.fromJson(s, ResultRow.class))
+                .collect(Collectors.toList());
+        ColumnStatistic c = ColumnStatistic.fromResultRow(rows);
+        if (c != ColumnStatistic.UNKNOWN) {
+            Env.getCurrentEnv().getStatisticsCache().updateColStatsCache(k.tableId, k.idxId, k.colName, c);
+        }
+        // Return Ok anyway
         return new TStatus(TStatusCode.OK);
     }
 }

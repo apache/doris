@@ -125,7 +125,7 @@ void DistinctAggregationNode::_emplace_into_hash_table_to_distinct(IColumn::Sele
                 }
                 COUNTER_UPDATE(_hash_table_input_counter, num_rows);
             },
-            _agg_data->_aggregated_method_variant);
+            _agg_data->method_variant);
 }
 
 } // namespace doris::vectorized

@@ -459,7 +459,6 @@ private:
                 NativeResultType res;
                 // TODO handle overflow gracefully
                 if (Op::template apply<NativeResultType>(a, b, res)) {
-                    LOG(WARNING) << "Decimal math overflow";
                     res = max_decimal_value<ResultType>();
                 }
                 return res;

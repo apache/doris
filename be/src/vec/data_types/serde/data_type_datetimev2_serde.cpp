@@ -21,16 +21,21 @@
 
 #include <type_traits>
 
-#include "gutil/casts.h"
 #include "vec/columns/column_const.h"
 #include "vec/io/io_helper.h"
 
 namespace doris {
 namespace vectorized {
 
+void DataTypeDateTimeV2SerDe::serialize_column_to_text(const IColumn& column, int start_idx,
+                                                       int end_idx, BufferWritable& bw,
+                                                       FormatOptions& options) const {
+    SERIALIZE_COLUMN_TO_TEXT()
+}
+
 void DataTypeDateTimeV2SerDe::serialize_one_cell_to_text(const IColumn& column, int row_num,
                                                          BufferWritable& bw,
-                                                         const FormatOptions& options) const {
+                                                         FormatOptions& options) const {
     auto result = check_column_const_set_readability(column, row_num);
     ColumnPtr ptr = result.first;
     row_num = result.second;
@@ -50,10 +55,15 @@ void DataTypeDateTimeV2SerDe::serialize_one_cell_to_text(const IColumn& column, 
         char* pos = val.to_string(buf);
         bw.write(buf, pos - buf - 1);
     }
-    bw.commit();
 }
 
-Status DataTypeDateTimeV2SerDe::deserialize_one_cell_from_text(IColumn& column, ReadBuffer& rb,
+Status DataTypeDateTimeV2SerDe::deserialize_column_from_text_vector(
+        IColumn& column, std::vector<Slice>& slices, int* num_deserialized,
+        const FormatOptions& options) const {
+    DESERIALIZE_COLUMN_FROM_TEXT_VECTOR()
+    return Status::OK();
+}
+Status DataTypeDateTimeV2SerDe::deserialize_one_cell_from_text(IColumn& column, Slice& slice,
                                                                const FormatOptions& options) const {
     auto& column_data = assert_cast<ColumnUInt64&>(column);
     UInt64 val = 0;
@@ -61,13 +71,14 @@ Status DataTypeDateTimeV2SerDe::deserialize_one_cell_from_text(IColumn& column, 
         doris::vectorized::DateV2Value<doris::vectorized::DateTimeV2ValueType> datetimev2_value;
         std::string date_format = "%Y-%m-%d %H:%i:%s.%f";
         if (datetimev2_value.from_date_format_str(date_format.data(), date_format.size(),
-                                                  rb.position(), rb.count())) {
+                                                  slice.data, slice.size)) {
             val = datetimev2_value.to_date_int_val();
         } else {
             val = doris::vectorized::MIN_DATETIME_V2;
         }
 
-    } else if (!read_datetime_v2_text_impl<UInt64>(val, rb)) {
+    } else if (ReadBuffer rb(slice.data, slice.size);
+               !read_datetime_v2_text_impl<UInt64>(val, rb)) {
         return Status::InvalidArgument("parse date fail, string: '{}'",
                                        std::string(rb.position(), rb.count()).c_str());
     }

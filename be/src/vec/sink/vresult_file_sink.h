@@ -47,13 +47,12 @@ class VExprContext;
 class VResultFileSink : public DataSink {
 public:
     VResultFileSink(RuntimeState* state, ObjectPool* pool, const RowDescriptor& row_desc,
-                    const TResultFileSink& sink, int per_channel_buffer_size,
-                    bool send_query_statistics_with_every_batch,
+                    const TResultFileSink& sink, bool send_query_statistics_with_every_batch,
                     const std::vector<TExpr>& t_output_expr);
     VResultFileSink(RuntimeState* state, ObjectPool* pool, int sender_id,
                     const RowDescriptor& row_desc, const TResultFileSink& sink,
                     const std::vector<TPlanFragmentDestination>& destinations,
-                    int per_channel_buffer_size, bool send_query_statistics_with_every_batch,
+                    bool send_query_statistics_with_every_batch,
                     const std::vector<TExpr>& t_output_expr, DescriptorTbl& descs);
     ~VResultFileSink() override = default;
     Status init(const TDataSink& thrift_sink) override;
@@ -68,7 +67,6 @@ public:
     RuntimeProfile* profile() override { return _profile; }
 
     void set_query_statistics(std::shared_ptr<QueryStatistics> statistics) override;
-    const RowDescriptor& row_desc() const { return _row_desc; }
 
 private:
     Status prepare_exprs(RuntimeState* state);
@@ -90,7 +88,6 @@ private:
     std::string _header;
     std::string _header_type;
 
-    RowDescriptor _row_desc;
     RuntimeProfile* _profile;
 };
 } // namespace vectorized

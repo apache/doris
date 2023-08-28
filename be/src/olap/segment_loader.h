@@ -128,13 +128,12 @@ private:
 class SegmentCacheHandle {
 public:
     SegmentCacheHandle() = default;
-    SegmentCacheHandle(Cache* cache, Cache::Handle* handle) : _cache(cache), _handle(handle) {}
 
     ~SegmentCacheHandle() {
         if (_handle != nullptr) {
             CHECK(_cache != nullptr);
-            CHECK(segments.empty()) << segments.size();
-            CHECK(!owned);
+            CHECK(_segments.empty()) << _segments.size();
+            CHECK(!_owned);
             // last_visit_time is set when release.
             // because it only be needed when pruning.
             ((SegmentCache::CacheValue*)_cache->value(_handle))->last_visit_time = UnixMillis();
@@ -142,35 +141,35 @@ public:
         }
     }
 
-    SegmentCacheHandle(SegmentCacheHandle&& other) noexcept {
-        std::swap(_cache, other._cache);
-        std::swap(_handle, other._handle);
-        this->owned = other.owned;
-        this->segments = std::move(other.segments);
+    [[nodiscard]] bool is_inited() const { return _init; }
+
+    void init(std::vector<segment_v2::SegmentSharedPtr> segments) {
+        DCHECK(!_init);
+        _owned = true;
+        _segments = std::move(segments);
+        _init = true;
     }
 
-    SegmentCacheHandle& operator=(SegmentCacheHandle&& other) noexcept {
-        std::swap(_cache, other._cache);
-        std::swap(_handle, other._handle);
-        this->owned = other.owned;
-        this->segments = std::move(other.segments);
-        return *this;
+    void init(Cache* cache, Cache::Handle* handle) {
+        DCHECK(!_init);
+        _owned = false;
+        _cache = cache;
+        _handle = handle;
+        _init = true;
     }
 
     std::vector<segment_v2::SegmentSharedPtr>& get_segments() {
-        if (owned) {
-            return segments;
+        if (_owned) {
+            return _segments;
         } else {
             return ((SegmentCache::CacheValue*)_cache->value(_handle))->segments;
         }
     }
 
-public:
-    // If set to true, the loaded segments will be saved in segments, not in lru cache;
-    bool owned = false;
-    std::vector<segment_v2::SegmentSharedPtr> segments;
-
 private:
+    bool _init {false};
+    bool _owned {false};
+    std::vector<segment_v2::SegmentSharedPtr> _segments;
     Cache* _cache = nullptr;
     Cache::Handle* _handle = nullptr;
 

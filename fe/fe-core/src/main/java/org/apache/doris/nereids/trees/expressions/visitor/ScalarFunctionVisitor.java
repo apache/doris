@@ -32,6 +32,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.Array;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayAvg;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayCompact;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayContains;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayCumSum;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayDifference;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayDistinct;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayEnumerate;
@@ -40,12 +41,13 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayIntersec
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayJoin;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayMax;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayMin;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayPopback;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayPopBack;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayPopFront;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayPosition;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayProduct;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayRange;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayRemove;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.ArraySize;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayReverseSort;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArraySlice;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArraySort;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArraySum;
@@ -127,8 +129,6 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.Dround;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Dsqrt;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.E;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ElementAt;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.ElementExtract;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.ElementSlice;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Elt;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.EndsWith;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.EsQuery;
@@ -172,6 +172,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonbExtractB
 import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonbExtractDouble;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonbExtractInt;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonbExtractIsnull;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonbExtractLargeint;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonbExtractString;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonbParse;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonbParseErrorToInvalid;
@@ -229,6 +230,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.NullIf;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.NullOrEmpty;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Nvl;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ParseUrl;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Password;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Pi;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Pmod;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Positive;
@@ -261,7 +263,6 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.SecondsDiff;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.SecondsSub;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Sign;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Sin;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.Size;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Sleep;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Sm3;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Sm3sum;
@@ -394,6 +395,10 @@ public interface ScalarFunctionVisitor<R, C> {
         return visitScalarFunction(arrayContains, context);
     }
 
+    default R visitArrayCumSum(ArrayCumSum arrayCumSum, C context) {
+        return visitScalarFunction(arrayCumSum, context);
+    }
+
     default R visitArrayDifference(ArrayDifference arrayDifference, C context) {
         return visitScalarFunction(arrayDifference, context);
     }
@@ -426,8 +431,12 @@ public interface ScalarFunctionVisitor<R, C> {
         return visitScalarFunction(arrayMin, context);
     }
 
-    default R visitArrayPopback(ArrayPopback arrayPopback, C context) {
-        return visitScalarFunction(arrayPopback, context);
+    default R visitArrayPopBack(ArrayPopBack arrayPopBack, C context) {
+        return visitScalarFunction(arrayPopBack, context);
+    }
+
+    default R visitArrayPopFront(ArrayPopFront arrayPopFront, C context) {
+        return visitScalarFunction(arrayPopFront, context);
     }
 
     default R visitArrayPosition(ArrayPosition arrayPosition, C context) {
@@ -444,10 +453,6 @@ public interface ScalarFunctionVisitor<R, C> {
 
     default R visitArrayRemove(ArrayRemove arrayRemove, C context) {
         return visitScalarFunction(arrayRemove, context);
-    }
-
-    default R visitArraySize(ArraySize arraySize, C context) {
-        return visitScalarFunction(arraySize, context);
     }
 
     default R visitArraySlice(ArraySlice arraySlice, C context) {
@@ -472,6 +477,10 @@ public interface ScalarFunctionVisitor<R, C> {
 
     default R visitArraysOverlap(ArraysOverlap arraysOverlap, C context) {
         return visitScalarFunction(arraysOverlap, context);
+    }
+
+    default R visitArrayReverseSort(ArrayReverseSort arrayReverseSort, C context) {
+        return visitScalarFunction(arrayReverseSort, context);
     }
 
     default R visitAscii(Ascii ascii, C context) {
@@ -818,14 +827,6 @@ public interface ScalarFunctionVisitor<R, C> {
         return visitScalarFunction(elementAt, context);
     }
 
-    default R visitElementExtract(ElementExtract elementExtract, C context) {
-        return visitScalarFunction(elementExtract, context);
-    }
-
-    default R visitElementSlice(ElementSlice elementSlice, C context) {
-        return visitScalarFunction(elementSlice, context);
-    }
-
     default R visitElt(Elt elt, C context) {
         return visitScalarFunction(elt, context);
     }
@@ -972,6 +973,10 @@ public interface ScalarFunctionVisitor<R, C> {
 
     default R visitJsonbExtractBigint(JsonbExtractBigint jsonbExtractBigint, C context) {
         return visitScalarFunction(jsonbExtractBigint, context);
+    }
+
+    default R visitJsonbExtractLargeint(JsonbExtractLargeint jsonbExtractLargeint, C context) {
+        return visitScalarFunction(jsonbExtractLargeint, context);
     }
 
     default R visitJsonbExtractBool(JsonbExtractBool jsonbExtractBool, C context) {
@@ -1206,6 +1211,10 @@ public interface ScalarFunctionVisitor<R, C> {
         return visitScalarFunction(parseUrl, context);
     }
 
+    default R visitPassword(Password password, C context) {
+        return visitScalarFunction(password, context);
+    }
+
     default R visitPi(Pi pi, C context) {
         return visitScalarFunction(pi, context);
     }
@@ -1324,10 +1333,6 @@ public interface ScalarFunctionVisitor<R, C> {
 
     default R visitSin(Sin sin, C context) {
         return visitScalarFunction(sin, context);
-    }
-
-    default R visitSize(Size size, C context) {
-        return visitScalarFunction(size, context);
     }
 
     default R visitSleep(Sleep sleep, C context) {

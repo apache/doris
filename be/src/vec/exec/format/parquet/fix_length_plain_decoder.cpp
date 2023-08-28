@@ -75,9 +75,23 @@ Status FixLengthPlainDecoder::_decode_values(MutableColumnPtr& doris_column, Dat
     }
     TypeIndex logical_type = remove_nullable(data_type)->get_type_id();
     switch (logical_type) {
-#define DISPATCH(NUMERIC_TYPE, CPP_NUMERIC_TYPE, PHYSICAL_TYPE) \
-    case NUMERIC_TYPE:                                          \
-        return _decode_numeric<CPP_NUMERIC_TYPE, has_filter>(doris_column, select_vector);
+#define DISPATCH(NUMERIC_TYPE, CPP_NUMERIC_TYPE, PHYSICAL_TYPE)                           \
+    case NUMERIC_TYPE:                                                                    \
+        if (_physical_type == tparquet::Type::INT32) {                                    \
+            return _decode_numeric<CPP_NUMERIC_TYPE, Int32, has_filter>(doris_column,     \
+                                                                        select_vector);   \
+        } else if (_physical_type == tparquet::Type::INT64) {                             \
+            return _decode_numeric<CPP_NUMERIC_TYPE, Int64, has_filter>(doris_column,     \
+                                                                        select_vector);   \
+        } else if (_physical_type == tparquet::Type::FLOAT) {                             \
+            return _decode_numeric<CPP_NUMERIC_TYPE, Float32, has_filter>(doris_column,   \
+                                                                          select_vector); \
+        } else if (_physical_type == tparquet::Type::DOUBLE) {                            \
+            return _decode_numeric<CPP_NUMERIC_TYPE, Float64, has_filter>(doris_column,   \
+                                                                          select_vector); \
+        } else {                                                                          \
+            break;                                                                        \
+        }
         FOR_LOGICAL_NUMERIC_TYPES(DISPATCH)
 #undef DISPATCH
     case TypeIndex::Date:
@@ -207,7 +221,7 @@ Status FixLengthPlainDecoder::_decode_string(MutableColumnPtr& doris_column,
     }
     return Status::OK();
 }
-template <typename Numeric, bool has_filter>
+template <typename Numeric, typename PhysicalType, bool has_filter>
 Status FixLengthPlainDecoder::_decode_numeric(MutableColumnPtr& doris_column,
                                               ColumnSelectVector& select_vector) {
     auto& column_data = static_cast<ColumnVector<Numeric>&>(*doris_column).get_data();
@@ -219,7 +233,7 @@ Status FixLengthPlainDecoder::_decode_numeric(MutableColumnPtr& doris_column,
         case ColumnSelectVector::CONTENT: {
             for (size_t i = 0; i < run_length; ++i) {
                 char* buf_start = _data->data + _offset;
-                column_data[data_index++] = *(Numeric*)buf_start;
+                column_data[data_index++] = *(PhysicalType*)buf_start;
                 _offset += _type_length;
             }
             break;

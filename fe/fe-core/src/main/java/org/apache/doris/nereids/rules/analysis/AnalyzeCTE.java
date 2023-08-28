@@ -25,6 +25,7 @@ import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.trees.expressions.CTEId;
 import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCTE;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCTEAnchor;
@@ -89,7 +90,7 @@ public class AnalyzeCTE extends OneAnalysisRuleFactory {
             innerCascadesCtx.newAnalyzer().analyze();
             LogicalPlan analyzedCtePlan = (LogicalPlan) innerCascadesCtx.getRewritePlan();
             checkColumnAlias(aliasQuery, analyzedCtePlan.getOutput());
-            CTEId cteId = cascadesContext.getStatementContext().getNextCTEId();
+            CTEId cteId = StatementScopeIdGenerator.newCTEId();
             LogicalSubQueryAlias<Plan> logicalSubQueryAlias =
                     aliasQuery.withChildren(ImmutableList.of(analyzedCtePlan));
             outerCteCtx = new CTEContext(cteId, logicalSubQueryAlias, outerCteCtx);

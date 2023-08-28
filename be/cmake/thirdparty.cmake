@@ -74,10 +74,6 @@ if(WITH_LZO)
     add_thirdparty(lzo LIBNAME "lib/liblzo2.a")
 endif()
 
-if (WITH_MYSQL)
-    add_thirdparty(mysql LIBNAME "lib/libmysqlclient.a")
-endif()
-
 add_thirdparty(libevent LIBNAME "lib/libevent.a")
 add_thirdparty(libevent_pthreads LIBNAME "lib/libevent_pthreads.a")
 add_thirdparty(libbz2 LIBNAME "lib/libbz2.a")
@@ -87,6 +83,10 @@ add_thirdparty(openssl LIBNAME "lib/libssl.a")
 add_thirdparty(leveldb)
 add_thirdparty(jemalloc LIBNAME "lib/libjemalloc_doris.a")
 add_thirdparty(jemalloc_arrow LIBNAME "lib/libjemalloc.a")
+
+if (WITH_MYSQL)
+    add_thirdparty(mysql LIBNAME "lib/libmysqlclient.a")
+endif()
 
 if (USE_UNWIND)
     add_thirdparty(libunwind LIBNAME "lib64/libunwind.a")

@@ -99,6 +99,7 @@ public class OutFileClause {
         PARQUET_DATA_TYPE_MAP.put("double", TParquetDataType.DOUBLE);
         PARQUET_DATA_TYPE_MAP.put("fixed_len_byte_array", TParquetDataType.FIXED_LEN_BYTE_ARRAY);
 
+        PARQUET_DATA_LOGICAL_TYPE_TYPE_MAP.put("decimal", TParquetDataLogicalType.DECIMAL);
         PARQUET_DATA_LOGICAL_TYPE_TYPE_MAP.put("date", TParquetDataLogicalType.DATE);
         PARQUET_DATA_LOGICAL_TYPE_TYPE_MAP.put("datetime", TParquetDataLogicalType.TIMESTAMP);
         // TODO(ftw): add other logical type
@@ -144,7 +145,6 @@ public class OutFileClause {
     private static final long DEFAULT_MAX_FILE_SIZE_BYTES = 1 * 1024 * 1024 * 1024; // 1GB
     private static final long MIN_FILE_SIZE_BYTES = 5 * 1024 * 1024L; // 5MB
     private static final long MAX_FILE_SIZE_BYTES = 2 * 1024 * 1024 * 1024L; // 2GB
-
 
     private String filePath;
     private String format;
@@ -255,7 +255,7 @@ public class OutFileClause {
         if (brokerDesc != null && isLocalOutput) {
             throw new AnalysisException("No need to specify BROKER properties in OUTFILE clause for local file output");
         } else if (brokerDesc == null && !isLocalOutput) {
-            throw new AnalysisException("Must specify BROKER properties in OUTFILE clause");
+            throw new AnalysisException("Must specify BROKER properties or current local file path in OUTFILE clause");
         }
         isAnalyzed = true;
 
@@ -358,7 +358,7 @@ public class OutFileClause {
                 case STRING:
                     if (!schema.second.equals(resultType.getPrimitiveType().toString().toLowerCase())) {
                         throw new AnalysisException("project field type is " + resultType.getPrimitiveType().toString()
-                                + ", should use "  + resultType.getPrimitiveType().toString() +  ","
+                                + ", should use " + resultType.getPrimitiveType().toString() + ","
                                 + " but the type of column " + i + " is " + schema.second);
                     }
                     break;
@@ -454,13 +454,20 @@ public class OutFileClause {
                                 + " but the definition type of column " + i + " is " + type);
                     }
                     break;
+                case DECIMAL32:
+                case DECIMAL64:
+                case DECIMAL128: {
+                    if (!PARQUET_DATA_TYPE_MAP.get("fixed_len_byte_array").equals(type)) {
+                        throw new AnalysisException("project field type is DECIMAL"
+                                + ", should use fixed_len_byte_array, but the definition type of column "
+                                + i + " is " + type);
+                    }
+                    break;
+                }
+                case DECIMALV2:
                 case CHAR:
                 case VARCHAR:
                 case STRING:
-                case DECIMAL32:
-                case DECIMAL64:
-                case DECIMAL128:
-                case DECIMALV2:
                 case DATETIMEV2:
                 case DATEV2:
                 case LARGEINT:
@@ -520,13 +527,16 @@ public class OutFileClause {
                 case DOUBLE:
                     parquetSchema.schema_data_type = PARQUET_DATA_TYPE_MAP.get("double");
                     break;
+                case DECIMAL32:
+                case DECIMAL64:
+                case DECIMAL128: {
+                    parquetSchema.schema_data_type = PARQUET_DATA_TYPE_MAP.get("fixed_len_byte_array");
+                    break;
+                }
+                case DECIMALV2:
                 case CHAR:
                 case VARCHAR:
                 case STRING:
-                case DECIMALV2:
-                case DECIMAL32:
-                case DECIMAL64:
-                case DECIMAL128:
                 case DATETIMEV2:
                 case DATEV2:
                 case LARGEINT:
@@ -545,6 +555,12 @@ public class OutFileClause {
             }
 
             switch (expr.getType().getPrimitiveType()) {
+                case DECIMAL32:
+                case DECIMAL64:
+                case DECIMAL128: {
+                    parquetSchema.schema_data_logical_type = PARQUET_DATA_LOGICAL_TYPE_TYPE_MAP.get("decimal");
+                    break;
+                }
                 case DATE:
                     parquetSchema.schema_data_logical_type = PARQUET_DATA_LOGICAL_TYPE_TYPE_MAP.get("date");
                     break;
@@ -884,5 +900,3 @@ public class OutFileClause {
         return sinkOptions;
     }
 }
-
-

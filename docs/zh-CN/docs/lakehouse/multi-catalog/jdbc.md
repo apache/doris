@@ -284,6 +284,8 @@ CREATE CATALOG jdbc_oracle PROPERTIES (
 | Database |   User   |
 |  Table   |  Table   |
 
+**注意：** 当前不支持同步 Oracle 的 SYNONYM TABLE
+
 #### 类型映射
 
 | ORACLE Type                       | Doris Type                           | Comment                                                                                                                                         |
@@ -352,6 +354,8 @@ CREATE CATALOG jdbc_sqlserve PROPERTIES (
 
 Jdbc Catalog也支持连接另一个Doris数据库：
 
+* mysql 5.7 Driver
+
 ```sql
 CREATE CATALOG jdbc_doris PROPERTIES (
     "type"="jdbc",
@@ -360,10 +364,21 @@ CREATE CATALOG jdbc_doris PROPERTIES (
     "jdbc_url" = "jdbc:mysql://127.0.0.1:9030?useSSL=false",
     "driver_url" = "mysql-connector-java-5.1.47.jar",
     "driver_class" = "com.mysql.jdbc.Driver"
-);
+)
 ```
 
-**注意：** 目前 Jdbc Catalog 连接一个 Doris 数据库只支持用 5.x 版本的 jdbc jar 包。如果使用 8.x jdbc jar 包，可能会出现列类型无法匹配问题。
+* mysql 8 Driver
+
+```sql
+CREATE CATALOG jdbc_doris PROPERTIES (
+    "type"="jdbc",
+    "user"="root",
+    "password"="123456",
+    "jdbc_url" = "jdbc:mysql://127.0.0.1:9030?useSSL=false",
+    "driver_url" = "mysql-connector-java-8.0.25.jar",
+    "driver_class" = "com.mysql.cj.jdbc.Driver"
+)
+```
 
 #### 类型映射
 
@@ -385,6 +400,7 @@ CREATE CATALOG jdbc_doris PROPERTIES (
 | STRING     | STRING                 |                                                      |
 | TEXT       | STRING                 |                                                      |
 | HLL        | HLL                    | 查询HLL需要设置`return_object_data_as_binary=true`   |
+| Array      | Array                  | Array内部类型适配逻辑参考上述类型，不支持嵌套复杂类型        |
 | Other      | UNSUPPORTED            |                                                      |
 
 ### Clickhouse

@@ -70,7 +70,7 @@ void DataTypeStructSerDe::read_column_from_arrow(IColumn& column, const arrow::A
                                                  int start, int end,
                                                  const cctz::time_zone& ctz) const {
     auto& struct_column = static_cast<ColumnStruct&>(column);
-    auto concrete_struct = down_cast<const arrow::StructArray*>(arrow_array);
+    auto concrete_struct = dynamic_cast<const arrow::StructArray*>(arrow_array);
     DCHECK_EQ(struct_column.tuple_size(), concrete_struct->num_fields());
     for (size_t i = 0; i < struct_column.tuple_size(); ++i) {
         elemSerDeSPtrs[i]->read_column_from_arrow(struct_column.get_column(i),
