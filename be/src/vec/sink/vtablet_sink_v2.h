@@ -131,9 +131,6 @@ public:
     Status close(RuntimeState* state, Status close_status) override;
     Status send(RuntimeState* state, vectorized::Block* block, bool eos = false) override;
 
-    // Returns the runtime profile for the sink.
-    RuntimeProfile* profile() override { return _profile; }
-
 private:
     Status _init_stream_pool(const NodeInfo& node_info, StreamPool& stream_pool);
 
@@ -180,8 +177,6 @@ private:
     std::unordered_map<int64_t, bool> _enable_unique_mow_for_index;
     OlapTableLocationParam* _location = nullptr;
     DorisNodesInfo* _nodes_info = nullptr;
-
-    RuntimeProfile* _profile = nullptr;
 
     std::unique_ptr<OlapTabletFinder> _tablet_finder;
 

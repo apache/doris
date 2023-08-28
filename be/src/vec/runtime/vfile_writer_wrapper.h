@@ -15,12 +15,37 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "runtime/result_writer.h"
+#pragma once
 
-namespace doris {
+#include <memory>
+#include <vector>
 
-const std::string ResultWriter::NULL_IN_CSV = "\\N";
+#include "common/status.h"
+#include "vec/core/block.h"
+#include "vec/exprs/vexpr_fwd.h"
 
-}
+namespace doris::vectorized {
 
-/* vim: set ts=4 sw=4 sts=4 tw=100 expandtab : */
+class VFileWriterWrapper {
+public:
+    VFileWriterWrapper(const VExprContextSPtrs& output_vexpr_ctxs, bool output_object_data)
+            : _output_vexpr_ctxs(output_vexpr_ctxs),
+              _cur_written_rows(0),
+              _output_object_data(output_object_data) {}
+
+    virtual ~VFileWriterWrapper() = default;
+
+    virtual Status prepare() = 0;
+
+    virtual Status write(const Block& block) = 0;
+
+    virtual Status close() = 0;
+
+    virtual int64_t written_len() = 0;
+
+protected:
+    const VExprContextSPtrs& _output_vexpr_ctxs;
+    int64_t _cur_written_rows;
+    bool _output_object_data;
+};
+} // namespace doris::vectorized
