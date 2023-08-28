@@ -66,8 +66,7 @@ class OrdinalPageIndexIterator;
 
 class OrdinalIndexReader {
 public:
-    explicit OrdinalIndexReader(io::FileReaderSPtr file_reader, const OrdinalIndexPB* index_meta,
-                                ordinal_t num_values)
+    explicit OrdinalIndexReader(io::FileReaderSPtr file_reader, ordinal_t num_values)
             : _file_reader(std::move(file_reader)), _num_values(num_values) {}
 
     // load and parse the index page into memory

@@ -43,8 +43,7 @@ class BitmapIndexPB;
 
 class BitmapIndexReader {
 public:
-    explicit BitmapIndexReader(io::FileReaderSPtr file_reader,
-                               const BitmapIndexPB* bitmap_index_meta)
+    explicit BitmapIndexReader(io::FileReaderSPtr file_reader)
             : _file_reader(std::move(file_reader)),
               _type_info(get_scalar_type_info<FieldType::OLAP_FIELD_TYPE_VARCHAR>()) {}
 

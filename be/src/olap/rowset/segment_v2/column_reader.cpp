@@ -208,15 +208,15 @@ Status ColumnReader::init(const ColumnMetaPB* meta) {
         case ORDINAL_INDEX:
             _ordinal_index_meta = &index_meta.ordinal_index();
             _ordinal_index.reset(
-                    new OrdinalIndexReader(_file_reader, _ordinal_index_meta, _num_rows));
+                    new OrdinalIndexReader(_file_reader, _num_rows));
             break;
         case ZONE_MAP_INDEX:
             _zone_map_index_meta = &index_meta.zone_map_index();
-            _zone_map_index.reset(new ZoneMapIndexReader(_file_reader, _zone_map_index_meta));
+            _zone_map_index.reset(new ZoneMapIndexReader(_file_reader));
             break;
         case BITMAP_INDEX:
             _bitmap_index_meta = &index_meta.bitmap_index();
-            _bitmap_index.reset(new BitmapIndexReader(_file_reader, _bitmap_index_meta));
+            _bitmap_index.reset(new BitmapIndexReader(_file_reader));
             break;
         case BLOOM_FILTER_INDEX:
             _bf_index_meta = &index_meta.bloom_filter_index();

@@ -147,7 +147,7 @@ private:
 
 class ZoneMapIndexReader {
 public:
-    explicit ZoneMapIndexReader(io::FileReaderSPtr file_reader, const ZoneMapIndexPB* index_meta)
+    explicit ZoneMapIndexReader(io::FileReaderSPtr file_reader)
             : _file_reader(std::move(file_reader)) {}
 
     // load all page zone maps into memory
