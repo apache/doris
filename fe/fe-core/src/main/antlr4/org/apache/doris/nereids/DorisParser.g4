@@ -53,13 +53,99 @@ statement
         (PARTITION partition=identifierList)?
         (USING relation (COMMA relation)*)
         whereClause                                                    #delete
+    | loadStmt                                                         #load
     ;
 
-propertiesStatment
+loadStmt
+    : LOAD LABEL lableName=identifier
+        LEFT_PAREN dataDescs+=dataDesc (COMMA dataDescs+=dataDesc)* RIGHT_PAREN
+        (withRemoteStorageSystem)?
+        (PROPERTIES LEFT_PAREN propertiesStatement RIGHT_PAREN)?
+        (commentSpec)?
+    | LOAD LABEL lableName=identifier
+        LEFT_PAREN dataDescs+=dataDesc (COMMA dataDescs+=dataDesc)* RIGHT_PAREN
+        resourceDesc
+        (PROPERTIES LEFT_PAREN propertiesStatement RIGHT_PAREN)?
+        (commentSpec)?
+    | LOAD mysqlDataDesc
+        (PROPERTIES LEFT_PAREN propertiesStatement RIGHT_PAREN)?
+        (commentSpec)?
+    ;
+
+resourceDesc : WITH RESOURCE resourceName=identifierOrText (LEFT_PAREN propertiesStatement RIGHT_PAREN)? ;
+
+
+mysqlDataDesc
+    : DATA (LOCAL booleanValue)?
+    INFILE filePath=constant
+    INTO TABLE tableName=multipartIdentifier
+    (PARTITION partition=identifierList)?
+    (COLUMNS TERMINATED BY comma=constant)?
+    (LINES TERMINATED BY separator=constant)?
+    (skipLines)?
+    (colList)?
+    (colMappingList)?
+    (PROPERTIES LEFT_PAREN propertiesStatement RIGHT_PAREN)?
+    ;
+
+skipLines : IGNORE lines=INTEGER_VALUE LINES | IGNORE lines=INTEGER_VALUE ROWS ;
+
+dataDesc
+    : DATA INFILE (LEFT_PAREN filePath=constant RIGHT_PAREN)*
+        INTO TABLE tableName=multipartIdentifier
+        (PARTITION partition=identifierList)?
+        (COLUMNS TERMINATED BY comma=constant)?
+        (LINES TERMINATED BY separator=constant)?
+        (FORMAT AS format=identifier)?
+        (colList)?
+        (colFromPath)?
+        (colMappingList)?
+        (preFilterClause)?
+        (whereClause)?
+        (deleteOnClause)?
+        (sequenceColClause)?
+        (PROPERTIES LEFT_PAREN propertiesStatement RIGHT_PAREN)?
+    | DATA FROM TABLE (LEFT_PAREN filePath=constant RIGHT_PAREN)*
+        INTO TABLE tableName=multipartIdentifier
+        (PARTITION partition=identifierList)?
+        (colMappingList)?
+        (whereClause)?
+        (deleteOnClause)?
+        (PROPERTIES LEFT_PAREN propertiesStatement RIGHT_PAREN)?
+    ;
+
+preFilterClause : PRECEDING FILTER expression ;
+deleteOnClause : DELETE ON expression ;
+sequenceColClause : ORDER BY identifier ;
+colList : LEFT_PAREN colNames+=identifier (COMMA colNames+=identifier)* RIGHT_PAREN ;
+colFromPath : COLUMNS FROM PATH AS colList ;
+colMappingList : SET LEFT_PAREN expression RIGHT_PAREN ;
+
+withRemoteStorageSystem
+    : WITH S3 LEFT_PAREN
+        brokerProperties+=remoteStorageProperty (COMMA brokerProperties+=remoteStorageProperty)*
+        RIGHT_PAREN
+    | WITH HDFS LEFT_PAREN
+        brokerProperties+=remoteStorageProperty (COMMA brokerProperties+=remoteStorageProperty)*
+        RIGHT_PAREN
+    | WITH LOCAL LEFT_PAREN
+        brokerProperties+=remoteStorageProperty (COMMA brokerProperties+=remoteStorageProperty)*
+        RIGHT_PAREN
+    | WITH BROKER brokerName=identifierOrText
+        (LEFT_PAREN
+        brokerProperties+=remoteStorageProperty (COMMA brokerProperties+=remoteStorageProperty)*
+        RIGHT_PAREN)?
+    ;
+
+remoteStorageProperty
+    : key=remoteStoragePropertyItem EQ value=remoteStoragePropertyItem
+    ;
+
+propertiesStatement
     : properties+=property (COMMA properties+=property)*
     ;
 
-
+remoteStoragePropertyItem : identifier | constant ;
 // -----------------Command accessories-----------------
 
 identifierOrText
@@ -94,7 +180,7 @@ planType
 outFileClause
     : INTO OUTFILE filePath=constant
         (FORMAT AS format=identifier)?
-        (PROPERTIES LEFT_PAREN properties+=property (COMMA properties+=property)* RIGHT_PAREN)?
+        (PROPERTIES LEFT_PAREN propertiesStatement RIGHT_PAREN)?
     ;
 
 query
