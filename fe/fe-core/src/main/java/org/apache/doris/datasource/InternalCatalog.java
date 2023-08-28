@@ -1220,8 +1220,9 @@ public class InternalCatalog implements CatalogIf<Database> {
                 Expr resultExpr = resultExprs.get(i);
                 Type resultType = resultExpr.getType();
                 if (resultExpr instanceof FunctionCallExpr
-                        && resultExpr.getType().getPrimitiveType().equals(PrimitiveType.VARCHAR)) {
-                    resultType = ScalarType.createVarchar(65533);
+                        && resultExpr.getType().getPrimitiveType().equals(PrimitiveType.VARCHAR)
+                        && resultExpr.getType().getLength() == -1) {
+                    resultType = ScalarType.createVarchar(ScalarType.MAX_VARCHAR_LENGTH);
                 }
                 if (resultType.isStringType() && (keysDesc == null || !keysDesc.containsCol(name))) {
                     // Use String for varchar/char/string type,

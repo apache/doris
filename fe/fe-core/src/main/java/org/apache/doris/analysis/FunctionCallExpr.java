@@ -1583,6 +1583,20 @@ public class FunctionCallExpr extends Expr {
             this.type = PRECISION_INFER_RULE.getOrDefault(fnName.getFunction(), DEFAULT_PRECISION_INFER_RULE)
                     .apply(children, this.type);
         }
+
+        // cast(xx as char(N)/varchar(N)) will be handled as substr(cast(xx as char, varchar), 1, N),
+        // but type is varchar(*), we change it to varchar(N);
+        if (fn.getFunctionName().getFunction().equals("substr")
+                && children.size() == 3
+                && children.get(1) instanceof IntLiteral
+                && children.get(2) instanceof IntLiteral) {
+            long len = ((IntLiteral) children.get(2)).getValue();
+            if (type.isWildcardChar()) {
+                this.type = ScalarType.createCharType(((int) (len)));
+            } else if (type.isWildcardVarchar()) {
+                this.type = ScalarType.createVarchar(((int) (len)));
+            }
+        }
         // rewrite return type if is nested type function
         analyzeNestedFunction();
         for (OrderByElement o : orderByElements) {
