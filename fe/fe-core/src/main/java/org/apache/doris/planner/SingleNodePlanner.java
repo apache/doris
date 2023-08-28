@@ -2762,7 +2762,7 @@ public class SingleNodePlanner {
                 while (sourceExpr instanceof SlotRef) {
                     SlotRef slotRef = (SlotRef) sourceExpr;
                     SlotDescriptor slotDesc = slotRef.getDesc();
-                    if (slotDesc.getSourceExprs().isEmpty()) {
+                    if (slotDesc.getSourceExprs().size() != 1) {
                         break;
                     }
                     sourceExpr = slotDesc.getSourceExprs().get(0);
