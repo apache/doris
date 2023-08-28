@@ -63,6 +63,8 @@ std::string OperatorBase::debug_string() const {
 }
 
 Status PipelineXSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& info) {
+    // create profile
+    _profile = state->obj_pool()->add(new RuntimeProfile(_parent->get_name()));
     _mem_tracker = std::make_unique<MemTracker>(_parent->get_name());
     return Status::OK();
 }
