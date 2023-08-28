@@ -2067,7 +2067,7 @@ Status SchemaChangeHandler::_do_process_alter_tablet_v2(const TAlterTabletReqV2&
             std::lock_guard<std::mutex> rwlock(new_tablet->get_rowset_update_lock());
             std::lock_guard<std::shared_mutex> new_wlock(new_tablet->get_header_lock());
             SCOPED_SIMPLE_TRACE_IF_TIMEOUT(TRACE_TABLET_LOCK_THRESHOLD);
-            int64_t new_max_version = new_tablet->max_version().second;
+            int64_t new_max_version = new_tablet->max_version_unlocked().second;
             rowsets.clear();
             if (max_version < new_max_version) {
                 LOG(INFO)
@@ -2374,6 +2374,12 @@ Status SchemaChangeHandler::_parse_request(const SchemaChangeParams& sc_params,
         // is less, which means the data in new tablet should be more aggregated.
         // so we use sorting schema change to sort and merge the data.
         *sc_sorting = true;
+        return Status::OK();
+    }
+
+    if (new_tablet->enable_unique_key_merge_on_write() &&
+        new_tablet->num_key_columns() > base_tablet_schema->num_key_columns()) {
+        *sc_directly = true;
         return Status::OK();
     }
 
