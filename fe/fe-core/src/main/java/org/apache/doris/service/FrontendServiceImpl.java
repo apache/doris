@@ -1695,7 +1695,6 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         TStatus status = new TStatus(TStatusCode.OK);
         result.setStatus(status);
         try {
-            // TODO(zs)：This needs to be replaced by other methods
             if (!Strings.isNullOrEmpty(request.getLoadSql())) {
                 httpStreamPutImpl(request, result);
                 return result;

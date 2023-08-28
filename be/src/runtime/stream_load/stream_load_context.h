@@ -160,7 +160,7 @@ public:
 
     int64_t txn_id = -1;
 
-    bool need_schema = true;
+    bool need_schema = false;
 
     std::string txn_operation = "";
 
@@ -174,7 +174,7 @@ public:
     std::shared_ptr<MessageBodySink> body_sink;
     std::shared_ptr<io::StreamLoadPipe> pipe;
 
-    ByteBufferPtr schema_buffer = ByteBuffer::allocate(10 * 1024 * 1024);
+    ByteBufferPtr schema_buffer = ByteBuffer::allocate(config::stream_tvf_buffer_size);
 
     TStreamLoadPutResult put_result;
     TStreamLoadMultiTablePutResult multi_table_put_result;

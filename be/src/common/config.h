@@ -534,6 +534,8 @@ DECLARE_mInt32(stream_load_record_batch_size);
 DECLARE_Int32(stream_load_record_expire_time_secs);
 // time interval to clean expired stream load records
 DECLARE_mInt64(clean_stream_load_record_interval_secs);
+// The buffer size to store stream table function schema info
+DECLARE_Int64(stream_tvf_buffer_size);
 
 // OlapTableSink sender's send interval, should be less than the real response time of a tablet writer rpc.
 // You may need to lower the speed when the sink receiver bes are too busy.

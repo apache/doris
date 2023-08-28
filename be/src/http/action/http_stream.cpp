@@ -229,22 +229,19 @@ void HttpStreamAction::on_chunk_data(HttpRequest* req) {
 
     int64_t start_read_data_time = MonotonicNanos();
 
-    bool is_put = true;
-
     while (evbuffer_get_length(evbuf) > 0) {
         auto bb = ByteBuffer::allocate(128 * 1024);
         auto remove_bytes = evbuffer_remove(evbuf, bb->ptr, bb->capacity);
         bb->pos = remove_bytes;
         bb->flip();
         auto st = ctx->body_sink->append(bb);
-        // schema_buffer stores a row of data for parsing column information
-        bool is_end = std::find(bb->ptr, bb->ptr + remove_bytes, '\n') != bb->ptr + remove_bytes;
-        if (is_end) {
+        // schema_buffer stores 10M of data for parsing column information
+        if (ctx->schema_buffer->pos < config::stream_tvf_buffer_size) {
             ctx->schema_buffer->put_bytes(bb->ptr, remove_bytes);
-            ctx->status = _process_put(req, ctx);
-            is_put = false;
-        } else {
-            ctx->schema_buffer->put_bytes(bb->ptr, remove_bytes);
+            if (ctx->schema_buffer->pos >= config::stream_tvf_buffer_size) {
+                ctx->need_schema = true;
+                ctx->status = _process_put(req, ctx);
+            }
         }
 
         if (!st.ok()) {
@@ -254,8 +251,9 @@ void HttpStreamAction::on_chunk_data(HttpRequest* req) {
         }
         ctx->receive_bytes += remove_bytes;
     }
-    // to avoid not requesting fe
-    if (is_put) {
+    // after all the data has been read and it has not reached 10M, it will execute here
+    if (ctx->schema_buffer->pos < config::stream_tvf_buffer_size) {
+        ctx->need_schema = true;
         ctx->status = _process_put(req, ctx);
     }
     ctx->read_data_cost_nanos += (MonotonicNanos() - start_read_data_time);
