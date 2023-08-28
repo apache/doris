@@ -560,49 +560,6 @@ public:
 
     bool operator>=(const Field& rhs) const { return rhs <= *this; }
 
-    bool operator==(const Field& rhs) const {
-        if (which != rhs.which) return false;
-
-        switch (which) {
-        case Types::Null:
-            return true;
-        case Types::UInt64:
-        case Types::Int64:
-        case Types::Float64:
-            return get<UInt64>() == rhs.get<UInt64>();
-        case Types::String:
-            return get<String>() == rhs.get<String>();
-        case Types::JSONB:
-            return get<JsonbField>() == rhs.get<JsonbField>();
-        case Types::Array:
-            return get<Array>() == rhs.get<Array>();
-        case Types::Tuple:
-            return get<Tuple>() == rhs.get<Tuple>();
-        case Types::Map:
-            return get<Map>() < rhs.get<Map>();
-        case Types::UInt128:
-            return get<UInt128>() == rhs.get<UInt128>();
-        case Types::Int128:
-            return get<Int128>() == rhs.get<Int128>();
-        case Types::Decimal32:
-            return get<DecimalField<Decimal32>>() == rhs.get<DecimalField<Decimal32>>();
-        case Types::Decimal64:
-            return get<DecimalField<Decimal64>>() == rhs.get<DecimalField<Decimal64>>();
-        case Types::Decimal128:
-            return get<DecimalField<Decimal128>>() == rhs.get<DecimalField<Decimal128>>();
-        case Types::Decimal128I:
-            return get<DecimalField<Decimal128I>>() == rhs.get<DecimalField<Decimal128I>>();
-        case Types::AggregateFunctionState:
-            return get<AggregateFunctionStateData>() == rhs.get<AggregateFunctionStateData>();
-        case Types::FixedLengthObject:
-            break;
-        case Types::VariantMap:
-            return get<VariantMap>() == rhs.get<VariantMap>();
-        }
-
-        CHECK(false) << "Bad type of Field";
-    }
-
     bool operator!=(const Field& rhs) const { return !(*this == rhs); }
 
     template <typename F,
@@ -676,7 +633,7 @@ private:
     std::aligned_union_t<DBMS_MIN_FIELD_SIZE - sizeof(Types::Which), Null, UInt64, UInt128, Int64,
                          Int128, Float64, String, JsonbField, Array, Tuple, Map, VariantMap,
                          DecimalField<Decimal32>, DecimalField<Decimal64>, DecimalField<Decimal128>,
-                         DecimalField<Decimal128I>, HyperLogLog, QuantileState<double>>
+                         DecimalField<Decimal128I>, BitmapValue, HyperLogLog, QuantileState<double>>
             storage;
 
     Types::Which which;
