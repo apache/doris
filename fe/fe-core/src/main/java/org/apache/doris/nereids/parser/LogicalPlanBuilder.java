@@ -27,6 +27,7 @@ import org.apache.doris.nereids.DorisParser.AliasQueryContext;
 import org.apache.doris.nereids.DorisParser.AliasedQueryContext;
 import org.apache.doris.nereids.DorisParser.ArithmeticBinaryContext;
 import org.apache.doris.nereids.DorisParser.ArithmeticUnaryContext;
+import org.apache.doris.nereids.DorisParser.ArrayLiteralContext;
 import org.apache.doris.nereids.DorisParser.ArraySliceContext;
 import org.apache.doris.nereids.DorisParser.BitOperationContext;
 import org.apache.doris.nereids.DorisParser.BooleanExpressionContext;
@@ -37,6 +38,8 @@ import org.apache.doris.nereids.DorisParser.ColumnReferenceContext;
 import org.apache.doris.nereids.DorisParser.CommentJoinHintContext;
 import org.apache.doris.nereids.DorisParser.CommentRelationHintContext;
 import org.apache.doris.nereids.DorisParser.ComparisonContext;
+import org.apache.doris.nereids.DorisParser.ComplexColTypeContext;
+import org.apache.doris.nereids.DorisParser.ComplexColTypeListContext;
 import org.apache.doris.nereids.DorisParser.ComplexDataTypeContext;
 import org.apache.doris.nereids.DorisParser.ConstantContext;
 import org.apache.doris.nereids.DorisParser.CreateRowPolicyContext;
@@ -69,6 +72,7 @@ import org.apache.doris.nereids.DorisParser.LateralViewContext;
 import org.apache.doris.nereids.DorisParser.LimitClauseContext;
 import org.apache.doris.nereids.DorisParser.LogicalBinaryContext;
 import org.apache.doris.nereids.DorisParser.LogicalNotContext;
+import org.apache.doris.nereids.DorisParser.MapLiteralContext;
 import org.apache.doris.nereids.DorisParser.MultiStatementsContext;
 import org.apache.doris.nereids.DorisParser.MultipartIdentifierContext;
 import org.apache.doris.nereids.DorisParser.NamedExpressionContext;
@@ -98,6 +102,7 @@ import org.apache.doris.nereids.DorisParser.SortItemContext;
 import org.apache.doris.nereids.DorisParser.StarContext;
 import org.apache.doris.nereids.DorisParser.StatementDefaultContext;
 import org.apache.doris.nereids.DorisParser.StringLiteralContext;
+import org.apache.doris.nereids.DorisParser.StructLiteralContext;
 import org.apache.doris.nereids.DorisParser.SubqueryContext;
 import org.apache.doris.nereids.DorisParser.SubqueryExpressionContext;
 import org.apache.doris.nereids.DorisParser.SystemVariableContext;
@@ -179,7 +184,10 @@ import org.apache.doris.nereids.trees.expressions.WindowFrame;
 import org.apache.doris.nereids.trees.expressions.functions.Function;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Count;
 import org.apache.doris.nereids.trees.expressions.functions.agg.GroupConcat;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Array;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArraySlice;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.CreateMap;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.CreateStruct;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.DaysAdd;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.DaysDiff;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.DaysSub;
@@ -205,6 +213,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.YearsDiff;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.YearsSub;
 import org.apache.doris.nereids.trees.expressions.literal.BigIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.CharLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.DateLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.DateTimeLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.DateTimeV2Literal;
@@ -219,7 +228,6 @@ import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.SmallIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.TinyIntLiteral;
-import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
 import org.apache.doris.nereids.trees.plans.JoinHint;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.LimitPhase;
@@ -255,6 +263,8 @@ import org.apache.doris.nereids.trees.plans.logical.UsingJoin;
 import org.apache.doris.nereids.types.ArrayType;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.MapType;
+import org.apache.doris.nereids.types.StructField;
+import org.apache.doris.nereids.types.StructType;
 import org.apache.doris.nereids.types.coercion.CharacterType;
 import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.policy.FilterType;
@@ -1256,7 +1266,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     }
 
     @Override
-    public Expression visitTypeConstructor(TypeConstructorContext ctx) {
+    public Literal visitTypeConstructor(TypeConstructorContext ctx) {
         String value = ctx.STRING_LITERAL().getText();
         value = value.substring(1, value.length() - 1);
         String type = ctx.type.getText().toUpperCase();
@@ -1312,7 +1322,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
      * Create a NULL literal expression.
      */
     @Override
-    public Expression visitNullLiteral(NullLiteralContext ctx) {
+    public Literal visitNullLiteral(NullLiteralContext ctx) {
         return new NullLiteral();
     }
 
@@ -1343,7 +1353,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         // TODO: add unescapeSQLString.
         String txt = ctx.STRING_LITERAL().getText();
         String s = escapeBackSlash(txt.substring(1, txt.length() - 1));
-        return new VarcharLiteral(s);
+        return new CharLiteral(s, s.length());
     }
 
     private String escapeBackSlash(String str) {
@@ -1387,6 +1397,24 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         }
 
         return sb.toString();
+    }
+
+    @Override
+    public Object visitArrayLiteral(ArrayLiteralContext ctx) {
+        Literal[] items = ctx.items.stream().<Literal>map(this::typedVisit).toArray(Literal[]::new);
+        return new Array(items);
+    }
+
+    @Override
+    public Object visitMapLiteral(MapLiteralContext ctx) {
+        Literal[] items = ctx.items.stream().<Literal>map(this::typedVisit).toArray(Literal[]::new);
+        return new CreateMap(items);
+    }
+
+    @Override
+    public Object visitStructLiteral(StructLiteralContext ctx) {
+        Literal[] items = ctx.items.stream().<Literal>map(this::typedVisit).toArray(Literal[]::new);
+        return new CreateStruct(items);
     }
 
     @Override
@@ -2023,11 +2051,23 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                 case DorisParser.MAP:
                     return MapType.of(typedVisit(ctx.dataType(0)), typedVisit(ctx.dataType(1)));
                 case DorisParser.STRUCT:
-                    throw new AnalysisException("do not support STRUCT type for Nereids");
+                    return new StructType(visitComplexColTypeList(ctx.complexColTypeList()));
                 default:
                     throw new AnalysisException("do not support " + ctx.complex.getText() + " type for Nereids");
             }
         });
+    }
+
+    @Override
+    public List<StructField> visitComplexColTypeList(ComplexColTypeListContext ctx) {
+        return ctx.complexColType().stream().map(this::visitComplexColType).collect(ImmutableList.toImmutableList());
+    }
+
+    @Override
+    public StructField visitComplexColType(ComplexColTypeContext ctx) {
+        String comment = ctx.commentSpec().STRING_LITERAL().getText();
+        comment = escapeBackSlash(comment.substring(1, comment.length() - 1));
+        return new StructField(ctx.identifier().getText(), typedVisit(ctx.dataType()), true, comment);
     }
 
     private Expression parseFunctionWithOrderKeys(String functionName, boolean isDistinct,
