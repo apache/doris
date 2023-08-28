@@ -143,6 +143,13 @@ public class CatalogFactory {
             // set some default properties when creating catalog.
             // do not call this method when replaying edit log. Because we need to keey the original properties.
             catalog.setDefaultPropsWhenCreating(isReplay);
+            // This will check if the customized access controller can be created successfully.
+            // If failed, it will throw exception and the catalog will not be created.
+            try {
+                catalog.initAccessController(true);
+            } catch (Exception e) {
+                throw new DdlException(e.getMessage());
+            }
         }
         return catalog;
     }
