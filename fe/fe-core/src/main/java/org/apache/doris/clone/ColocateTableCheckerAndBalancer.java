@@ -867,15 +867,15 @@ public class ColocateTableCheckerAndBalancer extends MasterDaemon {
                 long oldDestThisGroup = lowBackend.getValue();
                 int oldSrcBucketNum = globalColocateStatistic.getBackendTotalBucketNum(srcBeId);
                 int oldDestBucketNum = globalColocateStatistic.getBackendTotalBucketNum(destBeId);
-                LOG.debug("OneMove: group {}, src {}, this group {}, all group {}, dest {}, this group {}, all group {}",
-                        groupId, srcBeId, oldSrcThisGroup, oldSrcBucketNum, destBeId,
+                LOG.debug("OneMove: group {}, src {}, this group {}, all group {}, dest {}, this group {}, "
+                        + "all group {}", groupId, srcBeId, oldSrcThisGroup, oldSrcBucketNum, destBeId,
                         oldDestThisGroup, oldDestBucketNum);
                 Preconditions.checkState(
                         globalColocateStatistic.moveTablet(groupId, tabletOrderIdx, srcBeId, destBeId));
-                Preconditions.checkState(oldSrcBucketNum - 1 ==
-                        globalColocateStatistic.getBackendTotalBucketNum(srcBeId));
-                Preconditions.checkState(oldDestBucketNum + 1 ==
-                        globalColocateStatistic.getBackendTotalBucketNum(destBeId));
+                Preconditions.checkState(oldSrcBucketNum - 1
+                        == globalColocateStatistic.getBackendTotalBucketNum(srcBeId));
+                Preconditions.checkState(oldDestBucketNum + 1
+                        == globalColocateStatistic.getBackendTotalBucketNum(destBeId));
                 flatBackendsPerBucketSeq.set(targetSeqIndex, destBeId);
                 // just replace one backend at a time, src and dest BE id should be recalculated because
                 // flatBackendsPerBucketSeq is changed.
