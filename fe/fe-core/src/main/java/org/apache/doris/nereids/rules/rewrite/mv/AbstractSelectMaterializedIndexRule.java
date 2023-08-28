@@ -400,7 +400,7 @@ public abstract class AbstractSelectMaterializedIndexRule {
         for (Slot mvSlot : mvPlan.getOutputByIndex(mvPlan.getSelectedIndexId())) {
             boolean isPushed = false;
             for (Slot baseSlot : mvPlan.getOutput()) {
-                if (org.apache.doris.analysis.CreateMaterializedViewStmt.isMVColumnAggregate(mvSlot.getName())) {
+                if (org.apache.doris.analysis.CreateMaterializedViewStmt.isMVColumn(mvSlot.getName())) {
                     continue;
                 }
                 if (baseSlot.toSql().equalsIgnoreCase(
@@ -569,6 +569,9 @@ public abstract class AbstractSelectMaterializedIndexRule {
         public Expression visitSlotReference(SlotReference slotReference, Void context) {
             if (baseSlotToMvSlot.containsKey(slotReference)) {
                 return baseSlotToMvSlot.get(slotReference);
+            }
+            if (mvNameToMvSlot.containsKey(slotReference.toSql())) {
+                return mvNameToMvSlot.get(slotReference.toSql());
             }
             return slotReference;
         }
