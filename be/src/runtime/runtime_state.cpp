@@ -305,7 +305,7 @@ void RuntimeState::get_unreported_errors(std::vector<std::string>* new_errors) {
 }
 
 bool RuntimeState::is_cancelled() const {
-    return _is_cancelled.load();
+    return _is_cancelled.load() || (_query_ctx && _query_ctx->is_cancelled());
 }
 
 Status RuntimeState::set_mem_limit_exceeded(const std::string& msg) {
