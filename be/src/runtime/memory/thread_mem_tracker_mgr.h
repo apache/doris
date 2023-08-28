@@ -36,6 +36,8 @@
 
 namespace doris {
 
+extern bool k_doris_run;
+
 // Memory Hook is counted in the memory tracker of the current thread.
 class ThreadMemTrackerMgr {
 public:
@@ -162,7 +164,7 @@ inline void ThreadMemTrackerMgr::pop_consumer_tracker() {
 
 inline void ThreadMemTrackerMgr::consume(int64_t size, bool large_memory_check) {
     _untracked_mem += size;
-    if (!ExecEnv::GetInstance()->initialized()) {
+    if (!k_doris_run || !ExecEnv::GetInstance()->initialized()) {
         return;
     }
     // When some threads `0 < _untracked_mem < config::mem_tracker_consume_min_size_bytes`
