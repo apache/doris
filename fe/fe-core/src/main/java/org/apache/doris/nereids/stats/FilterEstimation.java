@@ -392,15 +392,29 @@ public class FilterEstimation extends ExpressionVisitor<Statistics, EstimationCo
                 new StatisticRange(leftStats.minValue, leftStats.minExpr, leftStats.maxValue, leftStats.maxExpr,
                         leftStats.ndv, leftExpr.getDataType());
         StatisticRange intersectRange = leftRange.cover(rightRange);
-        ColumnStatisticBuilder leftColumnStatisticBuilder = new ColumnStatisticBuilder(leftStats)
-                .setMinValue(intersectRange.getLow())
-                .setMinExpr(intersectRange.getLowExpr())
-                .setMaxValue(intersectRange.getHigh())
-                .setMaxExpr(intersectRange.getHighExpr())
-                .setNdv(intersectRange.getDistinctValues());
-        double sel = leftRange.overlapPercentWith(rightRange);
-        Statistics updatedStatistics = context.statistics.withSel(sel);
-        leftColumnStatisticBuilder.setCount(updatedStatistics.getRowCount());
+
+        ColumnStatisticBuilder leftColumnStatisticBuilder;
+        Statistics updatedStatistics;
+        if (intersectRange.isEmpty()) {
+            updatedStatistics = context.statistics.updateRowCountOnly(0);
+            leftColumnStatisticBuilder = new ColumnStatisticBuilder(leftStats)
+                    .setMinValue(Double.NEGATIVE_INFINITY)
+                    .setMinExpr(null)
+                    .setMaxValue(Double.POSITIVE_INFINITY)
+                    .setMaxExpr(null)
+                    .setNdv(0)
+                    .setCount(0);
+        } else {
+            leftColumnStatisticBuilder = new ColumnStatisticBuilder(leftStats)
+                    .setMinValue(intersectRange.getLow())
+                    .setMinExpr(intersectRange.getLowExpr())
+                    .setMaxValue(intersectRange.getHigh())
+                    .setMaxExpr(intersectRange.getHighExpr())
+                    .setNdv(intersectRange.getDistinctValues());
+            double sel = leftRange.overlapPercentWith(rightRange);
+            updatedStatistics = context.statistics.withSel(sel);
+            leftColumnStatisticBuilder.setCount(updatedStatistics.getRowCount());
+        }
         updatedStatistics.addColumnStats(leftExpr, leftColumnStatisticBuilder.build());
         leftExpr.accept(new ColumnStatsAdjustVisitor(), updatedStatistics);
         return updatedStatistics;
