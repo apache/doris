@@ -236,6 +236,7 @@ public abstract class BaseAnalysisTask {
         if (killed) {
             return;
         }
+        LOG.debug("execute internal sql: {}", stmtExecutor.getOriginStmt());
         stmtExecutor.execute();
         QueryState queryState = stmtExecutor.getContext().getState();
         if (queryState.getStateType().equals(MysqlStateType.ERR)) {

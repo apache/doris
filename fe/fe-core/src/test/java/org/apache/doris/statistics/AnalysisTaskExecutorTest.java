@@ -113,6 +113,7 @@ public class AnalysisTaskExecutorTest extends TestWithFeService {
                 .setAnalysisMode(AnalysisMode.FULL)
                 .setAnalysisMethod(AnalysisMethod.FULL)
                 .setAnalysisType(AnalysisType.FUNDAMENTALS)
+                .setState(AnalysisState.RUNNING)
                 .setColToPartitions(colToPartitions)
                 .build();
         OlapAnalysisTask task = new OlapAnalysisTask(analysisInfo);
