@@ -576,7 +576,6 @@ protected:
     RuntimeState* _state;
     vectorized::VExprContextSPtrs _conjuncts;
     vectorized::VExprContextSPtrs _projections;
-    bool _init = false;
     bool _closed = false;
     vectorized::Block _origin_block;
 };

@@ -59,7 +59,6 @@ private:
 
     std::shared_ptr<BufferControlBlock> _sender;
     std::shared_ptr<ResultWriter> _writer;
-    RuntimeProfile* _profile; // Allocated from _pool
 };
 
 class ResultSinkOperatorX final : public DataSinkOperatorX {
