@@ -17,10 +17,14 @@
 
 package org.apache.doris.scheduler.disruptor;
 
-import org.apache.doris.scheduler.manager.AsyncJobManager;
+import org.apache.doris.common.Config;
+import org.apache.doris.scheduler.constants.TaskType;
+import org.apache.doris.scheduler.manager.TimerJobManager;
+import org.apache.doris.scheduler.manager.TransientTaskManager;
 
 import com.lmax.disruptor.BlockingWaitStrategy;
 import com.lmax.disruptor.EventTranslatorOneArg;
+import com.lmax.disruptor.EventTranslatorTwoArg;
 import com.lmax.disruptor.TimeoutException;
 import com.lmax.disruptor.WorkHandler;
 import com.lmax.disruptor.dsl.Disruptor;
@@ -42,22 +46,17 @@ import java.util.concurrent.TimeUnit;
  * <p>The work handler also handles system events by scheduling batch scheduler tasks.
  */
 @Slf4j
-public class TimerTaskDisruptor implements Closeable {
+public class TaskDisruptor implements Closeable {
 
-    private final Disruptor<TimerTaskEvent> disruptor;
-    private static final int DEFAULT_RING_BUFFER_SIZE = 1024;
+    private final Disruptor<TaskEvent> disruptor;
+    private static final int DEFAULT_RING_BUFFER_SIZE = Config.async_task_queen_size;
+
+    private static int consumerThreadCount = Config.async_task_consumer_thread_num;
 
     /**
      * The default timeout for {@link #close()} in seconds.
      */
     private static final int DEFAULT_CLOSE_WAIT_TIME_SECONDS = 5;
-
-    /**
-     * The default number of consumers to create for each {@link Disruptor} instance.
-     */
-    private static final int DEFAULT_CONSUMER_COUNT = System.getProperty("event.task.disruptor.consumer.count")
-            == null ? Runtime.getRuntime().availableProcessors()
-            : Integer.parseInt(System.getProperty("event.task.disruptor.consumer.count"));
 
     /**
      * Whether this disruptor has been closed.
@@ -69,23 +68,26 @@ public class TimerTaskDisruptor implements Closeable {
      * The default {@link EventTranslatorOneArg} to use for {@link #tryPublish(Long)}.
      * This is used to avoid creating a new object for each publish.
      */
-    private static final EventTranslatorOneArg<TimerTaskEvent, Long> TRANSLATOR
-            = (event, sequence, jobId) -> event.setJobId(jobId);
+    private static final EventTranslatorTwoArg<TaskEvent, Long, TaskType> TRANSLATOR
+            = (event, sequence, jobId, taskType) -> {
+                event.setId(jobId);
+                event.setTaskType(taskType);
+            };
 
-    public TimerTaskDisruptor(AsyncJobManager asyncJobManager) {
+    public TaskDisruptor(TimerJobManager timerJobManager, TransientTaskManager transientTaskManager) {
         ThreadFactory producerThreadFactory = DaemonThreadFactory.INSTANCE;
-        disruptor = new Disruptor<>(TimerTaskEvent.FACTORY, DEFAULT_RING_BUFFER_SIZE, producerThreadFactory,
+        disruptor = new Disruptor<>(TaskEvent.FACTORY, DEFAULT_RING_BUFFER_SIZE, producerThreadFactory,
                 ProducerType.SINGLE, new BlockingWaitStrategy());
-        WorkHandler<TimerTaskEvent>[] workers = new TimerTaskExpirationHandler[DEFAULT_CONSUMER_COUNT];
-        for (int i = 0; i < DEFAULT_CONSUMER_COUNT; i++) {
-            workers[i] = new TimerTaskExpirationHandler(asyncJobManager);
+        WorkHandler<TaskEvent>[] workers = new TaskHandler[consumerThreadCount];
+        for (int i = 0; i < consumerThreadCount; i++) {
+            workers[i] = new TaskHandler(timerJobManager, transientTaskManager);
         }
         disruptor.handleEventsWithWorkerPool(workers);
         disruptor.start();
     }
 
     /**
-     * Publishes an event to the disruptor.
+     * Publishes a job to the disruptor.
      *
      * @param jobId  job id
      */
@@ -95,23 +97,26 @@ public class TimerTaskDisruptor implements Closeable {
             return;
         }
         try {
-            disruptor.publishEvent(TRANSLATOR, jobId);
+            disruptor.publishEvent(TRANSLATOR, jobId, TaskType.TimerJobTask);
         } catch (Exception e) {
             log.error("tryPublish failed, jobId: {}", jobId, e);
         }
     }
 
-    public boolean tryPublish(TimerTaskEvent timerTaskEvent) {
+    /**
+     * Publishes a task to the disruptor.
+     *
+     * @param taskId  task id
+     */
+    public void tryPublishTask(Long taskId) {
         if (isClosed) {
-            log.info("tryPublish failed, disruptor is closed, eventJobId: {}", timerTaskEvent.getJobId());
-            return false;
+            log.info("tryPublish failed, disruptor is closed, taskId: {}", taskId);
+            return;
         }
         try {
-            disruptor.publishEvent(TRANSLATOR, timerTaskEvent.getJobId());
-            return true;
+            disruptor.publishEvent(TRANSLATOR, taskId, TaskType.TransientTask);
         } catch (Exception e) {
-            log.error("tryPublish failed, eventJobId: {}", timerTaskEvent.getJobId(), e);
-            return false;
+            log.error("tryPublish failed, taskId: {}", taskId, e);
         }
     }
 
