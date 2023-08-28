@@ -390,7 +390,7 @@ Translated with www.DeepL.com/Translator (free version)
     
 * `sql_select_limit`
 
-    Used for compatibility with MySQL clients. No practical effect.
+    Used to limit return rows of select stmt, including select clause of insert stmt.
 
 * `system_time_zone`
 
