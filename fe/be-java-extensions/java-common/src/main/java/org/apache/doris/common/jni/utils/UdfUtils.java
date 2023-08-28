@@ -19,17 +19,12 @@ package org.apache.doris.common.jni.utils;
 
 import org.apache.doris.catalog.ArrayType;
 import org.apache.doris.catalog.MapType;
-import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.exception.InternalException;
 import org.apache.doris.thrift.TPrimitiveType;
-import org.apache.doris.thrift.TScalarType;
-import org.apache.doris.thrift.TTypeDesc;
-import org.apache.doris.thrift.TTypeNode;
 
-import com.google.common.base.Preconditions;
 import com.google.common.collect.Sets;
 import com.vesoft.nebula.client.graph.data.DateTimeWrapper;
 import com.vesoft.nebula.client.graph.data.DateWrapper;
@@ -214,63 +209,6 @@ public class UdfUtils {
         }
     }
 
-    public static Pair<Type, Integer> fromThrift(TTypeDesc typeDesc, int nodeIdx) throws InternalException {
-        TTypeNode node = typeDesc.getTypes().get(nodeIdx);
-        Type type = null;
-        switch (node.getType()) {
-            case SCALAR: {
-                Preconditions.checkState(node.isSetScalarType());
-                TScalarType scalarType = node.getScalarType();
-                if (scalarType.getType() == TPrimitiveType.CHAR) {
-                    Preconditions.checkState(scalarType.isSetLen());
-                    type = ScalarType.createCharType(scalarType.getLen());
-                } else if (scalarType.getType() == TPrimitiveType.VARCHAR) {
-                    Preconditions.checkState(scalarType.isSetLen());
-                    type = ScalarType.createVarcharType(scalarType.getLen());
-                } else if (scalarType.getType() == TPrimitiveType.DECIMALV2) {
-                    Preconditions.checkState(scalarType.isSetPrecision()
-                            && scalarType.isSetScale());
-                    type = ScalarType.createDecimalType(scalarType.getPrecision(),
-                            scalarType.getScale());
-                } else if (scalarType.getType() == TPrimitiveType.DECIMAL32
-                        || scalarType.getType() == TPrimitiveType.DECIMAL64
-                        || scalarType.getType() == TPrimitiveType.DECIMAL128I) {
-                    Preconditions.checkState(scalarType.isSetPrecision()
-                            && scalarType.isSetScale());
-                    type = ScalarType.createDecimalV3Type(scalarType.getPrecision(),
-                            scalarType.getScale());
-                } else {
-                    type = ScalarType.createType(
-                            PrimitiveType.fromThrift(scalarType.getType()));
-                }
-                break;
-            }
-            case ARRAY: {
-                Preconditions.checkState(nodeIdx + 1 < typeDesc.getTypesSize());
-                Pair<Type, Integer> childType = fromThrift(typeDesc, nodeIdx + 1);
-                type = new ArrayType(childType.first);
-                nodeIdx = childType.second;
-                break;
-            }
-            case MAP: {
-                Preconditions.checkState(nodeIdx + 2 < typeDesc.getTypesSize());
-                Pair<Type, Integer> keyType = fromThrift(typeDesc, nodeIdx + 1);
-                Pair<Type, Integer> valueType = fromThrift(typeDesc, keyType.second);
-                type = new MapType(keyType.first, valueType.first);
-                nodeIdx = valueType.second;
-                break;
-            }
-
-            default:
-                throw new InternalException("Return type " + node.getType() + " is not supported now!");
-        }
-        return Pair.of(type, nodeIdx);
-    }
-
-    public static long getAddressAtOffset(long base, int offset) {
-        return base + 8L * offset;
-    }
-
     public static void copyMemory(
             Object src, long srcOffset, Object dst, long dstOffset, long length) {
         // Check if dstOffset is before or after srcOffset to determine if we should copy
@@ -340,6 +278,10 @@ public class UdfUtils {
             result.setKeyType(mapType.getKeyType());
             result.setValueType(mapType.getValueType());
             if (mapType.getKeyType().isDatetimeV2() || mapType.getKeyType().isDecimalV3()) {
+                result.setPrecision(mapType.getKeyType().getPrecision());
+                result.setScale(((ScalarType) mapType.getKeyType()).getScalarScale());
+            }
+            if (mapType.getValueType().isDatetimeV2() || mapType.getKeyType().isDecimalV3()) {
                 result.setPrecision(mapType.getKeyType().getPrecision());
                 result.setScale(((ScalarType) mapType.getKeyType()).getScalarScale());
             }

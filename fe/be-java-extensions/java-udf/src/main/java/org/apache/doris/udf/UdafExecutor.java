@@ -48,7 +48,6 @@ public class UdafExecutor extends BaseExecutor {
 
     private static final Logger LOG = Logger.getLogger(UdafExecutor.class);
 
-    private long inputPlacesPtr;
     private HashMap<String, Method> allMethods;
     private HashMap<Long, Object> stateObjMap;
     private Class retClass;
@@ -326,7 +325,6 @@ public class UdafExecutor extends BaseExecutor {
     protected void init(TJavaUdfExecutorCtorParams request, String jarPath, Type funcRetType,
             Type... parameterTypes) throws UdfRuntimeException {
         String className = request.fn.aggregate_fn.symbol;
-        inputPlacesPtr = request.input_places_ptr;
         allMethods = new HashMap<>();
         stateObjMap = new HashMap<>();
 

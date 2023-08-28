@@ -248,17 +248,12 @@ public abstract class BaseExecutor {
                 UdfUtils.UNSAFE.putInt(null, offsetsAddr + 4L * row, Integer.parseUnsignedInt(String.valueOf(offset)));
                 UdfUtils.copyMemory(bytes, UdfUtils.BYTE_ARRAY_OFFSET, null, outputBufferBase + offset - bytes.length,
                         bytes.length);
-                updateOutputOffset(offset);
                 break;
             }
             case ARRAY_TYPE:
             default:
                 throw new UdfRuntimeException("Unsupported return type: " + retType);
         }
-    }
-
-
-    protected void updateOutputOffset(long offset) {
     }
 
     public Object[] convertBasicArg(boolean isUdf, int argIdx, boolean isNullable, int rowStart, int rowEnd,

@@ -44,15 +44,6 @@ public class UdfExecutor extends BaseExecutor {
     // setup by init() and cleared by close()
     private Method method;
 
-    // Pre-constructed input objects for the UDF. This minimizes object creation
-    // overhead
-    // as these objects are reused across calls to evaluate().
-    private Object[] inputObjects;
-
-    private long outputOffset;
-    private long rowIdx;
-
-    private long batchSizePtr;
     private int evaluateIndex;
 
     /**
@@ -167,21 +158,12 @@ public class UdfExecutor extends BaseExecutor {
         return method;
     }
 
-
-    @Override
-    protected void updateOutputOffset(long offset) {
-        outputOffset = offset;
-    }
-
     // Preallocate the input objects that will be passed to the underlying UDF.
     // These objects are allocated once and reused across calls to evaluate()
     @Override
     protected void init(TJavaUdfExecutorCtorParams request, String jarPath, Type funcRetType,
             Type... parameterTypes) throws UdfRuntimeException {
         String className = request.fn.scalar_fn.symbol;
-        batchSizePtr = request.batch_size_ptr;
-        outputOffset = 0L;
-        rowIdx = 0L;
         ArrayList<String> signatures = Lists.newArrayList();
         try {
             LOG.debug("Loading UDF '" + className + "' from " + jarPath);
