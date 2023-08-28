@@ -119,7 +119,7 @@ suite("test_local_tvf_with_complex_type_insertinto_doris", "p0") {
             ); """
 
 
-    qt_sql """
+    qt_sql_orc_tvf """
         select * from local(
             "file_path" = "${outFilePath}/comp_arr.orc",
             "backend_id" = "${be_id}",
@@ -131,9 +131,11 @@ suite("test_local_tvf_with_complex_type_insertinto_doris", "p0") {
             "backend_id" = "${be_id}",
              "format" = "orc");"""
 
-    qt_sql """ select * from ${table_arr} order by id; """
+    qt_sql_orc_inner """ select * from ${table_arr} order by id; """
 
-    qt_sql """
+    qt_sql """ truncate table ${table_arr} """
+
+    qt_sql_parquet_tvf """
         select * from local(
             "file_path" = "${outFilePath}/comp_arr.parquet",
             "backend_id" = "${be_id}",
@@ -147,7 +149,7 @@ suite("test_local_tvf_with_complex_type_insertinto_doris", "p0") {
 
     qt_sql_count """ select count(*) from ${table_arr} """
 
-    qt_sql """ select * from ${table_arr} order by id"""
+    qt_sql_parquet_inner """ select * from ${table_arr} order by id"""
 
     qt_sql """ drop table ${table_arr} """
 

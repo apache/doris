@@ -925,9 +925,9 @@ Status ArrayColumnWriter::append_data(const uint8_t** ptr, size_t num_rows) {
             // now only support nested type is scala
             if (writer != nullptr) {
                 //NOTE: use array field name as index field, but item_writer size should be used when moving item_data_ptr
-                _inverted_index_builder->add_array_values(_item_writer->get_field()->size(),
-                                                          reinterpret_cast<const void*>(data),
-                                                          offsets_ptr, num_rows);
+                _inverted_index_builder->add_array_values(
+                        _item_writer->get_field()->size(), reinterpret_cast<const void*>(data),
+                        reinterpret_cast<const uint8_t*>(nested_null_map), offsets_ptr, num_rows);
             }
         }
     }

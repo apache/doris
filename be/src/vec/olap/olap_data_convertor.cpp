@@ -995,10 +995,12 @@ Status OlapBlockDataConvertor::OlapColumnDataConvertorArray::convert_to_olap(
     auto elem_size = end_offset - start_offset;
 
     _offsets.clear();
-    _offsets.reserve(_num_rows);
-    for (int i = 0; i < _num_rows; ++i) {
+    _offsets.reserve(_num_rows + 1);
+    int i = 0;
+    for (; i < _num_rows; ++i) {
         _offsets.push_back(column_array->offset_at(i + _row_pos) - start_offset + _base_offset);
     }
+    _offsets.push_back(column_array->offset_at(i + _row_pos) - start_offset + _base_offset);
     _base_offset += elem_size;
 
     ColumnWithTypeAndName item_typed_column = {item_data, data_type_array->get_nested_type(),
