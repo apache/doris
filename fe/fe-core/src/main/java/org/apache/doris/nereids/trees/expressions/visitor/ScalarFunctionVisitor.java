@@ -96,6 +96,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.ConvertTo;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ConvertTz;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Cos;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.CountEqual;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.CreateMap;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.CurrentCatalog;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.CurrentDate;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.CurrentTime;
@@ -130,6 +131,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.Dsqrt;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.E;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ElementAt;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Elt;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.EncryptKeyRef;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.EndsWith;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.EsQuery;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Exp;
@@ -199,6 +201,11 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.Lower;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Lpad;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Ltrim;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MakeDate;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.MapContainsKey;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.MapContainsValue;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.MapKeys;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.MapSize;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.MapValues;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Mask;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MaskFirstN;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MaskLastN;
@@ -833,6 +840,10 @@ public interface ScalarFunctionVisitor<R, C> {
 
     default R visitEndsWith(EndsWith endsWith, C context) {
         return visitScalarFunction(endsWith, context);
+    }
+
+    default R visitEncryptKeyRef(EncryptKeyRef encryptKeyRef, C context) {
+        return visitScalarFunction(encryptKeyRef, context);
     }
 
     default R visitEsQuery(EsQuery esQuery, C context) {
@@ -1657,5 +1668,31 @@ public interface ScalarFunctionVisitor<R, C> {
 
     default R visitAliasUdf(AliasUdf aliasUdf, C context) {
         return visitScalarFunction(aliasUdf, context);
+    }
+
+    // map functions
+
+    default R visitCreateMap(CreateMap createMap, C context) {
+        return visitScalarFunction(createMap, context);
+    }
+
+    default R visitMapContainsKey(MapContainsKey mapContainsKey, C context) {
+        return visitScalarFunction(mapContainsKey, context);
+    }
+
+    default R visitMapContainsValue(MapContainsValue mapContainsValue, C context) {
+        return visitScalarFunction(mapContainsValue, context);
+    }
+
+    default R visitMapKeys(MapKeys mapKeys, C context) {
+        return visitScalarFunction(mapKeys, context);
+    }
+
+    default R visitMapSize(MapSize mapSize, C context) {
+        return visitScalarFunction(mapSize, context);
+    }
+
+    default R visitMapValues(MapValues mapValues, C context) {
+        return visitScalarFunction(mapValues, context);
     }
 }

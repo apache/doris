@@ -184,6 +184,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.DaysAdd;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.DaysDiff;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.DaysSub;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ElementAt;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.EncryptKeyRef;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.HoursAdd;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.HoursDiff;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.HoursSub;
@@ -216,6 +217,7 @@ import org.apache.doris.nereids.trees.expressions.literal.LargeIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.SmallIntLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.TinyIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
 import org.apache.doris.nereids.trees.plans.JoinHint;
@@ -1109,6 +1111,13 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             return new UnboundFunction(functionName, false,
                     Collections.singletonList(getExpression(ctx.source)));
         });
+    }
+
+    @Override
+    public Expression visitEncryptKey(DorisParser.EncryptKeyContext ctx) {
+        String db = ctx.dbName == null ? "" : ctx.dbName.getText();
+        String key = ctx.keyName.getText();
+        return new EncryptKeyRef(new StringLiteral(db), new StringLiteral(key));
     }
 
     @Override

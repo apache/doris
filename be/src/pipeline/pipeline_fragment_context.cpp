@@ -123,7 +123,6 @@ PipelineFragmentContext::PipelineFragmentContext(
           _fragment_id(fragment_id),
           _backend_num(backend_num),
           _exec_env(exec_env),
-          _cancel_reason(PPlanFragmentCancelReason::INTERNAL_ERROR),
           _query_ctx(std::move(query_ctx)),
           _call_back(call_back),
           _report_thread_active(false),
@@ -137,48 +136,28 @@ PipelineFragmentContext::PipelineFragmentContext(
 }
 
 PipelineFragmentContext::~PipelineFragmentContext() {
+    auto st = _query_ctx->exec_status();
     if (_runtime_state != nullptr) {
         // The memory released by the query end is recorded in the query mem tracker, main memory in _runtime_state.
         SCOPED_ATTACH_TASK(_runtime_state.get());
-        _call_back(_runtime_state.get(), &_exec_status);
+        _call_back(_runtime_state.get(), &st);
         _runtime_state.reset();
     } else {
-        _call_back(_runtime_state.get(), &_exec_status);
+        _call_back(_runtime_state.get(), &st);
     }
     DCHECK(!_report_thread_active);
 }
 
 void PipelineFragmentContext::cancel(const PPlanFragmentCancelReason& reason,
                                      const std::string& msg) {
-    if (!_runtime_state->is_cancelled()) {
-        std::lock_guard<std::mutex> l(_status_lock);
-        if (_runtime_state->is_cancelled()) {
-            return;
-        }
-        if (reason != PPlanFragmentCancelReason::LIMIT_REACH) {
-            _exec_status = Status::Cancelled(msg);
-        }
-        _runtime_state->set_is_cancelled(true, msg);
-
+    if (_query_ctx->cancel(true, msg, Status::Cancelled(msg))) {
         LOG(WARNING) << "PipelineFragmentContext Canceled. reason=" << msg;
-
-        // Print detail informations below when you debugging here.
-        //
-        // for (auto& task : _tasks) {
-        //     LOG(WARNING) << task->debug_string();
-        // }
-
-        _runtime_state->set_process_status(_exec_status);
         // Get pipe from new load stream manager and send cancel to it or the fragment may hang to wait read from pipe
         // For stream load the fragment's query_id == load id, it is set in FE.
         auto stream_load_ctx = _exec_env->new_load_stream_mgr()->get(_query_id);
         if (stream_load_ctx != nullptr) {
             stream_load_ctx->pipe->cancel(msg);
         }
-        _cancel_reason = reason;
-        _cancel_msg = msg;
-        // To notify wait_for_start()
-        _query_ctx->set_ready_to_execute(true);
 
         // must close stream_mgr to avoid dead lock in Exchange Node
         _exec_env->vstream_mgr()->cancel(_fragment_instance_id);
@@ -745,7 +724,7 @@ Status PipelineFragmentContext::_create_sink(int sender_id, const TDataSink& thr
     switch (thrift_sink.type) {
     case TDataSinkType::DATA_STREAM_SINK: {
         sink_ = std::make_shared<ExchangeSinkOperatorBuilder>(thrift_sink.stream_sink.dest_node_id,
-                                                              _sink.get(), this);
+                                                              _sink.get());
         break;
     }
     case TDataSinkType::RESULT_SINK: {
@@ -811,7 +790,7 @@ Status PipelineFragmentContext::_create_sink(int sender_id, const TDataSink& thr
 
             // 3. create and set sink operator of data stream sender for new pipeline
             OperatorBuilderPtr sink_op_builder = std::make_shared<ExchangeSinkOperatorBuilder>(
-                    next_operator_builder_id(), _multi_cast_stream_sink_senders[i].get(), this, i);
+                    next_operator_builder_id(), _multi_cast_stream_sink_senders[i].get(), i);
             new_pipeline->set_sink(sink_op_builder);
 
             // 4. init and prepare the data_stream_sender of diff exchange
@@ -849,7 +828,7 @@ void PipelineFragmentContext::send_report(bool done) {
     Status exec_status = Status::OK();
     {
         std::lock_guard<std::mutex> l(_status_lock);
-        exec_status = _exec_status;
+        exec_status = _query_ctx->exec_status();
     }
 
     // If plan is done successfully, but _is_report_success is false,

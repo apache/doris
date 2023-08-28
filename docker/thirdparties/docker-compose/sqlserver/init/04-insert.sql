@@ -60,3 +60,6 @@ VALUES (
     '2023-06-25 14:30:45.1234567 -07:00' -- DATETIMEOFFSET
 );
 
+INSERT INTO dbo.t_id (ID, Name) VALUES (NEWID(), 'Data 1');
+INSERT INTO dbo.t_id (ID, Name) VALUES (NEWID(), 'Data 2');
+

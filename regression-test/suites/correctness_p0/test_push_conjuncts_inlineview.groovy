@@ -128,6 +128,28 @@ sql """
     WHERE dd.d1 IN ('-1');
 """
 
+explain {
+        sql("""SELECT max(b_key)
+            FROM 
+                (SELECT a_key,
+                    max(b_key) AS b_key
+                FROM 
+                    (SELECT a_key,
+                    max(b_key) AS b_key
+                    FROM push_conjunct_table
+                    GROUP BY  a_key
+                    UNION all 
+                    SELECT a_key,
+                    max(b_key) AS b_key
+                    FROM push_conjunct_table
+                    GROUP BY  a_key) t2
+                    GROUP BY  t2.a_key ) t
+                WHERE t.a_key = "abcd"
+            GROUP BY  t.a_key;""")
+        notContains "having"
+        contains "= 'abcd'"
+    }
+
  sql """ DROP TABLE IF EXISTS `push_conjunct_table` """
 }
 
