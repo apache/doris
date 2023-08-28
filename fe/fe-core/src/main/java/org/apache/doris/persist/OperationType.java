@@ -105,6 +105,7 @@ public class OperationType {
     public static final short OP_BACKEND_TABLETS_INFO = 46;
     public static final short OP_SET_REPLICA_STATUS = 47;
     public static final short OP_BACKEND_REPLICAS_INFO = 48;
+    public static final short OP_SET_PARTITION_VERSION = 49;
 
     public static final short OP_ADD_BACKEND = 50;
     public static final short OP_DROP_BACKEND = 51;
@@ -224,6 +225,9 @@ public class OperationType {
 
     // set table default distribution bucket num
     public static final short OP_MODIFY_DISTRIBUTION_BUCKET_NUM = 268;
+
+    // set table status
+    public static final short OP_SET_TABLE_STATUS = 269;
 
     // plugin 270~275
     public static final short OP_INSTALL_PLUGIN = 270;

@@ -385,7 +385,7 @@ SELECT /*+ SET_VAR(query_timeout = 1, enable_partition_cache=true) */ sleep(3);
 
 - `sql_select_limit`
 
-  用于兼容 MySQL 客户端。无实际作用。
+  用于设置 select 语句的默认返回行数，包括 insert 语句的 select 从句。默认不限制。
 
 - `system_time_zone`
 
