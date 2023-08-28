@@ -1940,9 +1940,9 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     @Override
     public Map<String, String> visitPropertySeq(PropertySeqContext ctx) {
         Builder<String, String> map = ImmutableMap.builder();
-        for (TvfPropertyContext argument : ctx.properties) {
-            String key = parseTVFPropertyItem(argument.key);
-            String value = parseTVFPropertyItem(argument.value);
+        for (PropertyContext argument : ctx.properties) {
+            String key = parsePropertyItem(argument.key);
+            String value = parsePropertyItem(argument.value);
             map.put(key, value);
         }
         return map.build();

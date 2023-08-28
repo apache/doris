@@ -394,7 +394,7 @@ rollupDef
     ;
     
 propertySeq
-    : properties+=tvfProperty (COMMA properties+=tvfProperty)*
+    : properties+=property (COMMA properties+=property)*
     ;
 
 aggTypeDef
