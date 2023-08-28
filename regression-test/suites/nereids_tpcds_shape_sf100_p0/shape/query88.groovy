@@ -70,7 +70,7 @@ from
      and ((household_demographics.hd_dep_count = -1 and household_demographics.hd_vehicle_count<=-1+2) or
           (household_demographics.hd_dep_count = 4 and household_demographics.hd_vehicle_count<=4+2) or
           (household_demographics.hd_dep_count = 3 and household_demographics.hd_vehicle_count<=3+2))
-     and store.s_store_name = 'ese') s3,
+     and store.s_store_name = 'ese') ss3,
  (select count(*) h10_to_10_30
  from store_sales, household_demographics , time_dim, store
  where ss_sold_time_sk = time_dim.t_time_sk
