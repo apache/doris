@@ -81,6 +81,7 @@ public class JdbcSQLServerClient extends JdbcClient {
             case "ntext":
             case "time":
             case "datetimeoffset":
+            case "uniqueidentifier":
                 return ScalarType.createStringType();
             case "image":
             case "binary":
