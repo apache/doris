@@ -1381,6 +1381,13 @@ public class Env {
                 VariableMgr.setGlobalPipelineTask(newVal);
                 LOG.info("upgrade FE from 1.x to 2.0, set parallel_pipeline_task_num "
                         + "to parallel_fragment_exec_instance_num: {}", newVal);
+
+                // similar reason as above, need to upgrade broadcast scale factor during 1.2 to 2.x
+                // if the default value has been upgraded
+                double newBcFactorVal = VariableMgr.newSessionVariable().getBroadcastRightTableScaleFactor();
+                VariableMgr.setGlobalBroadcastScaleFactor(newBcFactorVal);
+                LOG.info("upgrade FE from 1.x to 2.x, set broadcast_right_table_scale_factor "
+                        + "to new default value: {}", newBcFactorVal);
             }
         }
 

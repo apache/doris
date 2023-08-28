@@ -17,6 +17,8 @@
 
 #include "runtime/jsonb_value.h"
 
+#include <fmt/format.h>
+
 #include <string_view>
 
 #include "util/jsonb_error.h"
@@ -30,8 +32,10 @@ Status JsonBinaryValue::from_json_string(const char* s, int length) {
     JsonbErrType error = JsonbErrType::E_NONE;
     if (!parser.parse(s, length)) {
         error = parser.getErrorCode();
-        return Status::InvalidArgument("json parse error: {} for value: {}",
-                                       JsonbErrMsg::getErrMsg(error), std::string_view(s, length));
+        auto msg = fmt::format("json parse error: {} for value: {}", JsonbErrMsg::getErrMsg(error),
+                               std::string_view(s, length));
+        LOG(WARNING) << msg;
+        return Status::InvalidArgument(msg);
     }
 
     ptr = parser.getWriter().getOutput()->getBuffer();

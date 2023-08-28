@@ -26,6 +26,7 @@
 #include <opentelemetry/trace/span_context.h>
 #include <opentelemetry/trace/tracer.h>
 #include <pthread.h>
+#include <runtime/result_buffer_mgr.h>
 #include <stdlib.h>
 // IWYU pragma: no_include <bits/chrono.h>
 #include <chrono> // IWYU pragma: keep
@@ -42,6 +43,8 @@
 #include "io/fs/stream_load_pipe.h"
 #include "pipeline/exec/aggregation_sink_operator.h"
 #include "pipeline/exec/aggregation_source_operator.h"
+#include "pipeline/exec/analytic_sink_operator.h"
+#include "pipeline/exec/analytic_source_operator.h"
 #include "pipeline/exec/data_queue.h"
 #include "pipeline/exec/datagen_operator.h"
 #include "pipeline/exec/exchange_sink_operator.h"
@@ -250,8 +253,7 @@ Status PipelineXFragmentContext::_create_data_sink(ObjectPool* pool, const TData
         }
 
         // TODO: figure out good buffer size based on size of output row
-        _sink.reset(new ResultSinkOperatorX(row_desc, output_exprs, thrift_sink.result_sink,
-                                            vectorized::RESULT_SINK_BUFFER_SIZE));
+        _sink.reset(new ResultSinkOperatorX(row_desc, output_exprs, thrift_sink.result_sink));
         break;
     }
     default:
@@ -300,10 +302,30 @@ Status PipelineXFragmentContext::_build_pipeline_tasks(
             auto scan_ranges = find_with_default(local_params.per_node_scan_ranges,
                                                  _pipelines[pip_idx]->operator_xs().front()->id(),
                                                  no_scan_ranges);
+            std::shared_ptr<BufferControlBlock> sender = nullptr;
+            if (_pipelines[pip_idx]->sink_x()->need_to_create_result_sender()) {
+                // create sender
+                RETURN_IF_ERROR(_runtime_states[i]->exec_env()->result_mgr()->create_sender(
+                        _runtime_states[i]->fragment_instance_id(),
+                        vectorized::RESULT_SINK_BUFFER_SIZE, &sender, true,
+                        _runtime_states[i]->execution_timeout()));
+            }
+
+            std::shared_ptr<vectorized::VDataStreamRecvr> recvr = nullptr;
+            if (_pipelines[pip_idx]->operator_xs().front()->need_to_create_exch_recv()) {
+                auto* src =
+                        (ExchangeSourceOperatorX*)_pipelines[pip_idx]->operator_xs().front().get();
+                recvr = _runtime_states[i]->exec_env()->vstream_mgr()->create_recvr(
+                        _runtime_states[i].get(), src->input_row_desc(),
+                        _runtime_states[i]->fragment_instance_id(), src->id(), src->num_senders(),
+                        _runtime_profile.get(), src->is_merging(),
+                        src->sub_plan_query_statistics_recvr());
+            }
 
             auto task = std::make_unique<PipelineXTask>(
                     _pipelines[pip_idx], _total_tasks++, _runtime_states[i].get(), this,
-                    _pipelines[pip_idx]->pipeline_profile(), scan_ranges, local_params.sender_id);
+                    _pipelines[pip_idx]->pipeline_profile(), scan_ranges, local_params.sender_id,
+                    sender, recvr);
             pipeline_id_to_task.insert({_pipelines[pip_idx]->id(), task.get()});
             RETURN_IF_ERROR(task->prepare(_runtime_states[i].get()));
             _runtime_profile->add_child(_pipelines[pip_idx]->pipeline_profile(), true, nullptr);
@@ -471,7 +493,7 @@ Status PipelineXFragmentContext::_create_tree_helper(ObjectPool* pool,
 
     RETURN_IF_ERROR(op->init(tnode, _runtime_state.get()));
 
-    if (op->get_child()) {
+    if (op->get_child() && !op->is_source()) {
         op->get_runtime_profile()->add_child(op->get_child()->get_runtime_profile(), true, nullptr);
     }
 
@@ -546,6 +568,23 @@ Status PipelineXFragmentContext::_create_operator(ObjectPool* pool, const TPlanN
 
         DataSinkOperatorXPtr sink;
         sink.reset(new SortSinkOperatorX(pool, tnode, descs));
+        RETURN_IF_ERROR(cur_pipe->set_sink(sink));
+        RETURN_IF_ERROR(cur_pipe->sink_x()->init(tnode, _runtime_state.get()));
+        break;
+    }
+    case TPlanNodeType::ANALYTIC_EVAL_NODE: {
+        op.reset(new AnalyticSourceOperatorX(pool, tnode, descs, "AnalyticSourceXOperator"));
+        RETURN_IF_ERROR(cur_pipe->add_operator(op));
+
+        const auto downstream_pipeline_id = cur_pipe->id();
+        if (_dag.find(downstream_pipeline_id) == _dag.end()) {
+            _dag.insert({downstream_pipeline_id, {}});
+        }
+        cur_pipe = add_pipeline();
+        _dag[downstream_pipeline_id].push_back(cur_pipe->id());
+
+        DataSinkOperatorXPtr sink;
+        sink.reset(new AnalyticSinkOperatorX(pool, tnode, descs));
         RETURN_IF_ERROR(cur_pipe->set_sink(sink));
         RETURN_IF_ERROR(cur_pipe->sink_x()->init(tnode, _runtime_state.get()));
         break;

@@ -67,10 +67,12 @@ Status SortSourceOperatorX::setup_local_state(RuntimeState* state, LocalStateInf
     return local_state->init(state, info);
 }
 
-Status SortSourceOperatorX::close(doris::RuntimeState* state) {
-    auto& local_state = state->get_local_state(id())->cast<SortLocalState>();
-    local_state._shared_state->sorter = nullptr;
-    return Status::OK();
+Status SortLocalState::close(RuntimeState* state) {
+    if (_closed) {
+        return Status::OK();
+    }
+    _shared_state->sorter = nullptr;
+    return PipelineXLocalState::close(state);
 }
 
 } // namespace doris::pipeline

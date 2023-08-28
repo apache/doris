@@ -36,6 +36,9 @@
 #include "olap/utils.h"
 
 namespace doris {
+namespace {
+const std::string ROWSET_PREFIX = "rst_";
+} // namespace
 
 using namespace ErrorCode;
 
@@ -411,8 +414,7 @@ Status RowsetMetaManager::remove(OlapMeta* meta, TabletUid tablet_uid, const Row
 
 Status RowsetMetaManager::remove_binlog(OlapMeta* meta, const std::string& suffix) {
     return meta->remove(META_COLUMN_FAMILY_INDEX,
-                        std::vector<std::string> {kBinlogMetaPrefix.data() + suffix,
-                                                  kBinlogDataPrefix.data() + suffix});
+                        {kBinlogMetaPrefix.data() + suffix, kBinlogDataPrefix.data() + suffix});
 }
 
 Status RowsetMetaManager::ingest_binlog_metas(OlapMeta* meta, TabletUid tablet_uid,
@@ -441,33 +443,23 @@ Status RowsetMetaManager::traverse_rowset_metas(
         std::function<bool(const TabletUid&, const RowsetId&, const std::string&)> const& func) {
     auto traverse_rowset_meta_func = [&func](const std::string& key,
                                              const std::string& value) -> bool {
-        std::pair<TabletUid, RowsetId> res;
-        if (!_get_tablet_id_and_rowset_id(key, &res)) {
+        std::vector<std::string> parts;
+        // key format: rst_uuid_rowset_id
+        split_string<char>(key, '_', &parts);
+        if (parts.size() != 3) {
+            LOG(WARNING) << "invalid rowset key:" << key << ", splitted size:" << parts.size();
             return true;
         }
-        return func(res.first, res.second, value);
+        RowsetId rowset_id;
+        rowset_id.init(parts[2]);
+        std::vector<std::string> uid_parts;
+        split_string<char>(parts[1], '-', &uid_parts);
+        TabletUid tablet_uid(uid_parts[0], uid_parts[1]);
+        return func(tablet_uid, rowset_id, value);
     };
     Status status =
             meta->iterate(META_COLUMN_FAMILY_INDEX, ROWSET_PREFIX, traverse_rowset_meta_func);
     return status;
-}
-
-bool RowsetMetaManager::_get_tablet_id_and_rowset_id(const std::string& key,
-                                                     std::pair<TabletUid, RowsetId>* res) {
-    std::vector<std::string> parts;
-    // key format: rst_uuid_rowset_id
-    split_string<char>(key, '_', &parts);
-    if (parts.size() != 3) {
-        LOG(WARNING) << "invalid rowset key:" << key << ", splitted size:" << parts.size();
-        return false;
-    }
-    RowsetId rowset_id;
-    rowset_id.init(parts[2]);
-    std::vector<std::string> uid_parts;
-    split_string<char>(parts[1], '-', &uid_parts);
-    TabletUid tablet_uid(uid_parts[0], uid_parts[1]);
-    *res = {tablet_uid, rowset_id};
-    return true;
 }
 
 Status RowsetMetaManager::traverse_binlog_metas(

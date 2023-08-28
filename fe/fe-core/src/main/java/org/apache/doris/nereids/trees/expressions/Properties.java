@@ -30,12 +30,13 @@ import java.util.Objects;
 import java.util.stream.Collectors;
 
 /**
- * TVFProperties
+ * Properties
  */
-public class TVFProperties extends Expression implements LeafExpression {
+public class Properties extends Expression implements LeafExpression {
+
     private final Map<String, String> keyValues;
 
-    public TVFProperties(Map<String, String> properties) {
+    public Properties(Map<String, String> properties) {
         super(ImmutableList.of());
         this.keyValues = Objects.requireNonNull(properties, "properties can not be null");
     }
@@ -65,7 +66,7 @@ public class TVFProperties extends Expression implements LeafExpression {
 
     @Override
     public String toString() {
-        return "TVFProperties(" + toSql() + ")";
+        return "Properties(" + toSql() + ")";
     }
 
     @Override
@@ -79,7 +80,7 @@ public class TVFProperties extends Expression implements LeafExpression {
         if (!super.equals(o)) {
             return false;
         }
-        TVFProperties that = (TVFProperties) o;
+        Properties that = (Properties) o;
         return Objects.equals(keyValues, that.keyValues);
     }
 
@@ -90,6 +91,6 @@ public class TVFProperties extends Expression implements LeafExpression {
 
     @Override
     public <R, C> R accept(ExpressionVisitor<R, C> visitor, C context) {
-        return visitor.visitTVFProperties(this, context);
+        return visitor.visitProperties(this, context);
     }
 }

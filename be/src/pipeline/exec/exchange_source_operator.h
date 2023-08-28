@@ -55,6 +55,7 @@ class ExchangeLocalState : public PipelineXLocalState {
     ExchangeLocalState(RuntimeState* state, OperatorXBase* parent);
 
     Status init(RuntimeState* state, LocalStateInfo& info) override;
+    Status close(RuntimeState* state) override;
 
     std::shared_ptr<doris::vectorized::VDataStreamRecvr> stream_recvr;
     doris::vectorized::VSortExecExprs vsort_exec_exprs;
@@ -79,6 +80,16 @@ public:
 
     Status close(RuntimeState* state) override;
     bool is_source() const override { return true; }
+    bool need_to_create_exch_recv() const override { return true; }
+
+    RowDescriptor input_row_desc() const { return _input_row_desc; }
+
+    int num_senders() const { return _num_senders; }
+    bool is_merging() const { return _is_merging; }
+
+    std::shared_ptr<QueryStatisticsRecvr> sub_plan_query_statistics_recvr() {
+        return _sub_plan_query_statistics_recvr;
+    }
 
 private:
     friend class ExchangeLocalState;
