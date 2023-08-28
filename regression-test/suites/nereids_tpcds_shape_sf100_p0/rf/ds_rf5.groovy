@@ -29,7 +29,7 @@ suite("ds_rf5") {
     sql 'set forbid_unknown_col_stats=true'
     sql 'set broadcast_row_count_limit = 30000000'
     sql 'set enable_nereids_timeout = false'
-
+    sql 'set enable_pipeline_engine=true'
     String stmt = '''
     explain physical plan
     with ssr as
@@ -178,5 +178,5 @@ suite("ds_rf5") {
     // File file = new File(outFile)
     // file.write(getRuntimeFilters(plan))
     
-    assertEquals("RF2[s_store_sk->[ss_store_sk],RF3[s_store_sk->[sr_store_sk],RF0[d_date_sk->[ss_sold_date_sk],RF1[d_date_sk->[sr_returned_date_sk],RF4[d_date_sk->[cs_sold_date_sk],RF5[d_date_sk->[cr_returned_date_sk],RF10[web_site_sk->[ws_web_site_sk],RF11[web_site_sk->[ws_web_site_sk],RF8[d_date_sk->[ws_sold_date_sk],RF9[d_date_sk->[wr_returned_date_sk],RF6[wr_item_sk->[ws_item_sk],RF7[wr_order_number->[ws_order_number]", getRuntimeFilters(plan))
+     assertEquals("RF2[s_store_sk->[ss_store_sk],RF3[s_store_sk->[sr_store_sk],RF0[d_date_sk->[ss_sold_date_sk],RF1[d_date_sk->[sr_returned_date_sk],RF4[d_date_sk->[cs_sold_date_sk],RF5[d_date_sk->[cr_returned_date_sk],RF10[web_site_sk->[ws_web_site_sk],RF11[web_site_sk->[ws_web_site_sk],RF8[d_date_sk->[ws_sold_date_sk],RF9[d_date_sk->[wr_returned_date_sk],RF6[wr_item_sk->[ws_item_sk],RF7[wr_order_number->[ws_order_number]", getRuntimeFilters(plan))
 }

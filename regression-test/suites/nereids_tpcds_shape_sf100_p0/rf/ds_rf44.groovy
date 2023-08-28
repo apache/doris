@@ -29,7 +29,7 @@ suite("ds_rf44") {
     sql 'set forbid_unknown_col_stats=true'
     sql 'set broadcast_row_count_limit = 30000000'
     sql 'set enable_nereids_timeout = false'
-
+    sql 'set enable_pipeline_engine=true'
     String stmt = '''
     explain physical plan
     select  asceding.rnk, i1.i_product_name best_performing, i2.i_product_name worst_performing
@@ -85,5 +85,5 @@ limit 100;
     // File file = new File(outFile)
     // file.write(getRuntimeFilters(plan))
     
-    assertEquals("RF1[item_sk->[i_item_sk],RF0[item_sk->[i_item_sk]", getRuntimeFilters(plan))
+     assertEquals("RF1[item_sk->[i_item_sk],RF0[item_sk->[i_item_sk]", getRuntimeFilters(plan))
 }

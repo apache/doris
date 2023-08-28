@@ -29,7 +29,7 @@ suite("ds_rf24") {
     sql 'set forbid_unknown_col_stats=true'
     sql 'set broadcast_row_count_limit = 30000000'
     sql 'set enable_nereids_timeout = false'
-
+    sql 'set enable_pipeline_engine=true'
     String stmt = '''
     explain physical plan
     with ssales as
@@ -105,5 +105,5 @@ order by c_last_name
     // File file = new File(outFile)
     // file.write(getRuntimeFilters(plan))
     
-    assertEquals("RF5[sr_item_sk->[ss_item_sk],RF6[sr_ticket_number->[ss_ticket_number],RF4[i_item_sk->[ss_item_sk],RF2[ca_zip->[s_zip],RF3[ca_address_sk->[c_current_addr_sk],RF1[c_customer_sk->[ss_customer_sk],RF0[s_store_sk->[ss_store_sk]", getRuntimeFilters(plan))
+     assertEquals("RF5[sr_item_sk->[ss_item_sk],RF6[sr_ticket_number->[ss_ticket_number],RF4[i_item_sk->[ss_item_sk],RF2[ca_zip->[s_zip],RF3[ca_address_sk->[c_current_addr_sk],RF1[c_customer_sk->[ss_customer_sk],RF0[s_store_sk->[ss_store_sk]", getRuntimeFilters(plan))
 }

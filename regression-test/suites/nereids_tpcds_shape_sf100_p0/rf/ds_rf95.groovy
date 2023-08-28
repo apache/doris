@@ -29,7 +29,7 @@ suite("ds_rf95") {
     sql 'set forbid_unknown_col_stats=true'
     sql 'set broadcast_row_count_limit = 30000000'
     sql 'set enable_nereids_timeout = false'
-
+    sql 'set enable_pipeline_engine=true'
     String stmt = '''
     explain physical plan
     with ws_wh as
@@ -82,5 +82,5 @@ limit 100;
     // File file = new File(outFile)
     // file.write(getRuntimeFilters(plan))
     
-    assertEquals("RF0[ws_order_number->[ws_order_number],RF7[ws_ship_date_sk->[d_date_sk],RF4[wr_order_number->[ws_order_number],RF5[wr_order_number->[ws_order_number, ws_order_number],RF3[ws_order_number->[ws_order_number],RF6[ws_order_number->[ws_order_number, ws_order_number],RF2[web_site_sk->[ws_web_site_sk],RF1[ca_address_sk->[ws_ship_addr_sk]", getRuntimeFilters(plan))
+     assertEquals("RF0[ws_order_number->[ws_order_number],RF7[ws_ship_date_sk->[d_date_sk],RF4[wr_order_number->[ws_order_number],RF5[wr_order_number->[ws_order_number, ws_order_number],RF3[ws_order_number->[ws_order_number],RF6[ws_order_number->[ws_order_number, ws_order_number],RF2[web_site_sk->[ws_web_site_sk],RF1[ca_address_sk->[ws_ship_addr_sk]", getRuntimeFilters(plan))
 }

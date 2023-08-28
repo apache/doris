@@ -29,7 +29,7 @@ suite("ds_rf61") {
     sql 'set forbid_unknown_col_stats=true'
     sql 'set broadcast_row_count_limit = 30000000'
     sql 'set enable_nereids_timeout = false'
-
+    sql 'set enable_pipeline_engine=true'
     String stmt = '''
     explain physical plan
     select  promotions,total,cast(promotions as decimal(15,4))/cast(total as decimal(15,4))*100
@@ -94,5 +94,5 @@ limit 100;
     // File file = new File(outFile)
     // file.write(getRuntimeFilters(plan))
     
-    assertEquals("RF10[c_current_addr_sk->[ca_address_sk],RF9[ss_customer_sk->[c_customer_sk],RF8[ss_item_sk->[i_item_sk],RF7[p_promo_sk->[ss_promo_sk],RF6[d_date_sk->[ss_sold_date_sk],RF5[s_store_sk->[ss_store_sk],RF4[c_current_addr_sk->[ca_address_sk],RF3[ss_customer_sk->[c_customer_sk],RF2[ss_item_sk->[i_item_sk],RF1[d_date_sk->[ss_sold_date_sk],RF0[s_store_sk->[ss_store_sk]", getRuntimeFilters(plan))
+     assertEquals("RF10[c_current_addr_sk->[ca_address_sk],RF9[ss_customer_sk->[c_customer_sk],RF8[ss_item_sk->[i_item_sk],RF7[p_promo_sk->[ss_promo_sk],RF6[d_date_sk->[ss_sold_date_sk],RF5[s_store_sk->[ss_store_sk],RF4[c_current_addr_sk->[ca_address_sk],RF3[ss_customer_sk->[c_customer_sk],RF2[ss_item_sk->[i_item_sk],RF1[d_date_sk->[ss_sold_date_sk],RF0[s_store_sk->[ss_store_sk]", getRuntimeFilters(plan))
 }

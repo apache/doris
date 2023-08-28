@@ -29,7 +29,7 @@ suite("ds_rf4") {
     sql 'set forbid_unknown_col_stats=true'
     sql 'set broadcast_row_count_limit = 30000000'
     sql 'set enable_nereids_timeout = false'
-
+    sql 'set enable_pipeline_engine=true'
     String stmt = '''
     explain physical plan
     with year_total as (
@@ -166,5 +166,5 @@ limit 100;
     // File file = new File(outFile)
     // file.write(getRuntimeFilters(plan))
     
-    assertEquals("RF1[d_date_sk->[ss_sold_date_sk],RF0[c_customer_sk->[ss_customer_sk],RF3[d_date_sk->[cs_sold_date_sk],RF2[c_customer_sk->[cs_bill_customer_sk],RF5[d_date_sk->[ws_sold_date_sk],RF4[c_customer_sk->[ws_bill_customer_sk]", getRuntimeFilters(plan))
+     assertEquals("RF1[d_date_sk->[ss_sold_date_sk],RF0[c_customer_sk->[ss_customer_sk],RF3[d_date_sk->[cs_sold_date_sk],RF2[c_customer_sk->[cs_bill_customer_sk],RF5[d_date_sk->[ws_sold_date_sk],RF4[c_customer_sk->[ws_bill_customer_sk]", getRuntimeFilters(plan))
 }

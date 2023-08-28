@@ -29,7 +29,7 @@ suite("ds_rf39") {
     sql 'set forbid_unknown_col_stats=true'
     sql 'set broadcast_row_count_limit = 30000000'
     sql 'set enable_nereids_timeout = false'
-
+    sql 'set enable_pipeline_engine=true'
     String stmt = '''
     explain physical plan
     with inv as
@@ -56,6 +56,7 @@ where inv1.i_item_sk = inv2.i_item_sk
   and inv2.d_moy=1+1
 order by inv1.w_warehouse_sk,inv1.i_item_sk,inv1.d_moy,inv1.mean,inv1.cov
         ,inv2.d_moy,inv2.mean, inv2.cov;
+
     '''
     String plan = sql "${stmt}"
     println plan
@@ -76,5 +77,5 @@ order by inv1.w_warehouse_sk,inv1.i_item_sk,inv1.d_moy,inv1.mean,inv1.cov
     // File file = new File(outFile)
     // file.write(getRuntimeFilters(plan))
     
-    assertEquals("RF2[w_warehouse_sk->[inv_warehouse_sk],RF1[i_item_sk->[inv_item_sk],RF0[d_date_sk->[inv_date_sk]", getRuntimeFilters(plan))
+     assertEquals("RF2[w_warehouse_sk->[inv_warehouse_sk],RF1[i_item_sk->[inv_item_sk],RF0[d_date_sk->[inv_date_sk]", getRuntimeFilters(plan))
 }

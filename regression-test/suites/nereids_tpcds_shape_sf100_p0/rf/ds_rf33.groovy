@@ -29,7 +29,7 @@ suite("ds_rf33") {
     sql 'set forbid_unknown_col_stats=true'
     sql 'set broadcast_row_count_limit = 30000000'
     sql 'set enable_nereids_timeout = false'
-
+    sql 'set enable_pipeline_engine=true'
     String stmt = '''
     explain physical plan
     with ss as (
@@ -125,5 +125,5 @@ limit 100;
     // File file = new File(outFile)
     // file.write(getRuntimeFilters(plan))
     
-    assertEquals("RF3[i_item_sk->[ss_item_sk],RF2[ca_address_sk->[ss_addr_sk],RF1[d_date_sk->[ss_sold_date_sk],RF0[i_manufact_id->[i_manufact_id],RF7[i_item_sk->[cs_item_sk],RF6[ca_address_sk->[cs_bill_addr_sk],RF5[d_date_sk->[cs_sold_date_sk],RF4[i_manufact_id->[i_manufact_id],RF11[i_manufact_id->[i_manufact_id],RF10[ws_item_sk->[i_item_sk],RF9[ca_address_sk->[ws_bill_addr_sk],RF8[d_date_sk->[ws_sold_date_sk]", getRuntimeFilters(plan))
+     assertEquals("RF3[i_item_sk->[ss_item_sk],RF2[ca_address_sk->[ss_addr_sk],RF1[d_date_sk->[ss_sold_date_sk],RF0[i_manufact_id->[i_manufact_id],RF7[i_item_sk->[cs_item_sk],RF6[ca_address_sk->[cs_bill_addr_sk],RF5[d_date_sk->[cs_sold_date_sk],RF4[i_manufact_id->[i_manufact_id],RF11[i_manufact_id->[i_manufact_id],RF10[ws_item_sk->[i_item_sk],RF9[ca_address_sk->[ws_bill_addr_sk],RF8[d_date_sk->[ws_sold_date_sk]", getRuntimeFilters(plan))
 }

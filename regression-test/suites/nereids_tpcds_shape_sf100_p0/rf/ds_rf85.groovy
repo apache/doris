@@ -29,7 +29,7 @@ suite("ds_rf85") {
     sql 'set forbid_unknown_col_stats=true'
     sql 'set broadcast_row_count_limit = 30000000'
     sql 'set enable_nereids_timeout = false'
-
+    sql 'set enable_pipeline_engine=true'
     String stmt = '''
     explain physical plan
     select  substr(r_reason_desc,1,20)
@@ -134,5 +134,5 @@ limit 100;
     // File file = new File(outFile)
     // file.write(getRuntimeFilters(plan))
     
-    assertEquals("RF7[cd_marital_status->[cd_marital_status],RF8[cd_education_status->[cd_education_status],RF9[wr_returning_cdemo_sk->[cd_demo_sk],RF6[ws_web_page_sk->[wp_web_page_sk],RF5[wr_refunded_cdemo_sk->[cd_demo_sk],RF4[wr_reason_sk->[r_reason_sk],RF3[wr_refunded_addr_sk->[ca_address_sk],RF1[ws_item_sk->[wr_item_sk],RF2[ws_order_number->[wr_order_number],RF0[d_date_sk->[ws_sold_date_sk]", getRuntimeFilters(plan))
+     assertEquals("RF7[cd_marital_status->[cd_marital_status],RF8[cd_education_status->[cd_education_status],RF9[wr_returning_cdemo_sk->[cd_demo_sk],RF6[ws_web_page_sk->[wp_web_page_sk],RF5[wr_refunded_cdemo_sk->[cd_demo_sk],RF4[wr_reason_sk->[r_reason_sk],RF3[wr_refunded_addr_sk->[ca_address_sk],RF1[ws_item_sk->[wr_item_sk],RF2[ws_order_number->[wr_order_number],RF0[d_date_sk->[ws_sold_date_sk]", getRuntimeFilters(plan))
 }

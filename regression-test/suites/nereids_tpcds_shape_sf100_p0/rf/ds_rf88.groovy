@@ -29,7 +29,7 @@ suite("ds_rf88") {
     sql 'set forbid_unknown_col_stats=true'
     sql 'set broadcast_row_count_limit = 30000000'
     sql 'set enable_nereids_timeout = false'
-
+    sql 'set enable_pipeline_engine=true'
     String stmt = '''
     explain physical plan
     select  *
@@ -144,5 +144,5 @@ from
     // File file = new File(outFile)
     // file.write(getRuntimeFilters(plan))
     
-    assertEquals("RF23[hd_demo_sk->[ss_hdemo_sk],RF22[s_store_sk->[ss_store_sk],RF21[t_time_sk->[ss_sold_time_sk],RF20[hd_demo_sk->[ss_hdemo_sk],RF19[s_store_sk->[ss_store_sk],RF18[t_time_sk->[ss_sold_time_sk],RF17[hd_demo_sk->[ss_hdemo_sk],RF16[s_store_sk->[ss_store_sk],RF15[t_time_sk->[ss_sold_time_sk],RF14[hd_demo_sk->[ss_hdemo_sk],RF13[s_store_sk->[ss_store_sk],RF12[t_time_sk->[ss_sold_time_sk],RF11[hd_demo_sk->[ss_hdemo_sk],RF10[s_store_sk->[ss_store_sk],RF9[t_time_sk->[ss_sold_time_sk],RF8[hd_demo_sk->[ss_hdemo_sk],RF7[s_store_sk->[ss_store_sk],RF6[t_time_sk->[ss_sold_time_sk],RF5[hd_demo_sk->[ss_hdemo_sk],RF4[s_store_sk->[ss_store_sk],RF3[t_time_sk->[ss_sold_time_sk],RF2[hd_demo_sk->[ss_hdemo_sk],RF1[s_store_sk->[ss_store_sk],RF0[t_time_sk->[ss_sold_time_sk]", getRuntimeFilters(plan))
+     assertEquals("RF23[hd_demo_sk->[ss_hdemo_sk],RF22[s_store_sk->[ss_store_sk],RF21[t_time_sk->[ss_sold_time_sk],RF20[hd_demo_sk->[ss_hdemo_sk],RF19[s_store_sk->[ss_store_sk],RF18[t_time_sk->[ss_sold_time_sk],RF17[hd_demo_sk->[ss_hdemo_sk],RF16[s_store_sk->[ss_store_sk],RF15[t_time_sk->[ss_sold_time_sk],RF14[hd_demo_sk->[ss_hdemo_sk],RF13[s_store_sk->[ss_store_sk],RF12[t_time_sk->[ss_sold_time_sk],RF11[hd_demo_sk->[ss_hdemo_sk],RF10[s_store_sk->[ss_store_sk],RF9[t_time_sk->[ss_sold_time_sk],RF8[hd_demo_sk->[ss_hdemo_sk],RF7[s_store_sk->[ss_store_sk],RF6[t_time_sk->[ss_sold_time_sk],RF5[hd_demo_sk->[ss_hdemo_sk],RF4[s_store_sk->[ss_store_sk],RF3[t_time_sk->[ss_sold_time_sk],RF2[hd_demo_sk->[ss_hdemo_sk],RF1[s_store_sk->[ss_store_sk],RF0[t_time_sk->[ss_sold_time_sk]", getRuntimeFilters(plan))
 }

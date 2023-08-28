@@ -29,7 +29,7 @@ suite("ds_rf43") {
     sql 'set forbid_unknown_col_stats=true'
     sql 'set broadcast_row_count_limit = 30000000'
     sql 'set enable_nereids_timeout = false'
-
+    sql 'set enable_pipeline_engine=true'
     String stmt = '''
     explain physical plan
     select  s_store_name, s_store_id,
@@ -69,5 +69,5 @@ suite("ds_rf43") {
     // File file = new File(outFile)
     // file.write(getRuntimeFilters(plan))
     
-    assertEquals("RF1[s_store_sk->[ss_store_sk],RF0[d_date_sk->[ss_sold_date_sk]", getRuntimeFilters(plan))
+     assertEquals("RF1[s_store_sk->[ss_store_sk],RF0[d_date_sk->[ss_sold_date_sk]", getRuntimeFilters(plan))
 }

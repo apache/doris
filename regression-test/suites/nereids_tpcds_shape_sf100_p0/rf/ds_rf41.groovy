@@ -29,7 +29,7 @@ suite("ds_rf41") {
     sql 'set forbid_unknown_col_stats=true'
     sql 'set broadcast_row_count_limit = 30000000'
     sql 'set enable_nereids_timeout = false'
-
+    sql 'set enable_pipeline_engine=true'
     String stmt = '''
     explain physical plan
     select  distinct(i_product_name)
@@ -102,5 +102,5 @@ suite("ds_rf41") {
     // File file = new File(outFile)
     // file.write(getRuntimeFilters(plan))
     
-    assertEquals("RF0[i_manufact->[i_manufact]", getRuntimeFilters(plan))
+     assertEquals("RF0[i_manufact->[i_manufact]", getRuntimeFilters(plan))
 }
