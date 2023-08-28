@@ -157,7 +157,7 @@ public class CacheAnalyzer {
         }
 
         public void debug() {
-            LOG.debug("table {}, partition id {}, ver {}, time {}, partition num: {}", olapTable.getName(),
+            LOG.debug("table {}, partition id {}, ver {}, time {}, partition num {}", olapTable.getName(),
                     latestPartitionId, latestVersion, latestTime, partitionNum);
         }
     }
