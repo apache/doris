@@ -613,7 +613,7 @@ public class InferPredicatesTest extends TestWithFeService implements MemoPatter
     public void innerJoinShouldNotInferUnderLeftJoinOnClausePredicates() {
         String sql = "select * from student s1"
                 + " left join (select sid as id1, sid as id2, grade from score) s2 on s1.id = s2.id1 and s1.id = 1"
-                + " join (select sid as id1, sid as id2, grade from score) ss3 on s1.id = ss3.id1 where s1.id = 2";
+                + " join (select sid as id1, sid as id2, grade from score) s3 on s1.id = s3.id1 where s1.id = 2";
         PlanChecker.from(connectContext).analyze(sql).rewrite().printlnTree();
         PlanChecker.from(connectContext)
                 .analyze(sql)
