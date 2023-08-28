@@ -226,6 +226,11 @@ Status VScanNode::alloc_resource(RuntimeState* state) {
 }
 
 Status VScanNode::get_next(RuntimeState* state, vectorized::Block* block, bool* eos) {
+    // debug case failure, to be removed
+    if (state->enable_profile()) {
+        LOG(WARNING) << "debug case failure " << print_id(state->query_id()) << " " << get_name()
+                     << ": VScanNode::get_next";
+    }
     SCOPED_TIMER(_get_next_timer);
     SCOPED_TIMER(_runtime_profile->total_time_counter());
     // in inverted index apply logic, in order to optimize query performance,
@@ -242,6 +247,11 @@ Status VScanNode::get_next(RuntimeState* state, vectorized::Block* block, bool* 
     }};
 
     if (state->is_cancelled()) {
+        // debug case failure, to be removed
+        if (state->enable_profile()) {
+            LOG(WARNING) << "debug case failure " << print_id(state->query_id()) << " "
+                         << get_name() << ": VScanNode::get_next canceled";
+        }
         // ISSUE: https://github.com/apache/doris/issues/16360
         // _scanner_ctx may be null here, see: `VScanNode::alloc_resource` (_eos == null)
         if (_scanner_ctx) {
@@ -254,6 +264,11 @@ Status VScanNode::get_next(RuntimeState* state, vectorized::Block* block, bool* 
 
     if (_eos) {
         *eos = true;
+        // debug case failure, to be removed
+        if (state->enable_profile()) {
+            LOG(WARNING) << "debug case failure " << print_id(state->query_id()) << " "
+                         << get_name() << ": VScanNode::get_next eos";
+        }
         return Status::OK();
     }
 

@@ -127,7 +127,6 @@ Status ExchangeSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& inf
         instances.emplace_back(channel->get_fragment_instance_id_str());
     }
     std::string title = "VDataStreamSender (dst_id={}, dst_fragments=[{}])";
-    _profile = p._pool->add(new RuntimeProfile(title));
     SCOPED_TIMER(_profile->total_time_counter());
     SCOPED_CONSUME_MEM_TRACKER(_mem_tracker.get());
 

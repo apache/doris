@@ -30,8 +30,11 @@ import org.apache.doris.nereids.trees.expressions.functions.executable.NumericAr
 import org.apache.doris.nereids.trees.expressions.literal.DateLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
+import org.apache.doris.nereids.types.ArrayType;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.DecimalV3Type;
+import org.apache.doris.nereids.types.MapType;
+import org.apache.doris.nereids.types.StructType;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMultimap;
@@ -106,9 +109,6 @@ public enum ExpressionEvaluator {
 
     private FunctionInvoker getFunction(FunctionSignature signature) {
         Collection<FunctionInvoker> functionInvokers = functions.get(signature.getName());
-        if (functionInvokers == null) {
-            return null;
-        }
         for (FunctionInvoker candidate : functionInvokers) {
             DataType[] candidateTypes = candidate.getSignature().getArgTypes();
             DataType[] expectedTypes = signature.getArgTypes();
@@ -134,9 +134,8 @@ public enum ExpressionEvaluator {
         if (functions != null) {
             return;
         }
-        ImmutableMultimap.Builder<String, FunctionInvoker> mapBuilder =
-                new ImmutableMultimap.Builder<String, FunctionInvoker>();
-        List<Class> classes = ImmutableList.of(
+        ImmutableMultimap.Builder<String, FunctionInvoker> mapBuilder = new ImmutableMultimap.Builder<>();
+        List<Class<?>> classes = ImmutableList.of(
                 DateTimeAcquire.class,
                 DateTimeExtractAndTransform.class,
                 ExecutableFunctions.class,
@@ -144,7 +143,7 @@ public enum ExpressionEvaluator {
                 DateTimeArithmetic.class,
                 NumericArithmetic.class
         );
-        for (Class cls : classes) {
+        for (Class<?> cls : classes) {
             for (Method method : cls.getDeclaredMethods()) {
                 ExecFunctionList annotationList = method.getAnnotation(ExecFunctionList.class);
                 if (annotationList != null) {
@@ -165,15 +164,36 @@ public enum ExpressionEvaluator {
             DataType returnType = DataType.convertFromString(annotation.returnType());
             List<DataType> argTypes = new ArrayList<>();
             for (String type : annotation.argTypes()) {
-                if (type.equalsIgnoreCase("DECIMALV3")) {
-                    argTypes.add(DecimalV3Type.WILDCARD);
-                } else {
-                    argTypes.add(DataType.convertFromString(type));
-                }
+                argTypes.add(replaceDecimalV3WithWildcard(DataType.convertFromString(type)));
             }
             FunctionSignature signature = new FunctionSignature(name,
-                    argTypes.toArray(new DataType[argTypes.size()]), returnType);
+                    argTypes.toArray(new DataType[0]), returnType);
             mapBuilder.put(name, new FunctionInvoker(method, signature));
+        }
+    }
+
+    private DataType replaceDecimalV3WithWildcard(DataType input) {
+        if (input instanceof ArrayType) {
+            DataType item = replaceDecimalV3WithWildcard(((ArrayType) input).getItemType());
+            if (item == ((ArrayType) input).getItemType()) {
+                return input;
+            }
+            return ArrayType.of(item);
+        } else if (input instanceof MapType) {
+            DataType keyType = replaceDecimalV3WithWildcard(((MapType) input).getKeyType());
+            DataType valueType = replaceDecimalV3WithWildcard(((MapType) input).getValueType());
+            if (keyType == ((MapType) input).getKeyType() && valueType == ((MapType) input).getValueType()) {
+                return input;
+            }
+            return MapType.of(keyType, valueType);
+        } else if (input instanceof StructType) {
+            // TODO: support struct type
+            return input;
+        } else {
+            if (input instanceof DecimalV3Type) {
+                return DecimalV3Type.WILDCARD;
+            }
+            return input;
         }
     }
 

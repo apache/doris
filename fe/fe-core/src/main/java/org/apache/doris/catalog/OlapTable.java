@@ -2262,4 +2262,15 @@ public class OlapTable extends Table {
             }
         }
     }
+
+    @Override
+    public void analyze(Analyzer analyzer) {
+        for (MaterializedIndexMeta meta : indexIdToMeta.values()) {
+            try {
+                meta.parseStmt(analyzer);
+            } catch (IOException e) {
+                e.printStackTrace();
+            }
+        }
+    }
 }
