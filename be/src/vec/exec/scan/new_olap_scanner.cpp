@@ -174,9 +174,6 @@ Status NewOlapScanner::init() {
             if (olap_scan_node.__isset.indexes_desc) {
                 _tablet_schema->update_indexes_from_thrift(olap_scan_node.indexes_desc);
             }
-            if (_tablet_schema->num_variant_columns() > 0) {
-                _tablet_schema->flatten_variant_cols();
-            }
         }
         {
             std::shared_lock rdlock(_tablet->get_header_lock());
