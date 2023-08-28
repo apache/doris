@@ -50,14 +50,14 @@ suite("regression_test_variant", "variant_type"){
         qt_sql """select count() from ${table_name}"""
     }
 
-    def create_table = { table_name, buckets="auto" ->
+    def create_table = { table_name, buckets="auto", key_type="DUPLICATE" ->
         sql "DROP TABLE IF EXISTS ${table_name}"
         sql """
             CREATE TABLE IF NOT EXISTS ${table_name} (
                 k bigint,
                 v variant
             )
-            DUPLICATE KEY(`k`)
+            ${key_type} KEY(`k`)
             DISTRIBUTED BY HASH(k) BUCKETS ${buckets}
             properties("replication_num" = "1", "disable_auto_compaction" = "false");
         """
@@ -74,27 +74,38 @@ suite("regression_test_variant", "variant_type"){
         logger.info("update config: code=" + code + ", out=" + out + ", err=" + err)
     }
     try {
-        def table_name = "simple_variant"
-        // 1. simple cases
-        create_table table_name
-        sql """insert into ${table_name} values (1,  '[1]'),(1,  '{"a" : 1}');"""
-        sql """insert into ${table_name} values (2,  '[2]'),(1,  '{"a" : [[[1]]]}');"""
-        sql """insert into ${table_name} values (3,  '3'),(1,  '{"a" : 1}'), (1,  '{"a" : [1]}');"""
-        sql """insert into ${table_name} values (4,  '"4"'),(1,  '{"a" : "1223"}');"""
-        sql """insert into ${table_name} values (5,  '5.0'),(1,  '{"a" : [1]}');"""
-        sql """insert into ${table_name} values (6,  '"[6]"'),(1,  '{"a" : ["1", 2, 1.1]}');"""
-        sql """insert into ${table_name} values (7,  '7'),(1,  '{"a" : 1, "b" : {"c" : 1}}');"""
-        sql """insert into ${table_name} values (8,  '8.11111'),(1,  '{"a" : 1, "b" : {"c" : [{"a" : 1}]}}');"""
-        sql """insert into ${table_name} values (9,  '"9999"'),(1,  '{"a" : 1, "b" : {"c" : [{"a" : 1}]}}');"""
-        sql """insert into ${table_name} values (10,  '1000000'),(1,  '{"a" : 1, "b" : {"c" : [{"a" : 1}]}}');"""
-        sql """insert into ${table_name} values (11,  '[123.0]'),(1,  '{"a" : 1, "b" : {"c" : 1}}'),(1,  '{"a" : 1, "b" : 10}');"""
-        sql """insert into ${table_name} values (12,  '[123.2]'),(1,  '{"a" : 1, "b" : 10}'),(1,  '{"a" : 1, "b" : {"c" : 1}}');"""
-        qt_sql_1 "select k, v from simple_variant order by k, cast(v as string)"
-        qt_sql_1_1 "select k, v, cast(v:b as string) from simple_variant where  length(cast(v:b as string)) > 4 order  by k, cast(v as string)"
-        verify table_name
 
+        def key_types = ["DUPLICATE", "UNIQUE"]
+        for (int i = 0; i < key_types.size(); i++) {
+            def table_name = "simple_variant_${key_types[i]}"
+            // 1. simple cases
+            create_table.call(table_name, "auto", key_types[i])
+            sql """insert into ${table_name} values (1,  '[1]'),(1,  '{"a" : 1}');"""
+            sql """insert into ${table_name} values (2,  '[2]'),(1,  '{"a" : [[[1]]]}');"""
+            sql """insert into ${table_name} values (3,  '3'),(1,  '{"a" : 1}'), (1,  '{"a" : [1]}');"""
+            sql """insert into ${table_name} values (4,  '"4"'),(1,  '{"a" : "1223"}');"""
+            sql """insert into ${table_name} values (5,  '5.0'),(1,  '{"a" : [1]}');"""
+            sql """insert into ${table_name} values (6,  '"[6]"'),(1,  '{"a" : ["1", 2, 1.1]}');"""
+            sql """insert into ${table_name} values (7,  '7'),(1,  '{"a" : 1, "b" : {"c" : 1}}');"""
+            sql """insert into ${table_name} values (8,  '8.11111'),(1,  '{"a" : 1, "b" : {"c" : [{"a" : 1}]}}');"""
+            sql """insert into ${table_name} values (9,  '"9999"'),(1,  '{"a" : 1, "b" : {"c" : [{"a" : 1}]}}');"""
+            sql """insert into ${table_name} values (10,  '1000000'),(1,  '{"a" : 1, "b" : {"c" : [{"a" : 1}]}}');"""
+            sql """insert into ${table_name} values (11,  '[123.0]'),(1999,  '{"a" : 1, "b" : {"c" : 1}}'),(19921,  '{"a" : 1, "b" : 10}');"""
+            sql """insert into ${table_name} values (12,  '[123.2]'),(1022,  '{"a" : 1, "b" : 10}'),(1029,  '{"a" : 1, "b" : {"c" : 1}}');"""
+            qt_sql "select cast(v:a as array<int>) from  ${table_name} order by k"
+            qt_sql_1 "select k, v from  ${table_name} order by k, cast(v as string)"
+            qt_sql_1_1 "select k, v, cast(v:b as string) from  ${table_name} where  length(cast(v:b as string)) > 4 order  by k, cast(v as string)"
+            // cast v:b as int should be correct
+            // TODO FIX ME
+            // qt_sql_1_2 "select v:b, v:b.c, v from  ${table_name}  order by k desc limit 10000;"
+            // qt_sql_1_3 "select v:b from ${table_name} where cast(v:b as int) > 0;"
+            // qt_sql_1_4 "select k, v:b, v:b.c, v:a from ${table_name} where k > 10 order by k desc limit 10000;"
+            // qt_sql_1_5 "select cast(v:b as string) from ${table_name} order by k"
+            verify table_name 
+        }
+        
         // 2. type confilct cases
-        table_name = "type_conflict_resolution"
+        def table_name = "type_conflict_resolution"
         create_table table_name
         sql """insert into ${table_name} values (1, '{"c" : "123"}');"""
         sql """insert into ${table_name} values (2, '{"c" : 123}');"""
@@ -323,6 +334,9 @@ suite("regression_test_variant", "variant_type"){
         sql "select * from ${table_name}"
         qt_sql_36 "select * from ${table_name} where k > 3 order by k desc limit 10"
 
+        // delete sign
+        load_json_data.call(table_name, """delete.json""")
+
         // filter invalid variant
         table_name = "invalid_variant"
         set_be_config.call("max_filter_ratio_for_variant_parsing", "1")
@@ -343,6 +357,23 @@ suite("regression_test_variant", "variant_type"){
         qt_sql_37 "select * from ${table_name} order by k, cast(v as string)"
         set_be_config.call("ratio_of_defaults_as_sparse_column", "0.95")
 
+        // test mow with delete
+        table_name = "variant_mow" 
+        sql """
+         CREATE TABLE IF NOT EXISTS ${table_name} (
+                k bigint,
+                k1 string,
+                v variant
+            )
+            UNIQUE KEY(`k`)
+            DISTRIBUTED BY HASH(k) BUCKETS 4 
+            properties("replication_num" = "1", "disable_auto_compaction" = "false", "enable_unique_key_merge_on_write" = "true");
+        """
+        sql """insert into ${table_name} values (1, "abc", '{"a" : 1}'), (1, "cde", '{"b" : 1}')"""
+        sql """insert into ${table_name} values (2, "abe", '{"c" : 1}')"""
+        sql """insert into ${table_name} values (3, "abd", '{"d" : 1}')"""
+        sql "delete from ${table_name} where k in (select k from variant_mow where k in (1, 2))"
+        qt_sql_38 "select * from ${table_name} order by k"
     } finally {
         // reset flags
         set_be_config.call("max_filter_ratio_for_variant_parsing", "0.05")

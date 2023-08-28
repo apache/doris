@@ -365,8 +365,8 @@ public:
     }
     void set_is_strict_mode(bool is_strict_mode) { _is_strict_mode = is_strict_mode; }
     bool is_strict_mode() const { return _is_strict_mode; }
-    std::vector<uint32_t> get_missing_cids() { return _missing_cids; }
-    std::vector<uint32_t> get_update_cids() { return _update_cids; }
+    std::vector<uint32_t> get_missing_cids() const { return _missing_cids; }
+    std::vector<uint32_t> get_update_cids() const { return _update_cids; }
 
 private:
     friend bool operator==(const TabletSchema& a, const TabletSchema& b);
