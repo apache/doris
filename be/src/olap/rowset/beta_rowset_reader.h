@@ -32,6 +32,7 @@
 #include "olap/rowset/rowset_reader.h"
 #include "olap/schema.h"
 #include "olap/segment_loader.h"
+#include "util/once.h"
 #include "vec/core/block.h"
 
 namespace doris {
@@ -50,7 +51,7 @@ public:
 
     Status get_segment_iterators(RowsetReaderContext* read_context,
                                  std::vector<RowwiseIteratorUPtr>* out_iters,
-                                 const RowSetSplits& rs_splits, bool use_cache = false) override;
+                                  bool use_cache = false) override;
     void reset_read_options() override;
     Status next_block(vectorized::Block* block) override;
     Status next_block_view(vectorized::BlockView* block_view) override;
@@ -84,10 +85,16 @@ public:
     RowsetReaderSharedPtr clone() override;
 
 private:
+    Status _init_iterator_once();
+    Status _init_iterator();
     bool _should_push_down_value_predicates() const;
 
+    DorisCallOnce<Status> _init_iter_once;
+
+    std::pair<int, int> _segment_offsets;
+
     SchemaSPtr _input_schema;
-    RowsetReaderContext* _context;
+    RowsetReaderContext* _read_context;
     BetaRowsetSharedPtr _rowset;
 
     OlapReaderStatistics _owned_stats;
