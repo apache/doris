@@ -61,7 +61,7 @@ TEST(ColumnFixedLenghtObjectTest, UpdateHashWithValue) {
     EXPECT_EQ(sizeof(size_t), column1->item_size());
     const size_t count = 1000;
 
-    column1->resize(count);
+    column1->resize(count + 1);
     auto& data = column1->get_data();
     for (size_t i = 0; i < count; ++i) {
         *((size_t*)&data[i * sizeof(size_t)]) = i;
@@ -71,7 +71,7 @@ TEST(ColumnFixedLenghtObjectTest, UpdateHashWithValue) {
     column1->update_hash_with_value(count, hash1);
 
     auto column2 = ColumnVector<int64_t>::create();
-    column2->resize(count);
+    column2->resize(count + 1);
     for (size_t i = 0; i != count; ++i) {
         column2->get_data()[i] = i;
     }
