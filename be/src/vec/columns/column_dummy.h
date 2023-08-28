@@ -113,6 +113,11 @@ public:
         return clone_dummy(offsets.back());
     }
 
+    void replicate(const uint32_t* indexs, size_t target_size, IColumn& column) const override {
+        LOG(FATAL) << "Not implemented";
+    }
+
+
     MutableColumns scatter(ColumnIndex num_columns, const Selector& selector) const override {
         if (s != selector.size()) {
             LOG(FATAL) << "Size of selector doesn't match size of column.";
