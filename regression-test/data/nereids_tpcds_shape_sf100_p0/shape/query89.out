@@ -6,7 +6,7 @@ PhysicalResultSink
 ------PhysicalDistribute
 --------PhysicalTopN
 ----------PhysicalProject
-------------filter((CASE WHEN ( not (avg_monthly_sales = 0.0000)) THEN (abs((cast(sum_sales as DOUBLE) - cast(avg_monthly_sales as DOUBLE))) / cast(avg_monthly_sales as DOUBLE)) ELSE NULL END > 0.1))
+------------filter((if(( not (avg_monthly_sales = 0.0000)), (abs((cast(sum_sales as DOUBLE) - cast(avg_monthly_sales as DOUBLE))) / cast(avg_monthly_sales as DOUBLE)), NULL) > 0.1))
 --------------PhysicalWindow
 ----------------PhysicalQuickSort
 ------------------PhysicalDistribute
