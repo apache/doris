@@ -61,7 +61,8 @@ public class SqlCache extends Cache {
                 .addParams(InternalService.PCacheParam.newBuilder()
                         .setPartitionKey(latestTable.latestPartitionId)
                         .setLastVersion(latestTable.latestVersion)
-                        .setLastVersionTime(latestTable.latestTime))
+                        .setLastVersionTime(latestTable.latestTime)
+                        .setPartitionNum(latestTable.partitionNum))
                 .build();
 
         InternalService.PFetchCacheResult cacheResult = proxy.fetchCache(request, 10000, status);

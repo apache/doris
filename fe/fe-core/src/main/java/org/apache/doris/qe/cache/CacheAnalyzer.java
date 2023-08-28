@@ -141,12 +141,14 @@ public class CacheAnalyzer {
         public long latestPartitionId;
         public long latestVersion;
         public long latestTime;
+        public long partitionNum;
 
         public CacheTable() {
             olapTable = null;
             latestPartitionId = 0;
             latestVersion = 0;
             latestTime = 0;
+            partitionNum = 0;
         }
 
         @Override
@@ -155,8 +157,8 @@ public class CacheAnalyzer {
         }
 
         public void debug() {
-            LOG.debug("table {}, partition id {}, ver {}, time {}", olapTable.getName(),
-                    latestPartitionId, latestVersion, latestTime);
+            LOG.debug("table {}, partition id {}, ver {}, time {}, partition num: {}", olapTable.getName(),
+                    latestPartitionId, latestVersion, latestTime, partitionNum);
         }
     }
 
@@ -584,6 +586,7 @@ public class CacheAnalyzer {
                 cacheTable.latestVersion = partition.getVisibleVersion();
             }
         }
+        cacheTable.partitionNum = node.getSelectedPartitionNum();
         return cacheTable;
     }
 
