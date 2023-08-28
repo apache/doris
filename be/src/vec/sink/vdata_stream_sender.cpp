@@ -192,7 +192,8 @@ Status Channel<Parent>::send_block(PBlock* block, bool eos) {
     {
         SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(ExecEnv::GetInstance()->orphan_mem_tracker());
         if (enable_http_send_block(_brpc_request, _parent->transfer_large_data_by_brpc())) {
-            RETURN_IF_ERROR(transmit_block_http(_state, _closure, _brpc_request, _brpc_dest_addr));
+            RETURN_IF_ERROR(transmit_block_http(_state->exec_env(), _closure, _brpc_request,
+                                                _brpc_dest_addr));
         } else {
             transmit_block(*_brpc_stub, _closure, _brpc_request);
         }
