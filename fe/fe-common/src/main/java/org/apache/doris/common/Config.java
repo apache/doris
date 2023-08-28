@@ -1556,6 +1556,20 @@ public class Config extends ConfigBase {
     @ConfField
     public static int scheduler_job_task_max_num = 10;
 
+    /**
+     * The number of async tasks that can be queued. @See TaskDisruptor
+     * if consumer is slow, the queue will be full, and the producer will be blocked.
+     */
+    @ConfField
+    public static int async_task_queen_size = 1024;
+
+    /**
+     * The number of threads used to consume async tasks. @See TaskDisruptor
+     * if we have a lot of async tasks, we need more threads to consume them. Sure, it's depends on the cpu cores.
+     */
+    @ConfField
+    public static int async_task_consumer_thread_num = 10;
+
     // enable_workload_group should be immutable and temporarily set to mutable during the development test phase
     @ConfField(mutable = true, varType = VariableAnnotation.EXPERIMENTAL)
     public static boolean enable_workload_group = false;
