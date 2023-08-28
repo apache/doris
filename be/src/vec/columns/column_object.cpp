@@ -846,6 +846,14 @@ bool ColumnObject::add_sub_column(const PathInData& key, size_t new_size) {
         num_rows = new_size;
         return true;
     }
+    if (key.empty() && (!subcolumns.get_root()->is_scalar())) {
+        // update none scalar root column to scalar node
+        subcolumns.get_mutable_root()->modify_to_scalar(Subcolumn(new_size, is_nullable, true));
+        if (num_rows == 0) {
+            num_rows = new_size;
+        }
+        return true;
+    }
     doc_structure = nullptr;
     bool inserted = subcolumns.add(key, Subcolumn(new_size, is_nullable));
     if (!inserted) {
@@ -1292,6 +1300,9 @@ void ColumnObject::create_root() {
 }
 
 void ColumnObject::create_root(const DataTypePtr& type, MutableColumnPtr&& column) {
+    if (num_rows == 0) {
+        num_rows = column->size();
+    }
     add_sub_column({}, std::move(column), type);
 }
 
