@@ -28,13 +28,11 @@
 #include <regex>
 #include <sstream>
 #include <string>
-#include <type_traits>
 #include <utility>
 #include <vector>
 
 #include "common/config.h"
 #include "common/logging.h"
-#include "common/status.h"
 #include "olap/block_column_predicate.h"
 #include "olap/column_predicate.h"
 #include "olap/olap_common.h"
@@ -91,6 +89,8 @@ Status DeleteHandler::generate_delete_predicate(const TabletSchema& schema,
             LOG(INFO) << "store one sub-delete condition. condition name=" << in_pred->column_name()
                       << "condition size=" << in_pred->values().size();
         } else {
+            // write sub predicate v1 for compactbility
+            del_pred->add_sub_predicates(construct_sub_predicate(condition));
             DeleteSubPredicatePB* sub_predicate = del_pred->add_sub_predicates_v2();
             if (condition.__isset.column_unique_id) {
                 sub_predicate->set_column_unique_id(condition.column_unique_id);
@@ -98,9 +98,6 @@ Status DeleteHandler::generate_delete_predicate(const TabletSchema& schema,
             sub_predicate->set_column_name(condition.column_name);
             sub_predicate->set_op(trans_op(condition.condition_op));
             sub_predicate->set_cond_value(condition.condition_values[0]);
-
-            // write sub predicate v1 for compactbility
-            del_pred->add_sub_predicates(construct_sub_predicate(condition));
             LOG(INFO) << "store one sub-delete condition. condition="
                       << fmt::format(" {} {} {}", condition.column_name, condition.condition_op,
                                      condition.condition_values[0]);
@@ -132,11 +129,24 @@ void DeleteHandler::convert_to_sub_pred_v2(DeletePredicatePB* delete_pred,
 }
 
 std::string DeleteHandler::construct_sub_predicate(const TCondition& condition) {
-    const auto& op = trans_op(condition.condition_op);
-    if ("IS" == op) {
-        return condition.column_name + " " + op + " " + condition.condition_values[0];
+    string op = condition.condition_op;
+    if (op == "<") {
+        op += "<";
+    } else if (op == ">") {
+        op += ">";
     }
-    return condition.column_name + op + "'" + condition.condition_values[0] + "'";
+    string condition_str;
+    if ("IS" == op) {
+        condition_str = condition.column_name + " " + op + " " + condition.condition_values[0];
+    } else {
+        if (op == "*=") {
+            op = "=";
+        } else if (op == "!*=") {
+            op = "!=";
+        }
+        condition_str = condition.column_name + op + "'" + condition.condition_values[0] + "'";
+    }
+    return condition_str;
 }
 
 std::string DeleteHandler::trans_op(const std::string& opt) {

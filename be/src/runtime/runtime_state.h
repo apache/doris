@@ -438,7 +438,7 @@ public:
         return _query_options.__isset.enable_insert_strict && _query_options.enable_insert_strict;
     }
 
-    inline bool enable_sub_pred_v2() const {
+    inline bool enable_delete_sub_pred_v2() const {
         return _query_options.__isset.enable_delete_sub_predicate_v2 &&
                _query_options.enable_delete_sub_predicate_v2;
     }

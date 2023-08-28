@@ -382,11 +382,15 @@ Status DataDir::load() {
             rowset_meta->set_fs(local_fs);
         }
         if (rowset_meta->has_delete_predicate()) {
+            // copy the delete sub pred v1 to check then
+            auto orig_delete_sub_pred = rowset_meta->delete_predicate().sub_predicates();
             auto* delete_pred = rowset_meta->mutable_delete_pred_pb();
             DeleteHandler::convert_to_sub_pred_v2(delete_pred, rowset_meta->tablet_schema());
             LOG(INFO) << fmt::format(
                     "convert rowset with old delete pred: rowset_id={}, tablet_id={}",
                     rowset_id.to_string(), tablet_uid.to_string());
+            CHECK_EQ(orig_delete_sub_pred, delete_pred->sub_predicates())
+                    << "inconsistent sub predicate v1 after conversion";
             std::string result;
             rowset_meta->serialize(&result);
             std::string key = ROWSET_PREFIX + tablet_uid.to_string() + "_" + rowset_id.to_string();
