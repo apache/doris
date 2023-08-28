@@ -142,6 +142,7 @@ public class CacheAnalyzer {
         public long latestVersion;
         public long latestTime;
         public long partitionNum;
+        public long sumOfPartitionNum;
 
         public CacheTable() {
             olapTable = null;
@@ -149,6 +150,7 @@ public class CacheAnalyzer {
             latestVersion = 0;
             latestTime = 0;
             partitionNum = 0;
+            sumOfPartitionNum = 0;
         }
 
         @Override
@@ -157,8 +159,8 @@ public class CacheAnalyzer {
         }
 
         public void debug() {
-            LOG.debug("table {}, partition id {}, ver {}, time {}, partition num {}", olapTable.getName(),
-                    latestPartitionId, latestVersion, latestTime, partitionNum);
+            LOG.debug("table {}, partition id {}, ver {}, time {}, partition num {}, sumOfPartitionNum: {}",
+                    olapTable.getName(), latestPartitionId, latestVersion, latestTime, partitionNum, sumOfPartitionNum);
         }
     }
 
@@ -228,6 +230,7 @@ public class CacheAnalyzer {
         MetricRepo.COUNTER_QUERY_OLAP_TABLE.increase(1L);
         Collections.sort(tblTimeList);
         latestTable = tblTimeList.get(0);
+        latestTable.sumOfPartitionNum = tblTimeList.stream().mapToLong(item -> item.partitionNum).sum();
         latestTable.debug();
 
         addAllViewStmt(selectStmt);
@@ -330,6 +333,7 @@ public class CacheAnalyzer {
         MetricRepo.COUNTER_QUERY_OLAP_TABLE.increase(1L);
         Collections.sort(tblTimeList);
         latestTable = tblTimeList.get(0);
+        latestTable.sumOfPartitionNum = tblTimeList.stream().mapToLong(item -> item.partitionNum).sum();
         latestTable.debug();
 
         addAllViewStmt((SetOperationStmt) parsedStmt);
@@ -384,6 +388,7 @@ public class CacheAnalyzer {
         MetricRepo.COUNTER_QUERY_OLAP_TABLE.increase(1L);
         Collections.sort(tblTimeList);
         latestTable = tblTimeList.get(0);
+        latestTable.sumOfPartitionNum = tblTimeList.stream().mapToLong(item -> item.partitionNum).sum();
         latestTable.debug();
 
         if (((LogicalPlanAdapter) parsedStmt).getStatementContext().getParsedStatement().isExplain()) {
@@ -584,9 +589,9 @@ public class CacheAnalyzer {
                 cacheTable.latestPartitionId = partition.getId();
                 cacheTable.latestTime = partition.getVisibleVersionTime();
                 cacheTable.latestVersion = partition.getVisibleVersion();
+                cacheTable.partitionNum = node.getSelectedPartitionNum();
             }
         }
-        cacheTable.partitionNum = node.getSelectedPartitionNum();
         return cacheTable;
     }
 

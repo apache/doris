@@ -62,7 +62,7 @@ public class SqlCache extends Cache {
                         .setPartitionKey(latestTable.latestPartitionId)
                         .setLastVersion(latestTable.latestVersion)
                         .setLastVersionTime(latestTable.latestTime)
-                        .setPartitionNum(latestTable.partitionNum))
+                        .setPartitionNum(latestTable.sumOfPartitionNum))
                 .build();
 
         InternalService.PFetchCacheResult cacheResult = proxy.fetchCache(request, 10000, status);
@@ -95,7 +95,7 @@ public class SqlCache extends Cache {
 
         InternalService.PUpdateCacheRequest updateRequest =
                 rowBatchBuilder.buildSqlUpdateRequest(getSqlWithViewStmt(), latestTable.latestPartitionId,
-                        latestTable.latestVersion, latestTable.latestTime);
+                        latestTable.latestVersion, latestTable.latestTime, latestTable.sumOfPartitionNum);
         if (updateRequest.getValuesCount() > 0) {
             CacheBeProxy proxy = new CacheBeProxy();
             Status status = new Status();
