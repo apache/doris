@@ -24,7 +24,6 @@ import org.apache.doris.common.Config;
 import org.apache.doris.nereids.annotation.Developing;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Add;
-import org.apache.doris.nereids.trees.expressions.Between;
 import org.apache.doris.nereids.trees.expressions.BinaryArithmetic;
 import org.apache.doris.nereids.trees.expressions.BinaryOperator;
 import org.apache.doris.nereids.trees.expressions.BitAnd;
@@ -116,18 +115,6 @@ import java.util.stream.Stream;
  * Utils for type coercion.
  */
 public class TypeCoercionUtils {
-
-    /**
-     * integer type precedence for type promotion.
-     * bigger numeric has smaller ordinal
-     */
-    public static final List<DataType> INTEGER_PRECEDENCE = ImmutableList.of(
-            LargeIntType.INSTANCE,
-            BigIntType.INSTANCE,
-            IntegerType.INSTANCE,
-            SmallIntType.INSTANCE,
-            TinyIntType.INSTANCE
-    );
 
     /**
      * numeric type precedence for type promotion.
@@ -577,7 +564,7 @@ public class TypeCoercionUtils {
 
         DataType commonType = BigIntType.INSTANCE;
         if (t1.isIntegralType() && t2.isIntegralType()) {
-            for (DataType dataType : TypeCoercionUtils.INTEGER_PRECEDENCE) {
+            for (DataType dataType : TypeCoercionUtils.NUMERIC_PRECEDENCE) {
                 if (t1.equals(dataType) || t2.equals(dataType)) {
                     commonType = dataType;
                     break;
@@ -892,33 +879,6 @@ public class TypeCoercionUtils {
                 .map(e -> e.getDataType().isNullType() ? new NullLiteral(BooleanType.INSTANCE) : e)
                 .collect(Collectors.toList());
         return compoundPredicate.withChildren(children);
-    }
-
-    /**
-     * process between type coercion.
-     */
-    public static Expression processBetween(Between between) {
-        // check
-        between.checkLegalityBeforeTypeCoercion();
-
-        if (between.getLowerBound().getDataType().equals(between.getCompareExpr().getDataType())
-                && between.getUpperBound().getDataType().equals(between.getCompareExpr().getDataType())) {
-            return between;
-        }
-        Optional<DataType> optionalCommonType = TypeCoercionUtils.findWiderCommonTypeForComparison(
-                between.children()
-                        .stream()
-                        .map(Expression::getDataType)
-                        .collect(Collectors.toList()));
-
-        return optionalCommonType
-                .map(commonType -> {
-                    List<Expression> newChildren = between.children().stream()
-                            .map(e -> TypeCoercionUtils.castIfNotMatchType(e, commonType))
-                            .collect(Collectors.toList());
-                    return between.withChildren(newChildren);
-                })
-                .orElse(between);
     }
 
     private static boolean canCompareDate(DataType t1, DataType t2) {

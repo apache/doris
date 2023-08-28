@@ -17,6 +17,7 @@
 
 #pragma once
 
+#include <brpc/stream.h>
 #include <gen_cpp/Types_types.h>
 #include <gen_cpp/types.pb.h>
 
@@ -27,6 +28,7 @@ namespace doris {
 class TupleDescriptor;
 class SlotDescriptor;
 class OlapTableSchemaParam;
+class TabletSchema;
 
 struct WriteRequest {
     int64_t tablet_id;
@@ -40,6 +42,11 @@ struct WriteRequest {
     bool is_high_priority = false;
     OlapTableSchemaParam* table_schema_param;
     int64_t index_id = 0;
+    // for DeltaWriterV2
+    std::shared_ptr<TabletSchema> tablet_schema;
+    bool enable_unique_key_merge_on_write = false;
+    int sender_id = 0;
+    std::vector<brpc::StreamId> streams;
 };
 
 } // namespace doris

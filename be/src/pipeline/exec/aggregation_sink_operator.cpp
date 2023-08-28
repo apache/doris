@@ -858,20 +858,20 @@ Status AggSinkOperatorX::setup_local_state(RuntimeState* state, LocalSinkStateIn
     return local_state->init(state, info);
 }
 
-Status AggSinkOperatorX::close(RuntimeState* state) {
-    auto& local_state = state->get_sink_local_state(id())->cast<AggSinkLocalState>();
-
-    local_state._preagg_block.clear();
-
+Status AggSinkLocalState::close(RuntimeState* state) {
+    if (_closed) {
+        return Status::OK();
+    }
+    _preagg_block.clear();
     vectorized::PODArray<vectorized::AggregateDataPtr> tmp_places;
-    local_state._places.swap(tmp_places);
+    _places.swap(tmp_places);
 
     std::vector<char> tmp_deserialize_buffer;
-    local_state._deserialize_buffer.swap(tmp_deserialize_buffer);
+    _deserialize_buffer.swap(tmp_deserialize_buffer);
 
     std::vector<size_t> tmp_hash_values;
-    local_state._hash_values.swap(tmp_hash_values);
-    return Status::OK();
+    _hash_values.swap(tmp_hash_values);
+    return PipelineXSinkLocalState::close(state);
 }
 
 } // namespace doris::pipeline

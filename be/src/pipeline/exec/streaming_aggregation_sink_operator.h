@@ -79,6 +79,7 @@ public:
     StreamingAggSinkLocalState(DataSinkOperatorX* parent, RuntimeState* state);
 
     Status init(RuntimeState* state, LocalSinkStateInfo& info) override;
+    Status close(RuntimeState* state) override;
     Status do_pre_agg(vectorized::Block* input_block, vectorized::Block* output_block);
 
 private:
@@ -109,7 +110,6 @@ public:
     Status sink(RuntimeState* state, vectorized::Block* in_block,
                 SourceState source_state) override;
 
-    Status close(RuntimeState* state) override;
     bool can_write(RuntimeState* state) override;
 
     void get_dependency(DependencySPtr& dependency) override {

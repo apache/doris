@@ -95,7 +95,7 @@ suite("test_full_compaction_by_table_id") {
         sql "SET skip_delete_bitmap = true"
         // show all hidden data
         // (1,10)(1,100)(2,2)(2,20)(2,200)(3,300)(3,100)
-        qt_skip_delete """select * from ${tableName} order by user_id"""
+        qt_skip_delete """select * from ${tableName} order by user_id, value"""
 
         //TabletId,ReplicaId,BackendId,SchemaHash,Version,LstSuccessVersion,LstFailedVersion,LstFailedTime,LocalDataSize,RemoteDataSize,RowCount,State,LstConsistencyCheckTime,CheckVersion,VersionCount,PathHash,MetaUrl,CompactionStatus
         String[][] tablets = sql """ show tablets from ${tableName}; """

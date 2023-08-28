@@ -134,7 +134,6 @@ public class StatisticsAutoAnalyzer extends MasterDaemon {
                     .setScheduleType(AnalysisInfo.ScheduleType.ONCE)
                     .setState(AnalysisState.PENDING)
                     .setTaskIds(new ArrayList<>())
-                    .setLastExecTimeInMs(System.currentTimeMillis())
                     .setJobType(JobType.SYSTEM).build();
             analysisInfos.add(jobInfo);
         }
@@ -155,8 +154,7 @@ public class StatisticsAutoAnalyzer extends MasterDaemon {
     }
 
     @VisibleForTesting
-    public AnalysisInfo getReAnalyzeRequiredPart(AnalysisInfo jobInfo) {
-        long lastExecTimeInMs = jobInfo.lastExecTimeInMs;
+    protected AnalysisInfo getReAnalyzeRequiredPart(AnalysisInfo jobInfo) {
         TableIf table = StatisticsUtil
                 .findTable(jobInfo.catalogName, jobInfo.dbName, jobInfo.tblName);
         TableStats tblStats = Env.getCurrentEnv().getAnalysisManager().findTableStatsStatus(table.getId());
@@ -165,7 +163,7 @@ public class StatisticsAutoAnalyzer extends MasterDaemon {
             return null;
         }
 
-        Set<String> needRunPartitions = findReAnalyzeNeededPartitions(table, lastExecTimeInMs);
+        Set<String> needRunPartitions = findReAnalyzeNeededPartitions(table, tblStats);
 
         if (needRunPartitions.isEmpty()) {
             return null;
@@ -175,12 +173,16 @@ public class StatisticsAutoAnalyzer extends MasterDaemon {
     }
 
     @VisibleForTesting
-    public Set<String> findReAnalyzeNeededPartitions(TableIf table, long lastExecTimeInMs) {
+    protected Set<String> findReAnalyzeNeededPartitions(TableIf table, TableStats tableStats) {
+        if (tableStats == null) {
+            return table.getPartitionNames().stream().map(table::getPartition)
+                    .filter(Partition::hasData).map(Partition::getName).collect(Collectors.toSet());
+        }
         return table.getPartitionNames().stream()
                 .map(table::getPartition)
                 .filter(Partition::hasData)
                 .filter(partition ->
-                        partition.getVisibleVersionTime() >= lastExecTimeInMs).map(Partition::getName)
+                        partition.getVisibleVersionTime() >= tableStats.updatedTime).map(Partition::getName)
                 .collect(Collectors.toSet());
     }
 
