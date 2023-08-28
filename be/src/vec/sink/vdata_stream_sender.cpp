@@ -199,7 +199,7 @@ Status Channel<Parent>::send_block(PBlock* block, bool eos) {
     }
 
     if (block != nullptr) {
-        _brpc_request.release_block();
+        static_cast<void>(_brpc_request.release_block());
     }
     return Status::OK();
 }

@@ -28,8 +28,7 @@ import java.util.Objects;
 @Developing
 public class MapType extends DataType {
 
-    // TODO: remove it?
-    public static final MapType INSTANCE = new MapType();
+    public static final MapType SYSTEM_DEFAULT = new MapType();
 
     public static final int WIDTH = 24;
 
