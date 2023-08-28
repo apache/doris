@@ -99,7 +99,7 @@ public class NereidsParserTest extends ParserTestBase {
         Assertions.assertEquals(PlanType.LOGICAL_CTE, logicalPlan.getType());
         Assertions.assertEquals(((LogicalCTE<?>) logicalPlan).getAliasQueries().size(), 2);
 
-        String cteSql3 = "with t1 (key, name) as (select s_suppkey, s_name from supplier) select * from t1";
+        String cteSql3 = "with t1 (keyy, name) as (select s_suppkey, s_name from supplier) select * from t1";
         logicalPlan = (LogicalPlan) nereidsParser.parseSingle(cteSql3).child(0);
         Assertions.assertEquals(PlanType.LOGICAL_CTE, logicalPlan.getType());
         Assertions.assertEquals(((LogicalCTE<?>) logicalPlan).getAliasQueries().size(), 1);
@@ -290,43 +290,43 @@ public class NereidsParserTest extends ParserTestBase {
     @Test
     public void testJoinHint() {
         // no hint
-        parsePlan("select * from t1 join t2 on t1.key=t2.key")
+        parsePlan("select * from t1 join t2 on t1.keyy=t2.keyy")
                 .matches(logicalJoin().when(j -> j.getHint() == JoinHint.NONE));
 
         // valid hint
-        parsePlan("select * from t1 join [shuffle] t2 on t1.key=t2.key")
+        parsePlan("select * from t1 join [shuffle] t2 on t1.keyy=t2.keyy")
                 .matches(logicalJoin().when(j -> j.getHint() == JoinHint.SHUFFLE_RIGHT));
 
-        parsePlan("select * from t1 join [  shuffle ] t2 on t1.key=t2.key")
+        parsePlan("select * from t1 join [  shuffle ] t2 on t1.keyy=t2.keyy")
                 .matches(logicalJoin().when(j -> j.getHint() == JoinHint.SHUFFLE_RIGHT));
 
-        parsePlan("select * from t1 join [broadcast] t2 on t1.key=t2.key")
+        parsePlan("select * from t1 join [broadcast] t2 on t1.keyy=t2.keyy")
                 .matches(logicalJoin().when(j -> j.getHint() == JoinHint.BROADCAST_RIGHT));
 
-        parsePlan("select * from t1 join /*+ broadcast   */ t2 on t1.key=t2.key")
+        parsePlan("select * from t1 join /*+ broadcast   */ t2 on t1.keyy=t2.keyy")
                 .matches(logicalJoin().when(j -> j.getHint() == JoinHint.BROADCAST_RIGHT));
 
         // invalid hint position
-        parsePlan("select * from [shuffle] t1 join t2 on t1.key=t2.key")
+        parsePlan("select * from [shuffle] t1 join t2 on t1.keyy=t2.keyy")
                 .assertThrowsExactly(ParseException.class);
 
-        parsePlan("select * from /*+ shuffle */ t1 join t2 on t1.key=t2.key")
+        parsePlan("select * from /*+ shuffle */ t1 join t2 on t1.keyy=t2.keyy")
                 .assertThrowsExactly(ParseException.class);
 
         // invalid hint content
-        parsePlan("select * from t1 join [bucket] t2 on t1.key=t2.key")
+        parsePlan("select * from t1 join [bucket] t2 on t1.keyy=t2.keyy")
                 .assertThrowsExactly(ParseException.class)
                 .assertMessageContains("Invalid join hint: bucket(line 1, pos 22)\n"
                         + "\n"
                         + "== SQL ==\n"
-                        + "select * from t1 join [bucket] t2 on t1.key=t2.key\n"
+                        + "select * from t1 join [bucket] t2 on t1.keyy=t2.keyy\n"
                         + "----------------------^^^");
 
         // invalid multiple hints
-        parsePlan("select * from t1 join /*+ shuffle , broadcast */ t2 on t1.key=t2.key")
+        parsePlan("select * from t1 join /*+ shuffle , broadcast */ t2 on t1.keyy=t2.keyy")
                 .assertThrowsExactly(ParseException.class);
 
-        parsePlan("select * from t1 join [shuffle,broadcast] t2 on t1.key=t2.key")
+        parsePlan("select * from t1 join [shuffle,broadcast] t2 on t1.keyy=t2.keyy")
                 .assertThrowsExactly(ParseException.class);
     }
 
@@ -345,5 +345,16 @@ public class NereidsParserTest extends ParserTestBase {
             Assertions.assertEquals(20, decimalV2Type.getPrecision());
             Assertions.assertEquals(6, decimalV2Type.getScale());
         }
+    }
+
+    @Test
+    void testParseExprDepthWidth() {
+        String sql = "SELECT 1+2 = 3 from t";
+        NereidsParser nereidsParser = new NereidsParser();
+        LogicalPlan logicalPlan = (LogicalPlan) nereidsParser.parseSingle(sql).child(0);
+        System.out.println(logicalPlan);
+        // alias (1 + 2 = 3)
+        Assertions.assertEquals(4, logicalPlan.getExpressions().get(0).getDepth());
+        Assertions.assertEquals(3, logicalPlan.getExpressions().get(0).getWidth());
     }
 }
