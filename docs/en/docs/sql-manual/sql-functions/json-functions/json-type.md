@@ -36,6 +36,7 @@ It is used to determine the type of the field specified by json_path in JSON dat
 - bool
 - int
 - bigint
+- largeint
 - double
 - string
 

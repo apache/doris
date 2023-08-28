@@ -29,7 +29,7 @@ suite("test_mixed_par_locations", "p2,external,hive,external_remote,external_rem
             String extHiveHmsPort = context.config.otherConfigs.get("extHiveHmsPort")
             String extAk = context.config.otherConfigs.get("extAk");
             String extSk = context.config.otherConfigs.get("extSk");
-            String ext3Endpoint = context.config.otherConfigs.get("ext3Endpoint");
+            String extS3Endpoint = context.config.otherConfigs.get("extS3Endpoint");
             String extS3Region = context.config.otherConfigs.get("extS3Region");
             String catalog_name = "test_mixed_par_locations"
 
@@ -38,10 +38,9 @@ suite("test_mixed_par_locations", "p2,external,hive,external_remote,external_rem
                 create catalog if not exists ${catalog_name} properties (
                     'type'='hms',
                     'hive.metastore.uris' = 'thrift://${extHiveHmsHost}:${extHiveHmsPort}',
-                    'AWS_ACCESS_KEY' = "${extAk}",
-                    'AWS_SECRET_KEY' = "${extSk}",
-                    'AWS_ENDPOINT' = "${ext3Endpoint}",
-                    'AWS_REGION' = "${extS3Region}"
+                    'cos.access_key' = '${extAk}',
+                    'cos.secret_key' = '${extSk}',
+                    'cos.endpoint' = '${extS3Endpoint}'
                 );
             """
             logger.info("catalog " + catalog_name + " created")

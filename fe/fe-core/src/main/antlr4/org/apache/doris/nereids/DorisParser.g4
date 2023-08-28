@@ -38,7 +38,7 @@ statement
     | CREATE ROW POLICY (IF NOT EXISTS)? name=identifier
         ON table=multipartIdentifier
         AS type=(RESTRICTIVE | PERMISSIVE)
-        TO user=userIdentify
+        TO (user=userIdentify | ROLE roleName=identifier)
         USING LEFT_PAREN booleanExpression RIGHT_PAREN                 #createRowPolicy
     | explain? INSERT INTO tableName=multipartIdentifier
         (PARTITION partition=identifierList)?  // partition define
@@ -54,6 +54,11 @@ statement
         (USING relation (COMMA relation)*)
         whereClause                                                    #delete
     ;
+
+propertiesStatment
+    : properties+=property (COMMA properties+=property)*
+    ;
+
 
 // -----------------Command accessories-----------------
 
@@ -89,7 +94,7 @@ planType
 outFileClause
     : INTO OUTFILE filePath=constant
         (FORMAT AS format=identifier)?
-        (PROPERTIES LEFT_PAREN properties+=tvfProperty (COMMA properties+=tvfProperty)* RIGHT_PAREN)?
+        (PROPERTIES LEFT_PAREN properties+=property (COMMA properties+=property)* RIGHT_PAREN)?
     ;
 
 query
@@ -265,15 +270,15 @@ relationPrimary
     : multipartIdentifier specifiedPartition? tabletList? tableAlias relationHint? lateralView*           #tableName
     | LEFT_PAREN query RIGHT_PAREN tableAlias lateralView*                                    #aliasedQuery
     | tvfName=identifier LEFT_PAREN
-      (properties+=tvfProperty (COMMA properties+=tvfProperty)*)?
+      (properties+=property (COMMA properties+=property)*)?
       RIGHT_PAREN tableAlias                                                                  #tableValuedFunction
     ;
 
-tvfProperty
-    : key=tvfPropertyItem EQ value=tvfPropertyItem
+property
+    : key=propertyItem EQ value=propertyItem
     ;
 
-tvfPropertyItem : identifier | constant ;
+propertyItem : identifier | constant ;
 
 tableAlias
     : (AS? strictIdentifier identifierList?)?

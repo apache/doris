@@ -48,11 +48,7 @@ Status ExchangeLocalState::init(RuntimeState* state, LocalStateInfo& info) {
         return Status::OK();
     }
     RETURN_IF_ERROR(PipelineXLocalState::init(state, info));
-    auto& parent_ref = _parent->cast<ExchangeSourceOperatorX>();
-    stream_recvr = _state->exec_env()->vstream_mgr()->create_recvr(
-            _state, parent_ref._input_row_desc, _state->fragment_instance_id(), parent_ref._id,
-            parent_ref._num_senders, profile(), parent_ref._is_merging,
-            parent_ref._sub_plan_query_statistics_recvr);
+    stream_recvr = info.recvr;
     RETURN_IF_ERROR(_parent->cast<ExchangeSourceOperatorX>()._vsort_exec_exprs.clone(
             state, vsort_exec_exprs));
     _init = true;
@@ -161,17 +157,22 @@ bool ExchangeSourceOperatorX::is_pending_finish(RuntimeState* /*state*/) const {
     return false;
 }
 
-Status ExchangeSourceOperatorX::close(RuntimeState* state) {
-    if (is_closed()) {
+Status ExchangeLocalState::close(RuntimeState* state) {
+    if (_closed) {
         return Status::OK();
     }
-    auto& local_state = state->get_local_state(id())->cast<ExchangeLocalState>();
-    if (local_state.stream_recvr != nullptr) {
-        local_state.stream_recvr->close();
+    if (stream_recvr != nullptr) {
+        stream_recvr->close();
     }
-    if (_is_merging) {
+    if (_parent->cast<ExchangeSourceOperatorX>()._is_merging) {
+        vsort_exec_exprs.close(state);
+    }
+    return PipelineXLocalState::close(state);
+}
+
+Status ExchangeSourceOperatorX::close(RuntimeState* state) {
+    if (_is_merging && !is_closed()) {
         _vsort_exec_exprs.close(state);
-        local_state.vsort_exec_exprs.close(state);
     }
     _is_closed = true;
     return OperatorXBase::close(state);

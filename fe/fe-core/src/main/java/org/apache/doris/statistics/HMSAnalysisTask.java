@@ -123,7 +123,7 @@ public class HMSAnalysisTask extends BaseAnalysisTask {
         String rowCount = columnResult.get(0).get(0);
         Env.getCurrentEnv().getAnalysisManager()
                 .updateTableStatsStatus(
-                        new TableStats(table.getId(), Long.parseLong(rowCount), null));
+                        new TableStats(table.getId(), Long.parseLong(rowCount), info));
     }
 
     /**
@@ -269,6 +269,10 @@ public class HMSAnalysisTask extends BaseAnalysisTask {
 
     @Override
     protected void afterExecution() {
+        // Table level task doesn't need to sync any value to sync stats, it stores the value in metadata.
+        if (isTableLevelTask) {
+            return;
+        }
         Env.getCurrentEnv().getStatisticsCache().syncLoadColStats(tbl.getId(), -1, col.getName());
     }
 }

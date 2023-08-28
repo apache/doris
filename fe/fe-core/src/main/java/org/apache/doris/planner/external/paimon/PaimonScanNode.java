@@ -174,7 +174,7 @@ public class PaimonScanNode extends FileQueryScanNode {
 
     @Override
     public Map<String, String> getLocationProperties() throws MetaNotFoundException, DdlException {
-        return source.getCatalog().getProperties();
+        return source.getCatalog().getCatalogProperty().getHadoopProperties();
     }
 
 }

@@ -670,6 +670,15 @@ try (Connection conn = DriverManager.getConnection("jdbc:mysql://127.0.0.1:9030/
 
   用于 ClickHouse 的 ReplacingMergeTree 表引擎查询去重
 
+* `enable_memtable_on_sink_node`
+
+  <version since="2.1.0">
+  是否在数据导入中启用 MemTable 前移，默认为 false
+  </version>
+
+  在 DataSink 节点上构建 MemTable，并通过 brpc streaming 发送 segment 到其他 BE。
+  该方法减少了多副本之间的重复工作，并且节省了数据序列化和反序列化的时间。
+
 ***
 
 #### 关于语句执行超时控制的补充说明
