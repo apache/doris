@@ -225,7 +225,7 @@ public:
             auto& col = assert_cast<const ColumnBitmap&>(*assert_cast<const IColumn*>(column));
             auto* data = col.get_data().data();
             for (size_t i = 0; i != num_rows; ++i) {
-                this->data(places[i]).merge(data[i]);
+                this->data(places[i] + offset).merge(data[i]);
             }
         } else {
             BaseHelper::deserialize_and_merge_vec(places, offset, rhs, column, arena, num_rows);
@@ -240,7 +240,7 @@ public:
             auto* data = col.get_data().data();
             for (size_t i = 0; i != num_rows; ++i) {
                 if (places[i]) {
-                    this->data(places[i]).merge(data[i]);
+                    this->data(places[i] + offset).merge(data[i]);
                 }
             }
         } else {
