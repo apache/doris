@@ -54,12 +54,17 @@ public abstract class Rebalancer {
     protected SystemInfoService infoService;
     // be id -> end time of prio
     protected Map<Long, Long> prioBackends = Maps.newConcurrentMap();
+    protected boolean isLogExcessive = false;
 
     public Rebalancer(SystemInfoService infoService, TabletInvertedIndex invertedIndex,
             Map<Long, PathSlot> backendsWorkingSlots) {
         this.infoService = infoService;
         this.invertedIndex = invertedIndex;
         this.backendsWorkingSlots = backendsWorkingSlots;
+    }
+
+    public void setLogExcessive(boolean isLogExcessive) {
+        this.isLogExcessive = isLogExcessive;
     }
 
     public List<TabletSchedCtx> selectAlternativeTablets() {
