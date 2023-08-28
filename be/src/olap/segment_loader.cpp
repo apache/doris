@@ -90,7 +90,7 @@ void SegmentLoader::erase_segment(const SegmentCache::CacheKey& key) {
 
 void SegmentLoader::erase_segments(const RowsetId& rowset_id, int64_t num_segments) {
     for (int64_t i = 0; i < num_segments; i++) {
-        erase_segment(SegmentCache::CacheKey(rowset_id, num_segments));
+        erase_segment(SegmentCache::CacheKey(rowset_id, i));
     }
 }
 

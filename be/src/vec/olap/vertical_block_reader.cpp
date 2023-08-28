@@ -66,6 +66,7 @@ Status VerticalBlockReader::_get_segment_iterators(const ReaderParams& read_para
     }
     _reader_context.is_vertical_compaction = true;
     for (auto& rs_split : read_params.rs_splits) {
+        // segment iterator will be inited here
         // In vertical compaction, every group will load segment so we should cache
         // segment to avoid tot many s3 head request
         bool use_cache = !rs_split.rs_reader->rowset()->is_local();
@@ -106,8 +107,7 @@ Status VerticalBlockReader::_init_collect_iter(const ReaderParams& read_params) 
     if (!segment_iters_ptr) {
         RETURN_IF_ERROR(_get_segment_iterators(read_params, &iter_ptr_vector, &iterator_init_flag,
                                                &rowset_ids));
-        CHECK(iter_ptr_vector.size() == iterator_init_flag.size())
-                << iter_ptr_vector.size() << "???" << iterator_init_flag.size();
+        CHECK(iter_ptr_vector.size() == iterator_init_flag.size());
         segment_iters_ptr = &iter_ptr_vector;
     } else {
         for (int i = 0; i < segment_iters_ptr->size(); ++i) {

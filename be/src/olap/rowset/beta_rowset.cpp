@@ -181,7 +181,8 @@ Status BetaRowset::remove() {
                 << ", version:" << start_version() << "-" << end_version()
                 << ", tabletid:" << _rowset_meta->tablet_id();
     // If the rowset was removed, it need to remove the fds in segment cache directly
-    SegmentLoader::instance()->erase_segments(rowset->rowset_id(), rowset->num_segments());
+    SegmentLoader::instance()->erase_segments(_rowset_meta->rowset_id(),
+                                              _rowset_meta->num_segments());
     auto fs = _rowset_meta->fs();
     if (!fs) {
         return Status::Error<INIT_FAILED>("get fs failed");
