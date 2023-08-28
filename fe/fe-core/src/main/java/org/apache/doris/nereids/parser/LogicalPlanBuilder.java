@@ -277,6 +277,7 @@ import org.apache.doris.nereids.trees.expressions.literal.SmallIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.TinyIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
+import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.trees.plans.JoinHint;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.LimitPhase;
@@ -740,10 +741,10 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         List<List<Expression>> exprs = ctx.expression().stream()
                 .map(e -> {
                     Object o = visit(e);
-                    if (o instanceof Expression) {
+                    if (o instanceof Row) {
+                        return (((Row) o).children());
+                    } else if (o instanceof Expression) {
                         return ImmutableList.of(((Expression) o));
-                    } else if (o instanceof List) {
-                        return ((List<Expression>) o);
                     } else {
                         throw new AnalysisException("invalid inline table");
                     }
@@ -2615,5 +2616,21 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     @Override
     public Object visitCollate(CollateContext ctx) {
         return visit(ctx.primaryExpression());
+    }
+
+    private static class Row extends Expression {
+        public Row(List<Expression> children) {
+            super(children);
+        }
+
+        @Override
+        public <R, C> R accept(ExpressionVisitor<R, C> visitor, C context) {
+            throw new UnsupportedOperationException("Unsupported for Row");
+        }
+
+        @Override
+        public boolean nullable() {
+            throw new UnsupportedOperationException("Unsupported for Row");
+        }
     }
 }
