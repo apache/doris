@@ -1213,21 +1213,17 @@ ScanOperatorX::ScanOperatorX(ObjectPool* pool, const TPlanNode& tnode, const Des
 
 bool ScanOperatorX::can_read(RuntimeState* state) {
     auto& local_state = state->get_local_state(id())->cast<ScanLocalState>();
-    if (!local_state._init) {
+    if (local_state._eos || local_state._scanner_ctx->done()) {
+        // _eos: need eos
+        // _scanner_ctx->done(): need finish
+        // _scanner_ctx->no_schedule(): should schedule _scanner_ctx
         return true;
     } else {
-        if (local_state._eos || local_state._scanner_ctx->done()) {
-            // _eos: need eos
-            // _scanner_ctx->done(): need finish
-            // _scanner_ctx->no_schedule(): should schedule _scanner_ctx
-            return true;
-        } else {
-            if (local_state._scanner_ctx->get_num_running_scanners() == 0 &&
-                local_state._scanner_ctx->has_enough_space_in_blocks_queue()) {
-                local_state._scanner_ctx->reschedule_scanner_ctx();
-            }
-            return local_state.ready_to_read(); // there are some blocks to process
+        if (local_state._scanner_ctx->get_num_running_scanners() == 0 &&
+            local_state._scanner_ctx->has_enough_space_in_blocks_queue()) {
+            local_state._scanner_ctx->reschedule_scanner_ctx();
         }
+        return local_state.ready_to_read(); // there are some blocks to process
     }
 }
 
