@@ -81,7 +81,7 @@ public class NereidsParser {
     }
 
     public Properties parseProperties(String properties) {
-        return parse(properties, DorisParser::propertiesStatment);
+        return parse(properties, DorisParser::propertiesStatement);
     }
 
     private <T> T parse(String sql, Function<DorisParser, ParserRuleContext> parseFunction) {

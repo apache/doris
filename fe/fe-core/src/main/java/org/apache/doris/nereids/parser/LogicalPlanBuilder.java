@@ -19,10 +19,15 @@ package org.apache.doris.nereids.parser;
 
 import org.apache.doris.analysis.ArithmeticExpr.Operator;
 import org.apache.doris.analysis.BrokerDesc;
+import org.apache.doris.analysis.DataDescription;
+import org.apache.doris.analysis.Expr;
+import org.apache.doris.analysis.PartitionNames;
+import org.apache.doris.analysis.Separator;
 import org.apache.doris.analysis.StorageBackend;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.Pair;
+import org.apache.doris.load.loadv2.LoadTask;
 import org.apache.doris.nereids.DorisParser;
 import org.apache.doris.nereids.DorisParser.AggClauseContext;
 import org.apache.doris.nereids.DorisParser.AliasQueryContext;
@@ -281,6 +286,7 @@ import java.math.BigDecimal;
 import java.math.BigInteger;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -418,27 +424,52 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     public LogicalPlan visitLoad(LoadContext ctx) {
         Map<String, String> brokerPropertiesMap;
         BrokerDesc brokerDesc = null;
-        if (ctx.loadStmt().withRemoteStorageSystem() != null) {
+        DorisParser.LoadStmtContext loadStmt = ctx.loadStmt();
+        if (loadStmt.withRemoteStorageSystem() != null) {
             brokerPropertiesMap = Maps.newHashMap();
             for (DorisParser.RemoteStoragePropertyContext arg
-                    : ctx.loadStmt().withRemoteStorageSystem().brokerProperties) {
+                    : loadStmt.withRemoteStorageSystem().brokerProperties) {
                 String key = parseRemoteStoragePropertyItem(arg.key);
                 String value = parseRemoteStoragePropertyItem(arg.value);
                 brokerPropertiesMap.put(key, value);
             }
-            if (ctx.loadStmt().withRemoteStorageSystem().S3() != null) {
+            if (loadStmt.withRemoteStorageSystem().S3() != null) {
                 brokerDesc = new BrokerDesc("S3", StorageBackend.StorageType.S3, brokerPropertiesMap);
-            } else if (ctx.loadStmt().withRemoteStorageSystem().HDFS() != null) {
+            } else if (loadStmt.withRemoteStorageSystem().HDFS() != null) {
                 brokerDesc = new BrokerDesc("HDFS", StorageBackend.StorageType.HDFS, brokerPropertiesMap);
-            } else if (ctx.loadStmt().withRemoteStorageSystem().LOCAL() != null) {
+            } else if (loadStmt.withRemoteStorageSystem().LOCAL() != null) {
                 brokerDesc = new BrokerDesc("HDFS", StorageBackend.StorageType.LOCAL, brokerPropertiesMap);
-            } else if (ctx.loadStmt().withRemoteStorageSystem().BROKER() != null
-                    && ctx.loadStmt().withRemoteStorageSystem().identifierOrText().getText() != null) {
-                brokerDesc = new BrokerDesc(ctx.loadStmt().withRemoteStorageSystem().identifierOrText().getText(),
+            } else if (loadStmt.withRemoteStorageSystem().BROKER() != null
+                    && loadStmt.withRemoteStorageSystem().identifierOrText().getText() != null) {
+                brokerDesc = new BrokerDesc(loadStmt.withRemoteStorageSystem().identifierOrText().getText(),
                         brokerPropertiesMap);
             }
         }
-        return new LoadCommand(null, null, brokerDesc);
+        List<DataDescription> dataDescriptions = new ArrayList<>();
+        for (DorisParser.DataDescContext ddc : ctx.loadStmt().dataDescs) {
+            List<String> tableName = visitMultipartIdentifier(ddc.tableName);
+            List<String> colNames = ddc.columns == null ? ImmutableList.of() : visitIdentifierList(ddc.columns);
+            List<String> columnsFromPath = ddc.colFromPath().columnsFromPath == null ? ImmutableList.of()
+                    : visitIdentifierList(ddc.colFromPath().columnsFromPath);
+            List<Expr> colMappingList = ImmutableList.of();
+            Expr preFilterExpr = null;
+            Expr whereExpr = null;
+            LoadTask.MergeType mergeType = LoadTask.MergeType.MERGE;
+            Expr deleteExpr = null;
+            String sequenceColName = ddc.sequenceColClause().getText();
+            Map<String, String> properties = new HashMap<>();
+            List<String> partitions = ddc.partition == null ? ImmutableList.of() : visitIdentifierList(ddc.partition);
+            List<String> filePaths = ddc.filePath == null ? ImmutableList.of()
+                        : ImmutableList.of(ddc.filePath.getText());
+
+            dataDescriptions.add(new DataDescription(tableName.get(0), new PartitionNames(false, partitions),
+                    filePaths, colNames, new Separator(ddc.comma.getText()),
+                    new Separator(ddc.separator.getText()), ddc.format.getText(),
+                    columnsFromPath, false, colMappingList, preFilterExpr,
+                    whereExpr, mergeType, deleteExpr, sequenceColName, properties));
+        }
+        String labelName = loadStmt.lableName == null ? null : loadStmt.lableName.getText();
+        return new LoadCommand(labelName, dataDescriptions, brokerDesc);
     }
 
     private String parseRemoteStoragePropertyItem(RemoteStoragePropertyItemContext item) {
@@ -1562,7 +1593,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             format = ctx.format.getText();
         }
         Map<String, String> properties = Maps.newHashMap();
-        for (PropertyContext argument : ctx.propertiesClause().propertiesStatement().properties) {
+        for (PropertyContext argument : ctx.propertiesStatement().properties) {
             String key = parseConstant(argument.key.constant());
             String value = parseConstant(argument.value.constant());
             properties.put(key, value);

@@ -83,7 +83,7 @@ mysqlDataDesc
     (COLUMNS TERMINATED BY comma=constant)?
     (LINES TERMINATED BY separator=constant)?
     (skipLines)?
-    (colList)?
+    (columns=identifierList)?
     (colMappingList)?
     (PROPERTIES LEFT_PAREN propertiesStatement RIGHT_PAREN)?
     ;
@@ -97,7 +97,7 @@ dataDesc
         (COLUMNS TERMINATED BY comma=constant)?
         (LINES TERMINATED BY separator=constant)?
         (FORMAT AS format=identifier)?
-        (colList)?
+        (columns=identifierList)?
         (colFromPath)?
         (colMappingList)?
         (preFilterClause)?
@@ -117,9 +117,8 @@ dataDesc
 preFilterClause : PRECEDING FILTER expression ;
 deleteOnClause : DELETE ON expression ;
 sequenceColClause : ORDER BY identifier ;
-colList : LEFT_PAREN colNames+=identifier (COMMA colNames+=identifier)* RIGHT_PAREN ;
-colFromPath : COLUMNS FROM PATH AS colList ;
-colMappingList : SET LEFT_PAREN expression RIGHT_PAREN ;
+colFromPath : COLUMNS FROM PATH AS columnsFromPath=identifierList ;
+colMappingList : SET LEFT_PAREN colMappingSet+=expression (COMMA colMappingSet+=expression)* RIGHT_PAREN ;
 
 withRemoteStorageSystem
     : WITH S3 LEFT_PAREN

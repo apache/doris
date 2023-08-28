@@ -37,18 +37,18 @@ import java.util.Map;
  * export table
  */
 public class LoadCommand extends Command {
-    private List<String> nameParts;
     private String path;
     private BrokerDesc brokerDesc;
+    private List<DataDescription> sinkInfos;
     private InsertIntoTableCommand loadByInsert;
 
     /**
      * constructor of ExportCommand
      */
-    public LoadCommand(List<String> nameParts, String path, BrokerDesc brokerDesc) {
+    public LoadCommand(String labelName, List<DataDescription> sinkInfos, BrokerDesc brokerDesc) {
         super(PlanType.LOAD_COMMAND);
-        this.nameParts = nameParts;
         this.path = path.trim();
+        this.sinkInfos = sinkInfos;
         this.brokerDesc = brokerDesc;
     }
 
@@ -57,11 +57,31 @@ public class LoadCommand extends Command {
         NereidsLoadStmt loadStmt = generateInsertStmt();
         Analyzer analyzer = new Analyzer(ctx.getEnv(), ctx);
         loadStmt.analyze(analyzer);
+        loadByInsert(ctx);
         // 1. to insert
         //      1.1 build table sink info
         //      1.2 build select sql, and parse sql to query context
         //      1.3 build sink, and put to insert context
         // 2. execute insert stmt
+
+    }
+
+    private static void loadByInsert(ConnectContext ctx) {
+        //        List<String> tableName = visitMultipartIdentifier(ctx.tableName);
+        //        String labelName = ctx.labelName == null ? null : ctx.labelName.getText();
+        //        List<String> colNames = ctx.cols == null ? ImmutableList.of() : visitIdentifierList(ctx.cols);
+        //        List<String> partitions = ctx.partition == null ? ImmutableList.of()
+        //        : visitIdentifierList(ctx.partition);
+        //        UnboundOlapTableSink<?> sink = new UnboundOlapTableSink<>(
+        //                tableName,
+        //                colNames,
+        //                ImmutableList.of(),
+        //                partitions,
+        //                visitQuery(ctx.query()));
+        //        if (ctx.explain() != null) {
+        //            return withExplain(sink, ctx.explain());
+        //        }
+        // return new InsertIntoTableCommand(sink, Optional.ofNullable(labelName));
     }
 
     private NereidsLoadStmt generateInsertStmt() {
