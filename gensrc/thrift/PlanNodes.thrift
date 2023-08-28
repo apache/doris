@@ -116,6 +116,8 @@ enum TFileFormatType {
     FORMAT_PROTO,
     FORMAT_JNI,
     FORMAT_AVRO,
+    FORMAT_CSV_LZ4BLOCK,
+    FORMAT_CSV_SNAPPYBLOCK,
 }
 
 // In previous versions, the data compression format and file format were stored together, as TFileFormatType,
@@ -132,6 +134,8 @@ enum TFileCompressType {
     LZ4FRAME,
     DEFLATE,
     LZOP,
+    LZ4BLOCK,
+    SNAPPYBLOCK
 }
 
 struct THdfsConf {
@@ -245,6 +249,8 @@ struct TFileTextScanRangeParams {
     2: optional string line_delimiter;
     3: optional string collection_delimiter;// array ,map ,struct delimiter 
     4: optional string mapkv_delimiter;
+    5: optional i8 enclose;
+    6: optional i8 escape;
 }
 
 struct TFileScanSlotInfo {
@@ -398,6 +404,9 @@ struct TFileRangeDesc {
     9: optional i64 modification_time
     10: optional Types.TFileType file_type;
     11: optional TFileCompressType compress_type;
+    // for hive table, different files may have different fs,
+    // so fs_name should be with TFileRangeDesc
+    12: optional string fs_name
 }
 
 // TFileScanRange represents a set of descriptions of a file and the rules for reading and converting it.
@@ -1145,6 +1154,8 @@ struct TPlanNode {
   47: optional TTestExternalScanNode test_external_scan_node
 
   48: optional TPushAggOp push_down_agg_type_opt
+
+  49: optional i64 push_down_count
   
   101: optional list<Exprs.TExpr> projections
   102: optional Types.TTupleId output_tuple_id

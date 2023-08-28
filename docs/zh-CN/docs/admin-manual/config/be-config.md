@@ -738,6 +738,11 @@ BaseCompaction:546859:
 * 描述: 导入线程数，用于处理NORMAL优先级任务
 * 默认值: 3
 
+#### `enable_single_replica_load`
+
+* 描述: 是否启动单副本数据导入功能
+* 默认值: false
+
 #### `load_error_log_reserve_hours`
 
 * 描述: load错误日志将在此时间后删除
@@ -1235,7 +1240,7 @@ BaseCompaction:546859:
 * 描述：存储引擎保留的未生效数据的最大时长
 * 默认值：1800 (s)
 
-#### `ignore_rowset_stale_unconsistent_delete`
+#### `ignore_rowset_stale_inconsistent_delete`
 
 * 类型：bool
 * 描述：用来决定当删除过期的合并过的rowset后无法构成一致的版本路径时，是否仍要删除。
@@ -1510,3 +1515,8 @@ load tablets from header failed, failed tablets size: xxx, path=xxx
 
 * 描述: `local` 表函数查询的文件的存储目录。
 * 默认值: `${DORIS_HOME}`
+
+#### `brpc_streaming_client_batch_bytes`
+
+* 描述: brpc streaming 客户端发送数据时的攒批大小（字节）
+* 默认值: 262144

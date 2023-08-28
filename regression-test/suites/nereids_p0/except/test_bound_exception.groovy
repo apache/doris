@@ -30,26 +30,26 @@ suite("test_bound_exception") {
     """
     test {
         sql "SELECT id FROM ${tbName} GROUP BY id ORDER BY id123"
-        exception "errCode = 2, detailMessage = Unexpected exception: unbounded object id123 in SORT clause."
+        exception "unbounded object id123 in SORT clause."
     }
     test {
         sql "SELECT id123 FROM ${tbName} ORDER BY id"
-        exception "errCode = 2, detailMessage = Unexpected exception: unbounded object id123 in PROJECT clause."
+        exception "unbounded object id123 in PROJECT clause."
     }
     test {
         sql "SELECT id123 FROM ${tbName} GROUP BY id ORDER BY id"
-        exception "errCode = 2, detailMessage = Unexpected exception: unbounded object id123 in AGGREGATE clause."
+        exception "unbounded object id123 in AGGREGATE clause."
     }
     test {
         sql "SELECT id FROM ${tbName} GROUP BY id123 ORDER BY id"
-        exception "errCode = 2, detailMessage = Unexpected exception: cannot bind GROUP BY KEY: id123"
+        exception "cannot bind GROUP BY KEY: id123"
     }
     test {
         sql "SELECT id FROM ${tbName} WHERE id = (SELECT id from ${tbName} ORDER BY id123 LIMIT 1) ORDER BY id"
-        exception "errCode = 2, detailMessage = Unexpected exception: unbounded object id123 in SORT clause."
+        exception "unbounded object id123 in SORT clause."
     }
     test {
         sql "SELECT id FROM ${tbName} WHERE id123 = 123 ORDER BY id"
-        exception "errCode = 2, detailMessage = Unexpected exception: Invalid call to dataType on unbound object"
+        exception "Invalid call to id123.getDataType() on unbound object"
     }
 }

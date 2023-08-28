@@ -20,11 +20,12 @@
 #include <fmt/format.h>
 #include <gen_cpp/PlanNodes_types.h>
 #include <gen_cpp/Types_types.h>
-#include <gen_cpp/internal_service.pb.h>
 #include <glog/logging.h>
 
 #include <algorithm>
+#include <cstddef>
 #include <map>
+#include <memory>
 #include <new>
 #include <ostream>
 #include <utility>
@@ -69,6 +70,91 @@ namespace doris::vectorized {
 
 const static Slice _s_null_slice = Slice("\\N");
 
+void EncloseCsvTextFieldSplitter::do_split(const Slice& line, std::vector<Slice>* splitted_values) {
+    const char* data = line.data;
+    const auto& column_sep_positions = _text_line_reader_ctx->column_sep_positions();
+    size_t value_start_offset = 0;
+    for (auto idx : column_sep_positions) {
+        process_value_func(data, value_start_offset, idx - value_start_offset, trimming_char,
+                           splitted_values);
+        value_start_offset = idx + value_sep_len;
+    }
+    // process the last column
+    process_value_func(data, value_start_offset, line.size - value_start_offset, trimming_char,
+                       splitted_values);
+}
+
+void PlainCsvTextFieldSplitter::_split_field_single_char(const Slice& line,
+                                                         std::vector<Slice>* splitted_values) {
+    const char* data = line.data;
+    const size_t size = line.size;
+    size_t value_start = 0;
+    for (size_t i = 0; i < size; ++i) {
+        if (data[i] == _value_sep[0]) {
+            process_value_func(data, value_start, i - value_start, trimming_char, splitted_values);
+            value_start = i + value_sep_len;
+        }
+    }
+    process_value_func(data, value_start, size - value_start, trimming_char, splitted_values);
+}
+
+void PlainCsvTextFieldSplitter::_split_field_multi_char(const Slice& line,
+                                                        std::vector<Slice>* splitted_values) {
+    size_t start = 0;  // point to the start pos of next col value.
+    size_t curpos = 0; // point to the start pos of separator matching sequence.
+
+    // value_sep : AAAA
+    // line.data : 1234AAAA5678
+    // -> 1234,5678
+
+    //    start   start
+    //      ▼       ▼
+    //      1234AAAA5678\0
+    //          ▲       ▲
+    //      curpos     curpos
+
+    //kmp
+    vector<int> next(value_sep_len);
+    next[0] = -1;
+    for (int i = 1, j = -1; i < value_sep_len; i++) {
+        while (j > -1 && _value_sep[i] != _value_sep[j + 1]) {
+            j = next[j];
+        }
+        if (_value_sep[i] == _value_sep[j + 1]) {
+            j++;
+        }
+        next[i] = j;
+    }
+
+    for (int i = 0, j = -1; i < line.size; i++) {
+        // i : line
+        // j : _value_sep
+        while (j > -1 && line[i] != _value_sep[j + 1]) {
+            j = next[j];
+        }
+        if (line[i] == _value_sep[j + 1]) {
+            j++;
+        }
+        if (j == value_sep_len - 1) {
+            curpos = i - value_sep_len + 1;
+
+            process_value_func(line.data, start, curpos - start, trimming_char, splitted_values);
+
+            start = i + 1;
+            j = next[j];
+        }
+    }
+    process_value_func(line.data, start, line.size - start, trimming_char, splitted_values);
+}
+
+void PlainCsvTextFieldSplitter::do_split(const Slice& line, std::vector<Slice>* splitted_values) {
+    if (is_single_char_delim) {
+        _split_field_single_char(line, splitted_values);
+    } else {
+        _split_field_multi_char(line, splitted_values);
+    }
+}
+
 CsvReader::CsvReader(RuntimeState* state, RuntimeProfile* profile, ScannerCounter* counter,
                      const TFileScanRangeParams& params, const TFileRangeDesc& range,
                      const std::vector<SlotDescriptor*>& file_slot_descs, io::IOContext* io_ctx)
@@ -96,7 +182,7 @@ CsvReader::CsvReader(RuntimeState* state, RuntimeProfile* profile, ScannerCounte
     }
     _size = _range.size;
 
-    _split_values.reserve(sizeof(Slice) * _file_slot_descs.size());
+    _split_values.reserve(_file_slot_descs.size());
     _init_system_properties();
     _init_file_description();
 }
@@ -147,6 +233,9 @@ void CsvReader::_init_file_description() {
     _file_description.path = _range.path;
     _file_description.start_offset = _range.start_offset;
     _file_description.file_size = _range.__isset.file_size ? _range.file_size : 0;
+    if (_range.__isset.fs_name) {
+        _file_description.fs_name = _range.fs_name;
+    }
 }
 
 Status CsvReader::init_reader(bool is_load) {
@@ -199,6 +288,16 @@ Status CsvReader::init_reader(bool is_load) {
     _value_separator_length = _value_separator.size();
     _line_delimiter = _params.file_attributes.text_params.line_delimiter;
     _line_delimiter_length = _line_delimiter.size();
+    if (_params.file_attributes.text_params.__isset.enclose) {
+        _enclose = _params.file_attributes.text_params.enclose;
+    }
+    if (_params.file_attributes.text_params.__isset.escape) {
+        _escape = _params.file_attributes.text_params.escape;
+    }
+    _text_converter->set_escape_char(_escape);
+
+    _trim_tailing_spaces =
+            (_state != nullptr && _state->trim_tailing_spaces_for_external_table_query());
 
     _collection_delimiter = _params.file_attributes.text_params.collection_delimiter;
     _text_converter->set_collection_delimiter(_collection_delimiter[0]);
@@ -208,6 +307,27 @@ Status CsvReader::init_reader(bool is_load) {
 
     if (_params.file_attributes.__isset.trim_double_quotes) {
         _trim_double_quotes = _params.file_attributes.trim_double_quotes;
+    }
+
+    _not_trim_enclose = (!_trim_double_quotes && _enclose == '\"');
+
+    std::shared_ptr<TextLineReaderContextIf> text_line_reader_ctx;
+    if (_enclose == 0) {
+        text_line_reader_ctx =
+                std::make_shared<PlainTextLineReaderCtx>(_line_delimiter, _line_delimiter_length);
+
+        _fields_splitter = std::make_unique<PlainCsvTextFieldSplitter>(
+                _trim_tailing_spaces, _trim_double_quotes, _value_separator,
+                _value_separator_length, '\"');
+    } else {
+        text_line_reader_ctx = std::make_shared<EncloseCsvLineReaderContext>(
+                _line_delimiter, _line_delimiter_length, _value_separator, _value_separator_length,
+                _file_slot_descs.size() - 1, _enclose, _escape);
+
+        _fields_splitter = std::make_unique<EncloseCsvTextFieldSplitter>(
+                _trim_tailing_spaces, !_not_trim_enclose,
+                std::static_pointer_cast<EncloseCsvLineReaderContext>(text_line_reader_ctx),
+                _value_separator_length, _enclose);
     }
 
     // create decompressor.
@@ -223,15 +343,20 @@ Status CsvReader::init_reader(bool is_load) {
         [[fallthrough]];
     case TFileFormatType::FORMAT_CSV_LZ4FRAME:
         [[fallthrough]];
+    case TFileFormatType::FORMAT_CSV_LZ4BLOCK:
+        [[fallthrough]];
     case TFileFormatType::FORMAT_CSV_LZOP:
         [[fallthrough]];
+    case TFileFormatType::FORMAT_CSV_SNAPPYBLOCK:
+        [[fallthrough]];
     case TFileFormatType::FORMAT_CSV_DEFLATE:
-        _line_reader = NewPlainTextLineReader::create_unique(
-                _profile, _file_reader, _decompressor.get(), _size, _line_delimiter,
-                _line_delimiter_length, start_offset);
+        _line_reader =
+                NewPlainTextLineReader::create_unique(_profile, _file_reader, _decompressor.get(),
+                                                      text_line_reader_ctx, _size, start_offset);
 
         break;
     case TFileFormatType::FORMAT_PROTO:
+        _fields_splitter = std::make_unique<CsvProtoFieldSplitter>();
         _line_reader = NewPlainBinaryLineReader::create_unique(_file_reader);
         break;
     default:
@@ -279,21 +404,51 @@ Status CsvReader::get_next_block(Block* block, size_t* read_rows, bool* eof) {
 
     const int batch_size = std::max(_state->batch_size(), (int)_MIN_BATCH_SIZE);
     size_t rows = 0;
-    auto columns = block->mutate_columns();
-    while (rows < batch_size && !_line_reader_eof) {
-        const uint8_t* ptr = nullptr;
-        size_t size = 0;
-        RETURN_IF_ERROR(_line_reader->read_line(&ptr, &size, &_line_reader_eof, _io_ctx));
-        if (_skip_lines > 0) {
-            _skip_lines--;
-            continue;
-        }
-        if (size == 0) {
-            // Read empty row, just continue
-            continue;
+
+    bool success = false;
+    if (_push_down_agg_type == TPushAggOp::type::COUNT) {
+        while (rows < batch_size && !_line_reader_eof) {
+            const uint8_t* ptr = nullptr;
+            size_t size = 0;
+            RETURN_IF_ERROR(_line_reader->read_line(&ptr, &size, &_line_reader_eof, _io_ctx));
+            if (_skip_lines > 0) {
+                _skip_lines--;
+                continue;
+            }
+            if (size == 0) {
+                // Read empty row, just continue
+                continue;
+            }
+
+            RETURN_IF_ERROR(_validate_line(Slice(ptr, size), &success));
+            ++rows;
         }
 
-        RETURN_IF_ERROR(_fill_dest_columns(Slice(ptr, size), block, columns, &rows));
+        for (auto& col : block->mutate_columns()) {
+            col->resize(rows);
+        }
+
+    } else {
+        auto columns = block->mutate_columns();
+        while (rows < batch_size && !_line_reader_eof) {
+            const uint8_t* ptr = nullptr;
+            size_t size = 0;
+            RETURN_IF_ERROR(_line_reader->read_line(&ptr, &size, &_line_reader_eof, _io_ctx));
+            if (_skip_lines > 0) {
+                _skip_lines--;
+                continue;
+            }
+            if (size == 0) {
+                // Read empty row, just continue
+                continue;
+            }
+
+            RETURN_IF_ERROR(_validate_line(Slice(ptr, size), &success));
+            if (!success) {
+                continue;
+            }
+            RETURN_IF_ERROR(_fill_dest_columns(Slice(ptr, size), block, columns, &rows));
+        }
     }
 
     *eof = (rows == 0);
@@ -355,8 +510,14 @@ Status CsvReader::_create_decompressor() {
         case TFileCompressType::LZ4FRAME:
             compress_type = CompressType::LZ4FRAME;
             break;
+        case TFileCompressType::LZ4BLOCK:
+            compress_type = CompressType::LZ4BLOCK;
+            break;
         case TFileCompressType::DEFLATE:
             compress_type = CompressType::DEFLATE;
+            break;
+        case TFileCompressType::SNAPPYBLOCK:
+            compress_type = CompressType::SNAPPYBLOCK;
             break;
         default:
             return Status::InternalError("unknown compress type: {}", _file_compress_type);
@@ -377,11 +538,17 @@ Status CsvReader::_create_decompressor() {
         case TFileFormatType::FORMAT_CSV_LZ4FRAME:
             compress_type = CompressType::LZ4FRAME;
             break;
+        case TFileFormatType::FORMAT_CSV_LZ4BLOCK:
+            compress_type = CompressType::LZ4BLOCK;
+            break;
         case TFileFormatType::FORMAT_CSV_LZOP:
             compress_type = CompressType::LZOP;
             break;
         case TFileFormatType::FORMAT_CSV_DEFLATE:
             compress_type = CompressType::DEFLATE;
+            break;
+        case TFileFormatType::FORMAT_CSV_SNAPPYBLOCK:
+            compress_type = CompressType::SNAPPYBLOCK;
             break;
         default:
             return Status::InternalError("unknown format type: {}", _file_format_type);
@@ -412,8 +579,8 @@ Status CsvReader::_fill_dest_columns(const Slice& line, Block* block,
             const Slice& value =
                     col_idx < _split_values.size() ? _split_values[col_idx] : _s_null_slice;
             // For load task, we always read "string" from file, so use "write_string_column"
-            _text_converter->write_string_column(src_slot_desc, &columns[i], value.data,
-                                                 value.size);
+            _text_converter->write_string_column(src_slot_desc, &columns[i], value.data, value.size,
+                                                 _escape != 0);
         }
     } else {
         // if _split_values.size > _file_slot_descs.size()
@@ -436,7 +603,7 @@ Status CsvReader::_fill_dest_columns(const Slice& line, Block* block,
     return Status::OK();
 }
 
-Status CsvReader::_line_split_to_values(const Slice& line, bool* success) {
+Status CsvReader::_validate_line(const Slice& line, bool* success) {
     if (!_is_proto_format && !validate_utf8(line.data, line.size)) {
         if (!_is_load) {
             return Status::InternalError("Only support csv data in utf8 codec");
@@ -454,12 +621,12 @@ Status CsvReader::_line_split_to_values(const Slice& line, bool* success) {
             return Status::OK();
         }
     }
+    *success = true;
+    return Status::OK();
+}
 
-    if (_value_separator_length == 1) {
-        _split_line_for_single_char_delimiter(line);
-    } else {
-        _split_line(line);
-    }
+Status CsvReader::_line_split_to_values(const Slice& line, bool* success) {
+    _split_line(line);
 
     if (_is_load) {
         // Only check for load task. For query task, the non exist column will be filled "null".
@@ -493,123 +660,9 @@ Status CsvReader::_line_split_to_values(const Slice& line, bool* success) {
     return Status::OK();
 }
 
-void CsvReader::_split_line_for_proto_format(const Slice& line) {
-    PDataRow** row_ptr = reinterpret_cast<PDataRow**>(line.data);
-    PDataRow* row = *row_ptr;
-    for (const PDataColumn& col : row->col()) {
-        _split_values.emplace_back(col.value());
-    }
-}
-
-void CsvReader::_split_line_for_single_char_delimiter(const Slice& line) {
-    _split_values.clear();
-    if (_file_format_type == TFileFormatType::FORMAT_PROTO) {
-        _split_line_for_proto_format(line);
-    } else {
-        const char* value = line.data;
-        size_t cur_pos = 0;
-        size_t start_field = 0;
-        const size_t size = line.size;
-        for (; cur_pos < size; ++cur_pos) {
-            if (*(value + cur_pos) == _value_separator[0]) {
-                size_t non_space = cur_pos;
-                if (_state != nullptr && _state->trim_tailing_spaces_for_external_table_query()) {
-                    while (non_space > start_field && *(value + non_space - 1) == ' ') {
-                        non_space--;
-                    }
-                }
-                if (_trim_double_quotes && non_space > (start_field + 1) &&
-                    *(value + start_field) == '\"' && *(value + non_space - 1) == '\"') {
-                    start_field++;
-                    non_space--;
-                }
-                _split_values.emplace_back(value + start_field, non_space - start_field);
-                start_field = cur_pos + 1;
-            }
-        }
-
-        CHECK(cur_pos == line.size) << cur_pos << " vs " << line.size;
-        size_t non_space = cur_pos;
-        if (_state != nullptr && _state->trim_tailing_spaces_for_external_table_query()) {
-            while (non_space > start_field && *(value + non_space - 1) == ' ') {
-                non_space--;
-            }
-        }
-        if (_trim_double_quotes && non_space > (start_field + 1) &&
-            *(value + start_field) == '\"' && *(value + non_space - 1) == '\"') {
-            start_field++;
-            non_space--;
-        }
-        _split_values.emplace_back(value + start_field, non_space - start_field);
-    }
-}
-
 void CsvReader::_split_line(const Slice& line) {
     _split_values.clear();
-    if (_file_format_type == TFileFormatType::FORMAT_PROTO) {
-        _split_line_for_proto_format(line);
-    } else {
-        const char* value = line.data;
-        size_t start = 0;     // point to the start pos of next col value.
-        size_t curpos = 0;    // point to the start pos of separator matching sequence.
-        size_t p1 = 0;        // point to the current pos of separator matching sequence.
-        size_t non_space = 0; // point to the last pos of non_space charactor.
-
-        // Separator: AAAA
-        //
-        //    p1
-        //     ▼
-        //     AAAA
-        //   1000AAAA2000AAAA
-        //   ▲   ▲
-        // Start │
-        //     curpos
-
-        while (curpos < line.size) {
-            if (curpos + p1 == line.size || *(value + curpos + p1) != _value_separator[p1]) {
-                // Not match, move forward:
-                curpos += (p1 == 0 ? 1 : p1);
-                p1 = 0;
-            } else {
-                p1++;
-                if (p1 == _value_separator_length) {
-                    // Match a separator
-                    non_space = curpos;
-                    // Trim tailing spaces. Be consistent with hive and trino's behavior.
-                    if (_state != nullptr &&
-                        _state->trim_tailing_spaces_for_external_table_query()) {
-                        while (non_space > start && *(value + non_space - 1) == ' ') {
-                            non_space--;
-                        }
-                    }
-                    if (_trim_double_quotes && (non_space - 1) > start &&
-                        *(value + start) == '\"' && *(value + non_space - 1) == '\"') {
-                        start++;
-                        non_space--;
-                    }
-                    _split_values.emplace_back(value + start, non_space - start);
-                    start = curpos + _value_separator_length;
-                    curpos = start;
-                    p1 = 0;
-                    non_space = 0;
-                }
-            }
-        }
-
-        CHECK(curpos == line.size) << curpos << " vs " << line.size;
-        non_space = curpos;
-        if (_state != nullptr && _state->trim_tailing_spaces_for_external_table_query()) {
-            while (non_space > start && *(value + non_space - 1) == ' ') {
-                non_space--;
-            }
-        }
-        if (_trim_double_quotes && (non_space - 1) > start && *(value + start) == '\"' &&
-            *(value + non_space - 1) == '\"') {
-            start++;
-            non_space--;
-        }
-        _split_values.emplace_back(value + start, non_space - start);
-    }
+    _fields_splitter->split_line(line, &_split_values);
 }
 
 Status CsvReader::_check_array_format(std::vector<Slice>& split_values, bool* is_success) {
@@ -694,6 +747,14 @@ Status CsvReader::_prepare_parse(size_t* read_line, bool* is_parse_name) {
     _value_separator_length = _value_separator.size();
     _line_delimiter = _params.file_attributes.text_params.line_delimiter;
     _line_delimiter_length = _line_delimiter.size();
+    if (_params.file_attributes.text_params.__isset.enclose) {
+        _enclose = _params.file_attributes.text_params.enclose;
+    }
+    if (_params.file_attributes.text_params.__isset.escape) {
+        _escape = _params.file_attributes.text_params.escape;
+    }
+    _not_trim_enclose = (!_trim_double_quotes && _enclose == '\"');
+    _text_converter->set_escape_char(_escape);
 
     _collection_delimiter = _params.file_attributes.text_params.collection_delimiter;
     _text_converter->set_collection_delimiter(_collection_delimiter[0]);
@@ -704,10 +765,25 @@ Status CsvReader::_prepare_parse(size_t* read_line, bool* is_parse_name) {
     // create decompressor.
     // _decompressor may be nullptr if this is not a compressed file
     RETURN_IF_ERROR(_create_decompressor());
+    std::shared_ptr<TextLineReaderContextIf> text_line_reader_ctx;
+    if (_enclose == 0) {
+        text_line_reader_ctx =
+                std::make_shared<PlainTextLineReaderCtx>(_line_delimiter, _line_delimiter_length);
+        _fields_splitter = std::make_unique<PlainCsvTextFieldSplitter>(
+                _trim_tailing_spaces, _trim_double_quotes, _value_separator,
+                _value_separator_length);
+    } else {
+        text_line_reader_ctx = std::make_shared<EncloseCsvLineReaderContext>(
+                _line_delimiter, _line_delimiter_length, _value_separator, _value_separator_length,
+                _file_slot_descs.size() - 1, _enclose, _escape);
+        _fields_splitter = std::make_unique<EncloseCsvTextFieldSplitter>(
+                _trim_tailing_spaces, false,
+                std::static_pointer_cast<EncloseCsvLineReaderContext>(text_line_reader_ctx),
+                _value_separator_length);
+    }
 
     _line_reader = NewPlainTextLineReader::create_unique(
-            _profile, _file_reader, _decompressor.get(), _size, _line_delimiter,
-            _line_delimiter_length, start_offset);
+            _profile, _file_reader, _decompressor.get(), text_line_reader_ctx, _size, start_offset);
 
     return Status::OK();
 }

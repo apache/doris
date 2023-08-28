@@ -17,15 +17,15 @@
 
 #pragma once
 
+#include "exec/data_sink.h"
 #include "operator.h"
-#include "vec/sink/vtable_sink.h"
 
 namespace doris {
 
 namespace pipeline {
 
 // used for VMysqlTableSink, VJdbcTableSink and VOdbcTableSink.
-class TableSinkOperatorBuilder final : public DataSinkOperatorBuilder<vectorized::VTableSink> {
+class TableSinkOperatorBuilder final : public DataSinkOperatorBuilder<DataSink> {
 public:
     TableSinkOperatorBuilder(int32_t id, DataSink* sink)
             : DataSinkOperatorBuilder(id, "TableSinkOperator", sink) {}
@@ -38,7 +38,7 @@ public:
     TableSinkOperator(OperatorBuilderBase* operator_builder, DataSink* sink)
             : DataSinkOperator(operator_builder, sink) {}
 
-    bool can_write() override { return true; }
+    bool can_write() override { return _sink->can_write(); }
 };
 
 OperatorPtr TableSinkOperatorBuilder::build_operator() {

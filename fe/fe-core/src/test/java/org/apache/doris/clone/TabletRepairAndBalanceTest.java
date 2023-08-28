@@ -26,7 +26,6 @@ import org.apache.doris.analysis.DropTableStmt;
 import org.apache.doris.catalog.ColocateGroupSchema;
 import org.apache.doris.catalog.ColocateTableIndex;
 import org.apache.doris.catalog.Database;
-import org.apache.doris.catalog.DiskInfo;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.MaterializedIndex;
 import org.apache.doris.catalog.OlapTable;
@@ -36,7 +35,6 @@ import org.apache.doris.catalog.Replica;
 import org.apache.doris.catalog.ReplicaAllocation;
 import org.apache.doris.catalog.Tablet;
 import org.apache.doris.catalog.TabletInvertedIndex;
-import org.apache.doris.catalog.TabletMeta;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
@@ -54,7 +52,6 @@ import org.apache.doris.thrift.TDisk;
 import org.apache.doris.thrift.TStorageMedium;
 import org.apache.doris.utframe.UtFrameUtils;
 
-import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Table;
@@ -162,32 +159,12 @@ public class TabletRepairAndBalanceTest {
         CreateTableStmt createTableStmt = (CreateTableStmt) UtFrameUtils.parseAndAnalyzeStmt(sql, connectContext);
         Env.getCurrentEnv().createTable(createTableStmt);
         // must set replicas' path hash, or the tablet scheduler won't work
-        updateReplicaPathHash();
+        RebalancerTestUtil.updateReplicaPathHash();
     }
 
     private static void dropTable(String sql) throws Exception {
         DropTableStmt dropTableStmt = (DropTableStmt) UtFrameUtils.parseAndAnalyzeStmt(sql, connectContext);
         Env.getCurrentEnv().dropTable(dropTableStmt);
-    }
-
-    private static void updateReplicaPathHash() {
-        Table<Long, Long, Replica> replicaMetaTable = Env.getCurrentInvertedIndex().getReplicaMetaTable();
-        for (Table.Cell<Long, Long, Replica> cell : replicaMetaTable.cellSet()) {
-            long beId = cell.getColumnKey();
-            Backend be = Env.getCurrentSystemInfo().getBackend(beId);
-            if (be == null) {
-                continue;
-            }
-            Replica replica = cell.getValue();
-            TabletMeta tabletMeta = Env.getCurrentInvertedIndex().getTabletMeta(cell.getRowKey());
-            ImmutableMap<String, DiskInfo> diskMap = be.getDisks();
-            for (DiskInfo diskInfo : diskMap.values()) {
-                if (diskInfo.getStorageMedium() == tabletMeta.getStorageMedium()) {
-                    replica.setPathHash(diskInfo.getPathHash());
-                    break;
-                }
-            }
-        }
     }
 
     private static void alterTable(String sql) throws Exception {
@@ -498,7 +475,7 @@ public class TabletRepairAndBalanceTest {
         ExceptionChecker.expectThrowsNoException(() -> createTable(createStr6));
 
         OlapTable tbl3 = db.getOlapTableOrDdlException("col_tbl3");
-        updateReplicaPathHash();
+        RebalancerTestUtil.updateReplicaPathHash();
         // Set one replica's state as DECOMMISSION, see if it can be changed to NORMAL
         Tablet oneTablet = null;
         Replica oneReplica = null;

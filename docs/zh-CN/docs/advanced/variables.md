@@ -664,6 +664,21 @@ try (Connection conn = DriverManager.getConnection("jdbc:mysql://127.0.0.1:9030/
 
   因为外表会存在表的 schema 中 char 或者 varchar 列的最大长度和底层 parquet 或者 orc 文件中的 schema 不一致的情况。此时开启改选项，会按照表的 schema 中的最大长度进行截断。
 
+* `jdbc_clickhouse_query_final`
+
+  是否在使用 JDBC Catalog 功能查询 ClickHouse 时增加 final 关键字，默认为 false
+
+  用于 ClickHouse 的 ReplacingMergeTree 表引擎查询去重
+
+* `enable_memtable_on_sink_node`
+
+  <version since="2.1.0">
+  是否在数据导入中启用 MemTable 前移，默认为 false
+  </version>
+
+  在 DataSink 节点上构建 MemTable，并通过 brpc streaming 发送 segment 到其他 BE。
+  该方法减少了多副本之间的重复工作，并且节省了数据序列化和反序列化的时间。
+
 ***
 
 #### 关于语句执行超时控制的补充说明

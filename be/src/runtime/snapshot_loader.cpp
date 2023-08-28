@@ -86,7 +86,7 @@ Status SnapshotLoader::init(TStorageBackendType::type type, const std::string& l
     } else if (TStorageBackendType::type::HDFS == type) {
         THdfsParams hdfs_params = parse_properties(_prop);
         std::shared_ptr<io::HdfsFileSystem> fs;
-        RETURN_IF_ERROR(io::HdfsFileSystem::create(hdfs_params, "", nullptr, &fs));
+        RETURN_IF_ERROR(io::HdfsFileSystem::create(hdfs_params, hdfs_params.fs_name, nullptr, &fs));
         _remote_fs = std::move(fs);
     } else if (TStorageBackendType::type::BROKER == type) {
         std::shared_ptr<io::BrokerFileSystem> fs;
@@ -698,7 +698,7 @@ Status SnapshotLoader::move(const std::string& snapshot_path, TabletSharedPtr ta
     // rename the rowset ids and tabletid info in rowset meta
     Status convert_status = SnapshotManager::instance()->convert_rowset_ids(
             snapshot_path, tablet_id, tablet->replica_id(), schema_hash);
-    if (convert_status != Status::OK()) {
+    if (!convert_status.ok()) {
         std::stringstream ss;
         ss << "failed to convert rowsetids in snapshot: " << snapshot_path
            << ", tablet path: " << tablet_path;

@@ -1103,6 +1103,7 @@
                     "items": [
                         "admin-manual/data-admin/backup",
                         "admin-manual/data-admin/restore",
+                        "admin-manual/data-admin/data-recovery",
                         "admin-manual/data-admin/delete-recover"
                     ]
                 },
@@ -1279,8 +1280,7 @@
             "type": "category",
             "label": "Release notes",
             "items": [
-                "releasenotes/release-2.0-Beta",
-                "releasenotes/release-2.0-Alpha",
+                "releasenotes/release-2.0.0",
                 "releasenotes/release-1.2.6",
                 "releasenotes/release-1.2.5",
                 "releasenotes/release-1.2.4",

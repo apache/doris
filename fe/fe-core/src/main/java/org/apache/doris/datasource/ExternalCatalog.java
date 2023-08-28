@@ -350,6 +350,9 @@ public abstract class ExternalCatalog
     @Nullable
     @Override
     public ExternalDatabase<? extends ExternalTable> getDbNullable(String dbName) {
+        if (StringUtils.isEmpty(dbName)) {
+            return null;
+        }
         try {
             makeSureInitialized();
         } catch (Exception e) {

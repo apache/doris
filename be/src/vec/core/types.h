@@ -286,8 +286,6 @@ using DateTime = Int64;
 using DateV2 = UInt32;
 using DateTimeV2 = UInt64;
 
-struct Int128I {};
-
 template <typename T>
 inline constexpr T decimal_scale_multiplier(UInt32 scale);
 template <>
@@ -379,6 +377,8 @@ struct Decimal {
         value %= x;
         return *this;
     }
+
+    auto operator<=>(const Decimal<T>& x) const { return value <=> x.value; }
 
     static constexpr int max_string_length() {
         constexpr auto precision =
@@ -501,14 +501,13 @@ struct Decimal {
     T value;
 };
 
-template <>
-struct Decimal<Int128I> : public Decimal<Int128> {
+struct Decimal128I : public Decimal<Int128> {
     using NativeType = Int128;
 
-    Decimal() = default;
+    Decimal128I() = default;
 
 #define DECLARE_NUMERIC_CTOR(TYPE) \
-    Decimal(const TYPE& value_) : Decimal<Int128>(value_) {}
+    Decimal128I(const TYPE& value_) : Decimal<Int128>(value_) {}
 
     DECLARE_NUMERIC_CTOR(Int128)
     DECLARE_NUMERIC_CTOR(Int32)
@@ -520,7 +519,7 @@ struct Decimal<Int128I> : public Decimal<Int128> {
 #undef DECLARE_NUMERIC_CTOR
 
     template <typename U>
-    Decimal(const Decimal<U>& x) {
+    Decimal128I(const Decimal<U>& x) {
         value = x;
     }
 };
@@ -528,7 +527,6 @@ struct Decimal<Int128I> : public Decimal<Int128> {
 using Decimal32 = Decimal<Int32>;
 using Decimal64 = Decimal<Int64>;
 using Decimal128 = Decimal<Int128>;
-using Decimal128I = Decimal<Int128I>;
 
 template <>
 struct TypeName<Decimal32> {
@@ -736,7 +734,7 @@ struct std::hash<doris::vectorized::Decimal128> {
 
 template <>
 struct std::hash<doris::vectorized::Decimal128I> {
-    size_t operator()(const doris::vectorized::Decimal<doris::vectorized::Int128I>& x) const {
+    size_t operator()(const doris::vectorized::Decimal128I& x) const {
         return std::hash<doris::vectorized::Int64>()(x.value >> 64) ^
                std::hash<doris::vectorized::Int64>()(
                        x.value & std::numeric_limits<doris::vectorized::UInt64>::max());

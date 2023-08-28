@@ -21,6 +21,7 @@
 
 #include <memory>
 
+#include "aggregation_sink_operator.h"
 #include "common/status.h"
 #include "operator.h"
 #include "util/runtime_profile.h"
@@ -67,6 +68,53 @@ private:
     RuntimeProfile::Counter* _queue_size_counter;
 
     std::shared_ptr<DataQueue> _data_queue;
+};
+
+class StreamingAggSinkOperatorX;
+
+class StreamingAggSinkLocalState final : public AggSinkLocalState {
+    ENABLE_FACTORY_CREATOR(StreamingAggSinkLocalState);
+
+public:
+    StreamingAggSinkLocalState(DataSinkOperatorX* parent, RuntimeState* state);
+
+    Status init(RuntimeState* state, LocalSinkStateInfo& info) override;
+    Status close(RuntimeState* state) override;
+    Status do_pre_agg(vectorized::Block* input_block, vectorized::Block* output_block);
+
+private:
+    friend class StreamingAggSinkOperatorX;
+
+    Status _pre_agg_with_serialized_key(doris::vectorized::Block* in_block,
+                                        doris::vectorized::Block* out_block);
+    void _make_nullable_output_key(vectorized::Block* block);
+    bool _should_expand_preagg_hash_tables();
+
+    vectorized::Block _preagg_block = vectorized::Block();
+
+    vectorized::PODArray<vectorized::AggregateDataPtr> _places;
+
+    RuntimeProfile::Counter* _queue_byte_size_counter;
+    RuntimeProfile::Counter* _queue_size_counter;
+    RuntimeProfile::Counter* _streaming_agg_timer;
+
+    bool _should_expand_hash_table = true;
+    int64_t _num_rows_returned = 0;
+};
+
+class StreamingAggSinkOperatorX final : public AggSinkOperatorX {
+public:
+    StreamingAggSinkOperatorX(ObjectPool* pool, const TPlanNode& tnode, const DescriptorTbl& descs);
+    Status setup_local_state(RuntimeState* state, LocalSinkStateInfo& info) override;
+
+    Status sink(RuntimeState* state, vectorized::Block* in_block,
+                SourceState source_state) override;
+
+    bool can_write(RuntimeState* state) override;
+
+    void get_dependency(DependencySPtr& dependency) override {
+        dependency.reset(new AggDependency(id()));
+    }
 };
 
 } // namespace pipeline

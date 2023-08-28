@@ -86,7 +86,8 @@ public:
                               const TParquetVersion::type& parquet_version);
     static void build_schema_data_logical_type(
             std::shared_ptr<const parquet::LogicalType>& parquet_data_logical_type_ptr,
-            const TParquetDataLogicalType::type& column_data_logical_type);
+            const TParquetDataLogicalType::type& column_data_logical_type, int* primitive_length,
+            const TypeDescriptor& type_desc);
 };
 
 class VFileWriterWrapper {
@@ -102,7 +103,7 @@ public:
 
     virtual Status write(const Block& block) = 0;
 
-    virtual void close() = 0;
+    virtual Status close() = 0;
 
     virtual int64_t written_len() = 0;
 
@@ -128,7 +129,7 @@ public:
 
     Status write(const Block& block) override;
 
-    void close() override;
+    Status close() override;
 
     int64_t written_len() override;
 

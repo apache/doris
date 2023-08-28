@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.properties;
 
 import org.apache.doris.nereids.PlanContext;
+import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.DistributionSpecHash.ShuffleType;
 import org.apache.doris.nereids.trees.expressions.Alias;
@@ -239,18 +240,32 @@ public class ChildOutputPropertyDeriver extends PlanVisitor<PhysicalProperties, 
             DistributionSpecHash leftHashSpec = (DistributionSpecHash) leftOutputProperty.getDistributionSpec();
             DistributionSpecHash rightHashSpec = (DistributionSpecHash) rightOutputProperty.getDistributionSpec();
 
-            // colocate join
-            if (leftHashSpec.getShuffleType() == ShuffleType.NATURAL
-                    && rightHashSpec.getShuffleType() == ShuffleType.NATURAL) {
-                if (JoinUtils.couldColocateJoin(leftHashSpec, rightHashSpec)) {
-                    return new PhysicalProperties(DistributionSpecHash.merge(leftHashSpec, rightHashSpec));
-                }
+            switch (hashJoin.getJoinType()) {
+                case INNER_JOIN:
+                case CROSS_JOIN:
+                    return new PhysicalProperties(DistributionSpecHash.merge(
+                            leftHashSpec, rightHashSpec, leftHashSpec.getShuffleType()));
+                case LEFT_SEMI_JOIN:
+                case LEFT_ANTI_JOIN:
+                case NULL_AWARE_LEFT_ANTI_JOIN:
+                case LEFT_OUTER_JOIN:
+                    return new PhysicalProperties(leftHashSpec);
+                case RIGHT_SEMI_JOIN:
+                case RIGHT_ANTI_JOIN:
+                case RIGHT_OUTER_JOIN:
+                    if (JoinUtils.couldColocateJoin(leftHashSpec, rightHashSpec)) {
+                        return new PhysicalProperties(rightHashSpec);
+                    } else {
+                        // retain left shuffle type, since coordinator use left most node to schedule fragment
+                        // forbid colocate join, since right table already shuffle
+                        return new PhysicalProperties(rightHashSpec.withShuffleTypeAndForbidColocateJoin(
+                                leftHashSpec.getShuffleType()));
+                    }
+                case FULL_OUTER_JOIN:
+                    return PhysicalProperties.ANY;
+                default:
+                    throw new AnalysisException("unknown join type " + hashJoin.getJoinType());
             }
-
-            // shuffle, if left child is natural mean current join is bucket shuffle join
-            // and remain natural for colocate join on upper join.
-            return new PhysicalProperties(DistributionSpecHash.merge(
-                    leftHashSpec, rightHashSpec, leftHashSpec.getShuffleType()));
         }
 
         throw new RuntimeException("Could not derive hash join's output properties. join: " + hashJoin);

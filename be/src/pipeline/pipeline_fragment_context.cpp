@@ -62,6 +62,7 @@
 #include "pipeline/exec/nested_loop_join_build_operator.h"
 #include "pipeline/exec/nested_loop_join_probe_operator.h"
 #include "pipeline/exec/olap_table_sink_operator.h"
+#include "pipeline/exec/olap_table_sink_v2_operator.h"
 #include "pipeline/exec/operator.h"
 #include "pipeline/exec/partition_sort_sink_operator.h"
 #include "pipeline/exec/partition_sort_source_operator.h"
@@ -157,7 +158,7 @@ void PipelineFragmentContext::cancel(const PPlanFragmentCancelReason& reason,
         if (reason != PPlanFragmentCancelReason::LIMIT_REACH) {
             _exec_status = Status::Cancelled(msg);
         }
-        _runtime_state->set_is_cancelled(true);
+        _runtime_state->set_is_cancelled(true, msg);
 
         LOG(WARNING) << "PipelineFragmentContext Canceled. reason=" << msg;
 
@@ -172,7 +173,7 @@ void PipelineFragmentContext::cancel(const PPlanFragmentCancelReason& reason,
         // For stream load the fragment's query_id == load id, it is set in FE.
         auto stream_load_ctx = _exec_env->new_load_stream_mgr()->get(_query_id);
         if (stream_load_ctx != nullptr) {
-            stream_load_ctx->pipe->cancel(PPlanFragmentCancelReason_Name(reason));
+            stream_load_ctx->pipe->cancel(msg);
         }
         _cancel_reason = reason;
         _cancel_msg = msg;
@@ -285,11 +286,8 @@ Status PipelineFragmentContext::prepare(const doris::TPipelineFragmentParams& re
             typeid(*node) == typeid(vectorized::NewFileScanNode) ||
             typeid(*node) == typeid(vectorized::NewOdbcScanNode) ||
             typeid(*node) == typeid(vectorized::NewEsScanNode) ||
-            typeid(*node) == typeid(vectorized::VMetaScanNode)
-#ifdef LIBJVM
-            || typeid(*node) == typeid(vectorized::NewJdbcScanNode)
-#endif
-        ) {
+            typeid(*node) == typeid(vectorized::VMetaScanNode) ||
+            typeid(*node) == typeid(vectorized::NewJdbcScanNode)) {
             auto* scan_node = static_cast<vectorized::VScanNode*>(scan_nodes[i]);
             auto scan_ranges = find_with_default(local_params.per_node_scan_ranges, scan_node->id(),
                                                  no_scan_ranges);
@@ -756,8 +754,13 @@ Status PipelineFragmentContext::_create_sink(int sender_id, const TDataSink& thr
         break;
     }
     case TDataSinkType::OLAP_TABLE_SINK: {
-        sink_ = std::make_shared<OlapTableSinkOperatorBuilder>(next_operator_builder_id(),
-                                                               _sink.get());
+        if (state->query_options().enable_memtable_on_sink_node) {
+            sink_ = std::make_shared<OlapTableSinkV2OperatorBuilder>(next_operator_builder_id(),
+                                                                     _sink.get());
+        } else {
+            sink_ = std::make_shared<OlapTableSinkOperatorBuilder>(next_operator_builder_id(),
+                                                                   _sink.get());
+        }
         break;
     }
     case TDataSinkType::MYSQL_TABLE_SINK:
@@ -797,7 +800,7 @@ Status PipelineFragmentContext::_create_sink(int sender_id, const TDataSink& thr
             _multi_cast_stream_sink_senders[i].reset(new vectorized::VDataStreamSender(
                     _runtime_state.get(), _runtime_state->obj_pool(), sender_id, row_desc,
                     thrift_sink.multi_cast_stream_sink.sinks[i],
-                    thrift_sink.multi_cast_stream_sink.destinations[i], 16 * 1024, false));
+                    thrift_sink.multi_cast_stream_sink.destinations[i], false));
 
             // 2. create and set the source operator of multi_cast_data_stream_source for new pipeline
             OperatorBuilderPtr source_op =

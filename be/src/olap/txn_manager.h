@@ -80,16 +80,13 @@ struct TabletTxnInfo {
 
 struct CommitTabletTxnInfo {
     CommitTabletTxnInfo(TPartitionId partition_id, TTransactionId transaction_id,
-                        RowsetSharedPtr rowset, DeleteBitmapPtr delete_bitmap,
-                        RowsetIdUnorderedSet rowset_ids)
+                        DeleteBitmapPtr delete_bitmap, RowsetIdUnorderedSet rowset_ids)
             : transaction_id(transaction_id),
               partition_id(partition_id),
-              rowset(rowset),
               delete_bitmap(delete_bitmap),
               rowset_ids(rowset_ids) {}
     TTransactionId transaction_id;
     TPartitionId partition_id;
-    RowsetSharedPtr rowset;
     DeleteBitmapPtr delete_bitmap;
     RowsetIdUnorderedSet rowset_ids;
 };

@@ -111,7 +111,6 @@ Status LoadChannelMgr::open(const PTabletWriterOpenRequest& params) {
     }
 
     RETURN_IF_ERROR(channel->open(params));
-    _register_channel_all_writers(channel);
 
     return Status::OK();
 }
@@ -166,7 +165,6 @@ Status LoadChannelMgr::add_batch(const PTabletWriterAddBlockRequest& request,
     // this case will be handled in load channel's add batch method.
     Status st = channel->add_batch(request, response);
     if (UNLIKELY(!st.ok())) {
-        _deregister_channel_all_writers(channel);
         channel->cancel();
         return st;
     }
@@ -183,7 +181,6 @@ void LoadChannelMgr::_finish_load_channel(const UniqueId load_id) {
     {
         std::lock_guard<std::mutex> l(_lock);
         if (_load_channels.find(load_id) != _load_channels.end()) {
-            _deregister_channel_all_writers(_load_channels.find(load_id)->second);
             _load_channels.erase(load_id);
         }
         auto handle = _last_success_channel->insert(load_id.to_string(), nullptr, 1, dummy_deleter);
@@ -199,7 +196,6 @@ Status LoadChannelMgr::cancel(const PTabletWriterCancelRequest& params) {
         std::lock_guard<std::mutex> l(_lock);
         if (_load_channels.find(load_id) != _load_channels.end()) {
             cancelled_channel = _load_channels[load_id];
-            _deregister_channel_all_writers(cancelled_channel);
             _load_channels.erase(load_id);
         }
     }
@@ -244,7 +240,6 @@ Status LoadChannelMgr::_start_load_channels_clean() {
         }
 
         for (auto& key : need_delete_channel_ids) {
-            _deregister_channel_all_writers(_load_channels.find(key)->second);
             _load_channels.erase(key);
             LOG(INFO) << "erase timeout load channel: " << key;
         }

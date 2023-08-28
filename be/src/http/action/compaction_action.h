@@ -66,7 +66,7 @@ private:
     Status _handle_run_status_compaction(HttpRequest* req, std::string* json_result);
 
     /// check param and fetch tablet_id from req
-    Status _check_param(HttpRequest* req, uint64_t* tablet_id);
+    Status _check_param(HttpRequest* req, uint64_t* tablet_id, uint64_t* table_id);
 
 private:
     CompactionActionType _type;

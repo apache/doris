@@ -41,6 +41,7 @@ import org.apache.doris.planner.PlanFragmentId;
 import org.apache.doris.planner.PlanNode;
 import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.planner.ScanNode;
+import org.apache.doris.thrift.TPushAggOp;
 
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.Lists;
@@ -92,6 +93,8 @@ public class PlanTranslatorContext {
     private final Map<CTEId, PhysicalCTEConsumer> cteConsumerMap = Maps.newHashMap();
 
     private final Map<PlanFragmentId, CTEScanNode> cteScanNodeMap = Maps.newHashMap();
+
+    private final Map<Long, TPushAggOp> tablePushAggOp = Maps.newHashMap();
 
     public PlanTranslatorContext(CascadesContext ctx) {
         this.translator = new RuntimeFilterTranslator(ctx.getRuntimeFilterContext());
@@ -210,6 +213,7 @@ public class PlanTranslatorContext {
         } else {
             slotRef = new SlotRef(slotDescriptor);
         }
+        slotRef.setTable(table);
         slotRef.setLabel(slotReference.getName());
         this.addExprIdSlotRefPair(slotReference.getExprId(), slotRef);
         slotDescriptor.setIsNullable(slotReference.nullable());
@@ -233,5 +237,13 @@ public class PlanTranslatorContext {
 
     public DescriptorTable getDescTable() {
         return descTable;
+    }
+
+    public void setTablePushAggOp(Long tableId, TPushAggOp aggOp) {
+        tablePushAggOp.put(tableId, aggOp);
+    }
+
+    public TPushAggOp getTablePushAggOp(Long tableId) {
+        return tablePushAggOp.getOrDefault(tableId, TPushAggOp.NONE);
     }
 }
