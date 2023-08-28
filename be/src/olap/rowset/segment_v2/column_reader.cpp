@@ -207,8 +207,7 @@ Status ColumnReader::init(const ColumnMetaPB* meta) {
         switch (index_meta.type()) {
         case ORDINAL_INDEX:
             _ordinal_index_meta = &index_meta.ordinal_index();
-            _ordinal_index.reset(
-                    new OrdinalIndexReader(_file_reader, _num_rows));
+            _ordinal_index.reset(new OrdinalIndexReader(_file_reader, _num_rows));
             break;
         case ZONE_MAP_INDEX:
             _zone_map_index_meta = &index_meta.zone_map_index();
