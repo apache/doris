@@ -15,11 +15,11 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite('nereids_delete_cte') {
+suite('nereids_update_cte') {
     def t1 = 't1_cte'
     def t2 = 't2_cte'
     def t3 = 't3_cte'
-    
+
     sql "drop table if exists ${t1}"
     sql """
         create table ${t1} (
@@ -33,8 +33,7 @@ suite('nereids_delete_cte') {
         distributed by hash(id, id1)
         properties(
             "replication_num"="1",
-            "function_column.sequence_col" = "c4",
-            "enable_unique_key_merge_on_write" = "true"
+            "function_column.sequence_col" = "c4"
         );
     """
 
@@ -86,23 +85,25 @@ suite('nereids_delete_cte') {
             (4),
             (5);
     """
-
     sql "set enable_nereids_planner=true"
     sql "set enable_fallback_to_original_planner=false"
     sql "set enable_nereids_dml=true"
 
-    sql "insert into ${t1}(id, c1, c2, c3) select id, c1 * 2, c2, c3 from ${t1}"
-    sql "insert into ${t2}(id, c1, c2, c3) select id, c1, c2 * 2, c3 from ${t2}"
-    sql "insert into ${t2}(c1, c3) select c1 + 1, c3 + 1 from (select id, c1, c3 from ${t1} order by id, c1 limit 10) ${t1}, ${t3}"
+    sql "update ${t1} set c1 = 5 where id = 3"
 
-    qt_sql "select * from ${t1} order by id, id1"
+    qt_sql "select * from ${t1} order by id"
+
+    sql "update ${t1} set c1 = c1 + 1, c3 = c2 * 2 where id = 1"
+
+    qt_sql "select * from ${t1} order by id"
 
     sql """
         with cte as (select * from ${t3})
-        delete from ${t1}
-        using ${t2} join cte on ${t2}.id = cte.id
+        update ${t1}
+        set ${t1}.c1 = ${t2}.c1, ${t1}.c3 = ${t2}.c3 * 100
+        from ${t2} inner join cte on ${t2}.id = cte.id
         where ${t1}.id = ${t2}.id;
     """
 
-    qt_sql "select * from ${t1} order by id, id1"
+    qt_sql "select * from ${t1} order by id"
 }
