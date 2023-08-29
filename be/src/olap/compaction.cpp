@@ -692,15 +692,16 @@ Status Compaction::modify_rowsets(const Merger::Statistics* stats) {
 
             _tablet->merge_delete_bitmap(output_rowset_delete_bitmap);
             RETURN_IF_ERROR(_tablet->modify_rowsets(output_rowsets, _input_rowsets, true));
-            if (config::tablet_rowset_stale_sweep_by_size &&
-                _tablet->tablet_meta()->all_stale_rs_metas().size() >=
-                        config::tablet_rowset_stale_sweep_threshold_size) {
-                _tablet->delete_expired_stale_rowset();
-            }
         }
     } else {
         std::lock_guard<std::shared_mutex> wrlock(_tablet->get_header_lock());
         RETURN_IF_ERROR(_tablet->modify_rowsets(output_rowsets, _input_rowsets, true));
+    }
+
+    if (config::tablet_rowset_stale_sweep_by_size &&
+        _tablet->tablet_meta()->all_stale_rs_metas().size() >=
+                config::tablet_rowset_stale_sweep_threshold_size) {
+        _tablet->delete_expired_stale_rowset();
     }
 
     int64_t cur_max_version = 0;
