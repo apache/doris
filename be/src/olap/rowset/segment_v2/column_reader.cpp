@@ -207,16 +207,15 @@ Status ColumnReader::init(const ColumnMetaPB* meta) {
         switch (index_meta.type()) {
         case ORDINAL_INDEX:
             _ordinal_index_meta = &index_meta.ordinal_index();
-            _ordinal_index.reset(
-                    new OrdinalIndexReader(_file_reader, _ordinal_index_meta, _num_rows));
+            _ordinal_index.reset(new OrdinalIndexReader(_file_reader, _num_rows));
             break;
         case ZONE_MAP_INDEX:
             _zone_map_index_meta = &index_meta.zone_map_index();
-            _zone_map_index.reset(new ZoneMapIndexReader(_file_reader, _zone_map_index_meta));
+            _zone_map_index.reset(new ZoneMapIndexReader(_file_reader));
             break;
         case BITMAP_INDEX:
             _bitmap_index_meta = &index_meta.bitmap_index();
-            _bitmap_index.reset(new BitmapIndexReader(_file_reader, _bitmap_index_meta));
+            _bitmap_index.reset(new BitmapIndexReader(_file_reader));
             break;
         case BLOOM_FILTER_INDEX:
             _bf_index_meta = &index_meta.bloom_filter_index();
@@ -473,25 +472,19 @@ Status ColumnReader::get_row_ranges_by_bloom_filter(const AndBlockColumnPredicat
 
 Status ColumnReader::_load_ordinal_index(bool use_page_cache, bool kept_in_memory) {
     DCHECK(_ordinal_index_meta != nullptr);
-    return _load_ordinal_index_once.call([this, use_page_cache, kept_in_memory] {
-        return _ordinal_index->load(use_page_cache, kept_in_memory);
-    });
+    return _ordinal_index->load(use_page_cache, kept_in_memory, _ordinal_index_meta);
 }
 
 Status ColumnReader::_load_zone_map_index(bool use_page_cache, bool kept_in_memory) {
     if (_zone_map_index_meta != nullptr) {
-        return _load_zone_map_index_once.call([this, use_page_cache, kept_in_memory] {
-            return _zone_map_index->load(use_page_cache, kept_in_memory);
-        });
+        return _zone_map_index->load(use_page_cache, kept_in_memory, _zone_map_index_meta);
     }
     return Status::OK();
 }
 
 Status ColumnReader::_load_bitmap_index(bool use_page_cache, bool kept_in_memory) {
     if (_bitmap_index_meta != nullptr) {
-        return _load_bitmap_index_once.call([this, use_page_cache, kept_in_memory] {
-            return _bitmap_index->load(use_page_cache, kept_in_memory);
-        });
+        return _bitmap_index->load(use_page_cache, kept_in_memory, _bitmap_index_meta);
     }
     return Status::OK();
 }
@@ -534,9 +527,7 @@ Status ColumnReader::_load_inverted_index_index(const TabletIndex* index_meta) {
 
 Status ColumnReader::_load_bloom_filter_index(bool use_page_cache, bool kept_in_memory) {
     if (_bf_index_meta != nullptr) {
-        return _load_bloom_filter_index_once.call([this, use_page_cache, kept_in_memory] {
-            return _bloom_filter_index->load(use_page_cache, kept_in_memory);
-        });
+        return _bloom_filter_index->load(use_page_cache, kept_in_memory);
     }
     return Status::OK();
 }
