@@ -63,8 +63,9 @@ Status VExplodeNumbersTableFunction::process_init(Block* block, RuntimeState* st
             _cur_size = column_nested->get_int(0);
         }
         ((ColumnInt32*)_elements_column.get())->clear();
-        if (_cur_size && _cur_size <= state->batch_size()) { // avoid elements_column too big or empty
-            _is_const = true;                          // use const optimize
+        if (_cur_size &&
+            _cur_size <= state->batch_size()) { // avoid elements_column too big or empty
+            _is_const = true;                   // use const optimize
             for (int i = 0; i < _cur_size; i++) {
                 ((ColumnInt32*)_elements_column.get())->insert_value(i);
             }
