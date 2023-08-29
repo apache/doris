@@ -255,18 +255,10 @@ struct PredicatePrimitiveTypeTraits<TYPE_DATETIME> {
     using PredicateFieldType = uint64_t;
 };
 
-template <>
-struct PredicatePrimitiveTypeTraits<TYPE_DATEV2> {
-    using PredicateFieldType = uint32_t;
-};
-
-template <>
-struct PredicatePrimitiveTypeTraits<TYPE_DATETIMEV2> {
-    using PredicateFieldType = uint64_t;
-};
-
 template <typename Traits>
-concept HaveCppType = requires() { sizeof(typename Traits::CppType); };
+concept HaveCppType = requires() {
+    sizeof(typename Traits::CppType);
+};
 
 template <PrimitiveNative type>
 struct PrimitiveTypeSizeReducer {
