@@ -144,6 +144,18 @@ elif [[ "${DORIS_TOOLCHAIN}" == "clang" ]]; then
     if [[ -f "${DORIS_CLANG_HOME}/bin/llvm-symbolizer" ]]; then
         export ASAN_SYMBOLIZER_PATH="${DORIS_CLANG_HOME}/bin/llvm-symbolizer"
     fi
+    cov_tools=($(find ${DORIS_CLANG_HOME} -name "llvm-cov*"))
+    if [[ ${#cov_tools[@]} -ge 1 ]]; then
+        export LLVM_COV="${cov_tools[0]}"
+    else
+        export LLVM_COV="$(command -v llvm-cov)"
+    fi
+    cov_tools=($(find ${DORIS_CLANG_HOME} -name "llvm-profdata*"))
+    if [[ ${#cov_tools[@]} -ge 1 ]]; then
+        export LLVM_PROFDATA="${cov_tools[0]}"
+    else
+        export LLVM_PROFDATA="$(command -v llvm-profdata)"
+    fi
     if [[ -z "${ENABLE_PCH}" ]]; then
         ENABLE_PCH='ON'
     fi
