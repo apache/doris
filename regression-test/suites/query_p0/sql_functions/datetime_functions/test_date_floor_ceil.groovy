@@ -16,9 +16,9 @@
 // under the License.
 
 suite("test_date_floor_ceil") {
-    sql "set enable_nereids_planner=false;"
+    sql "set enable_nereids_planner=true;"
     sql "set enable_fallback_to_original_planner=false;"
-    sql "set enable_fold_constant_by_be=true;"
+    sql "set enable_fold_constant_by_be=false;"
 
     qt_sql1 """select date_floor("2023-07-14 10:51:11",interval 5 second); """
     qt_sql2 """select date_floor("2023-07-14 10:51:00",interval 5 minute); """

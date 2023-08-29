@@ -2272,9 +2272,8 @@ public class FunctionCallExpr extends Expr {
             String timeUnitIdent) throws AnalysisException {
         String newFunctionName = timeUnitIdent + "_" + functionName.split("_")[1];
         List<Expr> params = new ArrayList<>();
-        Expr datetimev2 = new DateLiteral(str.getStringValue(), Type.DATETIMEV2);
         Expr defaultDatetime = new DateLiteral(0001, 01, 01, 0, 0, 0, 0, Type.DATETIMEV2);
-        params.add(datetimev2);
+        params.add(str);
         params.add(interval);
         params.add(defaultDatetime);
         return new FunctionCallExpr(newFunctionName, params);
