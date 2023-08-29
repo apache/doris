@@ -501,8 +501,7 @@ Status TabletReader::_init_conditions_param(const ReaderParams& read_params) {
 
     // Function filter push down to storage engine
     auto is_like_predicate = [](ColumnPredicate* _pred) {
-        if (dynamic_cast<LikeColumnPredicate<TYPE_VARCHAR>*>(_pred) != nullptr ||
-            dynamic_cast<LikeColumnPredicate<TYPE_CHAR>*>(_pred) != nullptr ||
+        if (dynamic_cast<LikeColumnPredicate<TYPE_CHAR>*>(_pred) != nullptr ||
             dynamic_cast<LikeColumnPredicate<TYPE_STRING>*>(_pred) != nullptr) {
             return true;
         }
