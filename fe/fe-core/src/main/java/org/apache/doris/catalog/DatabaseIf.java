@@ -206,6 +206,15 @@ public interface DatabaseIf<T extends TableIf> {
         return getTableOrException(tableId, t -> new DdlException(ErrorCode.ERR_BAD_TABLE_ERROR.formatErrorMsg(t)));
     }
 
+    default T getTableOrDdlException(long tableId, TableIf.TableType tableType) throws DdlException {
+        T table = getTableOrDdlException(tableId);
+        if (table.getType() != tableType) {
+            throw new DdlException(
+                    "table type is not " + tableType + ", tableId=" + tableId + ", type=" + table.getType());
+        }
+        return table;
+    }
+
     default T getTableOrAnalysisException(String tableName) throws AnalysisException {
         return getTableOrException(tableName,
                 t -> new AnalysisException(ErrorCode.ERR_BAD_TABLE_ERROR.formatErrorMsg(t)));

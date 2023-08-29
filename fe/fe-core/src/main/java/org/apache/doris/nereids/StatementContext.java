@@ -21,6 +21,7 @@ import org.apache.doris.analysis.StatementBase;
 import org.apache.doris.catalog.View;
 import org.apache.doris.common.IdGenerator;
 import org.apache.doris.common.Pair;
+import org.apache.doris.nereids.hint.Hint;
 import org.apache.doris.nereids.memo.Group;
 import org.apache.doris.nereids.rules.analysis.ColumnAliasGenerator;
 import org.apache.doris.nereids.trees.expressions.CTEId;
@@ -35,6 +36,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.OriginStatement;
 
+import com.google.common.base.Stopwatch;
 import com.google.common.base.Supplier;
 import com.google.common.base.Suppliers;
 import com.google.common.collect.ImmutableList;
@@ -54,6 +56,8 @@ public class StatementContext {
 
     private ConnectContext connectContext;
 
+    private final Stopwatch stopwatch = Stopwatch.createUnstarted();
+
     @GuardedBy("this")
     private final Map<String, Supplier<Object>> contextCacheMap = Maps.newLinkedHashMap();
 
@@ -69,6 +73,8 @@ public class StatementContext {
     private boolean isDpHyp = false;
     private boolean isOtherJoinReorder = false;
 
+    private boolean isLeadingJoin = false;
+
     private final IdGenerator<ExprId> exprIdGenerator = ExprId.createGenerator();
     private final IdGenerator<ObjectId> objectIdGenerator = ObjectId.createGenerator();
     private final IdGenerator<RelationId> relationIdGenerator = RelationId.createGenerator();
@@ -82,6 +88,7 @@ public class StatementContext {
     private final Map<CTEId, List<Pair<Map<Slot, Slot>, Group>>> cteIdToConsumerGroup = new HashMap<>();
     private final Map<CTEId, LogicalPlan> rewrittenCtePlan = new HashMap<>();
     private final Set<View> views = Sets.newHashSet();
+    private final Map<String, Hint> hintMap = Maps.newLinkedHashMap();
 
     public StatementContext() {
         this.connectContext = ConnectContext.get();
@@ -106,6 +113,10 @@ public class StatementContext {
 
     public OriginStatement getOriginStatement() {
         return originStatement;
+    }
+
+    public Stopwatch getStopwatch() {
+        return stopwatch;
     }
 
     public void setMaxNAryInnerJoin(int maxNAryInnerJoin) {
@@ -134,6 +145,14 @@ public class StatementContext {
 
     public void setDpHyp(boolean dpHyp) {
         isDpHyp = dpHyp;
+    }
+
+    public boolean isLeadingJoin() {
+        return isLeadingJoin;
+    }
+
+    public void setLeadingJoin(boolean leadingJoin) {
+        isLeadingJoin = leadingJoin;
     }
 
     public boolean isOtherJoinReorder() {
@@ -172,6 +191,10 @@ public class StatementContext {
             supplier = cacheSupplier;
         }
         return supplier.get();
+    }
+
+    public Map<String, Hint> getHintMap() {
+        return hintMap;
     }
 
     public ColumnAliasGenerator getColumnAliasGenerator() {

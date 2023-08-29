@@ -80,6 +80,9 @@ import org.apache.doris.nereids.DorisParser.PlanTypeContext;
 import org.apache.doris.nereids.DorisParser.PredicateContext;
 import org.apache.doris.nereids.DorisParser.PredicatedContext;
 import org.apache.doris.nereids.DorisParser.PrimitiveDataTypeContext;
+import org.apache.doris.nereids.DorisParser.PropertiesStatmentContext;
+import org.apache.doris.nereids.DorisParser.PropertyContext;
+import org.apache.doris.nereids.DorisParser.PropertyItemContext;
 import org.apache.doris.nereids.DorisParser.QualifiedNameContext;
 import org.apache.doris.nereids.DorisParser.QueryContext;
 import org.apache.doris.nereids.DorisParser.QueryOrganizationContext;
@@ -103,8 +106,6 @@ import org.apache.doris.nereids.DorisParser.TableNameContext;
 import org.apache.doris.nereids.DorisParser.TableValuedFunctionContext;
 import org.apache.doris.nereids.DorisParser.TimestampaddContext;
 import org.apache.doris.nereids.DorisParser.TimestampdiffContext;
-import org.apache.doris.nereids.DorisParser.TvfPropertyContext;
-import org.apache.doris.nereids.DorisParser.TvfPropertyItemContext;
 import org.apache.doris.nereids.DorisParser.TypeConstructorContext;
 import org.apache.doris.nereids.DorisParser.UnitIdentifierContext;
 import org.apache.doris.nereids.DorisParser.UpdateAssignmentContext;
@@ -132,9 +133,10 @@ import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.exceptions.ParseException;
 import org.apache.doris.nereids.properties.OrderKey;
 import org.apache.doris.nereids.properties.SelectHint;
+import org.apache.doris.nereids.properties.SelectHintLeading;
+import org.apache.doris.nereids.properties.SelectHintSetVar;
 import org.apache.doris.nereids.trees.expressions.Add;
 import org.apache.doris.nereids.trees.expressions.And;
-import org.apache.doris.nereids.trees.expressions.Between;
 import org.apache.doris.nereids.trees.expressions.BitAnd;
 import org.apache.doris.nereids.trees.expressions.BitNot;
 import org.apache.doris.nereids.trees.expressions.BitOr;
@@ -165,11 +167,11 @@ import org.apache.doris.nereids.trees.expressions.Not;
 import org.apache.doris.nereids.trees.expressions.NullSafeEqual;
 import org.apache.doris.nereids.trees.expressions.Or;
 import org.apache.doris.nereids.trees.expressions.OrderExpression;
+import org.apache.doris.nereids.trees.expressions.Properties;
 import org.apache.doris.nereids.trees.expressions.Regexp;
 import org.apache.doris.nereids.trees.expressions.ScalarSubquery;
 import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
 import org.apache.doris.nereids.trees.expressions.Subtract;
-import org.apache.doris.nereids.trees.expressions.TVFProperties;
 import org.apache.doris.nereids.trees.expressions.TimestampArithmetic;
 import org.apache.doris.nereids.trees.expressions.WhenClause;
 import org.apache.doris.nereids.trees.expressions.WindowExpression;
@@ -182,6 +184,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.DaysAdd;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.DaysDiff;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.DaysSub;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ElementAt;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.EncryptKeyRef;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.HoursAdd;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.HoursDiff;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.HoursSub;
@@ -214,6 +217,7 @@ import org.apache.doris.nereids.trees.expressions.literal.LargeIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.SmallIntLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.TinyIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
 import org.apache.doris.nereids.trees.plans.JoinHint;
@@ -394,6 +398,17 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         return logicalPlans;
     }
 
+    @Override
+    public Properties visitPropertiesStatment(PropertiesStatmentContext ctx) {
+        Builder<String, String> map = ImmutableMap.builder();
+        for (PropertyContext argument : ctx.properties) {
+            String key = parsePropertyItem(argument.key);
+            String value = parsePropertyItem(argument.value);
+            map.put(key, value);
+        }
+        return new Properties(map.build());
+    }
+
     /* ********************************************************************************************
      * Plan parsing
      * ******************************************************************************************** */
@@ -447,7 +462,9 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         FilterType filterType = FilterType.of(ctx.type.getText());
         List<String> nameParts = visitMultipartIdentifier(ctx.table);
         return new CreatePolicyCommand(PolicyTypeEnum.ROW, ctx.name.getText(),
-                ctx.EXISTS() != null, nameParts, Optional.of(filterType), visitUserIdentify(ctx.user),
+                ctx.EXISTS() != null, nameParts, Optional.of(filterType),
+                ctx.user == null ? null : visitUserIdentify(ctx.user),
+                ctx.roleName == null ? null : ctx.roleName.getText(),
                 Optional.of(getExpression(ctx.booleanExpression())), ImmutableMap.of());
     }
 
@@ -624,13 +641,13 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             String functionName = ctx.tvfName.getText();
 
             Builder<String, String> map = ImmutableMap.builder();
-            for (TvfPropertyContext argument : ctx.properties) {
-                String key = parseTVFPropertyItem(argument.key);
-                String value = parseTVFPropertyItem(argument.value);
+            for (PropertyContext argument : ctx.properties) {
+                String key = parsePropertyItem(argument.key);
+                String value = parsePropertyItem(argument.value);
                 map.put(key, value);
             }
             LogicalPlan relation = new UnboundTVFRelation(StatementScopeIdGenerator.newRelationId(),
-                    functionName, new TVFProperties(map.build()));
+                    functionName, new Properties(map.build()));
             return withTableAlias(relation, ctx.tableAlias());
         });
     }
@@ -1097,6 +1114,13 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     }
 
     @Override
+    public Expression visitEncryptKey(DorisParser.EncryptKeyContext ctx) {
+        String db = ctx.dbName == null ? "" : ctx.dbName.getText();
+        String key = ctx.keyName.getText();
+        return new EncryptKeyRef(new StringLiteral(db), new StringLiteral(key));
+    }
+
+    @Override
     public Expression visitFunctionCall(DorisParser.FunctionCallContext ctx) {
         return ParserUtils.withOrigin(ctx, () -> {
             String functionName = ctx.functionIdentifier().functionNameIdentifier().getText();
@@ -1499,7 +1523,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             format = ctx.format.getText();
         }
         Map<String, String> properties = Maps.newHashMap();
-        for (TvfPropertyContext argument : ctx.properties) {
+        for (PropertyContext argument : ctx.properties) {
             String key = parseConstant(argument.key.constant());
             String value = parseConstant(argument.value.constant());
             properties.put(key, value);
@@ -1689,20 +1713,34 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         Map<String, SelectHint> hints = Maps.newLinkedHashMap();
         for (HintStatementContext hintStatement : hintContext.hintStatements) {
             String hintName = hintStatement.hintName.getText().toLowerCase(Locale.ROOT);
-            Map<String, Optional<String>> parameters = Maps.newLinkedHashMap();
-            for (HintAssignmentContext kv : hintStatement.parameters) {
-                String parameterName = visitIdentifierOrText(kv.key);
-                Optional<String> value = Optional.empty();
-                if (kv.constantValue != null) {
-                    Literal literal = (Literal) visit(kv.constantValue);
-                    value = Optional.ofNullable(literal.toLegacyLiteral().getStringValue());
-                } else if (kv.identifierValue != null) {
-                    // maybe we should throw exception when the identifierValue is quoted identifier
-                    value = Optional.ofNullable(kv.identifierValue.getText());
-                }
-                parameters.put(parameterName, value);
+            switch (hintName) {
+                case "set_var":
+                    Map<String, Optional<String>> parameters = Maps.newLinkedHashMap();
+                    for (HintAssignmentContext kv : hintStatement.parameters) {
+                        String parameterName = visitIdentifierOrText(kv.key);
+                        Optional<String> value = Optional.empty();
+                        if (kv.constantValue != null) {
+                            Literal literal = (Literal) visit(kv.constantValue);
+                            value = Optional.ofNullable(literal.toLegacyLiteral().getStringValue());
+                        } else if (kv.identifierValue != null) {
+                            // maybe we should throw exception when the identifierValue is quoted identifier
+                            value = Optional.ofNullable(kv.identifierValue.getText());
+                        }
+                        parameters.put(parameterName, value);
+                    }
+                    hints.put(hintName, new SelectHintSetVar(hintName, parameters));
+                    break;
+                case "leading":
+                    List<String> leadingParameters = new ArrayList<String>();
+                    for (HintAssignmentContext kv : hintStatement.parameters) {
+                        String parameterName = visitIdentifierOrText(kv.key);
+                        leadingParameters.add(parameterName);
+                    }
+                    hints.put(hintName, new SelectHintLeading(hintName, leadingParameters));
+                    break;
+                default:
+                    break;
             }
-            hints.put(hintName, new SelectHint(hintName, parameters));
         }
         return new LogicalSelectHint<>(hints, logicalPlan);
     }
@@ -1827,10 +1865,9 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             Expression outExpression;
             switch (ctx.kind.getType()) {
                 case DorisParser.BETWEEN:
-                    outExpression = new Between(
-                            valueExpression,
-                            getExpression(ctx.lower),
-                            getExpression(ctx.upper)
+                    outExpression = new And(
+                            new GreaterThanEqual(valueExpression, getExpression(ctx.lower)),
+                            new LessThanEqual(valueExpression, getExpression(ctx.upper))
                     );
                     break;
                 case DorisParser.LIKE:
@@ -1935,7 +1972,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         }
     }
 
-    private String parseTVFPropertyItem(TvfPropertyItemContext item) {
+    private String parsePropertyItem(PropertyItemContext item) {
         if (item.constant() != null) {
             return parseConstant(item.constant());
         }

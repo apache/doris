@@ -34,6 +34,7 @@
 #include "util/hash_util.hpp"
 #include "util/time_lut.h"
 #include "util/timezone_utils.h"
+#include "vec/common/hash_table/phmap_fwd_decl.h"
 
 namespace cctz {
 class time_zone;
@@ -43,7 +44,7 @@ namespace doris {
 
 namespace vectorized {
 
-using ZoneList = std::map<std::string, cctz::time_zone>;
+using ZoneList = std::unordered_map<std::string, cctz::time_zone>;
 
 enum TimeUnit {
     MICROSECOND,
@@ -354,7 +355,7 @@ public:
     // 'YYYYMMDDTHHMMSS'
     bool from_date_str(const char* str, int len);
     bool from_date_str(const char* str, int len, const cctz::time_zone& local_time_zone,
-                       ZoneList& time_zone_cache);
+                       ZoneList& time_zone_cache, std::shared_mutex* cache_lock);
 
     // Construct Date/Datetime type value from int64_t value.
     // Return true if convert success. Otherwise return false.
@@ -693,7 +694,7 @@ private:
     char* to_time_buffer(char* to) const;
 
     bool from_date_str_base(const char* date_str, int len, const cctz::time_zone* local_time_zone,
-                            ZoneList* time_zone_cache);
+                            ZoneList* time_zone_cache, std::shared_mutex* cache_lock);
 
     int64_t to_date_int64() const;
     int64_t to_time_int64() const;
@@ -815,7 +816,7 @@ public:
     // 'YYYYMMDDTHHMMSS'
     bool from_date_str(const char* str, int len, int scale = -1);
     bool from_date_str(const char* str, int len, const cctz::time_zone& local_time_zone,
-                       ZoneList& time_zone_cache, int scale = -1);
+                       ZoneList& time_zone_cache, std::shared_mutex* cache_lock, int scale = -1);
 
     // Convert this value to string
     // this will check type to decide which format to convert
@@ -1179,7 +1180,8 @@ private:
                              bool disable_lut = false);
 
     bool from_date_str_base(const char* date_str, int len, int scale,
-                            const cctz::time_zone* local_time_zone, ZoneList* time_zone_cache);
+                            const cctz::time_zone* local_time_zone, ZoneList* time_zone_cache,
+                            std::shared_mutex* cache_lock);
 
     // Used to construct from int value
     int64_t standardize_timevalue(int64_t value);

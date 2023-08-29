@@ -256,6 +256,9 @@ public class InternalCatalog implements CatalogIf<Database> {
     @Nullable
     @Override
     public Database getDbNullable(String dbName) {
+        if (StringUtils.isEmpty(dbName)) {
+            return null;
+        }
         if (fullNameToDb.containsKey(dbName)) {
             return fullNameToDb.get(dbName);
         } else {
@@ -3106,6 +3109,12 @@ public class InternalCatalog implements CatalogIf<Database> {
             idToDb.put(db.getId(), db);
             fullNameToDb.put(db.getFullName(), db);
             Env.getCurrentGlobalTransactionMgr().addDatabaseTransactionMgr(db.getId());
+
+            ConnectContext connectContext = new ConnectContext();
+            connectContext.setCluster(SystemInfoService.DEFAULT_CLUSTER);
+            connectContext.setDatabase(db.getFullName());
+            Analyzer analyzer = new Analyzer(Env.getCurrentEnv(), connectContext);
+            db.analyze(analyzer);
         }
         // ATTN: this should be done after load Db, and before loadAlterJob
         recreateTabletInvertIndex();

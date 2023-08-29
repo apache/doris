@@ -113,6 +113,7 @@ public:
                              : assert_cast<const ColumnUInt8*>(nested_column.get())->get_bool(n);
     }
     UInt64 get64(size_t n) const override { return nested_column->get64(n); }
+    Float64 get_float64(size_t n) const override { return nested_column->get_float64(n); }
     StringRef get_data_at(size_t n) const override;
 
     TypeIndex get_data_type() const override { return TypeIndex::Nullable; }
@@ -287,7 +288,7 @@ public:
     bool only_null() const override { return nested_column->is_dummy(); }
 
     // used in schema change
-    void swap_nested_column(ColumnPtr& other) { ((ColumnPtr&)nested_column).swap(other); }
+    void change_nested_column(ColumnPtr& other) { ((ColumnPtr&)nested_column) = other; }
 
     /// Return the column that represents values.
     IColumn& get_nested_column() { return *nested_column; }

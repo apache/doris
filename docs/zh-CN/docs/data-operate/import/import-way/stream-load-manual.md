@@ -193,10 +193,6 @@ Stream Load 由于使用的是 HTTP 协议，所以所有导入任务有关的�
 
   Stream load 导入可以开启两阶段事务提交模式：在Stream load过程中，数据写入完成即会返回信息给用户，此时数据不可见，事务状态为`PRECOMMITTED`，用户手动触发commit操作之后，数据才可见。
 
-- enable_profile
-
-  <version since="1.2.7">当 `enable_profile` 为 true 时，Stream Load profile 将会被打印到 be.INFO 日志中。</version>
-
   示例：
 
   1. 发起stream load预提交操作
@@ -241,6 +237,19 @@ Stream Load 由于使用的是 HTTP 协议，所以所有导入任务有关的�
       "msg": "transaction [18037] abort successfully."
   }
   ```
+
+- enable_profile
+
+  <version since="1.2.7">当 `enable_profile` 为 true 时，Stream Load profile 将会被打印到 be.INFO 日志中。</version>
+
+- memtable_on_sink_node
+
+  <version since="2.1.0">
+  是否在数据导入中启用 MemTable 前移，默认为 false
+  </version>
+
+  在 DataSink 节点上构建 MemTable，并通过 brpc streaming 发送 segment 到其他 BE。
+  该方法减少了多副本之间的重复工作，并且节省了数据序列化和反序列化的时间。
 
 ### 使用SQL表达Stream Load的参数
 

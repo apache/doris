@@ -86,8 +86,7 @@ class CostModelV1 extends PlanVisitor<Cost, PlanContext> {
         CostV1 planCostV1 = (CostV1) planCost;
         return new CostV1(childCostV1.getCpuCost() + planCostV1.getCpuCost(),
                 childCostV1.getMemoryCost() + planCostV1.getMemoryCost(),
-                childCostV1.getNetworkCost() + planCostV1.getNetworkCost(),
-                childCostV1.getPenalty() + planCostV1.getPenalty());
+                childCostV1.getNetworkCost() + planCostV1.getNetworkCost());
     }
 
     @Override
@@ -118,7 +117,7 @@ class CostModelV1 extends PlanVisitor<Cost, PlanContext> {
         CostV1 costValue = (CostV1) storageLayerAggregate.getRelation().accept(this, context);
         // multiply a factor less than 1, so we can select PhysicalStorageLayerAggregate as far as possible
         return new CostV1(costValue.getCpuCost() * 0.7, costValue.getMemoryCost(),
-                costValue.getNetworkCost(), costValue.getPenalty());
+                costValue.getNetworkCost());
     }
 
     @Override
@@ -150,14 +149,14 @@ class CostModelV1 extends PlanVisitor<Cost, PlanContext> {
         // TODO: consider two-phase sort and enforcer.
         Statistics statistics = context.getStatisticsWithCheck();
         Statistics childStatistics = context.getChildStatistics(0);
+
+        double childRowCount = childStatistics.getRowCount();
+        double rowCount = statistics.getRowCount();
         if (physicalQuickSort.getSortPhase().isGather()) {
             // Now we do more like two-phase sort, so penalise one-phase sort
-            statistics = statistics.withRowCount(statistics.getRowCount() * 100);
+            rowCount *= 100;
         }
-        return CostV1.of(
-                childStatistics.getRowCount(),
-                statistics.getRowCount(),
-                childStatistics.getRowCount());
+        return CostV1.of(childRowCount, rowCount, childRowCount);
     }
 
     @Override
@@ -165,14 +164,14 @@ class CostModelV1 extends PlanVisitor<Cost, PlanContext> {
         // TODO: consider two-phase sort and enforcer.
         Statistics statistics = context.getStatisticsWithCheck();
         Statistics childStatistics = context.getChildStatistics(0);
+
+        double childRowCount = childStatistics.getRowCount();
+        double rowCount = statistics.getRowCount();
         if (topN.getSortPhase().isGather()) {
             // Now we do more like two-phase sort, so penalise one-phase sort
-            statistics = statistics.withRowCount(statistics.getRowCount() * 100);
+            rowCount *= 100;
         }
-        return CostV1.of(
-                childStatistics.getRowCount(),
-                statistics.getRowCount(),
-                childStatistics.getRowCount());
+        return CostV1.of(childRowCount, rowCount, childRowCount);
     }
 
     @Override

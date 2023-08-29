@@ -32,27 +32,22 @@ class RuntimeState;
 class TDataSink;
 
 namespace pipeline {
-class PipelineFragmentContext;
-class PipelineXFragmentContext;
 
 class ExchangeSinkOperatorBuilder final
         : public DataSinkOperatorBuilder<vectorized::VDataStreamSender> {
 public:
-    ExchangeSinkOperatorBuilder(int32_t id, DataSink* sink, PipelineFragmentContext* context,
-                                int mult_cast_id = -1);
+    ExchangeSinkOperatorBuilder(int32_t id, DataSink* sink, int mult_cast_id = -1);
 
     OperatorPtr build_operator() override;
 
 private:
-    PipelineFragmentContext* _context;
     int _mult_cast_id = -1;
 };
 
 // Now local exchange is not supported since VDataStreamRecvr is considered as a pipeline broker.
 class ExchangeSinkOperator final : public DataSinkOperator<ExchangeSinkOperatorBuilder> {
 public:
-    ExchangeSinkOperator(OperatorBuilderBase* operator_builder, DataSink* sink,
-                         PipelineFragmentContext* context, int mult_cast_id);
+    ExchangeSinkOperator(OperatorBuilderBase* operator_builder, DataSink* sink, int mult_cast_id);
     Status init(const TDataSink& tsink) override;
 
     Status prepare(RuntimeState* state) override;
@@ -67,7 +62,6 @@ private:
     std::unique_ptr<ExchangeSinkBuffer<vectorized::VDataStreamSender>> _sink_buffer;
     int _dest_node_id = -1;
     RuntimeState* _state = nullptr;
-    PipelineFragmentContext* _context;
     int _mult_cast_id = -1;
 };
 
@@ -82,6 +76,7 @@ public:
               _serializer(this) {}
 
     Status init(RuntimeState* state, LocalSinkStateInfo& info) override;
+    Status close(RuntimeState* state) override;
 
     Status serialize_block(vectorized::Block* src, PBlock* dest, int num_receivers = 1);
     void register_channels(pipeline::ExchangeSinkBuffer<ExchangeSinkLocalState>* buffer);
@@ -158,15 +153,12 @@ public:
     ExchangeSinkOperatorX(RuntimeState* state, ObjectPool* pool, const RowDescriptor& row_desc,
                           const TDataStreamSink& sink,
                           const std::vector<TPlanFragmentDestination>& destinations,
-                          bool send_query_statistics_with_every_batch,
-                          PipelineXFragmentContext* context);
+                          bool send_query_statistics_with_every_batch);
     ExchangeSinkOperatorX(ObjectPool* pool, const RowDescriptor& row_desc, PlanNodeId dest_node_id,
                           const std::vector<TPlanFragmentDestination>& destinations,
-                          bool send_query_statistics_with_every_batch,
-                          PipelineXFragmentContext* context);
+                          bool send_query_statistics_with_every_batch);
     ExchangeSinkOperatorX(ObjectPool* pool, const RowDescriptor& row_desc,
-                          bool send_query_statistics_with_every_batch,
-                          PipelineXFragmentContext* context);
+                          bool send_query_statistics_with_every_batch);
     Status init(const TDataSink& tsink) override;
 
     RuntimeState* state() { return _state; }
@@ -181,7 +173,6 @@ public:
     Status serialize_block(ExchangeSinkLocalState& stete, vectorized::Block* src, PBlock* dest,
                            int num_receivers = 1);
 
-    Status close(RuntimeState* state) override;
     Status try_close(RuntimeState* state) override;
     bool can_write(RuntimeState* state) override;
     bool is_pending_finish(RuntimeState* state) const override;
@@ -205,7 +196,6 @@ private:
                             const uint64_t* channel_ids, int rows, vectorized::Block* block,
                             bool eos);
     RuntimeState* _state = nullptr;
-    PipelineXFragmentContext* _context;
 
     ObjectPool* _pool;
     const RowDescriptor& _row_desc;

@@ -26,6 +26,7 @@
 #include <opentelemetry/trace/span_context.h>
 #include <opentelemetry/trace/tracer.h>
 #include <pthread.h>
+#include <runtime/result_buffer_mgr.h>
 #include <stdlib.h>
 // IWYU pragma: no_include <bits/chrono.h>
 #include <chrono> // IWYU pragma: keep
@@ -42,6 +43,8 @@
 #include "io/fs/stream_load_pipe.h"
 #include "pipeline/exec/aggregation_sink_operator.h"
 #include "pipeline/exec/aggregation_source_operator.h"
+#include "pipeline/exec/analytic_sink_operator.h"
+#include "pipeline/exec/analytic_source_operator.h"
 #include "pipeline/exec/data_queue.h"
 #include "pipeline/exec/datagen_operator.h"
 #include "pipeline/exec/exchange_sink_operator.h"
@@ -94,13 +97,13 @@ PipelineXFragmentContext::PipelineXFragmentContext(
                                   call_back, report_status_cb) {}
 
 PipelineXFragmentContext::~PipelineXFragmentContext() {
+    auto st = _query_ctx->exec_status();
     if (!_runtime_states.empty()) {
         // The memory released by the query end is recorded in the query mem tracker, main memory in _runtime_state.
         SCOPED_ATTACH_TASK(_runtime_state.get());
-        FOR_EACH_RUNTIME_STATE(_call_back(runtime_state.get(), &_exec_status);
-                               runtime_state.reset();)
+        FOR_EACH_RUNTIME_STATE(_call_back(runtime_state.get(), &st); runtime_state.reset();)
     } else {
-        _call_back(nullptr, &_exec_status);
+        _call_back(nullptr, &st);
     }
     _runtime_state.reset();
     DCHECK(!_report_thread_active);
@@ -108,35 +111,21 @@ PipelineXFragmentContext::~PipelineXFragmentContext() {
 
 void PipelineXFragmentContext::cancel(const PPlanFragmentCancelReason& reason,
                                       const std::string& msg) {
-    if (!_runtime_state->is_cancelled()) {
-        std::lock_guard<std::mutex> l(_status_lock);
-        if (_runtime_state->is_cancelled()) {
-            return;
-        }
-        if (reason != PPlanFragmentCancelReason::LIMIT_REACH) {
-            _exec_status = Status::Cancelled(msg);
-        }
-
-        FOR_EACH_RUNTIME_STATE(
-                runtime_state->set_is_cancelled(true, msg);
-                runtime_state->set_process_status(_exec_status);
-                _exec_env->vstream_mgr()->cancel(runtime_state->fragment_instance_id());)
-
+    if (_query_ctx->cancel(true, msg, Status::Cancelled(msg))) {
         LOG(WARNING) << "PipelineFragmentContext Canceled. reason=" << msg;
-
         // Get pipe from new load stream manager and send cancel to it or the fragment may hang to wait read from pipe
         // For stream load the fragment's query_id == load id, it is set in FE.
         auto stream_load_ctx = _exec_env->new_load_stream_mgr()->get(_query_id);
         if (stream_load_ctx != nullptr) {
             stream_load_ctx->pipe->cancel(msg);
         }
-        _cancel_reason = reason;
-        _cancel_msg = msg;
-        // To notify wait_for_start()
-        _query_ctx->set_ready_to_execute(true);
 
         // must close stream_mgr to avoid dead lock in Exchange Node
-        //
+        FOR_EACH_RUNTIME_STATE(
+                runtime_state->set_is_cancelled(true, msg);
+                runtime_state->set_process_status(_query_ctx->exec_status());
+                _exec_env->vstream_mgr()->cancel(runtime_state->fragment_instance_id());)
+
         // Cancel the result queue manager used by spark doris connector
         // TODO pipeline incomp
         // _exec_env->result_queue_mgr()->update_queue_status(id, Status::Aborted(msg));
@@ -241,7 +230,7 @@ Status PipelineXFragmentContext::_create_data_sink(ObjectPool* pool, const TData
                         : false;
         _sink.reset(new ExchangeSinkOperatorX(state, pool, row_desc, thrift_sink.stream_sink,
                                               params.destinations,
-                                              send_query_statistics_with_every_batch, this));
+                                              send_query_statistics_with_every_batch));
         break;
     }
     case TDataSinkType::RESULT_SINK: {
@@ -250,8 +239,7 @@ Status PipelineXFragmentContext::_create_data_sink(ObjectPool* pool, const TData
         }
 
         // TODO: figure out good buffer size based on size of output row
-        _sink.reset(new ResultSinkOperatorX(row_desc, output_exprs, thrift_sink.result_sink,
-                                            vectorized::RESULT_SINK_BUFFER_SIZE));
+        _sink.reset(new ResultSinkOperatorX(row_desc, output_exprs, thrift_sink.result_sink));
         break;
     }
     default:
@@ -300,10 +288,30 @@ Status PipelineXFragmentContext::_build_pipeline_tasks(
             auto scan_ranges = find_with_default(local_params.per_node_scan_ranges,
                                                  _pipelines[pip_idx]->operator_xs().front()->id(),
                                                  no_scan_ranges);
+            std::shared_ptr<BufferControlBlock> sender = nullptr;
+            if (_pipelines[pip_idx]->sink_x()->need_to_create_result_sender()) {
+                // create sender
+                RETURN_IF_ERROR(_runtime_states[i]->exec_env()->result_mgr()->create_sender(
+                        _runtime_states[i]->fragment_instance_id(),
+                        vectorized::RESULT_SINK_BUFFER_SIZE, &sender, true,
+                        _runtime_states[i]->execution_timeout()));
+            }
+
+            std::shared_ptr<vectorized::VDataStreamRecvr> recvr = nullptr;
+            if (_pipelines[pip_idx]->operator_xs().front()->need_to_create_exch_recv()) {
+                auto* src =
+                        (ExchangeSourceOperatorX*)_pipelines[pip_idx]->operator_xs().front().get();
+                recvr = _runtime_states[i]->exec_env()->vstream_mgr()->create_recvr(
+                        _runtime_states[i].get(), src->input_row_desc(),
+                        _runtime_states[i]->fragment_instance_id(), src->id(), src->num_senders(),
+                        _runtime_profile.get(), src->is_merging(),
+                        src->sub_plan_query_statistics_recvr());
+            }
 
             auto task = std::make_unique<PipelineXTask>(
                     _pipelines[pip_idx], _total_tasks++, _runtime_states[i].get(), this,
-                    _pipelines[pip_idx]->pipeline_profile(), scan_ranges, local_params.sender_id);
+                    _pipelines[pip_idx]->pipeline_profile(), scan_ranges, local_params.sender_id,
+                    sender, recvr);
             pipeline_id_to_task.insert({_pipelines[pip_idx]->id(), task.get()});
             RETURN_IF_ERROR(task->prepare(_runtime_states[i].get()));
             _runtime_profile->add_child(_pipelines[pip_idx]->pipeline_profile(), true, nullptr);
@@ -471,7 +479,7 @@ Status PipelineXFragmentContext::_create_tree_helper(ObjectPool* pool,
 
     RETURN_IF_ERROR(op->init(tnode, _runtime_state.get()));
 
-    if (op->get_child()) {
+    if (op->get_child() && !op->is_source()) {
         op->get_runtime_profile()->add_child(op->get_child()->get_runtime_profile(), true, nullptr);
     }
 
@@ -546,6 +554,23 @@ Status PipelineXFragmentContext::_create_operator(ObjectPool* pool, const TPlanN
 
         DataSinkOperatorXPtr sink;
         sink.reset(new SortSinkOperatorX(pool, tnode, descs));
+        RETURN_IF_ERROR(cur_pipe->set_sink(sink));
+        RETURN_IF_ERROR(cur_pipe->sink_x()->init(tnode, _runtime_state.get()));
+        break;
+    }
+    case TPlanNodeType::ANALYTIC_EVAL_NODE: {
+        op.reset(new AnalyticSourceOperatorX(pool, tnode, descs, "AnalyticSourceXOperator"));
+        RETURN_IF_ERROR(cur_pipe->add_operator(op));
+
+        const auto downstream_pipeline_id = cur_pipe->id();
+        if (_dag.find(downstream_pipeline_id) == _dag.end()) {
+            _dag.insert({downstream_pipeline_id, {}});
+        }
+        cur_pipe = add_pipeline();
+        _dag[downstream_pipeline_id].push_back(cur_pipe->id());
+
+        DataSinkOperatorXPtr sink;
+        sink.reset(new AnalyticSinkOperatorX(pool, tnode, descs));
         RETURN_IF_ERROR(cur_pipe->set_sink(sink));
         RETURN_IF_ERROR(cur_pipe->sink_x()->init(tnode, _runtime_state.get()));
         break;
@@ -626,7 +651,7 @@ void PipelineXFragmentContext::send_report(bool done) {
     Status exec_status = Status::OK();
     {
         std::lock_guard<std::mutex> l(_status_lock);
-        exec_status = _exec_status;
+        exec_status = _query_ctx->exec_status();
     }
 
     // If plan is done successfully, but _is_report_success is false,

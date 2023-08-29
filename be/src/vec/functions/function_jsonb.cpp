@@ -517,6 +517,48 @@ public:
         auto writer = std::make_unique<JsonbWriter>();
         std::unique_ptr<JsonbToJson> formater;
 
+        // reuseable json path list, espacially for const path
+        std::vector<JsonbPath> json_path_list;
+        json_path_list.resize(rdata_columns.size());
+
+        // lambda function to parse json path for row i and path pi
+        auto parse_json_path = [&](size_t i, size_t pi) -> Status {
+            const ColumnString* path_col = rdata_columns[pi];
+            const ColumnString::Chars& rdata = path_col->get_chars();
+            const ColumnString::Offsets& roffsets = path_col->get_offsets();
+            size_t r_off = roffsets[index_check_const(i, path_const[pi]) - 1];
+            size_t r_size = roffsets[index_check_const(i, path_const[pi])] - r_off;
+            const char* r_raw = reinterpret_cast<const char*>(&rdata[r_off]);
+
+            JsonbPath path;
+            if (!path.seek(r_raw, r_size)) {
+                return Status::InvalidArgument(
+                        "Json path error: {} for value: {}",
+                        JsonbErrMsg::getErrMsg(JsonbErrType::E_INVALID_JSON_PATH),
+                        std::string_view(reinterpret_cast<const char*>(rdata.data()),
+                                         rdata.size()));
+            }
+
+            // if not valid json path , should return error message to user
+            if (is_invalid_json_path) {
+                return Status::InvalidArgument(
+                        "Json path error: {} for value: {}",
+                        JsonbErrMsg::getErrMsg(JsonbErrType::E_INVALID_JSON_PATH),
+                        std::string_view(reinterpret_cast<const char*>(rdata.data()),
+                                         rdata.size()));
+            }
+
+            json_path_list[pi] = std::move(path);
+
+            return Status::OK();
+        };
+
+        for (size_t pi = 0; pi < rdata_columns.size(); pi++) {
+            if (path_const[pi]) {
+                RETURN_IF_ERROR(parse_json_path(0, pi));
+            }
+        }
+
         for (size_t i = 0; i < input_rows_count; ++i) {
             if (null_map[i]) {
                 StringOP::push_null_string(i, res_data, res_offsets, null_map);
@@ -526,61 +568,30 @@ public:
             size_t l_size = loffsets[index_check_const(i, json_data_const)] - l_off;
             const char* l_raw = reinterpret_cast<const char*>(&ldata[l_off]);
             if (rdata_columns.size() == 1) { // just return origin value
-                const ColumnString* path_col = rdata_columns[0];
-                const ColumnString::Chars& rdata = path_col->get_chars();
-                const ColumnString::Offsets& roffsets = path_col->get_offsets();
-                size_t r_off = roffsets[index_check_const(i, path_const[0]) - 1];
-                size_t r_size = roffsets[index_check_const(i, path_const[0])] - r_off;
-                const char* r_raw = reinterpret_cast<const char*>(&rdata[r_off]);
-
-                JsonbPath path;
-                if (!path.seek(r_raw, r_size)) {
-                    return Status::InvalidArgument(
-                            "Json path error: {} for value: {}",
-                            JsonbErrMsg::getErrMsg(JsonbErrType::E_INVALID_JSON_PATH),
-                            std::string_view(reinterpret_cast<const char*>(rdata.data()),
-                                             rdata.size()));
+                if (!path_const[0]) {
+                    RETURN_IF_ERROR(parse_json_path(i, 0));
                 }
-
                 inner_loop_impl(i, res_data, res_offsets, null_map, writer, formater, l_raw, l_size,
-                                path);
+                                json_path_list[0]);
             } else { // will make array string to user
                 writer->reset();
                 writer->writeStartArray();
+
+                // doc is NOT necessary to be deleted since JsonbDocument will not allocate memory
+                JsonbDocument* doc = JsonbDocument::createDocument(l_raw, l_size);
+
                 for (size_t pi = 0; pi < rdata_columns.size(); ++pi) {
-                    const ColumnString* path_col = rdata_columns[pi];
-                    const ColumnString::Chars& rdata = path_col->get_chars();
-                    const ColumnString::Offsets& roffsets = path_col->get_offsets();
-                    size_t r_off = roffsets[index_check_const(i, path_const[pi]) - 1];
-                    size_t r_size = roffsets[index_check_const(i, path_const[pi])] - r_off;
-                    const char* r_raw = reinterpret_cast<const char*>(&rdata[r_off]);
-                    // doc is NOT necessary to be deleted since JsonbDocument will not allocate memory
-                    JsonbDocument* doc = JsonbDocument::createDocument(l_raw, l_size);
                     if (UNLIKELY(!doc || !doc->getValue())) {
                         writer->writeNull();
                         continue;
                     }
 
-                    JsonbPath path;
-                    if (!path.seek(r_raw, r_size)) {
-                        return Status::InvalidArgument(
-                                "Json path error: {} for value: {}",
-                                JsonbErrMsg::getErrMsg(JsonbErrType::E_INVALID_JSON_PATH),
-                                std::string_view(reinterpret_cast<const char*>(rdata.data()),
-                                                 rdata.size()));
-                    }
-
-                    // if not valid json path , should return error message to user
-                    if (is_invalid_json_path) {
-                        return Status::InvalidArgument(
-                                "Json path error: {} for value: {}",
-                                JsonbErrMsg::getErrMsg(JsonbErrType::E_INVALID_JSON_PATH),
-                                std::string_view(reinterpret_cast<const char*>(rdata.data()),
-                                                 rdata.size()));
+                    if (!path_const[pi]) {
+                        RETURN_IF_ERROR(parse_json_path(i, pi));
                     }
 
                     // value is NOT necessary to be deleted since JsonbValue will not allocate memory
-                    JsonbValue* value = doc->getValue()->findValue(path, nullptr);
+                    JsonbValue* value = doc->getValue()->findValue(json_path_list[pi], nullptr);
 
                     if (UNLIKELY(!value)) {
                         writer->writeNull();
@@ -756,7 +767,15 @@ private:
             }
         } else if constexpr (std::is_same_v<int64_t, typename ValueType::T>) {
             if (value->isInt8() || value->isInt16() || value->isInt32() || value->isInt64()) {
-                res[i] = ((const JsonbIntVal*)value)->val();
+                res[i] = (int64_t)((const JsonbIntVal*)value)->val();
+            } else {
+                null_map[i] = 1;
+                res[i] = 0;
+            }
+        } else if constexpr (std::is_same_v<int128_t, typename ValueType::T>) {
+            if (value->isInt8() || value->isInt16() || value->isInt32() || value->isInt64() ||
+                value->isInt128()) {
+                res[i] = (int128_t)((const JsonbIntVal*)value)->val();
             } else {
                 null_map[i] = 1;
                 res[i] = 0;
@@ -892,6 +911,13 @@ struct JsonbTypeInt64 {
     static const bool only_check_exists = false;
 };
 
+struct JsonbTypeInt128 {
+    using T = int128_t;
+    using ReturnType = DataTypeInt128;
+    using ColumnType = ColumnVector<T>;
+    static const bool only_check_exists = false;
+};
+
 struct JsonbTypeDouble {
     using T = double;
     using ReturnType = DataTypeFloat64;
@@ -948,6 +974,11 @@ struct JsonbExtractBigInt : public JsonbExtractImpl<JsonbTypeInt64> {
     static constexpr auto alias = "jsonb_extract_bigint";
 };
 
+struct JsonbExtractLargeInt : public JsonbExtractImpl<JsonbTypeInt128> {
+    static constexpr auto name = "json_extract_largeint";
+    static constexpr auto alias = "jsonb_extract_largeint";
+};
+
 struct JsonbExtractDouble : public JsonbExtractImpl<JsonbTypeDouble> {
     static constexpr auto name = "json_extract_double";
     static constexpr auto alias = "jsonb_extract_double";
@@ -975,6 +1006,7 @@ using FunctionJsonbExtractIsnull = FunctionJsonbExtract<JsonbExtractIsnull>;
 using FunctionJsonbExtractBool = FunctionJsonbExtract<JsonbExtractBool>;
 using FunctionJsonbExtractInt = FunctionJsonbExtract<JsonbExtractInt>;
 using FunctionJsonbExtractBigInt = FunctionJsonbExtract<JsonbExtractBigInt>;
+using FunctionJsonbExtractLargeInt = FunctionJsonbExtract<JsonbExtractLargeInt>;
 using FunctionJsonbExtractDouble = FunctionJsonbExtract<JsonbExtractDouble>;
 using FunctionJsonbExtractString = FunctionJsonbExtract<JsonbExtractString>;
 using FunctionJsonbExtractJsonb = FunctionJsonbExtract<JsonbExtractJsonb>;
@@ -1027,6 +1059,8 @@ void register_function_jsonb(SimpleFunctionFactory& factory) {
     factory.register_alias(FunctionJsonbExtractInt::name, FunctionJsonbExtractInt::alias);
     factory.register_function<FunctionJsonbExtractBigInt>();
     factory.register_alias(FunctionJsonbExtractBigInt::name, FunctionJsonbExtractBigInt::alias);
+    factory.register_function<FunctionJsonbExtractLargeInt>();
+    factory.register_alias(FunctionJsonbExtractLargeInt::name, FunctionJsonbExtractLargeInt::alias);
     factory.register_function<FunctionJsonbExtractDouble>();
     factory.register_alias(FunctionJsonbExtractDouble::name, FunctionJsonbExtractDouble::alias);
     factory.register_function<FunctionJsonbExtractString>();

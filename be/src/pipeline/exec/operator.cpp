@@ -29,7 +29,10 @@ class RuntimeState;
 namespace doris::pipeline {
 
 OperatorBase::OperatorBase(OperatorBuilderBase* operator_builder)
-        : _operator_builder(operator_builder), _is_closed(false) {}
+        : _operator_builder(operator_builder),
+          _child(nullptr),
+          _child_x(nullptr),
+          _is_closed(false) {}
 
 bool OperatorBase::is_sink() const {
     return _operator_builder->is_sink();
@@ -57,6 +60,13 @@ std::string OperatorBase::debug_string() const {
     ss << ", is_sink: " << is_sink() << ", is_closed: " << _is_closed;
     ss << ", is_pending_finish: " << is_pending_finish();
     return ss.str();
+}
+
+Status PipelineXSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& info) {
+    // create profile
+    _profile = state->obj_pool()->add(new RuntimeProfile(_parent->get_name()));
+    _mem_tracker = std::make_unique<MemTracker>(_parent->get_name());
+    return Status::OK();
 }
 
 std::string OperatorXBase::debug_string() const {
@@ -96,8 +106,8 @@ Status OperatorXBase::prepare(RuntimeState* state) {
 
     RETURN_IF_ERROR(vectorized::VExpr::prepare(_projections, state, intermediate_row_desc()));
 
-    if (_children) {
-        RETURN_IF_ERROR(_children->prepare(state));
+    if (_child_x && !is_source()) {
+        RETURN_IF_ERROR(_child_x->prepare(state));
     }
 
     return Status::OK();
@@ -119,19 +129,10 @@ void OperatorXBase::_init_runtime_profile() {
 }
 
 Status OperatorXBase::close(RuntimeState* state) {
-    if (_is_closed) {
-        return Status::OK();
+    if (_child_x && !is_source()) {
+        RETURN_IF_ERROR(_child_x->close(state));
     }
-    auto local_state = state->get_local_state(id());
-    Status result;
-    _children->close(state);
-    if (local_state->_rows_returned_counter != nullptr) {
-        COUNTER_SET(local_state->_rows_returned_counter, local_state->_num_rows_returned);
-    }
-
-    local_state->profile()->add_to_span(local_state->_span);
-    _is_closed = true;
-    return Status::OK();
+    return state->get_local_state(id())->close(state);
 }
 
 Status PipelineXLocalState::init(RuntimeState* state, LocalStateInfo& /*info*/) {

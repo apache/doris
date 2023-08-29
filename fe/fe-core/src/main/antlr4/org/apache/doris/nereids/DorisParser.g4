@@ -38,7 +38,7 @@ statement
     | CREATE ROW POLICY (IF NOT EXISTS)? name=identifier
         ON table=multipartIdentifier
         AS type=(RESTRICTIVE | PERMISSIVE)
-        TO user=userIdentify
+        TO (user=userIdentify | ROLE roleName=identifier)
         USING LEFT_PAREN booleanExpression RIGHT_PAREN                 #createRowPolicy
     | explain? INSERT INTO tableName=multipartIdentifier
         (PARTITION partition=identifierList)?  // partition define
@@ -55,11 +55,17 @@ statement
         whereClause                                                    #delete
     ;
 
+propertiesStatment
+    : properties+=property (COMMA properties+=property)*
+    ;
+
+
 // -----------------Command accessories-----------------
 
 identifierOrText
     : errorCapturingIdentifier
     | STRING_LITERAL
+    | LEADING_STRING
     ;
 
 userIdentify
@@ -89,7 +95,7 @@ planType
 outFileClause
     : INTO OUTFILE filePath=constant
         (FORMAT AS format=identifier)?
-        (PROPERTIES LEFT_PAREN properties+=tvfProperty (COMMA properties+=tvfProperty)* RIGHT_PAREN)?
+        (PROPERTIES LEFT_PAREN properties+=property (COMMA properties+=property)* RIGHT_PAREN)?
     ;
 
 query
@@ -194,7 +200,7 @@ havingClause
 selectHint: HINT_START hintStatements+=hintStatement (COMMA? hintStatements+=hintStatement)* HINT_END;
 
 hintStatement
-    : hintName=identifier LEFT_PAREN parameters+=hintAssignment (COMMA parameters+=hintAssignment)* RIGHT_PAREN
+    : hintName=identifier (LEFT_PAREN parameters+=hintAssignment (COMMA? parameters+=hintAssignment)* RIGHT_PAREN)?
     ;
 
 hintAssignment
@@ -265,15 +271,15 @@ relationPrimary
     : multipartIdentifier specifiedPartition? tabletList? tableAlias relationHint? lateralView*           #tableName
     | LEFT_PAREN query RIGHT_PAREN tableAlias lateralView*                                    #aliasedQuery
     | tvfName=identifier LEFT_PAREN
-      (properties+=tvfProperty (COMMA properties+=tvfProperty)*)?
+      (properties+=property (COMMA properties+=property)*)?
       RIGHT_PAREN tableAlias                                                                  #tableValuedFunction
     ;
 
-tvfProperty
-    : key=tvfPropertyItem EQ value=tvfPropertyItem
+property
+    : key=propertyItem EQ value=propertyItem
     ;
 
-tvfPropertyItem : identifier | constant ;
+propertyItem : identifier | constant ;
 
 tableAlias
     : (AS? strictIdentifier identifierList?)?
@@ -380,6 +386,7 @@ primaryExpression
     | identifier                                                                               #columnReference
     | base=primaryExpression DOT fieldName=identifier                                          #dereference
     | LEFT_PAREN expression RIGHT_PAREN                                                        #parenthesizedExpression
+    | KEY (dbName=identifier DOT)? keyName=identifier                                          #encryptKey
     | EXTRACT LEFT_PAREN field=identifier FROM (DATE | TIMESTAMP)?
       source=valueExpression RIGHT_PAREN                                                       #extract
     ;
@@ -639,6 +646,7 @@ nonReserved
     | LAST
     | LAZY
     | LEADING
+    | LEFT_BRACE
     | LIKE
     | ILIKE
     | LIMIT
@@ -670,6 +678,7 @@ nonReserved
     | OPTIONS
     | OR
     | ORDER
+    | ORDERED
     | OUT
     | OUTER
     | OUTPUTFORMAT
@@ -712,6 +721,7 @@ nonReserved
     | RESTRICTIVE
     | REVOKE
     | REWRITTEN
+    | RIGHT_BRACE
     | RLIKE
     | ROLE
     | ROLES

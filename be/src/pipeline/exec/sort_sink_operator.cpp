@@ -29,11 +29,12 @@ namespace doris::pipeline {
 OPERATOR_CODE_GENERATOR(SortSinkOperator, StreamingOperator)
 
 Status SortSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& info) {
+    RETURN_IF_ERROR(PipelineXSinkLocalState::init(state, info));
     auto& p = _parent->cast<SortSinkOperatorX>();
     _dependency = (SortDependency*)info.dependency;
     _shared_state = (SortSharedState*)_dependency->shared_state();
 
-    _profile = p._pool->add(new RuntimeProfile("SortSinkLocalState"));
+    RETURN_IF_ERROR(p._vsort_exec_exprs.clone(state, _vsort_exec_exprs));
     switch (p._algorithm) {
     case SortAlgorithm::HEAP_SORT: {
         _shared_state->sorter = vectorized::HeapSorter::create_unique(
@@ -70,7 +71,7 @@ Status SortSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& info) {
     _child_get_next_timer = ADD_TIMER(_profile, "ChildGetResultTime");
     _sink_timer = ADD_TIMER(_profile, "PartialSortTotalTime");
 
-    return p._vsort_exec_exprs.clone(state, _vsort_exec_exprs);
+    return Status::OK();
 }
 
 SortSinkOperatorX::SortSinkOperatorX(ObjectPool* pool, const TPlanNode& tnode,
@@ -82,7 +83,9 @@ SortSinkOperatorX::SortSinkOperatorX(ObjectPool* pool, const TPlanNode& tnode,
           _limit(tnode.limit),
           _use_topn_opt(tnode.sort_node.use_topn_opt),
           _row_descriptor(descs, tnode.row_tuples, tnode.nullable_tuples),
-          _use_two_phase_read(tnode.sort_node.sort_info.use_two_phase_read) {}
+          _use_two_phase_read(tnode.sort_node.sort_info.use_two_phase_read) {
+    _name = "SortSinkOperatorX";
+}
 
 Status SortSinkOperatorX::init(const TPlanNode& tnode, RuntimeState* state) {
     RETURN_IF_ERROR(_vsort_exec_exprs.init(tnode.sort_node.sort_info, _pool));
@@ -133,6 +136,7 @@ Status SortSinkOperatorX::prepare(RuntimeState* state) {
     } else {
         _algorithm = SortAlgorithm::FULL_SORT;
     }
+    _profile = state->obj_pool()->add(new RuntimeProfile("SortSinkOperatorX"));
     return _vsort_exec_exprs.prepare(state, _child_x->row_desc(), _row_descriptor);
 }
 

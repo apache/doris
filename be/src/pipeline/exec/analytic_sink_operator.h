@@ -21,6 +21,7 @@
 #include <stdint.h>
 
 #include "operator.h"
+#include "pipeline/pipeline_x/dependency.h"
 #include "vec/exec/vanalytic_eval_node.h"
 
 namespace doris {
@@ -41,6 +42,68 @@ public:
     AnalyticSinkOperator(OperatorBuilderBase* operator_builder, ExecNode* node);
 
     bool can_write() override { return _node->can_write(); }
+};
+
+class AnalyticSinkOperatorX;
+
+class AnalyticSinkLocalState : public PipelineXSinkLocalState {
+    ENABLE_FACTORY_CREATOR(AnalyticSinkLocalState);
+
+public:
+    AnalyticSinkLocalState(DataSinkOperatorX* parent, RuntimeState* state)
+            : PipelineXSinkLocalState(parent, state) {}
+
+    Status init(RuntimeState* state, LocalSinkStateInfo& info) override;
+
+private:
+    friend class AnalyticSinkOperatorX;
+    AnalyticDependency* _dependency;
+    AnalyticSharedState* _shared_state;
+
+    RuntimeProfile::Counter* _memory_usage_counter;
+    RuntimeProfile::Counter* _evaluation_timer;
+    RuntimeProfile::HighWaterMarkCounter* _blocks_memory_usage;
+
+    std::vector<vectorized::VExprContextSPtrs> _agg_expr_ctxs;
+};
+
+class AnalyticSinkOperatorX final : public DataSinkOperatorX {
+public:
+    AnalyticSinkOperatorX(ObjectPool* pool, const TPlanNode& tnode, const DescriptorTbl& descs);
+    Status init(const TDataSink& tsink) override {
+        return Status::InternalError("{} should not init with TPlanNode", _name);
+    }
+
+    Status init(const TPlanNode& tnode, RuntimeState* state) override;
+
+    Status prepare(RuntimeState* state) override;
+    Status open(RuntimeState* state) override;
+    Status setup_local_state(RuntimeState* state, LocalSinkStateInfo& info) override;
+
+    Status sink(RuntimeState* state, vectorized::Block* in_block,
+                SourceState source_state) override;
+
+    bool can_write(RuntimeState* state) override;
+
+    void get_dependency(DependencySPtr& dependency) override {
+        dependency.reset(new AnalyticDependency(id()));
+    }
+
+private:
+    Status _insert_range_column(vectorized::Block* block, const vectorized::VExprContextSPtr& expr,
+                                vectorized::IColumn* dst_column, size_t length);
+
+    friend class AnalyticSinkLocalState;
+
+    std::vector<vectorized::VExprContextSPtrs> _agg_expr_ctxs;
+    vectorized::VExprContextSPtrs _partition_by_eq_expr_ctxs;
+    vectorized::VExprContextSPtrs _order_by_eq_expr_ctxs;
+
+    size_t _agg_functions_size = 0;
+
+    const TTupleId _buffered_tuple_id;
+
+    std::vector<size_t> _num_agg_input;
 };
 
 } // namespace pipeline

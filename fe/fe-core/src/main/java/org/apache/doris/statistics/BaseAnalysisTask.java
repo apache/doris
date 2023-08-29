@@ -180,6 +180,9 @@ public abstract class BaseAnalysisTask {
     public abstract void doExecute() throws Exception;
 
     protected void afterExecution() {
+        if (killed) {
+            return;
+        }
         Env.getCurrentEnv().getStatisticsCache().syncLoadColStats(tbl.getId(), -1, col.getName());
     }
 
@@ -233,6 +236,7 @@ public abstract class BaseAnalysisTask {
         if (killed) {
             return;
         }
+        LOG.debug("execute internal sql: {}", stmtExecutor.getOriginStmt());
         stmtExecutor.execute();
         QueryState queryState = stmtExecutor.getContext().getState();
         if (queryState.getStateType().equals(MysqlStateType.ERR)) {

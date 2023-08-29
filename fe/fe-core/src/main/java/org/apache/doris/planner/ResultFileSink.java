@@ -43,7 +43,7 @@ public class ResultFileSink extends DataSink {
     private String header = "";
     private String headerType = "";
 
-    public ResultFileSink(PlanNodeId exchNodeId, OutFileClause outFileClause) {
+    private ResultFileSink(PlanNodeId exchNodeId, OutFileClause outFileClause) {
         this.exchNodeId = exchNodeId;
         this.fileSinkOptions = outFileClause.toSinkOptions();
         this.brokerName = outFileClause.getBrokerDesc() == null ? null :
@@ -54,13 +54,13 @@ public class ResultFileSink extends DataSink {
 
     //gen header names
     private String genNames(ArrayList<String> headerNames, String columnSeparator, String lineDelimiter) {
-        String names = "";
+        StringBuilder sb = new StringBuilder();
         for (String name : headerNames) {
-            names += name + columnSeparator;
+            sb.append(name).append(columnSeparator);
         }
-        names = names.substring(0, names.length() - columnSeparator.length());
-        names += lineDelimiter;
-        return names;
+        String headerName = sb.substring(0, sb.length() - columnSeparator.length());
+        headerName += lineDelimiter;
+        return headerName;
     }
 
     public ResultFileSink(PlanNodeId exchNodeId, OutFileClause outFileClause, ArrayList<String> labels) {
