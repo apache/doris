@@ -516,6 +516,14 @@ public class FunctionCallExpr extends Expr {
                 return false;
             }
         }
+        if (orderByElements.size() != o.orderByElements.size()) {
+            return false;
+        }
+        for (int i = 0; i < orderByElements.size(); i++) {
+            if (!orderByElements.get(i).equals(o.orderByElements.get(i))) {
+                return false;
+            }
+        }
         return /*opcode == o.opcode && aggOp == o.aggOp &&*/ fnName.equals(o.fnName)
                 && fnParams.isDistinct() == o.fnParams.isDistinct()
                 && fnParams.isStar() == o.fnParams.isStar();
@@ -532,7 +540,6 @@ public class FunctionCallExpr extends Expr {
             sb.append("DISTINCT ");
         }
         int len = children.size();
-        List<String> result = Lists.newArrayList();
         if (fnName.getFunction().equalsIgnoreCase("json_array")
                 || fnName.getFunction().equalsIgnoreCase("json_object")) {
             len = len - 1;
@@ -556,14 +563,20 @@ public class FunctionCallExpr extends Expr {
                 || fnName.getFunction().equalsIgnoreCase("aes_encrypt")
                 || fnName.getFunction().equalsIgnoreCase("sm4_decrypt")
                 || fnName.getFunction().equalsIgnoreCase("sm4_encrypt"))) {
-                result.add("\'***\'");
+                sb.append("\'***\'");
             } else if (orderByElements.size() > 0 && i == len - orderByElements.size()) {
-                result.add("ORDER BY " + children.get(i).toSql());
-            } else {
-                result.add(children.get(i).toSql());
+                sb.append("ORDER BY");
+            }
+            sb.append(children.get(i).toSql());
+            if (orderByElements.size() > 0 && i >= len - orderByElements.size()) {
+                if (orderByElements.get(i - len + orderByElements.size()).getIsAsc()) {
+                    sb.append(" ASC");
+                } else {
+                    sb.append(" DESC");
+                }
             }
         }
-        sb.append(Joiner.on(", ").join(result)).append(")");
+        sb.append(")");
         return sb.toString();
     }
 
@@ -1964,3 +1977,4 @@ public class FunctionCallExpr extends Expr {
         orderByElements.forEach(o -> addChild(o.getExpr()));
     }
 }
+
