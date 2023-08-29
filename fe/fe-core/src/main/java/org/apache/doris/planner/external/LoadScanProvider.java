@@ -90,6 +90,7 @@ public class LoadScanProvider {
         params.setFormatType(formatType(fileGroupInfo.getFileGroup().getFileFormat(), ""));
         params.setCompressType(fileGroupInfo.getFileGroup().getCompressType());
         params.setStrictMode(fileGroupInfo.isStrictMode());
+        params.setUseHiveTextSerde(fileGroupInfo.getFileGroup().getFileFormat().equals("hive_text"));
         params.setProperties(fileGroupInfo.getBrokerDesc().getProperties());
         if (fileGroupInfo.getBrokerDesc().getFileType() == TFileType.FILE_HDFS) {
             THdfsParams tHdfsParams = HdfsResource.generateHdfsParam(fileGroupInfo.getBrokerDesc().getProperties());

@@ -302,8 +302,24 @@ Status CsvReader::init_reader(bool is_load) {
             (_state != nullptr && _state->trim_tailing_spaces_for_external_table_query());
 
     _options.escape_char = _escape;
-    _options.collection_delim = _params.file_attributes.text_params.collection_delimiter[0];
-    _options.map_key_delim = _params.file_attributes.text_params.mapkv_delimiter[0];
+    if (_params.file_attributes.text_params.collection_delimiter.size() == 0){
+        if (_use_hive_text_serde) {
+            _options.collection_delim = '\002';
+        } else {
+            _options.collection_delim = ',';
+        }
+    }else {
+        _options.collection_delim = _params.file_attributes.text_params.collection_delimiter[0];
+    }
+    if (_params.file_attributes.text_params.mapkv_delimiter.size() == 0){
+        if (_use_hive_text_serde){
+            _options.map_key_delim = '\003';
+        }else {
+            _options.map_key_delim = ':';
+        }
+    }else {
+        _options.map_key_delim = _params.file_attributes.text_params.mapkv_delimiter[0];
+    }
 
     if (_params.file_attributes.__isset.trim_double_quotes) {
         _trim_double_quotes = _params.file_attributes.trim_double_quotes;
@@ -743,8 +759,25 @@ Status CsvReader::_prepare_parse(size_t* read_line, bool* is_parse_name) {
     _not_trim_enclose = (!_trim_double_quotes && _enclose == '\"');
 
     _options.escape_char = _escape;
-    _options.collection_delim = _params.file_attributes.text_params.collection_delimiter[0];
-    _options.map_key_delim = _params.file_attributes.text_params.mapkv_delimiter[0];
+    if (_params.file_attributes.text_params.collection_delimiter.size() == 0){
+        if (_use_hive_text_serde) {
+            _options.collection_delim = '\002';
+        } else {
+            _options.collection_delim = ',';
+        }
+    }else {
+        _options.collection_delim = _params.file_attributes.text_params.collection_delimiter[0];
+    }
+    if (_params.file_attributes.text_params.mapkv_delimiter.size() == 0){
+        if (_use_hive_text_serde){
+            _options.map_key_delim = '\003';
+        }else {
+            _options.map_key_delim = ':';
+        }
+    }else {
+        _options.map_key_delim = _params.file_attributes.text_params.mapkv_delimiter[0];
+    }
+
 
     // create decompressor.
     // _decompressor may be nullptr if this is not a compressed file
