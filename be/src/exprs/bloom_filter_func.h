@@ -225,7 +225,7 @@ public:
     }
 
     int get_filter_id() const {
-        DCHECK(_filter_id!=-1);
+        DCHECK(_filter_id != -1);
         return _filter_id;
     }
 
