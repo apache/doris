@@ -144,18 +144,23 @@ elif [[ "${DORIS_TOOLCHAIN}" == "clang" ]]; then
     if [[ -f "${DORIS_CLANG_HOME}/bin/llvm-symbolizer" ]]; then
         export ASAN_SYMBOLIZER_PATH="${DORIS_CLANG_HOME}/bin/llvm-symbolizer"
     fi
-    cov_tools=($(find ${DORIS_CLANG_HOME} -name "llvm-cov*"))
+    
+    cov_tools=($(find "${DORIS_CLANG_HOME}" -name "llvm-cov*"))
     if [[ ${#cov_tools[@]} -ge 1 ]]; then
-        export LLVM_COV="${cov_tools[0]}"
+        LLVM_COV="${cov_tools[0]}"
     else
-        export LLVM_COV="$(command -v llvm-cov)"
+        LLVM_COV="$(command -v llvm-cov)"
     fi
-    cov_tools=($(find ${DORIS_CLANG_HOME} -name "llvm-profdata*"))
+    export LLVM_COV
+
+    cov_tools=($(find "${DORIS_CLANG_HOME}" -name "llvm-profdata*"))
     if [[ ${#cov_tools[@]} -ge 1 ]]; then
-        export LLVM_PROFDATA="${cov_tools[0]}"
+        LLVM_PROFDATA="${cov_tools[0]}"
     else
-        export LLVM_PROFDATA="$(command -v llvm-profdata)"
+        LLVM_PROFDATA="$(command -v llvm-profdata)"
     fi
+    export LLVM_PROFDATA
+
     if [[ -z "${ENABLE_PCH}" ]]; then
         ENABLE_PCH='ON'
     fi

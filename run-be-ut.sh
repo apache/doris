@@ -387,14 +387,14 @@ file_name="${test##*/}"
 if [[ -f "${test}" ]]; then
     if [[ "_${DENABLE_CLANG_COVERAGE}" == "_ON" ]]; then
         LLVM_PROFILE_FILE="${profraw}" "${test}" --gtest_output="xml:${GTEST_OUTPUT_DIR}/${file_name}.xml" --gtest_print_time=true "${FILTER}"
-        if [[ -d ${DORIS_TEST_BINARY_DIR}/report ]]; then
-            rm -rf ${DORIS_TEST_BINARY_DIR}/report
+        if [[ -d "${DORIS_TEST_BINARY_DIR}"/report ]]; then
+            rm -rf "${DORIS_TEST_BINARY_DIR}"/report
         fi
-        $LLVM_PROFDATA merge -o ${profdata} ${profraw}
-        $LLVM_COV show -output-dir=${DORIS_TEST_BINARY_DIR}/report -format=html \
+        "${LLVM_PROFDATA}" merge -o "${profdata}" "${profraw}"
+        "${LLVM_COV}" show -output-dir="${DORIS_TEST_BINARY_DIR}"/report -format=html \
             -ignore-filename-regex='(.*gensrc/.*)|(.*_test\.cpp$)|(.*be/test.*)|(.*apache-orc/.*)|(.*clucene/.*)' \
-            -instr-profile=${profdata} \
-            -object=${test}
+            -instr-profile="${profdata}" \
+            -object="${test}""
     else
         "${test}" --gtest_output="xml:${GTEST_OUTPUT_DIR}/${file_name}.xml" --gtest_print_time=true "${FILTER}"
     fi
