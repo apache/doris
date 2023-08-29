@@ -245,10 +245,6 @@ public class CreateTableInfo {
         // analyze distribution descriptor
         distribution.validate(columnMap, keysType);
 
-        // analyze key set.
-        if ((keysType.equals(KeysType.AGG_KEYS) || keysType.equals(KeysType.UNIQUE_KEYS)) && !distribution.isHash()) {
-            throw new AnalysisException("Should not be distributed by random when keys type is agg or unique");
-        }
         boolean enableDuplicateWithoutKeysByDefault = false;
         if (properties != null) {
             try {
@@ -295,6 +291,21 @@ public class CreateTableInfo {
         final boolean finalEnableMergeOnWrite = isEnableMergeOnWrite;
         Set<String> keysSet = Sets.newHashSet(keys);
         columns.forEach(c -> c.validate(keysSet, finalEnableMergeOnWrite, keysType));
+
+        // analyze key set.
+        if (!distribution.isHash()) {
+            if (keysType.equals(KeysType.UNIQUE_KEYS)) {
+                throw new AnalysisException("Should not be distributed by random when keys type is unique");
+            } else if (keysType.equals(KeysType.AGG_KEYS)) {
+                for (ColumnDefinition c : columns) {
+                    if (c.getAggType().equals(AggregateType.REPLACE)
+                            || c.getAggType().equals(AggregateType.REPLACE_IF_NOT_NULL)) {
+                        throw new AnalysisException("Should not be distributed by random when keys type is agg" 
+                                + "and column is in replace, [" + c.getName() + "] is invalid");
+                    }
+                }
+            }
+        }
     }
 
     public void validateCreateTableAsSelect(List<ColumnDefinition> columns, ConnectContext ctx) {
