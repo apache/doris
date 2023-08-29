@@ -26,7 +26,6 @@ suite("test_doris_jdbc_catalog", "p0,external,doris,external_docker,external_doc
     String driver_url = "https://${bucket}.${s3_endpoint}/regression/jdbc_driver/mysql-connector-java-8.0.25.jar"
     String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
 
-
     String resource_name = "jdbc_resource_catalog_doris"
     String catalog_name = "doris_jdbc_catalog";
     String internal_db_name = "regression_test_jdbc_catalog_p0";
