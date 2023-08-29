@@ -890,7 +890,6 @@ void StorageEngine::_clean_unused_txns() {
             // currently just remove them from memory
             // nullptr to indicate not remove them from meta store
             _txn_manager->force_rollback_tablet_related_txns(nullptr, tablet_info.tablet_id,
-                                                             tablet_info.schema_hash,
                                                              tablet_info.tablet_uid);
         }
     }
