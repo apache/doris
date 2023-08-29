@@ -57,7 +57,7 @@ Java UDF 为用户提供UDF编写的Java接口，以方便用户使用Java语言
 |String|String|
 |Decimal|BigDecimal|
 |```array<Type>```|```ArrayList<Type>```|
-|```map<Type>```|```HashMap<Type>```|
+|```map<Type1,Type2>```|```HashMap<Type1,Type2>```|
 
 * array/map类型可以嵌套基本类型，例如Doris: ```array<int>```对应JAVA UDF Argument Type: ```ArrayList<Integer>```, 其他依此类推
 ## 编写 UDF 函数

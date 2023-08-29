@@ -93,6 +93,7 @@ public class UdfUtils {
         DECIMAL128("DECIMAL128", TPrimitiveType.DECIMAL128I, 16),
         ARRAY_TYPE("ARRAY_TYPE", TPrimitiveType.ARRAY, 0),
         MAP_TYPE("MAP_TYPE", TPrimitiveType.MAP, 0);
+
         private final String description;
         private final TPrimitiveType thriftType;
         private final int len;
@@ -101,6 +102,9 @@ public class UdfUtils {
         private Type itemType;
         private Type keyType;
         private Type valueType;
+        private int keyScale;
+        private int valueScale;
+
         JavaUdfDataType(String description, TPrimitiveType thriftType, int len) {
             this.description = description;
             this.thriftType = thriftType;
@@ -207,6 +211,22 @@ public class UdfUtils {
         public void setValueType(Type type) {
             this.valueType = type;
         }
+
+        public void setKeyScale(int scale) {
+            this.keyScale = scale;
+        }
+
+        public void setValueScale(int scale) {
+            this.valueScale = scale;
+        }
+
+        public int getKeyScale() {
+            return keyScale;
+        }
+
+        public int getValueScale() {
+            return valueScale;
+        }
     }
 
     public static void copyMemory(
@@ -277,13 +297,13 @@ public class UdfUtils {
             MapType mapType = (MapType) retType;
             result.setKeyType(mapType.getKeyType());
             result.setValueType(mapType.getValueType());
-            if (mapType.getKeyType().isDatetimeV2() || mapType.getKeyType().isDecimalV3()) {
-                result.setPrecision(mapType.getKeyType().getPrecision());
-                result.setScale(((ScalarType) mapType.getKeyType()).getScalarScale());
+            Type keyType = mapType.getKeyType();
+            Type valuType = mapType.getValueType();
+            if (keyType.isDatetimeV2() || keyType.isDecimalV3()) {
+                result.setKeyScale(((ScalarType) keyType).getScalarScale());
             }
-            if (mapType.getValueType().isDatetimeV2() || mapType.getKeyType().isDecimalV3()) {
-                result.setPrecision(mapType.getKeyType().getPrecision());
-                result.setScale(((ScalarType) mapType.getKeyType()).getScalarScale());
+            if (valuType.isDatetimeV2() || valuType.isDecimalV3()) {
+                result.setValueScale(((ScalarType) valuType).getScalarScale());
             }
         }
         return Pair.of(res.length != 0, result);
@@ -310,10 +330,22 @@ public class UdfUtils {
             } else if (parameterTypes[finalI].isArrayType()) {
                 ArrayType arrType = (ArrayType) parameterTypes[finalI];
                 inputArgTypes[i].setItemType(arrType.getItemType());
+                if (arrType.getItemType().isDatetimeV2() || arrType.getItemType().isDecimalV3()) {
+                    inputArgTypes[i].setPrecision(arrType.getItemType().getPrecision());
+                    inputArgTypes[i].setScale(((ScalarType) arrType.getItemType()).getScalarScale());
+                }
             } else if (parameterTypes[finalI].isMapType()) {
                 MapType mapType = (MapType) parameterTypes[finalI];
+                Type keyType = mapType.getKeyType();
+                Type valuType = mapType.getValueType();
                 inputArgTypes[i].setKeyType(mapType.getKeyType());
                 inputArgTypes[i].setValueType(mapType.getValueType());
+                if (keyType.isDatetimeV2() || keyType.isDecimalV3()) {
+                    inputArgTypes[i].setKeyScale(((ScalarType) keyType).getScalarScale());
+                }
+                if (valuType.isDatetimeV2() || valuType.isDecimalV3()) {
+                    inputArgTypes[i].setValueScale(((ScalarType) valuType).getScalarScale());
+                }
             }
             if (res.length == 0) {
                 return Pair.of(false, inputArgTypes);

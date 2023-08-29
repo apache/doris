@@ -83,10 +83,10 @@ public class UdfExecutor extends BaseExecutor {
         PrimitiveType valueType = argTypes[argIdx].getValueType().getPrimitiveType();
         Object[] keyCol = convertMapArg(keyType, argIdx, isNullable, 0, numRows, nullMapAddr, offsetsAddr,
                 keyNestedNullMapAddr, keyDataAddr,
-                keyStrOffsetAddr);
+                keyStrOffsetAddr, argTypes[argIdx].getKeyScale());
         Object[] valueCol = convertMapArg(valueType, argIdx, isNullable, 0, numRows, nullMapAddr, offsetsAddr,
                 valueNestedNullMapAddr, valueDataAddr,
-                valueStrOffsetAddr);
+                valueStrOffsetAddr, argTypes[argIdx].getValueScale());
         return buildHashMap(keyType, valueType, keyCol, valueCol);
     }
 
@@ -121,7 +121,7 @@ public class UdfExecutor extends BaseExecutor {
         Preconditions.checkState(result.length == numRows,
                 "copyBatchArrayResult result size should equal;");
         copyBatchArrayResultImpl(isNullable, numRows, result, nullMapAddr, offsetsAddr, nestedNullMapAddr, dataAddr,
-                strOffsetAddr, retType.getItemType().getPrimitiveType());
+                strOffsetAddr, retType.getItemType().getPrimitiveType(), retType.getScale());
     }
 
     public void copyBatchMapResult(boolean isNullable, int numRows, Object[] result, long nullMapAddr,
@@ -137,10 +137,10 @@ public class UdfExecutor extends BaseExecutor {
 
         copyBatchArrayResultImpl(isNullable, numRows, valueCol, nullMapAddr, offsetsAddr, valueNsestedNullMapAddr,
                 valueDataAddr,
-                valueStrOffsetAddr, valueType);
+                valueStrOffsetAddr, valueType, retType.getKeyScale());
         copyBatchArrayResultImpl(isNullable, numRows, keyCol, nullMapAddr, offsetsAddr, keyNsestedNullMapAddr,
                 keyDataAddr,
-                keyStrOffsetAddr, keyType);
+                keyStrOffsetAddr, keyType, retType.getValueScale());
     }
 
     /**

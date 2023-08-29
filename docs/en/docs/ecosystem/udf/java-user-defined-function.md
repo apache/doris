@@ -59,7 +59,7 @@ Java UDF provides users with a Java interface written in UDF to facilitate the e
 |String|String|
 |Decimal|BigDecimal|
 |```array<Type>```|```ArrayList<Type>```|
-|```map<Type>```|```HashMap<Type>```|
+|```map<Type1,Type2>```|```HashMap<Type1,Type2>```|
 
 * Array/Map types can nested basic types, Eg: In Doris: ```array<int>``` corresponds to JAVA UDF Argument Type: ```ArrayList<Integer>```, Others is also.
 ## Write UDF functions

@@ -437,7 +437,7 @@ public abstract class BaseExecutor {
 
     public Object[] convertMapArg(PrimitiveType type, int argIdx, boolean isNullable, int rowStart, int rowEnd,
             long nullMapAddr,
-            long offsetsAddr, long nestedNullMapAddr, long dataAddr, long strOffsetAddr) {
+            long offsetsAddr, long nestedNullMapAddr, long dataAddr, long strOffsetAddr, int scale) {
         Object[] argument = (Object[]) Array.newInstance(ArrayList.class, rowEnd - rowStart);
         for (int row = rowStart; row < rowEnd; ++row) {
             long offsetStart = UdfUtils.UNSAFE.getLong(null, offsetsAddr + 8L * (row - 1));
@@ -528,19 +528,19 @@ public abstract class BaseExecutor {
                 case DECIMALV2:
                 case DECIMAL128: {
                     argument[row - rowStart] = UdfConvert
-                            .convertArrayDecimalArg(argTypes[argIdx].getScale(), 16L, row, currentRowNum,
+                            .convertArrayDecimalArg(scale, 16L, row, currentRowNum,
                                     offsetStart, isNullable, nullMapAddr, nestedNullMapAddr, dataAddr);
                     break;
                 }
                 case DECIMAL32: {
                     argument[row - rowStart] = UdfConvert
-                            .convertArrayDecimalArg(argTypes[argIdx].getScale(), 4L, row, currentRowNum,
+                            .convertArrayDecimalArg(scale, 4L, row, currentRowNum,
                                     offsetStart, isNullable, nullMapAddr, nestedNullMapAddr, dataAddr);
                     break;
                 }
                 case DECIMAL64: {
                     argument[row - rowStart] = UdfConvert
-                            .convertArrayDecimalArg(argTypes[argIdx].getScale(), 8L, row, currentRowNum,
+                            .convertArrayDecimalArg(scale, 8L, row, currentRowNum,
                                     offsetStart, isNullable, nullMapAddr, nestedNullMapAddr, dataAddr);
                     break;
                 }
@@ -780,18 +780,18 @@ public abstract class BaseExecutor {
 
     public void copyBatchArrayResultImpl(boolean isNullable, int numRows, Object[] result, long nullMapAddr,
             long offsetsAddr, long nestedNullMapAddr, long dataAddr, long strOffsetAddr,
-            PrimitiveType type) {
+            PrimitiveType type, int scale) {
         long hasPutElementNum = 0;
         for (int row = 0; row < numRows; ++row) {
             hasPutElementNum = copyTupleArrayResultImpl(hasPutElementNum, isNullable, row, result[row], nullMapAddr,
-                    offsetsAddr, nestedNullMapAddr, dataAddr, strOffsetAddr, type);
+                    offsetsAddr, nestedNullMapAddr, dataAddr, strOffsetAddr, type, scale);
         }
     }
 
     public long copyTupleArrayResultImpl(long hasPutElementNum, boolean isNullable, int row, Object result,
             long nullMapAddr,
             long offsetsAddr, long nestedNullMapAddr, long dataAddr, long strOffsetAddr,
-            PrimitiveType type) {
+            PrimitiveType type, int scale) {
         switch (type) {
             case BOOLEAN: {
                 hasPutElementNum = UdfConvert
@@ -881,21 +881,21 @@ public abstract class BaseExecutor {
             }
             case DECIMAL32: {
                 hasPutElementNum = UdfConvert
-                        .copyBatchArrayDecimalV3Result(retType.getScale(), 4L, hasPutElementNum, isNullable, row,
+                        .copyBatchArrayDecimalV3Result(scale, 4L, hasPutElementNum, isNullable, row,
                                 result, nullMapAddr,
                                 offsetsAddr, nestedNullMapAddr, dataAddr);
                 break;
             }
             case DECIMAL64: {
                 hasPutElementNum = UdfConvert
-                        .copyBatchArrayDecimalV3Result(retType.getScale(), 8L, hasPutElementNum, isNullable, row,
+                        .copyBatchArrayDecimalV3Result(scale, 8L, hasPutElementNum, isNullable, row,
                                 result, nullMapAddr,
                                 offsetsAddr, nestedNullMapAddr, dataAddr);
                 break;
             }
             case DECIMAL128: {
                 hasPutElementNum = UdfConvert
-                        .copyBatchArrayDecimalV3Result(retType.getScale(), 16L, hasPutElementNum, isNullable, row,
+                        .copyBatchArrayDecimalV3Result(scale, 16L, hasPutElementNum, isNullable, row,
                                 result, nullMapAddr,
                                 offsetsAddr, nestedNullMapAddr, dataAddr);
                 break;

@@ -87,11 +87,11 @@ public class UdafExecutor extends BaseExecutor {
         PrimitiveType valueType = argTypes[argIdx].getValueType().getPrimitiveType();
         Object[] keyCol = convertMapArg(keyType, argIdx, isNullable, rowStart, rowEnd, nullMapAddr, offsetsAddr,
                 keyNestedNullMapAddr, keyDataAddr,
-                keyStrOffsetAddr);
+                keyStrOffsetAddr, argTypes[argIdx].getKeyScale());
         Object[] valueCol = convertMapArg(valueType, argIdx, isNullable, rowStart, rowEnd, nullMapAddr, offsetsAddr,
                 valueNestedNullMapAddr,
                 valueDataAddr,
-                valueStrOffsetAddr);
+                valueStrOffsetAddr, argTypes[argIdx].getValueScale());
         return buildHashMap(keyType, valueType, keyCol, valueCol);
     }
 
@@ -297,12 +297,13 @@ public class UdafExecutor extends BaseExecutor {
             UdfUtils.UNSAFE.putByte(nullMapAddr + row, (byte) 0);
         }
         copyTupleArrayResultImpl(hasPutElementNum, isNullable, row, result, nullMapAddr, offsetsAddr, nestedNullMapAddr,
-                dataAddr, strOffsetAddr, retType.getItemType().getPrimitiveType());
+                dataAddr, strOffsetAddr, retType.getItemType().getPrimitiveType(), retType.getScale());
     }
 
     public void copyTupleMapResult(long hasPutElementNum, boolean isNullable, int row, Object result, long nullMapAddr,
             long offsetsAddr,
-            long keyNsestedNullMapAddr, long keyDataAddr, long keyStrOffsetAddr,
+            long keyNsestedNullMapAddr, long keyDataAddr,
+            long keyStrOffsetAddr,
             long valueNsestedNullMapAddr, long valueDataAddr, long valueStrOffsetAddr) throws UdfRuntimeException {
         if (nullMapAddr > 0) {
             UdfUtils.UNSAFE.putByte(nullMapAddr + row, (byte) 0);
@@ -316,9 +317,9 @@ public class UdafExecutor extends BaseExecutor {
         buildArrayListFromHashMap(resultArr, keyType, valueType, keyCol, valueCol);
         copyTupleArrayResultImpl(hasPutElementNum, isNullable, row,
                 valueCol[0], nullMapAddr, offsetsAddr,
-                valueNsestedNullMapAddr, valueDataAddr, valueStrOffsetAddr, valueType);
+                valueNsestedNullMapAddr, valueDataAddr, valueStrOffsetAddr, valueType, retType.getKeyScale());
         copyTupleArrayResultImpl(hasPutElementNum, isNullable, row, keyCol[0], nullMapAddr, offsetsAddr,
-                keyNsestedNullMapAddr, keyDataAddr, keyStrOffsetAddr, keyType);
+                keyNsestedNullMapAddr, keyDataAddr, keyStrOffsetAddr, keyType, retType.getValueScale());
     }
 
     @Override
