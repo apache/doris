@@ -273,6 +273,7 @@ under the License.
         <!-- Please modify iceberg.version and avro.version together,
          you can find avro version info in iceberg mvn repository -->
         <iceberg.version>1.1.0</iceberg.version>
+        <delta.version>3.0.0rc1</delta.version>
         <maxcompute.version>0.43.3-public</maxcompute.version>
         <arrow.version>9.0.0</arrow.version>
         <avro.version>1.11.1</avro.version>
