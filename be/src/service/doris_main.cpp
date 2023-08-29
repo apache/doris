@@ -452,7 +452,6 @@ int main(int argc, char** argv) {
     auto exec_env = doris::ExecEnv::GetInstance();
     doris::ExecEnv::init(exec_env, paths);
     doris::TabletSchemaCache::create_global_schema_cache();
-    doris::vectorized::init_date_day_offset_dict();
 
     doris::k_doris_run = true;
 
