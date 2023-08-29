@@ -300,7 +300,7 @@ public class CreateTableInfo {
                 for (ColumnDefinition c : columns) {
                     if (c.getAggType().equals(AggregateType.REPLACE)
                             || c.getAggType().equals(AggregateType.REPLACE_IF_NOT_NULL)) {
-                        throw new AnalysisException("Should not be distributed by random when keys type is agg" 
+                        throw new AnalysisException("Should not be distributed by random when keys type is agg"
                                 + "and column is in replace, [" + c.getName() + "] is invalid");
                     }
                 }
