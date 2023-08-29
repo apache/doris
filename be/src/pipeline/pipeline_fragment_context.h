@@ -116,10 +116,10 @@ public:
 
     Status update_status(Status status) {
         std::lock_guard<std::mutex> l(_status_lock);
-        if (!status.ok() && _exec_status.ok()) {
-            _exec_status = status;
+        if (!status.ok() && _query_ctx->exec_status().ok()) {
+            _query_ctx->set_exec_status(status);
         }
-        return _exec_status;
+        return _query_ctx->exec_status();
     }
 
     taskgroup::TaskGroupPipelineTaskEntity* get_task_group_entity() const {
@@ -149,9 +149,6 @@ protected:
     bool _submitted = false;
 
     std::mutex _status_lock;
-    Status _exec_status;
-    PPlanFragmentCancelReason _cancel_reason;
-    std::string _cancel_msg;
 
     Pipelines _pipelines;
     PipelineId _next_pipeline_id = 0;

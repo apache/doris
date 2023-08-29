@@ -35,7 +35,7 @@ suite("test_alter_table_status") {
         // try alter table comment
         test {
             sql """ ALTER TABLE ${tbName1} MODIFY COMMENT 'test'; """
-            exception "Table[${tbName1}]'s state is not NORMAL. Do not allow doing ALTER ops"
+            exception "Table[alter_table_status]'s state(ROLLUP) is not NORMAL. Do not allow doing ALTER ops"
         }
 
         // set table state to NORMAL

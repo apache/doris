@@ -580,13 +580,8 @@ Status VOlapTableSinkV2::_close_load(brpc::StreamId stream) {
     header.set_opcode(doris::PStreamHeader::CLOSE_LOAD);
     auto node_id = _node_id_for_stream.get()->at(stream);
     for (auto tablet : _tablets_for_node[node_id]) {
-        int64_t partition_id = tablet.partition_id();
-        if (_tablet_finder->partition_ids().contains(tablet.partition_id()) ||
-            _send_partitions_recorder[node_id].find(partition_id) ==
-                    _send_partitions_recorder[node_id].end()) {
-            PTabletID* tablet_to_commit = header.add_tablets_to_commit();
-            *tablet_to_commit = tablet;
-            _send_partitions_recorder[node_id].insert(tablet.partition_id());
+        if (_tablet_finder->partition_ids().contains(tablet.partition_id())) {
+            *header.add_tablets_to_commit() = tablet;
         }
     }
     size_t header_len = header.ByteSizeLong();

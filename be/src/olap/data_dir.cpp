@@ -259,14 +259,14 @@ Status DataDir::get_shard(uint64_t* shard) {
 }
 
 void DataDir::register_tablet(Tablet* tablet) {
-    TabletInfo tablet_info(tablet->tablet_id(), tablet->schema_hash(), tablet->tablet_uid());
+    TabletInfo tablet_info(tablet->tablet_id(), tablet->tablet_uid());
 
     std::lock_guard<std::mutex> l(_mutex);
     _tablet_set.emplace(std::move(tablet_info));
 }
 
 void DataDir::deregister_tablet(Tablet* tablet) {
-    TabletInfo tablet_info(tablet->tablet_id(), tablet->schema_hash(), tablet->tablet_uid());
+    TabletInfo tablet_info(tablet->tablet_id(), tablet->tablet_uid());
 
     std::lock_guard<std::mutex> l(_mutex);
     _tablet_set.erase(tablet_info);
@@ -500,8 +500,8 @@ Status DataDir::load() {
             }
             Status commit_txn_status = _txn_manager->commit_txn(
                     _meta, rowset_meta->partition_id(), rowset_meta->txn_id(),
-                    rowset_meta->tablet_id(), rowset_meta->tablet_schema_hash(),
-                    rowset_meta->tablet_uid(), rowset_meta->load_id(), rowset, true);
+                    rowset_meta->tablet_id(), rowset_meta->tablet_uid(), rowset_meta->load_id(),
+                    rowset, true);
             if (!commit_txn_status && !commit_txn_status.is<PUSH_TRANSACTION_ALREADY_EXIST>()) {
                 LOG(WARNING) << "failed to add committed rowset: " << rowset_meta->rowset_id()
                              << " to tablet: " << rowset_meta->tablet_id()
