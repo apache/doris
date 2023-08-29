@@ -49,9 +49,14 @@ doris   ALL=(ALL)       NOPASSWD:DORISCTL
 
 ### Configuration procedure
 
-1. Download the doris-fe.service file: [doris-fe.service](https://github.com/apache/doris/blob/master/tools/systemd/doris-fe.service)
+1. You should config the "JAVA_HOME" variable in the config file, both fe.conf and be.conf, or you can't use the command "systemctl start" to start doris
+   ```
+   echo "JAVA_HOME=your_java_home" >> /home/doris/fe/conf/fe.conf
+   echo "JAVA_HOME=your_java_home" >> /home/doris/be/conf/be.conf
+   ```
+2. Download the doris-fe.service file: [doris-fe.service](https://github.com/apache/doris/blob/master/tools/systemd/doris-fe.service)
 
-2. The details of doris-fe.service are as follows:
+3. The details of doris-fe.service are as follows:
 
     ```
     # Licensed to the Apache Software Foundation (ASF) under one
