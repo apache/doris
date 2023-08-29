@@ -53,11 +53,14 @@ statement
         (PARTITION partition=identifierList)?
         (USING relation (COMMA relation)*)
         whereClause                                                    #delete
+    | EXPORT TABLE tableName=multipartIdentifier
+        (PARTITION partition=identifierList)?
+        (whereClause)?
+        TO filePath=constant
+        (propertyClause)?
+        (withRemoteStorageSystem)?                                     #export
     ;
 
-propertiesStatment
-    : properties+=property (COMMA properties+=property)*
-    ;
 
 
 // -----------------Command accessories-----------------
@@ -88,6 +91,22 @@ planType
     | ALL // default type
     ;
 
+withRemoteStorageSystem
+    : WITH S3 LEFT_PAREN
+        brokerProperties=propertyItemList
+        RIGHT_PAREN
+    | WITH HDFS LEFT_PAREN
+        brokerProperties=propertyItemList
+        RIGHT_PAREN
+    | WITH LOCAL LEFT_PAREN
+        brokerProperties=propertyItemList
+        RIGHT_PAREN
+    | WITH BROKER brokerName=identifierOrText
+        (LEFT_PAREN
+        brokerProperties=propertyItemList
+        RIGHT_PAREN)?
+    ;
+
 //  -----------------Query-----------------
 // add queryOrganization for parse (q1) union (q2) union (q3) order by keys, otherwise 'order' will be recognized to be
 // identifier.
@@ -95,7 +114,7 @@ planType
 outFileClause
     : INTO OUTFILE filePath=constant
         (FORMAT AS format=identifier)?
-        (PROPERTIES LEFT_PAREN properties+=property (COMMA properties+=property)* RIGHT_PAREN)?
+        (propertyClause)?
     ;
 
 query
@@ -271,15 +290,25 @@ relationPrimary
     : multipartIdentifier specifiedPartition? tabletList? tableAlias relationHint? lateralView*           #tableName
     | LEFT_PAREN query RIGHT_PAREN tableAlias lateralView*                                    #aliasedQuery
     | tvfName=identifier LEFT_PAREN
-      (properties+=property (COMMA properties+=property)*)?
+      (properties=propertyItemList)?
       RIGHT_PAREN tableAlias                                                                  #tableValuedFunction
     ;
 
-property
-    : key=propertyItem EQ value=propertyItem
+propertyClause
+    : PROPERTIES LEFT_PAREN fileProperties=propertyItemList RIGHT_PAREN
     ;
 
-propertyItem : identifier | constant ;
+propertyItemList
+    : properties+=propertyItem (COMMA properties+=propertyItem)*
+    ;
+
+propertyItem
+    : key=propertyKey EQ value=propertyValue
+    ;
+
+propertyKey : identifier | constant ;
+
+propertyValue : identifier | constant ;
 
 tableAlias
     : (AS? strictIdentifier identifierList?)?
@@ -798,5 +827,8 @@ nonReserved
     | WITHIN
     | YEAR
     | ZONE
+    | S3
+    | HDFS
+    | BROKER
 //--DEFAULT-NON-RESERVED-END
     ;

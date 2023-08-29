@@ -407,6 +407,9 @@ WITHIN: 'WITHIN';
 YEAR: 'YEAR';
 ZONE: 'ZONE';
 DATEV2: 'DATEV2';
+S3: 'S3';
+HDFS: 'HDFS';
+BROKER: 'BROKER';
 //--DORIS-KEYWORD-LIST-END
 //============================
 // End of the keywords list

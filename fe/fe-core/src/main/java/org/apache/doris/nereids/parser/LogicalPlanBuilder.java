@@ -18,6 +18,9 @@
 package org.apache.doris.nereids.parser;
 
 import org.apache.doris.analysis.ArithmeticExpr.Operator;
+import org.apache.doris.analysis.BrokerDesc;
+import org.apache.doris.analysis.StorageBackend;
+import org.apache.doris.analysis.StorageBackend.StorageType;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.Pair;
@@ -50,6 +53,7 @@ import org.apache.doris.nereids.DorisParser.DereferenceContext;
 import org.apache.doris.nereids.DorisParser.ElementAtContext;
 import org.apache.doris.nereids.DorisParser.ExistContext;
 import org.apache.doris.nereids.DorisParser.ExplainContext;
+import org.apache.doris.nereids.DorisParser.ExportContext;
 import org.apache.doris.nereids.DorisParser.FromClauseContext;
 import org.apache.doris.nereids.DorisParser.GroupingElementContext;
 import org.apache.doris.nereids.DorisParser.GroupingSetContext;
@@ -81,9 +85,11 @@ import org.apache.doris.nereids.DorisParser.PlanTypeContext;
 import org.apache.doris.nereids.DorisParser.PredicateContext;
 import org.apache.doris.nereids.DorisParser.PredicatedContext;
 import org.apache.doris.nereids.DorisParser.PrimitiveDataTypeContext;
-import org.apache.doris.nereids.DorisParser.PropertiesStatmentContext;
-import org.apache.doris.nereids.DorisParser.PropertyContext;
+import org.apache.doris.nereids.DorisParser.PropertyClauseContext;
 import org.apache.doris.nereids.DorisParser.PropertyItemContext;
+import org.apache.doris.nereids.DorisParser.PropertyItemListContext;
+import org.apache.doris.nereids.DorisParser.PropertyKeyContext;
+import org.apache.doris.nereids.DorisParser.PropertyValueContext;
 import org.apache.doris.nereids.DorisParser.QualifiedNameContext;
 import org.apache.doris.nereids.DorisParser.QueryContext;
 import org.apache.doris.nereids.DorisParser.QueryOrganizationContext;
@@ -117,6 +123,7 @@ import org.apache.doris.nereids.DorisParser.UserVariableContext;
 import org.apache.doris.nereids.DorisParser.WhereClauseContext;
 import org.apache.doris.nereids.DorisParser.WindowFrameContext;
 import org.apache.doris.nereids.DorisParser.WindowSpecContext;
+import org.apache.doris.nereids.DorisParser.WithRemoteStorageSystemContext;
 import org.apache.doris.nereids.DorisParserBaseVisitor;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.analyzer.UnboundAlias;
@@ -232,6 +239,7 @@ import org.apache.doris.nereids.trees.plans.commands.CreatePolicyCommand;
 import org.apache.doris.nereids.trees.plans.commands.DeleteCommand;
 import org.apache.doris.nereids.trees.plans.commands.ExplainCommand;
 import org.apache.doris.nereids.trees.plans.commands.ExplainCommand.ExplainLevel;
+import org.apache.doris.nereids.trees.plans.commands.ExportCommand;
 import org.apache.doris.nereids.trees.plans.commands.InsertIntoTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.UpdateCommand;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
@@ -380,6 +388,68 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                 ctx.explain());
     }
 
+    @Override
+    public LogicalPlan visitExport(ExportContext ctx) {
+        List<String> tableName = visitMultipartIdentifier(ctx.tableName);
+        List<String> partitions = ctx.partition == null ? ImmutableList.of() : visitIdentifierList(ctx.partition);
+        String path = parseConstant(ctx.filePath);
+        String whereSql = null;
+        if (ctx.whereClause() != null) {
+            WhereClauseContext whereClauseContext = ctx.whereClause();
+            int startIndex = whereClauseContext.start.getStartIndex();
+            int stopIndex = whereClauseContext.stop.getStopIndex();
+            org.antlr.v4.runtime.misc.Interval interval = new org.antlr.v4.runtime.misc.Interval(startIndex,
+                    stopIndex);
+            whereSql = whereClauseContext.start.getInputStream().getText(interval);
+        }
+
+        Map<String, String> filePropertiesMap = null;
+        if (ctx.propertyClause() != null) {
+            filePropertiesMap = visitPropertyClause(ctx.propertyClause());
+        }
+
+        BrokerDesc brokerDesc = null;
+        if (ctx.withRemoteStorageSystem() != null) {
+            brokerDesc = visitWithRemoteStorageSystem(ctx.withRemoteStorageSystem());
+        }
+
+        return new ExportCommand(tableName, partitions, whereSql, path, filePropertiesMap, brokerDesc);
+    }
+
+    @Override
+    public Map<String, String> visitPropertyClause(PropertyClauseContext ctx) {
+        return visitPropertyItemList(ctx.fileProperties);
+    }
+
+    @Override
+    public Map<String, String> visitPropertyItemList(PropertyItemListContext ctx) {
+        Builder<String, String> propertiesMap = ImmutableMap.builder();
+        for (PropertyItemContext argument : ctx.properties) {
+            String key = parsePropertyKey(argument.key);
+            String value = parsePropertyValue(argument.value);
+            propertiesMap.put(key, value);
+        }
+        return propertiesMap.build();
+    }
+
+    @Override
+    public BrokerDesc visitWithRemoteStorageSystem(WithRemoteStorageSystemContext ctx) {
+        BrokerDesc brokerDesc = null;
+
+        Map<String, String> brokerPropertiesMap = visitPropertyItemList(ctx.brokerProperties);
+
+        if (ctx.S3() != null) {
+            brokerDesc = new BrokerDesc("S3", StorageBackend.StorageType.S3, brokerPropertiesMap);
+        } else if (ctx.HDFS() != null) {
+            brokerDesc = new BrokerDesc("HDFS", StorageBackend.StorageType.HDFS, brokerPropertiesMap);
+        } else if (ctx.LOCAL() != null) {
+            brokerDesc = new BrokerDesc("HDFS", StorageType.LOCAL, brokerPropertiesMap);
+        } else if (ctx.BROKER() != null) {
+            brokerDesc = new BrokerDesc(visitIdentifierOrText(ctx.brokerName), brokerPropertiesMap);
+        }
+        return brokerDesc;
+    }
+
     /**
      * Visit multi-statements.
      */
@@ -397,17 +467,6 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                     ParserUtils.withOrigin(ctx, () -> (LogicalPlan) visit(statement)), statementContext));
         }
         return logicalPlans;
-    }
-
-    @Override
-    public Properties visitPropertiesStatment(PropertiesStatmentContext ctx) {
-        Builder<String, String> map = ImmutableMap.builder();
-        for (PropertyContext argument : ctx.properties) {
-            String key = parsePropertyItem(argument.key);
-            String value = parsePropertyItem(argument.value);
-            map.put(key, value);
-        }
-        return new Properties(map.build());
     }
 
     /* ********************************************************************************************
@@ -641,14 +700,9 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         return ParserUtils.withOrigin(ctx, () -> {
             String functionName = ctx.tvfName.getText();
 
-            Builder<String, String> map = ImmutableMap.builder();
-            for (PropertyContext argument : ctx.properties) {
-                String key = parsePropertyItem(argument.key);
-                String value = parsePropertyItem(argument.value);
-                map.put(key, value);
-            }
+            Map<String, String> map = visitPropertyItemList(ctx.properties);
             LogicalPlan relation = new UnboundTVFRelation(StatementScopeIdGenerator.newRelationId(),
-                    functionName, new Properties(map.build()));
+                    functionName, new Properties(map));
             return withTableAlias(relation, ctx.tableAlias());
         });
     }
@@ -1523,11 +1577,10 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         if (ctx.format != null) {
             format = ctx.format.getText();
         }
-        Map<String, String> properties = Maps.newHashMap();
-        for (PropertyContext argument : ctx.properties) {
-            String key = parseConstant(argument.key.constant());
-            String value = parseConstant(argument.value.constant());
-            properties.put(key, value);
+
+        Map<String, String> properties = ImmutableMap.of();
+        if (ctx.propertyClause() != null) {
+            properties = visitPropertyClause(ctx.propertyClause());
         }
         Literal filePath = (Literal) visit(ctx.filePath);
         return new LogicalFileSink<>(filePath.getStringValue(), format, properties, ImmutableList.of(), plan);
@@ -1973,7 +2026,14 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         }
     }
 
-    private String parsePropertyItem(PropertyItemContext item) {
+    private String parsePropertyKey(PropertyKeyContext item) {
+        if (item.constant() != null) {
+            return parseConstant(item.constant());
+        }
+        return item.getText();
+    }
+
+    private String parsePropertyValue(PropertyValueContext item) {
         if (item.constant() != null) {
             return parseConstant(item.constant());
         }
