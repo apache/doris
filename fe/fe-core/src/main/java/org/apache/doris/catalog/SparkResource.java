@@ -39,6 +39,7 @@ import org.apache.logging.log4j.Logger;
 import java.io.File;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.Map.Entry;
 
 /**
  * Spark resource for etl or query.
@@ -160,8 +161,8 @@ public class SparkResource extends Resource {
     }
 
     public Map<String, String> getEnvConfigsWithoutPrefix() {
-        Map<String, String> systemEnv = System.getenv();
-        Map<String, String> currentEnvConfigs = new HashMap<>(systemEnv);
+        Map<String, String> systemEnvWithPrefix = getSystemEnvConfigsWithPrefix();
+        Map<String, String> currentEnvConfigs = new HashMap<>(systemEnvWithPrefix);
         if (envConfigs != null) {
             for (Map.Entry<String, String> entry : envConfigs.entrySet()) {
                 if (entry.getKey().startsWith(ENV_PREFIX)) {
@@ -171,6 +172,19 @@ public class SparkResource extends Resource {
             }
         }
         return currentEnvConfigs;
+    }
+
+    public Map<String, String> getSystemEnvConfigsWithPrefix() {
+        Map<String, String> systemEnv = System.getenv();
+        Map<String, String> systemEnvWithPrefix = new HashMap<>();
+        for (Entry<String, String> entry : systemEnv.entrySet()) {
+            String key = entry.getKey();
+            String value = entry.getValue();
+            if (key.startsWith(ENV_PREFIX)) {
+                systemEnvWithPrefix.put(key, value);
+            }
+        }
+        return systemEnvWithPrefix;
     }
 
     public Pair<String, String> getYarnResourcemanagerAddressPair() {
