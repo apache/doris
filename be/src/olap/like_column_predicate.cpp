@@ -17,8 +17,6 @@
 
 #include "olap/like_column_predicate.h"
 
-#include <variant>
-
 #include "runtime/define_primitive_type.h"
 #include "udf/udf.h"
 #include "vec/columns/columns_number.h"
