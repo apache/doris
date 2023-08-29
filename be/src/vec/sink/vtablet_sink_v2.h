@@ -220,7 +220,6 @@ private:
 
     std::unordered_map<int64_t, std::vector<PTabletID>> _tablets_for_node;
     std::unordered_map<int64_t, std::vector<PTabletID>> _indexes_from_node;
-    std::unordered_map<int64_t, std::unordered_set<int64_t>> _send_partitions_recorder;
 
     std::shared_ptr<StreamPoolForNode> _stream_pool_for_node;
     std::shared_ptr<NodeIdForStream> _node_id_for_stream;

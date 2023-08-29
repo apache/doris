@@ -478,7 +478,30 @@ public class FunctionCallExpr extends Expr {
             aggFnParams = aggFnParams
                     .clone(newParams);
         }
-        return super.substituteImpl(smap, disjunctsMap, analyzer);
+        if (isImplicitCast()) {
+            return getChild(0).substituteImpl(smap, disjunctsMap, analyzer);
+        }
+        if (smap != null) {
+            Expr substExpr = smap.get(this);
+            if (substExpr != null) {
+                return substExpr.clone();
+            }
+        }
+        if (Expr.IS_OR_PREDICATE.apply(this) && disjunctsMap != null) {
+            smap = disjunctsMap;
+            disjunctsMap = null;
+        }
+        for (int i = 0; i < children.size(); ++i) {
+            // we shouldn't change literal expr in function call expr
+            if (!(children.get(i) instanceof LiteralExpr)) {
+                children.set(i, children.get(i).substituteImpl(smap, disjunctsMap, analyzer));
+            }
+        }
+        // SlotRefs must remain analyzed to support substitution across query blocks. All
+        // other exprs must be analyzed again after the substitution to add implicit casts
+        // and for resolving their correct function signature.
+        resetAnalysisState();
+        return this;
     }
 
     @Override
