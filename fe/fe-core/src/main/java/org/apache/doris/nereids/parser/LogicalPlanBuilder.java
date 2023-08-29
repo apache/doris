@@ -1939,13 +1939,13 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
 
     @Override
     public Map<String, String> visitPropertySeq(PropertySeqContext ctx) {
-        Builder<String, String> map = ImmutableMap.builder();
+        Map<String, String> map = Maps.newHashMap();
         for (PropertyContext argument : ctx.properties) {
             String key = parsePropertyItem(argument.key);
             String value = parsePropertyItem(argument.value);
             map.put(key, value);
         }
-        return map.build();
+        return map;
     }
 
     /* ********************************************************************************************
