@@ -78,6 +78,13 @@ public class HMSExternalCatalog extends ExternalCatalog {
         catalogProperty = new CatalogProperty(resource, props);
     }
 
+    public HMSExternalCatalog(long catalogId, String name, String resource, Map<String, String> props,
+            String comment, InitCatalogLog.Type type) {
+        super(catalogId, name, type, comment);
+        props = PropertyConverter.convertToMetaProperties(props);
+        catalogProperty = new CatalogProperty(resource, props);
+    }
+
     @Override
     public void checkProperties() throws DdlException {
         super.checkProperties();
