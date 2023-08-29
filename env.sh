@@ -144,18 +144,20 @@ elif [[ "${DORIS_TOOLCHAIN}" == "clang" ]]; then
     if [[ -f "${DORIS_CLANG_HOME}/bin/llvm-symbolizer" ]]; then
         export ASAN_SYMBOLIZER_PATH="${DORIS_CLANG_HOME}/bin/llvm-symbolizer"
     fi
-    
-    cov_tools=($(find "${DORIS_CLANG_HOME}" -name "llvm-cov*"))
-    if [[ ${#cov_tools[@]} -ge 1 ]]; then
-        LLVM_COV="${cov_tools[0]}"
+
+    covs=()
+    while IFS='' read -r line; do covs+=("$line"); done < <(find "${DORIS_CLANG_HOME}" -name "llvm-cov*")
+    if [[ ${#covs[@]} -ge 1 ]]; then
+        LLVM_COV="${covs[0]}"
     else
         LLVM_COV="$(command -v llvm-cov)"
     fi
     export LLVM_COV
 
-    cov_tools=($(find "${DORIS_CLANG_HOME}" -name "llvm-profdata*"))
-    if [[ ${#cov_tools[@]} -ge 1 ]]; then
-        LLVM_PROFDATA="${cov_tools[0]}"
+    profdatas=()
+    while IFS='' read -r line; do profdatas+=("$line"); done < <(find "${DORIS_CLANG_HOME}" -name "llvm-profdata*")
+    if [[ ${#profdatas[@]} -ge 1 ]]; then
+        LLVM_PROFDATA="${profdatas[0]}"
     else
         LLVM_PROFDATA="$(command -v llvm-profdata)"
     fi
