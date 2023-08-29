@@ -175,6 +175,10 @@ WITH BROKER broker_name
 
       是否对数据进行严格限制。默认为 false。
 
+    - `partial_columns`
+
+      布尔类型，为 true 表示使用部分列更新，默认值为 false，该参数只允许在表模型为 Unique 且采用 Merge on Write 时设置。
+
     - `timezone`
 
       指定某些受时区影响的函数的时区，如 `strftime/alignment_timestamp/from_unixtime` 等等，具体请查阅 [时区](../../../../advanced/time-zone.md) 文档。如果不指定，则使用 "Asia/Shanghai" 时区
