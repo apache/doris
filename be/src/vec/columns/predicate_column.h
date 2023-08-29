@@ -40,12 +40,10 @@ namespace doris::vectorized {
  */
 template <PrimitiveType Type>
 class PredicateColumnType final : public COWHelper<IColumn, PredicateColumnType<Type>> {
-public:
-    PredicateColumnType(const PredicateColumnType& src) : data(src.data.begin(), src.data.end()) {}
-
 private:
     PredicateColumnType() {}
     PredicateColumnType(const size_t n) : data(n) {}
+    PredicateColumnType(const PredicateColumnType& src) : data(src.data.begin(), src.data.end()) {}
     friend class COWHelper<IColumn, PredicateColumnType<Type>>;
     using T = typename PredicatePrimitiveTypeTraits<Type>::PredicateFieldType;
     using ColumnType = typename PrimitiveTypeTraits<Type>::ColumnType;
@@ -155,8 +153,20 @@ public:
 
     size_t size() const override { return data.size(); }
 
-    [[noreturn]] StringRef get_data_at(size_t n) const override {
-        LOG(FATAL) << "get_data_at not supported in PredicateColumnType";
+    StringRef get_data_at(size_t n) const override {
+        if constexpr (std::is_same_v<T, StringRef>) {
+            auto calculate_size = [&](const StringRef& str) -> size_t {
+                if constexpr (Type == TYPE_CHAR) {
+                    return strnlen(str.data, str.size);
+                } else {
+                    return str.size;
+                }
+            };
+            auto& data_str = reinterpret_cast<const StringRef&>(data[n]);
+            auto data_size = calculate_size(data_str);
+            return StringRef(data_str.data, data_size);
+        }
+        LOG(FATAL) << "should not call get_data_at in predicate column except for string type";
     }
 
     void insert_from(const IColumn& src, size_t n) override {

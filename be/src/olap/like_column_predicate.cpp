@@ -97,13 +97,14 @@ uint16_t LikeColumnPredicate<T>::evaluate(const vectorized::IColumn& column, uin
                     nested_col);
             if (!nullable_col->has_null()) {
                 vectorized::ColumnUInt8::Container res(size, 0);
-                (_state->predicate_like_function)(
-                        const_cast<vectorized::LikeSearchState*>(&_like_state), *str_col, pattern,
-                        res, sel, size);
                 for (uint16_t i = 0; i != size; i++) {
                     uint16_t idx = sel[i];
                     sel[new_size] = idx;
-                    new_size += _opposite ^ res[i];
+                    unsigned char flag = 0;
+                    (_state->scalar_function)(
+                            const_cast<vectorized::LikeSearchState*>(&_like_state),
+                            str_col->get_data_at(idx), pattern, &flag);
+                    new_size += _opposite ^ flag;
                 }
             } else {
                 for (uint16_t i = 0; i != size; i++) {
@@ -114,7 +115,7 @@ uint16_t LikeColumnPredicate<T>::evaluate(const vectorized::IColumn& column, uin
                         continue;
                     }
 
-                    StringRef cell_value = str_col->get_data()[idx];
+                    StringRef cell_value = str_col->get_data_at(idx);
                     unsigned char flag = 0;
                     (_state->scalar_function)(
                             const_cast<vectorized::LikeSearchState*>(&_like_state),
@@ -143,13 +144,13 @@ uint16_t LikeColumnPredicate<T>::evaluate(const vectorized::IColumn& column, uin
                     vectorized::check_and_get_column<vectorized::PredicateColumnType<T>>(column);
 
             vectorized::ColumnUInt8::Container res(size, 0);
-            (_state->predicate_like_function)(
-                    const_cast<vectorized::LikeSearchState*>(&_like_state), *str_col, pattern, res,
-                    sel, size);
             for (uint16_t i = 0; i != size; i++) {
                 uint16_t idx = sel[i];
                 sel[new_size] = idx;
-                new_size += _opposite ^ res[i];
+                unsigned char flag = 0;
+                (_state->scalar_function)(const_cast<vectorized::LikeSearchState*>(&_like_state),
+                                          str_col->get_data_at(idx), pattern, &flag);
+                new_size += _opposite ^ flag;
             }
         }
     }
