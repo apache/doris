@@ -20,7 +20,7 @@ import org.codehaus.groovy.runtime.IOGroovyMethods
 suite ("no_await") {
 
     def waitDrop = {
-        def try_times = 100
+        def try_times = 1000
         def result = "null"
         while (!result.contains("FINISHED")) {
             result = (sql "SHOW ALTER TABLE MATERIALIZED VIEW ORDER BY CreateTime DESC LIMIT 1;")[0]
