@@ -450,6 +450,12 @@ private:
     std::unique_ptr<bvar::PerSecond<bvar::Adder<uint64_t>>> _lookup_count_per_second;
 };
 
+enum class QueueType { AM, A1In, A1Out };
+
+struct TwoQueueLRUHandle : LRUHandle {
+    QueueType queue_type;
+};
+
 /// refer to https://www.vldb.org/conf/1994/P439.PDF
 class TwoQueueLRUCache : LRUCache {
 public:
@@ -468,6 +474,7 @@ protected:
     // TODO(tsy): mod interface name
     void _evict_from_lru(size_t total_size, LRUHandle** to_remove_head) override;
     void _evict_one_entry(LRUHandle* e) override;
+
 private:
     /// note: the `A1out` in paper consists from history_table and history_queue
     HandleTable _history_table;
