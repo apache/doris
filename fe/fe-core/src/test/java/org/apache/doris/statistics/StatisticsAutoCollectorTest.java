@@ -49,7 +49,7 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 
-public class StatisticsAutoAnalyzerTest {
+public class StatisticsAutoCollectorTest {
 
     @Test
     public void testAnalyzeAll(@Injectable AnalysisInfo analysisInfo) {
@@ -65,7 +65,7 @@ public class StatisticsAutoAnalyzerTest {
                 return databaseIfs;
             }
         };
-        new MockUp<StatisticsAutoAnalyzer>() {
+        new MockUp<StatisticsAutoCollector>() {
             @Mock
             public List<AnalysisInfo> constructAnalysisInfo(DatabaseIf<TableIf> db) {
                 return Arrays.asList(analysisInfo, analysisInfo);
@@ -85,7 +85,7 @@ public class StatisticsAutoAnalyzerTest {
             }
         };
 
-        StatisticsAutoAnalyzer saa = new StatisticsAutoAnalyzer();
+        StatisticsAutoCollector saa = new StatisticsAutoCollector();
         saa.runAfterCatalogReady();
         new Expectations() {
             {
@@ -131,7 +131,7 @@ public class StatisticsAutoAnalyzerTest {
                 return columns;
             }
         };
-        StatisticsAutoAnalyzer saa = new StatisticsAutoAnalyzer();
+        StatisticsAutoCollector saa = new StatisticsAutoCollector();
         List<AnalysisInfo> analysisInfos =
                 saa.constructAnalysisInfo(new Database(1, "anydb"));
         Assertions.assertEquals(1, analysisInfos.size());
@@ -145,7 +145,7 @@ public class StatisticsAutoAnalyzerTest {
 
         new MockUp<OlapTable>() {
             @Mock
-            protected Set<String> findReAnalyzeNeededPartitions(TableStats tableStats) {
+            protected Set<String> findReAnalyzeNeededPartitions() {
                 Set<String> partitionNames = new HashSet<>();
                 partitionNames.add("p1");
                 partitionNames.add("p2");
@@ -185,20 +185,20 @@ public class StatisticsAutoAnalyzerTest {
             }
         };
 
-        new MockUp<StatisticsAutoAnalyzer>() {
+        new MockUp<StatisticsAutoCollector>() {
             @Mock
             public AnalysisInfo getAnalysisJobInfo(AnalysisInfo jobInfo, TableIf table,
                     Set<String> needRunPartitions) {
                 return new AnalysisInfoBuilder().build();
             }
         };
-        StatisticsAutoAnalyzer statisticsAutoAnalyzer = new StatisticsAutoAnalyzer();
+        StatisticsAutoCollector statisticsAutoCollector = new StatisticsAutoCollector();
         AnalysisInfo analysisInfo2 = new AnalysisInfoBuilder()
                 .setCatalogName("cname")
                 .setDbName("db")
                 .setTblName("tbl").build();
-        Assertions.assertNotNull(statisticsAutoAnalyzer.getReAnalyzeRequiredPart(analysisInfo2));
-        Assertions.assertNull(statisticsAutoAnalyzer.getReAnalyzeRequiredPart(analysisInfo2));
-        Assertions.assertNotNull(statisticsAutoAnalyzer.getReAnalyzeRequiredPart(analysisInfo2));
+        Assertions.assertNotNull(statisticsAutoCollector.getReAnalyzeRequiredPart(analysisInfo2));
+        Assertions.assertNull(statisticsAutoCollector.getReAnalyzeRequiredPart(analysisInfo2));
+        Assertions.assertNotNull(statisticsAutoCollector.getReAnalyzeRequiredPart(analysisInfo2));
     }
 }

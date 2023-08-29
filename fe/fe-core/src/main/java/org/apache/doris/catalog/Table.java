@@ -580,7 +580,7 @@ public abstract class Table extends MetaObject implements Writable, TableIf {
     }
 
     @Override
-    public Set<String> findReAnalyzeNeededPartitions(TableStats tableStats) {
+    public Set<String> findReAnalyzeNeededPartitions() {
         return Collections.emptySet();
     }
 }

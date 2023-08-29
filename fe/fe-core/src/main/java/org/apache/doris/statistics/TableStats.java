@@ -55,7 +55,7 @@ public class TableStats implements Writable {
     public final AnalysisType analysisType;
 
     @SerializedName("updateTime")
-    public final long updatedTime;
+    public long updatedTime;
 
     @SerializedName("columns")
     public String columns;

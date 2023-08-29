@@ -139,7 +139,7 @@ public interface TableIf {
 
     boolean needReAnalyzeTable(TableStats tblStats);
 
-    Set<String> findReAnalyzeNeededPartitions(TableStats tableStats);
+    Set<String> findReAnalyzeNeededPartitions();
 
     void write(DataOutput out) throws IOException;
 
