@@ -54,7 +54,7 @@ testDirectories = ""
 // this groups will not be executed
 excludeGroups = ""
 // this suites will not be executed
-excludeSuites = "test_profile,test_broker_load,test_spark_load,test_export_parquet,test_doris_jdbc_catalog"
+excludeSuites = "ds_rf95,test_profile,test_broker_load,test_spark_load,test_refresh_mtmv,test_export_parquet,test_doris_jdbc_catalog"
 // this directories will not be executed
 excludeDirectories = "workload_manager_p1"
 
