@@ -190,8 +190,6 @@ public class ConnectContext {
 
     private Map<String, ColumnStatistic> totalColumnStatisticMap = new HashMap<>();
 
-    private Map<String, Histogram> totalHistogramMap = new HashMap<>();
-
     public Map<String, ColumnStatistic> getTotalColumnStatisticMap() {
         return totalColumnStatisticMap;
     }
@@ -199,6 +197,8 @@ public class ConnectContext {
     public void setTotalColumnStatisticMap(Map<String, ColumnStatistic> totalColumnStatisticMap) {
         this.totalColumnStatisticMap = totalColumnStatisticMap;
     }
+
+    private Map<String, Histogram> totalHistogramMap = new HashMap<>();
 
     public Map<String, Histogram> getTotalHistogramMap() {
         return totalHistogramMap;
