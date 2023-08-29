@@ -1061,8 +1061,8 @@ Status SegmentIterator::_init_return_column_iterators() {
         }
 
         if (_column_iterators[cid] == nullptr) {
-            RETURN_IF_ERROR(_segment->new_column_iterator(_opts.tablet_schema->column(cid),
-                                                          &_column_iterators[cid], _path_reader.get()));
+            RETURN_IF_ERROR(_segment->new_column_iterator(
+                    _opts.tablet_schema->column(cid), &_column_iterators[cid], _path_reader.get()));
             ColumnIteratorOptions iter_opts;
             iter_opts.stats = _opts.stats;
             iter_opts.use_page_cache = _opts.use_page_cache;

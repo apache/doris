@@ -765,14 +765,22 @@ Status BetaRowsetWriter::expand_variant_to_subcolumns(vectorized::Block& block,
         return Status::OK();
     }
 
-    // Get positions of variant column
-    // TODO pre-caculate
     std::vector<int> variant_column_pos;
-    for (int i = 0; i < _context.tablet_schema->columns().size(); ++i) {
-        if (_context.tablet_schema->columns()[i].is_variant_type()) {
-            variant_column_pos.push_back(i);
+    if (_context.tablet_schema->is_partial_update()) {
+        // check columns that used to do partial updates should not include variant
+        for (int i : _context.tablet_schema->get_update_cids()) {
+            if (_context.tablet_schema->columns()[i].is_variant_type()) {
+                return Status::InvalidArgument("Not implement partial updates for variant");
+            }
+        }
+    } else {
+        for (int i = 0; i < _context.tablet_schema->columns().size(); ++i) {
+            if (_context.tablet_schema->columns()[i].is_variant_type()) {
+                variant_column_pos.push_back(i);
+            }
         }
     }
+
     if (variant_column_pos.empty()) {
         return Status::OK();
     }

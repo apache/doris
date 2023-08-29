@@ -177,7 +177,7 @@ Status ColumnReader::create(const ColumnReaderOptions& opts, const ColumnMetaPB&
             // Read variant only root data using a single ColumnReader
             std::unique_ptr<ColumnReader> reader_local(
                     new ColumnReader(opts, meta, num_rows, file_reader));
-            RETURN_IF_ERROR(reader_local->init());
+            RETURN_IF_ERROR(reader_local->init(&meta));
             *reader = std::move(reader_local);
             return Status::OK();
         }
