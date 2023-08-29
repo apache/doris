@@ -149,7 +149,8 @@ void DataTypeDecimalSerDe<T>::write_column_to_arrow(const IColumn& column, const
                              array_builder->type()->name());
         }
     } else {
-        LOG(FATAL) << "Not support write " << column.get_name() << " to arrow";
+        throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
+                               "write_column_to_arrow with type " + column.get_name());
     }
 }
 
@@ -190,7 +191,8 @@ void DataTypeDecimalSerDe<T>::read_column_from_arrow(IColumn& column,
             column_data.emplace_back(*reinterpret_cast<const T*>(concrete_array->Value(value_i)));
         }
     } else {
-        LOG(FATAL) << "Not support read " << column.get_name() << " from arrow";
+        throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
+                               "read_column_from_arrow with type " + column.get_name());
     }
 }
 

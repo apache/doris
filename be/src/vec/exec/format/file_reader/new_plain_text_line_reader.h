@@ -235,7 +235,6 @@ private:
 
     bool _file_eof;
     bool _eof;
-    bool _stream_end;
     size_t _more_input_bytes;
     size_t _more_output_bytes;
 

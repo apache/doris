@@ -261,6 +261,8 @@ Status IcebergTableReader::_position_delete(
         DeleteFile* delete_file_cache = _kv_cache->get<
                 DeleteFile>(_delet_file_cache_key(delete_file.path), [&]() -> DeleteFile* {
             TFileRangeDesc delete_range;
+            // must use __set() method to make sure __isset is true
+            delete_range.__set_fs_name(_range.fs_name);
             delete_range.path = delete_file.path;
             delete_range.start_offset = 0;
             delete_range.size = -1;

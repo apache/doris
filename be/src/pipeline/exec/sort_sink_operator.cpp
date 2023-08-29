@@ -29,12 +29,12 @@ namespace doris::pipeline {
 OPERATOR_CODE_GENERATOR(SortSinkOperator, StreamingOperator)
 
 Status SortSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& info) {
+    RETURN_IF_ERROR(PipelineXSinkLocalState::init(state, info));
     auto& p = _parent->cast<SortSinkOperatorX>();
     _dependency = (SortDependency*)info.dependency;
     _shared_state = (SortSharedState*)_dependency->shared_state();
 
     RETURN_IF_ERROR(p._vsort_exec_exprs.clone(state, _vsort_exec_exprs));
-    _profile = p._pool->add(new RuntimeProfile("SortSinkLocalState"));
     switch (p._algorithm) {
     case SortAlgorithm::HEAP_SORT: {
         _shared_state->sorter = vectorized::HeapSorter::create_unique(

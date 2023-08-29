@@ -200,6 +200,9 @@ public class AnalysisInfo implements Writable {
         this.partitionOnly = partitionOnly;
         this.samplingPartition = samplingPartition;
         this.cronExpression = cronExpression;
+        if (cronExpression != null) {
+            this.cronExprStr = cronExpression.getCronExpression();
+        }
     }
 
     @Override

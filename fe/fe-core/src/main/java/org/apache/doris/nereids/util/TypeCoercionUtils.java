@@ -43,6 +43,8 @@ import org.apache.doris.nereids.trees.expressions.SubqueryExpr;
 import org.apache.doris.nereids.trees.expressions.Subtract;
 import org.apache.doris.nereids.trees.expressions.TimestampArithmetic;
 import org.apache.doris.nereids.trees.expressions.functions.BoundFunction;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Array;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.CreateMap;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonArray;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonObject;
 import org.apache.doris.nereids.trees.expressions.literal.BigIntLiteral;
@@ -58,6 +60,7 @@ import org.apache.doris.nereids.trees.expressions.literal.FloatLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.LargeIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
+import org.apache.doris.nereids.trees.expressions.literal.MapLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.SmallIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.StringLikeLiteral;
@@ -496,9 +499,43 @@ public class TypeCoercionUtils {
         if (boundFunction instanceof JsonArray || boundFunction instanceof JsonObject) {
             boundFunction = TypeCoercionUtils.fillJsonTypeArgument(boundFunction, boundFunction instanceof JsonObject);
         }
+        if (boundFunction instanceof CreateMap) {
+            return processCreateMap((CreateMap) boundFunction);
+        }
 
         // type coercion
         return implicitCastInputTypes(boundFunction, boundFunction.expectedInputTypes());
+    }
+
+    private static Expression processCreateMap(CreateMap createMap) {
+        if (createMap.arity() == 0) {
+            return new MapLiteral();
+        }
+        List<Expression> keys = Lists.newArrayList();
+        List<Expression> values = Lists.newArrayList();
+        for (int i = 0; i < createMap.arity(); i++) {
+            if (i % 2 == 0) {
+                keys.add(createMap.child(i));
+            } else {
+                values.add(createMap.child(i));
+            }
+        }
+        // TODO: use the find common type to get key and value type after we redefine type coercion in Doris.
+        Array keyArray = new Array(keys.toArray(new Expression[0]));
+        Array valueArray = new Array(values.toArray(new Expression[0]));
+        keyArray = (Array) implicitCastInputTypes(keyArray, keyArray.expectedInputTypes());
+        valueArray = (Array) implicitCastInputTypes(valueArray, valueArray.expectedInputTypes());
+        DataType keyType = ((ArrayType) (keyArray.getDataType())).getItemType();
+        DataType valueType = ((ArrayType) (valueArray.getDataType())).getItemType();
+        ImmutableList.Builder<Expression> newChildren = ImmutableList.builder();
+        for (int i = 0; i < createMap.arity(); i++) {
+            if (i % 2 == 0) {
+                newChildren.add(castIfNotSameType(createMap.child(i), keyType));
+            } else {
+                newChildren.add(castIfNotSameType(createMap.child(i), valueType));
+            }
+        }
+        return createMap.withChildren(newChildren.build());
     }
 
     /**

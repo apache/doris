@@ -310,7 +310,7 @@ public class HiveMetaStoreCache {
             values.add(new PartitionValue(partitionValue, HIVE_DEFAULT_PARTITION.equals(partitionValue)));
         }
         try {
-            PartitionKey key = PartitionKey.createListPartitionKeyWithTypes(values, types);
+            PartitionKey key = PartitionKey.createListPartitionKeyWithTypes(values, types, true);
             return new ListPartitionItem(Lists.newArrayList(key));
         } catch (AnalysisException e) {
             throw new CacheException("failed to convert hive partition %s to list partition in catalog %s",
@@ -1000,6 +1000,7 @@ public class HiveMetaStoreCache {
         // File Cache for self splitter.
         private final List<HiveFileStatus> files = Lists.newArrayList();
         // File split cache for old splitter. This is a temp variable.
+        @Deprecated
         private final List<FileSplit> splits = Lists.newArrayList();
         private boolean isSplittable;
         // The values of partitions.
@@ -1021,6 +1022,7 @@ public class HiveMetaStoreCache {
             }
         }
 
+        @Deprecated
         public void addSplit(FileSplit split) {
             if (isFileVisible(split.getPath())) {
                 splits.add(split);
