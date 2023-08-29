@@ -69,14 +69,14 @@ public:
         ExecNode::release_resource(state);
     }
 
-    Status push(RuntimeState*, Block* input_block, bool eos) override {
+    Status push(RuntimeState* state, Block* input_block, bool eos) override {
         _child_eos = eos;
         if (input_block->rows() == 0) {
             return Status::OK();
         }
 
         for (TableFunction* fn : _fns) {
-            RETURN_IF_ERROR(fn->process_init(input_block));
+            RETURN_IF_ERROR(fn->process_init(input_block, state));
         }
         RETURN_IF_ERROR(_process_next_child_row());
         return Status::OK();
