@@ -32,7 +32,7 @@ import org.apache.logging.log4j.Logger;
 
 /**
  * Representation of a USE db statement.
- * 
+ * test.
  */
 public class UseStmt extends StatementBase {
     private static final Logger LOG = LogManager.getLogger(UseStmt.class);
