@@ -387,7 +387,7 @@ file_name="${test##*/}"
 if [[ -f "${test}" ]]; then
     if [[ "_${DENABLE_CLANG_COVERAGE}" == "_ON" ]]; then
         LLVM_PROFILE_FILE="${profraw}" "${test}" --gtest_output="xml:${GTEST_OUTPUT_DIR}/${file_name}.xml" --gtest_print_time=true "${FILTER}"
-        if [[ -d ${DORIS_TEST_BINARY_DIR}/report ]];then
+        if [[ -d ${DORIS_TEST_BINARY_DIR}/report ]]; then
             rm -rf ${DORIS_TEST_BINARY_DIR}/report
         fi
         $LLVM_PROFDATA merge -o ${profdata} ${profraw}
