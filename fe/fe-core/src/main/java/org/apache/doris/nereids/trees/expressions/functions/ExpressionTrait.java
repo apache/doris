@@ -50,4 +50,8 @@ public interface ExpressionTrait extends TreeNode<Expression> {
     default String toSql() throws UnboundException {
         throw new UnboundException("sql");
     }
+
+    default boolean foldable() {
+        return true;
+    }
 }

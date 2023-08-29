@@ -31,6 +31,7 @@ import org.apache.doris.rewrite.FEFunctions;
 import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableMultimap;
+import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
 import org.apache.logging.log4j.LogManager;
@@ -50,6 +51,15 @@ public enum ExpressionFunctions {
 
     private static final Logger LOG = LogManager.getLogger(ExpressionFunctions.class);
     private ImmutableMultimap<String, FEFunctionInvoker> functions;
+    private static final Set<String> unfixedFn = ImmutableSet.of(
+            "now",
+            "current_time",
+            "current_date",
+            "utc_timestamp",
+            "uuid",
+            "random",
+            "unix_timestamp"
+    );
 
     private ExpressionFunctions() {
         registerFunctions();
@@ -67,6 +77,12 @@ public enum ExpressionFunctions {
                 || constExpr instanceof FunctionCallExpr
                 || constExpr instanceof TimestampArithmeticExpr) {
             Function fn = constExpr.getFn();
+            if (ConnectContext.get() != null
+                    && ConnectContext.get().getSessionVariable() != null
+                    && !ConnectContext.get().getSessionVariable().isEnableFoldNondeterministicFn()
+                    && unfixedFn.contains(fn.getFunctionName().getFunction())) {
+                return constExpr;
+            }
 
             Preconditions.checkNotNull(fn, "Expr's fn can't be null.");
 

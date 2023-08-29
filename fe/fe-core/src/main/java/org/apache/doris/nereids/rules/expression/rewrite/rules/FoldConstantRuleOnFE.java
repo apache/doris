@@ -218,6 +218,9 @@ public class FoldConstantRuleOnFE extends AbstractExpressionRewriteRule {
 
     @Override
     public Expression visitBoundFunction(BoundFunction boundFunction, ExpressionRewriteContext context) {
+        if (!boundFunction.foldable()) {
+            return boundFunction;
+        }
         List<Expression> newArgs = boundFunction.getArguments().stream().map(arg -> process(arg, context))
                 .collect(Collectors.toList());
         if (ExpressionUtils.isAllLiteral(newArgs)) {
