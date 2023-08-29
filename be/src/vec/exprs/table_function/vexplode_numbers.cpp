@@ -23,6 +23,7 @@
 #include <vector>
 
 #include "common/status.h"
+#include "runtime/runtime_state.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_const.h"
 #include "vec/columns/column_nullable.h"
@@ -40,7 +41,7 @@ VExplodeNumbersTableFunction::VExplodeNumbersTableFunction() {
     _fn_name = "vexplode_numbers";
 }
 
-Status VExplodeNumbersTableFunction::process_init(Block* block) {
+Status VExplodeNumbersTableFunction::process_init(Block* block, RuntimeState* state) {
     CHECK(_expr_context->root()->children().size() == 1)
             << "VExplodeSplitTableFunction must be have 1 children but have "
             << _expr_context->root()->children().size();
@@ -61,9 +62,10 @@ Status VExplodeNumbersTableFunction::process_init(Block* block) {
         } else {
             _cur_size = column_nested->get_int(0);
         }
-
-        if (_cur_size && _cur_size <= block->rows()) { // avoid elements_column too big or empty
-            _is_const = true;                          // use const optimize
+        ((ColumnInt32*)_elements_column.get())->clear();
+        if (_cur_size &&
+            _cur_size <= state->batch_size()) { // avoid elements_column too big or empty
+            _is_const = true;                   // use const optimize
             for (int i = 0; i < _cur_size; i++) {
                 ((ColumnInt32*)_elements_column.get())->insert_value(i);
             }
