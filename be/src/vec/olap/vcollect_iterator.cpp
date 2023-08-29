@@ -470,13 +470,7 @@ Status VCollectIterator::Level0Iterator::init(bool get_data_by_ref) {
         _block = std::make_shared<Block>(_schema.create_block(
                 _reader->_return_columns, _reader->_tablet_columns_convert_to_null_set));
     }
-    auto st = _refresh_current_row();
-    if (_get_data_by_ref && _block_view.size()) {
-        _ref = _block_view[0];
-    } else {
-        _ref = {_block, 0, false};
-    }
-    return st;
+    return Status::OK();
 }
 
 // if is_first_child = true, return first row in block。Unique keys and agg keys will
@@ -491,21 +485,8 @@ Status VCollectIterator::Level0Iterator::init_for_union(bool is_first_child, boo
         _block = std::make_shared<Block>(_schema.create_block(
                 _reader->_return_columns, _reader->_tablet_columns_convert_to_null_set));
     }
-    auto st = _refresh_current_row();
-    if (_get_data_by_ref && _block_view.size()) {
-        if (is_first_child) {
-            _ref = _block_view[0];
-        } else {
-            _ref = _block_view[-1];
-        }
-    } else {
-        if (is_first_child) {
-            _ref = {_block, 0, false};
-        } else {
-            _ref = {_block, -1, false};
-        }
-    }
-    return st;
+
+    return Status::OK();
 }
 
 int64_t VCollectIterator::Level0Iterator::version() const {

@@ -146,10 +146,6 @@ Status BlockReader::_init_collect_iter(const ReaderParams& read_params) {
 
     RETURN_IF_ERROR(_vcollect_iter.build_heap(valid_rs_readers));
     // _vcollect_iter.topn_next() can not use current_row
-    if (!_vcollect_iter.use_topn_next()) {
-        auto status = _vcollect_iter.current_row(&_next_row);
-        _eof = status.is<END_OF_FILE>();
-    }
 
     return Status::OK();
 }
@@ -280,10 +276,6 @@ Status BlockReader::_agg_key_next_block(Block* block, bool* eof) {
     auto merged_row = 0;
     auto target_columns = block->mutate_columns();
 
-    _insert_data_normal(target_columns);
-    target_block_row++;
-    _append_agg_data(target_columns);
-
     while (true) {
         auto res = _vcollect_iter.next(&_next_row);
         if (UNLIKELY(res.is<END_OF_FILE>())) {
@@ -333,12 +325,6 @@ Status BlockReader::_unique_key_next_block(Block* block, bool* eof) {
     }
 
     do {
-        _insert_data_normal(target_columns);
-        if (UNLIKELY(_reader_context.record_rowids)) {
-            _block_row_locations[target_block_row] = _vcollect_iter.current_row_location();
-        }
-        target_block_row++;
-
         // the version is in reverse order, the first row is the highest version,
         // in UNIQUE_KEY highest version is the final result, there is no need to
         // merge the lower versions
@@ -356,6 +342,12 @@ Status BlockReader::_unique_key_next_block(Block* block, bool* eof) {
             LOG(WARNING) << "next failed: " << res;
             return res;
         }
+
+        _insert_data_normal(target_columns);
+        if (UNLIKELY(_reader_context.record_rowids)) {
+            _block_row_locations[target_block_row] = _vcollect_iter.current_row_location();
+        }
+        target_block_row++;
     } while (target_block_row < _reader_context.batch_size);
 
     // do filter delete row in base compaction, only base compaction need to do the job
