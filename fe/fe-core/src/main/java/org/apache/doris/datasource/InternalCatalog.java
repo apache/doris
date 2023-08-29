@@ -2075,8 +2075,11 @@ public class InternalCatalog implements CatalogIf<Database> {
         } catch (AnalysisException e) {
             throw new DdlException(e.getMessage());
         }
+        if (!enableLightSchemaChange) {
+            throw new UserException("since 2.0, all tables should enable light schema change");
+        }
         // use light schema change optimization
-        olapTable.setEnableLightSchemaChange(enableLightSchemaChange);
+        olapTable.setEnableLightSchemaChange(true);
 
         boolean disableAutoCompaction = false;
         try {
