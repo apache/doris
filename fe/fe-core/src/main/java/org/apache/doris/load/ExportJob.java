@@ -401,16 +401,6 @@ public class ExportJob implements Writable {
             }
         }
 
-
-        // use nereids to parse 'select...into outfile' sql
-        // and get LogicalPlanAdapter
-        StatementContext statementContext = new StatementContext();
-        ConnectContext connectContext = ConnectContext.get();
-        if (connectContext != null) {
-            connectContext.setStatementContext(statementContext);
-            statementContext.setConnectContext(connectContext);
-        }
-
         outfileSqlPerParallel.stream().forEach(outfileSqlList -> {
             List<StatementBase> logicalPlanAdapterList = Lists.newArrayList();
             outfileSqlList.stream().forEach(outfileSql -> {
@@ -435,6 +425,15 @@ public class ExportJob implements Writable {
                     parser.getInterpreter().setPredictionMode(PredictionMode.LL);
                     tree =  parser.singleStatement();
                 }
+                // use nereids to parse 'select...into outfile' sql
+                // and get LogicalPlanAdapter
+                StatementContext statementContext = new StatementContext();
+                ConnectContext connectContext = ConnectContext.get();
+                if (connectContext != null) {
+                    connectContext.setStatementContext(statementContext);
+                    statementContext.setConnectContext(connectContext);
+                }
+
                 LogicalPlanBuilder logicalPlanBuilder = new LogicalPlanBuilder();
                 LogicalPlan statements = (LogicalPlan) logicalPlanBuilder.visit(tree);
                 LogicalPlanAdapter logicalPlanAdapter = new LogicalPlanAdapter(statements, statementContext);
