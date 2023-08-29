@@ -3212,26 +3212,6 @@ void Tablet::prepare_to_read(const RowLocation& row_location, size_t pos,
     seg_it->second.emplace_back(RidAndPos {row_location.row_id, pos});
 }
 
-Status Tablet::_check_pk_in_pre_segments(
-        RowsetId rowset_id, const std::vector<segment_v2::SegmentSharedPtr>& pre_segments,
-        const Slice& key, DeleteBitmapPtr delete_bitmap, RowLocation* loc) {
-    for (auto it = pre_segments.rbegin(); it != pre_segments.rend(); ++it) {
-        auto st = (*it)->lookup_row_key(key, true, loc);
-        DCHECK(st.ok() || st.is<KEY_NOT_FOUND>() || st.is<KEY_ALREADY_EXISTS>())
-                << "unexpected error status while lookup_row_key:" << st;
-        if (st.is<KEY_NOT_FOUND>()) {
-            continue;
-        } else if (st.ok() && _schema->has_sequence_col() &&
-                   delete_bitmap->contains({rowset_id, loc->segment_id, 0}, loc->row_id)) {
-            // if has sequence col, we continue to compare the sequence_id of
-            // all segments, util we find an existing key.
-            continue;
-        }
-        return st;
-    }
-    return Status::Error<ErrorCode::KEY_NOT_FOUND>("Can't find key in the segment");
-}
-
 void Tablet::_rowset_ids_difference(const RowsetIdUnorderedSet& cur,
                                     const RowsetIdUnorderedSet& pre, RowsetIdUnorderedSet* to_add,
                                     RowsetIdUnorderedSet* to_del) {
