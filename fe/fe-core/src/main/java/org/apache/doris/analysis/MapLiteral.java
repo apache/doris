@@ -26,6 +26,7 @@ import org.apache.doris.thrift.TTypeDesc;
 import org.apache.doris.thrift.TTypeNode;
 
 import com.google.common.base.Preconditions;
+import com.google.common.collect.Lists;
 import org.apache.commons.lang3.StringUtils;
 
 import java.io.DataInput;
@@ -42,6 +43,15 @@ public class MapLiteral extends LiteralExpr {
     public MapLiteral() {
         type = new MapType(Type.NULL, Type.NULL);
         children = new ArrayList<>();
+    }
+
+    public MapLiteral(Type type, List<LiteralExpr> keys, List<LiteralExpr> values) {
+        this.type = type;
+        children = Lists.newArrayList();
+        for (int i = 0; i < keys.size(); i++) {
+            children.add(keys.get(i));
+            children.add(values.get(i));
+        }
     }
 
     public MapLiteral(LiteralExpr... exprs) throws AnalysisException {

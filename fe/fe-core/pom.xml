@@ -575,6 +575,12 @@ under the License.
         </dependency>
 
         <dependency>
+            <groupId>io.delta</groupId>
+            <artifactId>delta-standalone_2.12</artifactId>
+            <version>${delta.version}</version>
+        </dependency>
+
+        <dependency>
             <groupId>software.amazon.awssdk</groupId>
             <artifactId>glue</artifactId>
             <version>${awssdk.version}</version>

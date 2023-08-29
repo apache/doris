@@ -97,13 +97,13 @@ PipelineXFragmentContext::PipelineXFragmentContext(
                                   call_back, report_status_cb) {}
 
 PipelineXFragmentContext::~PipelineXFragmentContext() {
+    auto st = _query_ctx->exec_status();
     if (!_runtime_states.empty()) {
         // The memory released by the query end is recorded in the query mem tracker, main memory in _runtime_state.
         SCOPED_ATTACH_TASK(_runtime_state.get());
-        FOR_EACH_RUNTIME_STATE(_call_back(runtime_state.get(), &_exec_status);
-                               runtime_state.reset();)
+        FOR_EACH_RUNTIME_STATE(_call_back(runtime_state.get(), &st); runtime_state.reset();)
     } else {
-        _call_back(nullptr, &_exec_status);
+        _call_back(nullptr, &st);
     }
     _runtime_state.reset();
     DCHECK(!_report_thread_active);
@@ -111,35 +111,21 @@ PipelineXFragmentContext::~PipelineXFragmentContext() {
 
 void PipelineXFragmentContext::cancel(const PPlanFragmentCancelReason& reason,
                                       const std::string& msg) {
-    if (!_runtime_state->is_cancelled()) {
-        std::lock_guard<std::mutex> l(_status_lock);
-        if (_runtime_state->is_cancelled()) {
-            return;
-        }
-        if (reason != PPlanFragmentCancelReason::LIMIT_REACH) {
-            _exec_status = Status::Cancelled(msg);
-        }
-
-        FOR_EACH_RUNTIME_STATE(
-                runtime_state->set_is_cancelled(true, msg);
-                runtime_state->set_process_status(_exec_status);
-                _exec_env->vstream_mgr()->cancel(runtime_state->fragment_instance_id());)
-
+    if (_query_ctx->cancel(true, msg, Status::Cancelled(msg))) {
         LOG(WARNING) << "PipelineFragmentContext Canceled. reason=" << msg;
-
         // Get pipe from new load stream manager and send cancel to it or the fragment may hang to wait read from pipe
         // For stream load the fragment's query_id == load id, it is set in FE.
         auto stream_load_ctx = _exec_env->new_load_stream_mgr()->get(_query_id);
         if (stream_load_ctx != nullptr) {
             stream_load_ctx->pipe->cancel(msg);
         }
-        _cancel_reason = reason;
-        _cancel_msg = msg;
-        // To notify wait_for_start()
-        _query_ctx->set_ready_to_execute(true);
 
         // must close stream_mgr to avoid dead lock in Exchange Node
-        //
+        FOR_EACH_RUNTIME_STATE(
+                runtime_state->set_is_cancelled(true, msg);
+                runtime_state->set_process_status(_query_ctx->exec_status());
+                _exec_env->vstream_mgr()->cancel(runtime_state->fragment_instance_id());)
+
         // Cancel the result queue manager used by spark doris connector
         // TODO pipeline incomp
         // _exec_env->result_queue_mgr()->update_queue_status(id, Status::Aborted(msg));
@@ -244,7 +230,7 @@ Status PipelineXFragmentContext::_create_data_sink(ObjectPool* pool, const TData
                         : false;
         _sink.reset(new ExchangeSinkOperatorX(state, pool, row_desc, thrift_sink.stream_sink,
                                               params.destinations,
-                                              send_query_statistics_with_every_batch, this));
+                                              send_query_statistics_with_every_batch));
         break;
     }
     case TDataSinkType::RESULT_SINK: {
@@ -665,7 +651,7 @@ void PipelineXFragmentContext::send_report(bool done) {
     Status exec_status = Status::OK();
     {
         std::lock_guard<std::mutex> l(_status_lock);
-        exec_status = _exec_status;
+        exec_status = _query_ctx->exec_status();
     }
 
     // If plan is done successfully, but _is_report_success is false,
