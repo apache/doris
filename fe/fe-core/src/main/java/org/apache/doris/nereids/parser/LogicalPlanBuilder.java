@@ -1704,8 +1704,8 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     }
 
     @Override
-    public List<Expression> visitRowConstructor(RowConstructorContext ctx) {
-        return ctx.expression().stream().map(this::getExpression).collect(Collectors.toList());
+    public Expression visitRowConstructor(RowConstructorContext ctx) {
+        return new Row(ctx.namedExpression().stream().map(this::visitNamedExpression).collect(Collectors.toList()));
     }
 
     @Override
