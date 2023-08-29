@@ -89,7 +89,7 @@ CREATE TABLE flink_doris_source (
      )
      WITH (
        'connector' = 'doris',
-       'fenodes' = 'FE_IP:8030',
+       'fenodes' = 'FE_IP:HTTP_PORT',
        'table.identifier' = 'database.table',
        'username' = 'root',
        'password' = 'password'
@@ -100,7 +100,7 @@ CREATE TABLE flink_doris_source (
 
 ```java
 DorisOptions.Builder builder = DorisOptions.builder()
-         .setFenodes("FE_IP:8030")
+         .setFenodes("FE_IP:HTTP_PORT")
          .setTableIdentifier("db.table")
          .setUsername("root")
          .setPassword("password");
@@ -131,7 +131,7 @@ CREATE TABLE flink_doris_sink (
      )
      WITH (
        'connector' = 'doris',
-       'fenodes' = 'FE_IP:8030',
+       'fenodes' = 'FE_IP:HTTP_PORT',
        'table.identifier' = 'db.table',
        'username' = 'root',
        'password' = 'password',
@@ -156,7 +156,7 @@ env.setRuntimeMode(RuntimeExecutionMode.BATCH);
 
 DorisSink.Builder<String> builder = DorisSink.builder();
 DorisOptions.Builder dorisBuilder = DorisOptions.builder();
-dorisBuilder.setFenodes("FE_IP:8030")
+dorisBuilder.setFenodes("FE_IP:HTTP_PORT")
          .setTableIdentifier("db.table")
          .setUsername("root")
          .setPassword("password");
@@ -190,7 +190,7 @@ env.setRuntimeMode(RuntimeExecutionMode.BATCH);
 //doris sink option
 DorisSink.Builder<RowData> builder = DorisSink.builder();
 DorisOptions.Builder dorisBuilder = DorisOptions.builder();
-dorisBuilder.setFenodes("FE_IP:8030")
+dorisBuilder.setFenodes("FE_IP:HTTP_PORT")
          .setTableIdentifier("db.table")
          .setUsername("root")
          .setPassword("password");

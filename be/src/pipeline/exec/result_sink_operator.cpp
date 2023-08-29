@@ -51,12 +51,9 @@ bool ResultSinkOperator::can_write() {
 }
 
 Status ResultSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& info) {
+    RETURN_IF_ERROR(PipelineXSinkLocalState::init(state, info));
     auto& p = _parent->cast<ResultSinkOperatorX>();
     auto fragment_instance_id = state->fragment_instance_id();
-    auto title = fmt::format("VDataBufferSender (dst_fragment_instance_id={:x}-{:x})",
-                             fragment_instance_id.hi, fragment_instance_id.lo);
-    // create profile
-    _profile = state->obj_pool()->add(new RuntimeProfile(title));
     // create sender
     _sender = info.sender;
     _output_vexpr_ctxs.resize(p._output_vexpr_ctxs.size());

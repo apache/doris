@@ -65,6 +65,7 @@ propertiesStatment
 identifierOrText
     : errorCapturingIdentifier
     | STRING_LITERAL
+    | LEADING_STRING
     ;
 
 userIdentify
@@ -199,7 +200,7 @@ havingClause
 selectHint: HINT_START hintStatements+=hintStatement (COMMA? hintStatements+=hintStatement)* HINT_END;
 
 hintStatement
-    : hintName=identifier LEFT_PAREN parameters+=hintAssignment (COMMA parameters+=hintAssignment)* RIGHT_PAREN
+    : hintName=identifier (LEFT_PAREN parameters+=hintAssignment (COMMA? parameters+=hintAssignment)* RIGHT_PAREN)?
     ;
 
 hintAssignment
@@ -645,6 +646,7 @@ nonReserved
     | LAST
     | LAZY
     | LEADING
+    | LEFT_BRACE
     | LIKE
     | ILIKE
     | LIMIT
@@ -676,6 +678,7 @@ nonReserved
     | OPTIONS
     | OR
     | ORDER
+    | ORDERED
     | OUT
     | OUTER
     | OUTPUTFORMAT
@@ -718,6 +721,7 @@ nonReserved
     | RESTRICTIVE
     | REVOKE
     | REWRITTEN
+    | RIGHT_BRACE
     | RLIKE
     | ROLE
     | ROLES

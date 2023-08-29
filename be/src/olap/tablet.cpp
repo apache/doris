@@ -1270,7 +1270,7 @@ Status Tablet::_contains_version(const Version& version) {
 }
 
 TabletInfo Tablet::get_tablet_info() const {
-    return TabletInfo(tablet_id(), schema_hash(), tablet_uid());
+    return TabletInfo(tablet_id(), tablet_uid());
 }
 
 std::vector<RowsetSharedPtr> Tablet::pick_candidate_rowsets_to_cumulative_compaction() {
