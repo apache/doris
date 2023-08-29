@@ -15,26 +15,29 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.trees.expressions.functions;
+package org.apache.doris.nereids.types;
 
-import org.apache.doris.nereids.trees.expressions.Expression;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.LambdaClosure;
-
-import java.util.List;
+import org.apache.doris.catalog.Type;
 
 /**
- * function in nereids.
+ * Func type in Nereids.
  */
-public abstract class Function extends Expression {
-    public Function(Expression... children) {
-        super(children);
+public class LambdaType extends DataType {
+
+    public LambdaType() {}
+
+    @Override
+    public Type toCatalogDataType() {
+        return org.apache.doris.catalog.Type.LAMBDA_FUNCTION;
     }
 
-    public Function(List<Expression> children) {
-        super(children);
+    @Override
+    public String toSql() {
+        return "Lambda";
     }
 
-    public boolean isHighOrder() {
-        return children.size() > 1 && children.get(0) instanceof LambdaClosure;
+    @Override
+    public int width() {
+        return 0;
     }
 }
