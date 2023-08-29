@@ -82,6 +82,8 @@ COMMA: ',';
 DOT: '.';
 LEFT_BRACKET: '[';
 RIGHT_BRACKET: ']';
+LEFT_BRACE: '{';
+RIGHT_BRACE: '}';
 
 // TODO: add a doc to list reserved words
 
@@ -232,7 +234,6 @@ LAST: 'LAST';
 LATERAL: 'LATERAL';
 LAZY: 'LAZY';
 LEADING: 'LEADING';
-LEFT_BRACE: '{';
 LEFT: 'LEFT';
 LIKE: 'LIKE';
 ILIKE: 'ILIKE';
@@ -319,7 +320,6 @@ RESTRICT: 'RESTRICT';
 RESTRICTIVE: 'RESTRICTIVE';
 REVOKE: 'REVOKE';
 REWRITTEN: 'REWRITTEN';
-RIGHT_BRACE: '}';
 RIGHT: 'RIGHT';
 // original optimizer only support REGEXP, the new optimizer should be consistent with it
 RLIKE: 'RLIKE';
@@ -407,6 +407,9 @@ WITHIN: 'WITHIN';
 YEAR: 'YEAR';
 ZONE: 'ZONE';
 DATEV2: 'DATEV2';
+S3: 'S3';
+HDFS: 'HDFS';
+BROKER: 'BROKER';
 //--DORIS-KEYWORD-LIST-END
 //============================
 // End of the keywords list
