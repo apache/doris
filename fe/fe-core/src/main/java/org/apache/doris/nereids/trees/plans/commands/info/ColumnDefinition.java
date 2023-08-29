@@ -110,8 +110,10 @@ public class ColumnDefinition {
                 aggType = AggregateType.NONE;
             } else if (keysType.equals(KeysType.UNIQUE_KEYS) && isEnableMergeOnWrite) {
                 aggType = AggregateType.NONE;
-            } else {
+            } else if (!keysType.equals(KeysType.AGG_KEYS)) {
                 aggType = AggregateType.REPLACE;
+            } else {
+                throw new AnalysisException("should set aggregation type to non-key column when in aggregate key");
             }
         }
     }
