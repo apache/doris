@@ -471,8 +471,8 @@ void OlapScanLocalState::add_filter_info(int id, const PredicateFilterInfo& upda
 }
 
 OlapScanOperatorX::OlapScanOperatorX(ObjectPool* pool, const TPlanNode& tnode,
-                                     const DescriptorTbl& descs, std::string op_name)
-        : ScanOperatorX(pool, tnode, descs, op_name), _olap_scan_node(tnode.olap_scan_node) {
+                                     const DescriptorTbl& descs)
+        : ScanOperatorX(pool, tnode, descs), _olap_scan_node(tnode.olap_scan_node) {
     _output_tuple_id = tnode.olap_scan_node.tuple_id;
     _col_distribute_ids = tnode.olap_scan_node.distribute_column_ids;
     if (_olap_scan_node.__isset.sort_info && _olap_scan_node.__isset.sort_limit) {

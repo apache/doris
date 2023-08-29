@@ -46,19 +46,17 @@ public:
 
 class AnalyticSinkOperatorX;
 
-class AnalyticSinkLocalState : public PipelineXSinkLocalState {
+class AnalyticSinkLocalState : public PipelineXSinkLocalState<AnalyticDependency> {
     ENABLE_FACTORY_CREATOR(AnalyticSinkLocalState);
 
 public:
     AnalyticSinkLocalState(DataSinkOperatorX* parent, RuntimeState* state)
-            : PipelineXSinkLocalState(parent, state) {}
+            : PipelineXSinkLocalState<AnalyticDependency>(parent, state) {}
 
     Status init(RuntimeState* state, LocalSinkStateInfo& info) override;
 
 private:
     friend class AnalyticSinkOperatorX;
-    AnalyticDependency* _dependency;
-    AnalyticSharedState* _shared_state;
 
     RuntimeProfile::Counter* _memory_usage_counter;
     RuntimeProfile::Counter* _evaluation_timer;

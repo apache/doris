@@ -46,7 +46,7 @@ OPERATOR_CODE_GENERATOR(AggSinkOperator, StreamingOperator)
 /// is in a random order. This means that we assume that the reduction factor will
 /// increase over time.
 AggSinkLocalState::AggSinkLocalState(DataSinkOperatorX* parent, RuntimeState* state)
-        : PipelineXSinkLocalState(parent, state),
+        : PipelineXSinkLocalState<AggDependency>(parent, state),
           _hash_table_compute_timer(nullptr),
           _hash_table_input_counter(nullptr),
           _build_timer(nullptr),
@@ -59,9 +59,7 @@ AggSinkLocalState::AggSinkLocalState(DataSinkOperatorX* parent, RuntimeState* st
           _max_row_size_counter(nullptr) {}
 
 Status AggSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& info) {
-    RETURN_IF_ERROR(PipelineXSinkLocalState::init(state, info));
-    _dependency = (AggDependency*)info.dependency;
-    _shared_state = (AggSharedState*)_dependency->shared_state();
+    RETURN_IF_ERROR(PipelineXSinkLocalState<AggDependency>::init(state, info));
     _agg_data = _shared_state->agg_data.get();
     _agg_arena_pool = _shared_state->agg_arena_pool.get();
     auto& p = _parent->cast<AggSinkOperatorX>();
@@ -722,10 +720,10 @@ AggSinkOperatorX::AggSinkOperatorX(ObjectPool* pool, const TPlanNode& tnode,
           _limit(tnode.limit),
           _have_conjuncts(tnode.__isset.vconjunct && !tnode.vconjunct.nodes.empty()) {
     _is_first_phase = tnode.agg_node.__isset.is_first_phase && tnode.agg_node.is_first_phase;
-    _name = "AggSinkOperatorX";
 }
 
 Status AggSinkOperatorX::init(const TPlanNode& tnode, RuntimeState* state) {
+    RETURN_IF_ERROR(DataSinkOperatorX::init(tnode, state));
     // ignore return status for now , so we need to introduce ExecNode::init()
     RETURN_IF_ERROR(
             vectorized::VExpr::create_expr_trees(tnode.agg_node.grouping_exprs, _probe_expr_ctxs));
@@ -871,7 +869,7 @@ Status AggSinkLocalState::close(RuntimeState* state) {
 
     std::vector<size_t> tmp_hash_values;
     _hash_values.swap(tmp_hash_values);
-    return PipelineXSinkLocalState::close(state);
+    return PipelineXSinkLocalState<AggDependency>::close(state);
 }
 
 } // namespace doris::pipeline

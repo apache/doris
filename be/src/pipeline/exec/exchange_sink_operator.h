@@ -65,12 +65,12 @@ private:
     int _mult_cast_id = -1;
 };
 
-class ExchangeSinkLocalState : public PipelineXSinkLocalState {
+class ExchangeSinkLocalState : public PipelineXSinkLocalState<> {
     ENABLE_FACTORY_CREATOR(ExchangeSinkLocalState);
 
 public:
     ExchangeSinkLocalState(DataSinkOperatorX* parent, RuntimeState* state)
-            : PipelineXSinkLocalState(parent, state),
+            : PipelineXSinkLocalState<>(parent, state),
               current_channel_idx(0),
               only_local_exchange(false),
               _serializer(this) {}

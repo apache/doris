@@ -58,12 +58,103 @@ class IRuntimeFilter;
 class DescriptorTbl;
 class RuntimeState;
 
+namespace pipeline {
+class HashJoinProbeLocalState;
+class HashJoinBuildSinkLocalState;
+} // namespace pipeline
+
 namespace vectorized {
 
 struct UInt128;
 struct UInt256;
 template <int JoinOpType>
 struct ProcessHashTableProbe;
+class HashJoinNode;
+
+struct RuntimeFilterContext {
+    RuntimeFilterContext(HashJoinNode* join_node);
+    RuntimeFilterContext(pipeline::HashJoinBuildSinkLocalState* local_state);
+    std::vector<TRuntimeFilterDesc>& _runtime_filter_descs;
+    std::shared_ptr<VRuntimeFilterSlots>& _runtime_filter_slots;
+    VExprContextSPtrs& _build_expr_ctxs;
+    size_t& _build_bf_cardinality;
+    std::unordered_map<const Block*, std::vector<int>>& _inserted_rows;
+    RuntimeProfile::Counter* _push_down_timer;
+    RuntimeProfile::Counter* _push_compute_timer;
+};
+
+template <class HashTableContext>
+struct ProcessRuntimeFilterBuild {
+    ProcessRuntimeFilterBuild(RuntimeFilterContext* context) : _context(context) {}
+
+    Status operator()(RuntimeState* state, HashTableContext& hash_table_ctx);
+
+private:
+    RuntimeFilterContext* _context;
+};
+
+struct HashJoinBuildContext {
+    HashJoinBuildContext(HashJoinNode* join_node);
+    HashJoinBuildContext(pipeline::HashJoinBuildSinkLocalState* local_state);
+
+    void add_hash_buckets_info(const std::string& info) {
+        _profile->add_info_string("HashTableBuckets", info);
+    }
+    void add_hash_buckets_filled_info(const std::string& info) {
+        _profile->add_info_string("HashTableFilledBuckets", info);
+    }
+    RuntimeProfile::Counter* _hash_table_memory_usage;
+    RuntimeProfile::Counter* _build_buckets_counter;
+    RuntimeProfile::Counter* _build_collisions_counter;
+    RuntimeProfile::Counter* _build_buckets_fill_counter;
+    RuntimeProfile::Counter* _build_table_insert_timer;
+    RuntimeProfile::Counter* _build_table_expanse_timer;
+    RuntimeProfile::Counter* _build_table_convert_timer;
+    RuntimeProfile::Counter* _build_side_compute_hash_timer;
+    RuntimeProfile::HighWaterMarkCounter* _build_arena_memory_usage;
+    RuntimeProfile* _profile;
+
+    Sizes& _build_key_sz;
+    bool& _build_unique;
+    std::vector<TRuntimeFilterDesc>& _runtime_filter_descs;
+    std::unordered_map<const Block*, std::vector<int>>& _inserted_rows;
+    std::shared_ptr<Arena>& _arena;
+    size_t& _build_bf_cardinality;
+};
+
+using ProfileCounter = RuntimeProfile::Counter;
+
+template <class HashTableContext>
+struct ProcessHashTableBuild {
+    ProcessHashTableBuild(int rows, Block& acquired_block, ColumnRawPtrs& build_raw_ptrs,
+                          HashJoinBuildContext* join_context, int batch_size, uint8_t offset,
+                          RuntimeState* state)
+            : _rows(rows),
+              _skip_rows(0),
+              _acquired_block(acquired_block),
+              _build_raw_ptrs(build_raw_ptrs),
+              _join_context(join_context),
+              _batch_size(batch_size),
+              _offset(offset),
+              _state(state),
+              _build_side_compute_hash_timer(join_context->_build_side_compute_hash_timer) {}
+
+    template <bool ignore_null, bool short_circuit_for_null>
+    Status run(HashTableContext& hash_table_ctx, ConstNullMapPtr null_map, bool* has_null_key);
+
+private:
+    const int _rows;
+    int _skip_rows;
+    Block& _acquired_block;
+    ColumnRawPtrs& _build_raw_ptrs;
+    HashJoinBuildContext* _join_context;
+    int _batch_size;
+    uint8_t _offset;
+    RuntimeState* _state;
+
+    ProfileCounter* _build_side_compute_hash_timer;
+    std::vector<size_t> _build_side_hash_values;
+};
 
 template <typename RowRefListType>
 struct SerializedHashTableContext {
@@ -219,6 +310,52 @@ using HashTableIteratorVariants =
         std::variant<std::monostate, ForwardIterator<RowRefList>,
                      ForwardIterator<RowRefListWithFlag>, ForwardIterator<RowRefListWithFlags>>;
 
+static constexpr auto HASH_JOIN_MAX_BUILD_BLOCK_COUNT = 128;
+
+struct HashJoinProbeContext {
+    HashJoinProbeContext(HashJoinNode* join_node);
+    HashJoinProbeContext(pipeline::HashJoinProbeLocalState* local_state);
+    bool _have_other_join_conjunct;
+    const bool _is_right_semi_anti;
+    const bool _is_outer_join;
+
+    MutableColumnPtr* _tuple_is_null_left_flag_column;
+    MutableColumnPtr* _tuple_is_null_right_flag_column;
+
+    // other expr
+    VExprContextSPtrs* _other_join_conjuncts;
+
+    DataTypes* _right_table_data_types;
+    DataTypes* _left_table_data_types;
+
+    RuntimeProfile::Counter* _search_hashtable_timer;
+    RuntimeProfile::Counter* _build_side_output_timer;
+    RuntimeProfile::Counter* _probe_side_output_timer;
+    RuntimeProfile::Counter* _probe_process_hashtable_timer;
+    RuntimeProfile::Counter* _process_other_join_conjunct_timer;
+    RuntimeProfile::Counter* _rows_returned_counter;
+    RuntimeProfile::HighWaterMarkCounter* _probe_arena_memory_usage;
+
+    std::shared_ptr<Arena> _arena;
+
+    // for full/right outer join
+    HashTableIteratorVariants* _outer_join_pull_visited_iter;
+    HashTableIteratorVariants* _probe_row_match_iter;
+
+    std::shared_ptr<std::vector<Block>> _build_blocks;
+    Block* _probe_block;
+    ColumnRawPtrs* _probe_columns;
+    int* _probe_index;
+
+    Sizes _probe_key_sz;
+
+    std::vector<bool>* _left_output_slot_flags;
+    std::vector<bool>* _right_output_slot_flags;
+
+    // for cases when a probe row matches more than batch size build rows.
+    bool* _is_any_probe_match_row_output;
+};
+
 class HashJoinNode final : public VJoinNodeBase {
 public:
     // TODO: Best prefetch step is decided by machine. We should also provide a
@@ -266,6 +403,10 @@ protected:
     void _probe_side_open_thread(RuntimeState* state, std::promise<Status>* status) override;
 
 private:
+    friend struct HashJoinProbeContext;
+    friend struct HashJoinBuildContext;
+    friend struct RuntimeFilterContext;
+
     void _init_short_circuit_for_probe() override {
         _short_circuit_for_probe =
                 (_short_circuit_for_null_in_probe_side &&
@@ -391,8 +532,6 @@ private:
     void _hash_table_init(RuntimeState* state);
     void _process_hashtable_ctx_variants_init(RuntimeState* state);
 
-    static constexpr auto _MAX_BUILD_BLOCK_COUNT = 128;
-
     void _prepare_probe_block();
 
     static std::vector<uint16_t> _convert_block_to_null(Block& block);
@@ -417,6 +556,8 @@ private:
     std::vector<IRuntimeFilter*> _runtime_filters;
     size_t _build_bf_cardinality = 0;
     std::atomic_bool _probe_open_finish = false;
+
+    std::unique_ptr<HashJoinProbeContext> _probe_context;
 };
 } // namespace vectorized
 } // namespace doris

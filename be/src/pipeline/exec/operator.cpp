@@ -17,6 +17,7 @@
 
 #include "operator.h"
 
+#include "util/debug_util.h"
 #include "vec/exprs/vexpr.h"
 #include "vec/exprs/vexpr_context.h"
 #include "vec/utils/util.hpp"
@@ -62,13 +63,6 @@ std::string OperatorBase::debug_string() const {
     return ss.str();
 }
 
-Status PipelineXSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& info) {
-    // create profile
-    _profile = state->obj_pool()->add(new RuntimeProfile(_parent->get_name()));
-    _mem_tracker = std::make_unique<MemTracker>(_parent->get_name());
-    return Status::OK();
-}
-
 std::string OperatorXBase::debug_string() const {
     std::stringstream ss;
     ss << _op_name << ": is_source: " << is_source();
@@ -77,6 +71,7 @@ std::string OperatorXBase::debug_string() const {
 }
 
 Status OperatorXBase::init(const TPlanNode& tnode, RuntimeState* /*state*/) {
+    _op_name = print_plan_node_type(tnode.node_type) + "OperatorX";
     _init_runtime_profile();
 
     if (tnode.__isset.vconjunct) {
@@ -118,6 +113,9 @@ Status OperatorXBase::open(RuntimeState* state) {
         RETURN_IF_ERROR(conjunct->open(state));
     }
     RETURN_IF_ERROR(vectorized::VExpr::open(_projections, state));
+    if (_child_x && !is_source()) {
+        RETURN_IF_ERROR(_child_x->open(state));
+    }
     return Status::OK();
 }
 
@@ -135,33 +133,7 @@ Status OperatorXBase::close(RuntimeState* state) {
     return state->get_local_state(id())->close(state);
 }
 
-Status PipelineXLocalState::init(RuntimeState* state, LocalStateInfo& /*info*/) {
-    _runtime_profile.reset(new RuntimeProfile("LocalState " + _parent->get_name()));
-    _parent->get_runtime_profile()->add_child(_runtime_profile.get(), true, nullptr);
-    _conjuncts.resize(_parent->_conjuncts.size());
-    _projections.resize(_parent->_projections.size());
-    for (size_t i = 0; i < _conjuncts.size(); i++) {
-        RETURN_IF_ERROR(_parent->_conjuncts[i]->clone(state, _conjuncts[i]));
-    }
-    for (size_t i = 0; i < _projections.size(); i++) {
-        RETURN_IF_ERROR(_parent->_projections[i]->clone(state, _projections[i]));
-    }
-    DCHECK(_runtime_profile.get() != nullptr);
-    _rows_returned_counter = ADD_COUNTER(_runtime_profile, "RowsReturned", TUnit::UNIT);
-    _projection_timer = ADD_TIMER(_runtime_profile, "ProjectionTime");
-    _rows_returned_rate = profile()->add_derived_counter(
-            doris::ExecNode::ROW_THROUGHPUT_COUNTER, TUnit::UNIT_PER_SECOND,
-            std::bind<int64_t>(&RuntimeProfile::units_per_second, _rows_returned_counter,
-                               profile()->total_time_counter()),
-            "");
-    _mem_tracker = std::make_unique<MemTracker>("PipelineXLocalState:" + _runtime_profile->name());
-    _memory_used_counter = ADD_LABEL_COUNTER(_runtime_profile, "MemoryUsage");
-    _peak_memory_usage_counter = _runtime_profile->AddHighWaterMarkCounter(
-            "PeakMemoryUsage", TUnit::BYTES, "MemoryUsage");
-    return Status::OK();
-}
-
-void PipelineXLocalState::clear_origin_block() {
+void PipelineXLocalStateBase::clear_origin_block() {
     _origin_block.clear_column_data(_parent->_row_descriptor.num_materialized_slots());
 }
 
@@ -211,11 +183,11 @@ Status OperatorXBase::get_next_after_projects(RuntimeState* state, vectorized::B
     return get_block(state, block, source_state);
 }
 
-bool PipelineXLocalState::reached_limit() const {
+bool PipelineXLocalStateBase::reached_limit() const {
     return _parent->_limit != -1 && _num_rows_returned >= _parent->_limit;
 }
 
-void PipelineXLocalState::reached_limit(vectorized::Block* block, bool* eos) {
+void PipelineXLocalStateBase::reached_limit(vectorized::Block* block, bool* eos) {
     if (_parent->_limit != -1 and _num_rows_returned + block->rows() >= _parent->_limit) {
         block->set_num_rows(_parent->_limit - _num_rows_returned);
         *eos = true;
@@ -225,7 +197,8 @@ void PipelineXLocalState::reached_limit(vectorized::Block* block, bool* eos) {
     COUNTER_SET(_rows_returned_counter, _num_rows_returned);
 }
 
-void PipelineXLocalState::reached_limit(vectorized::Block* block, SourceState& source_state) {
+void PipelineXLocalStateBase::reached_limit(vectorized::Block* block,
+                                                        SourceState& source_state) {
     if (_parent->_limit != -1 and _num_rows_returned + block->rows() >= _parent->_limit) {
         block->set_num_rows(_parent->_limit - _num_rows_returned);
         source_state = SourceState::FINISHED;
@@ -239,5 +212,10 @@ std::string DataSinkOperatorX::debug_string() const {
     std::stringstream ss;
     ss << _name << ", is_closed: " << _is_closed;
     return ss.str();
+}
+
+Status DataSinkOperatorX::init(const TPlanNode& tnode, RuntimeState* state) {
+    _name = print_plan_node_type(tnode.node_type) + "SinkOperatorX";
+    return Status::OK();
 }
 } // namespace doris::pipeline
