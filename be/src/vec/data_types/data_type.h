@@ -77,7 +77,7 @@ public:
     /// Data type id. It's used for runtime type checks.
     virtual TypeIndex get_type_id() const = 0;
 
-    virtual PrimitiveType get_type_as_primitive_type() const = 0;
+    virtual TypeDescriptor get_type_as_type_descriptor() const = 0;
     virtual TPrimitiveType::type get_type_as_tprimitive_type() const = 0;
     virtual doris::FieldType get_type_as_field_type() const = 0;
 
