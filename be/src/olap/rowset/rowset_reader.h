@@ -58,7 +58,6 @@ public:
 
     virtual Status get_segment_iterators(RowsetReaderContext* read_context,
                                          std::vector<RowwiseIteratorUPtr>* out_iters,
-                                         const RowSetSplits& rs_splits = {},
                                          bool use_cache = false) = 0;
     virtual void reset_read_options() = 0;
 
