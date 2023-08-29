@@ -298,8 +298,8 @@ public class CreateTableInfo {
                 throw new AnalysisException("Should not be distributed by random when keys type is unique");
             } else if (keysType.equals(KeysType.AGG_KEYS)) {
                 for (ColumnDefinition c : columns) {
-                    if (c.getAggType().equals(AggregateType.REPLACE)
-                            || c.getAggType().equals(AggregateType.REPLACE_IF_NOT_NULL)) {
+                    if (AggregateType.REPLACE.equals(c.getAggType())
+                            || AggregateType.REPLACE_IF_NOT_NULL.equals(c.getAggType())) {
                         throw new AnalysisException("Should not be distributed by random when keys type is agg"
                                 + "and column is in replace, [" + c.getName() + "] is invalid");
                     }
