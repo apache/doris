@@ -208,7 +208,7 @@ public class BrokerLoadJob extends BulkLoadJob {
                 // Generate loading task and init the plan of task
                 LoadLoadingTask task = new LoadLoadingTask(db, table, brokerDesc,
                         brokerFileGroups, getDeadlineMs(), getExecMemLimit(),
-                        isStrictMode(), transactionId, this, getTimeZone(), getTimeout(),
+                        isStrictMode(), isPartialUpdate(), transactionId, this, getTimeZone(), getTimeout(),
                         getLoadParallelism(), getSendBatchParallelism(),
                         getMaxFilterRatio() <= 0, enableProfile ? jobProfile : null, isSingleTabletLoadPerSink(),
                         useNewLoadScanNode(), getPriority());

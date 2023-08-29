@@ -33,6 +33,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.util.ExpressionUtils;
 
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableList.Builder;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
@@ -185,24 +186,6 @@ public class NormalizeAggregate extends OneRewriteRuleFactory implements Normali
             bottomProjects.addAll(aggInputSlots);
             // build group by exprs
             List<Expression> normalizedGroupExprs = groupByToSlotContext.normalizeToUseSlotRef(groupingByExprs);
-            // build upper project, use two context to do pop up, because agg output maybe contain two part:
-            //   group by keys and agg expressions
-            List<NamedExpression> upperProjects = groupByToSlotContext
-                    .normalizeToUseSlotRefWithoutWindowFunction(aggregateOutput);
-            upperProjects = normalizedAggFuncsToSlotContext.normalizeToUseSlotRefWithoutWindowFunction(upperProjects);
-            // process Expression like Alias(SlotReference#0)#0
-            upperProjects = upperProjects.stream().map(e -> {
-                if (e instanceof Alias) {
-                    Alias alias = (Alias) e;
-                    if (alias.child() instanceof SlotReference) {
-                        SlotReference slotReference = (SlotReference) alias.child();
-                        if (slotReference.getExprId().equals(alias.getExprId())) {
-                            return slotReference;
-                        }
-                    }
-                }
-                return e;
-            }).collect(Collectors.toList());
 
             Plan bottomPlan;
             if (!bottomProjects.isEmpty()) {
@@ -211,9 +194,39 @@ public class NormalizeAggregate extends OneRewriteRuleFactory implements Normali
                 bottomPlan = aggregate.child();
             }
 
+            List<NamedExpression> upperProjects = normalizeOutput(aggregateOutput,
+                    groupByToSlotContext, normalizedAggFuncsToSlotContext);
+
             return new LogicalProject<>(upperProjects,
                     aggregate.withNormalized(normalizedGroupExprs, normalizedAggOutput, bottomPlan));
         }).toRule(RuleType.NORMALIZE_AGGREGATE);
+    }
+
+    private List<NamedExpression> normalizeOutput(List<NamedExpression> aggregateOutput,
+            NormalizeToSlotContext groupByToSlotContext, NormalizeToSlotContext normalizedAggFuncsToSlotContext) {
+        // build upper project, use two context to do pop up, because agg output maybe contain two part:
+        //   group by keys and agg expressions
+        List<NamedExpression> upperProjects = groupByToSlotContext
+                .normalizeToUseSlotRefWithoutWindowFunction(aggregateOutput);
+        upperProjects = normalizedAggFuncsToSlotContext.normalizeToUseSlotRefWithoutWindowFunction(upperProjects);
+
+        Builder<NamedExpression> builder = new ImmutableList.Builder<>();
+        for (int i = 0; i < aggregateOutput.size(); i++) {
+            NamedExpression e = upperProjects.get(i);
+            // process Expression like Alias(SlotReference#0)#0
+            if (e instanceof Alias && e.child(0) instanceof SlotReference) {
+                SlotReference slotReference = (SlotReference) e.child(0);
+                if (slotReference.getExprId().equals(e.getExprId())) {
+                    e = slotReference;
+                }
+            }
+            // Make the output ExprId unchanged
+            if (!e.getExprId().equals(aggregateOutput.get(i).getExprId())) {
+                e = new Alias(aggregateOutput.get(i).getExprId(), e, aggregateOutput.get(i).getName());
+            }
+            builder.add(e);
+        }
+        return builder.build();
     }
 
     private static class CollectNonWindowedAggFuncs extends DefaultExpressionVisitor<Void, List<AggregateFunction>> {
