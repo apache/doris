@@ -24,6 +24,7 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.Pair;
 import org.apache.doris.persist.AlterDatabasePropertyInfo;
 import org.apache.doris.persist.BarrierLog;
+import org.apache.doris.persist.BatchModifyPartitionsInfo;
 import org.apache.doris.persist.BinlogGcInfo;
 import org.apache.doris.persist.DropPartitionInfo;
 import org.apache.doris.persist.ModifyTablePropertyOperationLog;
@@ -265,6 +266,18 @@ public class BinlogManager {
         long timestamp = -1;
         TBinlogType type = TBinlogType.BARRIER;
         String data = barrierLog.toJson();
+
+        addBinlog(dbId, tableIds, commitSeq, timestamp, type, data, false);
+    }
+
+    // add Modify partitions
+    public void addModifyPartitions(BatchModifyPartitionsInfo info, long commitSeq) {
+        long dbId = info.getDbId();
+        List<Long> tableIds = Lists.newArrayList();
+        tableIds.add(info.getTableId());
+        long timestamp = -1;
+        TBinlogType type = TBinlogType.MODIFY_PARTITIONS;
+        String data = info.toJson();
 
         addBinlog(dbId, tableIds, commitSeq, timestamp, type, data, false);
     }
