@@ -55,6 +55,10 @@ public class SqlCache extends Cache {
         return cacheKey;
     }
 
+    public long getSumOfPartitionNum() {
+        return latestTable.sumOfPartitionNum;
+    }
+
     public InternalService.PFetchCacheResult getCacheData(Status status) {
         InternalService.PFetchCacheRequest request = InternalService.PFetchCacheRequest.newBuilder()
                 .setSqlKey(CacheProxy.getMd5(getSqlWithViewStmt()))

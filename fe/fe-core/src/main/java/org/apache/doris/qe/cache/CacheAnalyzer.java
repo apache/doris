@@ -220,7 +220,7 @@ public class CacheAnalyzer {
             }
             if (enablePartitionCache() && ((OlapScanNode) node).getSelectedPartitionNum() > 1
                     && selectStmt.hasGroupByClause()) {
-                LOG.debug("more than one partition scanned when qeury has agg, partition cache cannot use, queryid {}",
+                LOG.debug("more than one partition scanned when query has agg, partition cache cannot use, queryid {}",
                         DebugUtil.printId(queryId));
                 return CacheMode.None;
             }
@@ -583,13 +583,13 @@ public class CacheAnalyzer {
         CacheTable cacheTable = new CacheTable();
         OlapTable olapTable = node.getOlapTable();
         cacheTable.olapTable = olapTable;
+        cacheTable.partitionNum = node.getSelectedPartitionIds().size();
         for (Long partitionId : node.getSelectedPartitionIds()) {
             Partition partition = olapTable.getPartition(partitionId);
             if (partition.getVisibleVersionTime() >= cacheTable.latestTime) {
                 cacheTable.latestPartitionId = partition.getId();
                 cacheTable.latestTime = partition.getVisibleVersionTime();
                 cacheTable.latestVersion = partition.getVisibleVersion();
-                cacheTable.partitionNum = node.getSelectedPartitionNum();
             }
         }
         return cacheTable;
