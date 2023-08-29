@@ -228,7 +228,10 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
 
         // TODO Support is needed in the future
         if (getTFileType() == TFileType.FILE_STREAM && (formatString.equals("json")
+                || formatString.equals("csv_with_names")
+                || formatString.equals("csv_with_names_and_types")
                 || formatString.equals("parquet")
+                || formatString.equals("avro")
                 || formatString.equals("orc"))) {
             throw new AnalysisException("current http_stream does not yet support json, parquet and orc");
         }

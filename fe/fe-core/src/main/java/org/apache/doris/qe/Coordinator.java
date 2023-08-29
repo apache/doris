@@ -573,7 +573,7 @@ public class Coordinator {
 
 
     public TExecPlanFragmentParams getStreamLoadPlan() throws Exception {
-        performFragmentProcessing();
+        processFragmentAssignmentAndParams();
 
         // This is a load process.
         List<Long> relatedBackendIds = Lists.newArrayList(addressToBackendID.values());
@@ -605,7 +605,7 @@ public class Coordinator {
                     DebugUtil.printId(queryId), fragments.get(0).toThrift());
         }
 
-        performFragmentProcessing();
+        processFragmentAssignmentAndParams();
 
         traceInstance();
 
