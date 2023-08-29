@@ -221,9 +221,8 @@ suite("test_export_csv", "p0") {
         check_path_exists.call("${outFilePath}")
 
         // exec export
-        // TODO(ftw): EXPORT TABLE ${table_export_name} where user_id <11 TO "file://${outFilePath}/"
         sql """
-            EXPORT TABLE ${table_export_name} TO "file://${outFilePath}/"
+            EXPORT TABLE ${table_export_name} where user_id <11 TO "file://${outFilePath}/"
             PROPERTIES(
                 "label" = "${label}",
                 "format" = "csv",
@@ -278,7 +277,7 @@ suite("test_export_csv", "p0") {
                 log.info("Stream load result: ${result}".toString())
                 def json = parseJson(result)
                 assertEquals("success", json.Status.toLowerCase())
-                assertEquals(100, json.NumberTotalRows)
+                assertEquals(10, json.NumberTotalRows)
                 assertEquals(0, json.NumberFilteredRows)
             }
         }
@@ -299,9 +298,8 @@ suite("test_export_csv", "p0") {
         check_path_exists.call("${outFilePath}")
 
         // exec export
-        // TODO(ftw): EXPORT TABLE ${table_export_name} where user_id <11 TO "file://${outFilePath}/"
         sql """
-            EXPORT TABLE ${table_export_name} TO "file://${outFilePath}/"
+            EXPORT TABLE ${table_export_name} where user_id <11 TO "file://${outFilePath}/"
             PROPERTIES(
                 "label" = "${label}",
                 "format" = "csv_with_names",
@@ -357,7 +355,7 @@ suite("test_export_csv", "p0") {
                 log.info("Stream load result: ${result}".toString())
                 def json = parseJson(result)
                 assertEquals("success", json.Status.toLowerCase())
-                assertEquals(100, json.NumberTotalRows)
+                assertEquals(10, json.NumberTotalRows)
                 assertEquals(0, json.NumberFilteredRows)
             }
         }
@@ -378,9 +376,8 @@ suite("test_export_csv", "p0") {
         check_path_exists.call("${outFilePath}")
 
         // exec export
-        // TODO(ftw): EXPORT TABLE ${table_export_name} where user_id <11 TO "file://${outFilePath}/"
         sql """
-            EXPORT TABLE ${table_export_name} TO "file://${outFilePath}/"
+            EXPORT TABLE ${table_export_name} where user_id <11 TO "file://${outFilePath}/"
             PROPERTIES(
                 "label" = "${label}",
                 "format" = "csv_with_names_and_types",
@@ -436,7 +433,7 @@ suite("test_export_csv", "p0") {
                 log.info("Stream load result: ${result}".toString())
                 def json = parseJson(result)
                 assertEquals("success", json.Status.toLowerCase())
-                assertEquals(100, json.NumberTotalRows)
+                assertEquals(10, json.NumberTotalRows)
                 assertEquals(0, json.NumberFilteredRows)
             }
         }

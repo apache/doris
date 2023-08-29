@@ -337,9 +337,8 @@ suite("test_export_basic", "p0") {
         check_path_exists.call("${outFilePath}")
 
         // exec export
-        // TODO(ftw): EXPORT TABLE ${table_export_name} PARTITION (more_than_70) where id >100
         sql """
-            EXPORT TABLE ${table_export_name} PARTITION (more_than_70)
+            EXPORT TABLE ${table_export_name} PARTITION (more_than_70) where id >100
             TO "file://${outFilePath}/"
             PROPERTIES(
                 "label" = "${label}",
@@ -382,7 +381,7 @@ suite("test_export_basic", "p0") {
                 log.info("Stream load result: ${result}".toString())
                 def json = parseJson(result)
                 assertEquals("success", json.Status.toLowerCase())
-                assertEquals(81, json.NumberTotalRows)
+                assertEquals(50, json.NumberTotalRows)
                 assertEquals(0, json.NumberFilteredRows)
             }
         }
