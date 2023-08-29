@@ -287,6 +287,9 @@ DEFINE_mInt32(default_num_rows_per_column_file_block, "1024");
 DEFINE_mInt32(pending_data_expire_time_sec, "1800");
 // inc_rowset snapshot rs sweep time interval
 DEFINE_mInt32(tablet_rowset_stale_sweep_time_sec, "300");
+// tablet stale rowset sweep by threshold size
+DEFINE_Bool(tablet_rowset_stale_sweep_by_size, "false");
+DEFINE_mInt32(tablet_rowset_stale_sweep_threshold_size, "100");
 // garbage sweep policy
 DEFINE_Int32(max_garbage_sweep_interval, "3600");
 DEFINE_Int32(min_garbage_sweep_interval, "180");
