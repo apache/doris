@@ -408,6 +408,15 @@ namedExpressionSeq
 
 expression
     : booleanExpression
+    | lambdaExpression
+    ;
+
+lambdaExpression
+    : LEFT_PAREN?
+        arguments=identifierSeq
+      RIGHT_PAREN?
+        ARROW body=booleanExpression
+
     ;
 
 booleanExpression

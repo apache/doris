@@ -20,9 +20,11 @@ package org.apache.doris.nereids.rules.expression.rules;
 import org.apache.doris.analysis.ArithmeticExpr.Operator;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.FunctionRegistry;
+import org.apache.doris.nereids.analyzer.Scope;
 import org.apache.doris.nereids.analyzer.UnboundFunction;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.rules.analysis.ArithmeticFunctionBinder;
+import org.apache.doris.nereids.rules.analysis.SlotBinder;
 import org.apache.doris.nereids.rules.expression.AbstractExpressionRewriteRule;
 import org.apache.doris.nereids.rules.expression.ExpressionRewriteContext;
 import org.apache.doris.nereids.trees.expressions.BinaryArithmetic;
@@ -40,10 +42,12 @@ import org.apache.doris.nereids.trees.expressions.IntegralDivide;
 import org.apache.doris.nereids.trees.expressions.ListQuery;
 import org.apache.doris.nereids.trees.expressions.Match;
 import org.apache.doris.nereids.trees.expressions.Not;
+import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.TimestampArithmetic;
 import org.apache.doris.nereids.trees.expressions.WhenClause;
 import org.apache.doris.nereids.trees.expressions.functions.BoundFunction;
 import org.apache.doris.nereids.trees.expressions.functions.FunctionBuilder;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.LambdaClosure;
 import org.apache.doris.nereids.trees.expressions.functions.udf.AliasUdfBuilder;
 import org.apache.doris.nereids.trees.expressions.typecoercion.ImplicitCastInputTypes;
 import org.apache.doris.nereids.types.ArrayType;
@@ -54,6 +58,7 @@ import org.apache.doris.nereids.util.TypeCoercionUtils;
 
 import com.google.common.collect.ImmutableList;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 import java.util.stream.Collectors;
@@ -82,11 +87,33 @@ public class FunctionBinder extends AbstractExpressionRewriteRule {
     /* ********************************************************************************************
      * bind function
      * ******************************************************************************************** */
+    private UnboundFunction bindHighOrderFunction(UnboundFunction unboundFunction, ExpressionRewriteContext context) {
+        int childrenSize = unboundFunction.children().size();
+        List<Expression> subChildren = new ArrayList<>();
+        for (int i = 1; i < childrenSize; i++) {
+            subChildren.add(unboundFunction.child(i).accept(this, context));
+        }
+
+        // bindLambda
+        LambdaClosure lambdaClosure = (LambdaClosure) unboundFunction.children().get(0);
+        List<Slot> boundedSlots = lambdaClosure.makeArguments(subChildren);
+        Expression slotBoundLambda = new SlotBinder(new Scope(boundedSlots), context.cascadesContext,
+                true, false).bind(lambdaClosure);
+        Expression functionBoundLambda = slotBoundLambda.accept(this, context);
+        return unboundFunction.withChildren(ImmutableList.<Expression>builder()
+                .add(functionBoundLambda)
+                .addAll(subChildren)
+                .build());
+    }
 
     @Override
     public Expression visitUnboundFunction(UnboundFunction unboundFunction, ExpressionRewriteContext context) {
-        unboundFunction = unboundFunction.withChildren(unboundFunction.children().stream()
-                .map(e -> e.accept(this, context)).collect(Collectors.toList()));
+        if (unboundFunction.isHighOrder()) {
+            unboundFunction = bindHighOrderFunction(unboundFunction, context);
+        } else {
+            unboundFunction = unboundFunction.withChildren(unboundFunction.children().stream()
+                    .map(e -> e.accept(this, context)).collect(Collectors.toList()));
+        }
 
         // bind function
         FunctionRegistry functionRegistry = Env.getCurrentEnv().getFunctionRegistry();
