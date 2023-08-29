@@ -44,7 +44,6 @@ suite("test_materialized_view_load_open", "rollup") {
             )
             DISTRIBUTED BY HASH(k1) BUCKETS 32 
             properties(
-                "light_schema_change" = "false",
                 "replication_num" = "1"
             );
         """
@@ -72,7 +71,6 @@ suite("test_materialized_view_load_open", "rollup") {
                 "dynamic_partition.end" = "3",
                 "dynamic_partition.prefix" = "p",
                 "dynamic_partition.buckets" = "32",
-                "light_schema_change" = "false",
                 "replication_num"="1"
             );
         """

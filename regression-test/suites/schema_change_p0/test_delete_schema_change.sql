@@ -14,7 +14,7 @@ CREATE TABLE IF NOT EXISTS schema_change_delete_regression_test (
                 `min_dwell_time` INT DEFAULT "99999" COMMENT "用户最小停留时间")
             DUPLICATE KEY(`user_id`, `date`, `city`, `age`, `sex`) DISTRIBUTED BY HASH(`user_id`)
             BUCKETS 8
-            PROPERTIES ( "replication_num" = "1", "light_schema_change" = "false" );
+            PROPERTIES ( "replication_num" = "1");
 
 INSERT INTO schema_change_delete_regression_test VALUES
              (1, '2017-10-01', 'Beijing', 10, 1, '2020-01-01', '2020-01-01', '2020-01-01', 1, 30, 20);
@@ -23,8 +23,6 @@ INSERT INTO schema_change_delete_regression_test VALUES
              (2, '2017-10-01', 'Beijing', 10, 1, '2020-01-02', '2020-01-02', '2020-01-02', 1, 31, 21);
 
 SELECT * FROM schema_change_delete_regression_test order by user_id ASC, last_visit_date;
-
-ALTER TABLE schema_change_delete_regression_test SET ("light_schema_change" = "true");
 
 ALTER table schema_change_delete_regression_test ADD COLUMN new_column INT default "1";
 

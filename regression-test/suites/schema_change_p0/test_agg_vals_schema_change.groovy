@@ -62,7 +62,7 @@ suite ("test_agg_vals_schema_change") {
                 `bitmap_col` Bitmap BITMAP_UNION NOT NULL COMMENT "bitmap列")
             AGGREGATE KEY(`user_id`, `date`, `city`, `age`, `sex`) DISTRIBUTED BY HASH(`user_id`)
             BUCKETS 8
-            PROPERTIES ( "replication_num" = "1", "light_schema_change" = "false" );
+            PROPERTIES ( "replication_num" = "1");
         """
 
     sql """ INSERT INTO ${tableName} VALUES
@@ -76,9 +76,6 @@ suite ("test_agg_vals_schema_change") {
     qt_sc """
                    select * from ${tableName} order by user_id
                 """
-
-    // alter and test light schema change
-    sql """ALTER TABLE ${tableName} SET ("light_schema_change" = "true");"""
 
     sql """ INSERT INTO ${tableName} VALUES
              (2, '2017-10-01', 'Beijing', 10, 1, '2020-01-02', '2020-01-02', '2020-01-02', 1, 31, 21, hll_hash(2), to_bitmap(2))

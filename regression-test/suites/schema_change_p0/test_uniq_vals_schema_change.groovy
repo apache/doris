@@ -60,7 +60,7 @@ suite ("test_uniq_vals_schema_change") {
                     `min_dwell_time` INT DEFAULT "99999" COMMENT "用户最小停留时间")
                 UNIQUE KEY(`user_id`, `date`, `city`, `age`, `sex`) DISTRIBUTED BY HASH(`user_id`)
                 BUCKETS 8
-                PROPERTIES ( "replication_num" = "1", "light_schema_change" = "false" );
+                PROPERTIES ( "replication_num" = "1");
             """
 
         sql """ INSERT INTO ${tableName} VALUES
@@ -82,9 +82,6 @@ suite ("test_uniq_vals_schema_change") {
         qt_sc"""
                         select count(*) from ${tableName}
                         """
-
-        // alter and test light schema change
-        sql """ALTER TABLE ${tableName} SET ("light_schema_change" = "true");"""
 
         // add column
         sql """

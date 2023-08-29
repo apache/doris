@@ -76,7 +76,7 @@ suite("test_agg_keys_schema_change_datev2") {
            )
            AGGREGATE  KEY(`datek1`,`datek2`)
            DISTRIBUTED BY HASH(`datek1`) BUCKETS 1
-           PROPERTIES("replication_num" = "1", "light_schema_change" = "false");
+           PROPERTIES("replication_num" = "1");
         """
     // datev2
     sql """ insert into ${tbName} values('2022-01-02', '2022-01-02 11:11:11', '2022-01-02', '2022-01-02 11:11:11');"""

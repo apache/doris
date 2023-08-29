@@ -34,7 +34,7 @@ suite("test_schema_change_datev2_with_delete") {
            )
            DUPLICATE  KEY(`datek1`,`datek2`)
            DISTRIBUTED BY HASH(`datek1`) BUCKETS 1
-           PROPERTIES("replication_num" = "1", "light_schema_change" = "false");
+           PROPERTIES("replication_num" = "1");
         """
     sql """ insert into ${tbName} values('2022-01-02', '2022-01-02 11:11:11', '2022-01-02', '2022-01-02 11:11:11');"""
     sql """ insert into ${tbName} (`datek1`, `datek2`, `datev1`) values('2022-01-03', '2022-01-03 11:11:11', '2022-01-03');"""

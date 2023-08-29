@@ -58,7 +58,7 @@ suite ("test_uniq_keys_schema_change") {
                 `min_dwell_time` INT DEFAULT "99999" COMMENT "用户最小停留时间")
             UNIQUE KEY(`user_id`, `date`, `city`, `age`, `sex`) DISTRIBUTED BY HASH(`user_id`)
             BUCKETS 8
-            PROPERTIES ( "replication_num" = "1", "light_schema_change" = "false");
+            PROPERTIES ( "replication_num" = "1");
         """
 
     sql """ INSERT INTO schema_change_uniq_keys_regression_test VALUES
@@ -70,9 +70,6 @@ suite ("test_uniq_keys_schema_change") {
         """
 
     qt_sc """ select count(*) from schema_change_uniq_keys_regression_test """
-
-    // alter and test light schema change
-    sql """ALTER TABLE ${tableName} SET ("light_schema_change" = "true");"""
 
     sql """ INSERT INTO schema_change_uniq_keys_regression_test VALUES
              (2, '2017-10-01', 'Beijing', 10, 1, '2020-01-02', '2020-01-02', '2020-01-02', 1, 31, 21)

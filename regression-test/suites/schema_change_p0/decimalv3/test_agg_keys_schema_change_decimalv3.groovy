@@ -76,7 +76,7 @@ suite("test_agg_keys_schema_change_decimalv3") {
            )
            AGGREGATE  KEY(`decimalv3k1`,`decimalv3k2`)
            DISTRIBUTED BY HASH(`decimalv3k1`) BUCKETS 1
-           PROPERTIES("replication_num" = "1", "light_schema_change" = "false");
+           PROPERTIES("replication_num" = "1");
         """
     sql """ insert into ${tbName} values(0.111111111111111111111111111111111,11111111111111111111111111111.11,0.111111111111111111111111111111111,11111111111111111111111111111.11);"""
     qt_sql """select * from ${tbName} ORDER BY `decimalv3k1`;"""

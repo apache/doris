@@ -76,7 +76,7 @@ suite ("test_uniq_mv_schema_change") {
                 `min_dwell_time` INT DEFAULT "99999" COMMENT "用户最小停留时间")
             UNIQUE KEY(`user_id`, `date`, `city`, `age`, `sex`) DISTRIBUTED BY HASH(`user_id`)
             BUCKETS 8
-            PROPERTIES ( "replication_num" = "1", "light_schema_change" = "false", 'enable_unique_key_merge_on_write' = 'false');
+            PROPERTIES ( "replication_num" = "1", 'enable_unique_key_merge_on_write' = 'false');
         """
 
     sql """ INSERT INTO ${tableName} VALUES
@@ -97,9 +97,6 @@ suite ("test_uniq_mv_schema_change") {
     def mvName = "mv1"
     sql "create materialized view ${mvName} as select user_id, date, city, age from ${tableName};"
     waitForJob(tableName, 3000)
-
-    // alter and test light schema change
-    sql """ALTER TABLE ${tableName} SET ("light_schema_change" = "true");"""
 
     //add materialized view
     def mvName2 = "mv2"

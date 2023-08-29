@@ -27,7 +27,7 @@ suite("test_alter_table_status") {
                     v2 INT
                 )
                 DUPLICATE KEY (k1)
-                DISTRIBUTED BY HASH(k1) BUCKETS 1 properties("replication_num" = "1", "light_schema_change" = "false", "disable_auto_compaction" = "true");
+                DISTRIBUTED BY HASH(k1) BUCKETS 1 properties("replication_num" = "1", "disable_auto_compaction" = "true");
             """
 
         // set table state to ROLLUP

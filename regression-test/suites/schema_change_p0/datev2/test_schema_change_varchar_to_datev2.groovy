@@ -76,7 +76,7 @@ suite("test_schema_change_varchar_to_datev2") {
             )
             AGGREGATE KEY(`k1`,`k2`,`k3`)
             DISTRIBUTED BY HASH(`k1`,`k2`) BUCKETS 1
-            PROPERTIES("replication_num" = "1", "light_schema_change" = "false");
+            PROPERTIES("replication_num" = "1");
         """
     // insert
     sql """ insert into ${tbName} values(1,"1","20200101",1,1), (2,"2","2020/01/02",2,2), (3,"3","2020-01-03",3,3), (4,"4","200104",4,4), (5,"5","20/01/05",5,5), (6,"6","20-01-06",6,6)"""

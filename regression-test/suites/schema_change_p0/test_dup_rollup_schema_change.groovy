@@ -81,7 +81,7 @@ suite ("test_dup_rollup_schema_change") {
                     `min_dwell_time` INT DEFAULT "99999" COMMENT "用户最小停留时间")
                 DUPLICATE KEY(`user_id`, `date`, `city`, `age`, `sex`) DISTRIBUTED BY HASH(`user_id`)
                 BUCKETS 8
-                PROPERTIES ( "replication_num" = "1", "light_schema_change" = "false" );
+                PROPERTIES ( "replication_num" = "1");
             """
 
         //add rollup
@@ -92,9 +92,6 @@ suite ("test_dup_rollup_schema_change") {
         sql """ INSERT INTO ${tableName} VALUES
                 (1, '2017-10-01', 'Beijing', 10, 1, '2020-01-01', '2020-01-01', '2020-01-01', 1, 30, 20)
             """
-
-        // alter and test light schema change
-        sql """ALTER TABLE ${tableName} SET ("light_schema_change" = "true");"""
 
         //add rollup
         def rollupName2 = "rollup_city"
