@@ -160,7 +160,9 @@ public:
 
     int64_t txn_id = -1;
 
+    // http stream
     bool need_schema = false;
+    bool is_read_schema = true;
 
     std::string txn_operation = "";
 
