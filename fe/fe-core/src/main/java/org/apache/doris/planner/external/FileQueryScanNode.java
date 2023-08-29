@@ -257,6 +257,9 @@ public abstract class FileQueryScanNode extends FileScanNode {
             ConnectContext.get().getExecutor().getSummaryProfile().setGetSplitsFinishTime();
         }
         this.inputSplitsNum = inputSplits.size();
+        if (inputSplits.isEmpty() && !(getLocationType() == TFileType.FILE_STREAM)) {
+            return;
+        }
         TFileFormatType fileFormatType = getFileFormatType();
         params.setFormatType(fileFormatType);
         boolean isCsvOrJson = Util.isCsvFormat(fileFormatType) || fileFormatType == TFileFormatType.FORMAT_JSON;
@@ -280,11 +283,8 @@ public abstract class FileQueryScanNode extends FileScanNode {
                 location.setServer(new TNetworkAddress(backend.getHost(), backend.getBePort()));
                 curLocations.addToLocations(location);
                 scanRangeLocations.add(curLocations);
+                return;
             }
-        }
-
-        if (inputSplits.isEmpty()) {
-            return;
         }
 
         Map<String, String> locationProperties = getLocationProperties();

@@ -780,6 +780,7 @@ public class ConnectContext {
         }
     }
 
+
     public void startAcceptQuery(ConnectProcessor connectProcessor) {
         mysqlChannel.startAcceptQuery(this, connectProcessor);
     }
