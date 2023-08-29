@@ -28,14 +28,12 @@ OPERATOR_CODE_GENERATOR(AnalyticSinkOperator, StreamingOperator)
 
 Status AnalyticSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& info) {
     RETURN_IF_ERROR(PipelineXSinkLocalState::init(state, info));
-    _mem_tracker = std::make_unique<MemTracker>("ExchangeSinkLocalState:");
     auto& p = _parent->cast<AnalyticSinkOperatorX>();
     _dependency = (AnalyticDependency*)info.dependency;
     _shared_state = (AnalyticSharedState*)_dependency->shared_state();
     _shared_state->partition_by_column_idxs.resize(p._partition_by_eq_expr_ctxs.size());
     _shared_state->ordey_by_column_idxs.resize(p._order_by_eq_expr_ctxs.size());
 
-    _profile = state->obj_pool()->add(new RuntimeProfile("AnalyticSinkLocalState"));
     _memory_usage_counter = ADD_LABEL_COUNTER(profile(), "MemoryUsage");
     _blocks_memory_usage = _profile->AddHighWaterMarkCounter("Blocks", TUnit::BYTES, "MemoryUsage");
     _evaluation_timer = ADD_TIMER(profile(), "EvaluationTime");

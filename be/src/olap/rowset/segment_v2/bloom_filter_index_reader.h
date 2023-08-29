@@ -28,6 +28,7 @@
 #include "olap/rowset/segment_v2/common.h"
 #include "olap/rowset/segment_v2/indexed_column_reader.h"
 #include "olap/types.h"
+#include "util/once.h"
 
 namespace doris {
 
@@ -53,9 +54,13 @@ public:
     const TypeInfo* type_info() const { return _type_info; }
 
 private:
+    Status _load(bool use_page_cache, bool kept_in_memory);
+
+private:
     friend class BloomFilterIndexIterator;
 
     io::FileReaderSPtr _file_reader;
+    DorisCallOnce<Status> _load_once;
     const TypeInfo* _type_info;
     const BloomFilterIndexPB* _bloom_filter_index_meta;
     std::unique_ptr<IndexedColumnReader> _bloom_filter_reader;

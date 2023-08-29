@@ -92,6 +92,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.ConvertTo;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ConvertTz;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Cos;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.CountEqual;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.CreateMap;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.CurrentCatalog;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.CurrentDate;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.CurrentTime;
@@ -196,6 +197,11 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.Lower;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Lpad;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Ltrim;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MakeDate;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.MapContainsKey;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.MapContainsValue;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.MapKeys;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.MapSize;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.MapValues;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Mask;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MaskFirstN;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MaskLastN;
@@ -429,6 +435,7 @@ public class BuiltinScalarFunctions implements FunctionHelper {
             scalar(ConvertTz.class, "convert_tz"),
             scalar(Cos.class, "cos"),
             scalar(CountEqual.class, "countequal"),
+            scalar(CreateMap.class, "map"),
             scalar(CurrentCatalog.class, "current_catalog"),
             scalar(CurrentDate.class, "curdate", "current_date"),
             scalar(CurrentTime.class, "curtime", "current_time"),
@@ -533,6 +540,11 @@ public class BuiltinScalarFunctions implements FunctionHelper {
             scalar(Lpad.class, "lpad"),
             scalar(Ltrim.class, "ltrim"),
             scalar(MakeDate.class, "makedate"),
+            scalar(MapContainsKey.class, "map_contains_key"),
+            scalar(MapContainsValue.class, "map_contains_value"),
+            scalar(MapKeys.class, "map_keys"),
+            scalar(MapSize.class, "map_size"),
+            scalar(MapValues.class, "map_values"),
             scalar(Mask.class, "mask"),
             scalar(MaskFirstN.class, "mask_first_n"),
             scalar(MaskLastN.class, "mask_last_n"),

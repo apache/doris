@@ -24,6 +24,7 @@ import org.apache.doris.analysis.TableName;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.statistics.AnalysisInfo.AnalysisType;
 import org.apache.doris.statistics.AnalysisInfo.JobType;
+import org.apache.doris.statistics.AnalysisInfo.ScheduleType;
 import org.apache.doris.statistics.util.StatisticsUtil;
 
 import com.google.common.annotations.VisibleForTesting;
@@ -182,7 +183,9 @@ public class AnalysisManagerTest {
     // test build async job
     @Test
     public void testBuildAndAssignJob2(@Injectable OlapAnalysisTask analysisTask) throws Exception {
-        AnalysisInfo analysisInfo = new AnalysisInfoBuilder().setColToPartitions(new HashMap<>()).build();
+        AnalysisInfo analysisInfo = new AnalysisInfoBuilder().setColToPartitions(new HashMap<>())
+                .setScheduleType(ScheduleType.PERIOD)
+                .build();
         new MockUp<StatisticsUtil>() {
 
             @Mock
@@ -240,9 +243,9 @@ public class AnalysisManagerTest {
         }, new AnalyzeProperties(new HashMap<String, String>() {
             {
                 put(AnalyzeProperties.PROPERTY_SYNC, "false");
+                put(AnalyzeProperties.PROPERTY_PERIOD_SECONDS, "100");
             }
         }));
-
         AnalysisManager analysisManager = new AnalysisManager();
         analysisInfo.colToPartitions.put("c1", new HashSet<String>() {
             {

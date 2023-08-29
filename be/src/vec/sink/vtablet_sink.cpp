@@ -757,6 +757,8 @@ void VNodeChannel::try_send_block(RuntimeState* state) {
     // tablet_ids has already set when add row
     request.set_packet_seq(_next_packet_seq);
     auto block = mutable_block->to_block();
+    CHECK(block.rows() == request.tablet_ids_size())
+            << "block rows: " << block.rows() << ", tablet_ids_size: " << request.tablet_ids_size();
     if (block.rows() > 0) {
         SCOPED_ATOMIC_TIMER(&_serialize_batch_ns);
         size_t uncompressed_bytes = 0, compressed_bytes = 0;
