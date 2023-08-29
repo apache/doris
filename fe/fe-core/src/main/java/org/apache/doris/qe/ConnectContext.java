@@ -66,8 +66,9 @@ import java.util.Set;
 // connect with its connection id.
 // Use `volatile` to make the reference change atomic.
 public class ConnectContext {
-    protected static ThreadLocal<ConnectContext> threadLocalInfo = new ThreadLocal<>();
     private static final Logger LOG = LogManager.getLogger(ConnectContext.class);
+    protected static ThreadLocal<ConnectContext> threadLocalInfo = new ThreadLocal<>();
+
     private static final String SSL_PROTOCOL = "TLS";
 
     // set this id before analyze
@@ -138,8 +139,7 @@ public class ConnectContext {
     // This property will only be set when the query starts to execute.
     // So in the query planning stage, do not use any value in this attribute.
     protected QueryDetail queryDetail = null;
-    // This context is used for SSL connection between server and mysql client.
-    private final MysqlSslContext mysqlSslContext = new MysqlSslContext(SSL_PROTOCOL);
+
     // If set to true, the nondeterministic function will not be rewrote to constant.
     private boolean notEvalNondeterministicFunction = false;
     // The resource tag is used to limit the node resources that the user can use for query.
@@ -150,49 +150,24 @@ public class ConnectContext {
     // If set to true, the resource tags set in resourceTags will be used to limit the query resources.
     // If set to false, the system will not restrict query resources.
     private boolean isResourceTagsSet = false;
+
     private String sqlHash;
+
     private JSONObject minidump = null;
+
     // The FE ip current connected
     private String currentConnectedFEIp = "";
+
     private InsertResult insertResult;
+
     private SessionContext sessionContext;
+
+    // This context is used for SSL connection between server and mysql client.
+    private final MysqlSslContext mysqlSslContext = new MysqlSslContext(SSL_PROTOCOL);
+
     private StatsErrorEstimator statsErrorEstimator;
 
     private Map<String, String> resultAttachedInfo;
-    private StatementContext statementContext;
-    private Map<String, PrepareStmtContext> preparedStmtCtxs = Maps.newHashMap();
-    private List<TableIf> tables = null;
-    private Map<String, ColumnStatistic> totalColumnStatisticMap = new HashMap<>();
-    private Map<String, Histogram> totalHistogramMap = new HashMap<>();
-
-    public ConnectContext() {
-        this(null);
-    }
-
-    public ConnectContext(StreamConnection connection) {
-        state = new QueryState();
-        returnRows = 0;
-        serverCapability = MysqlCapability.DEFAULT_CAPABILITY;
-        isKilled = false;
-        if (connection != null) {
-            mysqlChannel = new MysqlChannel(connection);
-        } else {
-            mysqlChannel = new DummyMysqlChannel();
-        }
-        sessionVariable = VariableMgr.newSessionVariable();
-        command = MysqlCommand.COM_SLEEP;
-        if (Config.use_fuzzy_session_variable) {
-            sessionVariable.initFuzzyModeVariables();
-        }
-    }
-
-    public static ConnectContext get() {
-        return threadLocalInfo.get();
-    }
-
-    public static void remove() {
-        threadLocalInfo.remove();
-    }
 
     public void setUserQueryTimeout(int queryTimeout) {
         if (queryTimeout > 0) {
@@ -205,6 +180,15 @@ public class ConnectContext {
             sessionVariable.setInsertTimeoutS(insertTimeout);
         }
     }
+
+    private StatementContext statementContext;
+    private Map<String, PrepareStmtContext> preparedStmtCtxs = Maps.newHashMap();
+
+    private List<TableIf> tables = null;
+
+    private Map<String, ColumnStatistic> totalColumnStatisticMap = new HashMap<>();
+
+    private Map<String, Histogram> totalHistogramMap = new HashMap<>();
 
     public Map<String, ColumnStatistic> getTotalColumnStatisticMap() {
         return totalColumnStatisticMap;
@@ -243,6 +227,14 @@ public class ConnectContext {
         return insertResult;
     }
 
+    public static ConnectContext get() {
+        return threadLocalInfo.get();
+    }
+
+    public static void remove() {
+        threadLocalInfo.remove();
+    }
+
     public void setIsSend(boolean isSend) {
         this.isSend = isSend;
     }
@@ -257,6 +249,27 @@ public class ConnectContext {
 
     public boolean notEvalNondeterministicFunction() {
         return notEvalNondeterministicFunction;
+    }
+
+    public ConnectContext() {
+        this(null);
+    }
+
+    public ConnectContext(StreamConnection connection) {
+        state = new QueryState();
+        returnRows = 0;
+        serverCapability = MysqlCapability.DEFAULT_CAPABILITY;
+        isKilled = false;
+        if (connection != null) {
+            mysqlChannel = new MysqlChannel(connection);
+        } else {
+            mysqlChannel = new DummyMysqlChannel();
+        }
+        sessionVariable = VariableMgr.newSessionVariable();
+        command = MysqlCommand.COM_SLEEP;
+        if (Config.use_fuzzy_session_variable) {
+            sessionVariable.initFuzzyModeVariables();
+        }
     }
 
     public boolean isTxnModel() {
@@ -688,12 +701,12 @@ public class ConnectContext {
         this.isResourceTagsSet = !this.resourceTags.isEmpty();
     }
 
-    public String getCurrentConnectedFEIp() {
-        return currentConnectedFEIp;
-    }
-
     public void setCurrentConnectedFEIp(String ip) {
         this.currentConnectedFEIp = ip;
+    }
+
+    public String getCurrentConnectedFEIp() {
+        return currentConnectedFEIp;
     }
 
     /**
@@ -712,40 +725,12 @@ public class ConnectContext {
         }
     }
 
-    public Map<String, String> getResultAttachedInfo() {
-        return resultAttachedInfo;
-    }
-
     public void setResultAttachedInfo(Map<String, String> resultAttachedInfo) {
         this.resultAttachedInfo = resultAttachedInfo;
     }
 
-    public void startAcceptQuery(ConnectProcessor connectProcessor) {
-        mysqlChannel.startAcceptQuery(this, connectProcessor);
-    }
-
-    public void suspendAcceptQuery() {
-        mysqlChannel.suspendAcceptQuery();
-    }
-
-    public void resumeAcceptQuery() {
-        mysqlChannel.resumeAcceptQuery();
-    }
-
-    public void stopAcceptQuery() throws IOException {
-        mysqlChannel.stopAcceptQuery();
-    }
-
-    public String getQueryIdentifier() {
-        return "stmt[" + stmtId + ", " + DebugUtil.printId(queryId) + "]";
-    }
-
-    public StatsErrorEstimator getStatsErrorEstimator() {
-        return statsErrorEstimator;
-    }
-
-    public void setStatsErrorEstimator(StatsErrorEstimator statsErrorEstimator) {
-        this.statsErrorEstimator = statsErrorEstimator;
+    public Map<String, String> getResultAttachedInfo() {
+        return resultAttachedInfo;
     }
 
     public class ThreadInfo {
@@ -775,6 +760,34 @@ public class ConnectContext {
             }
             return row;
         }
+    }
+
+    public void startAcceptQuery(ConnectProcessor connectProcessor) {
+        mysqlChannel.startAcceptQuery(this, connectProcessor);
+    }
+
+    public void suspendAcceptQuery() {
+        mysqlChannel.suspendAcceptQuery();
+    }
+
+    public void resumeAcceptQuery() {
+        mysqlChannel.resumeAcceptQuery();
+    }
+
+    public void stopAcceptQuery() throws IOException {
+        mysqlChannel.stopAcceptQuery();
+    }
+
+    public String getQueryIdentifier() {
+        return "stmt[" + stmtId + ", " + DebugUtil.printId(queryId) + "]";
+    }
+
+    public StatsErrorEstimator getStatsErrorEstimator() {
+        return statsErrorEstimator;
+    }
+
+    public void setStatsErrorEstimator(StatsErrorEstimator statsErrorEstimator) {
+        this.statsErrorEstimator = statsErrorEstimator;
     }
 }
 

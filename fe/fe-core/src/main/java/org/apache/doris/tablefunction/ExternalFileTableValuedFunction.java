@@ -88,12 +88,11 @@ import java.util.stream.Collectors;
  */
 public abstract class ExternalFileTableValuedFunction extends TableValuedFunctionIf {
     public static final Logger LOG = LogManager.getLogger(ExternalFileTableValuedFunction.class);
+    protected static final String DEFAULT_COLUMN_SEPARATOR = ",";
+    protected static final String DEFAULT_LINE_DELIMITER = "\n";
     public static final String FORMAT = "format";
     public static final String COLUMN_SEPARATOR = "column_separator";
     public static final String LINE_DELIMITER = "line_delimiter";
-    public static final String PATH_PARTITION_KEYS = "path_partition_keys";
-    protected static final String DEFAULT_COLUMN_SEPARATOR = ",";
-    protected static final String DEFAULT_LINE_DELIMITER = "\n";
     protected static final String JSON_ROOT = "json_root";
     protected static final String JSON_PATHS = "jsonpaths";
     protected static final String STRIP_OUTER_ARRAY = "strip_outer_array";
@@ -104,6 +103,12 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
     protected static final String SKIP_LINES = "skip_lines";
     protected static final String CSV_SCHEMA = "csv_schema";
     protected static final String COMPRESS_TYPE = "compress_type";
+    public static final String PATH_PARTITION_KEYS = "path_partition_keys";
+    // decimal(p,s)
+    private static final Pattern DECIMAL_TYPE_PATTERN = Pattern.compile("decimal\\((\\d+),(\\d+)\\)");
+    // datetime(p)
+    private static final Pattern DATETIME_TYPE_PATTERN = Pattern.compile("datetime\\((\\d+)\\)");
+
     protected static final ImmutableSet<String> FILE_FORMAT_PROPERTIES = new ImmutableSet.Builder<String>()
             .add(FORMAT)
             .add(JSON_ROOT)
@@ -118,18 +123,18 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
             .add(SKIP_LINES)
             .add(CSV_SCHEMA)
             .build();
-    // decimal(p,s)
-    private static final Pattern DECIMAL_TYPE_PATTERN = Pattern.compile("decimal\\((\\d+),(\\d+)\\)");
-    // datetime(p)
-    private static final Pattern DATETIME_TYPE_PATTERN = Pattern.compile("datetime\\((\\d+)\\)");
+
     // Columns got from file and path(if has)
     protected List<Column> columns = null;
-    protected List<TBrokerFileStatus> fileStatuses = Lists.newArrayList();
-    protected Map<String, String> locationProperties;
     // User specified csv columns, it will override columns got from file
     private final List<Column> csvSchema = Lists.newArrayList();
+
     // Partition columns from path, e.g. /path/to/columnName=columnValue.
     private List<String> pathPartitionKeys;
+
+    protected List<TBrokerFileStatus> fileStatuses = Lists.newArrayList();
+    protected Map<String, String> locationProperties;
+
     private TFileFormatType fileFormatType;
     private TFileCompressType compressionType;
     private String headerType = "";
@@ -144,77 +149,6 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
     private boolean fuzzyParse;
     private boolean trimDoubleQuotes;
     private int skipLines;
-
-    // public for unit test
-    public static void parseCsvSchema(List<Column> csvSchema, Map<String, String> validParams)
-            throws AnalysisException {
-        String csvSchemaStr = validParams.get(CSV_SCHEMA);
-        if (Strings.isNullOrEmpty(csvSchemaStr)) {
-            return;
-        }
-        // the schema str is like: "k1:int;k2:bigint;k3:varchar(20);k4:datetime(6)"
-        String[] schemaStrs = csvSchemaStr.split(";");
-        try {
-            for (String schemaStr : schemaStrs) {
-                String[] kv = schemaStr.replace(" ", "").split(":");
-                if (kv.length != 2) {
-                    throw new AnalysisException("invalid csv schema: " + csvSchemaStr);
-                }
-                Column column = null;
-                String name = kv[0].toLowerCase();
-                FeNameFormat.checkColumnName(name);
-                String type = kv[1].toLowerCase();
-                if (type.equals("tinyint")) {
-                    column = new Column(name, PrimitiveType.TINYINT, true);
-                } else if (type.equals("smallint")) {
-                    column = new Column(name, PrimitiveType.SMALLINT, true);
-                } else if (type.equals("int")) {
-                    column = new Column(name, PrimitiveType.INT, true);
-                } else if (type.equals("bigint")) {
-                    column = new Column(name, PrimitiveType.BIGINT, true);
-                } else if (type.equals("largeint")) {
-                    column = new Column(name, PrimitiveType.LARGEINT, true);
-                } else if (type.equals("float")) {
-                    column = new Column(name, PrimitiveType.FLOAT, true);
-                } else if (type.equals("double")) {
-                    column = new Column(name, PrimitiveType.DOUBLE, true);
-                } else if (type.startsWith("decimal")) {
-                    // regex decimal(p, s)
-                    Matcher matcher = DECIMAL_TYPE_PATTERN.matcher(type);
-                    if (!matcher.find()) {
-                        throw new AnalysisException("invalid decimal type: " + type);
-                    }
-                    int precision = Integer.parseInt(matcher.group(1));
-                    int scale = Integer.parseInt(matcher.group(2));
-                    column = new Column(name, ScalarType.createDecimalV3Type(precision, scale), false, null, true, null,
-                            "");
-                } else if (type.equals("date")) {
-                    column = new Column(name, ScalarType.createDateType(), false, null, true, null, "");
-                } else if (type.startsWith("datetime")) {
-                    int scale = 0;
-                    if (!type.equals("datetime")) {
-                        // regex datetime(s)
-                        Matcher matcher = DATETIME_TYPE_PATTERN.matcher(type);
-                        if (!matcher.find()) {
-                            throw new AnalysisException("invalid datetime type: " + type);
-                        }
-                        scale = Integer.parseInt(matcher.group(1));
-                    }
-                    column = new Column(name, ScalarType.createDatetimeV2Type(scale), false, null, true, null, "");
-                } else if (type.equals("string")) {
-                    column = new Column(name, PrimitiveType.STRING, true);
-                } else if (type.equals("boolean")) {
-                    column = new Column(name, PrimitiveType.BOOLEAN, true);
-                } else {
-                    throw new AnalysisException("unsupported column type: " + type);
-                }
-                csvSchema.add(column);
-            }
-            LOG.debug("get csv schema: {}", csvSchema);
-        } catch (Exception e) {
-            throw new AnalysisException("invalid csv schema: " + e.getMessage());
-        }
-    }
 
     public abstract TFileType getTFileType();
 
@@ -325,6 +259,77 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
                 .orElse(Lists.newArrayList());
     }
 
+    // public for unit test
+    public static void parseCsvSchema(List<Column> csvSchema, Map<String, String> validParams)
+            throws AnalysisException {
+        String csvSchemaStr = validParams.get(CSV_SCHEMA);
+        if (Strings.isNullOrEmpty(csvSchemaStr)) {
+            return;
+        }
+        // the schema str is like: "k1:int;k2:bigint;k3:varchar(20);k4:datetime(6)"
+        String[] schemaStrs = csvSchemaStr.split(";");
+        try {
+            for (String schemaStr : schemaStrs) {
+                String[] kv = schemaStr.replace(" ", "").split(":");
+                if (kv.length != 2) {
+                    throw new AnalysisException("invalid csv schema: " + csvSchemaStr);
+                }
+                Column column = null;
+                String name = kv[0].toLowerCase();
+                FeNameFormat.checkColumnName(name);
+                String type = kv[1].toLowerCase();
+                if (type.equals("tinyint")) {
+                    column = new Column(name, PrimitiveType.TINYINT, true);
+                } else if (type.equals("smallint")) {
+                    column = new Column(name, PrimitiveType.SMALLINT, true);
+                } else if (type.equals("int")) {
+                    column = new Column(name, PrimitiveType.INT, true);
+                } else if (type.equals("bigint")) {
+                    column = new Column(name, PrimitiveType.BIGINT, true);
+                } else if (type.equals("largeint")) {
+                    column = new Column(name, PrimitiveType.LARGEINT, true);
+                } else if (type.equals("float")) {
+                    column = new Column(name, PrimitiveType.FLOAT, true);
+                } else if (type.equals("double")) {
+                    column = new Column(name, PrimitiveType.DOUBLE, true);
+                } else if (type.startsWith("decimal")) {
+                    // regex decimal(p, s)
+                    Matcher matcher = DECIMAL_TYPE_PATTERN.matcher(type);
+                    if (!matcher.find()) {
+                        throw new AnalysisException("invalid decimal type: " + type);
+                    }
+                    int precision = Integer.parseInt(matcher.group(1));
+                    int scale = Integer.parseInt(matcher.group(2));
+                    column = new Column(name, ScalarType.createDecimalV3Type(precision, scale), false, null, true, null,
+                            "");
+                } else if (type.equals("date")) {
+                    column = new Column(name, ScalarType.createDateType(), false, null, true, null, "");
+                } else if (type.startsWith("datetime")) {
+                    int scale = 0;
+                    if (!type.equals("datetime")) {
+                        // regex datetime(s)
+                        Matcher matcher = DATETIME_TYPE_PATTERN.matcher(type);
+                        if (!matcher.find()) {
+                            throw new AnalysisException("invalid datetime type: " + type);
+                        }
+                        scale = Integer.parseInt(matcher.group(1));
+                    }
+                    column = new Column(name, ScalarType.createDatetimeV2Type(scale), false, null, true, null, "");
+                } else if (type.equals("string")) {
+                    column = new Column(name, PrimitiveType.STRING, true);
+                } else if (type.equals("boolean")) {
+                    column = new Column(name, PrimitiveType.BOOLEAN, true);
+                } else {
+                    throw new AnalysisException("unsupported column type: " + type);
+                }
+                csvSchema.add(column);
+            }
+            LOG.debug("get csv schema: {}", csvSchema);
+        } catch (Exception e) {
+            throw new AnalysisException("invalid csv schema: " + e.getMessage());
+        }
+    }
+
     public List<TBrokerFileStatus> getFileStatuses() {
         return fileStatuses;
     }
@@ -348,6 +353,11 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
             fileAttributes.setFuzzyParse(fuzzyParse);
         }
         return fileAttributes;
+    }
+
+    @Override
+    public ScanNode getScanNode(PlanNodeId id, TupleDescriptor desc) {
+        return new TVFScanNode(id, desc, false);
     }
 
     @Override
@@ -398,11 +408,6 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
             throw new AnalysisException("getFetchTableStructureRequest exception", e);
         }
         return columns;
-    }
-
-    @Override
-    public ScanNode getScanNode(PlanNodeId id, TupleDescriptor desc) {
-        return new TVFScanNode(id, desc, false);
     }
 
     protected Backend getBackend() {

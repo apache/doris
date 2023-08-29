@@ -474,7 +474,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
 
                     // index id -> index schema
                     Map<Long, LinkedList<Column>> indexSchemaMap = new HashMap<>();
-                    // index id -> index col_unique_id supplier
+                    //index id -> index col_unique_id supplier
                     Map<Long, IntSupplier> colUniqueIdSupplierMap = new HashMap<>();
                     for (Map.Entry<Long, List<Column>> entry : olapTable.getIndexIdToSchema(true).entrySet()) {
                         indexSchemaMap.put(entry.getKey(), new LinkedList<>(entry.getValue()));
@@ -493,13 +493,13 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                         }
                         colUniqueIdSupplierMap.put(entry.getKey(), colUniqueIdSupplier);
                     }
-                    // 4. call schame change function, only for dynamic table feature.
+                    //4. call schame change function, only for dynamic table feature.
                     SchemaChangeHandler schemaChangeHandler = new SchemaChangeHandler();
 
                     boolean lightSchemaChange = schemaChangeHandler.processAddColumns(
                             addColumnsClause, olapTable, indexSchemaMap, true, colUniqueIdSupplierMap);
                     if (lightSchemaChange) {
-                        // for schema change add column optimize, direct modify table meta.
+                        //for schema change add column optimize, direct modify table meta.
                         List<Index> newIndexes = olapTable.getCopiedIndexes();
                         long jobId = Env.getCurrentEnv().getNextId();
                         Env.getCurrentEnv().getSchemaChangeHandler().modifyTableLightSchemaChange(
@@ -511,7 +511,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                     }
                 }
 
-                // 5. build all columns
+                //5. build all columns
                 for (Column column : olapTable.getBaseSchema()) {
                     allColumns.add(column.toThrift());
                 }
@@ -964,12 +964,12 @@ public class FrontendServiceImpl implements FrontendService.Iface {
     }
 
     private void checkPasswordAndPrivs(String cluster, String user, String passwd, String db, String tbl,
-            String clientIp, PrivPredicate predicate) throws AuthenticationException {
+                                       String clientIp, PrivPredicate predicate) throws AuthenticationException {
         checkPasswordAndPrivs(cluster, user, passwd, db, Lists.newArrayList(tbl), clientIp, predicate);
     }
 
     private void checkPasswordAndPrivs(String cluster, String user, String passwd, String db, List<String> tables,
-            String clientIp, PrivPredicate predicate) throws AuthenticationException {
+                                       String clientIp, PrivPredicate predicate) throws AuthenticationException {
 
         final String fullUserName = ClusterNamespace.getFullName(cluster, user);
         final String fullDbName = ClusterNamespace.getFullName(cluster, db);
@@ -1200,7 +1200,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
 
     private List<Table> queryLoadCommitTables(TLoadTxnCommitRequest request, Database db) throws UserException {
         List<String> tbNames;
-        // check has multi table
+        //check has multi table
         if (CollectionUtils.isNotEmpty(request.getTbls())) {
             tbNames = request.getTbls();
 
@@ -1212,7 +1212,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             OlapTable table = (OlapTable) db.getTableOrMetaException(tbl, TableType.OLAP);
             tables.add(table);
         }
-        // if it has multi table, use multi table and update multi table running transaction table ids
+        //if it has multi table, use multi table and update multi table running transaction table ids
         if (CollectionUtils.isNotEmpty(request.getTbls())) {
             List<Long> multiTableIds = tables.stream().map(Table::getId).collect(Collectors.toList());
             Env.getCurrentGlobalTransactionMgr().getDatabaseTransactionMgr(db.getId())
@@ -1561,7 +1561,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         } else if (request.isSetToken()) {
             checkToken(request.getToken());
         } else {
-            // multi table load
+            //multi table load
             if (CollectionUtils.isNotEmpty(request.getTbls())) {
                 for (String tbl : request.getTbls()) {
                     checkPasswordAndPrivs(cluster, request.getUser(), request.getPasswd(), request.getDb(), tbl,
@@ -1904,15 +1904,15 @@ public class FrontendServiceImpl implements FrontendService.Iface {
     }
 
     private TExecPlanFragmentParams generatePlanFragmentParams(TStreamLoadPutRequest request, Database db,
-            String fullDbName, OlapTable table,
-            long timeoutMs) throws UserException {
+                                                               String fullDbName, OlapTable table,
+                                                               long timeoutMs) throws UserException {
         return generatePlanFragmentParams(request, db, fullDbName, table, timeoutMs, 1, false);
     }
 
     private TExecPlanFragmentParams generatePlanFragmentParams(TStreamLoadPutRequest request, Database db,
-            String fullDbName, OlapTable table,
-            long timeoutMs, int multiTableFragmentInstanceIdIndex,
-            boolean isMultiTableRequest)
+                                                               String fullDbName, OlapTable table,
+                                                               long timeoutMs, int multiTableFragmentInstanceIdIndex,
+                                                               boolean isMultiTableRequest)
             throws UserException {
         if (!table.tryReadLock(timeoutMs, TimeUnit.MILLISECONDS)) {
             throw new UserException(
@@ -1961,10 +1961,10 @@ public class FrontendServiceImpl implements FrontendService.Iface {
     }
 
     private TPipelineFragmentParams generatePipelineStreamLoadPut(TStreamLoadPutRequest request, Database db,
-            String fullDbName, OlapTable table,
-            long timeoutMs,
-            int multiTableFragmentInstanceIdIndex,
-            boolean isMultiTableRequest)
+                                                                  String fullDbName, OlapTable table,
+                                                                  long timeoutMs,
+                                                                  int multiTableFragmentInstanceIdIndex,
+                                                                  boolean isMultiTableRequest)
             throws UserException {
         if (db == null) {
             String dbName = fullDbName;

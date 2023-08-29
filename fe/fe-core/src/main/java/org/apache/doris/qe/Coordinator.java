@@ -930,7 +930,7 @@ public class Coordinator {
     }
 
     private void waitRpc(List<Triple<BackendExecStates, BackendServiceProxy, Future<PExecPlanFragmentResult>>> futures,
-            long leftTimeMs,
+                         long leftTimeMs,
             String operation) throws RpcException, UserException {
         if (leftTimeMs <= 0) {
             throw new UserException("timeout before waiting for " + operation + " RPC. Elapse(sec): " + (
@@ -1924,7 +1924,7 @@ public class Coordinator {
 
     // weather we can overwrite the first parameter or not?
     private List<TScanRangeParams> findOrInsert(Map<Integer, List<TScanRangeParams>> m, Integer key,
-            ArrayList<TScanRangeParams> defaultVal) {
+                                                ArrayList<TScanRangeParams> defaultVal) {
         List<TScanRangeParams> value = m.get(key);
         if (value == null) {
             m.put(key, defaultVal);
@@ -1975,7 +1975,7 @@ public class Coordinator {
                     = findOrInsert(assignment, addressScanRange.getKey(), new HashMap<>());
             int expectedInstanceNum = 1;
             if (parallelExecInstanceNum > 1) {
-                // the scan instance num should not larger than the tablets num
+                //the scan instance num should not larger than the tablets num
                 expectedInstanceNum = Math.min(scanRange.size(), parallelExecInstanceNum);
             }
 
@@ -2092,7 +2092,7 @@ public class Coordinator {
         Map<Integer, TNetworkAddress> bucketSeqToAddress = fragmentIdToSeqToAddressMap.get(scanNode.getFragmentId());
         BucketSeqToScanRange bucketSeqToScanRange = fragmentIdTobucketSeqToScanRangeMap.get(scanNode.getFragmentId());
         for (Integer bucketSeq : scanNode.bucketSeq2locations.keySet()) {
-            // fill scanRangeParamsList
+            //fill scanRangeParamsList
             List<TScanRangeLocations> locations = scanNode.bucketSeq2locations.get(bucketSeq);
             if (!bucketSeqToAddress.containsKey(bucketSeq)) {
                 getExecHostPortForFragmentIDAndBucketSeq(locations.get(0),
@@ -2115,7 +2115,7 @@ public class Coordinator {
         }
     }
 
-    // ensure bucket sequence distribued to every host evenly
+    //ensure bucket sequence distribued to every host evenly
     private void getExecHostPortForFragmentIDAndBucketSeq(TScanRangeLocations seqLocation,
             PlanFragmentId fragmentId, Integer bucketSeq, Map<TNetworkAddress, Long> assignedBytesPerHost,
             Map<TNetworkAddress, Long> replicaNumPerHost)
@@ -2129,9 +2129,9 @@ public class Coordinator {
     }
 
     public TScanRangeLocation selectBackendsByRoundRobin(TScanRangeLocations seqLocation,
-            Map<TNetworkAddress, Long> assignedBytesPerHost,
-            Map<TNetworkAddress, Long> replicaNumPerHost,
-            Reference<Long> backendIdRef) throws UserException {
+                                                         Map<TNetworkAddress, Long> assignedBytesPerHost,
+                                                         Map<TNetworkAddress, Long> replicaNumPerHost,
+                                                         Reference<Long> backendIdRef) throws UserException {
         if (!Config.enable_local_replica_selection) {
             return selectBackendsByRoundRobin(seqLocation.getLocations(), assignedBytesPerHost, replicaNumPerHost,
                     backendIdRef);
@@ -2516,11 +2516,11 @@ public class Coordinator {
             Reference<Long> backendIdRef = new Reference<>();
             TNetworkAddress execHostPort = SimpleScheduler.getHost(buckendId,
                     seqLocation.locations, idToBackend, backendIdRef);
-            // the backend with buckendId is not alive, chose another new backend
+            //the backend with buckendId is not alive, chose another new backend
             if (backendIdRef.getRef() != buckendId) {
                 buckendIdToBucketCountMap.put(backendIdRef.getRef(),
                         buckendIdToBucketCountMap.getOrDefault(backendIdRef.getRef(), 0) + 1);
-            } else { // the backend with buckendId is alive, update buckendIdToBucketCountMap directly
+            } else { //the backend with buckendId is alive, update buckendIdToBucketCountMap directly
                 buckendIdToBucketCountMap.put(buckendId, buckendIdToBucketCountMap.getOrDefault(buckendId, 0) + 1);
             }
             for (TScanRangeLocation location : seqLocation.locations) {
@@ -2558,7 +2558,7 @@ public class Coordinator {
             BucketSeqToScanRange bucketSeqToScanRange = fragmentIdBucketSeqToScanRangeMap.get(scanNode.getFragmentId());
 
             for (Integer bucketSeq : scanNode.bucketSeq2locations.keySet()) {
-                // fill scanRangeParamsList
+                //fill scanRangeParamsList
                 List<TScanRangeLocations> locations = scanNode.bucketSeq2locations.get(bucketSeq);
                 if (!bucketSeqToAddress.containsKey(bucketSeq)) {
                     getExecHostPortForFragmentIDAndBucketSeq(locations.get(0), scanNode.getFragmentId(),
@@ -2617,7 +2617,7 @@ public class Coordinator {
                         = findOrInsert(assignment, addressScanRange.getKey(), new HashMap<>());
                 int expectedInstanceNum = 1;
                 if (parallelExecInstanceNum > 1) {
-                    // the scan instance num should not larger than the tablets num
+                    //the scan instance num should not larger than the tablets num
                     expectedInstanceNum = Math.min(scanRange.size(), parallelExecInstanceNum);
                 }
 
@@ -2676,8 +2676,8 @@ public class Coordinator {
         TUniqueId instanceId;
 
         public BackendExecState(PlanFragmentId fragmentId, int instanceId, int profileFragmentId,
-                TExecPlanFragmentParams rpcParams, Map<TNetworkAddress, Long> addressToBackendID,
-                RuntimeProfile loadChannelProfile) {
+                                TExecPlanFragmentParams rpcParams, Map<TNetworkAddress, Long> addressToBackendID,
+                                RuntimeProfile loadChannelProfile) {
             this.profileFragmentId = profileFragmentId;
             this.fragmentId = fragmentId;
             this.rpcParams = rpcParams;
@@ -3483,7 +3483,7 @@ public class Coordinator {
         }
 
         public FInstanceExecParam(TUniqueId id, TNetworkAddress host,
-                int perFragmentInstanceIdx, FragmentExecParams fragmentExecParams) {
+                                  int perFragmentInstanceIdx, FragmentExecParams fragmentExecParams) {
             this.instanceId = id;
             this.host = host;
             this.perFragmentInstanceIdx = perFragmentInstanceIdx;
