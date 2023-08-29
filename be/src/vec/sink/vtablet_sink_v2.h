@@ -226,7 +226,7 @@ private:
     size_t _stream_index = 0;
     std::shared_ptr<DeltaWriterForTablet> _delta_writer_for_tablet;
 
-    std::atomic<int> _pending_reports {0};
+    std::atomic<int> _pending_streams {0};
 
     std::unordered_map<int64_t, std::vector<int64_t>> _tablet_success_map;
     std::unordered_map<int64_t, std::vector<int64_t>> _tablet_failure_map;
