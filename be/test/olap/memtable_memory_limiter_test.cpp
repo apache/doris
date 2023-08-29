@@ -87,7 +87,6 @@ protected:
         options.store_paths = paths;
         Status s = doris::StorageEngine::open(options, &_engine);
         ExecEnv* exec_env = doris::ExecEnv::GetInstance();
-        exec_env->set_storage_engine(_engine.get());
         _engine->start_bg_threads();
         exec_env->set_memtable_memory_limiter(new MemTableMemoryLimiter());
     }

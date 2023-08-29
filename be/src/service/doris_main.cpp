@@ -498,7 +498,6 @@ int main(int argc, char** argv) {
         LOG(FATAL) << "fail to open StorageEngine, res=" << st;
         exit(-1);
     }
-    exec_env->set_storage_engine(engine.get());
     engine->set_heartbeat_flags(exec_env->heartbeat_flags());
 
     // start all background threads of storage engine.

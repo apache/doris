@@ -103,9 +103,6 @@ public:
         Status s = doris::StorageEngine::open(options, &k_engine);
         EXPECT_TRUE(s.ok()) << s.to_string();
 
-        ExecEnv* exec_env = doris::ExecEnv::GetInstance();
-        exec_env->set_storage_engine(k_engine.get());
-
         EXPECT_TRUE(io::global_local_filesystem()->create_directory(kTestDir).ok());
     }
 

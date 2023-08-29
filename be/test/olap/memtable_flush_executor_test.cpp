@@ -58,9 +58,6 @@ void set_up() {
     Status s = doris::StorageEngine::open(options, &k_engine);
     EXPECT_TRUE(s.ok()) << s.to_string();
 
-    ExecEnv* exec_env = doris::ExecEnv::GetInstance();
-    exec_env->set_storage_engine(k_engine.get());
-
     k_flush_executor = k_engine->memtable_flush_executor();
 }
 

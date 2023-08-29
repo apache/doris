@@ -51,7 +51,7 @@ using namespace brpc;
 namespace doris {
 
 static const uint32_t MAX_PATH_LEN = 1024;
-StorageEngine* z_engine = nullptr;
+static std::unique_ptr<StorageEngine> k_engine;
 static const std::string zTestDir = "./data_test/data/load_stream_mgr_test";
 
 const int64_t NORMAL_TABLET_ID = 10000;
@@ -580,15 +580,14 @@ public:
 
         doris::EngineOptions options;
         options.store_paths = paths;
-        Status s = doris::StorageEngine::open(options, &z_engine);
+        Status s = doris::StorageEngine::open(options, &k_engine);
         EXPECT_TRUE(s.ok()) << s.to_string();
 
         _env = doris::ExecEnv::GetInstance();
-        _env->set_storage_engine(z_engine);
 
         EXPECT_TRUE(io::global_local_filesystem()->create_directory(zTestDir).ok());
 
-        z_engine->start_bg_threads();
+        k_engine->start_bg_threads();
 
         _load_stream_mgr = std::make_unique<LoadStreamMgr>(4, &_heavy_work_pool, &_light_work_pool);
         _stream_service = new StreamService(_load_stream_mgr.get());
@@ -604,17 +603,13 @@ public:
             TCreateTabletReq request;
             create_tablet_request(NORMAL_TABLET_ID + i, SCHEMA_HASH, &request);
             auto profile = std::make_unique<RuntimeProfile>("test");
-            Status res = z_engine->create_tablet(request, profile.get());
+            Status res = k_engine->create_tablet(request, profile.get());
             EXPECT_EQ(Status::OK(), res);
         }
     }
 
     void TearDown() override {
-        if (z_engine != nullptr) {
-            z_engine->stop();
-            delete z_engine;
-            z_engine = nullptr;
-        }
+        k_engine.reset();
         _server->Stop(1000);
         _load_stream_mgr.reset();
         CHECK_EQ(0, _server->Join());
@@ -622,9 +617,9 @@ public:
     }
 
     std::string read_data(int64_t txn_id, int64_t partition_id, int64_t tablet_id, uint32_t segid) {
-        auto tablet = z_engine->tablet_manager()->get_tablet(tablet_id);
+        auto tablet = k_engine->tablet_manager()->get_tablet(tablet_id);
         std::map<TabletInfo, RowsetSharedPtr> tablet_related_rs;
-        z_engine->txn_manager()->get_txn_related_tablets(txn_id, partition_id, &tablet_related_rs);
+        k_engine->txn_manager()->get_txn_related_tablets(txn_id, partition_id, &tablet_related_rs);
         LOG(INFO) << "get txn related tablet, txn_id=" << txn_id << ", tablet_id=" << tablet_id
                   << "partition_id=" << partition_id;
         for (auto& [tablet, rowset] : tablet_related_rs) {

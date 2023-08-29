@@ -79,7 +79,6 @@ public:
         EXPECT_TRUE(s.ok()) << s.to_string();
 
         ExecEnv* exec_env = doris::ExecEnv::GetInstance();
-        exec_env->set_storage_engine(l_engine.get());
 
         EXPECT_TRUE(io::global_local_filesystem()->create_directory(lTestDir).ok());
 

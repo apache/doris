@@ -83,7 +83,6 @@ static void set_up() {
     EXPECT_TRUE(s.ok()) << s.to_string();
 
     ExecEnv* exec_env = doris::ExecEnv::GetInstance();
-    exec_env->set_storage_engine(k_engine.get());
     exec_env->set_memtable_memory_limiter(new MemTableMemoryLimiter());
     k_engine->start_bg_threads();
 }

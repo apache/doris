@@ -80,7 +80,6 @@ static void set_up() {
     Status s = doris::StorageEngine::open(options, &k_engine);
     EXPECT_TRUE(s.ok()) << s.to_string();
     ExecEnv* exec_env = doris::ExecEnv::GetInstance();
-    exec_env->set_storage_engine(k_engine.get());
     k_engine->start_bg_threads();
     exec_env->set_memtable_memory_limiter(new MemTableMemoryLimiter());
 }

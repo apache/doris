@@ -171,9 +171,6 @@ public:
 
     const std::vector<StorePath>& store_paths() const { return _store_paths; }
 
-    StorageEngine* storage_engine() { return _storage_engine; }
-    void set_storage_engine(StorageEngine* storage_engine) { _storage_engine = storage_engine; }
-
     std::shared_ptr<StreamLoadExecutor> stream_load_executor() { return _stream_load_executor; }
     RoutineLoadTaskExecutor* routine_load_task_executor() { return _routine_load_task_executor; }
     HeartbeatFlags* heartbeat_flags() { return _heartbeat_flags; }
@@ -261,8 +258,6 @@ private:
     std::shared_ptr<NewLoadStreamMgr> _new_load_stream_mgr;
     BrpcClientCache<PBackendService_Stub>* _internal_client_cache = nullptr;
     BrpcClientCache<PFunctionService_Stub>* _function_client_cache = nullptr;
-
-    StorageEngine* _storage_engine = nullptr;
 
     std::shared_ptr<StreamLoadExecutor> _stream_load_executor;
     RoutineLoadTaskExecutor* _routine_load_task_executor = nullptr;
