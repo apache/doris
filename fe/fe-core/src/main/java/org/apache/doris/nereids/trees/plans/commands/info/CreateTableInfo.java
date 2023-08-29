@@ -167,7 +167,7 @@ public class CreateTableInfo {
         boolean isEnableMergeOnWrite = false;
         if (keysType.equals(KeysType.UNIQUE_KEYS) && properties != null) {
             try {
-                isEnableMergeOnWrite = PropertyAnalyzer.analyzeUniqueKeyMergeOnWrite(properties);
+                isEnableMergeOnWrite = PropertyAnalyzer.analyzeUniqueKeyMergeOnWrite(Maps.newHashMap(properties));
             } catch (Exception e) {
                 throw new AnalysisException(e.getMessage(), e.getCause());
             }
@@ -183,11 +183,13 @@ public class CreateTableInfo {
         }
 
         // add a hidden column as row store
-        boolean storeRowColumn;
-        try {
-            storeRowColumn = PropertyAnalyzer.analyzeStoreRowColumn(properties);
-        } catch (Exception e) {
-            throw new AnalysisException(e.getMessage(), e.getCause());
+        boolean storeRowColumn = false;
+        if (properties != null) {
+            try {
+                storeRowColumn = PropertyAnalyzer.analyzeStoreRowColumn(Maps.newHashMap(properties));
+            } catch (Exception e) {
+                throw new AnalysisException(e.getMessage(), e.getCause());
+            }
         }
         if (storeRowColumn) {
             if (keysType.equals(KeysType.AGG_KEYS)) {
@@ -251,7 +253,7 @@ public class CreateTableInfo {
         if (properties != null) {
             try {
                 enableDuplicateWithoutKeysByDefault =
-                        PropertyAnalyzer.analyzeEnableDuplicateWithoutKeysByDefault(properties);
+                        PropertyAnalyzer.analyzeEnableDuplicateWithoutKeysByDefault(Maps.newHashMap(properties));
             } catch (Exception e) {
                 throw new AnalysisException(e.getMessage(), e.getCause());
             }
