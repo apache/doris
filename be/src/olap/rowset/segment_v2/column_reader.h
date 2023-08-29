@@ -247,15 +247,9 @@ private:
     std::unique_ptr<BitmapIndexReader> _bitmap_index;
     std::shared_ptr<InvertedIndexReader> _inverted_index;
     std::unique_ptr<BloomFilterIndexReader> _bloom_filter_index;
-    DorisCallOnce<Status> _load_zone_map_index_once;
-    DorisCallOnce<Status> _load_ordinal_index_once;
-    DorisCallOnce<Status> _load_bitmap_index_once;
-    DorisCallOnce<Status> _load_bloom_filter_index_once;
-    DorisCallOnce<Status> _load_inverted_index_once;
 
     std::vector<std::unique_ptr<ColumnReader>> _sub_readers;
 
-    std::once_flag _set_dict_encoding_type_flag;
     DorisCallOnce<Status> _set_dict_encoding_type_once;
 };
 
