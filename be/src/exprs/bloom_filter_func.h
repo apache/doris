@@ -224,7 +224,10 @@ public:
         }
     }
 
-    int get_filter_id() const { return _filter_id; }
+    int get_filter_id() const {
+        DCHECK(_filter_id!=-1);
+        return _filter_id;
+    }
 
     virtual void insert(const void* data) = 0;
 
