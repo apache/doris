@@ -28,7 +28,6 @@
 #include <functional>
 #include <memory>
 #include <string>
-#include <variant>
 
 #include "common/status.h"
 #include "runtime/define_primitive_type.h"
