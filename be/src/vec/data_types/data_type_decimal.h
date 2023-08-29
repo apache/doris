@@ -89,11 +89,6 @@ constexpr size_t max_decimal_precision<Decimal128I>() {
     return 38;
 }
 
-template <typename T>
-constexpr typename T::NativeType max_decimal_value() {
-    return 0;
-}
-
 DataTypePtr create_decimal(UInt64 precision, UInt64 scale, bool use_v2);
 
 inline UInt32 least_decimal_precision_for(TypeIndex int_type) {
