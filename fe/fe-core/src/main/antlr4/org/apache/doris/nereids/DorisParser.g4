@@ -55,7 +55,8 @@ statement
         whereClause                                                    #delete
     | CREATE TABLE (IF NOT EXISTS)? name=multipartIdentifier
       LEFT_PAREN columns = columnDefinitionList (COMMA indexes = indexDefinitionList)? RIGHT_PAREN
-                                                #createTable
+      keys = keysDefinition comment = commentSpec? #createTable
+
     ;
 
 // -----------------Command accessories-----------------
@@ -461,69 +462,6 @@ unitIdentifier
     : YEAR | MONTH | WEEK | DAY | HOUR | MINUTE | SECOND
     ;
 
-typeDefinition1
-    : baseType
-    ;
-
-arrayType
-    : ARRAY '<' typeDefinition1 '>'
-    ;
-
-mapType
-    : MAP '<' typeDefinition1 ',' typeDefinition1 '>'
-    ;
-
-subfieldDesc
-    : identifier typeDefinition1
-    ;
-
-subfieldDescs
-    : subfieldDesc (',' subfieldDesc)*
-    ;
-
-structType
-    : STRUCT '<' subfieldDescs '>'
-    ;
-
-typeParameter
-    : '(' INTEGER_VALUE ')'
-    ;
-
-baseType
-    : BOOLEAN
-    | FFF
-    | TINYINT typeParameter?
-    | SMALLINT typeParameter?
-    | SIGNED INT?
-    | SIGNED INTEGER?
-    | UNSIGNED INT?
-    | UNSIGNED INTEGER?
-    | INT typeParameter?
-    | INTEGER typeParameter?
-    | BIGINT typeParameter?
-    | LARGEINT typeParameter?
-    | FLOAT
-    | DOUBLE
-    | DATE
-    | DATETIME
-    | TIME
-    | CHAR typeParameter?
-    | VARCHAR typeParameter?
-    | STRING
-    | TEXT
-    | BITMAP
-    | HLL
-    | PERCENTILE
-    | JSON
-    | VARBINARY typeParameter?
-    | BINARY typeParameter?
-    ;
-
-decimalType
-    : (DECIMAL | DECIMALV2 | DECIMAL32 | DECIMAL64 | DECIMAL128 | NUMERIC | NUMBER )
-        ('(' precision=INTEGER_VALUE (',' scale=INTEGER_VALUE)? ')')?
-    ;
-
 aggTypeDefinition
     : SUM | MIN | MAX | REPLACE | REPLACE_IF_NOT_NULL | HLL_UNION | BITMAP_UNION | QUANTILE_UNION
     ;
@@ -537,7 +475,11 @@ indexDefinitionList
     ;
 
 indexDefinition
-    : identifier dataType
+    : INDEX identifier identifierList indexTypeDefinition? commentSpec?
+    ;
+
+indexTypeDefinition
+    : USING (BITMAP | NGRAM_BF | INVERTED)
     ;
 
 columnDefinitionList
@@ -545,7 +487,11 @@ columnDefinitionList
     ;
 
 columnDefinition
-    : typeDefinition1
+    : identifier dataType KEY? aggTypeDefinition? (NULL| NOT NULL)? (AUTO_INCREMENT|(defaultValueDefinition))? commentSpec?
+    ;
+
+keysDefinition
+    : (AGGREGATE | UNIQUE | DUPLICATE) KEY identifierList
     ;
 
 dataType
@@ -877,6 +823,5 @@ nonReserved
     | WITHIN
     | YEAR
     | ZONE
-    | INT
 //--DEFAULT-NON-RESERVED-END
     ;

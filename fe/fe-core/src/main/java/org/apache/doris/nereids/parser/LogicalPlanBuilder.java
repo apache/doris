@@ -18,11 +18,18 @@
 package org.apache.doris.nereids.parser;
 
 import org.apache.doris.analysis.ArithmeticExpr.Operator;
+import org.apache.doris.analysis.ColumnDef;
+import org.apache.doris.analysis.ColumnDef.DefaultValue;
+import org.apache.doris.analysis.IndexDef;
+import org.apache.doris.analysis.KeysDesc;
 import org.apache.doris.analysis.UserIdentity;
+import org.apache.doris.catalog.AggregateType;
+import org.apache.doris.catalog.KeysType;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.DorisParser;
 import org.apache.doris.nereids.DorisParser.AggClauseContext;
+import org.apache.doris.nereids.DorisParser.AggTypeDefinitionContext;
 import org.apache.doris.nereids.DorisParser.AliasQueryContext;
 import org.apache.doris.nereids.DorisParser.AliasedQueryContext;
 import org.apache.doris.nereids.DorisParser.ArithmeticBinaryContext;
@@ -38,6 +45,7 @@ import org.apache.doris.nereids.DorisParser.ColumnDefinitionListContext;
 import org.apache.doris.nereids.DorisParser.ColumnReferenceContext;
 import org.apache.doris.nereids.DorisParser.CommentJoinHintContext;
 import org.apache.doris.nereids.DorisParser.CommentRelationHintContext;
+import org.apache.doris.nereids.DorisParser.CommentSpecContext;
 import org.apache.doris.nereids.DorisParser.ComparisonContext;
 import org.apache.doris.nereids.DorisParser.ComplexDataTypeContext;
 import org.apache.doris.nereids.DorisParser.ConstantContext;
@@ -48,6 +56,7 @@ import org.apache.doris.nereids.DorisParser.DataTypeContext;
 import org.apache.doris.nereids.DorisParser.Date_addContext;
 import org.apache.doris.nereids.DorisParser.Date_subContext;
 import org.apache.doris.nereids.DorisParser.DecimalLiteralContext;
+import org.apache.doris.nereids.DorisParser.DefaultValueDefinitionContext;
 import org.apache.doris.nereids.DorisParser.DeleteContext;
 import org.apache.doris.nereids.DorisParser.DereferenceContext;
 import org.apache.doris.nereids.DorisParser.ElementAtContext;
@@ -62,6 +71,9 @@ import org.apache.doris.nereids.DorisParser.HintStatementContext;
 import org.apache.doris.nereids.DorisParser.IdentifierListContext;
 import org.apache.doris.nereids.DorisParser.IdentifierOrTextContext;
 import org.apache.doris.nereids.DorisParser.IdentifierSeqContext;
+import org.apache.doris.nereids.DorisParser.IndexDefinitionContext;
+import org.apache.doris.nereids.DorisParser.IndexDefinitionListContext;
+import org.apache.doris.nereids.DorisParser.IndexTypeDefinitionContext;
 import org.apache.doris.nereids.DorisParser.InsertIntoQueryContext;
 import org.apache.doris.nereids.DorisParser.IntegerLiteralContext;
 import org.apache.doris.nereids.DorisParser.IntervalContext;
@@ -69,6 +81,7 @@ import org.apache.doris.nereids.DorisParser.Is_not_null_predContext;
 import org.apache.doris.nereids.DorisParser.IsnullContext;
 import org.apache.doris.nereids.DorisParser.JoinCriteriaContext;
 import org.apache.doris.nereids.DorisParser.JoinRelationContext;
+import org.apache.doris.nereids.DorisParser.KeysDefinitionContext;
 import org.apache.doris.nereids.DorisParser.LateralViewContext;
 import org.apache.doris.nereids.DorisParser.LimitClauseContext;
 import org.apache.doris.nereids.DorisParser.LogicalBinaryContext;
@@ -461,7 +474,30 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     public Command visitCreateTable(CreateTableContext ctx) {
         List<String> nameParts = visitMultipartIdentifier(ctx.name);
         List<ColumnDefinition> ColumnDefinitions = visitColumnDefinitionList(ctx.columns);
-        return new CreateTableCommand(nameParts, ColumnDefinitions);
+        List<IndexDef> indexDefs = visitIndexDefinitionList(ctx.indexes);
+        KeysDesc keysDesc = visitKeysDefinition(ctx.keys);
+        return new CreateTableCommand(nameParts, ColumnDefinitions, indexDefs, keysDesc);
+    }
+
+    @Override
+    public KeysDesc visitKeysDefinition(KeysDefinitionContext ctx) {
+        if (ctx == null) {
+            return null;
+        }
+        KeysType keysType = null;
+        if (null != ctx.DUPLICATE()) {
+            keysType = KeysType.DUP_KEYS;
+        } else if (null != ctx.AGGREGATE()) {
+            keysType = KeysType.AGG_KEYS;
+        } else if (null != ctx.UNIQUE()) {
+            keysType = KeysType.UNIQUE_KEYS;
+        }
+        return new KeysDesc(keysType, visitIdentifierList(ctx.identifierList()));
+    }
+
+    @Override
+    public List<IndexDef> visitIndexDefinitionList(IndexDefinitionListContext ctx) {
+        return ctx.indexDefinition().stream().map(this::visitIndexDefinition).collect(Collectors.toList());
     }
 
     @Override
@@ -470,15 +506,82 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     }
 
     @Override
+    public IndexDef visitIndexDefinition(IndexDefinitionContext ctx) {
+        String name = ctx.identifier().getText();
+        List<String> cols = visitIdentifierList(ctx.identifierList());
+        IndexDef.IndexType indexType = visitIndexTypeDefinition(ctx.indexTypeDefinition());
+        String comment = visitCommentSpec(ctx.commentSpec());
+        return new IndexDef(name, false, cols, indexType, null, comment);
+    }
+
+    @Override
+    public IndexDef.IndexType visitIndexTypeDefinition(IndexTypeDefinitionContext ctx) {
+        if (ctx == null) {
+            return null;
+        }
+        return IndexDef.IndexType.valueOf(ctx.getText().toUpperCase());
+    }
+
+    @Override
     public ColumnDefinition visitColumnDefinition(ColumnDefinitionContext ctx) {
-        DataTypeContext columnType = ctx.columnType;
+        DataTypeContext columnType = ctx.dataType();
         DataType dataType;
         if (columnType instanceof PrimitiveDataTypeContext) {
             dataType = visitPrimitiveDataType((PrimitiveDataTypeContext) ctx.dataType());
         } else {
             dataType = visitComplexDataType((ComplexDataTypeContext) ctx.dataType());
         }
-        return new ColumnDefinition(ctx.columnName.getText(), dataType);
+        boolean isKey = ctx.KEY() != null;
+        AggregateType aggregateType = visitAggTypeDefinition(ctx.aggTypeDefinition());
+        boolean isAllowNull = false;
+        if (ctx.NOT() != null && ctx.NULL() != null) {
+            isAllowNull = false;
+        } else if (ctx.NULL() != null) {
+            isAllowNull = true;
+        }
+        boolean isAutoIncrement = ctx.AUTO_INCREMENT() != null;
+
+        DefaultValue defaultValue = visitDefaultValueDefinition(ctx.defaultValueDefinition());
+        String comment = visitCommentSpec(ctx.commentSpec());
+
+        return new ColumnDefinition(ctx.identifier().getText(), dataType, isKey, aggregateType, isAllowNull,
+                isAutoIncrement, defaultValue, comment);
+    }
+
+    @Override
+    public String visitCommentSpec(CommentSpecContext ctx) {
+        if (ctx == null) {
+            return "";
+        }
+        return ctx.getText();
+    }
+
+    @Override
+    public DefaultValue visitDefaultValueDefinition(DefaultValueDefinitionContext ctx) {
+        ColumnDef.DefaultValue defaultValueDef = ColumnDef.DefaultValue.NOT_SET;
+
+        if (ctx != null) {
+            if (ctx.STRING_LITERAL() != null) {
+                String value = ctx.STRING_LITERAL().getText();
+                defaultValueDef = new ColumnDef.DefaultValue(true, value);
+            } else if (ctx.NULL() != null) {
+                defaultValueDef = ColumnDef.DefaultValue.NULL_DEFAULT_VALUE;
+            } else if (ctx.CURRENT_TIMESTAMP() != null) {
+                defaultValueDef = ColumnDef.DefaultValue.CURRENT_TIMESTAMP_DEFAULT_VALUE;
+            } else if (ctx.INTEGER_VALUE() != null) {
+                defaultValueDef = ColumnDef.DefaultValue
+                        .currentTimeStampDefaultValueWithPrecision(Long.valueOf(ctx.INTEGER_VALUE().getText()));
+            }
+        }
+        return defaultValueDef;
+    }
+
+    @Override
+    public AggregateType visitAggTypeDefinition(AggTypeDefinitionContext ctx) {
+        if (ctx == null) {
+            return null;
+        }
+        return AggregateType.valueOf(ctx.getText().toUpperCase());
     }
 
     @Override

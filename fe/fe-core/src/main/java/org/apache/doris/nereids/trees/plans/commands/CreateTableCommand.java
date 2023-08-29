@@ -18,6 +18,8 @@
 package org.apache.doris.nereids.trees.plans.commands;
 
 import org.apache.doris.analysis.CreateTableStmt;
+import org.apache.doris.analysis.IndexDef;
+import org.apache.doris.analysis.KeysDesc;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.nereids.analyzer.ColumnDefinition;
 import org.apache.doris.nereids.trees.plans.PlanType;
@@ -32,12 +34,17 @@ import java.util.List;
  */
 public class CreateTableCommand extends Command implements ForwardWithSync {
     private final List<String> tableName;
-    private final List<ColumnDefinition> ColumnDefinitions;
+    private final List<ColumnDefinition> columnDefinitions;
+    private final List<IndexDef> indexDefs;
+    private final KeysDesc keysDesc;
 
-    public CreateTableCommand(List<String> tableName, List<ColumnDefinition> ColumnDefinitions) {
+    public CreateTableCommand(List<String> tableName, List<ColumnDefinition> columnDefinitions,
+            List<IndexDef> indexDefs, KeysDesc keysDesc) {
         super(PlanType.CREATE_TABLE_COMMAND);
         this.tableName = tableName;
-        this.ColumnDefinitions = ColumnDefinitions;
+        this.columnDefinitions = columnDefinitions;
+        this.indexDefs = indexDefs;
+        this.keysDesc = keysDesc;
     }
 
     @Override
