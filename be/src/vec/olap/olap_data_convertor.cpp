@@ -934,7 +934,6 @@ Status OlapBlockDataConvertor::OlapColumnDataConvertorArray::convert_to_olap() {
     return convert_to_olap(column_array, data_type_array);
 }
 
-
 Status OlapBlockDataConvertor::OlapColumnDataConvertorArray::convert_to_olap(
         const ColumnArray* column_array, const DataTypeArray* data_type_array) {
     ColumnPtr item_data = column_array->get_data_ptr();
@@ -945,11 +944,10 @@ Status OlapBlockDataConvertor::OlapColumnDataConvertorArray::convert_to_olap(
 
     _offsets.clear();
     _offsets.reserve(_num_rows + 1);
-    int i = 0;
-    for (; i < _num_rows; ++i) {
+    for (int i = 0; i <= _num_rows; ++i) {
         _offsets.push_back(column_array->offset_at(i + _row_pos) - start_offset + _base_offset);
     }
-    _offsets.push_back(column_array->offset_at(i + _row_pos) - start_offset + _base_offset);
+
     _base_offset += elem_size;
 
     ColumnWithTypeAndName item_typed_column = {item_data, data_type_array->get_nested_type(),
