@@ -33,6 +33,7 @@ import org.apache.doris.nereids.DorisParser.BooleanExpressionContext;
 import org.apache.doris.nereids.DorisParser.BooleanLiteralContext;
 import org.apache.doris.nereids.DorisParser.BracketJoinHintContext;
 import org.apache.doris.nereids.DorisParser.BracketRelationHintContext;
+import org.apache.doris.nereids.DorisParser.CollateContext;
 import org.apache.doris.nereids.DorisParser.ColumnReferenceContext;
 import org.apache.doris.nereids.DorisParser.CommentJoinHintContext;
 import org.apache.doris.nereids.DorisParser.CommentRelationHintContext;
@@ -2053,5 +2054,10 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             return ((Literal) constant).getStringValue();
         }
         return context.getText();
+    }
+
+    @Override
+    public Object visitCollate(CollateContext ctx) {
+        return visit(ctx.primaryExpression());
     }
 }
