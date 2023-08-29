@@ -172,7 +172,8 @@ void DataTypeDecimalSerDe<T>::write_one_cell_to_jsonb(const IColumn& column, Jso
         Decimal64::NativeType val = *reinterpret_cast<const Decimal64::NativeType*>(data_ref.data);
         result.writeInt64(val);
     } else {
-        LOG(FATAL) << "unknown Column " << column.get_name() << " for writing to jsonb";
+        throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
+                               "write_one_cell_to_jsonb with type " + column.get_name());
     }
 }
 
@@ -189,7 +190,8 @@ void DataTypeDecimalSerDe<T>::read_one_cell_from_jsonb(IColumn& column,
     } else if constexpr (std::is_same_v<T, Decimal<Int64>>) {
         col.insert_value(static_cast<const JsonbInt64Val*>(arg)->val());
     } else {
-        LOG(FATAL) << "unknown jsonb " << arg->typeName() << " for writing to column";
+        throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
+                               "read_one_cell_from_jsonb with type " + column.get_name());
     }
 }
 } // namespace vectorized
