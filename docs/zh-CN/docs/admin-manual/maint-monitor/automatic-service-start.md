@@ -1,4 +1,4 @@
-![image](https://github.com/i78086/doris/assets/45870467/0bd86e24-f19b-48db-a74a-61f3b7c642d2)---
+---
 {
     "title": "服务自动拉起",
     "language": "zh-CN"
