@@ -323,16 +323,16 @@ public class ConnectContext {
         return stmtId;
     }
 
-    public void setStmtId(long stmtId) {
-        this.stmtId = stmtId;
-    }
-
     public long getBackendId() {
         return backendId;
     }
 
     public void setBackendId(long backendId) {
         this.backendId = backendId;
+    }
+
+    public void setStmtId(long stmtId) {
+        this.stmtId = stmtId;
     }
 
     public long getForwardedStmtId() {
@@ -351,12 +351,12 @@ public class ConnectContext {
         this.remoteIP = remoteIP;
     }
 
-    public QueryDetail getQueryDetail() {
-        return queryDetail;
-    }
-
     public void setQueryDetail(QueryDetail queryDetail) {
         this.queryDetail = queryDetail;
+    }
+
+    public QueryDetail getQueryDetail() {
+        return queryDetail;
     }
 
     public AuditEventBuilder getAuditEventBuilder() {
@@ -379,13 +379,13 @@ public class ConnectContext {
         this.txnEntry = txnEntry;
     }
 
-    public Env getEnv() {
-        return env;
-    }
-
     public void setEnv(Env env) {
         this.env = env;
         defaultCatalog = env.getInternalCatalog().getName();
+    }
+
+    public Env getEnv() {
+        return env;
     }
 
     public String getQualifiedUser() {
@@ -537,12 +537,12 @@ public class ConnectContext {
         currentDbId = dbInstance.map(DatabaseIf::getId).orElse(-1L);
     }
 
-    public StmtExecutor getExecutor() {
-        return executor;
-    }
-
     public void setExecutor(StmtExecutor executor) {
         this.executor = executor;
+    }
+
+    public StmtExecutor getExecutor() {
+        return executor;
     }
 
     public void cleanup() {
@@ -665,7 +665,7 @@ public class ConnectContext {
             if (executor != null && executor.isInsertStmt()) {
                 timeoutTag = "insert";
             }
-            // to ms
+            //to ms
             long timeout = getExecTimeout() * 1000L;
             if (delta > timeout) {
                 LOG.warn("kill {} timeout, remote: {}, query timeout: {}",

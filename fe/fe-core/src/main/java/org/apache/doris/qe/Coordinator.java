@@ -302,7 +302,7 @@ public class Coordinator {
                 OlapScanNode planRoot = (OlapScanNode) fragment.getPlanRoot();
                 Preconditions.checkNotNull(planRoot);
                 pointExec = new PointQueryExec(planRoot.getPointQueryEqualPredicates(),
-                        planRoot.getDescTable(), fragment.getOutputExprs());
+                                                planRoot.getDescTable(), fragment.getOutputExprs());
             }
         }
         PrepareStmt prepareStmt = analyzer == null ? null : analyzer.getPrepareStmt();
@@ -562,7 +562,7 @@ public class Coordinator {
         }
     }
 
-    private void performFragmentProcessing() throws Exception {
+    private void processFragmentAssignmentAndParams() throws Exception {
         // prepare information
         prepare();
         // compute Fragment Instance
@@ -1796,7 +1796,7 @@ public class Coordinator {
                                 || Config.disable_shared_scan || enablePipelineXEngine) {
                             int expectedInstanceNum = 1;
                             if (parallelExecInstanceNum > 1) {
-                                // the scan instance num should not larger than the tablets num
+                                //the scan instance num should not larger than the tablets num
                                 expectedInstanceNum = Math.min(perNodeScanRanges.size(), parallelExecInstanceNum);
                             }
                             perInstanceScanRanges = ListUtil.splitBySize(perNodeScanRanges,
@@ -1888,7 +1888,7 @@ public class Coordinator {
             }
         }
 
-        // cache the colocateFragmentIds
+        //cache the colocateFragmentIds
         if (colocateFragmentIds.contains(node.getFragmentId().asInt())) {
             return true;
         }
