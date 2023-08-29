@@ -290,8 +290,11 @@ public abstract class DataType {
         } else if (type.isJsonbType()) {
             return JsonType.INSTANCE;
         } else if (type.isStructType()) {
-            // TODO: support struct type really
-            return StructType.INSTANCE;
+            List<StructField> structFields = ((org.apache.doris.catalog.StructType) (type)).getFields().stream()
+                    .map(cf -> new StructField(cf.getName(), fromCatalogType(cf.getType()),
+                            cf.getContainsNull(), cf.getComment()))
+                    .collect(ImmutableList.toImmutableList());
+            return new StructType(structFields);
         } else if (type.isMapType()) {
             org.apache.doris.catalog.MapType mapType = (org.apache.doris.catalog.MapType) type;
             return MapType.of(fromCatalogType(mapType.getKeyType()), fromCatalogType(mapType.getValueType()));

@@ -40,8 +40,7 @@ import java.util.Set;
  */
 public class CheckDataTypes implements CustomRewriter {
 
-    private static final Set<Class<? extends DataType>> UNSUPPORTED_TYPE = ImmutableSet.of(
-            StructType.class, JsonType.class);
+    private static final Set<Class<? extends DataType>> UNSUPPORTED_TYPE = ImmutableSet.of(JsonType.class);
 
     @Override
     public Plan rewriteRoot(Plan rootPlan, JobContext jobContext) {
@@ -92,8 +91,9 @@ public class CheckDataTypes implements CustomRewriter {
             } else if (dataType instanceof MapType) {
                 checkTypes(((MapType) dataType).getKeyType());
                 checkTypes(((MapType) dataType).getValueType());
-            }
-            if (UNSUPPORTED_TYPE.contains(dataType.getClass())) {
+            } else if (dataType instanceof StructType) {
+                ((StructType) dataType).getFields().forEach(f -> this.checkTypes(f.getDataType()));
+            } else if (UNSUPPORTED_TYPE.contains(dataType.getClass())) {
                 throw new AnalysisException(String.format("type %s is unsupported for Nereids", dataType));
             }
         }

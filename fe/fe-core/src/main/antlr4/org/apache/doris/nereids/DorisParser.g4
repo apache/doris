@@ -401,6 +401,7 @@ primaryExpression
     | CASE value=expression whenClause+ (ELSE elseExpression=expression)? END                  #simpleCase
     | name=CAST LEFT_PAREN expression AS dataType RIGHT_PAREN                                  #cast
     | constant                                                                                 #constantDefault
+    | interval                                                                                 #intervalLiteral
     | ASTERISK                                                                                 #star
     | qualifiedName DOT ASTERISK                                                               #star
     | functionIdentifier LEFT_PAREN ((DISTINCT|ALL)? arguments+=expression
@@ -468,11 +469,14 @@ specifiedPartition
 
 constant
     : NULL                                                                                     #nullLiteral
-    | interval                                                                                 #intervalLiteral
-    | type=(DATE | DATEV2 | TIMESTAMP) STRING_LITERAL                                                  #typeConstructor
+    | type=(DATE | DATEV2 | TIMESTAMP) STRING_LITERAL                                          #typeConstructor
     | number                                                                                   #numericLiteral
     | booleanValue                                                                             #booleanLiteral
-    | STRING_LITERAL                                                                                   #stringLiteral
+    | STRING_LITERAL                                                                           #stringLiteral
+    | LEFT_BRACKET items+=constant (COMMA items+=constant)* RIGHT_BRACKET                      #arrayLiteral
+    | LEFT_BRACE items+=constant COLON items+=constant
+       (COMMA items+=constant COLON items+=constant)* RIGHT_BRACE                              #mapLiteral
+    | LEFT_BRACE items+=constant (COMMA items+=constant)* RIGHT_BRACE                          #structLiteral
     ;
 
 comparisonOperator
@@ -543,7 +547,7 @@ quotedIdentifier
     ;
 
 number
-    : MINUS? INTEGER_VALUE            #integerLiteral
+    : MINUS? INTEGER_VALUE                    #integerLiteral
     | MINUS? (EXPONENT_VALUE | DECIMAL_VALUE) #decimalLiteral
     ;
 
