@@ -163,7 +163,8 @@ Status AggFnEvaluator::prepare(RuntimeState* state, const RowDescriptor& desc,
         if (argument_types[0]->is_nullable()) {
             return Status::InternalError("Agg state function input type must be not nullable");
         }
-        if (argument_types[0]->get_type_as_primitive_type() != PrimitiveType::TYPE_AGG_STATE) {
+        if (argument_types[0]->get_type_as_type_descriptor().type !=
+            PrimitiveType::TYPE_AGG_STATE) {
             return Status::InternalError(
                     "Agg state function input type must be agg_state but get {}",
                     argument_types[0]->get_family_name());
@@ -179,7 +180,7 @@ Status AggFnEvaluator::prepare(RuntimeState* state, const RowDescriptor& desc,
                         "Union function return type must be not nullable, real={}",
                         _data_type->get_name());
             }
-            if (_data_type->get_type_as_primitive_type() != PrimitiveType::TYPE_AGG_STATE) {
+            if (_data_type->get_type_as_type_descriptor().type != PrimitiveType::TYPE_AGG_STATE) {
                 return Status::InternalError(
                         "Union function return type must be AGG_STATE, real={}",
                         _data_type->get_name());
