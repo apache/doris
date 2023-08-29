@@ -346,6 +346,8 @@ public class Env {
     private Daemon timePrinter;
     private Daemon listener;
 
+    private Daemon columnIdFlusher;
+
     private boolean isFirstTimeStartUp = false;
     private boolean isElectable;
     // set to true after finished replay all meta and ready to serve
@@ -693,6 +695,7 @@ public class Env {
         this.hiveTransactionMgr = new HiveTransactionMgr();
         this.binlogManager = new BinlogManager();
         this.binlogGcer = new BinlogGcer();
+        this.columnIdFlusher = new ColumnIdFlushDaemon();
     }
 
     public static void destroyCheckpoint() {
@@ -1532,6 +1535,9 @@ public class Env {
 
         // binlog gcer
         binlogGcer.start();
+        if (Config.enable_convert_light_weight_schema_change) {
+            columnIdFlusher.start();
+        }
     }
 
     // start threads that should running on all FE
