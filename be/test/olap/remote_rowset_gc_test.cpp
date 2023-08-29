@@ -105,9 +105,7 @@ public:
         doris::StorageEngine::open(options, &k_engine);
     }
 
-    static void TearDownTestSuite() {
-        k_engine.reset();
-    }
+    static void TearDownTestSuite() { k_engine.reset(); }
 };
 
 static void create_tablet_request_with_sequence_col(int64_t tablet_id, int32_t schema_hash,

@@ -103,7 +103,8 @@ static Status _validate_options(const EngineOptions& options) {
     return Status::OK();
 }
 
-Status StorageEngine::open(const EngineOptions& options, std::unique_ptr<StorageEngine>* engine_ptr) {
+Status StorageEngine::open(const EngineOptions& options,
+                           std::unique_ptr<StorageEngine>* engine_ptr) {
     RETURN_IF_ERROR(_validate_options(options));
     LOG(INFO) << "starting backend using uid:" << options.backend_uid.to_string();
     std::unique_ptr<StorageEngine> engine(new StorageEngine(options));

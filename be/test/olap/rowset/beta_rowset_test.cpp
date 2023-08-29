@@ -106,9 +106,7 @@ public:
         EXPECT_TRUE(io::global_local_filesystem()->create_directory(kTestDir).ok());
     }
 
-    static void TearDownTestSuite() {
-        k_engine.reset();
-    }
+    static void TearDownTestSuite() { k_engine.reset(); }
 
 protected:
     OlapReaderStatistics _stats;

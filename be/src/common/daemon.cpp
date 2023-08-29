@@ -49,8 +49,6 @@
 #include "runtime/memory/mem_tracker.h"
 #include "runtime/memory/mem_tracker_limiter.h"
 #include "runtime/task_group/task_group_manager.h"
-#include "runtime/user_function_cache.h"
-#include "service/backend_options.h"
 #include "util/cpu_info.h"
 #include "util/debug_util.h"
 #include "util/disk_info.h"
@@ -366,50 +364,6 @@ void Daemon::block_spill_gc_thread() {
             ExecEnv::GetInstance()->block_spill_mgr()->gc(200);
         }
     }
-}
-
-static void init_doris_metrics(const std::vector<StorePath>& store_paths) {
-    bool init_system_metrics = config::enable_system_metrics;
-    std::set<std::string> disk_devices;
-    std::vector<std::string> network_interfaces;
-    std::vector<std::string> paths;
-    for (auto& store_path : store_paths) {
-        paths.emplace_back(store_path.path);
-    }
-    if (init_system_metrics) {
-        auto st = DiskInfo::get_disk_devices(paths, &disk_devices);
-        if (!st.ok()) {
-            LOG(WARNING) << "get disk devices failed, status=" << st;
-            return;
-        }
-        st = get_inet_interfaces(&network_interfaces, BackendOptions::is_bind_ipv6());
-        if (!st.ok()) {
-            LOG(WARNING) << "get inet interfaces failed, status=" << st;
-            return;
-        }
-    }
-    DorisMetrics::instance()->initialize(init_system_metrics, disk_devices, network_interfaces);
-}
-
-void Daemon::init(int argc, char** argv, const std::vector<StorePath>& paths) {
-    // google::SetVersionString(get_build_version(false));
-    // google::ParseCommandLineFlags(&argc, &argv, true);
-    google::ParseCommandLineFlags(&argc, &argv, true);
-    init_glog("be");
-
-    LOG(INFO) << get_version_string(false);
-
-    init_thrift_logging();
-    CpuInfo::init();
-    DiskInfo::init();
-    MemInfo::init();
-    UserFunctionCache::instance()->init(config::user_function_dir);
-
-    LOG(INFO) << CpuInfo::debug_string();
-    LOG(INFO) << DiskInfo::debug_string();
-    LOG(INFO) << MemInfo::debug_string();
-
-    init_doris_metrics(paths);
 }
 
 void Daemon::start() {

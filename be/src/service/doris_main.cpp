@@ -59,11 +59,14 @@
 #include "olap/options.h"
 #include "olap/storage_engine.h"
 #include "runtime/exec_env.h"
+#include "runtime/user_function_cache.h"
 #include "service/backend_options.h"
 #include "service/backend_service.h"
 #include "service/brpc_service.h"
 #include "service/http_service.h"
 #include "util/debug_util.h"
+#include "util/disk_info.h"
+#include "util/mem_info.h"
 #include "util/telemetry/telemetry.h"
 #include "util/thrift_rpc_helper.h"
 #include "util/thrift_server.h"
@@ -363,6 +366,15 @@ int main(int argc, char** argv) {
         return -1;
     }
 
+    // ATTN: Callers that want to override default gflags variables should do so before calling this method
+    google::ParseCommandLineFlags(&argc, &argv, true);
+    // ATTN: MUST init before LOG
+    doris::init_glog("be");
+
+    LOG(INFO) << doris::get_version_string(false);
+
+    doris::init_thrift_logging();
+
     if (doris::config::enable_fuzzy_mode) {
         LOG(INFO) << "enable_fuzzy_mode is true, set fuzzy configs";
         doris::config::set_fuzzy_configs();
@@ -466,6 +478,21 @@ int main(int argc, char** argv) {
         }
     }
 
+    // ATTN: MUST init before `ExecEnv`, `StorageEngine` and other daemon services
+    //
+    //       Daemon ───┬─────► StorageEngine ─┬─► Disk/Mem/CpuInfo
+    //                 │                      │
+    //                 │                      │
+    // BackendService ─┴────────► ExecEnv ────┘
+    doris::CpuInfo::init();
+    doris::DiskInfo::init();
+    doris::MemInfo::init();
+    doris::UserFunctionCache::instance()->init(doris::config::user_function_dir);
+
+    LOG(INFO) << doris::CpuInfo::debug_string();
+    LOG(INFO) << doris::DiskInfo::debug_string();
+    LOG(INFO) << doris::MemInfo::debug_string();
+
     // PHDR speed up exception handling, but exceptions from dynamically loaded libraries (dlopen)
     // will work only after additional call of this function.
     // rewrites dl_iterate_phdr will cause Jemalloc to fail to run after enable profile. see #
@@ -505,7 +532,6 @@ int main(int argc, char** argv) {
     EXIT_IF_ERROR(engine->start_bg_threads());
 
     doris::Daemon daemon;
-    daemon.init(argc, argv, paths);
     daemon.start();
 
     doris::telemetry::init_tracer();

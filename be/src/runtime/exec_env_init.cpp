@@ -68,11 +68,13 @@
 #include "runtime/stream_load/stream_load_executor.h"
 #include "runtime/task_group/task_group_manager.h"
 #include "runtime/thread_context.h"
+#include "service/backend_options.h"
 #include "service/point_query_executor.h"
 #include "util/bfd_parser.h"
 #include "util/bit_util.h"
 #include "util/brpc_client_cache.h"
 #include "util/cpu_info.h"
+#include "util/disk_info.h"
 #include "util/doris_metrics.h"
 #include "util/mem_info.h"
 #include "util/metrics.h"
@@ -98,6 +100,29 @@ DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(send_batch_thread_pool_queue_size, MetricUnit
 DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(download_cache_thread_pool_thread_num, MetricUnit::NOUNIT);
 DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(download_cache_thread_pool_queue_size, MetricUnit::NOUNIT);
 
+static void init_doris_metrics(const std::vector<StorePath>& store_paths) {
+    bool init_system_metrics = config::enable_system_metrics;
+    std::set<std::string> disk_devices;
+    std::vector<std::string> network_interfaces;
+    std::vector<std::string> paths;
+    for (auto& store_path : store_paths) {
+        paths.emplace_back(store_path.path);
+    }
+    if (init_system_metrics) {
+        auto st = DiskInfo::get_disk_devices(paths, &disk_devices);
+        if (!st.ok()) {
+            LOG(WARNING) << "get disk devices failed, status=" << st;
+            return;
+        }
+        st = get_inet_interfaces(&network_interfaces, BackendOptions::is_bind_ipv6());
+        if (!st.ok()) {
+            LOG(WARNING) << "get inet interfaces failed, status=" << st;
+            return;
+        }
+    }
+    DorisMetrics::instance()->initialize(init_system_metrics, disk_devices, network_interfaces);
+}
+
 Status ExecEnv::init(ExecEnv* env, const std::vector<StorePath>& store_paths) {
     return env->_init(store_paths);
 }
@@ -107,6 +132,7 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths) {
     if (ready()) {
         return Status::OK();
     }
+    init_doris_metrics(store_paths);
     _store_paths = store_paths;
 
     _external_scan_context_mgr = new ExternalScanContextMgr(this);
@@ -383,7 +409,7 @@ void ExecEnv::_destroy() {
         return;
     }
     // Memory barrier to prevent other threads from accessing destructed resources
-    _s_ready = false; 
+    _s_ready = false;
     _deregister_metrics();
     SAFE_DELETE(_internal_client_cache);
     SAFE_DELETE(_function_client_cache);

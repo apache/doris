@@ -154,8 +154,7 @@ class ThreadContext {
 public:
     ThreadContext() {
         thread_mem_tracker_mgr.reset(new ThreadMemTrackerMgr());
-        if (ExecEnv::ready())
-            thread_mem_tracker_mgr->init();
+        if (ExecEnv::ready()) thread_mem_tracker_mgr->init();
     }
 
     ~ThreadContext() { thread_context_ptr.init = false; }
@@ -389,7 +388,7 @@ private:
     do {                                                                                           \
         if (doris::thread_context_ptr.init) {                                                      \
             doris::thread_context()->consume_memory(size);                                         \
-        } else if (doris::ExecEnv::ready()) {           \
+        } else if (doris::ExecEnv::ready()) {                                                      \
             doris::ExecEnv::GetInstance()->orphan_mem_tracker_raw()->consume_no_update_peak(size); \
         }                                                                                          \
     } while (0)
@@ -397,7 +396,7 @@ private:
     do {                                                                                     \
         if (doris::thread_context_ptr.init) {                                                \
             doris::thread_context()->consume_memory(-size);                                  \
-        } else if (doris::ExecEnv::ready()) {     \
+        } else if (doris::ExecEnv::ready()) {                                                \
             doris::ExecEnv::GetInstance()->orphan_mem_tracker_raw()->consume_no_update_peak( \
                     -size);                                                                  \
         }                                                                                    \
