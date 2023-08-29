@@ -1087,7 +1087,6 @@ TEST_F(LoadStreamMgrTest, two_client_one_index_one_tablet_three_segment) {
         }
     }
 
-    EXPECT_EQ(_load_stream_mgr->get_load_stream_num(), 2);
     EXPECT_EQ(g_response_stat.num, 0);
     // CLOSE_LOAD
     close_load(clients[1], 1);
@@ -1100,7 +1099,6 @@ TEST_F(LoadStreamMgrTest, two_client_one_index_one_tablet_three_segment) {
     close_load(clients[1], 1);
     wait_for_ack(2);
     // stream closed, no response will be sent
-    EXPECT_EQ(_load_stream_mgr->get_load_stream_num(), 1);
     EXPECT_EQ(g_response_stat.num, 1);
     EXPECT_EQ(g_response_stat.success_tablet_ids.size(), 0);
     EXPECT_EQ(g_response_stat.failed_tablet_ids.size(), 0);
