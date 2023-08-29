@@ -320,11 +320,9 @@ Status PipelineFragmentContext::_build_pipeline_tasks(
         // TODO pipeline 1 need to add new interface for exec node and operator
         sink->init(request.fragment.output_sink);
 
-        Operators operators;
-        RETURN_IF_ERROR(pipeline->build_operators(operators));
-        auto task =
-                std::make_unique<PipelineTask>(pipeline, _total_tasks++, _runtime_state.get(),
-                                               operators, sink, this, pipeline->pipeline_profile());
+        RETURN_IF_ERROR(pipeline->build_operators());
+        auto task = std::make_unique<PipelineTask>(pipeline, _total_tasks++, _runtime_state.get(),
+                                                   sink, this, pipeline->pipeline_profile());
         sink->set_child(task->get_root());
         _tasks.emplace_back(std::move(task));
         _runtime_profile->add_child(pipeline->pipeline_profile(), true, nullptr);
