@@ -345,6 +345,7 @@ public:
     Status write_data() override;
     Status write_ordinal_index() override;
     Status append_nulls(size_t num_rows) override;
+    Status append_nullable(const uint8_t* null_map, const uint8_t** ptr, size_t num_rows) override;
 
     Status finish_current_page() override;
 

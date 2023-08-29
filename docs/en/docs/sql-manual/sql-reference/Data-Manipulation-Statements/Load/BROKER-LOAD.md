@@ -175,6 +175,10 @@ WITH BROKER broker_name
 
     Whether to impose strict restrictions on data. Defaults to false.
 
+  - `partial_columns`
+
+    Boolean type, True means that use partial column update, the default value is false, this parameter is only allowed to be set when the table model is Unique and Merge on Write is used.
+
   - `timezone`
 
     Specify the time zone for some functions that are affected by time zones, such as `strftime/alignment_timestamp/from_unixtime`, etc. Please refer to the [timezone](../../../../advanced/time-zone.md) documentation for details. If not specified, the "Asia/Shanghai" timezone is used
