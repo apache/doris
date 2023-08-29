@@ -237,7 +237,7 @@ void HttpStreamAction::on_chunk_data(HttpRequest* req) {
         auto st = ctx->body_sink->append(bb);
         // schema_buffer stores 1M of data for parsing column information
         // need to determine whether to cache for the first time
-        if(ctx->is_read_schema) {
+        if (ctx->is_read_schema) {
             if (ctx->schema_buffer->pos + remove_bytes < config::stream_tvf_buffer_size) {
                 ctx->schema_buffer->put_bytes(bb->ptr, remove_bytes);
             } else {
@@ -255,7 +255,7 @@ void HttpStreamAction::on_chunk_data(HttpRequest* req) {
         ctx->receive_bytes += remove_bytes;
     }
     // after all the data has been read and it has not reached 1M, it will execute here
-    if(ctx->is_read_schema) {
+    if (ctx->is_read_schema) {
         ctx->need_schema = true;
         ctx->is_read_schema = false;
         ctx->status = _process_put(req, ctx);

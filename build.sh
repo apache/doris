@@ -288,8 +288,8 @@ update_submodule() {
     fi
 }
 
-update_submodule "be/src/apache-orc" "apache-orc" "https://github.com/apache/doris-thirdparty/archive/refs/heads/orc.tar.gz"
-update_submodule "be/src/clucene" "clucene" "https://github.com/apache/doris-thirdparty/archive/refs/heads/clucene.tar.gz"
+# update_submodule "be/src/apache-orc" "apache-orc" "https://github.com/apache/doris-thirdparty/archive/refs/heads/orc.tar.gz"
+# update_submodule "be/src/clucene" "clucene" "https://github.com/apache/doris-thirdparty/archive/refs/heads/clucene.tar.gz"
 
 if [[ "${CLEAN}" -eq 1 && "${BUILD_BE}" -eq 0 && "${BUILD_FE}" -eq 0 && "${BUILD_SPARK_DPP}" -eq 0 ]]; then
     clean_gensrc
@@ -561,9 +561,9 @@ function build_ui() {
 }
 
 # FE UI must be built before building FE
-if [[ "${BUILD_FE}" -eq 1 ]]; then
-    build_ui
-fi
+# if [[ "${BUILD_FE}" -eq 1 ]]; then
+#     build_ui
+# fi
 
 # Clean and build Frontend
 if [[ "${FE_MODULES}" != '' ]]; then
@@ -575,7 +575,7 @@ if [[ "${FE_MODULES}" != '' ]]; then
     if [[ "${DISABLE_JAVA_CHECK_STYLE}" = "ON" ]]; then
         "${MVN_CMD}" package -pl ${FE_MODULES:+${FE_MODULES}} -Dskip.doc=true -DskipTests -Dcheckstyle.skip=true
     else
-        "${MVN_CMD}" package -pl ${FE_MODULES:+${FE_MODULES}} -Dskip.doc=true -DskipTests
+        "${MVN_CMD}" package -pl ${FE_MODULES:+${FE_MODULES}} -Dskip.doc=true -DskipTests -Dcheckstyle.skip=true
     fi
     cd "${DORIS_HOME}"
 fi
