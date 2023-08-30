@@ -400,7 +400,6 @@ public:
     // init runtime filter wrapper
     // alloc memory to init runtime filter function
     Status init(const RuntimeFilterParams* params) {
-        Defer([&]() { set_filter_id(_filter_id); });
         _max_in_num = params->max_in_num;
         switch (_filter_type) {
         case RuntimeFilterType::IN_FILTER: {
@@ -443,16 +442,8 @@ public:
         _is_bloomfilter = true;
         BloomFilterFuncBase* bf = _context.bloom_filter_func.get();
         // BloomFilter may be not init
-        set_filter_id(_filter_id);
         bf->init_with_fixed_length();
         insert_to_bloom_filter(bf);
-        if (_context.bloom_filter_func) {
-            bf->set_filter_id(_context.bloom_filter_func->get_filter_id());
-        }
-        if (_context.hybrid_set) {
-            bf->set_filter_id(_context.hybrid_set->get_filter_id());
-        }
-
         // release in filter
         _context.hybrid_set.reset(create_set(_column_return_type));
     }
@@ -460,7 +451,6 @@ public:
     Status init_bloom_filter(const size_t build_bf_cardinality) {
         DCHECK(_filter_type == RuntimeFilterType::BLOOM_FILTER ||
                _filter_type == RuntimeFilterType::IN_OR_BLOOM_FILTER);
-        set_filter_id(_filter_id);
         return _context.bloom_filter_func->init_with_cardinality(build_bf_cardinality);
     }
 
@@ -1493,7 +1483,6 @@ void IRuntimeFilter::init_profile(RuntimeProfile* parent_profile) {
     }
     parent_profile->add_child(_profile.get(), true, nullptr);
     _profile->add_info_string("Info", _format_status());
-    _wrapper->set_filter_id(_filter_id);
     if (_runtime_filter_type == RuntimeFilterType::IN_OR_BLOOM_FILTER) {
         update_runtime_filter_type_to_profile();
     }
@@ -1856,7 +1845,7 @@ Status RuntimePredicateWrapper::get_push_exprs(std::list<vectorized::VExprContex
     vectorized::VExprContextSPtr probe_ctx;
     RETURN_IF_ERROR(vectorized::VExpr::create_expr_tree(probe_expr, probe_ctx));
     probe_ctxs.push_back(probe_ctx);
-
+    set_filter_id(_filter_id);
     DCHECK(probe_ctx->root()->type().type == _column_return_type ||
            (is_string_type(probe_ctx->root()->type().type) &&
             is_string_type(_column_return_type)) ||

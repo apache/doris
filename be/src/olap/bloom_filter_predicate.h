@@ -17,6 +17,7 @@
 
 #pragma once
 
+#include "common/logging.h"
 #include "exprs/bloom_filter_func.h"
 #include "exprs/runtime_filter.h"
 #include "olap/column_predicate.h"
@@ -155,7 +156,11 @@ private:
         return info;
     }
 
-    int get_filter_id() const override { return _filter->get_filter_id(); }
+    int get_filter_id() const override {
+        int filter_id = _filter->get_filter_id();
+        DCHECK(filter_id != -1);
+        return filter_id;
+    }
     bool is_filter() const override { return true; }
 
     std::shared_ptr<BloomFilterFuncBase> _filter;

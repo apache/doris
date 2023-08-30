@@ -94,7 +94,7 @@ private:
 };
 
 // Only Used In RuntimeFilter
-class BloomFilterFuncBase {
+class BloomFilterFuncBase : public FilterFuncBase {
 public:
     BloomFilterFuncBase() : _inited(false) {}
 
