@@ -24,6 +24,7 @@ import org.apache.doris.common.exception.UdfRuntimeException;
 import org.apache.doris.common.jni.utils.JNINativeMethod;
 import org.apache.doris.common.jni.utils.UdfUtils;
 import org.apache.doris.common.jni.utils.UdfUtils.JavaUdfDataType;
+import org.apache.doris.thrift.TFunction;
 import org.apache.doris.thrift.TJavaUdfExecutorCtorParams;
 
 import com.esotericsoftware.reflectasm.MethodAccess;
@@ -76,6 +77,7 @@ public abstract class BaseExecutor {
     protected JavaUdfDataType retType;
     protected Class[] argClass;
     protected MethodAccess methodAccess;
+    protected TFunction fn;
 
     /**
      * Create a UdfExecutor, using parameters from a serialized thrift object. Used
@@ -95,6 +97,7 @@ public abstract class BaseExecutor {
         for (int i = 0; i < request.fn.arg_types.size(); ++i) {
             parameterTypes[i] = Type.fromThrift(request.fn.arg_types.get(i));
         }
+        fn = request.fn;
         String jarFile = request.location;
         Type funcRetType = Type.fromThrift(request.fn.ret_type);
         init(request, jarFile, funcRetType, parameterTypes);
@@ -125,6 +128,7 @@ public abstract class BaseExecutor {
             res = res + " key: " + retType.getValueType().toString() + " sql: " + retType.getValueType().toSql();
         }
         res = res + " methodAccess: " + methodAccess.toString();
+        res = res + " fn.toString(): " + fn.toString();
         return res;
     }
 
