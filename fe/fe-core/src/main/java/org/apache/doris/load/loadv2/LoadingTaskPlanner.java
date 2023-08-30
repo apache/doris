@@ -156,13 +156,6 @@ public class LoadingTaskPlanner {
             scanSlotDesc.setIsMaterialized(true);
             scanSlotDesc.setColumn(col);
             scanSlotDesc.setIsNullable(col.isAllowNull());
-            scanSlotDesc.setAutoInc(col.isAutoInc());
-            if (col.isAutoInc()) {
-                // auto-increment column should be non-nullable
-                // however, here we use `NullLiteral` to indicate that a cell should
-                // be filled with generated value in `VOlapTableSink::_fill_auto_inc_cols()`
-                scanSlotDesc.setIsNullable(true);
-            }
             if (fileGroups.size() > 0) {
                 for (ImportColumnDesc importColumnDesc : fileGroups.get(0).getColumnExprList()) {
                     try {
