@@ -72,4 +72,252 @@ suite("test_simplify_comparison") {
     }
 
     sql "select cast('1234' as decimalv3(18,4)) > 2000;"
+
+    sql 'drop table if exists simple_test_table_t;'
+    sql """CREATE TABLE IF NOT EXISTS `simple_test_table_t` (
+            a tinyint,
+            b smallint,
+            c int,
+            d bigint,
+            e largeint
+            ) ENGINE=OLAP
+            UNIQUE KEY (`a`)
+            DISTRIBUTED BY HASH(`a`) BUCKETS 120
+            PROPERTIES (
+            "replication_num" = "1",
+            "in_memory" = "false",
+            "compression" = "LZ4"
+            );"""
+
+    explain {
+        sql "verbose select * from simple_test_table_t where a = cast(1.0 as double) and b = cast(1.0 as double) and c = cast(1.0 as double) and d = cast(1.0 as double);"
+        notContains "CAST"
+    }
+
+    explain {
+        sql "verbose select * from simple_test_table_t where e = cast(1.0 as double);"
+        contains "CAST"
+    }
+
+    explain {
+        sql "verbose select * from simple_test_table_t where a > cast(1.0 as double) and b > cast(1.0 as double) and c > cast(1.0 as double) and d > cast(1.0 as double);"
+        notContains "CAST"
+    }
+
+    explain {
+        sql "verbose select * from simple_test_table_t where e > cast(1.0 as double);"
+        contains "CAST"
+    }
+
+    explain {
+        sql "verbose select * from simple_test_table_t where a < cast(1.0 as double) and b < cast(1.0 as double) and c < cast(1.0 as double) and d < cast(1.0 as double);"
+        notContains "CAST"
+    }
+
+    explain {
+        sql "verbose select * from simple_test_table_t where e < cast(1.0 as double);"
+        contains "CAST"
+    }
+
+    explain {
+        sql "verbose select * from simple_test_table_t where a >= cast(1.0 as double) and b >= cast(1.0 as double) and c >= cast(1.0 as double) and d >= cast(1.0 as double);"
+        notContains "CAST"
+    }
+
+    explain {
+        sql "verbose select * from simple_test_table_t where e >= cast(1.0 as double);"
+        contains "CAST"
+    }
+
+    explain {
+        sql "verbose select * from simple_test_table_t where a <= cast(1.0 as double) and b <= cast(1.0 as double) and c <= cast(1.0 as double) and d <= cast(1.0 as double);"
+        notContains "CAST"
+    }
+
+    explain {
+        sql "verbose select * from simple_test_table_t where e <= cast(1.0 as double);"
+        contains "CAST"
+    }
+
+    explain {
+        sql "verbose select * from simple_test_table_t where a = cast(1.1 as double) and b = cast(1.1 as double) and c = cast(1.1 as double) and d = cast(1.1 as double);"
+        contains "a[#0] IS NULL"
+        contains "b[#1] IS NULL"
+        contains "c[#2] IS NULL"
+        contains "d[#3] IS NULL"
+        contains "AND NULL"
+    }
+
+    explain {
+        sql "verbose select * from simple_test_table_t where e = cast(1.1 as double);"
+        contains "CAST(e[#4] AS DOUBLE) = 1.1"
+    }
+
+    explain {
+        sql "verbose select * from simple_test_table_t where a > cast(1.1 as double) and b > cast(1.1 as double) and c > cast(1.1 as double) and d > cast(1.1 as double);"
+        contains "a[#0] > 1"
+        contains "b[#1] > 1"
+        contains "c[#2] > 1"
+        contains "d[#3] > 1"
+    }
+
+    explain {
+        sql "verbose select * from simple_test_table_t where e > cast(1.1 as double);"
+        contains "CAST(e[#4] AS DOUBLE) > 1.1"
+    }
+
+    explain {
+        sql "verbose select * from simple_test_table_t where a < cast(1.1 as double) and b < cast(1.1 as double) and c < cast(1.1 as double) and d < cast(1.1 as double);"
+        contains "a[#0] < 2"
+        contains "b[#1] < 2"
+        contains "c[#2] < 2"
+        contains "d[#3] < 2"
+    }
+
+    explain {
+        sql "verbose select * from simple_test_table_t where e < cast(1.1 as double);"
+        contains "CAST(e[#4] AS DOUBLE) < 1.1"
+    }
+
+    explain {
+        sql "verbose select * from simple_test_table_t where a >= cast(1.1 as double) and b >= cast(1.1 as double) and c >= cast(1.1 as double) and d >= cast(1.1 as double);"
+        contains "a[#0] >= 2"
+        contains "b[#1] >= 2"
+        contains "c[#2] >= 2"
+        contains "d[#3] >= 2"
+    }
+
+    explain {
+        sql "verbose select * from simple_test_table_t where e >= cast(1.1 as double);"
+        contains "CAST(e[#4] AS DOUBLE) >= 1.1"
+    }
+
+    explain {
+        sql "verbose select * from simple_test_table_t where a <= cast(1.1 as double) and b <= cast(1.1 as double) and c <= cast(1.1 as double) and d <= cast(1.1 as double);"
+        contains "a[#0] <= 1"
+        contains "b[#1] <= 1"
+        contains "c[#2] <= 1"
+        contains "d[#3] <= 1"
+    }
+
+    explain {
+        sql "verbose select * from simple_test_table_t where e <= cast(1.1 as double);"
+        contains "CAST(e[#4] AS DOUBLE) <= 1.1"
+    }
+
+    explain {
+        sql "verbose select * from simple_test_table_t where a = 1.0 and b = 1.0 and c = 1.0 and d = 1.0;"
+        notContains "CAST"
+    }
+
+    explain {
+        sql "verbose select * from simple_test_table_t where e = 1.0;"
+        contains "CAST"
+    }
+
+    explain {
+        sql "verbose select * from simple_test_table_t where a > 1.0 and b > 1.0 and c > 1.0 and d > 1.0;"
+        notContains "CAST"
+    }
+
+    explain {
+        sql "verbose select * from simple_test_table_t where e > 1.0;"
+        contains "CAST"
+    }
+
+    explain {
+        sql "verbose select * from simple_test_table_t where a < 1.0 and b < 1.0 and c < 1.0 and d < 1.0;"
+        notContains "CAST"
+    }
+
+    explain {
+        sql "verbose select * from simple_test_table_t where e < 1.0;"
+        contains "CAST"
+    }
+
+    explain {
+        sql "verbose select * from simple_test_table_t where a >= 1.0 and b >= 1.0 and c >= 1.0 and d >= 1.0;"
+        notContains "CAST"
+    }
+
+    explain {
+        sql "verbose select * from simple_test_table_t where e >= 1.0;"
+        contains "CAST"
+    }
+
+    explain {
+        sql "verbose select * from simple_test_table_t where a <= 1.0 and b <= 1.0 and c <= 1.0 and d <= 1.0;"
+        notContains "CAST"
+    }
+
+    explain {
+        sql "verbose select * from simple_test_table_t where e <= 1.0;"
+        contains "CAST"
+    }
+
+    explain {
+        sql "verbose select * from simple_test_table_t where a = 1.1 and b = 1.1 and c = 1.1 and d = 1.1;"
+        contains "a[#0] IS NULL"
+        contains "b[#1] IS NULL"
+        contains "c[#2] IS NULL"
+        contains "d[#3] IS NULL"
+        contains "AND NULL"
+    }
+
+    explain {
+        sql "verbose select * from simple_test_table_t where e = 1.1;"
+        contains "CAST(e[#4] AS DOUBLE) = 1.1"
+    }
+
+    explain {
+        sql "verbose select * from simple_test_table_t where a > 1.1 and b > 1.1 and c > 1.1 and d > 1.1;"
+        contains "a[#0] > 1"
+        contains "b[#1] > 1"
+        contains "c[#2] > 1"
+        contains "d[#3] > 1"
+    }
+
+    explain {
+        sql "verbose select * from simple_test_table_t where e > 1.1;"
+        contains "CAST(e[#4] AS DOUBLE) > 1.1"
+    }
+
+    explain {
+        sql "verbose select * from simple_test_table_t where a < 1.1 and b < 1.1 and c < 1.1 and d < 1.1;"
+        contains "a[#0] < 2"
+        contains "b[#1] < 2"
+        contains "c[#2] < 2"
+        contains "d[#3] < 2"
+    }
+
+    explain {
+        sql "verbose select * from simple_test_table_t where e < 1.1;"
+        contains "CAST(e[#4] AS DOUBLE) < 1.1"
+    }
+
+    explain {
+        sql "verbose select * from simple_test_table_t where a >= 1.1 and b >= 1.1 and c >= 1.1 and d >= 1.1;"
+        contains "a[#0] >= 2"
+        contains "b[#1] >= 2"
+        contains "c[#2] >= 2"
+        contains "d[#3] >= 2"
+    }
+
+    explain {
+        sql "verbose select * from simple_test_table_t where e >= 1.1;"
+        contains "CAST(e[#4] AS DOUBLE) >= 1.1"
+    }
+
+    explain {
+        sql "verbose select * from simple_test_table_t where a <= 1.1 and b <= 1.1 and c <= 1.1 and d <= 1.1;"
+        contains "a[#0] <= 1"
+        contains "b[#1] <= 1"
+        contains "c[#2] <= 1"
+        contains "d[#3] <= 1"
+    }
+
+    explain {
+        sql "verbose select * from simple_test_table_t where e <= 1.1;"
+        contains "CAST(e[#4] AS DOUBLE) <= 1.1"
+    }
 }
