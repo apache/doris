@@ -557,8 +557,8 @@ public class FunctionCallExpr extends Expr {
                 || fnName.getFunction().equalsIgnoreCase("hours_diff")
                 || fnName.getFunction().equalsIgnoreCase("minutes_diff")
                 || fnName.getFunction().equalsIgnoreCase("seconds_diff")) {
-            sb.append(children.get(1).toSql()).append(", ");
-            sb.append(children.get(0).toSql()).append(")");
+            sb.append(children.get(0).toSql()).append(", ");
+            sb.append(children.get(1).toSql()).append(")");
             return sb.toString();
         }
         // used by nereids END
@@ -1180,7 +1180,8 @@ public class FunctionCallExpr extends Expr {
                 || fnName.getFunction().equalsIgnoreCase("array_cum_sum")
                 || fnName.getFunction().equalsIgnoreCase("array_intersect")
                 || fnName.getFunction().equalsIgnoreCase("arrays_overlap")
-                || fnName.getFunction().equalsIgnoreCase("array_concat")) {
+                || fnName.getFunction().equalsIgnoreCase("array_concat")
+                || fnName.getFunction().equalsIgnoreCase("array")) {
             Type[] childTypes = collectChildReturnTypes();
             Type compatibleType = childTypes[0];
             for (int i = 1; i < childTypes.length; ++i) {
@@ -1196,9 +1197,7 @@ public class FunctionCallExpr extends Expr {
             for (int i = 0; i < childTypes.length; i++) {
                 uncheckedCastChild(compatibleType, i);
             }
-        }
-
-        if (fnName.getFunction().equalsIgnoreCase("array_exists")) {
+        } else if (fnName.getFunction().equalsIgnoreCase("array_exists")) {
             Type[] newArgTypes = new Type[1];
             if (!(getChild(0) instanceof CastExpr)) {
                 Expr castExpr = getChild(0).castTo(ArrayType.create(Type.BOOLEAN, true));
@@ -1213,13 +1212,14 @@ public class FunctionCallExpr extends Expr {
                 throw new AnalysisException(getFunctionNotFoundError(collectChildReturnTypes()));
             }
             fn.setReturnType(getChild(0).getType());
-        }
-
-        // make nested type with function param can be Compatible otherwise be will not deal with type
-        if (fnName.getFunction().equalsIgnoreCase("array_position")
+        } else if (fnName.getFunction().equalsIgnoreCase("array_position")
                 || fnName.getFunction().equalsIgnoreCase("array_contains")
                 || fnName.getFunction().equalsIgnoreCase("countequal")) {
+            // make nested type with function param can be Compatible otherwise be will not deal with type
             Type[] childTypes = collectChildReturnTypes();
+            if (childTypes[0].isNull()) {
+                childTypes[0] = new ArrayType(Type.NULL);
+            }
             Type compatibleType = ((ArrayType) childTypes[0]).getItemType();
             for (int i = 1; i < childTypes.length; ++i) {
                 compatibleType = Type.getAssignmentCompatibleType(compatibleType, childTypes[i], true);
@@ -1717,8 +1717,10 @@ public class FunctionCallExpr extends Expr {
                         || (children.get(0).getType().isDecimalV2()
                         && ((ArrayType) args[ix]).getItemType().isDecimalV2()))) {
                     continue;
-                } else if ((fnName.getFunction().equalsIgnoreCase("array_distinct") || fnName.getFunction()
-                        .equalsIgnoreCase("array_remove") || fnName.getFunction().equalsIgnoreCase("array_sort")
+                } else if ((fnName.getFunction().equalsIgnoreCase("array")
+                        || fnName.getFunction().equalsIgnoreCase("array_distinct")
+                        || fnName.getFunction().equalsIgnoreCase("array_remove")
+                        || fnName.getFunction().equalsIgnoreCase("array_sort")
                         || fnName.getFunction().equalsIgnoreCase("array_reverse_sort")
                         || fnName.getFunction().equalsIgnoreCase("array_overlap")
                         || fnName.getFunction().equalsIgnoreCase("array_union")
