@@ -92,20 +92,16 @@ Status HeartbeatServer::_heartbeat(const TMasterInfo& master_info) {
     if (_master_info->cluster_id == -1) {
         LOG(INFO) << "get first heartbeat. update cluster id";
         // write and update cluster id
-        auto st = _olap_engine->set_cluster_id(master_info.cluster_id);
-        if (!st.ok()) {
-            LOG(WARNING) << "fail to set cluster id. status=" << st;
-            return Status::InternalError("fail to set cluster id.");
-        } else {
-            _master_info->cluster_id = master_info.cluster_id;
-            LOG(INFO) << "record cluster id. host: " << master_info.network_address.hostname
-                      << ". port: " << master_info.network_address.port
-                      << ". cluster id: " << master_info.cluster_id;
-        }
+        RETURN_IF_ERROR(_olap_engine->set_cluster_id(master_info.cluster_id));
+
+        _master_info->cluster_id = master_info.cluster_id;
+        LOG(INFO) << "record cluster id. host: " << master_info.network_address.hostname
+                  << ". port: " << master_info.network_address.port
+                  << ". cluster id: " << master_info.cluster_id;
     } else {
         if (_master_info->cluster_id != master_info.cluster_id) {
-            LOG(WARNING) << "invalid cluster id: " << master_info.cluster_id << ". ignore.";
-            return Status::InternalError("invalid cluster id. ignore.");
+            return Status::InternalError("invalid cluster id. ignore. cluster_id={}",
+                                         master_info.cluster_id);
         }
     }
 
@@ -132,10 +128,9 @@ Status HeartbeatServer::_heartbeat(const TMasterInfo& master_info) {
                 std::vector<InetAddress> hosts;
                 status = get_hosts(&hosts);
                 if (!status.ok() || hosts.empty()) {
-                    std::stringstream ss;
-                    ss << "the status was not ok when get_hosts, error is " << status.to_string();
-                    LOG(WARNING) << ss.str();
-                    return Status::InternalError(ss.str());
+                    return Status::InternalError(
+                            "the status was not ok when get_hosts, error is {}",
+                            status.to_string());
                 }
 
                 //step4: check if the IP of FQDN belongs to the current machine and update BackendOptions._s_localhost
@@ -149,12 +144,10 @@ Status HeartbeatServer::_heartbeat(const TMasterInfo& master_info) {
                 }
 
                 if (!set_new_localhost) {
-                    std::stringstream ss;
-                    ss << "the host recorded in master is " << master_info.backend_ip
-                       << ", but we cannot found the local ip that mapped to that host."
-                       << BackendOptions::get_localhost();
-                    LOG(WARNING) << ss.str();
-                    return Status::InternalError(ss.str());
+                    return Status::InternalError(
+                            "the host recorded in master is {}, but we cannot found the local ip "
+                            "that mapped to that host. backend={}",
+                            master_info.backend_ip, BackendOptions::get_localhost());
                 }
             } else {
                 // if is ip,not check anything,use it
@@ -179,12 +172,11 @@ Status HeartbeatServer::_heartbeat(const TMasterInfo& master_info) {
                       << ". port: " << _master_info->network_address.port
                       << ". epoch: " << _fe_epoch;
         } else {
-            LOG(WARNING) << "epoch is not greater than local. ignore heartbeat. host: "
-                         << _master_info->network_address.hostname
-                         << " port: " << _master_info->network_address.port
-                         << " local epoch: " << _fe_epoch
-                         << " received epoch: " << master_info.epoch;
-            return Status::InternalError("epoch is not greater than local. ignore heartbeat.");
+            return Status::InternalError(
+                    "epoch is not greater than local. ignore heartbeat. host: {}, port: {}, local "
+                    "epoch: {}, received epoch: {}",
+                    _master_info->network_address.hostname, _master_info->network_address.port,
+                    _fe_epoch, master_info.epoch);
         }
     } else {
         // when Master FE restarted, host and port remains the same, but epoch will be increased.
@@ -200,9 +192,8 @@ Status HeartbeatServer::_heartbeat(const TMasterInfo& master_info) {
             _master_info->__set_token(master_info.token);
             LOG(INFO) << "get token. token: " << _master_info->token;
         } else if (_master_info->token != master_info.token) {
-            LOG(WARNING) << "invalid token. local_token:" << _master_info->token
-                         << ". token:" << master_info.token;
-            return Status::InternalError("invalid token.");
+            return Status::InternalError("invalid token. local_token: {}, token: {}",
+                                         _master_info->token, master_info.token);
         }
     }
 
