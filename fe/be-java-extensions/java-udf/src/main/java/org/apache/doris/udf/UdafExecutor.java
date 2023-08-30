@@ -126,6 +126,7 @@ public class UdafExecutor extends BaseExecutor {
                 methodAccess.invoke(udf, addIndex, inputArgs);
             }
         } catch (Exception e) {
+            LOG.info("evaluate exception debug: " + debugString());
             LOG.info("invoke add function meet some error: " + e.getCause().toString());
             throw new UdfRuntimeException("UDAF failed to addBatchSingle: ", e);
         }
@@ -158,6 +159,7 @@ public class UdafExecutor extends BaseExecutor {
                 methodAccess.invoke(udf, addIndex, inputArgs);
             }
         } catch (Exception e) {
+            LOG.info("evaluate exception debug: " + debugString());
             LOG.info("invoke add function meet some error: " + Arrays.toString(e.getStackTrace()));
             throw new UdfRuntimeException("UDAF failed to addBatchPlaces: ", e);
         }
@@ -202,6 +204,7 @@ public class UdafExecutor extends BaseExecutor {
             allMethods.get(UDAF_SERIALIZE_FUNCTION).invoke(udf, args);
             return baos.toByteArray();
         } catch (Exception e) {
+            LOG.info("evaluate exception debug: " + debugString());
             LOG.warn("invoke serialize function meet some error: " + e.getCause().toString());
             throw new UdfRuntimeException("UDAF failed to serialize: ", e);
         }
@@ -219,6 +222,7 @@ public class UdafExecutor extends BaseExecutor {
             }
             allMethods.get(UDAF_RESET_FUNCTION).invoke(udf, args);
         } catch (Exception e) {
+            LOG.info("evaluate exception debug: " + debugString());
             LOG.warn("invoke reset function meet some error: " + e.getCause().toString());
             throw new UdfRuntimeException("UDAF failed to reset: ", e);
         }
@@ -247,6 +251,7 @@ public class UdafExecutor extends BaseExecutor {
             }
             allMethods.get(UDAF_MERGE_FUNCTION).invoke(udf, args);
         } catch (Exception e) {
+            LOG.info("evaluate exception debug: " + debugString());
             LOG.warn("invoke merge function meet some error: " + e.getCause().toString());
             throw new UdfRuntimeException("UDAF failed to merge: ", e);
         }
@@ -263,6 +268,7 @@ public class UdafExecutor extends BaseExecutor {
             }
             return allMethods.get(UDAF_RESULT_FUNCTION).invoke(udf, stateObjMap.get((Long) place));
         } catch (Exception e) {
+            LOG.info("evaluate exception debug: " + debugString());
             LOG.warn("invoke getValue function meet some error: " + e.getCause().toString());
             throw new UdfRuntimeException("UDAF failed to result", e);
         }
