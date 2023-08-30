@@ -597,7 +597,7 @@ suite("test_http_stream", "p0") {
 
         qt_sql13 "select name, agg1 from ${tableName13} order by name"
     } finally {
-        // try_sql "DROP TABLE IF EXISTS ${tableName13}"
+        try_sql "DROP TABLE IF EXISTS ${tableName13}"
     }
 
     // 14. test parquet orc case
