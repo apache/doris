@@ -85,6 +85,7 @@ Block::Block(const std::vector<SlotDescriptor*>& slots, size_t block_size,
 }
 
 Status Block::deserialize(const PBlock& pblock) {
+    swap(Block());
     int be_exec_version = pblock.has_be_exec_version() ? pblock.be_exec_version() : 0;
     CHECK(BeExecVersionManager::check_be_exec_version(be_exec_version));
 
