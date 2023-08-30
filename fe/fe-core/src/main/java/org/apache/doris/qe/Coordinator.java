@@ -2205,9 +2205,6 @@ public class Coordinator {
             // add scan range
             TScanRangeParams scanRangeParams = new TScanRangeParams();
             scanRangeParams.scan_range = scanRangeLocations.scan_range;
-            if (scanRangeParams.scan_range.ext_scan_range != null) {
-                scanRangeParams.scan_range.ext_scan_range.file_scan_range.ranges.get(0).setLoadId(this.getQueryId());
-            }
             // Volume is optional, so we need to set the value and the is-set bit
             scanRangeParams.setVolumeId(minLocation.volume_id);
             scanRangeParamsList.add(scanRangeParams);

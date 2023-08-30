@@ -271,6 +271,7 @@ public abstract class FileQueryScanNode extends FileScanNode {
 
                 TScanRangeLocations curLocations = newLocations();
                 TFileRangeDesc rangeDesc = new TFileRangeDesc();
+                rangeDesc.setLoadId(ConnectContext.get().queryId());
                 rangeDesc.setSize(-1);
                 rangeDesc.setFileSize(-1);
                 curLocations.getScanRange().getExtScanRange().getFileScanRange().addToRanges(rangeDesc);
