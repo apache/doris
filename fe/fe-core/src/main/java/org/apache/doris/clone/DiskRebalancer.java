@@ -123,9 +123,7 @@ public class DiskRebalancer extends Rebalancer {
         if (!(lowBEs.isEmpty() && highBEs.isEmpty())) {
             // the cluster is not balanced
             if (prioBackends.isEmpty()) {
-                if (!isLogExcessive) {
-                    LOG.info("cluster is not balanced with medium: {}. skip", medium);
-                }
+                LOG.info("cluster is not balanced with medium: {}. skip", medium);
                 return alternativeTablets;
             } else {
                 // prioBEs are not empty, we only schedule prioBEs' disk balance task
@@ -144,10 +142,8 @@ public class DiskRebalancer extends Rebalancer {
         }
 
         if (midBEs.stream().noneMatch(BackendLoadStatistic::hasAvailDisk)) {
-            if (!isLogExcessive) {
-                LOG.info("all mid load backends {} have no available disk with medium: {}. skip",
-                        lowBEs.stream().mapToLong(BackendLoadStatistic::getBeId).toArray(), medium);
-            }
+            LOG.info("all mid load backends {} have no available disk with medium: {}. skip",
+                    lowBEs.stream().mapToLong(BackendLoadStatistic::getBeId).toArray(), medium);
             return alternativeTablets;
         }
 
@@ -242,7 +238,7 @@ public class DiskRebalancer extends Rebalancer {
 
         // remove balanced BEs from prio backends
         prioBackends.keySet().removeIf(id -> !unbalancedBEs.contains(id));
-        if (!isLogExcessive && !alternativeTablets.isEmpty()) {
+        if (!alternativeTablets.isEmpty()) {
             LOG.info("select alternative tablets, medium: {}, num: {}, detail: {}",
                     medium, alternativeTablets.size(),
                     alternativeTablets.stream().mapToLong(TabletSchedCtx::getTabletId).toArray());

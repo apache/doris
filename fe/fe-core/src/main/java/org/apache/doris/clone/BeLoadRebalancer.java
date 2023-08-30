@@ -92,18 +92,14 @@ public class BeLoadRebalancer extends Rebalancer {
         // first we should check if low backends is available.
         // if all low backends is not available, we should not start balance
         if (lowBEs.stream().noneMatch(BackendLoadStatistic::isAvailable)) {
-            if (!isLogExcessive) {
-                LOG.info("all low load backends is dead: {} with medium: {}. skip",
-                        lowBEs.stream().mapToLong(BackendLoadStatistic::getBeId).toArray(), medium);
-            }
+            LOG.info("all low load backends is dead: {} with medium: {}. skip",
+                    lowBEs.stream().mapToLong(BackendLoadStatistic::getBeId).toArray(), medium);
             return alternativeTablets;
         }
 
         if (lowBEs.stream().noneMatch(BackendLoadStatistic::hasAvailDisk)) {
-            if (!isLogExcessive) {
-                LOG.info("all low load backends {} have no available disk with medium: {}. skip",
-                        lowBEs.stream().mapToLong(BackendLoadStatistic::getBeId).toArray(), medium);
-            }
+            LOG.info("all low load backends {} have no available disk with medium: {}. skip",
+                    lowBEs.stream().mapToLong(BackendLoadStatistic::getBeId).toArray(), medium);
             return alternativeTablets;
         }
 
@@ -117,9 +113,7 @@ public class BeLoadRebalancer extends Rebalancer {
                 numOfLowPaths += pathSlot.getTotalAvailBalanceSlotNum();
             }
         }
-        if (!isLogExcessive) {
-            LOG.info("get number of low load paths: {}, with medium: {}", numOfLowPaths, medium);
-        }
+        LOG.info("get number of low load paths: {}, with medium: {}", numOfLowPaths, medium);
 
         int clusterAvailableBEnum = infoService.getAllBackendIds(true).size();
         ColocateTableIndex colocateTableIndex = Env.getCurrentColocateIndex();
@@ -209,7 +203,7 @@ public class BeLoadRebalancer extends Rebalancer {
             }
         } // end for high backends
 
-        if (!isLogExcessive && !alternativeTablets.isEmpty()) {
+        if (!alternativeTablets.isEmpty()) {
             LOG.info("select alternative tablets, medium: {}, num: {}, detail: {}",
                     medium, alternativeTablets.size(),
                     alternativeTablets.stream().mapToLong(TabletSchedCtx::getTabletId).toArray());

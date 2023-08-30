@@ -132,10 +132,6 @@ public class TabletScheduler extends MasterDaemon {
 
     private long lastSlotAdjustTime = 0;
 
-    // reduce log
-    private boolean isLogExcessive = true;
-    private long lastEnableLogTime = 0;
-
     private Env env;
     private SystemInfoService infoService;
     private TabletInvertedIndex invertedIndex;
@@ -183,10 +179,8 @@ public class TabletScheduler extends MasterDaemon {
                 // when upgrading, backend may not get path info yet. so return false and wait for next round.
                 // and we should check if backend is alive. If backend is dead when upgrading, this backend
                 // will never report its path hash, and tablet scheduler is blocked.
-                if (!isLogExcessive) {
-                    LOG.info("backend {}:{} with id {} doesn't have path info.", backend.getHost(),
-                            backend.getBePort(), backend.getId());
-                }
+                LOG.info("backend {}:{} with id {} doesn't have path info.", backend.getHost(),
+                        backend.getBePort(), backend.getId());
                 return false;
             }
         }
@@ -321,14 +315,6 @@ public class TabletScheduler extends MasterDaemon {
      */
     @Override
     protected void runAfterCatalogReady() {
-        long now = System.currentTimeMillis();
-        if (now - lastEnableLogTime >= 5000) {
-            lastEnableLogTime = now;
-            isLogExcessive = false;
-        } else {
-            isLogExcessive = true;
-        }
-
         if (!updateWorkingSlots()) {
             return;
         }
@@ -346,8 +332,6 @@ public class TabletScheduler extends MasterDaemon {
         updateLoadStatistic();
         rebalancer.updateLoadStatistic(statisticMap);
         diskRebalancer.updateLoadStatistic(statisticMap);
-        rebalancer.setLogExcessive(isLogExcessive);
-        diskRebalancer.setLogExcessive(isLogExcessive);
 
         lastStatUpdateTime = System.currentTimeMillis();
     }
@@ -1228,9 +1212,7 @@ public class TabletScheduler extends MasterDaemon {
      */
     private void selectTabletsForBalance() {
         if (Config.disable_balance || Config.disable_tablet_scheduler) {
-            if (!isLogExcessive) {
-                LOG.info("balance or tablet scheduler is disabled. skip selecting tablets for balance");
-            }
+            LOG.info("balance or tablet scheduler is disabled. skip selecting tablets for balance");
             return;
         }
 
@@ -1253,9 +1235,7 @@ public class TabletScheduler extends MasterDaemon {
             }
         }
         if (Config.disable_disk_balance) {
-            if (!isLogExcessive) {
-                LOG.info("disk balance is disabled. skip selecting tablets for disk balance");
-            }
+            LOG.info("disk balance is disabled. skip selecting tablets for disk balance");
             return;
         }
         List<TabletSchedCtx> diskBalanceTablets = Lists.newArrayList();
