@@ -28,7 +28,6 @@ public class MyArrayDecimal extends UDF {
     public Integer evaluate(ArrayList<BigDecimal> arr) {
         Integer scale = 0;
         for (BigDecimal value : arr) {
-            LOG.info("value : " + value + "   scale : " + value.scale());
             scale = value.scale();
         }
         return scale;

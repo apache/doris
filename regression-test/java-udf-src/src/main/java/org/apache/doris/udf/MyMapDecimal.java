@@ -28,8 +28,6 @@ public class MyMapDecimal extends UDF {
     public Integer evaluate(HashMap<BigDecimal, BigDecimal> mp) {
         Integer scale = 0;
         for (Map.Entry<BigDecimal, BigDecimal> value : mp.entrySet()) {
-            LOG.info("value : " + value.getKey() + "   scale : " + value.getKey().scale());
-            LOG.info("value : " + value.getValue() + "   scale : " + value.getValue().scale());
             scale = value.getKey().scale() + value.getValue().scale();
         }
         return scale;
