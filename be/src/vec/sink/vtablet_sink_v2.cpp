@@ -214,8 +214,8 @@ void VOlapTableSinkV2::_build_tablet_node_mapping() {
                         continue;
                     }
                     _indexes_from_node[node].emplace_back(tablet);
-                    known_indexes.insert(index.index_id);
                 }
+                known_indexes.insert(index.index_id);
             }
         }
     }
