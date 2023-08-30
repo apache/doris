@@ -67,14 +67,16 @@ public:
     Status close() override;
 
     bool source_can_read() override {
-        return _source->can_read(_state) || _ignore_blocking_source();
+        return _source->can_read(_state) || _pipeline->_always_can_read;
     }
 
     bool runtime_filters_are_ready_or_timeout() override {
         return _source->runtime_filters_are_ready_or_timeout();
     }
 
-    bool sink_can_write() override { return _sink->can_write(_state) || _ignore_blocking_sink(); }
+    bool sink_can_write() override {
+        return _sink->can_write(_state) || _pipeline->_always_can_write;
+    }
 
     Status finalize() override;
 
@@ -105,17 +107,6 @@ public:
     }
 
 private:
-    [[nodiscard]] bool _ignore_blocking_sink() { return _root->can_terminate_early(_state); }
-
-    [[nodiscard]] bool _ignore_blocking_source() {
-        for (size_t i = 1; i < _operators.size(); i++) {
-            if (_operators[i]->can_terminate_early(_state)) {
-                return true;
-            }
-        }
-        return false;
-    }
-
     using DependencyMap = std::map<int, DependencySPtr>;
     Status _open() override;
 
