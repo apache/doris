@@ -30,10 +30,10 @@ class ExecEnv;
 class Status;
 class StreamLoadContext;
 
-class StreamLoadWithSqlAction : public HttpHandler {
+class HttpStreamAction : public HttpHandler {
 public:
-    StreamLoadWithSqlAction(ExecEnv* exec_env);
-    ~StreamLoadWithSqlAction() override;
+    HttpStreamAction(ExecEnv* exec_env);
+    ~HttpStreamAction() override;
 
     void handle(HttpRequest* req) override;
 
@@ -56,10 +56,10 @@ private:
 
 private:
     ExecEnv* _exec_env;
-    std::shared_ptr<MetricEntity> _stream_load_with_sql_entity;
-    IntCounter* streaming_load_with_sql_requests_total;
-    IntCounter* streaming_load_with_sql_duration_ms;
-    IntGauge* streaming_load_with_sql_current_processing;
+    std::shared_ptr<MetricEntity> _http_stream_entity;
+    IntCounter* http_stream_requests_total;
+    IntCounter* http_stream_duration_ms;
+    IntGauge* http_stream_current_processing;
 };
 
 } // namespace doris

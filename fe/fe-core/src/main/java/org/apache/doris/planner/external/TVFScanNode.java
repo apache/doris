@@ -129,6 +129,9 @@ public class TVFScanNode extends FileQueryScanNode {
     @Override
     public List<Split> getSplits() throws UserException {
         List<Split> splits = Lists.newArrayList();
+        if (tableValuedFunction.getTFileType() == TFileType.FILE_STREAM) {
+            return splits;
+        }
         List<TBrokerFileStatus> fileStatuses = tableValuedFunction.getFileStatuses();
         for (TBrokerFileStatus fileStatus : fileStatuses) {
             Path path = new Path(fileStatus.getPath());
