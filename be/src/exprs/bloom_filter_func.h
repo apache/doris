@@ -164,7 +164,6 @@ public:
                              << other_func->_bloom_filter_alloced;
                 return Status::InvalidArgument("bloom filter size invalid");
             }
-            set_filter_id(other_func->_filter_id);
             return _bloom_filter->merge(other_func->_bloom_filter.get());
         }
         {
@@ -176,7 +175,6 @@ public:
                 _bloom_filter = bloomfilter_func->_bloom_filter;
                 _bloom_filter_alloced = other_func->_bloom_filter_alloced;
                 _inited = true;
-                set_filter_id(other_func->_filter_id);
                 return Status::OK();
             } else {
                 DCHECK(bloomfilter_func != nullptr);
@@ -187,7 +185,6 @@ public:
                                  << other_func->_bloom_filter_alloced;
                     return Status::InvalidArgument("bloom filter size invalid");
                 }
-                set_filter_id(other_func->_filter_id);
                 return _bloom_filter->merge(other_func->_bloom_filter.get());
             }
         }
@@ -215,18 +212,6 @@ public:
         _bloom_filter_alloced = other_func->_bloom_filter_alloced;
         _bloom_filter = other_func->_bloom_filter;
         _inited = other_func->_inited;
-        set_filter_id(other_func->_filter_id);
-    }
-
-    void set_filter_id(int filter_id) {
-        if (_filter_id == -1) {
-            _filter_id = filter_id;
-        }
-    }
-
-    int get_filter_id() const {
-        DCHECK(_filter_id != -1);
-        return _filter_id;
     }
 
     virtual void insert(const void* data) = 0;

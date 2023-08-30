@@ -47,7 +47,6 @@
 #include "runtime/primitive_type.h"
 #include "runtime/runtime_filter_mgr.h"
 #include "util/bitmap_value.h"
-#include "util/defer_op.h"
 #include "util/runtime_profile.h"
 #include "util/string_parser.hpp"
 #include "vec/columns/column.h"
