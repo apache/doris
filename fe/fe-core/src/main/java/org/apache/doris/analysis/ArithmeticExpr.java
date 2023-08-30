@@ -530,8 +530,8 @@ public class ArithmeticExpr extends Expr {
                     scale = t1Scale + t2Scale;
                     precision = t1Precision + t2Precision;
                 } else if (op == Operator.DIVIDE) {
-                    precision = t1TargetType.getPrecision() + t2Scale + 4;
-                    scale = t1Scale + 4;
+                    precision = t1TargetType.getPrecision() + t2Scale;
+                    scale = t1Scale;
                 } else if (op == Operator.ADD || op == Operator.SUBTRACT) {
                     // target type: DECIMALV3(max(widthOfIntPart1, widthOfIntPart2) + max(scale1, scale2) + 1,
                     // max(scale1, scale2))
@@ -558,8 +558,8 @@ public class ArithmeticExpr extends Expr {
                         castChild(type, 1);
                     }
                 } else if (op == Operator.DIVIDE && t1TargetType.isDecimalV3()) {
-                    int leftPrecision = t1Precision + t2Scale + 4;
-                    int leftScale = t1Scale + t2Scale + 4;
+                    int leftPrecision = t1Precision + t2Scale;
+                    int leftScale = t1Scale + t2Scale;
                     if (leftPrecision > ScalarType.MAX_DECIMAL128_PRECISION) {
                         leftPrecision = ScalarType.MAX_DECIMAL128_PRECISION;
                     }
