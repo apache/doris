@@ -147,12 +147,12 @@ elif [[ "${DORIS_TOOLCHAIN}" == "clang" ]]; then
 
     covs=()
     tmp_file=$(mktemp)
-    find "${DORIS_CLANG_HOME}" -name "llvm-cov*" > "$tmp_file"
+    find "${DORIS_CLANG_HOME}" -name "llvm-cov*" > "${tmp_file}"
 
     # Read lines from the temporary file and populate the array
     while IFS= read -r line; do
        covs+=("$line")
-    done < "$tmp_file"
+    done < "${tmp_file}"
 
 
     if [[ ${#covs[@]} -ge 1 ]]; then
