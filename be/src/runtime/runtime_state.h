@@ -170,7 +170,7 @@ public:
 
     [[nodiscard]] bool is_cancelled() const;
     int codegen_level() const { return _query_options.codegen_level; }
-    void set_is_cancelled(bool v, const std::string& msg) {
+    void set_is_cancelled(bool v, std::string msg) {
         _is_cancelled.store(v);
         // Create a error status, so that we could print error stack, and
         // we could know which path call cancel.

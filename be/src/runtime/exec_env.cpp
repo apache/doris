@@ -16,6 +16,7 @@
 // under the License.
 
 #include "runtime/exec_env.h"
+#include "common/config.h"
 #include "runtime/frontend_info.h"
 #include "time.h"
 #include "util/time.h"
@@ -72,14 +73,14 @@ void ExecEnv::update_frontends(const std::vector<TFrontendInfo>& new_fe_infos) {
         }
 
         if (coming_fe_info.process_uuid == itr->second.info.process_uuid) {
-            itr->second.last_reveiving_time = GetCurrentTimeMicros() / 1000;
+            itr->second.last_reveiving_time_ms = GetCurrentTimeMicros() / 1000;
             continue;
         }
 
         // If we get here, means this frontend has already restarted.
         itr->second.info.process_uuid = coming_fe_info.process_uuid;
-        itr->second.first_receiving_time = GetCurrentTimeMicros() / 1000;
-        itr->second.last_reveiving_time = GetCurrentTimeMicros() / 1000;
+        itr->second.first_receiving_time_ms = GetCurrentTimeMicros() / 1000;
+        itr->second.last_reveiving_time_ms = GetCurrentTimeMicros() / 1000;
         LOG(INFO) << "Update frontend " << PrintFrontendInfo(coming_fe_info);
     }
 
@@ -92,12 +93,12 @@ void ExecEnv::update_frontends(const std::vector<TFrontendInfo>& new_fe_infos) {
 std::map<TNetworkAddress, FrontendInfo> ExecEnv::get_running_frontends() {
     std::lock_guard<std::mutex> lg(_frontends_lock);
     std::map<TNetworkAddress, FrontendInfo> res;
-    const int expired_duration = 10 * 1000; // 10 seconds.
+    const int expired_duration = config::fe_expire_duration_seconds * 1000;
     const auto now = GetCurrentTimeMicros() / 1000;
 
     for (const auto& pair : _frontends) {
         if (pair.second.info.process_uuid != 0) {
-            if (now - pair.second.last_reveiving_time < expired_duration) {
+            if (now - pair.second.last_reveiving_time_ms < expired_duration) {
                 // If fe info has just been update in last expired_duration, regard it as running.
                 res[pair.first] = pair.second;
             } else {
@@ -105,17 +106,19 @@ std::map<TNetworkAddress, FrontendInfo> ExecEnv::get_running_frontends() {
                 // Abnormal means this fe can not connect to master, and it is not dropped from cluster.
                 // or fe do not have master yet.
                 LOG(INFO) << "Frontend " << PrintFrontendInfo(pair.second.info) << " has not update its hb "
-                          << "for more than " << expired_duration / 1000 << " secs, regard it as abnormal.";
+                          << "for more than " << config::fe_expire_duration_seconds 
+                          << " secs, regard it as abnormal.";
             }
 
             continue;
         }
 
-        if (pair.second.last_reveiving_time - pair.second.first_receiving_time > expired_duration) {
-            // A zero process-uuid that sustains more than 10 seconds.
+        if (pair.second.last_reveiving_time_ms - pair.second.first_receiving_time_ms > expired_duration) {
+            // A zero process-uuid that sustains more than 60 seconds(default).
             // We will regard this fe as a abnormal frontend.
             LOG(INFO) << "Frontend " << PrintFrontendInfo(pair.second.info) << " has not update its hb "
-                      << "for more than " << expired_duration / 1000 << " secs, regard it as abnormal.";
+                      << "for more than " << config::fe_expire_duration_seconds 
+                      << " secs, regard it as abnormal.";
             continue;
         } else {
             res[pair.first] = pair.second;

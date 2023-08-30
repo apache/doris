@@ -933,7 +933,6 @@ void FragmentMgr::cancel_unlocked_impl(const TUniqueId& id, const PPlanFragmentC
 }
 
 
-// TODO(zhiqiang): What is this function used for?
 bool FragmentMgr::query_is_canceled(const TUniqueId& query_id) {
     std::lock_guard<std::mutex> lock(_lock);
     auto ctx = _query_ctx_map.find(query_id);
