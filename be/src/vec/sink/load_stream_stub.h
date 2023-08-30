@@ -98,7 +98,7 @@ public:
     // copy constructor, shared_ptr members are shared
     LoadStreamStub(LoadStreamStub& stub);
 
-    ~LoadStreamStub();
+    virtual ~LoadStreamStub();
 
     // open_stream_sink
     Status open(BrpcClientCache<PBackendService_Stub>* client_cache, const NodeInfo& node_info,
@@ -106,8 +106,9 @@ public:
                 const std::vector<PTabletID>& tablets_for_schema, bool enable_profile);
 
     // APPEND_DATA
-    Status append_data(int64_t partition_id, int64_t index_id, int64_t tablet_id,
-                       int64_t segment_id, std::span<const Slice> data, bool segment_eos = false);
+    virtual Status append_data(int64_t partition_id, int64_t index_id, int64_t tablet_id,
+                               int64_t segment_id, std::span<const Slice> data,
+                               bool segment_eos = false);
 
     // ADD_SEGMENT
     Status add_segment(int64_t partition_id, int64_t index_id, int64_t tablet_id,
@@ -159,6 +160,7 @@ private:
     Status _encode_and_send(PStreamHeader& header, std::span<const Slice> data = {});
     Status _send_with_retry(butil::IOBuf buf);
 
+protected:
     bool _is_init = false;
     bool _is_closed = false;
     bthread::Mutex _mutex;
