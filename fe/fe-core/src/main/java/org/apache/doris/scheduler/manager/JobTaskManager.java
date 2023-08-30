@@ -40,7 +40,7 @@ import java.util.concurrent.ConcurrentLinkedQueue;
 @Slf4j
 public class JobTaskManager implements Writable {
 
-    private static final Integer TASK_MAX_NUM = Config.scheduler_job_task_max_num;
+    private static final Integer TASK_MAX_NUM = Config.scheduler_job_task_max_saved_count;
 
     private ConcurrentHashMap<Long, ConcurrentLinkedQueue<JobTask>> jobTaskMap = new ConcurrentHashMap<>(16);
 
