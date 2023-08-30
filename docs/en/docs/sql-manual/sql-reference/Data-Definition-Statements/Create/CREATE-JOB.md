@@ -98,7 +98,7 @@ The SCHEDULER statement is used to define the execution time, frequency and dura
        Used to specify the end time of the job, if not specified, it means permanent execution.
 - DO
 
-  It is used to specify the operation that needs to be performed when the job is triggered. Currently, all ***INSERT*** operations are supported. We will support more operations in the future.
+  It is used to specify the operation that needs to be performed when the job is triggered. Currently, all ***INSERT, UPDATE*** operations are supported. We will support more operations in the future.
 
 ### Example
 
