@@ -4256,6 +4256,10 @@ show_param ::=
     {:
         RESULT = new ShowBuildIndexStmt(db, parser.where, orderByClause, limitClause);
     :}
+    | KW_CONVERT_LSC KW_FROM opt_db:db
+    {:
+        RESULT = new ShowConvertLSCStmt(db);
+    :}
     ;
 
 opt_tmp ::=

@@ -346,7 +346,7 @@ public class Env {
     private Daemon timePrinter;
     private Daemon listener;
 
-    private Daemon columnIdFlusher;
+    private ColumnIdFlushDaemon columnIdFlusher;
 
     private boolean isFirstTimeStartUp = false;
     private boolean isElectable;
@@ -5574,5 +5574,9 @@ public class Env {
 
     public void replayAutoIncrementIdUpdateLog(AutoIncrementIdUpdateLog log) throws Exception {
         getInternalCatalog().replayAutoIncrementIdUpdateLog(log);
+    }
+
+    public ColumnIdFlushDaemon getColumnIdFlusher() {
+        return columnIdFlusher;
     }
 }

@@ -17,13 +17,15 @@
 
 package org.apache.doris.catalog;
 
-import com.google.common.collect.Maps;
 import org.apache.doris.alter.AlterLightSchChangeHelper;
+import com.google.common.collect.Maps;
 import org.apache.doris.common.util.MasterDaemon;
 
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.locks.ReadWriteLock;
+import java.util.concurrent.locks.ReentrantReadWriteLock;
 
 /**
  * note(tsy): this class is temporary, make table before 1.2 to enable light schema change
@@ -31,13 +33,16 @@ import java.util.concurrent.TimeUnit;
 public class ColumnIdFlushDaemon extends MasterDaemon {
 
     /**
-     * db id -> (tbl_id->status)
+     * db name -> (tbl name -> status)
      */
-    private Map<Long, Map<Long, FlushStatus>> resultCollector;
+    private final Map<String, Map<String, FlushStatus>> resultCollector;
+
+    private final ReadWriteLock rwLock;
 
     public ColumnIdFlushDaemon() {
         super("colum-id-flusher", TimeUnit.HOURS.toMillis(1));
         resultCollector = Maps.newHashMap();
+        rwLock = new ReentrantReadWriteLock();
     }
 
     @Override
@@ -47,36 +52,53 @@ public class ColumnIdFlushDaemon extends MasterDaemon {
 
     private void flush() {
         List<Database> dbs = Env.getCurrentEnv().getInternalCatalog().getDbs();
-        for (Database db : dbs) {
-            db.getTables()
-                    .stream()
-                    .filter(table -> table instanceof OlapTable)
-                    .map(table -> (OlapTable) table)
-                    .filter(olapTable -> !olapTable.getTableProperty().getUseSchemaLightChange())
-                    .forEach(table -> {
-                        try {
-                            table.writeLock();
-                            if (table.getTableProperty().getUseSchemaLightChange()) {
+        rwLock.writeLock().lock();
+        try {
+            for (Database db : dbs) {
+                db.getTables()
+                        .stream()
+                        .filter(table -> table instanceof OlapTable)
+                        .map(table -> (OlapTable) table)
+                        .filter(olapTable -> !olapTable.getTableProperty().getUseSchemaLightChange())
+                        .forEach(table -> {
+                            try {
+                                table.writeLock();
+                                if (table.getTableProperty().getUseSchemaLightChange()) {
+                                    table.writeUnlock();
+                                    return;
+                                }
+                                new AlterLightSchChangeHelper(db, table).enableLightSchemaChange();
                                 table.writeUnlock();
-                                return;
+                                recordResult(db.getFullName(), table.getName(), FlushStatus.ok());
+                            } catch (IllegalStateException e) {
+                                recordResult(db.getFullName(), table.getName(), FlushStatus.failed(e.getMessage()));
                             }
-                            new AlterLightSchChangeHelper(db, table).enableLightSchemaChange();
-                            table.writeUnlock();
-                            recordResult(db.getId(), table.getId(), FlushStatus.ok());
-                        } catch (IllegalStateException e) {
-                            recordResult(db.getId(), table.getId(), FlushStatus.failed(e.getMessage()));
-                        }
-                    });
+                        });
+            }
+        } finally {
+            rwLock.writeLock().unlock();
         }
     }
 
-    private void recordResult(long dbId, long tableId, FlushStatus status) {
-        resultCollector.putIfAbsent(dbId, Maps.newHashMap());
-        Map<Long, FlushStatus> tableToStatus = resultCollector.get(dbId);
-        tableToStatus.put(tableId, status);
+    private void recordResult(String dbName, String tableName, FlushStatus status) {
+        resultCollector.putIfAbsent(dbName, Maps.newHashMap());
+        Map<String, FlushStatus> tableToStatus = resultCollector.get(dbName);
+        tableToStatus.put(tableName, status);
     }
 
-    private static class FlushStatus {
+    public Map<String, Map<String, FlushStatus>> getResultCollector() {
+        return resultCollector;
+    }
+
+    public void readLock() {
+        rwLock.readLock().lock();
+    }
+
+    public void readUnlock() {
+        rwLock.readLock().unlock();
+    }
+
+    public static class FlushStatus {
 
         private FlushStatus() {
             this.success = true;
