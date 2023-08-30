@@ -264,7 +264,7 @@ void StorageEngine::_cache_clean_callback() {
         // TODO, Support page cache and other caches.
         if (config::disable_segment_cache) {
             if (!_clear_segment_cache) {
-                CacheManager::instance()->clear_once("SegmentCache");
+                CacheManager::instance()->clear_once(CachePolicy::Type::SEGMENT_CACHE);
                 _clear_segment_cache = true;
             }
         } else {
