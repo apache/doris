@@ -64,26 +64,26 @@ public class TimeRoundSeries {
                 break;
             }
             case DAY: {
-                diff = dt.daynr() - start.daynr();
+                diff = dt.getTotalDays() - start.getTotalDays();
                 long part2 = dt.getHour() * 3600 + dt.getMinute() * 60 + dt.getSecond();
                 long part1 = start.getHour() * 3600 + start.getMinute() * 60 + start.getSecond();
                 trivialPart = part2 - part1;
                 break;
             }
             case HOUR: {
-                diff = (dt.daynr() - start.daynr()) * 24 + (dt.getHour() - start.getHour());
+                diff = (dt.getTotalDays() - start.getTotalDays()) * 24 + (dt.getHour() - start.getHour());
                 trivialPart = (dt.getMinute() * 60 + dt.getSecond())
                         - (start.getMinute() * 60 + start.getSecond());
                 break;
             }
             case MINUTE: {
-                diff = (dt.daynr() - start.daynr()) * 24 * 60 + (dt.getHour() - start.getHour()) * 60
+                diff = (dt.getTotalDays() - start.getTotalDays()) * 24 * 60 + (dt.getHour() - start.getHour()) * 60
                         + (dt.getMinute() - start.getMinute());
                 trivialPart = dt.getSecond() - start.getSecond();
                 break;
             }
             case SECOND: {
-                diff = (dt.daynr() - start.daynr()) * 24 * 60 * 60
+                diff = (dt.getTotalDays() - start.getTotalDays()) * 24 * 60 * 60
                         + (dt.getHour() - start.getHour()) * 60 * 60
                         + (dt.getMinute() - start.getMinute()) * 60
                         + (dt.getSecond() - start.getSecond());

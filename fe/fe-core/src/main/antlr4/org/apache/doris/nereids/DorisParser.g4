@@ -400,15 +400,15 @@ primaryExpression
     | name=DATE_FLOOR
             LEFT_PAREN
                 timestamp=valueExpression COMMA
-                (INTERVAL unitsAmount=valueExpression  unit=datetimeUnit
+                (INTERVAL unitsAmount=valueExpression  unit=(YEAR | MONTH| WEEK | DAY | HOUR | MINUTE | SECOND)
                 | unitsAmount=valueExpression)
-            RIGHT_PAREN                                                                        #date_floor 
+            RIGHT_PAREN                                                                        #dateFloor 
     | name=DATE_CEIL
             LEFT_PAREN
                 timestamp=valueExpression COMMA
-                (INTERVAL unitsAmount=valueExpression  unit=datetimeUnit
+                (INTERVAL unitsAmount=valueExpression  unit=(YEAR | MONTH| WEEK | DAY | HOUR | MINUTE | SECOND)
                 | unitsAmount=valueExpression)
-            RIGHT_PAREN                                                                        #date_ceil
+            RIGHT_PAREN                                                                        #dateCeil
     | CASE whenClause+ (ELSE elseExpression=expression)? END                                   #searchedCase
     | CASE value=expression whenClause+ (ELSE elseExpression=expression)? END                  #simpleCase
     | name=CAST LEFT_PAREN expression AS dataType RIGHT_PAREN                                  #cast
