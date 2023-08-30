@@ -850,6 +850,9 @@ DEFINE_Validator(jsonb_type_length_soft_limit_bytes,
 // is greater than object_pool_buffer_size, release the object in the unused_object_pool.
 DEFINE_Int32(object_pool_buffer_size, "100");
 
+// Threshold of reading a small file into memory
+DEFINE_mInt32(in_memory_file_size, "1048576"); // 1MB
+
 // ParquetReaderWrap prefetch buffer size
 DEFINE_Int32(parquet_reader_max_buffer_size, "50");
 // Max size of parquet page header in bytes
