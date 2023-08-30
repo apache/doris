@@ -77,11 +77,11 @@ resourceDesc : WITH RESOURCE resourceName=identifierOrText (LEFT_PAREN propertie
 
 mysqlDataDesc
     : DATA (LOCAL booleanValue)?
-    INFILE filePath=constant
+    INFILE filePath=STRING_LITERAL
     INTO TABLE tableName=multipartIdentifier
     (PARTITION partition=identifierList)?
-    (COLUMNS TERMINATED BY comma=constant)?
-    (LINES TERMINATED BY separator=constant)?
+    (COLUMNS TERMINATED BY comma=STRING_LITERAL)?
+    (LINES TERMINATED BY separator=STRING_LITERAL)?
     (skipLines)?
     (columns=identifierList)?
     (colMappingList)?
@@ -91,11 +91,11 @@ mysqlDataDesc
 skipLines : IGNORE lines=INTEGER_VALUE LINES | IGNORE lines=INTEGER_VALUE ROWS ;
 
 dataDesc
-    : DATA INFILE (LEFT_PAREN filePath=constant RIGHT_PAREN)*
+    : DATA INFILE (LEFT_PAREN filePath=STRING_LITERAL RIGHT_PAREN)*
         INTO TABLE tableName=multipartIdentifier
         (PARTITION partition=identifierList)?
-        (COLUMNS TERMINATED BY comma=constant)?
-        (LINES TERMINATED BY separator=constant)?
+        (COLUMNS TERMINATED BY comma=STRING_LITERAL)?
+        (LINES TERMINATED BY separator=STRING_LITERAL)?
         (FORMAT AS format=identifier)?
         (columns=identifierList)?
         (colFromPath)?
@@ -105,7 +105,7 @@ dataDesc
         (deleteOnClause)?
         (sequenceColClause)?
         (PROPERTIES LEFT_PAREN propertiesStatement RIGHT_PAREN)?
-    | DATA FROM TABLE (LEFT_PAREN filePath=constant RIGHT_PAREN)*
+    | DATA FROM TABLE (LEFT_PAREN filePath=STRING_LITERAL RIGHT_PAREN)*
         INTO TABLE tableName=multipartIdentifier
         (PARTITION partition=identifierList)?
         (colMappingList)?
@@ -122,29 +122,24 @@ colMappingList : SET LEFT_PAREN colMappingSet+=expression (COMMA colMappingSet+=
 
 withRemoteStorageSystem
     : WITH S3 LEFT_PAREN
-        brokerProperties+=remoteStorageProperty (COMMA brokerProperties+=remoteStorageProperty)*
+        brokerProperties+=property (COMMA brokerProperties+=property)*
         RIGHT_PAREN
     | WITH HDFS LEFT_PAREN
-        brokerProperties+=remoteStorageProperty (COMMA brokerProperties+=remoteStorageProperty)*
+        brokerProperties+=property (COMMA brokerProperties+=property)*
         RIGHT_PAREN
     | WITH LOCAL LEFT_PAREN
-        brokerProperties+=remoteStorageProperty (COMMA brokerProperties+=remoteStorageProperty)*
+        brokerProperties+=property (COMMA brokerProperties+=property)*
         RIGHT_PAREN
     | WITH BROKER brokerName=identifierOrText
         (LEFT_PAREN
-        brokerProperties+=remoteStorageProperty (COMMA brokerProperties+=remoteStorageProperty)*
+        brokerProperties+=property (COMMA brokerProperties+=property)*
         RIGHT_PAREN)?
-    ;
-
-remoteStorageProperty
-    : key=remoteStoragePropertyItem EQ value=remoteStoragePropertyItem
     ;
 
 propertiesStatement
     : properties+=property (COMMA properties+=property)*
     ;
 
-remoteStoragePropertyItem : identifier | constant ;
 // -----------------Command accessories-----------------
 
 identifierOrText

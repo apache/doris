@@ -18,12 +18,11 @@
 package org.apache.doris.nereids.parser;
 
 import org.apache.doris.analysis.ArithmeticExpr.Operator;
-import org.apache.doris.analysis.BrokerDesc;
-import org.apache.doris.analysis.DataDescription;
+import org.apache.doris.analysis.BulkDesc;
+import org.apache.doris.analysis.BulkLoadDataDesc;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.PartitionNames;
 import org.apache.doris.analysis.Separator;
-import org.apache.doris.analysis.StorageBackend;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.Pair;
@@ -96,7 +95,6 @@ import org.apache.doris.nereids.DorisParser.QueryContext;
 import org.apache.doris.nereids.DorisParser.QueryOrganizationContext;
 import org.apache.doris.nereids.DorisParser.RegularQuerySpecificationContext;
 import org.apache.doris.nereids.DorisParser.RelationContext;
-import org.apache.doris.nereids.DorisParser.RemoteStoragePropertyItemContext;
 import org.apache.doris.nereids.DorisParser.SelectClauseContext;
 import org.apache.doris.nereids.DorisParser.SelectColumnClauseContext;
 import org.apache.doris.nereids.DorisParser.SelectHintContext;
@@ -422,30 +420,29 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
      * Visit load-statements.
      */
     public LogicalPlan visitLoad(LoadContext ctx) {
-        Map<String, String> brokerPropertiesMap;
-        BrokerDesc brokerDesc = null;
+        Map<String, String> bulkProperties;
+        BulkDesc bulkDesc = null;
         DorisParser.LoadStmtContext loadStmt = ctx.loadStmt();
         if (loadStmt.withRemoteStorageSystem() != null) {
-            brokerPropertiesMap = Maps.newHashMap();
-            for (DorisParser.RemoteStoragePropertyContext arg
-                    : loadStmt.withRemoteStorageSystem().brokerProperties) {
-                String key = parseRemoteStoragePropertyItem(arg.key);
-                String value = parseRemoteStoragePropertyItem(arg.value);
-                brokerPropertiesMap.put(key, value);
+            bulkProperties = Maps.newHashMap();
+            for (DorisParser.PropertyContext arg : loadStmt.withRemoteStorageSystem().brokerProperties) {
+                String key = parsePropertyItem(arg.key);
+                String value = parsePropertyItem(arg.value);
+                bulkProperties.put(key, value);
             }
             if (loadStmt.withRemoteStorageSystem().S3() != null) {
-                brokerDesc = new BrokerDesc("S3", StorageBackend.StorageType.S3, brokerPropertiesMap);
+                bulkDesc = new BulkDesc("S3", BulkDesc.BulkType.S3, bulkProperties);
             } else if (loadStmt.withRemoteStorageSystem().HDFS() != null) {
-                brokerDesc = new BrokerDesc("HDFS", StorageBackend.StorageType.HDFS, brokerPropertiesMap);
+                bulkDesc = new BulkDesc("HDFS", BulkDesc.BulkType.HDFS, bulkProperties);
             } else if (loadStmt.withRemoteStorageSystem().LOCAL() != null) {
-                brokerDesc = new BrokerDesc("HDFS", StorageBackend.StorageType.LOCAL, brokerPropertiesMap);
+                bulkDesc = new BulkDesc("LOCAL_HDFS", BulkDesc.BulkType.LOCAL, bulkProperties);
             } else if (loadStmt.withRemoteStorageSystem().BROKER() != null
                     && loadStmt.withRemoteStorageSystem().identifierOrText().getText() != null) {
-                brokerDesc = new BrokerDesc(loadStmt.withRemoteStorageSystem().identifierOrText().getText(),
-                        brokerPropertiesMap);
+                bulkDesc = new BulkDesc(loadStmt.withRemoteStorageSystem().identifierOrText().getText(),
+                        bulkProperties);
             }
         }
-        List<DataDescription> dataDescriptions = new ArrayList<>();
+        List<BulkLoadDataDesc> dataDescriptions = new ArrayList<>();
         for (DorisParser.DataDescContext ddc : ctx.loadStmt().dataDescs) {
             List<String> tableName = visitMultipartIdentifier(ddc.tableName);
             List<String> colNames = ddc.columns == null ? ImmutableList.of() : visitIdentifierList(ddc.columns);
@@ -462,21 +459,16 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             List<String> filePaths = ddc.filePath == null ? ImmutableList.of()
                         : ImmutableList.of(ddc.filePath.getText());
 
-            dataDescriptions.add(new DataDescription(tableName.get(0), new PartitionNames(false, partitions),
+            dataDescriptions.add(new BulkLoadDataDesc(tableName.get(0), new PartitionNames(false, partitions),
                     filePaths, colNames, new Separator(ddc.comma.getText()),
                     new Separator(ddc.separator.getText()), ddc.format.getText(),
                     columnsFromPath, false, colMappingList, preFilterExpr,
                     whereExpr, mergeType, deleteExpr, sequenceColName, properties));
         }
         String labelName = loadStmt.lableName == null ? null : loadStmt.lableName.getText();
-        return new LoadCommand(labelName, dataDescriptions, brokerDesc);
-    }
-
-    private String parseRemoteStoragePropertyItem(RemoteStoragePropertyItemContext item) {
-        if (item.constant() != null) {
-            return parseConstant(item.constant());
-        }
-        return item.getText();
+        Properties properties = visitPropertiesStatement(loadStmt.propertiesStatement());
+        String comment = loadStmt.commentSpec().getText();
+        return new LoadCommand(labelName, dataDescriptions, bulkDesc, properties.getMap(), comment);
     }
 
     /* ********************************************************************************************
