@@ -78,13 +78,7 @@ Status PrimaryKeyIndexBuilder::finalize(segment_v2::PrimaryKeyIndexMetaPB* meta)
 
     // finish bloom filter index
     RETURN_IF_ERROR(_bloom_filter_index_builder->flush());
-    uint64_t start_size = _file_writer->bytes_appended();
-    RETURN_IF_ERROR(
-            _bloom_filter_index_builder->finish(_file_writer, meta->mutable_bloom_filter_index()));
-    _disk_size += _file_writer->bytes_appended() - start_size;
-    _primary_key_index_builder.reset(nullptr);
-    _bloom_filter_index_builder.reset(nullptr);
-    return Status::OK();
+    return _bloom_filter_index_builder->finish(_file_writer, meta->mutable_bloom_filter_index());
 }
 
 Status PrimaryKeyIndexReader::parse_index(io::FileReaderSPtr file_reader,
