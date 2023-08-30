@@ -121,17 +121,13 @@ Status DeltaWriterV2::init() {
     context.rowset_type = RowsetTypePB::BETA_ROWSET;
     context.rowset_id = StorageEngine::instance()->next_rowset_id();
     context.data_dir = nullptr;
-    context.sender_id = _streams[0]->src_id();
 
-    std::vector<brpc::StreamId> streams;
-    for (const auto& s : _streams) {
-        streams.push_back(s->stream_id());
-    }
-    _rowset_writer = std::make_shared<BetaRowsetWriterV2>(streams);
+    _rowset_writer = std::make_shared<BetaRowsetWriterV2>(_streams);
     _rowset_writer->init(context);
     _memtable_writer->init(_rowset_writer, _tablet_schema, _streams[0]->enable_unique_mow(_req.index_id));
     ExecEnv::GetInstance()->memtable_memory_limiter()->register_writer(_memtable_writer);
     _is_init = true;
+    _streams.clear();
     return Status::OK();
 }
 
