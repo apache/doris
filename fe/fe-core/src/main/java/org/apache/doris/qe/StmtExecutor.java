@@ -664,12 +664,19 @@ public class StmtExecutor {
         profile.getSummaryProfile().setQueryBeginTime();
         context.setStmtId(STMT_ID_GENERATOR.incrementAndGet());
         context.setQueryId(queryId);
+        if (parsedStmt == null) {
+            parseByLegacy();
+        }
         // set isQuery first otherwise this state will be lost if some error occurs
         if (parsedStmt instanceof QueryStmt) {
             context.getState().setIsQuery(true);
         }
 
         try {
+            if (context.isTxnModel() && !(parsedStmt instanceof InsertStmt)
+                    && !(parsedStmt instanceof TransactionStmt)) {
+                throw new TException("This is in a transaction, only insert, commit, rollback is acceptable.");
+            }
             // support select hint e.g. select /*+ SET_VAR(query_timeout=1) */ sleep(3);
             analyzeVariablesInStmt();
 
@@ -878,12 +885,6 @@ public class StmtExecutor {
         if (LOG.isDebugEnabled()) {
             LOG.debug("begin to analyze stmt: {}, forwarded stmt id: {}", context.getStmtId(),
                     context.getForwardedStmtId());
-        }
-
-        parseByLegacy();
-        if (context.isTxnModel() && !(parsedStmt instanceof InsertStmt)
-                && !(parsedStmt instanceof TransactionStmt)) {
-            throw new AnalysisException("This is in a transaction, only insert, commit, rollback is acceptable.");
         }
 
         boolean preparedStmtReanalyzed = false;
