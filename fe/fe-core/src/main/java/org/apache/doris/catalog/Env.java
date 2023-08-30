@@ -1840,6 +1840,7 @@ public class Env {
             long jobId = dis.readLong();
             newChecksum ^= jobId;
             ExportJob job = ExportJob.read(dis);
+            job.cancelReplayedExportJob();
             if (!job.isExpired(curTime)) {
                 exportMgr.unprotectAddJob(job);
             }

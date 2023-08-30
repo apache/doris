@@ -38,8 +38,6 @@ import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.scheduler.exception.JobException;
-import org.apache.doris.task.ExportExportingTask;
-import org.apache.doris.task.MasterTask;
 import org.apache.doris.task.MasterTaskExecutor;
 
 import com.google.common.annotations.VisibleForTesting;
@@ -103,27 +101,27 @@ public class ExportMgr extends MasterDaemon {
 
     @Override
     protected void runAfterCatalogReady() {
-        List<ExportJob> pendingJobs = getExportJobs(ExportJobState.PENDING);
-        List<ExportJob> newInQueueJobs = Lists.newArrayList();
-        for (ExportJob job : pendingJobs) {
-            if (handlePendingJobs(job)) {
-                newInQueueJobs.add(job);
-            }
-        }
-        LOG.debug("new IN_QUEUE export job num: {}", newInQueueJobs.size());
-        for (ExportJob job : newInQueueJobs) {
-            try {
-                MasterTask task = new ExportExportingTask(job);
-                job.setTask((ExportExportingTask) task);
-                if (exportingExecutor.submit(task)) {
-                    LOG.info("success to submit IN_QUEUE export job. job: {}", job);
-                } else {
-                    LOG.info("fail to submit IN_QUEUE job to executor. job: {}", job);
-                }
-            } catch (Exception e) {
-                LOG.warn("run export exporting job {}.", job, e);
-            }
-        }
+        // List<ExportJob> pendingJobs = getExportJobs(ExportJobState.PENDING);
+        // List<ExportJob> newInQueueJobs = Lists.newArrayList();
+        // for (ExportJob job : pendingJobs) {
+        //     if (handlePendingJobs(job)) {
+        //         newInQueueJobs.add(job);
+        //     }
+        // }
+        // LOG.debug("new IN_QUEUE export job num: {}", newInQueueJobs.size());
+        // for (ExportJob job : newInQueueJobs) {
+        //     try {
+        //         MasterTask task = new ExportExportingTask(job);
+        //         job.setTask((ExportExportingTask) task);
+        //         if (exportingExecutor.submit(task)) {
+        //             LOG.info("success to submit IN_QUEUE export job. job: {}", job);
+        //         } else {
+        //             LOG.info("fail to submit IN_QUEUE job to executor. job: {}", job);
+        //         }
+        //     } catch (Exception e) {
+        //         LOG.warn("run export exporting job {}.", job, e);
+        //     }
+        // }
     }
 
     private boolean handlePendingJobs(ExportJob job) {
@@ -136,8 +134,7 @@ public class ExportMgr extends MasterDaemon {
             // If the job is created from replay thread, all plan info will be lost.
             // so the job has to be cancelled.
             String failMsg = "FE restarted or Master changed during exporting. Job must be cancelled.";
-            // job.cancel(ExportFailMsg.CancelType.RUN_FAIL, failMsg);
-            job.cancelReplayedExportJob(ExportFailMsg.CancelType.RUN_FAIL, failMsg);
+            job.cancel(ExportFailMsg.CancelType.RUN_FAIL, failMsg);
             return false;
         }
 
@@ -515,7 +512,6 @@ public class ExportMgr extends MasterDaemon {
         readLock();
         try {
             ExportJob job = exportIdToJob.get(stateTransfer.getJobId());
-            // job.updateState(stateTransfer.getState(), true);
             job.replayExportJobState(stateTransfer.getState());
             job.setStartTimeMs(stateTransfer.getStartTimeMs());
             job.setFinishTimeMs(stateTransfer.getFinishTimeMs());

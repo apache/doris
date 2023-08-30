@@ -736,11 +736,6 @@ public class ExportJob implements Writable {
         }
     }
 
-    public void cancelReplayedExportJob(ExportFailMsg.CancelType type, String msg) {
-        setExportJobState(ExportJobState.CANCELLED);
-        failMsg = new ExportFailMsg(type, msg);
-    }
-
     private void cancelExportTask(ExportFailMsg.CancelType type, String msg) throws JobException {
         if (getState() == ExportJobState.CANCELLED) {
             return;
@@ -847,6 +842,20 @@ public class ExportJob implements Writable {
                 break;
         }
         setExportJobState(newState);
+    }
+
+    /**
+     * If there are export which state is PENDING or EXPORTING or IN_QUEUE
+     * in checkpoint, we translate their state to CANCELLED.
+     *
+     * This function is only used in replay catalog phase.
+     */
+    public void cancelReplayedExportJob() {
+        if (state == ExportJobState.PENDING || state == ExportJobState.EXPORTING || state == ExportJobState.IN_QUEUE) {
+            String failMsg = "FE restarted or Master changed during exporting. Job must be cancelled.";
+            this.failMsg = new ExportFailMsg(ExportFailMsg.CancelType.RUN_FAIL, failMsg);
+            setExportJobState(ExportJobState.CANCELLED);
+        }
     }
 
     // TODO(ftw): delete

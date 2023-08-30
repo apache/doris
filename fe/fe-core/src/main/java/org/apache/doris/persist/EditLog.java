@@ -367,6 +367,7 @@ public class EditLog {
                 case OperationType.OP_EXPORT_CREATE: {
                     ExportJob job = (ExportJob) journal.getData();
                     ExportMgr exportMgr = env.getExportMgr();
+                    job.cancelReplayedExportJob();
                     exportMgr.replayCreateExportJob(job);
                     break;
                 }
