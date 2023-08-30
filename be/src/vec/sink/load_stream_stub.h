@@ -106,7 +106,8 @@ public:
 
     // APPEND_DATA
     Status append_data(int64_t partition_id, int64_t index_id, int64_t tablet_id,
-                       int64_t segment_id, const std::vector<Slice*>& data);
+                       int64_t segment_id, const std::vector<Slice>& data,
+                       bool segment_eos = false);
 
     // ADD_SEGMENT
     Status add_segment(int64_t partition_id, int64_t index_id, int64_t tablet_id,
@@ -155,7 +156,7 @@ public:
     int64_t dst_id() const { return _dst_id; }
 
 private:
-    Status _encode_and_send(PStreamHeader& header, const std::vector<Slice*>& data = {});
+    Status _encode_and_send(PStreamHeader& header, const std::vector<Slice>& data = {});
     Status _send_with_retry(butil::IOBuf buf);
 
     bool _is_init = false;
