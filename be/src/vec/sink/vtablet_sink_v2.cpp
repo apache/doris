@@ -187,12 +187,6 @@ Status VOlapTableSinkV2::_init_stream_pool(const NodeInfo& node_info, Streams& s
         RETURN_IF_ERROR(stream->open(_state->exec_env()->brpc_internal_client_cache(), node_info,
                                      _txn_id, *_schema, tablets_for_schema,
                                      _state->enable_profile()));
-        /*
-        for (auto& tablet : _indexes_from_node[node_info.id]) {
-            LOG(INFO) << "try tablet_schema for index " << tablet.index_id() << ": "
-                      << (uint64_t)(stream->tablet_schema(tablet.index_id()).get());
-        }
-        */
         stream_pool.emplace_back(std::move(stream));
     }
     return Status::OK();

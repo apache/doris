@@ -131,14 +131,10 @@ public:
     }
 
     std::shared_ptr<TabletSchema> tablet_schema(int64_t index_id) const {
-        LOG(INFO) << "get tablet schema for index " << index_id << " from stream " << _stream_id
-                  << ", contains: " << _tablet_schema_for_index->contains(index_id);
         return _tablet_schema_for_index->at(index_id);
     }
 
     bool enable_unique_mow(int64_t index_id) const {
-        LOG(INFO) << "get enable mow for index " << index_id << " from stream " << _stream_id
-                  << ", contains: " << _tablet_schema_for_index->contains(index_id);
         return _enable_unique_mow_for_index->at(index_id);
     }
 
