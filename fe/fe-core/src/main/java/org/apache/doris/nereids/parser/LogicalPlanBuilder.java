@@ -194,6 +194,8 @@ import org.apache.doris.nereids.trees.expressions.functions.agg.Count;
 import org.apache.doris.nereids.trees.expressions.functions.agg.GroupConcat;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Array;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArraySlice;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Char;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.ConvertTo;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.CreateMap;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.CreateStruct;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.DaysAdd;
@@ -1183,6 +1185,38 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         String db = ctx.dbName == null ? "" : ctx.dbName.getText();
         String key = ctx.keyName.getText();
         return new EncryptKeyRef(new StringLiteral(db), new StringLiteral(key));
+    }
+
+    @Override
+    public Expression visitCharFunction(DorisParser.CharFunctionContext ctx) {
+        String charSet = ctx.charSet == null ? "utf8" : ctx.charSet.getText();
+        List<Expression> arguments = ImmutableList.<Expression>builder()
+                .add(new StringLiteral(charSet))
+                .addAll(visit(ctx.arguments, Expression.class))
+                .build();
+        return new Char(arguments);
+    }
+
+    @Override
+    public Expression visitConvertCharSet(DorisParser.ConvertCharSetContext ctx) {
+        return new ConvertTo(getExpression(ctx.argument), new StringLiteral(ctx.charSet.getText()));
+    }
+
+    @Override
+    public Expression visitConvertType(DorisParser.ConvertTypeContext ctx) {
+        DataType dataType = ((DataType) typedVisit(ctx.type)).conversion();
+        Expression cast = ParserUtils.withOrigin(ctx, () ->
+                new Cast(getExpression(ctx.argument), dataType));
+        if (dataType.isStringLikeType() && ((CharacterType) dataType).getLen() >= 0) {
+            List<Expression> args = ImmutableList.of(
+                    cast,
+                    new TinyIntLiteral((byte) 1),
+                    Literal.of(((CharacterType) dataType).getLen())
+            );
+            return new UnboundFunction("substr", args);
+        } else {
+            return cast;
+        }
     }
 
     @Override
