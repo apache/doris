@@ -22,6 +22,7 @@
 #include <algorithm>
 #include <map>
 #include <memory>
+#include <mutex>
 #include <shared_mutex>
 #include <string>
 #include <unordered_map>
@@ -34,6 +35,7 @@
 #include "vec/common/hash_table/phmap_fwd_decl.h"
 
 namespace doris {
+struct FrontendInfo;
 namespace vectorized {
 class VDataStreamMgr;
 class ScannerScheduler;
@@ -199,6 +201,10 @@ public:
         this->_stream_load_executor = stream_load_executor;
     }
 
+    void update_frontends(const std::vector<TFrontendInfo>& new_infos);
+    std::map<TNetworkAddress, FrontendInfo> get_frontends();
+    std::map<TNetworkAddress, FrontendInfo> get_running_frontends();
+
 private:
     Status _init(const std::vector<StorePath>& store_paths);
     void _destroy();
@@ -277,6 +283,9 @@ private:
 
     std::unique_ptr<vectorized::ZoneList> _global_zone_cache;
     std::shared_mutex _zone_cache_rw_lock;
+
+    std::mutex _frontends_lock;
+    std::map<TNetworkAddress, FrontendInfo> _frontends;
 };
 
 template <>

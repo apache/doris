@@ -19,6 +19,7 @@ package org.apache.doris.system;
 
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
+import org.apache.doris.service.ExecuteEnv;
 import org.apache.doris.service.FeDiskInfo;
 
 import com.google.gson.annotations.SerializedName;
@@ -68,6 +69,7 @@ public class FrontendHbResponse extends HeartbeatResponse implements Writable {
         this.status = HbStatus.BAD;
         this.name = name;
         this.msg = errMsg;
+        this.feStartTime = ExecuteEnv.getInstance().getStartupTime();
     }
 
     public String getName() {
