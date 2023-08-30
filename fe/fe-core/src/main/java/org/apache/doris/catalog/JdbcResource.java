@@ -300,7 +300,8 @@ public class JdbcResource extends Resource {
             newJdbcUrl = checkAndSetJdbcBoolParam(newJdbcUrl, "yearIsDateType", "true", "false");
             // MySQL Types and Return Values for GetColumnTypeName and GetColumnClassName
             // are presented in https://dev.mysql.com/doc/connector-j/8.0/en/connector-j-reference-type-conversions.html
-            // When mysql's tinyint stores non-0 or 1, we need to read the data correctly, so we need tinyInt1isBit=false
+            // When mysql's tinyint stores non-0 or 1, we need to read the data correctly,
+            // so we need tinyInt1isBit=false
             newJdbcUrl = checkAndSetJdbcBoolParam(newJdbcUrl, "tinyInt1isBit", "true", "false");
             // set useUnicode and characterEncoding to false and utf-8
             newJdbcUrl = checkAndSetJdbcBoolParam(newJdbcUrl, "useUnicode", "false", "true");
