@@ -163,24 +163,25 @@ Status VOlapTableSinkV2::open(RuntimeState* state) {
 }
 
 Status VOlapTableSinkV2::_init_stream_pools() {
+    // stub template is for sharing internal schema map among all stubs
+    LoadStreamStub stub_template {_load_id, _sender_id};
     for (auto& [node_id, _] : _tablets_for_node) {
         auto node_info = _nodes_info->find_node(node_id);
         if (node_info == nullptr) {
             return Status::InternalError("Unknown node {} in tablet location", node_id);
         }
         Streams& stream_pool = (*_stream_pool_for_node)[node_id];
-        RETURN_IF_ERROR(_init_stream_pool(*node_info, stream_pool));
+        RETURN_IF_ERROR(_init_stream_pool(*node_info, stream_pool, stub_template));
     }
     return Status::OK();
 }
 
-Status VOlapTableSinkV2::_init_stream_pool(const NodeInfo& node_info, Streams& stream_pool) {
-    DCHECK_GT(config::num_streams_per_sink, 0);
+Status VOlapTableSinkV2::_init_stream_pool(const NodeInfo& node_info, Streams& stream_pool,
+                                           LoadStreamStub& stub_template) {
     stream_pool.reserve(config::num_streams_per_sink);
     for (int i = 0; i < config::num_streams_per_sink; ++i) {
-        // tablet schema will be shared between multiple streams to the same backend
-        auto stream = i == 0 ? std::make_unique<LoadStreamStub>(_load_id, _sender_id)
-                             : std::make_unique<LoadStreamStub>(*stream_pool[0]);
+        // internal tablet schema map will be shared among all stubs
+        auto stream = std::make_unique<LoadStreamStub>(stub_template);
         // get tablet schema from each backend only in the 1st stream
         const std::vector<PTabletID>& tablets_for_schema =
                 i == 0 ? _indexes_from_node[node_info.id] : std::vector<PTabletID> {};
@@ -208,8 +209,8 @@ void VOlapTableSinkV2::_build_tablet_node_mapping() {
                         continue;
                     }
                     _indexes_from_node[node].emplace_back(tablet);
+                    known_indexes.insert(index.index_id);
                 }
-                known_indexes.insert(index.index_id);
             }
         }
     }

@@ -96,7 +96,10 @@ LoadStreamStub::LoadStreamStub(LoadStreamStub& stub)
           _enable_unique_mow_for_index(stub._enable_unique_mow_for_index) {};
 
 LoadStreamStub::~LoadStreamStub() {
-    brpc::StreamClose(_stream_id);
+    std::unique_lock<bthread::Mutex> lock(_mutex);
+    if (_is_init && !_is_closed) {
+        brpc::StreamClose(_stream_id);
+    }
 }
 
 // open_stream_sink

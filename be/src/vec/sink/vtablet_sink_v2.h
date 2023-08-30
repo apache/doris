@@ -136,7 +136,8 @@ public:
     RuntimeProfile* profile() override { return _profile; }
 
 private:
-    Status _init_stream_pool(const NodeInfo& node_info, Streams& stream_pool);
+    Status _init_stream_pool(const NodeInfo& node_info, Streams& stream_pool,
+                             LoadStreamStub& stub_template);
 
     Status _init_stream_pools();
 
