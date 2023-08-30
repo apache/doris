@@ -237,7 +237,8 @@ Status ParquetReader::_open_file() {
             // parse magic number & parse meta data
             _column_statistics.meta_read_calls += 1;
         } else {
-            RETURN_IF_ERROR(_meta_cache->get_parquet_footer(_file_reader, _io_ctx, 0, &meta_size,
+            RETURN_IF_ERROR(_meta_cache->get_parquet_footer(_file_reader, _io_ctx,
+                                                            _file_description.mtime, &meta_size,
                                                             &_meta_cache_handle));
             _column_statistics.read_bytes += meta_size;
             if (meta_size > 0) {
