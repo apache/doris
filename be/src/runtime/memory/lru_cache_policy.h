@@ -72,17 +72,19 @@ public:
         }
     }
 
-    void prune_all() override {
-        if (_cache->mem_consumption() > CACHE_MIN_FREE_SIZE) {
+    void prune_all(bool clear) override {
+        if ((clear && _cache->mem_consumption() != 0) ||
+            _cache->mem_consumption() > CACHE_MIN_FREE_SIZE) {
             COUNTER_SET(_cost_timer, (int64_t)0);
             SCOPED_TIMER(_cost_timer);
             auto size = _cache->mem_consumption();
             COUNTER_SET(_freed_entrys_counter, _cache->prune());
             COUNTER_SET(_freed_memory_counter, size);
             COUNTER_UPDATE(_prune_all_number_counter, 1);
-            LOG(INFO) << fmt::format("{} prune all {} entries, {} bytes, {} times prune", _name,
-                                     _freed_entrys_counter->value(), _freed_memory_counter->value(),
-                                     _prune_stale_number_counter->value());
+            LOG(INFO) << fmt::format(
+                    "{} prune all {} entries, {} bytes, {} times prune, is clear: {}", _name,
+                    _freed_entrys_counter->value(), _freed_memory_counter->value(),
+                    _prune_stale_number_counter->value(), clear);
         }
     }
 

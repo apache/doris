@@ -259,6 +259,17 @@ void StorageEngine::_cache_clean_callback() {
         }
 
         CacheManager::instance()->for_each_cache_prune_stale();
+
+        // Dynamically modify the config to clear the cache, each time the disable cache will only be cleared once.
+        // TODO, Support page cache and other caches.
+        if (config::disable_segment_cache) {
+            if (!_clear_segment_cache) {
+                CacheManager::instance()->clear_once("SegmentCache");
+                _clear_segment_cache = true;
+            }
+        } else {
+            _clear_segment_cache = false;
+        }
     }
 }
 

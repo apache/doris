@@ -35,8 +35,9 @@ public:
 
     virtual ~CachePolicy() { CacheManager::instance()->unregister_cache(_it); };
     virtual void prune_stale() = 0;
-    virtual void prune_all() = 0;
+    virtual void prune_all(bool clear) = 0;
 
+    std::string name() { return _name; }
     RuntimeProfile* profile() { return _profile.get(); }
 
 protected:

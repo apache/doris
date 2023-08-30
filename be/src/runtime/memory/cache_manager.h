@@ -53,6 +53,8 @@ public:
 
     int64_t for_each_cache_prune_all(RuntimeProfile* profile = nullptr);
 
+    void clear_once(const std::string& name);
+
 private:
     static inline CacheManager* _s_instance = nullptr;
 
