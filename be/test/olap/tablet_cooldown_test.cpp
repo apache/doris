@@ -421,9 +421,9 @@ void createTablet(TabletSharedPtr* tablet, int64_t replica_id, int32_t schema_ha
     for (auto& tablet_rs : tablet_related_rs) {
         RowsetSharedPtr rowset = tablet_rs.second;
         TabletPublishStatistics stats;
-        st = engine->txn_manager()->publish_txn(meta, write_req.partition_id, write_req.txn_id,
-                                                (*tablet)->tablet_id(), (*tablet)->tablet_uid(),
-                                                version, &stats);
+        st = k_engine->txn_manager()->publish_txn(meta, write_req.partition_id, write_req.txn_id,
+                                                  (*tablet)->tablet_id(), (*tablet)->tablet_uid(),
+                                                  version, &stats);
         ASSERT_EQ(Status::OK(), st);
         st = (*tablet)->add_inc_rowset(rowset);
         ASSERT_EQ(Status::OK(), st);
