@@ -21,7 +21,7 @@ suite ("no_await") {
 
     def tblName = "agg_have_dup_base_no_await"
     def waitDrop = {
-        def try_times = 100
+        def try_times = 1000
         def result = "null"
         sql "sync;"
         while (!result.contains("FINISHED")) {
