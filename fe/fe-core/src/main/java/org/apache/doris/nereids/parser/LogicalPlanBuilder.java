@@ -40,9 +40,9 @@ import org.apache.doris.nereids.DorisParser.BooleanLiteralContext;
 import org.apache.doris.nereids.DorisParser.BracketJoinHintContext;
 import org.apache.doris.nereids.DorisParser.BracketRelationHintContext;
 import org.apache.doris.nereids.DorisParser.ColTypeContext;
+import org.apache.doris.nereids.DorisParser.CollateContext;
 import org.apache.doris.nereids.DorisParser.ColumnDefContext;
 import org.apache.doris.nereids.DorisParser.ColumnDefsContext;
-import org.apache.doris.nereids.DorisParser.CollateContext;
 import org.apache.doris.nereids.DorisParser.ColumnReferenceContext;
 import org.apache.doris.nereids.DorisParser.CommentJoinHintContext;
 import org.apache.doris.nereids.DorisParser.CommentRelationHintContext;
@@ -65,8 +65,8 @@ import org.apache.doris.nereids.DorisParser.DereferenceContext;
 import org.apache.doris.nereids.DorisParser.ElementAtContext;
 import org.apache.doris.nereids.DorisParser.ExistContext;
 import org.apache.doris.nereids.DorisParser.ExplainContext;
-import org.apache.doris.nereids.DorisParser.FixedPartitionDefContext;
 import org.apache.doris.nereids.DorisParser.ExportContext;
+import org.apache.doris.nereids.DorisParser.FixedPartitionDefContext;
 import org.apache.doris.nereids.DorisParser.FromClauseContext;
 import org.apache.doris.nereids.DorisParser.GroupingElementContext;
 import org.apache.doris.nereids.DorisParser.GroupingSetContext;
@@ -109,7 +109,6 @@ import org.apache.doris.nereids.DorisParser.PropertyItemContext;
 import org.apache.doris.nereids.DorisParser.PropertyItemListContext;
 import org.apache.doris.nereids.DorisParser.PropertyKeyContext;
 import org.apache.doris.nereids.DorisParser.PropertyValueContext;
-import org.apache.doris.nereids.DorisParser.PropertySeqContext;
 import org.apache.doris.nereids.DorisParser.QualifiedNameContext;
 import org.apache.doris.nereids.DorisParser.QueryContext;
 import org.apache.doris.nereids.DorisParser.QueryOrganizationContext;
@@ -1772,7 +1771,8 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         String engineName = ctx.engine != null ? ctx.engine.getText().toLowerCase() : "olap";
         DistributionDescriptor desc = new DistributionDescriptor(ctx.HASH() != null, ctx.AUTO() != null, 4,
                 ctx.HASH() != null ? visitIdentifierList(ctx.hashKeys) : null);
-        Map<String, String> properties = ctx.propertySeq() != null ? visitPropertySeq(ctx.propertySeq()) : null;
+        Map<String, String> properties = ctx.propertyClause() != null
+                ? visitPropertyClause(ctx.propertyClause()) : null;
         String partitionType = null;
         if (ctx.PARTITION() != null) {
             partitionType = ctx.RANGE() != null ? "RANGE" : "LIST";
@@ -1935,17 +1935,6 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         String rollupName = ctx.rollupName.getText();
         List<String> rollupCols = visitIdentifierList(ctx.rollupCols);
         return new RollupDefinition(rollupName, rollupCols);
-    }
-
-    @Override
-    public Map<String, String> visitPropertySeq(PropertySeqContext ctx) {
-        Map<String, String> map = Maps.newHashMap();
-        for (PropertyContext argument : ctx.properties) {
-            String key = parsePropertyItem(argument.key);
-            String value = parsePropertyItem(argument.value);
-            map.put(key, value);
-        }
-        return map;
     }
 
     /* ********************************************************************************************

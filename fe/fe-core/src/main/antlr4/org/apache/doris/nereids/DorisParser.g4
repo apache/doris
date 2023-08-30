@@ -49,7 +49,7 @@ statement
         (PARTITION BY (RANGE | LIST) partitionKeys=identifierList LEFT_PAREN partitions=partitionsDef RIGHT_PAREN)?
         DISTRIBUTED BY (HASH hashKeys=identifierList | RANDOM) BUCKETS (number | AUTO)?
         (ROLLUP LEFT_PAREN rollupDefs RIGHT_PAREN)?
-        PROPERTIES LEFT_PAREN propertySeq RIGHT_PAREN
+        propertyClause?
         (AS query)?                                                    #createTable
     | explain? INSERT INTO tableName=multipartIdentifier
         (PARTITION partition=identifierList)?  // partition define
@@ -391,10 +391,6 @@ rollupDefs
     
 rollupDef
     : rollupName=identifier rollupCols=identifierList
-    ;
-    
-propertySeq
-    : properties+=property (COMMA properties+=property)*
     ;
 
 aggTypeDef
