@@ -156,7 +156,7 @@ Status LoadStreamStub::open(BrpcClientCache<PBackendService_Stub>* client_cache,
 
 // APPEND_DATA
 Status LoadStreamStub::append_data(int64_t partition_id, int64_t index_id, int64_t tablet_id,
-                                   int64_t segment_id, const std::vector<Slice>& data,
+                                   int64_t segment_id, std::span<const Slice> data,
                                    bool segment_eos) {
     PStreamHeader header;
     header.set_src_id(_src_id);
@@ -197,7 +197,7 @@ Status LoadStreamStub::close_load(const std::vector<PTabletID>& tablets_to_commi
     return _encode_and_send(header);
 }
 
-Status LoadStreamStub::_encode_and_send(PStreamHeader& header, const std::vector<Slice>& data) {
+Status LoadStreamStub::_encode_and_send(PStreamHeader& header, std::span<const Slice> data) {
     butil::IOBuf buf;
     size_t header_len = header.ByteSizeLong();
     buf.append(reinterpret_cast<uint8_t*>(&header_len), sizeof(header_len));

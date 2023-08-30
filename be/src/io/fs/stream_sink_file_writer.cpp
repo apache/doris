@@ -39,11 +39,9 @@ void StreamSinkFileWriter::init(PUniqueId load_id, int64_t partition_id, int64_t
 }
 
 Status StreamSinkFileWriter::appendv(const Slice* data, size_t data_cnt) {
-    std::vector<Slice> slices;
     size_t bytes_req = 0;
     for (int i = 0; i < data_cnt; i++) {
         bytes_req += data[i].get_size();
-        slices.push_back(data[i]);
     }
     _bytes_appended += bytes_req;
 
@@ -51,6 +49,7 @@ Status StreamSinkFileWriter::appendv(const Slice* data, size_t data_cnt) {
                << ", index_id: " << _index_id << ", tablet_id: " << _tablet_id
                << ", segment_id: " << _segment_id << ", data_length: " << bytes_req;
 
+    std::span<const Slice> slices {data, data_cnt};
     for (auto& stream : _streams) {
         RETURN_IF_ERROR(
                 stream->append_data(_partition_id, _index_id, _tablet_id, _segment_id, slices));
