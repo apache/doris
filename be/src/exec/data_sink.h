@@ -121,7 +121,7 @@ protected:
     std::string _name;
     const RowDescriptor& _row_desc;
 
-    RuntimeProfile* _profile; // Allocated from _pool
+    RuntimeProfile* _profile = nullptr; // Allocated from _pool
 
     // Maybe this will be transferred to BufferControlBlock.
     std::shared_ptr<QueryStatistics> _query_statistics;
