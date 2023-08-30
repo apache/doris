@@ -103,9 +103,9 @@ doris   ALL=(ALL)       NOPASSWD:DORISCTL
 
 - ExecStart and ExecStop are configured based on actual fe paths
 
-3. Download the doris-be.service file : [doris-be.service](https://github.com/apache/doris/blob/master/tools/systemd/doris-be.service)
+4. Download the doris-be.service file : [doris-be.service](https://github.com/apache/doris/blob/master/tools/systemd/doris-be.service)
 
-4. The details of doris-be.service are as follows: 
+5. The details of doris-be.service are as follows: 
     ```
     # Licensed to the Apache Software Foundation (ASF) under one
     # or more contributor license agreements.  See the NOTICE file
@@ -151,11 +151,11 @@ doris   ALL=(ALL)       NOPASSWD:DORISCTL
 
 - ExecStart and ExecStop are configured based on actual be paths
 
-5. Service configuration
+6. Service configuration
 
    Place doris-fe.service and doris-be.service in the /usr/lib/systemd/system directory
 
-6. Set self-start
+7. Set self-start
 
     After you add or modify the configuration file, you need to reload it
 
@@ -170,7 +170,7 @@ doris   ALL=(ALL)       NOPASSWD:DORISCTL
     systemctl enable doris-be
     ```
 
-7. Service initiation
+8. Service initiation
 
     ```
     systemctl start doris-fe
