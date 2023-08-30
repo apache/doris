@@ -166,4 +166,16 @@ public class JdbcExternalCatalog extends ExternalCatalog {
         makeSureInitialized();
         return jdbcClient.isTableExist(dbName, tblName);
     }
+
+    @Override
+    public void setDefaultPropsWhenCreating(boolean isReplay) throws DdlException {
+        if (isReplay) {
+            return;
+        }
+        Map<String, String> properties = Maps.newHashMap();
+        if (properties.containsKey(JdbcResource.DRIVER_URL) && !properties.containsKey(JdbcResource.CHECK_SUM)) {
+            properties.put(JdbcResource.CHECK_SUM,
+                    JdbcResource.computeObjectChecksum(properties.get(JdbcResource.DRIVER_URL)));
+        }
+    }
 }
