@@ -52,7 +52,7 @@ PipelineTask::PipelineTask(PipelinePtr& pipeline, uint32_t index, RuntimeState* 
           _data_state(SourceState::DEPEND_ON_SOURCE),
           _fragment_context(fragment_context),
           _parent_profile(parent_profile),
-          _operators(pipeline->_old_operators),
+          _operators(pipeline->_operators),
           _source(_operators.front()),
           _root(_operators.back()),
           _sink(sink) {

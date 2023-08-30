@@ -63,26 +63,18 @@ public:
     // e.g. Hash join probe task will be scheduled once Hash join build task is finished.
     void finish_one_dependency(int dep_opr, int dependency_core_id) {
         std::lock_guard l(_depend_mutex);
-
-        int i;
-        auto dispose_short_circuit = [&](auto& operators) {
+        if (!_operators.empty() && _operators[dep_opr - 1]->can_terminate_early()) {
             _always_can_read = true;
-            _always_can_write = (dep_opr == operators.size());
+            _always_can_write = (dep_opr == _operators.size());
 
-            for (i = 0; i < _dependencies.size(); ++i) {
+            for (int i = 0; i < _dependencies.size(); ++i) {
                 if (dep_opr == _dependencies[i].first) {
                     _dependencies.erase(_dependencies.begin(), _dependencies.begin() + i + 1);
                     break;
                 }
             }
-        };
-
-        if (!_old_operators.empty() && _old_operators[dep_opr - 1]->can_terminate_early()) {
-            dispose_short_circuit(_old_operators);
-        } else if (!_operators.empty() && _operators[dep_opr - 1]->can_terminate_early()) {
-            dispose_short_circuit(_operators);
         } else {
-            for (i = 0; i < _dependencies.size(); ++i) {
+            for (int i = 0; i < _dependencies.size(); ++i) {
                 if (dep_opr == _dependencies[i].first) {
                     _dependencies.erase(_dependencies.begin() + i);
                     break;
@@ -112,7 +104,7 @@ public:
 
     OperatorBuilderBase* sink() { return _sink.get(); }
     DataSinkOperatorX* sink_x() { return _sink_x.get(); }
-    OperatorXs& operator_xs() { return _operators; }
+    OperatorXs& operator_xs() { return operatorXs; }
     DataSinkOperatorXPtr sink_shared_pointer() { return _sink_x; }
 
     Status build_operators();
@@ -120,7 +112,7 @@ public:
     RuntimeProfile* pipeline_profile() { return _pipeline_profile.get(); }
 
     const RowDescriptor& output_row_desc() const {
-        return _operators[_operators.size() - 1]->row_desc();
+        return operatorXs[operatorXs.size() - 1]->row_desc();
     }
 
     PipelineId id() const { return _pipeline_id; }
@@ -143,12 +135,12 @@ private:
 
     // Operators for pipelineX. All pipeline tasks share operators from this.
     // [SourceOperator -> ... -> SinkOperator]
-    OperatorXs _operators;
+    OperatorXs operatorXs;
     DataSinkOperatorXPtr _sink_x;
 
     std::shared_ptr<ObjectPool> _obj_pool;
 
-    Operators _old_operators;
+    Operators _operators;
     /**
      * Consider the query plan below:
      *

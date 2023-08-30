@@ -39,7 +39,7 @@ Status Pipeline::build_operators() {
         if (pre) {
             o->set_child(pre);
         }
-        _old_operators.emplace_back(o);
+        _operators.emplace_back(o);
         pre = std::move(o);
     }
     return Status::OK();
@@ -54,17 +54,17 @@ Status Pipeline::add_operator(OperatorBuilderPtr& op) {
 }
 
 Status Pipeline::add_operator(OperatorXPtr& op) {
-    if (_operators.empty() && !op->is_source()) {
+    if (operatorXs.empty() && !op->is_source()) {
         return Status::InternalError("Should set source before other operator");
     }
-    _operators.emplace_back(op);
+    operatorXs.emplace_back(op);
     return Status::OK();
 }
 
 Status Pipeline::prepare(RuntimeState* state) {
     // TODO
-    RETURN_IF_ERROR(_operators.back()->prepare(state));
-    RETURN_IF_ERROR(_operators.back()->open(state));
+    RETURN_IF_ERROR(operatorXs.back()->prepare(state));
+    RETURN_IF_ERROR(operatorXs.back()->open(state));
     RETURN_IF_ERROR(_sink_x->prepare(state));
     RETURN_IF_ERROR(_sink_x->open(state));
     return Status::OK();
