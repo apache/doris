@@ -140,8 +140,8 @@ Status LoadStreamStub::open(BrpcClientCache<PBackendService_Stub>* client_cache,
         tablet_schema->init_from_pb(resp.tablet_schema());
         _tablet_schema_for_index->emplace(resp.index_id(), std::move(tablet_schema));
         _enable_unique_mow_for_index->emplace(resp.index_id(), resp.enable_unique_key_merge_on_write());
-        //CHECK(_tablet_schema_for_index->at(resp.index_id()) != nullptr);
         LOG(INFO) << "add tablet schema " << _tablet_schema_for_index->at(resp.index_id()).get()
+                  << "(mow " << _enable_unique_mow_for_index->at(resp.index_id()) << ")"
                   << " for index " << resp.index_id() << " by stream id " << _stream_id;
     }
     if (cntl.Failed()) {
