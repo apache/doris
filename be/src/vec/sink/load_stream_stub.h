@@ -150,6 +150,8 @@ public:
 
     brpc::StreamId stream_id() const { return _stream_id; }
 
+    int64_t src_id() const { return _src_id; }
+
     int64_t dst_id() const { return _dst_id; }
 
 private:

@@ -322,9 +322,6 @@ Status VOlapTableSinkV2::_write_memtable(std::shared_ptr<vectorized::Block> bloc
             req.tuple_desc = _output_tuple_desc;
             req.is_high_priority = _is_high_priority;
             req.table_schema_param = _schema.get();
-            req.tablet_schema = streams[0]->tablet_schema(rows.index_id);
-            req.enable_unique_key_merge_on_write = streams[0]->enable_unique_mow(rows.index_id);
-            req.sender_id = _sender_id;
             for (auto& index : _schema->indexes()) {
                 if (index->index_id == rows.index_id) {
                     req.slots = &index->slots;

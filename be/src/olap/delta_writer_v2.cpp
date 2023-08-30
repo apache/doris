@@ -101,7 +101,8 @@ Status DeltaWriterV2::init() {
         return Status::OK();
     }
     // build tablet schema in request level
-    _build_current_tablet_schema(_req.index_id, _req.table_schema_param, *_req.tablet_schema.get());
+    _build_current_tablet_schema(_req.index_id, _req.table_schema_param,
+                                 *_streams[0]->tablet_schema(_req.index_id));
     RowsetWriterContext context;
     context.txn_id = _req.txn_id;
     context.load_id = _req.load_id;
@@ -116,11 +117,11 @@ Status DeltaWriterV2::init() {
     context.tablet_id = _req.tablet_id;
     context.partition_id = _req.partition_id;
     context.tablet_schema_hash = _req.schema_hash;
-    context.enable_unique_key_merge_on_write = _req.enable_unique_key_merge_on_write;
+    context.enable_unique_key_merge_on_write = _streams[0]->enable_unique_mow(_req.index_id);
     context.rowset_type = RowsetTypePB::BETA_ROWSET;
     context.rowset_id = StorageEngine::instance()->next_rowset_id();
     context.data_dir = nullptr;
-    context.sender_id = _req.sender_id;
+    context.sender_id = _streams[0]->src_id();
 
     std::vector<brpc::StreamId> streams;
     for (const auto& s : _streams) {
@@ -128,7 +129,7 @@ Status DeltaWriterV2::init() {
     }
     _rowset_writer = std::make_shared<BetaRowsetWriterV2>(streams);
     _rowset_writer->init(context);
-    _memtable_writer->init(_rowset_writer, _tablet_schema, _req.enable_unique_key_merge_on_write);
+    _memtable_writer->init(_rowset_writer, _tablet_schema, _streams[0]->enable_unique_mow(_req.index_id));
     ExecEnv::GetInstance()->memtable_memory_limiter()->register_writer(_memtable_writer);
     _is_init = true;
     return Status::OK();
