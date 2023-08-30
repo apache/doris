@@ -3256,8 +3256,11 @@ Status Tablet::update_delete_bitmap_without_lock(const RowsetSharedPtr& rowset) 
               << "(us), total rows: " << total_rows;
     if (config::enable_merge_on_write_correctness_check) {
         // check if all the rowset has ROWSET_SENTINEL_MARK
-        RETURN_IF_ERROR(check_delete_bitmap_correctness(delete_bitmap, cur_version - 1, -1,
-                                                        cur_rowset_ids, &specified_rowsets));
+        auto st = check_delete_bitmap_correctness(delete_bitmap, cur_version - 1, -1,
+                                                  cur_rowset_ids, &specified_rowsets);
+        if (!st.ok()) {
+            LOG(WARNING) << fmt::format("delete bitmap correctness check failed in publish phase!");
+        }
         _remove_sentinel_mark_from_delete_bitmap(delete_bitmap);
     }
     for (auto iter = delete_bitmap->delete_bitmap.begin();
@@ -3360,8 +3363,11 @@ Status Tablet::update_delete_bitmap(const RowsetSharedPtr& rowset,
     if (config::enable_merge_on_write_correctness_check && rowset->num_rows() != 0) {
         // only do correctness check if the rowset has at least one row written
         // check if all the rowset has ROWSET_SENTINEL_MARK
-        RETURN_IF_ERROR(check_delete_bitmap_correctness(delete_bitmap, cur_version - 1, txn_id,
-                                                        cur_rowset_ids));
+        auto st = check_delete_bitmap_correctness(delete_bitmap, cur_version - 1, -1,
+                                                  cur_rowset_ids, &specified_rowsets);
+        if (!st.ok()) {
+            LOG(WARNING) << fmt::format("delete bitmap correctness check failed in publish phase!");
+        }
         _remove_sentinel_mark_from_delete_bitmap(delete_bitmap);
     }
 
@@ -3779,7 +3785,9 @@ Status Tablet::check_delete_bitmap_correctness(DeleteBitmapPtr delete_bitmap, in
         root.Accept(writer);
         std::string rowset_status_string = std::string(strbuf.GetString());
         LOG_EVERY_SECOND(WARNING) << rowset_status_string;
-        DCHECK(false) << "check delete bitmap correctness failed!";
+        // let it crash if correctness check failed in Debug mode
+        DCHECK(false) << "delete bitmap correctness check failed in publish phase!";
+        return Status::InternalError("check delete bitmap failed!");
     }
     return Status::OK();
 }
