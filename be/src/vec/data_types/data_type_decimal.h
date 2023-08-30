@@ -572,4 +572,10 @@ ToDataType::FieldType convert_to_decimal(const typename FromDataType::FieldType&
     }
 }
 
+template <typename T>
+typename T::NativeType max_decimal_value(UInt32 precision);
+
+template <typename T>
+typename T::NativeType min_decimal_value(UInt32 precision);
+
 } // namespace doris::vectorized
