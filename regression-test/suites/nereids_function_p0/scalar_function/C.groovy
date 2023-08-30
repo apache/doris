@@ -93,4 +93,8 @@ suite("nereids_scalar_fn_C") {
 	qt_sql_cos_Double_notnull "select cos(kdbl) from fn_test_not_nullable order by kdbl"
 	sql "select current_user() from fn_test"
 	sql "select current_user() from fn_test_not_nullable"
+
+	qt_char "select char(68, 111, 114, 105, 115), char(68, 111, 114, 105, 115 using utf8);"
+	qt_convert "select convert(1 using gbk), convert(1, string);"
+
 }
