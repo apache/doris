@@ -262,7 +262,6 @@ protected:
     std::mutex _lock;
     int64_t _bloom_filter_length;
     bool _build_bf_exactly = false;
-    int _filter_id = -1;
 };
 
 template <class T>
