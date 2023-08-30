@@ -18,6 +18,7 @@
 package org.apache.doris.tablefunction;
 
 import org.apache.doris.analysis.BrokerDesc;
+import org.apache.doris.analysis.StorageBackend.StorageType;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.thrift.TFileType;
 
@@ -29,13 +30,13 @@ import java.util.Map;
 
 /**
  * The Implement of table valued function
- * stream("FORMAT" = "csv").
+ * http_stream("FORMAT" = "csv").
  */
-public class StreamTableValuedFunction extends ExternalFileTableValuedFunction {
-    private static final Logger LOG = LogManager.getLogger(StreamTableValuedFunction.class);
-    public static final String NAME = "stream";
+public class HttpStreamTableValuedFunction extends ExternalFileTableValuedFunction {
+    private static final Logger LOG = LogManager.getLogger(HttpStreamTableValuedFunction.class);
+    public static final String NAME = "http_stream";
 
-    public StreamTableValuedFunction(Map<String, String> params) throws AnalysisException {
+    public HttpStreamTableValuedFunction(Map<String, String> params) throws AnalysisException {
         Map<String, String> validParams = new CaseInsensitiveMap();
         for (String key : params.keySet()) {
             if (!FILE_FORMAT_PROPERTIES.contains(key.toLowerCase())) {
@@ -49,13 +50,7 @@ public class StreamTableValuedFunction extends ExternalFileTableValuedFunction {
     // =========== implement abstract methods of ExternalFileTableValuedFunction =================
     @Override
     public TFileType getTFileType() {
-        switch (getTFileFormatType()) {
-            case FORMAT_PARQUET:
-            case FORMAT_ORC:
-                return TFileType.FILE_LOCAL;
-            default:
-                return TFileType.FILE_STREAM;
-        }
+        return TFileType.FILE_STREAM;
     }
 
     @Override
@@ -65,12 +60,12 @@ public class StreamTableValuedFunction extends ExternalFileTableValuedFunction {
 
     @Override
     public BrokerDesc getBrokerDesc() {
-        return null;
+        return new BrokerDesc("HttpStreamTvfBroker", StorageType.STREAM, locationProperties);
     }
 
     // =========== implement abstract methods of TableValuedFunctionIf =================
     @Override
     public String getTableName() {
-        return "StreamTableValuedFunction";
+        return "HttpStreamTableValuedFunction";
     }
 }
