@@ -670,10 +670,6 @@ public class StmtExecutor {
         }
 
         try {
-            if (context.isTxnModel() && !(parsedStmt instanceof InsertStmt)
-                    && !(parsedStmt instanceof TransactionStmt)) {
-                throw new TException("This is in a transaction, only insert, commit, rollback is acceptable.");
-            }
             // support select hint e.g. select /*+ SET_VAR(query_timeout=1) */ sleep(3);
             analyzeVariablesInStmt();
 
@@ -885,6 +881,10 @@ public class StmtExecutor {
         }
 
         parseByLegacy();
+        if (context.isTxnModel() && !(parsedStmt instanceof InsertStmt)
+                && !(parsedStmt instanceof TransactionStmt)) {
+            throw new AnalysisException("This is in a transaction, only insert, commit, rollback is acceptable.");
+        }
 
         boolean preparedStmtReanalyzed = false;
         PrepareStmtContext preparedStmtCtx = null;
