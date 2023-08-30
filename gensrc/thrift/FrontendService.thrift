@@ -1013,6 +1013,7 @@ enum TBinlogType {
   MODIFY_TABLE_PROPERTY = 9,
   BARRIER = 10,
   MODIFY_PARTITIONS = 11,
+  REPLACE_PARTITIONS = 12,
 }
 
 struct TBinlog {

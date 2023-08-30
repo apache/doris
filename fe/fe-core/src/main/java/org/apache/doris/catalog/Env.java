@@ -5194,7 +5194,7 @@ public class Env {
         olapTable.replaceTempPartitions(partitionNames, tempPartitionNames, isStrictRange, useTempPartitionName);
 
         // write log
-        ReplacePartitionOperationLog info = new ReplacePartitionOperationLog(db.getId(), olapTable.getId(),
+        ReplacePartitionOperationLog info = new ReplacePartitionOperationLog(db.getId(), db.getFullName(), olapTable.getId(), olapTable.getName(),
                 partitionNames, tempPartitionNames, isStrictRange, useTempPartitionName);
         editLog.logReplaceTempPartition(info);
         LOG.info("finished to replace partitions {} with temp partitions {} from table: {}", clause.getPartitionNames(),

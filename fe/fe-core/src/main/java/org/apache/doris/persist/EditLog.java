@@ -802,6 +802,7 @@ public class EditLog {
                     ReplacePartitionOperationLog replaceTempPartitionLog =
                             (ReplacePartitionOperationLog) journal.getData();
                     env.replayReplaceTempPartition(replaceTempPartitionLog);
+                    env.getBinlogManager().addReplacePartitions(replaceTempPartitionLog, logId);
                     break;
                 }
                 case OperationType.OP_INSTALL_PLUGIN: {
@@ -1727,7 +1728,9 @@ public class EditLog {
     }
 
     public void logReplaceTempPartition(ReplacePartitionOperationLog info) {
-        logEdit(OperationType.OP_REPLACE_TEMP_PARTITION, info);
+        long logId = logEdit(OperationType.OP_REPLACE_TEMP_PARTITION, info);
+        LOG.info("log replace temp partition, logId: {}, info: {}", logId, info.toJson());
+        Env.getCurrentEnv().getBinlogManager().addReplacePartitions(info, logId);
     }
 
     public void logInstallPlugin(PluginInfo plugin) {
