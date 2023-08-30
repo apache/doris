@@ -134,8 +134,5 @@ std::string PrintInstanceStandardInfo(const TUniqueId& qid, const int fid, const
     return ss.str();
 }
 
-void Hang(int sec) {
-    sleep(sec * 1000);
-}
 
 } // namespace doris
