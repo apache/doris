@@ -168,6 +168,9 @@ public abstract class Type {
         arraySubTypes.add(CHAR);
         arraySubTypes.add(VARCHAR);
         arraySubTypes.add(STRING);
+        arraySubTypes.add(DECIMAL32);
+        arraySubTypes.add(DECIMAL64);
+        arraySubTypes.add(DECIMAL128);
     }
 
     public static final Set<Class> DATE_SUPPORTED_JAVA_TYPE = Sets.newHashSet(LocalDate.class, java.util.Date.class,
