@@ -371,6 +371,12 @@ primaryExpression
     | constant                                                                                 #constantDefault
     | ASTERISK                                                                                 #star
     | qualifiedName DOT ASTERISK                                                               #star
+    | CHAR LEFT_PAREN
+                    arguments+=expression (COMMA arguments+=expression)*
+                    (USING charSet=identifierOrText)?
+              RIGHT_PAREN                                                                     #charFunction
+    | CONVERT LEFT_PAREN argument=expression USING charSet=identifierOrText RIGHT_PAREN       #convertCharSet
+    | CONVERT LEFT_PAREN argument=expression COMMA type=dataType RIGHT_PAREN                  #convertType
     | functionIdentifier LEFT_PAREN ((DISTINCT|ALL)? arguments+=expression
       (COMMA arguments+=expression)* (ORDER BY sortItem (COMMA sortItem)*)?)? RIGHT_PAREN
       (OVER windowSpec)?                                                                        #functionCall
@@ -587,6 +593,7 @@ nonReserved
     | CHAIN
     | CHAR
     | CHARSET
+    | CHANGE
     | CHECK
     | CLUSTER
     | CLUSTERS
@@ -607,6 +614,15 @@ nonReserved
     | CREATION
     | CRON
     | CURRENT_CATALOG
+    | COMPACTIONS
+    | COMPUTE
+    | CONCATENATE
+    | CONSTRAINT
+    | CONVERT
+    | COST
+    | CREATE
+    | CUBE
+    | CURRENT
     | CURRENT_TIMESTAMP
     | DATA
     | DATE
