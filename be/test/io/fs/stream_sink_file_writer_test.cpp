@@ -57,8 +57,8 @@ class StreamSinkFileWriterTest : public testing::Test {
 
         // APPEND_DATA
         virtual Status append_data(int64_t partition_id, int64_t index_id, int64_t tablet_id,
-                           int64_t segment_id, std::span<const Slice> data,
-                           bool segment_eos = false) override {
+                                   int64_t segment_id, std::span<const Slice> data,
+                                   bool segment_eos = false) override {
             EXPECT_EQ(PARTITION_ID, partition_id);
             EXPECT_EQ(INDEX_ID, index_id);
             EXPECT_EQ(TABLET_ID, tablet_id);
@@ -98,7 +98,7 @@ TEST_F(StreamSinkFileWriterTest, Test) {
     g_num_request = 0;
     io::StreamSinkFileWriter writer(_streams);
     writer.init(_load_id, PARTITION_ID, INDEX_ID, TABLET_ID, SEGMENT_ID);
-    std::vector<Slice> slices { DATA0, DATA1 };
+    std::vector<Slice> slices {DATA0, DATA1};
 
     CHECK_STATUS_OK(writer.appendv(&(*slices.begin()), slices.size()));
     EXPECT_EQ(NUM_STREAM, g_num_request);
