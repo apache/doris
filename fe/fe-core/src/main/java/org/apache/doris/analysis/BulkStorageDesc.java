@@ -22,9 +22,12 @@ import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.PrintableMap;
 import org.apache.doris.datasource.property.S3ClientBEProperties;
 import org.apache.doris.fs.PersistentFileSystem;
+import org.apache.doris.persist.gson.GsonPostProcessable;
+import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.thrift.TFileType;
 
 import com.google.common.collect.Maps;
+import com.google.gson.annotations.SerializedName;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -41,56 +44,51 @@ import java.util.Map;
 //   "username" = "user0",
 //   "password" = "password0"
 // )
-public class BulkDesc implements Writable {
-    private static final Logger LOG = LogManager.getLogger(BulkDesc.class);
+public class BulkStorageDesc implements Writable, GsonPostProcessable {
+    private static final Logger LOG = LogManager.getLogger(BulkStorageDesc.class);
+    @SerializedName(value = "name")
     private String name;
-    protected BulkType type;
+    @SerializedName(value = "storageType")
+    protected StorageType storageType;
+    @SerializedName(value = "properties")
     protected Map<String, String> properties;
-    private boolean convertedToS3 = false;
 
-    public enum BulkType {
+    public enum StorageType {
         BROKER,
         S3,
         HDFS,
-        LOCAL
+        LOCAL;
     }
-    // Only used for recovery
 
-    private BulkDesc() {
-        this.properties = Maps.newHashMap();
-        this.type = BulkType.BROKER;
-    }
-    // for empty broker desc
-
-    public BulkDesc(String name) {
+    public BulkStorageDesc(String name) {
         this.name = name;
         this.properties = Maps.newHashMap();
-        this.type = BulkType.LOCAL;
+        this.storageType = StorageType.LOCAL;
     }
 
-    public BulkDesc(String name, Map<String, String> properties) {
+    public BulkStorageDesc(String name, Map<String, String> properties) {
         this.name = name;
         this.properties = properties;
         if (this.properties == null) {
             this.properties = Maps.newHashMap();
         }
-        this.type = BulkType.BROKER;
+        this.storageType = StorageType.BROKER;
         this.properties.putAll(S3ClientBEProperties.getBeFSProperties(this.properties));
     }
 
-    public BulkDesc(String name, BulkType type, Map<String, String> properties) {
+    public BulkStorageDesc(String name, StorageType type, Map<String, String> properties) {
         this.name = name;
         this.properties = properties;
         if (this.properties == null) {
             this.properties = Maps.newHashMap();
         }
-        this.type = type;
+        this.storageType = type;
         this.properties.putAll(S3ClientBEProperties.getBeFSProperties(this.properties));
     }
 
 
     public TFileType getFileType() {
-        switch (type) {
+        switch (storageType) {
             case LOCAL:
                 return TFileType.FILE_LOCAL;
             case S3:
@@ -107,19 +105,8 @@ public class BulkDesc implements Writable {
         return location;
     }
 
-    public BulkType getType() {
-        return type;
-    }
-
-    @Override
-    public void write(DataOutput out) throws IOException {
-        Text.writeString(out, name);
-        properties.put(PersistentFileSystem.STORAGE_TYPE, type.name());
-        out.writeInt(properties.size());
-        for (Map.Entry<String, String> entry : properties.entrySet()) {
-            Text.writeString(out, entry.getKey());
-            Text.writeString(out, entry.getValue());
-        }
+    public StorageType getStorageType() {
+        return storageType;
     }
 
     public void readFields(DataInput in) throws IOException {
@@ -131,30 +118,38 @@ public class BulkDesc implements Writable {
             final String val = Text.readString(in);
             properties.put(key, val);
         }
-        BulkType st = BulkType.BROKER;
+        StorageType st = StorageType.BROKER;
         String typeStr = properties.remove(PersistentFileSystem.STORAGE_TYPE);
         if (typeStr != null) {
             try {
-                st = BulkType.valueOf(typeStr);
+                st = StorageType.valueOf(typeStr);
             }  catch (IllegalArgumentException e) {
                 LOG.warn("set to BROKER, because of exception", e);
             }
         }
-        type = st;
+        storageType = st;
     }
 
-    public static BulkDesc read(DataInput in) throws IOException {
-        BulkDesc desc = new BulkDesc();
-        desc.readFields(in);
-        return desc;
+    @Override
+    public void gsonPostProcess() throws IOException {}
+
+    @Override
+    public void write(DataOutput out) throws IOException {
+        String json = GsonUtils.GSON.toJson(this);
+        Text.writeString(out, json);
+    }
+
+    public static BulkStorageDesc read(DataInput in) throws IOException {
+        String json = Text.readString(in);
+        return GsonUtils.GSON.fromJson(json, BulkStorageDesc.class);
     }
 
     public String toSql() {
         StringBuilder sb = new StringBuilder();
-        if (type == BulkType.BROKER) {
+        if (storageType == StorageType.BROKER) {
             sb.append("WITH BROKER ").append(name);
         } else {
-            sb.append("WITH ").append(type.name());
+            sb.append("WITH ").append(storageType.name());
         }
         if (properties != null && !properties.isEmpty()) {
             PrintableMap<String, String> printableMap = new PrintableMap<>(properties, " = ", true, false, true);

@@ -91,7 +91,7 @@ mysqlDataDesc
 skipLines : IGNORE lines=INTEGER_VALUE LINES | IGNORE lines=INTEGER_VALUE ROWS ;
 
 dataDesc
-    : DATA INFILE (LEFT_PAREN filePath=STRING_LITERAL RIGHT_PAREN)*
+    : (mergeType)? DATA INFILE (LEFT_PAREN filePath=STRING_LITERAL RIGHT_PAREN)*
         INTO TABLE tableName=multipartIdentifier
         (PARTITION partition=identifierList)?
         (COLUMNS TERMINATED BY comma=STRING_LITERAL)?
@@ -105,7 +105,7 @@ dataDesc
         (deleteOnClause)?
         (sequenceColClause)?
         (PROPERTIES LEFT_PAREN propertiesStatement RIGHT_PAREN)?
-    | DATA FROM TABLE (LEFT_PAREN filePath=STRING_LITERAL RIGHT_PAREN)*
+    | (mergeType)? DATA FROM TABLE (LEFT_PAREN filePath=STRING_LITERAL RIGHT_PAREN)*
         INTO TABLE tableName=multipartIdentifier
         (PARTITION partition=identifierList)?
         (colMappingList)?
@@ -113,7 +113,7 @@ dataDesc
         (deleteOnClause)?
         (PROPERTIES LEFT_PAREN propertiesStatement RIGHT_PAREN)?
     ;
-
+mergeType : APPEND | DELETE | MERGE | WITH APPEND | WITH DELETE | WITH MERGE ;
 preFilterClause : PRECEDING FILTER expression ;
 deleteOnClause : DELETE ON expression ;
 sequenceColClause : ORDER BY identifier ;

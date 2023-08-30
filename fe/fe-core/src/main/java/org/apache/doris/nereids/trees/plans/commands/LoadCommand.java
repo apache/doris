@@ -17,13 +17,19 @@
 
 package org.apache.doris.nereids.trees.plans.commands;
 
-import org.apache.doris.analysis.BulkDesc;
 import org.apache.doris.analysis.BulkLoadDataDesc;
+import org.apache.doris.analysis.BulkStorageDesc;
+import org.apache.doris.common.Pair;
+import org.apache.doris.nereids.StatementContext;
+import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.trees.plans.PlanType;
+import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.StmtExecutor;
 
+import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -32,20 +38,19 @@ import java.util.Map;
  */
 public class LoadCommand extends Command {
     private String labelName;
-    private BulkDesc brokerDesc;
-    private List<BulkLoadDataDesc> sinkInfos;
-    private InsertIntoTableCommand loadByInsert;
+    private BulkStorageDesc brokerDesc;
+    private List<BulkLoadDataDesc> sourceInfos;
     private Map<String, String> properties;
     private String comment;
 
     /**
      * constructor of ExportCommand
      */
-    public LoadCommand(String labelName, List<BulkLoadDataDesc> sinkInfos, BulkDesc brokerDesc,
+    public LoadCommand(String labelName, List<BulkLoadDataDesc> sourceInfos, BulkStorageDesc brokerDesc,
                        Map<String, String> properties, String comment) {
         super(PlanType.LOAD_COMMAND);
         this.labelName = labelName.trim();
-        this.sinkInfos = sinkInfos;
+        this.sourceInfos = sourceInfos;
         this.properties = properties;
         this.brokerDesc = brokerDesc;
         this.comment = comment;
@@ -53,36 +58,28 @@ public class LoadCommand extends Command {
 
     @Override
     public void run(ConnectContext ctx, StmtExecutor executor) throws Exception {
-        //        NereidsLoadStmt loadStmt = generateTvfStmt();
-        //        Analyzer analyzer = new Analyzer(ctx.getEnv(), ctx);
-        //        InsertIntoTableCommand loadCommand = loadBatchByInsert(ctx);
-        //        loadCommand.run(ctx, executor);
+        List<LogicalPlan> plans = new ArrayList<>();
         // 1. to insert
-        //      1.1 build table sink inf o
+        //      1.1 build table sink info
         //      1.2 build select sql, and parse sql to query context
         //      1.3 build sink, and put to insert context
+        for (BulkLoadDataDesc dataDesc : sourceInfos) {
+            dataDesc.toSql();
+            Map<String, String> props = getTvfProperties(brokerDesc, properties);
+            String dataTvfSql = dataDesc.toInsertSql(props);
+            List<Pair<LogicalPlan, StatementContext>> statements = new NereidsParser().parseMultiple(dataTvfSql);
+            // TODO: check if tvf plan legal
+            plans.add(statements.get(0).first);
+        }
         // 2. execute insert stmt
-
+        executeInsertStmtPlan(plans);
     }
 
-    private InsertIntoTableCommand loadBatchByInsert(ConnectContext ctx) {
-        //        for (BulkLoadDataDesc desc : sinkInfos) {
-        //            List<Pair<LogicalPlan, StatementContext>> statements;
-        //            String insertTvfSql = buildInsertIntoFromRemote(
-        //                    new LabelName(desc.getDbName(), desc.getTableName()),
-        //                    ImmutableList.of(desc), brokerDesc, properties, comment);
-        //            try {
-        //                statements = new NereidsParser().parseMultiple(originStmt.originStmt);
-        //            } catch (Exception e) {
-        //                throw new ParseException("Nereids parse failed. " + e.getMessage());
-        //            }
-        //        }
-        return null;
+    private Map<String, String> getTvfProperties(BulkStorageDesc brokerDesc, Map<String, String> properties) {
+        return new HashMap<>();
     }
 
-    private void executeInsertStmt() {
-
-    }
+    private void executeInsertStmtPlan(List<LogicalPlan> plans) {}
 
     @Override
     public <R, C> R accept(PlanVisitor<R, C> visitor, C context) {
