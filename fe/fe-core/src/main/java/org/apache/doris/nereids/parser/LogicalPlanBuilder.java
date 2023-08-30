@@ -328,6 +328,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
 
     @Override
     public LogicalPlan visitInsertIntoQuery(InsertIntoQueryContext ctx) {
+        boolean isOverwrite = ctx.INTO() == null;
         List<String> tableName = visitMultipartIdentifier(ctx.tableName);
         String labelName = ctx.labelName == null ? null : ctx.labelName.getText();
         List<String> colNames = ctx.cols == null ? ImmutableList.of() : visitIdentifierList(ctx.cols);
@@ -341,7 +342,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         if (ctx.explain() != null) {
             return withExplain(sink, ctx.explain());
         }
-        return new InsertIntoTableCommand(sink, Optional.ofNullable(labelName));
+        return new InsertIntoTableCommand(sink, Optional.ofNullable(labelName), isOverwrite);
     }
 
     @Override
