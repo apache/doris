@@ -48,10 +48,10 @@ import java.util.stream.Collectors;
  *  used for build hive global dict and encode source hive table
  *
  *  input: a source hive table
- *  output: a intermediate hive table whose distinct column is encode with int value
+ *  output: an intermediate hive table whose distinct column is encoded with int value
  *
  *  usage example
- *  step1,create a intermediate hive table
+ *  step1,create an intermediate hive table
  *      GlobalDictBuilder.createHiveIntermediateTable()
  *  step2, get distinct column's value
  *      GlobalDictBuilder.extractDistinctColumn()

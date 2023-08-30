@@ -30,7 +30,6 @@ public class SparkLoadFromHive extends SparkLoadFileGroup {
 
     private static final Logger LOG = LoggerFactory.getLogger(SparkLoadFromHive.class);
 
-    private String tableName;
     private Set<String> dictBitmapColumnSet;
     private Set<String> binaryBitmapColumnSet;
 
@@ -41,7 +40,6 @@ public class SparkLoadFromHive extends SparkLoadFileGroup {
             Set<String> dictBitmapColumnSet,
             Set<String> binaryBitmapColumnSet) {
         super(loadSparkEnv, sparkLoadConf, baseIndex, fileGroup, dstTableSchema);
-        this.tableName = fileGroup.hiveDbTableName;
         this.dictBitmapColumnSet = dictBitmapColumnSet;
         this.binaryBitmapColumnSet = binaryBitmapColumnSet;
     }
@@ -56,7 +54,7 @@ public class SparkLoadFromHive extends SparkLoadFileGroup {
         StringBuilder sql = new StringBuilder();
         sql.append("select ");
         baseIndex.columns.forEach(column -> sql.append(column.columnName).append(","));
-        sql.deleteCharAt(sql.length() - 1).append(" from ").append(tableName);
+        sql.deleteCharAt(sql.length() - 1).append(" from ").append(fileGroup.dppHiveDbTableName);
         if (!Strings.isNullOrEmpty(fileGroup.where)) {
             sql.append(" where ").append(fileGroup.where);
         }

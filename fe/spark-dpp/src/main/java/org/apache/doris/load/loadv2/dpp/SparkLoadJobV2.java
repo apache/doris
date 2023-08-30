@@ -25,15 +25,12 @@ import org.apache.doris.load.loadv2.etl.SparkLoadSparkEnv;
 import org.apache.doris.sparkdpp.DppResult;
 import org.apache.doris.sparkdpp.EtlJobConfig;
 
-import com.google.common.base.Strings;
 import com.google.common.collect.Maps;
 import com.google.gson.Gson;
-import org.apache.commons.collections.CollectionUtils;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.commons.lang3.tuple.Pair;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.FSDataOutputStream;
-import org.apache.hadoop.fs.FileStatus;
 import org.apache.hadoop.fs.FileSystem;
 import org.apache.hadoop.fs.Path;
 import org.apache.parquet.column.ParquetProperties.WriterVersion;
@@ -42,8 +39,6 @@ import org.apache.parquet.hadoop.metadata.CompressionCodecName;
 import org.apache.spark.Partitioner;
 import org.apache.spark.TaskContext;
 import org.apache.spark.api.java.JavaPairRDD;
-import org.apache.spark.api.java.JavaRDD;
-import org.apache.spark.api.java.function.FlatMapFunction;
 import org.apache.spark.api.java.function.PairFlatMapFunction;
 import org.apache.spark.api.java.function.VoidFunction;
 import org.apache.spark.sql.Dataset;
@@ -68,7 +63,6 @@ import java.math.BigDecimal;
 import java.math.BigInteger;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Iterator;
@@ -109,20 +103,9 @@ public final class SparkLoadJobV2 implements java.io.Serializable {
     SparkLoadConf sparkLoadConf;
 
     // just for ut
-    public SparkLoadJobV2() {}
-
-    public SparkLoadJobV2(SparkSession spark, EtlJobConfig etlJobConfig, Map<Long, Set<String>> tableToBitmapDictColumns,
-                    Map<Long, Set<String>> tableToBinaryBitmapColumns) {
-        this.spark = spark;
-        this.etlJobConfig = etlJobConfig;
-        if (tableToBitmapDictColumns != null) {
-            this.tableToBitmapDictColumns = tableToBitmapDictColumns;
-        }
-        if (tableToBinaryBitmapColumns != null) {
-            this.tableToBinaryBitmapColumns = tableToBinaryBitmapColumns;
-        }
+    public SparkLoadJobV2() {
     }
-    
+
     public SparkLoadJobV2(SparkLoadSparkEnv loadSparkEnv, SparkLoadConf sparkLoadConf) {
         this.loadSparkEnv = loadSparkEnv;
         this.spark = loadSparkEnv.getSpark();
@@ -148,7 +131,7 @@ public final class SparkLoadJobV2 implements java.io.Serializable {
 
             if (curNode.indexMeta.isBaseIndex) {
                 JavaPairRDD<List<Object>, Object[]> result = currentPairRDD.mapToPair(
-                        new EncodeBaseAggregateTableFunction(sparkRDDAggregators))
+                                new EncodeBaseAggregateTableFunction(sparkRDDAggregators))
                         .reduceByKey(new AggregateReduceFunction(sparkRDDAggregators));
                 return result;
             } else {
@@ -159,7 +142,7 @@ public final class SparkLoadJobV2 implements java.io.Serializable {
                         .reduceByKey(new AggregateReduceFunction(sparkRDDAggregators));
                 return result;
             }
-        // Duplicate Table
+            // Duplicate Table
         } else {
             int idx = 0;
             for (int i = 0; i < curNode.indexMeta.columns.size(); i++) {
@@ -175,7 +158,7 @@ public final class SparkLoadJobV2 implements java.io.Serializable {
             } else {
                 return currentPairRDD.mapToPair(new EncodeRollupAggregateTableFunction(
                         getColumnIndexInParentRollup(curNode.keyColumnNames, curNode.valueColumnNames,
-                        curNode.parent.keyColumnNames, curNode.parent.valueColumnNames)));
+                                curNode.parent.keyColumnNames, curNode.parent.valueColumnNames)));
             }
         }
     }
@@ -251,7 +234,7 @@ public final class SparkLoadJobV2 implements java.io.Serializable {
                             conf.set("spark.sql.parquet.outputTimestampType", "INT96");
                             ParquetWriteSupport.setSchema(dstSchema, conf);
                             ParquetWriteSupport parquetWriteSupport = new ParquetWriteSupport();
-                            parquetWriter = new ParquetWriter<InternalRow>(new Path(tmpPath), parquetWriteSupport,
+                            parquetWriter = new ParquetWriter<>(new Path(tmpPath), parquetWriteSupport,
                                     CompressionCodecName.SNAPPY, 256 * 1024 * 1024, 16 * 1024, 1024 * 1024, true, false,
                                     WriterVersion.PARQUET_1_0, conf);
                             if (parquetWriter != null) {
@@ -278,8 +261,8 @@ public final class SparkLoadJobV2 implements java.io.Serializable {
 
     // TODO(wb) one shuffle to calculate the rollup in the same level
     private void processRollupTree(RollupTreeNode rootNode,
-                                   JavaPairRDD<List<Object>, Object[]> rootRDD,
-                                   long tableId, EtlJobConfig.EtlIndex baseIndex) throws SparkDppException {
+            JavaPairRDD<List<Object>, Object[]> rootRDD,
+            long tableId, EtlJobConfig.EtlIndex baseIndex) throws SparkDppException {
         Queue<RollupTreeNode> nodeQueue = new LinkedList<>();
         nodeQueue.offer(rootNode);
         int currentLevel = 0;
@@ -366,7 +349,7 @@ public final class SparkLoadJobV2 implements java.io.Serializable {
     }
 
     /**
-     *   check decimal,char/varchar
+     * check decimal,char/varchar
      */
     public boolean validateData(Object srcValue, EtlJobConfig.EtlColumn etlColumn, ColumnParser columnParser, Row row) {
 
@@ -417,9 +400,9 @@ public final class SparkLoadJobV2 implements java.io.Serializable {
     }
 
     /**
-     *   1 project column and reorder column
-     *   2 validate data
-     *   3 fill tuple with partition column
+     * 1 project column and reorder column
+     * 2 validate data
+     * 3 fill tuple with partition column
      */
     private JavaPairRDD<List<Object>, Object[]> fillTupleWithPartitionColumn(Dataset<Row> dataframe,
             EtlJobConfig.EtlPartitionInfo partitionInfo, List<Integer> partitionKeyIndex,
@@ -596,7 +579,7 @@ public final class SparkLoadJobV2 implements java.io.Serializable {
 
     // partition keys will be parsed into double from json
     // so need to convert it to partition columns' type
-    private Object convertPartitionKey(Object srcValue, Object dstClass) throws SparkDppException {
+    private Object convertPartitionKey(Object srcValue, Class dstClass) throws SparkDppException {
         if (dstClass.equals(Float.class) || dstClass.equals(Double.class)) {
             return null;
         }
@@ -654,7 +637,7 @@ public final class SparkLoadJobV2 implements java.io.Serializable {
     }
 
     private List<DorisRangePartitioner.PartitionRangeKey> createPartitionRangeKeys(
-            EtlJobConfig.EtlPartitionInfo partitionInfo, List<Object> partitionKeySchema) throws SparkDppException {
+            EtlJobConfig.EtlPartitionInfo partitionInfo, List<Class> partitionKeySchema) throws SparkDppException {
         List<DorisRangePartitioner.PartitionRangeKey> partitionRangeKeys = new ArrayList<>();
         for (EtlJobConfig.EtlPartition partition : partitionInfo.partitions) {
             DorisRangePartitioner.PartitionRangeKey partitionRangeKey = new DorisRangePartitioner.PartitionRangeKey();
@@ -680,196 +663,97 @@ public final class SparkLoadJobV2 implements java.io.Serializable {
         return partitionRangeKeys;
     }
 
-
-    private Dataset<Row> checkDataFromHiveWithStrictMode(Dataset<Row> dataframe, EtlJobConfig.EtlIndex baseIndex,
-            Set<String> mappingColKeys, boolean isStrictMode, StructType dstTableSchema,
-            Set<String> dictBitmapColumnSet, Set<String> binaryBitmapColumnsSet) throws SparkDppException {
-        List<EtlJobConfig.EtlColumn> columnNameNeedCheckArrayList = new ArrayList<>();
-        List<ColumnParser> columnParserArrayList = new ArrayList<>();
-        for (EtlJobConfig.EtlColumn column : baseIndex.columns) {
-            // note(wb): there are three data source for bitmap column
-            // case 1: global dict and binary data; needn't check
-            // case 2: bitmap hash function; this func is not supported in spark load now, so ignore it here
-            // case 3: origin value is a integer value; it should be checked use LongParser
-            if (StringUtils.equalsIgnoreCase(column.columnType, "bitmap")) {
-                if (dictBitmapColumnSet.contains(column.columnName.toLowerCase())) {
-                    continue;
-                }
-                if (binaryBitmapColumnsSet.contains(column.columnName.toLowerCase())) {
-                    continue;
-                }
-                columnNameNeedCheckArrayList.add(column);
-                columnParserArrayList.add(new BigIntParser());
-            } else if (!StringUtils.equalsIgnoreCase(column.columnType, "varchar")
-                    && !StringUtils.equalsIgnoreCase(column.columnType, "char")
-                    && !mappingColKeys.contains(column.columnName)) {
-                columnNameNeedCheckArrayList.add(column);
-                columnParserArrayList.add(ColumnParser.create(column));
-            }
-        }
-
-        ColumnParser[] columnParserArray = columnParserArrayList.toArray(new ColumnParser[0]);
-        EtlJobConfig.EtlColumn[] columnNameArray = columnNameNeedCheckArrayList.toArray(new EtlJobConfig.EtlColumn[0]);
-
-        StructType srcSchema = dataframe.schema();
-        JavaRDD<Row> result = dataframe.toJavaRDD().flatMap(new FlatMapFunction<Row, Row>() {
-            @Override
-            public Iterator<Row> call(Row row) throws Exception {
-                List<Row> result = new ArrayList<>();
-                Set<Integer> columnIndexNeedToRepalceNull = new HashSet<Integer>();
-                boolean validRow = true;
-                for (int i = 0; i < columnNameArray.length; i++) {
-                    EtlJobConfig.EtlColumn column = columnNameArray[i];
-                    int fieldIndex = row.fieldIndex(column.columnName);
-                    Object value = row.get(fieldIndex);
-                    if (value == null && !column.isAllowNull) {
-                        validRow = false;
-                        LOG.warn("column:" + i + " can not be null. row:" + row.toString());
-                        break;
-                    }
-                    if (value != null && !columnParserArray[i].parse(value.toString())) {
-                        if (isStrictMode) {
-                            validRow = false;
-                            LOG.warn(String.format("row parsed failed in strict mode, column name %s, src row %s",
-                                    column.columnName, row.toString()));
-                        } else if (!column.isAllowNull) {
-                            // a column parsed failed would be filled null,
-                            // but if doris column is not allowed null, we should skip this row
-                            validRow = false;
-                            LOG.warn("column:" + i + " can not be null. row:" + row.toString());
-                            break;
-                        } else {
-                            columnIndexNeedToRepalceNull.add(fieldIndex);
-                        }
-                    }
-                }
-                if (!validRow) {
-                    loadSparkEnv.addAbnormalRowAcc();
-                    loadSparkEnv.addInvalidRows(row.toString());
-                } else if (columnIndexNeedToRepalceNull.size() != 0) {
-                    Object[] newRow = new Object[row.size()];
-                    for (int i = 0; i < row.size(); i++) {
-                        if (columnIndexNeedToRepalceNull.contains(i)) {
-                            newRow[i] = null;
-                        } else {
-                            newRow[i] = row.get(i);
-                        }
-                    }
-                    result.add(RowFactory.create(newRow));
-                } else {
-                    result.add(row);
-                }
-                return result.iterator();
-            }
-        });
-
-        // here we just check data but not do cast,
-        // so data type should be same with src schema which is hive table schema
-        return spark.createDataFrame(result, srcSchema);
-    }
-
     private void process() throws Exception {
-        try {
-            for (Map.Entry<Long, EtlJobConfig.EtlTable> entry : etlJobConfig.tables.entrySet()) {
-                Long tableId = entry.getKey();
-                EtlJobConfig.EtlTable etlTable = entry.getValue();
-                Set<String> binaryBitmapColumnSet = tableToBinaryBitmapColumns.getOrDefault(tableId, new HashSet<>());
+        for (Map.Entry<Long, EtlJobConfig.EtlTable> entry : etlJobConfig.tables.entrySet()) {
+            Long tableId = entry.getKey();
+            EtlJobConfig.EtlTable etlTable = entry.getValue();
+            Set<String> binaryBitmapColumnSet = tableToBinaryBitmapColumns.getOrDefault(tableId, new HashSet<>());
 
-                // get the base index meta
-                EtlJobConfig.EtlIndex baseIndex = null;
-                for (EtlJobConfig.EtlIndex indexMeta : etlTable.indexes) {
-                    if (indexMeta.isBaseIndex) {
-                        baseIndex = indexMeta;
+            // get the base index meta
+            EtlJobConfig.EtlIndex baseIndex = null;
+            for (EtlJobConfig.EtlIndex indexMeta : etlTable.indexes) {
+                if (indexMeta.isBaseIndex) {
+                    baseIndex = indexMeta;
+                    break;
+                }
+            }
+
+            // get key and partition column names and value column names separately
+            List<String> keyAndPartitionColumnNames = new ArrayList<>();
+            List<String> valueColumnNames = new ArrayList<>();
+            for (EtlJobConfig.EtlColumn etlColumn : baseIndex.columns) {
+                if (etlColumn.isKey) {
+                    keyAndPartitionColumnNames.add(etlColumn.columnName);
+                } else {
+                    if (etlTable.partitionInfo.partitionColumnRefs.contains(etlColumn.columnName)) {
+                        keyAndPartitionColumnNames.add(etlColumn.columnName);
+                    }
+                    valueColumnNames.add(etlColumn.columnName);
+                }
+            }
+
+            EtlJobConfig.EtlPartitionInfo partitionInfo = etlTable.partitionInfo;
+            List<Integer> partitionKeyIndex = new ArrayList<>();
+            List<Class> partitionKeySchema = new ArrayList<>();
+            for (String key : partitionInfo.partitionColumnRefs) {
+                for (int i = 0; i < baseIndex.columns.size(); ++i) {
+                    EtlJobConfig.EtlColumn column = baseIndex.columns.get(i);
+                    if (column.columnName.equals(key)) {
+                        partitionKeyIndex.add(keyAndPartitionColumnNames.indexOf(key));
+                        partitionKeySchema.add(DppUtils.getClassFromColumn(column));
                         break;
                     }
                 }
-
-                // get key and partition column names and value column names separately
-                List<String> keyAndPartitionColumnNames = new ArrayList<>();
-                List<String> valueColumnNames = new ArrayList<>();
-                for (EtlJobConfig.EtlColumn etlColumn : baseIndex.columns) {
-                    if (etlColumn.isKey) {
-                        keyAndPartitionColumnNames.add(etlColumn.columnName);
-                    } else {
-                        if (etlTable.partitionInfo.partitionColumnRefs.contains(etlColumn.columnName)) {
-                            keyAndPartitionColumnNames.add(etlColumn.columnName);
-                        }
-                        valueColumnNames.add(etlColumn.columnName);
-                    }
-                }
-
-                EtlJobConfig.EtlPartitionInfo partitionInfo = etlTable.partitionInfo;
-                List<Integer> partitionKeyIndex = new ArrayList<Integer>();
-                List<Object> partitionKeySchema = new ArrayList<>();
-                for (String key : partitionInfo.partitionColumnRefs) {
-                    for (int i = 0; i < baseIndex.columns.size(); ++i) {
-                        EtlJobConfig.EtlColumn column = baseIndex.columns.get(i);
-                        if (column.columnName.equals(key)) {
-                            partitionKeyIndex.add(keyAndPartitionColumnNames.indexOf(key));
-                            partitionKeySchema.add(DppUtils.getClassFromColumn(column));
-                            break;
-                        }
-                    }
-                }
-
-                List<DorisRangePartitioner.PartitionRangeKey> partitionRangeKeys
-                        = createPartitionRangeKeys(partitionInfo, partitionKeySchema);
-                StructType dstTableSchema = DppUtils.createDstTableSchema(baseIndex.columns, false, false);
-                dstTableSchema = DppUtils.replaceBinaryColsInSchema(binaryBitmapColumnSet, dstTableSchema);
-
-                JavaPairRDD<List<Object>, Object[]> tablePairRDD = null;
-                for (EtlJobConfig.EtlFileGroup fileGroup : etlTable.fileGroups) {
-
-                    SparkLoadFileGroup sparkLoadFileGroup = SparkLoadFileGroupFactory.get(loadSparkEnv, sparkLoadConf,
-                            baseIndex, fileGroup, dstTableSchema, tableId);
-                    Dataset<Row> fileGroupDataframe = sparkLoadFileGroup.readDataFromGroup();
-
-                    if (fileGroupDataframe == null) {
-                        LOG.info("no data for file file group:" + fileGroup);
-                        continue;
-                    }
-
-                    // TODO wuwenchi xxxx 临时注释
-                    // JavaPairRDD<List<Object>, Object[]> ret = fillTupleWithPartitionColumn(
-                    //         fileGroupDataframe,
-                    //         partitionInfo, partitionKeyIndex,
-                    //         partitionRangeKeys,
-                    //         keyAndPartitionColumnNames, valueColumnNames,
-                    //         dstTableSchema, baseIndex, fileGroup.partitions);
-                    // if (tablePairRDD == null) {
-                    //     tablePairRDD = ret;
-                    // } else {
-                    //     tablePairRDD.union(ret);
-                    // }
-                }
-
-                // TODO wuwenchi xxxx 临时注释
-                // RollupTreeBuilder rollupTreeParser = new MinimumCoverageRollupTreeBuilder();
-                // RollupTreeNode rootNode = rollupTreeParser.build(etlTable);
-                // LOG.info("Start to process rollup tree:" + rootNode);
-                // processRollupTree(rootNode, tablePairRDD, tableId, baseIndex);
             }
-            LOG.info("invalid rows contents:" + loadSparkEnv.getInvalidRowsValue());
-            dppResult.isSuccess = true;
-            dppResult.failedReason = "";
-        } catch (Exception exception) {
-            LOG.warn("spark dpp failed for exception:" + exception);
-            dppResult.isSuccess = false;
-            dppResult.failedReason = exception.getMessage();
-            throw exception;
-        } finally {
-            dppResult.normalRows = loadSparkEnv.getScannedRowsAccValue() - loadSparkEnv.getAbnormalRowAccValue();
-            dppResult.scannedRows = loadSparkEnv.getScannedRowsAccValue();
-            dppResult.fileNumber = loadSparkEnv.getFileNumberAccValue();
-            dppResult.fileSize = loadSparkEnv.getFileSizeAccValue();
-            dppResult.abnormalRows = loadSparkEnv.getAbnormalRowAccValue();
-            dppResult.partialAbnormalRows = loadSparkEnv.getInvalidRowsValue();
-            spark.stop();
+
+            List<DorisRangePartitioner.PartitionRangeKey> partitionRangeKeys
+                    = createPartitionRangeKeys(partitionInfo, partitionKeySchema);
+            StructType dstTableSchema = DppUtils.createDstTableSchema(baseIndex.columns, false, false);
+            dstTableSchema = DppUtils.replaceBinaryColsInSchema(binaryBitmapColumnSet, dstTableSchema);
+
+            JavaPairRDD<List<Object>, Object[]> tablePairRDD = null;
+            for (EtlJobConfig.EtlFileGroup fileGroup : etlTable.fileGroups) {
+
+                SparkLoadFileGroup sparkLoadFileGroup = SparkLoadFileGroupFactory.get(loadSparkEnv, sparkLoadConf,
+                        baseIndex, fileGroup, dstTableSchema, tableId);
+                Dataset<Row> fileGroupDataframe = sparkLoadFileGroup.loadDataFromGroup();
+
+                if (fileGroupDataframe == null) {
+                    LOG.info("no data for file file group:" + fileGroup);
+                    continue;
+                }
+
+                JavaPairRDD<List<Object>, Object[]> ret = fillTupleWithPartitionColumn(
+                        fileGroupDataframe,
+                        partitionInfo, partitionKeyIndex,
+                        partitionRangeKeys,
+                        keyAndPartitionColumnNames, valueColumnNames,
+                        dstTableSchema, baseIndex, fileGroup.partitions);
+                if (tablePairRDD == null) {
+                    tablePairRDD = ret;
+                } else {
+                    tablePairRDD.union(ret);
+                }
+            }
+
+            RollupTreeBuilder rollupTreeParser = new MinimumCoverageRollupTreeBuilder();
+            RollupTreeNode rootNode = rollupTreeParser.build(etlTable);
+            LOG.info("Start to process rollup tree:" + rootNode);
+            processRollupTree(rootNode, tablePairRDD, tableId, baseIndex);
         }
+        LOG.info("invalid rows contents:" + loadSparkEnv.getInvalidRowsValue());
     }
 
-    private void writeDppResult(DppResult dppResult) throws Exception {
-        String outputPath = etlJobConfig.getOutputPath();
+    private void writeDppResult() throws Exception {
+
+        dppResult.normalRows = loadSparkEnv.getScannedRowsAccValue() - loadSparkEnv.getAbnormalRowAccValue();
+        dppResult.scannedRows = loadSparkEnv.getScannedRowsAccValue();
+        dppResult.fileNumber = loadSparkEnv.getFileNumberAccValue();
+        dppResult.fileSize = loadSparkEnv.getFileSizeAccValue();
+        dppResult.abnormalRows = loadSparkEnv.getAbnormalRowAccValue();
+        dppResult.partialAbnormalRows = loadSparkEnv.getInvalidRowsValue();
+
+        String outputPath = etlJobConfig.outputPath;
         String resultFilePath = outputPath + "/" + DPP_RESULT_FILE;
         FileSystem fs = FileSystem.get(new Path(outputPath).toUri(), loadSparkEnv.getHadoopConf());
         Path filePath = new Path(resultFilePath);
@@ -882,13 +766,19 @@ public final class SparkLoadJobV2 implements java.io.Serializable {
 
     public void doDpp() throws Exception {
         try {
+
             process();
-        } catch (Exception e) {
-            throw e;
+
+            dppResult.isSuccess = true;
+            dppResult.failedReason = "";
+        } catch (Throwable e) {
+            dppResult.isSuccess = false;
+            dppResult.failedReason = e.getMessage();
+            LOG.error("spark dpp failed for exception: ", e);
         } finally {
             // write dpp result to file in outputPath
-            // TODO wuwenchi xxxx 临时注释
-            // writeDppResult(dppResult);
+            writeDppResult();
+            spark.stop();
         }
     }
 }

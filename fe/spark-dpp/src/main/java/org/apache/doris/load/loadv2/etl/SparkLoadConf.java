@@ -1,9 +1,7 @@
 package org.apache.doris.load.loadv2.etl;
 
 import org.apache.doris.common.SparkDppException;
-import org.apache.doris.load.loadv2.dpp.DorisKryoRegistrator;
 import org.apache.doris.load.loadv2.dpp.GlobalDictBuilder;
-import org.apache.doris.load.loadv2.dpp.SparkDpp;
 import org.apache.doris.sparkdpp.EtlJobConfig;
 import org.apache.doris.sparkdpp.EtlJobConfig.EtlColumn;
 import org.apache.doris.sparkdpp.EtlJobConfig.EtlColumnMapping;
@@ -16,13 +14,16 @@ import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 import com.google.common.io.CharStreams;
 import org.apache.commons.collections.map.MultiValueMap;
+import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.FileSystem;
 import org.apache.hadoop.fs.Path;
 import org.apache.hadoop.hdfs.HdfsConfiguration;
 import org.apache.spark.SparkConf;
-import org.apache.spark.serializer.KryoSerializer;
+import org.apache.spark.sql.Dataset;
+import org.apache.spark.sql.Row;
 import org.apache.spark.sql.SparkSession;
 import org.apache.spark.sql.functions;
+import org.apache.spark.util.SerializableConfiguration;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -45,90 +46,51 @@ public class SparkLoadConf implements Serializable {
 
     // private String jobConfigFilePath;
     private EtlJobConfig etlJobConfig;
-    private Set<Long> hiveSourceTables = Sets.newHashSet();
-    private Map<Long, Set<String>> tableToBitmapDictColumns = Maps.newHashMap();
-    private Map<Long, Set<String>> tableToBinaryBitmapColumns = Maps.newHashMap();
-    // private final SparkConf conf;
-    private final SparkConf sparkConf = new SparkConf();
-    private final SparkConf conf = new SparkConf();
-    private SparkSession spark;
+    private final Set<Long> hiveSourceTables = Sets.newHashSet();
+    private final Map<Long, Set<String>> tableToBitmapDictColumns = Maps.newHashMap();
+    private final Map<Long, Set<String>> tableToBinaryBitmapColumns = Maps.newHashMap();
 
-    // public SparkLoadConf(String jobConfigFilePath) {
-    //     this.jobConfigFilePath = jobConfigFilePath;
-    //     this.etlJobConfig = null;
-    //     this.hiveSourceTables = Sets.newHashSet();
-    //     this.tableToBitmapDictColumns = Maps.newHashMap();
-    //     this.tableToBinaryBitmapColumns = Maps.newHashMap();
-    //     // conf = new SparkConf();
-    // }
+    private final SparkSession spark;
 
-    private SparkLoadConf(EtlJobConfig etlJobConfig) {
-        this.etlJobConfig = etlJobConfig;
+    SparkLoadCommand command;
+    SerializableConfiguration hadoopConf;
+
+    private SparkLoadConf(SparkLoadCommand command, SparkLoadSparkEnv sparkEnv) {
+        this.command = command;
+        this.hadoopConf = sparkEnv.getSerializableConfigurationHadoopConf();
+        this.spark = sparkEnv.getSpark();
     }
 
-    public static SparkLoadConf build(String jobConfigFilePath) throws Exception {
-        SparkLoadConf sparkLoadConf = new SparkLoadConf(getConfigFromHadoop(jobConfigFilePath));
+    public static SparkLoadConf build(SparkLoadCommand command, SparkLoadSparkEnv sparkEnv) throws Exception {
 
+        SparkLoadConf sparkLoadConf = new SparkLoadConf(command, sparkEnv);
+
+        sparkLoadConf.getEtlJobConfigFromFile();
         sparkLoadConf.checkConfigForHiveTableSource();
         sparkLoadConf.confForHiveTable();
-        sparkLoadConf.initSpark();
 
-        // sparkLoadConf.processDpp();
         return sparkLoadConf;
     }
 
-    private void initSpark() {
-        //serialization conf
-        // conf.set("spark.serializer", "org.apache.spark.serializer.KryoSerializer");
-        // conf.set("spark.kryo.registrator", "org.apache.doris.load.loadv2.dpp.DorisKryoRegistrator");
-        // conf.set("spark.kryo.registrationRequired", "false");
-        // spark = SparkSession.builder().master("local[1]").config(conf).getOrCreate();
-
-        //serialization conf
-        // TODO wuwenchi spark支持hive,包括 initSparkConfigs
-        SparkConf sparkConf = new SparkConf();
-        sparkConf.set("spark.serializer", KryoSerializer.class.getName());
-        sparkConf.set("spark.kryo.registrator", DorisKryoRegistrator.class.getName());
-        sparkConf.set("spark.kryo.registrationRequired", "false");
-        spark = SparkSession.builder()
-                // TODO 这里把LOCAL环境去掉
-                .master("local[1]")
-                .appName("doris spark load job")
-                .config(sparkConf)
-                .getOrCreate();
-        // return spark;
-    }
-
-    public SparkSession getSparkSession() {
-        //serialization conf
-        // conf.set("spark.serializer", "org.apache.spark.serializer.KryoSerializer");
-        // conf.set("spark.kryo.registrator", "org.apache.doris.load.loadv2.dpp.DorisKryoRegistrator");
-        // conf.set("spark.kryo.registrationRequired", "false");
-        // spark = SparkSession.builder().master("local[1]").config(conf).getOrCreate();
-
-        //serialization conf
-        // TODO wuwenchi spark支持hive,包括 initSparkConfigs
-        SparkConf sparkConf = new SparkConf();
-        sparkConf.set("spark.serializer", KryoSerializer.class.getName());
-        sparkConf.set("spark.kryo.registrator", DorisKryoRegistrator.class.getName());
-        sparkConf.set("spark.kryo.registrationRequired", "false");
-        spark = SparkSession.builder()
-                // TODO 这里把LOCAL环境去掉
-                .master("local[1]")
-                .appName("doris spark load job")
-                .config(sparkConf)
-                .getOrCreate();
-        return spark;
-    }
-
-    private void initSparkConfigs(Map<String, String> configs) {
+    private void setSparkConfForHive(Map<String, String> configs) {
         if (configs == null) {
             return;
         }
-        for (Map.Entry<String, String> entry : configs.entrySet()) {
-            conf.set(entry.getKey(), entry.getValue());
-            conf.set("spark.hadoop." + entry.getKey(), entry.getValue());
+        // SparkConf conf = spark.sparkContext().getConf();
+        // for (Map.Entry<String, String> entry : configs.entrySet()) {
+        //     conf.set(entry.getKey(), entry.getValue());
+        //     conf.set("spark.hadoop." + entry.getKey(), entry.getValue());
+        // }
+    }
+
+    private void getEtlJobConfigFromFile() throws IOException {
+        String jsonConfig;
+        Path path = new Path(command.getConfigFile());
+        try (FileSystem fs = path.getFileSystem(hadoopConf.value()); DataInputStream in = fs.open(path)) {
+            jsonConfig = CharStreams.toString(new InputStreamReader(in));
         }
+        LOG.info("rdd read json config: " + jsonConfig);
+        this.etlJobConfig = EtlJobConfig.configFromJson(jsonConfig);
     }
 
     static public EtlJobConfig getConfigFromHadoop(String jobConfigFilePath) throws IOException {
@@ -177,11 +139,11 @@ public class SparkLoadConf implements Serializable {
                             bitmapDictColumns.add(columnName.toLowerCase());
                             break;
                         case TO_BITMAP_FUNC:
-                            newColumnMappings.put(mappingEntry.getKey(), mappingEntry.getValue());
+                            break;
                         case BITMAP_HASH:
                             throw new SparkDppException("spark load not support " + funcName + " now");
                         default:
-                            break;
+                            newColumnMappings.put(mappingEntry.getKey(), mappingEntry.getValue());
                     }
                 }
 
@@ -203,23 +165,10 @@ public class SparkLoadConf implements Serializable {
                 + ",tableToBitmapDictColumns: " + tableToBitmapDictColumns
         + ",tableToBinaryBitmapColumns: " + tableToBinaryBitmapColumns);
 
-        // // spark etl must have only one table with bitmap type column to process.
-        // if (hiveSourceTables.size() > 1
-        //         || tableToBitmapDictColumns.size() > 1
-        //         || tableToBinaryBitmapColumns.size() > 1) {
-        //     throw new Exception("spark etl job must have only one hive table with bitmap type column to process");
-        // }
-
         SparkDppException.checkArgument(hiveSourceTables.size() < 2, "spark etl job must have only one hive table.");
         SparkDppException.checkArgument(tableToBitmapDictColumns.size() < 2, "spark etl job must have only one table with bitmap_dict columns");
         SparkDppException.checkArgument(tableToBinaryBitmapColumns.size() < 2, "spark etl job must have only one table with bitmap columns");
     }
-
-    // private void processDpp() throws Exception {
-    //     SparkDpp sparkDpp = new SparkDpp(spark, etlJobConfig, tableToBitmapDictColumns, tableToBinaryBitmapColumns);
-    //     sparkDpp.init();
-    //     sparkDpp.doDpp();
-    // }
 
     private String buildGlobalDictAndEncodeSourceTable(EtlTable table, long tableId) {
         // dict column map
@@ -291,14 +240,13 @@ public class SparkLoadConf implements Serializable {
 
             // init hive configs like metastore service
             EtlFileGroup fileGroup = table.fileGroups.get(0);
-            initSparkConfigs(fileGroup.hiveTableProperties);
+            setSparkConfForHive(fileGroup.hiveTableProperties);
             fileGroup.dppHiveDbTableName = fileGroup.hiveDbTableName;
 
             // build global dict and encode source hive table if it has bitmap dict columns
             if (!tableToBitmapDictColumns.isEmpty() && tableToBitmapDictColumns.containsKey(tableId)) {
-                String dorisIntermediateHiveDbTableName = buildGlobalDictAndEncodeSourceTable(table, tableId);
                 // set with dorisIntermediateHiveDbTable
-                fileGroup.dppHiveDbTableName = dorisIntermediateHiveDbTableName;
+                fileGroup.dppHiveDbTableName = buildGlobalDictAndEncodeSourceTable(table, tableId);
             }
         }
     }
@@ -337,5 +285,9 @@ public class SparkLoadConf implements Serializable {
 
     public Map<Long, Set<String>> getTableToBinaryBitmapColumns() {
         return tableToBinaryBitmapColumns;
+    }
+
+    public SparkLoadCommand getCommend () {
+        return command;
     }
 }

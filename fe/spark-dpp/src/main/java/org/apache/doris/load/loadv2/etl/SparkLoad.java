@@ -2,6 +2,7 @@ package org.apache.doris.load.loadv2.etl;
 
 import org.apache.doris.load.loadv2.dpp.SparkLoadJobV2;
 
+import org.apache.spark.SparkEnv;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -17,20 +18,21 @@ public class SparkLoad {
             // parse args
             SparkLoadCommand command = SparkLoadCommand.parse(args);
 
+            // get sparkEnv session env
+            SparkLoadSparkEnv sparkEnv = SparkLoadSparkEnv.build(command);
+
             // parse config
-            SparkLoadConf sparkLoadConf = SparkLoadConf.build(command.getConfigFile());
+            SparkLoadConf sparkLoadConf = SparkLoadConf.build(command, sparkEnv);
 
-            // get spark session env
-            SparkLoadSparkEnv spark = SparkLoadSparkEnv.build(sparkLoadConf);
-
-            SparkLoadJobV2 sparkDpp = new SparkLoadJobV2(spark, sparkLoadConf);
+            SparkLoadJobV2 sparkDpp = new SparkLoadJobV2(sparkEnv, sparkLoadConf);
             sparkDpp.doDpp();
 
-            LOG.info("spark load end");
+            LOG.info("sparkEnv load end");
         } catch (Exception e) {
             LOG.error("spark job run error.", e);
         } catch (Throwable e) {
             LOG.error("error", e);
+        } finally {
         }
 
     }

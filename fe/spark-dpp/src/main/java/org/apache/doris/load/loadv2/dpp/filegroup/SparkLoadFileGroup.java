@@ -4,10 +4,12 @@ import org.apache.doris.common.SparkDppException;
 import org.apache.doris.load.loadv2.etl.SparkLoadConf;
 import org.apache.doris.load.loadv2.etl.SparkLoadSparkEnv;
 import org.apache.doris.sparkdpp.EtlJobConfig;
+import org.apache.doris.sparkdpp.EtlJobConfig.EtlColumn;
 import org.apache.doris.sparkdpp.EtlJobConfig.EtlColumnMapping;
 import org.apache.doris.sparkdpp.EtlJobConfig.EtlFileGroup;
 import org.apache.doris.sparkdpp.EtlJobConfig.EtlIndex;
 
+import org.apache.hadoop.fs.FileSystem;
 import org.apache.spark.sql.Dataset;
 import org.apache.spark.sql.Row;
 import org.apache.spark.sql.SparkSession;
@@ -19,9 +21,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.io.Serializable;
-import java.util.ArrayList;
 import java.util.HashSet;
-import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
@@ -50,13 +50,21 @@ public abstract class SparkLoadFileGroup implements Serializable {
 
     public abstract Dataset<Row> loadDataFromFileGroup() throws Exception;
 
-    public Dataset<Row> readDataFromGroup() throws Exception {
+    public Dataset<Row> loadDataFromGroup() throws Exception {
         Dataset<Row> data = loadDataFromFileGroup();
         if (data == null) {
             LOG.info("no data for file file group: " + fileGroup);
             return null;
         }
-        return convertSrcDataframeToDstDataframe(data);
+
+        data = convertSrcDataframeToDstDataframe(data);
+
+        String debugFileGroupPath = sparkLoadConf.getCommend().getDebugFileGroupPath();
+        if (debugFileGroupPath != null) {
+            data.write().parquet(debugFileGroupPath);
+        }
+
+        return data;
     }
 
     public Dataset<Row> convertSrcDataframeToDstDataframe(Dataset<Row> srcDataframe) throws SparkDppException {
@@ -66,6 +74,7 @@ public abstract class SparkLoadFileGroup implements Serializable {
         for (StructField field : srcSchema.fields()) {
             srcColumnNames.add(field.name());
         }
+
         Map<String, EtlColumnMapping> columnMappings = fileGroup.columnMappings;
         // 1. process simple columns
         Set<String> mappingColumns = null;
@@ -74,7 +83,7 @@ public abstract class SparkLoadFileGroup implements Serializable {
         }
 
         for (StructField dstField : dstTableSchema.fields()) {
-            EtlJobConfig.EtlColumn column = baseIndex.getColumn(dstField.name());
+            EtlColumn column = baseIndex.getColumn(dstField.name());
             if (!srcColumnNames.contains(dstField.name())) {
                 if (mappingColumns != null && mappingColumns.contains(dstField.name())) {
                     // mapping columns will be processed in next step

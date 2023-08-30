@@ -8,13 +8,13 @@ import org.apache.doris.sparkdpp.EtlJobConfig.EtlTable;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.spark.SparkConf;
 import org.apache.spark.serializer.KryoSerializer;
+import org.apache.spark.sql.RuntimeConfig;
 import org.apache.spark.sql.SparkSession;
 import org.apache.spark.sql.SparkSession.Builder;
 import org.apache.spark.util.LongAccumulator;
 import org.apache.spark.util.SerializableConfiguration;
 
 import java.io.Serializable;
-import java.util.Set;
 
 public class SparkLoadSparkEnv implements Serializable {
 
@@ -32,46 +32,50 @@ public class SparkLoadSparkEnv implements Serializable {
     // we need to wrap it so that we can use it in executor.
     private SerializableConfiguration serializableHadoopConf;
 
-    static public SparkLoadSparkEnv build(SparkLoadConf sparkLoadConf) {
+    static public SparkLoadSparkEnv build(SparkLoadCommand command) {
 
         SparkLoadSparkEnv sparkLoadSparkEnv = new SparkLoadSparkEnv();
 
-        sparkLoadSparkEnv.initSparkSession(sparkLoadConf);
+        sparkLoadSparkEnv.initSparkSession(command);
         sparkLoadSparkEnv.registerAccumulator();
 
         return sparkLoadSparkEnv;
     }
 
-    public void initSparkSession(SparkLoadConf sparkLoadConf) {
+    public void initSparkSession(SparkLoadCommand command) {
 
-        Builder builder = SparkSession.builder();
         SparkConf sparkConf = new SparkConf();
-
-        Set<Long> hiveSourceTableSet = sparkLoadConf.getHiveSourceTables();
-
         //serialization conf
         sparkConf.set("spark.serializer", KryoSerializer.class.getName());
         sparkConf.set("spark.kryo.registrator", DorisKryoRegistrator.class.getName());
         sparkConf.set("spark.kryo.registrationRequired", "false");
 
-        if (!hiveSourceTableSet.isEmpty()) {
-            builder.enableHiveSupport();
+        Builder builder = SparkSession.builder();
+        // Set<Long> hiveSourceTableSet = sparkLoadConf.getHiveSourceTables();
+        // if (!hiveSourceTableSet.isEmpty()) {
+        //     builder.enableHiveSupport();
+        //
+        //     // init hive configs like metastore service
+        //     hiveSourceTableSet.forEach(id -> {
+        //         EtlTable etlTable = sparkLoadConf.getDstTables().get(id);
+        //         EtlFileGroup etlFileGroup = etlTable.fileGroups.get(0);
+        //         etlFileGroup.hiveTableProperties.forEach((key, val) -> {
+        //             sparkConf.set(key, val);
+        //             sparkConf.set("spark.hadoop." + key, val);
+        //         });
+        //     });
+        // }
 
-            // init hive configs like metastore service
-            hiveSourceTableSet.forEach(id -> {
-                EtlTable etlTable = sparkLoadConf.getDstTables().get(id);
-                EtlFileGroup etlFileGroup = etlTable.fileGroups.get(0);
-                etlFileGroup.hiveTableProperties.forEach((key, val) -> {
-                    sparkConf.set(key, val);
-                    sparkConf.set("spark.hadoop." + key, val);
-                });
-            });
+        if (command.getEnableHive()) {
+            builder.enableHiveSupport();
         }
 
         spark = builder
                 .appName("doris spark load job")
                 .config(sparkConf)
                 .getOrCreate();
+
+        this.serializableHadoopConf = new SerializableConfiguration(spark.sparkContext().hadoopConfiguration());
     }
 
     public void registerAccumulator() {
@@ -80,7 +84,6 @@ public class SparkLoadSparkEnv implements Serializable {
         fileNumberAcc = spark.sparkContext().longAccumulator("fileNumberAcc");
         fileSizeAcc = spark.sparkContext().longAccumulator("fileSizeAcc");
         spark.sparkContext().register(invalidRows, "InvalidRowsAccumulator");
-        this.serializableHadoopConf = new SerializableConfiguration(spark.sparkContext().hadoopConfiguration());
     }
 
     public SparkSession getSpark() {
@@ -89,6 +92,10 @@ public class SparkLoadSparkEnv implements Serializable {
 
     public Configuration getHadoopConf() {
         return serializableHadoopConf.value();
+    }
+
+    public SerializableConfiguration getSerializableConfigurationHadoopConf() {
+        return serializableHadoopConf;
     }
 
     public void addAbnormalRowAcc() {

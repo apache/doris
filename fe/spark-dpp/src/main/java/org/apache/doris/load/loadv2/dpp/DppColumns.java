@@ -27,7 +27,7 @@ import java.util.Objects;
 
 // DppColumns is used to store the
 class DppColumns implements Comparable<DppColumns>, Serializable {
-    public List<Object> columns = new ArrayList<Object>();
+    public List<Object> columns = new ArrayList<>();
 
     public DppColumns(List<Object> keys) {
         this.columns = keys;
