@@ -152,9 +152,7 @@ void PipelineFragmentContext::cancel(const PPlanFragmentCancelReason& reason,
                                      const std::string& msg) {
     if (_query_ctx->cancel(true, msg, Status::Cancelled(msg))) {
         LOG(WARNING) << "PipelineFragmentContext "
-                     << PrintInstanceStandardInfo(_query_id,
-                                                  _fragment_id,
-                                                  _fragment_instance_id)
+                     << PrintInstanceStandardInfo(_query_id, _fragment_id, _fragment_instance_id)
                      << " is canceled, cancel message: " << msg;
 
         // Get pipe from new load stream manager and send cancel to it or the fragment may hang to wait read from pipe

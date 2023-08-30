@@ -114,8 +114,8 @@ std::string PrintFrontendInfos(const std::vector<TFrontendInfo>& fe_infos) {
     const size_t count = fe_infos.size();
 
     for (int i = 0; i < count; ++i) {
-       fe_infos[i].printTo(ss);
-       ss << ' ';
+        fe_infos[i].printTo(ss);
+        ss << ' ';
     }
 
     return ss.str();
@@ -133,6 +133,5 @@ std::string PrintInstanceStandardInfo(const TUniqueId& qid, const int fid, const
     ss << print_id(iid) << '|' << fid << '|' << print_id(qid);
     return ss.str();
 }
-
 
 } // namespace doris

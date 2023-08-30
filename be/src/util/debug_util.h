@@ -24,7 +24,6 @@
 
 #include <string>
 
-
 namespace doris {
 
 std::string print_plan_node_type(const TPlanNodeType::type& type);

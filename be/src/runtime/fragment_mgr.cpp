@@ -854,7 +854,8 @@ void FragmentMgr::cancel_query(const TUniqueId& query_id, const PPlanFragmentCan
 }
 
 // Cancel all instances/fragments of query, and set query_ctx of the query canceled at last.
-void FragmentMgr::cancel_query_unlocked(const TUniqueId& query_id, const PPlanFragmentCancelReason& reason,
+void FragmentMgr::cancel_query_unlocked(const TUniqueId& query_id,
+                                        const PPlanFragmentCancelReason& reason,
                                         const std::unique_lock<std::mutex>& state_lock,
                                         const std::string& msg) {
     auto ctx = _query_ctx_map.find(query_id);
@@ -884,32 +885,36 @@ void FragmentMgr::cancel_query_unlocked(const TUniqueId& query_id, const PPlanFr
     _query_ctx_map.erase(query_id);
 }
 
-void FragmentMgr::cancel_fragment(const TUniqueId& fragment_id, const PPlanFragmentCancelReason& reason,
-                                  const std::string& msg) {
+void FragmentMgr::cancel_fragment(const TUniqueId& fragment_id,
+                                  const PPlanFragmentCancelReason& reason, const std::string& msg) {
     std::unique_lock<std::mutex> state_lock(_lock);
     return cancel_fragment_unlocked(fragment_id, reason, state_lock, msg);
 }
 
-void FragmentMgr::cancel_fragment_unlocked(const TUniqueId& fragment_id, const PPlanFragmentCancelReason& reason,
-                                           const std::unique_lock<std::mutex>& state_lock, const std::string& msg) {
+void FragmentMgr::cancel_fragment_unlocked(const TUniqueId& fragment_id,
+                                           const PPlanFragmentCancelReason& reason,
+                                           const std::unique_lock<std::mutex>& state_lock,
+                                           const std::string& msg) {
     return cancel_unlocked_impl(fragment_id, reason, state_lock, false /*not pipeline query*/, msg);
 }
 
-void FragmentMgr::cancel_instance(const TUniqueId& instance_id, const PPlanFragmentCancelReason& reason,
-                                  const std::string& msg) {
+void FragmentMgr::cancel_instance(const TUniqueId& instance_id,
+                                  const PPlanFragmentCancelReason& reason, const std::string& msg) {
     std::unique_lock<std::mutex> state_lock(_lock);
     return cancel_instance_unlocked(instance_id, reason, state_lock, msg);
 }
 
-void FragmentMgr::cancel_instance_unlocked(const TUniqueId& instance_id, const PPlanFragmentCancelReason& reason,
-                                           const std::unique_lock<std::mutex>& state_lock, const std::string& msg) {
+void FragmentMgr::cancel_instance_unlocked(const TUniqueId& instance_id,
+                                           const PPlanFragmentCancelReason& reason,
+                                           const std::unique_lock<std::mutex>& state_lock,
+                                           const std::string& msg) {
     return cancel_unlocked_impl(instance_id, reason, state_lock, true /*pipeline query*/, msg);
 }
 
 void FragmentMgr::cancel_unlocked_impl(const TUniqueId& id, const PPlanFragmentCancelReason& reason,
-                                  const std::unique_lock<std::mutex>& /*state_lock*/,
-                                  bool is_pipeline, const std::string& msg) {
-    if(is_pipeline) {
+                                       const std::unique_lock<std::mutex>& /*state_lock*/,
+                                       bool is_pipeline, const std::string& msg) {
+    if (is_pipeline) {
         const TUniqueId& instance_id = id;
         auto itr = _pipeline_map.find(instance_id);
 
@@ -917,7 +922,8 @@ void FragmentMgr::cancel_unlocked_impl(const TUniqueId& id, const PPlanFragmentC
             // calling PipelineFragmentContext::cancel
             itr->second->cancel(reason, msg);
         } else {
-            LOG(WARNING) << "Could not find the instance id:" << print_id(instance_id) << " to cancel";
+            LOG(WARNING) << "Could not find the instance id:" << print_id(instance_id)
+                         << " to cancel";
         }
     } else {
         const TUniqueId& fragment_id = id;
@@ -927,11 +933,11 @@ void FragmentMgr::cancel_unlocked_impl(const TUniqueId& id, const PPlanFragmentC
             // calling PlanFragmentExecutor::cancel
             itr->second->cancel(reason, msg);
         } else {
-            LOG(WARNING) << "Could not find the fragment id:" << print_id(fragment_id) << " to cancel";
+            LOG(WARNING) << "Could not find the fragment id:" << print_id(fragment_id)
+                         << " to cancel";
         }
     }
 }
-
 
 bool FragmentMgr::query_is_canceled(const TUniqueId& query_id) {
     std::lock_guard<std::mutex> lock(_lock);
@@ -947,7 +953,8 @@ bool FragmentMgr::query_is_canceled(const TUniqueId& query_id) {
                 }
             } else {
                 auto fragment_executor_iter = _fragment_map.find(itr);
-                if (fragment_executor_iter != _fragment_map.end() && fragment_executor_iter->second) {
+                if (fragment_executor_iter != _fragment_map.end() &&
+                    fragment_executor_iter->second) {
                     return fragment_executor_iter->second->is_canceled();
                 }
             }
@@ -983,8 +990,9 @@ void FragmentMgr::cancel_worker() {
                 auto itr = running_fes.find(q.second->coord_addr);
                 if (itr != running_fes.end()) {
                     if (q.second->get_fe_process_uuid() == itr->second.info.process_uuid ||
-                        itr->second.info.process_uuid == 0)
-                    continue;
+                        itr->second.info.process_uuid == 0) {
+                        continue;
+                    }
                 }
 
                 // Coorninator of this query has already dead.
@@ -1002,7 +1010,8 @@ void FragmentMgr::cancel_worker() {
         }
 
         for (const auto& qid : queries_to_cancel) {
-            cancel_query(qid, PPlanFragmentCancelReason::INTERNAL_ERROR, std::string("Coordinator dead."));
+            cancel_query(qid, PPlanFragmentCancelReason::INTERNAL_ERROR,
+                         std::string("Coordinator dead."));
         }
     } while (!_stop_background_threads_latch.wait_for(std::chrono::seconds(1)));
     LOG(INFO) << "FragmentMgr cancel worker is going to exit.";

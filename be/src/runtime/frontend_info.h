@@ -16,6 +16,7 @@
 // under the License.
 
 #include <gen_cpp/HeartbeatService_types.h>
+
 #include <ctime>
 
 namespace doris {
@@ -26,4 +27,4 @@ struct FrontendInfo {
     std::time_t last_reveiving_time_ms;
 };
 
-}
+} // namespace doris

@@ -96,19 +96,25 @@ public:
     // This method can only be used to cancel a fragment of non-pipeline query.
     void cancel_fragment(const TUniqueId& fragment_id, const PPlanFragmentCancelReason& reason,
                          const std::string& msg = "");
-    void cancel_fragment_unlocked(const TUniqueId& instance_id, const PPlanFragmentCancelReason& reason,
-                                  const std::unique_lock<std::mutex>& state_lock, const std::string& msg = "");
+    void cancel_fragment_unlocked(const TUniqueId& instance_id,
+                                  const PPlanFragmentCancelReason& reason,
+                                  const std::unique_lock<std::mutex>& state_lock,
+                                  const std::string& msg = "");
 
     // Pipeline version, cancel a fragment instance.
     void cancel_instance(const TUniqueId& instance_id, const PPlanFragmentCancelReason& reason,
                          const std::string& msg = "");
-    void cancel_instance_unlocked(const TUniqueId& instance_id, const PPlanFragmentCancelReason& reason,
-                                  const std::unique_lock<std::mutex>& state_lock, const std::string& msg = "");
+    void cancel_instance_unlocked(const TUniqueId& instance_id,
+                                  const PPlanFragmentCancelReason& reason,
+                                  const std::unique_lock<std::mutex>& state_lock,
+                                  const std::string& msg = "");
 
     // Can be used in both version.
-    void cancel_query(const TUniqueId& query_id, const PPlanFragmentCancelReason& reason, const std::string& msg = "");
+    void cancel_query(const TUniqueId& query_id, const PPlanFragmentCancelReason& reason,
+                      const std::string& msg = "");
     void cancel_query_unlocked(const TUniqueId& query_id, const PPlanFragmentCancelReason& reason,
-                               const std::unique_lock<std::mutex>& state_lock, const std::string& msg = "");
+                               const std::unique_lock<std::mutex>& state_lock,
+                               const std::string& msg = "");
 
     bool query_is_canceled(const TUniqueId& query_id);
 
@@ -140,8 +146,8 @@ public:
 
 private:
     void cancel_unlocked_impl(const TUniqueId& id, const PPlanFragmentCancelReason& reason,
-                         const std::unique_lock<std::mutex>& state_lock,
-                         bool is_pipeline, const std::string& msg = "");
+                              const std::unique_lock<std::mutex>& state_lock, bool is_pipeline,
+                              const std::string& msg = "");
 
     void _exec_actual(std::shared_ptr<PlanFragmentExecutor> fragment_executor,
                       const FinishCallback& cb);

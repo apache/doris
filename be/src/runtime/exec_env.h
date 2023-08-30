@@ -17,6 +17,7 @@
 
 #pragma once
 
+#include <gen_cpp/HeartbeatService_types.h>
 #include <stddef.h>
 
 #include <algorithm>
