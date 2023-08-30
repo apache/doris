@@ -2680,7 +2680,7 @@ create_job_stmt ::=
      :}
      ;       
 resume_job_stmt ::=
-    KW_RESUME KW_JOB job_label:jobLabel
+    KW_RESUME KW_JOB  KW_FOR job_label:jobLabel
     {:
         RESULT = new ResumeJobStmt(jobLabel);
     :}
@@ -7220,6 +7220,10 @@ admin_stmt ::=
     | KW_ADMIN KW_CLEAN KW_TRASH
     {:
         RESULT = new AdminCleanTrashStmt(null);
+    :}
+    | KW_ADMIN KW_SET KW_TABLE table_name:name KW_PARTITION KW_VERSION opt_properties:properties
+    {:
+        RESULT = new AdminSetPartitionVersionStmt(name, properties);
     :}
     | KW_ADMIN KW_DIAGNOSE KW_TABLET INTEGER_LITERAL:tabletId
     {:

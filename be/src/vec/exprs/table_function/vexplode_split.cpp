@@ -43,7 +43,7 @@ Status VExplodeSplitTableFunction::open() {
     return Status::OK();
 }
 
-Status VExplodeSplitTableFunction::process_init(Block* block) {
+Status VExplodeSplitTableFunction::process_init(Block* block, RuntimeState* state) {
     CHECK(_expr_context->root()->children().size() == 2)
             << "VExplodeSplitTableFunction must be have 2 children but have "
             << _expr_context->root()->children().size();

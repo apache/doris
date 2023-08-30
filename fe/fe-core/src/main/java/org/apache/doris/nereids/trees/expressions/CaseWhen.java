@@ -91,7 +91,16 @@ public class CaseWhen extends Expression {
 
     @Override
     public String toString() {
-        return toSql();
+        StringBuilder output = new StringBuilder("CASE");
+        for (Expression child : children()) {
+            if (child instanceof WhenClause) {
+                output.append(child);
+            } else {
+                output.append(" ELSE ").append(child.toString());
+            }
+        }
+        output.append(" END");
+        return output.toString();
     }
 
     @Override

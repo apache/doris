@@ -19,6 +19,7 @@ package org.apache.doris.nereids.trees.expressions.functions;
 
 import org.apache.doris.catalog.FunctionSignature;
 import org.apache.doris.catalog.Type;
+import org.apache.doris.nereids.types.ArrayType;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.NullType;
 import org.apache.doris.nereids.types.coercion.AnyDataType;
@@ -51,6 +52,12 @@ public interface ImplicitlyCastableSignature extends ComputeSignature {
         }
         try {
             // TODO: copy isImplicitlyCastable method to DataType
+            // TODO: resolve AnyDataType invoke toCatalogDataType
+            if (signatureType instanceof ArrayType) {
+                if (((ArrayType) signatureType).getItemType() instanceof AnyDataType) {
+                    return false;
+                }
+            }
             if (Type.isImplicitlyCastable(realType.toCatalogDataType(), signatureType.toCatalogDataType(), true)) {
                 return true;
             }

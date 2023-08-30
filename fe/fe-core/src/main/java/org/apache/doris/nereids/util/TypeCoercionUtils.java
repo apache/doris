@@ -85,6 +85,7 @@ import org.apache.doris.nereids.types.MapType;
 import org.apache.doris.nereids.types.NullType;
 import org.apache.doris.nereids.types.SmallIntType;
 import org.apache.doris.nereids.types.StringType;
+import org.apache.doris.nereids.types.StructField;
 import org.apache.doris.nereids.types.StructType;
 import org.apache.doris.nereids.types.TimeType;
 import org.apache.doris.nereids.types.TimeV2Type;
@@ -153,7 +154,22 @@ public class TypeCoercionUtils {
             }
             return Optional.empty();
         } else if (input instanceof StructType && expected instanceof StructType) {
-            throw new AnalysisException("not support struct type now.");
+            List<StructField> inputFields = ((StructType) input).getFields();
+            List<StructField> expectedFields = ((StructType) expected).getFields();
+            if (inputFields.size() != expectedFields.size()) {
+                return Optional.empty();
+            }
+            List<StructField> newFields = Lists.newArrayList();
+            for (int i = 0; i < inputFields.size(); i++) {
+                Optional<DataType> newDataType = implicitCast(inputFields.get(i).getDataType(),
+                        expectedFields.get(i).getDataType());
+                if (newDataType.isPresent()) {
+                    newFields.add(inputFields.get(i).withDataType(newDataType.get()));
+                } else {
+                    return Optional.empty();
+                }
+            }
+            return Optional.of(new StructType(newFields));
         } else {
             return implicitCastPrimitive(input, expected);
         }
@@ -247,7 +263,7 @@ public class TypeCoercionUtils {
             return hasCharacterType(((MapType) dataType).getKeyType())
                     || hasCharacterType(((MapType) dataType).getValueType());
         } else if (dataType instanceof StructType) {
-            throw new AnalysisException("do not support struct type now");
+            return ((StructType) dataType).getFields().stream().anyMatch(f -> hasCharacterType(f.getDataType()));
         }
         return dataType instanceof CharacterType;
     }
@@ -293,7 +309,17 @@ public class TypeCoercionUtils {
             return matchesType(((MapType) input).getKeyType(), ((MapType) target).getKeyType())
                     && matchesType(((MapType) input).getValueType(), ((MapType) target).getValueType());
         } else if (input instanceof StructType && target instanceof StructType) {
-            throw new AnalysisException("do not support struct type now");
+            List<StructField> inputFields = ((StructType) input).getFields();
+            List<StructField> targetFields = ((StructType) target).getFields();
+            if (inputFields.size() != targetFields.size()) {
+                return false;
+            }
+            for (int i = 0; i < inputFields.size(); i++) {
+                if (!matchesType(inputFields.get(i).getDataType(), targetFields.get(i).getDataType())) {
+                    return false;
+                }
+            }
+            return true;
         } else {
             if (input instanceof NullType) {
                 return false;
@@ -994,7 +1020,22 @@ public class TypeCoercionUtils {
                 return Optional.of(MapType.of(keyType.get(), valueType.get()));
             }
         } else if (left instanceof StructType && right instanceof StructType) {
-            throw new AnalysisException("do not support struct type now");
+            List<StructField> leftFields = ((StructType) left).getFields();
+            List<StructField> rightFields = ((StructType) right).getFields();
+            if (leftFields.size() != rightFields.size()) {
+                return Optional.empty();
+            }
+            List<StructField> newFields = Lists.newArrayList();
+            for (int i = 0; i < leftFields.size(); i++) {
+                Optional<DataType> newDataType = findCommonComplexTypeForComparison(leftFields.get(i).getDataType(),
+                        rightFields.get(i).getDataType(), intStringToString);
+                if (newDataType.isPresent()) {
+                    newFields.add(leftFields.get(i).withDataType(newDataType.get()));
+                } else {
+                    return Optional.empty();
+                }
+            }
+            return Optional.of(new StructType(newFields));
         }
         return Optional.empty();
     }
@@ -1192,7 +1233,22 @@ public class TypeCoercionUtils {
                 return Optional.of(MapType.of(keyType.get(), valueType.get()));
             }
         } else if (left instanceof StructType && right instanceof StructType) {
-            throw new AnalysisException("do not support struct type now");
+            List<StructField> leftFields = ((StructType) left).getFields();
+            List<StructField> rightFields = ((StructType) right).getFields();
+            if (leftFields.size() != rightFields.size()) {
+                return Optional.empty();
+            }
+            List<StructField> newFields = Lists.newArrayList();
+            for (int i = 0; i < leftFields.size(); i++) {
+                Optional<DataType> newDataType = findCommonComplexTypeForCaseWhen(leftFields.get(i).getDataType(),
+                        rightFields.get(i).getDataType());
+                if (newDataType.isPresent()) {
+                    newFields.add(leftFields.get(i).withDataType(newDataType.get()));
+                } else {
+                    return Optional.empty();
+                }
+            }
+            return Optional.of(new StructType(newFields));
         }
         return Optional.empty();
     }

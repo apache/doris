@@ -113,7 +113,7 @@ public class StmtExecutionAction extends RestBaseController {
                 stmtRequestBody.limit);
 
         ConnectContext.get().changeDefaultCatalog(ns);
-        ConnectContext.get().setDatabase(getFullDbName(dbName));
+        ConnectContext.get().setDatabase(fullDbName);
 
         String streamHeader = request.getHeader("X-Doris-Stream");
         boolean isStream = !("false".equalsIgnoreCase(streamHeader));
@@ -176,10 +176,7 @@ public class StmtExecutionAction extends RestBaseController {
                     return null;
                 }
                 return ResponseEntityBuilder.ok(resultSet.getResult());
-            } catch (InterruptedException e) {
-                LOG.warn("failed to execute stmt", e);
-                return ResponseEntityBuilder.okWithCommonError("Failed to execute sql: " + e.getMessage());
-            } catch (ExecutionException e) {
+            } catch (InterruptedException | ExecutionException e) {
                 LOG.warn("failed to execute stmt", e);
                 return ResponseEntityBuilder.okWithCommonError("Failed to execute sql: " + e.getMessage());
             }
