@@ -32,14 +32,14 @@ void Pipeline::_init_profile() {
     _pipeline_profile.reset(new RuntimeProfile(ss.str()));
 }
 
-Status Pipeline::build_operators(Operators& operators) {
+Status Pipeline::build_operators() {
     OperatorPtr pre;
     for (auto& operator_t : _operator_builders) {
         auto o = operator_t->build_operator();
         if (pre) {
             o->set_child(pre);
         }
-        operators.emplace_back(o);
+        _operators.emplace_back(o);
         pre = std::move(o);
     }
     return Status::OK();
