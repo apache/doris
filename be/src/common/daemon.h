@@ -25,8 +25,6 @@
 
 namespace doris {
 
-struct StorePath;
-
 class Daemon {
 public:
     Daemon() : _stop_background_threads_latch(1) {}

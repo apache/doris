@@ -190,9 +190,6 @@ void Daemon::memory_maintenance_thread() {
     int64_t last_print_proc_mem = PerfCounters::get_vm_rss();
     while (!_stop_background_threads_latch.wait_for(
             std::chrono::milliseconds(interval_milliseconds))) {
-        if (!MemInfo::initialized() || !ExecEnv::ready()) {
-            continue;
-        }
         // Refresh process memory metrics.
         doris::PerfCounters::refresh_proc_status();
         doris::MemInfo::refresh_proc_meminfo();
@@ -229,7 +226,7 @@ void Daemon::memory_gc_thread() {
     int32_t memory_gc_sleep_time_ms = config::memory_gc_sleep_time_ms;
     while (!_stop_background_threads_latch.wait_for(
             std::chrono::milliseconds(interval_milliseconds))) {
-        if (config::disable_memory_gc || !MemInfo::initialized() || !ExecEnv::ready()) {
+        if (config::disable_memory_gc) {
             continue;
         }
         auto sys_mem_available = doris::MemInfo::sys_mem_available();
@@ -280,9 +277,7 @@ void Daemon::memtable_memory_limiter_tracker_refresh_thread() {
     // which helps to accurately control the memory of LoadChannelMgr.
     while (!_stop_background_threads_latch.wait_for(
             std::chrono::milliseconds(config::memtable_mem_tracker_refresh_interval_ms))) {
-        if (ExecEnv::ready()) {
-            doris::ExecEnv::GetInstance()->memtable_memory_limiter()->refresh_mem_tracker();
-        }
+        doris::ExecEnv::GetInstance()->memtable_memory_limiter()->refresh_mem_tracker();
     }
 }
 
@@ -303,9 +298,6 @@ void Daemon::calculate_metrics_thread() {
     std::map<std::string, int64_t> lst_net_receive_bytes;
 
     do {
-        if (!ExecEnv::ready()) {
-            continue;
-        }
         DorisMetrics::instance()->metric_registry()->trigger_all_hooks(true);
 
         if (last_ts == -1L) {
@@ -360,9 +352,7 @@ void Daemon::calculate_metrics_thread() {
 // clean up stale spilled files
 void Daemon::block_spill_gc_thread() {
     while (!_stop_background_threads_latch.wait_for(std::chrono::seconds(60))) {
-        if (ExecEnv::ready()) {
-            ExecEnv::GetInstance()->block_spill_mgr()->gc(200);
-        }
+        ExecEnv::GetInstance()->block_spill_mgr()->gc(200);
     }
 }
 

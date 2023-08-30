@@ -84,8 +84,6 @@ void __lsan_do_leak_check();
 
 namespace doris {
 
-bool k_doris_exit = false;
-
 void signal_handler(int signal) {
     if (signal == SIGINT || signal == SIGTERM) {
         k_doris_exit = true;
@@ -480,10 +478,10 @@ int main(int argc, char** argv) {
 
     // ATTN: MUST init before `ExecEnv`, `StorageEngine` and other daemon services
     //
-    //       Daemon ───┬─────► StorageEngine ─┬─► Disk/Mem/CpuInfo
-    //                 │                      │
-    //                 │                      │
-    // BackendService ─┴────────► ExecEnv ────┘
+    //       Daemon ───┬──► StorageEngine ──► ExecEnv ──► Disk/Mem/CpuInfo
+    //                 │
+    //                 │
+    // BackendService ─┘
     doris::CpuInfo::init();
     doris::DiskInfo::init();
     doris::MemInfo::init();
@@ -592,7 +590,7 @@ int main(int argc, char** argv) {
 #if defined(LEAK_SANITIZER)
         __lsan_do_leak_check();
 #endif
-        sleep(10);
+        sleep(3);
     }
 
     return 0;

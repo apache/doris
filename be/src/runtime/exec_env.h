@@ -77,6 +77,8 @@ class HeartbeatFlags;
 class FrontendServiceClient;
 class FileMetaCache;
 
+inline bool k_doris_exit = false;
+
 // Execution environment for queries/plan fragments.
 // Contains all required global structures, and handles to
 // singleton services. Clients must call StartServices exactly

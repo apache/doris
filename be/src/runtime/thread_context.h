@@ -235,7 +235,7 @@ public:
                 // The brpc server should respond as quickly as possible.
                 bthread_context->thread_mem_tracker_mgr->disable_wait_gc();
                 // set the data so that next time bthread_getspecific in the thread returns the data.
-                CHECK((0 == bthread_setspecific(btls_key, bthread_context)));
+                CHECK(0 == bthread_setspecific(btls_key, bthread_context) || k_doris_exit);
                 thread_context_ptr.init = true;
             }
             bthread_id = bthread_self();
