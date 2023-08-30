@@ -2677,7 +2677,7 @@ create_job_stmt ::=
      :}
      ;       
 resume_job_stmt ::=
-    KW_RESUME KW_JOB job_label:jobLabel
+    KW_RESUME KW_JOB  KW_FOR job_label:jobLabel
     {:
         RESULT = new ResumeJobStmt(jobLabel);
     :}

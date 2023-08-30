@@ -85,7 +85,8 @@ public class CreateJobStmt extends DdlStmt {
     private String timezone = TimeUtils.DEFAULT_TIME_ZONE;
 
     private static final ImmutableSet<Class<? extends DdlStmt>> supportStmtSuperClass
-            = new ImmutableSet.Builder<Class<? extends DdlStmt>>().add(InsertStmt.class).build();
+            = new ImmutableSet.Builder<Class<? extends DdlStmt>>().add(InsertStmt.class)
+            .add(UpdateStmt.class).build();
 
     private static HashSet<String> supportStmtClassNamesCache = new HashSet<>(16);
 

@@ -1555,7 +1555,7 @@ public class Config extends ConfigBase {
     public static boolean enable_pipeline_load = false;
 
     @ConfField
-    public static int scheduler_job_task_max_num = 10;
+    public static int scheduler_job_task_max_saved_count = 10;
 
     /**
      * The number of async tasks that can be queued. @See TaskDisruptor

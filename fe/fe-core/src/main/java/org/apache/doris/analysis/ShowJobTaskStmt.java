@@ -43,6 +43,7 @@ public class ShowJobTaskStmt extends ShowStmt {
                     .add("StartTime")
                     .add("EndTime")
                     .add("Status")
+                    .add("Result")
                     .add("ErrorMsg")
                     .build();
 

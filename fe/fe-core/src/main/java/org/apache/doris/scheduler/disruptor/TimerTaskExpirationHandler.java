@@ -93,11 +93,7 @@ public class TimerTaskExpirationHandler implements WorkHandler<TimerTaskEvent> {
         JobTask jobTask = new JobTask(jobId);
         try {
             jobTask.setStartTimeMs(System.currentTimeMillis());
-
-
-            // TODO: We should record the result of the event task.
-            //Object result = job.getExecutor().execute();
-            job.getExecutor().execute(job);
+            Object result = job.getExecutor().execute(job);
             job.setLatestCompleteExecuteTimeMs(System.currentTimeMillis());
             if (job.isCycleJob()) {
                 updateJobStatusIfPastEndTime(job);
@@ -105,9 +101,11 @@ public class TimerTaskExpirationHandler implements WorkHandler<TimerTaskEvent> {
                 // one time job should be finished after execute
                 updateOnceTimeJobStatus(job);
             }
+            String resultStr = Objects.isNull(result) ? "" : result.toString();
+            jobTask.setExecuteResult(resultStr);
             jobTask.setIsSuccessful(true);
         } catch (Exception e) {
-            log.warn("Event job execute failed, jobId: {}, msg : {}", jobId, e.getMessage());
+            log.warn("Job execute failed, jobId: {}, msg : {}", jobId, e.getMessage());
             job.pause(e.getMessage());
             jobTask.setErrorMsg(e.getMessage());
             jobTask.setIsSuccessful(false);

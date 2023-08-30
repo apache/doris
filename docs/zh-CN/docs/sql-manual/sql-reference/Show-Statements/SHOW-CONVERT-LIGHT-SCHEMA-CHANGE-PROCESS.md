@@ -1,7 +1,7 @@
 ---
 {
-    "title": "SHOW-CONVERT-LIGHT-SCHEMA-CHANGE-PROCESS",
-    "language": "zh-CN"
+"title": "SHOW-JOB-TASK",
+"language": "en"
 }
 ---
 
@@ -23,40 +23,52 @@ KIND, either express or implied.  See the License for the
 specific language governing permissions and limitations
 under the License.
 -->
-
-## SHOW-CONVERT-LIGHT-SCHEMA-CHANGE-PROCESS
+## SHOW-JOB-TASK
 
 ### Name
 
-SHOW CONVERT LIGHT SCHEMA CHANGE PROCESS
+SHOW JOB TASK
 
 ### Description
 
-用来查看将非light schema change的olpa表转换为light schema change表的情况， 需要开启配置`enable_convert_light_weight_schema_change`
+This statement is used to display the list of execution results of JOB subtasks, and the latest 20 records will be kept by default.
 
-语法:
+grammar:
 
 ```sql
-SHOW CONVERT_LIGHT_SCHEMA_CHANGE_PROCESS [FROM DATABASE db]
+SHOW JOB TASKS FOR job_name;
 ```
+
+
+
+Result description:
+
+```
+                           JobId: JobId
+                           TaskId: TaskId
+                        StartTime: start execution time
+                          EndTime: end time
+                           Status: status
+                           Result: execution result
+                           ErrMsg: error message
+```
+
+* State
+
+         There are the following 2 states:
+         * SUCCESS
+         * FAIL
 
 ### Example
 
-1. 查看在database test上的转换情况
+1. Display the task execution list of the JOB named test1
 
-    ```sql
-     SHOW CONVERT_LIGHT_SCHEMA_CHANGE_PROCESS FROM DATABASE test;
-    ````
+     ```sql
+     SHOW JOB TASKS FOR test1;
+     ```
 
-2. 查看全局的转换情况
+###Keywords
 
-    ```sql
-    SHOW CONVERT_LIGHT_SCHEMA_CHANGE_PROCESS;
-    ```
-
-
-### Keywords
-
-    SHOW, CONVERT_LIGHT_SCHEMA_CHANGE_PROCESS
+     SHOW, JOB, TASK
 
 ### Best Practice

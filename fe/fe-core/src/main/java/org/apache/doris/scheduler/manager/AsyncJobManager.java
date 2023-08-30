@@ -320,7 +320,13 @@ public class AsyncJobManager implements Closeable, Writable {
      * We will get the task in the next time window, and then hand it over to the time wheel for timing trigger
      */
     private void executeJobIdsWithinLastTenMinutesWindow() {
+        // if the task executes for more than 10 minutes, it will be delay, so,
+        // set lastBatchSchedulerTimestamp to current time
+        if (lastBatchSchedulerTimestamp + BATCH_SCHEDULER_INTERVAL_MILLI_SECONDS < System.currentTimeMillis()) {
+            this.lastBatchSchedulerTimestamp = System.currentTimeMillis();
+        }
         if (jobMap.isEmpty()) {
+            this.lastBatchSchedulerTimestamp += BATCH_SCHEDULER_INTERVAL_MILLI_SECONDS;
             return;
         }
         jobMap.forEach((k, v) -> {
