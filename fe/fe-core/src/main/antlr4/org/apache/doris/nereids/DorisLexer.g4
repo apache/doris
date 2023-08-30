@@ -82,6 +82,8 @@ COMMA: ',';
 DOT: '.';
 LEFT_BRACKET: '[';
 RIGHT_BRACKET: ']';
+LEFT_BRACE: '{';
+RIGHT_BRACE: '}';
 
 // TODO: add a doc to list reserved words
 
@@ -121,6 +123,7 @@ CAST: 'CAST';
 CATALOG: 'CATALOG';
 CATALOGS: 'CATALOGS';
 CHANGE: 'CHANGE';
+CHAR: 'CHAR';
 CHECK: 'CHECK';
 CLEAR: 'CLEAR';
 CLUSTER: 'CLUSTER';
@@ -137,6 +140,7 @@ COMPACTIONS: 'COMPACTIONS';
 COMPUTE: 'COMPUTE';
 CONCATENATE: 'CONCATENATE';
 CONSTRAINT: 'CONSTRAINT';
+CONVERT: 'CONVERT';
 COST: 'COST';
 CREATE: 'CREATE';
 CROSS: 'CROSS';
@@ -225,6 +229,7 @@ IS_NULL_PRED: 'IS_NULL_PRED';
 IS_NOT_NULL_PRED: 'IS_NOT_NULL_PRED';
 ITEMS: 'ITEMS';
 JOIN: 'JOIN';
+KEY: 'KEY';
 KEYS: 'KEYS';
 LABEL: 'LABEL';
 LAST: 'LAST';
@@ -271,6 +276,7 @@ OPTION: 'OPTION';
 OPTIONS: 'OPTIONS';
 OR: 'OR';
 ORDER: 'ORDER';
+ORDERED: 'ORDERED';
 OUT: 'OUT';
 OUTER: 'OUTER';
 OUTFILE: 'OUTFILE';
@@ -403,6 +409,9 @@ WITHIN: 'WITHIN';
 YEAR: 'YEAR';
 ZONE: 'ZONE';
 DATEV2: 'DATEV2';
+S3: 'S3';
+HDFS: 'HDFS';
+BROKER: 'BROKER';
 //--DORIS-KEYWORD-LIST-END
 //============================
 // End of the keywords list
@@ -439,6 +448,11 @@ STRING_LITERAL
     | '"' ( ~('"'|'\\') | ('\\' .) )* '"'
     | 'R\'' (~'\'')* '\''
     | 'R"'(~'"')* '"'
+    ;
+
+LEADING_STRING
+    : LEFT_BRACE
+    | RIGHT_BRACE
     ;
 
 BIGINT_LITERAL

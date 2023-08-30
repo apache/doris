@@ -53,7 +53,7 @@ public class StatisticsAutoAnalyzer extends MasterDaemon {
 
     private static final Logger LOG = LogManager.getLogger(StatisticsAutoAnalyzer.class);
 
-    private AnalysisTaskExecutor analysisTaskExecutor;
+    private final AnalysisTaskExecutor analysisTaskExecutor;
 
     public StatisticsAutoAnalyzer() {
         super("Automatic Analyzer",
@@ -70,6 +70,7 @@ public class StatisticsAutoAnalyzer extends MasterDaemon {
         if (!StatisticsUtil.statsTblAvailable()) {
             return;
         }
+        analyzePeriodically();
         if (!checkAnalyzeTime(LocalTime.now(TimeUtils.getTimeZone().toZoneId()))) {
             return;
         }
@@ -78,7 +79,6 @@ public class StatisticsAutoAnalyzer extends MasterDaemon {
             return;
         }
 
-        analyzePeriodically();
         if (Config.enable_full_auto_analyze) {
             analyzeAll();
         }
@@ -145,10 +145,9 @@ public class StatisticsAutoAnalyzer extends MasterDaemon {
             AnalysisManager analysisManager = Env.getCurrentEnv().getAnalysisManager();
             List<AnalysisInfo> jobInfos = analysisManager.findPeriodicJobs();
             for (AnalysisInfo jobInfo : jobInfos) {
-                jobInfo = new AnalysisInfoBuilder(jobInfo).setJobType(JobType.SYSTEM).build();
                 createSystemAnalysisJob(jobInfo);
             }
-        } catch (DdlException e) {
+        } catch (Exception e) {
             LOG.warn("Failed to periodically analyze the statistics." + e);
         }
     }
@@ -238,7 +237,7 @@ public class StatisticsAutoAnalyzer extends MasterDaemon {
 
     // Analysis job created by the system
     @VisibleForTesting
-    public void createSystemAnalysisJob(AnalysisInfo jobInfo)
+    protected void createSystemAnalysisJob(AnalysisInfo jobInfo)
             throws DdlException {
         if (jobInfo.colToPartitions.isEmpty()) {
             // No statistics need to be collected or updated

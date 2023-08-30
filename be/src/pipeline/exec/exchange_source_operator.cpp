@@ -44,14 +44,10 @@ ExchangeLocalState::ExchangeLocalState(RuntimeState* state, OperatorXBase* paren
         : PipelineXLocalState(state, parent), num_rows_skipped(0), is_ready(false) {}
 
 Status ExchangeLocalState::init(RuntimeState* state, LocalStateInfo& info) {
-    if (_init) {
-        return Status::OK();
-    }
     RETURN_IF_ERROR(PipelineXLocalState::init(state, info));
     stream_recvr = info.recvr;
     RETURN_IF_ERROR(_parent->cast<ExchangeSourceOperatorX>()._vsort_exec_exprs.clone(
             state, vsort_exec_exprs));
-    _init = true;
     return Status::OK();
 }
 

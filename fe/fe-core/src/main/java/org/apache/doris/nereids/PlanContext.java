@@ -22,7 +22,6 @@ import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.statistics.Statistics;
 
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.List;
 
 /**
@@ -33,7 +32,7 @@ import java.util.List;
  */
 public class PlanContext {
 
-    private List<Statistics> childrenStats = new ArrayList<>();
+    private final List<Statistics> childrenStats;
     private Statistics planStats;
     private final int arity;
     private boolean isBroadcastJoin = false;
@@ -43,19 +42,16 @@ public class PlanContext {
      */
     public PlanContext(GroupExpression groupExpression) {
         this.arity = groupExpression.arity();
-        if (groupExpression.getOwnerGroup() == null) {
-            return;
-        }
-        planStats = groupExpression.getOwnerGroup().getStatistics();
-        childrenStats = new ArrayList<>(groupExpression.arity());
+        this.planStats = groupExpression.getOwnerGroup().getStatistics();
+        this.childrenStats = new ArrayList<>(groupExpression.arity());
         for (int i = 0; i < groupExpression.arity(); i++) {
             childrenStats.add(groupExpression.childStatistics(i));
         }
     }
 
-    public PlanContext(Statistics planStats, Statistics... childrenStats) {
+    public PlanContext(Statistics planStats, List<Statistics> childrenStats) {
         this.planStats = planStats;
-        this.childrenStats = Arrays.asList(childrenStats);
+        this.childrenStats = childrenStats;
         this.arity = this.childrenStats.size();
     }
 

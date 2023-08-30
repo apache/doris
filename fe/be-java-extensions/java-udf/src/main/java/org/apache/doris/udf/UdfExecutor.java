@@ -106,6 +106,7 @@ public class UdfExecutor extends BaseExecutor {
             }
             return result;
         } catch (Exception e) {
+            LOG.info("evaluate exception: " + debugString());
             LOG.info("evaluate(int numRows, Object[] column) Exception: " + e.toString());
             throw new UdfRuntimeException("UDF failed to evaluate", e);
         }

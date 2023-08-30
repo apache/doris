@@ -1384,7 +1384,7 @@ void DropTableTaskPool::_drop_tablet_worker_thread_callback() {
             // if tablet is dropped by fe, then the related txn should also be removed
             StorageEngine::instance()->txn_manager()->force_rollback_tablet_related_txns(
                     dropped_tablet->data_dir()->get_meta(), drop_tablet_req.tablet_id,
-                    drop_tablet_req.schema_hash, dropped_tablet->tablet_uid());
+                    dropped_tablet->tablet_uid());
             LOG_INFO("successfully drop tablet")
                     .tag("signature", agent_task_req.signature)
                     .tag("tablet_id", drop_tablet_req.tablet_id);

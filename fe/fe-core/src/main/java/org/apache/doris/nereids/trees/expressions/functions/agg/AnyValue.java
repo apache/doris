@@ -51,7 +51,7 @@ public class AnyValue extends AggregateFunction
      * constructor with 1 argument.
      */
     public AnyValue(boolean distinct, Expression arg) {
-        super("any_value", distinct, arg);
+        super("any_value", false, arg);
     }
 
     /**

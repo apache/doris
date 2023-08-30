@@ -22,6 +22,7 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#include <functional>
 #include <memory>
 #include <mutex>
 #include <ostream>
@@ -37,10 +38,35 @@
 #include "vec/core/types.h"
 #include "vec/data_types/data_type.h"
 #include "vec/functions/function.h"
-
 namespace doris {
 
 namespace vectorized {
+
+class JavaUdfPreparedFunction : public PreparedFunctionImpl {
+public:
+    using execute_call_back = std::function<Status(FunctionContext* context, Block& block,
+                                                   const ColumnNumbers& arguments, size_t result,
+                                                   size_t input_rows_count)>;
+
+    explicit JavaUdfPreparedFunction(const execute_call_back& func, const std::string& name)
+            : callback_function(func), name(name) {}
+
+    String get_name() const override { return name; }
+
+protected:
+    Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
+                        size_t result, size_t input_rows_count) override {
+        return callback_function(context, block, arguments, result, input_rows_count);
+    }
+
+    bool use_default_implementation_for_nulls() const override { return false; }
+    bool use_default_implementation_for_low_cardinality_columns() const override { return false; }
+
+private:
+    execute_call_back callback_function;
+    std::string name;
+};
+
 class JavaFunctionCall : public IFunctionBase {
 public:
     JavaFunctionCall(const TFunction& fn, const DataTypes& argument_types,
@@ -63,13 +89,17 @@ public:
 
     PreparedFunctionPtr prepare(FunctionContext* context, const Block& sample_block,
                                 const ColumnNumbers& arguments, size_t result) const override {
-        return nullptr;
+        return std::make_shared<JavaUdfPreparedFunction>(
+                std::bind<Status>(&JavaFunctionCall::execute_impl, this, std::placeholders::_1,
+                                  std::placeholders::_2, std::placeholders::_3,
+                                  std::placeholders::_4, std::placeholders::_5),
+                fn_.name.function_name);
     }
 
     Status open(FunctionContext* context, FunctionContext::FunctionStateScope scope) override;
 
-    Status execute(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                   size_t result, size_t input_rows_count, bool dry_run = false) override;
+    Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
+                        size_t result, size_t input_rows_count) const;
 
     Status close(FunctionContext* context, FunctionContext::FunctionStateScope scope) override;
 
