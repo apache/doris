@@ -299,7 +299,7 @@ StackTrace::StackTrace(const ucontext_t& signal_context) {
 void StackTrace::tryCapture() {
     // When unw_backtrace is not available, fall back on the standard
     // `backtrace` function from execinfo.h.
-#if USE_UNWIND
+#if USE_UNWIND && defined(__x86_64__) // TODO
     size = unw_backtrace(frame_pointers.data(), capacity);
 #else
     size = backtrace(frame_pointers.data(), capacity);
