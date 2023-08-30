@@ -23,43 +23,54 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.AlwaysNotNullable;
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
 import org.apache.doris.nereids.trees.expressions.functions.ExpressionTrait;
+import org.apache.doris.nereids.trees.expressions.literal.StringLikeLiteral;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.DataType;
-import org.apache.doris.nereids.types.MapType;
+import org.apache.doris.nereids.types.StructField;
+import org.apache.doris.nereids.types.StructType;
 
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.Sets;
 
 import java.util.List;
+import java.util.Set;
 
 /**
- * ScalarFunction 'map'.
+ * ScalarFunction 'named_struct'.
  */
-public class CreateMap extends ScalarFunction
+public class CreateNamedStruct extends ScalarFunction
         implements ExplicitlyCastableSignature, AlwaysNotNullable {
 
     public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
-            FunctionSignature.ret(MapType.SYSTEM_DEFAULT).args()
+            FunctionSignature.ret(StructType.SYSTEM_DEFAULT).args()
     );
 
     /**
      * constructor with 0 or more arguments.
      */
-    public CreateMap(Expression... varArgs) {
-        super("map", varArgs);
-    }
-
-    @Override
-    public DataType getDataType() {
-        if (arity() >= 2) {
-            return MapType.of(child(0).getDataType(), child(1).getDataType());
-        }
-        return MapType.SYSTEM_DEFAULT;
+    public CreateNamedStruct(Expression... varArgs) {
+        super("named_struct", varArgs);
     }
 
     @Override
     public void checkLegalityBeforeTypeCoercion() {
         if (arity() % 2 != 0) {
-            throw new AnalysisException("map can't be odd parameters, need even parameters " + this.toSql());
+            throw new AnalysisException("named_struct can't be odd parameters, need even parameters " + this.toSql());
+        }
+        Set<String> names = Sets.newHashSet();
+        for (int i = 0; i < arity(); i = i + 2) {
+            if (!(child(i) instanceof StringLikeLiteral)) {
+                throw new AnalysisException("named_struct only allows"
+                        + " constant string parameter in odd position: " + this);
+            } else {
+                String name = ((StringLikeLiteral) child(i)).getStringValue();
+                if (names.contains(name)) {
+                    throw new AnalysisException("The name of the struct field cannot be repeated."
+                            + " same name fields are " + name);
+                } else {
+                    names.add(name);
+                }
+            }
         }
     }
 
@@ -67,13 +78,13 @@ public class CreateMap extends ScalarFunction
      * withChildren.
      */
     @Override
-    public CreateMap withChildren(List<Expression> children) {
-        return new CreateMap(children.toArray(new Expression[0]));
+    public CreateNamedStruct withChildren(List<Expression> children) {
+        return new CreateNamedStruct(children.toArray(new Expression[0]));
     }
 
     @Override
     public <R, C> R accept(ExpressionVisitor<R, C> visitor, C context) {
-        return visitor.visitCreateMap(this, context);
+        return visitor.visitCreateNamedStruct(this, context);
     }
 
     @Override
@@ -81,12 +92,14 @@ public class CreateMap extends ScalarFunction
         if (arity() == 0) {
             return SIGNATURES;
         } else {
-            return ImmutableList.of(FunctionSignature.of(
-                    getDataType(),
-                    children.stream()
-                            .map(ExpressionTrait::getDataType)
-                            .collect(ImmutableList.toImmutableList())
-            ));
+            ImmutableList.Builder<StructField> structFields = ImmutableList.builder();
+            for (int i = 0; i < arity(); i = i + 2) {
+                StringLikeLiteral nameLiteral = (StringLikeLiteral) child(i);
+                structFields.add(new StructField(nameLiteral.getStringValue(),
+                        children.get(i + 1).getDataType(), true, ""));
+            }
+            return ImmutableList.of(FunctionSignature.ret(new StructType(structFields.build()))
+                    .args(children.stream().map(ExpressionTrait::getDataType).toArray(DataType[]::new)));
         }
     }
 }
