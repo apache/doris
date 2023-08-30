@@ -98,17 +98,25 @@ public:
     // copy constructor, shared_ptr members are shared
     LoadStreamStub(LoadStreamStub& stub);
 
-    virtual ~LoadStreamStub();
+// for mock this class in UT
+#ifdef BE_TEST
+    virtual
+#endif
+            ~LoadStreamStub();
 
     // open_stream_sink
     Status open(BrpcClientCache<PBackendService_Stub>* client_cache, const NodeInfo& node_info,
                 int64_t txn_id, const OlapTableSchemaParam& schema,
                 const std::vector<PTabletID>& tablets_for_schema, bool enable_profile);
 
-    // APPEND_DATA
-    virtual Status append_data(int64_t partition_id, int64_t index_id, int64_t tablet_id,
-                               int64_t segment_id, std::span<const Slice> data,
-                               bool segment_eos = false);
+// for mock this class in UT
+#ifdef BE_TEST
+    virtual
+#endif
+            // APPEND_DATA
+            Status
+            append_data(int64_t partition_id, int64_t index_id, int64_t tablet_id,
+                        int64_t segment_id, std::span<const Slice> data, bool segment_eos = false);
 
     // ADD_SEGMENT
     Status add_segment(int64_t partition_id, int64_t index_id, int64_t tablet_id,
