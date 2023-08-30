@@ -46,7 +46,6 @@ struct WriteRequest {
     std::shared_ptr<TabletSchema> tablet_schema;
     bool enable_unique_key_merge_on_write = false;
     int sender_id = 0;
-    std::vector<brpc::StreamId> streams;
 };
 
 } // namespace doris
