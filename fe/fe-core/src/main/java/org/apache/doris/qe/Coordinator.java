@@ -400,7 +400,7 @@ public class Coordinator {
         this.queryOptions.setQueryTimeout(context.getExecTimeout());
         this.queryOptions.setExecutionTimeout(context.getExecTimeout());
         this.queryOptions.setEnableScanNodeRunSerial(context.getSessionVariable().isEnableScanRunSerial());
-        this.queryOptions.setFeProcessUuid(ExecuteEnv.getInstance().getStartupTime());
+        this.queryOptions.setFeProcessUuid(ExecuteEnv.getInstance().getProcessUUID());
     }
 
     public ConnectContext getConnectContext() {

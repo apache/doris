@@ -156,7 +156,7 @@ public class Frontend implements Writable {
             replayedJournalId = hbResponse.getReplayedJournalId();
             lastUpdateTime = hbResponse.getHbTime();
             heartbeatErrMsg = "";
-            lastStartupTime = hbResponse.getFeStartTime();
+            lastStartupTime = hbResponse.getProcessUUID();
             diskInfos = hbResponse.getDiskInfos();
             isChanged = true;
             processUUID = lastStartupTime;
