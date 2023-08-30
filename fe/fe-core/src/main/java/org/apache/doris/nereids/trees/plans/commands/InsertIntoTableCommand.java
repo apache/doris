@@ -181,6 +181,7 @@ public class InsertIntoTableCommand extends Command implements ForwardWithSync, 
 
     /**
      * when  `isOverwrite` is true,use this logic
+     *
      * @param ctx ctx
      * @param executor executor
      * @param physicalOlapTableSink physicalOlapTableSink
@@ -190,7 +191,7 @@ public class InsertIntoTableCommand extends Command implements ForwardWithSync, 
             throws Exception {
         OlapTable targetTable = physicalOlapTableSink.getTargetTable();
         TableName tableName = new TableName(InternalCatalog.INTERNAL_CATALOG_NAME, targetTable.getQualifiedDbName(),
-                targetTable.getQualifiedName());
+                targetTable.getName());
         List partitionNames = ((UnboundOlapTableSink) logicalQuery).getPartitions();
         if (CollectionUtils.isEmpty(partitionNames)) {
             partitionNames = Lists.newArrayList(targetTable.getPartitionNames());
@@ -202,6 +203,7 @@ public class InsertIntoTableCommand extends Command implements ForwardWithSync, 
 
     /**
      * replacing partitionNames with tempPartitionNames
+     *
      * @param ctx ctx
      * @param tableName tableName
      * @param partitionNames partitionNames
@@ -229,6 +231,7 @@ public class InsertIntoTableCommand extends Command implements ForwardWithSync, 
 
     /**
      * insert into select
+     *
      * @param ctx ctx
      * @param executor executor
      * @param tempPartitionNames tempPartitionNames
@@ -257,6 +260,7 @@ public class InsertIntoTableCommand extends Command implements ForwardWithSync, 
 
     /**
      * add some tempPartitions
+     *
      * @param ctx ctx
      * @param tableName tableName
      * @param partitionNames partitionNames
@@ -292,6 +296,7 @@ public class InsertIntoTableCommand extends Command implements ForwardWithSync, 
 
     /**
      * delete temp partitions
+     *
      * @param ctx ctx
      * @param targetTableName targetTableName
      * @param tempPartitionNames tempPartitionNames
