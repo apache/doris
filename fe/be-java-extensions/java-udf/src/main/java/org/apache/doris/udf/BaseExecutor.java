@@ -100,6 +100,34 @@ public abstract class BaseExecutor {
         init(request, jarFile, funcRetType, parameterTypes);
     }
 
+    public String debugString() {
+        String res = "";
+        for (JavaUdfDataType type : argTypes) {
+            res = res + type.toString();
+            if (type.getItemType() != null) {
+                res = res + " item: " + type.getItemType().toString() + " sql: " + type.getItemType().toSql();
+            }
+            if (type.getKeyType() != null) {
+                res = res + " key: " + type.getKeyType().toString() + " sql: " + type.getKeyType().toSql();
+            }
+            if (type.getValueType() != null) {
+                res = res + " key: " + type.getValueType().toString() + " sql: " + type.getValueType().toSql();
+            }
+        }
+        res = res + " return type: " + retType.toString();
+        if (retType.getItemType() != null) {
+            res = res + " item: " + retType.getItemType().toString() + " sql: " + retType.getItemType().toSql();
+        }
+        if (retType.getKeyType() != null) {
+            res = res + " key: " + retType.getKeyType().toString() + " sql: " + retType.getKeyType().toSql();
+        }
+        if (retType.getValueType() != null) {
+            res = res + " key: " + retType.getValueType().toString() + " sql: " + retType.getValueType().toSql();
+        }
+        res = res + " methodAccess: " + methodAccess.toString();
+        return res;
+    }
+
     protected abstract void init(TJavaUdfExecutorCtorParams request, String jarPath,
             Type funcRetType, Type... parameterTypes) throws UdfRuntimeException;
 

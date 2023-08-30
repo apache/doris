@@ -430,6 +430,7 @@ int LoadStream::on_received_messages(StreamId id, butil::IOBuf* const messages[]
             auto st =
                     close(hdr.src_id(), tablets_to_commit, &success_tablet_ids, &failed_tablet_ids);
             _report_result(id, st, &success_tablet_ids, &failed_tablet_ids);
+            brpc::StreamClose(id);
         } break;
         default:
             LOG(WARNING) << "unexpected stream message " << hdr.opcode();

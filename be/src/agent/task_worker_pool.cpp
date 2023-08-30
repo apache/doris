@@ -503,6 +503,33 @@ void TaskWorkerPool::_update_tablet_meta_worker_thread_callback() {
                 tablet->set_binlog_config(new_binlog_config);
                 need_to_save = true;
             }
+            if (tablet_meta_info.__isset.enable_single_replica_compaction) {
+                std::shared_lock rlock(tablet->get_header_lock());
+                tablet->tablet_meta()
+                        ->mutable_tablet_schema()
+                        ->set_enable_single_replica_compaction(
+                                tablet_meta_info.enable_single_replica_compaction);
+                for (auto& rowset_meta : tablet->tablet_meta()->all_mutable_rs_metas()) {
+                    rowset_meta->tablet_schema()->set_enable_single_replica_compaction(
+                            tablet_meta_info.enable_single_replica_compaction);
+                }
+                tablet->tablet_schema_unlocked()->set_enable_single_replica_compaction(
+                        tablet_meta_info.enable_single_replica_compaction);
+                need_to_save = true;
+            }
+
+            if (tablet_meta_info.__isset.skip_write_index_on_load) {
+                std::shared_lock rlock(tablet->get_header_lock());
+                tablet->tablet_meta()->mutable_tablet_schema()->set_skip_write_index_on_load(
+                        tablet_meta_info.skip_write_index_on_load);
+                for (auto& rowset_meta : tablet->tablet_meta()->all_mutable_rs_metas()) {
+                    rowset_meta->tablet_schema()->set_skip_write_index_on_load(
+                            tablet_meta_info.skip_write_index_on_load);
+                }
+                tablet->tablet_schema_unlocked()->set_skip_write_index_on_load(
+                        tablet_meta_info.skip_write_index_on_load);
+                need_to_save = true;
+            }
             if (need_to_save) {
                 std::shared_lock rlock(tablet->get_header_lock());
                 tablet->save_meta();
@@ -1357,7 +1384,7 @@ void DropTableTaskPool::_drop_tablet_worker_thread_callback() {
             // if tablet is dropped by fe, then the related txn should also be removed
             StorageEngine::instance()->txn_manager()->force_rollback_tablet_related_txns(
                     dropped_tablet->data_dir()->get_meta(), drop_tablet_req.tablet_id,
-                    drop_tablet_req.schema_hash, dropped_tablet->tablet_uid());
+                    dropped_tablet->tablet_uid());
             LOG_INFO("successfully drop tablet")
                     .tag("signature", agent_task_req.signature)
                     .tag("tablet_id", drop_tablet_req.tablet_id);

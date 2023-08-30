@@ -1548,7 +1548,8 @@ public class OlapTable extends Table {
 
     public void checkNormalStateForAlter() throws DdlException {
         if (state != OlapTableState.NORMAL) {
-            throw new DdlException("Table[" + name + "]'s state is not NORMAL. Do not allow doing ALTER ops");
+            throw new DdlException("Table[" + name + "]'s state(" + state.toString()
+                    + ") is not NORMAL. Do not allow doing ALTER ops");
         }
     }
 
@@ -2259,6 +2260,17 @@ public class OlapTable extends Table {
                         keyColumnTypes.add(col.getDataType().toThrift());
                     }
                 }
+            }
+        }
+    }
+
+    @Override
+    public void analyze(Analyzer analyzer) {
+        for (MaterializedIndexMeta meta : indexIdToMeta.values()) {
+            try {
+                meta.parseStmt(analyzer);
+            } catch (IOException e) {
+                e.printStackTrace();
             }
         }
     }
