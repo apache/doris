@@ -226,7 +226,6 @@ Status ParquetReader::_open_file() {
         }
         size_t meta_size = 0;
         if (_meta_cache == nullptr) {
-            // _is_file_metadata_owned = true;
             RETURN_IF_ERROR(
                     parse_thrift_footer(_file_reader, &_file_metadata, &meta_size, _io_ctx));
             // wrap it with unique ptr, so that it can be released finally.
