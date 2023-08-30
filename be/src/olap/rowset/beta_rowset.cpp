@@ -141,7 +141,7 @@ Status BetaRowset::load_segments(int64_t seg_id_begin, int64_t seg_id_end,
     int64_t seg_id = seg_id_begin;
     while (seg_id < seg_id_end) {
         std::shared_ptr<segment_v2::Segment> segment;
-        load_segment(seg_id, &segment);
+        RETURN_IF_ERROR(load_segment(seg_id, &segment));
         segments->push_back(std::move(segment));
         seg_id++;
     }
