@@ -146,9 +146,14 @@ elif [[ "${DORIS_TOOLCHAIN}" == "clang" ]]; then
     fi
 
     covs=()
-    while IFS=$'\n' read -r line; do 
-        covs+=$line 
-    done < =(find "${DORIS_CLANG_HOME}" -name "llvm-cov*")
+    tmp_file=$(mktemp)
+    find "${DORIS_CLANG_HOME}" -name "llvm-cov*" > "${tmp_file}"
+
+    # Read lines from the temporary file and populate the array
+    while IFS= read -r line; do
+        covs+=("$line")
+    done < "${tmp_file}"
+    
     if [[ ${#covs} -ge 1 ]]; then
         LLVM_COV="${covs[1]}"
     else
@@ -157,9 +162,9 @@ elif [[ "${DORIS_TOOLCHAIN}" == "clang" ]]; then
     export LLVM_COV
 
     profdatas=()
-    while IFS=$'\n' read -r line; do 
-        profdatas+=$line 
-    done < =(find "${DORIS_CLANG_HOME}" -name "llvm-profdata*")
+    find "${DORIS_CLANG_HOME}" -name "llvm-profdata*" | while IFS= read -r line; do
+        profdatas+=("$line")
+    done
     if [[ ${#profdatas} -ge 1 ]]; then
         LLVM_PROFDATA="${profdatas[1]}"
     else
