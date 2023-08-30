@@ -39,7 +39,6 @@
 #include "common/object_pool.h"
 #include "common/status.h"
 #include "exec/tablet_info.h"
-#include "io/fs/stream_sink_file_writer.h"
 #include "olap/delta_writer_v2.h"
 #include "runtime/descriptors.h"
 #include "runtime/exec_env.h"
