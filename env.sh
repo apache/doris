@@ -154,8 +154,8 @@ elif [[ "${DORIS_TOOLCHAIN}" == "clang" ]]; then
         covs+=("$line")
     done < "${tmp_file}"
     
-    if [[ ${#covs} -ge 1 ]]; then
-        LLVM_COV="${covs[1]}"
+    if [[ ${#covs[@]} -ge 1 ]]; then
+        LLVM_COV="${covs[0]}"
     else
         LLVM_COV="$(command -v llvm-cov)"
     fi
@@ -165,8 +165,8 @@ elif [[ "${DORIS_TOOLCHAIN}" == "clang" ]]; then
     find "${DORIS_CLANG_HOME}" -name "llvm-profdata*" | while IFS= read -r line; do
         profdatas+=("$line")
     done
-    if [[ ${#profdatas} -ge 1 ]]; then
-        LLVM_PROFDATA="${profdatas[1]}"
+    if [[ ${#profdatas[@]} -ge 1 ]]; then
+        LLVM_PROFDATA="${profdatas[0]}"
     else
         LLVM_PROFDATA="$(command -v llvm-profdata)"
     fi
