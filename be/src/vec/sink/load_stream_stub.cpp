@@ -142,7 +142,8 @@ Status LoadStreamStub::open(BrpcClientCache<PBackendService_Stub>* client_cache,
         auto tablet_schema = std::make_unique<TabletSchema>();
         tablet_schema->init_from_pb(resp.tablet_schema());
         _tablet_schema_for_index->emplace(resp.index_id(), std::move(tablet_schema));
-        _enable_unique_mow_for_index->emplace(resp.index_id(), resp.enable_unique_key_merge_on_write());
+        _enable_unique_mow_for_index->emplace(resp.index_id(),
+                                              resp.enable_unique_key_merge_on_write());
     }
     if (cntl.Failed()) {
         return Status::InternalError("Failed to connect to backend {}: {}", _dst_id,
