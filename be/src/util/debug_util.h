@@ -23,8 +23,6 @@
 #include <gen_cpp/Types_types.h>
 
 #include <string>
-#include <chrono>
-#include <thread>
 
 
 namespace doris {
