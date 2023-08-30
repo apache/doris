@@ -890,6 +890,9 @@ DECLARE_mInt32(jsonb_type_length_soft_limit_bytes);
 // is greater than object_pool_buffer_size, release the object in the unused_object_pool.
 DECLARE_Int32(object_pool_buffer_size);
 
+// Threshold fo reading a small file into memory
+DECLARE_mInt32(in_memory_file_size);
+
 // ParquetReaderWrap prefetch buffer size
 DECLARE_Int32(parquet_reader_max_buffer_size);
 // Max size of parquet page header in bytes

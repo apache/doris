@@ -238,15 +238,13 @@ private:
 
 /**
  * Create a file reader suitable for accessing scenarios:
- * 1. When file size < 8MB, create InMemoryFileReader file reader
+ * 1. When file size < config::in_memory_file_size, create InMemoryFileReader file reader
  * 2. When reading sequential file(csv/json), create PrefetchBufferedReader
  * 3. When reading random access file(parquet/orc), create normal file reader
  */
 class DelegateReader {
 public:
     enum AccessMode { SEQUENTIAL, RANDOM };
-
-    static constexpr size_t IN_MEMORY_FILE_SIZE = 8 * 1024 * 1024;
 
     static Status create_file_reader(
             RuntimeProfile* profile, const FileSystemProperties& system_properties,
