@@ -586,6 +586,7 @@ inline int Tablet::version_count() const {
 }
 
 inline Version Tablet::max_version() const {
+    std::shared_lock rdlock(_meta_lock);
     return _tablet_meta->max_version();
 }
 
