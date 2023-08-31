@@ -46,6 +46,7 @@ import org.apache.doris.common.io.DeepCopy;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.common.util.Util;
+import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.OriginStatement;
 import org.apache.doris.resource.Tag;
 import org.apache.doris.statistics.AnalysisInfo;
@@ -2228,9 +2229,13 @@ public class OlapTable extends Table {
     }
 
     @Override
-    public void analyze(Analyzer analyzer) {
+    public void analyze(String dbName) {
         for (MaterializedIndexMeta meta : indexIdToMeta.values()) {
             try {
+                ConnectContext connectContext = new ConnectContext();
+                connectContext.setCluster(SystemInfoService.DEFAULT_CLUSTER);
+                connectContext.setDatabase(dbName);
+                Analyzer analyzer = new Analyzer(Env.getCurrentEnv(), connectContext);
                 meta.parseStmt(analyzer);
             } catch (IOException e) {
                 e.printStackTrace();
