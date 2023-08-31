@@ -122,6 +122,12 @@ public class TableQueryPlanAction extends RestBaseController {
             }
             table.readLock();
             try {
+                if (ConnectContext.get() != null
+                        && ConnectContext.get().getSessionVariable() != null) {
+                    // Disable some optimizations, since it's not fully supported
+                    // TODO support it
+                    ConnectContext.get().getSessionVariable().setEnableTwoPhaseReadOpt(false);
+                }
                 // parse/analysis/plan the sql and acquire tablet distributions
                 handleQuery(ConnectContext.get(), fullDbName, tblName, sql, resultMap);
             } finally {

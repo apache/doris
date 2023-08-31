@@ -20,6 +20,8 @@ suite('nereids_delete_mow_partial_update') {
     sql 'set enable_fallback_to_original_planner=false'
     sql "set experimental_enable_nereids_planner=true;"
     sql 'set enable_nereids_dml=true'
+    
+    sql "sync"
 
     def tableName1 = "nereids_delete_mow_partial_update1"
     sql "DROP TABLE IF EXISTS ${tableName1};"
@@ -46,26 +48,29 @@ suite('nereids_delete_mow_partial_update') {
             "replication_num" = "1"
         );"""
 
-    sql "insert into ${tableName1} values(1,1),(2,2),(3,3),(4,4),(5,5);"
+    sql "insert into ${tableName1} values(1, 1), (2, 2), (3, 3), (4, 4), (5, 5);"
     qt_sql "select * from ${tableName1} order by uid;"
-    sql "insert into ${tableName2} values(1),(2),(3);"
+    sql "insert into ${tableName2} values(1), (2), (3);"
     sql "delete from ${tableName1} A using ${tableName2} B where A.uid=B.uid;"
     qt_sql "select * from ${tableName1} order by uid;"
     // when using parital update insert stmt for delete stmt, it will use delete bitmap or delete sign rather than 
     // delete predicate to "delete" the rows
     sql "set skip_delete_predicate=true;"
+    sql "sync"
     qt_sql_skip_delete_predicate "select * from ${tableName1} order by uid;"
 
     sql "set skip_delete_sign=true;"
     sql "set skip_storage_engine_merge=true;"
     sql "set skip_delete_bitmap=true;"
-    qt_sql "select uid,v1,__DORIS_DELETE_SIGN__ from ${tableName1} order by uid,v1,__DORIS_DELETE_SIGN__;"
+    sql "sync"
+    qt_sql "select uid, v1, __DORIS_DELETE_SIGN__ from ${tableName1} order by uid, v1, __DORIS_DELETE_SIGN__;"
     sql "drop table if exists ${tableName1};"
     sql "drop table if exists ${tableName2};"
 
     sql "set skip_delete_sign=false;"
     sql "set skip_storage_engine_merge=false;"
     sql "set skip_delete_bitmap=false;"
+    sql "sync"
     def tableName3 = "test_partial_update_delete3"
     sql "DROP TABLE IF EXISTS ${tableName3};"
     sql """ CREATE TABLE IF NOT EXISTS ${tableName3} (
@@ -81,8 +86,8 @@ suite('nereids_delete_mow_partial_update') {
             "disable_auto_compaction" = "true",
             "replication_num" = "1"
         );"""
-    sql "insert into ${tableName3} values(1,1,1,1,1),(2,2,2,2,2),(3,3,3,3,3),(4,4,4,4,4),(5,5,5,5,5);"
-    qt_sql "select k1,c1,c2,c3,c4 from ${tableName3} order by k1,c1,c2,c3,c4;"
+    sql "insert into ${tableName3} values(1, 1, 1, 1, 1), (2, 2, 2, 2, 2), (3, 3, 3, 3, 3), (4, 4, 4, 4, 4), (5, 5, 5, 5, 5);"
+    qt_sql "select k1, c1, c2, c3, c4 from ${tableName3} order by k1, c1, c2, c3, c4;"
     streamLoad {
         table "${tableName3}"
 
@@ -95,10 +100,12 @@ suite('nereids_delete_mow_partial_update') {
         file 'partial_update_delete.csv'
         time 10000
     }
-    qt_sql "select k1,c1,c2,c3,c4 from ${tableName3} order by k1,c1,c2,c3,c4;"
+    sql "sync"
+    qt_sql "select k1, c1, c2, c3, c4 from ${tableName3} order by k1, c1, c2, c3, c4;"
     sql "set skip_delete_sign=true;"
     sql "set skip_storage_engine_merge=true;"
     sql "set skip_delete_bitmap=true;"
-    qt_sql "select k1,c1,c2,c3,c4,__DORIS_DELETE_SIGN__ from ${tableName3} order by k1,c1,c2,c3,c4,__DORIS_DELETE_SIGN__;"
+    sql "sync"
+    qt_sql "select k1, c1, c2, c3, c4, __DORIS_DELETE_SIGN__ from ${tableName3} order by k1, c1, c2, c3, c4, __DORIS_DELETE_SIGN__;"
     sql "drop table if exists ${tableName3};"
 }

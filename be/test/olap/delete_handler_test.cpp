@@ -162,6 +162,12 @@ static void set_default_create_tablet_request(TCreateTabletReq* request) {
     k12.column_type.type = TPrimitiveType::CHAR;
     request->tablet_schema.columns.push_back(k12);
 
+    TColumn kSpecial;
+    kSpecial.column_name = "k$1";
+    kSpecial.__set_is_key(true);
+    kSpecial.column_type.type = TPrimitiveType::SMALLINT;
+    request->tablet_schema.columns.push_back(kSpecial);
+
     TColumn k13;
     k13.column_name = "k13";
     k13.__set_is_key(true);
@@ -242,6 +248,12 @@ static void set_create_duplicate_tablet_request(TCreateTabletReq* request) {
     k12.column_type.type = TPrimitiveType::CHAR;
     request->tablet_schema.columns.push_back(k12);
 
+    TColumn kSpecial;
+    kSpecial.column_name = "k$1";
+    kSpecial.__set_is_key(true);
+    kSpecial.column_type.type = TPrimitiveType::SMALLINT;
+    request->tablet_schema.columns.push_back(kSpecial);
+
     TColumn k13;
     k13.column_name = "k13";
     k13.__set_is_key(true);
@@ -278,15 +290,16 @@ protected:
         // 1. Prepare for query split key.
         // create base tablet
         Status res = Status::OK();
+        RuntimeProfile profile("CreateTablet");
         set_default_create_tablet_request(&_create_tablet);
-        res = k_engine->create_tablet(_create_tablet);
+        res = k_engine->create_tablet(_create_tablet, &profile);
         EXPECT_EQ(Status::OK(), res);
         tablet = k_engine->tablet_manager()->get_tablet(_create_tablet.tablet_id);
         EXPECT_NE(tablet.get(), nullptr);
         _tablet_path = tablet->tablet_path();
 
         set_create_duplicate_tablet_request(&_create_dup_tablet);
-        res = k_engine->create_tablet(_create_dup_tablet);
+        res = k_engine->create_tablet(_create_dup_tablet, &profile);
         EXPECT_EQ(Status::OK(), res);
         dup_tablet = k_engine->tablet_manager()->get_tablet(_create_dup_tablet.tablet_id);
         EXPECT_TRUE(dup_tablet.get() != NULL);
@@ -352,6 +365,12 @@ TEST_F(TestDeleteConditionHandler, StoreCondSucceed) {
     condition.condition_values.push_back("9");
     conditions.push_back(condition);
 
+    condition.column_name = "k$1";
+    condition.condition_op = ">";
+    condition.condition_values.clear();
+    condition.condition_values.push_back("1");
+    conditions.push_back(condition);
+
     condition.column_name = "k13";
     condition.condition_op = "*=";
     condition.condition_values.clear();
@@ -365,13 +384,41 @@ TEST_F(TestDeleteConditionHandler, StoreCondSucceed) {
     EXPECT_EQ(Status::OK(), success_res);
 
     // 验证存储在header中的过滤条件正确
-    EXPECT_EQ(size_t(6), del_pred.sub_predicates_size());
+    EXPECT_EQ(size_t(7), del_pred.sub_predicates_size());
     EXPECT_STREQ("k1='1'", del_pred.sub_predicates(0).c_str());
     EXPECT_STREQ("k2>>'3'", del_pred.sub_predicates(1).c_str());
     EXPECT_STREQ("k3<='5'", del_pred.sub_predicates(2).c_str());
     EXPECT_STREQ("k4 IS NULL", del_pred.sub_predicates(3).c_str());
     EXPECT_STREQ("k5='7'", del_pred.sub_predicates(4).c_str());
     EXPECT_STREQ("k12!='9'", del_pred.sub_predicates(5).c_str());
+    EXPECT_STREQ("k$1>>'1'", del_pred.sub_predicates(6).c_str());
+
+    // check sub predicate v2
+
+    EXPECT_EQ(size_t(7), del_pred.sub_predicates_v2_size());
+    EXPECT_STREQ("k1", del_pred.sub_predicates_v2(0).column_name().c_str());
+    EXPECT_STREQ("k2", del_pred.sub_predicates_v2(1).column_name().c_str());
+    EXPECT_STREQ("k3", del_pred.sub_predicates_v2(2).column_name().c_str());
+    EXPECT_STREQ("k4", del_pred.sub_predicates_v2(3).column_name().c_str());
+    EXPECT_STREQ("k5", del_pred.sub_predicates_v2(4).column_name().c_str());
+    EXPECT_STREQ("k12", del_pred.sub_predicates_v2(5).column_name().c_str());
+    EXPECT_STREQ("k$1", del_pred.sub_predicates_v2(6).column_name().c_str());
+
+    EXPECT_STREQ("=", del_pred.sub_predicates_v2(0).op().c_str());
+    EXPECT_STREQ(">>", del_pred.sub_predicates_v2(1).op().c_str());
+    EXPECT_STREQ("<=", del_pred.sub_predicates_v2(2).op().c_str());
+    EXPECT_STREQ("IS", del_pred.sub_predicates_v2(3).op().c_str());
+    EXPECT_STREQ("=", del_pred.sub_predicates_v2(4).op().c_str());
+    EXPECT_STREQ("!=", del_pred.sub_predicates_v2(5).op().c_str());
+    EXPECT_STREQ(">>", del_pred.sub_predicates_v2(6).op().c_str());
+
+    EXPECT_STREQ("1", del_pred.sub_predicates_v2(0).cond_value().c_str());
+    EXPECT_STREQ("3", del_pred.sub_predicates_v2(1).cond_value().c_str());
+    EXPECT_STREQ("5", del_pred.sub_predicates_v2(2).cond_value().c_str());
+    EXPECT_STREQ("NULL", del_pred.sub_predicates_v2(3).cond_value().c_str());
+    EXPECT_STREQ("7", del_pred.sub_predicates_v2(4).cond_value().c_str());
+    EXPECT_STREQ("9", del_pred.sub_predicates_v2(5).cond_value().c_str());
+    EXPECT_STREQ("1", del_pred.sub_predicates_v2(6).cond_value().c_str());
 
     EXPECT_EQ(size_t(1), del_pred.in_predicates_size());
     EXPECT_FALSE(del_pred.in_predicates(0).is_not_in());
@@ -386,7 +433,6 @@ TEST_F(TestDeleteConditionHandler, StoreCondInvalidParameters) {
     DeletePredicatePB del_pred;
     Status failed_res = DeleteHandler::generate_delete_predicate(*tablet->tablet_schema(),
                                                                  conditions, &del_pred);
-    ;
     EXPECT_EQ(Status::Error<DELETE_INVALID_PARAMETERS>(""), failed_res);
 }
 
@@ -403,7 +449,6 @@ TEST_F(TestDeleteConditionHandler, StoreCondNonexistentColumn) {
     DeletePredicatePB del_pred;
     Status failed_res = DeleteHandler::generate_delete_predicate(*tablet->tablet_schema(),
                                                                  conditions, &del_pred);
-    ;
     EXPECT_EQ(Status::Error<DELETE_INVALID_CONDITION>(""), failed_res);
 
     // 'v'是value列
@@ -414,10 +459,9 @@ TEST_F(TestDeleteConditionHandler, StoreCondNonexistentColumn) {
     condition.condition_values.push_back("5");
     conditions.push_back(condition);
 
-    failed_res = DeleteHandler::generate_delete_predicate(*tablet->tablet_schema(), conditions,
-                                                          &del_pred);
-    ;
-    EXPECT_EQ(Status::Error<DELETE_INVALID_CONDITION>(""), failed_res);
+    Status success_res = DeleteHandler::generate_delete_predicate(*tablet->tablet_schema(),
+                                                                  conditions, &del_pred);
+    EXPECT_EQ(Status::OK(), success_res);
 
     // value column in duplicate model can be deleted;
     conditions.clear();
@@ -427,9 +471,8 @@ TEST_F(TestDeleteConditionHandler, StoreCondNonexistentColumn) {
     condition.condition_values.push_back("5");
     conditions.push_back(condition);
 
-    Status success_res = DeleteHandler::generate_delete_predicate(*dup_tablet->tablet_schema(),
-                                                                  conditions, &del_pred);
-    ;
+    success_res = DeleteHandler::generate_delete_predicate(*dup_tablet->tablet_schema(), conditions,
+                                                           &del_pred);
     EXPECT_EQ(Status::OK(), success_res);
 }
 
@@ -453,9 +496,10 @@ protected:
 
         // 1. Prepare for query split key.
         // create base tablet
+        RuntimeProfile profile("CreateTablet");
         Status res = Status::OK();
         set_default_create_tablet_request(&_create_tablet);
-        res = k_engine->create_tablet(_create_tablet);
+        res = k_engine->create_tablet(_create_tablet, &profile);
         EXPECT_EQ(Status::OK(), res);
         tablet = k_engine->tablet_manager()->get_tablet(_create_tablet.tablet_id);
         EXPECT_TRUE(tablet.get() != nullptr);
@@ -827,9 +871,10 @@ protected:
 
         // 1. Prepare for query split key.
         // create base tablet
+        RuntimeProfile profile("CreateTablet");
         Status res = Status::OK();
         set_default_create_tablet_request(&_create_tablet);
-        res = k_engine->create_tablet(_create_tablet);
+        res = k_engine->create_tablet(_create_tablet, &profile);
         EXPECT_EQ(Status::OK(), res);
         tablet = k_engine->tablet_manager()->get_tablet(_create_tablet.tablet_id);
         EXPECT_TRUE(tablet != nullptr);
@@ -1044,6 +1089,7 @@ TEST_F(TestDeleteHandler, FilterDataSubconditions) {
     data_str.push_back("2014-01-01");
     data_str.push_back("2014-01-01 00:00:00");
     data_str.push_back("YWFH");
+    data_str.push_back("1");
     data_str.push_back("YWFH==");
     data_str.push_back("1");
     OlapTuple tuple1(data_str);
@@ -1127,6 +1173,7 @@ TEST_F(TestDeleteHandler, FilterDataConditions) {
     data_str.push_back("2014-01-01");
     data_str.push_back("2014-01-01 00:00:00");
     data_str.push_back("YWFH");
+    data_str.push_back("1");
     data_str.push_back("YWFH==");
     data_str.push_back("1");
     OlapTuple tuple(data_str);
@@ -1190,6 +1237,7 @@ TEST_F(TestDeleteHandler, FilterDataVersion) {
     data_str.push_back("2014-01-01");
     data_str.push_back("2014-01-01 00:00:00");
     data_str.push_back("YWFH");
+    data_str.push_back("1");
     data_str.push_back("YWFH==");
     data_str.push_back("1");
     OlapTuple tuple(data_str);

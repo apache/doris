@@ -18,17 +18,17 @@
 package org.apache.doris.nereids.trees.expressions;
 
 import org.apache.doris.analysis.ArithmeticExpr.Operator;
+import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.exceptions.UnboundException;
 import org.apache.doris.nereids.trees.expressions.functions.PropagateNullable;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.DecimalV2Type;
 import org.apache.doris.nereids.types.DecimalV3Type;
-import org.apache.doris.nereids.types.coercion.AbstractDataType;
 import org.apache.doris.nereids.types.coercion.NumericType;
 import org.apache.doris.nereids.util.TypeCoercionUtils;
 
-import com.google.common.base.Preconditions;
+import java.util.List;
 
 /**
  * binary arithmetic operator. Such as +, -, *, /.
@@ -37,8 +37,8 @@ public abstract class BinaryArithmetic extends BinaryOperator implements Propaga
 
     private final Operator legacyOperator;
 
-    public BinaryArithmetic(Expression left, Expression right, Operator legacyOperator) {
-        super(left, right, legacyOperator.toString());
+    public BinaryArithmetic(List<Expression> children, Operator legacyOperator) {
+        super(children, legacyOperator.toString());
         this.legacyOperator = legacyOperator;
     }
 
@@ -47,7 +47,7 @@ public abstract class BinaryArithmetic extends BinaryOperator implements Propaga
     }
 
     @Override
-    public AbstractDataType inputType() {
+    public DataType inputType() {
         return NumericType.INSTANCE;
     }
 
@@ -82,9 +82,8 @@ public abstract class BinaryArithmetic extends BinaryOperator implements Propaga
             }
         }
         // should not come here
-        Preconditions.checkState(false, "Both side of binary arithmetic is not numeric."
+        throw new AnalysisException("Both side of binary arithmetic is not numeric."
                 + " left type is " + left().getDataType() + " and right type is " + right().getDataType());
-        return left().getDataType();
     }
 
     public <R, C> R accept(ExpressionVisitor<R, C> visitor, C context) {

@@ -26,7 +26,7 @@ import org.apache.doris.catalog.Type;
 import org.apache.doris.nereids.rules.analysis.CheckAfterRewrite;
 import org.apache.doris.nereids.trees.expressions.Add;
 import org.apache.doris.nereids.trees.expressions.Alias;
-import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Max;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Min;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
@@ -34,7 +34,6 @@ import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
 import org.apache.doris.nereids.trees.plans.RelationId;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
-import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.nereids.util.LogicalPlanBuilder;
 import org.apache.doris.nereids.util.MemoPatternMatchSupported;
 import org.apache.doris.nereids.util.MemoTestUtils;
@@ -51,8 +50,6 @@ class EliminateGroupByConstantTest implements MemoPatternMatchSupported {
                     new Column("k2", Type.INT, false, AggregateType.NONE, "0", ""),
                     new Column("k3", Type.INT, true, AggregateType.NONE, "", "")),
             KeysType.PRIMARY_KEYS, new PartitionInfo(), null);
-    private static final SlotReference k1 = new SlotReference("k1", IntegerType.INSTANCE);
-    private static final SlotReference k2 = new SlotReference("k2", IntegerType.INSTANCE);
 
     static {
         table.setIndexMeta(-1,
@@ -63,10 +60,13 @@ class EliminateGroupByConstantTest implements MemoPatternMatchSupported {
                 KeysType.PRIMARY_KEYS);
     }
 
+    private static final LogicalOlapScan scan = new LogicalOlapScan(RelationId.createGenerator().getNextId(), table);
+    private static final Slot k1 = scan.getOutput().get(0);
+    private static final Slot k2 = scan.getOutput().get(1);
+
     @Test
     void testIntegerLiteral() {
-        LogicalPlan aggregate = new LogicalPlanBuilder(
-                new LogicalOlapScan(RelationId.createGenerator().getNextId(), table))
+        LogicalPlan aggregate = new LogicalPlanBuilder(scan)
                 .agg(ImmutableList.of(new IntegerLiteral(1), k2),
                      ImmutableList.of(k1, k2))
                 .build();
@@ -81,8 +81,7 @@ class EliminateGroupByConstantTest implements MemoPatternMatchSupported {
 
     @Test
     void testOtherLiteral() {
-        LogicalPlan aggregate = new LogicalPlanBuilder(
-                new LogicalOlapScan(RelationId.createGenerator().getNextId(), table))
+        LogicalPlan aggregate = new LogicalPlanBuilder(scan)
                 .agg(ImmutableList.of(
                              new StringLiteral("str"), k2),
                      ImmutableList.of(
@@ -99,8 +98,7 @@ class EliminateGroupByConstantTest implements MemoPatternMatchSupported {
 
     @Test
     void testMixedLiteral() {
-        LogicalPlan aggregate = new LogicalPlanBuilder(
-                new LogicalOlapScan(RelationId.createGenerator().getNextId(), table))
+        LogicalPlan aggregate = new LogicalPlanBuilder(scan)
                 .agg(ImmutableList.of(
                              new StringLiteral("str"), k2,
                              new IntegerLiteral(1),
@@ -123,8 +121,7 @@ class EliminateGroupByConstantTest implements MemoPatternMatchSupported {
 
     @Test
     void testComplexGroupBy() {
-        LogicalPlan aggregate = new LogicalPlanBuilder(
-                new LogicalOlapScan(RelationId.createGenerator().getNextId(), table))
+        LogicalPlan aggregate = new LogicalPlanBuilder(scan)
                 .agg(ImmutableList.of(
                              new IntegerLiteral(1),
                              new IntegerLiteral(2),
@@ -146,8 +143,7 @@ class EliminateGroupByConstantTest implements MemoPatternMatchSupported {
 
     @Test
     void testOutOfRange() {
-        LogicalPlan aggregate = new LogicalPlanBuilder(
-                new LogicalOlapScan(RelationId.createGenerator().getNextId(), table))
+        LogicalPlan aggregate = new LogicalPlanBuilder(scan)
                 .agg(ImmutableList.of(
                              new StringLiteral("str"), k2,
                              new IntegerLiteral(1),

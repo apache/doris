@@ -77,6 +77,7 @@ struct TabletsChannelKey {
 std::ostream& operator<<(std::ostream& os, const TabletsChannelKey& key);
 
 class DeltaWriter;
+class MemTableWriter;
 class OlapTableSchemaParam;
 class LoadChannel;
 
@@ -111,8 +112,6 @@ public:
     Status cancel();
 
     void refresh_profile();
-
-    std::unordered_map<int64_t, DeltaWriter*> get_tablet_writers() { return _tablet_writers; }
 
 private:
     template <typename Request>
@@ -166,7 +165,6 @@ private:
     Status _close_status;
 
     // tablet_id -> TabletChannel
-    // when you erase, you should call deregister_writer method in MemTableMemoryLimiter;
     std::unordered_map<int64_t, DeltaWriter*> _tablet_writers;
     // broken tablet ids.
     // If a tablet write fails, it's id will be added to this set.

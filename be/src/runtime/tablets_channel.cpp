@@ -439,31 +439,31 @@ Status TabletsChannel::add_batch(const PTabletWriterAddBlockRequest& request,
     auto get_send_data = [&]() { return vectorized::Block(request.block()); };
 
     auto send_data = get_send_data();
+    CHECK(send_data.rows() == request.tablet_ids_size())
+            << "block rows: " << send_data.rows()
+            << ", tablet_ids_size: " << request.tablet_ids_size();
 
     auto write_tablet_data = [&](uint32_t tablet_id,
                                  std::function<Status(DeltaWriter * writer)> write_func) {
         google::protobuf::RepeatedPtrField<PTabletError>* tablet_errors =
                 response->mutable_tablet_errors();
-        {
-            std::lock_guard<SpinLock> l(_tablet_writers_lock);
-            auto tablet_writer_it = _tablet_writers.find(tablet_id);
-            if (tablet_writer_it == _tablet_writers.end()) {
-                return Status::InternalError("unknown tablet to append data, tablet={}");
-            }
-            Status st = write_func(tablet_writer_it->second);
-            if (!st.ok()) {
-                auto err_msg =
-                        fmt::format("tablet writer write failed, tablet_id={}, txn_id={}, err={}",
-                                    tablet_id, _txn_id, st.to_string());
-                LOG(WARNING) << err_msg;
-                PTabletError* error = tablet_errors->Add();
-                error->set_tablet_id(tablet_id);
-                error->set_msg(err_msg);
-                tablet_writer_it->second->cancel_with_status(st);
-                _add_broken_tablet(tablet_id);
-                // continue write to other tablet.
-                // the error will return back to sender.
-            }
+        auto tablet_writer_it = _tablet_writers.find(tablet_id);
+        if (tablet_writer_it == _tablet_writers.end()) {
+            return Status::InternalError("unknown tablet to append data, tablet={}");
+        }
+        Status st = write_func(tablet_writer_it->second);
+        if (!st.ok()) {
+            auto err_msg =
+                    fmt::format("tablet writer write failed, tablet_id={}, txn_id={}, err={}",
+                                tablet_id, _txn_id, st.to_string());
+            LOG(WARNING) << err_msg;
+            PTabletError* error = tablet_errors->Add();
+            error->set_tablet_id(tablet_id);
+            error->set_msg(err_msg);
+            tablet_writer_it->second->cancel_with_status(st);
+            _add_broken_tablet(tablet_id);
+            // continue write to other tablet.
+            // the error will return back to sender.
         }
         return Status::OK();
     };
@@ -498,4 +498,5 @@ bool TabletsChannel::_is_broken_tablet(int64_t tablet_id) {
     std::shared_lock<std::shared_mutex> rlock(_broken_tablets_lock);
     return _broken_tablets.find(tablet_id) != _broken_tablets.end();
 }
+
 } // namespace doris

@@ -85,18 +85,19 @@ bool VecDateTimeValue::check_date(uint32_t year, uint32_t month, uint32_t day) {
 // YYYY-MM-DD HH-MM-DD.FFFFFF AM in default format
 // 0    1  2  3  4  5  6      7
 bool VecDateTimeValue::from_date_str(const char* date_str, int len) {
-    return from_date_str_base(date_str, len, nullptr, nullptr);
+    return from_date_str_base(date_str, len, nullptr, nullptr, nullptr);
 }
 //parse timezone to get offset
 bool VecDateTimeValue::from_date_str(const char* date_str, int len,
                                      const cctz::time_zone& local_time_zone,
-                                     ZoneList& time_zone_cache) {
-    return from_date_str_base(date_str, len, &local_time_zone, &time_zone_cache);
+                                     ZoneList& time_zone_cache, std::shared_mutex* cache_lock) {
+    return from_date_str_base(date_str, len, &local_time_zone, &time_zone_cache, cache_lock);
 }
 
 bool VecDateTimeValue::from_date_str_base(const char* date_str, int len,
                                           const cctz::time_zone* local_time_zone,
-                                          ZoneList* time_zone_cache) {
+                                          ZoneList* time_zone_cache,
+                                          std::shared_mutex* cache_lock) {
     const char* ptr = date_str;
     const char* end = date_str + len;
     // ONLY 2, 6 can follow by a space
@@ -165,13 +166,18 @@ bool VecDateTimeValue::from_date_str_base(const char* date_str, int len,
                 return false;
             }
             auto get_tz_offset = [&](const std::string& str_tz,
-                                     const cctz::time_zone* local_time_zone,
-                                     ZoneList* time_zone_cache) -> long {
-                // no lock needed because of the entity is of thread_local
+                                     const cctz::time_zone* local_time_zone) -> long {
+                cache_lock->lock_shared();
                 if (time_zone_cache->find(str_tz) == time_zone_cache->end()) { // not found
+                    cache_lock->unlock_shared();
+                    std::unique_lock<std::shared_mutex> lock_(*cache_lock);
+                    //TODO: the lock upgrade could be done in find_... function only when we push value into the hashmap
                     if (!TimezoneUtils::find_cctz_time_zone(str_tz, (*time_zone_cache)[str_tz])) {
+                        time_zone_cache->erase(str_tz);
                         throw Exception {ErrorCode::INVALID_ARGUMENT, ""};
                     }
+                } else {
+                    cache_lock->unlock_shared();
                 }
                 auto given = cctz::convert(cctz::civil_second {}, (*time_zone_cache)[str_tz]);
                 auto local = cctz::convert(cctz::civil_second {}, *local_time_zone);
@@ -179,8 +185,8 @@ bool VecDateTimeValue::from_date_str_base(const char* date_str, int len,
                 return std::chrono::duration_cast<std::chrono::seconds>(given - local).count();
             };
             try {
-                sec_offset = get_tz_offset(std::string {ptr, end}, local_time_zone,
-                                           time_zone_cache); // use the whole remain string
+                sec_offset = get_tz_offset(std::string {ptr, end},
+                                           local_time_zone); // use the whole remain string
             } catch ([[maybe_unused]] Exception& e) {
                 return false; // invalid format
             }
@@ -1671,6 +1677,49 @@ bool VecDateTimeValue::date_add_interval(const TimeInterval& interval) {
     return true;
 }
 
+template <TimeUnit unit>
+bool VecDateTimeValue::date_set_interval(const TimeInterval& interval) {
+    static_assert(
+            (unit == YEAR) || (unit == MONTH) || (unit == DAY) || (unit == HOUR) ||
+                    (unit == MINUTE) || (unit == SECOND),
+            "date_set_interval function now only support YEAR MONTH DAY HOUR MINUTE SECOND type");
+    if constexpr ((unit == SECOND) || (unit == MINUTE) || (unit == HOUR)) {
+        // This may change the day information
+        int64_t seconds = interval.day * 86400L + interval.hour * 3600 + interval.minute * 60 +
+                          interval.second;
+        int64_t days = seconds / 86400;
+        seconds %= 86400L;
+        _second = seconds % 60;
+        _minute = (seconds / 60) % 60;
+        _hour = seconds / 3600;
+        int64_t day_nr = doris::calc_daynr(_year, _month, 1) + days;
+        if (!get_date_from_daynr(day_nr)) {
+            return false;
+        }
+        if (_second || _minute || _hour) {
+            _type = TIME_DATETIME;
+        }
+    } else if constexpr ((unit == DAY)) {
+        // This only change day information, not change second information
+        int64_t day_nr = interval.day;
+        if (!get_date_from_daynr(day_nr)) {
+            return false;
+        }
+    } else if constexpr (unit == YEAR) {
+        // This only change year information
+        _year = interval.year;
+        _day = 1;
+        _month = 1;
+    } else if constexpr (unit == MONTH) {
+        // This will change month and year information, maybe date.
+        int64_t months = 12 * interval.year + interval.month;
+        _year = months / 12;
+        _day = 1;
+        _month = (months % 12) + 1;
+    }
+    return true;
+}
+
 bool VecDateTimeValue::unix_timestamp(int64_t* timestamp, const std::string& timezone) const {
     cctz::time_zone ctz;
     if (!TimezoneUtils::find_cctz_time_zone(timezone, ctz)) {
@@ -1908,19 +1957,20 @@ void DateV2Value<T>::format_datetime(uint32_t* date_val, bool* carry_bits) const
 // 0    1  2  3  4  5  6      7
 template <typename T>
 bool DateV2Value<T>::from_date_str(const char* date_str, int len, int scale /* = -1*/) {
-    return from_date_str_base(date_str, len, scale, nullptr, nullptr);
+    return from_date_str_base(date_str, len, scale, nullptr, nullptr, nullptr);
 }
 // when we parse
 template <typename T>
 bool DateV2Value<T>::from_date_str(const char* date_str, int len,
                                    const cctz::time_zone& local_time_zone,
-                                   ZoneList& time_zone_cache, int scale /* = -1*/) {
-    return from_date_str_base(date_str, len, scale, &local_time_zone, &time_zone_cache);
+                                   ZoneList& time_zone_cache, std::shared_mutex* cache_lock,
+                                   int scale /* = -1*/) {
+    return from_date_str_base(date_str, len, scale, &local_time_zone, &time_zone_cache, cache_lock);
 }
 template <typename T>
 bool DateV2Value<T>::from_date_str_base(const char* date_str, int len, int scale,
                                         const cctz::time_zone* local_time_zone,
-                                        ZoneList* time_zone_cache) {
+                                        ZoneList* time_zone_cache, std::shared_mutex* cache_lock) {
     const char* ptr = date_str;
     const char* end = date_str + len;
     // ONLY 2, 6 can follow by a space
@@ -2016,13 +2066,18 @@ bool DateV2Value<T>::from_date_str_base(const char* date_str, int len, int scale
                 return false;
             }
             auto get_tz_offset = [&](const std::string& str_tz,
-                                     const cctz::time_zone* local_time_zone,
-                                     ZoneList* time_zone_cache) -> long {
-                // no lock needed because of the entity is of thread_local
+                                     const cctz::time_zone* local_time_zone) -> long {
+                cache_lock->lock_shared();
                 if (time_zone_cache->find(str_tz) == time_zone_cache->end()) { // not found
+                    cache_lock->unlock_shared();
+                    std::unique_lock<std::shared_mutex> lock_(*cache_lock);
+                    //TODO: the lock upgrade could be done in find_... function only when we push value into the hashmap
                     if (!TimezoneUtils::find_cctz_time_zone(str_tz, (*time_zone_cache)[str_tz])) {
+                        time_zone_cache->erase(str_tz);
                         throw Exception {ErrorCode::INVALID_ARGUMENT, ""};
                     }
+                } else {
+                    cache_lock->unlock_shared();
                 }
                 auto given = cctz::convert(cctz::civil_second {}, (*time_zone_cache)[str_tz]);
                 auto local = cctz::convert(cctz::civil_second {}, *local_time_zone);
@@ -2030,8 +2085,8 @@ bool DateV2Value<T>::from_date_str_base(const char* date_str, int len, int scale
                 return std::chrono::duration_cast<std::chrono::seconds>(given - local).count();
             };
             try {
-                sec_offset = get_tz_offset(std::string {ptr, end}, local_time_zone,
-                                           time_zone_cache); // use the whole remain string
+                sec_offset = get_tz_offset(std::string {ptr, end},
+                                           local_time_zone); // use the whole remain string
             } catch ([[maybe_unused]] Exception& e) {
                 return false; // invalid format
             }
@@ -2874,6 +2929,39 @@ bool DateV2Value<T>::date_add_interval(const TimeInterval& interval) {
 
 template <typename T>
 template <TimeUnit unit>
+bool DateV2Value<T>::date_set_interval(const TimeInterval& interval) {
+    static_assert(
+            (unit == YEAR) || (unit == MONTH) || (unit == DAY) || (unit == HOUR) ||
+                    (unit == MINUTE) || (unit == SECOND),
+            "date_set_interval function now only support YEAR MONTH DAY HOUR MINUTE SECOND type");
+    if constexpr ((unit == SECOND) || (unit == MINUTE) || (unit == HOUR) || (unit == DAY)) {
+        set_zero();
+        // This may change the day information
+        int64_t seconds = (interval.day * 86400 + interval.hour * 3600 + interval.minute * 60 +
+                           interval.second);
+        int64_t days = seconds / 86400;
+        seconds %= 86400L;
+        if (!this->get_date_from_daynr(days)) {
+            return false;
+        }
+        if constexpr (is_datetime) {
+            this->set_time(seconds / 3600, (seconds / 60) % 60, seconds % 60, 0);
+        }
+    } else if constexpr (unit == YEAR) {
+        this->set_time(0, 1, 1, 0, 0, 0, 0);
+        this->template set_time_unit<TimeUnit::YEAR>(interval.year);
+    } else if constexpr (unit == MONTH) {
+        // This will change month and year information, maybe date.
+        this->set_time(0, 1, 1, 0, 0, 0, 0);
+        int64_t months = 12 * interval.year + interval.month;
+        this->template set_time_unit<TimeUnit::YEAR>(months / 12);
+        this->template set_time_unit<TimeUnit::MONTH>((months % 12) + 1);
+    }
+    return true;
+}
+
+template <typename T>
+template <TimeUnit unit>
 bool DateV2Value<T>::datetime_trunc() {
     if constexpr (is_datetime) {
         if (!is_valid_date()) {
@@ -3634,6 +3722,39 @@ template bool DateV2Value<DateTimeV2ValueType>::date_add_interval<TimeUnit::YEAR
 template bool DateV2Value<DateTimeV2ValueType>::date_add_interval<TimeUnit::QUARTER>(
         const TimeInterval& interval);
 template bool DateV2Value<DateTimeV2ValueType>::date_add_interval<TimeUnit::WEEK>(
+        const TimeInterval& interval);
+
+template bool VecDateTimeValue::date_set_interval<TimeUnit::SECOND>(const TimeInterval& interval);
+template bool VecDateTimeValue::date_set_interval<TimeUnit::MINUTE>(const TimeInterval& interval);
+template bool VecDateTimeValue::date_set_interval<TimeUnit::HOUR>(const TimeInterval& interval);
+template bool VecDateTimeValue::date_set_interval<TimeUnit::DAY>(const TimeInterval& interval);
+template bool VecDateTimeValue::date_set_interval<TimeUnit::MONTH>(const TimeInterval& interval);
+template bool VecDateTimeValue::date_set_interval<TimeUnit::YEAR>(const TimeInterval& interval);
+
+template bool DateV2Value<DateV2ValueType>::date_set_interval<TimeUnit::SECOND>(
+        const TimeInterval& interval);
+template bool DateV2Value<DateV2ValueType>::date_set_interval<TimeUnit::MINUTE>(
+        const TimeInterval& interval);
+template bool DateV2Value<DateV2ValueType>::date_set_interval<TimeUnit::HOUR>(
+        const TimeInterval& interval);
+template bool DateV2Value<DateV2ValueType>::date_set_interval<TimeUnit::DAY>(
+        const TimeInterval& interval);
+template bool DateV2Value<DateV2ValueType>::date_set_interval<TimeUnit::MONTH>(
+        const TimeInterval& interval);
+template bool DateV2Value<DateV2ValueType>::date_set_interval<TimeUnit::YEAR>(
+        const TimeInterval& interval);
+
+template bool DateV2Value<DateTimeV2ValueType>::date_set_interval<TimeUnit::SECOND>(
+        const TimeInterval& interval);
+template bool DateV2Value<DateTimeV2ValueType>::date_set_interval<TimeUnit::MINUTE>(
+        const TimeInterval& interval);
+template bool DateV2Value<DateTimeV2ValueType>::date_set_interval<TimeUnit::HOUR>(
+        const TimeInterval& interval);
+template bool DateV2Value<DateTimeV2ValueType>::date_set_interval<TimeUnit::DAY>(
+        const TimeInterval& interval);
+template bool DateV2Value<DateTimeV2ValueType>::date_set_interval<TimeUnit::MONTH>(
+        const TimeInterval& interval);
+template bool DateV2Value<DateTimeV2ValueType>::date_set_interval<TimeUnit::YEAR>(
         const TimeInterval& interval);
 
 template bool VecDateTimeValue::datetime_trunc<TimeUnit::SECOND>();

@@ -143,17 +143,14 @@ public class PhysicalDeferMaterializeResultSink<CHILD_TYPE extends Plan>
         if (o == null || getClass() != o.getClass()) {
             return false;
         }
-        if (!super.equals(o)) {
-            return false;
-        }
         PhysicalDeferMaterializeResultSink<?> that = (PhysicalDeferMaterializeResultSink<?>) o;
-        return selectedIndexId == that.selectedIndexId && Objects.equals(physicalResultSink,
-                that.physicalResultSink) && Objects.equals(olapTable, that.olapTable);
+        return selectedIndexId == that.selectedIndexId && physicalResultSink.equals(that.physicalResultSink)
+                && olapTable.equals(that.olapTable);
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(super.hashCode(), physicalResultSink, olapTable, selectedIndexId);
+        return Objects.hash(physicalResultSink, olapTable, selectedIndexId);
     }
 
     @Override

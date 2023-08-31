@@ -837,7 +837,7 @@ public class OlapTable extends Table {
             if (!isForceDrop) {
                 // recycle partition
                 if (partitionInfo.getType() == PartitionType.RANGE) {
-                    Env.getCurrentRecycleBin().recyclePartition(dbId, id, partition,
+                    Env.getCurrentRecycleBin().recyclePartition(dbId, id, name, partition,
                             partitionInfo.getItem(partition.getId()).getItems(),
                             new ListPartitionItem(Lists.newArrayList(new PartitionKey())),
                             partitionInfo.getDataProperty(partition.getId()),
@@ -857,7 +857,7 @@ public class OlapTable extends Table {
                     }
                     Range<PartitionKey> dummyRange = Range.open(new PartitionKey(), dummyKey);
 
-                    Env.getCurrentRecycleBin().recyclePartition(dbId, id, partition,
+                    Env.getCurrentRecycleBin().recyclePartition(dbId, id, name, partition,
                             dummyRange,
                             partitionInfo.getItem(partition.getId()),
                             partitionInfo.getDataProperty(partition.getId()),
@@ -1548,7 +1548,8 @@ public class OlapTable extends Table {
 
     public void checkNormalStateForAlter() throws DdlException {
         if (state != OlapTableState.NORMAL) {
-            throw new DdlException("Table[" + name + "]'s state is not NORMAL. Do not allow doing ALTER ops");
+            throw new DdlException("Table[" + name + "]'s state(" + state.toString()
+                    + ") is not NORMAL. Do not allow doing ALTER ops");
         }
     }
 
@@ -1927,20 +1928,6 @@ public class OlapTable extends Table {
         return null;
     }
 
-    public Boolean isDynamicSchema() {
-        if (tableProperty != null) {
-            return tableProperty.isDynamicSchema();
-        }
-        return false;
-    }
-
-    public void setIsDynamicSchema(boolean isDynamicSchema) {
-        TableProperty tableProperty = getOrCreatTableProperty();
-        tableProperty.modifyTableProperties(
-                PropertyAnalyzer.PROPERTIES_DYNAMIC_SCHEMA, Boolean.valueOf(isDynamicSchema).toString());
-        tableProperty.buildDynamicSchema();
-    }
-
     public int getBaseSchemaVersion() {
         MaterializedIndexMeta baseIndexMeta = indexIdToMeta.get(baseIndexId);
         return baseIndexMeta.getSchemaVersion();
@@ -2273,6 +2260,17 @@ public class OlapTable extends Table {
                         keyColumnTypes.add(col.getDataType().toThrift());
                     }
                 }
+            }
+        }
+    }
+
+    @Override
+    public void analyze(Analyzer analyzer) {
+        for (MaterializedIndexMeta meta : indexIdToMeta.values()) {
+            try {
+                meta.parseStmt(analyzer);
+            } catch (IOException e) {
+                e.printStackTrace();
             }
         }
     }

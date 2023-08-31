@@ -38,7 +38,7 @@ statement
     | CREATE ROW POLICY (IF NOT EXISTS)? name=identifier
         ON table=multipartIdentifier
         AS type=(RESTRICTIVE | PERMISSIVE)
-        TO user=userIdentify
+        TO (user=userIdentify | ROLE roleName=identifier)
         USING LEFT_PAREN booleanExpression RIGHT_PAREN                 #createRowPolicy
     | explain? INSERT INTO tableName=multipartIdentifier
         (PARTITION partition=identifierList)?  // partition define
@@ -53,13 +53,22 @@ statement
         (PARTITION partition=identifierList)?
         (USING relation (COMMA relation)*)
         whereClause                                                    #delete
+    | EXPORT TABLE tableName=multipartIdentifier
+        (PARTITION partition=identifierList)?
+        (whereClause)?
+        TO filePath=constant
+        (propertyClause)?
+        (withRemoteStorageSystem)?                                     #export
     ;
+
+
 
 // -----------------Command accessories-----------------
 
 identifierOrText
     : errorCapturingIdentifier
-    | STRING
+    | STRING_LITERAL
+    | LEADING_STRING
     ;
 
 userIdentify
@@ -82,6 +91,22 @@ planType
     | ALL // default type
     ;
 
+withRemoteStorageSystem
+    : WITH S3 LEFT_PAREN
+        brokerProperties=propertyItemList
+        RIGHT_PAREN
+    | WITH HDFS LEFT_PAREN
+        brokerProperties=propertyItemList
+        RIGHT_PAREN
+    | WITH LOCAL LEFT_PAREN
+        brokerProperties=propertyItemList
+        RIGHT_PAREN
+    | WITH BROKER brokerName=identifierOrText
+        (LEFT_PAREN
+        brokerProperties=propertyItemList
+        RIGHT_PAREN)?
+    ;
+
 //  -----------------Query-----------------
 // add queryOrganization for parse (q1) union (q2) union (q3) order by keys, otherwise 'order' will be recognized to be
 // identifier.
@@ -89,7 +114,7 @@ planType
 outFileClause
     : INTO OUTFILE filePath=constant
         (FORMAT AS format=identifier)?
-        (PROPERTIES LEFT_PAREN properties+=tvfProperty (COMMA properties+=tvfProperty)* RIGHT_PAREN)?
+        (propertyClause)?
     ;
 
 query
@@ -194,7 +219,7 @@ havingClause
 selectHint: HINT_START hintStatements+=hintStatement (COMMA? hintStatements+=hintStatement)* HINT_END;
 
 hintStatement
-    : hintName=identifier LEFT_PAREN parameters+=hintAssignment (COMMA parameters+=hintAssignment)* RIGHT_PAREN
+    : hintName=identifier (LEFT_PAREN parameters+=hintAssignment (COMMA? parameters+=hintAssignment)* RIGHT_PAREN)?
     ;
 
 hintAssignment
@@ -262,18 +287,28 @@ identifierSeq
     ;
 
 relationPrimary
-    : multipartIdentifier specifiedPartition? tableAlias relationHint? lateralView*           #tableName
+    : multipartIdentifier specifiedPartition? tabletList? tableAlias relationHint? lateralView*           #tableName
     | LEFT_PAREN query RIGHT_PAREN tableAlias lateralView*                                    #aliasedQuery
     | tvfName=identifier LEFT_PAREN
-      (properties+=tvfProperty (COMMA properties+=tvfProperty)*)?
+      (properties=propertyItemList)?
       RIGHT_PAREN tableAlias                                                                  #tableValuedFunction
     ;
 
-tvfProperty
-    : key=tvfPropertyItem EQ value=tvfPropertyItem
+propertyClause
+    : PROPERTIES LEFT_PAREN fileProperties=propertyItemList RIGHT_PAREN
     ;
 
-tvfPropertyItem : identifier | constant ;
+propertyItemList
+    : properties+=propertyItem (COMMA properties+=propertyItem)*
+    ;
+
+propertyItem
+    : key=propertyKey EQ value=propertyValue
+    ;
+
+propertyKey : identifier | constant ;
+
+propertyValue : identifier | constant ;
 
 tableAlias
     : (AS? strictIdentifier identifierList?)?
@@ -281,6 +316,10 @@ tableAlias
 
 multipartIdentifier
     : parts+=errorCapturingIdentifier (DOT parts+=errorCapturingIdentifier)*
+    ;
+
+tabletList
+    : TABLET LEFT_PAREN tabletIdList+=INTEGER_VALUE (COMMA tabletIdList+=INTEGER_VALUE)*  RIGHT_PAREN
     ;
 
 // -----------------Expression-----------------
@@ -362,19 +401,35 @@ primaryExpression
     | CASE value=expression whenClause+ (ELSE elseExpression=expression)? END                  #simpleCase
     | name=CAST LEFT_PAREN expression AS dataType RIGHT_PAREN                                  #cast
     | constant                                                                                 #constantDefault
+    | interval                                                                                 #intervalLiteral
     | ASTERISK                                                                                 #star
     | qualifiedName DOT ASTERISK                                                               #star
-    | functionIdentifier LEFT_PAREN ((DISTINCT|ALL)? arguments+=expression
-      (COMMA arguments+=expression)* (ORDER BY sortItem (COMMA sortItem)*)?)? RIGHT_PAREN
-      (OVER windowSpec)?                                                                        #functionCall
+    | CHAR LEFT_PAREN
+                arguments+=expression (COMMA arguments+=expression)*
+                (USING charSet=identifierOrText)?
+          RIGHT_PAREN                                                                         #charFunction
+    | CONVERT LEFT_PAREN argument=expression USING charSet=identifierOrText RIGHT_PAREN       #convertCharSet
+    | CONVERT LEFT_PAREN argument=expression COMMA type=dataType RIGHT_PAREN                  #convertType
+    | functionIdentifier 
+        LEFT_PAREN (
+            (DISTINCT|ALL)? 
+            arguments+=expression (COMMA arguments+=expression)*
+            (ORDER BY sortItem (COMMA sortItem)*)?
+        )? RIGHT_PAREN
+      (OVER windowSpec)?                                                                       #functionCall
+    | value=primaryExpression LEFT_BRACKET index=valueExpression RIGHT_BRACKET                 #elementAt
+    | value=primaryExpression LEFT_BRACKET begin=valueExpression
+      COLON (end=valueExpression)? RIGHT_BRACKET                                               #arraySlice
     | LEFT_PAREN query RIGHT_PAREN                                                             #subqueryExpression
-    | ATSIGN identifierOrText                                                                        #userVariable
-    | DOUBLEATSIGN (kind=(GLOBAL | SESSION) DOT)? identifier                                     #systemVariable
+    | ATSIGN identifierOrText                                                                  #userVariable
+    | DOUBLEATSIGN (kind=(GLOBAL | SESSION) DOT)? identifier                                   #systemVariable
     | identifier                                                                               #columnReference
     | base=primaryExpression DOT fieldName=identifier                                          #dereference
     | LEFT_PAREN expression RIGHT_PAREN                                                        #parenthesizedExpression
+    | KEY (dbName=identifier DOT)? keyName=identifier                                          #encryptKey
     | EXTRACT LEFT_PAREN field=identifier FROM (DATE | TIMESTAMP)?
       source=valueExpression RIGHT_PAREN                                                       #extract
+    | primaryExpression COLLATE (identifier | STRING_LITERAL | DEFAULT)                        #collate
     ;
 
 functionIdentifier 
@@ -424,11 +479,14 @@ specifiedPartition
 
 constant
     : NULL                                                                                     #nullLiteral
-    | interval                                                                                 #intervalLiteral
-    | type=(DATE | DATEV2 | TIMESTAMP) STRING                                                  #typeConstructor
+    | type=(DATE | DATEV2 | TIMESTAMP) STRING_LITERAL                                          #typeConstructor
     | number                                                                                   #numericLiteral
     | booleanValue                                                                             #booleanLiteral
-    | STRING                                                                                   #stringLiteral
+    | STRING_LITERAL                                                                           #stringLiteral
+    | LEFT_BRACKET items+=constant (COMMA items+=constant)* RIGHT_BRACKET                      #arrayLiteral
+    | LEFT_BRACE items+=constant COLON items+=constant
+       (COMMA items+=constant COLON items+=constant)* RIGHT_BRACE                              #mapLiteral
+    | LEFT_BRACE items+=constant (COMMA items+=constant)* RIGHT_BRACE                          #structLiteral
     ;
 
 comparisonOperator
@@ -452,8 +510,23 @@ unitIdentifier
     ;
 
 dataType
-    : identifier (LEFT_PAREN INTEGER_VALUE
+    : complex=ARRAY LT dataType GT                              #complexDataType
+    | complex=MAP LT dataType COMMA dataType GT                 #complexDataType
+    | complex=STRUCT LT complexColTypeList GT                   #complexDataType
+    | identifier (LEFT_PAREN INTEGER_VALUE
       (COMMA INTEGER_VALUE)* RIGHT_PAREN)?                      #primitiveDataType
+    ;
+
+complexColTypeList
+    : complexColType (COMMA complexColType)*
+    ;
+
+complexColType
+    : identifier COLON dataType commentSpec?
+    ;
+
+commentSpec
+    : COMMENT STRING_LITERAL
     ;
 
 // this rule is used for explicitly capturing wrong identifiers such as test-table, which should actually be `test-table`
@@ -484,7 +557,7 @@ quotedIdentifier
     ;
 
 number
-    : MINUS? INTEGER_VALUE            #integerLiteral
+    : MINUS? INTEGER_VALUE                    #integerLiteral
     | MINUS? (EXPONENT_VALUE | DECIMAL_VALUE) #decimalLiteral
     ;
 
@@ -521,6 +594,7 @@ nonReserved
     | CATALOG
     | CATALOGS
     | CHANGE
+    | CHAR
     | CHECK
     | CLEAR
     | CLUSTER
@@ -537,6 +611,7 @@ nonReserved
     | COMPUTE
     | CONCATENATE
     | CONSTRAINT
+    | CONVERT
     | COST
     | CREATE
     | CUBE
@@ -617,6 +692,7 @@ nonReserved
     | LAST
     | LAZY
     | LEADING
+    | LEFT_BRACE
     | LIKE
     | ILIKE
     | LIMIT
@@ -648,6 +724,7 @@ nonReserved
     | OPTIONS
     | OR
     | ORDER
+    | ORDERED
     | OUT
     | OUTER
     | OUTPUTFORMAT
@@ -690,6 +767,7 @@ nonReserved
     | RESTRICTIVE
     | REVOKE
     | REWRITTEN
+    | RIGHT_BRACE
     | RLIKE
     | ROLE
     | ROLES
@@ -765,5 +843,8 @@ nonReserved
     | WITHIN
     | YEAR
     | ZONE
+    | S3
+    | HDFS
+    | BROKER
 //--DEFAULT-NON-RESERVED-END
     ;

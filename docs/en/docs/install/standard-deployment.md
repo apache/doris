@@ -197,14 +197,12 @@ See the `lower_case_table_names` section in [Variables](../advanced/variables.md
 
 * Modify all BE configurations
 
-  Modify be/conf/be.conf. Mainly configure `storage_root_path`: data storage directory. By default, it is under be/storage. If you need to specify a directory, you need to **pre-create the directory**. Multiple paths are separated by a semicolon `;` in English (**do not add `;`** after the last directory).
+  Modify be/conf/be.conf. Mainly configure `storage_root_path`: data storage directory. By default, it is under be/storage. If you need to specify a directory, you need to **pre-create the directory**. Multiple paths are separated by a semicolon `;` in English.
   The hot and cold data storage directories in the node can be distinguished by path, HDD (cold data directory) or SSD (hot data directory). If you don't need the hot and cold mechanism in the BE node, you only need to configure the path without specifying the medium type; and you don't need to modify the default storage medium configuration of FE
 
   **Notice:**
-    1. If you specify the storage type of the storage path, at least one path must have a storage type of HDD (cold data directory)!
-    2. If the storage type of the storage path is not specified, all are HDD (cold data directory) by default.
-    3. The HDD and SSD here have nothing to do with the physical storage medium, but only to distinguish the storage type of the storage path, that is, you can mark a certain directory on the disk of the HDD medium as SSD (hot data directory).
-    4. Here HDD and SSD **MUST** be capitalized!
+    1. If the storage type of the storage path is not specified, all are HDD (cold data directory) by default.
+    2. The HDD and SSD here have nothing to do with the physical storage medium, but only to distinguish the storage type of the storage path, that is, you can mark a certain directory on the disk of the HDD medium as SSD (hot data directory).
 
   Example 1 is as follows:
 

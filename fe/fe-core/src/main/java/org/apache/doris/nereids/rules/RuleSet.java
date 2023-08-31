@@ -102,7 +102,6 @@ public class RuleSet {
 
     public static final List<Rule> EXPLORATION_RULES = planRuleFactories()
             .add(new MergeProjectsCBO())
-            .add(new OrExpansion())
             .build();
 
     public static final List<Rule> OTHER_REORDER_RULES = planRuleFactories()
@@ -117,6 +116,7 @@ public class RuleSet {
             .add(PushdownProjectThroughSemiJoin.INSTANCE)
             .add(TransposeAggSemiJoin.INSTANCE)
             .add(TransposeAggSemiJoinProject.INSTANCE)
+            .add(OrExpansion.INSTANCE)
             .build();
 
     public static final List<RuleFactory> PUSH_DOWN_FILTERS = ImmutableList.of(
@@ -204,7 +204,6 @@ public class RuleSet {
             .build();
 
     public static final List<Rule> DPHYP_REORDER_RULES = ImmutableList.<Rule>builder()
-            .addAll(EXPLORATION_RULES)
             .add(JoinCommute.BUSHY.build())
             .build();
 

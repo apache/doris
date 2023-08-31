@@ -74,6 +74,8 @@ public:
 
     virtual Status init(const TPlanNode& tnode, RuntimeState* state = nullptr) override;
 
+    [[nodiscard]] bool can_terminate_early() override { return _short_circuit_for_probe; }
+
 protected:
     // Construct the intermediate blocks to store the results from join operation.
     void _construct_mutable_join_block();
@@ -82,7 +84,7 @@ protected:
     // columns from probe side to a nullable column.
     Status _build_output_block(Block* origin_block, Block* output_block, bool keep_origin = true);
     // Open probe side asynchronously.
-    void _probe_side_open_thread(RuntimeState* state, std::promise<Status>* status);
+    virtual void _probe_side_open_thread(RuntimeState* state, std::promise<Status>* status);
 
     // Initialize the join operation.
     void _init_join_op();

@@ -21,6 +21,7 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Resource;
+import org.apache.doris.catalog.external.DeltaLakeExternalDataBase;
 import org.apache.doris.catalog.external.EsExternalDatabase;
 import org.apache.doris.catalog.external.ExternalDatabase;
 import org.apache.doris.catalog.external.ExternalTable;
@@ -109,7 +110,7 @@ public abstract class ExternalCatalog
                 + "listDatabaseNames from remote client when init catalog with " + logType.name());
     }
 
-    public void setDefaultProps() {
+    public void setDefaultPropsWhenCreating(boolean isReplay) throws DdlException {
         // set some default properties when creating catalog
     }
 
@@ -202,8 +203,10 @@ public abstract class ExternalCatalog
      * "access_controller.properties.prop1" = "xxx",
      * "access_controller.properties.prop2" = "yyy",
      * )
+     * <p>
+     * isDryRun: if true, it will try to create the custom access controller, but will not add it to the access manager.
      */
-    public void initAccessController() {
+    public void initAccessController(boolean isDryRun) {
         Map<String, String> properties = getCatalogProperty().getProperties();
         // 1. get access controller class name
         String className = properties.getOrDefault(CatalogMgr.ACCESS_CONTROLLER_CLASS_PROP, "");
@@ -223,7 +226,7 @@ public abstract class ExternalCatalog
         }
 
         // 3. create access controller
-        Env.getCurrentEnv().getAccessManager().createAccessController(name, className, acProperties);
+        Env.getCurrentEnv().getAccessManager().createAccessController(name, className, acProperties, isDryRun);
     }
 
     // init schema related objects
@@ -350,6 +353,9 @@ public abstract class ExternalCatalog
     @Nullable
     @Override
     public ExternalDatabase<? extends ExternalTable> getDbNullable(String dbName) {
+        if (StringUtils.isEmpty(dbName)) {
+            return null;
+        }
         try {
             makeSureInitialized();
         } catch (Exception e) {
@@ -480,6 +486,8 @@ public abstract class ExternalCatalog
                 return new TestExternalDatabase(this, dbId, dbName);
             case PAIMON:
                 return new PaimonExternalDatabase(this, dbId, dbName);
+            case DELTALAKE:
+                return new DeltaLakeExternalDataBase(this, dbId, dbName);
             default:
                 break;
         }

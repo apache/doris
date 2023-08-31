@@ -494,12 +494,13 @@ private:
             ColumnUInt8::Container& vec_res = c_res->get_data();
             vec_res.resize(c0->size());
 
-            if (c0_const)
+            if (c0_const) {
                 GenericComparisonImpl<Op<int, int>>::constant_vector(*c0, *c1, vec_res);
-            else if (c1_const)
+            } else if (c1_const) {
                 GenericComparisonImpl<Op<int, int>>::vector_constant(*c0, *c1, vec_res);
-            else
+            } else {
                 GenericComparisonImpl<Op<int, int>>::vector_vector(*c0, *c1, vec_res);
+            }
 
             block.replace_by_position(result, std::move(c_res));
         }
@@ -590,25 +591,39 @@ public:
                   execute_num_left_type<Float32>(block, result, col_left_untyped,
                                                  col_right_untyped) ||
                   execute_num_left_type<Float64>(block, result, col_left_untyped,
-                                                 col_right_untyped)))
-
+                                                 col_right_untyped))) {
                 return Status::RuntimeError("Illegal column {} of first argument of function {}",
                                             col_left_untyped->get_name(), get_name());
-        } else if (is_decimal_v2(left_type) || is_decimal_v2(right_type)) {
+            }
+            return Status::OK();
+        }
+        if (is_decimal_v2(left_type) || is_decimal_v2(right_type)) {
             if (!allow_decimal_comparison(left_type, right_type)) {
                 return Status::RuntimeError("No operation {} between {} and {}", get_name(),
                                             left_type->get_name(), right_type->get_name());
             }
             return execute_decimal(block, result, col_with_type_and_name_left,
                                    col_with_type_and_name_right);
-        } else if (is_decimal(left_type) || is_decimal(right_type)) {
+        }
+
+        if (is_decimal(left_type) || is_decimal(right_type)) {
             if (!allow_decimal_comparison(left_type, right_type)) {
                 return Status::RuntimeError("No operation {} between {} and {}", get_name(),
                                             left_type->get_name(), right_type->get_name());
             }
             return execute_decimal(block, result, col_with_type_and_name_left,
                                    col_with_type_and_name_right);
-        } else if (left_is_string && right_is_string) {
+        }
+
+        if (which_left.idx != which_right.idx) {
+            return Status::InternalError(
+                    "comparison must input two same type column or column type is "
+                    "decimalv3/numeric, lhs={}, rhs={}",
+                    col_with_type_and_name_left.type->get_name(),
+                    col_with_type_and_name_right.type->get_name());
+        }
+
+        if (left_is_string && right_is_string) {
             return execute_string(block, result, col_with_type_and_name_left.column.get(),
                                   col_with_type_and_name_right.column.get());
         } else {

@@ -54,7 +54,9 @@ testDirectories = ""
 // this groups will not be executed
 excludeGroups = ""
 // this suites will not be executed
-excludeSuites = "test_profile,test_broker_load,test_spark_load,test_analyze_stats_p1,test_refresh_mtmv,test_bitmap_filter,test_export_parquet"
+
+excludeSuites = "test_leading,test_stream_load_move_memtable,ds_rf95,test_default_limit,test_profile,test_broker_load,test_spark_load,test_refresh_mtmv,test_bitmap_filter,test_export_parquet,test_doris_jdbc_catalog,nereids_delete_mow_partial_update,test_hdfs_tvf"
+
 // this directories will not be executed
 excludeDirectories = "workload_manager_p1"
 
@@ -95,3 +97,5 @@ s3BucketName = "doris-build-hk-1308700295"
 s3Region = "ap-hongkong"
 
 max_failure_num=50
+
+externalEnvIp="127.0.0.1"

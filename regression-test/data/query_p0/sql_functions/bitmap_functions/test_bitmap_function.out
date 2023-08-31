@@ -492,6 +492,45 @@ true
 \N
 \N
 
+-- !sql_bitmap_intersect_check0 --
+1
+
+-- !sql_bitmap_intersect_check1 --
+1
+
+-- !sql_bitmap_intersect_check2 --
+1
+
+-- !sql_bitmap_intersect_nereids0 --
+1	1
+
+-- !sql_bitmap_intersect_nereids1 --
+1	1
+
+-- !sql_bitmap_intersect_no_nereids0 --
+1	1
+
+-- !sql_bitmap_intersect_no_nereids1 --
+1	1
+
+-- !sql_orthogonal_bitmap_intersect_nereids1 --
+1	1
+
+-- !sql_orthogonal_bitmap_intersect_not_nereids1 --
+1	1
+
+-- !sql_orthogonal_bitmap_intersect_count_nereids0 --
+1	1
+
+-- !sql_orthogonal_bitmap_intersect_count_nereids1 --
+1	1
+
+-- !sql_orthogonal_bitmap_intersect_count_not_nereids0 --
+1	1
+
+-- !sql_orthogonal_bitmap_intersect_count_not_nereids1 --
+1	1
+
 -- qt_sql_unhex_to_bitmap_1
 1   3
 2   2

@@ -31,6 +31,7 @@ import org.apache.doris.catalog.external.HMSExternalTable;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
+import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.CacheBulkLoader;
 import org.apache.doris.common.util.S3Util;
@@ -98,6 +99,7 @@ import java.util.Objects;
 import java.util.Set;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.stream.Collectors;
@@ -308,7 +310,7 @@ public class HiveMetaStoreCache {
             values.add(new PartitionValue(partitionValue, HIVE_DEFAULT_PARTITION.equals(partitionValue)));
         }
         try {
-            PartitionKey key = PartitionKey.createListPartitionKeyWithTypes(values, types);
+            PartitionKey key = PartitionKey.createListPartitionKeyWithTypes(values, types, true);
             return new ListPartitionItem(Lists.newArrayList(key));
         } catch (AnalysisException e) {
             throw new CacheException("failed to convert hive partition %s to list partition in catalog %s",
@@ -499,8 +501,18 @@ public class HiveMetaStoreCache {
         }
     }
 
-    public List<FileCacheValue> getFilesByPartitions(List<HivePartition> partitions,
-                                                     boolean useSelfSplitter) {
+    public List<FileCacheValue> getFilesByPartitionsWithCache(List<HivePartition> partitions,
+            boolean useSelfSplitter) {
+        return getFilesByPartitions(partitions, useSelfSplitter, true);
+    }
+
+    public List<FileCacheValue> getFilesByPartitionsWithoutCache(List<HivePartition> partitions,
+            boolean useSelfSplitter) {
+        return getFilesByPartitions(partitions, useSelfSplitter, false);
+    }
+
+    private List<FileCacheValue> getFilesByPartitions(List<HivePartition> partitions,
+            boolean useSelfSplitter, boolean withCache) {
         long start = System.currentTimeMillis();
         List<FileCacheKey> keys = partitions.stream().map(p -> {
             FileCacheKey fileCacheKey = p.isDummyPartition()
@@ -513,28 +525,58 @@ public class HiveMetaStoreCache {
 
         List<FileCacheValue> fileLists;
         try {
-            fileLists = fileCacheRef.get().getAll(keys).values().asList();
+            if (withCache) {
+                fileLists = fileCacheRef.get().getAll(keys).values().asList();
+            } else {
+                List<Pair<FileCacheKey, Future<FileCacheValue>>> pList = keys.stream()
+                        .map(key -> Pair.of(key, executor.submit(() -> loadFiles(key))))
+                        .collect(Collectors.toList());
+
+                fileLists = Lists.newArrayListWithExpectedSize(keys.size());
+                for (Pair<FileCacheKey, Future<FileCacheValue>> p : pList) {
+                    fileLists.add(p.second.get());
+                }
+            }
         } catch (ExecutionException e) {
             throw new CacheException("failed to get files from partitions in catalog %s",
-                        e, catalog.getName());
+                    e, catalog.getName());
+        } catch (InterruptedException e) {
+            throw new CacheException("failed to get files from partitions in catalog %s with interrupted exception",
+                    e, catalog.getName());
         }
 
         LOG.debug("get #{} files from #{} partitions in catalog {} cost: {} ms",
                 fileLists.stream().mapToInt(l -> l.getFiles() == null
-                    ? (l.getSplits() == null ? 0 : l.getSplits().size()) : l.getFiles().size()).sum(),
+                        ? (l.getSplits() == null ? 0 : l.getSplits().size()) : l.getFiles().size()).sum(),
                 partitions.size(), catalog.getName(), (System.currentTimeMillis() - start));
         return fileLists;
     }
 
-    public List<HivePartition> getAllPartitions(String dbName, String name, List<List<String>> partitionValuesList) {
+    public List<HivePartition> getAllPartitionsWithCache(String dbName, String name,
+            List<List<String>> partitionValuesList) {
+        return getAllPartitions(dbName, name, partitionValuesList, true);
+    }
+
+    public List<HivePartition> getAllPartitionsWithoutCache(String dbName, String name,
+            List<List<String>> partitionValuesList) {
+        return getAllPartitions(dbName, name, partitionValuesList, false);
+    }
+
+    private List<HivePartition> getAllPartitions(String dbName, String name, List<List<String>> partitionValuesList,
+            boolean withCache) {
         long start = System.currentTimeMillis();
         List<PartitionCacheKey> keys = partitionValuesList.stream()
-                    .map(p -> new PartitionCacheKey(dbName, name, p))
-                    .collect(Collectors.toList());
+                .map(p -> new PartitionCacheKey(dbName, name, p))
+                .collect(Collectors.toList());
 
         List<HivePartition> partitions;
         try {
-            partitions = partitionCache.getAll(keys).values().asList();
+            if (withCache) {
+                partitions = partitionCache.getAll(keys).values().asList();
+            } else {
+                Map<PartitionCacheKey, HivePartition> map = loadPartitions(keys);
+                partitions = map.values().stream().collect(Collectors.toList());
+            }
         } catch (ExecutionException e) {
             throw new CacheException("failed to get partition in catalog %s", e, catalog.getName());
         }
@@ -958,6 +1000,7 @@ public class HiveMetaStoreCache {
         // File Cache for self splitter.
         private final List<HiveFileStatus> files = Lists.newArrayList();
         // File split cache for old splitter. This is a temp variable.
+        @Deprecated
         private final List<FileSplit> splits = Lists.newArrayList();
         private boolean isSplittable;
         // The values of partitions.
@@ -968,7 +1011,7 @@ public class HiveMetaStoreCache {
         private AcidInfo acidInfo;
 
         public void addFile(RemoteFile file) {
-            if (isFileVisible(file.getName())) {
+            if (isFileVisible(file.getPath())) {
                 HiveFileStatus status = new HiveFileStatus();
                 status.setBlockLocations(file.getBlockLocations());
                 status.setPath(file.getPath());
@@ -979,8 +1022,9 @@ public class HiveMetaStoreCache {
             }
         }
 
+        @Deprecated
         public void addSplit(FileSplit split) {
-            if (isFileVisible(split.getPath().getName())) {
+            if (isFileVisible(split.getPath())) {
                 splits.add(split);
             }
         }
@@ -998,10 +1042,19 @@ public class HiveMetaStoreCache {
             this.acidInfo = acidInfo;
         }
 
-        private boolean isFileVisible(String filename) {
-            return StringUtils.isNotEmpty(filename)
-                        && !filename.startsWith(".")
-                        && !filename.startsWith("_");
+        private boolean isFileVisible(Path path) {
+            if (path == null || StringUtils.isEmpty(path.toString())) {
+                return false;
+            }
+            if (path.getName().startsWith(".") || path.getName().startsWith("_")) {
+                return false;
+            }
+            for (String name : path.toString().split("/")) {
+                if (name.startsWith(".hive-staging")) {
+                    return false;
+                }
+            }
+            return true;
         }
     }
 

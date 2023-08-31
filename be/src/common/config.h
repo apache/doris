@@ -312,8 +312,8 @@ DECLARE_mInt64(column_dictionary_key_size_threshold);
 DECLARE_mInt64(memory_limitation_per_thread_for_schema_change_bytes);
 DECLARE_mInt64(memory_limitation_per_thread_for_storage_migration_bytes);
 
-// the clean interval of file descriptor cache and segment cache
-DECLARE_mInt32(cache_clean_interval);
+// the prune stale interval of all cache
+DECLARE_mInt32(cache_prune_stale_interval);
 // the clean interval of tablet lookup cache
 DECLARE_mInt32(tablet_lookup_cache_clean_interval);
 DECLARE_mInt32(disk_stat_monitor_interval);
@@ -332,9 +332,14 @@ DECLARE_mInt32(default_num_rows_per_column_file_block);
 DECLARE_mInt32(pending_data_expire_time_sec);
 // inc_rowset snapshot rs sweep time interval
 DECLARE_mInt32(tablet_rowset_stale_sweep_time_sec);
+// tablet stale rowset sweep by threshold size
+DECLARE_Bool(tablet_rowset_stale_sweep_by_size);
+DECLARE_mInt32(tablet_rowset_stale_sweep_threshold_size);
 // garbage sweep policy
 DECLARE_Int32(max_garbage_sweep_interval);
 DECLARE_Int32(min_garbage_sweep_interval);
+// garbage sweep every batch will sleep 1ms
+DECLARE_mInt32(garbage_sweep_batch_size);
 DECLARE_mInt32(snapshot_expire_time_sec);
 // It is only a recommended value. When the disk space is insufficient,
 // the file storage period under trash dose not have to comply with this parameter.
@@ -357,6 +362,8 @@ DECLARE_Int32(index_page_cache_percentage);
 DECLARE_Bool(disable_storage_page_cache);
 // whether to disable row cache feature in storage
 DECLARE_Bool(disable_storage_row_cache);
+// whether to disable pk page cache feature in storage
+DECLARE_Bool(disable_pk_storage_page_cache);
 
 // Cache for mow primary key storage page size, it's seperated from
 // storage_page_cache_limit
@@ -530,6 +537,8 @@ DECLARE_mInt32(stream_load_record_batch_size);
 DECLARE_Int32(stream_load_record_expire_time_secs);
 // time interval to clean expired stream load records
 DECLARE_mInt64(clean_stream_load_record_interval_secs);
+// The buffer size to store stream table function schema info
+DECLARE_Int64(stream_tvf_buffer_size);
 
 // OlapTableSink sender's send interval, should be less than the real response time of a tablet writer rpc.
 // You may need to lower the speed when the sink receiver bes are too busy.
@@ -563,6 +572,8 @@ DECLARE_Bool(enable_quadratic_probing);
 DECLARE_String(pprof_profile_dir);
 // for jeprofile in jemalloc
 DECLARE_mString(jeprofile_dir);
+// Purge all unused dirty pages for all arenas.
+DECLARE_mBool(enable_je_purge_dirty_pages);
 
 // to forward compatibility, will be removed later
 DECLARE_mBool(enable_token_check);
@@ -772,6 +783,11 @@ DECLARE_mInt32(mem_tracker_consume_min_size_bytes);
 // In most cases, it does not need to be modified.
 DECLARE_mDouble(tablet_version_graph_orphan_vertex_ratio);
 
+// number of brpc stream per OlapTableSinkV2
+DECLARE_Int32(num_streams_per_sink);
+// timeout for open stream sink rpc in ms
+DECLARE_Int64(open_stream_sink_timeout_ms);
+
 // max send batch parallelism for OlapTableSink
 // The value set by the user for send_batch_parallelism is not allowed to exceed max_send_batch_parallelism_per_job,
 // if exceed, the value of send_batch_parallelism would be max_send_batch_parallelism_per_job
@@ -815,6 +831,7 @@ DECLARE_mInt32(max_remote_storage_count);
 // and the valid values are: 0.9.0.x, 0.8.x.y.
 DECLARE_String(kafka_api_version_request);
 DECLARE_String(kafka_broker_version_fallback);
+DECLARE_mString(kafka_debug);
 
 // The number of pool siz of routine load consumer.
 // If you meet the error describe in https://github.com/edenhill/librdkafka/issues/3608
@@ -880,6 +897,9 @@ DECLARE_mInt32(jsonb_type_length_soft_limit_bytes);
 // is greater than object_pool_buffer_size, release the object in the unused_object_pool.
 DECLARE_Int32(object_pool_buffer_size);
 
+// Threshold fo reading a small file into memory
+DECLARE_mInt32(in_memory_file_size);
+
 // ParquetReaderWrap prefetch buffer size
 DECLARE_Int32(parquet_reader_max_buffer_size);
 // Max size of parquet page header in bytes
@@ -932,6 +952,9 @@ DECLARE_Int32(doris_remote_scanner_thread_pool_queue_size);
 // limit the queue of pending batches which will be sent by a single nodechannel
 DECLARE_mInt64(nodechannel_pending_queue_max_bytes);
 
+// The batch size for sending data by brpc streaming client
+DECLARE_mInt64(brpc_streaming_client_batch_bytes);
+
 // Max waiting time to wait the "plan fragment start" rpc.
 // If timeout, the fragment will be cancelled.
 // This parameter is usually only used when the FE loses connection,
@@ -949,14 +972,23 @@ DECLARE_Bool(hide_webserver_config_page);
 
 DECLARE_Bool(enable_segcompaction);
 
-// Trigger segcompaction if the num of segments in a rowset exceeds this threshold.
-DECLARE_Int32(segcompaction_threshold_segment_num);
+// Max number of segments allowed in a single segcompaction task.
+DECLARE_Int32(segcompaction_batch_size);
 
-// The segment whose row number above the threshold will be compacted during segcompaction
-DECLARE_Int32(segcompaction_small_threshold);
+// Max row count allowed in a single source segment, bigger segments will be skipped.
+DECLARE_Int32(segcompaction_candidate_max_rows);
 
-// This config can be set to limit thread number in  segcompaction thread pool.
-DECLARE_mInt32(segcompaction_max_threads);
+// Max file size allowed in a single source segment, bigger segments will be skipped.
+DECLARE_Int64(segcompaction_candidate_max_bytes);
+
+// Max total row count allowed in a single segcompaction task.
+DECLARE_Int32(segcompaction_task_max_rows);
+
+// Max total file size allowed in a single segcompaction task.
+DECLARE_Int64(segcompaction_task_max_bytes);
+
+// Global segcompaction thread pool size.
+DECLARE_mInt32(segcompaction_num_threads);
 
 // enable java udf and jdbc scannode
 DECLARE_Bool(enable_java_support);
@@ -1047,6 +1079,8 @@ DECLARE_Bool(enable_set_in_bitmap_value);
 DECLARE_Int64(max_hdfs_file_handle_cache_num);
 // max number of meta info of external files, such as parquet footer
 DECLARE_Int64(max_external_file_meta_cache_num);
+// Apply delete pred in cumu compaction
+DECLARE_mBool(enable_delete_when_cumu_compaction);
 
 // max_write_buffer_number for rocksdb
 DECLARE_Int32(rocksdb_max_write_buffer_number);
@@ -1060,6 +1094,12 @@ DECLARE_mInt64(kerberos_expiration_time_seconds);
 
 // Values include `none`, `glog`, `boost`, `glibc`, `libunwind`
 DECLARE_mString(get_stack_trace_tool);
+
+// DISABLED: Don't resolve location info.
+// FAST: Perform CU lookup using .debug_aranges (might be incomplete).
+// FULL: Scan all CU in .debug_info (slow!) on .debug_aranges lookup failure.
+// FULL_WITH_INLINE: Scan .debug_info (super slower, use with caution) for inline functions in addition to FULL.
+DECLARE_mString(dwarf_location_info_mode);
 
 // the ratio of _prefetch_size/_batch_size in AutoIncIDBuffer
 DECLARE_mInt64(auto_inc_prefetch_size_ratio);
@@ -1077,6 +1117,25 @@ DECLARE_mInt64(LZ4_HC_compression_level);
 
 // enable window_funnel_function with different modes
 DECLARE_mBool(enable_window_funnel_function_v2);
+
+// whether to enable hdfs hedged read.
+// If set to true, it will be enabled even if user not enable it when creating catalog
+DECLARE_Bool(enable_hdfs_hedged_read);
+// hdfs hedged read thread pool size, for "dfs.client.hedged.read.threadpool.size"
+// Maybe overwritten by the value specified when creating catalog
+DECLARE_Int32(hdfs_hedged_read_thread_num);
+// the threshold of doing hedged read, for "dfs.client.hedged.read.threshold.millis"
+// Maybe overwritten by the value specified when creating catalog
+DECLARE_Int32(hdfs_hedged_read_threshold_time);
+
+DECLARE_mBool(enable_merge_on_write_correctness_check);
+
+// The secure path with user files, used in the `local` table function.
+DECLARE_mString(user_files_secure_path);
+
+// This threshold determines how many partitions will be allocated for window function get topn.
+// and if this threshold is exceeded, the remaining data will be pass through to other node directly.
+DECLARE_Int32(partition_topn_partition_threshold);
 
 #ifdef BE_TEST
 // test s3

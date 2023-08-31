@@ -129,6 +129,11 @@ protected:
     // These columns will be filled by default value or null.
     std::unordered_set<std::string> _missing_cols;
 
+    //  The col names and types of source file, such as parquet, orc files.
+    std::vector<std::string> _source_file_col_names;
+    std::vector<TypeDescriptor> _source_file_col_types;
+    std::map<std::string, TypeDescriptor*> _source_file_col_name_types;
+
     // For load task
     vectorized::VExprContextSPtrs _pre_conjunct_ctxs;
     std::unique_ptr<RowDescriptor> _src_row_desc;
@@ -149,9 +154,6 @@ protected:
     Block _src_block;
 
     VExprContextSPtrs _push_down_conjuncts;
-    bool _is_dynamic_schema = false;
-    // for tracing dynamic schema
-    std::unique_ptr<vectorized::schema_util::FullBaseSchemaView> _full_base_schema_view;
 
     std::unique_ptr<io::FileCacheStatistics> _file_cache_statistics;
     std::unique_ptr<io::IOContext> _io_ctx;
@@ -179,6 +181,13 @@ private:
     // save the path of current scan range
     std::string _current_range_path = "";
 
+    // Only for load scan node.
+    const TupleDescriptor* _input_tuple_desc = nullptr;
+    // If _input_tuple_desc is set,
+    // the _real_tuple_desc will point to _input_tuple_desc,
+    // otherwise, point to _output_tuple_desc
+    const TupleDescriptor* _real_tuple_desc = nullptr;
+
 private:
     Status _init_expr_ctxes();
     Status _init_src_block(Block* block);
@@ -188,6 +197,8 @@ private:
     Status _fill_missing_columns(size_t rows);
     Status _pre_filter_src_block();
     Status _convert_to_output_block(Block* block);
+    Status _truncate_char_or_varchar_columns(Block* block);
+    void _truncate_char_or_varchar_column(Block* block, int idx, int len);
     Status _generate_fill_columns();
     Status _handle_dynamic_block(Block* block);
     Status _process_conjuncts_for_dict_filter();

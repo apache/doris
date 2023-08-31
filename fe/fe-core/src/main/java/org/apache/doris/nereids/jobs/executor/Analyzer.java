@@ -19,12 +19,14 @@ package org.apache.doris.nereids.jobs.executor;
 
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.jobs.rewrite.RewriteJob;
+import org.apache.doris.nereids.processor.pre.EliminateLogicalSelectHint;
+import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.rules.analysis.AdjustAggregateNullableForEmptySet;
 import org.apache.doris.nereids.rules.analysis.AnalyzeCTE;
 import org.apache.doris.nereids.rules.analysis.BindExpression;
-import org.apache.doris.nereids.rules.analysis.BindInsertTargetTable;
 import org.apache.doris.nereids.rules.analysis.BindRelation;
 import org.apache.doris.nereids.rules.analysis.BindRelation.CustomTableResolver;
+import org.apache.doris.nereids.rules.analysis.BindSink;
 import org.apache.doris.nereids.rules.analysis.CheckAnalysis;
 import org.apache.doris.nereids.rules.analysis.CheckBound;
 import org.apache.doris.nereids.rules.analysis.CheckPolicy;
@@ -79,6 +81,8 @@ public class Analyzer extends AbstractBatchJobExecutor {
 
     private static List<RewriteJob> buildAnalyzeJobs(Optional<CustomTableResolver> customTableResolver) {
         return jobs(
+            // we should eliminate hint after "Subquery unnesting" because some hint maybe exist in the CTE or subquery.
+            custom(RuleType.ELIMINATE_HINT, EliminateLogicalSelectHint::new),
             topDown(new AnalyzeCTE()),
             bottomUp(
                 new BindRelation(customTableResolver),
@@ -86,7 +90,7 @@ public class Analyzer extends AbstractBatchJobExecutor {
                 new UserAuthentication(),
                 new BindExpression()
             ),
-            topDown(new BindInsertTargetTable()),
+            topDown(new BindSink()),
             bottomUp(new CheckBound()),
             bottomUp(
                 new ProjectToGlobalAggregate(),

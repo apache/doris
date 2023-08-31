@@ -269,6 +269,18 @@ public class BackendServiceProxy {
         }
     }
 
+    public Future<InternalService.PReportStreamLoadStatusResponse> reportStreamLoadStatus(
+            TNetworkAddress address, InternalService.PReportStreamLoadStatusRequest request) throws RpcException {
+        try {
+            final BackendServiceClient client = getProxy(address);
+            return client.reportStreamLoadStatus(request);
+        } catch (Throwable e) {
+            LOG.warn("report stream load status catch a exception, address={}:{}",
+                    address.getHostname(), address.getPort(), e);
+            throw new RpcException(address.hostname, e.getMessage());
+        }
+    }
+
     public Future<InternalService.PCacheResponse> updateCache(
             TNetworkAddress address, InternalService.PUpdateCacheRequest request) throws RpcException {
         try {
@@ -383,6 +395,18 @@ public class BackendServiceProxy {
             return client.getColIdsByTabletIds(request);
         } catch (Throwable e) {
             LOG.warn("failed to fetch column id from address={}:{}", address.getHostname(), address.getPort());
+            throw new RpcException(address.hostname, e.getMessage());
+        }
+    }
+
+    public Future<InternalService.PGlobResponse> glob(TNetworkAddress address,
+            InternalService.PGlobRequest request) throws RpcException {
+        try {
+            final BackendServiceClient client = getProxy(address);
+            return client.glob(request);
+        } catch (Throwable e) {
+            LOG.warn("failed to glob dir from BE {}:{}, path: {}, error: ",
+                    address.getHostname(), address.getPort(), request.getPattern());
             throw new RpcException(address.hostname, e.getMessage());
         }
     }

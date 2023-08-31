@@ -97,10 +97,6 @@ public class AggregateExpression extends Expression implements UnaryExpression {
         }
     }
 
-    public AggregateExpression withAggregateParam(AggregateParam aggregateParam) {
-        return new AggregateExpression(function, aggregateParam, child());
-    }
-
     @Override
     public String toSql() {
         if (aggregateParam.aggMode.productAggregateBuffer) {

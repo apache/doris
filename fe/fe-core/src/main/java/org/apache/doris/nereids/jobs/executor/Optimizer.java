@@ -56,7 +56,9 @@ public class Optimizer {
                 || maxJoinCount > getSessionVariable().getMaxTableCountUseCascadesJoinReorder();
         cascadesContext.getStatementContext().setDpHyp(isDpHyp);
         cascadesContext.getStatementContext().setOtherJoinReorder(false);
-        if (!getSessionVariable().isDisableJoinReorder() && isDpHyp) {
+        if (!getSessionVariable().isDisableJoinReorder() && isDpHyp
+                && maxJoinCount <= getSessionVariable().getMaxJoinNumberOfReorder()) {
+            //RightNow, dphyper can only order 64 join operators
             dpHypOptimize();
         }
 
@@ -66,7 +68,6 @@ public class Optimizer {
         cascadesContext.getJobScheduler().executeJobPool(cascadesContext);
     }
 
-    // DependsRules: EnsureProjectOnTopJoin.class
     private void dpHypOptimize() {
         Group root = cascadesContext.getMemo().getRoot();
         // Due to EnsureProjectOnTopJoin, root group can't be Join Group, so DPHyp doesn't change the root group

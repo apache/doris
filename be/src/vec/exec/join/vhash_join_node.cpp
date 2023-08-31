@@ -678,6 +678,11 @@ Status HashJoinNode::push(RuntimeState* /*state*/, vectorized::Block* input_bloc
 Status HashJoinNode::get_next(RuntimeState* state, Block* output_block, bool* eos) {
     SCOPED_TIMER(_runtime_profile->total_time_counter());
 
+    if (_is_hash_join_early_start_probe_eos(state)) {
+        *eos = true;
+        return Status::OK();
+    }
+
     if (_short_circuit_for_probe) {
         // If we use a short-circuit strategy, should return empty block directly.
         *eos = true;
@@ -761,6 +766,52 @@ void HashJoinNode::_prepare_probe_block() {
     release_block_memory(_probe_block);
 }
 
+bool HashJoinNode::_enable_hash_join_early_start_probe(RuntimeState* state) const {
+    return state->enable_hash_join_early_start_probe() &&
+           (_join_op == TJoinOp::INNER_JOIN || _join_op == TJoinOp::LEFT_OUTER_JOIN ||
+            _join_op == TJoinOp::LEFT_SEMI_JOIN || _join_op == TJoinOp::LEFT_ANTI_JOIN);
+}
+
+bool HashJoinNode::_is_hash_join_early_start_probe_eos(RuntimeState* state) const {
+    return _enable_hash_join_early_start_probe(state) && _probe_block.rows() == 0;
+}
+
+void HashJoinNode::_probe_side_open_thread(RuntimeState* state, std::promise<Status>* promise) {
+    SCOPED_ATTACH_TASK(state);
+    auto st = child(0)->open(state);
+    if (!st.ok()) {
+        _probe_open_finish = true;
+        promise->set_value(st);
+        return;
+    }
+    if (_enable_hash_join_early_start_probe(state)) {
+        while (need_more_input_data()) {
+            prepare_for_next();
+            SCOPED_TIMER(_probe_next_timer);
+            st = child(0)->get_next_after_projects(
+                    state, &_probe_block, &_probe_eos,
+                    std::bind((Status(ExecNode::*)(RuntimeState*, vectorized::Block*, bool*)) &
+                                      ExecNode::get_next,
+                              _children[0], std::placeholders::_1, std::placeholders::_2,
+                              std::placeholders::_3));
+            if (!st.ok()) {
+                _probe_open_finish = true;
+                promise->set_value(st);
+                return;
+            }
+
+            st = push(state, &_probe_block, _probe_eos);
+            if (!st.ok()) {
+                _probe_open_finish = true;
+                promise->set_value(st);
+                return;
+            }
+        }
+    }
+    _probe_open_finish = true;
+    promise->set_value(Status::OK());
+}
+
 Status HashJoinNode::open(RuntimeState* state) {
     SCOPED_TIMER(_runtime_profile->total_time_counter());
     SCOPED_TIMER(_open_timer);
@@ -800,7 +851,8 @@ Status HashJoinNode::_materialize_build_side(RuntimeState* state) {
         Block block;
         // If eos or have already met a null value using short-circuit strategy, we do not need to pull
         // data from data.
-        while (!eos && !_short_circuit_for_null_in_probe_side) {
+        while (!eos && !_short_circuit_for_null_in_probe_side &&
+               (!_probe_open_finish || !_is_hash_join_early_start_probe_eos(state))) {
             block.clear_column_data();
             RETURN_IF_CANCELLED(state);
             {
@@ -1178,7 +1230,8 @@ void HashJoinNode::_hash_table_init(RuntimeState* state) {
 
                 bool use_fixed_key = true;
                 bool has_null = false;
-                int key_byte_size = 0;
+                size_t key_byte_size = 0;
+                size_t bitmap_size = get_bitmap_size(_build_expr_ctxs.size());
 
                 _probe_key_sz.resize(_probe_expr_ctxs.size());
                 _build_key_sz.resize(_build_expr_ctxs.size());
@@ -1200,20 +1253,17 @@ void HashJoinNode::_hash_table_init(RuntimeState* state) {
                     key_byte_size += _probe_key_sz[i];
                 }
 
-                if (std::tuple_size<KeysNullMap<UInt256>>::value + key_byte_size >
-                    sizeof(UInt256)) {
+                if (bitmap_size + key_byte_size > sizeof(UInt256)) {
                     use_fixed_key = false;
                 }
 
                 if (use_fixed_key) {
                     // TODO: may we should support uint256 in the future
                     if (has_null) {
-                        if (std::tuple_size<KeysNullMap<UInt64>>::value + key_byte_size <=
-                            sizeof(UInt64)) {
+                        if (bitmap_size + key_byte_size <= sizeof(UInt64)) {
                             _hash_table_variants
                                     ->emplace<I64FixedKeyHashTableContext<true, RowRefListType>>();
-                        } else if (std::tuple_size<KeysNullMap<UInt128>>::value + key_byte_size <=
-                                   sizeof(UInt128)) {
+                        } else if (bitmap_size + key_byte_size <= sizeof(UInt128)) {
                             _hash_table_variants
                                     ->emplace<I128FixedKeyHashTableContext<true, RowRefListType>>();
                         } else {

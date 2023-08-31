@@ -78,6 +78,13 @@ public class HMSExternalCatalog extends ExternalCatalog {
         catalogProperty = new CatalogProperty(resource, props);
     }
 
+    public HMSExternalCatalog(long catalogId, String name, String resource, Map<String, String> props,
+            String comment, InitCatalogLog.Type type) {
+        super(catalogId, name, type, comment);
+        props = PropertyConverter.convertToMetaProperties(props);
+        catalogProperty = new CatalogProperty(resource, props);
+    }
+
     @Override
     public void checkProperties() throws DdlException {
         super.checkProperties();
@@ -99,24 +106,28 @@ public class HMSExternalCatalog extends ExternalCatalog {
         if (Strings.isNullOrEmpty(dfsNameservices)) {
             return;
         }
-        String namenodes = catalogProperty.getOrDefault("dfs.ha.namenodes." + dfsNameservices, "");
-        if (Strings.isNullOrEmpty(namenodes)) {
-            throw new DdlException("Missing dfs.ha.namenodes." + dfsNameservices + " property");
-        }
-        String[] names = namenodes.split(",");
-        for (String name : names) {
-            String address = catalogProperty.getOrDefault("dfs.namenode.rpc-address." + dfsNameservices + "." + name,
-                    "");
-            if (Strings.isNullOrEmpty(address)) {
-                throw new DdlException(
-                        "Missing dfs.namenode.rpc-address." + dfsNameservices + "." + name + " property");
+
+        String[] nameservices = dfsNameservices.split(",");
+        for (String dfsservice : nameservices) {
+            String namenodes = catalogProperty.getOrDefault("dfs.ha.namenodes." + dfsservice, "");
+            if (Strings.isNullOrEmpty(namenodes)) {
+                throw new DdlException("Missing dfs.ha.namenodes." + dfsservice + " property");
             }
-        }
-        String failoverProvider = catalogProperty.getOrDefault("dfs.client.failover.proxy.provider." + dfsNameservices,
-                "");
-        if (Strings.isNullOrEmpty(failoverProvider)) {
-            throw new DdlException(
-                    "Missing dfs.client.failover.proxy.provider." + dfsNameservices + " property");
+            String[] names = namenodes.split(",");
+            for (String name : names) {
+                String address = catalogProperty.getOrDefault("dfs.namenode.rpc-address." + dfsservice + "." + name,
+                        "");
+                if (Strings.isNullOrEmpty(address)) {
+                    throw new DdlException(
+                            "Missing dfs.namenode.rpc-address." + dfsservice + "." + name + " property");
+                }
+            }
+            String failoverProvider = catalogProperty.getOrDefault("dfs.client.failover.proxy.provider." + dfsservice,
+                    "");
+            if (Strings.isNullOrEmpty(failoverProvider)) {
+                throw new DdlException(
+                        "Missing dfs.client.failover.proxy.provider." + dfsservice + " property");
+            }
         }
     }
 
@@ -285,7 +296,10 @@ public class HMSExternalCatalog extends ExternalCatalog {
     }
 
     @Override
-    public void setDefaultProps() {
+    public void setDefaultPropsWhenCreating(boolean isReplay) {
+        if (isReplay) {
+            return;
+        }
         if (catalogProperty.getOrDefault(PROP_ALLOW_FALLBACK_TO_SIMPLE_AUTH, "").isEmpty()) {
             // always allow fallback to simple auth, so to support both kerberos and simple auth
             catalogProperty.addProperty(PROP_ALLOW_FALLBACK_TO_SIMPLE_AUTH, "true");

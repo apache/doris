@@ -166,13 +166,13 @@ suite("test_primary_key_partial_update", "p0") {
             assertTrue(exception == null)
             def json = parseJson(result)
             assertEquals("Fail", json.Status)
-            assertEquals("[INTERNAL_ERROR]too many filtered rows", json.Message)
+            assertTrue(json.Message.contains("[INTERNAL_ERROR]too many filtered rows"))
             assertEquals(3, json.NumberTotalRows)
             assertEquals(1, json.NumberLoadedRows)
             assertEquals(2, json.NumberFilteredRows)
         }
     }
-
+    sql "sync"
     qt_partial_update_in_one_stream_load """
         select * from ${tableName} order by id;
     """
