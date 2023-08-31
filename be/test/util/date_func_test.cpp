@@ -66,7 +66,6 @@ TEST_F(DateFuncTest, convert_string_to_datev1) {
     uint32_t result11 = timestamp_from_date_v2(std::string("2021-06-08")).to_date_int_val();
 
     std::cout << result1 << "   " << result11 << std::endl;
-    1034952 20210608
 }
 
 TEST_F(DateFuncTest, convert_double_to_string) {
