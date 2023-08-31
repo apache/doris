@@ -40,7 +40,7 @@ grammar:
 SHOW CONVERT_LIGHT_SCHEMA_CHANGE_PROCESS [FROM DATABASE db]
 ```
 
-## Example
+### Example
 
 1. View the converting process in db named test 
 
