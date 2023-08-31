@@ -32,13 +32,14 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 
 /**
  * export table
  */
 public class LoadCommand extends Command {
     private String labelName;
-    private BulkStorageDesc brokerDesc;
+    private BulkStorageDesc bulkStorageDesc;
     private List<BulkLoadDataDesc> sourceInfos;
     private Map<String, String> properties;
     private String comment;
@@ -46,14 +47,14 @@ public class LoadCommand extends Command {
     /**
      * constructor of ExportCommand
      */
-    public LoadCommand(String labelName, List<BulkLoadDataDesc> sourceInfos, BulkStorageDesc brokerDesc,
+    public LoadCommand(String labelName, List<BulkLoadDataDesc> sourceInfos, BulkStorageDesc bulkStorageDesc,
                        Map<String, String> properties, String comment) {
         super(PlanType.LOAD_COMMAND);
-        this.labelName = labelName.trim();
-        this.sourceInfos = sourceInfos;
-        this.properties = properties;
-        this.brokerDesc = brokerDesc;
-        this.comment = comment;
+        this.labelName = Objects.requireNonNull(labelName.trim(), "labelName should not null");
+        this.sourceInfos = Objects.requireNonNull(sourceInfos, "labelName should not null");
+        this.properties = Objects.requireNonNull(properties, "labelName should not null");
+        this.bulkStorageDesc = Objects.requireNonNull(bulkStorageDesc, "labelName should not null");
+        this.comment = Objects.requireNonNull(comment, "labelName should not null");
     }
 
     @Override
@@ -65,7 +66,7 @@ public class LoadCommand extends Command {
         //      1.3 build sink, and put to insert context
         for (BulkLoadDataDesc dataDesc : sourceInfos) {
             dataDesc.toSql();
-            Map<String, String> props = getTvfProperties(brokerDesc, properties);
+            Map<String, String> props = getTvfProperties(bulkStorageDesc, properties);
             String dataTvfSql = dataDesc.toInsertSql(props);
             List<Pair<LogicalPlan, StatementContext>> statements = new NereidsParser().parseMultiple(dataTvfSql);
             // TODO: check if tvf plan legal
@@ -75,7 +76,7 @@ public class LoadCommand extends Command {
         executeInsertStmtPlan(plans);
     }
 
-    private Map<String, String> getTvfProperties(BulkStorageDesc brokerDesc, Map<String, String> properties) {
+    private Map<String, String> getTvfProperties(BulkStorageDesc bulkStorageDesc, Map<String, String> properties) {
         return new HashMap<>();
     }
 

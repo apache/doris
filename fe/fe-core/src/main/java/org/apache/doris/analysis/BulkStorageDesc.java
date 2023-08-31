@@ -21,15 +21,12 @@ import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.PrintableMap;
 import org.apache.doris.datasource.property.S3ClientBEProperties;
-import org.apache.doris.fs.PersistentFileSystem;
 import org.apache.doris.persist.gson.GsonPostProcessable;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.thrift.TFileType;
 
 import com.google.common.collect.Maps;
 import com.google.gson.annotations.SerializedName;
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
 
 import java.io.DataInput;
 import java.io.DataOutput;
@@ -45,7 +42,6 @@ import java.util.Map;
 //   "password" = "password0"
 // )
 public class BulkStorageDesc implements Writable, GsonPostProcessable {
-    private static final Logger LOG = LogManager.getLogger(BulkStorageDesc.class);
     @SerializedName(value = "name")
     private String name;
     @SerializedName(value = "storageType")
@@ -58,12 +54,6 @@ public class BulkStorageDesc implements Writable, GsonPostProcessable {
         S3,
         HDFS,
         LOCAL;
-    }
-
-    public BulkStorageDesc(String name) {
-        this.name = name;
-        this.properties = Maps.newHashMap();
-        this.storageType = StorageType.LOCAL;
     }
 
     public BulkStorageDesc(String name, Map<String, String> properties) {
@@ -86,7 +76,6 @@ public class BulkStorageDesc implements Writable, GsonPostProcessable {
         this.properties.putAll(S3ClientBEProperties.getBeFSProperties(this.properties));
     }
 
-
     public TFileType getFileType() {
         switch (storageType) {
             case LOCAL:
@@ -101,33 +90,8 @@ public class BulkStorageDesc implements Writable, GsonPostProcessable {
         }
     }
 
-    public String getFileLocation(String location) {
-        return location;
-    }
-
     public StorageType getStorageType() {
         return storageType;
-    }
-
-    public void readFields(DataInput in) throws IOException {
-        name = Text.readString(in);
-        int size = in.readInt();
-        properties = Maps.newHashMap();
-        for (int i = 0; i < size; ++i) {
-            final String key = Text.readString(in);
-            final String val = Text.readString(in);
-            properties.put(key, val);
-        }
-        StorageType st = StorageType.BROKER;
-        String typeStr = properties.remove(PersistentFileSystem.STORAGE_TYPE);
-        if (typeStr != null) {
-            try {
-                st = StorageType.valueOf(typeStr);
-            }  catch (IllegalArgumentException e) {
-                LOG.warn("set to BROKER, because of exception", e);
-            }
-        }
-        storageType = st;
     }
 
     @Override

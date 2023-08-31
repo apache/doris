@@ -61,92 +61,6 @@ statement
         (propertyClause)?
         (withRemoteStorageSystem)?                                     #export
     ;
-    ;
-
-loadStmt
-    : LOAD LABEL lableName=identifier
-        LEFT_PAREN dataDescs+=dataDesc (COMMA dataDescs+=dataDesc)* RIGHT_PAREN
-        (withRemoteStorageSystem)?
-        (PROPERTIES LEFT_PAREN propertiesStatement RIGHT_PAREN)?
-        (commentSpec)?
-    | LOAD LABEL lableName=identifier
-        LEFT_PAREN dataDescs+=dataDesc (COMMA dataDescs+=dataDesc)* RIGHT_PAREN
-        resourceDesc
-        (PROPERTIES LEFT_PAREN propertiesStatement RIGHT_PAREN)?
-        (commentSpec)?
-    | LOAD mysqlDataDesc
-        (PROPERTIES LEFT_PAREN propertiesStatement RIGHT_PAREN)?
-        (commentSpec)?
-    ;
-
-resourceDesc : WITH RESOURCE resourceName=identifierOrText (LEFT_PAREN propertiesStatement RIGHT_PAREN)? ;
-
-
-mysqlDataDesc
-    : DATA (LOCAL booleanValue)?
-    INFILE filePath=STRING_LITERAL
-    INTO TABLE tableName=multipartIdentifier
-    (PARTITION partition=identifierList)?
-    (COLUMNS TERMINATED BY comma=STRING_LITERAL)?
-    (LINES TERMINATED BY separator=STRING_LITERAL)?
-    (skipLines)?
-    (columns=identifierList)?
-    (colMappingList)?
-    (PROPERTIES LEFT_PAREN propertiesStatement RIGHT_PAREN)?
-    ;
-
-skipLines : IGNORE lines=INTEGER_VALUE LINES | IGNORE lines=INTEGER_VALUE ROWS ;
-
-dataDesc
-    : (mergeType)? DATA INFILE (LEFT_PAREN filePath=STRING_LITERAL RIGHT_PAREN)*
-        INTO TABLE tableName=multipartIdentifier
-        (PARTITION partition=identifierList)?
-        (COLUMNS TERMINATED BY comma=STRING_LITERAL)?
-        (LINES TERMINATED BY separator=STRING_LITERAL)?
-        (FORMAT AS format=identifier)?
-        (columns=identifierList)?
-        (colFromPath)?
-        (colMappingList)?
-        (preFilterClause)?
-        (whereClause)?
-        (deleteOnClause)?
-        (sequenceColClause)?
-        (PROPERTIES LEFT_PAREN propertiesStatement RIGHT_PAREN)?
-    | (mergeType)? DATA FROM TABLE (LEFT_PAREN filePath=STRING_LITERAL RIGHT_PAREN)*
-        INTO TABLE tableName=multipartIdentifier
-        (PARTITION partition=identifierList)?
-        (colMappingList)?
-        (whereClause)?
-        (deleteOnClause)?
-        (PROPERTIES LEFT_PAREN propertiesStatement RIGHT_PAREN)?
-    ;
-mergeType : APPEND | DELETE | MERGE | WITH APPEND | WITH DELETE | WITH MERGE ;
-preFilterClause : PRECEDING FILTER expression ;
-deleteOnClause : DELETE ON expression ;
-sequenceColClause : ORDER BY identifier ;
-colFromPath : COLUMNS FROM PATH AS columnsFromPath=identifierList ;
-colMappingList : SET LEFT_PAREN colMappingSet+=expression (COMMA colMappingSet+=expression)* RIGHT_PAREN ;
-
-withRemoteStorageSystem
-    : WITH S3 LEFT_PAREN
-        brokerProperties+=property (COMMA brokerProperties+=property)*
-        RIGHT_PAREN
-    | WITH HDFS LEFT_PAREN
-        brokerProperties+=property (COMMA brokerProperties+=property)*
-        RIGHT_PAREN
-    | WITH LOCAL LEFT_PAREN
-        brokerProperties+=property (COMMA brokerProperties+=property)*
-        RIGHT_PAREN
-    | WITH BROKER brokerName=identifierOrText
-        (LEFT_PAREN
-        brokerProperties+=property (COMMA brokerProperties+=property)*
-        RIGHT_PAREN)?
-    ;
-
-propertiesStatement
-    : properties+=property (COMMA properties+=property)*
-    ;
-
 // -----------------Command accessories-----------------
 
 identifierOrText
@@ -175,6 +89,53 @@ planType
     | ALL // default type
     ;
 
+loadStmt
+    : LOAD LABEL lableName=identifier
+        LEFT_PAREN dataDescs+=dataDesc (COMMA dataDescs+=dataDesc)* RIGHT_PAREN
+        (withRemoteStorageSystem)?
+        (PROPERTIES LEFT_PAREN properties=propertyItemList RIGHT_PAREN)?
+        (commentSpec)?
+    | LOAD LABEL lableName=identifier
+        LEFT_PAREN dataDescs+=dataDesc (COMMA dataDescs+=dataDesc)* RIGHT_PAREN
+        resourceDesc
+        (PROPERTIES LEFT_PAREN properties=propertyItemList RIGHT_PAREN)?
+        (commentSpec)?
+    | LOAD mysqlDataDesc
+        (PROPERTIES LEFT_PAREN properties=propertyItemList RIGHT_PAREN)?
+        (commentSpec)?
+    ;
+
+dataDesc
+    : ((WITH)? mergeType)? DATA INFILE (LEFT_PAREN filePath=STRING_LITERAL RIGHT_PAREN)*
+        INTO TABLE tableName=multipartIdentifier
+        (PARTITION partition=identifierList)?
+        (COLUMNS TERMINATED BY comma=STRING_LITERAL)?
+        (LINES TERMINATED BY separator=STRING_LITERAL)?
+        (FORMAT AS format=identifier)?
+        (columns=identifierList)?
+        (columnsFromPath=colFromPath)?
+        (columnMapping=colMappingList)?
+        (preFilter=preFilterClause)?
+        (where=whereClause)?
+        (deleteOn=deleteOnClause)?
+        (sequenceColumn=sequenceColClause)?
+        (PROPERTIES LEFT_PAREN propertyItemList RIGHT_PAREN)?
+    | ((WITH)? mergeType)? DATA FROM TABLE (LEFT_PAREN filePath=STRING_LITERAL RIGHT_PAREN)*
+        INTO TABLE tableName=multipartIdentifier
+        (PARTITION partition=identifierList)?
+        (columnMapping=colMappingList)?
+        (where=whereClause)?
+        (deleteOn=deleteOnClause)?
+        (PROPERTIES LEFT_PAREN propertyItemList RIGHT_PAREN)?
+    ;
+
+mergeType : APPEND | DELETE | MERGE ;
+preFilterClause : PRECEDING FILTER expression ;
+deleteOnClause : DELETE ON expression ;
+sequenceColClause : ORDER BY identifier ;
+colFromPath : COLUMNS FROM PATH AS identifierList ;
+colMappingList : SET LEFT_PAREN mappingSet+=expression (COMMA mappingSet+=expression)* RIGHT_PAREN ;
+
 withRemoteStorageSystem
     : WITH S3 LEFT_PAREN
         brokerProperties=propertyItemList
@@ -190,6 +151,23 @@ withRemoteStorageSystem
         brokerProperties=propertyItemList
         RIGHT_PAREN)?
     ;
+
+resourceDesc : WITH RESOURCE resourceName=identifierOrText (LEFT_PAREN propertyItemList RIGHT_PAREN)? ;
+
+mysqlDataDesc
+    : DATA (LOCAL booleanValue)?
+    INFILE filePath=STRING_LITERAL
+    INTO TABLE tableName=multipartIdentifier
+    (PARTITION partition=identifierList)?
+    (COLUMNS TERMINATED BY comma=STRING_LITERAL)?
+    (LINES TERMINATED BY separator=STRING_LITERAL)?
+    (skipLines)?
+    (columns=identifierList)?
+    (colMappingList)?
+    (PROPERTIES LEFT_PAREN propertyItemList RIGHT_PAREN)?
+    ;
+
+skipLines : IGNORE lines=INTEGER_VALUE LINES | IGNORE lines=INTEGER_VALUE ROWS ;
 
 //  -----------------Query-----------------
 // add queryOrganization for parse (q1) union (q2) union (q3) order by keys, otherwise 'order' will be recognized to be

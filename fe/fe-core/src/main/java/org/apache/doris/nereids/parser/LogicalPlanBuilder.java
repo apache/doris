@@ -18,10 +18,12 @@
 package org.apache.doris.nereids.parser;
 
 import org.apache.doris.analysis.ArithmeticExpr.Operator;
-import org.apache.doris.analysis.BulkStorageDesc;
+import org.apache.doris.analysis.BrokerDesc;
 import org.apache.doris.analysis.BulkLoadDataDesc;
+import org.apache.doris.analysis.BulkStorageDesc;
 import org.apache.doris.analysis.PartitionNames;
 import org.apache.doris.analysis.Separator;
+import org.apache.doris.analysis.StorageBackend;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.Pair;
@@ -92,8 +94,6 @@ import org.apache.doris.nereids.DorisParser.PlanTypeContext;
 import org.apache.doris.nereids.DorisParser.PredicateContext;
 import org.apache.doris.nereids.DorisParser.PredicatedContext;
 import org.apache.doris.nereids.DorisParser.PrimitiveDataTypeContext;
-import org.apache.doris.nereids.DorisParser.PropertiesStatementContext;
-import org.apache.doris.nereids.DorisParser.PropertyContext;
 import org.apache.doris.nereids.DorisParser.PropertyClauseContext;
 import org.apache.doris.nereids.DorisParser.PropertyItemContext;
 import org.apache.doris.nereids.DorisParser.PropertyItemListContext;
@@ -410,6 +410,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
 
     @Override
     public LogicalPlan visitExport(ExportContext ctx) {
+        // TODO: replace old class name like ExportStmt, BrokerDesc, Expr with new nereid class name
         List<String> tableName = visitMultipartIdentifier(ctx.tableName);
         List<String> partitions = ctx.partition == null ? ImmutableList.of() : visitIdentifierList(ctx.partition);
         String path = parseConstant(ctx.filePath);
@@ -463,7 +464,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         } else if (ctx.HDFS() != null) {
             brokerDesc = new BrokerDesc("HDFS", StorageBackend.StorageType.HDFS, brokerPropertiesMap);
         } else if (ctx.LOCAL() != null) {
-            brokerDesc = new BrokerDesc("HDFS", StorageType.LOCAL, brokerPropertiesMap);
+            brokerDesc = new BrokerDesc("HDFS", StorageBackend.StorageType.LOCAL, brokerPropertiesMap);
         } else if (ctx.BROKER() != null) {
             brokerDesc = new BrokerDesc(visitIdentifierOrText(ctx.brokerName), brokerPropertiesMap);
         }
@@ -489,31 +490,16 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         return logicalPlans;
     }
 
-    @Override
-    public Properties visitPropertiesStatement(PropertiesStatementContext ctx) {
-        Builder<String, String> map = ImmutableMap.builder();
-        for (PropertyContext argument : ctx.properties) {
-            String key = parsePropertyItem(argument.key);
-            String value = parsePropertyItem(argument.value);
-            map.put(key, value);
-        }
-        return new Properties(map.build());
-    }
-
     /**
      * Visit load-statements.
      */
     public LogicalPlan visitLoad(LoadContext ctx) {
-        Map<String, String> bulkProperties;
+
         BulkStorageDesc bulkDesc = null;
         DorisParser.LoadStmtContext loadStmt = ctx.loadStmt();
         if (loadStmt.withRemoteStorageSystem() != null) {
-            bulkProperties = Maps.newHashMap();
-            for (DorisParser.PropertyContext arg : loadStmt.withRemoteStorageSystem().brokerProperties) {
-                String key = parsePropertyItem(arg.key);
-                String value = parsePropertyItem(arg.value);
-                bulkProperties.put(key, value);
-            }
+            Map<String, String> bulkProperties =
+                    new HashMap<>(visitPropertyItemList(loadStmt.withRemoteStorageSystem().brokerProperties));
             if (loadStmt.withRemoteStorageSystem().S3() != null) {
                 bulkDesc = new BulkStorageDesc("S3", BulkStorageDesc.StorageType.S3, bulkProperties);
             } else if (loadStmt.withRemoteStorageSystem().HDFS() != null) {
@@ -530,32 +516,43 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         for (DorisParser.DataDescContext ddc : ctx.loadStmt().dataDescs) {
             List<String> tableName = RelationUtil.getQualifierName(ConnectContext.get(),
                     visitMultipartIdentifier(ddc.tableName));
-
             List<String> colNames = (ddc.columns == null ? ImmutableList.of() : visitIdentifierList(ddc.columns));
-            List<String> columnsFromPath = (ddc.colFromPath() == null
-                    ? ImmutableList.of() : visitIdentifierList(ddc.colFromPath().columnsFromPath));
-            List<Expression> colMappingList = (ddc.colMappingList() == null ? ImmutableList.of()
-                        : visit(ddc.colMappingList().colMappingSet, Expression.class));
-            Expression preFilterExpr = getExpression(ddc.preFilterClause().expression());
-            Expression whereExpr = getExpression(ddc.whereClause());
-            LoadTask.MergeType mergeType = LoadTask.MergeType.APPEND;
-
-            Expression deleteExpr = getExpression(ddc.deleteOnClause().expression());
-            String sequenceColName = ddc.sequenceColClause().getText();
-            Map<String, String> properties = new HashMap<>();
+            List<String> columnsFromPath = (ddc.columnsFromPath == null ? ImmutableList.of()
+                        : visitIdentifierList(ddc.columnsFromPath.identifierList()));
             List<String> partitions = ddc.partition == null ? ImmutableList.of() : visitIdentifierList(ddc.partition);
             List<String> filePaths = ddc.filePath == null ? ImmutableList.of()
-                        : ImmutableList.of(ddc.filePath.getText());
-            dataDescriptions.add(new BulkLoadDataDesc(tableName, new PartitionNames(false, partitions),
-                    filePaths, colNames, new Separator(ddc.comma.getText()),
-                    new Separator(ddc.separator.getText()), ddc.format.getText(),
-                    columnsFromPath, false, colMappingList, preFilterExpr,
-                    whereExpr, mergeType, deleteExpr, sequenceColName, properties));
+                    : ImmutableList.of(ddc.filePath.getText());
+            List<Expression> colMappingList = (ddc.columnMapping == null ? ImmutableList.of()
+                        : visit(ddc.columnMapping.mappingSet, Expression.class));
+
+            LoadTask.MergeType mergeType = ddc.mergeType() == null ? LoadTask.MergeType.APPEND
+                        : LoadTask.MergeType.valueOf(ddc.mergeType().getText());
+
+            String fileFormat = ddc.format == null ? null : ddc.format.getText();
+            String comma = ddc.comma == null ? null : ddc.comma.getText();
+            String separator = ddc.separator == null ? null : ddc.separator.getText();
+            Map<String, String> dataProperties = ddc.propertyItemList() == null ? new HashMap<>()
+                        : visitPropertyItemList(loadStmt.properties);
+            dataDescriptions.add(new BulkLoadDataDesc(
+                    tableName,
+                    partitions,
+                    filePaths,
+                    colNames,
+                    columnsFromPath,
+                    colMappingList,
+                    new BulkLoadDataDesc.FileFormatDesc(comma, separator, fileFormat),
+                    false,
+                    ddc.preFilter == null ? null : getExpression(ddc.preFilter.expression()),
+                    ddc.where == null ? null : getExpression(ddc.where.booleanExpression()),
+                    mergeType,
+                    ddc.deleteOn == null ? null : getExpression(ddc.deleteOn.expression()),
+                    ddc.sequenceColumn == null ? null : ddc.sequenceColumn.identifier().getText(),
+                    dataProperties));
         }
-        String labelName = loadStmt.lableName == null ? null : loadStmt.lableName.getText();
-        Properties properties = visitPropertiesStatement(loadStmt.propertiesStatement());
+        String labelName = loadStmt.lableName.getText();
+        Map<String, String> properties = visitPropertyItemList(loadStmt.properties);
         String comment = loadStmt.commentSpec().getText();
-        return new LoadCommand(labelName, dataDescriptions, bulkDesc, properties.getMap(), comment);
+        return new LoadCommand(labelName, dataDescriptions, bulkDesc, properties, comment);
     }
 
     /* ********************************************************************************************

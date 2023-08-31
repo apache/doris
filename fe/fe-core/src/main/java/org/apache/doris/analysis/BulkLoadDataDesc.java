@@ -22,7 +22,6 @@ import org.apache.doris.load.loadv2.LoadTask;
 import org.apache.doris.nereids.trees.expressions.Expression;
 
 import com.google.common.base.Joiner;
-import com.google.common.collect.Lists;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -62,10 +61,8 @@ public class BulkLoadDataDesc {
     private static final Logger LOG = LogManager.getLogger(BulkLoadDataDesc.class);
     private final String tableName;
     private String dbName;
-    private final PartitionNames partitionNames;
+    private final List<String> partitionNames;
     private final List<String> filePaths;
-    private final Separator columnSeparator;
-    private String fileFormat;
     private final boolean isNegative;
     // column names in the path
     private final List<String> columnsFromPath;
@@ -77,52 +74,79 @@ public class BulkLoadDataDesc {
     private final String srcTableName;
     // column names of source files
     private List<String> fileFieldNames;
-    private Separator lineDelimiter;
     private String sequenceCol;
-
+    private FileFormatDesc formatDesc;
     // Merged from fileFieldNames, columnsFromPath and columnMappingList
     // ImportColumnDesc: column name to (expr or null)
-    private List<ImportColumnDesc> parsedColumnExprList = Lists.newArrayList();
     private final Expression deleteCondition;
-    private final Map<String, String> properties;
+    private final Map<String, String> dataProperties;
     private boolean isMysqlLoad = false;
 
     public BulkLoadDataDesc(List<String> fullTableName,
-                            PartitionNames partitionNames,
+                            List<String> partitionNames,
                             List<String> filePaths,
                             List<String> columns,
-                            Separator columnSeparator,
-                            Separator lineDelimiter,
-                            String fileFormat,
                             List<String> columnsFromPath,
-                            boolean isNegative,
                             List<Expression> columnMappingList,
+                            FileFormatDesc formatDesc,
+                            boolean isNegative,
                             Expression fileFilterExpr,
                             Expression whereExpr,
                             LoadTask.MergeType mergeType,
                             Expression deleteCondition,
                             String sequenceColName,
-                            Map<String, String> properties) {
+                            Map<String, String> dataProperties) {
         this.dbName = Objects.requireNonNull(fullTableName.get(1), "Database name should not null");
         this.tableName = Objects.requireNonNull(fullTableName.get(2), "Table name should not null");
-        this.partitionNames = partitionNames;
-        this.filePaths = filePaths;
-        this.fileFieldNames = columns;
-        this.columnSeparator = columnSeparator;
-        this.lineDelimiter = lineDelimiter;
-        this.fileFormat = fileFormat;
+        this.partitionNames = Objects.requireNonNull(partitionNames, "partitionNames should not null");
+        this.filePaths = Objects.requireNonNull(filePaths, "File path should not null");
+        this.fileFieldNames = Objects.requireNonNull(columns, "columns should not null");
+        this.formatDesc = formatDesc;
         this.columnsFromPath = columnsFromPath;
         this.isNegative = isNegative;
         this.columnMappingList = columnMappingList;
         this.precedingFilterExpr = fileFilterExpr;
         this.whereExpr = whereExpr;
         this.mergeType = mergeType;
+        // from tvf
         this.srcTableName = null;
         this.deleteCondition = deleteCondition;
         this.sequenceCol = sequenceColName;
-        this.properties = properties;
+        this.dataProperties = dataProperties;
         columnsNameToLowerCase(fileFieldNames);
         columnsNameToLowerCase(columnsFromPath);
+    }
+
+    public static class FileFormatDesc {
+        private final Separator lineDelimiter;
+        private final Separator columnSeparator;
+        private final String fileFormat;
+
+        public FileFormatDesc(String fileFormat) {
+            this(null, null, fileFormat);
+        }
+
+        public FileFormatDesc(String lineDelimiter, String columnSeparator) {
+            this(lineDelimiter, columnSeparator, null);
+        }
+
+        public FileFormatDesc(String lineDelimiter, String columnSeparator, String fileFormat) {
+            this.lineDelimiter = new Separator(lineDelimiter);
+            this.columnSeparator = new Separator(columnSeparator);
+            this.fileFormat = fileFormat;
+        }
+
+        public Separator getLineDelimiter() {
+            return lineDelimiter;
+        }
+
+        public Separator getColumnSeparator() {
+            return columnSeparator;
+        }
+
+        public String getFileFormat() {
+            return fileFormat;
+        }
     }
 
     public String getDbName() {
@@ -133,17 +157,17 @@ public class BulkLoadDataDesc {
         return tableName;
     }
 
-    public PartitionNames getPartitionNames() {
+    public List<String> getPartitionNames() {
         return partitionNames;
     }
 
     public Map<String, String> getProperties() {
-        return properties;
+        return dataProperties;
     }
 
     // Change all the columns name to lower case, because Doris column is case-insensitive.
     private void columnsNameToLowerCase(List<String> columns) {
-        if (columns == null || columns.isEmpty() || "json".equals(this.fileFormat)) {
+        if (columns == null || columns.isEmpty() || "json".equals(this.formatDesc.fileFormat)) {
             return;
         }
         for (int i = 0; i < columns.size(); i++) {
@@ -241,17 +265,17 @@ public class BulkLoadDataDesc {
         sb.append(" INTO TABLE ");
         sb.append(isMysqlLoad ? ClusterNamespace.getNameFromFullName(dbName) + "." + tableName : tableName);
         if (partitionNames != null) {
-            sb.append(" ");
-            sb.append(partitionNames.toSql());
+            sb.append(" (");
+            Joiner.on(", ").appendTo(sb, partitionNames).append(")");
         }
-        if (columnSeparator != null) {
-            sb.append(" COLUMNS TERMINATED BY ").append(columnSeparator.toSql());
+        if (formatDesc.columnSeparator != null) {
+            sb.append(" COLUMNS TERMINATED BY ").append(formatDesc.columnSeparator.toSql());
         }
-        if (lineDelimiter != null && isMysqlLoad) {
-            sb.append(" LINES TERMINATED BY ").append(lineDelimiter.toSql());
+        if (formatDesc.lineDelimiter != null && isMysqlLoad) {
+            sb.append(" LINES TERMINATED BY ").append(formatDesc.lineDelimiter.toSql());
         }
-        if (fileFormat != null && !fileFormat.isEmpty()) {
-            sb.append(" FORMAT AS '" + fileFormat + "'");
+        if (formatDesc.fileFormat != null && !formatDesc.fileFormat.isEmpty()) {
+            sb.append(" FORMAT AS '" + formatDesc.fileFormat + "'");
         }
         if (fileFieldNames != null && !fileFieldNames.isEmpty()) {
             sb.append(" (");
