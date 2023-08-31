@@ -510,6 +510,7 @@ import org.apache.doris.qe.SqlModeHelper;
         keywordMap.put("ignore", new Integer(SqlParserSymbols.KW_IGNORE));
         keywordMap.put("expired", new Integer(SqlParserSymbols.KW_EXPIRED));
         keywordMap.put("cron", new Integer(SqlParserSymbols.KW_CRON));
+        keywordMap.put("convert_light_schema_change_process", new Integer(SqlParserSymbol.KW_CONVERT_LSC));
    }
     
   // map from token id to token description
