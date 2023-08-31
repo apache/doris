@@ -67,8 +67,6 @@ import org.apache.doris.qe.OriginStatement;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.scheduler.exception.JobException;
-import org.apache.doris.scheduler.registry.ExportTaskRegister;
-import org.apache.doris.scheduler.registry.TransientTaskRegister;
 import org.apache.doris.task.ExportExportingTask;
 import org.apache.doris.thrift.TNetworkAddress;
 

@@ -30,6 +30,7 @@ import org.apache.doris.nereids.parser.ParseErrorListener;
 import org.apache.doris.nereids.parser.PostProcessor;
 import org.apache.doris.nereids.trees.plans.commands.ExportCommand;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
+import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.utframe.TestWithFeService;
 
 import mockit.Mock;
@@ -834,16 +835,16 @@ public class ExportToOutfileSqlTest extends TestWithFeService {
         return statements;
     }
 
+    // need open EnableNereidsPlanner
     private List<List<String>> getOutfileSqlPerParallel(String exportSql) throws UserException {
-        ExportCommand plan = (ExportCommand) parseSql(exportSql);
-        Analyzer analyzer = new Analyzer(connectContext.getEnv(), connectContext);
+        ExportCommand exportCommand = (ExportCommand) parseSql(exportSql);
         List<List<String>> outfileSqlPerParallel = new ArrayList<>();
         try {
-            Method privateMethod = plan.getClass().getDeclaredMethod("generateExportStmt");
+            Method privateMethod = exportCommand.getClass().getDeclaredMethod("checkParameterAndAnalyzeExportJob",
+                    ConnectContext.class);
             privateMethod.setAccessible(true);
-            ExportStmt exportStmt = (ExportStmt) privateMethod.invoke(plan);
-            exportStmt.analyze(analyzer);
-            ExportJob job = exportStmt.getExportJob();
+            privateMethod.invoke(exportCommand, connectContext);
+            ExportJob job = exportCommand.getExportJob();
             outfileSqlPerParallel = job.getOutfileSqlPerParallel();
         } catch (NoSuchMethodException e) {
             throw new UserException(e);

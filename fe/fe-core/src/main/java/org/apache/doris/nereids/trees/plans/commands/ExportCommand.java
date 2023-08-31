@@ -52,6 +52,7 @@ import com.google.common.base.Splitter;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Maps;
+import lombok.Getter;
 
 import java.util.List;
 import java.util.Map;
@@ -113,6 +114,7 @@ public class ExportCommand extends Command implements ForwardWithSync {
     private UserIdentity userIdentity;
 
     // Export Job
+    @Getter
     private ExportJob exportJob;
 
     /**
@@ -138,12 +140,12 @@ public class ExportCommand extends Command implements ForwardWithSync {
 
     @Override
     public void run(ConnectContext ctx, StmtExecutor executor) throws Exception {
-        checkParameter(ctx);
+        checkParameterAndAnalyzeExportJob(ctx);
         // register job
         ctx.getEnv().getExportMgr().addExportJobAndRegisterTask(exportJob);
     }
 
-    private void checkParameter(ConnectContext ctx) throws UserException {
+    private void checkParameterAndAnalyzeExportJob(ConnectContext ctx) throws UserException {
         // get tblName
         List<String> qualifiedTableName = RelationUtil.getQualifierName(ctx, nameParts);
         this.tblName = new TableName(qualifiedTableName.get(0), qualifiedTableName.get(1), qualifiedTableName.get(2));

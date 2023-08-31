@@ -302,7 +302,6 @@ import org.apache.doris.qe.SqlModeHelper;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
-import com.google.common.collect.ImmutableMap.Builder;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import org.antlr.v4.runtime.ParserRuleContext;
@@ -444,7 +443,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             whereSql = whereClauseContext.start.getInputStream().getText(interval);
         }
 
-        Map<String, String> filePropertiesMap = null;
+        Map<String, String> filePropertiesMap = Maps.newHashMap();
         if (ctx.propertyClause() != null) {
             filePropertiesMap = visitPropertyClause(ctx.propertyClause());
         }
