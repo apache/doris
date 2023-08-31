@@ -21,6 +21,8 @@
 
 #include <string>
 
+#include "vec/runtime/vdatetime_value.h"
+
 namespace doris {
 
 uint64_t timestamp_from_datetime(const std::string& datetime_str);
