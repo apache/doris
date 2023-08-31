@@ -179,7 +179,8 @@ Status EngineCloneTask::_do_clone() {
         string local_shard_root_path;
         DataDir* store = nullptr;
         RETURN_IF_ERROR(StorageEngine::instance()->obtain_shard_path(
-                _clone_req.storage_medium, &local_shard_root_path, &store));
+                _clone_req.storage_medium, _clone_req.dest_path_hash, &local_shard_root_path,
+                &store));
         auto tablet_dir = fmt::format("{}/{}/{}", local_shard_root_path, _clone_req.tablet_id,
                                       _clone_req.schema_hash);
 
