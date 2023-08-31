@@ -96,7 +96,7 @@ std::string ScanOperator::debug_string() const {
     }
 
 ScanLocalState::ScanLocalState(RuntimeState* state_, OperatorXBase* parent_)
-        : PipelineXLocalState(state_, parent_),
+        : PipelineXLocalState<>(state_, parent_),
           vectorized::RuntimeFilterConsumer(_parent->id(),
                                             _parent->cast<ScanOperatorX>().runtime_filter_descs(),
                                             _parent->row_descriptor(), _parent->conjuncts()) {}
@@ -110,7 +110,7 @@ bool ScanLocalState::should_run_serial() const {
 }
 
 Status ScanLocalState::init(RuntimeState* state, LocalStateInfo& info) {
-    RETURN_IF_ERROR(PipelineXLocalState::init(state, info));
+    RETURN_IF_ERROR(PipelineXLocalState<>::init(state, info));
     auto& p = _parent->cast<ScanOperatorX>();
     set_scan_ranges(info.scan_ranges);
     _common_expr_ctxs_push_down.resize(p._common_expr_ctxs_push_down.size());
@@ -1200,9 +1200,8 @@ Status ScanLocalState::_init_profile() {
     return Status::OK();
 }
 
-ScanOperatorX::ScanOperatorX(ObjectPool* pool, const TPlanNode& tnode, const DescriptorTbl& descs,
-                             std::string op_name)
-        : OperatorXBase(pool, tnode, descs, op_name), _runtime_filter_descs(tnode.runtime_filters) {
+ScanOperatorX::ScanOperatorX(ObjectPool* pool, const TPlanNode& tnode, const DescriptorTbl& descs)
+        : OperatorXBase(pool, tnode, descs), _runtime_filter_descs(tnode.runtime_filters) {
     if (!tnode.__isset.conjuncts || tnode.conjuncts.empty()) {
         // Which means the request could be fullfilled in a single segment iterator request.
         if (tnode.limit > 0 && tnode.limit < 1024) {
@@ -1287,7 +1286,7 @@ Status ScanLocalState::close(RuntimeState* state) {
     if (_scanner_ctx.get()) {
         _scanner_ctx->clear_and_join(reinterpret_cast<ScanLocalState*>(this), state);
     }
-    return PipelineXLocalState::close(state);
+    return PipelineXLocalState<>::close(state);
 }
 
 Status ScanOperatorX::get_block(RuntimeState* state, vectorized::Block* block,

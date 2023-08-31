@@ -62,7 +62,7 @@ private:
 class StreamingAggSourceOperatorX final : public AggSourceOperatorX {
 public:
     StreamingAggSourceOperatorX(ObjectPool* pool, const TPlanNode& tnode,
-                                const DescriptorTbl& descs, std::string op_name);
+                                const DescriptorTbl& descs);
     bool can_read(RuntimeState* state) override;
 
     Status get_block(RuntimeState* state, vectorized::Block* block,

@@ -50,7 +50,7 @@ public:
 };
 
 class ExchangeSourceOperatorX;
-class ExchangeLocalState : public PipelineXLocalState {
+class ExchangeLocalState : public PipelineXLocalState<> {
     ENABLE_FACTORY_CREATOR(ExchangeLocalState);
     ExchangeLocalState(RuntimeState* state, OperatorXBase* parent);
 
@@ -66,7 +66,7 @@ class ExchangeLocalState : public PipelineXLocalState {
 class ExchangeSourceOperatorX final : public OperatorXBase {
 public:
     ExchangeSourceOperatorX(ObjectPool* pool, const TPlanNode& tnode, const DescriptorTbl& descs,
-                            std::string op_name, int num_senders);
+                            int num_senders);
     bool can_read(RuntimeState* state) override;
     bool is_pending_finish(RuntimeState* state) const override;
 

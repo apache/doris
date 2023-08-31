@@ -26,7 +26,7 @@ namespace doris::pipeline {
 OPERATOR_CODE_GENERATOR(AnalyticSourceOperator, SourceOperator)
 
 AnalyticLocalState::AnalyticLocalState(RuntimeState* state, OperatorXBase* parent)
-        : PipelineXLocalState(state, parent),
+        : PipelineXLocalState<AnalyticDependency>(state, parent),
           _output_block_index(0),
           _window_end_position(0),
           _next_partition(false),
@@ -37,10 +37,8 @@ AnalyticLocalState::AnalyticLocalState(RuntimeState* state, OperatorXBase* paren
           _agg_functions_created(false) {}
 
 Status AnalyticLocalState::init(RuntimeState* state, LocalStateInfo& info) {
-    RETURN_IF_ERROR(PipelineXLocalState::init(state, info));
+    RETURN_IF_ERROR(PipelineXLocalState<AnalyticDependency>::init(state, info));
     _agg_arena_pool = std::make_unique<vectorized::Arena>();
-    _dependency = (AnalyticDependency*)info.dependency;
-    _shared_state = (AnalyticSharedState*)_dependency->shared_state();
 
     auto& p = _parent->cast<AnalyticSourceOperatorX>();
     _agg_functions_size = p._agg_functions.size();
@@ -344,8 +342,8 @@ void AnalyticLocalState::release_mem() {
 }
 
 AnalyticSourceOperatorX::AnalyticSourceOperatorX(ObjectPool* pool, const TPlanNode& tnode,
-                                                 const DescriptorTbl& descs, std::string op_name)
-        : OperatorXBase(pool, tnode, descs, op_name),
+                                                 const DescriptorTbl& descs)
+        : OperatorXBase(pool, tnode, descs),
           _window(tnode.analytic_node.window),
           _intermediate_tuple_id(tnode.analytic_node.intermediate_tuple_id),
           _output_tuple_id(tnode.analytic_node.output_tuple_id),
@@ -453,7 +451,7 @@ Status AnalyticLocalState::close(RuntimeState* state) {
 
     _destroy_agg_status();
     release_mem();
-    return PipelineXLocalState::close(state);
+    return PipelineXLocalState<AnalyticDependency>::close(state);
 }
 
 Status AnalyticSourceOperatorX::prepare(RuntimeState* state) {

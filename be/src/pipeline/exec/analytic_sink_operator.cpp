@@ -27,10 +27,8 @@ namespace doris::pipeline {
 OPERATOR_CODE_GENERATOR(AnalyticSinkOperator, StreamingOperator)
 
 Status AnalyticSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& info) {
-    RETURN_IF_ERROR(PipelineXSinkLocalState::init(state, info));
+    RETURN_IF_ERROR(PipelineXSinkLocalState<AnalyticDependency>::init(state, info));
     auto& p = _parent->cast<AnalyticSinkOperatorX>();
-    _dependency = (AnalyticDependency*)info.dependency;
-    _shared_state = (AnalyticSharedState*)_dependency->shared_state();
     _shared_state->partition_by_column_idxs.resize(p._partition_by_eq_expr_ctxs.size());
     _shared_state->ordey_by_column_idxs.resize(p._order_by_eq_expr_ctxs.size());
 
@@ -71,11 +69,10 @@ AnalyticSinkOperatorX::AnalyticSinkOperatorX(ObjectPool* pool, const TPlanNode& 
         : DataSinkOperatorX(tnode.node_id),
           _buffered_tuple_id(tnode.analytic_node.__isset.buffered_tuple_id
                                      ? tnode.analytic_node.buffered_tuple_id
-                                     : 0) {
-    _name = "SortSinkOperatorX";
-}
+                                     : 0) {}
 
 Status AnalyticSinkOperatorX::init(const TPlanNode& tnode, RuntimeState* state) {
+    RETURN_IF_ERROR(DataSinkOperatorX::init(tnode, state));
     const TAnalyticNode& analytic_node = tnode.analytic_node;
     size_t agg_size = analytic_node.analytic_functions.size();
     _agg_expr_ctxs.resize(agg_size);

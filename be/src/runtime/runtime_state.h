@@ -46,8 +46,8 @@
 namespace doris {
 
 namespace pipeline {
-class PipelineXLocalState;
-class PipelineXSinkLocalState;
+class PipelineXLocalStateBase;
+class PipelineXSinkLocalStateBase;
 } // namespace pipeline
 
 class DescriptorTbl;
@@ -439,14 +439,15 @@ public:
                _query_options.enable_delete_sub_predicate_v2;
     }
 
-    void emplace_local_state(int id, std::shared_ptr<doris::pipeline::PipelineXLocalState> state);
+    void emplace_local_state(int id,
+                             std::shared_ptr<doris::pipeline::PipelineXLocalStateBase> state);
 
-    std::shared_ptr<doris::pipeline::PipelineXLocalState> get_local_state(int id);
+    std::shared_ptr<doris::pipeline::PipelineXLocalStateBase> get_local_state(int id);
 
-    void emplace_sink_local_state(int id,
-                                  std::shared_ptr<doris::pipeline::PipelineXSinkLocalState> state);
+    void emplace_sink_local_state(
+            int id, std::shared_ptr<doris::pipeline::PipelineXSinkLocalStateBase> state);
 
-    std::shared_ptr<doris::pipeline::PipelineXSinkLocalState> get_sink_local_state(int id);
+    std::shared_ptr<doris::pipeline::PipelineXSinkLocalStateBase> get_sink_local_state(int id);
 
 private:
     Status create_error_log_file();
@@ -544,8 +545,8 @@ private:
     std::vector<TTabletCommitInfo> _tablet_commit_infos;
     std::vector<TErrorTabletInfo> _error_tablet_infos;
 
-    std::map<int, std::shared_ptr<doris::pipeline::PipelineXLocalState>> _op_id_to_local_state;
-    std::map<int, std::shared_ptr<doris::pipeline::PipelineXSinkLocalState>>
+    std::map<int, std::shared_ptr<doris::pipeline::PipelineXLocalStateBase>> _op_id_to_local_state;
+    std::map<int, std::shared_ptr<doris::pipeline::PipelineXSinkLocalStateBase>>
             _op_id_to_sink_local_state;
 
     std::mutex _local_state_lock;
