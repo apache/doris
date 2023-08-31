@@ -15,12 +15,10 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef DORIS_GEO_TOJSON_H
-#define DORIS_GEO_TOJSON_H
+#pragma once
 
 #include <rapidjson/allocators.h>
 #include <rapidjson/document.h>
-
 #include <string>
 
 namespace doris {
@@ -77,4 +75,3 @@ private:
 };
 
 } // namespace doris
-#endif //DORIS_GEO_TOJSON_H

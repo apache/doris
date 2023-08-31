@@ -18,6 +18,7 @@
 #include "geo_tojson.h"
 
 #include "rapidjson/document.h"
+#include "rapidjson/writer.h"
 #include "util/GeoLineString.h"
 #include "util/GeoMultiLineString.h"
 #include "util/GeoMultiPoint.h"
@@ -246,8 +247,8 @@ void toGeoJson::coordinate_tojson(const GeoCoordinate& coord, rapidjson::Value& 
 
 bool toGeoJson::json_toString(rapidjson::Document* document, std::string& result) {
     rapidjson::StringBuffer buf;
-    rapidjson::Writer<rapidjson::StringBuffer> writer(buf);
-    document->Accept(writer);
+    rapidjson::Writer<rapidjson::StringBuffer> write(buf);
+    document->Accept(write);
     result = buf.GetString();
     return true;
 }
