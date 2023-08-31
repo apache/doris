@@ -17,6 +17,8 @@
 
 #include "geojson_parse.h"
 
+#include <stdint.h>
+
 #include <memory>
 
 #include "rapidjson/document.h"
