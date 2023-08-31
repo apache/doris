@@ -67,7 +67,18 @@ class CostModelV1 extends PlanVisitor<Cost, PlanContext> {
     // the penalty factor is no more than BROADCAST_JOIN_SKEW_PENALTY_LIMIT
     static final double BROADCAST_JOIN_SKEW_RATIO = 30.0;
     static final double BROADCAST_JOIN_SKEW_PENALTY_LIMIT = 2.0;
-    private int beNumber = Math.max(1, ConnectContext.get().getEnv().getClusterInfo().getBackendsNumber(true));
+    private int beNumber = 1;
+
+    public CostModelV1() {
+        if (ConnectContext.get().getSessionVariable().isPlayNereidsDump()) {
+            // TODO: @bingfeng refine minidump setting, and pass testMinidumpUt
+            beNumber = 1;
+        } else if (ConnectContext.get().getSessionVariable().getBeNumberForTest() != -1) {
+            beNumber = ConnectContext.get().getSessionVariable().getBeNumberForTest();
+        } else {
+            beNumber = Math.max(1, ConnectContext.get().getEnv().getClusterInfo().getBackendsNumber(true));
+        }
+    }
 
     public static Cost addChildCost(Plan plan, Cost planCost, Cost childCost, int index) {
         Preconditions.checkArgument(childCost instanceof CostV1 && planCost instanceof CostV1);
