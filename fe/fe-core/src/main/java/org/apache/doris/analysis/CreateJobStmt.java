@@ -19,8 +19,11 @@ package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.ErrorCode;
+import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.TimeUtils;
+import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.scheduler.common.IntervalUnit;
 import org.apache.doris.scheduler.constants.JobCategory;
@@ -32,6 +35,8 @@ import com.google.common.collect.ImmutableSet;
 import lombok.Getter;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.StringUtils;
+
+import java.util.HashSet;
 
 /**
  * syntax:
@@ -79,8 +84,11 @@ public class CreateJobStmt extends DdlStmt {
 
     private String timezone = TimeUtils.DEFAULT_TIME_ZONE;
 
-    private static final ImmutableSet<String> supportStmtClassName = new ImmutableSet.Builder<String>()
-            .add(NativeInsertStmt.class.getName()).build();
+    private static final ImmutableSet<Class<? extends DdlStmt>> supportStmtSuperClass
+            = new ImmutableSet.Builder<Class<? extends DdlStmt>>().add(InsertStmt.class)
+            .add(UpdateStmt.class).build();
+
+    private static HashSet<String> supportStmtClassNamesCache = new HashSet<>(16);
 
     public CreateJobStmt(LabelName labelName, String onceJobStartTimestamp, Boolean isStreamingJob,
                          Long interval, String intervalTimeUnit,
@@ -134,17 +142,27 @@ public class CreateJobStmt extends DdlStmt {
         analyzerSqlStmt();
     }
 
-    private void checkAuth() throws AnalysisException {
-        UserIdentity userIdentity = ConnectContext.get().getCurrentUserIdentity();
-        if (!userIdentity.isRootUser()) {
-            throw new AnalysisException("only root user can create job");
+    protected static void checkAuth() throws AnalysisException {
+        if (!Env.getCurrentEnv().getAccessManager().checkGlobalPriv(ConnectContext.get(), PrivPredicate.ADMIN)) {
+            ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "ADMIN");
         }
     }
 
-    private void analyzerSqlStmt() throws UserException {
-        if (!supportStmtClassName.contains(stmt.getClass().getName())) {
-            throw new AnalysisException("Not support stmt type");
+    private void checkStmtSupport() throws AnalysisException {
+        if (supportStmtClassNamesCache.contains(stmt.getClass().getSimpleName())) {
+            return;
         }
+        for (Class<? extends DdlStmt> clazz : supportStmtSuperClass) {
+            if (clazz.isAssignableFrom(stmt.getClass())) {
+                supportStmtClassNamesCache.add(stmt.getClass().getSimpleName());
+                return;
+            }
+        }
+        throw new AnalysisException("Not support this stmt type");
+    }
+
+    private void analyzerSqlStmt() throws UserException {
+        checkStmtSupport();
         stmt.analyze(analyzer);
         String originStmt = getOrigStmt().originStmt;
         String executeSql = parseExecuteSql(originStmt);

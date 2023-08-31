@@ -190,7 +190,7 @@ const TypeInfo* get_struct_type_info(std::vector<FieldType> field_types) {
 
 // TODO: Support the type info of the nested array with more than 9 depths.
 // TODO(xy): Support the type info of the nested struct
-TypeInfoPtr get_type_info(segment_v2::ColumnMetaPB* column_meta_pb) {
+TypeInfoPtr get_type_info(const segment_v2::ColumnMetaPB* column_meta_pb) {
     FieldType type = (FieldType)column_meta_pb->type();
     if (UNLIKELY(type == FieldType::OLAP_FIELD_TYPE_STRUCT)) {
         std::vector<FieldType> field_types;
@@ -200,14 +200,10 @@ TypeInfoPtr get_type_info(segment_v2::ColumnMetaPB* column_meta_pb) {
         }
         return create_dynamic_type_info_ptr(get_struct_type_info(field_types));
     } else if (UNLIKELY(type == FieldType::OLAP_FIELD_TYPE_ARRAY)) {
-        int32_t iterations = 0;
-        const auto* child_column = &column_meta_pb->children_columns(0);
-        while (child_column->type() == int(FieldType::OLAP_FIELD_TYPE_ARRAY)) {
-            iterations++;
-            child_column = &child_column->children_columns(0);
-        }
-        return create_static_type_info_ptr(
-                get_array_type_info((FieldType)child_column->type(), iterations));
+        segment_v2::ColumnMetaPB child_column = column_meta_pb->children_columns(0);
+        TypeInfoPtr child_info = get_type_info(&child_column);
+        ArrayTypeInfo* array_type_info = new ArrayTypeInfo(std::move(child_info));
+        return create_dynamic_type_info_ptr(array_type_info);
     } else if (UNLIKELY(type == FieldType::OLAP_FIELD_TYPE_MAP)) {
         segment_v2::ColumnMetaPB key_meta = column_meta_pb->children_columns(0);
         TypeInfoPtr key_type_info = get_type_info(&key_meta);
@@ -216,7 +212,7 @@ TypeInfoPtr get_type_info(segment_v2::ColumnMetaPB* column_meta_pb) {
 
         MapTypeInfo* map_type_info =
                 new MapTypeInfo(std::move(key_type_info), std::move(value_type_info));
-        return create_static_type_info_ptr(map_type_info);
+        return create_dynamic_type_info_ptr(map_type_info);
     } else {
         return create_static_type_info_ptr(get_scalar_type_info(type));
     }
@@ -249,13 +245,10 @@ TypeInfoPtr get_type_info(const TabletColumn* col) {
         }
         return create_dynamic_type_info_ptr(get_struct_type_info(field_types));
     } else if (UNLIKELY(type == FieldType::OLAP_FIELD_TYPE_ARRAY)) {
-        int32_t iterations = 0;
         const auto* child_column = &col->get_sub_column(0);
-        while (child_column->type() == FieldType::OLAP_FIELD_TYPE_ARRAY) {
-            iterations++;
-            child_column = &child_column->get_sub_column(0);
-        }
-        return create_static_type_info_ptr(get_array_type_info(child_column->type(), iterations));
+        TypeInfoPtr item_type = get_type_info(child_column);
+        ArrayTypeInfo* array_type_info = new ArrayTypeInfo(std::move(item_type));
+        return create_dynamic_type_info_ptr(array_type_info);
     } else if (UNLIKELY(type == FieldType::OLAP_FIELD_TYPE_MAP)) {
         const auto* key_column = &col->get_sub_column(0);
         TypeInfoPtr key_type = get_type_info(key_column);

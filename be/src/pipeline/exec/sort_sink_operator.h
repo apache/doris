@@ -48,19 +48,17 @@ enum class SortAlgorithm { HEAP_SORT, TOPN_SORT, FULL_SORT };
 
 class SortSinkOperatorX;
 
-class SortSinkLocalState : public PipelineXSinkLocalState {
+class SortSinkLocalState : public PipelineXSinkLocalState<SortDependency> {
     ENABLE_FACTORY_CREATOR(SortSinkLocalState);
 
 public:
     SortSinkLocalState(DataSinkOperatorX* parent, RuntimeState* state)
-            : PipelineXSinkLocalState(parent, state) {}
+            : PipelineXSinkLocalState<SortDependency>(parent, state) {}
 
     Status init(RuntimeState* state, LocalSinkStateInfo& info) override;
 
 private:
     friend class SortSinkOperatorX;
-    SortDependency* _dependency;
-    SortSharedState* _shared_state;
 
     // Expressions and parameters used for build _sort_description
     vectorized::VSortExecExprs _vsort_exec_exprs;

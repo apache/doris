@@ -48,7 +48,7 @@ public:
 };
 
 class AggSourceOperatorX;
-class AggLocalState final : public PipelineXLocalState {
+class AggLocalState final : public PipelineXLocalState<AggDependency> {
 public:
     ENABLE_FACTORY_CREATOR(AggLocalState);
     AggLocalState(RuntimeState* state, OperatorXBase* parent);
@@ -102,16 +102,13 @@ private:
 
     executor _executor;
 
-    AggDependency* _dependency;
-    AggSharedState* _shared_state;
     vectorized::AggregatedDataVariants* _agg_data;
     bool _agg_data_created_without_key = false;
 };
 
 class AggSourceOperatorX : public OperatorXBase {
 public:
-    AggSourceOperatorX(ObjectPool* pool, const TPlanNode& tnode, const DescriptorTbl& descs,
-                       std::string op_name);
+    AggSourceOperatorX(ObjectPool* pool, const TPlanNode& tnode, const DescriptorTbl& descs);
     virtual bool can_read(RuntimeState* state) override;
 
     Status setup_local_state(RuntimeState* state, LocalStateInfo& info) override;

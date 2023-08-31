@@ -41,28 +41,19 @@ bool ExchangeSourceOperator::is_pending_finish() const {
 }
 
 ExchangeLocalState::ExchangeLocalState(RuntimeState* state, OperatorXBase* parent)
-        : PipelineXLocalState(state, parent), num_rows_skipped(0), is_ready(false) {}
+        : PipelineXLocalState<>(state, parent), num_rows_skipped(0), is_ready(false) {}
 
 Status ExchangeLocalState::init(RuntimeState* state, LocalStateInfo& info) {
-    if (_init) {
-        return Status::OK();
-    }
-    RETURN_IF_ERROR(PipelineXLocalState::init(state, info));
-    auto& parent_ref = _parent->cast<ExchangeSourceOperatorX>();
-    stream_recvr = _state->exec_env()->vstream_mgr()->create_recvr(
-            _state, parent_ref._input_row_desc, _state->fragment_instance_id(), parent_ref._id,
-            parent_ref._num_senders, profile(), parent_ref._is_merging,
-            parent_ref._sub_plan_query_statistics_recvr);
+    RETURN_IF_ERROR(PipelineXLocalState<>::init(state, info));
+    stream_recvr = info.recvr;
     RETURN_IF_ERROR(_parent->cast<ExchangeSourceOperatorX>()._vsort_exec_exprs.clone(
             state, vsort_exec_exprs));
-    _init = true;
     return Status::OK();
 }
 
 ExchangeSourceOperatorX::ExchangeSourceOperatorX(ObjectPool* pool, const TPlanNode& tnode,
-                                                 const DescriptorTbl& descs, std::string op_name,
-                                                 int num_senders)
-        : OperatorXBase(pool, tnode, descs, op_name),
+                                                 const DescriptorTbl& descs, int num_senders)
+        : OperatorXBase(pool, tnode, descs),
           _num_senders(num_senders),
           _is_merging(tnode.exchange_node.__isset.sort_info),
           _input_row_desc(descs, tnode.exchange_node.input_row_tuples,
@@ -171,7 +162,7 @@ Status ExchangeLocalState::close(RuntimeState* state) {
     if (_parent->cast<ExchangeSourceOperatorX>()._is_merging) {
         vsort_exec_exprs.close(state);
     }
-    return PipelineXLocalState::close(state);
+    return PipelineXLocalState<>::close(state);
 }
 
 Status ExchangeSourceOperatorX::close(RuntimeState* state) {

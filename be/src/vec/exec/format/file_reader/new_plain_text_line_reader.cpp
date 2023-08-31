@@ -201,7 +201,6 @@ NewPlainTextLineReader::NewPlainTextLineReader(RuntimeProfile* profile,
           _output_buf_limit(0),
           _file_eof(false),
           _eof(false),
-          _stream_end(true),
           _more_input_bytes(0),
           _more_output_bytes(0),
           _current_offset(current_offset),
@@ -324,6 +323,7 @@ Status NewPlainTextLineReader::read_line(const uint8_t** ptr, size_t* size, bool
     _line_reader_ctx->refresh();
     int found_line_delimiter = 0;
     size_t offset = 0;
+    bool stream_end = true;
     while (!done()) {
         // find line delimiter in current decompressed data
         uint8_t* cur_ptr = _output_buf + _output_buf_pos;
@@ -379,7 +379,7 @@ Status NewPlainTextLineReader::read_line(const uint8_t** ptr, size_t* size, bool
                     COUNTER_UPDATE(_bytes_read_counter, read_len);
                 }
                 if (_file_eof || read_len == 0) {
-                    if (!_stream_end) {
+                    if (!stream_end) {
                         return Status::InternalError(
                                 "Compressed file has been truncated, which is not allowed");
                     } else {
@@ -392,7 +392,7 @@ Status NewPlainTextLineReader::read_line(const uint8_t** ptr, size_t* size, bool
 
                 if (_decompressor == nullptr) {
                     _output_buf_limit += read_len;
-                    _stream_end = true;
+                    stream_end = true;
                 } else {
                     // only update input limit.
                     // input pos is set at MARK step
@@ -418,10 +418,10 @@ Status NewPlainTextLineReader::read_line(const uint8_t** ptr, size_t* size, bool
                         _input_buf_limit - _input_buf_pos,                  /* input_len */
                         &input_read_bytes, _output_buf + _output_buf_limit, /* output */
                         _output_buf_size - _output_buf_limit,               /* output_max_len */
-                        &decompressed_len, &_stream_end, &_more_input_bytes, &_more_output_bytes));
+                        &decompressed_len, &stream_end, &_more_input_bytes, &_more_output_bytes));
 
                 // LOG(INFO) << "after decompress:"
-                //           << " stream_end: " << _stream_end
+                //           << " stream_end: " << stream_end
                 //           << " input_read_bytes: " << input_read_bytes
                 //           << " decompressed_len: " << decompressed_len
                 //           << " more_input_bytes: " << _more_input_bytes

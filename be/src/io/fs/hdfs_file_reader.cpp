@@ -31,6 +31,7 @@
 // #include "io/fs/hdfs_file_system.h"
 #include "service/backend_options.h"
 #include "util/doris_metrics.h"
+#include "util/hdfs_util.h"
 
 namespace doris {
 namespace io {
@@ -45,7 +46,7 @@ HdfsFileReader::HdfsFileReader(Path path, const std::string& name_node,
 
     DorisMetrics::instance()->hdfs_file_open_reading->increment(1);
     DorisMetrics::instance()->hdfs_file_reader_total->increment(1);
-    if (_profile != nullptr) {
+    if (_profile != nullptr && is_hdfs(_name_node)) {
 #ifdef USE_HADOOP_HDFS
         const char* hdfs_profile_name = "HdfsIO";
         ADD_TIMER(_profile, hdfs_profile_name);
@@ -76,7 +77,7 @@ Status HdfsFileReader::close() {
     bool expected = false;
     if (_closed.compare_exchange_strong(expected, true, std::memory_order_acq_rel)) {
         DorisMetrics::instance()->hdfs_file_open_reading->increment(-1);
-        if (_profile != nullptr) {
+        if (_profile != nullptr && is_hdfs(_name_node)) {
 #ifdef USE_HADOOP_HDFS
             struct hdfsReadStatistics* hdfs_statistics = nullptr;
             auto r = hdfsFileGetReadStatistics(_handle->file(), &hdfs_statistics);
@@ -132,13 +133,21 @@ Status HdfsFileReader::read_at_impl(size_t offset, Slice result, size_t* bytes_r
         return Status::OK();
     }
 
-    tSize r = hdfsPread(_handle->fs(), _handle->file(), offset, to, bytes_req);
-    if (r == -1) {
-        return Status::InternalError(
-                "Read hdfs file failed. (BE: {}) namenode:{}, path:{}, err: {}",
-                BackendOptions::get_localhost(), _name_node, _path.string(), hdfs_error());
+    size_t has_read = 0;
+    while (has_read < bytes_req) {
+        tSize loop_read = hdfsPread(_handle->fs(), _handle->file(), offset + has_read,
+                                    to + has_read, bytes_req - has_read);
+        if (loop_read < 0) {
+            return Status::InternalError(
+                    "Read hdfs file failed. (BE: {}) namenode:{}, path:{}, err: {}",
+                    BackendOptions::get_localhost(), _name_node, _path.string(), hdfs_error());
+        }
+        if (loop_read == 0) {
+            break;
+        }
+        has_read += loop_read;
     }
-    *bytes_read = bytes_req;
+    *bytes_read = has_read;
     return Status::OK();
 }
 

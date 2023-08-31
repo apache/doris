@@ -193,7 +193,7 @@ suite("test_alter_table_column") {
                 `v1` int(11) SUM NULL COMMENT ""
             ) ENGINE=OLAP
             AGGREGATE KEY(`k1`, `k2`)
-            DISTRIBUTED BY HASH(`k1`) BUCKETS 1
+            DISTRIBUTED BY HASH(`k1`) BUCKETS 5
             PROPERTIES (
                 "storage_type" = "COLUMN",
                 "replication_num" = "1"

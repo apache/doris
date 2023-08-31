@@ -36,6 +36,7 @@
 #include "pipeline/task_queue.h"
 #include "pipeline_fragment_context.h"
 #include "runtime/query_context.h"
+#include "util/debug_util.h"
 #include "util/sse_util.hpp"
 #include "util/thread.h"
 #include "util/threadpool.h"
@@ -118,14 +119,14 @@ void BlockedTaskScheduler::_schedule() {
                     _make_task_run(local_blocked_tasks, iter, ready_tasks,
                                    PipelineTaskState::PENDING_FINISH);
                 }
-            } else if (task->fragment_context()->is_canceled()) {
+            } else if (task->query_context()->is_cancelled()) {
                 _make_task_run(local_blocked_tasks, iter, ready_tasks);
             } else if (task->query_context()->is_timeout(now)) {
                 LOG(WARNING) << "Timeout, query_id=" << print_id(task->query_context()->query_id())
-                             << ", instance_id="
-                             << print_id(task->fragment_context()->get_fragment_instance_id());
+                             << ", instance_id=" << print_id(task->instance_id())
+                             << ", task info: " << task->debug_string();
 
-                task->fragment_context()->cancel(PPlanFragmentCancelReason::TIMEOUT);
+                task->query_context()->cancel(true, "", Status::Cancelled(""));
                 _make_task_run(local_blocked_tasks, iter, ready_tasks);
             } else if (state == PipelineTaskState::BLOCKED_FOR_DEPENDENCY) {
                 if (task->has_dependency()) {
@@ -269,7 +270,12 @@ void TaskScheduler::_do_work(size_t index) {
         task->set_previous_core_id(index);
         if (!status.ok()) {
             task->set_eos_time();
-            LOG(WARNING) << fmt::format("Pipeline task failed. reason: {}", status.to_string());
+            LOG(WARNING) << fmt::format(
+                    "Pipeline task failed. query_id: {} reason: {}",
+                    PrintInstanceStandardInfo(task->query_context()->query_id(),
+                                              task->fragment_context()->get_fragment_id(),
+                                              task->fragment_context()->get_fragment_instance_id()),
+                    status.to_string());
             // Print detail informations below when you debugging here.
             //
             // LOG(WARNING)<< "task:\n"<<task->debug_string();
@@ -320,8 +326,8 @@ void TaskScheduler::_try_close_task(PipelineTask* task, PipelineTaskState state)
     if (!status.ok() && state != PipelineTaskState::CANCELED) {
         // Call `close` if `try_close` failed to make sure allocated resources are released
         task->close();
-        task->fragment_context()->cancel(PPlanFragmentCancelReason::INTERNAL_ERROR,
-                                         status.to_string());
+        task->query_context()->cancel(true, status.to_string(),
+                                      Status::Cancelled(status.to_string()));
         state = PipelineTaskState::CANCELED;
     } else if (task->is_pending_finish()) {
         task->set_state(PipelineTaskState::PENDING_FINISH);
@@ -330,8 +336,8 @@ void TaskScheduler::_try_close_task(PipelineTask* task, PipelineTaskState state)
     } else {
         status = task->close();
         if (!status.ok() && state != PipelineTaskState::CANCELED) {
-            task->fragment_context()->cancel(PPlanFragmentCancelReason::INTERNAL_ERROR,
-                                             status.to_string());
+            task->query_context()->cancel(true, status.to_string(),
+                                          Status::Cancelled(status.to_string()));
             state = PipelineTaskState::CANCELED;
         }
         DCHECK(!task->is_pending_finish()) << task->debug_string();

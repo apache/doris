@@ -50,7 +50,7 @@ public:
 };
 
 class ExchangeSourceOperatorX;
-class ExchangeLocalState : public PipelineXLocalState {
+class ExchangeLocalState : public PipelineXLocalState<> {
     ENABLE_FACTORY_CREATOR(ExchangeLocalState);
     ExchangeLocalState(RuntimeState* state, OperatorXBase* parent);
 
@@ -66,7 +66,7 @@ class ExchangeLocalState : public PipelineXLocalState {
 class ExchangeSourceOperatorX final : public OperatorXBase {
 public:
     ExchangeSourceOperatorX(ObjectPool* pool, const TPlanNode& tnode, const DescriptorTbl& descs,
-                            std::string op_name, int num_senders);
+                            int num_senders);
     bool can_read(RuntimeState* state) override;
     bool is_pending_finish(RuntimeState* state) const override;
 
@@ -80,6 +80,16 @@ public:
 
     Status close(RuntimeState* state) override;
     bool is_source() const override { return true; }
+    bool need_to_create_exch_recv() const override { return true; }
+
+    RowDescriptor input_row_desc() const { return _input_row_desc; }
+
+    int num_senders() const { return _num_senders; }
+    bool is_merging() const { return _is_merging; }
+
+    std::shared_ptr<QueryStatisticsRecvr> sub_plan_query_statistics_recvr() {
+        return _sub_plan_query_statistics_recvr;
+    }
 
 private:
     friend class ExchangeLocalState;

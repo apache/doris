@@ -24,6 +24,7 @@
 #include "olap/olap_common.h"
 #include "util/debug/leakcheck_disabler.h"
 #include "util/faststring.h"
+#include "vec/sink/load_stream_stub.h"
 
 namespace doris {
 
@@ -35,134 +36,74 @@ namespace doris {
     } while (false)
 #endif
 
-DEFINE_string(connection_type, "", "Connection type. Available values: single, pooled, short");
-DEFINE_int32(timeout_ms, 100, "RPC timeout in milliseconds");
-DEFINE_int32(max_retry, 3, "Max retries(not including the first RPC)");
-DEFINE_int32(idle_timeout_s, -1,
-             "Connection will be closed if there is no "
-             "read/write operations during the last `idle_timeout_s'");
+constexpr int64_t LOAD_ID_LO = 1;
+constexpr int64_t LOAD_ID_HI = 2;
+constexpr int64_t NUM_STREAM = 3;
+constexpr int64_t PARTITION_ID = 1234;
+constexpr int64_t INDEX_ID = 2345;
+constexpr int64_t TABLET_ID = 3456;
+constexpr int32_t SEGMENT_ID = 4567;
+const std::string DATA0 = "segment data";
+const std::string DATA1 = "hello world";
+
+static std::atomic<int64_t> g_num_request;
 
 class StreamSinkFileWriterTest : public testing::Test {
-    class MockStreamSinkFileRecevier : public brpc::StreamInputHandler {
+    class MockStreamStub : public LoadStreamStub {
     public:
-        virtual int on_received_messages(brpc::StreamId id, butil::IOBuf* const messages[],
-                                         size_t size) {
-            std::stringstream str;
-            for (size_t i = 0; i < size; ++i) {
-                str << "msg[" << i << "]=" << *messages[i];
+        MockStreamStub(PUniqueId load_id, int64_t src_id) : LoadStreamStub(load_id, src_id) {};
+
+        virtual ~MockStreamStub() = default;
+
+        // APPEND_DATA
+        virtual Status append_data(int64_t partition_id, int64_t index_id, int64_t tablet_id,
+                                   int64_t segment_id, std::span<const Slice> data,
+                                   bool segment_eos = false) override {
+            EXPECT_EQ(PARTITION_ID, partition_id);
+            EXPECT_EQ(INDEX_ID, index_id);
+            EXPECT_EQ(TABLET_ID, tablet_id);
+            EXPECT_EQ(SEGMENT_ID, segment_id);
+            if (segment_eos) {
+                EXPECT_EQ(0, data.size());
+            } else {
+                EXPECT_EQ(2, data.size());
+                EXPECT_EQ(DATA0, data[0].to_string());
+                EXPECT_EQ(DATA1, data[1].to_string());
             }
-            LOG(INFO) << "Received from Stream=" << id << ": " << str.str();
-            return 0;
+            g_num_request++;
+            return Status::OK();
         }
-        virtual void on_idle_timeout(brpc::StreamId id) {
-            LOG(INFO) << "Stream=" << id << " has no data transmission for a while";
-        }
-        virtual void on_closed(brpc::StreamId id) { LOG(INFO) << "Stream=" << id << " is closed"; }
-    };
-
-    class StreamingSinkFileService : public PBackendService {
-    public:
-        StreamingSinkFileService() : _sd(brpc::INVALID_STREAM_ID) {}
-        virtual ~StreamingSinkFileService() { brpc::StreamClose(_sd); };
-        virtual void open_stream_sink(google::protobuf::RpcController* controller,
-                                      const POpenStreamSinkRequest*,
-                                      POpenStreamSinkResponse* response,
-                                      google::protobuf::Closure* done) {
-            brpc::ClosureGuard done_guard(done);
-
-            brpc::Controller* cntl = static_cast<brpc::Controller*>(controller);
-            brpc::StreamOptions stream_options;
-            stream_options.handler = &_receiver;
-            CHECK_EQ(0, brpc::StreamAccept(&_sd, *cntl, &stream_options));
-            Status::OK().to_protobuf(response->mutable_status());
-        }
-
-    private:
-        MockStreamSinkFileRecevier _receiver;
-        brpc::StreamId _sd;
     };
 
 public:
-    StreamSinkFileWriterTest() { srand(time(nullptr)); }
-    ~StreamSinkFileWriterTest() {}
+    StreamSinkFileWriterTest() = default;
+    ~StreamSinkFileWriterTest() = default;
 
 protected:
     virtual void SetUp() {
-        // init channel
-        brpc::Channel channel;
-        brpc::ChannelOptions options;
-        options.protocol = brpc::PROTOCOL_BAIDU_STD;
-        options.connection_type = FLAGS_connection_type;
-        options.timeout_ms = FLAGS_timeout_ms;
-        options.max_retry = FLAGS_max_retry;
-        std::stringstream port;
-        CHECK_EQ(0, channel.Init("127.0.0.1:18946", nullptr));
-
-        // init server
-        _stream_service = new StreamingSinkFileService();
-        CHECK_EQ(0, _server.AddService(_stream_service, brpc::SERVER_DOESNT_OWN_SERVICE));
-        brpc::ServerOptions server_options;
-        server_options.idle_timeout_sec = FLAGS_idle_timeout_s;
-        {
-            debug::ScopedLeakCheckDisabler disable_lsan;
-            CHECK_EQ(0, _server.Start("127.0.0.1:18946", &server_options));
+        _load_id.set_hi(LOAD_ID_HI);
+        _load_id.set_lo(LOAD_ID_LO);
+        for (int src_id = 0; src_id < NUM_STREAM; src_id++) {
+            _streams.emplace_back(new MockStreamStub(_load_id, src_id));
         }
-
-        // init stream connect
-        PBackendService_Stub stub(&channel);
-        brpc::Controller cntl;
-        brpc::StreamId stream;
-        CHECK_EQ(0, brpc::StreamCreate(&stream, cntl, NULL));
-
-        POpenStreamSinkRequest request;
-        POpenStreamSinkResponse response;
-        request.mutable_load_id()->set_hi(1);
-        request.mutable_load_id()->set_lo(1);
-        stub.open_stream_sink(&cntl, &request, &response, NULL);
-
-        brpc::Join(cntl.call_id());
-        _stream = stream;
     }
 
-    virtual void TearDown() {
-        CHECK_EQ(0, brpc::StreamClose(_stream));
-        CHECK_EQ(0, _server.Stop(1000));
-        CHECK_EQ(0, _server.Join());
-        delete _stream_service;
-    }
+    virtual void TearDown() {}
 
-    StreamingSinkFileService* _stream_service;
-    brpc::StreamId _stream;
-    brpc::Server _server;
+    PUniqueId _load_id;
+    std::vector<std::shared_ptr<LoadStreamStub>> _streams;
 };
 
-TEST_F(StreamSinkFileWriterTest, TestInit) {
-    std::vector<brpc::StreamId> stream_ids {_stream};
-    io::StreamSinkFileWriter writer(0, stream_ids);
-    PUniqueId load_id;
-    load_id.set_hi(1);
-    load_id.set_lo(2);
-    writer.init(load_id, 3, 4, 5, 6);
-}
+TEST_F(StreamSinkFileWriterTest, Test) {
+    g_num_request = 0;
+    io::StreamSinkFileWriter writer(_streams);
+    writer.init(_load_id, PARTITION_ID, INDEX_ID, TABLET_ID, SEGMENT_ID);
+    std::vector<Slice> slices {DATA0, DATA1};
 
-TEST_F(StreamSinkFileWriterTest, TestAppend) {
-    std::vector<brpc::StreamId> stream_ids {_stream};
-    io::StreamSinkFileWriter writer(0, stream_ids);
-    PUniqueId load_id;
-    load_id.set_hi(1);
-    load_id.set_lo(2);
-    writer.init(load_id, 3, 4, 5, 6);
-    std::vector<Slice> slices {"hello"};
-    CHECK_STATUS_OK(writer.appendv(&slices[0], slices.size()));
-}
-
-TEST_F(StreamSinkFileWriterTest, TestFinalize) {
-    std::vector<brpc::StreamId> stream_ids {_stream};
-    io::StreamSinkFileWriter writer(0, stream_ids);
-    PUniqueId load_id;
-    load_id.set_hi(1);
-    load_id.set_lo(2);
-    writer.init(load_id, 3, 4, 5, 6);
+    CHECK_STATUS_OK(writer.appendv(&(*slices.begin()), slices.size()));
+    EXPECT_EQ(NUM_STREAM, g_num_request);
     CHECK_STATUS_OK(writer.finalize());
+    EXPECT_EQ(NUM_STREAM * 2, g_num_request);
 }
+
 } // namespace doris

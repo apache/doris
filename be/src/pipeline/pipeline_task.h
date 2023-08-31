@@ -109,9 +109,8 @@ class PriorityTaskQueue;
 // The class do the pipeline task. Minest schdule union by task scheduler
 class PipelineTask {
 public:
-    PipelineTask(PipelinePtr& pipeline, uint32_t index, RuntimeState* state, Operators& operators,
-                 OperatorPtr& sink, PipelineFragmentContext* fragment_context,
-                 RuntimeProfile* parent_profile);
+    PipelineTask(PipelinePtr& pipeline, uint32_t index, RuntimeState* state, OperatorPtr& sink,
+                 PipelineFragmentContext* fragment_context, RuntimeProfile* parent_profile);
 
     PipelineTask(PipelinePtr& pipeline, uint32_t index, RuntimeState* state,
                  PipelineFragmentContext* fragment_context, RuntimeProfile* parent_profile);
@@ -155,13 +154,13 @@ public:
         return false;
     }
 
-    virtual bool source_can_read() { return _source->can_read() || _ignore_blocking_source(); }
+    virtual bool source_can_read() { return _source->can_read() || _pipeline->_always_can_read; }
 
     virtual bool runtime_filters_are_ready_or_timeout() {
         return _source->runtime_filters_are_ready_or_timeout();
     }
 
-    virtual bool sink_can_write() { return _sink->can_write() || _ignore_blocking_sink(); }
+    virtual bool sink_can_write() { return _sink->can_write() || _pipeline->_always_can_write; }
 
     virtual Status finalize();
 
@@ -246,10 +245,12 @@ public:
         }
     }
 
+    TUniqueId instance_id() const { return _state->fragment_instance_id(); }
+
 protected:
     void _finish_p_dependency() {
         for (const auto& p : _pipeline->_parents) {
-            p.lock()->finish_one_dependency(_previous_schedule_id);
+            p.second.lock()->finish_one_dependency(p.first, _previous_schedule_id);
         }
     }
 
@@ -346,41 +347,6 @@ protected:
     RuntimeProfile::Counter* _pip_task_total_timer;
 
 private:
-    /**
-     * Consider the query plan below:
-     *
-     *      ExchangeSource     JoinBuild1
-     *            \              /
-     *         JoinProbe1 (Right Outer)    JoinBuild2
-     *                   \                   /
-     *                 JoinProbe2 (Right Outer)
-     *                          |
-     *                        Sink
-     *
-     * Assume JoinBuild1/JoinBuild2 outputs 0 rows, this pipeline task should not be blocked by ExchangeSource
-     * because we have a determined conclusion that JoinProbe1/JoinProbe2 will also output 0 rows.
-     *
-     * Assume JoinBuild2 outputs > 0 rows, this pipeline task may be blocked by Sink because JoinProbe2 will
-     * produce more data.
-     *
-     * Assume both JoinBuild2 outputs 0 rows this pipeline task should not be blocked by ExchangeSource
-     * and Sink because JoinProbe2 will always produce 0 rows and terminate early.
-     *
-     * In a nutshell, we should follow the rules:
-     * 1. if any operator in pipeline can terminate early, this task should never be blocked by source operator.
-     * 2. if the last operator (except sink) can terminate early, this task should never be blocked by sink operator.
-     */
-    [[nodiscard]] bool _ignore_blocking_sink() { return _root->can_terminate_early(); }
-
-    [[nodiscard]] bool _ignore_blocking_source() {
-        for (size_t i = 1; i < _operators.size(); i++) {
-            if (_operators[i]->can_terminate_early()) {
-                return true;
-            }
-        }
-        return false;
-    }
-
     Operators _operators; // left is _source, right is _root
     OperatorPtr _source;
     OperatorPtr _root;
