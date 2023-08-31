@@ -22,6 +22,7 @@
 
 #include "gtest/gtest_pred_impl.h"
 #include "olap/uint24.h"
+#include "vec/runtime/vdatetime_value.h"
 
 namespace doris {
 
