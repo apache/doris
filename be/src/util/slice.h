@@ -83,8 +83,10 @@ public:
     Slice(const Slice& src) : data(src.data), size(src.size) {}
 
     Slice& operator=(const Slice& src) {
-        data = src.data;
-        size = src.size;
+        if (this != &src) {
+            data = src.data;
+            size = src.size;
+        }
         return *this;
     }
 
@@ -94,10 +96,12 @@ public:
     }
 
     Slice& operator=(Slice&& src) {
-        data = src.data;
-        size = src.size;
-        src.data = nullptr;
-        src.size = 0;
+        if (this != &src) {
+            data = src.data;
+            size = src.size;
+            src.data = nullptr;
+            src.size = 0;
+        }
         return *this;
     }
 
