@@ -17,7 +17,6 @@
 
 #include "data_type_geometry.h"
 
-#include "geo/util/GeoShape.h"
 #include "vec/columns/column_const.h"
 #include "vec/common/string_buffer.hpp"
 #include "vec/io/reader_buffer.h"

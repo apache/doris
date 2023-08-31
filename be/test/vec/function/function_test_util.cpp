@@ -31,6 +31,7 @@
 #include "vec/data_types/data_type_date.h"
 #include "vec/data_types/data_type_date_time.h"
 #include "vec/data_types/data_type_decimal.h"
+#include "vec/data_types/data_type_geometry.h"
 #include "vec/data_types/data_type_jsonb.h"
 #include "vec/data_types/data_type_string.h"
 #include "vec/data_types/data_type_time_v2.h"
@@ -94,6 +95,10 @@ size_t type_index_to_data_type(const std::vector<AnyType>& input_types, size_t i
     case TypeIndex::JSONB:
         desc.type = doris::PrimitiveType::TYPE_JSONB;
         type = std::make_shared<DataTypeJsonb>();
+        return 1;
+    case TypeIndex::GEOMETRY:
+        desc.type = doris::PrimitiveType::TYPE_GEOMETRY;
+        type = std::make_shared<DataTypeGeometry>();
         return 1;
     case TypeIndex::BitMap:
         desc.type = doris::PrimitiveType::TYPE_OBJECT;
@@ -240,6 +245,10 @@ bool insert_cell(MutableColumnPtr& column, DataTypePtr type_ptr, const AnyType& 
         auto str = any_cast<ut_type::STRING>(cell);
         JsonBinaryValue jsonb_val(str.c_str(), str.size());
         column->insert_data(jsonb_val.value(), jsonb_val.size());
+    } else if (type.is_geometry()) {
+        auto str = any_cast<ut_type::STRING>(cell);
+        GeometryBinaryValue geo_val(str.c_str(), str.size());
+        column->insert_data(geo_val.value(), geo_val.size());
     } else if (type.idx == TypeIndex::BitMap) {
         BitmapValue* bitmap = any_cast<BitmapValue*>(cell);
         column->insert_data((char*)bitmap, sizeof(BitmapValue));

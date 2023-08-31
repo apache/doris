@@ -866,6 +866,7 @@ struct StPointN {
             auto shape_value1 = line_arg->get_data_at(row);
             auto pt = line.decode_from(shape_value1.data, shape_value1.size);
             if (!pt) {
+                //here error
                 res->insert_data(nullptr, 0);
                 continue;
             }

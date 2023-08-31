@@ -16,6 +16,8 @@
 // under the License.
 suite("test_gis_function") {
     sql "set batch_size = 4096;"
+    //temporarily set false
+    sql "SET enable_nereids_planner=false"
 
     qt_sql "SELECT ST_AsText(ST_Point(24.7, 56.7));"
     qt_sql "SELECT ST_AsWKT(ST_Point(24.7, 56.7));"

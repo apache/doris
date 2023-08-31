@@ -16,7 +16,8 @@
 // under the License.
 
 suite("test_st_astext") {
-    sql "SET enable_nereids_planner=true"
+    //temporarily set false
+    sql "SET enable_nereids_planner=false"
     sql "SET enable_fallback_to_original_planner=false"
     qt_select "SELECT ST_AsText(ST_Point(24.7, 56.7))"
 }

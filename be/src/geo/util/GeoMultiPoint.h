@@ -29,21 +29,21 @@ public:
     GeoMultiPoint();
     ~GeoMultiPoint() override;
 
-    GeoShapeType type() const override { return GEO_SHAPE_MULTI_POINT; }
+    [[nodiscard]] GeoShapeType type() const override { return GEO_SHAPE_MULTI_POINT; }
 
     [[nodiscard]] int get_dimension() const override { return 0; }
 
-    GeoParseStatus from_coords(const GeoCoordinates& list);
+    [[nodiscard]] GeoParseStatus from_coords(const GeoCoordinates& list);
 
-    std::unique_ptr<GeoCoordinates> to_coords() const;
+    [[nodiscard]] std::unique_ptr<GeoCoordinates> to_coords() const;
 
-    std::string as_wkt() const override;
+    [[nodiscard]] std::string as_wkt() const override;
 
-    GeoPoint* get_point_n(std::size_t n) const;
+    [[nodiscard]] GeoPoint* get_point_n(std::size_t n) const;
 
     bool contains(const GeoShape* shape) const override;
 
-    std::unique_ptr<GeoShape> boundary() const override;
+    [[nodiscard]] std::unique_ptr<GeoShape> boundary() const override;
 };
 
 } // namespace doris
