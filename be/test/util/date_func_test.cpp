@@ -28,10 +28,45 @@ namespace doris {
 class DateFuncTest : public testing::Test {
 public:
     DateFuncTest() {}
+
     virtual ~DateFuncTest() {}
+
+    uint32_t test_timestamp_from_date_v2(const std::string& date_str) {
+        tm time_tm;
+        char* res = strptime(date_str.c_str(), "%Y-%m-%d", &time_tm);
+
+        uint32_t value = 0;
+        if (nullptr != res) {
+            value = ((time_tm.tm_year + 1900) << 9) | ((time_tm.tm_mon + 1) << 5) | time_tm.tm_mday;
+        } else {
+            value = doris::vectorized::MIN_DATE_V2;
+        }
+
+        return value;
+    }
 };
 
 TEST_F(DateFuncTest, convert_string_to_int) {
+    uint64_t result1 = timestamp_from_datetime(std::string("2021-06-08 15:21:18"));
+    EXPECT_EQ(20210608152118, result1);
+
+    uint64_t abnormal_result1 = timestamp_from_datetime(std::string("2021-22-08 15:21:18"));
+    EXPECT_EQ(14000101000000, abnormal_result1);
+
+    uint24_t result2 = timestamp_from_date(std::string("2021-09-08"));
+    EXPECT_EQ(std::string("2021-09-08"), result2.to_string());
+
+    uint24_t abnormal_result2 = timestamp_from_date(std::string("2021-25-08"));
+    EXPECT_EQ(std::string("1400-01-01"), abnormal_result2.to_string());
+}
+
+TEST_F(DateFuncTest, convert_string_to_datev1) {
+    DateFuncTest date_func_test;
+    uint32_t result1 = date_func_test.test_timestamp_from_date_v2(std::string("2021-06-08"));
+    uint32_t result11 = timestamp_from_date_v2(std::string("2021-06-08"));
+
+    std::cout << result1 << "   " << result11 << std::endl;
+
     uint64_t result1 = timestamp_from_datetime(std::string("2021-06-08 15:21:18"));
     EXPECT_EQ(20210608152118, result1);
 

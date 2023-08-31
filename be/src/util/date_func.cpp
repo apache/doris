@@ -63,26 +63,22 @@ uint32_t timestamp_from_date(const std::string& date_str) {
     return value;
 }
 
-uint32_t timestamp_from_date_v2(const std::string& date_str) {
-    tm time_tm;
-    char* res = strptime(date_str.c_str(), "%Y-%m-%d", &time_tm);
-
-    uint32_t value = 0;
-    if (nullptr != res) {
-        value = ((time_tm.tm_year + 1900) << 9) | ((time_tm.tm_mon + 1) << 5) | time_tm.tm_mday;
-    } else {
-        value = doris::vectorized::MIN_DATE_V2;
-    }
-
-    return value;
+doris::vectorized::DateV2Value<doris::vectorized::DateTimeV2ValueType> timestamp_from_date_v2(
+        const std::string& date_str) {
+    doris::vectorized::DateV2Value<doris::vectorized::DateTimeV2ValueType> val;
+    std::string date_format = "%Y-%m-%d";
+    val.from_date_format_str(date_format.data(), date_format.size(), date_str.data(),
+                             date_str.size());
+    return val;
 }
 
-uint64_t timestamp_from_datetime_v2(const std::string& date_str) {
+doris::vectorized::DateV2Value<doris::vectorized::DateTimeV2ValueType> timestamp_from_datetime_v2(
+        const std::string& date_str) {
     doris::vectorized::DateV2Value<doris::vectorized::DateTimeV2ValueType> val;
     std::string date_format = "%Y-%m-%d %H:%i:%s.%f";
     val.from_date_format_str(date_format.data(), date_format.size(), date_str.data(),
                              date_str.size());
-    return val.to_date_int_val();
+    return val;
 }
 // refer to https://dev.mysql.com/doc/refman/5.7/en/time.html
 // the time value between '-838:59:59' and '838:59:59'
