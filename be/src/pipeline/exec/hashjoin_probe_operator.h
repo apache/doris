@@ -21,6 +21,7 @@
 #include "common/status.h"
 #include "operator.h"
 #include "pipeline/exec/join_probe_operator.h"
+#include "pipeline/pipeline_x/operator.h"
 #include "vec/exec/join/vhash_join_node.h"
 
 namespace doris {
@@ -46,10 +47,13 @@ public:
 };
 
 class HashJoinProbeOperatorX;
-class HashJoinProbeLocalState final : public JoinProbeLocalState<JoinDependency> {
+class HashJoinProbeLocalState final
+        : public JoinProbeLocalState<JoinDependency, HashJoinProbeLocalState> {
 public:
+    using Parent = HashJoinProbeOperatorX;
     ENABLE_FACTORY_CREATOR(HashJoinProbeLocalState);
     HashJoinProbeLocalState(RuntimeState* state, OperatorXBase* parent);
+    ~HashJoinProbeLocalState() = default;
 
     Status init(RuntimeState* state, LocalStateInfo& info) override;
     Status close(RuntimeState* state) override;
@@ -101,15 +105,13 @@ private:
     RuntimeProfile::Counter* _process_other_join_conjunct_timer;
 };
 
-class HashJoinProbeOperatorX final : public JoinProbeOperatorX {
+class HashJoinProbeOperatorX final : public JoinProbeOperatorX<HashJoinProbeLocalState> {
 public:
     HashJoinProbeOperatorX(ObjectPool* pool, const TPlanNode& tnode, const DescriptorTbl& descs);
     Status init(const TPlanNode& tnode, RuntimeState* state) override;
     Status prepare(RuntimeState* state) override;
     Status open(RuntimeState* state) override;
     bool can_read(RuntimeState* state) override;
-
-    Status setup_local_state(RuntimeState* state, LocalStateInfo& info) override;
 
     Status get_block(RuntimeState* state, vectorized::Block* block,
                      SourceState& source_state) override;

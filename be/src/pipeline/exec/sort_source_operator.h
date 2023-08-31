@@ -21,6 +21,7 @@
 
 #include "common/status.h"
 #include "operator.h"
+#include "pipeline/pipeline_x/operator.h"
 #include "vec/exec/vsort_node.h"
 
 namespace doris {
@@ -60,12 +61,10 @@ private:
     RuntimeProfile::Counter* _get_next_timer = nullptr;
 };
 
-class SortSourceOperatorX final : public OperatorXBase {
+class SortSourceOperatorX final : public OperatorX<SortLocalState> {
 public:
     SortSourceOperatorX(ObjectPool* pool, const TPlanNode& tnode, const DescriptorTbl& descs);
     bool can_read(RuntimeState* state) override;
-
-    Status setup_local_state(RuntimeState* state, LocalStateInfo& info) override;
 
     Status get_block(RuntimeState* state, vectorized::Block* block,
                      SourceState& source_state) override;
