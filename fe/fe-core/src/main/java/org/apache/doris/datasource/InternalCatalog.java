@@ -3110,11 +3110,7 @@ public class InternalCatalog implements CatalogIf<Database> {
             fullNameToDb.put(db.getFullName(), db);
             Env.getCurrentGlobalTransactionMgr().addDatabaseTransactionMgr(db.getId());
 
-            ConnectContext connectContext = new ConnectContext();
-            connectContext.setCluster(SystemInfoService.DEFAULT_CLUSTER);
-            connectContext.setDatabase(db.getFullName());
-            Analyzer analyzer = new Analyzer(Env.getCurrentEnv(), connectContext);
-            db.analyze(analyzer);
+            db.analyze();
         }
         // ATTN: this should be done after load Db, and before loadAlterJob
         recreateTabletInvertIndex();
