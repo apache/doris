@@ -366,7 +366,10 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
     @Override
     public List<Column> getTableColumns() throws AnalysisException {
         if (FeConstants.runningUnitTest) {
-            return Lists.newArrayList();
+            Object mockedUtObj = FeConstants.unitTestConstant;
+            if (mockedUtObj instanceof List) {
+                return ((List<Column>) mockedUtObj);
+            }
         }
         if (!csvSchema.isEmpty()) {
             return csvSchema;

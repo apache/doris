@@ -21,8 +21,6 @@ import org.apache.doris.analysis.ArithmeticExpr.Operator;
 import org.apache.doris.analysis.BrokerDesc;
 import org.apache.doris.analysis.BulkLoadDataDesc;
 import org.apache.doris.analysis.BulkStorageDesc;
-import org.apache.doris.analysis.PartitionNames;
-import org.apache.doris.analysis.Separator;
 import org.apache.doris.analysis.StorageBackend;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.common.Config;
@@ -520,17 +518,24 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             List<String> columnsFromPath = (ddc.columnsFromPath == null ? ImmutableList.of()
                         : visitIdentifierList(ddc.columnsFromPath.identifierList()));
             List<String> partitions = ddc.partition == null ? ImmutableList.of() : visitIdentifierList(ddc.partition);
-            List<String> filePaths = ddc.filePath == null ? ImmutableList.of()
-                    : ImmutableList.of(ddc.filePath.getText());
+            // TODO: multi location
+            List<String> multiFilePaths = new ArrayList<>();
+            for (Token filePath : ddc.filePaths) {
+                multiFilePaths.add(filePath.getText().substring(1, filePath.getText().length() - 1));
+            }
+            List<String> filePaths = ddc.filePath == null ? ImmutableList.of() : multiFilePaths;
             List<Expression> colMappingList = (ddc.columnMapping == null ? ImmutableList.of()
                         : visit(ddc.columnMapping.mappingSet, Expression.class));
 
             LoadTask.MergeType mergeType = ddc.mergeType() == null ? LoadTask.MergeType.APPEND
                         : LoadTask.MergeType.valueOf(ddc.mergeType().getText());
 
-            String fileFormat = ddc.format == null ? null : ddc.format.getText();
-            String comma = ddc.comma == null ? null : ddc.comma.getText();
-            String separator = ddc.separator == null ? null : ddc.separator.getText();
+            String fileFormat = ddc.format == null ? null : ddc.format.getText()
+                        .substring(1, ddc.format.getText().length() - 1);
+            String separator = ddc.separator == null ? null : ddc.separator.getText()
+                        .substring(1, ddc.separator.getText().length() - 1);
+            String comma = ddc.comma == null ? null : ddc.comma.getText()
+                        .substring(1, ddc.comma.getText().length() - 1);
             Map<String, String> dataProperties = ddc.propertyItemList() == null ? new HashMap<>()
                         : visitPropertyItemList(loadStmt.properties);
             dataDescriptions.add(new BulkLoadDataDesc(
@@ -540,7 +545,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                     colNames,
                     columnsFromPath,
                     colMappingList,
-                    new BulkLoadDataDesc.FileFormatDesc(comma, separator, fileFormat),
+                    new BulkLoadDataDesc.FileFormatDesc(separator, comma, fileFormat),
                     false,
                     ddc.preFilter == null ? null : getExpression(ddc.preFilter.expression()),
                     ddc.where == null ? null : getExpression(ddc.where.booleanExpression()),
@@ -551,7 +556,8 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         }
         String labelName = loadStmt.lableName.getText();
         Map<String, String> properties = visitPropertyItemList(loadStmt.properties);
-        String comment = loadStmt.commentSpec().getText();
+        String commentSpec = loadStmt.commentSpec() == null ? "" : loadStmt.commentSpec().STRING_LITERAL().getText();
+        String comment = escapeBackSlash(commentSpec.substring(1, commentSpec.length() - 1));
         return new LoadCommand(labelName, dataDescriptions, bulkDesc, properties, comment);
     }
 

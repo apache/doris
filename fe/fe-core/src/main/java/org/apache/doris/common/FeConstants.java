@@ -49,6 +49,7 @@ public class FeConstants {
 
     // set to true to skip some step when running FE unit test
     public static boolean runningUnitTest = false;
+    public static Object unitTestConstant = null;
 
     // set to false to disable internal schema db
     public static boolean enableInternalSchemaDb = true;

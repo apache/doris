@@ -21,9 +21,7 @@ import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.PrintableMap;
 import org.apache.doris.datasource.property.S3ClientBEProperties;
-import org.apache.doris.persist.gson.GsonPostProcessable;
 import org.apache.doris.persist.gson.GsonUtils;
-import org.apache.doris.thrift.TFileType;
 
 import com.google.common.collect.Maps;
 import com.google.gson.annotations.SerializedName;
@@ -41,7 +39,7 @@ import java.util.Map;
 //   "username" = "user0",
 //   "password" = "password0"
 // )
-public class BulkStorageDesc implements Writable, GsonPostProcessable {
+public class BulkStorageDesc implements Writable {
     @SerializedName(value = "name")
     private String name;
     @SerializedName(value = "storageType")
@@ -76,26 +74,13 @@ public class BulkStorageDesc implements Writable, GsonPostProcessable {
         this.properties.putAll(S3ClientBEProperties.getBeFSProperties(this.properties));
     }
 
-    public TFileType getFileType() {
-        switch (storageType) {
-            case LOCAL:
-                return TFileType.FILE_LOCAL;
-            case S3:
-                return TFileType.FILE_S3;
-            case HDFS:
-                return TFileType.FILE_HDFS;
-            case BROKER:
-            default:
-                return TFileType.FILE_BROKER;
-        }
-    }
-
     public StorageType getStorageType() {
         return storageType;
     }
 
-    @Override
-    public void gsonPostProcess() throws IOException {}
+    public Map<String, String> getProperties() {
+        return properties;
+    }
 
     @Override
     public void write(DataOutput out) throws IOException {

@@ -106,7 +106,7 @@ loadStmt
     ;
 
 dataDesc
-    : ((WITH)? mergeType)? DATA INFILE (LEFT_PAREN filePath=STRING_LITERAL RIGHT_PAREN)*
+    : ((WITH)? mergeType)? DATA INFILE LEFT_PAREN filePaths+=STRING_LITERAL (COMMA filePath+=STRING_LITERAL)* RIGHT_PAREN
         INTO TABLE tableName=multipartIdentifier
         (PARTITION partition=identifierList)?
         (COLUMNS TERMINATED BY comma=STRING_LITERAL)?
@@ -120,7 +120,7 @@ dataDesc
         (deleteOn=deleteOnClause)?
         (sequenceColumn=sequenceColClause)?
         (PROPERTIES LEFT_PAREN propertyItemList RIGHT_PAREN)?
-    | ((WITH)? mergeType)? DATA FROM TABLE (LEFT_PAREN filePath=STRING_LITERAL RIGHT_PAREN)*
+    | ((WITH)? mergeType)? DATA FROM TABLE tableName=multipartIdentifier
         INTO TABLE tableName=multipartIdentifier
         (PARTITION partition=identifierList)?
         (columnMapping=colMappingList)?

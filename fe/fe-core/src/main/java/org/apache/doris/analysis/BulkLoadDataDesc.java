@@ -17,11 +17,22 @@
 
 package org.apache.doris.analysis;
 
+import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.DatabaseIf;
+import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.Table;
 import org.apache.doris.cluster.ClusterNamespace;
+import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.util.PrintableMap;
 import org.apache.doris.load.loadv2.LoadTask;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.system.SystemInfoService;
+import org.apache.doris.tablefunction.HdfsTableValuedFunction;
+import org.apache.doris.tablefunction.S3TableValuedFunction;
 
 import com.google.common.base.Joiner;
+import com.google.common.base.VerifyException;
+import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -29,6 +40,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.stream.Collectors;
 
 // used to describe data info which is needed to import.
@@ -59,8 +71,10 @@ import java.util.stream.Collectors;
  */
 public class BulkLoadDataDesc {
     private static final Logger LOG = LogManager.getLogger(BulkLoadDataDesc.class);
+    public static final String EXPECT_MERGE_DELETE_ON = "not support DELETE ON clause when merge type is not MERGE.";
+    public static final String EXPECT_DELETE_ON = "Excepted DELETE ON clause when merge type is MERGE.";
     private final String tableName;
-    private String dbName;
+    private final String dbName;
     private final List<String> partitionNames;
     private final List<String> filePaths;
     private final boolean isNegative;
@@ -70,12 +84,12 @@ public class BulkLoadDataDesc {
     private final List<Expression> columnMappingList;
     private final Expression precedingFilterExpr;
     private final Expression whereExpr;
-    private LoadTask.MergeType mergeType;
+    private final LoadTask.MergeType mergeType;
     private final String srcTableName;
     // column names of source files
-    private List<String> fileFieldNames;
-    private String sequenceCol;
-    private FileFormatDesc formatDesc;
+    private final List<String> fileFieldNames;
+    private final String sequenceCol;
+    private final FileFormatDesc formatDesc;
     // Merged from fileFieldNames, columnsFromPath and columnMappingList
     // ImportColumnDesc: column name to (expr or null)
     private final Expression deleteCondition;
@@ -96,25 +110,23 @@ public class BulkLoadDataDesc {
                             Expression deleteCondition,
                             String sequenceColName,
                             Map<String, String> dataProperties) {
-        this.dbName = Objects.requireNonNull(fullTableName.get(1), "Database name should not null");
-        this.tableName = Objects.requireNonNull(fullTableName.get(2), "Table name should not null");
+        this.dbName = Objects.requireNonNull(fullTableName.get(1), "dbName should not null");
+        this.tableName = Objects.requireNonNull(fullTableName.get(2), "tableName should not null");
         this.partitionNames = Objects.requireNonNull(partitionNames, "partitionNames should not null");
-        this.filePaths = Objects.requireNonNull(filePaths, "File path should not null");
-        this.fileFieldNames = Objects.requireNonNull(columns, "columns should not null");
-        this.formatDesc = formatDesc;
-        this.columnsFromPath = columnsFromPath;
+        this.filePaths = Objects.requireNonNull(filePaths, "filePaths should not null");
+        this.formatDesc = Objects.requireNonNull(formatDesc, "formatDesc should not null");
+        this.fileFieldNames = columnsNameToLowerCase(Objects.requireNonNull(columns, "columns should not null"));
+        this.columnsFromPath = columnsNameToLowerCase(columnsFromPath);
         this.isNegative = isNegative;
         this.columnMappingList = columnMappingList;
         this.precedingFilterExpr = fileFilterExpr;
         this.whereExpr = whereExpr;
         this.mergeType = mergeType;
-        // from tvf
+        // maybe from tvf or table
         this.srcTableName = null;
         this.deleteCondition = deleteCondition;
         this.sequenceCol = sequenceColName;
         this.dataProperties = dataProperties;
-        columnsNameToLowerCase(fileFieldNames);
-        columnsNameToLowerCase(columnsFromPath);
     }
 
     public static class FileFormatDesc {
@@ -133,15 +145,31 @@ public class BulkLoadDataDesc {
         public FileFormatDesc(String lineDelimiter, String columnSeparator, String fileFormat) {
             this.lineDelimiter = new Separator(lineDelimiter);
             this.columnSeparator = new Separator(columnSeparator);
+            try {
+                if (!StringUtils.isEmpty(this.lineDelimiter.getOriSeparator())) {
+                    this.lineDelimiter.analyze();
+                }
+                if (!StringUtils.isEmpty(this.columnSeparator.getOriSeparator())) {
+                    this.columnSeparator.analyze();
+                }
+            } catch (AnalysisException e) {
+                throw new RuntimeException("Fail to parse separator. ", e);
+            }
             this.fileFormat = fileFormat;
         }
 
-        public Separator getLineDelimiter() {
-            return lineDelimiter;
+        public Optional<Separator> getLineDelimiter() {
+            if (lineDelimiter == null || lineDelimiter.getOriSeparator() == null) {
+                return Optional.empty();
+            }
+            return Optional.of(lineDelimiter);
         }
 
-        public Separator getColumnSeparator() {
-            return columnSeparator;
+        public Optional<Separator> getColumnSeparator() {
+            if (columnSeparator == null || columnSeparator.getOriSeparator() == null) {
+                return Optional.empty();
+            }
+            return Optional.of(columnSeparator);
         }
 
         public String getFileFormat() {
@@ -161,50 +189,104 @@ public class BulkLoadDataDesc {
         return partitionNames;
     }
 
+    public FileFormatDesc getFormatDesc() {
+        return formatDesc;
+    }
+
+    public List<String> getFilePaths() {
+        return filePaths;
+    }
+
+    public List<String> getColumnsFromPath() {
+        return columnsFromPath;
+    }
+
     public Map<String, String> getProperties() {
         return dataProperties;
     }
 
     // Change all the columns name to lower case, because Doris column is case-insensitive.
-    private void columnsNameToLowerCase(List<String> columns) {
+    private List<String> columnsNameToLowerCase(List<String> columns) {
         if (columns == null || columns.isEmpty() || "json".equals(this.formatDesc.fileFormat)) {
-            return;
+            return columns;
         }
+        List<String> lowerCaseColumns = new ArrayList<>();
         for (int i = 0; i < columns.size(); i++) {
-            String column = columns.remove(i);
-            columns.add(i, column.toLowerCase());
+            String column = columns.get(i);
+            lowerCaseColumns.add(i, column.toLowerCase());
         }
+        return lowerCaseColumns;
     }
 
-    public String toInsertSql(Map<String, String> properties) {
+    public String toInsertSql(BulkStorageDesc.StorageType storageType, Map<String, String> properties) {
         StringBuilder sb = new StringBuilder();
         sb.append("INSERT INTO ");
-        sb.append(dbName).append(".").append(tableName);
+        sb.append("`").append(dbName).append("`");
+        sb.append(".");
+        sb.append("`").append(tableName).append("`");
         sb.append("(");
-        List<String> srcColumns = getSrcColumnsFromTable(tableName);
-        List<String> mappingTargetColumns = tryToTransFormToMappingColumns(srcColumns);
-        appendColumnFromPathColumns(mappingTargetColumns);
-        appendVirtualColumnForDeleteAndSeq(mappingTargetColumns);
-        Joiner.on(", ").appendTo(sb, mappingTargetColumns);
+
+        List<String> targetColumns = getTargetColumnsFromTable(dbName, tableName);
+        verifyLoadColumns(fileFieldNames, targetColumns);
+
+        List<String> mappingExpressions = new ArrayList<>();
+        if (!columnMappingList.isEmpty()) {
+            for (Expression mappingExpr : columnMappingList) {
+                String targetColumn = mappingExpr.child(0).toSql();
+                if (targetColumns.contains(targetColumn)) {
+                    mappingExpressions.add(mappingExpr.child(1).toSql());
+                }
+                // check key is in target columns
+            }
+        }
+        // create target columns for olap sink table
+        appendColumnFromPathColumns(targetColumns);
+        appendVirtualColumnForDeleteAndSeq(targetColumns);
+        Joiner.on(", ").appendTo(sb, targetColumns);
         sb.append(")");
 
-        sb.append("SELECT ");
-        List<String> mappingSrcColumns = tryToSetMappingColumns(fileFieldNames);
-        appendColumnValuesFromPathColumns(mappingTargetColumns);
-        appendDeleteOnConditions(mappingTargetColumns);
+        // create src columns from data input file
+        sb.append(" SELECT ");
+        List<String> mappingSrcColumns = setMappingExpressionsToSrc(fileFieldNames, mappingExpressions);
+        appendColumnValuesFromPathColumns(mappingSrcColumns);
+        appendDeleteOnConditions(mappingSrcColumns);
         Joiner.on(", ").appendTo(sb, mappingSrcColumns);
-        sb.append("FROM ");
+        sb.append(" FROM ");
 
-        // TODO: check if s3
-        // if is s3 data desc type
-        sb.append("s3( ");
-        // properties.isEmpty();
-        // append s3 properties
-        sb.append(")");
+        // create tvf clause
+        if (BulkStorageDesc.StorageType.S3 == storageType) {
+            appendS3TvfTable(sb, properties);
+        } else if (BulkStorageDesc.StorageType.HDFS == storageType) {
+            appendHdfsTvfTable(sb, properties);
+        } else {
+            throw new UnsupportedOperationException("Unsupported storage type " + storageType + " for nereids load. ");
+        }
         Expression rewrittenWhere = rewriteByColumnMappingSet(whereExpr);
         String rewrittenWhereClause = rewriteByPrecedingFilter(rewrittenWhere, precedingFilterExpr);
         sb.append(" WHERE ").append(rewrittenWhereClause);
         return sb.toString();
+    }
+
+    private void appendHdfsTvfTable(StringBuilder sb, Map<String, String> properties) {
+        sb.append(HdfsTableValuedFunction.NAME);
+        sb.append("( ");
+        PrintableMap<String, String> printableMap = new PrintableMap<>(properties, "=", true, false, ",");
+        sb.append(printableMap);
+        sb.append(")");
+    }
+
+    private static void appendS3TvfTable(StringBuilder sb, Map<String, String> properties) {
+        sb.append(S3TableValuedFunction.NAME);
+        sb.append("( ");
+        PrintableMap<String, String> printableMap = new PrintableMap<>(properties, "=", true, false, ",");
+        sb.append(printableMap);
+        sb.append(")");
+    }
+
+    private void verifyLoadColumns(List<String> fileFieldNames, List<String> targetColumns) {
+        if (targetColumns.size() > fileFieldNames.size()) {
+            throw new VerifyException("Sink columns size is less than source columns size.");
+        }
     }
 
     private String rewriteByPrecedingFilter(Expression whereExpr, Expression precedingFilterExpr) {
@@ -216,14 +298,28 @@ public class BulkLoadDataDesc {
     }
 
     private void appendDeleteOnConditions(List<String> mappingTargetColumns) {
+        if (mergeType != LoadTask.MergeType.MERGE && deleteCondition != null) {
+            throw new IllegalArgumentException(EXPECT_MERGE_DELETE_ON);
+        }
+        if (mergeType == LoadTask.MergeType.MERGE && deleteCondition == null) {
+            throw new IllegalArgumentException(EXPECT_DELETE_ON);
+        }
     }
 
     private void appendColumnValuesFromPathColumns(List<String> mappingTargetColumns) {
     }
 
-    private List<String> tryToSetMappingColumns(List<String> fileFieldNames) {
+    private List<String> setMappingExpressionsToSrc(List<String> fileFieldNames, List<String> mappingExpressions) {
+        if (mappingExpressions.isEmpty()) {
+            return fileFieldNames;
+        }
         // process set clause
-        return new ArrayList<>();
+        List<String> mappedColumns = new ArrayList<>();
+        for (String fileField : fileFieldNames) {
+            // TODO: replace source column when it is in mapping expressions.
+            mappedColumns.add(fileField);
+        }
+        return mappedColumns;
     }
 
     private void appendVirtualColumnForDeleteAndSeq(List<String> mappingSrcColumns) {}
@@ -232,12 +328,21 @@ public class BulkLoadDataDesc {
         mappingSrcColumns.addAll(columnsFromPath);
     }
 
-    private List<String> tryToTransFormToMappingColumns(List<String> srcColumns) {
-        return new ArrayList<>();
-    }
-
-    private List<String> getSrcColumnsFromTable(String tableName) {
-        return new ArrayList<>();
+    private List<String> getTargetColumnsFromTable(String dbName, String tableName) {
+        List<String> columnNames = new ArrayList<>();
+        String fullDbName = ClusterNamespace.getFullName(SystemInfoService.DEFAULT_CLUSTER, dbName);
+        try {
+            DatabaseIf<?> databaseIf = Env.getCurrentEnv().getInternalCatalog().getDbNullable(fullDbName);
+            Table targetTable = (Table) databaseIf.getTableOrAnalysisException(tableName);
+            List<Column> columns = targetTable.getColumns();
+            columns.stream()
+                    .filter(c -> !c.isVersionColumn())
+                    .filter(c -> !c.isDeleteSignColumn())
+                    .forEach(e -> columnNames.add(e.getName()));
+        } catch (AnalysisException e) {
+            throw new RuntimeException(e);
+        }
+        return columnNames;
     }
 
     @Override
@@ -264,7 +369,7 @@ public class BulkLoadDataDesc {
         }
         sb.append(" INTO TABLE ");
         sb.append(isMysqlLoad ? ClusterNamespace.getNameFromFullName(dbName) + "." + tableName : tableName);
-        if (partitionNames != null) {
+        if (partitionNames != null && !partitionNames.isEmpty()) {
             sb.append(" (");
             Joiner.on(", ").appendTo(sb, partitionNames).append(")");
         }
