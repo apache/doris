@@ -32,7 +32,7 @@ public:
 
     virtual ~DateFuncTest() {}
 
-    uint32_t test_timestamp_from_date_v2(const std::string& date_str) {
+    static uint32_t test_timestamp_from_date_v2(const std::string& date_str) {
         tm time_tm;
         char* res = strptime(date_str.c_str(), "%Y-%m-%d", &time_tm);
 
@@ -62,8 +62,7 @@ TEST_F(DateFuncTest, convert_string_to_int) {
 }
 
 TEST_F(DateFuncTest, convert_string_to_datev1) {
-    DateFuncTest date_func_test;
-    uint32_t result1 = date_func_test.test_timestamp_from_date_v2(std::string("2021-06-08"));
+    uint32_t result1 = DateFuncTest::test_timestamp_from_date_v2(std::string("2021-06-08"));
     uint32_t result11 = timestamp_from_date_v2(std::string("2021-06-08"));
 
     std::cout << result1 << "   " << result11 << std::endl;
