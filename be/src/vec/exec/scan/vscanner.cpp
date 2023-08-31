@@ -39,7 +39,7 @@ VScanner::VScanner(RuntimeState* state, VScanNode* parent, int64_t limit, Runtim
     _total_rf_num = _parent->runtime_filter_num();
 }
 
-VScanner::VScanner(RuntimeState* state, pipeline::ScanLocalState* local_state, int64_t limit,
+VScanner::VScanner(RuntimeState* state, pipeline::ScanLocalStateBase* local_state, int64_t limit,
                    RuntimeProfile* profile)
         : _state(state),
           _parent(nullptr),

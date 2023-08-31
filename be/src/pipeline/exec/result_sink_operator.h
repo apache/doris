@@ -20,6 +20,7 @@
 #include <stdint.h>
 
 #include "operator.h"
+#include "pipeline/pipeline_x/operator.h"
 #include "vec/sink/vresult_sink.h"
 
 namespace doris {
@@ -45,7 +46,7 @@ class ResultSinkLocalState final : public PipelineXSinkLocalState<> {
     ENABLE_FACTORY_CREATOR(ResultSinkLocalState);
 
 public:
-    ResultSinkLocalState(DataSinkOperatorX* parent, RuntimeState* state)
+    ResultSinkLocalState(DataSinkOperatorXBase* parent, RuntimeState* state)
             : PipelineXSinkLocalState<>(parent, state) {}
 
     Status init(RuntimeState* state, LocalSinkStateInfo& info) override;
@@ -61,13 +62,12 @@ private:
     std::shared_ptr<ResultWriter> _writer;
 };
 
-class ResultSinkOperatorX final : public DataSinkOperatorX {
+class ResultSinkOperatorX final : public DataSinkOperatorX<ResultSinkLocalState> {
 public:
     ResultSinkOperatorX(const RowDescriptor& row_desc, const std::vector<TExpr>& select_exprs,
                         const TResultSink& sink);
     Status prepare(RuntimeState* state) override;
     Status open(RuntimeState* state) override;
-    Status setup_local_state(RuntimeState* state, LocalSinkStateInfo& info) override;
 
     Status sink(RuntimeState* state, vectorized::Block* in_block,
                 SourceState source_state) override;

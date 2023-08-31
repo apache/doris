@@ -88,7 +88,7 @@ NewOlapScanner::NewOlapScanner(RuntimeState* state, NewOlapScanNode* parent, int
     _is_init = false;
 }
 
-NewOlapScanner::NewOlapScanner(RuntimeState* state, pipeline::ScanLocalState* local_state,
+NewOlapScanner::NewOlapScanner(RuntimeState* state, pipeline::ScanLocalStateBase* local_state,
                                int64_t limit, bool aggregation, const TPaloScanRange& scan_range,
                                const std::vector<OlapScanRange*>& key_ranges,
                                RuntimeProfile* profile)
@@ -101,7 +101,7 @@ NewOlapScanner::NewOlapScanner(RuntimeState* state, pipeline::ScanLocalState* lo
     _is_init = false;
 }
 
-NewOlapScanner::NewOlapScanner(RuntimeState* state, pipeline::ScanLocalState* local_state,
+NewOlapScanner::NewOlapScanner(RuntimeState* state, pipeline::ScanLocalStateBase* local_state,
                                int64_t limit, bool aggregation, const TPaloScanRange& scan_range,
                                const std::vector<OlapScanRange*>& key_ranges,
                                const std::vector<RowSetSplits>& rs_splits, RuntimeProfile* profile)

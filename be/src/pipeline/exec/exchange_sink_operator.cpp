@@ -242,12 +242,6 @@ Status ExchangeSinkOperatorX::init(const TDataSink& tsink) {
     return Status::OK();
 }
 
-Status ExchangeSinkOperatorX::setup_local_state(RuntimeState* state, LocalSinkStateInfo& info) {
-    auto local_state = ExchangeSinkLocalState::create_shared(this, state);
-    state->emplace_sink_local_state(id(), local_state);
-    return local_state->init(state, info);
-}
-
 Status ExchangeSinkOperatorX::prepare(RuntimeState* state) {
     _state = state;
 

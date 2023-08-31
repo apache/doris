@@ -141,12 +141,6 @@ Status SortSinkOperatorX::open(RuntimeState* state) {
     return _vsort_exec_exprs.open(state);
 }
 
-Status SortSinkOperatorX::setup_local_state(RuntimeState* state, LocalSinkStateInfo& info) {
-    auto local_state = SortSinkLocalState::create_shared(this, state);
-    state->emplace_sink_local_state(id(), local_state);
-    return local_state->init(state, info);
-}
-
 Status SortSinkOperatorX::sink(doris::RuntimeState* state, vectorized::Block* in_block,
                                SourceState source_state) {
     auto& local_state = state->get_sink_local_state(id())->cast<SortSinkLocalState>();

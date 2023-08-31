@@ -22,6 +22,7 @@
 
 #include "operator.h"
 #include "pipeline/pipeline_x/dependency.h"
+#include "pipeline/pipeline_x/operator.h"
 #include "vec/exec/vanalytic_eval_node.h"
 
 namespace doris {
@@ -50,7 +51,7 @@ class AnalyticSinkLocalState : public PipelineXSinkLocalState<AnalyticDependency
     ENABLE_FACTORY_CREATOR(AnalyticSinkLocalState);
 
 public:
-    AnalyticSinkLocalState(DataSinkOperatorX* parent, RuntimeState* state)
+    AnalyticSinkLocalState(DataSinkOperatorXBase* parent, RuntimeState* state)
             : PipelineXSinkLocalState<AnalyticDependency>(parent, state) {}
 
     Status init(RuntimeState* state, LocalSinkStateInfo& info) override;
@@ -65,27 +66,23 @@ private:
     std::vector<vectorized::VExprContextSPtrs> _agg_expr_ctxs;
 };
 
-class AnalyticSinkOperatorX final : public DataSinkOperatorX {
+class AnalyticSinkOperatorX final : public DataSinkOperatorX<AnalyticSinkLocalState> {
 public:
     AnalyticSinkOperatorX(ObjectPool* pool, const TPlanNode& tnode, const DescriptorTbl& descs);
     Status init(const TDataSink& tsink) override {
-        return Status::InternalError("{} should not init with TPlanNode", _name);
+        return Status::InternalError("{} should not init with TPlanNode",
+                                     DataSinkOperatorX<AnalyticSinkLocalState>::_name);
     }
 
     Status init(const TPlanNode& tnode, RuntimeState* state) override;
 
     Status prepare(RuntimeState* state) override;
     Status open(RuntimeState* state) override;
-    Status setup_local_state(RuntimeState* state, LocalSinkStateInfo& info) override;
 
     Status sink(RuntimeState* state, vectorized::Block* in_block,
                 SourceState source_state) override;
 
     bool can_write(RuntimeState* state) override;
-
-    void get_dependency(DependencySPtr& dependency) override {
-        dependency.reset(new AnalyticDependency(id()));
-    }
 
 private:
     Status _insert_range_column(vectorized::Block* block, const vectorized::VExprContextSPtr& expr,
