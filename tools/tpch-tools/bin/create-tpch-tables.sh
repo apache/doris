@@ -33,7 +33,7 @@ CURDIR=${ROOT}
 usage() {
     echo "
 This script is used to create TPC-H tables, 
-will use mysql client to connect Doris server which is specified in doris-cluster.conf file.
+will use mysql client to connect Doris server which is specified in cluster.conf file.
 Usage: $0 
   "
     exit 1
@@ -83,17 +83,28 @@ check_prerequest() {
 
 check_prerequest "mysql --version" "mysql"
 
-source "${CURDIR}/../conf/doris-cluster.conf"
+source "${CURDIR}/../conf/cluster.conf"
 export MYSQL_PWD=${PASSWORD}
+
+clt=""
+exec_clt=""
+if [ -z "${PASSWORD}" ];then
+    clt="mysql -h${FE_HOST} -u${USER} -P${FE_QUERY_PORT} -D${DB} "
+    exec_clt="mysql -vvv -h$FE_HOST -u$USER -P$FE_QUERY_PORT -D$DB "
+else
+    clt="mysql -h${FE_HOST} -u${USER} -p${PASSWORD} -P${FE_QUERY_PORT} -D${DB} "
+    exec_clt="mysql -vvv -h$FE_HOST -u$USER -p${PASSWORD} -P$FE_QUERY_PORT -D$DB "
+fi
+
 
 echo "FE_HOST: ${FE_HOST}"
 echo "FE_QUERY_PORT: ${FE_QUERY_PORT}"
 echo "USER: ${USER}"
 echo "DB: ${DB}"
 
-mysql -h"${FE_HOST}" -u"${USER}" -P"${FE_QUERY_PORT}" -e "CREATE DATABASE IF NOT EXISTS ${DB}"
+$clt -e "CREATE DATABASE IF NOT EXISTS ${DB}"
 
 echo "Run SQLs from ${CURDIR}/create-tpch-tables.sql"
-mysql -h"${FE_HOST}" -u"${USER}" -P"${FE_QUERY_PORT}" -D"${DB}" <"${CURDIR}"/../ddl/create-tpch-tables.sql
+$clt <"${CURDIR}"/../ddl/create-tpch-tables.sql
 
 echo "tpch tables has been created"

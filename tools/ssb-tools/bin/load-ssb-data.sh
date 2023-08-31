@@ -30,7 +30,14 @@ ROOT=$(
 )
 
 CURDIR="${ROOT}"
-SSB_DATA_DIR="${CURDIR}/ssb-data/"
+
+source $CURDIR/../conf/cluster.conf
+SSB_DATA_DIR="${DATA_SAVE_DIR}"
+if [ "_${SSB_DATA_DIR}" == "_ssb-data" ];then
+    SSB_DATA_DIR="$CURDIR/../bin/${DATA_SAVE_DIR}"
+fi
+echo "SSB_DATA_DIR: ${SSB_DATA_DIR}"
+
 
 usage() {
     echo "
@@ -50,7 +57,6 @@ OPTS=$(getopt \
     -o '' \
     -o 'hc:' \
     -- "$@")
-
 eval set -- "${OPTS}"
 
 PARALLEL=5
@@ -102,11 +108,25 @@ check_prerequest() {
     fi
 }
 
+clt=""
+if [ -z "${PASSWORD}" ];then
+    clt="mysql -h${FE_HOST} -u${USER} -P${FE_QUERY_PORT} -D${DB} "
+else
+    clt="mysql -h${FE_HOST} -u${USER} -p${PASSWORD} -P${FE_QUERY_PORT} -D${DB} "
+fi
+
 run_sql() {
     sql="$*"
     echo "${sql}"
-    mysql -h"${FE_HOST}" -u"${USER}" -P"${FE_QUERY_PORT}" -D"${DB}" -e "$@"
+    $clt -e "$@"
 }
+
+run_sql "truncate table part;"
+run_sql "truncate table customer;"
+run_sql "truncate table supplier;"
+run_sql "truncate table dates;"
+run_sql "truncate table lineorder;"
+run_sql "truncate table lineorder_flat;"
 
 load_lineitem_flat() {
     # Loading data in batches by year.
@@ -187,7 +207,7 @@ ON (p.p_partkey = l.lo_partkey);
 
 check_prerequest "curl --version" "curl"
 
-source "${CURDIR}/../conf/doris-cluster.conf"
+source "${CURDIR}/../conf/cluster.conf"
 export MYSQL_PWD=${PASSWORD}
 
 echo "FE_HOST: ${FE_HOST}"
@@ -195,34 +215,63 @@ echo "FE_HTTP_PORT: ${FE_HTTP_PORT}"
 echo "USER: ${USER}"
 echo "DB: ${DB}"
 
+touch $CURDIR/../ssb_load_result.csv
+truncate -s0 $CURDIR/../ssb_load_result.csv
+touch $CURDIR/../ssb_flat_load_result.csv
+truncate -s0 $CURDIR/../ssb_flat_load_result.csv
+
 start_time=$(date +%s)
 echo "Start time: $(date)"
 echo "==========Start to load data into ssb tables=========="
-
+part_start=$(date +%s.%N)
 echo 'Loading data for table: part'
 curl --location-trusted -u "${USER}":"${PASSWORD}" \
     -H "column_separator:|" \
     -H "columns:p_partkey,p_name,p_mfgr,p_category,p_brand,p_color,p_type,p_size,p_container,p_dummy" \
     -T "${SSB_DATA_DIR}"/part.tbl http://"${FE_HOST}":"${FE_HTTP_PORT}"/api/"${DB}"/part/_stream_load
+part_end=$(date +%s.%N)
+cost_time=$(echo "scale=4;$part_end-$part_start" | bc)
+echo -n "part_stream_load:" | tee -a $CURDIR/../ssb_load_result.csv
+echo -n "$cost_time" | tee -a $CURDIR/../ssb_load_result.csv
+echo "" | tee -a $CURDIR/../ssb_load_result.csv
 
+dates_start=$(date +%s.%N)
 echo 'Loading data for table: date'
 curl --location-trusted -u "${USER}":"${PASSWORD}" \
     -H "column_separator:|" \
     -H "columns:d_datekey,d_date,d_dayofweek,d_month,d_year,d_yearmonthnum,d_yearmonth,d_daynuminweek,d_daynuminmonth,d_daynuminyear,d_monthnuminyear,d_weeknuminyear,d_sellingseason,d_lastdayinweekfl,d_lastdayinmonthfl,d_holidayfl,d_weekdayfl,d_dummy" \
     -T "${SSB_DATA_DIR}"/date.tbl http://"${FE_HOST}":"${FE_HTTP_PORT}"/api/"${DB}"/dates/_stream_load
+dates_end=$(date +%s.%N)
+cost_time=$(echo "scale=4;$dates_end-$dates_start" | bc)
+echo -n "dates_stream_load:" | tee -a $CURDIR/../ssb_load_result.csv
+echo -n "$cost_time" | tee -a $CURDIR/../ssb_load_result.csv
+echo "" | tee -a $CURDIR/../ssb_load_result.csv
 
+supplier_start=$(date +%s.%N)
 echo 'Loading data for table: supplier'
 curl --location-trusted -u "${USER}":"${PASSWORD}" \
     -H "column_separator:|" \
     -H "columns:s_suppkey,s_name,s_address,s_city,s_nation,s_region,s_phone,s_dummy" \
     -T "${SSB_DATA_DIR}"/supplier.tbl http://"${FE_HOST}":"${FE_HTTP_PORT}"/api/"${DB}"/supplier/_stream_load
+supplier_end=$(date +%s.%N)
+cost_time=$(echo "scale=4;$supplier_end-$supplier_start" | bc)
+echo -n "supplier_stream_load:" | tee -a $CURDIR/../ssb_load_result.csv
+echo -n "$cost_time" | tee -a $CURDIR/../ssb_load_result.csv
+echo "" | tee -a $CURDIR/../ssb_load_result.csv
 
+customer_start=$(date +%s.%N)
 echo 'Loading data for table: customer'
 curl --location-trusted -u "${USER}":"${PASSWORD}" \
     -H "column_separator:|" \
     -H "columns:c_custkey,c_name,c_address,c_city,c_nation,c_region,c_phone,c_mktsegment,no_use" \
     -T "${SSB_DATA_DIR}"/customer.tbl http://"${FE_HOST}":"${FE_HTTP_PORT}"/api/"${DB}"/customer/_stream_load
+customer_end=$(date +%s.%N)
+cost_time=$(echo "scale=4;$customer_end-$customer_start" | bc)
+echo -n "customer_stream_load:" | tee -a $CURDIR/../ssb_load_result.csv
+echo -n "$cost_time" | tee -a $CURDIR/../ssb_load_result.csv
+echo "" | tee -a $CURDIR/../ssb_load_result.csv
 
+lineorder_start=$(date +%s.%N)
 echo "Loading data for table: lineorder, with ${PARALLEL} parallel"
 function load() {
     echo "$@"
@@ -252,6 +301,12 @@ done
 
 # wait for child thread finished
 wait
+lineorder_end=$(date +%s.%N)
+cost_time=$(echo "scale=4;$lineorder_end-$lineorder_start" | bc)
+echo -n "lineorder_stream_load:" | tee -a $CURDIR/../ssb_load_result.csv
+echo -n "$cost_time" | tee -a $CURDIR/../ssb_load_result.csv
+echo "" | tee -a $CURDIR/../ssb_load_result.csv
+
 date
 
 echo "==========Start to insert data into ssb flat table=========="
@@ -265,7 +320,13 @@ run_sql "set global insert_timeout=7200;"
 run_sql "set global parallel_fragment_exec_instance_num=1;"
 echo '============================================'
 date
+lineitem_flat_start=$(date +%s.%N)
 load_lineitem_flat
+lineitem_flat_end=$(date +%s.%N)
+cost_time=$(echo "scale=4;$lineitem_flat_end-$lineitem_flat_start" | bc)
+echo -n "lineitem_flat_insert_into:" | tee -a $CURDIR/../ssb_flat_load_result.csv
+echo -n "$cost_time" | tee -a $CURDIR/../ssb_flat_load_result.csv
+echo "" | tee -a $CURDIR/../ssb_flat_load_result.csv
 date
 echo '============================================'
 echo "restore session variables"
