@@ -73,9 +73,9 @@ CREATE TABLE IF NOT EXISTS example_db.example_tbl
     `age` SMALLINT COMMENT "age",
     `sex` TINYINT COMMENT "gender",
     `last_visit_date` DATETIME REPLACE DEFAULT "1970-01-01 00:00:00" COMMENT "last visit date time",
-    `cost` BIGINT SUM DEFAULT "0" COMMENT "user total cost",
-    `max_dwell_time` INT MAX DEFAULT "0" COMMENT "user max dwell time",
-    `min_dwell_time` INT MIN DEFAULT "99999" COMMENT "user min dwell time"
+    `cost` BIGINT SUM DEFAULT 0 COMMENT "user total cost",
+    `max_dwell_time` INT MAX DEFAULT 0 COMMENT "user max dwell time",
+    `min_dwell_time` INT MIN DEFAULT 99999 COMMENT "user min dwell time"
 )
 AGGREGATE KEY(`user_id`, `date`, `city`, `age`, `sex`)
 DISTRIBUTED BY HASH(`user_id`) BUCKETS 1

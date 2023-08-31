@@ -120,7 +120,7 @@ distribution_desc
         当前default_value支持两种形式：
         1. 用户指定固定值，如：
         ```SQL
-            k1 INT DEFAULT '1',
+            k1 INT DEFAULT 1,
             k2 CHAR(10) DEFAULT 'aaaa'
         ```
         2. 系统提供的关键字，目前支持以下关键字：
@@ -134,12 +134,12 @@ distribution_desc
       
   ```text
   k1 TINYINT,
-  k2 DECIMAL(10,2) DEFAULT "10.5",
-  k4 BIGINT NULL DEFAULT "1000" COMMENT "This is column k4",
+  k2 DECIMAL(10,2) DEFAULT 10.5,
+  k4 BIGINT NULL DEFAULT 1000 COMMENT "This is column k4",
   v1 VARCHAR(10) REPLACE NOT NULL,
   v2 BITMAP BITMAP_UNION,
   v3 HLL HLL_UNION,
-  v4 INT SUM NOT NULL DEFAULT "1" COMMENT "This is column v4"
+  v4 INT SUM NOT NULL DEFAULT 1 COMMENT "This is column v4"
   ```
     
 #### index_definition_list
