@@ -103,6 +103,8 @@ suite("regression_test_variant", "variant_type"){
             qt_sql_1_5 "select cast(v:b as string) from ${table_name} order by k"
             verify table_name 
         }
+        // FIXME
+        sql "insert into simple_variant_DUPLICATE select k, cast(v as string) from simple_variant_UNIQUE;"
         
         // 2. type confilct cases
         def table_name = "type_conflict_resolution"
