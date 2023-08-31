@@ -52,17 +52,8 @@ import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.SqlParserUtils;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.datasource.InternalCatalog;
-import org.apache.doris.nereids.DorisLexer;
-import org.apache.doris.nereids.DorisParser;
-import org.apache.doris.nereids.StatementContext;
-import org.apache.doris.nereids.glue.LogicalPlanAdapter;
-import org.apache.doris.nereids.parser.CaseInsensitiveStream;
-import org.apache.doris.nereids.parser.LogicalPlanBuilder;
-import org.apache.doris.nereids.parser.ParseErrorListener;
-import org.apache.doris.nereids.parser.PostProcessor;
-import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
+import org.apache.doris.nereids.util.ParseSqlUtils;
 import org.apache.doris.persist.gson.GsonUtils;
-import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.OriginStatement;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.qe.StmtExecutor;
@@ -77,11 +68,6 @@ import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.gson.annotations.SerializedName;
 import lombok.Data;
-import org.antlr.v4.runtime.CharStreams;
-import org.antlr.v4.runtime.CommonTokenStream;
-import org.antlr.v4.runtime.ParserRuleContext;
-import org.antlr.v4.runtime.atn.PredictionMode;
-import org.antlr.v4.runtime.misc.ParseCancellationException;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -97,6 +83,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.stream.Collectors;
 
 @Data
 public class ExportJob implements Writable {
@@ -183,6 +170,12 @@ public class ExportJob implements Writable {
     // TODO(ftw): delete
     private List<SelectStmt> selectStmtList = Lists.newArrayList();
 
+    /**
+     * Each parallel has an associated Outfile list
+     * which are organized into a two-dimensional list.
+     * Therefore, we can access the selectStmtListPerParallel
+     * to get the outfile logical plans list responsible for each parallel task.
+     */
     private List<List<StatementBase>> selectStmtListPerParallel = Lists.newArrayList();
 
     private List<List<String>> outfileSqlPerParallel = Lists.newArrayList();
@@ -395,44 +388,8 @@ public class ExportJob implements Writable {
         }
 
         outfileSqlPerParallel.stream().forEach(outfileSqlList -> {
-            List<StatementBase> logicalPlanAdapterList = Lists.newArrayList();
-            outfileSqlList.stream().forEach(outfileSql -> {
-                DorisLexer lexer = new DorisLexer(new CaseInsensitiveStream(CharStreams.fromString(outfileSql)));
-                CommonTokenStream tokenStream = new CommonTokenStream(lexer);
-                DorisParser parser = new DorisParser(tokenStream);
-
-                parser.addParseListener(new PostProcessor());
-                parser.removeErrorListeners();
-                parser.addErrorListener(new ParseErrorListener());
-
-                ParserRuleContext tree;
-                try {
-                    // first, try parsing with potentially faster SLL mode
-                    parser.getInterpreter().setPredictionMode(PredictionMode.SLL);
-                    tree =  parser.singleStatement();
-                } catch (ParseCancellationException ex) {
-                    // if we fail, parse with LL mode
-                    tokenStream.seek(0); // rewind input stream
-                    parser.reset();
-
-                    parser.getInterpreter().setPredictionMode(PredictionMode.LL);
-                    tree =  parser.singleStatement();
-                }
-                // use nereids to parse 'select...into outfile' sql
-                // and get LogicalPlanAdapter
-                StatementContext statementContext = new StatementContext();
-                ConnectContext connectContext = ConnectContext.get();
-                if (connectContext != null) {
-                    connectContext.setStatementContext(statementContext);
-                    statementContext.setConnectContext(connectContext);
-                }
-
-                LogicalPlanBuilder logicalPlanBuilder = new LogicalPlanBuilder();
-                LogicalPlan statements = (LogicalPlan) logicalPlanBuilder.visit(tree);
-                LogicalPlanAdapter logicalPlanAdapter = new LogicalPlanAdapter(statements, statementContext);
-                logicalPlanAdapter.setOrigStmt(new OriginStatement(outfileSql, 0));
-                logicalPlanAdapterList.add(logicalPlanAdapter);
-            });
+            List<StatementBase> logicalPlanAdapterList = outfileSqlList.stream().map(sql ->
+                    ParseSqlUtils.parseSingleStringSql(sql)).collect(Collectors.toList());
             selectStmtListPerParallel.add(logicalPlanAdapterList);
         });
     }
@@ -745,7 +702,7 @@ public class ExportJob implements Writable {
         // we need cancel all task
         taskIdToExecutor.keySet().forEach(id -> {
             try {
-                Env.getCurrentEnv().getTransientTaskRegister().cancelTask(id);
+                Env.getCurrentEnv().getExportTaskRegister().cancelTask(id);
             } catch (JobException e) {
                 LOG.warn("cancel export task {} exception: {}", id, e);
             }
@@ -845,7 +802,7 @@ public class ExportJob implements Writable {
      */
     public void cancelReplayedExportJob() {
         if (state == ExportJobState.PENDING || state == ExportJobState.EXPORTING || state == ExportJobState.IN_QUEUE) {
-            String failMsg = "FE restarted or Master changed during exporting. Job must be cancelled.";
+            final String failMsg = "FE restarted or Master changed during exporting. Job must be cancelled.";
             this.failMsg = new ExportFailMsg(ExportFailMsg.CancelType.RUN_FAIL, failMsg);
             setExportJobState(ExportJobState.CANCELLED);
         }

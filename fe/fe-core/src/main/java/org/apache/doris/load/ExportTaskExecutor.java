@@ -96,7 +96,6 @@ public class ExportTaskExecutor implements TransientTaskExecutor {
                         Optional<UnboundRelation> unboundRelation = findUnboundRelation(
                                 logicalPlanAdapter.getLogicalPlan());
                         tabletIds = unboundRelation.get().getTabletIds();
-                        logicalPlanAdapter.getLogicalPlan().getLogicalProperties();
                     } else {
                         SelectStmt selectStmt = (SelectStmt) selectStmtLists.get(idx);
                         tabletIds = selectStmt.getTableRefs().get(0).getSampleTabletIds();

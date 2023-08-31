@@ -175,7 +175,7 @@ public class ExportMgr extends MasterDaemon {
             }
             unprotectAddJob(job);
             job.getJobExecutorList().forEach(executor -> {
-                Long taskId = Env.getCurrentEnv().getTransientTaskRegister().registerTask(executor);
+                Long taskId = Env.getCurrentEnv().getExportTaskRegister().registerTask(executor);
                 executor.setTaskId(taskId);
                 job.getTaskIdToExecutor().put(taskId, executor);
             });
