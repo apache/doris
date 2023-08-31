@@ -98,7 +98,7 @@ public class PasswordPolicyManager implements Writable {
         // Compatible with setting the password expiration time and changing the password again
         ExpirePolicy expirePolicy = passwordPolicy.getExpirePolicy();
         if (expirePolicy.passwordCreateTime != 0) {
-            expirePolicy.setPasswordUpdateTime();
+            expirePolicy.setPasswordCreateTime();
         }
     }
 
