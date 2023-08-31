@@ -994,7 +994,8 @@ void FragmentMgr::cancel_worker() {
                     // 2. If fe has zero process uuid, do not cancel
                     // 3. If query's process uuid is zero, do not cancel
                     if (q.second->get_fe_process_uuid() == itr->second.info.process_uuid ||
-                        itr->second.info.process_uuid == 0 || q.second->get_fe_process_uuid() == 0) {
+                        itr->second.info.process_uuid == 0 ||
+                        q.second->get_fe_process_uuid() == 0) {
                         continue;
                     }
                 }
