@@ -5,9 +5,9 @@
 -- to you under the Apache License, Version 2.0 (the
 -- "License"); you may not use this file except in compliance
 -- with the License.  You may obtain a copy of the License at
--- 
+--
 --   http://www.apache.org/licenses/LICENSE-2.0
--- 
+--
 -- Unless required by applicable law or agreed to in writing,
 -- software distributed under the License is distributed on an
 -- "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
@@ -15,6 +15,7 @@
 -- specific language governing permissions and limitations
 -- under the License.
 
+drop table if exists `lineorder`;
 CREATE TABLE IF NOT EXISTS `lineorder` (
   `lo_orderkey` int(11) NOT NULL COMMENT "",
   `lo_linenumber` int(11) NOT NULL COMMENT "",
@@ -52,6 +53,7 @@ PROPERTIES (
 "storage_format" = "DEFAULT"
 );
 
+drop table if exists `customer`;
 CREATE TABLE IF NOT EXISTS `customer` (
   `c_custkey` int(11) NOT NULL COMMENT "",
   `c_name` varchar(26) NOT NULL COMMENT "",
@@ -72,6 +74,7 @@ PROPERTIES (
 "storage_format" = "DEFAULT"
 );
 
+drop table if exists `dates`;
 CREATE TABLE IF NOT EXISTS `dates` (
   `d_datekey` int(11) NOT NULL COMMENT "",
   `d_date` varchar(20) NOT NULL COMMENT "",
@@ -101,6 +104,7 @@ PROPERTIES (
 "storage_format" = "DEFAULT"
 );
 
+drop table if exists `supplier`;
  CREATE TABLE IF NOT EXISTS `supplier` (
   `s_suppkey` int(11) NOT NULL COMMENT "",
   `s_name` varchar(26) NOT NULL COMMENT "",
@@ -120,6 +124,7 @@ PROPERTIES (
 "storage_format" = "DEFAULT"
 );
 
+drop table if exists `part`;
 CREATE TABLE IF NOT EXISTS `part` (
   `p_partkey` int(11) NOT NULL COMMENT "",
   `p_name` varchar(23) NOT NULL COMMENT "",

@@ -30,7 +30,12 @@ ROOT=$(
 )
 
 CURDIR="${ROOT}"
-TPCH_DATA_DIR="${CURDIR}/tpch-data"
+source $CURDIR/../conf/cluster.conf
+TPCH_DATA_DIR="${DATA_SAVE_DIR}"
+if [ "_${TPCH_DATA_DIR}" == "_tpch-data" ];then
+    TPCH_DATA_DIR="$CURDIR/../bin/${DATA_SAVE_DIR}"
+fi
+echo "TPCH_DATA_DIR: ${TPCH_DATA_DIR}"
 
 usage() {
     echo "
@@ -105,13 +110,31 @@ check_prerequest() {
 check_prerequest "curl --version" "curl"
 
 # load tables
-source "${CURDIR}/../conf/doris-cluster.conf"
+source "${CURDIR}/../conf/cluster.conf"
 export MYSQL_PWD=${PASSWORD}
 
 echo "FE_HOST: ${FE_HOST}"
 echo "FE_HTTP_PORT: ${FE_HTTP_PORT}"
 echo "USER: ${USER}"
 echo "DB: ${DB}"
+
+touch $CURDIR/../tpch_load_result.csv
+truncate -s0 $CURDIR/../tpch_load_result.csv
+
+clt=""
+exec_clt=""
+if [ -z "${PASSWORD}" ];then
+    clt="mysql -h${FE_HOST} -u${USER} -P${FE_QUERY_PORT} -D${DB} "
+    exec_clt="mysql -vvv -h$FE_HOST -u$USER -P$FE_QUERY_PORT -D$DB "
+else
+    clt="mysql -h${FE_HOST} -u${USER} -p${PASSWORD} -P${FE_QUERY_PORT} -D${DB} "
+    exec_clt="mysql -vvv -h$FE_HOST -u$USER -p${PASSWORD} -P$FE_QUERY_PORT -D$DB "
+fi
+
+run_sql() {
+    echo "$*"
+    $clt -e "$*"
+}
 
 function load_region() {
     echo "$*"
@@ -162,14 +185,58 @@ function load_lineitem() {
         -T "$*" http://"${FE_HOST}":"${FE_HTTP_PORT}"/api/"${DB}"/lineitem/_stream_load
 }
 
+run_sql "truncate table lineitem;"
+run_sql "truncate table orders;"
+run_sql "truncate table partsupp;"
+run_sql "truncate table part;"
+run_sql "truncate table customer;"
+run_sql "truncate table supplier;"
+run_sql "truncate table nation;"
+run_sql "truncate table region;"
+
 # start load
 start_time=$(date +%s)
 echo "Start time: $(date)"
+
+region_start=$(date +%s.%N)
 load_region "${TPCH_DATA_DIR}"/region.tbl
+region_end=$(date +%s.%N)
+cost_time=$(echo "scale=4;$region_end-$region_start" | bc)
+echo -n "region_stream_load:" | tee -a $CURDIR/../tpch_load_result.csv
+echo -n "$cost_time" | tee -a $CURDIR/../tpch_load_result.csv
+echo "" | tee -a $CURDIR/../tpch_load_result.csv
+
+nation_start=$(date +%s.%N)
 load_nation "${TPCH_DATA_DIR}"/nation.tbl
+nation_end=$(date +%s.%N)
+cost_time=$(echo "scale=4;$nation_end-$nation_start" | bc)
+echo -n "nation_stream_load:" | tee -a $CURDIR/../tpch_load_result.csv
+echo -n "$cost_time" | tee -a $CURDIR/../tpch_load_result.csv
+echo "" | tee -a $CURDIR/../tpch_load_result.csv
+
+supplier_start=$(date +%s.%N)
 load_supplier "${TPCH_DATA_DIR}"/supplier.tbl
+supplier_end=$(date +%s.%N)
+cost_time=$(echo "scale=4;$supplier_end-$supplier_start" | bc)
+echo -n "supplier_stream_load:" | tee -a $CURDIR/../tpch_load_result.csv
+echo -n "$cost_time" | tee -a $CURDIR/../tpch_load_result.csv
+echo "" | tee -a $CURDIR/../tpch_load_result.csv
+
+customer_start=$(date +%s.%N)
 load_customer "${TPCH_DATA_DIR}"/customer.tbl
+customer_end=$(date +%s.%N)
+cost_time=$(echo "scale=4;$customer_end-$customer_start" | bc)
+echo -n "customer_stream_load:" | tee -a $CURDIR/../tpch_load_result.csv
+echo -n "$cost_time" | tee -a $CURDIR/../tpch_load_result.csv
+echo "" | tee -a $CURDIR/../tpch_load_result.csv
+
+part_start=$(date +%s.%N)
 load_part "${TPCH_DATA_DIR}"/part.tbl
+part_end=$(date +%s.%N)
+cost_time=$(echo "scale=4;$part_end-$part_start" | bc)
+echo -n "part_stream_load:" | tee -a $CURDIR/../tpch_load_result.csv
+echo -n "$cost_time" | tee -a $CURDIR/../tpch_load_result.csv
+echo "" | tee -a $CURDIR/../tpch_load_result.csv
 
 # set parallelism
 
@@ -188,6 +255,7 @@ for ((i = 1; i <= PARALLEL; i++)); do
 done
 
 date
+lineitem_start=$(date +%s.%N)
 for file in "${TPCH_DATA_DIR}"/lineitem.tbl*; do
     # 领取令牌, 即从fd3中读取行, 每次一行
     # 对管道，读一行便少一行，每次只能读取一行
@@ -204,8 +272,14 @@ for file in "${TPCH_DATA_DIR}"/lineitem.tbl*; do
         echo >&3
     } &
 done
+lineitem_end=$(date +%s.%N)
+cost_time=$(echo "scale=4;$lineitem_end-$lineitem_start" | bc)
+echo -n "lineitem_stream_load:" | tee -a $CURDIR/../tpch_load_result.csv
+echo -n "$cost_time" | tee -a $CURDIR/../tpch_load_result.csv
+echo "" | tee -a $CURDIR/../tpch_load_result.csv
 
 date
+orders_start=$(date +%s.%N)
 for file in "${TPCH_DATA_DIR}"/orders.tbl*; do
     read -r -u3
     {
@@ -215,8 +289,14 @@ for file in "${TPCH_DATA_DIR}"/orders.tbl*; do
         echo >&3
     } &
 done
+orders_end=$(date +%s.%N)
+cost_time=$(echo "scale=4;$orders_end-$orders_start" | bc)
+echo -n "orders_stream_load:" | tee -a $CURDIR/../tpch_load_result.csv
+echo -n "$cost_time" | tee -a $CURDIR/../tpch_load_result.csv
+echo "" | tee -a $CURDIR/../tpch_load_result.csv
 
 date
+partsupp_start=$(date +%s.%N)
 for file in "${TPCH_DATA_DIR}"/partsupp.tbl*; do
     read -r -u3
     {
@@ -226,6 +306,11 @@ for file in "${TPCH_DATA_DIR}"/partsupp.tbl*; do
         echo >&3
     } &
 done
+partsupp_end=$(date +%s.%N)
+cost_time=$(echo "scale=4;$partsupp_end-$partsupp_start" | bc)
+echo -n "partsupp_stream_load:" | tee -a $CURDIR/../tpch_load_result.csv
+echo -n "$cost_time" | tee -a $CURDIR/../tpch_load_result.csv
+echo "" | tee -a $CURDIR/../tpch_load_result.csv
 
 # 等待所有的后台子进程结束
 wait

@@ -15,6 +15,7 @@
 -- specific language governing permissions and limitations
 -- under the License.
 
+drop table if exists `lineorder_flat`;
 CREATE TABLE IF NOT EXISTS `lineorder_flat` (
   `LO_ORDERDATE` int(11) NOT NULL COMMENT "",
   `LO_ORDERKEY` int(11) NOT NULL COMMENT "",
