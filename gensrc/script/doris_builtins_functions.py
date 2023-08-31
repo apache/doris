@@ -890,9 +890,11 @@ visible_functions = {
         [['to_monday'], 'DATE', ['DATE'], 'ALWAYS_NULLABLE'],
         [['to_days'], 'INT', ['DATE'], 'ALWAYS_NULLABLE'],
 
-        [['date_trunc'], 'DATETIME', ['DATETIME', 'VARCHAR'], 'ALWAYS_NULLABLE'],
 
+        [['date_floor'], 'DATETIMEV2', ['DATETIMEV2', 'INT'], 'ALWAYS_NULLABLE'],
+        [['date_ceil'], 'DATETIMEV2', ['DATETIMEV2', 'INT'], 'ALWAYS_NULLABLE'],
         [['date_trunc'], 'DATETIMEV2', ['DATETIMEV2', 'VARCHAR'], 'ALWAYS_NULLABLE'],
+        [['date_trunc'], 'DATETIME', ['DATETIME', 'VARCHAR'], 'ALWAYS_NULLABLE'],
 
         [['year'], 'SMALLINT', ['DATETIME'], 'ALWAYS_NULLABLE'],
         [['month'], 'TINYINT', ['DATETIME'], 'ALWAYS_NULLABLE'],
