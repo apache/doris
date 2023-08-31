@@ -21,6 +21,7 @@
 
 #include "geo/geo_common.h"
 #include "geo/wkt_parse_type.h"
+#include "rapidjson/document.h"
 
 namespace doris {
 class GeoShape;
@@ -75,4 +76,3 @@ private:
 };
 
 } // namespace doris
-
