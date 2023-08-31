@@ -14,12 +14,11 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
-suite("hll", "rollup") {
+suite("hll_with_light_sc", "rollup") {
 
     sql """set enable_nereids_planner=true"""
-    sql "SET enable_fallback_to_original_planner=false"
     
-    def tbName1 = "test_materialized_view_hll1"
+    def tbName1 = "test_materialized_view_hll_with_light_sc1"
 
     sql "DROP TABLE IF EXISTS ${tbName1}"
     sql """
@@ -30,10 +29,10 @@ suite("hll", "rollup") {
                 sale_date date, 
                 sale_amt bigint
             ) 
-            DISTRIBUTED BY HASH(record_id) properties("replication_num" = "1");
+            DISTRIBUTED BY HASH(record_id) properties("replication_num" = "1", "light_schema_change" = "true");
         """
 
-    createMV "CREATE materialized VIEW amt_count AS SELECT store_id, hll_union(hll_hash(sale_amt)) FROM ${tbName1} GROUP BY store_id;"
+    createMV "CREATE materialized VIEW amt_count1 AS SELECT store_id, hll_union(hll_hash(sale_amt)) FROM ${tbName1} GROUP BY store_id;"
 
     sql "insert into ${tbName1} values(1, 1, 1, '2020-05-30',100);"
     sql "insert into ${tbName1} values(2, 1, 1, '2020-05-30',100);"
@@ -41,8 +40,6 @@ suite("hll", "rollup") {
 
     explain {
         sql("SELECT store_id, hll_union_agg(hll_hash(sale_amt)) FROM ${tbName1} GROUP BY store_id;")
-        contains "(amt_count)"
+        contains "(amt_count1)"
     }
-
-    sql "DROP TABLE ${tbName1} FORCE;"
 }

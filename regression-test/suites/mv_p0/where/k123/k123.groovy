@@ -65,7 +65,7 @@ suite ("k123p") {
 
     explain {
         sql("select k1,k2+k3 from d_table where k1 = '1' order by k1;")
-        contains "(d_table)"
+        contains "(k123p1w)"
     }
     qt_select_mv "select k1,k2+k3 from d_table where k1 = '1' order by k1;"
 

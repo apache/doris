@@ -26,7 +26,7 @@ suite("nereids_explain") {
 
     explain {
         sql("select count(2) + 1, sum(2) + sum(lo_suppkey) from lineorder")
-        contains "sum(lo_suppkey) + sum(2)"
+        contains "sum(2) + sum(lo_suppkey)"
     }
 
 
