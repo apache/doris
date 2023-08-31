@@ -65,8 +65,11 @@ TEST_F(DateFuncTest, convert_string_to_datev2) {
     uint32_t result1 = DateFuncTest::test_timestamp_from_date_v2(std::string("2021-06-08"));
     uint32_t result11 = timestamp_from_date_v2(std::string("2021-06-08")).to_date_int_val();
     EXPECT_EQ(result1, result11);
-    result1 = DateFuncTest::test_timestamp_from_date_v2(std::string("2021-16-08"));
-    result11 = timestamp_from_date_v2(std::string("2021-16-08")).to_date_int_val();
+    result1 = DateFuncTest::test_timestamp_from_date_v2(std::string("2000-2-29"));
+    result11 = timestamp_from_date_v2(std::string("2000-2-29")).to_date_int_val();
+    std::cout << result1 << "   " << result11 << std::endl;
+    result1 = DateFuncTest::test_timestamp_from_date_v2(std::string("2000-02-29"));
+    result11 = timestamp_from_date_v2(std::string("2000-02-29")).to_date_int_val();
     std::cout << result1 << "   " << result11 << std::endl;
 }
 
