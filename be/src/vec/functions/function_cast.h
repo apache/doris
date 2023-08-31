@@ -1999,8 +1999,12 @@ private:
                             {0}, 1, input_rows_count);
                 }
             } else {
-                // Could not cast to any other types when it hierarchical like '{"a" : 1}'
-                if (!data_type_to->is_nullable() && !WhichDataType(data_type_to).is_string()) {
+                if (variant.empty()) {
+                    // TODO not found root cause, a tmp fix
+                    col_to->assume_mutable()->insert_many_defaults(input_rows_count);
+                    col_to = make_nullable(col_to, true);
+                } else if (!data_type_to->is_nullable() && !WhichDataType(data_type_to).is_string()) {
+                    // Could not cast to any other types when it hierarchical like '{"a" : 1}'
                     // TODO we should convert as many as possible here, for examle
                     // this variant column's root is a number column, to convert to number column
                     // is also acceptable
