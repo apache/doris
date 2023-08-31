@@ -28,7 +28,9 @@ import org.apache.doris.nereids.rules.analysis.BindSink;
 import org.apache.doris.nereids.rules.analysis.CheckAnalysis;
 import org.apache.doris.nereids.rules.analysis.CheckBound;
 import org.apache.doris.nereids.rules.analysis.CheckPolicy;
+import org.apache.doris.nereids.rules.analysis.EliminateGroupByConstant;
 import org.apache.doris.nereids.rules.analysis.FillUpMissingSlots;
+import org.apache.doris.nereids.rules.analysis.NormalizeAggregate;
 import org.apache.doris.nereids.rules.analysis.NormalizeRepeat;
 import org.apache.doris.nereids.rules.analysis.ProjectToGlobalAggregate;
 import org.apache.doris.nereids.rules.analysis.ProjectWithDistinctToAggregate;
@@ -106,9 +108,14 @@ public class Analyzer extends AbstractBatchJobExecutor {
                 // LogicalProject for normalize. This rule depends on FillUpMissingSlots to fill up slots.
                 new NormalizeRepeat()
             ),
-            bottomUp(new SubqueryToApply()),
             bottomUp(new AdjustAggregateNullableForEmptySet()),
-            bottomUp(new CheckAnalysis())
+            // run CheckAnalysis before EliminateGroupByConstant in order to report error message correctly like bellow
+            // select SUM(lo_tax) FROM lineorder group by 1;
+            // errCode = 2, detailMessage = GROUP BY expression must not contain aggregate functions: sum(lo_tax)
+            bottomUp(new CheckAnalysis()),
+            topDown(new EliminateGroupByConstant()),
+            topDown(new NormalizeAggregate()),
+            bottomUp(new SubqueryToApply())
         );
     }
 }
