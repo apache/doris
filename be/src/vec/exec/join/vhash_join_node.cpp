@@ -454,6 +454,46 @@ Status HashJoinNode::pull(doris::RuntimeState* state, vectorized::Block* output_
         *eos = true;
         return Status::OK();
     }
+    //TODO: this short circuit maybe could refactor, no need to check at here.
+    if (_short_circuit_for_probe_and_additional_data) {
+        // when build table rows is 0 and not have other_join_conjunct and join type is one of LEFT_OUTER_JOIN/FULL_OUTER_JOIN/LEFT_ANTI_JOIN
+        // we could get the result is probe table + null-column(if need output)
+        // If we use a short-circuit strategy, should return block directly by add additional null data.
+        auto block_rows = _probe_block.rows();
+        if (_probe_eos) {
+            *eos = _probe_eos;
+            return Status::OK();
+        }
+        if (!output_block->mem_reuse()) {
+            *output_block = VectorizedUtils::create_empty_columnswithtypename(row_desc());
+        }
+
+        int column_idx = 0;
+        //get probe side output column
+        for (int i = 0; i < _left_output_slot_flags.size(); ++i) {
+            if (_left_output_slot_flags[i]) {
+                auto result_column_id = -1;
+                RETURN_IF_ERROR(_output_expr_ctxs[i]->execute(&_probe_block, &result_column_id));
+                auto column = _probe_block.get_by_position(result_column_id).column;
+                output_block->replace_by_position(column_idx++, std::move(column));
+            }
+        }
+        _probe_block.clear();
+        //create build side null column, if need output
+        for (int i = 0; i < _right_output_slot_flags.size(); ++i) {
+            if (_right_output_slot_flags[i]) {
+                auto column = remove_nullable(_right_table_data_types[i])->create_column();
+                column->resize(block_rows);
+                auto null_map_column = ColumnVector<UInt8>::create(block_rows, 1);
+                auto nullable_column =
+                        ColumnNullable::create(std::move(column), std::move(null_map_column));
+                output_block->replace_by_position(column_idx++, std::move(nullable_column));
+            }
+        }
+        reached_limit(output_block, eos);
+        return Status::OK();
+    }
+
     _join_block.clear_column_data();
 
     MutableBlock mutable_join_block(&_join_block);
