@@ -34,23 +34,24 @@ import java.util.List;
 import java.util.Objects;
 
 /**
- * LambdaClosure includes lambda arguments and function body
+ * Lambda includes lambda arguments and function body
  */
-public class LambdaClosure extends Expression implements UnaryExpression {
-
-    final List<String> arguments;
+public class Lambda extends Expression implements UnaryExpression {
+    final List<String> argumentNames;
+    ImmutableList<Slot> arguments;
 
     /**
      * constructor
      */
-    public LambdaClosure(List<String> arguments, Expression lambdaFunction) {
+    public Lambda(List<String> argumentNames, Expression lambdaFunction) {
         super(lambdaFunction);
-        this.arguments = arguments;
+        this.argumentNames = argumentNames;
     }
 
-    public LambdaClosure(List<String> arguments, List<Expression> lambdaFunction) {
+    public Lambda(List<String> argumentNames, ImmutableList<Slot> arguments, List<Expression> lambdaFunction) {
         super(lambdaFunction);
         this.arguments = arguments;
+        this.argumentNames = argumentNames;
     }
 
     /**
@@ -62,12 +63,33 @@ public class LambdaClosure extends Expression implements UnaryExpression {
         Builder<Slot> builder = new ImmutableList.Builder<>();
         for (int i = 0; i < arrays.size(); i++) {
             Expression array = arrays.get(i);
-            String name = arguments.get(i);
+            String name = argumentNames.get(i);
             Preconditions.checkArgument(array.getDataType() instanceof ArrayType, "lambda must receive array");
             ArrayType arrayType = (ArrayType) array.getDataType();
             builder.add(new ArrayItemReference(name, arrayType.getItemType(), arrayType.isNullType(), array));
         }
-        return builder.build();
+        arguments = builder.build();
+        return arguments;
+    }
+
+    public ArrayItemReference getLambdaArgument(int i) {
+        return (ArrayItemReference) arguments.get(i);
+    }
+
+    public List<Slot> getLambdaArguments() {
+        return arguments;
+    }
+
+    public String getLambdaArgumentName(int i) {
+        return argumentNames.get(i);
+    }
+
+    public List<String> getLambdaArgumentNames() {
+        return argumentNames;
+    }
+
+    public Expression getLambdaFunction() {
+        return children.get(0);
     }
 
     @Override
@@ -76,8 +98,8 @@ public class LambdaClosure extends Expression implements UnaryExpression {
     }
 
     @Override
-    public LambdaClosure withChildren(List<Expression> children) {
-        return new LambdaClosure(arguments, children);
+    public Lambda withChildren(List<Expression> children) {
+        return new Lambda(argumentNames, arguments, children);
     }
 
     @Override
@@ -88,21 +110,21 @@ public class LambdaClosure extends Expression implements UnaryExpression {
         if (o == null || getClass() != o.getClass()) {
             return false;
         }
-        LambdaClosure that = (LambdaClosure) o;
-        return that.arguments.equals(arguments) && Objects.equals(children(), that.children());
+        Lambda that = (Lambda) o;
+        return that.argumentNames.equals(argumentNames) && Objects.equals(children(), that.children());
     }
 
     @Override
     public String toSql() {
         return String.format("%s -> %s",
-                arguments,
+                argumentNames,
                 child(0).toSql());
     }
 
     @Override
     public String toString() {
         return String.format("%s -> %s",
-                arguments,
+                argumentNames,
                 child(0).toSql());
     }
 

@@ -26,7 +26,7 @@ import java.util.Objects;
  * it is item from array, which used in lambda function
  */
 public class ArrayItemReference extends SlotReference implements SlotNotFromChildren {
-    // arguments of GroupingScalarFunction
+    // arguments of lambda function
     private final Expression arrayExpression;
 
     /** ArrayItemReference */
@@ -34,6 +34,10 @@ public class ArrayItemReference extends SlotReference implements SlotNotFromChil
             boolean nullable, Expression arrayExpression) {
         super(name, dataType, nullable);
         this.arrayExpression = Objects.requireNonNull(arrayExpression, "originExpression can not be null");
+    }
+
+    public Expression getArrayExpression() {
+        return arrayExpression;
     }
 
     @Override

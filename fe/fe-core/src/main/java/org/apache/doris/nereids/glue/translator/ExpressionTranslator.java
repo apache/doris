@@ -25,6 +25,7 @@ import org.apache.doris.analysis.BoolLiteral;
 import org.apache.doris.analysis.CaseExpr;
 import org.apache.doris.analysis.CaseWhenClause;
 import org.apache.doris.analysis.CastExpr;
+import org.apache.doris.analysis.ColumnRefExpr;
 import org.apache.doris.analysis.CompoundPredicate;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.FunctionCallExpr;
@@ -33,12 +34,15 @@ import org.apache.doris.analysis.FunctionParams;
 import org.apache.doris.analysis.IndexDef;
 import org.apache.doris.analysis.InvertedIndexUtil;
 import org.apache.doris.analysis.IsNullPredicate;
+import org.apache.doris.analysis.LambdaFunctionCallExpr;
+import org.apache.doris.analysis.LambdaFunctionExpr;
 import org.apache.doris.analysis.MatchPredicate;
 import org.apache.doris.analysis.OrderByElement;
 import org.apache.doris.analysis.SlotDescriptor;
 import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.TimestampArithmeticExpr;
 import org.apache.doris.analysis.TupleDescriptor;
+import org.apache.doris.catalog.ArrayType;
 import org.apache.doris.catalog.Function;
 import org.apache.doris.catalog.Function.NullableMode;
 import org.apache.doris.catalog.Index;
@@ -48,6 +52,7 @@ import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.AggregateExpression;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.And;
+import org.apache.doris.nereids.trees.expressions.ArrayItemReference;
 import org.apache.doris.nereids.trees.expressions.AssertNumRowsElement;
 import org.apache.doris.nereids.trees.expressions.BinaryArithmetic;
 import org.apache.doris.nereids.trees.expressions.CaseWhen;
@@ -82,6 +87,7 @@ import org.apache.doris.nereids.trees.expressions.functions.combinator.MergeComb
 import org.apache.doris.nereids.trees.expressions.functions.combinator.StateCombinator;
 import org.apache.doris.nereids.trees.expressions.functions.combinator.UnionCombinator;
 import org.apache.doris.nereids.trees.expressions.functions.generator.TableGeneratingFunction;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Lambda;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ScalarFunction;
 import org.apache.doris.nereids.trees.expressions.functions.udf.JavaUdaf;
 import org.apache.doris.nereids.trees.expressions.functions.udf.JavaUdf;
@@ -376,8 +382,59 @@ public class ExpressionTranslator extends DefaultExpressionVisitor<Expr, PlanTra
 
     }
 
+    public Expr bindLambda(Lambda lambda, List<Expr> params, PlanTranslatorContext context) {
+        Expr func = lambda.getLambdaFunction().accept(this, context);
+        List<Expr> children = lambda.getLambdaArguments().stream()
+                                    .map(e -> e.accept(this, context))
+                                    .collect(Collectors.toList());
+        return new LambdaFunctionExpr(func, lambda.getLambdaArgumentNames(), children);
+    }
+
+    @Override
+    public Expr visitArrayItemReference(ArrayItemReference reference, PlanTranslatorContext context) {
+        return context.findColumnRef(reference.getExprId());
+    }
+
+    private Expr visitHighOrderFunction(ScalarFunction function, PlanTranslatorContext context) {
+        Lambda lambda = (Lambda) function.child(0);
+        List<Expr> arguments = new ArrayList<>(function.children().size());
+        arguments.add(null);
+        for (int i = 1; i < function.children().size(); i++) {
+            String argName = lambda.getLambdaArgumentName(i - 1);
+            ArrayItemReference arg = lambda.getLambdaArgument(i - 1);
+            Expr expr = arg.getArrayExpression().accept(this, context);
+            arguments.add(i, expr);
+
+            ColumnRefExpr column = new ColumnRefExpr();
+            int columnId = i - 1;
+            column.setName(argName);
+            column.setColumnId(columnId);
+            column.setNullable(true);
+            column.setType(((ArrayType) expr.getType()).getItemType());
+            context.addExprIdColumnRef(arg.getExprId(), column);
+        }
+
+        List<Type> argTypes = function.getArguments().stream()
+                .map(Expression::getDataType)
+                .map(DataType::toCatalogDataType)
+                .collect(Collectors.toList());
+        org.apache.doris.catalog.Function catalogFunction = new Function(
+                new FunctionName(function.getName()), argTypes,
+                ArrayType.create(lambda.getRetType().toCatalogDataType(), true),
+                true, true, NullableMode.DEPEND_ON_ARGUMENT);
+
+        // create catalog FunctionCallExpr without analyze again
+        Expr lambdaBody = bindLambda(lambda, arguments.subList(1, arguments.size()), context);
+        arguments.set(0, lambdaBody);
+        return new LambdaFunctionCallExpr(catalogFunction, new FunctionParams(false, arguments));
+    }
+
     @Override
     public Expr visitScalarFunction(ScalarFunction function, PlanTranslatorContext context) {
+        if (function.isHighOrder()) {
+            return visitHighOrderFunction(function, context);
+        }
+
         List<Expr> arguments = function.getArguments().stream()
                 .map(arg -> arg.accept(this, context))
                 .collect(Collectors.toList());

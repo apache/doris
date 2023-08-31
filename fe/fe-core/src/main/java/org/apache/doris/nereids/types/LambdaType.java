@@ -23,6 +23,7 @@ import org.apache.doris.catalog.Type;
  * Func type in Nereids.
  */
 public class LambdaType extends DataType {
+    public static final LambdaType INSTANCE = new LambdaType();
 
     public LambdaType() {}
 
