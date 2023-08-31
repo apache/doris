@@ -53,12 +53,10 @@ public:
 
     Status append_block(vectorized::Block& block) override;
 
-    Status finish_trans() { return Status::OK(); }
-
     Status close() override;
 
 private:
-    Status insert_row(vectorized::Block& block, size_t row);
+    Status _insert_row(vectorized::Block& block, size_t row);
     MysqlConnInfo _conn_info;
     fmt::memory_buffer _insert_stmt_buffer;
     MYSQL* _mysql_conn;
