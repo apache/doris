@@ -17,11 +17,11 @@
 
 #include "wkb_parse.h"
 
+#include <cmath>
 #include <cstddef>
 #include <istream>
 #include <sstream>
 #include <vector>
-#include <cmath>
 
 #include "geo/ByteOrderDataInStream.h"
 #include "geo/ByteOrderValues.h"
