@@ -19,6 +19,7 @@
 
 #include <rapidjson/allocators.h>
 #include <rapidjson/document.h>
+
 #include <string>
 
 namespace doris {
