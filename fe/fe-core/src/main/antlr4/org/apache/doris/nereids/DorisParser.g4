@@ -400,13 +400,13 @@ primaryExpression
     | name=DATE_FLOOR
             LEFT_PAREN
                 timestamp=valueExpression COMMA
-                (INTERVAL unitsAmount=valueExpression  unit=(YEAR | MONTH| WEEK | DAY | HOUR | MINUTE | SECOND)
+                (INTERVAL unitsAmount=valueExpression  unit=datetimeUnit
                 | unitsAmount=valueExpression)
             RIGHT_PAREN                                                                        #dateFloor 
     | name=DATE_CEIL
             LEFT_PAREN
                 timestamp=valueExpression COMMA
-                (INTERVAL unitsAmount=valueExpression  unit=(YEAR | MONTH| WEEK | DAY | HOUR | MINUTE | SECOND)
+                (INTERVAL unitsAmount=valueExpression  unit=datetimeUnit
                 | unitsAmount=valueExpression)
             RIGHT_PAREN                                                                        #dateCeil
     | CASE whenClause+ (ELSE elseExpression=expression)? END                                   #searchedCase

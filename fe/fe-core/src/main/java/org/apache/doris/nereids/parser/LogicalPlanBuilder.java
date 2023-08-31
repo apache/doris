@@ -1119,25 +1119,24 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             return new SecondFloor(timeStamp, amount);
         }
         Expression e = new DateTimeV2Literal(0001L, 01L, 01L, 0L, 0L, 0L, 0L);
-        switch (ctx.unit.getType()) {
-            case DorisParser.YEAR:
-                return new YearFloor(timeStamp, amount, e);
-            case DorisParser.MONTH:
-                return new MonthFloor(timeStamp, amount, e);
-            case DorisParser.WEEK:
-                return new WeekFloor(timeStamp, amount, e);
-            case DorisParser.DAY:
-                return new DayFloor(timeStamp, amount, e);
-            case DorisParser.HOUR:
-                return new HourFloor(timeStamp, amount, e);
-            case DorisParser.MINUTE:
-                return new MinuteFloor(timeStamp, amount, e);
-            case DorisParser.SECOND:
-                return new SecondFloor(timeStamp, amount, e);
-            default:
-                throw new ParseException("Unsupported time unit: " + ctx.unit
-                        + ", supported time unit: YEAR/MONTH/WEEK/DAY/HOUR/MINUTE/SECOND", ctx);
+
+        if ("Year".equalsIgnoreCase(ctx.unit.getText())) {
+            return new YearFloor(timeStamp, amount, e);
+        } else if ("MONTH".equalsIgnoreCase(ctx.unit.getText())) {
+            return new MonthFloor(timeStamp, amount, e);
+        } else if ("WEEK".equalsIgnoreCase(ctx.unit.getText())) {
+            return new WeekFloor(timeStamp, amount, e);
+        } else if ("DAY".equalsIgnoreCase(ctx.unit.getText())) {
+            return new DayFloor(timeStamp, amount, e);
+        } else if ("Hour".equalsIgnoreCase(ctx.unit.getText())) {
+            return new HourFloor(timeStamp, amount, e);
+        } else if ("Minute".equalsIgnoreCase(ctx.unit.getText())) {
+            return new MinuteFloor(timeStamp, amount, e);
+        } else if ("Second".equalsIgnoreCase(ctx.unit.getText())) {
+            return new SecondFloor(timeStamp, amount, e);
         }
+        throw new ParseException("Unsupported time unit: " + ctx.unit
+                + ", supported time unit: YEAR/MONTH/WEEK/DAY/HOUR/MINUTE/SECOND", ctx);
     }
 
     @Override
@@ -1149,25 +1148,24 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             return new SecondCeil(timeStamp, amount);
         }
         DateTimeV2Literal e = new DateTimeV2Literal(0001L, 01L, 01L, 0L, 0L, 0L, 0L);
-        switch (ctx.unit.getType()) {
-            case DorisParser.YEAR:
-                return new YearCeil(timeStamp, amount, e);
-            case DorisParser.MONTH:
-                return new MonthCeil(timeStamp, amount, e);
-            case DorisParser.WEEK:
-                return new WeekCeil(timeStamp, amount, e);
-            case DorisParser.DAY:
-                return new DayCeil(timeStamp, amount, e);
-            case DorisParser.HOUR:
-                return new HourCeil(timeStamp, amount, e);
-            case DorisParser.MINUTE:
-                return new MinuteCeil(timeStamp, amount, e);
-            case DorisParser.SECOND:
-                return new SecondCeil(timeStamp, amount, e);
-            default:
-                throw new ParseException("Unsupported time unit: " + ctx.unit
-                        + ", supported time unit: YEAR/MONTH/WEEK/DAY/HOUR/MINUTE/SECOND", ctx);
+
+        if ("Year".equalsIgnoreCase(ctx.unit.getText())) {
+            return new YearCeil(timeStamp, amount, e);
+        } else if ("MONTH".equalsIgnoreCase(ctx.unit.getText())) {
+            return new MonthCeil(timeStamp, amount, e);
+        } else if ("WEEK".equalsIgnoreCase(ctx.unit.getText())) {
+            return new WeekCeil(timeStamp, amount, e);
+        } else if ("DAY".equalsIgnoreCase(ctx.unit.getText())) {
+            return new DayCeil(timeStamp, amount, e);
+        } else if ("Hour".equalsIgnoreCase(ctx.unit.getText())) {
+            return new HourCeil(timeStamp, amount, e);
+        } else if ("Minute".equalsIgnoreCase(ctx.unit.getText())) {
+            return new MinuteCeil(timeStamp, amount, e);
+        } else if ("Second".equalsIgnoreCase(ctx.unit.getText())) {
+            return new SecondCeil(timeStamp, amount, e);
         }
+        throw new ParseException("Unsupported time unit: " + ctx.unit
+                + ", supported time unit: YEAR/MONTH/WEEK/DAY/HOUR/MINUTE/SECOND", ctx);
     }
 
     @Override
