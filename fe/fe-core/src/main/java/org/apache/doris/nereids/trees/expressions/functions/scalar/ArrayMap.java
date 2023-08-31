@@ -25,7 +25,6 @@ import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.ArrayType;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.LambdaType;
-import org.apache.doris.nereids.types.coercion.AnyDataType;
 import org.apache.doris.nereids.types.coercion.FollowToAnyDataType;
 
 import com.google.common.base.Preconditions;
@@ -40,8 +39,7 @@ public class ArrayMap extends ScalarFunction
         implements ExplicitlyCastableSignature, PropagateNullable {
 
     public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
-            FunctionSignature.ret(new FollowToAnyDataType(0)).varArgs(
-                    LambdaType.INSTANCE, ArrayType.of(AnyDataType.INSTANCE_WITHOUT_INDEX))
+            FunctionSignature.ret(new FollowToAnyDataType(0)).args(LambdaType.INSTANCE)
     );
 
     /**

@@ -19,8 +19,6 @@ package org.apache.doris.nereids.trees.expressions.functions.scalar;
 
 import org.apache.doris.nereids.trees.expressions.ArrayItemReference;
 import org.apache.doris.nereids.trees.expressions.Expression;
-import org.apache.doris.nereids.trees.expressions.Slot;
-import org.apache.doris.nereids.trees.expressions.shape.UnaryExpression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.ArrayType;
 import org.apache.doris.nereids.types.DataType;
@@ -32,13 +30,15 @@ import com.google.common.collect.ImmutableList.Builder;
 
 import java.util.List;
 import java.util.Objects;
+import java.util.stream.Collectors;
 
 /**
  * Lambda includes lambda arguments and function body
+ * Before bind, x -> x : arguments("x") -> children: Expression(x)
+ * After bind, x -> x : arguments("x") -> children: Expression(x) ArrayItemReference(x)
  */
-public class Lambda extends Expression implements UnaryExpression {
+public class Lambda extends Expression {
     final List<String> argumentNames;
-    ImmutableList<Slot> arguments;
 
     /**
      * constructor
@@ -48,9 +48,13 @@ public class Lambda extends Expression implements UnaryExpression {
         this.argumentNames = argumentNames;
     }
 
-    public Lambda(List<String> argumentNames, ImmutableList<Slot> arguments, List<Expression> lambdaFunction) {
-        super(lambdaFunction);
-        this.arguments = arguments;
+    public Lambda(List<String> argumentNames, Expression lambdaFunction, List<ArrayItemReference> arguments) {
+        super(ImmutableList.<Expression>builder().add(lambdaFunction).addAll(arguments).build());
+        this.argumentNames = argumentNames;
+    }
+
+    public Lambda(List<String> argumentNames, List<Expression> children) {
+        super(children);
         this.argumentNames = argumentNames;
     }
 
@@ -59,29 +63,30 @@ public class Lambda extends Expression implements UnaryExpression {
      * @param arrays array expression
      * @return item slots of array expression
      */
-    public ImmutableList<Slot> makeArguments(List<Expression> arrays) {
-        Builder<Slot> builder = new ImmutableList.Builder<>();
+    public ImmutableList<ArrayItemReference> makeArguments(List<Expression> arrays) {
+        Builder<ArrayItemReference> builder = new ImmutableList.Builder<>();
         for (int i = 0; i < arrays.size(); i++) {
             Expression array = arrays.get(i);
             String name = argumentNames.get(i);
             Preconditions.checkArgument(array.getDataType() instanceof ArrayType, "lambda must receive array");
-            ArrayType arrayType = (ArrayType) array.getDataType();
-            builder.add(new ArrayItemReference(name, arrayType.getItemType(), arrayType.isNullType(), array));
+            builder.add(new ArrayItemReference(name, array));
         }
-        arguments = builder.build();
-        return arguments;
-    }
-
-    public ArrayItemReference getLambdaArgument(int i) {
-        return (ArrayItemReference) arguments.get(i);
-    }
-
-    public List<Slot> getLambdaArguments() {
-        return arguments;
+        return builder.build();
     }
 
     public String getLambdaArgumentName(int i) {
         return argumentNames.get(i);
+    }
+
+    public ArrayItemReference getLambdaArgument(int i) {
+        return (ArrayItemReference) children.get(i + 1);
+    }
+
+    public List<ArrayItemReference> getLambdaArguments() {
+        return children.stream()
+                .skip(1)
+                .map(e -> (ArrayItemReference) e)
+                .collect(Collectors.toList());
     }
 
     public List<String> getLambdaArgumentNames() {
@@ -89,7 +94,7 @@ public class Lambda extends Expression implements UnaryExpression {
     }
 
     public Expression getLambdaFunction() {
-        return children.get(0);
+        return child(0);
     }
 
     @Override
@@ -97,9 +102,8 @@ public class Lambda extends Expression implements UnaryExpression {
         return visitor.visitLambda(this, context);
     }
 
-    @Override
-    public Lambda withChildren(List<Expression> children) {
-        return new Lambda(argumentNames, arguments, children);
+    public Lambda withLambdaFunctionArguments(Expression lambdaFunction, List<ArrayItemReference> arguments) {
+        return new Lambda(argumentNames, lambdaFunction, arguments);
     }
 
     @Override
@@ -111,26 +115,40 @@ public class Lambda extends Expression implements UnaryExpression {
             return false;
         }
         Lambda that = (Lambda) o;
-        return that.argumentNames.equals(argumentNames) && Objects.equals(children(), that.children());
+        return argumentNames.equals(that.argumentNames)
+                && Objects.equals(children(), that.children());
     }
 
     @Override
     public String toSql() {
-        return String.format("%s -> %s",
-                argumentNames,
-                child(0).toSql());
+        StringBuilder builder = new StringBuilder();
+        builder.append(String.format("%s -> %s", argumentNames,
+                getLambdaFunction().toSql()));
+        for (int i = 1; i < getArguments().size(); i++) {
+            builder.append(", ").append(getArgument(i).toSql());
+        }
+        return builder.toString();
     }
 
     @Override
     public String toString() {
-        return String.format("%s -> %s",
-                argumentNames,
-                child(0).toSql());
+        StringBuilder builder = new StringBuilder();
+        builder.append(String.format("%s -> %s", argumentNames,
+                getLambdaFunction().toString()));
+        for (int i = 1; i < getArguments().size(); i++) {
+            builder.append(", ").append(getArgument(i).toString());
+        }
+        return builder.toString();
+    }
+
+    @Override
+    public Lambda withChildren(List<Expression> children) {
+        return new Lambda(argumentNames, children);
     }
 
     @Override
     public boolean nullable() {
-        return children.get(0).nullable();
+        return getLambdaFunction().nullable();
     }
 
     @Override
@@ -139,6 +157,6 @@ public class Lambda extends Expression implements UnaryExpression {
     }
 
     public DataType getRetType() {
-        return children.get(0).getDataType();
+        return getLambdaFunction().getDataType();
     }
 }

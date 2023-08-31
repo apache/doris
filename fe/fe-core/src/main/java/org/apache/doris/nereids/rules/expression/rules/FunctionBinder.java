@@ -27,6 +27,7 @@ import org.apache.doris.nereids.rules.analysis.ArithmeticFunctionBinder;
 import org.apache.doris.nereids.rules.analysis.SlotBinder;
 import org.apache.doris.nereids.rules.expression.AbstractExpressionRewriteRule;
 import org.apache.doris.nereids.rules.expression.ExpressionRewriteContext;
+import org.apache.doris.nereids.trees.expressions.ArrayItemReference;
 import org.apache.doris.nereids.trees.expressions.BinaryArithmetic;
 import org.apache.doris.nereids.trees.expressions.BitNot;
 import org.apache.doris.nereids.trees.expressions.CaseWhen;
@@ -94,16 +95,25 @@ public class FunctionBinder extends AbstractExpressionRewriteRule {
             subChildren.add(unboundFunction.child(i).accept(this, context));
         }
 
-        // bindLambda
+        // bindLambdaFunction
         Lambda lambda = (Lambda) unboundFunction.children().get(0);
-        List<Slot> boundedSlots = lambda.makeArguments(subChildren);
-        Expression slotBoundLambda = new SlotBinder(new Scope(boundedSlots), context.cascadesContext,
-                true, false).bind(lambda);
-        Expression functionBoundLambda = slotBoundLambda.accept(this, context);
+        Expression lambdaFunction = lambda.getLambdaFunction();
+        List<ArrayItemReference> arrayItemReferences = lambda.makeArguments(subChildren);
 
+        // 1.bindSlot
+        List<Slot> boundedSlots = arrayItemReferences.stream()
+                .map(ArrayItemReference::toSlot)
+                .collect(ImmutableList.toImmutableList());
+        lambdaFunction = new SlotBinder(new Scope(boundedSlots), context.cascadesContext,
+                true, false).bind(lambdaFunction);
+        // 2.bindFunction
+        lambdaFunction = lambdaFunction.accept(this, context);
+
+        Lambda lambdaClosure = lambda.withLambdaFunctionArguments(lambdaFunction, arrayItemReferences);
+
+        // We don't add the ArrayExpression in array map at all
         return unboundFunction.withChildren(ImmutableList.<Expression>builder()
-                .add(functionBoundLambda)
-                .addAll(subChildren)
+                .add(lambdaClosure)
                 .build());
     }
 
