@@ -38,12 +38,7 @@ import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.WhenClause;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
-import org.apache.doris.nereids.trees.expressions.functions.agg.Count;
-import org.apache.doris.nereids.trees.expressions.functions.agg.Ndv;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.HllHash;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ScalarFunction;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.ToBitmap;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.ToBitmapWithCheck;
 import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.literal.TinyIntLiteral;
@@ -66,7 +61,6 @@ import com.google.common.collect.ImmutableSortedMap;
 import com.google.common.collect.Lists;
 import org.apache.commons.collections.CollectionUtils;
 
-import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
@@ -118,8 +112,8 @@ public abstract class AbstractSelectMaterializedIndexRule {
 
         return mvColNames.containsAll(requiredMvColumnNames)
                 && (indexConjuncts.isEmpty() || commonConjuncts.size() == predicateExprSql.size())
-                || requiredExpr.stream().map(AbstractSelectMaterializedIndexRule::removeCastAndAlias)
-                        .filter(e -> !containsAllColumn(e, mvColNames)).collect(Collectors.toSet()).isEmpty();
+                || requiredExpr.stream().filter(e -> !containsAllColumn(e, mvColNames)).collect(Collectors.toSet())
+                        .isEmpty();
     }
 
     public static String parseMvColumnToSql(String mvName) {
@@ -133,35 +127,23 @@ public abstract class AbstractSelectMaterializedIndexRule {
                     org.apache.doris.analysis.CreateMaterializedViewStmt.mvColumnBreaker(mvName)).toSql());
     }
 
-    protected static Expression removeCastAndAlias(Expression expression) {
-        List<Expression> children = new ArrayList<>();
-        for (Expression child : expression.children()) {
-            children.add(removeCastAndAlias(child));
-        }
-        if (expression instanceof Cast) {
-            return ((Cast) expression.withChildren(children)).child();
-        }
-        if (expression instanceof Alias) {
-            return ((Alias) expression.withChildren(children)).child();
-        }
-        return children.isEmpty() ? expression : expression.withChildren(children);
-    }
-
     protected static boolean containsAllColumn(Expression expression, Set<String> mvColumnNames) {
-        if (mvColumnNames.contains(expression.toSql())) {
+        if (mvColumnNames.contains(expression.toSql()) || mvColumnNames
+                .contains(org.apache.doris.analysis.CreateMaterializedViewStmt.mvColumnBreaker(expression.toSql()))) {
             return true;
         }
         if (expression.children().isEmpty()) {
             return false;
         }
-        boolean childContain = true;
         for (Expression child : expression.children()) {
             if (child instanceof Literal) {
                 continue;
             }
-            childContain &= containsAllColumn(child, mvColumnNames);
+            if (!containsAllColumn(child, mvColumnNames)) {
+                return false;
+            }
         }
-        return childContain;
+        return true;
     }
 
     /**
@@ -372,23 +354,6 @@ public abstract class AbstractSelectMaterializedIndexRule {
     public static Expression slotToCaseWhen(Expression expression) {
         return new CaseWhen(ImmutableList.of(new WhenClause(new IsNull(expression), new TinyIntLiteral((byte) 0))),
                 new TinyIntLiteral((byte) 1));
-    }
-
-    protected static String spliceScalarFunctionWithSlot(ScalarFunction scalarFunction, Slot slot) {
-        if (scalarFunction instanceof ToBitmap) {
-            return new ToBitmapWithCheck(slot).toSql();
-        }
-        return scalarFunction.withChildren(slot).toSql();
-    }
-
-    protected static String spliceAggFunctionWithSlot(AggregateFunction aggregateFunction, Slot slot) {
-        if (aggregateFunction instanceof Count && aggregateFunction.isDistinct() && aggregateFunction.arity() == 1) {
-            return new ToBitmapWithCheck(slot).toSql();
-        }
-        if (aggregateFunction instanceof Ndv) {
-            return new HllHash(slot).toSql();
-        }
-        return aggregateFunction.withChildren(slot).toSql();
     }
 
     protected SlotContext generateBaseScanExprToMvExpr(LogicalOlapScan mvPlan) {

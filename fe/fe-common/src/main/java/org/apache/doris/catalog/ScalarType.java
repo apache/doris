@@ -678,7 +678,7 @@ public class ScalarType extends Type {
             case HLL:
             case STRING:
             case JSONB: {
-                scalarType.setLen(len);
+                scalarType.setLen(getLength());
                 break;
             }
             case DECIMALV2:
@@ -730,6 +730,20 @@ public class ScalarType extends Type {
 
     @Override
     public int getLength() {
+        if (len == -1) {
+            if (type == PrimitiveType.CHAR) {
+                return MAX_CHAR_LENGTH;
+            } else if (type == PrimitiveType.STRING) {
+                return MAX_STRING_LENGTH;
+            } else {
+                return MAX_VARCHAR_LENGTH;
+            }
+        }
+        return len;
+    }
+
+    @Override
+    public int getRawLength() {
         return len;
     }
 
@@ -738,15 +752,7 @@ public class ScalarType extends Type {
     }
 
     public void setMaxLength() {
-        if (type == PrimitiveType.CHAR) {
-            this.len = MAX_CHAR_LENGTH;
-        }
-        if (type == PrimitiveType.VARCHAR) {
-            this.len = MAX_VARCHAR_LENGTH;
-        }
-        if (type == PrimitiveType.STRING) {
-            this.len = MAX_STRING_LENGTH;
-        }
+        this.len = -1;
     }
 
     public boolean isLengthSet() {

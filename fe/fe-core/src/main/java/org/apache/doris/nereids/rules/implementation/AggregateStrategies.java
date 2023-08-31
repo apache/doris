@@ -485,7 +485,7 @@ public class AggregateStrategies implements ImplementationRuleFactory {
                 .filter(aggregateFunction -> !aggregateFunction.isDistinct())
                 .collect(ImmutableMap.toImmutableMap(expr -> expr, expr -> {
                     AggregateExpression localAggExpr = new AggregateExpression(expr, inputToBufferParam);
-                    return new Alias(localAggExpr, localAggExpr.toSql());
+                    return new Alias(localAggExpr);
                 }));
 
         List<Expression> partitionExpressions = getHashAggregatePartitionExpressions(logicalAgg);
@@ -603,7 +603,7 @@ public class AggregateStrategies implements ImplementationRuleFactory {
                 .filter(aggregateFunction -> !aggregateFunction.isDistinct())
                 .collect(ImmutableMap.toImmutableMap(expr -> expr, expr -> {
                     AggregateExpression localAggExpr = new AggregateExpression(expr, inputToBufferParam);
-                    return new Alias(localAggExpr, localAggExpr.toSql());
+                    return new Alias(localAggExpr);
                 }));
 
         List<Expression> partitionExpressions = getHashAggregatePartitionExpressions(logicalAgg);
@@ -638,7 +638,7 @@ public class AggregateStrategies implements ImplementationRuleFactory {
                             Alias localOutputAlias = kv.getValue();
                             AggregateExpression globalAggExpr = new AggregateExpression(
                                     originFunction, bufferToBufferParam, localOutputAlias.toSlot());
-                            return new Alias(globalAggExpr, globalAggExpr.toSql());
+                            return new Alias(globalAggExpr);
                         }));
 
         Set<SlotReference> slotInCountDistinct = ExpressionUtils.collect(
@@ -755,7 +755,7 @@ public class AggregateStrategies implements ImplementationRuleFactory {
                 .stream()
                 .collect(ImmutableMap.toImmutableMap(function -> function, function -> {
                     AggregateExpression inputToBuffer = new AggregateExpression(function, inputToBufferParam);
-                    return new Alias(inputToBuffer, inputToBuffer.toSql());
+                    return new Alias(inputToBuffer);
                 }));
 
         List<Expression> localAggGroupBy = logicalAgg.getGroupByExpressions();
@@ -862,7 +862,7 @@ public class AggregateStrategies implements ImplementationRuleFactory {
                 .filter(aggregateFunction -> !aggregateFunction.isDistinct())
                 .collect(ImmutableMap.toImmutableMap(expr -> expr, expr -> {
                     AggregateExpression localAggExpr = new AggregateExpression(expr, inputToBufferParam);
-                    return new Alias(localAggExpr, localAggExpr.toSql());
+                    return new Alias(localAggExpr);
                 }));
 
         List<NamedExpression> localAggOutput = ImmutableList.<NamedExpression>builder()
@@ -996,7 +996,7 @@ public class AggregateStrategies implements ImplementationRuleFactory {
                 .filter(aggregateFunction -> !aggregateFunction.isDistinct())
                 .collect(ImmutableMap.toImmutableMap(expr -> expr, expr -> {
                     AggregateExpression localAggExpr = new AggregateExpression(expr, inputToBufferParam);
-                    return new Alias(localAggExpr, localAggExpr.toSql());
+                    return new Alias(localAggExpr);
                 }));
 
         List<NamedExpression> localAggOutput = ImmutableList.<NamedExpression>builder()
@@ -1022,7 +1022,7 @@ public class AggregateStrategies implements ImplementationRuleFactory {
                         Alias localOutput = kv.getValue();
                         AggregateExpression globalAggExpr = new AggregateExpression(
                                 originFunction, bufferToBufferParam, localOutput.toSlot());
-                        return new Alias(globalAggExpr, globalAggExpr.toSql());
+                        return new Alias(globalAggExpr);
                     }));
 
         List<NamedExpression> globalAggOutput = ImmutableList.<NamedExpression>builder()
@@ -1201,7 +1201,7 @@ public class AggregateStrategies implements ImplementationRuleFactory {
                 .collect(ImmutableMap.toImmutableMap(function -> function, function -> {
                     AggregateFunction multiDistinct = tryConvertToMultiDistinct(function);
                     AggregateExpression localAggExpr = new AggregateExpression(multiDistinct, inputToBufferParam);
-                    return new Alias(localAggExpr, localAggExpr.toSql());
+                    return new Alias(localAggExpr);
                 }));
 
         List<NamedExpression> localAggOutput = ImmutableList.<NamedExpression>builder()
@@ -1380,7 +1380,7 @@ public class AggregateStrategies implements ImplementationRuleFactory {
                 .filter(aggregateFunction -> !aggregateFunction.isDistinct())
                 .collect(ImmutableMap.toImmutableMap(expr -> expr, expr -> {
                     AggregateExpression localAggExpr = new AggregateExpression(expr, inputToBufferParam);
-                    return new Alias(localAggExpr, localAggExpr.toSql());
+                    return new Alias(localAggExpr);
                 }, (oldValue, newValue) -> newValue));
 
         List<NamedExpression> localAggOutput = ImmutableList.<NamedExpression>builder()
@@ -1406,7 +1406,7 @@ public class AggregateStrategies implements ImplementationRuleFactory {
                             Alias localOutput = kv.getValue();
                             AggregateExpression globalAggExpr = new AggregateExpression(
                                     originFunction, bufferToBufferParam, localOutput.toSlot());
-                            return new Alias(globalAggExpr, globalAggExpr.toSql());
+                            return new Alias(globalAggExpr);
                         }));
 
         List<NamedExpression> globalAggOutput = ImmutableList.<NamedExpression>builder()
