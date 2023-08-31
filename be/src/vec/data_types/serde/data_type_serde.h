@@ -31,6 +31,7 @@
 #include "vec/common/pod_array_fwd.h"
 #include "vec/common/string_buffer.hpp"
 #include "vec/core/types.h"
+#include "vec/io/reader_buffer.h"
 
 namespace arrow {
 class ArrayBuilder;
