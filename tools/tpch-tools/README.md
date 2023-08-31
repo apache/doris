@@ -30,7 +30,7 @@ follow the steps below:
 
     ./bin/gen-tpch-data.sh -s 1
 
-### 3. create tpc-h tables. modify `conf/doris-cluster.conf` to specify doris info, then run script below.
+### 3. create tpc-h tables. modify `conf/cluster.conf` to specify doris info, then run script below.
 
     ./bin/create-tpch-tables.sh
 

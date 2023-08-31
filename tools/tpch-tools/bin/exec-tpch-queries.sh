@@ -34,7 +34,7 @@ QUERIES_DIR="${CURDIR}/../queries"
 usage() {
     echo "
 This script is used to run TPC-H 22queries, 
-will use mysql client to connect Doris server which parameter is specified in doris-cluster.conf file.
+will use mysql client to connect Doris server which parameter is specified in cluster.conf file.
 Usage: $0 
   "
     exit 1
@@ -84,7 +84,7 @@ check_prerequest() {
 
 check_prerequest "mysql --version" "mysql"
 
-source "${CURDIR}/../conf/doris-cluster.conf"
+source "${CURDIR}/../conf/cluster.conf"
 export MYSQL_PWD=${PASSWORD}
 
 echo "FE_HOST: ${FE_HOST}"
@@ -92,10 +92,25 @@ echo "FE_QUERY_PORT: ${FE_QUERY_PORT}"
 echo "USER: ${USER}"
 echo "DB: ${DB}"
 
+touch $CURDIR/../tpch_query_result.csv
+truncate -s0 $CURDIR/../tpch_query_result.csv
+
+clt=""
+exec_clt=""
+if [ -z "${PASSWORD}" ];then
+    clt="mysql -h${FE_HOST} -u${USER} -P${FE_QUERY_PORT} -D${DB} "
+    exec_clt="mysql -vvv -h$FE_HOST -u$USER -P$FE_QUERY_PORT -D$DB "
+else
+    clt="mysql -h${FE_HOST} -u${USER} -p${PASSWORD} -P${FE_QUERY_PORT} -D${DB} "
+    exec_clt="mysql -vvv -h$FE_HOST -u$USER -p${PASSWORD} -P$FE_QUERY_PORT -D$DB "
+fi
+
+
 run_sql() {
     echo "$*"
-    mysql -h"${FE_HOST}" -u"${USER}" -P"${FE_QUERY_PORT}" -D"${DB}" -e "$*"
+    $clt -e "$*"
 }
+echo '============================================'
 run_sql "set global query_timeout=900;"
 echo '============================================'
 run_sql "show variables;"
@@ -113,48 +128,39 @@ run_sql "analyze table nation with sync;"
 run_sql "analyze table region with sync;"
 end=$(date +%s)
 totalTime=$((end - start))
-echo "analyze database ${DB} with sync total time: ${totalTime} s"
+echo "analyze tables with sync total time: ${totalTime} s"
 echo '============================================'
-echo "Time Unit: ms"
 
-touch result.csv
-cold_run_sum=0
-best_hot_run_sum=0
+TRIES=3
+sum=0
+total_time=0
 for i in $(seq 1 22); do
-    cold=0
-    hot1=0
-    hot2=0
+    # Each query is executed four times, taking the best of the next three
+    ${exec_clt} <"${QUERIES_DIR}/q${i}.sql" >/dev/null 2>&1
 
-    echo -ne "q${i}\t" | tee -a result.csv
+    echo -n "q${i}.sql:" | tee -a $CURDIR/../tpch_query_result.csv
 
-    start=$(date +%s%3N)
-    mysql -h"${FE_HOST}" -u "${USER}" -P"${FE_QUERY_PORT}" -D"${DB}" --comments <"${QUERIES_DIR}/q${i}.sql" >/dev/null
-    end=$(date +%s%3N)
-    cold=$((end - start))
-    echo -ne "${cold}\t" | tee -a result.csv
+    runtime=0.0000
+    for ord in $(seq 1 $TRIES); do
+       res=$(${exec_clt} < "${QUERIES_DIR}/q${i}.sql" | perl -nle 'print $1 if /\((\d+\.\d+)+ sec\)/' || :)
+       sum=0.0000
+       while IFS= read -r number; do
+         sum=$(echo "$sum + $number" | bc)
+       done <<< "$res"
+       if [ $ord -eq 1 ];then
+          runtime=$(echo "scale=6;0.0000+$sum" | bc)
+       else
+          if [ $( echo "$runtime > $sum" | bc ) -eq 1 ];then
+              runtime=$(echo "scale=6;0.0000+$sum" | bc)
+          fi
+       fi
+    done
 
-    start=$(date +%s%3N)
-    mysql -h"${FE_HOST}" -u "${USER}" -P"${FE_QUERY_PORT}" -D"${DB}" --comments <"${QUERIES_DIR}/q${i}.sql" >/dev/null
-    end=$(date +%s%3N)
-    hot1=$((end - start))
-    echo -ne "${hot1}\t" | tee -a result.csv
+    echo -n "${runtime}" | tee -a $CURDIR/../tpch_query_result.csv
+    echo "" | tee -a $CURDIR/../tpch_query_result.csv
 
-    start=$(date +%s%3N)
-    mysql -h"${FE_HOST}" -u "${USER}" -P"${FE_QUERY_PORT}" -D"${DB}" --comments <"${QUERIES_DIR}/q${i}.sql" >/dev/null
-    end=$(date +%s%3N)
-    hot2=$((end - start))
-    echo -ne "${hot2}" | tee -a result.csv
-
-    echo "" | tee -a result.csv
-
-    cold_run_sum=$((cold_run_sum + cold))
-    if [[ ${hot1} -lt ${hot2} ]]; then
-        best_hot_run_sum=$((best_hot_run_sum + hot1))
-    else
-        best_hot_run_sum=$((best_hot_run_sum + hot2))
-    fi
+    total_time=$(echo "scale=6;$total_time+$runtime" | bc)
 done
 
-echo "Total cold run time: ${cold_run_sum} ms"
-echo "Total hot run time: ${best_hot_run_sum} ms"
+echo "total time: ${total_time} seconds"
 echo 'Finish tpch queries.'
