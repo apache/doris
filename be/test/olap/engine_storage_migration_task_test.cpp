@@ -58,7 +58,7 @@ class OlapMeta;
 
 static const uint32_t MAX_PATH_LEN = 1024;
 
-static StorageEngine* k_engine = nullptr;
+static std::unique_ptr<StorageEngine> k_engine;
 static std::string path1;
 static std::string path2;
 
@@ -79,17 +79,11 @@ static void set_up() {
     options.store_paths = paths;
     Status s = doris::StorageEngine::open(options, &k_engine);
     EXPECT_TRUE(s.ok()) << s.to_string();
-    ExecEnv* exec_env = doris::ExecEnv::GetInstance();
-    exec_env->set_storage_engine(k_engine);
     k_engine->start_bg_threads();
 }
 
 static void tear_down() {
-    if (k_engine != nullptr) {
-        k_engine->stop();
-        delete k_engine;
-        k_engine = nullptr;
-    }
+    k_engine.reset();
     EXPECT_EQ(system("rm -rf ./data_test_1"), 0);
     EXPECT_EQ(system("rm -rf ./data_test_2"), 0);
     EXPECT_TRUE(io::global_local_filesystem()

@@ -20,6 +20,7 @@
 #include <stddef.h>
 
 #include <algorithm>
+#include <atomic>
 #include <map>
 #include <memory>
 #include <shared_mutex>
@@ -71,6 +72,8 @@ class HeartbeatFlags;
 class FrontendServiceClient;
 class FileMetaCache;
 
+inline bool k_doris_exit = false;
+
 // Execution environment for queries/plan fragments.
 // Contains all required global structures, and handles to
 // singleton services. Clients must call StartServices exactly
@@ -89,14 +92,11 @@ public:
         return &s_exec_env;
     }
 
-    // only used for test
-    ExecEnv();
-
     // Empty destructor because the compiler-generated one requires full
     // declarations for classes in scoped_ptrs.
     ~ExecEnv();
 
-    bool initialized() const { return _is_init; }
+    static bool ready() { return _s_ready.load(std::memory_order_acquire); }
     const std::string& token() const;
     ExternalScanContextMgr* external_scan_context_mgr() { return _external_scan_context_mgr; }
     doris::vectorized::VDataStreamMgr* vstream_mgr() { return _vstream_mgr; }
@@ -167,9 +167,6 @@ public:
 
     const std::vector<StorePath>& store_paths() const { return _store_paths; }
 
-    StorageEngine* storage_engine() { return _storage_engine; }
-    void set_storage_engine(StorageEngine* storage_engine) { _storage_engine = storage_engine; }
-
     std::shared_ptr<StreamLoadExecutor> stream_load_executor() { return _stream_load_executor; }
     RoutineLoadTaskExecutor* routine_load_task_executor() { return _routine_load_task_executor; }
     HeartbeatFlags* heartbeat_flags() { return _heartbeat_flags; }
@@ -188,6 +185,8 @@ public:
     }
 
 private:
+    ExecEnv();
+
     Status _init(const std::vector<StorePath>& store_paths);
     void _destroy();
 
@@ -196,7 +195,7 @@ private:
     void _register_metrics();
     void _deregister_metrics();
 
-    bool _is_init;
+    inline static std::atomic_bool _s_ready {false};
     std::vector<StorePath> _store_paths;
 
     // Leave protected so that subclasses can override
@@ -248,8 +247,6 @@ private:
     std::shared_ptr<NewLoadStreamMgr> _new_load_stream_mgr;
     BrpcClientCache<PBackendService_Stub>* _internal_client_cache = nullptr;
     BrpcClientCache<PFunctionService_Stub>* _function_client_cache = nullptr;
-
-    StorageEngine* _storage_engine = nullptr;
 
     std::shared_ptr<StreamLoadExecutor> _stream_load_executor;
     RoutineLoadTaskExecutor* _routine_load_task_executor = nullptr;

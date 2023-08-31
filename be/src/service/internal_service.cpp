@@ -1631,7 +1631,7 @@ void PInternalServiceImpl::get_tablet_rowset_versions(google::protobuf::RpcContr
                                                       google::protobuf::Closure* done) {
     brpc::ClosureGuard closure_guard(done);
     VLOG_DEBUG << "receive get tablet versions request: " << request->DebugString();
-    ExecEnv::GetInstance()->storage_engine()->get_tablet_rowset_versions(request, response);
+    StorageEngine::instance()->get_tablet_rowset_versions(request, response);
 }
 
 void PInternalServiceImpl::glob(google::protobuf::RpcController* controller,

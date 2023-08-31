@@ -103,13 +103,14 @@ static Status _validate_options(const EngineOptions& options) {
     return Status::OK();
 }
 
-Status StorageEngine::open(const EngineOptions& options, StorageEngine** engine_ptr) {
+Status StorageEngine::open(const EngineOptions& options,
+                           std::unique_ptr<StorageEngine>* engine_ptr) {
     RETURN_IF_ERROR(_validate_options(options));
     LOG(INFO) << "starting backend using uid:" << options.backend_uid.to_string();
     std::unique_ptr<StorageEngine> engine(new StorageEngine(options));
     RETURN_NOT_OK_STATUS_WITH_WARN(engine->_open(), "open engine failed");
-    *engine_ptr = engine.release();
     LOG(INFO) << "success to init storage engine.";
+    *engine_ptr = std::move(engine);
     return Status::OK();
 }
 
@@ -138,6 +139,8 @@ StorageEngine::StorageEngine(const EngineOptions& options)
 }
 
 StorageEngine::~StorageEngine() {
+    stop();
+
     DEREGISTER_HOOK_METRIC(unused_rowsets_count);
 
     if (_base_compaction_thread_pool) {
@@ -541,6 +544,7 @@ void StorageEngine::_exit_if_too_many_disks_are_failed() {
 }
 
 void StorageEngine::stop() {
+    if (_stopped) return;
     // trigger the waiting threads
     notify_listeners();
 

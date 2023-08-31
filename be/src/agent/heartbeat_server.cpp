@@ -219,8 +219,8 @@ Status HeartbeatServer::_heartbeat(const TMasterInfo& master_info) {
 }
 
 Status create_heartbeat_server(ExecEnv* exec_env, uint32_t server_port,
-                               ThriftServer** thrift_server, uint32_t worker_thread_num,
-                               TMasterInfo* local_master_info) {
+                               std::unique_ptr<ThriftServer>* thrift_server,
+                               uint32_t worker_thread_num, TMasterInfo* local_master_info) {
     HeartbeatServer* heartbeat_server = new HeartbeatServer(local_master_info);
     if (heartbeat_server == nullptr) {
         return Status::InternalError("Get heartbeat server failed");
@@ -231,8 +231,8 @@ Status create_heartbeat_server(ExecEnv* exec_env, uint32_t server_port,
     std::shared_ptr<HeartbeatServer> handler(heartbeat_server);
     std::shared_ptr<HeartbeatServiceProcessor::TProcessor> server_processor(
             new HeartbeatServiceProcessor(handler));
-    *thrift_server =
-            new ThriftServer("heartbeat", server_processor, server_port, worker_thread_num);
+    *thrift_server = std::make_unique<ThriftServer>("heartbeat", server_processor, server_port,
+                                                    worker_thread_num);
     return Status::OK();
 }
 } // namespace doris

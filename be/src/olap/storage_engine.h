@@ -82,7 +82,7 @@ public:
     StorageEngine(const EngineOptions& options);
     ~StorageEngine();
 
-    static Status open(const EngineOptions& options, StorageEngine** engine_ptr);
+    static Status open(const EngineOptions& options, std::unique_ptr<StorageEngine>* engine_ptr);
 
     static StorageEngine* instance() { return _s_instance; }
 

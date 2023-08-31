@@ -47,7 +47,7 @@ namespace doris {
 using namespace ErrorCode;
 
 static const uint32_t MAX_PATH_LEN = 1024;
-StorageEngine* l_engine = nullptr;
+static std::unique_ptr<StorageEngine> l_engine;
 static const std::string lTestDir = "./data_test/data/segcompaction_test";
 
 class SegCompactionTest : public testing::Test {
@@ -78,20 +78,13 @@ public:
         Status s = doris::StorageEngine::open(options, &l_engine);
         EXPECT_TRUE(s.ok()) << s.to_string();
 
-        ExecEnv* exec_env = doris::ExecEnv::GetInstance();
-        exec_env->set_storage_engine(l_engine);
-
         EXPECT_TRUE(io::global_local_filesystem()->create_directory(lTestDir).ok());
 
         l_engine->start_bg_threads();
     }
 
     void TearDown() {
-        if (l_engine != nullptr) {
-            l_engine->stop();
-            delete l_engine;
-            l_engine = nullptr;
-        }
+        l_engine.reset();
         config::enable_segcompaction = false;
     }
 
