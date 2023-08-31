@@ -687,11 +687,11 @@ ColumnPtr wrap_in_nullable(const ColumnPtr& src, const Block& block, const Colum
     M(String, ColumnString)           \
     M(JSONB, ColumnString)
 
-#define TIME_TYPE_TO_COLUMN_TYPE(M) \
-    M(Date, ColumnInt64)            \
-    M(DateTime, ColumnInt64)        \
-    M(DateV2, ColumnUInt32)         \
-    M(DateTimeV2, ColumnUInt64)
+#define TIME_TYPE_TO_COLUMN_TYPE(M)                                               \
+    M(Date, ColumnInt64)                                                          \
+    M(DateTime, ColumnInt64)                                                      \
+    M(DateV2, ColumnVector<vectorized::DateV2Value<vectorized::DateV2ValueType>>) \
+    M(DateTimeV2, ColumnVector<vectorized::DateV2Value<vectorized::DateTimeV2ValueType>>)
 
 #define COMPLEX_TYPE_TO_COLUMN_TYPE(M) \
     M(Array, ColumnArray)              \

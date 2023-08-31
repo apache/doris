@@ -293,8 +293,6 @@ struct TypeId<Int128> {
 
 using Date = Int64;
 using DateTime = Int64;
-using DateV2 = UInt32;
-using DateTimeV2 = UInt64;
 
 template <typename T>
 inline constexpr T decimal_scale_multiplier(UInt32 scale);

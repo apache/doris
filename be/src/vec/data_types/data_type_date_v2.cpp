@@ -86,7 +86,8 @@ Status DataTypeDateV2::from_string(ReadBuffer& rb, IColumn* column) const {
 }
 
 MutableColumnPtr DataTypeDateV2::create_column() const {
-    return DataTypeNumberBase<UInt32>::create_column();
+    return ColumnVector<
+            doris::vectorized::DateV2Value<doris::vectorized::DateV2ValueType>>::create();
 }
 
 void DataTypeDateV2::cast_to_date_time(const UInt32 from, Int64& to) {
@@ -167,7 +168,7 @@ void DataTypeDateTimeV2::to_pb_column_meta(PColumnMeta* col_meta) const {
 }
 
 MutableColumnPtr DataTypeDateTimeV2::create_column() const {
-    return DataTypeNumberBase<UInt64>::create_column();
+    return ColumnVector<vectorized::DateV2Value<vectorized::DateTimeV2ValueType>>::create();
 }
 
 void DataTypeDateTimeV2::cast_to_date_time(const UInt64 from, Int64& to) {
