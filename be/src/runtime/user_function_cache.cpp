@@ -151,7 +151,7 @@ Status UserFunctionCache::_load_entry_from_lib(const std::string& dir, const std
                 file);
     }
 
-    std::vector<std::string> split_parts = strings::Split(file, ".");
+    std::vector<std::string> split_parts = _split_string_by_checksum(file);
     if (split_parts.size() != 3 && split_parts.size() != 4) {
         return Status::InternalError(
                 "user function's name should be function_id.checksum[.file_name].file_type, now "
@@ -379,4 +379,27 @@ Status UserFunctionCache::get_jarpath(int64_t fid, const std::string& url,
     return Status::OK();
 }
 
+std::vector<std::string> UserFunctionCache::_split_string_by_checksum(const std::string& file) {
+    std::vector<std::string> result;
+
+    // Find the first dot from the start
+    size_t firstDot = file.find('.');
+    if (firstDot == std::string::npos) return {};
+
+    // Find the second dot starting from the first dot's position
+    size_t secondDot = file.find('.', firstDot + 1);
+    if (secondDot == std::string::npos) return {};
+
+    // Find the last dot from the end
+    size_t lastDot = file.rfind('.');
+    if (lastDot == std::string::npos || lastDot <= secondDot) return {};
+
+    // Split based on these dots
+    result.push_back(file.substr(0, firstDot));
+    result.push_back(file.substr(firstDot + 1, secondDot - firstDot - 1));
+    result.push_back(file.substr(secondDot + 1, lastDot - secondDot - 1));
+    result.push_back(file.substr(lastDot + 1));
+
+    return result;
+}
 } // namespace doris

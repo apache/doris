@@ -125,13 +125,13 @@ int StreamSinkHandler::on_received_messages(brpc::StreamId id, butil::IOBuf* con
                              << status;
             }
         }
-
-        _sink->_pending_reports.fetch_add(-1);
     }
     return 0;
 }
 
-void StreamSinkHandler::on_closed(brpc::StreamId id) {}
+void StreamSinkHandler::on_closed(brpc::StreamId id) {
+    _sink->_pending_streams.fetch_add(-1);
+}
 
 VOlapTableSinkV2::VOlapTableSinkV2(ObjectPool* pool, const RowDescriptor& row_desc,
                                    const std::vector<TExpr>& texprs, Status* status)
@@ -298,6 +298,7 @@ Status VOlapTableSinkV2::_init_stream_pool(const NodeInfo& node_info, StreamPool
                                          cntl.ErrorText());
         }
         stream_pool.push_back(stream);
+        _pending_streams.fetch_add(1);
     }
     return Status::OK();
 }
@@ -522,10 +523,10 @@ Status VOlapTableSinkV2::close(RuntimeState* state, Status exec_status) {
 
         {
             SCOPED_TIMER(_close_load_timer);
-            while (_pending_reports.load() > 0) {
+            while (_pending_streams.load() > 0) {
                 // TODO: use a better wait
                 std::this_thread::sleep_for(std::chrono::milliseconds(1));
-                LOG(INFO) << "sinkv2 close_wait, pending reports: " << _pending_reports.load();
+                LOG(INFO) << "sinkv2 close_wait, pending streams: " << _pending_streams.load();
             }
         }
 
@@ -580,19 +581,13 @@ Status VOlapTableSinkV2::_close_load(brpc::StreamId stream) {
     header.set_opcode(doris::PStreamHeader::CLOSE_LOAD);
     auto node_id = _node_id_for_stream.get()->at(stream);
     for (auto tablet : _tablets_for_node[node_id]) {
-        int64_t partition_id = tablet.partition_id();
-        if (_tablet_finder->partition_ids().contains(tablet.partition_id()) ||
-            _send_partitions_recorder[node_id].find(partition_id) ==
-                    _send_partitions_recorder[node_id].end()) {
-            PTabletID* tablet_to_commit = header.add_tablets_to_commit();
-            *tablet_to_commit = tablet;
-            _send_partitions_recorder[node_id].insert(tablet.partition_id());
+        if (_tablet_finder->partition_ids().contains(tablet.partition_id())) {
+            *header.add_tablets_to_commit() = tablet;
         }
     }
     size_t header_len = header.ByteSizeLong();
     buf.append(reinterpret_cast<uint8_t*>(&header_len), sizeof(header_len));
     buf.append(header.SerializeAsString());
-    _pending_reports.fetch_add(1);
     io::StreamSinkFileWriter::send_with_retry(stream, buf);
     return Status::OK();
 }

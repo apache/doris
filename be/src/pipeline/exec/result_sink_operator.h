@@ -41,12 +41,12 @@ public:
     bool can_write() override;
 };
 
-class ResultSinkLocalState final : public PipelineXSinkLocalState {
+class ResultSinkLocalState final : public PipelineXSinkLocalState<> {
     ENABLE_FACTORY_CREATOR(ResultSinkLocalState);
 
 public:
     ResultSinkLocalState(DataSinkOperatorX* parent, RuntimeState* state)
-            : PipelineXSinkLocalState(parent, state) {}
+            : PipelineXSinkLocalState<>(parent, state) {}
 
     Status init(RuntimeState* state, LocalSinkStateInfo& info) override;
 
@@ -59,7 +59,6 @@ private:
 
     std::shared_ptr<BufferControlBlock> _sender;
     std::shared_ptr<ResultWriter> _writer;
-    RuntimeProfile* _profile; // Allocated from _pool
 };
 
 class ResultSinkOperatorX final : public DataSinkOperatorX {

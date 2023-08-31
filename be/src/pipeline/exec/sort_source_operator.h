@@ -45,7 +45,7 @@ public:
 };
 
 class SortSourceOperatorX;
-class SortLocalState final : public PipelineXLocalState {
+class SortLocalState final : public PipelineXLocalState<SortDependency> {
     ENABLE_FACTORY_CREATOR(SortLocalState);
 
 public:
@@ -57,16 +57,12 @@ public:
 private:
     friend class SortSourceOperatorX;
 
-    SortDependency* _dependency;
-    SortSharedState* _shared_state;
-
     RuntimeProfile::Counter* _get_next_timer = nullptr;
 };
 
 class SortSourceOperatorX final : public OperatorXBase {
 public:
-    SortSourceOperatorX(ObjectPool* pool, const TPlanNode& tnode, const DescriptorTbl& descs,
-                        std::string op_name);
+    SortSourceOperatorX(ObjectPool* pool, const TPlanNode& tnode, const DescriptorTbl& descs);
     bool can_read(RuntimeState* state) override;
 
     Status setup_local_state(RuntimeState* state, LocalStateInfo& info) override;

@@ -570,4 +570,7 @@ public abstract class Table extends MetaObject implements Writable, TableIf {
     public Optional<ColumnStatistic> getColumnStatistic(String colName) {
         return Optional.empty();
     }
+
+    public void analyze(String dbName) {
+    }
 }

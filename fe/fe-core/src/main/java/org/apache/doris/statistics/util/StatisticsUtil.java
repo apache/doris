@@ -170,6 +170,7 @@ public class StatisticsUtil {
         sessionVariable.enableProfile = false;
         sessionVariable.queryTimeoutS = Config.analyze_task_timeout_in_hours * 60 * 60;
         sessionVariable.insertTimeoutS = Config.analyze_task_timeout_in_hours * 60 * 60;
+        sessionVariable.enableFileCache = false;
         connectContext.setEnv(Env.getCurrentEnv());
         connectContext.setDatabase(FeConstants.INTERNAL_DB_NAME);
         connectContext.setQualifiedUser(UserIdentity.ROOT.getQualifiedUser());

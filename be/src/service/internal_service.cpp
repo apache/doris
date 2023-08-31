@@ -559,10 +559,11 @@ void PInternalServiceImpl::cancel_plan_fragment(google::protobuf::RpcController*
         if (request->has_cancel_reason()) {
             LOG(INFO) << "cancel fragment, fragment_instance_id=" << print_id(tid)
                       << ", reason: " << PPlanFragmentCancelReason_Name(request->cancel_reason());
-            _exec_env->fragment_mgr()->cancel(tid, request->cancel_reason());
+            _exec_env->fragment_mgr()->cancel_instance(tid, request->cancel_reason());
         } else {
             LOG(INFO) << "cancel fragment, fragment_instance_id=" << print_id(tid);
-            _exec_env->fragment_mgr()->cancel(tid);
+            _exec_env->fragment_mgr()->cancel_instance(tid,
+                                                       PPlanFragmentCancelReason::INTERNAL_ERROR);
         }
         // TODO: the logic seems useless, cancel only return Status::OK. remove it
         st.to_protobuf(result->mutable_status());
@@ -753,7 +754,7 @@ void PInternalServiceImpl::_get_column_ids_by_tablet_ids(
     for (const auto& param : params) {
         int64_t index_id = param.indexid();
         auto tablet_ids = param.tablet_ids();
-        std::set<std::vector<int32_t>> filter_set;
+        std::set<std::set<int32_t>> filter_set;
         for (const int64_t tablet_id : tablet_ids) {
             TabletSharedPtr tablet = tablet_mgr->get_tablet(tablet_id);
             if (tablet == nullptr) {
@@ -766,9 +767,10 @@ void PInternalServiceImpl::_get_column_ids_by_tablet_ids(
             }
             // check schema consistency, column ids should be the same
             const auto& columns = tablet->tablet_schema()->columns();
-            std::vector<int32_t> column_ids(columns.size());
-            std::transform(columns.begin(), columns.end(), column_ids.begin(),
-                           [](const TabletColumn& c) { return c.unique_id(); });
+            std::set<int32_t> column_ids;
+            for (const auto& col : columns) {
+                column_ids.insert(col.unique_id());
+            }
             filter_set.insert(column_ids);
         }
         if (filter_set.size() > 1) {
@@ -1450,8 +1452,8 @@ void PInternalServiceImpl::request_slave_tablet_pull_rowset(
         }
         Status commit_txn_status = StorageEngine::instance()->txn_manager()->commit_txn(
                 tablet->data_dir()->get_meta(), rowset_meta->partition_id(), rowset_meta->txn_id(),
-                rowset_meta->tablet_id(), rowset_meta->tablet_schema_hash(), tablet->tablet_uid(),
-                rowset_meta->load_id(), rowset, true);
+                rowset_meta->tablet_id(), tablet->tablet_uid(), rowset_meta->load_id(), rowset,
+                true);
         if (!commit_txn_status && !commit_txn_status.is<PUSH_TRANSACTION_ALREADY_EXIST>()) {
             LOG(WARNING) << "failed to add committed rowset for slave replica. rowset_id="
                          << rowset_meta->rowset_id() << ", tablet_id=" << rowset_meta->tablet_id()
