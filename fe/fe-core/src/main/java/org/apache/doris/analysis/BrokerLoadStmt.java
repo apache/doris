@@ -88,7 +88,8 @@ public class BrokerLoadStmt extends InsertStmt {
                     String location = brokerDesc.getFileLocation(dataDescription.getFilePaths().get(i));
                     dataDescription.getFilePaths().set(i, location);
                     dataDescription.getFilePaths().set(i,
-                            ExportStmt.checkPath(dataDescription.getFilePaths().get(i), brokerDesc.getStorageType()));
+                            StorageBackend.checkPath(dataDescription.getFilePaths().get(i),
+                                    brokerDesc.getStorageType()));
                 }
             }
         }
