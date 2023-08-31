@@ -42,6 +42,7 @@ public class FrontendHbResponse extends HeartbeatResponse implements Writable {
     @SerializedName(value = "replayedJournalId")
     private long replayedJournalId;
     private String version;
+    private long feStartTime;
     private long processUUID;
     private List<FeDiskInfo> diskInfos;
 
@@ -51,7 +52,8 @@ public class FrontendHbResponse extends HeartbeatResponse implements Writable {
 
     public FrontendHbResponse(String name, int queryPort, int rpcPort,
             long replayedJournalId, long hbTime, String version,
-            long processUUID, List<FeDiskInfo> diskInfos) {
+            long feStartTime, List<FeDiskInfo> diskInfos,
+            long processUUID) {
         super(HeartbeatResponse.Type.FRONTEND);
         this.status = HbStatus.OK;
         this.name = name;
@@ -62,6 +64,7 @@ public class FrontendHbResponse extends HeartbeatResponse implements Writable {
         this.version = version;
         this.processUUID = processUUID;
         this.diskInfos = diskInfos;
+        this.processUUID = processUUID;
     }
 
     public FrontendHbResponse(String name, String errMsg) {
@@ -94,6 +97,10 @@ public class FrontendHbResponse extends HeartbeatResponse implements Writable {
 
     public long getProcessUUID() {
         return processUUID;
+    }
+
+    public long getFeStartTime() {
+        return feStartTime;
     }
 
     public List<FeDiskInfo> getDiskInfos() {

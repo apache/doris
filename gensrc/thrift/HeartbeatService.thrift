@@ -24,6 +24,11 @@ include "Types.thrift"
 
 const i64 IS_SET_DEFAULT_ROWSET_TO_BETA_BIT = 0x01;
 
+struct TFrontendInfo {
+    1: optional Types.TNetworkAddress coordinator_address
+    2: optional i64 process_uuid
+}
+
 struct TMasterInfo {
     1: required Types.TNetworkAddress network_address
     2: required Types.TClusterId cluster_id
