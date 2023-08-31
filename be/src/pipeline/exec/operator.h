@@ -733,7 +733,8 @@ public:
                 std::bind<int64_t>(&RuntimeProfile::units_per_second, _rows_returned_counter,
                                    profile()->total_time_counter()),
                 "");
-        _mem_tracker = std::make_unique<MemTracker>("PipelineXLocalState:" + _runtime_profile->name());
+        _mem_tracker =
+                std::make_unique<MemTracker>("PipelineXLocalState:" + _runtime_profile->name());
         _memory_used_counter = ADD_LABEL_COUNTER(_runtime_profile, "MemoryUsage");
         _peak_memory_usage_counter = _runtime_profile->AddHighWaterMarkCounter(
                 "PeakMemoryUsage", TUnit::BYTES, "MemoryUsage");
