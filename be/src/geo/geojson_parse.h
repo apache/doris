@@ -15,8 +15,9 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef DORIS_GEOJSON_PARSE_H
-#define DORIS_GEOJSON_PARSE_H
+#pragma once
+
+#include <memory>
 
 #include "geo/geo_common.h"
 #include "geo/wkt_parse_type.h"
@@ -75,4 +76,3 @@ private:
 
 } // namespace doris
 
-#endif //DORIS_GEOJSON_PARSE_H
