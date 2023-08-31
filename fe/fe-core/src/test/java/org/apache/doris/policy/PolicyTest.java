@@ -60,7 +60,7 @@ public class PolicyTest extends TestWithFeService {
         createDatabase("test");
         useDatabase("test");
         createTable("create table table1\n"
-                + "(k1 int, k2 int) distributed by hash(k1) buckets 1\n"
+                + "(k1 int, k2 int) unique KEY(`k1`) distributed by hash(k1) buckets 1\n"
                 + "properties(\"replication_num\" = \"1\");");
         createTable("create table table2\n"
                 + "(k1 int, k2 int) distributed by hash(k1) buckets 1\n"
