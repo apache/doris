@@ -367,14 +367,14 @@ Status Segment::lookup_row_key(const Slice& key, bool with_seq_col, RowLocation*
 
     DCHECK(_pk_index_reader != nullptr);
     if (!_pk_index_reader->check_present(key_without_seq)) {
-        return Status::NotFound("Can't find key in the segment");
+        return Status::Error<ErrorCode::KEY_NOT_FOUND>("Can't find key in the segment");
     }
     bool exact_match = false;
     std::unique_ptr<segment_v2::IndexedColumnIterator> index_iterator;
     RETURN_IF_ERROR(_pk_index_reader->new_iterator(&index_iterator));
     RETURN_IF_ERROR(index_iterator->seek_at_or_after(&key_without_seq, &exact_match));
     if (!has_seq_col && !exact_match) {
-        return Status::NotFound("Can't find key in the segment");
+        return Status::Error<ErrorCode::KEY_NOT_FOUND>("Can't find key in the segment");
     }
     row_location->row_id = index_iterator->get_current_ordinal();
     row_location->segment_id = _segment_id;
@@ -396,7 +396,7 @@ Status Segment::lookup_row_key(const Slice& key, bool with_seq_col, RowLocation*
 
         // compare key
         if (key_without_seq.compare(sought_key_without_seq) != 0) {
-            return Status::NotFound("Can't find key in the segment");
+            return Status::Error<ErrorCode::KEY_NOT_FOUND>("Can't find key in the segment");
         }
 
         if (!with_seq_col) {
@@ -409,7 +409,8 @@ Status Segment::lookup_row_key(const Slice& key, bool with_seq_col, RowLocation*
         Slice previous_sequence_id = Slice(
                 sought_key.get_data() + sought_key_without_seq.get_size() + 1, seq_col_length - 1);
         if (sequence_id.compare(previous_sequence_id) < 0) {
-            return Status::AlreadyExist("key with higher sequence id exists");
+            return Status::Error<ErrorCode::KEY_ALREADY_EXISTS>(
+                    "key with higher sequence id exists");
         }
     }
 

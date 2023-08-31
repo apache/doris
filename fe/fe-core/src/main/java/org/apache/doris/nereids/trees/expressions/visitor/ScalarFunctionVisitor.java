@@ -86,6 +86,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.BitmapXorCoun
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Cardinality;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Cbrt;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Ceil;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Char;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.CharacterLength;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Coalesce;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Concat;
@@ -97,6 +98,8 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.ConvertTz;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Cos;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.CountEqual;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.CreateMap;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.CreateNamedStruct;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.CreateStruct;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.CurrentCatalog;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.CurrentDate;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.CurrentTime;
@@ -309,6 +312,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.StartsWith;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StrLeft;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StrRight;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StrToDate;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.StructElement;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.SubBitmap;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.SubReplace;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Substring;
@@ -628,6 +632,10 @@ public interface ScalarFunctionVisitor<R, C> {
 
     default R visitConcat(Concat concat, C context) {
         return visitScalarFunction(concat, context);
+    }
+
+    default R visitChar(Char charFunc, C context) {
+        return visitScalarFunction(charFunc, context);
     }
 
     default R visitConcatWs(ConcatWs concatWs, C context) {
@@ -1694,5 +1702,19 @@ public interface ScalarFunctionVisitor<R, C> {
 
     default R visitMapValues(MapValues mapValues, C context) {
         return visitScalarFunction(mapValues, context);
+    }
+
+    // struct function
+
+    default R visitCreateStruct(CreateStruct createStruct, C context) {
+        return visitScalarFunction(createStruct, context);
+    }
+
+    default R visitCreateNamedStruct(CreateNamedStruct createNamedStruct, C context) {
+        return visitScalarFunction(createNamedStruct, context);
+    }
+
+    default R visitStructElement(StructElement structElement, C context) {
+        return visitScalarFunction(structElement, context);
     }
 }

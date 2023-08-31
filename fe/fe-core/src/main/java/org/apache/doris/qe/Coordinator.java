@@ -562,6 +562,33 @@ public class Coordinator {
         }
     }
 
+    private void processFragmentAssignmentAndParams() throws Exception {
+        // prepare information
+        prepare();
+        // compute Fragment Instance
+        computeScanRangeAssignment();
+
+        computeFragmentExecParams();
+    }
+
+
+    public TExecPlanFragmentParams getStreamLoadPlan() throws Exception {
+        processFragmentAssignmentAndParams();
+
+        // This is a load process.
+        List<Long> relatedBackendIds = Lists.newArrayList(addressToBackendID.values());
+        Env.getCurrentEnv().getLoadManager().initJobProgress(jobId, queryId, instanceIds,
+                relatedBackendIds);
+        Env.getCurrentEnv().getProgressManager().addTotalScanNums(String.valueOf(jobId), scanRangeNum);
+        LOG.info("dispatch load job: {} to {}", DebugUtil.printId(queryId), addressToBackendID.keySet());
+
+        executionProfile.markInstances(instanceIds);
+        List<TExecPlanFragmentParams> tExecPlanFragmentParams
+                = ((FragmentExecParams) this.fragmentExecParamsMap.values().toArray()[0]).toThrift(0);
+        TExecPlanFragmentParams fragmentParams = tExecPlanFragmentParams.get(0);
+        return fragmentParams;
+    }
+
     // Initiate asynchronous execution of query. Returns as soon as all plan fragments
     // have started executing at their respective backends.
     // 'Request' must contain at least a coordinator plan fragment (ie, can't
@@ -578,12 +605,7 @@ public class Coordinator {
                     DebugUtil.printId(queryId), fragments.get(0).toThrift());
         }
 
-        // prepare information
-        prepare();
-        // compute Fragment Instance
-        computeScanRangeAssignment();
-
-        computeFragmentExecParams();
+        processFragmentAssignmentAndParams();
 
         traceInstance();
 

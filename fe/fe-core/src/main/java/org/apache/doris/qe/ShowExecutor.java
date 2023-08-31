@@ -2670,7 +2670,12 @@ public class ShowExecutor {
                     LocalDateTime.ofInstant(Instant.ofEpochMilli(analysisInfo.lastExecTimeInMs),
                             ZoneId.systemDefault())));
             row.add(analysisInfo.state.toString());
-            row.add(Env.getCurrentEnv().getAnalysisManager().getJobProgress(analysisInfo.jobId));
+            try {
+                row.add(Env.getCurrentEnv().getAnalysisManager().getJobProgress(analysisInfo.jobId));
+            } catch (Exception e) {
+                row.add("N/A");
+                LOG.warn("Failed to get progress for job: {}", analysisInfo, e);
+            }
             row.add(analysisInfo.scheduleType.toString());
             resultRows.add(row);
         }

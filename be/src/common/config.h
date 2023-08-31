@@ -332,6 +332,9 @@ DECLARE_mInt32(default_num_rows_per_column_file_block);
 DECLARE_mInt32(pending_data_expire_time_sec);
 // inc_rowset snapshot rs sweep time interval
 DECLARE_mInt32(tablet_rowset_stale_sweep_time_sec);
+// tablet stale rowset sweep by threshold size
+DECLARE_Bool(tablet_rowset_stale_sweep_by_size);
+DECLARE_mInt32(tablet_rowset_stale_sweep_threshold_size);
 // garbage sweep policy
 DECLARE_Int32(max_garbage_sweep_interval);
 DECLARE_Int32(min_garbage_sweep_interval);
@@ -534,6 +537,8 @@ DECLARE_mInt32(stream_load_record_batch_size);
 DECLARE_Int32(stream_load_record_expire_time_secs);
 // time interval to clean expired stream load records
 DECLARE_mInt64(clean_stream_load_record_interval_secs);
+// The buffer size to store stream table function schema info
+DECLARE_Int64(stream_tvf_buffer_size);
 
 // OlapTableSink sender's send interval, should be less than the real response time of a tablet writer rpc.
 // You may need to lower the speed when the sink receiver bes are too busy.
@@ -891,6 +896,9 @@ DECLARE_mInt32(jsonb_type_length_soft_limit_bytes);
 // used for olap scanner to save memory, when the size of unused_object_pool
 // is greater than object_pool_buffer_size, release the object in the unused_object_pool.
 DECLARE_Int32(object_pool_buffer_size);
+
+// Threshold fo reading a small file into memory
+DECLARE_mInt32(in_memory_file_size);
 
 // ParquetReaderWrap prefetch buffer size
 DECLARE_Int32(parquet_reader_max_buffer_size);

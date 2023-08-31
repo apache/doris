@@ -54,6 +54,13 @@ statement
         (USING relation (COMMA relation)*)
         whereClause                                                    #delete
     | loadStmt                                                         #load
+    | EXPORT TABLE tableName=multipartIdentifier
+        (PARTITION partition=identifierList)?
+        (whereClause)?
+        TO filePath=constant
+        (propertyClause)?
+        (withRemoteStorageSystem)?                                     #export
+    ;
     ;
 
 loadStmt
@@ -145,6 +152,7 @@ propertiesStatement
 identifierOrText
     : errorCapturingIdentifier
     | STRING_LITERAL
+    | LEADING_STRING
     ;
 
 userIdentify
@@ -167,6 +175,22 @@ planType
     | ALL // default type
     ;
 
+withRemoteStorageSystem
+    : WITH S3 LEFT_PAREN
+        brokerProperties=propertyItemList
+        RIGHT_PAREN
+    | WITH HDFS LEFT_PAREN
+        brokerProperties=propertyItemList
+        RIGHT_PAREN
+    | WITH LOCAL LEFT_PAREN
+        brokerProperties=propertyItemList
+        RIGHT_PAREN
+    | WITH BROKER brokerName=identifierOrText
+        (LEFT_PAREN
+        brokerProperties=propertyItemList
+        RIGHT_PAREN)?
+    ;
+
 //  -----------------Query-----------------
 // add queryOrganization for parse (q1) union (q2) union (q3) order by keys, otherwise 'order' will be recognized to be
 // identifier.
@@ -174,7 +198,7 @@ planType
 outFileClause
     : INTO OUTFILE filePath=constant
         (FORMAT AS format=identifier)?
-        (PROPERTIES LEFT_PAREN propertiesStatement RIGHT_PAREN)?
+        (propertyClause)?
     ;
 
 query
@@ -279,7 +303,7 @@ havingClause
 selectHint: HINT_START hintStatements+=hintStatement (COMMA? hintStatements+=hintStatement)* HINT_END;
 
 hintStatement
-    : hintName=identifier LEFT_PAREN parameters+=hintAssignment (COMMA parameters+=hintAssignment)* RIGHT_PAREN
+    : hintName=identifier (LEFT_PAREN parameters+=hintAssignment (COMMA? parameters+=hintAssignment)* RIGHT_PAREN)?
     ;
 
 hintAssignment
@@ -350,15 +374,25 @@ relationPrimary
     : multipartIdentifier specifiedPartition? tabletList? tableAlias relationHint? lateralView*           #tableName
     | LEFT_PAREN query RIGHT_PAREN tableAlias lateralView*                                    #aliasedQuery
     | tvfName=identifier LEFT_PAREN
-      (properties+=property (COMMA properties+=property)*)?
+      (properties=propertyItemList)?
       RIGHT_PAREN tableAlias                                                                  #tableValuedFunction
     ;
 
-property
-    : key=propertyItem EQ value=propertyItem
+propertyClause
+    : PROPERTIES LEFT_PAREN fileProperties=propertyItemList RIGHT_PAREN
     ;
 
-propertyItem : identifier | constant ;
+propertyItemList
+    : properties+=propertyItem (COMMA properties+=propertyItem)*
+    ;
+
+propertyItem
+    : key=propertyKey EQ value=propertyValue
+    ;
+
+propertyKey : identifier | constant ;
+
+propertyValue : identifier | constant ;
 
 tableAlias
     : (AS? strictIdentifier identifierList?)?
@@ -451,10 +485,21 @@ primaryExpression
     | CASE value=expression whenClause+ (ELSE elseExpression=expression)? END                  #simpleCase
     | name=CAST LEFT_PAREN expression AS dataType RIGHT_PAREN                                  #cast
     | constant                                                                                 #constantDefault
+    | interval                                                                                 #intervalLiteral
     | ASTERISK                                                                                 #star
     | qualifiedName DOT ASTERISK                                                               #star
-    | functionIdentifier LEFT_PAREN ((DISTINCT|ALL)? arguments+=expression
-      (COMMA arguments+=expression)* (ORDER BY sortItem (COMMA sortItem)*)?)? RIGHT_PAREN
+    | CHAR LEFT_PAREN
+                arguments+=expression (COMMA arguments+=expression)*
+                (USING charSet=identifierOrText)?
+          RIGHT_PAREN                                                                         #charFunction
+    | CONVERT LEFT_PAREN argument=expression USING charSet=identifierOrText RIGHT_PAREN       #convertCharSet
+    | CONVERT LEFT_PAREN argument=expression COMMA type=dataType RIGHT_PAREN                  #convertType
+    | functionIdentifier 
+        LEFT_PAREN (
+            (DISTINCT|ALL)? 
+            arguments+=expression (COMMA arguments+=expression)*
+            (ORDER BY sortItem (COMMA sortItem)*)?
+        )? RIGHT_PAREN
       (OVER windowSpec)?                                                                       #functionCall
     | value=primaryExpression LEFT_BRACKET index=valueExpression RIGHT_BRACKET                 #elementAt
     | value=primaryExpression LEFT_BRACKET begin=valueExpression
@@ -468,6 +513,7 @@ primaryExpression
     | KEY (dbName=identifier DOT)? keyName=identifier                                          #encryptKey
     | EXTRACT LEFT_PAREN field=identifier FROM (DATE | TIMESTAMP)?
       source=valueExpression RIGHT_PAREN                                                       #extract
+    | primaryExpression COLLATE (identifier | STRING_LITERAL | DEFAULT)                        #collate
     ;
 
 functionIdentifier 
@@ -517,11 +563,14 @@ specifiedPartition
 
 constant
     : NULL                                                                                     #nullLiteral
-    | interval                                                                                 #intervalLiteral
-    | type=(DATE | DATEV2 | TIMESTAMP) STRING_LITERAL                                                  #typeConstructor
+    | type=(DATE | DATEV2 | TIMESTAMP) STRING_LITERAL                                          #typeConstructor
     | number                                                                                   #numericLiteral
     | booleanValue                                                                             #booleanLiteral
-    | STRING_LITERAL                                                                                   #stringLiteral
+    | STRING_LITERAL                                                                           #stringLiteral
+    | LEFT_BRACKET items+=constant (COMMA items+=constant)* RIGHT_BRACKET                      #arrayLiteral
+    | LEFT_BRACE items+=constant COLON items+=constant
+       (COMMA items+=constant COLON items+=constant)* RIGHT_BRACE                              #mapLiteral
+    | LEFT_BRACE items+=constant (COMMA items+=constant)* RIGHT_BRACE                          #structLiteral
     ;
 
 comparisonOperator
@@ -592,7 +641,7 @@ quotedIdentifier
     ;
 
 number
-    : MINUS? INTEGER_VALUE            #integerLiteral
+    : MINUS? INTEGER_VALUE                    #integerLiteral
     | MINUS? (EXPONENT_VALUE | DECIMAL_VALUE) #decimalLiteral
     ;
 
@@ -629,6 +678,7 @@ nonReserved
     | CATALOG
     | CATALOGS
     | CHANGE
+    | CHAR
     | CHECK
     | CLEAR
     | CLUSTER
@@ -645,6 +695,7 @@ nonReserved
     | COMPUTE
     | CONCATENATE
     | CONSTRAINT
+    | CONVERT
     | COST
     | CREATE
     | CUBE
@@ -725,6 +776,7 @@ nonReserved
     | LAST
     | LAZY
     | LEADING
+    | LEFT_BRACE
     | LIKE
     | ILIKE
     | LIMIT
@@ -756,6 +808,7 @@ nonReserved
     | OPTIONS
     | OR
     | ORDER
+    | ORDERED
     | OUT
     | OUTER
     | OUTPUTFORMAT
@@ -798,6 +851,7 @@ nonReserved
     | RESTRICTIVE
     | REVOKE
     | REWRITTEN
+    | RIGHT_BRACE
     | RLIKE
     | ROLE
     | ROLES
@@ -873,5 +927,8 @@ nonReserved
     | WITHIN
     | YEAR
     | ZONE
+    | S3
+    | HDFS
+    | BROKER
 //--DEFAULT-NON-RESERVED-END
     ;

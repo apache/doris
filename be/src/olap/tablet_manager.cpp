@@ -1045,7 +1045,7 @@ Status TabletManager::build_all_report_tablets_info(std::map<TTabletId, TTablet>
         TTabletInfo& tablet_info = t_tablet.tablet_infos.emplace_back();
         tablet->build_tablet_report_info(&tablet_info, true, true);
         // find expired transaction corresponding to this tablet
-        TabletInfo tinfo(tablet->tablet_id(), tablet->schema_hash(), tablet->tablet_uid());
+        TabletInfo tinfo(tablet->tablet_id(), tablet->tablet_uid());
         auto find = expire_txn_map.find(tinfo);
         if (find != expire_txn_map.end()) {
             tablet_info.__set_transaction_ids(find->second);
@@ -1429,8 +1429,7 @@ void TabletManager::get_tablets_distribution_on_different_disks(
             DataDir* data_dir = tablet->data_dir();
             size_t tablet_footprint = tablet->tablet_footprint();
             tablets_num[data_dir]++;
-            TabletSize tablet_size(tablet_info_iter->tablet_id, tablet_info_iter->schema_hash,
-                                   tablet_footprint);
+            TabletSize tablet_size(tablet_info_iter->tablet_id, tablet_footprint);
             tablets_info[data_dir].push_back(tablet_size);
         }
         tablets_num_on_disk[partition_id] = tablets_num;

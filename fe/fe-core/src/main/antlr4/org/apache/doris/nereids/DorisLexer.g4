@@ -82,6 +82,8 @@ COMMA: ',';
 DOT: '.';
 LEFT_BRACKET: '[';
 RIGHT_BRACKET: ']';
+LEFT_BRACE: '{';
+RIGHT_BRACE: '}';
 
 // TODO: add a doc to list reserved words
 
@@ -122,6 +124,7 @@ CAST: 'CAST';
 CATALOG: 'CATALOG';
 CATALOGS: 'CATALOGS';
 CHANGE: 'CHANGE';
+CHAR: 'CHAR';
 CHECK: 'CHECK';
 CLEAR: 'CLEAR';
 CLUSTER: 'CLUSTER';
@@ -138,6 +141,7 @@ COMPACTIONS: 'COMPACTIONS';
 COMPUTE: 'COMPUTE';
 CONCATENATE: 'CONCATENATE';
 CONSTRAINT: 'CONSTRAINT';
+CONVERT: 'CONVERT';
 COST: 'COST';
 CREATE: 'CREATE';
 CROSS: 'CROSS';
@@ -274,6 +278,7 @@ OPTION: 'OPTION';
 OPTIONS: 'OPTIONS';
 OR: 'OR';
 ORDER: 'ORDER';
+ORDERED: 'ORDERED';
 OUT: 'OUT';
 OUTER: 'OUTER';
 OUTFILE: 'OUTFILE';
@@ -447,6 +452,11 @@ STRING_LITERAL
     | '"' ( ~('"'|'\\') | ('\\' .) )* '"'
     | 'R\'' (~'\'')* '\''
     | 'R"'(~'"')* '"'
+    ;
+
+LEADING_STRING
+    : LEFT_BRACE
+    | RIGHT_BRACE
     ;
 
 BIGINT_LITERAL

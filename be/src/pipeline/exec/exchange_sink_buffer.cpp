@@ -48,8 +48,7 @@ namespace doris::pipeline {
 
 template <typename Parent>
 ExchangeSinkBuffer<Parent>::ExchangeSinkBuffer(PUniqueId query_id, PlanNodeId dest_node_id,
-                                               int send_id, int be_number,
-                                               PipelineFragmentContext* context)
+                                               int send_id, int be_number, QueryContext* context)
         : _is_finishing(false),
           _query_id(query_id),
           _dest_node_id(dest_node_id),
@@ -84,7 +83,7 @@ bool ExchangeSinkBuffer<Parent>::is_pending_finish() {
     // 1 make ExchangeSinkBuffer support try close which calls brpc::StartCancel
     // 2 make BlockScheduler calls tryclose when query is cancel
     DCHECK(_context != nullptr);
-    bool need_cancel = _context->is_canceled();
+    bool need_cancel = _context->is_cancelled();
 
     for (auto& pair : _instance_to_package_queue_mutex) {
         std::unique_lock<std::mutex> lock(*(pair.second));
@@ -235,8 +234,7 @@ Status ExchangeSinkBuffer<Parent>::_send_rpc(InstanceLoId id) {
         {
             SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(ExecEnv::GetInstance()->orphan_mem_tracker());
             if (enable_http_send_block(*brpc_request)) {
-                RETURN_IF_ERROR(transmit_block_http(_context->get_runtime_state(), closure,
-                                                    *brpc_request,
+                RETURN_IF_ERROR(transmit_block_http(_context->exec_env(), closure, *brpc_request,
                                                     request.channel->_brpc_dest_addr));
             } else {
                 transmit_block(*request.channel->_brpc_stub, closure, *brpc_request);
@@ -288,8 +286,7 @@ Status ExchangeSinkBuffer<Parent>::_send_rpc(InstanceLoId id) {
         {
             SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(ExecEnv::GetInstance()->orphan_mem_tracker());
             if (enable_http_send_block(*brpc_request)) {
-                RETURN_IF_ERROR(transmit_block_http(_context->get_runtime_state(), closure,
-                                                    *brpc_request,
+                RETURN_IF_ERROR(transmit_block_http(_context->exec_env(), closure, *brpc_request,
                                                     request.channel->_brpc_dest_addr));
             } else {
                 transmit_block(*request.channel->_brpc_stub, closure, *brpc_request);
@@ -326,7 +323,7 @@ void ExchangeSinkBuffer<Parent>::_ended(InstanceLoId id) {
 template <typename Parent>
 void ExchangeSinkBuffer<Parent>::_failed(InstanceLoId id, const std::string& err) {
     _is_finishing = true;
-    _context->cancel(PPlanFragmentCancelReason::INTERNAL_ERROR, err);
+    _context->cancel(true, err, Status::Cancelled(err));
     _ended(id);
 }
 

@@ -219,7 +219,8 @@ void DataTypeDate64SerDe::read_column_from_arrow(IColumn& column, const arrow::A
         const auto type = std::static_pointer_cast<arrow::TimestampType>(arrow_array->type());
         divisor = time_unit_divisor(type->unit());
         if (divisor == 0L) {
-            LOG(FATAL) << "Invalid Time Type:" << type->name();
+            throw doris::Exception(doris::ErrorCode::INVALID_ARGUMENT,
+                                   "Invalid Time Type: " + type->name());
         }
         for (size_t value_i = start; value_i < end; ++value_i) {
             VecDateTimeValue v;
