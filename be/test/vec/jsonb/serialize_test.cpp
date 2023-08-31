@@ -59,7 +59,7 @@
 #include "vec/data_types/data_type_nullable.h"
 #include "vec/data_types/data_type_number.h"
 #include "vec/data_types/data_type_string.h"
-#include "vec/data_types/data_type_time_v2.h"
+#include "vec/data_types/data_type_date_v2.h"
 #include "vec/data_types/serde/data_type_serde.h"
 #include "vec/runtime/vdatetime_value.h"
 

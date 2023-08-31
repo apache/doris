@@ -43,7 +43,7 @@
 #include "vec/data_types/data_type_date_time.h"
 #include "vec/data_types/data_type_nullable.h"
 #include "vec/data_types/data_type_number.h"
-#include "vec/data_types/data_type_time_v2.h"
+#include "vec/data_types/data_type_date_v2.h"
 #include "vec/functions/function.h"
 #include "vec/functions/simple_function_factory.h"
 #include "vec/runtime/vdatetime_value.h"

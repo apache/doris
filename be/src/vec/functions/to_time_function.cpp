@@ -26,7 +26,7 @@
 #include "vec/data_types/data_type_date_time.h"
 #include "vec/data_types/data_type_nullable.h"
 #include "vec/data_types/data_type_number.h"
-#include "vec/data_types/data_type_time_v2.h"
+#include "vec/data_types/data_type_date_v2.h"
 #include "vec/functions/date_time_transforms.h"
 #include "vec/functions/function_date_or_datetime_to_something.h"
 #include "vec/functions/simple_function_factory.h"

@@ -42,7 +42,7 @@
 #include "vec/data_types/data_type_decimal.h"
 #include "vec/data_types/data_type_number.h"
 #include "vec/data_types/data_type_string.h"
-#include "vec/data_types/data_type_time_v2.h"
+#include "vec/data_types/data_type_date_v2.h"
 
 namespace doris::vectorized {
 

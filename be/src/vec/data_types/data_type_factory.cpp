@@ -60,7 +60,7 @@
 #include "vec/data_types/data_type_quantilestate.h"
 #include "vec/data_types/data_type_string.h"
 #include "vec/data_types/data_type_struct.h"
-#include "vec/data_types/data_type_time_v2.h"
+#include "vec/data_types/data_type_date_v2.h"
 
 namespace doris::vectorized {
 

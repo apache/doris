@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "vec/data_types/data_type_time_v2.h"
+#include "vec/data_types/data_type_date_v2.h"
 #include "vec/functions/function_date_or_datetime_computation.h"
 #include "vec/functions/simple_function_factory.h"
 
