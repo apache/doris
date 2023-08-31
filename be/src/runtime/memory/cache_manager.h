@@ -52,7 +52,7 @@ public:
 
     int64_t for_each_cache_prune_all(RuntimeProfile* profile = nullptr);
 
-    void clear_once(CachePolicy::Type type);
+    void clear_once(CachePolicy::CacheType type);
 
 private:
     static inline CacheManager* _s_instance = nullptr;

@@ -26,7 +26,7 @@ static constexpr int32_t CACHE_MIN_FREE_SIZE = 67108864; // 64M
 // Base of all caches. register to CacheManager when cache is constructed.
 class CachePolicy {
 public:
-    enum class Type {
+    enum class CacheType {
         DATA_PAGE_CACHE = 0,
         INDEXPAGE_CACHE = 1,
         PK_INDEX_PAGE_CACHE = 2,
@@ -37,23 +37,23 @@ public:
         LOOKUP_CONNECTION_CACHE = 7
     };
 
-    static std::string type_string(Type type) {
+    static std::string type_string(CacheType type) {
         switch (type) {
-        case Type::DATA_PAGE_CACHE:
+        case CacheType::DATA_PAGE_CACHE:
             return "DataPageCache";
-        case Type::INDEXPAGE_CACHE:
+        case CacheType::INDEXPAGE_CACHE:
             return "IndexPageCache";
-        case Type::PK_INDEX_PAGE_CACHE:
+        case CacheType::PK_INDEX_PAGE_CACHE:
             return "PKIndexPageCache";
-        case Type::SCHEMA_CACHE:
+        case CacheType::SCHEMA_CACHE:
             return "SchemaCache";
-        case Type::SEGMENT_CACHE:
+        case CacheType::SEGMENT_CACHE:
             return "SegmentCache";
-        case Type::INVERTEDINDEX_SEARCHER_CACHE:
+        case CacheType::INVERTEDINDEX_SEARCHER_CACHE:
             return "InvertedIndexSearcherCache";
-        case Type::INVERTEDINDEX_QUERY_CACHE:
+        case CacheType::INVERTEDINDEX_QUERY_CACHE:
             return "InvertedIndexQueryCache";
-        case Type::LOOKUP_CONNECTION_CACHE:
+        case CacheType::LOOKUP_CONNECTION_CACHE:
             return "LookupConnectionCache";
         default:
             LOG(FATAL) << "not match type of cache policy :" << static_cast<int>(type);
@@ -61,13 +61,13 @@ public:
         __builtin_unreachable();
     }
 
-    CachePolicy(Type type, uint32_t stale_sweep_time_s);
+    CachePolicy(CacheType type, uint32_t stale_sweep_time_s);
     virtual ~CachePolicy();
 
     virtual void prune_stale() = 0;
     virtual void prune_all(bool clear) = 0;
 
-    Type type() { return _type; }
+    CacheType type() { return _type; }
     RuntimeProfile* profile() { return _profile.get(); }
 
 protected:
@@ -81,7 +81,7 @@ protected:
         _cost_timer = ADD_TIMER(_profile, "CostTime");
     }
 
-    Type _type;
+    CacheType _type;
     std::list<CachePolicy*>::iterator _it;
 
     std::unique_ptr<RuntimeProfile> _profile;

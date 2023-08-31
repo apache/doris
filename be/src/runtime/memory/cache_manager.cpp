@@ -46,7 +46,7 @@ int64_t CacheManager::for_each_cache_prune_all(RuntimeProfile* profile) {
             [](CachePolicy* cache_policy) { cache_policy->prune_all(false); }, profile);
 }
 
-void CacheManager::clear_once(CachePolicy::Type type) {
+void CacheManager::clear_once(CachePolicy::CacheType type) {
     std::lock_guard<std::mutex> l(_caches_lock);
     for (auto cache_policy : _caches) {
         if (cache_policy->type() == type) {

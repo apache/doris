@@ -34,9 +34,9 @@ struct LRUCacheValueBase {
 // Base of lru cache, allow prune stale entry and prune all entry.
 class LRUCachePolicy : public CachePolicy {
 public:
-    LRUCachePolicy(Type type, uint32_t stale_sweep_time_s)
+    LRUCachePolicy(CacheType type, uint32_t stale_sweep_time_s)
             : CachePolicy(type, stale_sweep_time_s) {};
-    LRUCachePolicy(Type type, size_t capacity, LRUCacheType lru_cache_type,
+    LRUCachePolicy(CacheType type, size_t capacity, LRUCacheType lru_cache_type,
                    uint32_t stale_sweep_time_s, uint32_t num_shards = -1)
             : CachePolicy(type, stale_sweep_time_s) {
         _cache = num_shards == -1

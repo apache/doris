@@ -21,7 +21,7 @@
 
 namespace doris {
 
-CachePolicy::CachePolicy(Type type, uint32_t stale_sweep_time_s)
+CachePolicy::CachePolicy(CacheType type, uint32_t stale_sweep_time_s)
         : _type(type), _stale_sweep_time_s(stale_sweep_time_s) {
     _it = CacheManager::instance()->register_cache(this);
     init_profile();
