@@ -21,6 +21,7 @@
 #include <istream>
 #include <sstream>
 #include <vector>
+#include <cmath>
 
 #include "geo/ByteOrderDataInStream.h"
 #include "geo/ByteOrderValues.h"
