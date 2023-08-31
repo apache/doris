@@ -441,6 +441,8 @@ insert into doris_sink select id,name from cdc_mysql_source;
 - **--oracle-conf** Oracle CDCSource 配置，例如--oracle-conf hostname=127.0.0.1 ，您可以在[这里](https://ververica.github.io/flink-cdc-connectors/master/content/connectors/oracle-cdc.html)查看所有配置Oracle-CDC，其中hostname/username/password/database-name/schema-name 是必需的。
 - **--sink-conf** Doris Sink 的所有配置，可以在[这里](https://doris.apache.org/zh-CN/docs/dev/ecosystem/flink-doris-connector/#%E9%80%9A%E7%94%A8%E9%85%8D%E7%BD%AE%E9%A1%B9)查看完整的配置项。
 - **--table-conf** Doris表的配置项，即properties中包含的内容。 例如 --table-conf replication_num=1
+- **--ignore-default-value** 关闭同步mysql表结构的默认值。适用于同步mysql数据到doris时，字段有默认值，但实际插入数据为null情况。参考[#152](https://github.com/apache/doris-flink-connector/pull/152)
+- **--use-new-schema-change** 新的schema change支持同步mysql多列变更、默认值。参考[#167](https://github.com/apache/doris-flink-connector/pull/167)
 
 >注：同步时需要在$FLINK_HOME/lib 目录下添加对应的Flink CDC依赖，比如 flink-sql-connector-mysql-cdc-${version}.jar，flink-sql-connector-oracle-cdc-${version}.jar
 
