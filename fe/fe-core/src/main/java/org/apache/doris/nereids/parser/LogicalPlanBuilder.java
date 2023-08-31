@@ -631,7 +631,6 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                 );
             }
             selectPlan = withQueryOrganization(selectPlan, ctx.queryOrganization());
-            selectPlan = withCte(selectPlan, ctx.cte());
             return withSelectHint(selectPlan, selectCtx.selectHint());
         });
     }
