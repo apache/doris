@@ -781,6 +781,11 @@ public class EditLog {
                     env.replaySetReplicaStatus(log);
                     break;
                 }
+                case OperationType.OP_SET_REPLICA_VERSION: {
+                    SetReplicaVersionOperationLog log = (SetReplicaVersionOperationLog) journal.getData();
+                    env.replaySetReplicaVersion(log);
+                    break;
+                }
                 case OperationType.OP_REMOVE_ALTER_JOB_V2: {
                     RemoveAlterJobV2OperationLog log = (RemoveAlterJobV2OperationLog) journal.getData();
                     switch (log.getType()) {
@@ -1666,6 +1671,10 @@ public class EditLog {
 
     public void logSetReplicaStatus(SetReplicaStatusOperationLog log) {
         logEdit(OperationType.OP_SET_REPLICA_STATUS, log);
+    }
+
+    public void logSetReplicaVersion(SetReplicaVersionOperationLog log) {
+        logEdit(OperationType.OP_SET_REPLICA_VERSION, log);
     }
 
     public void logRemoveExpiredAlterJobV2(RemoveAlterJobV2OperationLog log) {

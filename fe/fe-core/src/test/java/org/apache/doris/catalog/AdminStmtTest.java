@@ -18,11 +18,13 @@
 package org.apache.doris.catalog;
 
 import org.apache.doris.analysis.AdminSetReplicaStatusStmt;
+import org.apache.doris.analysis.AdminSetReplicaVersionStmt;
 import org.apache.doris.catalog.MaterializedIndex.IndexExtState;
 import org.apache.doris.catalog.Replica.ReplicaStatus;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Pair;
 import org.apache.doris.persist.SetReplicaStatusOperationLog;
+import org.apache.doris.persist.SetReplicaVersionOperationLog;
 import org.apache.doris.utframe.TestWithFeService;
 
 import com.google.common.collect.Lists;
@@ -46,6 +48,25 @@ public class AdminStmtTest extends TestWithFeService {
                 + "  `id2` bitmap bitmap_union NULL\n"
                 + ") ENGINE=OLAP\n"
                 + "AGGREGATE KEY(`id`)\n"
+                + "DISTRIBUTED BY HASH(`id`) BUCKETS 3\n"
+                + "PROPERTIES (\n"
+                + " \"replication_num\" = \"1\"\n"
+                + ");");
+        createTable("CREATE TABLE test.tbl2 (\n"
+                + "  `id` int(11) NULL COMMENT \"\",\n"
+                + "  `name` varchar(20) NULL\n"
+                + ") ENGINE=OLAP\n"
+                + "DUPLICATE KEY(`id`, `name`)\n"
+                + "DISTRIBUTED BY HASH(`id`) BUCKETS 3\n"
+                + "PROPERTIES (\n"
+                + " \"replication_num\" = \"1\"\n"
+                + ");");
+        // for test set replica version
+        createTable("CREATE TABLE test.tbl3 (\n"
+                + "  `id` int(11) NULL COMMENT \"\",\n"
+                + "  `name` varchar(20) NULL\n"
+                + ") ENGINE=OLAP\n"
+                + "DUPLICATE KEY(`id`, `name`)\n"
                 + "DISTRIBUTED BY HASH(`id`) BUCKETS 3\n"
                 + "PROPERTIES (\n"
                 + " \"replication_num\" = \"1\"\n"
@@ -90,6 +111,111 @@ public class AdminStmtTest extends TestWithFeService {
         Env.getCurrentEnv().setReplicaStatus(stmt);
         replica = Env.getCurrentInvertedIndex().getReplica(tabletId, backendId);
         Assertions.assertFalse(replica.isBad());
+    }
+
+    @Test
+    public void testAdminSetReplicaVersion() throws Exception {
+        Database db = Env.getCurrentInternalCatalog().getDbNullable("default_cluster:test");
+        Assertions.assertNotNull(db);
+        OlapTable tbl = (OlapTable) db.getTableNullable("tbl3");
+        Assertions.assertNotNull(tbl);
+        // tablet id, backend id
+        List<Pair<Long, Long>> tabletToBackendList = Lists.newArrayList();
+        for (Partition partition : tbl.getPartitions()) {
+            for (MaterializedIndex index : partition.getMaterializedIndices(IndexExtState.VISIBLE)) {
+                for (Tablet tablet : index.getTablets()) {
+                    for (Replica replica : tablet.getReplicas()) {
+                        tabletToBackendList.add(Pair.of(tablet.getId(), replica.getBackendId()));
+                    }
+                }
+            }
+        }
+        Assertions.assertEquals(3, tabletToBackendList.size());
+        long tabletId = tabletToBackendList.get(0).first;
+        long backendId = tabletToBackendList.get(0).second;
+        Replica replica = Env.getCurrentInvertedIndex().getReplica(tabletId, backendId);
+
+        String adminStmt = "admin set replica version properties ('tablet_id' = '" + tabletId + "', 'backend_id' = '"
+                + backendId + "', 'version' = '10', 'last_failed_version' = '100');";
+        AdminSetReplicaVersionStmt stmt = (AdminSetReplicaVersionStmt) parseAndAnalyzeStmt(adminStmt);
+        Env.getCurrentEnv().setReplicaVersion(stmt);
+        Assertions.assertEquals(10L, replica.getVersion());
+        Assertions.assertEquals(10L, replica.getLastSuccessVersion());
+        Assertions.assertEquals(100L, replica.getLastFailedVersion());
+
+        adminStmt = "admin set replica version properties ('tablet_id' = '" + tabletId + "', 'backend_id' = '"
+                + backendId + "', 'version' = '50');";
+        stmt = (AdminSetReplicaVersionStmt) parseAndAnalyzeStmt(adminStmt);
+        Env.getCurrentEnv().setReplicaVersion(stmt);
+        Assertions.assertEquals(50L, replica.getVersion());
+        Assertions.assertEquals(50L, replica.getLastSuccessVersion());
+        Assertions.assertEquals(100L, replica.getLastFailedVersion());
+
+        adminStmt = "admin set replica version properties ('tablet_id' = '" + tabletId + "', 'backend_id' = '"
+                + backendId + "', 'version' = '200');";
+        stmt = (AdminSetReplicaVersionStmt) parseAndAnalyzeStmt(adminStmt);
+        Env.getCurrentEnv().setReplicaVersion(stmt);
+        Assertions.assertEquals(200L, replica.getVersion());
+        Assertions.assertEquals(200L, replica.getLastSuccessVersion());
+        Assertions.assertEquals(-1L, replica.getLastFailedVersion());
+
+        adminStmt = "admin set replica version properties ('tablet_id' = '" + tabletId + "', 'backend_id' = '"
+                + backendId + "', 'last_failed_version' = '300');";
+        stmt = (AdminSetReplicaVersionStmt) parseAndAnalyzeStmt(adminStmt);
+        Env.getCurrentEnv().setReplicaVersion(stmt);
+        Assertions.assertEquals(300L, replica.getLastFailedVersion());
+
+        adminStmt = "admin set replica version properties ('tablet_id' = '" + tabletId + "', 'backend_id' = '"
+                + backendId + "', 'last_failed_version' = '-1');";
+        stmt = (AdminSetReplicaVersionStmt) parseAndAnalyzeStmt(adminStmt);
+        Env.getCurrentEnv().setReplicaVersion(stmt);
+        Assertions.assertEquals(-1L, replica.getLastFailedVersion());
+    }
+
+    @Test
+    public void testSetReplicaVersionOperationLog() throws IOException, AnalysisException {
+        String fileName = "./SetReplicaVersionOperationLog";
+        Path path = Paths.get(fileName);
+        List<Long> versions = Lists.newArrayList(null, 10L, 1000L);
+        for (int i = 0; i < versions.size(); i++) {
+            for (int j = 0; j < versions.size(); j++) {
+                for (int k = 0; k < versions.size(); k++) {
+                    try {
+                        // 1. Write objects to file
+                        Files.createFile(path);
+                        DataOutputStream out = new DataOutputStream(Files.newOutputStream(path));
+
+                        Long version = versions.get(i);
+                        Long lastSuccessVersion = versions.get(j);
+                        Long lastFailedVersion = versions.get(k);
+                        if (version != null) {
+                            version = version + 1;
+                        }
+                        if (lastSuccessVersion != null) {
+                            lastSuccessVersion = lastSuccessVersion + 2;
+                        }
+                        if (lastFailedVersion != null) {
+                            lastFailedVersion = lastFailedVersion + 3;
+                        }
+                        SetReplicaVersionOperationLog log = new SetReplicaVersionOperationLog(123L, 567L, version,
+                                lastSuccessVersion, lastFailedVersion, 101112L);
+                        log.write(out);
+                        out.flush();
+                        out.close();
+
+                        // 2. Read objects from file
+                        DataInputStream in = new DataInputStream(Files.newInputStream(path));
+
+                        SetReplicaVersionOperationLog readLog = SetReplicaVersionOperationLog.read(in);
+                        Assertions.assertEquals(log, readLog);
+
+                        in.close();
+                    } finally {
+                        Files.deleteIfExists(path);
+                    }
+                }
+            }
+        }
     }
 
     @Test
