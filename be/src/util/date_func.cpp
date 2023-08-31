@@ -63,9 +63,9 @@ uint32_t timestamp_from_date(const std::string& date_str) {
     return value;
 }
 
-doris::vectorized::DateV2Value<doris::vectorized::DateTimeV2ValueType> timestamp_from_date_v2(
+doris::vectorized::DateV2Value<doris::vectorized::DateV2ValueType> timestamp_from_date_v2(
         const std::string& date_str) {
-    doris::vectorized::DateV2Value<doris::vectorized::DateTimeV2ValueType> val;
+    doris::vectorized::DateV2Value<doris::vectorized::DateV2ValueType> val;
     std::string date_format = "%Y-%m-%d";
     val.from_date_format_str(date_format.data(), date_format.size(), date_str.data(),
                              date_str.size());
