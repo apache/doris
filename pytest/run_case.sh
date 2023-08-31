@@ -65,13 +65,13 @@ function pytest_execute ()
 {
     case_file=$1
     ls ${case_file}
-    pytest -sv --junit-xml="${REPORT_PATH}"/"${case_file%.py}".xml --html="${REPORT_PATH}"/"${case_file%.py}".html  "${case_file}" --tb=native 2>&1 > "${case_file%.py}".log
+    pytest -sv --junit-xml="${REPORT_PATH}"/"${case_file%.py}".xml --html="${REPORT_PATH}"/"${case_file%.py}".html  "${case_file}" --tb=native 2>&1 | tee "${case_file%.py}".log
     sleep 1
 }
 
 function case_execute ()
 {
-    for case_file in "$@"
+    for case_file in $@
     do
         read -r -u3
         {
