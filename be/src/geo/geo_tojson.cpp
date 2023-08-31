@@ -17,6 +17,7 @@
 
 #include "geo_tojson.h"
 
+#include "rapidjson/document.h"
 #include "util/GeoLineString.h"
 #include "util/GeoMultiLineString.h"
 #include "util/GeoMultiPoint.h"
