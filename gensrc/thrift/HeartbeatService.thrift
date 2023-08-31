@@ -59,8 +59,3 @@ struct THeartbeatResult {
 service HeartbeatService {
     THeartbeatResult heartbeat(1:TMasterInfo master_info);
 }
-
-struct TFrontendInfo {
-    1: optional Types.TNetworkAddress coordinator_address
-    2: optional i64 process_uuid
-}
