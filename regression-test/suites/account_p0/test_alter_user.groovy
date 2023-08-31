@@ -162,25 +162,34 @@ suite("test_alter_user", "account") {
     }
 
     // 7. test after expire, reset password
-    sql """create user test_auth_user7 identified by '12345' PASSWORD_EXPIRE INTERVAL 5 SECOND"""
-    sql """grant all on *.* to test_auth_user7"""
-    result1 = connect(user = 'test_auth_user7', password = '12345', url = context.config.jdbcUrl) {
+    sql """drop user test_auth_user4"""
+    sql """create user test_auth_user4 identified by '12345' PASSWORD_EXPIRE INTERVAL 5 SECOND"""
+    sql """grant all on *.* to test_auth_user4"""
+    result1 = connect(user = 'test_auth_user4', password = '12345', url = context.config.jdbcUrl) {
         sql 'select 1'
     }
     sleep(6000)
-    sql """set password for 'test_auth_user7' = password('123')"""
-    result2 = connect(user = 'test_auth_user7', password = '123', url = context.config.jdbcUrl) {
+    sql """set password for 'test_auth_user4' = password('123')"""
+    result2 = connect(user = 'test_auth_user4', password = '123', url = context.config.jdbcUrl) {
         sql 'select 1'
+    }
+    sleep(6000)
+    try {
+        connect(user = 'test_auth_user4', password = '123', url = context.config.jdbcUrl) {}
+        assertTrue(false. "should not be able to login")
+    } catch (Exception e) {
+        assertTrue(e.getMessage().contains("Your password has expired. To log in you must change it using a client that supports expired passwords."), e.getMessage())
     }
 
     // 8. test password not expiration
-    sql """create user test_auth_user8 identified by '12345'"""
-    sql """grant all on *.* to test_auth_user8"""
-    result1 = connect(user = 'test_auth_user8', password = '12345', url = context.config.jdbcUrl) {
+    sql """drop user test_auth_user4"""
+    sql """create user test_auth_user4 identified by '12345'"""
+    sql """grant all on *.* to test_auth_user4"""
+    result1 = connect(user = 'test_auth_user4', password = '12345', url = context.config.jdbcUrl) {
         sql 'select 1'
     }
     sleep(1000)
-    result2 = connect(user = 'test_auth_user8', password = '12345', url = context.config.jdbcUrl) {
+    result2 = connect(user = 'test_auth_user4', password = '12345', url = context.config.jdbcUrl) {
         sql 'select 1'
     }
 }
