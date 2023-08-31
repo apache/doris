@@ -67,7 +67,15 @@ public:
     Status close() override;
 
     bool source_can_read() override {
-        return _source->can_read(_state) || _pipeline->_always_can_read;
+        if (_pipeline->_always_can_read) {
+            return true;
+        }
+        for (auto& op : _operators) {
+            if (!op->can_read(_state)) {
+                return false;
+            }
+        }
+        return true;
     }
 
     bool runtime_filters_are_ready_or_timeout() override {

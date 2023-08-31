@@ -179,8 +179,7 @@ private:
 
 class OlapScanOperatorX final : public ScanOperatorX {
 public:
-    OlapScanOperatorX(ObjectPool* pool, const TPlanNode& tnode, const DescriptorTbl& descs,
-                      std::string op_name);
+    OlapScanOperatorX(ObjectPool* pool, const TPlanNode& tnode, const DescriptorTbl& descs);
 
     Status setup_local_state(RuntimeState* state, LocalStateInfo& info) override;
 

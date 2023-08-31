@@ -54,10 +54,10 @@ Status Pipeline::add_operator(OperatorBuilderPtr& op) {
 }
 
 Status Pipeline::add_operator(OperatorXPtr& op) {
-    if (operatorXs.empty() && !op->is_source()) {
-        return Status::InternalError("Should set source before other operator");
-    }
     operatorXs.emplace_back(op);
+    if (op->is_source()) {
+        std::reverse(operatorXs.begin(), operatorXs.end());
+    }
     return Status::OK();
 }
 
