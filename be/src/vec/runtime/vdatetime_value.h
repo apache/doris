@@ -744,12 +744,6 @@ public:
 
     DateV2Value(const DateV2Value<T>& other) { int_val_ = other.to_date_int_val(); }
 
-    static DateV2Value create_from_olap_datetime(uint64_t value) {
-        DateV2Value<T> datetime;
-        datetime.from_olap_datetime(value);
-        return datetime;
-    }
-
     void set_time(uint16_t year, uint8_t month, uint8_t day, uint8_t hour, uint8_t minute,
                   uint8_t second, uint32_t microsecond);
 

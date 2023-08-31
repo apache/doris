@@ -442,7 +442,7 @@ struct ConvertImpl {
 /** If types are identical, just take reference to column.
   */
 template <typename T, typename Name>
-requires(!T::is_parametric)
+    requires(!T::is_parametric)
 struct ConvertImpl<T, T, Name> {
     static Status execute(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                           size_t result, size_t /*input_rows_count*/) {
