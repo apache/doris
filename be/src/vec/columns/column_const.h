@@ -95,8 +95,6 @@ public:
 
     StringRef get_data_at(size_t) const override { return data->get_data_at(0); }
 
-    TypeIndex get_data_type() const override { return data->get_data_type(); }
-
     UInt64 get64(size_t) const override { return data->get64(0); }
 
     UInt64 get_uint(size_t) const override { return data->get_uint(0); }
@@ -281,8 +279,7 @@ std::pair<ColumnPtr, size_t> check_column_const_set_readability(const IColumn& c
  * @warning use this function sometimes cause performance problem in GCC.
 */
 template <typename T>
-    requires std::is_integral_v<T>
-T index_check_const(T arg, bool constancy) noexcept {
+requires std::is_integral_v<T> T index_check_const(T arg, bool constancy) noexcept {
     return constancy ? 0 : arg;
 }
 
