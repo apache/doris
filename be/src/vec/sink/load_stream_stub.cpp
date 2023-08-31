@@ -78,7 +78,7 @@ int LoadStreamStub::LoadStreamReplyHandler::on_received_messages(brpc::StreamId 
 }
 
 void LoadStreamStub::LoadStreamReplyHandler::on_closed(brpc::StreamId id) {
-    std::unique_lock<bthread::Mutex> lock(_stub->_mutex);
+    std::lock_guard<bthread::Mutex> lock(_stub->_mutex);
     _stub->_is_closed = true;
     _stub->_close_cv.notify_all();
 }
@@ -118,7 +118,7 @@ Status LoadStreamStub::open(BrpcClientCache<PBackendService_Stub>* client_cache,
     opt.max_buf_size = 20 << 20; // 20MB
     opt.idle_timeout_ms = 30000;
     opt.messages_in_batch = 128;
-    opt.handler = new LoadStreamReplyHandler(this);
+    opt.handler = &_handler;
     brpc::Controller cntl;
     if (int ret = StreamCreate(&_stream_id, cntl, &opt)) {
         return Status::Error<true>(ret, "Failed to create stream");

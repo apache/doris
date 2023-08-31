@@ -178,7 +178,7 @@ protected:
     brpc::StreamId _stream_id;
     int64_t _src_id = -1; // source backend_id
     int64_t _dst_id = -1; // destination backend_id
-    brpc::Controller cntl;
+    LoadStreamReplyHandler _handler {this};
 
     bthread::Mutex _success_tablets_mutex;
     bthread::Mutex _failed_tablets_mutex;
