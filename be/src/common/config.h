@@ -347,6 +347,7 @@ DECLARE_mInt32(trash_file_expire_time_sec);
 // minimum file descriptor number
 // modify them upon necessity
 DECLARE_Int32(min_file_descriptor_number);
+DECLARE_mBool(disable_segment_cache);
 DECLARE_Int64(index_stream_cache_capacity);
 DECLARE_String(row_cache_mem_limit);
 
@@ -359,6 +360,7 @@ DECLARE_Int32(storage_page_cache_shard_size);
 // all storage page cache will be divided into data_page_cache and index_page_cache
 DECLARE_Int32(index_page_cache_percentage);
 // whether to disable page cache feature in storage
+// TODO delete it. Divided into Data page, Index page, pk index page
 DECLARE_Bool(disable_storage_page_cache);
 // whether to disable row cache feature in storage
 DECLARE_Bool(disable_storage_row_cache);
