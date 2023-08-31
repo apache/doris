@@ -41,7 +41,7 @@ public:
     static GeoParseStatus to_s2polyline(const GeoCoordinates& coords,
                                         std::unique_ptr<S2Polyline>* polyline);
 
-    [[nodiscard]] GeoParseStatus from_coords(const GeoCoordinates& coords);
+    GeoParseStatus from_coords(const GeoCoordinates& coords);
 
     [[nodiscard]] GeoCoordinates to_coords() const;
 

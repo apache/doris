@@ -33,7 +33,7 @@ public:
 
     [[nodiscard]] int get_dimension() const override { return 0; }
 
-    [[nodiscard]] GeoParseStatus from_coords(const GeoCoordinates& list);
+    GeoParseStatus from_coords(const GeoCoordinates& list);
 
     [[nodiscard]] std::unique_ptr<GeoCoordinates> to_coords() const;
 
