@@ -106,6 +106,8 @@ import org.apache.doris.persist.ReplaceTableOperationLog;
 import org.apache.doris.persist.ReplicaPersistInfo;
 import org.apache.doris.persist.RoutineLoadOperation;
 import org.apache.doris.persist.SetReplicaStatusOperationLog;
+import org.apache.doris.persist.SetReplicaVersionOperationLog;
+import org.apache.doris.persist.SetTableStatusOperationLog;
 import org.apache.doris.persist.TableAddOrDropColumnsInfo;
 import org.apache.doris.persist.TableAddOrDropInvertedIndicesInfo;
 import org.apache.doris.persist.TableInfo;
@@ -600,6 +602,16 @@ public class JournalEntity implements Writable {
             }
             case OperationType.OP_SET_REPLICA_STATUS: {
                 data = SetReplicaStatusOperationLog.read(in);
+                isRead = true;
+                break;
+            }
+            case OperationType.OP_SET_REPLICA_VERSION: {
+                data = SetReplicaVersionOperationLog.read(in);
+                isRead = true;
+                break;
+            }
+            case OperationType.OP_SET_PARTITION_VERSION: {
+                data = SetPartitionVersionOperationLog.read(in);
                 isRead = true;
                 break;
             }
