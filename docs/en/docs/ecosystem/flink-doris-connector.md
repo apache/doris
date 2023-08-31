@@ -301,15 +301,16 @@ ON a.city = c.city
 
 ### General configuration items
 
-| Key                              | Default Value | Required | Comment                                                      |
-| -------------------------------- | ------------- | -------- | ------------------------------------------------------------ |
-| fenodes                          | --            | Y        | Doris FE http address, multiple addresses are supported, separated by commas |
-| table.identifier                 | --            | Y        | Doris table name, such as: db.tbl                            |
-| username                         | --            | Y        | username to access Doris                                     |
-| password                         | --            | Y        | Password to access Doris                                     |
-| doris.request.retries            | 3             | N        | Number of retries to send requests to Doris                  |
-| doris.request.connect.timeout.ms | 30000         | N        | Connection timeout for sending requests to Doris             |
-| doris.request.read.timeout.ms    | 30000         | N        | Read timeout for sending requests to Doris                   |
+| Key                              | Default Value | Required | Comment                                                                                                                                                 |
+|----------------------------------|---------------|----------|---------------------------------------------------------------------------------------------------------------------------------------------------------|
+| fenodes                          | --            | Y        | Doris FE http address, multiple addresses are supported, separated by commas                                                                            |
+| benodes                          | --            | N        | Doris BE http address, multiple addresses are supported, separated by commas. refer to [#187](https://github.com/apache/doris-flink-connector/pull/187) |
+| table.identifier                 | --            | Y        | Doris table name, such as: db.tbl                                                                                                                       |
+| username                         | --            | Y        | username to access Doris                                                                                                                                |
+| password                         | --            | Y        | Password to access Doris                                                                                                                                |
+| doris.request.retries            | 3             | N        | Number of retries to send requests to Doris                                                                                                             |
+| doris.request.connect.timeout.ms | 30000         | N        | Connection timeout for sending requests to Doris                                                                                                        |
+| doris.request.read.timeout.ms    | 30000         | N        | Read timeout for sending requests to Doris                                                                                                              |
 
 ### Source configuration item
 
