@@ -114,7 +114,7 @@ public:
 
     //virtual MutableS2ShapeIndex* to_s2shape_index() const { return nullptr; };
 
-    std::unique_ptr<GeoShape> find_closest_point(const GeoShape* shape);
+    std::unique_ptr<GeoShape> find_closest_point(const GeoShape* shape) const;
 
     bool dwithin(const GeoShape* shape, double distance);
 

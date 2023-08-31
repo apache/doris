@@ -35,20 +35,20 @@ public:
 
     [[nodiscard]] int get_dimension() const override { return 2; }
 
-    GeoParseStatus from_coords(const GeoCoordinateListCollections& coord_list_collections);
+    [[nodiscard]] GeoParseStatus from_coords(const GeoCoordinateListCollections& coord_list_collections);
 
-    std::unique_ptr<GeoCoordinateListCollections> to_coords() const;
+    [[nodiscard]] std::unique_ptr<GeoCoordinateListCollections> to_coords() const;
 
     // Returns the number of geometries in this collection
     std::size_t get_num_polygon() const;
 
     GeoPolygon* get_polygon_n(std::size_t n) const;
 
-    std::string as_wkt() const override;
+    [[nodiscard]] std::string as_wkt() const override;
 
     bool contains(const GeoShape* shape) const override;
 
-    std::unique_ptr<GeoShape> boundary() const override;
+    [[nodiscard]] std::unique_ptr<GeoShape> boundary() const override;
 };
 
 } // namespace doris

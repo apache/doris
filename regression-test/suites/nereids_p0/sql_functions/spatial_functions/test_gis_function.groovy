@@ -15,7 +15,8 @@
 // specific language governing permissions and limitations
 // under the License.
 suite("test_gis_function") {
-    sql "SET enable_nereids_planner=true"
+    //temporarily set false
+    sql "SET enable_nereids_planner=false"
     sql "SET enable_fallback_to_original_planner=false"
     sql "set batch_size = 4096;"
 

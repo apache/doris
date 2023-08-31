@@ -30,24 +30,24 @@ public:
     GeoMultiLineString();
     ~GeoMultiLineString() override;
 
-    GeoShapeType type() const override { return GEO_SHAPE_MULTI_LINE_STRING; }
+    [[nodiscard]] GeoShapeType type() const override { return GEO_SHAPE_MULTI_LINE_STRING; }
 
     [[nodiscard]] int get_dimension() const override { return 1; }
 
-    GeoParseStatus from_coords(const GeoCoordinateLists& list);
+    [[nodiscard]] GeoParseStatus from_coords(const GeoCoordinateLists& list);
 
-    std::unique_ptr<GeoCoordinateLists> to_coords() const;
+    [[nodiscard]] std::unique_ptr<GeoCoordinateLists> to_coords() const;
 
     // Returns the number of geometries in this collection
-    std::size_t get_num_line() const;
+    [[nodiscard]] std::size_t get_num_line() const;
 
-    std::string as_wkt() const override;
+    [[nodiscard]] std::string as_wkt() const override;
 
-    GeoLineString* get_line_string_n(std::size_t n) const;
+    [[nodiscard]] GeoLineString* get_line_string_n(std::size_t n) const;
 
     bool contains(const GeoShape* shape) const override;
 
-    std::unique_ptr<GeoShape> boundary() const override;
+    [[nodiscard]] std::unique_ptr<GeoShape> boundary() const override;
 };
 
 } // namespace doris

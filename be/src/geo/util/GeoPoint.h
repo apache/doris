@@ -46,15 +46,15 @@ public:
 
     GeoParseStatus from_s2point(S2Point* point);
 
-    GeoCoordinates to_coords() const;
+    [[nodiscard]] GeoCoordinates to_coords() const;
 
-    std::unique_ptr<GeoCoordinate> to_coord() const;
+    [[nodiscard]] std::unique_ptr<GeoCoordinate> to_coord() const;
 
-    GeoShapeType type() const override { return GEO_SHAPE_POINT; }
+    [[nodiscard]] GeoShapeType type() const override { return GEO_SHAPE_POINT; }
 
-    bool is_valid() const override;
+    [[nodiscard]] bool is_valid() const override;
 
-    bool is_closed() const override { return !is_empty(); }
+    [[nodiscard]] bool is_closed() const override { return !is_empty(); }
 
     [[nodiscard]] int get_dimension() const override { return 0; }
 
@@ -72,18 +72,18 @@ public:
     static bool ComputeAngle(GeoPoint* p1, GeoPoint* p2, GeoPoint* p3, double* angle);
     static bool ComputeAzimuth(GeoPoint* p1, GeoPoint* p2, double* angle);
 
-    std::string as_wkt() const override;
+    [[nodiscard]] std::string as_wkt() const override;
 
     [[nodiscard]] std::size_t get_num_point() const override { return 1; }
 
-    std::unique_ptr<GeoShape> boundary() const override;
+    [[nodiscard]] std::unique_ptr<GeoShape> boundary() const override;
 
     bool add_to_s2shape_index(MutableS2ShapeIndex& S2shape_index) const override;
 
     //void add_to_s2point_index(S2PointIndex<int>& S2point_index, int i);
 
-    double x() const;
-    double y() const;
+    [[nodiscard]] double x() const;
+    [[nodiscard]] double y() const;
 
 protected:
     void encode(std::string* buf, size_t& data_size) override;

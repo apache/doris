@@ -34,39 +34,39 @@ public:
     GeoLineString();
     ~GeoLineString() override;
 
-    bool is_valid() const override;
+    [[nodiscard]] bool is_valid() const override;
 
-    bool is_closed() const override;
+    [[nodiscard]] bool is_closed() const override;
 
     static GeoParseStatus to_s2polyline(const GeoCoordinates& coords,
                                         std::unique_ptr<S2Polyline>* polyline);
 
-    GeoParseStatus from_coords(const GeoCoordinates& coords);
+    [[nodiscard]] GeoParseStatus from_coords(const GeoCoordinates& coords);
 
-    GeoCoordinates to_coords() const;
+    [[nodiscard]] GeoCoordinates to_coords() const;
 
-    std::unique_ptr<GeoCoordinates> to_coords_ptr() const;
+    [[nodiscard]] std::unique_ptr<GeoCoordinates> to_coords_ptr() const;
 
-    GeoShapeType type() const override { return GEO_SHAPE_LINE_STRING; }
+    [[nodiscard]] GeoShapeType type() const override { return GEO_SHAPE_LINE_STRING; }
 
     [[nodiscard]] int get_dimension() const override { return 1; }
 
     [[nodiscard]] double length() const;
 
-    const S2Polyline* polyline() const { return _polyline.get(); }
+    [[nodiscard]] const S2Polyline* polyline() const { return _polyline.get(); }
 
-    std::unique_ptr<S2Shape> get_s2shape() const;
+    [[nodiscard]] std::unique_ptr<S2Shape> get_s2shape() const;
 
-    std::string as_wkt() const override;
+    [[nodiscard]] std::string as_wkt() const override;
 
-    int num_point() const;
-    S2Point* get_point(int i) const;
+    [[nodiscard]] int num_point() const;
+    [[nodiscard]] S2Point* get_point(int i) const;
 
-    double line_locate_point(GeoPoint* point);
+    [[nodiscard]] double line_locate_point(GeoPoint* point);
 
     [[nodiscard]] std::size_t get_num_point() const override;
 
-    std::unique_ptr<GeoShape> boundary() const override;
+    [[nodiscard]] std::unique_ptr<GeoShape> boundary() const override;
 
     bool add_to_s2shape_index(MutableS2ShapeIndex& S2shape_index) const override;
 

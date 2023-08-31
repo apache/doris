@@ -35,41 +35,41 @@ public:
     GeoPolygon();
     ~GeoPolygon() override;
 
-    bool is_valid() const override;
+    [[nodiscard]] bool is_valid() const override;
 
-    bool is_closed() const override;
+    [[nodiscard]] bool is_closed() const override;
 
     static GeoParseStatus to_s2loop(const GeoCoordinates& coords, std::unique_ptr<S2Loop>* loop);
 
     GeoParseStatus from_coords(const GeoCoordinateLists& coords_list);
-    const std::unique_ptr<GeoCoordinateLists> to_coords() const;
+    [[nodiscard]] const std::unique_ptr<GeoCoordinateLists> to_coords() const;
 
     GeoParseStatus from_s2loop(std::vector<std::unique_ptr<S2Loop>>& loops);
 
     GeoParseStatus from_s2polygon(std::unique_ptr<S2Polygon> s2polygon);
 
-    GeoShapeType type() const override { return GEO_SHAPE_POLYGON; }
+    [[nodiscard]] GeoShapeType type() const override { return GEO_SHAPE_POLYGON; }
 
     [[nodiscard]] int get_dimension() const override { return 2; }
 
-    double get_perimeter() const;
+    [[nodiscard]] double get_perimeter() const;
 
-    const S2Polygon* polygon() const { return _polygon.get(); }
+    [[nodiscard]] const S2Polygon* polygon() const { return _polygon.get(); }
 
-    std::unique_ptr<S2Shape> get_s2shape() const;
+    [[nodiscard]] std::unique_ptr<S2Shape> get_s2shape() const;
 
     bool contains(const GeoShape* rhs) const override;
 
     static void print_coords(std::ostream& os, const GeoPolygon& polygon);
-    std::string as_wkt() const override;
+    [[nodiscard]] std::string as_wkt() const override;
 
-    int num_loops() const;
-    double get_area() const;
-    S2Loop* get_loop(int i) const;
+    [[nodiscard]] int num_loops() const;
+    [[nodiscard]] double get_area() const;
+    [[nodiscard]] S2Loop* get_loop(int i) const;
 
     [[nodiscard]] std::size_t get_num_point() const override;
 
-    std::unique_ptr<GeoShape> boundary() const override;
+    [[nodiscard]] std::unique_ptr<GeoShape> boundary() const override;
 
     bool add_to_s2shape_index(MutableS2ShapeIndex& S2shape_index) const override;
 

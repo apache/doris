@@ -428,7 +428,7 @@ bool GeoShape::get_type_string(std::string& type_string) const {
     }
 }
 
-std::unique_ptr<GeoShape> GeoShape::find_closest_point(const GeoShape* shape) {
+std::unique_ptr<GeoShape> GeoShape::find_closest_point(const GeoShape* shape) const {
     MutableS2ShapeIndex shape_index1;
     MutableS2ShapeIndex shape_index2;
 

@@ -309,6 +309,8 @@ struct WhichDataType {
 
     bool is_json() const { return idx == TypeIndex::JSONB; }
 
+    bool is_geometry() const { return idx == TypeIndex::GEOMETRY; }
+
     bool is_array() const { return idx == TypeIndex::Array; }
     bool is_tuple() const { return idx == TypeIndex::Tuple; }
     bool is_struct() const { return idx == TypeIndex::Struct; }
