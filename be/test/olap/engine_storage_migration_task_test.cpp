@@ -224,8 +224,8 @@ TEST_F(TestEngineStorageMigrationTask, write_and_migration) {
         RowsetSharedPtr rowset = tablet_rs.second;
         TabletPublishStatistics stats;
         res = k_engine->txn_manager()->publish_txn(meta, write_req.partition_id, write_req.txn_id,
-                                                   tablet->tablet_id(), tablet->schema_hash(),
-                                                   tablet->tablet_uid(), version, &stats);
+                                                   tablet->tablet_id(), tablet->tablet_uid(),
+                                                   version, &stats);
         EXPECT_EQ(Status::OK(), res);
         res = tablet->add_inc_rowset(rowset);
         EXPECT_EQ(Status::OK(), res);

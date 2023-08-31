@@ -613,7 +613,7 @@ public class BindExpression implements AnalysisRuleFactory {
 
     private <E extends Expression> List<E> bindSlot(
             List<E> exprList, List<Plan> inputs, CascadesContext cascadesContext) {
-        List<E> slots = new ArrayList<>();
+        List<E> slots = new ArrayList<>(exprList.size());
         for (E expr : exprList) {
             E result = bindSlot(expr, inputs, cascadesContext);
             slots.add(result);
