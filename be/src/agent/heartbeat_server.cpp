@@ -98,7 +98,7 @@ Status HeartbeatServer::_heartbeat(const TMasterInfo& master_info) {
         _master_info->cluster_id = master_info.cluster_id;
         LOG(INFO) << "record cluster id. host: " << master_info.network_address.hostname
                   << ". port: " << master_info.network_address.port
-                  << ". cluster id: " << master_info.cluster_id;
+                  << ". cluster id: " << master_info.cluster_id
                   << ". frontend_infos: " << PrintFrontendInfos(master_info.frontend_infos);
     } else {
         if (_master_info->cluster_id != master_info.cluster_id) {
