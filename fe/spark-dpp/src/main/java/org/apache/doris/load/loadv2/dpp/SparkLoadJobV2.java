@@ -242,6 +242,11 @@ public final class SparkLoadJobV2 implements java.io.Serializable {
                             }
                             lastBucketKey = curBucketKey;
                         }
+                        // TODO wuwenchi xxxx toRow 不兼容，3.2 版本没这个方法了
+                        // https://blog.csdn.net/yyoc97/article/details/109273555
+                        // 这里只是为了一个分区写一个文件。
+                        // 那么可以先把分区的rdd转换成组装好的columnObjects
+                        // 然后然后通过RDD转成dataframe，collect后写入parquet
                         InternalRow internalRow = encoder.toRow(rowWithoutBucketKey);
                         parquetWriter.write(internalRow);
                     }
