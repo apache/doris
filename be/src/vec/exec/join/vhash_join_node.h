@@ -124,6 +124,10 @@ struct HashJoinBuildContext {
 
 using ProfileCounter = RuntimeProfile::Counter;
 
+// TODO: Best prefetch step is decided by machine. We should also provide a
+//  SQL hint to allow users to tune by hand.
+static constexpr int PREFETCH_STEP = 64;
+
 template <class HashTableContext>
 struct ProcessHashTableBuild {
     ProcessHashTableBuild(int rows, Block& acquired_block, ColumnRawPtrs& build_raw_ptrs,
@@ -511,10 +515,6 @@ struct HashJoinProbeContext {
 
 class HashJoinNode final : public VJoinNodeBase {
 public:
-    // TODO: Best prefetch step is decided by machine. We should also provide a
-    //  SQL hint to allow users to tune by hand.
-    static constexpr int PREFETCH_STEP = 64;
-
     HashJoinNode(ObjectPool* pool, const TPlanNode& tnode, const DescriptorTbl& descs);
     ~HashJoinNode() override;
 

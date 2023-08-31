@@ -26,8 +26,6 @@
 
 namespace doris::vectorized {
 
-static constexpr int PREFETCH_STEP = HashJoinNode::PREFETCH_STEP;
-
 template <int JoinOpType>
 ProcessHashTableProbe<JoinOpType>::ProcessHashTableProbe(HashJoinProbeContext* join_context,
                                                          int batch_size)

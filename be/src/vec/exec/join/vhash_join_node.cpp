@@ -74,8 +74,6 @@
 
 namespace doris::vectorized {
 
-static constexpr int PREFETCH_STEP = HashJoinNode::PREFETCH_STEP;
-
 template Status HashJoinNode::_extract_join_column<true>(
         Block&, COW<IColumn>::mutable_ptr<ColumnVector<unsigned char>>&,
         std::vector<IColumn const*, std::allocator<IColumn const*>>&,
