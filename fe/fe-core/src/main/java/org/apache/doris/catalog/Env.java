@@ -222,7 +222,6 @@ import org.apache.doris.scheduler.manager.TransientTaskManager;
 import org.apache.doris.scheduler.registry.ExportTaskRegister;
 import org.apache.doris.scheduler.registry.PersistentJobRegister;
 import org.apache.doris.scheduler.registry.TimerJobRegister;
-import org.apache.doris.scheduler.registry.TransientTaskRegister;
 import org.apache.doris.service.ExecuteEnv;
 import org.apache.doris.service.FrontendOptions;
 import org.apache.doris.statistics.AnalysisManager;
