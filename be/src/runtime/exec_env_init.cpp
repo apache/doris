@@ -286,8 +286,8 @@ Status ExecEnv::_init_mem_env() {
     }
     // SegmentLoader caches segments in rowset granularity. So the size of
     // opened files will greater than segment_cache_capacity.
-    uint64_t segment_cache_capacity = config::segment_cache_capacity;
-    if (segment_cache_capacity > fd_number * 2 / 5) {
+    int64_t segment_cache_capacity = config::segment_cache_capacity;
+    if (segment_cache_capacity < 0 || segment_cache_capacity > fd_number * 2 / 5) {
         segment_cache_capacity = fd_number * 2 / 5;
     }
     LOG(INFO) << "segment_cache_capacity <= fd_number * 2 / 5, fd_number: " << fd_number
