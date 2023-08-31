@@ -19,7 +19,6 @@ package org.apache.doris.system;
 
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
-import org.apache.doris.service.ExecuteEnv;
 import org.apache.doris.service.FeDiskInfo;
 
 import com.google.gson.annotations.SerializedName;
@@ -42,7 +41,7 @@ public class FrontendHbResponse extends HeartbeatResponse implements Writable {
     @SerializedName(value = "replayedJournalId")
     private long replayedJournalId;
     private String version;
-    private long processUUID;
+    private long feStartTime;
     private List<FeDiskInfo> diskInfos;
 
     public FrontendHbResponse() {
@@ -51,7 +50,7 @@ public class FrontendHbResponse extends HeartbeatResponse implements Writable {
 
     public FrontendHbResponse(String name, int queryPort, int rpcPort,
             long replayedJournalId, long hbTime, String version,
-            long processUUID, List<FeDiskInfo> diskInfos) {
+            long feStartTime, List<FeDiskInfo> diskInfos) {
         super(HeartbeatResponse.Type.FRONTEND);
         this.status = HbStatus.OK;
         this.name = name;
@@ -60,7 +59,7 @@ public class FrontendHbResponse extends HeartbeatResponse implements Writable {
         this.replayedJournalId = replayedJournalId;
         this.hbTime = hbTime;
         this.version = version;
-        this.processUUID = processUUID;
+        this.feStartTime = feStartTime;
         this.diskInfos = diskInfos;
     }
 
@@ -69,7 +68,6 @@ public class FrontendHbResponse extends HeartbeatResponse implements Writable {
         this.status = HbStatus.BAD;
         this.name = name;
         this.msg = errMsg;
-        this.processUUID = ExecuteEnv.getInstance().getProcessUUID();
     }
 
     public String getName() {
@@ -92,8 +90,8 @@ public class FrontendHbResponse extends HeartbeatResponse implements Writable {
         return version;
     }
 
-    public long getProcessUUID() {
-        return processUUID;
+    public long getFeStartTime() {
+        return feStartTime;
     }
 
     public List<FeDiskInfo> getDiskInfos() {
@@ -118,7 +116,7 @@ public class FrontendHbResponse extends HeartbeatResponse implements Writable {
         sb.append(", queryPort: ").append(queryPort);
         sb.append(", rpcPort: ").append(rpcPort);
         sb.append(", replayedJournalId: ").append(replayedJournalId);
-        sb.append(", festartTime: ").append(processUUID);
+        sb.append(", festartTime: ").append(feStartTime);
         return sb.toString();
     }
 

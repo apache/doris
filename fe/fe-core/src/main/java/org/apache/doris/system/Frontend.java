@@ -60,8 +60,6 @@ public class Frontend implements Writable {
 
     private boolean isAlive = false;
 
-    private long processUUID = 0;
-
     public Frontend() {
     }
 
@@ -124,10 +122,6 @@ public class Frontend implements Writable {
         return lastStartupTime;
     }
 
-    public long getProcessUUID() {
-        return processUUID;
-    }
-
     public long getLastUpdateTime() {
         return lastUpdateTime;
     }
@@ -156,16 +150,10 @@ public class Frontend implements Writable {
             replayedJournalId = hbResponse.getReplayedJournalId();
             lastUpdateTime = hbResponse.getHbTime();
             heartbeatErrMsg = "";
-            lastStartupTime = hbResponse.getProcessUUID();
+            lastStartupTime = hbResponse.getFeStartTime();
             diskInfos = hbResponse.getDiskInfos();
             isChanged = true;
-            processUUID = lastStartupTime;
         } else {
-            // A non-master node disconnected.
-            // Set startUUID to zero, and be's heartbeat mgr will ignore this hb,
-            // so that its cancel worker will not cancel queries from this fe immediately
-            // until it receives a valid start UUID.
-            processUUID = 0;
             if (isAlive) {
                 isAlive = false;
                 isChanged = true;

@@ -62,7 +62,6 @@ void HeartbeatServer::heartbeat(THeartbeatResult& heartbeat_result,
                           << "host:" << master_info.network_address.hostname
                           << ", port:" << master_info.network_address.port
                           << ", cluster id:" << master_info.cluster_id
-                          << ", frontend_info:" << PrintFrontendInfos(master_info.frontend_infos)
                           << ", counter:" << google::COUNTER << ", BE start time: " << _be_epoch;
 
     MonotonicStopWatch watch;
@@ -98,8 +97,7 @@ Status HeartbeatServer::_heartbeat(const TMasterInfo& master_info) {
         _master_info->cluster_id = master_info.cluster_id;
         LOG(INFO) << "record cluster id. host: " << master_info.network_address.hostname
                   << ". port: " << master_info.network_address.port
-                  << ". cluster id: " << master_info.cluster_id
-                  << ". frontend_infos: " << PrintFrontendInfos(master_info.frontend_infos);
+                  << ". cluster id: " << master_info.cluster_id;
     } else {
         if (_master_info->cluster_id != master_info.cluster_id) {
             return Status::InternalError("invalid cluster id. ignore. cluster_id={}",
@@ -210,10 +208,6 @@ Status HeartbeatServer::_heartbeat(const TMasterInfo& master_info) {
 
     if (master_info.__isset.backend_id) {
         _master_info->__set_backend_id(master_info.backend_id);
-    }
-
-    if (master_info.__isset.frontend_infos) {
-        ExecEnv::GetInstance()->update_frontends(master_info.frontend_infos);
     }
 
     if (need_report) {

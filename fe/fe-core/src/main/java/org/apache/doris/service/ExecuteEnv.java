@@ -30,14 +30,14 @@ public class ExecuteEnv {
     private static volatile ExecuteEnv INSTANCE;
     private MultiLoadMgr multiLoadMgr;
     private ConnectScheduler scheduler;
-    private long processUUID;
+    private long startupTime;
 
     private List<FeDiskInfo> diskInfos;
 
     private ExecuteEnv() {
         multiLoadMgr = new MultiLoadMgr();
         scheduler = new ConnectScheduler(Config.qe_max_connection);
-        processUUID = System.currentTimeMillis();
+        startupTime = System.currentTimeMillis();
         diskInfos = new ArrayList<FeDiskInfo>() {{
                 add(new FeDiskInfo("meta", Config.meta_dir, DiskUtils.df(Config.meta_dir)));
                 add(new FeDiskInfo("log", Config.sys_log_dir, DiskUtils.df(Config.sys_log_dir)));
@@ -65,8 +65,8 @@ public class ExecuteEnv {
         return multiLoadMgr;
     }
 
-    public long getProcessUUID() {
-        return processUUID;
+    public long getStartupTime() {
+        return startupTime;
     }
 
     public List<FeDiskInfo> getDiskInfos() {

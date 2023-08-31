@@ -1933,7 +1933,6 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             }
             txnState.addTableIndexes(table);
             plan.setTableName(table.getName());
-            plan.query_options.setFeProcessUuid(ExecuteEnv.getInstance().getProcessUUID());
             return plan;
         } finally {
             table.readUnlock();
@@ -2034,7 +2033,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                 result.setQueryPort(Config.query_port);
                 result.setRpcPort(Config.rpc_port);
                 result.setVersion(Version.DORIS_BUILD_VERSION + "-" + Version.DORIS_BUILD_SHORT_HASH);
-                result.setLastStartupTime(exeEnv.getProcessUUID());
+                result.setLastStartupTime(exeEnv.getStartupTime());
                 if (exeEnv.getDiskInfos() != null) {
                     result.setDiskInfos(FeDiskInfo.toThrifts(exeEnv.getDiskInfos()));
                 }
