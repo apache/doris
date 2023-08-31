@@ -344,7 +344,7 @@ public:
 
     using DataSinkOperatorX<LocalStateType>::id;
 
-private:
+protected:
     template <typename Derived>
     friend class AggSinkLocalState;
     friend class StreamingAggSinkLocalState;

@@ -476,7 +476,7 @@ void AggSinkLocalState<Derived>::_emplace_into_hash_table(vectorized::AggregateD
 
                 _pre_serialize_key_if_need(state, agg_method, key_columns, num_rows);
 
-                auto creator = [this](const auto& ctor, const auto& key) {
+                auto creator = [&](const auto& ctor, const auto& key) {
                     using KeyType = std::decay_t<decltype(key)>;
                     if constexpr (HashTableTraits<HashTableType>::is_string_hash_table &&
                                   !std::is_same_v<StringRef, KeyType>) {
@@ -494,7 +494,7 @@ void AggSinkLocalState<Derived>::_emplace_into_hash_table(vectorized::AggregateD
                     }
                 };
 
-                auto creator_for_null_key = [this](auto& mapped) {
+                auto creator_for_null_key = [&](auto& mapped) {
                     mapped = _agg_arena_pool->aligned_alloc(
                             _parent->cast<typename Derived::Parent>()
                                     ._total_size_of_aggregate_states,
