@@ -21,6 +21,7 @@
 
 #include <memory>
 
+#include "pipeline/exec/olap_scan_operator.h"
 #include "pipeline/exec/operator.h"
 #include "vec/exec/runtime_filter_consumer.h"
 #include "vec/exec/scan/pip_scanner_context.h"
@@ -97,21 +98,23 @@ std::string ScanOperator::debug_string() const {
 
 ScanLocalState::ScanLocalState(RuntimeState* state_, OperatorXBase* parent_)
         : PipelineXLocalState<>(state_, parent_),
-          vectorized::RuntimeFilterConsumer(_parent->id(),
-                                            _parent->cast<ScanOperatorX>().runtime_filter_descs(),
-                                            _parent->row_descriptor(), _parent->conjuncts()) {}
+          vectorized::RuntimeFilterConsumer(
+                  _parent->id(),
+                  _parent->cast<ScanOperatorX<std::decay_t<decltype(*this)>>>()
+                          .runtime_filter_descs(),
+                  _parent->row_descriptor(), _parent->conjuncts()) {}
 
 bool ScanLocalState::ready_to_read() {
     return !_scanner_ctx->empty_in_queue(0);
 }
 
 bool ScanLocalState::should_run_serial() const {
-    return _parent->cast<ScanOperatorX>()._should_run_serial;
+    return _parent->cast<ScanOperatorX<std::decay_t<decltype(*this)>>>()._should_run_serial;
 }
 
 Status ScanLocalState::init(RuntimeState* state, LocalStateInfo& info) {
     RETURN_IF_ERROR(PipelineXLocalState<>::init(state, info));
-    auto& p = _parent->cast<ScanOperatorX>();
+    auto& p = _parent->cast<ScanOperatorX<std::decay_t<decltype(*this)>>>();
     set_scan_ranges(info.scan_ranges);
     _common_expr_ctxs_push_down.resize(p._common_expr_ctxs_push_down.size());
     for (size_t i = 0; i < _common_expr_ctxs_push_down.size(); i++) {
@@ -152,7 +155,7 @@ Status ScanLocalState::init(RuntimeState* state, LocalStateInfo& info) {
 }
 
 Status ScanLocalState::_normalize_conjuncts() {
-    auto& p = _parent->cast<ScanOperatorX>();
+    auto& p = _parent->cast<ScanOperatorX<std::decay_t<decltype(*this)>>>();
     // The conjuncts is always on output tuple, so use _output_tuple_desc;
     std::vector<SlotDescriptor*> slots = p._output_tuple_desc->slots();
 
@@ -568,8 +571,8 @@ Status ScanLocalState::_normalize_in_and_eq_predicate(vectorized::VExpr* expr,
 
         if (hybrid_set != nullptr) {
             // runtime filter produce VDirectInPredicate
-            if (hybrid_set->size() <=
-                _parent->cast<ScanOperatorX>()._max_pushdown_conditions_per_column) {
+            if (hybrid_set->size() <= _parent->cast<ScanOperatorX<std::decay_t<decltype(*this)>>>()
+                                              ._max_pushdown_conditions_per_column) {
                 iter = hybrid_set->begin();
             } else {
                 _filter_predicates.in_filters.emplace_back(slot->col_name(), expr->get_set_func());
@@ -794,9 +797,9 @@ Status ScanLocalState::_normalize_not_in_and_not_eq_predicate(
         return Status::OK();
     }
 
-    if (is_fixed_range ||
-        not_in_range.get_fixed_value_size() <=
-                _parent->cast<ScanOperatorX>()._max_pushdown_conditions_per_column) {
+    if (is_fixed_range || not_in_range.get_fixed_value_size() <=
+                                  _parent->cast<ScanOperatorX<std::decay_t<decltype(*this)>>>()
+                                          ._max_pushdown_conditions_per_column) {
         if (!is_fixed_range) {
             _not_in_value_ranges.push_back(not_in_range);
         }
@@ -1129,7 +1132,7 @@ Status ScanLocalState::_prepare_scanners(const int query_parallel_instance_num) 
 
 Status ScanLocalState::_start_scanners(const std::list<vectorized::VScannerSPtr>& scanners,
                                        const int query_parallel_instance_num) {
-    auto& p = _parent->cast<ScanOperatorX>();
+    auto& p = _parent->cast<ScanOperatorX<std::decay_t<decltype(*this)>>>();
     _scanner_ctx = PipScannerContext::create_shared(state(), this, p._output_tuple_desc, scanners,
                                                     p.limit(), state()->scan_queue_mem_limit(),
                                                     p._col_distribute_ids, 1);
@@ -1137,18 +1140,18 @@ Status ScanLocalState::_start_scanners(const std::list<vectorized::VScannerSPtr>
 }
 
 const TupleDescriptor* ScanLocalState::input_tuple_desc() const {
-    return _parent->cast<ScanOperatorX>()._input_tuple_desc;
+    return _parent->cast<ScanOperatorX<std::decay_t<decltype(*this)>>>()._input_tuple_desc;
 }
 const TupleDescriptor* ScanLocalState::output_tuple_desc() const {
-    return _parent->cast<ScanOperatorX>()._output_tuple_desc;
+    return _parent->cast<ScanOperatorX<std::decay_t<decltype(*this)>>>()._output_tuple_desc;
 }
 
 TPushAggOp::type ScanLocalState::get_push_down_agg_type() {
-    return _parent->cast<ScanOperatorX>()._push_down_agg_type;
+    return _parent->cast<ScanOperatorX<std::decay_t<decltype(*this)>>>()._push_down_agg_type;
 }
 
 int64_t ScanLocalState::limit_per_scanner() {
-    return _parent->cast<ScanOperatorX>()._limit_per_scanner;
+    return _parent->cast<ScanOperatorX<std::decay_t<decltype(*this)>>>()._limit_per_scanner;
 }
 
 Status ScanLocalState::clone_conjunct_ctxs(vectorized::VExprContextSPtrs& conjuncts) {
@@ -1200,8 +1203,11 @@ Status ScanLocalState::_init_profile() {
     return Status::OK();
 }
 
-ScanOperatorX::ScanOperatorX(ObjectPool* pool, const TPlanNode& tnode, const DescriptorTbl& descs)
-        : OperatorXBase(pool, tnode, descs), _runtime_filter_descs(tnode.runtime_filters) {
+template <typename LocalStateType>
+ScanOperatorX<LocalStateType>::ScanOperatorX(ObjectPool* pool, const TPlanNode& tnode,
+                                             const DescriptorTbl& descs)
+        : OperatorX<LocalStateType>(pool, tnode, descs),
+          _runtime_filter_descs(tnode.runtime_filters) {
     if (!tnode.__isset.conjuncts || tnode.conjuncts.empty()) {
         // Which means the request could be fullfilled in a single segment iterator request.
         if (tnode.limit > 0 && tnode.limit < 1024) {
@@ -1210,8 +1216,10 @@ ScanOperatorX::ScanOperatorX(ObjectPool* pool, const TPlanNode& tnode, const Des
     }
 }
 
-bool ScanOperatorX::can_read(RuntimeState* state) {
-    auto& local_state = state->get_local_state(id())->cast<ScanLocalState>();
+template <typename LocalStateType>
+bool ScanOperatorX<LocalStateType>::can_read(RuntimeState* state) {
+    auto& local_state = state->get_local_state(OperatorX<LocalStateType>::id())
+                                ->template cast<ScanLocalState>();
     if (local_state._eos || local_state._scanner_ctx->done()) {
         // _eos: need eos
         // _scanner_ctx->done(): need finish
@@ -1226,13 +1234,16 @@ bool ScanOperatorX::can_read(RuntimeState* state) {
     }
 }
 
-bool ScanOperatorX::is_pending_finish(RuntimeState* state) const {
-    auto& local_state = state->get_local_state(id())->cast<ScanLocalState>();
+template <typename LocalStateType>
+bool ScanOperatorX<LocalStateType>::is_pending_finish(RuntimeState* state) const {
+    auto& local_state = state->get_local_state(OperatorX<LocalStateType>::id())
+                                ->template cast<ScanLocalState>();
     return local_state._scanner_ctx && !local_state._scanner_ctx->no_schedule();
 }
 
-Status ScanOperatorX::init(const TPlanNode& tnode, RuntimeState* state) {
-    RETURN_IF_ERROR(OperatorXBase::init(tnode, state));
+template <typename LocalStateType>
+Status ScanOperatorX<LocalStateType>::init(const TPlanNode& tnode, RuntimeState* state) {
+    RETURN_IF_ERROR(OperatorX<LocalStateType>::init(tnode, state));
 
     const TQueryOptions& query_options = state->query_options();
     if (query_options.__isset.max_scan_key_num) {
@@ -1260,17 +1271,20 @@ Status ScanOperatorX::init(const TPlanNode& tnode, RuntimeState* state) {
     return Status::OK();
 }
 
-Status ScanOperatorX::open(RuntimeState* state) {
+template <typename LocalStateType>
+Status ScanOperatorX<LocalStateType>::open(RuntimeState* state) {
     _input_tuple_desc = state->desc_tbl().get_tuple_descriptor(_input_tuple_id);
     _output_tuple_desc = state->desc_tbl().get_tuple_descriptor(_output_tuple_id);
-    RETURN_IF_ERROR(OperatorXBase::open(state));
+    RETURN_IF_ERROR(OperatorX<LocalStateType>::open(state));
 
     RETURN_IF_CANCELLED(state);
     return Status::OK();
 }
 
-Status ScanOperatorX::try_close(RuntimeState* state) {
-    auto& local_state = state->get_local_state(id())->cast<ScanLocalState>();
+template <typename LocalStateType>
+Status ScanOperatorX<LocalStateType>::try_close(RuntimeState* state) {
+    auto& local_state = state->get_local_state(OperatorX<LocalStateType>::id())
+                                ->template cast<ScanLocalState>();
     if (local_state._scanner_ctx.get()) {
         // mark this scanner ctx as should_stop to make sure scanners will not be scheduled anymore
         // TODO: there is a lock in `set_should_stop` may cause some slight impact
@@ -1289,9 +1303,11 @@ Status ScanLocalState::close(RuntimeState* state) {
     return PipelineXLocalState<>::close(state);
 }
 
-Status ScanOperatorX::get_block(RuntimeState* state, vectorized::Block* block,
-                                SourceState& source_state) {
-    auto& local_state = state->get_local_state(id())->cast<ScanLocalState>();
+template <typename LocalStateType>
+Status ScanOperatorX<LocalStateType>::get_block(RuntimeState* state, vectorized::Block* block,
+                                                SourceState& source_state) {
+    auto& local_state = state->get_local_state(OperatorX<LocalStateType>::id())
+                                ->template cast<ScanLocalState>();
     SCOPED_TIMER(local_state._get_next_timer);
     SCOPED_TIMER(local_state.profile()->total_time_counter());
     // in inverted index apply logic, in order to optimize query performance,
@@ -1345,5 +1361,7 @@ Status ScanOperatorX::get_block(RuntimeState* state, vectorized::Block* block,
 
     return Status::OK();
 }
+
+template class ScanOperatorX<OlapScanLocalState>;
 
 } // namespace doris::pipeline

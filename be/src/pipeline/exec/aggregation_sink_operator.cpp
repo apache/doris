@@ -163,8 +163,8 @@ Status AggSinkLocalState::_execute_without_key(vectorized::Block* block) {
     for (int i = 0; i < _shared_state->aggregate_evaluators.size(); ++i) {
         RETURN_IF_ERROR(_shared_state->aggregate_evaluators[i]->execute_single_add(
                 block,
-                _agg_data->without_key +
-                        _parent->cast<AggSinkOperatorX<AggSinkLocalState>>()._offsets_of_aggregate_states[i],
+                _agg_data->without_key + _parent->cast<AggSinkOperatorX<AggSinkLocalState>>()
+                                                 ._offsets_of_aggregate_states[i],
                 _agg_arena_pool));
     }
     return Status::OK();
@@ -278,7 +278,9 @@ Status AggSinkLocalState::_merge_with_serialized_key_helper(vectorized::Block* b
                 }
             } else {
                 RETURN_IF_ERROR(_shared_state->aggregate_evaluators[i]->execute_batch_add_selected(
-                        block, _parent->cast<AggSinkOperatorX<AggSinkLocalState>>()._offsets_of_aggregate_states[i],
+                        block,
+                        _parent->cast<AggSinkOperatorX<AggSinkLocalState>>()
+                                ._offsets_of_aggregate_states[i],
                         _places.data(), _agg_arena_pool));
             }
         }
@@ -308,19 +310,23 @@ Status AggSinkLocalState::_merge_with_serialized_key_helper(vectorized::Block* b
                     SCOPED_TIMER(_deserialize_data_timer);
                     _shared_state->aggregate_evaluators[i]->function()->deserialize_and_merge_vec(
                             _places.data(),
-                            _parent->cast<AggSinkOperatorX<AggSinkLocalState>>()._offsets_of_aggregate_states[i],
+                            _parent->cast<AggSinkOperatorX<AggSinkLocalState>>()
+                                    ._offsets_of_aggregate_states[i],
                             _deserialize_buffer.data(), (vectorized::ColumnString*)(column.get()),
                             _agg_arena_pool, rows);
                 }
             } else {
                 RETURN_IF_ERROR(_shared_state->aggregate_evaluators[i]->execute_batch_add(
-                        block, _parent->cast<AggSinkOperatorX<AggSinkLocalState>>()._offsets_of_aggregate_states[i],
+                        block,
+                        _parent->cast<AggSinkOperatorX<AggSinkLocalState>>()
+                                ._offsets_of_aggregate_states[i],
                         _places.data(), _agg_arena_pool));
             }
         }
 
         if (_should_limit_output) {
-            _reach_limit = _get_hash_table_size() >= _parent->cast<AggSinkOperatorX<AggSinkLocalState>>()._limit;
+            _reach_limit = _get_hash_table_size() >=
+                           _parent->cast<AggSinkOperatorX<AggSinkLocalState>>()._limit;
         }
     }
 
@@ -351,14 +357,14 @@ Status AggSinkLocalState::_merge_without_key(vectorized::Block* block) {
 
             SCOPED_TIMER(_deserialize_data_timer);
             _shared_state->aggregate_evaluators[i]->function()->deserialize_and_merge_from_column(
-                    _agg_data->without_key +
-                            _parent->cast<AggSinkOperatorX<AggSinkLocalState>>()._offsets_of_aggregate_states[i],
+                    _agg_data->without_key + _parent->cast<AggSinkOperatorX<AggSinkLocalState>>()
+                                                     ._offsets_of_aggregate_states[i],
                     *column, _agg_arena_pool);
         } else {
             RETURN_IF_ERROR(_shared_state->aggregate_evaluators[i]->execute_single_add(
                     block,
-                    _agg_data->without_key +
-                            _parent->cast<AggSinkOperatorX<AggSinkLocalState>>()._offsets_of_aggregate_states[i],
+                    _agg_data->without_key + _parent->cast<AggSinkOperatorX<AggSinkLocalState>>()
+                                                     ._offsets_of_aggregate_states[i],
                     _agg_arena_pool));
         }
     }
@@ -410,7 +416,9 @@ Status AggSinkLocalState::_execute_with_serialized_key_helper(vectorized::Block*
 
         for (int i = 0; i < _shared_state->aggregate_evaluators.size(); ++i) {
             RETURN_IF_ERROR(_shared_state->aggregate_evaluators[i]->execute_batch_add_selected(
-                    block, _parent->cast<AggSinkOperatorX<AggSinkLocalState>>()._offsets_of_aggregate_states[i],
+                    block,
+                    _parent->cast<AggSinkOperatorX<AggSinkLocalState>>()
+                            ._offsets_of_aggregate_states[i],
                     _places.data(), _agg_arena_pool));
         }
     } else {
@@ -418,13 +426,17 @@ Status AggSinkLocalState::_execute_with_serialized_key_helper(vectorized::Block*
 
         for (int i = 0; i < _shared_state->aggregate_evaluators.size(); ++i) {
             RETURN_IF_ERROR(_shared_state->aggregate_evaluators[i]->execute_batch_add(
-                    block, _parent->cast<AggSinkOperatorX<AggSinkLocalState>>()._offsets_of_aggregate_states[i],
+                    block,
+                    _parent->cast<AggSinkOperatorX<AggSinkLocalState>>()
+                            ._offsets_of_aggregate_states[i],
                     _places.data(), _agg_arena_pool));
         }
 
         if (_should_limit_output) {
-            _reach_limit = _get_hash_table_size() >= _parent->cast<AggSinkOperatorX<AggSinkLocalState>>()._limit;
-            if (_reach_limit && _parent->cast<AggSinkOperatorX<AggSinkLocalState>>()._can_short_circuit) {
+            _reach_limit = _get_hash_table_size() >=
+                           _parent->cast<AggSinkOperatorX<AggSinkLocalState>>()._limit;
+            if (_reach_limit &&
+                _parent->cast<AggSinkOperatorX<AggSinkLocalState>>()._can_short_circuit) {
                 _dependency->set_done();
                 return Status::Error<ErrorCode::END_OF_FILE>("");
             }
@@ -472,8 +484,10 @@ void AggSinkLocalState::_emplace_into_hash_table(vectorized::AggregateDataPtr* p
 
                 auto creator_for_null_key = [this](auto& mapped) {
                     mapped = _agg_arena_pool->aligned_alloc(
-                            _parent->cast<AggSinkOperatorX<AggSinkLocalState>>()._total_size_of_aggregate_states,
-                            _parent->cast<AggSinkOperatorX<AggSinkLocalState>>()._align_aggregate_states);
+                            _parent->cast<AggSinkOperatorX<AggSinkLocalState>>()
+                                    ._total_size_of_aggregate_states,
+                            _parent->cast<AggSinkOperatorX<AggSinkLocalState>>()
+                                    ._align_aggregate_states);
                     _dependency->create_agg_status(mapped);
                 };
 
@@ -632,7 +646,8 @@ void AggSinkLocalState::_init_hash_method(const vectorized::VExprContextSPtrs& p
         }
 
         _agg_data->init(
-                get_hash_key_type_with_phase(t, !_parent->cast<AggSinkOperatorX<AggSinkLocalState>>()._is_first_phase),
+                get_hash_key_type_with_phase(
+                        t, !_parent->cast<AggSinkOperatorX<AggSinkLocalState>>()._is_first_phase),
                 is_nullable);
     } else {
         bool use_fixed_key = true;
@@ -675,9 +690,11 @@ void AggSinkLocalState::_init_hash_method(const vectorized::VExprContextSPtrs& p
             } else {
                 t = Type::int256_keys;
             }
-            _agg_data->init(get_hash_key_type_with_phase(
-                                    t, !_parent->cast<AggSinkOperatorX<AggSinkLocalState>>()._is_first_phase),
-                            has_null);
+            _agg_data->init(
+                    get_hash_key_type_with_phase(
+                            t,
+                            !_parent->cast<AggSinkOperatorX<AggSinkLocalState>>()._is_first_phase),
+                    has_null);
         } else {
             _agg_data->init(Type::serialized);
         }
@@ -691,9 +708,8 @@ Status AggSinkLocalState::try_spill_disk(bool eos) {
     return std::visit(
             [&](auto&& agg_method) -> Status {
                 auto& hash_table = agg_method.data;
-                if (!eos &&
-                    _memory_usage() <
-                            _parent->cast<AggSinkOperatorX<AggSinkLocalState>>()._external_agg_bytes_threshold) {
+                if (!eos && _memory_usage() < _parent->cast<AggSinkOperatorX<AggSinkLocalState>>()
+                                                      ._external_agg_bytes_threshold) {
                     return Status::OK();
                 }
 
@@ -708,9 +724,9 @@ Status AggSinkLocalState::try_spill_disk(bool eos) {
 }
 
 template <typename LocalStateType>
-AggSinkOperatorX::AggSinkOperatorX(ObjectPool* pool, const TPlanNode& tnode,
-                                   const DescriptorTbl& descs)
-        : DataSinkOperatorX(tnode.node_id),
+AggSinkOperatorX<LocalStateType>::AggSinkOperatorX(ObjectPool* pool, const TPlanNode& tnode,
+                                                   const DescriptorTbl& descs)
+        : DataSinkOperatorX<LocalStateType>(tnode.node_id),
           _intermediate_tuple_id(tnode.agg_node.intermediate_tuple_id),
           _intermediate_tuple_desc(nullptr),
           _output_tuple_id(tnode.agg_node.output_tuple_id),
@@ -724,8 +740,8 @@ AggSinkOperatorX::AggSinkOperatorX(ObjectPool* pool, const TPlanNode& tnode,
 }
 
 template <typename LocalStateType>
-Status AggSinkOperatorX::init(const TPlanNode& tnode, RuntimeState* state) {
-    RETURN_IF_ERROR(DataSinkOperatorX::init(tnode, state));
+Status AggSinkOperatorX<LocalStateType>::init(const TPlanNode& tnode, RuntimeState* state) {
+    RETURN_IF_ERROR(DataSinkOperatorX<LocalStateType>::init(tnode, state));
     // ignore return status for now , so we need to introduce ExecNode::init()
     RETURN_IF_ERROR(
             vectorized::VExpr::create_expr_trees(tnode.agg_node.grouping_exprs, _probe_expr_ctxs));
@@ -764,11 +780,12 @@ Status AggSinkOperatorX::init(const TPlanNode& tnode, RuntimeState* state) {
 }
 
 template <typename LocalStateType>
-Status AggSinkOperatorX::prepare(RuntimeState* state) {
+Status AggSinkOperatorX<LocalStateType>::prepare(RuntimeState* state) {
     _intermediate_tuple_desc = state->desc_tbl().get_tuple_descriptor(_intermediate_tuple_id);
     _output_tuple_desc = state->desc_tbl().get_tuple_descriptor(_output_tuple_id);
     DCHECK_EQ(_intermediate_tuple_desc->slots().size(), _output_tuple_desc->slots().size());
-    RETURN_IF_ERROR(vectorized::VExpr::prepare(_probe_expr_ctxs, state, _child_x->row_desc()));
+    RETURN_IF_ERROR(vectorized::VExpr::prepare(
+            _probe_expr_ctxs, state, DataSinkOperatorX<LocalStateType>::_child_x->row_desc()));
 
     int j = _probe_expr_ctxs.size();
     for (int i = 0; i < j; ++i) {
@@ -783,7 +800,8 @@ Status AggSinkOperatorX::prepare(RuntimeState* state) {
         SlotDescriptor* intermediate_slot_desc = _intermediate_tuple_desc->slots()[j];
         SlotDescriptor* output_slot_desc = _output_tuple_desc->slots()[j];
         RETURN_IF_ERROR(_aggregate_evaluators[i]->prepare(
-                state, _child_x->row_desc(), intermediate_slot_desc, output_slot_desc));
+                state, DataSinkOperatorX<LocalStateType>::_child_x->row_desc(),
+                intermediate_slot_desc, output_slot_desc));
     }
 
     _offsets_of_aggregate_states.resize(_aggregate_evaluators.size());
@@ -819,12 +837,12 @@ Status AggSinkOperatorX::prepare(RuntimeState* state) {
                    _is_merge ? "true" : "false", _needs_finalize ? "true" : "false",
                    std::to_string(_aggregate_evaluators.size()), std::to_string(_limit));
     std::string title = fmt::format("Aggregation Sink {}", fmt::to_string(msg));
-    _profile = _pool->add(new RuntimeProfile(title));
+    DataSinkOperatorX<LocalStateType>::_profile = _pool->add(new RuntimeProfile(title));
     return Status::OK();
 }
 
 template <typename LocalStateType>
-Status AggSinkOperatorX::open(RuntimeState* state) {
+Status AggSinkOperatorX<LocalStateType>::open(RuntimeState* state) {
     RETURN_IF_ERROR(vectorized::VExpr::open(_probe_expr_ctxs, state));
 
     for (int i = 0; i < _aggregate_evaluators.size(); ++i) {
@@ -836,9 +854,11 @@ Status AggSinkOperatorX::open(RuntimeState* state) {
 }
 
 template <typename LocalStateType>
-Status AggSinkOperatorX::sink(doris::RuntimeState* state, vectorized::Block* in_block,
-                              SourceState source_state) {
-    auto& local_state = state->get_sink_local_state(id())->cast<AggSinkLocalState>();
+Status AggSinkOperatorX<LocalStateType>::sink(doris::RuntimeState* state,
+                                              vectorized::Block* in_block,
+                                              SourceState source_state) {
+    auto& local_state = state->get_sink_local_state(DataSinkOperatorX<LocalStateType>::id())
+                                ->template cast<AggSinkLocalState>();
     local_state._shared_state->input_num_rows += in_block->rows();
     if (in_block->rows() > 0) {
         RETURN_IF_ERROR(local_state._executor.execute(in_block));
@@ -870,5 +890,10 @@ Status AggSinkLocalState::close(RuntimeState* state) {
     _hash_values.swap(tmp_hash_values);
     return PipelineXSinkLocalState<AggDependency>::close(state);
 }
+
+class StreamingAggSinkLocalState;
+
+template class AggSinkOperatorX<AggSinkLocalState>;
+template class AggSinkOperatorX<StreamingAggSinkLocalState>;
 
 } // namespace doris::pipeline

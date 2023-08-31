@@ -23,6 +23,7 @@
 #include "common/status.h"
 #include "operator.h"
 #include "pipeline/exec/aggregation_source_operator.h"
+#include "pipeline/pipeline_x/operator.h"
 #include "vec/exec/vaggregation_node.h"
 
 namespace doris {

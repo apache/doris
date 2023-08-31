@@ -249,11 +249,7 @@ public:
             : OperatorXBase(pool, tnode, descs) {}
     virtual ~OperatorX() = default;
 
-    Status setup_local_state(RuntimeState* state, LocalStateInfo& info) override {
-        auto local_state = LocalStateType::create_shared(state, this);
-        state->emplace_local_state(id(), local_state);
-        return local_state->init(state, info);
-    }
+    Status setup_local_state(RuntimeState* state, LocalStateInfo& info) override;
 };
 
 template <typename DependencyType = FakeDependency>
@@ -382,9 +378,7 @@ public:
         return reinterpret_cast<const TARGET&>(*this);
     }
 
-    virtual void get_dependency(DependencySPtr& dependency) {
-        dependency.reset((Dependency*)nullptr);
-    }
+    virtual void get_dependency(DependencySPtr& dependency) = 0;
 
     virtual Status close(RuntimeState* state) override {
         return state->get_sink_local_state(id())->close(state);
@@ -444,16 +438,15 @@ public:
 
     virtual ~DataSinkOperatorX() override = default;
 
-    Status setup_local_state(RuntimeState* state, LocalSinkStateInfo& info) override {
-        auto local_state = LocalStateType::create_shared(this, state);
-        state->emplace_sink_local_state(id(), local_state);
-        return local_state->init(state, info);
-    }
+    Status setup_local_state(RuntimeState* state, LocalSinkStateInfo& info) override;
+
+    void get_dependency(DependencySPtr& dependency) override;
 };
 
 template <typename DependencyType = FakeDependency>
 class PipelineXSinkLocalState : public PipelineXSinkLocalStateBase {
 public:
+    using Dependency = DependencyType;
     PipelineXSinkLocalState(DataSinkOperatorXBase* parent, RuntimeState* state)
             : PipelineXSinkLocalStateBase(parent, state) {}
     virtual ~PipelineXSinkLocalState() {}

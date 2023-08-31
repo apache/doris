@@ -17,13 +17,15 @@
 
 #include "join_build_sink_operator.h"
 
-#include "pipeline/exec/operator.h"
+#include "pipeline/pipeline_x/operator.h"
 
 namespace doris::pipeline {
 
-JoinBuildSinkOperatorX::JoinBuildSinkOperatorX(ObjectPool* pool, const TPlanNode& tnode,
-                                               const DescriptorTbl& descs)
-        : DataSinkOperatorX(tnode.node_id),
+template <typename LocalStateType>
+JoinBuildSinkOperatorX<LocalStateType>::JoinBuildSinkOperatorX(ObjectPool* pool,
+                                                               const TPlanNode& tnode,
+                                                               const DescriptorTbl& descs)
+        : DataSinkOperatorX<LocalStateType>(tnode.node_id),
           _join_op(tnode.__isset.hash_join_node ? tnode.hash_join_node.join_op
                                                 : (tnode.__isset.nested_loop_join_node
                                                            ? tnode.nested_loop_join_node.join_op
@@ -75,7 +77,8 @@ JoinBuildSinkOperatorX::JoinBuildSinkOperatorX(ObjectPool* pool, const TPlanNode
     M(RIGHT_ANTI_JOIN)               \
     M(NULL_AWARE_LEFT_ANTI_JOIN)
 
-void JoinBuildSinkOperatorX::_init_join_op() {
+template <typename LocalStateType>
+void JoinBuildSinkOperatorX<LocalStateType>::_init_join_op() {
     switch (_join_op) {
 #define M(NAME)                                                                            \
     case TJoinOp::NAME:                                                                    \
@@ -88,5 +91,7 @@ void JoinBuildSinkOperatorX::_init_join_op() {
         break;
     }
 }
+
+template class JoinBuildSinkOperatorX<HashJoinBuildSinkLocalState>;
 
 } // namespace doris::pipeline

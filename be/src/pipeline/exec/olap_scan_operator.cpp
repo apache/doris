@@ -480,10 +480,4 @@ OlapScanOperatorX::OlapScanOperatorX(ObjectPool* pool, const TPlanNode& tnode,
     }
 }
 
-Status OlapScanOperatorX::setup_local_state(RuntimeState* state, LocalStateInfo& info) {
-    auto local_state = OlapScanLocalState::create_shared(state, this);
-    state->emplace_local_state(id(), local_state);
-    return local_state->init(state, info);
-}
-
 } // namespace doris::pipeline

@@ -113,8 +113,6 @@ public:
     virtual ~AggSourceOperatorX() = default;
     virtual bool can_read(RuntimeState* state) override;
 
-    Status setup_local_state(RuntimeState* state, LocalStateInfo& info) override;
-
     virtual Status get_block(RuntimeState* state, vectorized::Block* block,
                              SourceState& source_state) override;
 

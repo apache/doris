@@ -17,7 +17,6 @@
 
 #include "operator.h"
 
-#include "util/debug_util.h"
 #include "vec/exprs/vexpr.h"
 #include "vec/exprs/vexpr_context.h"
 #include "vec/utils/util.hpp"

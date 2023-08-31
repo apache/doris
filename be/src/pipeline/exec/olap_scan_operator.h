@@ -24,6 +24,7 @@
 #include "common/status.h"
 #include "operator.h"
 #include "pipeline/exec/scan_operator.h"
+#include "pipeline/pipeline_x/operator.h"
 #include "vec/exec/scan/vscan_node.h"
 
 namespace doris {
@@ -177,11 +178,9 @@ private:
     std::mutex _profile_mtx;
 };
 
-class OlapScanOperatorX final : public ScanOperatorX {
+class OlapScanOperatorX final : public ScanOperatorX<OlapScanLocalState> {
 public:
     OlapScanOperatorX(ObjectPool* pool, const TPlanNode& tnode, const DescriptorTbl& descs);
-
-    Status setup_local_state(RuntimeState* state, LocalStateInfo& info) override;
 
 private:
     friend class OlapScanLocalState;

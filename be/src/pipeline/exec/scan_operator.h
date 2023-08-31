@@ -23,6 +23,7 @@
 
 #include "common/status.h"
 #include "operator.h"
+#include "pipeline/pipeline_x/operator.h"
 #include "vec/exec/scan/vscan_node.h"
 
 namespace doris {
@@ -54,10 +55,12 @@ public:
     Status try_close(RuntimeState* state) override;
 };
 
+template <typename LocalStateType>
 class ScanOperatorX;
 class ScanLocalState : public PipelineXLocalState<>, public vectorized::RuntimeFilterConsumer {
     ENABLE_FACTORY_CREATOR(ScanLocalState);
     ScanLocalState(RuntimeState* state, OperatorXBase* parent);
+    virtual ~ScanLocalState() = default;
 
     Status init(RuntimeState* state, LocalStateInfo& info) override;
     Status close(RuntimeState* state) override;
@@ -81,6 +84,7 @@ class ScanLocalState : public PipelineXLocalState<>, public vectorized::RuntimeF
     TPushAggOp::type get_push_down_agg_type();
 
 protected:
+    template <typename LocalStateType>
     friend class ScanOperatorX;
     friend class vectorized::ScannerContext;
     friend class vectorized::VScanner;
@@ -298,7 +302,8 @@ protected:
     doris::Mutex _block_lock;
 };
 
-class ScanOperatorX : public OperatorXBase {
+template <typename LocalStateType>
+class ScanOperatorX : public OperatorX<LocalStateType> {
 public:
     ScanOperatorX(ObjectPool* pool, const TPlanNode& tnode, const DescriptorTbl& descs);
 

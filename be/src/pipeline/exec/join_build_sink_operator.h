@@ -19,26 +19,26 @@
 
 #include "operator.h"
 #include "pipeline/pipeline_x/dependency.h"
+#include "pipeline/pipeline_x/operator.h"
 #include "vec/exec/join/vjoin_node_base.h"
 
 namespace doris {
 
 namespace pipeline {
-
+template <typename LocalStateType>
 class JoinBuildSinkOperatorX;
 
-template <typename DependencyType>
+template <typename DependencyType, typename Derived>
 class JoinBuildSinkLocalState : public PipelineXSinkLocalState<DependencyType> {
-    ENABLE_FACTORY_CREATOR(JoinBuildSinkLocalState);
-
 public:
+    ENABLE_FACTORY_CREATOR(JoinBuildSinkLocalState);
     JoinBuildSinkLocalState(DataSinkOperatorXBase* parent, RuntimeState* state)
             : PipelineXSinkLocalState<DependencyType>(parent, state) {}
 
     virtual Status init(RuntimeState* state, LocalSinkStateInfo& info) override {
         RETURN_IF_ERROR(PipelineXSinkLocalState<DependencyType>::init(state, info));
         auto& p = PipelineXSinkLocalState<DependencyType>::_parent
-                          ->template cast<JoinBuildSinkOperatorX>();
+                          ->template cast<JoinBuildSinkOperatorX<Derived>>();
 
         PipelineXSinkLocalState<DependencyType>::profile()->add_info_string("JoinType",
                                                                             to_string(p._join_op));
@@ -57,6 +57,7 @@ public:
     }
 
 protected:
+    template <typename LocalStateType>
     friend class JoinBuildSinkOperatorX;
 
     bool _short_circuit_for_null_in_probe_side = false;
@@ -69,14 +70,15 @@ protected:
     RuntimeProfile::Counter* _push_compute_timer;
 };
 
-class JoinBuildSinkOperatorX : public DataSinkOperatorX {
+template <typename LocalStateType>
+class JoinBuildSinkOperatorX : public DataSinkOperatorX<LocalStateType> {
 public:
     JoinBuildSinkOperatorX(ObjectPool* pool, const TPlanNode& tnode, const DescriptorTbl& descs);
     virtual ~JoinBuildSinkOperatorX() = default;
 
 protected:
     void _init_join_op();
-    template <typename DependencyType>
+    template <typename DependencyType, typename Derived>
     friend class JoinBuildSinkLocalState;
 
     TJoinOp::type _join_op;

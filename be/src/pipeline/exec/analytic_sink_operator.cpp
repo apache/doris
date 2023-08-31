@@ -136,12 +136,6 @@ Status AnalyticSinkOperatorX::open(RuntimeState* state) {
     return Status::OK();
 }
 
-Status AnalyticSinkOperatorX::setup_local_state(RuntimeState* state, LocalSinkStateInfo& info) {
-    auto local_state = AnalyticSinkLocalState::create_shared(this, state);
-    state->emplace_sink_local_state(id(), local_state);
-    return local_state->init(state, info);
-}
-
 Status AnalyticSinkOperatorX::sink(doris::RuntimeState* state, vectorized::Block* input_block,
                                    SourceState source_state) {
     auto& local_state = state->get_sink_local_state(id())->cast<AnalyticSinkLocalState>();

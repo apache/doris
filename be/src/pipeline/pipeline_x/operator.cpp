@@ -17,6 +17,22 @@
 
 #include "operator.h"
 
+#include "pipeline/exec/aggregation_sink_operator.h"
+#include "pipeline/exec/aggregation_source_operator.h"
+#include "pipeline/exec/analytic_sink_operator.h"
+#include "pipeline/exec/analytic_source_operator.h"
+#include "pipeline/exec/exchange_sink_operator.h"
+#include "pipeline/exec/exchange_source_operator.h"
+#include "pipeline/exec/hashjoin_build_sink.h"
+#include "pipeline/exec/hashjoin_probe_operator.h"
+#include "pipeline/exec/olap_scan_operator.h"
+#include "pipeline/exec/result_sink_operator.h"
+#include "pipeline/exec/sort_sink_operator.h"
+#include "pipeline/exec/sort_source_operator.h"
+#include "pipeline/exec/streaming_aggregation_sink_operator.h"
+#include "pipeline/exec/streaming_aggregation_source_operator.h"
+#include "util/debug_util.h"
+
 namespace doris::pipeline {
 
 std::string OperatorXBase::debug_string() const {
@@ -173,5 +189,46 @@ Status DataSinkOperatorXBase::init(const TPlanNode& tnode, RuntimeState* state) 
     _name = print_plan_node_type(tnode.node_type) + "SinkOperatorX";
     return Status::OK();
 }
+
+template <typename LocalStateType>
+Status DataSinkOperatorX<LocalStateType>::setup_local_state(RuntimeState* state,
+                                                            LocalSinkStateInfo& info) {
+    auto local_state = LocalStateType::create_shared(this, state);
+    state->emplace_sink_local_state(id(), local_state);
+    return local_state->init(state, info);
+}
+
+template <typename LocalStateType>
+void DataSinkOperatorX<LocalStateType>::get_dependency(DependencySPtr& dependency) {
+    dependency.reset(new typename LocalStateType::Dependency(id()));
+}
+
+template <typename LocalStateType>
+Status OperatorX<LocalStateType>::setup_local_state(RuntimeState* state, LocalStateInfo& info) {
+    auto local_state = LocalStateType::create_shared(state, this);
+    state->emplace_local_state(id(), local_state);
+    return local_state->init(state, info);
+}
+
+#define DECLARE_OPERATOR_X(LOCAL_STATE) template class DataSinkOperatorX<LOCAL_STATE>;
+DECLARE_OPERATOR_X(HashJoinBuildSinkLocalState)
+DECLARE_OPERATOR_X(ResultSinkLocalState)
+DECLARE_OPERATOR_X(AnalyticSinkLocalState)
+DECLARE_OPERATOR_X(SortSinkLocalState)
+DECLARE_OPERATOR_X(AggSinkLocalState)
+DECLARE_OPERATOR_X(StreamingAggSinkLocalState)
+DECLARE_OPERATOR_X(ExchangeSinkLocalState)
+
+#undef DECLARE_OPERATOR_X
+
+#define DECLARE_OPERATOR_X(LOCAL_STATE) template class OperatorX<LOCAL_STATE>;
+DECLARE_OPERATOR_X(HashJoinProbeLocalState)
+DECLARE_OPERATOR_X(OlapScanLocalState)
+DECLARE_OPERATOR_X(AnalyticLocalState)
+DECLARE_OPERATOR_X(SortLocalState)
+DECLARE_OPERATOR_X(AggLocalState)
+DECLARE_OPERATOR_X(ExchangeLocalState)
+
+#undef DECLARE_OPERATOR_X
 
 } // namespace doris::pipeline

@@ -21,6 +21,7 @@
 
 #include "join_build_sink_operator.h"
 #include "operator.h"
+#include "pipeline/pipeline_x/operator.h"
 #include "vec/exec/join/vhash_join_node.h"
 
 namespace doris {
@@ -45,7 +46,8 @@ public:
 
 class HashJoinBuildSinkOperatorX;
 
-class HashJoinBuildSinkLocalState final : public JoinBuildSinkLocalState<JoinDependency> {
+class HashJoinBuildSinkLocalState final
+        : public JoinBuildSinkLocalState<JoinDependency, HashJoinBuildSinkLocalState> {
     ENABLE_FACTORY_CREATOR(HashJoinBuildSinkLocalState);
 
 public:
@@ -102,29 +104,26 @@ protected:
     RuntimeProfile::HighWaterMarkCounter* _build_arena_memory_usage;
 };
 
-class HashJoinBuildSinkOperatorX final : public JoinBuildSinkOperatorX {
+class HashJoinBuildSinkOperatorX final
+        : public JoinBuildSinkOperatorX<HashJoinBuildSinkLocalState> {
 public:
     HashJoinBuildSinkOperatorX(ObjectPool* pool, const TPlanNode& tnode,
                                const DescriptorTbl& descs);
     Status init(const TDataSink& tsink) override {
-        return Status::InternalError("{} should not init with TDataSink", _name);
+        return Status::InternalError("{} should not init with TDataSink",
+                                     JoinBuildSinkOperatorX<HashJoinBuildSinkLocalState>::_name);
     }
 
     Status init(const TPlanNode& tnode, RuntimeState* state) override;
 
     Status prepare(RuntimeState* state) override;
     Status open(RuntimeState* state) override;
-    Status setup_local_state(RuntimeState* state, LocalSinkStateInfo& info) override;
 
     Status sink(RuntimeState* state, vectorized::Block* in_block,
                 SourceState source_state) override;
     Status close(RuntimeState* state) override;
 
     virtual bool can_write(RuntimeState* state) override { return true; }
-
-    void get_dependency(DependencySPtr& dependency) override {
-        dependency.reset(new JoinDependency(id()));
-    }
 
 private:
     friend class HashJoinBuildSinkLocalState;

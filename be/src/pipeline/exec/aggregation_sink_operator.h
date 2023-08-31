@@ -318,7 +318,8 @@ public:
     AggSinkOperatorX(ObjectPool* pool, const TPlanNode& tnode, const DescriptorTbl& descs);
     virtual ~AggSinkOperatorX() = default;
     Status init(const TDataSink& tsink) override {
-        return Status::InternalError("{} should not init with TPlanNode", _name);
+        return Status::InternalError("{} should not init with TPlanNode",
+                                     DataSinkOperatorX<LocalStateType>::_name);
     }
 
     Status init(const TPlanNode& tnode, RuntimeState* state) override;
@@ -330,10 +331,6 @@ public:
                         SourceState source_state) override;
 
     virtual bool can_write(RuntimeState* state) override { return true; }
-
-    void get_dependency(DependencySPtr& dependency) override {
-        dependency.reset(new AggDependency(id()));
-    }
 
 private:
     friend class AggSinkLocalState;
