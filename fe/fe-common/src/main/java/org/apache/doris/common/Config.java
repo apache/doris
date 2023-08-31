@@ -2109,5 +2109,11 @@ public class Config extends ConfigBase {
             "temporary config filed, will make all olap tables enable light schema change"
     })
     public static boolean enable_convert_light_weight_schema_change = true;
+    @ConfField(mutable = true, masterOnly = false, description = {
+            "查询information_schema.metadata_name_ids表时,获取一个数据库中所有表用的时间",
+            "When querying the information_schema.metadata_name_ids table,"
+                    + " the time used to obtain all tables in one database"
+    })
+    public static long query_metadata_name_ids_timeout = 3;
 
 }
