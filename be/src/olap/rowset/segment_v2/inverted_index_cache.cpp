@@ -62,7 +62,7 @@ void InvertedIndexSearcherCache::create_global_instance(size_t capacity, uint32_
 }
 
 InvertedIndexSearcherCache::InvertedIndexSearcherCache(size_t capacity, uint32_t num_shards)
-        : LRUCachePolicy("InvertedIndexSearcherCache",
+        : LRUCachePolicy(CachePolicy::CacheType::INVERTEDINDEX_SEARCHER_CACHE,
                          config::inverted_index_cache_stale_sweep_time_sec),
           _mem_tracker(std::make_unique<MemTracker>("InvertedIndexSearcherCache")) {
     SCOPED_CONSUME_MEM_TRACKER(_mem_tracker.get());

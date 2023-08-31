@@ -237,8 +237,9 @@ public:
     InvertedIndexQueryCache() = delete;
 
     InvertedIndexQueryCache(size_t capacity, uint32_t num_shards)
-            : LRUCachePolicy("InvertedIndexQueryCache", capacity, LRUCacheType::SIZE,
-                             config::inverted_index_cache_stale_sweep_time_sec, num_shards) {}
+            : LRUCachePolicy(CachePolicy::CacheType::INVERTEDINDEX_QUERY_CACHE, capacity,
+                             LRUCacheType::SIZE, config::inverted_index_cache_stale_sweep_time_sec,
+                             num_shards) {}
 
     bool lookup(const CacheKey& key, InvertedIndexQueryCacheHandle* handle);
 
