@@ -91,7 +91,6 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalAssertNumRows;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalCTEAnchor;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalCTEConsumer;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalCTEProducer;
-import org.apache.doris.nereids.trees.plans.physical.PhysicalCatalogRelation;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalDeferMaterializeOlapScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalDeferMaterializeResultSink;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalDeferMaterializeTopN;
@@ -428,7 +427,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         }
 
         scanNode.addConjuncts(translateToLegacyConjuncts(fileScan.getConjuncts()));
-        scanNode.setPushDownAggNoGrouping(context.getTablePushAggOp(table.getId()));
+        scanNode.setPushDownAggNoGrouping(context.getRelationPushAggOp(fileScan.getRelationId()));
 
         TableName tableName = new TableName(null, "", "");
         TableRef ref = new TableRef(tableName, null, null);
@@ -564,6 +563,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
                                 expr, olapScanNode, context)
                 )
         );
+        olapScanNode.setPushDownAggNoGrouping(context.getRelationPushAggOp(olapScan.getRelationId()));
         // TODO: we need to remove all finalizeForNereids
         olapScanNode.finalizeForNereids();
         // Create PlanFragment
@@ -808,8 +808,8 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
                         + storageLayerAggregate.getAggOp());
         }
 
-        context.setTablePushAggOp(
-                ((PhysicalCatalogRelation) storageLayerAggregate.getRelation()).getTable().getId(), pushAggOp);
+        context.setRelationPushAggOp(
+                storageLayerAggregate.getRelation().getRelationId(), pushAggOp);
 
         PlanFragment planFragment = storageLayerAggregate.getRelation().accept(this, context);
 
