@@ -32,7 +32,7 @@ class JoinBuildSinkLocalState : public PipelineXSinkLocalState<DependencyType> {
     ENABLE_FACTORY_CREATOR(JoinBuildSinkLocalState);
 
 public:
-    JoinBuildSinkLocalState(DataSinkOperatorX* parent, RuntimeState* state)
+    JoinBuildSinkLocalState(DataSinkOperatorXBase* parent, RuntimeState* state)
             : PipelineXSinkLocalState<DependencyType>(parent, state) {}
 
     virtual Status init(RuntimeState* state, LocalSinkStateInfo& info) override {

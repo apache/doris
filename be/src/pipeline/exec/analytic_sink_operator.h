@@ -50,7 +50,7 @@ class AnalyticSinkLocalState : public PipelineXSinkLocalState<AnalyticDependency
     ENABLE_FACTORY_CREATOR(AnalyticSinkLocalState);
 
 public:
-    AnalyticSinkLocalState(DataSinkOperatorX* parent, RuntimeState* state)
+    AnalyticSinkLocalState(DataSinkOperatorXBase* parent, RuntimeState* state)
             : PipelineXSinkLocalState<AnalyticDependency>(parent, state) {}
 
     Status init(RuntimeState* state, LocalSinkStateInfo& info) override;

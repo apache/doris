@@ -76,7 +76,7 @@ class StreamingAggSinkLocalState final : public AggSinkLocalState {
     ENABLE_FACTORY_CREATOR(StreamingAggSinkLocalState);
 
 public:
-    StreamingAggSinkLocalState(DataSinkOperatorX* parent, RuntimeState* state);
+    StreamingAggSinkLocalState(DataSinkOperatorXBase* parent, RuntimeState* state);
 
     Status init(RuntimeState* state, LocalSinkStateInfo& info) override;
     Status close(RuntimeState* state) override;

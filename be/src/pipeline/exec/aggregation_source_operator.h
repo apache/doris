@@ -21,6 +21,7 @@
 #include "common/status.h"
 #include "operator.h"
 #include "pipeline/pipeline_x/dependency.h"
+#include "pipeline/pipeline_x/operator.h"
 #include "vec/exec/vaggregation_node.h"
 
 namespace doris {
@@ -106,9 +107,10 @@ private:
     bool _agg_data_created_without_key = false;
 };
 
-class AggSourceOperatorX : public OperatorXBase {
+class AggSourceOperatorX : public OperatorX<AggLocalState> {
 public:
     AggSourceOperatorX(ObjectPool* pool, const TPlanNode& tnode, const DescriptorTbl& descs);
+    virtual ~AggSourceOperatorX() = default;
     virtual bool can_read(RuntimeState* state) override;
 
     Status setup_local_state(RuntimeState* state, LocalStateInfo& info) override;

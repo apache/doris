@@ -52,7 +52,7 @@ class SortSinkLocalState : public PipelineXSinkLocalState<SortDependency> {
     ENABLE_FACTORY_CREATOR(SortSinkLocalState);
 
 public:
-    SortSinkLocalState(DataSinkOperatorX* parent, RuntimeState* state)
+    SortSinkLocalState(DataSinkOperatorXBase* parent, RuntimeState* state)
             : PipelineXSinkLocalState<SortDependency>(parent, state) {}
 
     Status init(RuntimeState* state, LocalSinkStateInfo& info) override;

@@ -45,7 +45,7 @@ class ResultSinkLocalState final : public PipelineXSinkLocalState<> {
     ENABLE_FACTORY_CREATOR(ResultSinkLocalState);
 
 public:
-    ResultSinkLocalState(DataSinkOperatorX* parent, RuntimeState* state)
+    ResultSinkLocalState(DataSinkOperatorXBase* parent, RuntimeState* state)
             : PipelineXSinkLocalState<>(parent, state) {}
 
     Status init(RuntimeState* state, LocalSinkStateInfo& info) override;

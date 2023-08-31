@@ -49,7 +49,7 @@ class HashJoinBuildSinkLocalState final : public JoinBuildSinkLocalState<JoinDep
     ENABLE_FACTORY_CREATOR(HashJoinBuildSinkLocalState);
 
 public:
-    HashJoinBuildSinkLocalState(DataSinkOperatorX* parent, RuntimeState* state);
+    HashJoinBuildSinkLocalState(DataSinkOperatorXBase* parent, RuntimeState* state);
 
     Status init(RuntimeState* state, LocalSinkStateInfo& info) override;
     Status process_build_block(RuntimeState* state, vectorized::Block& block, uint8_t offset);

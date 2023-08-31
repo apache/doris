@@ -37,7 +37,7 @@ struct Overload : Callables... {
 template <typename... Callables>
 Overload(Callables&&... callables) -> Overload<Callables...>;
 
-HashJoinBuildSinkLocalState::HashJoinBuildSinkLocalState(DataSinkOperatorX* parent,
+HashJoinBuildSinkLocalState::HashJoinBuildSinkLocalState(DataSinkOperatorXBase* parent,
                                                          RuntimeState* state)
         : JoinBuildSinkLocalState(parent, state),
           _build_block_idx(0),

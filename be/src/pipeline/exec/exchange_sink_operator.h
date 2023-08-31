@@ -69,7 +69,7 @@ class ExchangeSinkLocalState : public PipelineXSinkLocalState<> {
     ENABLE_FACTORY_CREATOR(ExchangeSinkLocalState);
 
 public:
-    ExchangeSinkLocalState(DataSinkOperatorX* parent, RuntimeState* state)
+    ExchangeSinkLocalState(DataSinkOperatorXBase* parent, RuntimeState* state)
             : PipelineXSinkLocalState<>(parent, state),
               current_channel_idx(0),
               only_local_exchange(false),
