@@ -65,6 +65,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalRepeat;
 import org.apache.doris.nereids.types.BigIntType;
+import org.apache.doris.nereids.types.VarcharType;
 import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.planner.PlanNode;
 
@@ -1211,11 +1212,12 @@ public class SelectMaterializedIndexWithAggregate extends AbstractSelectMaterial
                 // count(distinct col) -> bitmap_union_count(mv_bitmap_union_col)
                 Optional<Slot> slotOpt = ExpressionUtils.extractSlotOrCastOnSlot(count.child(0));
 
+                Expression expr = new ToBitmapWithCheck(new Cast(count.child(0), BigIntType.INSTANCE));
                 // count distinct a value column.
                 if (slotOpt.isPresent() && !context.checkContext.keyNameToColumn.containsKey(
-                        normalizeName(slotOpt.get().toSql()))) {
+                        normalizeName(expr.toSql()))) {
                     String bitmapUnionColumn = normalizeName(CreateMaterializedViewStmt.mvColumnBuilder(
-                            AggregateType.BITMAP_UNION, CreateMaterializedViewStmt.mvColumnBuilder(count.toSql())));
+                            AggregateType.BITMAP_UNION, CreateMaterializedViewStmt.mvColumnBuilder(expr.toSql())));
 
                     Column mvColumn = context.checkContext.getColumn(bitmapUnionColumn);
                     // has bitmap_union column
@@ -1423,9 +1425,10 @@ public class SelectMaterializedIndexWithAggregate extends AbstractSelectMaterial
             // ndv on a value column.
             if (slotOpt.isPresent() && !context.checkContext.keyNameToColumn.containsKey(
                     normalizeName(slotOpt.get().toSql()))) {
+                Expression expr = new Cast(ndv.child(), VarcharType.SYSTEM_DEFAULT);
                 String hllUnionColumn = normalizeName(
                         CreateMaterializedViewStmt.mvColumnBuilder(AggregateType.HLL_UNION,
-                                CreateMaterializedViewStmt.mvColumnBuilder(new HllHash(ndv.child(0)).toSql())));
+                                CreateMaterializedViewStmt.mvColumnBuilder(new HllHash(expr).toSql())));
 
                 Column mvColumn = context.checkContext.getColumn(hllUnionColumn);
                 // has hll_union column
@@ -1454,7 +1457,7 @@ public class SelectMaterializedIndexWithAggregate extends AbstractSelectMaterial
                 return result;
             }
             Optional<Slot> slotOpt = ExpressionUtils.extractSlotOrCastOnSlot(sum.child(0));
-            if (slotOpt.isPresent()
+            if (!sum.isDistinct() && slotOpt.isPresent()
                     && !context.checkContext.keyNameToColumn.containsKey(normalizeName(slotOpt.get().toSql()))) {
                 Expression expr = new Cast(sum.child(), BigIntType.INSTANCE);
                 String sumColumn = normalizeName(CreateMaterializedViewStmt.mvColumnBuilder(AggregateType.SUM,
