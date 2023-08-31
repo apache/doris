@@ -47,7 +47,7 @@ import org.apache.doris.nereids.trees.expressions.TimestampArithmetic;
 import org.apache.doris.nereids.trees.expressions.WhenClause;
 import org.apache.doris.nereids.trees.expressions.functions.BoundFunction;
 import org.apache.doris.nereids.trees.expressions.functions.FunctionBuilder;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.LambdaClosure;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Lambda;
 import org.apache.doris.nereids.trees.expressions.functions.udf.AliasUdfBuilder;
 import org.apache.doris.nereids.trees.expressions.typecoercion.ImplicitCastInputTypes;
 import org.apache.doris.nereids.types.ArrayType;
@@ -95,11 +95,12 @@ public class FunctionBinder extends AbstractExpressionRewriteRule {
         }
 
         // bindLambda
-        LambdaClosure lambdaClosure = (LambdaClosure) unboundFunction.children().get(0);
-        List<Slot> boundedSlots = lambdaClosure.makeArguments(subChildren);
+        Lambda lambda = (Lambda) unboundFunction.children().get(0);
+        List<Slot> boundedSlots = lambda.makeArguments(subChildren);
         Expression slotBoundLambda = new SlotBinder(new Scope(boundedSlots), context.cascadesContext,
-                true, false).bind(lambdaClosure);
+                true, false).bind(lambda);
         Expression functionBoundLambda = slotBoundLambda.accept(this, context);
+
         return unboundFunction.withChildren(ImmutableList.<Expression>builder()
                 .add(functionBoundLambda)
                 .addAll(subChildren)

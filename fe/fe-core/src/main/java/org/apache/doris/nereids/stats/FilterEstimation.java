@@ -428,8 +428,13 @@ public class FilterEstimation extends ExpressionVisitor<Statistics, EstimationCo
         return updatedStatistics;
     }
 
+    /*
+     * ColumnEqualTo
+     *
+     */
     private Statistics estimateColumnEqualToColumn(Expression leftExpr, ColumnStatistic leftStats,
             Expression rightExpr, ColumnStatistic rightStats, EstimationContext context) {
+
         StatisticRange leftRange = StatisticRange.from(leftStats, leftExpr.getDataType());
         StatisticRange rightRange = StatisticRange.from(rightStats, rightExpr.getDataType());
         StatisticRange leftIntersectRight = leftRange.intersect(rightRange);
@@ -442,7 +447,9 @@ public class FilterEstimation extends ExpressionVisitor<Statistics, EstimationCo
         rightBuilder.setNdv(rightIntersectLeft.getDistinctValues());
         rightBuilder.setMinValue(rightIntersectLeft.getLow());
         rightBuilder.setMaxValue(rightIntersectLeft.getDistinctValues());
+
         double sel = 1 / StatsMathUtil.nonZeroDivisor(Math.max(leftStats.ndv, rightStats.ndv));
+
         Statistics updatedStatistics = context.statistics.withSel(sel);
         updatedStatistics.addColumnStats(leftExpr, leftBuilder.build());
         updatedStatistics.addColumnStats(rightExpr, rightBuilder.build());

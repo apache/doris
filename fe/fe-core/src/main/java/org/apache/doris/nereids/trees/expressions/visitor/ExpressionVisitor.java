@@ -83,7 +83,7 @@ import org.apache.doris.nereids.trees.expressions.functions.BoundFunction;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
 import org.apache.doris.nereids.trees.expressions.functions.generator.TableGeneratingFunction;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.GroupingScalarFunction;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.LambdaClosure;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Lambda;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ScalarFunction;
 import org.apache.doris.nereids.trees.expressions.functions.table.TableValuedFunction;
 import org.apache.doris.nereids.trees.expressions.functions.window.WindowFunction;
@@ -125,7 +125,7 @@ public abstract class ExpressionVisitor<R, C>
         return visitBoundFunction(aggregateFunction, context);
     }
 
-    public R visitLambda(LambdaClosure lambda, C context) {
+    public R visitLambda(Lambda lambda, C context) {
         return visit(lambda, context);
     }
 

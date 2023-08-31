@@ -18,7 +18,7 @@
 package org.apache.doris.nereids.trees.expressions.functions;
 
 import org.apache.doris.nereids.trees.expressions.Expression;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.LambdaClosure;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Lambda;
 
 import java.util.List;
 
@@ -35,6 +35,6 @@ public abstract class Function extends Expression {
     }
 
     public boolean isHighOrder() {
-        return children.size() > 1 && children.get(0) instanceof LambdaClosure;
+        return children.size() > 1 && children.get(0) instanceof Lambda;
     }
 }
