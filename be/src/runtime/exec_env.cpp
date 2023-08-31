@@ -30,9 +30,11 @@
 
 namespace doris {
 
-ExecEnv::ExecEnv() : _is_init(false) {}
+ExecEnv::ExecEnv() = default;
 
-ExecEnv::~ExecEnv() {}
+ExecEnv::~ExecEnv() {
+    _destroy();
+}
 
 const std::string& ExecEnv::token() const {
     return _master_info->token;
