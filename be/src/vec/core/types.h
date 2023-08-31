@@ -221,12 +221,12 @@ struct TypeName<QuantileState<double>> {
 
 template <>
 struct TypeName<doris::vectorized::DateV2Value<doris::vectorized::DateTimeV2ValueType>> {
-    static std::string get() { return "DateTimeV2"; }
+    static const char* get() { return "DateTimeV2"; }
 };
 
 template <>
 struct TypeName<doris::vectorized::DateV2Value<doris::vectorized::DateV2ValueType>> {
-    static std::string get() { return "DateV2"; }
+    static const char* get() { return "DateV2"; }
 };
 
 template <typename T>
