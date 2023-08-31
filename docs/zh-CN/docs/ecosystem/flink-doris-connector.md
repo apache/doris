@@ -303,15 +303,16 @@ ON a.city = c.city
 
 ### 通用配置项
 
-| Key                              | Default Value | Required | Comment                                         |
-| -------------------------------- | ------------- | -------- | ----------------------------------------------- |
-| fenodes                          | --            | Y        | Doris FE http 地址， 支持多个地址，使用逗号分隔 |
-| table.identifier                 | --            | Y        | Doris 表名，如：db.tbl                          |
-| username                         | --            | Y        | 访问 Doris 的用户名                             |
-| password                         | --            | Y        | 访问 Doris 的密码                               |
-| doris.request.retries            | 3             | N        | 向 Doris 发送请求的重试次数                     |
-| doris.request.connect.timeout.ms | 30000         | N        | 向 Doris 发送请求的连接超时时间                 |
-| doris.request.read.timeout.ms    | 30000         | N        | 向 Doris 发送请求的读取超时时间                 |
+| Key                              | Default Value | Required | Comment                                                                                            |
+|----------------------------------|---------------|----------|----------------------------------------------------------------------------------------------------|
+| fenodes                          | --            | Y        | Doris FE http 地址， 支持多个地址，使用逗号分隔                                                                    |
+| benodes                          | --            | N        | Doris BE http 地址， 支持多个地址，使用逗号分隔，参考[#187](https://github.com/apache/doris-flink-connector/pull/187) |
+| table.identifier                 | --            | Y        | Doris 表名，如：db.tbl                                                                                  |
+| username                         | --            | Y        | 访问 Doris 的用户名                                                                                      |
+| password                         | --            | Y        | 访问 Doris 的密码                                                                                       |
+| doris.request.retries            | 3             | N        | 向 Doris 发送请求的重试次数                                                                                  |
+| doris.request.connect.timeout.ms | 30000         | N        | 向 Doris 发送请求的连接超时时间                                                                                |
+| doris.request.read.timeout.ms    | 30000         | N        | 向 Doris 发送请求的读取超时时间                                                                                |
 
 ### Source 配置项
 
