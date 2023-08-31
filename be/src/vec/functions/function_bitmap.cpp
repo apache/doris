@@ -40,6 +40,7 @@
 #include "util/hash_util.hpp"
 #include "util/murmur_hash3.h"
 #include "util/string_parser.hpp"
+#include "util/url_coding.h"
 #include "vec/aggregate_functions/aggregate_function.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_array.h"
@@ -250,6 +251,59 @@ struct BitmapFromString {
     }
 };
 
+struct NameBitmapFromBase64 {
+    static constexpr auto name = "bitmap_from_base64";
+};
+struct BitmapFromBase64 {
+    using ArgumentType = DataTypeString;
+
+    static constexpr auto name = "bitmap_from_base64";
+
+    static Status vector(const ColumnString::Chars& data, const ColumnString::Offsets& offsets,
+                         std::vector<BitmapValue>& res, NullMap& null_map,
+                         size_t input_rows_count) {
+        res.reserve(input_rows_count);
+        if (offsets.size() == 0 && input_rows_count == 1) {
+            // For NULL constant
+            res.emplace_back();
+            null_map[0] = 1;
+            return Status::OK();
+        }
+        std::unique_ptr<char[]> decode_buff;
+        int last_decode_buff_len = 0;
+        int curr_decode_buff_len = 0;
+        for (size_t i = 0; i < input_rows_count; ++i) {
+            const char* src_str = reinterpret_cast<const char*>(&data[offsets[i - 1]]);
+            int64_t src_size = offsets[i] - offsets[i - 1];
+            if (0 != src_size % 4) {
+                // return Status::InvalidArgument(
+                //         fmt::format("invalid base64: {}", std::string(src_str, src_size)));
+                res.emplace_back();
+                null_map[i] = 1;
+                continue;
+            }
+            curr_decode_buff_len = src_size + 3;
+            if (curr_decode_buff_len > last_decode_buff_len) {
+                decode_buff.reset(new char[curr_decode_buff_len]);
+                last_decode_buff_len = curr_decode_buff_len;
+            }
+            int outlen = base64_decode(src_str, src_size, decode_buff.get());
+            if (outlen < 0) {
+                res.emplace_back();
+                null_map[i] = 1;
+            } else {
+                BitmapValue bitmap_val;
+                if (!bitmap_val.deserialize(decode_buff.get())) {
+                    return Status::RuntimeError(
+                            fmt::format("bitmap_from_base64 decode failed: base64: {}",
+                                        std::string(decode_buff.get(), src_size)));
+                }
+                res.emplace_back(std::move(bitmap_val));
+            }
+        }
+        return Status::OK();
+    }
+};
 struct BitmapFromArray {
     using ArgumentType = DataTypeArray;
     static constexpr auto name = "bitmap_from_array";
@@ -887,6 +941,40 @@ struct BitmapToString {
     }
 };
 
+struct NameBitmapToBase64 {
+    static constexpr auto name = "bitmap_to_base64";
+};
+
+struct BitmapToBase64 {
+    using ReturnType = DataTypeString;
+    static constexpr auto TYPE_INDEX = TypeIndex::BitMap;
+    using Type = DataTypeBitMap::FieldType;
+    using ReturnColumnType = ColumnString;
+    using Chars = ColumnString::Chars;
+    using Offsets = ColumnString::Offsets;
+
+    static Status vector(const std::vector<BitmapValue>& data, Chars& chars, Offsets& offsets) {
+        size_t size = data.size();
+        offsets.resize(size);
+        chars.reserve(size);
+        for (size_t i = 0; i < size; ++i) {
+            BitmapValue& bitmap_val = const_cast<BitmapValue&>(data[i]);
+            auto ser_size = bitmap_val.getSizeInBytes();
+            char ser_buff[ser_size];
+            bitmap_val.write_to(ser_buff);
+
+            int encoded_size = (int)(4.0 * ceil((double)ser_size / 3.0));
+            char dst[encoded_size];
+            memset(dst, 0, encoded_size);
+            int outlen =
+                    base64_encode((const unsigned char*)ser_buff, ser_size, (unsigned char*)dst);
+            DCHECK(outlen > 0);
+            StringOP::push_value_string(std::string_view(dst, outlen), i, chars, offsets);
+        }
+        return Status::OK();
+    }
+};
+
 struct SubBitmap {
     static constexpr auto name = "sub_bitmap";
     using TData1 = std::vector<BitmapValue>;
@@ -1117,6 +1205,8 @@ using FunctionBitmapMin = FunctionBitmapSingle<FunctionBitmapMinImpl>;
 using FunctionBitmapMax = FunctionBitmapSingle<FunctionBitmapMaxImpl>;
 
 using FunctionBitmapToString = FunctionUnaryToType<BitmapToString, NameBitmapToString>;
+using FunctionBitmapToBase64 = FunctionUnaryToType<BitmapToBase64, NameBitmapToBase64>;
+using FunctionBitmapFromBase64 = FunctionBitmapAlwaysNull<BitmapFromBase64>;
 using FunctionBitmapNot =
         FunctionBinaryToType<DataTypeBitMap, DataTypeBitMap, BitmapNot, NameBitmapNot>;
 using FunctionBitmapAndNot =
@@ -1137,6 +1227,8 @@ void register_function_bitmap(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionToBitmap>();
     factory.register_function<FunctionToBitmapWithCheck>();
     factory.register_function<FunctionBitmapFromString>();
+    factory.register_function<FunctionBitmapToBase64>();
+    factory.register_function<FunctionBitmapFromBase64>();
     factory.register_function<FunctionBitmapFromArray>();
     factory.register_function<FunctionBitmapHash>();
     factory.register_function<FunctionBitmapHash64>();
