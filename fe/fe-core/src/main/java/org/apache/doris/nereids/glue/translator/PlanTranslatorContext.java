@@ -32,6 +32,7 @@ import org.apache.doris.nereids.trees.expressions.CTEId;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.VirtualSlotReference;
+import org.apache.doris.nereids.trees.plans.RelationId;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalCTEProducer;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHashAggregate;
 import org.apache.doris.planner.PlanFragment;
@@ -88,7 +89,7 @@ public class PlanTranslatorContext {
 
     private final Map<CTEId, PhysicalCTEProducer> cteProducerMap = Maps.newHashMap();
 
-    private final Map<Long, TPushAggOp> tablePushAggOp = Maps.newHashMap();
+    private final Map<RelationId, TPushAggOp> tablePushAggOp = Maps.newHashMap();
 
     public PlanTranslatorContext(CascadesContext ctx) {
         this.translator = new RuntimeFilterTranslator(ctx.getRuntimeFilterContext());
@@ -225,11 +226,11 @@ public class PlanTranslatorContext {
         return descTable;
     }
 
-    public void setTablePushAggOp(Long tableId, TPushAggOp aggOp) {
-        tablePushAggOp.put(tableId, aggOp);
+    public void setRelationPushAggOp(RelationId relationId, TPushAggOp aggOp) {
+        tablePushAggOp.put(relationId, aggOp);
     }
 
-    public TPushAggOp getTablePushAggOp(Long tableId) {
-        return tablePushAggOp.getOrDefault(tableId, TPushAggOp.NONE);
+    public TPushAggOp getRelationPushAggOp(RelationId relationId) {
+        return tablePushAggOp.getOrDefault(relationId, TPushAggOp.NONE);
     }
 }
