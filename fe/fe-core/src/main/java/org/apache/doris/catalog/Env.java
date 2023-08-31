@@ -999,7 +999,7 @@ public class Env {
                 // For compatibility. Because this is the very first time to start, so we arbitrarily choose
                 // a new name for this node
                 role = FrontendNodeType.FOLLOWER;
-                nodeName = genFeNodeName(selfNode.getIdent(),
+                nodeName = genFeNodeName(selfNode.getHost(),
                         selfNode.getPort(), false /* new style */);
                 storage.writeFrontendRoleAndNodeName(role, nodeName);
                 LOG.info("very first time to start this node. role: {}, node name: {}", role.name(), nodeName);

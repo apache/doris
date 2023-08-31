@@ -55,7 +55,7 @@ public:
 };
 
 class ScanOperatorX;
-class ScanLocalState : public PipelineXLocalState, public vectorized::RuntimeFilterConsumer {
+class ScanLocalState : public PipelineXLocalState<>, public vectorized::RuntimeFilterConsumer {
     ENABLE_FACTORY_CREATOR(ScanLocalState);
     ScanLocalState(RuntimeState* state, OperatorXBase* parent);
 
@@ -300,8 +300,7 @@ protected:
 
 class ScanOperatorX : public OperatorXBase {
 public:
-    ScanOperatorX(ObjectPool* pool, const TPlanNode& tnode, const DescriptorTbl& descs,
-                  std::string op_name);
+    ScanOperatorX(ObjectPool* pool, const TPlanNode& tnode, const DescriptorTbl& descs);
 
     //    bool runtime_filters_are_ready_or_timeout() override;
 

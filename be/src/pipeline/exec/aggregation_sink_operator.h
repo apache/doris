@@ -46,11 +46,12 @@ public:
 
 class AggSinkOperatorX;
 
-class AggSinkLocalState : public PipelineXSinkLocalState {
+class AggSinkLocalState : public PipelineXSinkLocalState<AggDependency> {
     ENABLE_FACTORY_CREATOR(AggSinkLocalState);
 
 public:
     AggSinkLocalState(DataSinkOperatorX* parent, RuntimeState* state);
+    ~AggSinkLocalState() = default;
 
     virtual Status init(RuntimeState* state, LocalSinkStateInfo& info) override;
     virtual Status close(RuntimeState* state) override;
@@ -293,9 +294,7 @@ protected:
 
     vectorized::Block _preagg_block = vectorized::Block();
 
-    AggDependency* _dependency;
     vectorized::AggregatedDataVariants* _agg_data;
-    AggSharedState* _shared_state;
     vectorized::Arena* _agg_arena_pool;
     std::vector<size_t> _hash_values;
 

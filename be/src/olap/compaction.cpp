@@ -385,6 +385,7 @@ Status Compaction::do_compaction_impl(int64_t permits) {
                 });
         // now version in delete_predicate is deprecated
         if (!delete_predicate.in_predicates().empty() ||
+            !delete_predicate.sub_predicates_v2().empty() ||
             !delete_predicate.sub_predicates().empty()) {
             _output_rowset->rowset_meta()->set_delete_predicate(std::move(delete_predicate));
         }
@@ -696,6 +697,12 @@ Status Compaction::modify_rowsets(const Merger::Statistics* stats) {
     } else {
         std::lock_guard<std::shared_mutex> wrlock(_tablet->get_header_lock());
         RETURN_IF_ERROR(_tablet->modify_rowsets(output_rowsets, _input_rowsets, true));
+    }
+
+    if (config::tablet_rowset_stale_sweep_by_size &&
+        _tablet->tablet_meta()->all_stale_rs_metas().size() >=
+                config::tablet_rowset_stale_sweep_threshold_size) {
+        _tablet->delete_expired_stale_rowset();
     }
 
     int64_t cur_max_version = 0;

@@ -121,6 +121,7 @@ public class LoadStmt extends DdlStmt {
     public static final String KEY_IN_PARAM_BACKEND_ID = "backend_id";
     public static final String KEY_SKIP_LINES = "skip_lines";
     public static final String KEY_TRIM_DOUBLE_QUOTES = "trim_double_quotes";
+    public static final String PARTIAL_COLUMNS = "partial_columns";
 
     public static final String KEY_COMMENT = "comment";
 
@@ -157,6 +158,12 @@ public class LoadStmt extends DdlStmt {
                 }
             })
             .put(STRICT_MODE, new Function<String, Boolean>() {
+                @Override
+                public @Nullable Boolean apply(@Nullable String s) {
+                    return Boolean.valueOf(s);
+                }
+            })
+            .put(PARTIAL_COLUMNS, new Function<String, Boolean>() {
                 @Override
                 public @Nullable Boolean apply(@Nullable String s) {
                     return Boolean.valueOf(s);
@@ -343,6 +350,15 @@ public class LoadStmt extends DdlStmt {
             if (!strictModeProperty.equalsIgnoreCase("true")
                     && !strictModeProperty.equalsIgnoreCase("false")) {
                 throw new DdlException(STRICT_MODE + " is not a boolean");
+            }
+        }
+
+        // partial update
+        final String partialColumnsProperty = properties.get(PARTIAL_COLUMNS);
+        if (partialColumnsProperty != null) {
+            if (!partialColumnsProperty.equalsIgnoreCase("true")
+                    && !partialColumnsProperty.equalsIgnoreCase("false")) {
+                throw new DdlException(PARTIAL_COLUMNS + " is not a boolean");
             }
         }
 

@@ -46,7 +46,7 @@ public:
 };
 
 class AnalyticSourceOperatorX;
-class AnalyticLocalState final : public PipelineXLocalState {
+class AnalyticLocalState final : public PipelineXLocalState<AnalyticDependency> {
 public:
     ENABLE_FACTORY_CREATOR(AnalyticLocalState);
     AnalyticLocalState(RuntimeState* state, OperatorXBase* parent);
@@ -78,9 +78,6 @@ private:
     Status _destroy_agg_status();
 
     friend class AnalyticSourceOperatorX;
-
-    AnalyticDependency* _dependency;
-    AnalyticSharedState* _shared_state;
 
     int64_t _output_block_index;
     int64_t _window_end_position;
@@ -118,8 +115,7 @@ private:
 
 class AnalyticSourceOperatorX final : public OperatorXBase {
 public:
-    AnalyticSourceOperatorX(ObjectPool* pool, const TPlanNode& tnode, const DescriptorTbl& descs,
-                            std::string op_name);
+    AnalyticSourceOperatorX(ObjectPool* pool, const TPlanNode& tnode, const DescriptorTbl& descs);
     bool can_read(RuntimeState* state) override;
 
     Status setup_local_state(RuntimeState* state, LocalStateInfo& info) override;
