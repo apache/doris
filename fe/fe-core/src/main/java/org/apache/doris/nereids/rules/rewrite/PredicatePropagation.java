@@ -102,8 +102,14 @@ public class PredicatePropagation {
                 return expr.rewriteUp(e -> {
                     if (isDataTypeValid(originDataType, leftSlotEqualToRightSlot)) {
                         if (ExpressionUtils.isTwoExpressionEqualWithCast(e, leftSlotEqualToRightSlot.child(0))) {
+                            if (!leftSlotEqualToRightSlot.child(1).getDataType().equals(e.getDataType())) {
+                                return new Cast(leftSlotEqualToRightSlot.child(1), e.getDataType());
+                            }
                             return leftSlotEqualToRightSlot.child(1);
                         } else if (ExpressionUtils.isTwoExpressionEqualWithCast(e, leftSlotEqualToRightSlot.child(1))) {
+                            if (!leftSlotEqualToRightSlot.child(0).getDataType().equals(e.getDataType())) {
+                                return new Cast(leftSlotEqualToRightSlot.child(0), e.getDataType());
+                            }
                             return leftSlotEqualToRightSlot.child(0);
                         }
                     }
