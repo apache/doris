@@ -18,8 +18,9 @@
 package org.apache.doris.catalog;
 
 import org.apache.doris.alter.AlterLightSchChangeHelper;
-import com.google.common.collect.Maps;
 import org.apache.doris.common.util.MasterDaemon;
+
+import com.google.common.collect.Maps;
 
 import java.util.List;
 import java.util.Map;
