@@ -203,6 +203,9 @@ Status LoadStreamStub::_encode_and_send(PStreamHeader& header, std::span<const S
     size_t header_len = header.ByteSizeLong();
     buf.append(reinterpret_cast<uint8_t*>(&header_len), sizeof(header_len));
     buf.append(header.SerializeAsString());
+    size_t data_len = std::transform_reduce(data.begin(), data.end(), 0, std::plus(),
+                                            [](const Slice& s) { return s.get_size(); });
+    buf.append(reinterpret_cast<uint8_t*>(&data_len), sizeof(data_len));
     for (const auto& slice : data) {
         buf.append(slice.get_data(), slice.get_size());
     }
