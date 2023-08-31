@@ -610,8 +610,8 @@ public class CacheAnalyzer {
     private CacheTable buildCacheTableForHiveScanNode(HiveScanNode node) {
         CacheTable cacheTable = new CacheTable();
         cacheTable.table = node.getTargetTable();
+        cacheTable.partitionNum = node.getReadPartitionNum();
         cacheTable.latestTime = cacheTable.table.getLastUpdateTime();
-        // TODO:wxy partitionNum
         return cacheTable;
     }
 
