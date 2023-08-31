@@ -428,8 +428,12 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     @Override
     public LogicalPlan visitExport(ExportContext ctx) {
         List<String> tableName = visitMultipartIdentifier(ctx.tableName);
-        List<String> partitions = ctx.partition == null ? ImmutableList.of() : visitIdentifierList(ctx.partition);
-        String path = parseConstant(ctx.filePath);
+        List<String> partitions = ctx.partition == null ? null : visitIdentifierList(ctx.partition);
+
+        // handle path string
+        String tmpPath = ctx.filePath.getText();
+        String path = escapeBackSlash(tmpPath.substring(1, tmpPath.length() - 1));
+
         String whereSql = null;
         if (ctx.whereClause() != null) {
             WhereClauseContext whereClauseContext = ctx.whereClause();

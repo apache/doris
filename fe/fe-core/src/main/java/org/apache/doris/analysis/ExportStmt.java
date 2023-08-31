@@ -129,15 +129,6 @@ public class ExportStmt extends StatementBase {
         this.sessionVariables = optionalSessionVariable.orElse(VariableMgr.getDefaultSessionVariable());
     }
 
-    /**
-     * This constructor used by nereids planner
-     */
-    public ExportStmt(TableRef tableRef, String whereSql, String path,
-            Map<String, String> properties, BrokerDesc brokerDesc) {
-        this(tableRef, (Expr) null, path, properties, brokerDesc);
-        this.whereSql = whereSql;
-    }
-
     @Override
     public boolean needAuditEncryption() {
         return brokerDesc != null;
@@ -248,7 +239,6 @@ public class ExportStmt extends StatementBase {
         exportJob.setSessionVariables(this.sessionVariables);
         exportJob.setTimeoutSecond(this.sessionVariables.getQueryTimeoutS());
 
-        exportJob.setSql(this.toSql());
         exportJob.setOrigStmt(this.getOrigStmt());
     }
 

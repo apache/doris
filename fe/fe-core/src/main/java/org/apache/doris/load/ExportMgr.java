@@ -165,8 +165,7 @@ public class ExportMgr extends MasterDaemon {
         LOG.info("add export job. {}", job);
     }
 
-    public void addExportJobAndRegisterTask(ExportStmt stmt) throws Exception {
-        ExportJob job = stmt.getExportJob();
+    public void addExportJobAndRegisterTask(ExportJob job) throws Exception {
         long jobId = Env.getCurrentEnv().getNextId();
         job.setId(jobId);
         writeLock();
@@ -176,7 +175,7 @@ public class ExportMgr extends MasterDaemon {
             }
             unprotectAddJob(job);
             job.getJobExecutorList().forEach(executor -> {
-                Long taskId = ExportJob.register.registerTask(executor);
+                Long taskId = Env.getCurrentEnv().getTransientTaskRegister().registerTask(executor);
                 executor.setTaskId(taskId);
                 job.getTaskIdToExecutor().put(taskId, executor);
             });

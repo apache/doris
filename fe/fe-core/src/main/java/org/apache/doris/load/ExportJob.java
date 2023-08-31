@@ -108,9 +108,6 @@ public class ExportJob implements Writable {
 
     private static final int MAXIMUM_TABLETS_OF_OUTFILE_IN_EXPORT = Config.maximum_tablets_of_outfile_in_export;
 
-    public static final TransientTaskRegister register = new ExportTaskRegister(
-            Env.getCurrentEnv().getTransientTaskManager());
-
     @SerializedName("id")
     private long id;
     @SerializedName("label")
@@ -175,8 +172,6 @@ public class ExportJob implements Writable {
     private Expr whereExpr;
 
     private String whereSql;
-
-    private String sql = "";
 
     private Integer parallelism;
 
@@ -752,7 +747,7 @@ public class ExportJob implements Writable {
         // we need cancel all task
         taskIdToExecutor.keySet().forEach(id -> {
             try {
-                register.cancelTask(id);
+                Env.getCurrentEnv().getTransientTaskRegister().cancelTask(id);
             } catch (JobException e) {
                 LOG.warn("cancel export task {} exception: {}", id, e);
             }
