@@ -989,8 +989,12 @@ void FragmentMgr::cancel_worker() {
             for (const auto& q : _query_ctx_map) {
                 auto itr = running_fes.find(q.second->coord_addr);
                 if (itr != running_fes.end()) {
+                    // We use conservative strategy.
+                    // 1. If same process uuid, do not cancel
+                    // 2. If fe has zero process uuid, do not cancel
+                    // 3. If query's process uuid is zero, do not cancel
                     if (q.second->get_fe_process_uuid() == itr->second.info.process_uuid ||
-                        itr->second.info.process_uuid == 0) {
+                        itr->second.info.process_uuid == 0 || q.second->get_fe_process_uuid() == 0) {
                         continue;
                     }
                 }
