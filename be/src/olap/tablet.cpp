@@ -3282,7 +3282,7 @@ Status Tablet::commit_phase_update_delete_bitmap(
     std::vector<RowsetSharedPtr> specified_rowsets;
     {
         std::shared_lock meta_rlock(_meta_lock);
-        cur_version = max_version().second;
+        cur_version = max_version_unlocked().second;
         cur_rowset_ids = all_rs_id(cur_version);
         _rowset_ids_difference(cur_rowset_ids, pre_rowset_ids, &rowset_ids_to_add,
                                &rowset_ids_to_del);
