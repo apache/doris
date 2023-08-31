@@ -67,8 +67,8 @@ public class ExecuteEnv {
         return multiLoadMgr;
     }
 
-    public long getProcessUUID() {
-        return processUUID;
+    public long getStartupTime() {
+        return startupTime;
     }
 
     public long getProcessUUID() {
