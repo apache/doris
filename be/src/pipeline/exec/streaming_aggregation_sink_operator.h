@@ -73,8 +73,9 @@ private:
 
 class StreamingAggSinkOperatorX;
 
-class StreamingAggSinkLocalState final : public AggSinkLocalState {
+class StreamingAggSinkLocalState final : public AggSinkLocalState<StreamingAggSinkLocalState> {
 public:
+    using Parent = StreamingAggSinkOperatorX;
     ENABLE_FACTORY_CREATOR(StreamingAggSinkLocalState);
     StreamingAggSinkLocalState(DataSinkOperatorXBase* parent, RuntimeState* state);
 

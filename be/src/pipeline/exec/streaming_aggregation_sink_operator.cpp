@@ -137,7 +137,7 @@ static constexpr int STREAMING_HT_MIN_REDUCTION_SIZE =
 
 StreamingAggSinkLocalState::StreamingAggSinkLocalState(DataSinkOperatorXBase* parent,
                                                        RuntimeState* state)
-        : AggSinkLocalState(parent, state),
+        : AggSinkLocalState<StreamingAggSinkLocalState>(parent, state),
           _queue_byte_size_counter(nullptr),
           _queue_size_counter(nullptr),
           _streaming_agg_timer(nullptr) {}

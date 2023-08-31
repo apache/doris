@@ -38,7 +38,9 @@ class NewOlapScanner;
 namespace doris::pipeline {
 
 class OlapScanOperatorX;
-class OlapScanLocalState final : public ScanLocalState {
+class OlapScanLocalState final : public ScanLocalState<OlapScanLocalState> {
+public:
+    using Parent = OlapScanOperatorX;
     ENABLE_FACTORY_CREATOR(OlapScanLocalState);
     OlapScanLocalState(RuntimeState* state, OperatorXBase* parent)
             : ScanLocalState(state, parent) {}

@@ -48,10 +48,11 @@ class HashJoinBuildSinkOperatorX;
 
 class HashJoinBuildSinkLocalState final
         : public JoinBuildSinkLocalState<JoinDependency, HashJoinBuildSinkLocalState> {
-    ENABLE_FACTORY_CREATOR(HashJoinBuildSinkLocalState);
-
 public:
+    ENABLE_FACTORY_CREATOR(HashJoinBuildSinkLocalState);
+    using Parent = HashJoinBuildSinkOperatorX;
     HashJoinBuildSinkLocalState(DataSinkOperatorXBase* parent, RuntimeState* state);
+    ~HashJoinBuildSinkLocalState() = default;
 
     Status init(RuntimeState* state, LocalSinkStateInfo& info) override;
     Status process_build_block(RuntimeState* state, vectorized::Block& block, uint8_t offset);

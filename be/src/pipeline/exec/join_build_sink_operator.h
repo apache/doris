@@ -31,32 +31,12 @@ class JoinBuildSinkOperatorX;
 template <typename DependencyType, typename Derived>
 class JoinBuildSinkLocalState : public PipelineXSinkLocalState<DependencyType> {
 public:
-    ENABLE_FACTORY_CREATOR(JoinBuildSinkLocalState);
-    JoinBuildSinkLocalState(DataSinkOperatorXBase* parent, RuntimeState* state)
-            : PipelineXSinkLocalState<DependencyType>(parent, state) {}
-
-    virtual Status init(RuntimeState* state, LocalSinkStateInfo& info) override {
-        RETURN_IF_ERROR(PipelineXSinkLocalState<DependencyType>::init(state, info));
-        auto& p = PipelineXSinkLocalState<DependencyType>::_parent
-                          ->template cast<JoinBuildSinkOperatorX<Derived>>();
-
-        PipelineXSinkLocalState<DependencyType>::profile()->add_info_string("JoinType",
-                                                                            to_string(p._join_op));
-        _build_phase_profile = PipelineXSinkLocalState<DependencyType>::profile()->create_child(
-                "BuildPhase", true, true);
-        _build_get_next_timer = ADD_TIMER(_build_phase_profile, "BuildGetNextTime");
-        _build_timer = ADD_TIMER(_build_phase_profile, "BuildTime");
-        _build_rows_counter = ADD_COUNTER(_build_phase_profile, "BuildRows", TUnit::UNIT);
-
-        _push_down_timer = ADD_TIMER(PipelineXSinkLocalState<DependencyType>::profile(),
-                                     "PublishRuntimeFilterTime");
-        _push_compute_timer = ADD_TIMER(PipelineXSinkLocalState<DependencyType>::profile(),
-                                        "PushDownComputeTime");
-
-        return Status::OK();
-    }
+    virtual Status init(RuntimeState* state, LocalSinkStateInfo& info) override;
 
 protected:
+    JoinBuildSinkLocalState(DataSinkOperatorXBase* parent, RuntimeState* state)
+            : PipelineXSinkLocalState<DependencyType>(parent, state) {}
+    virtual ~JoinBuildSinkLocalState() = default;
     template <typename LocalStateType>
     friend class JoinBuildSinkOperatorX;
 

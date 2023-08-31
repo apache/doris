@@ -31,6 +31,7 @@
 #include "common/object_pool.h"
 #include "common/status.h"
 #include "pipeline/exec/operator.h"
+#include "pipeline/pipeline_x/operator.h"
 #include "runtime/exec_env.h"
 #include "runtime/load_path_mgr.h"
 #include "runtime/memory/mem_tracker_limiter.h"
@@ -430,6 +431,7 @@ std::shared_ptr<doris::pipeline::PipelineXLocalStateBase> RuntimeState::get_loca
 void RuntimeState::emplace_sink_local_state(
         int id, std::shared_ptr<doris::pipeline::PipelineXSinkLocalStateBase> state) {
     std::unique_lock<std::mutex> l(_local_sink_state_lock);
+    LOG(WARNING) << "=======1 " << id << " " << typeid(state.get()).name();
     _op_id_to_sink_local_state.emplace(id, state);
 }
 
@@ -437,6 +439,7 @@ std::shared_ptr<doris::pipeline::PipelineXSinkLocalStateBase> RuntimeState::get_
         int id) {
     std::unique_lock<std::mutex> l(_local_sink_state_lock);
     DCHECK(_op_id_to_sink_local_state.find(id) != _op_id_to_sink_local_state.end());
+    LOG(WARNING) << "=======2 " << id << " " << typeid(_op_id_to_sink_local_state[id].get()).name();
     return _op_id_to_sink_local_state[id];
 }
 

@@ -48,12 +48,10 @@ public:
 template <typename LocalStateType>
 class AggSinkOperatorX;
 
+template <typename Derived>
 class AggSinkLocalState : public PipelineXSinkLocalState<AggDependency> {
-    ENABLE_FACTORY_CREATOR(AggSinkLocalState);
-
 public:
-    AggSinkLocalState(DataSinkOperatorXBase* parent, RuntimeState* state);
-    ~AggSinkLocalState() = default;
+    virtual ~AggSinkLocalState() = default;
 
     virtual Status init(RuntimeState* state, LocalSinkStateInfo& info) override;
     virtual Status close(RuntimeState* state) override;
@@ -61,6 +59,8 @@ public:
     Status try_spill_disk(bool eos = false);
 
 protected:
+    AggSinkLocalState(DataSinkOperatorXBase* parent, RuntimeState* state);
+
     template <typename LocalStateType>
     friend class AggSinkOperatorX;
 
@@ -312,7 +312,17 @@ protected:
     executor _executor;
 };
 
-template <typename LocalStateType = AggSinkLocalState>
+class BlockingAggSinkLocalState : public AggSinkLocalState<BlockingAggSinkLocalState> {
+public:
+    ENABLE_FACTORY_CREATOR(BlockingAggSinkLocalState);
+    using Parent = AggSinkOperatorX<BlockingAggSinkLocalState>;
+
+    BlockingAggSinkLocalState(DataSinkOperatorXBase* parent, RuntimeState* state)
+            : AggSinkLocalState(parent, state) {}
+    ~BlockingAggSinkLocalState() = default;
+};
+
+template <typename LocalStateType = BlockingAggSinkLocalState>
 class AggSinkOperatorX : public DataSinkOperatorX<LocalStateType> {
 public:
     AggSinkOperatorX(ObjectPool* pool, const TPlanNode& tnode, const DescriptorTbl& descs);
@@ -332,7 +342,10 @@ public:
 
     virtual bool can_write(RuntimeState* state) override { return true; }
 
+    using DataSinkOperatorX<LocalStateType>::id;
+
 private:
+    template <typename Derived>
     friend class AggSinkLocalState;
     friend class StreamingAggSinkLocalState;
     std::vector<vectorized::AggFnEvaluator*> _aggregate_evaluators;

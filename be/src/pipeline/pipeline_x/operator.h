@@ -134,6 +134,9 @@ public:
     [[nodiscard]] RuntimeProfile* get_runtime_profile() const override {
         return _runtime_profile.get();
     }
+    [[noreturn]] virtual const std::vector<TRuntimeFilterDesc>& runtime_filter_descs() {
+        throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR, _op_name);
+    }
     [[nodiscard]] std::string get_name() const override { return _op_name; }
 
     virtual Status prepare(RuntimeState* state) override;
@@ -182,12 +185,16 @@ public:
 
     template <class TARGET>
     TARGET& cast() {
-        DCHECK(dynamic_cast<TARGET*>(this));
+        DCHECK(dynamic_cast<TARGET*>(this))
+                << " Mismatch type! Current type is " << typeid(*this).name()
+                << " and expect type is" << typeid(TARGET).name();
         return reinterpret_cast<TARGET&>(*this);
     }
     template <class TARGET>
     const TARGET& cast() const {
-        DCHECK(dynamic_cast<const TARGET*>(this));
+        DCHECK(dynamic_cast<const TARGET*>(this))
+                << " Mismatch type! Current type is " << typeid(*this).name()
+                << " and expect type is" << typeid(TARGET).name();
         return reinterpret_cast<const TARGET&>(*this);
     }
 
@@ -318,12 +325,16 @@ public:
     virtual Status close(RuntimeState* state) = 0;
     template <class TARGET>
     TARGET& cast() {
-        DCHECK(dynamic_cast<TARGET*>(this));
+        DCHECK(dynamic_cast<TARGET*>(this))
+                << " Mismatch type! Current type is " << typeid(*this).name()
+                << " and expect type is" << typeid(TARGET).name();
         return reinterpret_cast<TARGET&>(*this);
     }
     template <class TARGET>
     const TARGET& cast() const {
-        DCHECK(dynamic_cast<const TARGET*>(this));
+        DCHECK(dynamic_cast<const TARGET*>(this))
+                << " Mismatch type! Current type is " << typeid(*this).name()
+                << " and expect type is" << typeid(TARGET).name();
         return reinterpret_cast<const TARGET&>(*this);
     }
 
@@ -369,12 +380,16 @@ public:
 
     template <class TARGET>
     TARGET& cast() {
-        DCHECK(dynamic_cast<TARGET*>(this));
+        DCHECK(dynamic_cast<TARGET*>(this))
+                << " Mismatch type! Current type is " << typeid(*this).name()
+                << " and expect type is" << typeid(TARGET).name();
         return reinterpret_cast<TARGET&>(*this);
     }
     template <class TARGET>
     const TARGET& cast() const {
-        DCHECK(dynamic_cast<const TARGET*>(this));
+        DCHECK(dynamic_cast<const TARGET*>(this))
+                << " Mismatch type! Current type is " << typeid(*this).name()
+                << " and expect type is" << typeid(TARGET).name();
         return reinterpret_cast<const TARGET&>(*this);
     }
 

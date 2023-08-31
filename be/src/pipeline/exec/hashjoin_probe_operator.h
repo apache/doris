@@ -50,8 +50,10 @@ class HashJoinProbeOperatorX;
 class HashJoinProbeLocalState final
         : public JoinProbeLocalState<JoinDependency, HashJoinProbeLocalState> {
 public:
+    using Parent = HashJoinProbeOperatorX;
     ENABLE_FACTORY_CREATOR(HashJoinProbeLocalState);
     HashJoinProbeLocalState(RuntimeState* state, OperatorXBase* parent);
+    ~HashJoinProbeLocalState() = default;
 
     Status init(RuntimeState* state, LocalStateInfo& info) override;
     Status close(RuntimeState* state) override;

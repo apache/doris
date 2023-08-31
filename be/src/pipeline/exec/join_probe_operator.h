@@ -30,15 +30,13 @@ class JoinProbeOperatorX;
 template <typename DependencyType, typename Derived>
 class JoinProbeLocalState : public PipelineXLocalState<DependencyType> {
 public:
-    ENABLE_FACTORY_CREATOR(JoinProbeLocalState);
-    JoinProbeLocalState(RuntimeState* state, OperatorXBase* parent)
-            : PipelineXLocalState<DependencyType>(state, parent) {}
-    virtual ~JoinProbeLocalState() = default;
-
     virtual Status init(RuntimeState* state, LocalStateInfo& info) override;
     virtual Status close(RuntimeState* state) override;
 
 protected:
+    JoinProbeLocalState(RuntimeState* state, OperatorXBase* parent)
+            : PipelineXLocalState<DependencyType>(state, parent) {}
+    virtual ~JoinProbeLocalState() = default;
     void _construct_mutable_join_block();
     Status _build_output_block(vectorized::Block* origin_block, vectorized::Block* output_block,
                                bool keep_origin);
