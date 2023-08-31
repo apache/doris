@@ -17,6 +17,9 @@
 
 #include "geojson_parse.h"
 
+#include <memory>
+
+#include "rapidjson/document.h"
 #include "util/GeoCollection.h"
 #include "util/GeoLineString.h"
 #include "util/GeoMultiLineString.h"
