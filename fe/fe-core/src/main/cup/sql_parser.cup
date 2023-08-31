@@ -6873,8 +6873,14 @@ timestamp_arithmetic_expr ::=
       // This function should not fully qualified
       throw new Exception("interval should not be qualified by database name");
     }
-
-    RESULT = new TimestampArithmeticExpr(functionName.getFunction(), l.get(0), v, u);
+    //eg: date_floor("0001-01-01 00:00:18",interval 5 second) convert to
+    //second_floor("0001-01-01 00:00:18", 5, "0001-01-01 00:00:00");
+    if ("date_floor".equalsIgnoreCase(functionName.getFunction()) || 
+        "date_ceil".equalsIgnoreCase(functionName.getFunction())) {
+      RESULT = FunctionCallExpr.functionWithIntervalConvert(functionName.getFunction().toLowerCase(), l.get(0), v, u); 
+    } else {
+      RESULT = new TimestampArithmeticExpr(functionName.getFunction(), l.get(0), v, u);
+    }
   :}
   | function_name:functionName LPAREN time_unit:u COMMA expr:e1 COMMA expr:e2 RPAREN
   {:
