@@ -209,10 +209,27 @@ Status LoadStreamStub::_encode_and_send(PStreamHeader& header, std::span<const S
     for (const auto& slice : data) {
         buf.append(slice.get_data(), slice.get_size());
     }
-    return _send_with_retry(buf);
+    bool eos = header.opcode() == doris::PStreamHeader::CLOSE_LOAD;
+    return _send_with_buffer(buf, eos);
 }
 
-Status LoadStreamStub::_send_with_retry(butil::IOBuf buf) {
+Status LoadStreamStub::_send_with_buffer(butil::IOBuf& buf, bool eos) {
+    butil::IOBuf output;
+    {
+        std::unique_lock<decltype(_buffer_mutex)> lock(_buffer_mutex);
+        _buffer.append(buf);
+        if (eos || _buffer.size() >= config::brpc_streaming_client_batch_bytes) {
+            output.swap(_buffer);
+        }
+    }
+    if (output.size() == 0) {
+        return Status::OK();
+    }
+    VLOG_DEBUG << "send buf size : " << output.size() << ", eos: " << eos;
+    return _send_with_retry(output);
+}
+
+Status LoadStreamStub::_send_with_retry(butil::IOBuf& buf) {
     for (;;) {
         int ret = brpc::StreamWrite(_stream_id, buf);
         switch (ret) {

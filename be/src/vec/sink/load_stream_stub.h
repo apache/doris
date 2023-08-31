@@ -166,13 +166,17 @@ public:
 
 private:
     Status _encode_and_send(PStreamHeader& header, std::span<const Slice> data = {});
-    Status _send_with_retry(butil::IOBuf buf);
+    Status _send_with_buffer(butil::IOBuf& buf, bool eos = false);
+    Status _send_with_retry(butil::IOBuf& buf);
 
 protected:
     bool _is_init = false;
     bool _is_closed = false;
     bthread::Mutex _mutex;
     bthread::ConditionVariable _close_cv;
+
+    bthread::Mutex _buffer_mutex;
+    butil::IOBuf _buffer;
 
     PUniqueId _load_id;
     brpc::StreamId _stream_id;
