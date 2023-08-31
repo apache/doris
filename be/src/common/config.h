@@ -1137,6 +1137,10 @@ DECLARE_mString(user_files_secure_path);
 // and if this threshold is exceeded, the remaining data will be pass through to other node directly.
 DECLARE_Int32(partition_topn_partition_threshold);
 
+// If fe's frontend info has not been updated for more than fe_expire_duration_seconds, it will be regarded
+// as an abnormal fe, this will cause be to cancel this fe's related query.
+DECLARE_Int32(fe_expire_duration_seconds);
+
 #ifdef BE_TEST
 // test s3
 DECLARE_String(test_s3_resource);

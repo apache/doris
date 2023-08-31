@@ -241,6 +241,7 @@ import org.apache.doris.task.MasterTaskExecutor;
 import org.apache.doris.task.PriorityMasterTaskExecutor;
 import org.apache.doris.thrift.BackendService;
 import org.apache.doris.thrift.TCompressionType;
+import org.apache.doris.thrift.TFrontendInfo;
 import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TStorageMedium;
 import org.apache.doris.transaction.DbUsedDataQuotaInfoCollector;
@@ -476,6 +477,19 @@ public class Env {
     private StatisticsAutoAnalyzer statisticsAutoAnalyzer;
 
     private HiveTransactionMgr hiveTransactionMgr;
+
+    public List<TFrontendInfo> getFrontendInfos() {
+        List<TFrontendInfo> res = new ArrayList<>();
+
+        for (Frontend fe : frontends.values()) {
+            TFrontendInfo feInfo = new TFrontendInfo();
+            feInfo.setCoordinatorAddress(new TNetworkAddress(fe.getHost(), fe.getRpcPort()));
+            feInfo.setProcessUuid(fe.getProcessUUID());
+            res.add(feInfo);
+        }
+
+        return res;
+    }
 
     public List<Frontend> getFrontends(FrontendNodeType nodeType) {
         if (nodeType == null) {
