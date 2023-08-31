@@ -7123,6 +7123,10 @@ admin_stmt ::=
     {:
         RESULT = new AdminSetReplicaStatusStmt(prop);
     :}
+    | KW_ADMIN KW_SET KW_REPLICA KW_VERSION KW_PROPERTIES LPAREN key_value_map:prop RPAREN
+    {:
+        RESULT = new AdminSetReplicaVersionStmt(prop);
+    :}
     | KW_ADMIN KW_REPAIR KW_TABLE base_table_ref:table_ref
     {:
         RESULT = new AdminRepairTableStmt(table_ref);
