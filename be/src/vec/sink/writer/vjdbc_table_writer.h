@@ -50,6 +50,8 @@ public:
 
     bool in_transaction() override { return TableConnector::_is_in_transaction; }
 
+    Status commit_trans() override { return JdbcConnector::finish_trans(); }
+
 private:
     JdbcConnectorParam _param;
 };

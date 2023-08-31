@@ -17,44 +17,35 @@
 
 #pragma once
 
-#include <stdint.h>
-
-#include <string>
+#include <memory>
+#include <vector>
 
 #include "common/status.h"
+#include "vec/core/block.h"
+#include "vec/exprs/vexpr_fwd.h"
 
-namespace doris {
+namespace doris::vectorized {
 
-namespace vectorized {
-class Block;
-}
-class RuntimeState;
-
-// abstract class of the result writer
-class ResultWriter {
+class VFileWriterWrapper {
 public:
-    ResultWriter() = default;
-    virtual ~ResultWriter() = default;
+    VFileWriterWrapper(const VExprContextSPtrs& output_vexpr_ctxs, bool output_object_data)
+            : _output_vexpr_ctxs(output_vexpr_ctxs),
+              _cur_written_rows(0),
+              _output_object_data(output_object_data) {}
 
-    virtual Status init(RuntimeState* state) = 0;
+    virtual ~VFileWriterWrapper() = default;
+
+    virtual Status prepare() = 0;
+
+    virtual Status write(const Block& block) = 0;
 
     virtual Status close() = 0;
 
-    virtual int64_t get_written_rows() const { return _written_rows; }
-
-    bool output_object_data() const { return _output_object_data; }
-
-    virtual Status append_block(vectorized::Block& block) = 0;
-
-    virtual bool can_sink() { return true; }
-
-    void set_output_object_data(bool output_object_data) {
-        _output_object_data = output_object_data;
-    }
+    virtual int64_t written_len() = 0;
 
 protected:
-    int64_t _written_rows = 0; // number of rows written
-    bool _output_object_data = false;
+    const VExprContextSPtrs& _output_vexpr_ctxs;
+    int64_t _cur_written_rows;
+    bool _output_object_data;
 };
-
-} // namespace doris
+} // namespace doris::vectorized

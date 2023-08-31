@@ -42,10 +42,10 @@ namespace vectorized {
 class Block;
 
 template <typename Writer, const char* Name>
-class VTableSink : public DataSink {
+class AsyncWriterSink : public DataSink {
 public:
-    VTableSink(ObjectPool* pool, const RowDescriptor& row_desc, const std::vector<TExpr>& t_exprs)
-            : DataSink(row_desc), _pool(pool), _t_output_expr(t_exprs) {
+    AsyncWriterSink(const RowDescriptor& row_desc, const std::vector<TExpr>& t_exprs)
+            : DataSink(row_desc), _t_output_expr(t_exprs) {
         _name = Name;
     }
 
@@ -87,14 +87,12 @@ public:
         return _writer->sink(block, eos);
     }
 
-    RuntimeProfile* profile() override { return _profile; }
-
     bool can_write() override { return _writer->can_write(); }
 
     Status close(RuntimeState* state, Status exec_status) override {
         if (_writer->need_normal_close()) {
             if (exec_status.ok() && !state->is_cancelled()) {
-                RETURN_IF_ERROR(_writer->finish_trans());
+                RETURN_IF_ERROR(_writer->commit_trans());
             }
             RETURN_IF_ERROR(_writer->close());
         }
@@ -111,37 +109,31 @@ public:
     bool is_close_done() override { return !_writer->is_pending_finish(); }
 
 protected:
-    // owned by RuntimeState
-    ObjectPool* _pool;
     const std::vector<TExpr>& _t_output_expr;
     VExprContextSPtrs _output_vexpr_ctxs;
     std::unique_ptr<Writer> _writer;
-    RuntimeProfile* _profile;
 };
 
 inline constexpr char VJDBC_TABLE_SINK_NAME[] = "VJdbcTableSink";
 inline constexpr char VODBC_TABLE_SINK_NAME[] = "VOdbcTableSink";
 inline constexpr char VMYSQL_TABLE_SINK_NAME[] = "VMysqlTableSink";
 
-class VJdbcTableSink : public VTableSink<VJdbcTableWriter, VJDBC_TABLE_SINK_NAME> {
+class VJdbcTableSink : public AsyncWriterSink<VJdbcTableWriter, VJDBC_TABLE_SINK_NAME> {
 public:
-    VJdbcTableSink(ObjectPool* pool, const RowDescriptor& row_desc,
-                   const std::vector<TExpr>& t_exprs)
-            : VTableSink<VJdbcTableWriter, VJDBC_TABLE_SINK_NAME>(pool, row_desc, t_exprs) {};
+    VJdbcTableSink(const RowDescriptor& row_desc, const std::vector<TExpr>& t_exprs)
+            : AsyncWriterSink<VJdbcTableWriter, VJDBC_TABLE_SINK_NAME>(row_desc, t_exprs) {};
 };
 
-class VOdbcTableSink : public VTableSink<VOdbcTableWriter, VODBC_TABLE_SINK_NAME> {
+class VOdbcTableSink : public AsyncWriterSink<VOdbcTableWriter, VODBC_TABLE_SINK_NAME> {
 public:
-    VOdbcTableSink(ObjectPool* pool, const RowDescriptor& row_desc,
-                   const std::vector<TExpr>& t_exprs)
-            : VTableSink<VOdbcTableWriter, VODBC_TABLE_SINK_NAME>(pool, row_desc, t_exprs) {};
+    VOdbcTableSink(const RowDescriptor& row_desc, const std::vector<TExpr>& t_exprs)
+            : AsyncWriterSink<VOdbcTableWriter, VODBC_TABLE_SINK_NAME>(row_desc, t_exprs) {};
 };
 
-class VMysqlTableSink : public VTableSink<VMysqlTableWriter, VMYSQL_TABLE_SINK_NAME> {
+class VMysqlTableSink : public AsyncWriterSink<VMysqlTableWriter, VMYSQL_TABLE_SINK_NAME> {
 public:
-    VMysqlTableSink(ObjectPool* pool, const RowDescriptor& row_desc,
-                    const std::vector<TExpr>& t_exprs)
-            : VTableSink<VMysqlTableWriter, VMYSQL_TABLE_SINK_NAME>(pool, row_desc, t_exprs) {};
+    VMysqlTableSink(const RowDescriptor& row_desc, const std::vector<TExpr>& t_exprs)
+            : AsyncWriterSink<VMysqlTableWriter, VMYSQL_TABLE_SINK_NAME>(row_desc, t_exprs) {};
 };
 } // namespace vectorized
 } // namespace doris

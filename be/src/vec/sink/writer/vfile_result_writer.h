@@ -29,10 +29,10 @@
 #include "common/status.h"
 #include "io/fs/file_writer.h"
 #include "runtime/descriptors.h"
-#include "runtime/result_writer.h"
 #include "util/runtime_profile.h"
 #include "vec/core/block.h"
-#include "vec/runtime/vparquet_writer.h"
+#include "vec/runtime/vfile_writer_wrapper.h"
+#include "vec/sink/writer/async_result_writer.h"
 
 namespace doris {
 class BufferControlBlock;
@@ -47,20 +47,24 @@ struct ResultFileOptions;
 namespace doris::vectorized {
 
 // write result to file
-class VFileResultWriter final : public ResultWriter {
+class VFileResultWriter final : public AsyncResultWriter {
 public:
     VFileResultWriter(const ResultFileOptions* file_option,
                       const TStorageBackendType::type storage_type,
                       const TUniqueId fragment_instance_id,
-                      const VExprContextSPtrs& _output_vexpr_ctxs, RuntimeProfile* parent_profile,
-                      BufferControlBlock* sinker, Block* output_block, bool output_object_data,
+                      const VExprContextSPtrs& _output_vexpr_ctxs, BufferControlBlock* sinker,
+                      Block* output_block, bool output_object_data,
                       const RowDescriptor& output_row_descriptor);
-    virtual ~VFileResultWriter() = default;
+
+    VFileResultWriter(const TDataSink& t_sink, const VExprContextSPtrs& output_exprs);
 
     Status append_block(Block& block) override;
 
-    Status init(RuntimeState* state) override;
     Status close() override;
+
+    Status open(RuntimeState* state, RuntimeProfile* profile) override {
+        return _init(state, profile);
+    }
 
     // file result writer always return statistic result in one row
     int64_t get_written_rows() const override { return 1; }
@@ -68,14 +72,20 @@ public:
     std::string gen_types();
     Status write_csv_header();
 
+    void set_header_info(const std::string& header_type, const std::string& header) {
+        _header_type = header_type;
+        _header = header;
+    }
+
 private:
+    Status _init(RuntimeState* state, RuntimeProfile*);
     Status _write_file(const Block& block);
     Status _write_csv_file(const Block& block);
 
     // if buffer exceed the limit, write the data buffered in _plain_text_outstream via file_writer
     // if eos, write the data even if buffer is not full.
     Status _flush_plain_text_outstream(bool eos);
-    void _init_profile();
+    void _init_profile(RuntimeProfile*);
 
     Status _create_file_writer(const std::string& file_name);
     Status _create_next_file_writer();
@@ -96,11 +106,12 @@ private:
     // delete the dir of file_path
     Status _delete_dir();
 
+    static const std::string NULL_IN_CSV;
+
     RuntimeState* _state; // not owned, set when init
     const ResultFileOptions* _file_opts;
     TStorageBackendType::type _storage_type;
     TUniqueId _fragment_instance_id;
-    const VExprContextSPtrs& _output_vexpr_ctxs;
 
     // If the result file format is plain text, like CSV, this _file_writer is owned by this FileResultWriter.
     // If the result file format is Parquet, this _file_writer is owned by _parquet_writer.
@@ -119,7 +130,6 @@ private:
     // the suffix idx of export file name, start at 0
     int _file_idx = 0;
 
-    RuntimeProfile* _parent_profile; // profile from result sink, not owned
     // total time cost on append batch operation
     RuntimeProfile::Counter* _append_row_batch_timer = nullptr;
     // tuple convert timer, child timer of _append_row_batch_timer
@@ -142,5 +152,9 @@ private:
     RowDescriptor _output_row_descriptor;
     // parquet/orc file writer
     std::unique_ptr<VFileWriterWrapper> _vfile_writer;
+
+    std::string_view _header_type;
+    std::string_view _header;
+    std::unique_ptr<VFileResultWriter> _writer;
 };
 } // namespace doris::vectorized
