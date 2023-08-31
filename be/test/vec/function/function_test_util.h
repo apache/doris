@@ -26,6 +26,7 @@
 #include <vector>
 
 #include "common/status.h"
+#include "geo/util/GeoShape.h"
 #include "gtest/gtest_pred_impl.h"
 #include "olap/olap_common.h"
 #include "runtime/define_primitive_type.h"
@@ -48,12 +49,10 @@
 #include "vec/core/types.h"
 #include "vec/data_types/data_type.h"
 #include "vec/data_types/data_type_bitmap.h"
+#include "vec/data_types/data_type_geometry.h"
 #include "vec/data_types/data_type_nullable.h"
 #include "vec/data_types/data_type_number.h"
 #include "vec/functions/simple_function_factory.h"
-
-#include "vec/data_types/data_type_geometry.h"
-#include "geo/util/GeoShape.h"
 
 namespace doris {
 namespace vectorized {
@@ -311,7 +310,7 @@ Status check_function(const std::string& func_name, const InputTypeSet& input_ty
                     EXPECT_EQ(expect_data, JsonbToJson::jsonb_to_json_string(s.data, s.size))
                             << " at row " << i;
                 }
-            } else if constexpr (std::is_same_v<ReturnType, DataTypeGeometry>){
+            } else if constexpr (std::is_same_v<ReturnType, DataTypeGeometry>) {
                 const auto& expect_data = any_cast<String>(data_set[i].second);
                 auto s = column->get_data_at(i);
                 if (expect_data.size() == 0) {
@@ -320,8 +319,7 @@ Status check_function(const std::string& func_name, const InputTypeSet& input_ty
                 } else {
                     // convert jsonb binary value to json string to compare with expected json text
                     std::unique_ptr<GeoShape> shape(GeoShape::from_encoded(s.data, s.size));
-                    EXPECT_EQ(expect_data, shape->as_wkt())
-                                        << " at row " << i;
+                    EXPECT_EQ(expect_data, shape->as_wkt()) << " at row " << i;
                 }
             } else {
                 Field field;

@@ -33,10 +33,10 @@
 #include "gtest/gtest_pred_impl.h"
 #include "testutil/any_type.h"
 #include "vec/core/types.h"
+#include "vec/data_types/data_type_geometry.h"
 #include "vec/data_types/data_type_nullable.h"
 #include "vec/data_types/data_type_number.h"
 #include "vec/data_types/data_type_string.h"
-#include "vec/data_types/data_type_geometry.h"
 
 namespace doris::vectorized {
 using namespace ut_type;
@@ -257,10 +257,11 @@ TEST(VGeoFunctionsTest, function_geo_st_circle) {
     {
         InputTypeSet input_types = {TypeIndex::Float64, TypeIndex::Float64, TypeIndex::Float64};
 
-        DataSet data_set = {{{(double)111, (double)64, (double)10000}, std::string("CIRCLE ((111 64), 10000)")},
-                            {{Null(), (double)64, (double)10000}, Null()},
-                            {{(double)111, Null(), (double)10000}, Null()},
-                            {{(double)111, (double)64, Null()}, Null()}};
+        DataSet data_set = {
+                {{(double)111, (double)64, (double)10000}, std::string("CIRCLE ((111 64), 10000)")},
+                {{Null(), (double)64, (double)10000}, Null()},
+                {{(double)111, Null(), (double)10000}, Null()},
+                {{(double)111, (double)64, Null()}, Null()}};
 
         static_cast<void>(check_function<DataTypeGeometry, true>(func_name, input_types, data_set));
     }
@@ -271,7 +272,8 @@ TEST(VGeoFunctionsTest, function_geo_st_geometryfromtext) {
     {
         InputTypeSet input_types = {TypeIndex::String};
 
-        DataSet data_set = {{{std::string("LINESTRING (1 1, 2 2)")}, std::string("LINESTRING (1 1, 2 2)")}};
+        DataSet data_set = {
+                {{std::string("LINESTRING (1 1, 2 2)")}, std::string("LINESTRING (1 1, 2 2)")}};
 
         static_cast<void>(check_function<DataTypeGeometry, true>(func_name, input_types, data_set));
     }
@@ -282,7 +284,8 @@ TEST(VGeoFunctionsTest, function_geo_st_geomfromtext) {
     {
         InputTypeSet input_types = {TypeIndex::String};
 
-        DataSet data_set = {{{std::string("LINESTRING (1 1, 2 2)")}, std::string("LINESTRING (1 1, 2 2)")}};
+        DataSet data_set = {
+                {{std::string("LINESTRING (1 1, 2 2)")}, std::string("LINESTRING (1 1, 2 2)")}};
 
         static_cast<void>(check_function<DataTypeGeometry, true>(func_name, input_types, data_set));
     }
@@ -293,7 +296,8 @@ TEST(VGeoFunctionsTest, function_geo_st_linefromtext) {
     {
         InputTypeSet input_types = {TypeIndex::String};
 
-        DataSet data_set = {{{std::string("LINESTRING (1 1, 2 2)")}, std::string("LINESTRING (1 1, 2 2)")}};
+        DataSet data_set = {
+                {{std::string("LINESTRING (1 1, 2 2)")}, std::string("LINESTRING (1 1, 2 2)")}};
 
         static_cast<void>(check_function<DataTypeGeometry, true>(func_name, input_types, data_set));
     }
@@ -304,7 +308,8 @@ TEST(VGeoFunctionsTest, function_geo_st_polygon) {
     {
         InputTypeSet input_types = {TypeIndex::String};
 
-        DataSet data_set = {{{std::string("POLYGON ((0 0, 10 0, 10 10, 0 10, 0 0))")}, std::string("POLYGON ((0 0, 10 0, 10 10, 0 10, 0 0))")}};
+        DataSet data_set = {{{std::string("POLYGON ((0 0, 10 0, 10 10, 0 10, 0 0))")},
+                             std::string("POLYGON ((0 0, 10 0, 10 10, 0 10, 0 0))")}};
 
         static_cast<void>(check_function<DataTypeGeometry, true>(func_name, input_types, data_set));
     }
@@ -315,7 +320,8 @@ TEST(VGeoFunctionsTest, function_geo_st_polygonfromtext) {
     {
         InputTypeSet input_types = {TypeIndex::String};
 
-        DataSet data_set = {{{std::string("POLYGON ((0 0, 10 0, 10 10, 0 10, 0 0))")}, std::string("POLYGON ((0 0, 10 0, 10 10, 0 10, 0 0))")}};
+        DataSet data_set = {{{std::string("POLYGON ((0 0, 10 0, 10 10, 0 10, 0 0))")},
+                             std::string("POLYGON ((0 0, 10 0, 10 10, 0 10, 0 0))")}};
 
         static_cast<void>(check_function<DataTypeGeometry, true>(func_name, input_types, data_set));
     }
@@ -354,7 +360,6 @@ TEST(VGeoFunctionsTest, function_geo_st_area_square_km) {
         static_cast<void>(check_function<DataTypeFloat64, true>(func_name, input_types, data_set));
     }
 }
-
 
 TEST(VGeoFunctionsTest, function_geo_st_within) {
     std::string func_name = "st_within";
@@ -396,7 +401,9 @@ TEST(VGeoFunctionsTest, function_geo_st_geometryfromwkb) {
     {
         InputTypeSet input_types = {TypeIndex::String};
 
-        DataSet data_set = {{{std::string("010200000002000000000000000000f03f000000000000f03f00000000000000400000000000000040")}, std::string("LINESTRING (1 1, 2 2)")}};
+        DataSet data_set = {{{std::string("010200000002000000000000000000f03f000000000000f03f000000"
+                                          "00000000400000000000000040")},
+                             std::string("LINESTRING (1 1, 2 2)")}};
 
         static_cast<void>(check_function<DataTypeGeometry, true>(func_name, input_types, data_set));
     }
@@ -407,7 +414,9 @@ TEST(VGeoFunctionsTest, function_geo_st_geomfromwkb) {
     {
         InputTypeSet input_types = {TypeIndex::String};
 
-        DataSet data_set = {{{std::string("010200000002000000000000000000f03f000000000000f03f00000000000000400000000000000040")}, std::string("LINESTRING (1 1, 2 2)")}};
+        DataSet data_set = {{{std::string("010200000002000000000000000000f03f000000000000f03f000000"
+                                          "00000000400000000000000040")},
+                             std::string("LINESTRING (1 1, 2 2)")}};
 
         static_cast<void>(check_function<DataTypeGeometry, true>(func_name, input_types, data_set));
     }
@@ -424,7 +433,8 @@ TEST(VGeoFunctionsTest, function_geo_st_asbinary) {
         std::string buf;
         point.encode_to(&buf);
 
-        DataSet data_set = {{{buf}, std::string("01010000003333333333b338409a99999999594c40")}, {{Null()}, Null()}};
+        DataSet data_set = {{{buf}, std::string("01010000003333333333b338409a99999999594c40")},
+                            {{Null()}, Null()}};
 
         static_cast<void>(check_function<DataTypeString, true>(func_name, input_types, data_set));
     }
@@ -441,7 +451,9 @@ TEST(VGeoFunctionsTest, function_geo_st_asgeojson) {
         std::string buf;
         point.encode_to(&buf);
 
-        DataSet data_set = {{{buf}, std::string("{\"type\":\"Point\",\"coordinates\":[24.7,56.7]}")}, {{Null()}, Null()}};
+        DataSet data_set = {
+                {{buf}, std::string("{\"type\":\"Point\",\"coordinates\":[24.7,56.7]}")},
+                {{Null()}, Null()}};
 
         static_cast<void>(check_function<DataTypeString, true>(func_name, input_types, data_set));
     }
@@ -452,7 +464,8 @@ TEST(VGeoFunctionsTest, function_geo_st_geometryfromgeojson) {
     {
         InputTypeSet input_types = {TypeIndex::String};
 
-        DataSet data_set = {{{std::string("{\"type\":\"Point\",\"coordinates\":[24.7,56.7]}")}, std::string("POINT (24.7 56.7)")}};
+        DataSet data_set = {{{std::string("{\"type\":\"Point\",\"coordinates\":[24.7,56.7]}")},
+                             std::string("POINT (24.7 56.7)")}};
 
         static_cast<void>(check_function<DataTypeGeometry, true>(func_name, input_types, data_set));
     }
@@ -463,7 +476,8 @@ TEST(VGeoFunctionsTest, function_geo_st_geomfromgeojson) {
     {
         InputTypeSet input_types = {TypeIndex::String};
 
-        DataSet data_set = {{{std::string("{\"type\":\"Point\",\"coordinates\":[24.7,56.7]}")}, std::string("POINT (24.7 56.7)")}};
+        DataSet data_set = {{{std::string("{\"type\":\"Point\",\"coordinates\":[24.7,56.7]}")},
+                             std::string("POINT (24.7 56.7)")}};
 
         static_cast<void>(check_function<DataTypeGeometry, true>(func_name, input_types, data_set));
     }
@@ -472,7 +486,7 @@ TEST(VGeoFunctionsTest, function_geo_st_geomfromgeojson) {
 TEST(VGeoFunctionsTest, function_geo_st_pointn) {
     std::string func_name = "st_pointn";
     {
-        InputTypeSet input_types = {TypeIndex::String,TypeIndex::Int32};
+        InputTypeSet input_types = {TypeIndex::String, TypeIndex::Int32};
 
         GeoParseStatus status;
         std::string buf;
@@ -482,7 +496,7 @@ TEST(VGeoFunctionsTest, function_geo_st_pointn) {
         EXPECT_TRUE(status == GEO_PARSE_OK);
         shape->encode_to(&buf);
 
-        DataSet data_set = {{{buf,1}, std::string("POINT (1 1)")}};
+        DataSet data_set = {{{buf, 1}, std::string("POINT (1 1)")}};
 
         static_cast<void>(check_function<DataTypeGeometry, true>(func_name, input_types, data_set));
     }
