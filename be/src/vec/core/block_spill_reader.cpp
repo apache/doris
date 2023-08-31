@@ -134,7 +134,8 @@ Status BlockSpillReader::read(Block* block, bool* eos) {
             if (!pb_block.ParseFromArray(result.data, result.size)) {
                 return Status::InternalError("Failed to read spilled block");
             }
-            new_block = Block::create_unique(pb_block);
+            new_block = Block::create_unique();
+            RETURN_IF_ERROR(new_block->deserialize(pb_block));
         }
         block->swap(*new_block);
     } else {

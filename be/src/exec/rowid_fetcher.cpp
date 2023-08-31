@@ -160,7 +160,8 @@ Status RowIDFetcher::_merge_rpc_results(const PMultiGetRequest& request,
             return Status::OK();
         }
         // Merge partial blocks
-        vectorized::Block partial_block(resp.block());
+        vectorized::Block partial_block;
+        RETURN_IF_ERROR(partial_block.deserialize(resp.block()));
         if (partial_block.is_empty_column()) {
             return Status::OK();
         }

@@ -108,13 +108,13 @@ Status VDataStreamRecvr::SenderQueue::_inner_get_batch_without_lock(Block* block
     return Status::OK();
 }
 
-void VDataStreamRecvr::SenderQueue::add_block(const PBlock& pblock, int be_number,
-                                              int64_t packet_seq,
-                                              ::google::protobuf::Closure** done) {
+Status VDataStreamRecvr::SenderQueue::add_block(const PBlock& pblock, int be_number,
+                                                int64_t packet_seq,
+                                                ::google::protobuf::Closure** done) {
     {
         std::lock_guard<std::mutex> l(_lock);
         if (_is_cancelled) {
-            return;
+            return Status::OK();
         }
         auto iter = _packet_seq_map.find(be_number);
         if (iter != _packet_seq_map.end()) {
@@ -122,7 +122,7 @@ void VDataStreamRecvr::SenderQueue::add_block(const PBlock& pblock, int be_numbe
                 LOG(WARNING) << fmt::format(
                         "packet already exist [cur_packet_id= {} receive_packet_id={}]",
                         iter->second, packet_seq);
-                return;
+                return Status::OK();
             }
             iter->second = packet_seq;
         } else {
@@ -134,7 +134,7 @@ void VDataStreamRecvr::SenderQueue::add_block(const PBlock& pblock, int be_numbe
         DCHECK(_num_remaining_senders >= 0);
         if (_num_remaining_senders == 0) {
             DCHECK(_sender_eos_set.end() != _sender_eos_set.find(be_number));
-            return;
+            return Status::OK();
         }
     }
 
@@ -142,7 +142,8 @@ void VDataStreamRecvr::SenderQueue::add_block(const PBlock& pblock, int be_numbe
     int64_t deserialize_time = 0;
     {
         SCOPED_RAW_TIMER(&deserialize_time);
-        block = Block::create_unique(pblock);
+        block = Block::create_unique();
+        RETURN_IF_ERROR(block->deserialize(pblock));
     }
 
     auto block_byte_size = block->allocated_bytes();
@@ -150,7 +151,7 @@ void VDataStreamRecvr::SenderQueue::add_block(const PBlock& pblock, int be_numbe
 
     std::lock_guard<std::mutex> l(_lock);
     if (_is_cancelled) {
-        return;
+        return Status::OK();
     }
 
     COUNTER_UPDATE(_recvr->_deserialize_row_batch_timer, deserialize_time);
@@ -170,6 +171,7 @@ void VDataStreamRecvr::SenderQueue::add_block(const PBlock& pblock, int be_numbe
     }
     _recvr->update_blocks_memory_usage(block_byte_size);
     _data_arrival_cv.notify_one();
+    return Status::OK();
 }
 
 void VDataStreamRecvr::SenderQueue::add_block(Block* block, bool use_move) {
@@ -369,11 +371,11 @@ Status VDataStreamRecvr::create_merger(const VExprContextSPtrs& ordering_expr,
     return Status::OK();
 }
 
-void VDataStreamRecvr::add_block(const PBlock& pblock, int sender_id, int be_number,
-                                 int64_t packet_seq, ::google::protobuf::Closure** done) {
+Status VDataStreamRecvr::add_block(const PBlock& pblock, int sender_id, int be_number,
+                                   int64_t packet_seq, ::google::protobuf::Closure** done) {
     SCOPED_ATTACH_TASK_WITH_ID(_query_mem_tracker, _query_id, _fragment_instance_id);
     int use_sender_id = _is_merging ? sender_id : 0;
-    _sender_queues[use_sender_id]->add_block(pblock, be_number, packet_seq, done);
+    return _sender_queues[use_sender_id]->add_block(pblock, be_number, packet_seq, done);
 }
 
 void VDataStreamRecvr::add_block(Block* block, int sender_id, bool use_move) {
