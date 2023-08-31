@@ -72,6 +72,7 @@
 #include "vec/data_types/data_type_array.h"
 #include "vec/data_types/data_type_date.h"
 #include "vec/data_types/data_type_date_time.h"
+#include "vec/data_types/data_type_date_v2.h"
 #include "vec/data_types/data_type_decimal.h"
 #include "vec/data_types/data_type_hll.h"
 #include "vec/data_types/data_type_jsonb.h"
@@ -81,7 +82,6 @@
 #include "vec/data_types/data_type_string.h"
 #include "vec/data_types/data_type_struct.h"
 #include "vec/data_types/data_type_time.h"
-#include "vec/data_types/data_type_date_v2.h"
 #include "vec/functions/function.h"
 #include "vec/functions/function_convert_tz.h"
 #include "vec/functions/function_helpers.h"
@@ -442,8 +442,7 @@ struct ConvertImpl {
 /** If types are identical, just take reference to column.
   */
 template <typename T, typename Name>
-    requires(!T::is_parametric)
-struct ConvertImpl<T, T, Name> {
+requires(!T::is_parametric) struct ConvertImpl<T, T, Name> {
     static Status execute(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                           size_t result, size_t /*input_rows_count*/) {
         block.get_by_position(result).column = block.get_by_position(arguments[0]).column;

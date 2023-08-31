@@ -29,10 +29,10 @@
 #include "vec/data_types/data_type_bitmap.h"
 #include "vec/data_types/data_type_date.h"
 #include "vec/data_types/data_type_date_time.h"
+#include "vec/data_types/data_type_date_v2.h"
 #include "vec/data_types/data_type_decimal.h"
 #include "vec/data_types/data_type_jsonb.h"
 #include "vec/data_types/data_type_string.h"
-#include "vec/data_types/data_type_date_v2.h"
 #include "vec/exprs/table_function/table_function.h"
 #include "vec/runtime/vdatetime_value.h"
 

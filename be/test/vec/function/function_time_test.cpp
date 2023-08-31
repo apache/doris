@@ -28,11 +28,11 @@
 #include "vec/core/types.h"
 #include "vec/data_types/data_type_date.h"
 #include "vec/data_types/data_type_date_time.h"
+#include "vec/data_types/data_type_date_v2.h"
 #include "vec/data_types/data_type_nullable.h"
 #include "vec/data_types/data_type_number.h"
 #include "vec/data_types/data_type_string.h"
 #include "vec/data_types/data_type_time.h"
-#include "vec/data_types/data_type_date_v2.h"
 
 namespace doris::vectorized {
 using namespace ut_type;

@@ -49,6 +49,7 @@
 #include "vec/data_types/data_type_bitmap.h"
 #include "vec/data_types/data_type_date.h"
 #include "vec/data_types/data_type_date_time.h"
+#include "vec/data_types/data_type_date_v2.h"
 #include "vec/data_types/data_type_decimal.h"
 #include "vec/data_types/data_type_fixed_length_object.h"
 #include "vec/data_types/data_type_hll.h"
@@ -60,7 +61,6 @@
 #include "vec/data_types/data_type_quantilestate.h"
 #include "vec/data_types/data_type_string.h"
 #include "vec/data_types/data_type_struct.h"
-#include "vec/data_types/data_type_date_v2.h"
 
 namespace doris::vectorized {
 
