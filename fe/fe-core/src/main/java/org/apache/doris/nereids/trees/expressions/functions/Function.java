@@ -35,6 +35,6 @@ public abstract class Function extends Expression {
     }
 
     public boolean isHighOrder() {
-        return children.size() > 1 && children.get(0) instanceof Lambda;
+        return !children.isEmpty() && children.get(0) instanceof Lambda;
     }
 }

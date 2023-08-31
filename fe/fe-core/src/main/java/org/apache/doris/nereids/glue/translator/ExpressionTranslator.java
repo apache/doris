@@ -269,6 +269,16 @@ public class ExpressionTranslator extends DefaultExpressionVisitor<Expr, PlanTra
     }
 
     @Override
+    public Expr visitArrayItemSlot(SlotReference slotReference, PlanTranslatorContext context) {
+        return context.findColumnRef(slotReference.getExprId());
+    }
+
+    @Override
+    public Expr visitArrayItemReference(ArrayItemReference arrayItemReference, PlanTranslatorContext context) {
+        return context.findColumnRef(arrayItemReference.getExprId());
+    }
+
+    @Override
     public Expr visitMarkJoinReference(MarkJoinSlotReference markJoinSlotReference, PlanTranslatorContext context) {
         return markJoinSlotReference.isExistsHasAgg()
                 ? new BoolLiteral(true) : context.findSlotRef(markJoinSlotReference.getExprId());
@@ -382,7 +392,7 @@ public class ExpressionTranslator extends DefaultExpressionVisitor<Expr, PlanTra
 
     }
 
-    public Expr bindLambda(Lambda lambda, List<Expr> params, PlanTranslatorContext context) {
+    public Expr bindLambda(Lambda lambda, PlanTranslatorContext context) {
         Expr func = lambda.getLambdaFunction().accept(this, context);
         List<Expr> children = lambda.getLambdaArguments().stream()
                                     .map(e -> e.accept(this, context))
@@ -390,28 +400,23 @@ public class ExpressionTranslator extends DefaultExpressionVisitor<Expr, PlanTra
         return new LambdaFunctionExpr(func, lambda.getLambdaArgumentNames(), children);
     }
 
-    @Override
-    public Expr visitArrayItemReference(ArrayItemReference reference, PlanTranslatorContext context) {
-        return context.findColumnRef(reference.getExprId());
-    }
-
     private Expr visitHighOrderFunction(ScalarFunction function, PlanTranslatorContext context) {
         Lambda lambda = (Lambda) function.child(0);
         List<Expr> arguments = new ArrayList<>(function.children().size());
         arguments.add(null);
-        for (int i = 1; i < function.children().size(); i++) {
-            String argName = lambda.getLambdaArgumentName(i - 1);
-            ArrayItemReference arg = lambda.getLambdaArgument(i - 1);
-            Expr expr = arg.getArrayExpression().accept(this, context);
-            arguments.add(i, expr);
+        int columnId = 0;
+        for (ArrayItemReference arrayItemReference : lambda.getLambdaArguments()) {
+            String argName = arrayItemReference.getName();
+            Expr expr = arrayItemReference.getArrayExpression().accept(this, context);
+            arguments.add(expr);
 
             ColumnRefExpr column = new ColumnRefExpr();
-            int columnId = i - 1;
             column.setName(argName);
             column.setColumnId(columnId);
             column.setNullable(true);
             column.setType(((ArrayType) expr.getType()).getItemType());
-            context.addExprIdColumnRef(arg.getExprId(), column);
+            context.addExprIdColumnRef(arrayItemReference.getExprId(), column);
+            columnId += 1;
         }
 
         List<Type> argTypes = function.getArguments().stream()
@@ -424,7 +429,7 @@ public class ExpressionTranslator extends DefaultExpressionVisitor<Expr, PlanTra
                 true, true, NullableMode.DEPEND_ON_ARGUMENT);
 
         // create catalog FunctionCallExpr without analyze again
-        Expr lambdaBody = bindLambda(lambda, arguments.subList(1, arguments.size()), context);
+        Expr lambdaBody = bindLambda(lambda, context);
         arguments.set(0, lambdaBody);
         return new LambdaFunctionCallExpr(catalogFunction, new FunctionParams(false, arguments));
     }

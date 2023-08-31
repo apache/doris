@@ -17,27 +17,40 @@
 
 package org.apache.doris.nereids.trees.expressions;
 
+import org.apache.doris.nereids.trees.expressions.typecoercion.ExpectsInputTypes;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
+import org.apache.doris.nereids.types.ArrayType;
 import org.apache.doris.nereids.types.DataType;
+import org.apache.doris.nereids.types.coercion.AnyDataType;
 
+import com.google.common.base.Preconditions;
+import com.google.common.collect.ImmutableList;
+
+import java.util.List;
 import java.util.Objects;
 
 /**
  * it is item from array, which used in lambda function
  */
-public class ArrayItemReference extends SlotReference implements SlotNotFromChildren {
-    // arguments of lambda function
-    private final Expression arrayExpression;
+public class ArrayItemReference extends NamedExpression implements ExpectsInputTypes {
+    protected final String name;
+    protected final ExprId exprId;
 
     /** ArrayItemReference */
-    public ArrayItemReference(String name, DataType dataType,
-            boolean nullable, Expression arrayExpression) {
-        super(name, dataType, nullable);
-        this.arrayExpression = Objects.requireNonNull(arrayExpression, "originExpression can not be null");
+    public ArrayItemReference(String name, Expression arrayExpression) {
+        this(StatementScopeIdGenerator.newExprId(), name, arrayExpression);
+    }
+
+    public ArrayItemReference(ExprId exprId, String name, Expression arrayExpression) {
+        super(ImmutableList.of(arrayExpression));
+        Preconditions.checkArgument(arrayExpression.getDataType() instanceof ArrayType,
+                "ArrayItemReference' child must return array");
+        this.name = name;
+        this.exprId = exprId;
     }
 
     public Expression getArrayExpression() {
-        return arrayExpression;
+        return children.get(0);
     }
 
     @Override
@@ -46,14 +59,51 @@ public class ArrayItemReference extends SlotReference implements SlotNotFromChil
     }
 
     @Override
+    public String getName() {
+        return name;
+    }
+
+    @Override
+    public ExprId getExprId() {
+        return exprId;
+    }
+
+    @Override
+    public List<String> getQualifier() {
+        return ImmutableList.of(name);
+    }
+
+    @Override
+    public boolean nullable() {
+        return ((ArrayType) (this.children.get(0).getDataType())).containsNull();
+    }
+
+    @Override
+    public ArrayItemReference withChildren(List<Expression> expressions) {
+        return new ArrayItemReference(exprId, name, expressions.get(0));
+    }
+
+    @Override
+    public DataType getDataType() {
+        return ((ArrayType) (this.children.get(0).getDataType())).getItemType();
+    }
+
+    @Override
     public String toSql() {
-        return getName();
+        String str = getName() + "#" + getExprId();
+        str += " of " + child(0).toSql();
+        return str;
+    }
+
+    @Override
+    public Slot toSlot() {
+        return new ArrayItemSlot(exprId, name, getDataType(), nullable());
     }
 
     @Override
     public String toString() {
         String str = getName() + "#" + getExprId();
-        str += " array: " + arrayExpression;
+        str += " of " + child(0).toString();
         return str;
     }
 
@@ -66,12 +116,35 @@ public class ArrayItemReference extends SlotReference implements SlotNotFromChil
             return false;
         }
         ArrayItemReference that = (ArrayItemReference) o;
-        return Objects.equals(arrayExpression, that.arrayExpression);
+        return Objects.equals(child(0), that.child(0));
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(arrayExpression, getExprId());
+        return Objects.hash(children, getExprId());
     }
 
+    @Override
+    public List<DataType> expectedInputTypes() {
+        return ImmutableList.of(ArrayType.of(AnyDataType.INSTANCE_WITHOUT_INDEX));
+    }
+
+    static class ArrayItemSlot extends SlotReference implements SlotNotFromChildren {
+        /**
+         * Constructor for SlotReference.
+         *
+         * @param exprId UUID for this slot reference
+         * @param name slot reference name
+         * @param dataType slot reference logical data type
+         * @param nullable true if nullable
+         */
+        public ArrayItemSlot(ExprId exprId, String name, DataType dataType, boolean nullable) {
+            super(exprId, name, dataType, nullable, ImmutableList.of(), null);
+        }
+
+        @Override
+        public <R, C> R accept(ExpressionVisitor<R, C> visitor, C context) {
+            return visitor.visitArrayItemSlot(this, context);
+        }
+    }
 }
