@@ -1197,6 +1197,11 @@ BaseCompaction:546859:
 * Description: Index page cache as a percentage of total storage page cache, value range is [0, 100]
 * Default value: 10
 
+#### `segment_cache_capacity`
+* Type: int32
+* Description: Max number of segment cache (the key is rowset id) entries
+* Default value: 10000
+
 #### `storage_strict_check_incompatible_old_format`
 
 * Type: bool

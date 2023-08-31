@@ -1222,6 +1222,11 @@ BaseCompaction:546859:
 * 描述：索引页缓存占总页面缓存的百分比，取值为[0, 100]。
 * 默认值：10
 
+#### `segment_cache_capacity`
+* Type: int32
+* Description: segment元数据缓存（以rowset id为key）的最大rowset个数
+* Default value: 10000
+
 #### `storage_strict_check_incompatible_old_format`
 
 * 类型：bool
