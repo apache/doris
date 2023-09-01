@@ -21,7 +21,6 @@ import org.apache.doris.analysis.TableName;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
-import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.View;
 import org.apache.doris.common.Config;
@@ -88,7 +87,9 @@ public class StatisticsAutoAnalyzer extends MasterDaemon {
     private void analyzeAll() {
         Set<CatalogIf> catalogs = Env.getCurrentEnv().getCatalogMgr().getCopyOfCatalog();
         for (CatalogIf ctl : catalogs) {
-
+            if (!ctl.enableAutoAnalyze()) {
+                continue;
+            }
             Collection<DatabaseIf> dbs = ctl.getAllDbs();
             for (DatabaseIf<TableIf> databaseIf : dbs) {
                 if (StatisticConstants.STATISTICS_DB_BLACK_LIST.contains(databaseIf.getFullName())) {
@@ -158,42 +159,17 @@ public class StatisticsAutoAnalyzer extends MasterDaemon {
                 .findTable(jobInfo.catalogName, jobInfo.dbName, jobInfo.tblName);
         TableStats tblStats = Env.getCurrentEnv().getAnalysisManager().findTableStatsStatus(table.getId());
 
-        if (!(tblStats == null || needReanalyzeTable(table, tblStats))) {
+        if (!(tblStats == null || table.needReAnalyzeTable(tblStats))) {
             return null;
         }
 
-        Set<String> needRunPartitions = findReAnalyzeNeededPartitions(table, tblStats);
+        Set<String> needRunPartitions = table.findReAnalyzeNeededPartitions(tblStats);
 
         if (needRunPartitions.isEmpty()) {
             return null;
         }
 
         return getAnalysisJobInfo(jobInfo, table, needRunPartitions);
-    }
-
-    @VisibleForTesting
-    protected Set<String> findReAnalyzeNeededPartitions(TableIf table, TableStats tableStats) {
-        if (tableStats == null) {
-            return table.getPartitionNames().stream().map(table::getPartition)
-                    .filter(Partition::hasData).map(Partition::getName).collect(Collectors.toSet());
-        }
-        return table.getPartitionNames().stream()
-                .map(table::getPartition)
-                .filter(Partition::hasData)
-                .filter(partition ->
-                        partition.getVisibleVersionTime() >= tableStats.updatedTime).map(Partition::getName)
-                .collect(Collectors.toSet());
-    }
-
-    private boolean needReanalyzeTable(TableIf table, TableStats tblStats) {
-        long rowCount = table.getRowCount();
-        // TODO: Do we need to analyze an empty table?
-        if (rowCount == 0) {
-            return false;
-        }
-        long updateRows = tblStats.updatedRows.get();
-        int tblHealth = StatisticsUtil.getTableHealth(rowCount, updateRows);
-        return tblHealth < Config.table_stats_health_threshold;
     }
 
     @VisibleForTesting
@@ -247,6 +223,9 @@ public class StatisticsAutoAnalyzer extends MasterDaemon {
         Map<Long, BaseAnalysisTask> analysisTaskInfos = new HashMap<>();
         AnalysisManager analysisManager = Env.getCurrentEnv().getAnalysisManager();
         analysisManager.createTaskForEachColumns(jobInfo, analysisTaskInfos, false);
+        if (StatisticsUtil.isExternalTable(jobInfo.catalogName, jobInfo.dbName, jobInfo.tblName)) {
+            analysisManager.createTableLevelTaskForExternalTable(jobInfo, analysisTaskInfos, false);
+        }
         Env.getCurrentEnv().getAnalysisManager().registerSysJob(jobInfo, analysisTaskInfos);
         analysisTaskInfos.values().forEach(analysisTaskExecutor::submitTask);
     }

@@ -30,6 +30,10 @@ suite("test_hive_statistic", "p2,external,hive,external_remote,external_remote_h
             );
         """
         logger.info("catalog " + catalog_name + " created")
+
+        // Test analyze table without init.
+        sql """analyze table ${catalog_name}.tpch_1000_parquet.region with sync"""
+
         sql """switch ${catalog_name};"""
         logger.info("switched to catalog " + catalog_name)
         sql """use statistics;"""
