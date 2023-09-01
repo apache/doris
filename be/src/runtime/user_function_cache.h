@@ -74,6 +74,7 @@ private:
 
     std::string _get_real_url(const std::string& url);
     std::string _get_file_name_from_url(const std::string& url) const;
+    std::vector<std::string> _split_string_by_checksum(const std::string& file);
 
 private:
     std::string _lib_dir;

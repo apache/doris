@@ -1554,7 +1554,7 @@ public class Config extends ConfigBase {
     public static boolean enable_pipeline_load = false;
 
     @ConfField
-    public static int scheduler_job_task_max_num = 10;
+    public static int scheduler_job_task_max_saved_count = 10;
 
     /**
      * The number of async tasks that can be queued. @See TaskDisruptor
@@ -2136,4 +2136,11 @@ public class Config extends ConfigBase {
 
     @ConfField
     public static int table_stats_health_threshold = 80;
+    @ConfField(mutable = true, masterOnly = false, description = {
+            "查询information_schema.metadata_name_ids表时,获取一个数据库中所有表用的时间",
+            "When querying the information_schema.metadata_name_ids table,"
+                    + " the time used to obtain all tables in one database"
+    })
+    public static long query_metadata_name_ids_timeout = 3;
+
 }

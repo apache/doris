@@ -206,10 +206,6 @@ void ParquetReader::_close_internal() {
         }
         _closed = true;
     }
-
-    if (_is_file_metadata_owned && _file_metadata != nullptr) {
-        delete _file_metadata;
-    }
 }
 
 Status ParquetReader::_open_file() {
@@ -230,23 +226,25 @@ Status ParquetReader::_open_file() {
         }
         size_t meta_size = 0;
         if (_meta_cache == nullptr) {
-            _is_file_metadata_owned = true;
             RETURN_IF_ERROR(
                     parse_thrift_footer(_file_reader, &_file_metadata, &meta_size, _io_ctx));
+            // wrap it with unique ptr, so that it can be released finally.
+            _file_metadata_ptr.reset(_file_metadata);
+            _file_metadata = _file_metadata_ptr.get();
+
             _column_statistics.read_bytes += meta_size;
             // parse magic number & parse meta data
             _column_statistics.meta_read_calls += 1;
         } else {
-            _is_file_metadata_owned = false;
-            RETURN_IF_ERROR(_meta_cache->get_parquet_footer(_file_reader, _io_ctx, 0, &meta_size,
-                                                            &_cache_handle));
-
+            RETURN_IF_ERROR(_meta_cache->get_parquet_footer(_file_reader, _io_ctx,
+                                                            _file_description.mtime, &meta_size,
+                                                            &_meta_cache_handle));
             _column_statistics.read_bytes += meta_size;
             if (meta_size > 0) {
                 _column_statistics.meta_read_calls += 1;
             }
 
-            _file_metadata = (FileMetaData*)_cache_handle.data();
+            _file_metadata = (FileMetaData*)_meta_cache_handle.data();
         }
 
         if (_file_metadata == nullptr) {

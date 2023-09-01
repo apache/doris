@@ -96,7 +96,7 @@ bool ExchangeSinkLocalState::transfer_large_data_by_brpc() const {
 }
 
 Status ExchangeSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& info) {
-    RETURN_IF_ERROR(PipelineXSinkLocalState::init(state, info));
+    RETURN_IF_ERROR(PipelineXSinkLocalState<>::init(state, info));
     _sender_id = info.sender_id;
     _broadcast_pb_blocks.resize(config::num_broadcast_buffer);
     _broadcast_pb_block_idx = 0;
@@ -240,12 +240,6 @@ Status ExchangeSinkOperatorX::init(const TDataSink& tsink) {
         // UNPARTITIONED
     }
     return Status::OK();
-}
-
-Status ExchangeSinkOperatorX::setup_local_state(RuntimeState* state, LocalSinkStateInfo& info) {
-    auto local_state = ExchangeSinkLocalState::create_shared(this, state);
-    state->emplace_sink_local_state(id(), local_state);
-    return local_state->init(state, info);
 }
 
 Status ExchangeSinkOperatorX::prepare(RuntimeState* state) {
@@ -549,7 +543,7 @@ Status ExchangeSinkLocalState::close(RuntimeState* state) {
     }
     _sink_buffer->update_profile(profile());
     _sink_buffer->close();
-    return PipelineXSinkLocalState::close(state);
+    return PipelineXSinkLocalState<>::close(state);
 }
 
 bool ExchangeSinkOperatorX::can_write(RuntimeState* state) {

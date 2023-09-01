@@ -31,6 +31,7 @@ import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.ArrayType;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.MapType;
+import org.apache.doris.nereids.types.StructField;
 import org.apache.doris.nereids.types.StructType;
 import org.apache.doris.nereids.types.coercion.AnyDataType;
 
@@ -129,7 +130,19 @@ public abstract class Expression extends AbstractTreeNode<Expression> implements
                     && checkInputDataTypesWithExpectType(
                     ((MapType) input).getValueType(), ((MapType) expected).getValueType());
         } else if (input instanceof StructType && expected instanceof StructType) {
-            throw new AnalysisException("not support struct type now.");
+            List<StructField> inputFields = ((StructType) input).getFields();
+            List<StructField> expectedFields = ((StructType) expected).getFields();
+            if (inputFields.size() != expectedFields.size()) {
+                return false;
+            }
+            for (int i = 0; i < inputFields.size(); i++) {
+                if (!checkInputDataTypesWithExpectType(
+                        inputFields.get(i).getDataType(),
+                        expectedFields.get(i).getDataType())) {
+                    return false;
+                }
+            }
+            return true;
         } else {
             return checkPrimitiveInputDataTypesWithExpectType(input, expected);
         }

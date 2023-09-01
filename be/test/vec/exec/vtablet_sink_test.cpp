@@ -316,7 +316,8 @@ public:
             k_add_batch_status.to_protobuf(response->mutable_status());
 
             if (request->has_block() && _row_desc != nullptr) {
-                vectorized::Block block(request->block());
+                vectorized::Block block;
+                block.deserialize(request->block());
 
                 for (size_t row_num = 0; row_num < block.rows(); ++row_num) {
                     std::stringstream out;

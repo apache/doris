@@ -81,7 +81,7 @@ public:
     StorageEngine(const EngineOptions& options);
     ~StorageEngine();
 
-    static Status open(const EngineOptions& options, StorageEngine** engine_ptr);
+    static Status open(const EngineOptions& options, std::unique_ptr<StorageEngine>* engine_ptr);
 
     static StorageEngine* instance() { return _s_instance; }
 
@@ -482,6 +482,8 @@ private:
     // aync publish for discontinuous versions of merge_on_write table
     scoped_refptr<Thread> _async_publish_thread;
     std::mutex _async_publish_mutex;
+
+    bool _clear_segment_cache = false;
 
     DISALLOW_COPY_AND_ASSIGN(StorageEngine);
 };

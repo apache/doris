@@ -85,7 +85,7 @@ public class LoadAction extends RestBaseController {
         return executeWithoutPassword(request, response, db, table, true);
     }
 
-    @RequestMapping(path = "/api/_stream_load_with_sql",
+    @RequestMapping(path = "/api/_http_stream",
                         method = RequestMethod.PUT)
     public Object streamLoadWithSql(HttpServletRequest request,
                              HttpServletResponse response) {
