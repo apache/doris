@@ -334,14 +334,10 @@ columnDefs
     ;
     
 columnDef
-    : colName=identifier type=colType
+    : colName=identifier type=dataType
         KEY? (aggType=aggTypeDef)? ((NOT NULL) | NULL)?
         (DEFAULT (defaultValue=constant | CURRENT_TIMESTAMP))?
         (COMMENT comment=constant)?
-    ;
-    
-colType
-    : type=identifier (LEFT_PAREN constant (COMMA constant)? RIGHT_PAREN)?
     ;
     
 indexDefs

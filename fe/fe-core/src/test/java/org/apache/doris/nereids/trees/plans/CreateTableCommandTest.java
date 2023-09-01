@@ -670,17 +670,16 @@ public class CreateTableCommandTest extends TestWithFeService {
 
     @Test
     public void testCreateTableWithMapType() {
-        checkThrow(ParseException.class,
+        Assertions.assertDoesNotThrow(
                 () -> createTable("create table test.test_map(k1 INT, k2 Map<int, VARCHAR(20)>) duplicate key (k1) "
                         + "distributed by hash(k1) buckets 1 properties('replication_num' = '1');"));
     }
 
     @Test
     public void testCreateTableWithStructType() {
-        checkThrow(ParseException.class,
-                () -> createTable(
-                        "create table test.test_struct(k1 INT, k2 Struct<f1:int, f2:VARCHAR(20)>) duplicate key (k1) "
-                                + "distributed by hash(k1) buckets 1 properties('replication_num' = '1');"));
+        Assertions.assertDoesNotThrow(
+                () -> createTable("create table test.test_struct(k1 INT, k2 Struct<f1:int, f2:VARCHAR(20)>) duplicate key (k1) "
+                        + "distributed by hash(k1) buckets 1 properties('replication_num' = '1');"));
     }
 
     @Test

@@ -39,7 +39,6 @@ import org.apache.doris.nereids.DorisParser.BooleanExpressionContext;
 import org.apache.doris.nereids.DorisParser.BooleanLiteralContext;
 import org.apache.doris.nereids.DorisParser.BracketJoinHintContext;
 import org.apache.doris.nereids.DorisParser.BracketRelationHintContext;
-import org.apache.doris.nereids.DorisParser.ColTypeContext;
 import org.apache.doris.nereids.DorisParser.CollateContext;
 import org.apache.doris.nereids.DorisParser.ColumnDefContext;
 import org.apache.doris.nereids.DorisParser.ColumnDefsContext;
@@ -1827,7 +1826,9 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     @Override
     public ColumnDefinition visitColumnDef(ColumnDefContext ctx) {
         String colName = ctx.colName.getText();
-        DataType colType = visitColType(ctx.colType());
+        DataType colType = ctx.type instanceof PrimitiveDataTypeContext
+                ? visitPrimitiveDataType(((PrimitiveDataTypeContext) ctx.type))
+                : visitComplexDataType(((ComplexDataTypeContext) ctx.type));
         boolean isKey = ctx.KEY() != null;
         boolean isNotNull = ctx.NOT() != null;
         String aggTypeString = ctx.aggType != null ? ctx.aggType.getText() : null;
@@ -1850,15 +1851,6 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         }
         String comment = ctx.comment != null ? ((Literal) visit(ctx.comment)).getStringValue() : "";
         return new ColumnDefinition(colName, colType, isKey, aggType, !isNotNull, defaultValue, comment);
-    }
-
-    @Override
-    public DataType visitColType(ColTypeContext ctx) {
-        List<String> typeDefs = Lists.newArrayList();
-        typeDefs.add(ctx.identifier().getText());
-        typeDefs.addAll(ctx.constant().stream().map(constant -> ((Literal) visit(constant)).getStringValue())
-                .collect(Collectors.toList()));
-        return DataType.convertPrimitiveFromStrings(typeDefs);
     }
 
     @Override

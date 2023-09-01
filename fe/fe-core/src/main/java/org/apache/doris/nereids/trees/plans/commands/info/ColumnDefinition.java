@@ -89,10 +89,6 @@ public class ColumnDefinition {
      * validate column definition and analyze
      */
     public void validate(Set<String> keysSet, boolean isEnableMergeOnWrite, KeysType keysType) {
-        if (type.isJsonType() || type.isStructType() || type.isArrayType() || type.isMapType()) {
-            throw new AnalysisException(String.format("currently type %s is not supported for Nereids",
-                    type.toString()));
-        }
         if (type.isStringLikeType()) {
             if (type instanceof CharType && ((CharType) type).getLen() == -1) {
                 type = new CharType(1);
