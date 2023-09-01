@@ -124,7 +124,7 @@ public:
                 SourceState source_state) override;
     Status close(RuntimeState* state) override;
 
-    virtual bool can_write(RuntimeState* state) override { return true; }
+    bool can_write(RuntimeState* state) override { return true; }
 
 private:
     friend class HashJoinBuildSinkLocalState;

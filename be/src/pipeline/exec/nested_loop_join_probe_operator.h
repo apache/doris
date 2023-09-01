@@ -220,6 +220,15 @@ public:
     Status push(RuntimeState* state, vectorized::Block* input_block, SourceState source_state);
     Status pull(doris::RuntimeState* state, vectorized::Block* output_block,
                 SourceState& source_state);
+    const RowDescriptor& intermediate_row_desc() const override {
+        return _old_version_flag ? _row_descriptor : *_intermediate_row_desc;
+    }
+
+    const RowDescriptor& row_desc() override {
+        return _old_version_flag
+                       ? (_output_row_descriptor ? *_output_row_descriptor : _row_descriptor)
+                       : *_output_row_desc;
+    }
 
     bool need_more_input_data(RuntimeState* state) const;
 
@@ -229,6 +238,7 @@ private:
     vectorized::VExprContextSPtrs _join_conjuncts;
     size_t _num_probe_side_columns = 0;
     size_t _num_build_side_columns = 0;
+    const bool _old_version_flag;
 };
 
 } // namespace pipeline
