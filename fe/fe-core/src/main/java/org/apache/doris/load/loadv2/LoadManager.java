@@ -271,6 +271,7 @@ public class LoadManager implements Writable {
         Database db = Env.getCurrentInternalCatalog().getDbOrDdlException(stmt.getDbName());
         // List of load jobs waiting to be cancelled
         List<LoadJob> matchLoadJobs = Lists.newArrayList();
+        List<LoadJob> uncompletedLoadJobs;
         readLock();
         try {
             Map<String, List<LoadJob>> labelToLoadJobs = dbIdToLabelToLoadJobs.get(db.getId());
@@ -284,15 +285,15 @@ public class LoadManager implements Writable {
                 throw new DdlException("Load job does not exist");
             }
             // check state here
-            List<LoadJob> uncompletedLoadJob =
+            uncompletedLoadJobs =
                     matchLoadJobs.stream().filter(entity -> !entity.isTxnDone()).collect(Collectors.toList());
-            if (uncompletedLoadJob.isEmpty()) {
+            if (uncompletedLoadJobs.isEmpty()) {
                 throw new DdlException("There is no uncompleted job");
             }
         } finally {
             readUnlock();
         }
-        for (LoadJob loadJob : matchLoadJobs) {
+        for (LoadJob loadJob : uncompletedLoadJobs) {
             try {
                 loadJob.cancelJob(new FailMsg(FailMsg.CancelType.USER_CANCEL, "user cancel"));
             } catch (DdlException e) {
