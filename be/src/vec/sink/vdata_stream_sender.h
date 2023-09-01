@@ -239,8 +239,8 @@ public:
             delete _closure;
         }
         // release this before request desctruct
-        _brpc_request.release_finst_id();
-        _brpc_request.release_query_id();
+        static_cast<void>(_brpc_request.release_finst_id());
+        static_cast<void>(_brpc_request.release_query_id());
     }
 
     // Initialize channel.
