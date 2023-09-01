@@ -44,33 +44,33 @@ public class ColumnDefinition {
     private DataType type;
     private boolean isKey;
     private AggregateType aggType;
-    private final boolean isNull;
+    private final boolean isNullable;
     private final Optional<Expression> defaultValue;
     private final String comment;
     private final boolean isVisible;
 
-    public ColumnDefinition(String name, DataType type, boolean isKey, AggregateType aggType, boolean isNull,
+    public ColumnDefinition(String name, DataType type, boolean isKey, AggregateType aggType, boolean isNullable,
             Optional<Expression> defaultValue, String comment) {
-        this(name, type, isKey, aggType, isNull, defaultValue, comment, true);
+        this(name, type, isKey, aggType, isNullable, defaultValue, comment, true);
     }
 
     /**
      * constructor
      */
-    public ColumnDefinition(String name, DataType type, boolean isKey, AggregateType aggType, boolean isNull,
+    public ColumnDefinition(String name, DataType type, boolean isKey, AggregateType aggType, boolean isNullable,
             Optional<Expression> defaultValue, String comment, boolean isVisible) {
         this.name = name;
         this.type = type;
         this.isKey = isKey;
         this.aggType = aggType;
-        this.isNull = isNull;
+        this.isNullable = isNullable;
         this.defaultValue = defaultValue;
         this.comment = comment;
         this.isVisible = isVisible;
     }
 
-    public ColumnDefinition(String name, DataType type, boolean isNull) {
-        this(name, type, false, null, isNull, Optional.empty(), "");
+    public ColumnDefinition(String name, DataType type, boolean isNullable) {
+        this(name, type, false, null, isNullable, Optional.empty(), "");
     }
 
     public String getName() {
@@ -119,7 +119,7 @@ public class ColumnDefinition {
     }
 
     public Column translateToCatalogStyle() {
-        return new Column(name, type.toCatalogDataType(), isKey, aggType, isNull,
+        return new Column(name, type.toCatalogDataType(), isKey, aggType, isNullable,
                 false, defaultValue.map(ExpressionTrait::toSql).orElse(null), comment, isVisible,
                 null, Column.COLUMN_UNIQUE_ID_INIT_VALUE, defaultValue.map(ExpressionTrait::toSql).orElse(null));
     }
