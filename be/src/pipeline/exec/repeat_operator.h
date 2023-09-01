@@ -44,10 +44,12 @@ public:
 
     Status close(RuntimeState* state) override;
 };
+class RepeatOperatorX;
 
 class RepeatLocalState final : public PipelineXLocalState<FakeDependency> {
 public:
     ENABLE_FACTORY_CREATOR(RepeatLocalState);
+    using Parent = RepeatOperatorX;
     using Base = PipelineXLocalState<FakeDependency>;
     RepeatLocalState(RuntimeState* state, OperatorXBase* parent);
 
@@ -61,11 +63,12 @@ private:
     bool _child_eos;
     int _repeat_id_idx;
     std::unique_ptr<vectorized::Block> _intermediate_block {};
+    vectorized::VExprContextSPtrs _expr_ctxs;
 };
-class RepeatOperatorX final : public OperatorXBase {
+class RepeatOperatorX final : public OperatorX<RepeatLocalState> {
 public:
+    using Base = OperatorX<RepeatLocalState>;
     RepeatOperatorX(ObjectPool* pool, const TPlanNode& tnode, const DescriptorTbl& descs);
-    Status setup_local_state(RuntimeState* state, LocalStateInfo& info) override;
     Status get_block(RuntimeState* state, vectorized::Block* block,
                      SourceState& source_state) override;
     Status init(const TPlanNode& tnode, RuntimeState* state) override;

@@ -52,6 +52,11 @@ RepeatLocalState::RepeatLocalState(RuntimeState* state, OperatorXBase* parent)
 
 Status RepeatLocalState::init(RuntimeState* state, LocalStateInfo& info) {
     RETURN_IF_ERROR(Base::init(state, info));
+    auto& p = _parent->cast<Parent>();
+    _expr_ctxs.resize(p._expr_ctxs.size());
+    for (size_t i = 0; i < _expr_ctxs.size(); i++) {
+        RETURN_IF_ERROR(p._expr_ctxs[i]->clone(state, _expr_ctxs[i]));
+    }
     return Status::OK();
 }
 
@@ -89,26 +94,19 @@ Status RepeatOperatorX::open(RuntimeState* state) {
     VLOG_CRITICAL << "VRepeatNode::open";
     SCOPED_TIMER(_runtime_profile->total_time_counter());
     RETURN_IF_ERROR(OperatorXBase::open(state));
+    RETURN_IF_ERROR(vectorized::VExpr::open(_expr_ctxs, state));
     RETURN_IF_ERROR(_child_x->open(state));
     return Status::OK();
 }
 
 RepeatOperatorX::RepeatOperatorX(ObjectPool* pool, const TPlanNode& tnode,
                                  const DescriptorTbl& descs)
-        : OperatorXBase(pool, tnode, descs),
+        : Base(pool, tnode, descs),
           _slot_id_set_list(tnode.repeat_node.slot_id_set_list),
           _all_slot_ids(tnode.repeat_node.all_slot_ids),
           _repeat_id_list(tnode.repeat_node.repeat_id_list),
           _grouping_list(tnode.repeat_node.grouping_list),
-          _output_tuple_id(tnode.repeat_node.output_tuple_id) {
-
-          };
-
-Status RepeatOperatorX::setup_local_state(RuntimeState* state, LocalStateInfo& info) {
-    auto local_state = RepeatLocalState::create_shared(state, this);
-    state->emplace_local_state(id(), local_state);
-    return local_state->init(state, info);
-}
+          _output_tuple_id(tnode.repeat_node.output_tuple_id) {};
 
 bool RepeatOperatorX::need_more_input_data(RuntimeState* state) const {
     auto& local_state = state->get_local_state(id())->cast<RepeatLocalState>();
@@ -223,6 +221,7 @@ Status RepeatOperatorX::push(RuntimeState* state, vectorized::Block* input_block
     auto& local_state = state->get_local_state(id())->cast<RepeatLocalState>();
     local_state._child_eos = source_state == SourceState::FINISHED;
     auto& _intermediate_block = local_state._intermediate_block;
+    auto& _expr_ctxs = local_state._expr_ctxs;
     DCHECK(!_intermediate_block || _intermediate_block->rows() == 0);
     DCHECK(!_expr_ctxs.empty());
 

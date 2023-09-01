@@ -233,6 +233,7 @@ DECLARE_OPERATOR_X(AnalyticLocalState)
 DECLARE_OPERATOR_X(SortLocalState)
 DECLARE_OPERATOR_X(AggLocalState)
 DECLARE_OPERATOR_X(ExchangeLocalState)
+DECLARE_OPERATOR_X(RepeatLocalState)
 
 #undef DECLARE_OPERATOR_X
 
