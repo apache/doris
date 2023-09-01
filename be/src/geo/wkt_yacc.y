@@ -167,6 +167,7 @@ linestring:
     KW_LINESTRING '(' coordinates ')'
     {
         // to avoid memory leak
+        std::unique_ptr<doris::GeoCoordinates> list($3);
         std::unique_ptr<doris::GeoLineString> line = doris::GeoLineString::create_unique();
         ctx->parse_status = line->from_coords(*$3);
         if (ctx->parse_status != doris::GEO_PARSE_OK) {
@@ -340,6 +341,8 @@ point_collections:
 linestring_collections:
     linestring_collections ',' '(' coordinates ')'
     {
+        // to avoid memory leak
+        std::unique_ptr<doris::GeoCoordinates> list($4);
         std::unique_ptr<doris::GeoLineString> linestring = doris::GeoLineString::create_unique();
         ctx->parse_status = linestring->from_coords(*$4);
         if (ctx->parse_status != doris::GEO_PARSE_OK) {
@@ -363,6 +366,8 @@ linestring_collections:
     }
     | '(' coordinates ')'
     {
+        // to avoid memory leak
+        std::unique_ptr<doris::GeoCoordinates> list($2);
         std::unique_ptr<doris::GeoMultiLineString> multi_linestring = doris::GeoMultiLineString::create_unique();
         std::unique_ptr<doris::GeoLineString> linestring = doris::GeoLineString::create_unique();
         ctx->parse_status = linestring->from_coords(*$2);
@@ -391,6 +396,8 @@ linestring_collections:
 polygon_collections:
     polygon_collections ',' '(' coordinate_lists ')'
     {
+        // to avoid memory leak
+        std::unique_ptr<doris::GeoCoordinateLists> list($4);
         std::unique_ptr<doris::GeoPolygon> polygon = doris::GeoPolygon::create_unique();
         ctx->parse_status = polygon->from_coords(*$4);
         if (ctx->parse_status != doris::GEO_PARSE_OK) {
@@ -411,6 +418,8 @@ polygon_collections:
     }
     | '(' coordinate_lists ')'
     {
+        // to avoid memory leak
+        std::unique_ptr<doris::GeoCoordinateLists> list($2);
         std::unique_ptr<doris::GeoMultiPolygon> multi_polygon = doris::GeoMultiPolygon::create_unique();
         std::unique_ptr<doris::GeoPolygon> polygon = doris::GeoPolygon::create_unique();
         ctx->parse_status = polygon->from_coords(*$2);
