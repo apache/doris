@@ -19,7 +19,7 @@ suite ("test_alter_colocate_table") {
     def tbls = ["col_tbl1", "col_tbl2", "col_tbl3"]
     for (def tbl : tbls) {
         sql """
-            DROP TABLE IF EXISTS ${tbl}
+            DROP TABLE IF EXISTS ${tbl} FORCE
         """
     }
 
@@ -34,7 +34,8 @@ suite ("test_alter_colocate_table") {
         DISTRIBUTED BY HASH(k2) BUCKETS 3
         PROPERTIES
         (
-            "colocate_with" = 'group_1'
+            "replication_allocation" = "tag.location.default:1",
+            "colocate_with" = 'x_group_1'
         )
     """
 
@@ -54,7 +55,8 @@ suite ("test_alter_colocate_table") {
         DISTRIBUTED BY HASH(k2) BUCKETS 3
         PROPERTIES
         (
-            "colocate_with" = 'group_2'
+            "replication_allocation" = "tag.location.default:1",
+            "colocate_with" = 'x_group_2'
         )
     """
 
@@ -69,7 +71,8 @@ suite ("test_alter_colocate_table") {
         DISTRIBUTED BY HASH(uuid) BUCKETS 3
         PROPERTIES
         (
-            "colocate_with" = "group_3",
+            "replication_allocation" = "tag.location.default:1",
+            "colocate_with" = "x_group_3",
             "dynamic_partition.enable" = "true",
             "dynamic_partition.time_unit" = "DAY",
             "dynamic_partition.end" = "3",
@@ -77,6 +80,7 @@ suite ("test_alter_colocate_table") {
             "dynamic_partition.buckets" = "3",
             "dynamic_partition.replication_num" = "1",
             "dynamic_partition.create_history_partition"= "true",
+            "dynamic_partition.replication_allocation" = "tag.location.default:1",
             "dynamic_partition.start" = "-3"
          );
     """
