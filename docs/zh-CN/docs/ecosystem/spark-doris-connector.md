@@ -198,13 +198,33 @@ mockDataDF.write.format("doris")
   .save()
 
 ## stream sink(StructuredStreaming)
+
+### 结果 DataFrame 和 doris 表相同的结构化数据, 配置方式和批量模式一致。
+val sourceDf = spark.readStream.
+       .format("your_own_stream_source")
+       .load()
+
+val resultDf = sourceDf.<transformations>
+
+resultDf.writeStream
+      .format("doris")
+      .option("checkpointLocation", "$YOUR_CHECKPOINT_LOCATION")
+      .option("doris.table.identifier", "$YOUR_DORIS_DATABASE_NAME.$YOUR_DORIS_TABLE_NAME")
+      .option("doris.fenodes", "$YOUR_DORIS_FE_HOSTNAME:$YOUR_DORIS_FE_RESFUL_PORT")
+      .option("user", "$YOUR_DORIS_USERNAME")
+      .option("password", "$YOUR_DORIS_PASSWORD")
+      .start()
+      .awaitTermination()
+
+### 结果 DataFrame 中存在某一列的数据可以直接写入的，比如符合导入规范的 Kafka 消息中的 value 值
+
 val kafkaSource = spark.readStream
+  .format("kafka")
   .option("kafka.bootstrap.servers", "$YOUR_KAFKA_SERVERS")
   .option("startingOffsets", "latest")
   .option("subscribe", "$YOUR_KAFKA_TOPICS")
-  .format("kafka")
   .load()
-kafkaSource.selectExpr("CAST(key AS STRING)", "CAST(value as STRING)")
+kafkaSource.selectExpr("CAST(value as STRING)")
   .writeStream
   .format("doris")
   .option("checkpointLocation", "$YOUR_CHECKPOINT_LOCATION")
@@ -212,9 +232,10 @@ kafkaSource.selectExpr("CAST(key AS STRING)", "CAST(value as STRING)")
   .option("doris.fenodes", "$YOUR_DORIS_FE_HOSTNAME:$YOUR_DORIS_FE_RESFUL_PORT")
   .option("user", "$YOUR_DORIS_USERNAME")
   .option("password", "$YOUR_DORIS_PASSWORD")
-  //其它选项
-  //指定你要写入的字段
-  .option("doris.write.fields", "$YOUR_FIELDS_TO_WRITE")
+  // 设置该选项可以将 Kafka 消息中的 value 列不经过处理直接写入
+  .option("doris.sink.streaming.passthrough", "true")
+  .option("doris.sink.properties.format", "json")
+  // 其他选项
   .start()
   .awaitTermination()
 ```
@@ -287,6 +308,12 @@ kafkaSource.selectExpr("CAST(key AS STRING)", "CAST(value as STRING)")
 > );
 > ```
 
+### Structured Streaming 专有配置
+
+| Key                              | Default Value | Comment                                                          |
+| -------------------------------- | ------------- | ---------------------------------------------------------------- |
+| doris.sink.streaming.passthrough | false         | 将第一列的值不经过处理直接写入。                                      |
+
 ### RDD 专有配置
 
 | Key                         | Default Value | Comment                                      |
@@ -307,15 +334,14 @@ kafkaSource.selectExpr("CAST(key AS STRING)", "CAST(value as STRING)")
 | BIGINT     | DataTypes.LongType               |
 | FLOAT      | DataTypes.FloatType              |
 | DOUBLE     | DataTypes.DoubleType             |
-| DATE       | DataTypes.StringType<sup>1</sup> |
+| DATE       | DataTypes.DateType               |
 | DATETIME   | DataTypes.StringType<sup>1</sup> |
 | DECIMAL    | DecimalType                      |
 | CHAR       | DataTypes.StringType             |
-| LARGEINT   | DataTypes.StringType             |
+| LARGEINT   | DecimalType                      |
 | VARCHAR    | DataTypes.StringType             |
-| DECIMAL    | DecimalType                      |
 | TIME       | DataTypes.DoubleType             |
 | HLL        | Unsupported datatype             |
 | Bitmap     | Unsupported datatype             |
 
-* 注：Connector 中，将`DATE`和`DATETIME`映射为`String`。由于`Doris`底层存储引擎处理逻辑，直接使用时间类型时，覆盖的时间范围无法满足需求。所以使用 `String` 类型直接返回对应的时间可读文本。
+* 注：Connector 中，将`DATETIME`映射为`String`。由于`Doris`底层存储引擎处理逻辑，直接使用时间类型时，覆盖的时间范围无法满足需求。所以使用 `String` 类型直接返回对应的时间可读文本。
