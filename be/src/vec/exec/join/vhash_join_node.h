@@ -599,6 +599,7 @@ private:
 
     DataTypes _right_table_data_types;
     DataTypes _left_table_data_types;
+    std::vector<std::string> _right_table_column_names;
 
     RuntimeProfile::Counter* _build_table_timer;
     RuntimeProfile::Counter* _build_expr_call_timer;

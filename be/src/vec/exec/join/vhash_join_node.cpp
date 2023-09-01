@@ -402,7 +402,7 @@ Status HashJoinNode::prepare(RuntimeState* state) {
     // right table data types
     _right_table_data_types = VectorizedUtils::get_data_types(child(1)->row_desc());
     _left_table_data_types = VectorizedUtils::get_data_types(child(0)->row_desc());
-
+    _right_table_column_names = VectorizedUtils::get_column_names(child(1)->row_desc());
     // Hash Table Init
     _hash_table_init(state);
     _construct_mutable_join_block();
@@ -468,24 +468,20 @@ Status HashJoinNode::pull(doris::RuntimeState* state, vectorized::Block* output_
         Block temp_block;
         //get probe side output column
         for (int i = 0; i < _left_output_slot_flags.size(); ++i) {
-            if (_left_output_slot_flags[i]) {
-                temp_block.insert(_probe_block.get_by_position(i));
-            }
+            temp_block.insert(_probe_block.get_by_position(i));
         }
 
         //create build side null column, if need output
         for (int i = 0;
              (_join_op != TJoinOp::LEFT_ANTI_JOIN) && i < _right_output_slot_flags.size(); ++i) {
-            if (_right_output_slot_flags[i]) {
-                auto type = remove_nullable(_right_table_data_types[i]);
-                auto column = type->create_column();
-                column->resize(block_rows);
-                auto null_map_column = ColumnVector<UInt8>::create(block_rows, 1);
-                auto nullable_column =
-                        ColumnNullable::create(std::move(column), std::move(null_map_column));
-                temp_block.insert(
-                        {std::move(nullable_column), make_nullable(type), "right-null-column"});
-            }
+            auto type = remove_nullable(_right_table_data_types[i]);
+            auto column = type->create_column();
+            column->resize(block_rows);
+            auto null_map_column = ColumnVector<UInt8>::create(block_rows, 1);
+            auto nullable_column =
+                    ColumnNullable::create(std::move(column), std::move(null_map_column));
+            temp_block.insert({std::move(nullable_column), make_nullable(type),
+                               _right_table_column_names[i]});
         }
 
         {
@@ -573,7 +569,7 @@ Status HashJoinNode::pull(doris::RuntimeState* state, vectorized::Block* output_
     if (!st) {
         return st;
     }
-    LOG(INFO) << " 44444 " << temp_block.dump_data();
+
     if (_is_outer_join) {
         _add_tuple_is_null_column(&temp_block);
     }
@@ -587,9 +583,8 @@ Status HashJoinNode::pull(doris::RuntimeState* state, vectorized::Block* output_
     // Here make _join_block release the columns' ptr
     _join_block.set_columns(_join_block.clone_empty_columns());
     mutable_join_block.clear();
-    LOG(INFO) << " 555555 " << temp_block.dump_data();
     RETURN_IF_ERROR(_build_output_block(&temp_block, output_block, false));
-    LOG(INFO) << " 666666 " << output_block->dump_data();
+
     _reset_tuple_is_null_column();
     reached_limit(output_block, eos);
     return Status::OK();
