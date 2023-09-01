@@ -880,9 +880,9 @@ void FragmentMgr::cancel_query_unlocked(const TUniqueId& query_id,
         }
     }
 
-    LOG(INFO) << "Query " << print_id(query_id) << " is cancelled. Reason: " << msg;
     ctx->second->cancel(true, msg, Status::Cancelled(msg));
     _query_ctx_map.erase(query_id);
+    LOG(INFO) << "Query " << print_id(query_id) << " is cancelled. Reason: " << msg;
 }
 
 void FragmentMgr::cancel_fragment(const TUniqueId& fragment_id,
@@ -1012,6 +1012,11 @@ void FragmentMgr::cancel_worker() {
             cancel_fragment(id, PPlanFragmentCancelReason::TIMEOUT);
             LOG(INFO) << "FragmentMgr cancel worker going to cancel timeout fragment "
                       << print_id(id);
+        }
+
+        if (!queries_to_cancel.empty()) {
+            LOG(INFO) << "There are " << queries_to_cancel.size()
+                      << " queries need to be cancelled, coordinator dead.";
         }
 
         for (const auto& qid : queries_to_cancel) {

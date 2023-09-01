@@ -810,6 +810,7 @@ struct TFrontendPingFrontendResult {
     6: required string version
     7: optional i64 lastStartupTime
     8: optional list<TDiskInfo> diskInfos
+    9: optional i64 processUUID
 }
 
 struct TPropertyVal {
