@@ -176,8 +176,6 @@ bool VecDateTimeValue::from_date_str_base(const char* date_str, int len,
                         time_zone_cache->erase(str_tz);
                         throw Exception {ErrorCode::INVALID_ARGUMENT, ""};
                     }
-                } else {
-                    cache_lock->unlock_shared();
                 }
                 auto given = cctz::convert(cctz::civil_second {}, (*time_zone_cache)[str_tz]);
                 auto local = cctz::convert(cctz::civil_second {}, *local_time_zone);
@@ -2076,8 +2074,6 @@ bool DateV2Value<T>::from_date_str_base(const char* date_str, int len, int scale
                         time_zone_cache->erase(str_tz);
                         throw Exception {ErrorCode::INVALID_ARGUMENT, ""};
                     }
-                } else {
-                    cache_lock->unlock_shared();
                 }
                 auto given = cctz::convert(cctz::civil_second {}, (*time_zone_cache)[str_tz]);
                 auto local = cctz::convert(cctz::civil_second {}, *local_time_zone);
