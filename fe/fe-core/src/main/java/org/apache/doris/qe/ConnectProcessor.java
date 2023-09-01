@@ -301,8 +301,8 @@ public class ConnectProcessor {
                 .setStmtId(ctx.getStmtId())
                 .setQueryId(ctx.queryId() == null ? "NaN" : DebugUtil.printId(ctx.queryId()))
                 .setTraceId(spanContext.isValid() ? spanContext.getTraceId() : "")
-                .setFuzzyVariables(!printFuzzyVariables ? "" : ctx.getSessionVariable().printFuzzyVariables())
-                .setWorkloadGroup(ctx.getWorkloadGroupName());
+                .setWorkloadGroup(ctx.getWorkloadGroupName())
+                .setFuzzyVariables(!printFuzzyVariables ? "" : ctx.getSessionVariable().printFuzzyVariables());
 
         if (ctx.getState().isQuery()) {
             MetricRepo.COUNTER_QUERY_ALL.increase(1L);

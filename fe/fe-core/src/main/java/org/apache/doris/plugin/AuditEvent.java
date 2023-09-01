@@ -94,10 +94,11 @@ public class AuditEvent {
     public String sqlDigest = "";
     @AuditField(value = "TraceId")
     public String traceId = "";
-    @AuditField(value = "FuzzyVariables")
-    public String fuzzyVariables = "";
     @AuditField(value = "WorkloadGroup")
     public String workloadGroup = "";
+    // note: newly added fields should be always before fuzzyVariables
+    @AuditField(value = "FuzzyVariables")
+    public String fuzzyVariables = "";
 
     public static class AuditEventBuilder {
 
