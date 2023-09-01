@@ -403,7 +403,7 @@ public class HMSExternalTable extends ExternalTable {
     public List<Column> initSchema() {
         makeSureInitialized();
         List<Column> columns;
-        // getSchema will fail when the iceberg customized deser not in hive metastore service
+        // getSchema will fail when the iceberg customized serde not in hive metastore service
         if (dlaType.equals(DLAType.ICEBERG)) {
             columns = getIcebergSchema();
         } else {
@@ -414,8 +414,8 @@ public class HMSExternalTable extends ExternalTable {
                 List<Column> tmpSchema = Lists.newArrayListWithCapacity(schema.size());
                 for (FieldSchema field : schema) {
                     tmpSchema.add(new Column(field.getName(),
-                        HiveMetaStoreClientHelper.hiveTypeToDorisType(field.getType()), true, null,
-                        true, field.getComment(), true, -1));
+                            HiveMetaStoreClientHelper.hiveTypeToDorisType(field.getType()), true, null,
+                            true, field.getComment(), true, -1));
                 }
                 columns = tmpSchema;
             }
@@ -459,14 +459,14 @@ public class HMSExternalTable extends ExternalTable {
     }
 
     private List<Column> getIcebergSchema() {
-        Schema schema  = Env.getCurrentEnv().getExtMetaCacheMgr().getIcebergMetadataCache().getIcebergTable(this).schema();
-        List<Types.NestedField> iceberg_columns = schema.columns();
-        List<Column> tmpSchema = Lists.newArrayListWithCapacity(iceberg_columns.size());
-        for (Types.NestedField field : iceberg_columns) {
+        Schema schema  = Env.getCurrentEnv().getExtMetaCacheMgr().getIcebergMetadataCache()
+                            .getIcebergTable(this).schema();
+        List<Types.NestedField> icebergColumns = schema.columns();
+        List<Column> tmpSchema = Lists.newArrayListWithCapacity(icebergColumns.size());
+        for (Types.NestedField field : icebergColumns) {
             tmpSchema.add(new Column(field.name(),
-                IcebergExternalTable.icebergTypeToDorisType(field.type()), true, null,
-                true, field.doc(), true,
-                schema.caseInsensitiveFindField(field.name()).fieldId()));
+                    IcebergExternalTable.icebergTypeToDorisType(field.type()), true, null,
+                    true, field.doc(), true, schema.caseInsensitiveFindField(field.name()).fieldId()));
         }
         return tmpSchema;
     }
