@@ -345,10 +345,10 @@ public class FunctionSet<T> {
     public Function specializeTemplateFunction(Function templateFunction, Function requestFunction, boolean isVariadic) {
         try {
             boolean hasTemplateType = false;
-            LOG.debug("templateFunction signature: " + templateFunction.signatureString()
-                        + "  return: " + templateFunction.getReturnType());
-            LOG.debug("requestFunction signature: " + requestFunction.signatureString()
-                        + "  return: " + requestFunction.getReturnType());
+            LOG.debug("templateFunction signature: {}, return type: {}",
+                        templateFunction.signatureString(), templateFunction.getReturnType());
+            LOG.debug("requestFunction signature: {}, return type: {}",
+                        requestFunction.signatureString(), requestFunction.getReturnType());
             List<Type> newArgTypes = Lists.newArrayList();
             List<Type> newRetType = Lists.newArrayList();
             if (isVariadic) {
@@ -397,12 +397,12 @@ public class FunctionSet<T> {
                         specializedFunction.getReturnType().specializeTemplateType(
                         requestFunction.getReturnType(), specializedTypeMap, true));
             }
-            LOG.debug("specializedFunction signature: " + specializedFunction.signatureString()
-                        + "  return: " + specializedFunction.getReturnType());
+            LOG.debug("specializedFunction signature: {}, return type: {}",
+                        specializedFunction.signatureString(), specializedFunction.getReturnType());
             return hasTemplateType ? specializedFunction : templateFunction;
         } catch (TypeException e) {
             if (inited) {
-                LOG.warn("specializeTemplateFunction exception", e);
+                LOG.debug("specializeTemplateFunction exception", e);
             }
             return null;
         }
