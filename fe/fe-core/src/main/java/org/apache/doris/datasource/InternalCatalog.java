@@ -2213,7 +2213,12 @@ public class InternalCatalog implements CatalogIf<Database> {
                     "Can not create UNIQUE KEY table that enables Merge-On-write"
                     + " with storage policy(" + storagePolicy + ")");
         }
-        olapTable.setStoragePolicy(storagePolicy);
+        // Consider one situation: if the table has no storage policy but some partitions
+        // have their own storage policy then it might be erased by the following function.
+        // So we only set the storage policy if the table's policy is not null or empty
+        if (!Strings.isNullOrEmpty(storagePolicy)) {
+            olapTable.setStoragePolicy(storagePolicy);
+        }
 
         TTabletType tabletType;
         try {
