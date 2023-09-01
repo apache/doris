@@ -35,6 +35,7 @@
 #include "common/exception.h"
 #include "common/status.h"
 #include "olap/olap_common.h"
+#include "util/defer_op.h"
 #include "util/simd/bits.h"
 #include "vec/columns/column_array.h"
 #include "vec/columns/column_nullable.h"
@@ -818,11 +819,14 @@ bool ColumnObject::add_sub_column(const PathInData& key, MutableColumnPtr&& subc
         num_rows = new_size;
         return true;
     }
-    if (key.empty() && is_nothing(subcolumns.get_root()->data.get_least_common_type())) {
+    if (key.empty() && ((!subcolumns.get_root()->is_scalar()) ||
+                        is_nothing(subcolumns.get_root()->data.get_least_common_type()))) {
         // update root
-        subcolumns.get_mutable_root()->data =
-                Subcolumn(std::move(subcolumn), type, is_nullable, true);
-        num_rows = new_size;
+        subcolumns.get_mutable_root()->modify_to_scalar(
+                Subcolumn(std::move(subcolumn), type, is_nullable, true));
+        if (num_rows == 0) {
+            num_rows = new_size;
+        }
         return true;
     }
     bool inserted = subcolumns.add(key, Subcolumn(std::move(subcolumn), type, is_nullable));
