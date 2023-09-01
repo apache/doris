@@ -957,6 +957,13 @@ public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
         }
     }
 
+    public void setNeedToMysql(boolean value) {
+        needToMysql = value;
+        for (Expr child : children) {
+            child.setNeedToMysql(value);
+        }
+    }
+
     public String toSqlWithoutTbl() {
         setDisableTableName(true);
         String result = toSql();
@@ -984,9 +991,9 @@ public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
     }
 
     public String toMySql() {
-        needToMysql = true;
+        setNeedToMysql(true);
         String result =  toSql();
-        needToMysql = false;
+        setNeedToMysql(false);
         return result;
     }
 
