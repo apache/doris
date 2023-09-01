@@ -308,12 +308,15 @@ struct TGetDbsParams {
   3: optional string user_ip    // deprecated
   4: optional Types.TUserIdentity current_user_ident // to replace the user and user ip
   5: optional string catalog
+  6: optional bool get_null_catalog  //if catalog is empty , get dbName ="NULL" and dbId = -1.
 }
 
-// getDbNames returns a list of database names and catalog names
+// getDbNames returns a list of database names , database ids and catalog names ,catalog ids
 struct TGetDbsResult {
   1: optional list<string> dbs
   2: optional list<string> catalogs
+  3: optional list<i64> db_ids
+  4: optional list<i64> catalog_ids
 }
 
 // Arguments to getTableNames, which returns a list of tables that match an
@@ -349,6 +352,15 @@ struct TTableStatus {
 
 struct TListTableStatusResult {
     1: required list<TTableStatus> tables
+}
+
+struct TTableMetadataNameIds {
+    1: optional string name
+    2: optional i64 id 
+}
+
+struct TListTableMetadataNameIdsResult {
+    1: optional list<TTableMetadataNameIds> tables 
 }
 
 // getTableNames returns a list of unqualified table names
@@ -798,6 +810,7 @@ struct TFrontendPingFrontendResult {
     6: required string version
     7: optional i64 lastStartupTime
     8: optional list<TDiskInfo> diskInfos
+    9: optional i64 processUUID
 }
 
 struct TPropertyVal {
@@ -1130,6 +1143,7 @@ service FrontendService {
     TMasterOpResult forward(1: TMasterOpRequest params)
 
     TListTableStatusResult listTableStatus(1: TGetTablesParams params)
+    TListTableMetadataNameIdsResult listTableMetadataNameIds(1: TGetTablesParams params)
     TListPrivilegesResult listTablePrivilegeStatus(1: TGetTablesParams params)
     TListPrivilegesResult listSchemaPrivilegeStatus(1: TGetTablesParams params)
     TListPrivilegesResult listUserPrivilegeStatus(1: TGetTablesParams params)

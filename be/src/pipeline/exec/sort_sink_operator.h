@@ -20,6 +20,7 @@
 #include <stdint.h>
 
 #include "operator.h"
+#include "pipeline/pipeline_x/operator.h"
 #include "vec/core/field.h"
 #include "vec/exec/vsort_node.h"
 
@@ -52,7 +53,7 @@ class SortSinkLocalState : public PipelineXSinkLocalState<SortDependency> {
     ENABLE_FACTORY_CREATOR(SortSinkLocalState);
 
 public:
-    SortSinkLocalState(DataSinkOperatorX* parent, RuntimeState* state)
+    SortSinkLocalState(DataSinkOperatorXBase* parent, RuntimeState* state)
             : PipelineXSinkLocalState<SortDependency>(parent, state) {}
 
     Status init(RuntimeState* state, LocalSinkStateInfo& info) override;
@@ -72,27 +73,22 @@ private:
     vectorized::Field old_top {vectorized::Field::Types::Null};
 };
 
-class SortSinkOperatorX final : public DataSinkOperatorX {
+class SortSinkOperatorX final : public DataSinkOperatorX<SortSinkLocalState> {
 public:
     SortSinkOperatorX(ObjectPool* pool, const TPlanNode& tnode, const DescriptorTbl& descs);
     Status init(const TDataSink& tsink) override {
-        return Status::InternalError("{} should not init with TPlanNode", _name);
+        return Status::InternalError("{} should not init with TPlanNode",
+                                     DataSinkOperatorX<SortSinkLocalState>::_name);
     }
 
     Status init(const TPlanNode& tnode, RuntimeState* state) override;
 
     Status prepare(RuntimeState* state) override;
     Status open(RuntimeState* state) override;
-    Status setup_local_state(RuntimeState* state, LocalSinkStateInfo& info) override;
-
     Status sink(RuntimeState* state, vectorized::Block* in_block,
                 SourceState source_state) override;
 
     bool can_write(RuntimeState* state) override { return true; }
-
-    void get_dependency(DependencySPtr& dependency) override {
-        dependency.reset(new SortDependency(id()));
-    }
 
 private:
     friend class SortSinkLocalState;

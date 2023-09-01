@@ -15,12 +15,32 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "runtime/result_writer.h"
+#pragma once
+
+#include <gen_cpp/FrontendService_types.h>
+
+#include <vector>
+
+#include "common/status.h"
+#include "exec/schema_scanner.h"
 
 namespace doris {
+class RuntimeState;
+namespace vectorized {
+class Block;
+} // namespace vectorized
 
-const std::string ResultWriter::NULL_IN_CSV = "\\N";
+class SchemaProfilingScanner : public SchemaScanner {
+    ENABLE_FACTORY_CREATOR(SchemaProfilingScanner);
 
-}
+public:
+    SchemaProfilingScanner();
+    ~SchemaProfilingScanner() override;
 
-/* vim: set ts=4 sw=4 sts=4 tw=100 expandtab : */
+    Status start(RuntimeState* state) override;
+    Status get_next_block(vectorized::Block* block, bool* eos) override;
+
+    static std::vector<SchemaScanner::ColumnDesc> _s_tbls_columns;
+};
+
+} // namespace doris

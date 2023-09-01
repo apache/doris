@@ -492,7 +492,7 @@ Status AggLocalState::_get_without_key_result(RuntimeState* state, vectorized::B
 
 AggSourceOperatorX::AggSourceOperatorX(ObjectPool* pool, const TPlanNode& tnode,
                                        const DescriptorTbl& descs)
-        : OperatorXBase(pool, tnode, descs),
+        : OperatorX<AggLocalState>(pool, tnode, descs),
           _needs_finalize(tnode.agg_node.need_finalize),
           _without_key(tnode.agg_node.grouping_exprs.empty()) {}
 
@@ -546,12 +546,6 @@ Status AggLocalState::close(RuntimeState* state) {
     std::vector<vectorized::AggregateDataPtr> tmp_values;
     _shared_state->values.swap(tmp_values);
     return PipelineXLocalState<AggDependency>::close(state);
-}
-
-Status AggSourceOperatorX::setup_local_state(RuntimeState* state, LocalStateInfo& info) {
-    auto local_state = AggLocalState::create_shared(state, this);
-    state->emplace_local_state(id(), local_state);
-    return local_state->init(state, info);
 }
 
 bool AggSourceOperatorX::can_read(RuntimeState* state) {

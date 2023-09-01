@@ -48,7 +48,7 @@ private:
 struct FakeSharedState {};
 struct FakeDependency : public Dependency {
 public:
-    FakeDependency() : Dependency(0) {}
+    FakeDependency(int id) : Dependency(0) {}
     using SharedState = FakeSharedState;
     void* shared_state() override { return nullptr; }
 };

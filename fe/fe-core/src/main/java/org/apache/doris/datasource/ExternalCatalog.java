@@ -587,6 +587,7 @@ public abstract class ExternalCatalog
 
     @Override
     public Collection<DatabaseIf> getAllDbs() {
+        makeSureInitialized();
         return new HashSet<>(idToDb.values());
     }
 }
