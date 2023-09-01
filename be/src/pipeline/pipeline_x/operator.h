@@ -49,10 +49,16 @@ public:
 
     template <class TARGET>
     TARGET& cast() {
+        DCHECK(dynamic_cast<TARGET*>(this))
+                << " Mismatch type! Current type is " << typeid(*this).name()
+                << " and expect type is" << typeid(TARGET).name();
         return reinterpret_cast<TARGET&>(*this);
     }
     template <class TARGET>
     const TARGET& cast() const {
+        DCHECK(dynamic_cast<TARGET*>(this))
+                << " Mismatch type! Current type is " << typeid(*this).name()
+                << " and expect type is" << typeid(TARGET).name();
         return reinterpret_cast<const TARGET&>(*this);
     }
 
