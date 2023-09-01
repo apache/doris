@@ -154,32 +154,54 @@ public abstract class ScanNode extends PlanNode {
             Set<SlotId> requiredByProjectSlotIdSet) throws UserException {
     }
 
-    // TODO(ML): move it into PrunerOptimizer
-    public void computeColumnFilter(List<Column> columns) {
-        for (Column column : columns) {
-            SlotDescriptor slotDesc = desc.getColumnSlot(column.getName());
-            if (null == slotDesc) {
-                continue;
-            }
-            // Set `columnFilters` all the time because `DistributionPruner` also use this.
-            // Maybe we could use `columnNameToRange` for `DistributionPruner` and
-            // only create `columnFilters` when `partition_prune_algorithm_version` is 1.
-            PartitionColumnFilter keyFilter = createPartitionFilter(slotDesc, conjuncts);
-            if (null != keyFilter) {
-                columnFilters.put(column.getName(), keyFilter);
-            }
+    private void computeColumnFilter(Column column, SlotDescriptor slotDesc) {
+        // Set `columnFilters` all the time because `DistributionPruner` also use this.
+        // Maybe we could use `columnNameToRange` for `DistributionPruner` and
+        // only create `columnFilters` when `partition_prune_algorithm_version` is 1.
+        PartitionColumnFilter keyFilter = createPartitionFilter(slotDesc, conjuncts);
+        if (null != keyFilter) {
+            columnFilters.put(column.getName(), keyFilter);
+        }
 
-            ColumnRange columnRange = createColumnRange(slotDesc, conjuncts);
-            if (columnRange != null) {
-                columnNameToRange.put(column.getName(), columnRange);
+        ColumnRange columnRange = createColumnRange(slotDesc, conjuncts);
+        if (columnRange != null) {
+            columnNameToRange.put(column.getName(), columnRange);
+        }
+    }
+
+    // TODO(ML): move it into PrunerOptimizer
+    public void computeColumnsFilter(List<Column> columns) {
+        if (columns.size() > conjuncts.size()) {
+            Set<SlotRef> slotRefs = Sets.newHashSet();
+            for (Expr conjunct : conjuncts) {
+                conjunct.collect(SlotRef.class, slotRefs);
+            }
+            for (SlotRef slotRef : slotRefs) {
+                SlotDescriptor slotDesc = slotRef.getDesc();
+                if (null == slotDesc) {
+                    continue;
+                }
+                Column column = slotDesc.getColumn();
+                if (column == null) {
+                    continue;
+                }
+                computeColumnFilter(column, slotDesc);
+            }
+        } else {
+            for (Column column : columns) {
+                SlotDescriptor slotDesc = desc.getColumnSlot(column.getName());
+                if (null == slotDesc) {
+                    continue;
+                }
+                computeColumnFilter(column, slotDesc);
             }
         }
     }
 
-    public void computeColumnFilter() {
+    public void computeColumnsFilter() {
         // for load scan node, table is null
         if (desc.getTable() != null) {
-            computeColumnFilter(desc.getTable().getBaseSchema());
+            computeColumnsFilter(desc.getTable().getBaseSchema());
         }
     }
 
