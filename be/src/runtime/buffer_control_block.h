@@ -105,11 +105,11 @@ public:
 
 protected:
     virtual bool _get_batch_queue_empty() {
-        return _mysql_batch_queue.empty() && _arrow_flight_batch_queue.empty();
+        return _fe_result_batch_queue.empty() && _arrow_flight_batch_queue.empty();
     }
     virtual void _update_batch_queue_empty() {}
 
-    using MysqlResultQueue = std::list<std::unique_ptr<TFetchDataResult>>;
+    using FeResultQueue = std::list<std::unique_ptr<TFetchDataResult>>;
     using ArrowFlightResultQueue = std::list<std::shared_ptr<arrow::RecordBatch>>;
 
     // result's query id
@@ -122,7 +122,7 @@ protected:
     int64_t _packet_num;
 
     // blocking queue for batch
-    MysqlResultQueue _mysql_batch_queue;
+    FeResultQueue _fe_result_batch_queue;
     ArrowFlightResultQueue _arrow_flight_batch_queue;
 
     // protects all subsequent data in this block
@@ -152,7 +152,7 @@ public:
 private:
     bool _get_batch_queue_empty() override { return _batch_queue_empty; }
     void _update_batch_queue_empty() override {
-        _batch_queue_empty = _mysql_batch_queue.empty() && _arrow_flight_batch_queue.empty();
+        _batch_queue_empty = _fe_result_batch_queue.empty() && _arrow_flight_batch_queue.empty();
     }
 
     std::atomic_bool _batch_queue_empty = false;

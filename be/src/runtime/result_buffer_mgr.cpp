@@ -136,8 +136,8 @@ void ResultBufferMgr::fetch_data(const PUniqueId& finst_id, GetResultBatchCtx* c
     cb->get_batch(ctx);
 }
 
-Status ResultBufferMgr::fetch_data(const TUniqueId& finst_id,
-                                   std::shared_ptr<arrow::RecordBatch>* result) {
+Status ResultBufferMgr::fetch_arrow_data(const TUniqueId& finst_id,
+                                         std::shared_ptr<arrow::RecordBatch>* result) {
     std::shared_ptr<BufferControlBlock> cb = find_control_block(finst_id);
     if (cb == nullptr) {
         LOG(WARNING) << "no result for this query, id=" << print_id(finst_id);

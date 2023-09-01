@@ -60,7 +60,6 @@ DEFINE_Int32(be_port, "9060");
 // port for brpc
 DEFINE_Int32(brpc_port, "8060");
 
-// port for brpc
 DEFINE_Int32(arrow_flight_port, "8070");
 
 // the number of bthreads for brpc, the default value is set to -1,

@@ -119,7 +119,7 @@ Status BufferControlBlock::add_batch(std::unique_ptr<TFetchDataResult>& result) 
 
     int num_rows = result->result_batch.rows.size();
 
-    while ((!_mysql_batch_queue.empty() && _buffer_rows > _buffer_limit) && !_is_cancelled) {
+    while ((!_fe_result_batch_queue.empty() && _buffer_rows > _buffer_limit) && !_is_cancelled) {
         _data_removal.wait_for(l, std::chrono::seconds(1));
     }
 
@@ -129,17 +129,19 @@ Status BufferControlBlock::add_batch(std::unique_ptr<TFetchDataResult>& result) 
 
     if (_waiting_rpc.empty()) {
         // Merge result into batch to reduce rpc times
-        if (!_mysql_batch_queue.empty() &&
-            ((_mysql_batch_queue.back()->result_batch.rows.size() + num_rows) < _buffer_limit) &&
+        if (!_fe_result_batch_queue.empty() &&
+            ((_fe_result_batch_queue.back()->result_batch.rows.size() + num_rows) <
+             _buffer_limit) &&
             !result->eos) {
-            std::vector<std::string>& back_rows = _mysql_batch_queue.back()->result_batch.rows;
+            std::vector<std::string>& back_rows = _fe_result_batch_queue.back()->result_batch.rows;
             std::vector<std::string>& result_rows = result->result_batch.rows;
             back_rows.insert(back_rows.end(), std::make_move_iterator(result_rows.begin()),
                              std::make_move_iterator(result_rows.end()));
         } else {
-            _mysql_batch_queue.push_back(std::move(result));
+            _fe_result_batch_queue.push_back(std::move(result));
         }
         _buffer_rows += num_rows;
+        _data_arrival.notify_one();
     } else {
         auto ctx = _waiting_rpc.front();
         _waiting_rpc.pop_front();
@@ -184,10 +186,10 @@ void BufferControlBlock::get_batch(GetResultBatchCtx* ctx) {
         ctx->on_failure(Status::Cancelled("Cancelled"));
         return;
     }
-    if (!_mysql_batch_queue.empty()) {
+    if (!_fe_result_batch_queue.empty()) {
         // get result
-        std::unique_ptr<TFetchDataResult> result = std::move(_mysql_batch_queue.front());
-        _mysql_batch_queue.pop_front();
+        std::unique_ptr<TFetchDataResult> result = std::move(_fe_result_batch_queue.front());
+        _fe_result_batch_queue.pop_front();
         _buffer_rows -= result->result_batch.rows.size();
         _data_removal.notify_one();
 

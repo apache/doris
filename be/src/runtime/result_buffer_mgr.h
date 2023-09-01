@@ -53,8 +53,10 @@ public:
                          std::shared_ptr<BufferControlBlock>* sender, bool enable_pipeline,
                          int exec_timeout);
 
+    // fetch data result to FE
     void fetch_data(const PUniqueId& finst_id, GetResultBatchCtx* ctx);
-    Status fetch_data(const TUniqueId& finst_id, std::shared_ptr<arrow::RecordBatch>* result);
+    // fetch data result to Arrow Flight Server
+    Status fetch_arrow_data(const TUniqueId& finst_id, std::shared_ptr<arrow::RecordBatch>* result);
 
     void register_row_descriptor(const TUniqueId& query_id, const RowDescriptor& row_desc);
     RowDescriptor find_row_descriptor(const TUniqueId& query_id);
