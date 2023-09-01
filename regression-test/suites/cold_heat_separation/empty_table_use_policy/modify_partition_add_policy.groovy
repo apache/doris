@@ -142,6 +142,9 @@ suite("add_table_policy_by_modify_partition") {
     DROP TABLE IF EXISTS create_table_partition;
     """
     sql """
+    DROP TABLE IF EXISTS create_table_partion_use_created_policy_test;
+    """
+    sql """
     DROP STORAGE POLICY created_create_table_partition_alter_policy
     """
     sql """
