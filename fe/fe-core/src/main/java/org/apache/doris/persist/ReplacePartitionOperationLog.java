@@ -50,8 +50,10 @@ public class ReplacePartitionOperationLog implements Writable {
     @SerializedName(value = "useTempPartitionName")
     private boolean useTempPartitionName;
 
-    public ReplacePartitionOperationLog(long dbId, String dbName, long tblId, String tblName, List<String> partitionNames,
-            List<String> tempPartitonNames, boolean strictRange, boolean useTempPartitionName) {
+    public ReplacePartitionOperationLog(long dbId, String dbName, long tblId, String tblName,
+                                        List<String> partitionNames,
+                                        List<String> tempPartitonNames, boolean strictRange,
+                                        boolean useTempPartitionName) {
         this.dbId = dbId;
         this.dbName = dbName;
         this.tblId = tblId;

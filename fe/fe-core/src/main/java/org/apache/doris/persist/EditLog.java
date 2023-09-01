@@ -1295,11 +1295,13 @@ public class EditLog {
     public void logModifyPartition(ModifyPartitionInfo info) {
         long logId = logEdit(OperationType.OP_MODIFY_PARTITION, info);
         BatchModifyPartitionsInfo infos = new BatchModifyPartitionsInfo(info);
+        LOG.info("log modify partition, logId:{}, infos: {}", logId, infos.toJson());
         Env.getCurrentEnv().getBinlogManager().addModifyPartitions(infos, logId);
     }
 
     public void logBatchModifyPartition(BatchModifyPartitionsInfo info) {
         long logId = logEdit(OperationType.OP_BATCH_MODIFY_PARTITION, info);
+        LOG.info("log modify partition, logId:{}, infos: {}", logId, info.toJson());
         Env.getCurrentEnv().getBinlogManager().addModifyPartitions(info, logId);
     }
 
