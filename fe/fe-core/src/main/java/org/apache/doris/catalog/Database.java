@@ -611,6 +611,12 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table> 
         }
     }
 
+    public void analyze() {
+        for (Table table : nameToTable.values()) {
+            table.analyze(getFullName());
+        }
+    }
+
     @Override
     public void readFields(DataInput in) throws IOException {
         super.readFields(in);
@@ -634,7 +640,7 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table> 
         dbState = DbState.valueOf(Text.readString(in));
         attachDbName = Text.readString(in);
 
-        FunctionUtil.readFields(in, name2Function);
+        FunctionUtil.readFields(in, this.getFullName(), name2Function);
 
         // read encryptKeys
         if (Env.getCurrentEnvJournalVersion() >= FeMetaVersion.VERSION_102) {

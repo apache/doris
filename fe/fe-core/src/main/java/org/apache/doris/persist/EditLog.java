@@ -86,6 +86,7 @@ import org.apache.doris.resource.workloadgroup.WorkloadGroup;
 import org.apache.doris.scheduler.job.Job;
 import org.apache.doris.scheduler.job.JobTask;
 import org.apache.doris.statistics.AnalysisInfo;
+import org.apache.doris.statistics.TableStats;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.Frontend;
 import org.apache.doris.transaction.TransactionState;
@@ -554,6 +555,11 @@ public class EditLog {
                     Env.getCurrentGlobalTransactionMgr().replayBatchRemoveTransactionV2(operation);
                     break;
                 }
+                case OperationType.OP_SET_TABLE_STATUS: {
+                    final SetTableStatusOperationLog log = (SetTableStatusOperationLog) journal.getData();
+                    env.replaySetTableStatus(log);
+                    break;
+                }
                 case OperationType.OP_CREATE_REPOSITORY: {
                     Repository repository = (Repository) journal.getData();
                     env.getBackupHandler().getRepoMgr().addAndInitRepoIfNotExist(repository, true);
@@ -829,6 +835,11 @@ public class EditLog {
                     env.getAlterInstance().replayModifyComment(operation);
                     break;
                 }
+                case OperationType.OP_SET_PARTITION_VERSION: {
+                    SetPartitionVersionOperationLog log = (SetPartitionVersionOperationLog) journal.getData();
+                    env.replaySetPartitionVersion(log);
+                    break;
+                }
                 case OperationType.OP_ALTER_ROUTINE_LOAD_JOB: {
                     AlterRoutineLoadJobOperationLog log = (AlterRoutineLoadJobOperationLog) journal.getData();
                     env.getRoutineLoadManager().replayAlterRoutineLoadJob(log);
@@ -1086,6 +1097,10 @@ public class EditLog {
                 }
                 case OperationType.OP_UPDATE_AUTO_INCREMENT_ID: {
                     env.replayAutoIncrementIdUpdateLog((AutoIncrementIdUpdateLog) journal.getData());
+                    break;
+                }
+                case OperationType.OP_UPDATE_TABLE_STATS: {
+                    env.getAnalysisManager().replayUpdateTableStatsStatus((TableStats) journal.getData());
                     break;
                 }
                 default: {
@@ -1729,6 +1744,10 @@ public class EditLog {
         logEdit(OperationType.OP_ALTER_ROUTINE_LOAD_JOB, log);
     }
 
+    public void logSetPartitionVersion(SetPartitionVersionOperationLog log) {
+        logEdit(OperationType.OP_SET_PARTITION_VERSION, log);
+    }
+
     public void logGlobalVariableV2(GlobalVarPersistInfo info) {
         logEdit(OperationType.OP_GLOBAL_VARIABLE_V2, info);
     }
@@ -1739,6 +1758,10 @@ public class EditLog {
 
     public void logBatchRemoveTransactions(BatchRemoveTransactionsOperationV2 op) {
         logEdit(OperationType.OP_BATCH_REMOVE_TXNS_V2, op);
+    }
+
+    public void logSetTableStatus(SetTableStatusOperationLog log) {
+        logEdit(OperationType.OP_SET_TABLE_STATUS, log);
     }
 
     public void logModifyComment(ModifyCommentOperationLog op) {
@@ -1905,5 +1928,9 @@ public class EditLog {
 
     public void logUpdateAutoIncrementId(AutoIncrementIdUpdateLog log) {
         logEdit(OperationType.OP_UPDATE_AUTO_INCREMENT_ID, log);
+    }
+
+    public void logCreateTableStats(TableStats tableStats) {
+        logEdit(OperationType.OP_UPDATE_TABLE_STATS, tableStats);
     }
 }

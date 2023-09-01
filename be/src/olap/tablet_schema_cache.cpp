@@ -19,6 +19,10 @@
 
 namespace doris {
 
+TabletSchemaCache::~TabletSchemaCache() {
+    stop_and_join();
+}
+
 TabletSchemaSPtr TabletSchemaCache::insert(const std::string& key) {
     DCHECK(_s_instance != nullptr);
     std::lock_guard guard(_mtx);

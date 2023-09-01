@@ -30,7 +30,9 @@ import org.apache.doris.analysis.AdminCheckTabletsStmt.CheckType;
 import org.apache.doris.analysis.AdminCleanTrashStmt;
 import org.apache.doris.analysis.AdminCompactTableStmt;
 import org.apache.doris.analysis.AdminSetConfigStmt;
+import org.apache.doris.analysis.AdminSetPartitionVersionStmt;
 import org.apache.doris.analysis.AdminSetReplicaStatusStmt;
+import org.apache.doris.analysis.AdminSetTableStatusStmt;
 import org.apache.doris.analysis.AlterDatabasePropertyStmt;
 import org.apache.doris.analysis.AlterDatabaseQuotaStmt;
 import org.apache.doris.analysis.AlterDatabaseQuotaStmt.QuotaType;
@@ -85,6 +87,7 @@ import org.apache.doris.catalog.ColocateTableIndex.GroupId;
 import org.apache.doris.catalog.DistributionInfo.DistributionInfoType;
 import org.apache.doris.catalog.MaterializedIndex.IndexExtState;
 import org.apache.doris.catalog.MetaIdGenerator.IdGeneratorBuffer;
+import org.apache.doris.catalog.OlapTable.OlapTableState;
 import org.apache.doris.catalog.Replica.ReplicaStatus;
 import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.clone.ColocateTableCheckerAndBalancer;
@@ -190,7 +193,9 @@ import org.apache.doris.persist.RecoverInfo;
 import org.apache.doris.persist.RefreshExternalTableInfo;
 import org.apache.doris.persist.ReplacePartitionOperationLog;
 import org.apache.doris.persist.ReplicaPersistInfo;
+import org.apache.doris.persist.SetPartitionVersionOperationLog;
 import org.apache.doris.persist.SetReplicaStatusOperationLog;
+import org.apache.doris.persist.SetTableStatusOperationLog;
 import org.apache.doris.persist.Storage;
 import org.apache.doris.persist.StorageInfo;
 import org.apache.doris.persist.TableInfo;
@@ -236,6 +241,7 @@ import org.apache.doris.task.MasterTaskExecutor;
 import org.apache.doris.task.PriorityMasterTaskExecutor;
 import org.apache.doris.thrift.BackendService;
 import org.apache.doris.thrift.TCompressionType;
+import org.apache.doris.thrift.TFrontendInfo;
 import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TStorageMedium;
 import org.apache.doris.transaction.DbUsedDataQuotaInfoCollector;
@@ -471,6 +477,19 @@ public class Env {
     private StatisticsAutoAnalyzer statisticsAutoAnalyzer;
 
     private HiveTransactionMgr hiveTransactionMgr;
+
+    public List<TFrontendInfo> getFrontendInfos() {
+        List<TFrontendInfo> res = new ArrayList<>();
+
+        for (Frontend fe : frontends.values()) {
+            TFrontendInfo feInfo = new TFrontendInfo();
+            feInfo.setCoordinatorAddress(new TNetworkAddress(fe.getHost(), fe.getRpcPort()));
+            feInfo.setProcessUuid(fe.getProcessUUID());
+            res.add(feInfo);
+        }
+
+        return res;
+    }
 
     public List<Frontend> getFrontends(FrontendNodeType nodeType) {
         if (nodeType == null) {
@@ -994,7 +1013,7 @@ public class Env {
                 // For compatibility. Because this is the very first time to start, so we arbitrarily choose
                 // a new name for this node
                 role = FrontendNodeType.FOLLOWER;
-                nodeName = genFeNodeName(selfNode.getIdent(),
+                nodeName = genFeNodeName(selfNode.getHost(),
                         selfNode.getPort(), false /* new style */);
                 storage.writeFrontendRoleAndNodeName(role, nodeName);
                 LOG.info("very first time to start this node. role: {}, node name: {}", role.name(), nodeName);
@@ -1381,6 +1400,13 @@ public class Env {
                 VariableMgr.setGlobalPipelineTask(newVal);
                 LOG.info("upgrade FE from 1.x to 2.0, set parallel_pipeline_task_num "
                         + "to parallel_fragment_exec_instance_num: {}", newVal);
+
+                // similar reason as above, need to upgrade broadcast scale factor during 1.2 to 2.x
+                // if the default value has been upgraded
+                double newBcFactorVal = VariableMgr.newSessionVariable().getBroadcastRightTableScaleFactor();
+                VariableMgr.setGlobalBroadcastScaleFactor(newBcFactorVal);
+                LOG.info("upgrade FE from 1.x to 2.x, set broadcast_right_table_scale_factor "
+                        + "to new default value: {}", newBcFactorVal);
             }
         }
 
@@ -3188,12 +3214,6 @@ public class Env {
                 sb.append(olapTable.getTimeSeriesCompactionTimeThresholdSeconds()).append("\"");
             }
 
-            // dynamic schema
-            if (olapTable.isDynamicSchema()) {
-                sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_DYNAMIC_SCHEMA).append("\" = \"");
-                sb.append(olapTable.isDynamicSchema()).append("\"");
-            }
-
             // disable auto compaction
             sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_DISABLE_AUTO_COMPACTION).append("\" = \"");
             sb.append(olapTable.disableAutoCompaction()).append("\"");
@@ -4581,7 +4601,9 @@ public class Env {
                 .buildCompactionPolicy()
                 .buildTimeSeriesCompactionGoalSizeMbytes()
                 .buildTimeSeriesCompactionFileCountThreshold()
-                .buildTimeSeriesCompactionTimeThresholdSeconds();
+                .buildTimeSeriesCompactionTimeThresholdSeconds()
+                .buildSkipWriteIndexOnLoad()
+                .buildEnableSingleReplicaCompaction();
 
         // need to update partition info meta
         for (Partition partition : table.getPartitions()) {
@@ -5248,6 +5270,40 @@ public class Env {
         }
     }
 
+    public void setTableStatus(AdminSetTableStatusStmt stmt) throws MetaNotFoundException {
+        String dbName = stmt.getDbName();
+        String tableName = stmt.getTblName();
+        setTableStatusInternal(dbName, tableName, stmt.getTableState(), false);
+    }
+
+    public void replaySetTableStatus(SetTableStatusOperationLog log) throws MetaNotFoundException {
+        setTableStatusInternal(log.getDbName(), log.getTblName(), log.getState(), true);
+    }
+
+    public void setTableStatusInternal(String dbName, String tableName, OlapTableState state, boolean isReplay)
+            throws MetaNotFoundException {
+        Database db = getInternalCatalog().getDbOrMetaException(dbName);
+        OlapTable olapTable = (OlapTable) db.getTableOrMetaException(tableName, TableType.OLAP);
+        olapTable.writeLockOrMetaException();
+        try {
+            OlapTableState oldState = olapTable.getState();
+            if (state != null && oldState != state) {
+                olapTable.setState(state);
+                if (!isReplay) {
+                    SetTableStatusOperationLog log = new SetTableStatusOperationLog(dbName, tableName, state);
+                    editLog.logSetTableStatus(log);
+                }
+                LOG.info("set table {} state from {} to {}. is replay: {}.",
+                            tableName, oldState, state, isReplay);
+            } else {
+                LOG.warn("ignore set same state {} for table {}. is replay: {}.",
+                            olapTable.getState(), tableName, isReplay);
+            }
+        } finally {
+            olapTable.writeUnlock();
+        }
+    }
+
     // Set specified replica's status. If replica does not exist, just ignore it.
     public void setReplicaStatus(AdminSetReplicaStatusStmt stmt) throws MetaNotFoundException {
         long tabletId = stmt.getTabletId();
@@ -5381,6 +5437,55 @@ public class Env {
                 }
             }
         }
+    }
+
+    public void setPartitionVersion(AdminSetPartitionVersionStmt stmt) throws DdlException {
+        String database = stmt.getDatabase();
+        String table = stmt.getTable();
+        long partitionId = stmt.getPartitionId();
+        long visibleVersion = stmt.getVisibleVersion();
+        int setSuccess = setPartitionVersionInternal(database, table, partitionId, visibleVersion, false);
+        if (setSuccess == -1) {
+            throw new DdlException("Failed to set partition visible version to " + visibleVersion + ". " + "Partition "
+                    + partitionId + " not exists. Database " + database + ", Table " + table + ".");
+        }
+    }
+
+    public void replaySetPartitionVersion(SetPartitionVersionOperationLog log) throws DdlException {
+        int setSuccess = setPartitionVersionInternal(log.getDatabase(), log.getTable(),
+                log.getPartitionId(), log.getVisibleVersion(), true);
+        if (setSuccess == -1) {
+            LOG.warn("Failed to set partition visible version to {}. "
+                    + "Database {}, Table {}, Partition {} not exists.", log.getDatabase(), log.getTable(),
+                    log.getVisibleVersion(), log.getPartitionId());
+        }
+    }
+
+    public int setPartitionVersionInternal(String database, String table, long partitionId,
+                                           long visibleVersion, boolean isReplay) throws DdlException {
+        int result = -1;
+        Database db = getInternalCatalog().getDbOrDdlException(database);
+        OlapTable olapTable = db.getOlapTableOrDdlException(table);
+        olapTable.writeLockOrDdlException();
+        try {
+            Partition partition = olapTable.getPartition(partitionId);
+            if (partition != null) {
+                Long oldVersion = partition.getVisibleVersion();
+                partition.updateVisibleVersion(visibleVersion);
+                partition.setNextVersion(visibleVersion + 1);
+                result = 0;
+                if (!isReplay) {
+                    SetPartitionVersionOperationLog log = new SetPartitionVersionOperationLog(
+                            database, table, partitionId, visibleVersion);
+                    getEditLog().logSetPartitionVersion(log);
+                }
+                LOG.info("set partition {} visible version from {} to {}. Database {}, Table {}, is replay:"
+                        + " {}.", partitionId, oldVersion, visibleVersion, database, table, isReplay);
+            }
+        } finally {
+            olapTable.writeUnlock();
+        }
+        return result;
     }
 
     public static boolean isStoredTableNamesLowerCase() {

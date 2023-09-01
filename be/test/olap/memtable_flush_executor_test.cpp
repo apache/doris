@@ -40,8 +40,8 @@
 
 namespace doris {
 
-inline StorageEngine* k_engine = nullptr;
-MemTableFlushExecutor* k_flush_executor = nullptr;
+static std::unique_ptr<StorageEngine> k_engine;
+static MemTableFlushExecutor* k_flush_executor = nullptr;
 
 void set_up() {
     char buffer[1024];
@@ -58,15 +58,11 @@ void set_up() {
     Status s = doris::StorageEngine::open(options, &k_engine);
     EXPECT_TRUE(s.ok()) << s.to_string();
 
-    ExecEnv* exec_env = doris::ExecEnv::GetInstance();
-    exec_env->set_storage_engine(k_engine);
-
     k_flush_executor = k_engine->memtable_flush_executor();
 }
 
 void tear_down() {
-    delete k_engine;
-    k_engine = nullptr;
+    k_engine.reset();
     system("rm -rf ./flush_test");
     EXPECT_TRUE(io::global_local_filesystem()
                         ->delete_directory(std::string(getenv("DORIS_HOME")) + "/" + UNUSED_PREFIX)

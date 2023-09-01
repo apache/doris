@@ -28,23 +28,23 @@ namespace pipeline {
 OPERATOR_CODE_GENERATOR(AggSourceOperator, SourceOperator)
 
 AggLocalState::AggLocalState(RuntimeState* state, OperatorXBase* parent)
-        : PipelineXLocalState(state, parent),
+        : PipelineXLocalState<AggDependency>(state, parent),
           _get_results_timer(nullptr),
           _serialize_result_timer(nullptr),
           _hash_table_iterate_timer(nullptr),
           _insert_keys_to_column_timer(nullptr),
-          _serialize_data_timer(nullptr) {}
+          _serialize_data_timer(nullptr),
+          _hash_table_size_counter(nullptr) {}
 
 Status AggLocalState::init(RuntimeState* state, LocalStateInfo& info) {
-    RETURN_IF_ERROR(PipelineXLocalState::init(state, info));
-    _dependency = (AggDependency*)info.dependency;
-    _shared_state = ((AggSharedState*)_dependency->shared_state());
+    RETURN_IF_ERROR(PipelineXLocalState<AggDependency>::init(state, info));
     _agg_data = _shared_state->agg_data.get();
     _get_results_timer = ADD_TIMER(profile(), "GetResultsTime");
     _serialize_result_timer = ADD_TIMER(profile(), "SerializeResultTime");
     _hash_table_iterate_timer = ADD_TIMER(profile(), "HashTableIterateTime");
     _insert_keys_to_column_timer = ADD_TIMER(profile(), "InsertKeysToColumnTime");
     _serialize_data_timer = ADD_TIMER(profile(), "SerializeDataTime");
+    _hash_table_size_counter = ADD_COUNTER(profile(), "HashTableSize", TUnit::UNIT);
     auto& p = _parent->cast<AggSourceOperatorX>();
     if (p._without_key) {
         if (p._needs_finalize) {
@@ -491,8 +491,8 @@ Status AggLocalState::_get_without_key_result(RuntimeState* state, vectorized::B
 }
 
 AggSourceOperatorX::AggSourceOperatorX(ObjectPool* pool, const TPlanNode& tnode,
-                                       const DescriptorTbl& descs, std::string op_name)
-        : OperatorXBase(pool, tnode, descs, op_name),
+                                       const DescriptorTbl& descs)
+        : OperatorX<AggLocalState>(pool, tnode, descs),
           _needs_finalize(tnode.agg_node.need_finalize),
           _without_key(tnode.agg_node.grouping_exprs.empty()) {}
 
@@ -518,34 +518,38 @@ void AggLocalState::make_nullable_output_key(vectorized::Block* block) {
     }
 }
 
-Status AggSourceOperatorX::close(RuntimeState* state) {
-    auto& local_state = state->get_local_state(id())->cast<AggLocalState>();
-    for (auto* aggregate_evaluator : local_state._shared_state->aggregate_evaluators) {
+Status AggLocalState::close(RuntimeState* state) {
+    if (_closed) {
+        return Status::OK();
+    }
+    for (auto* aggregate_evaluator : _shared_state->aggregate_evaluators) {
         aggregate_evaluator->close(state);
     }
-    if (local_state._executor.close) {
-        local_state._executor.close();
+    if (_executor.close) {
+        _executor.close();
     }
 
-    local_state._shared_state->agg_data = nullptr;
-    local_state._shared_state->aggregate_data_container = nullptr;
-    local_state._shared_state->agg_arena_pool = nullptr;
-    local_state._shared_state->agg_profile_arena = nullptr;
+    /// _hash_table_size_counter may be null if prepare failed.
+    if (_hash_table_size_counter) {
+        std::visit(
+                [&](auto&& agg_method) {
+                    COUNTER_SET(_hash_table_size_counter, int64_t(agg_method.data.size()));
+                },
+                _agg_data->method_variant);
+    }
+
+    _shared_state->agg_data = nullptr;
+    _shared_state->aggregate_data_container = nullptr;
+    _shared_state->agg_arena_pool = nullptr;
+    _shared_state->agg_profile_arena = nullptr;
 
     std::vector<vectorized::AggregateDataPtr> tmp_values;
-    local_state._shared_state->values.swap(tmp_values);
-    return Status::OK();
-}
-
-Status AggSourceOperatorX::setup_local_state(RuntimeState* state, LocalStateInfo& info) {
-    auto local_state = AggLocalState::create_shared(state, this);
-    state->emplace_local_state(id(), local_state);
-    return local_state->init(state, info);
+    _shared_state->values.swap(tmp_values);
+    return PipelineXLocalState<AggDependency>::close(state);
 }
 
 bool AggSourceOperatorX::can_read(RuntimeState* state) {
-    auto& local_state = state->get_local_state(id())->cast<AggLocalState>();
-    return local_state._dependency->done();
+    return state->get_local_state(id())->cast<AggLocalState>()._dependency->done();
 }
 
 } // namespace pipeline

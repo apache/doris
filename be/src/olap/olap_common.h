@@ -73,14 +73,12 @@ struct DataDirInfoLessAvailability {
 };
 
 struct TabletInfo {
-    TabletInfo(TTabletId in_tablet_id, TSchemaHash in_schema_hash, UniqueId in_uid)
-            : tablet_id(in_tablet_id), schema_hash(in_schema_hash), tablet_uid(in_uid) {}
+    TabletInfo(TTabletId in_tablet_id, UniqueId in_uid)
+            : tablet_id(in_tablet_id), tablet_uid(in_uid) {}
 
     bool operator<(const TabletInfo& right) const {
         if (tablet_id != right.tablet_id) {
             return tablet_id < right.tablet_id;
-        } else if (schema_hash != right.schema_hash) {
-            return schema_hash < right.schema_hash;
         } else {
             return tablet_uid < right.tablet_uid;
         }
@@ -88,21 +86,19 @@ struct TabletInfo {
 
     std::string to_string() const {
         std::stringstream ss;
-        ss << tablet_id << "." << schema_hash << "." << tablet_uid.to_string();
+        ss << tablet_id << "." << tablet_uid.to_string();
         return ss.str();
     }
 
     TTabletId tablet_id;
-    TSchemaHash schema_hash;
     UniqueId tablet_uid;
 };
 
 struct TabletSize {
-    TabletSize(TTabletId in_tablet_id, TSchemaHash in_schema_hash, size_t in_tablet_size)
-            : tablet_id(in_tablet_id), schema_hash(in_schema_hash), tablet_size(in_tablet_size) {}
+    TabletSize(TTabletId in_tablet_id, size_t in_tablet_size)
+            : tablet_id(in_tablet_id), tablet_size(in_tablet_size) {}
 
     TTabletId tablet_id;
-    TSchemaHash schema_hash;
     size_t tablet_size;
 };
 

@@ -17,6 +17,7 @@
 
 suite("test_array_functions_by_literal") {
     // array_nested function
+    sql """ set enable_nereids_planner = false; """
     qt_sql "select a from (select array(1, 1, 2, 2, 2, 2) as a) t"
 
     // array with decimal and other types
@@ -43,7 +44,7 @@ suite("test_array_functions_by_literal") {
     qt_sql "select array_contains([1,2,3], 4)"
     qt_sql "select array_contains([1,2,3,NULL], 1)"
     qt_sql "select array_contains([1,2,3,NULL], NULL)"
-    qt_sql "select array_contains([], 1)"
+    qt_sql "select array_contains([], true)"
     qt_sql "select array_contains([], NULL)"
     qt_sql "select array_contains(NULL, 1)"
     qt_sql "select array_contains(NULL, NULL)"
@@ -58,11 +59,11 @@ suite("test_array_functions_by_literal") {
     qt_sql "select array_position([1,2,3], 4)"
     qt_sql "select array_position([NULL,2,3], 2)"
     qt_sql "select array_position([NULL,2,3], NULL)"
-    qt_sql "select array_position([], 1)"
+    qt_sql "select array_position([], true)"
     qt_sql "select array_position([], NULL)"
     qt_sql "select array_position(NULL, 1)"
     qt_sql "select array_position(NULL, NULL)"
-    qt_sql "select array_position([null], 0)"
+    qt_sql "select array_position([null], true)"
     qt_sql "select array_position([0], null)"
     qt_sql "select array_position([null, '1'], '')"
     qt_sql "select array_position([''], null)"

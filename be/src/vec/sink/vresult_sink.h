@@ -135,11 +135,8 @@ public:
     // Flush all buffered data and close all existing channels to destination
     // hosts. Further send() calls are illegal after calling close().
     virtual Status close(RuntimeState* state, Status exec_status) override;
-    virtual RuntimeProfile* profile() override { return _profile; }
 
     void set_query_statistics(std::shared_ptr<QueryStatistics> statistics) override;
-
-    const RowDescriptor& row_desc() { return _row_desc; }
 
 private:
     Status prepare_exprs(RuntimeState* state);
@@ -149,16 +146,12 @@ private:
     std::unique_ptr<ResultFileOptions> _file_opts;
 
     // Owned by the RuntimeState.
-    const RowDescriptor& _row_desc;
-
-    // Owned by the RuntimeState.
     const std::vector<TExpr>& _t_output_expr;
     VExprContextSPtrs _output_vexpr_ctxs;
 
     std::shared_ptr<BufferControlBlock> _sender;
     std::shared_ptr<ResultWriter> _writer;
-    RuntimeProfile* _profile; // Allocated from _pool
-    int _buf_size;            // Allocated from _pool
+    int _buf_size; // Allocated from _pool
 
     // for fetch data by rowids
     TFetchOption _fetch_option;

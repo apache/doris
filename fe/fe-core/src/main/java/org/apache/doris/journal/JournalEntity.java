@@ -107,7 +107,9 @@ import org.apache.doris.persist.ReplacePartitionOperationLog;
 import org.apache.doris.persist.ReplaceTableOperationLog;
 import org.apache.doris.persist.ReplicaPersistInfo;
 import org.apache.doris.persist.RoutineLoadOperation;
+import org.apache.doris.persist.SetPartitionVersionOperationLog;
 import org.apache.doris.persist.SetReplicaStatusOperationLog;
+import org.apache.doris.persist.SetTableStatusOperationLog;
 import org.apache.doris.persist.TableAddOrDropColumnsInfo;
 import org.apache.doris.persist.TableAddOrDropInvertedIndicesInfo;
 import org.apache.doris.persist.TableInfo;
@@ -122,6 +124,7 @@ import org.apache.doris.resource.workloadgroup.WorkloadGroup;
 import org.apache.doris.scheduler.job.Job;
 import org.apache.doris.scheduler.job.JobTask;
 import org.apache.doris.statistics.AnalysisInfo;
+import org.apache.doris.statistics.TableStats;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.Frontend;
 import org.apache.doris.transaction.TransactionState;
@@ -435,6 +438,11 @@ public class JournalEntity implements Writable {
                 isRead = true;
                 break;
             }
+            case OperationType.OP_SET_TABLE_STATUS: {
+                data = SetTableStatusOperationLog.read(in);
+                isRead = true;
+                break;
+            }
             case OperationType.OP_CREATE_REPOSITORY: {
                 data = Repository.read(in);
                 isRead = true;
@@ -610,6 +618,11 @@ public class JournalEntity implements Writable {
             }
             case OperationType.OP_SET_REPLICA_STATUS: {
                 data = SetReplicaStatusOperationLog.read(in);
+                isRead = true;
+                break;
+            }
+            case OperationType.OP_SET_PARTITION_VERSION: {
+                data = SetPartitionVersionOperationLog.read(in);
                 isRead = true;
                 break;
             }
@@ -855,6 +868,11 @@ public class JournalEntity implements Writable {
             }
             case OperationType.OP_BARRIER: {
                 data = BarrierLog.read(in);
+                isRead = true;
+                break;
+            }
+            case OperationType.OP_UPDATE_TABLE_STATS: {
+                data = TableStats.read(in);
                 isRead = true;
                 break;
             }

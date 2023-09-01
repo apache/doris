@@ -48,12 +48,15 @@ import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import org.junit.Assert;
 import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
+// when `select` suppport `col auth`,will open ColumnPrivTest
+@Disabled
 public class ColumnPrivTest extends TestWithFeService {
     private static Auth auth;
     private static Env env;

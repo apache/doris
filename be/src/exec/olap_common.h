@@ -79,7 +79,7 @@ std::string cast_to_string(T value, int scale) {
 template <PrimitiveType primitive_type>
 class ColumnValueRange {
 public:
-    using CppType = typename VecPrimitiveTypeTraits<primitive_type>::CppType;
+    using CppType = typename PrimitiveTypeTraits<primitive_type>::CppType;
     using IteratorType = typename std::set<CppType>::iterator;
 
     ColumnValueRange();
@@ -1094,7 +1094,7 @@ bool ColumnValueRange<primitive_type>::has_intersection(ColumnValueRange<primiti
 template <PrimitiveType primitive_type>
 Status OlapScanKeys::extend_scan_key(ColumnValueRange<primitive_type>& range,
                                      int32_t max_scan_key_num, bool* exact_value, bool* eos) {
-    using CppType = typename VecPrimitiveTypeTraits<primitive_type>::CppType;
+    using CppType = typename PrimitiveTypeTraits<primitive_type>::CppType;
     using ConstIterator = typename std::set<CppType>::const_iterator;
 
     // 1. clear ScanKey if some column range is empty

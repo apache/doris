@@ -91,6 +91,10 @@ constexpr bool is_string_type(PrimitiveType type) {
     return type == TYPE_CHAR || type == TYPE_VARCHAR || type == TYPE_STRING;
 }
 
+constexpr bool is_variant_string_type(PrimitiveType type) {
+    return type == TYPE_VARCHAR || type == TYPE_STRING;
+}
+
 constexpr bool is_float_or_double(PrimitiveType type) {
     return type == TYPE_FLOAT || type == TYPE_DOUBLE;
 }
@@ -110,7 +114,7 @@ TTypeDesc gen_type_desc(const TPrimitiveType::type val);
 TTypeDesc gen_type_desc(const TPrimitiveType::type val, const std::string& name);
 
 template <PrimitiveType type>
-constexpr PrimitiveType PredicateEvaluateType = is_string_type(type) ? TYPE_STRING : type;
+constexpr PrimitiveType PredicateEvaluateType = is_variant_string_type(type) ? TYPE_STRING : type;
 
 template <PrimitiveType type>
 struct PrimitiveTypeTraits;
@@ -187,17 +191,17 @@ struct PrimitiveTypeTraits<TYPE_DECIMALV2> {
 };
 template <>
 struct PrimitiveTypeTraits<TYPE_DECIMAL32> {
-    using CppType = int32_t;
+    using CppType = vectorized::Decimal32;
     using ColumnType = vectorized::ColumnDecimal<vectorized::Decimal32>;
 };
 template <>
 struct PrimitiveTypeTraits<TYPE_DECIMAL64> {
-    using CppType = int64_t;
+    using CppType = vectorized::Decimal64;
     using ColumnType = vectorized::ColumnDecimal<vectorized::Decimal64>;
 };
 template <>
 struct PrimitiveTypeTraits<TYPE_DECIMAL128I> {
-    using CppType = __int128_t;
+    using CppType = vectorized::Decimal128I;
     using ColumnType = vectorized::ColumnDecimal<vectorized::Decimal128I>;
 };
 template <>
@@ -263,25 +267,6 @@ struct PredicatePrimitiveTypeTraits<TYPE_DATEV2> {
 template <>
 struct PredicatePrimitiveTypeTraits<TYPE_DATETIMEV2> {
     using PredicateFieldType = uint64_t;
-};
-
-// used for VInPredicate. VInPredicate should use vectorized data type
-template <PrimitiveType type>
-struct VecPrimitiveTypeTraits {
-    using CppType = typename PrimitiveTypeTraits<type>::CppType;
-    using ColumnType = typename PrimitiveTypeTraits<type>::ColumnType;
-};
-
-template <>
-struct VecPrimitiveTypeTraits<TYPE_DATE> {
-    using CppType = vectorized::VecDateTimeValue;
-    using ColumnType = vectorized::ColumnVector<vectorized::DateTime>;
-};
-
-template <>
-struct VecPrimitiveTypeTraits<TYPE_DATETIME> {
-    using CppType = vectorized::VecDateTimeValue;
-    using ColumnType = vectorized::ColumnVector<vectorized::DateTime>;
 };
 
 template <typename Traits>

@@ -24,7 +24,6 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.UserException;
-import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ShowResultSetMetaData;
 
 import com.google.common.base.Strings;
@@ -44,6 +43,7 @@ public class ShowJobTaskStmt extends ShowStmt {
                     .add("StartTime")
                     .add("EndTime")
                     .add("Status")
+                    .add("Result")
                     .add("ErrorMsg")
                     .build();
 
@@ -66,15 +66,8 @@ public class ShowJobTaskStmt extends ShowStmt {
     @Override
     public void analyze(Analyzer analyzer) throws UserException {
         super.analyze(analyzer);
-        checkAuth();
+        CreateJobStmt.checkAuth();
         checkLabelName(analyzer);
-    }
-
-    private void checkAuth() throws AnalysisException {
-        UserIdentity userIdentity = ConnectContext.get().getCurrentUserIdentity();
-        if (!userIdentity.isRootUser()) {
-            throw new AnalysisException("only root user can operate");
-        }
     }
 
     private void checkLabelName(Analyzer analyzer) throws AnalysisException {

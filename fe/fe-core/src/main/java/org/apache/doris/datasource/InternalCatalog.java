@@ -256,6 +256,9 @@ public class InternalCatalog implements CatalogIf<Database> {
     @Nullable
     @Override
     public Database getDbNullable(String dbName) {
+        if (StringUtils.isEmpty(dbName)) {
+            return null;
+        }
         if (fullNameToDb.containsKey(dbName)) {
             return fullNameToDb.get(dbName);
         } else {
@@ -1461,10 +1464,6 @@ public class InternalCatalog implements CatalogIf<Database> {
                 properties.put(PropertyAnalyzer.PROPERTIES_TIME_SERIES_COMPACTION_TIME_THRESHOLD_SECONDS,
                                                 olapTable.getTimeSeriesCompactionTimeThresholdSeconds().toString());
             }
-            if (!properties.containsKey(PropertyAnalyzer.PROPERTIES_DYNAMIC_SCHEMA)) {
-                properties.put(PropertyAnalyzer.PROPERTIES_DYNAMIC_SCHEMA,
-                        olapTable.isDynamicSchema().toString());
-            }
             if (!properties.containsKey(PropertyAnalyzer.PROPERTIES_STORAGE_POLICY)) {
                 properties.put(PropertyAnalyzer.PROPERTIES_STORAGE_POLICY, olapTable.getStoragePolicy());
             }
@@ -1561,7 +1560,7 @@ public class InternalCatalog implements CatalogIf<Database> {
                     olapTable.getTimeSeriesCompactionGoalSizeMbytes(),
                     olapTable.getTimeSeriesCompactionFileCountThreshold(),
                     olapTable.getTimeSeriesCompactionTimeThresholdSeconds(),
-                    olapTable.storeRowColumn(), olapTable.isDynamicSchema(),
+                    olapTable.storeRowColumn(),
                     binlogConfig, dataProperty.isStorageMediumSpecified());
 
             // check again
@@ -1791,7 +1790,7 @@ public class InternalCatalog implements CatalogIf<Database> {
             boolean enableSingleReplicaCompaction, boolean skipWriteIndexOnLoad,
             String compactionPolicy, Long timeSeriesCompactionGoalSizeMbytes,
             Long timeSeriesCompactionFileCountThreshold, Long timeSeriesCompactionTimeThresholdSeconds,
-            boolean storeRowColumn, boolean isDynamicSchema, BinlogConfig binlogConfig,
+            boolean storeRowColumn, BinlogConfig binlogConfig,
             boolean isStorageMediumSpecified) throws DdlException {
         // create base index first.
         Preconditions.checkArgument(baseIndexId != -1);
@@ -1857,7 +1856,7 @@ public class InternalCatalog implements CatalogIf<Database> {
                             disableAutoCompaction, enableSingleReplicaCompaction, skipWriteIndexOnLoad,
                             compactionPolicy, timeSeriesCompactionGoalSizeMbytes,
                             timeSeriesCompactionFileCountThreshold, timeSeriesCompactionTimeThresholdSeconds,
-                            storeRowColumn, isDynamicSchema, binlogConfig);
+                            storeRowColumn, binlogConfig);
 
                     task.setStorageFormat(storageFormat);
                     batchTask.addTask(task);
@@ -2213,11 +2212,6 @@ public class InternalCatalog implements CatalogIf<Database> {
                 PropertyAnalyzer.PROPERTIES_SKIP_WRITE_INDEX_ON_LOAD, false);
         olapTable.setSkipWriteIndexOnLoad(skipWriteIndexOnLoad);
 
-        // set dynamic schema
-        boolean isDynamicSchema = PropertyAnalyzer.analyzeBooleanProp(properties,
-                PropertyAnalyzer.PROPERTIES_DYNAMIC_SCHEMA, false);
-        olapTable.setIsDynamicSchema(isDynamicSchema);
-
         boolean isMutable = PropertyAnalyzer.analyzeBooleanProp(properties, PropertyAnalyzer.PROPERTIES_MUTABLE, true);
 
         // set storage policy
@@ -2229,7 +2223,12 @@ public class InternalCatalog implements CatalogIf<Database> {
                     "Can not create UNIQUE KEY table that enables Merge-On-write"
                      + " with storage policy(" + storagePolicy + ")");
         }
-        olapTable.setStoragePolicy(storagePolicy);
+        // Consider one situation: if the table has no storage policy but some partitions
+        // have their own storage policy then it might be erased by the following function.
+        // So we only set the storage policy if the table's policy is not null or empty
+        if (!Strings.isNullOrEmpty(storagePolicy)) {
+            olapTable.setStoragePolicy(storagePolicy);
+        }
 
         TTabletType tabletType;
         try {
@@ -2426,7 +2425,7 @@ public class InternalCatalog implements CatalogIf<Database> {
                         olapTable.getCompactionPolicy(), olapTable.getTimeSeriesCompactionGoalSizeMbytes(),
                         olapTable.getTimeSeriesCompactionFileCountThreshold(),
                         olapTable.getTimeSeriesCompactionTimeThresholdSeconds(),
-                        storeRowColumn, isDynamicSchema, binlogConfigForTask,
+                        storeRowColumn, binlogConfigForTask,
                         partitionInfo.getDataProperty(partitionId).isStorageMediumSpecified());
                 olapTable.addPartition(partition);
             } else if (partitionInfo.getType() == PartitionType.RANGE
@@ -2496,7 +2495,7 @@ public class InternalCatalog implements CatalogIf<Database> {
                             olapTable.getCompactionPolicy(), olapTable.getTimeSeriesCompactionGoalSizeMbytes(),
                             olapTable.getTimeSeriesCompactionFileCountThreshold(),
                             olapTable.getTimeSeriesCompactionTimeThresholdSeconds(),
-                            storeRowColumn, isDynamicSchema, binlogConfigForTask,
+                            storeRowColumn, binlogConfigForTask,
                             dataProperty.isStorageMediumSpecified());
                     olapTable.addPartition(partition);
                 }
@@ -2923,7 +2922,7 @@ public class InternalCatalog implements CatalogIf<Database> {
                         olapTable.getCompactionPolicy(), olapTable.getTimeSeriesCompactionGoalSizeMbytes(),
                         olapTable.getTimeSeriesCompactionFileCountThreshold(),
                         olapTable.getTimeSeriesCompactionTimeThresholdSeconds(),
-                        olapTable.storeRowColumn(), olapTable.isDynamicSchema(), binlogConfig,
+                        olapTable.storeRowColumn(), binlogConfig,
                         copiedTbl.getPartitionInfo().getDataProperty(oldPartitionId).isStorageMediumSpecified());
                 newPartitions.add(newPartition);
             }
@@ -3115,6 +3114,8 @@ public class InternalCatalog implements CatalogIf<Database> {
             idToDb.put(db.getId(), db);
             fullNameToDb.put(db.getFullName(), db);
             Env.getCurrentGlobalTransactionMgr().addDatabaseTransactionMgr(db.getId());
+
+            db.analyze();
         }
         // ATTN: this should be done after load Db, and before loadAlterJob
         recreateTabletInvertIndex();
@@ -3137,5 +3138,10 @@ public class InternalCatalog implements CatalogIf<Database> {
         Database db = getDbOrMetaException(log.getDbId());
         OlapTable olapTable = (OlapTable) db.getTableOrMetaException(log.getTableId(), TableType.OLAP);
         olapTable.getAutoIncrementGenerator().applyChange(log.getColumnId(), log.getBatchEndId());
+    }
+
+    @Override
+    public boolean enableAutoAnalyze() {
+        return true;
     }
 }

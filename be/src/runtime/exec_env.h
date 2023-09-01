@@ -17,11 +17,15 @@
 
 #pragma once
 
+#include <gen_cpp/HeartbeatService_types.h>
 #include <stddef.h>
 
 #include <algorithm>
+#include <atomic>
 #include <map>
 #include <memory>
+#include <mutex>
+#include <shared_mutex>
 #include <string>
 #include <unordered_map>
 #include <vector>
@@ -30,11 +34,14 @@
 #include "olap/memtable_memory_limiter.h"
 #include "olap/options.h"
 #include "util/threadpool.h"
+#include "vec/common/hash_table/phmap_fwd_decl.h"
 
 namespace doris {
+struct FrontendInfo;
 namespace vectorized {
 class VDataStreamMgr;
 class ScannerScheduler;
+using ZoneList = std::unordered_map<std::string, cctz::time_zone>;
 } // namespace vectorized
 namespace pipeline {
 class TaskScheduler;
@@ -58,6 +65,7 @@ class ResultBufferMgr;
 class ResultQueueMgr;
 class TMasterInfo;
 class LoadChannelMgr;
+class LoadStreamMgr;
 class StreamLoadExecutor;
 class RoutineLoadTaskExecutor;
 class SmallFileMgr;
@@ -71,6 +79,8 @@ class ClientCache;
 class HeartbeatFlags;
 class FrontendServiceClient;
 class FileMetaCache;
+
+inline bool k_doris_exit = false;
 
 // Execution environment for queries/plan fragments.
 // Contains all required global structures, and handles to
@@ -90,14 +100,11 @@ public:
         return &s_exec_env;
     }
 
-    // only used for test
-    ExecEnv();
-
     // Empty destructor because the compiler-generated one requires full
     // declarations for classes in scoped_ptrs.
     ~ExecEnv();
 
-    bool initialized() const { return _is_init; }
+    static bool ready() { return _s_ready.load(std::memory_order_acquire); }
     const std::string& token() const;
     ExternalScanContextMgr* external_scan_context_mgr() { return _external_scan_context_mgr; }
     doris::vectorized::VDataStreamMgr* vstream_mgr() { return _vstream_mgr; }
@@ -169,9 +176,6 @@ public:
 
     const std::vector<StorePath>& store_paths() const { return _store_paths; }
 
-    StorageEngine* storage_engine() { return _storage_engine; }
-    void set_storage_engine(StorageEngine* storage_engine) { _storage_engine = storage_engine; }
-
     std::shared_ptr<StreamLoadExecutor> stream_load_executor() { return _stream_load_executor; }
     RoutineLoadTaskExecutor* routine_load_task_executor() { return _routine_load_task_executor; }
     HeartbeatFlags* heartbeat_flags() { return _heartbeat_flags; }
@@ -183,6 +187,8 @@ public:
         _memtable_memory_limiter.reset(limiter);
     }
 #endif
+    vectorized::ZoneList& global_zone_cache() { return *_global_zone_cache; }
+    std::shared_mutex& zone_cache_rw_lock() { return _zone_cache_rw_lock; }
 
     // only for unit test
     void set_master_info(TMasterInfo* master_info) { this->_master_info = master_info; }
@@ -193,7 +199,13 @@ public:
         this->_stream_load_executor = stream_load_executor;
     }
 
+    void update_frontends(const std::vector<TFrontendInfo>& new_infos);
+    std::map<TNetworkAddress, FrontendInfo> get_frontends();
+    std::map<TNetworkAddress, FrontendInfo> get_running_frontends();
+
 private:
+    ExecEnv();
+
     Status _init(const std::vector<StorePath>& store_paths);
     void _destroy();
 
@@ -202,7 +214,7 @@ private:
     void _register_metrics();
     void _deregister_metrics();
 
-    bool _is_init;
+    inline static std::atomic_bool _s_ready {false};
     std::vector<StorePath> _store_paths;
 
     // Leave protected so that subclasses can override
@@ -256,8 +268,6 @@ private:
     BrpcClientCache<PBackendService_Stub>* _internal_client_cache = nullptr;
     BrpcClientCache<PFunctionService_Stub>* _function_client_cache = nullptr;
 
-    StorageEngine* _storage_engine = nullptr;
-
     std::shared_ptr<StreamLoadExecutor> _stream_load_executor;
     RoutineLoadTaskExecutor* _routine_load_task_executor = nullptr;
     SmallFileMgr* _small_file_mgr = nullptr;
@@ -268,6 +278,12 @@ private:
     // To save meta info of external file, such as parquet footer.
     FileMetaCache* _file_meta_cache = nullptr;
     std::unique_ptr<MemTableMemoryLimiter> _memtable_memory_limiter;
+
+    std::unique_ptr<vectorized::ZoneList> _global_zone_cache;
+    std::shared_mutex _zone_cache_rw_lock;
+
+    std::mutex _frontends_lock;
+    std::map<TNetworkAddress, FrontendInfo> _frontends;
 };
 
 template <>

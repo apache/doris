@@ -117,15 +117,12 @@ public:
     Status send(RuntimeState* state, Block* block, bool eos = false) override;
     Status try_close(RuntimeState* state, Status exec_status) override;
     Status close(RuntimeState* state, Status exec_status) override;
-    RuntimeProfile* profile() override { return _profile; }
 
     RuntimeState* state() { return _state; }
 
     void registe_channels(pipeline::ExchangeSinkBuffer<VDataStreamSender>* buffer);
 
     bool channel_all_can_write();
-
-    const RowDescriptor& row_desc() { return _row_desc; }
 
     int sender_id() const { return _sender_id; }
 
@@ -173,7 +170,6 @@ protected:
 
     RuntimeState* _state;
     ObjectPool* _pool;
-    const RowDescriptor& _row_desc;
 
     int _current_channel_idx; // index of current channel to send to if _random == true
 
@@ -195,7 +191,6 @@ protected:
     std::vector<Channel<VDataStreamSender>*> _channels;
     std::vector<std::shared_ptr<Channel<VDataStreamSender>>> _channel_shared_ptrs;
 
-    RuntimeProfile* _profile; // Allocated from _pool
     RuntimeProfile::Counter* _serialize_batch_timer;
     RuntimeProfile::Counter* _compress_timer;
     RuntimeProfile::Counter* _brpc_send_timer;
@@ -267,9 +262,6 @@ public:
         if (_closure != nullptr && _closure->unref()) {
             delete _closure;
         }
-        // release this before request desctruct
-        _brpc_request.release_finst_id();
-        _brpc_request.release_query_id();
     }
 
     // Initialize channel.

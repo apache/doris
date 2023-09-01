@@ -85,18 +85,19 @@ bool VecDateTimeValue::check_date(uint32_t year, uint32_t month, uint32_t day) {
 // YYYY-MM-DD HH-MM-DD.FFFFFF AM in default format
 // 0    1  2  3  4  5  6      7
 bool VecDateTimeValue::from_date_str(const char* date_str, int len) {
-    return from_date_str_base(date_str, len, nullptr, nullptr);
+    return from_date_str_base(date_str, len, nullptr, nullptr, nullptr);
 }
 //parse timezone to get offset
 bool VecDateTimeValue::from_date_str(const char* date_str, int len,
                                      const cctz::time_zone& local_time_zone,
-                                     ZoneList& time_zone_cache) {
-    return from_date_str_base(date_str, len, &local_time_zone, &time_zone_cache);
+                                     ZoneList& time_zone_cache, std::shared_mutex* cache_lock) {
+    return from_date_str_base(date_str, len, &local_time_zone, &time_zone_cache, cache_lock);
 }
 
 bool VecDateTimeValue::from_date_str_base(const char* date_str, int len,
                                           const cctz::time_zone* local_time_zone,
-                                          ZoneList* time_zone_cache) {
+                                          ZoneList* time_zone_cache,
+                                          std::shared_mutex* cache_lock) {
     const char* ptr = date_str;
     const char* end = date_str + len;
     // ONLY 2, 6 can follow by a space
@@ -165,13 +166,18 @@ bool VecDateTimeValue::from_date_str_base(const char* date_str, int len,
                 return false;
             }
             auto get_tz_offset = [&](const std::string& str_tz,
-                                     const cctz::time_zone* local_time_zone,
-                                     ZoneList* time_zone_cache) -> long {
-                // no lock needed because of the entity is of thread_local
+                                     const cctz::time_zone* local_time_zone) -> long {
+                cache_lock->lock_shared();
                 if (time_zone_cache->find(str_tz) == time_zone_cache->end()) { // not found
+                    cache_lock->unlock_shared();
+                    std::unique_lock<std::shared_mutex> lock_(*cache_lock);
+                    //TODO: the lock upgrade could be done in find_... function only when we push value into the hashmap
                     if (!TimezoneUtils::find_cctz_time_zone(str_tz, (*time_zone_cache)[str_tz])) {
+                        time_zone_cache->erase(str_tz);
                         throw Exception {ErrorCode::INVALID_ARGUMENT, ""};
                     }
+                } else {
+                    cache_lock->unlock_shared();
                 }
                 auto given = cctz::convert(cctz::civil_second {}, (*time_zone_cache)[str_tz]);
                 auto local = cctz::convert(cctz::civil_second {}, *local_time_zone);
@@ -179,8 +185,8 @@ bool VecDateTimeValue::from_date_str_base(const char* date_str, int len,
                 return std::chrono::duration_cast<std::chrono::seconds>(given - local).count();
             };
             try {
-                sec_offset = get_tz_offset(std::string {ptr, end}, local_time_zone,
-                                           time_zone_cache); // use the whole remain string
+                sec_offset = get_tz_offset(std::string {ptr, end},
+                                           local_time_zone); // use the whole remain string
             } catch ([[maybe_unused]] Exception& e) {
                 return false; // invalid format
             }
@@ -1869,6 +1875,12 @@ void VecDateTimeValue::create_from_date_v2(DateV2Value<T>& value, TimeType type)
     this->_neg = 0;
 }
 
+template <typename T>
+void VecDateTimeValue::create_from_date_v2(DateV2Value<T>&& value, TimeType type) {
+    DateV2Value<T> v = value;
+    create_from_date_v2(v, type);
+}
+
 std::ostream& operator<<(std::ostream& os, const VecDateTimeValue& value) {
     char buf[64];
     value.to_string(buf);
@@ -1951,19 +1963,20 @@ void DateV2Value<T>::format_datetime(uint32_t* date_val, bool* carry_bits) const
 // 0    1  2  3  4  5  6      7
 template <typename T>
 bool DateV2Value<T>::from_date_str(const char* date_str, int len, int scale /* = -1*/) {
-    return from_date_str_base(date_str, len, scale, nullptr, nullptr);
+    return from_date_str_base(date_str, len, scale, nullptr, nullptr, nullptr);
 }
 // when we parse
 template <typename T>
 bool DateV2Value<T>::from_date_str(const char* date_str, int len,
                                    const cctz::time_zone& local_time_zone,
-                                   ZoneList& time_zone_cache, int scale /* = -1*/) {
-    return from_date_str_base(date_str, len, scale, &local_time_zone, &time_zone_cache);
+                                   ZoneList& time_zone_cache, std::shared_mutex* cache_lock,
+                                   int scale /* = -1*/) {
+    return from_date_str_base(date_str, len, scale, &local_time_zone, &time_zone_cache, cache_lock);
 }
 template <typename T>
 bool DateV2Value<T>::from_date_str_base(const char* date_str, int len, int scale,
                                         const cctz::time_zone* local_time_zone,
-                                        ZoneList* time_zone_cache) {
+                                        ZoneList* time_zone_cache, std::shared_mutex* cache_lock) {
     const char* ptr = date_str;
     const char* end = date_str + len;
     // ONLY 2, 6 can follow by a space
@@ -2059,13 +2072,18 @@ bool DateV2Value<T>::from_date_str_base(const char* date_str, int len, int scale
                 return false;
             }
             auto get_tz_offset = [&](const std::string& str_tz,
-                                     const cctz::time_zone* local_time_zone,
-                                     ZoneList* time_zone_cache) -> long {
-                // no lock needed because of the entity is of thread_local
+                                     const cctz::time_zone* local_time_zone) -> long {
+                cache_lock->lock_shared();
                 if (time_zone_cache->find(str_tz) == time_zone_cache->end()) { // not found
+                    cache_lock->unlock_shared();
+                    std::unique_lock<std::shared_mutex> lock_(*cache_lock);
+                    //TODO: the lock upgrade could be done in find_... function only when we push value into the hashmap
                     if (!TimezoneUtils::find_cctz_time_zone(str_tz, (*time_zone_cache)[str_tz])) {
+                        time_zone_cache->erase(str_tz);
                         throw Exception {ErrorCode::INVALID_ARGUMENT, ""};
                     }
+                } else {
+                    cache_lock->unlock_shared();
                 }
                 auto given = cctz::convert(cctz::civil_second {}, (*time_zone_cache)[str_tz]);
                 auto local = cctz::convert(cctz::civil_second {}, *local_time_zone);
@@ -2073,8 +2091,8 @@ bool DateV2Value<T>::from_date_str_base(const char* date_str, int len, int scale
                 return std::chrono::duration_cast<std::chrono::seconds>(given - local).count();
             };
             try {
-                sec_offset = get_tz_offset(std::string {ptr, end}, local_time_zone,
-                                           time_zone_cache); // use the whole remain string
+                sec_offset = get_tz_offset(std::string {ptr, end},
+                                           local_time_zone); // use the whole remain string
             } catch ([[maybe_unused]] Exception& e) {
                 return false; // invalid format
             }
@@ -2656,19 +2674,36 @@ typename DateV2Value<T>::underlying_value DateV2Value<T>::to_date_int_val() cons
     return int_val_;
 }
 
-static std::array<DateV2Value<DateV2ValueType>, 25500> DATE_DAY_OFFSET_DICT;
+static std::array<DateV2Value<DateV2ValueType>, date_day_offset_dict::DICT_DAYS>
+        DATE_DAY_OFFSET_ITEMS;
+date_day_offset_dict date_day_offset_dict::instance = date_day_offset_dict();
 
-void init_date_day_offset_dict() {
+date_day_offset_dict& date_day_offset_dict::get() {
+    return instance;
+}
+
+date_day_offset_dict::date_day_offset_dict() {
     DateV2Value<DateV2ValueType> d;
     d.set_time(1969, 12, 31, 0, 0, 0, 0);
-    for (int i = 0; i < DATE_DAY_OFFSET_DICT.size(); ++i) {
-        DATE_DAY_OFFSET_DICT[i] = d;
+    for (int i = 0; i < DAY_AFTER_EPOCH; ++i) {
+        DATE_DAY_OFFSET_ITEMS[DAY_BEFORE_EPOCH + i] = d;
         d += 1;
+    }
+    d.set_time(1969, 12, 31, 0, 0, 0, 0);
+    for (int i = 0; i <= DAY_BEFORE_EPOCH; ++i) {
+        DATE_DAY_OFFSET_ITEMS[DAY_BEFORE_EPOCH - i] = d;
+        d -= 1;
     }
 }
 
-DateV2Value<DateV2ValueType>* get_date_day_offset_dict() {
-    return DATE_DAY_OFFSET_DICT.data();
+DateV2Value<DateV2ValueType> date_day_offset_dict::operator[](int day) {
+    int index = day + DAY_BEFORE_EPOCH;
+    if (LIKELY(index >= 0 && index < DICT_DAYS)) {
+        return DATE_DAY_OFFSET_ITEMS[index];
+    } else {
+        DateV2Value<DateV2ValueType> d = DATE_DAY_OFFSET_ITEMS[0];
+        return d += index;
+    }
 }
 
 template <typename T>
@@ -3622,8 +3657,12 @@ template std::size_t operator-(const DateV2Value<DateTimeV2ValueType>& v1,
 
 template void VecDateTimeValue::create_from_date_v2<DateV2ValueType>(
         DateV2Value<DateV2ValueType>& value, TimeType type);
+template void VecDateTimeValue::create_from_date_v2<DateV2ValueType>(
+        DateV2Value<DateV2ValueType>&& value, TimeType type);
 template void VecDateTimeValue::create_from_date_v2<DateTimeV2ValueType>(
         DateV2Value<DateTimeV2ValueType>& value, TimeType type);
+template void VecDateTimeValue::create_from_date_v2<DateTimeV2ValueType>(
+        DateV2Value<DateTimeV2ValueType>&& value, TimeType type);
 
 template int64_t VecDateTimeValue::second_diff<DateV2Value<DateV2ValueType>>(
         const DateV2Value<DateV2ValueType>& rhs) const;

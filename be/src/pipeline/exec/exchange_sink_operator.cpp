@@ -26,7 +26,6 @@
 #include "common/status.h"
 #include "exchange_sink_buffer.h"
 #include "pipeline/exec/operator.h"
-#include "pipeline/pipeline_x/pipeline_x_fragment_context.h"
 #include "vec/columns/column_const.h"
 #include "vec/exprs/vexpr.h"
 #include "vec/sink/vdata_stream_sender.h"
@@ -38,21 +37,16 @@ class DataSink;
 namespace doris::pipeline {
 
 ExchangeSinkOperatorBuilder::ExchangeSinkOperatorBuilder(int32_t id, DataSink* sink,
-                                                         PipelineFragmentContext* context,
                                                          int mult_cast_id)
-        : DataSinkOperatorBuilder(id, "ExchangeSinkOperator", sink),
-          _context(context),
-          _mult_cast_id(mult_cast_id) {}
+        : DataSinkOperatorBuilder(id, "ExchangeSinkOperator", sink), _mult_cast_id(mult_cast_id) {}
 
 OperatorPtr ExchangeSinkOperatorBuilder::build_operator() {
-    return std::make_shared<ExchangeSinkOperator>(this, _sink, _context, _mult_cast_id);
+    return std::make_shared<ExchangeSinkOperator>(this, _sink, _mult_cast_id);
 }
 
 ExchangeSinkOperator::ExchangeSinkOperator(OperatorBuilderBase* operator_builder, DataSink* sink,
-                                           PipelineFragmentContext* context, int mult_cast_id)
-        : DataSinkOperator(operator_builder, sink),
-          _context(context),
-          _mult_cast_id(mult_cast_id) {}
+                                           int mult_cast_id)
+        : DataSinkOperator(operator_builder, sink), _mult_cast_id(mult_cast_id) {}
 
 Status ExchangeSinkOperator::init(const TDataSink& tsink) {
     // -1 means not the mult cast stream sender
@@ -70,7 +64,7 @@ Status ExchangeSinkOperator::prepare(RuntimeState* state) {
     id.set_hi(_state->query_id().hi);
     id.set_lo(_state->query_id().lo);
     _sink_buffer = std::make_unique<ExchangeSinkBuffer<vectorized::VDataStreamSender>>(
-            id, _dest_node_id, _sink->_sender_id, _state->be_number(), _context);
+            id, _dest_node_id, _sink->_sender_id, _state->be_number(), state->get_query_ctx());
 
     RETURN_IF_ERROR(DataSinkOperator::prepare(state));
     _sink->registe_channels(_sink_buffer.get());
@@ -101,7 +95,9 @@ bool ExchangeSinkLocalState::transfer_large_data_by_brpc() const {
     return _parent->cast<ExchangeSinkOperatorX>()._transfer_large_data_by_brpc;
 }
 
-Status ExchangeSinkLocalState::init(RuntimeState* state, Dependency* dependency) {
+Status ExchangeSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& info) {
+    RETURN_IF_ERROR(PipelineXSinkLocalState<>::init(state, info));
+    _sender_id = info.sender_id;
     _broadcast_pb_blocks.resize(config::num_broadcast_buffer);
     _broadcast_pb_block_idx = 0;
     auto& p = _parent->cast<ExchangeSinkOperatorX>();
@@ -125,9 +121,7 @@ Status ExchangeSinkLocalState::init(RuntimeState* state, Dependency* dependency)
         instances.emplace_back(channel->get_fragment_instance_id_str());
     }
     std::string title = "VDataStreamSender (dst_id={}, dst_fragments=[{}])";
-    _profile = p._pool->add(new RuntimeProfile(title));
     SCOPED_TIMER(_profile->total_time_counter());
-    _mem_tracker = std::make_unique<MemTracker>("ExchangeSinkLocalState:");
     SCOPED_CONSUME_MEM_TRACKER(_mem_tracker.get());
 
     int local_size = 0;
@@ -153,7 +147,7 @@ Status ExchangeSinkLocalState::init(RuntimeState* state, Dependency* dependency)
     id.set_hi(_state->query_id().hi);
     id.set_lo(_state->query_id().lo);
     _sink_buffer = std::make_unique<ExchangeSinkBuffer<ExchangeSinkLocalState>>(
-            id, p._dest_node_id, _sender_id, _state->be_number(), p._context);
+            id, p._dest_node_id, _sender_id, _state->be_number(), state->get_query_ctx());
 
     register_channels(_sink_buffer.get());
 
@@ -187,11 +181,10 @@ segment_v2::CompressionTypePB& ExchangeSinkLocalState::compression_type() {
 }
 
 ExchangeSinkOperatorX::ExchangeSinkOperatorX(
-        const int id, RuntimeState* state, ObjectPool* pool, const RowDescriptor& row_desc,
+        RuntimeState* state, ObjectPool* pool, const RowDescriptor& row_desc,
         const TDataStreamSink& sink, const std::vector<TPlanFragmentDestination>& destinations,
-        bool send_query_statistics_with_every_batch, PipelineXFragmentContext* context)
-        : DataSinkOperatorX(id),
-          _context(context),
+        bool send_query_statistics_with_every_batch)
+        : DataSinkOperatorX(sink.dest_node_id),
           _pool(pool),
           _row_desc(row_desc),
           _part_type(sink.output_partition.type),
@@ -209,11 +202,10 @@ ExchangeSinkOperatorX::ExchangeSinkOperatorX(
 }
 
 ExchangeSinkOperatorX::ExchangeSinkOperatorX(
-        const int id, ObjectPool* pool, const RowDescriptor& row_desc, PlanNodeId dest_node_id,
+        ObjectPool* pool, const RowDescriptor& row_desc, PlanNodeId dest_node_id,
         const std::vector<TPlanFragmentDestination>& destinations,
-        bool send_query_statistics_with_every_batch, PipelineXFragmentContext* context)
-        : DataSinkOperatorX(id),
-          _context(context),
+        bool send_query_statistics_with_every_batch)
+        : DataSinkOperatorX(dest_node_id),
           _pool(pool),
           _row_desc(row_desc),
           _part_type(TPartitionType::UNPARTITIONED),
@@ -224,12 +216,9 @@ ExchangeSinkOperatorX::ExchangeSinkOperatorX(
     _name = "ExchangeSinkOperatorX";
 }
 
-ExchangeSinkOperatorX::ExchangeSinkOperatorX(const int id, ObjectPool* pool,
-                                             const RowDescriptor& row_desc,
-                                             bool send_query_statistics_with_every_batch,
-                                             PipelineXFragmentContext* context)
-        : DataSinkOperatorX(id),
-          _context(context),
+ExchangeSinkOperatorX::ExchangeSinkOperatorX(ObjectPool* pool, const RowDescriptor& row_desc,
+                                             bool send_query_statistics_with_every_batch)
+        : DataSinkOperatorX(0),
           _pool(pool),
           _row_desc(row_desc),
           _send_query_statistics_with_every_batch(send_query_statistics_with_every_batch),
@@ -251,12 +240,6 @@ Status ExchangeSinkOperatorX::init(const TDataSink& tsink) {
         // UNPARTITIONED
     }
     return Status::OK();
-}
-
-Status ExchangeSinkOperatorX::setup_local_state(RuntimeState* state, Dependency* dependency) {
-    auto local_state = ExchangeSinkLocalState::create_shared(this, state);
-    state->emplace_sink_local_state(id(), local_state);
-    return local_state->init(state, dependency);
 }
 
 Status ExchangeSinkOperatorX::prepare(RuntimeState* state) {
@@ -523,8 +506,18 @@ Status ExchangeSinkOperatorX::channel_add_rows(RuntimeState* state, Channels& ch
     Status status;
     for (int i = 0; i < num_channels; ++i) {
         if (!channels[i]->is_receiver_eof() && !channel2rows[i].empty()) {
-            status = channels[i]->add_rows(block, channel2rows[i], eos);
+            status = channels[i]->add_rows(block, channel2rows[i], false);
             HANDLE_CHANNEL_STATUS(state, channels[i], status);
+            channel2rows[i].clear();
+        }
+    }
+
+    if (eos) {
+        for (int i = 0; i < num_channels; ++i) {
+            if (!channels[i]->is_receiver_eof()) {
+                status = channels[i]->add_rows(block, channel2rows[i], true);
+                HANDLE_CHANNEL_STATUS(state, channels[i], status);
+            }
         }
     }
 
@@ -533,8 +526,7 @@ Status ExchangeSinkOperatorX::channel_add_rows(RuntimeState* state, Channels& ch
 
 Status ExchangeSinkOperatorX::try_close(RuntimeState* state) {
     auto& local_state = state->get_sink_local_state(id())->cast<ExchangeSinkLocalState>();
-    DCHECK(local_state._serializer.get_block() == nullptr ||
-           local_state._serializer.get_block()->rows() == 0);
+    local_state._serializer.reset_block();
     Status final_st = Status::OK();
     for (int i = 0; i < local_state.channels.size(); ++i) {
         Status st = local_state.channels[i]->close(state);
@@ -545,15 +537,13 @@ Status ExchangeSinkOperatorX::try_close(RuntimeState* state) {
     return final_st;
 }
 
-Status ExchangeSinkOperatorX::close(RuntimeState* state) {
-    auto& local_state = state->get_sink_local_state(id())->cast<ExchangeSinkLocalState>();
+Status ExchangeSinkLocalState::close(RuntimeState* state) {
     if (_closed) {
         return Status::OK();
     }
-    RETURN_IF_ERROR(DataSinkOperatorX::close(state));
-    local_state._sink_buffer->update_profile(local_state.profile());
-    local_state._sink_buffer->close();
-    return Status::OK();
+    _sink_buffer->update_profile(profile());
+    _sink_buffer->close();
+    return PipelineXSinkLocalState<>::close(state);
 }
 
 bool ExchangeSinkOperatorX::can_write(RuntimeState* state) {

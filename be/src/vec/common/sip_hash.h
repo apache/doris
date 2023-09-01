@@ -169,7 +169,6 @@ public:
         }
     }
 
-    /// NOTE: std::has_unique_object_representations is only available since clang 6. As of Mar 2017 we still use clang 5 sometimes.
     template <typename T>
         requires std::is_standard_layout_v<T>
     void update(const T& x) {

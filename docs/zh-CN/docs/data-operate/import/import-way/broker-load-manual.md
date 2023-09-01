@@ -434,6 +434,10 @@ FE 的配置参数 `async_loading_load_task_pool_size` 用于限制同时运行�
 
   注：如果使用某些 hive 版本直接生成的 orc 文件，orc 文件中的表头并非 hive meta 数据，而是（_col0, _col1, _col2, ...）, 可能导致 Invalid Column Name 错误，那么则需要使用 set 进行映射
 
+- 导入报错：`Failed to get S3 FileSystem for bucket is null/empty`
+  1. bucket信息填写不正确或者不存在。
+  2. bucket的格式不受支持。使用GCS创建带`_`的桶名时，比如：`s3://gs_bucket/load_tbl`，S3 Client访问GCS会报错，建议创建bucket路径时不使用`_`。
+
 ## 更多帮助
 
 关于 Broker Load 使用的更多详细语法及最佳实践，请参阅 [Broker Load](../../../sql-manual/sql-reference/Data-Manipulation-Statements/Load/BROKER-LOAD.md) 命令手册，你也可以在 MySql 客户端命令行下输入 `HELP BROKER LOAD` 获取更多帮助信息。

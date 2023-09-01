@@ -1515,3 +1515,8 @@ load tablets from header failed, failed tablets size: xxx, path=xxx
 
 * 描述: `local` 表函数查询的文件的存储目录。
 * 默认值: `${DORIS_HOME}`
+
+#### `brpc_streaming_client_batch_bytes`
+
+* 描述: brpc streaming 客户端发送数据时的攒批大小（字节）
+* 默认值: 262144

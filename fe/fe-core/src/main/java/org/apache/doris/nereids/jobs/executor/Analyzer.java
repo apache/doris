@@ -19,6 +19,8 @@ package org.apache.doris.nereids.jobs.executor;
 
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.jobs.rewrite.RewriteJob;
+import org.apache.doris.nereids.processor.pre.EliminateLogicalSelectHint;
+import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.rules.analysis.AdjustAggregateNullableForEmptySet;
 import org.apache.doris.nereids.rules.analysis.AnalyzeCTE;
 import org.apache.doris.nereids.rules.analysis.BindExpression;
@@ -28,7 +30,9 @@ import org.apache.doris.nereids.rules.analysis.BindSink;
 import org.apache.doris.nereids.rules.analysis.CheckAnalysis;
 import org.apache.doris.nereids.rules.analysis.CheckBound;
 import org.apache.doris.nereids.rules.analysis.CheckPolicy;
+import org.apache.doris.nereids.rules.analysis.EliminateGroupByConstant;
 import org.apache.doris.nereids.rules.analysis.FillUpMissingSlots;
+import org.apache.doris.nereids.rules.analysis.NormalizeAggregate;
 import org.apache.doris.nereids.rules.analysis.NormalizeRepeat;
 import org.apache.doris.nereids.rules.analysis.ProjectToGlobalAggregate;
 import org.apache.doris.nereids.rules.analysis.ProjectWithDistinctToAggregate;
@@ -79,6 +83,8 @@ public class Analyzer extends AbstractBatchJobExecutor {
 
     private static List<RewriteJob> buildAnalyzeJobs(Optional<CustomTableResolver> customTableResolver) {
         return jobs(
+            // we should eliminate hint after "Subquery unnesting" because some hint maybe exist in the CTE or subquery.
+            custom(RuleType.ELIMINATE_HINT, EliminateLogicalSelectHint::new),
             topDown(new AnalyzeCTE()),
             bottomUp(
                 new BindRelation(customTableResolver),
@@ -106,9 +112,14 @@ public class Analyzer extends AbstractBatchJobExecutor {
                 // LogicalProject for normalize. This rule depends on FillUpMissingSlots to fill up slots.
                 new NormalizeRepeat()
             ),
-            bottomUp(new SubqueryToApply()),
             bottomUp(new AdjustAggregateNullableForEmptySet()),
-            bottomUp(new CheckAnalysis())
+            // run CheckAnalysis before EliminateGroupByConstant in order to report error message correctly like bellow
+            // select SUM(lo_tax) FROM lineorder group by 1;
+            // errCode = 2, detailMessage = GROUP BY expression must not contain aggregate functions: sum(lo_tax)
+            bottomUp(new CheckAnalysis()),
+            topDown(new EliminateGroupByConstant()),
+            topDown(new NormalizeAggregate()),
+            bottomUp(new SubqueryToApply())
         );
     }
 }

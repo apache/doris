@@ -1554,7 +1554,21 @@ public class Config extends ConfigBase {
     public static boolean enable_pipeline_load = false;
 
     @ConfField
-    public static int scheduler_job_task_max_num = 10;
+    public static int scheduler_job_task_max_saved_count = 10;
+
+    /**
+     * The number of async tasks that can be queued. @See TaskDisruptor
+     * if consumer is slow, the queue will be full, and the producer will be blocked.
+     */
+    @ConfField
+    public static int async_task_queen_size = 1024;
+
+    /**
+     * The number of threads used to consume async tasks. @See TaskDisruptor
+     * if we have a lot of async tasks, we need more threads to consume them. Sure, it's depends on the cpu cores.
+     */
+    @ConfField
+    public static int async_task_consumer_thread_num = 10;
 
     // enable_workload_group should be immutable and temporarily set to mutable during the development test phase
     @ConfField(mutable = true, varType = VariableAnnotation.EXPERIMENTAL)
@@ -1770,7 +1784,7 @@ public class Config extends ConfigBase {
      * For external schema cache and hive meta cache.
      */
     @ConfField(mutable = false, masterOnly = false)
-    public static long external_cache_expire_time_minutes_after_access = 24 * 60; // 1 day
+    public static long external_cache_expire_time_minutes_after_access = 10; // 10 mins
 
     /**
      * Github workflow test type, for setting some session variables
@@ -2087,7 +2101,7 @@ public class Config extends ConfigBase {
     public static int force_olap_table_replication_num = 0;
 
     @ConfField
-    public static int full_auto_analyze_simultaneously_running_task_num = 5;
+    public static int full_auto_analyze_simultaneously_running_task_num = 1;
 
     @ConfField
     public static int cpu_resource_limit_per_analyze_task = 1;
@@ -2111,4 +2125,22 @@ public class Config extends ConfigBase {
             "是否用 mysql 的 bigint 类型来返回 Doris 的 largeint 类型",
             "Whether to use mysql's bigint type to return Doris's largeint type"})
     public static boolean use_mysql_bigint_for_largeint = false;
+
+    @ConfField(description = {
+            "是否开启列权限",
+            "Whether to enable col auth"})
+    public static boolean enable_col_auth = false;
+
+    @ConfField
+    public static boolean forbid_running_alter_job = false;
+
+    @ConfField
+    public static int table_stats_health_threshold = 80;
+    @ConfField(mutable = true, masterOnly = false, description = {
+            "查询information_schema.metadata_name_ids表时,获取一个数据库中所有表用的时间",
+            "When querying the information_schema.metadata_name_ids table,"
+                    + " the time used to obtain all tables in one database"
+    })
+    public static long query_metadata_name_ids_timeout = 3;
+
 }

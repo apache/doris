@@ -109,9 +109,8 @@ class PriorityTaskQueue;
 // The class do the pipeline task. Minest schdule union by task scheduler
 class PipelineTask {
 public:
-    PipelineTask(PipelinePtr& pipeline, uint32_t index, RuntimeState* state, Operators& operators,
-                 OperatorPtr& sink, PipelineFragmentContext* fragment_context,
-                 RuntimeProfile* parent_profile);
+    PipelineTask(PipelinePtr& pipeline, uint32_t index, RuntimeState* state, OperatorPtr& sink,
+                 PipelineFragmentContext* fragment_context, RuntimeProfile* parent_profile);
 
     PipelineTask(PipelinePtr& pipeline, uint32_t index, RuntimeState* state,
                  PipelineFragmentContext* fragment_context, RuntimeProfile* parent_profile);
@@ -155,13 +154,13 @@ public:
         return false;
     }
 
-    virtual bool source_can_read() { return _source->can_read(); }
+    virtual bool source_can_read() { return _source->can_read() || _pipeline->_always_can_read; }
 
     virtual bool runtime_filters_are_ready_or_timeout() {
         return _source->runtime_filters_are_ready_or_timeout();
     }
 
-    virtual bool sink_can_write() { return _sink->can_write(); }
+    virtual bool sink_can_write() { return _sink->can_write() || _pipeline->_always_can_write; }
 
     virtual Status finalize();
 
@@ -246,10 +245,12 @@ public:
         }
     }
 
+    TUniqueId instance_id() const { return _state->fragment_instance_id(); }
+
 protected:
     void _finish_p_dependency() {
         for (const auto& p : _pipeline->_parents) {
-            p.lock()->finish_one_dependency(_previous_schedule_id);
+            p.second.lock()->finish_one_dependency(p.first, _previous_schedule_id);
         }
     }
 

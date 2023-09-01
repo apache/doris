@@ -21,17 +21,17 @@ import org.apache.doris.analysis.LiteralExpr;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.PartitionInfo;
 import org.apache.doris.catalog.Type;
-import org.apache.doris.statistics.util.InternalQueryResult.ResultRow;
+import org.apache.doris.common.AnalysisException;
 import org.apache.doris.statistics.util.StatisticsUtil;
 
 import com.google.common.base.Preconditions;
+import com.google.common.collect.Sets;
 import com.google.gson.annotations.SerializedName;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.json.JSONObject;
 
 import java.util.HashMap;
-import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -56,22 +56,10 @@ public class ColumnStatistic {
             .setNumNulls(0).setCount(0).setMaxValue(Double.NaN).setMinValue(Double.NaN)
             .build();
 
-    public static final Set<Type> UNSUPPORTED_TYPE = new HashSet<>();
-
-    static {
-        UNSUPPORTED_TYPE.add(Type.HLL);
-        UNSUPPORTED_TYPE.add(Type.BITMAP);
-        UNSUPPORTED_TYPE.add(Type.ARRAY);
-        UNSUPPORTED_TYPE.add(Type.STRUCT);
-        UNSUPPORTED_TYPE.add(Type.MAP);
-        UNSUPPORTED_TYPE.add(Type.QUANTILE_STATE);
-        UNSUPPORTED_TYPE.add(Type.AGG_STATE);
-        UNSUPPORTED_TYPE.add(Type.JSONB);
-        UNSUPPORTED_TYPE.add(Type.VARIANT);
-        UNSUPPORTED_TYPE.add(Type.TIME);
-        UNSUPPORTED_TYPE.add(Type.TIMEV2);
-        UNSUPPORTED_TYPE.add(Type.LAMBDA_FUNCTION);
-    }
+    public static final Set<Type> UNSUPPORTED_TYPE = Sets.newHashSet(
+            Type.HLL, Type.BITMAP, Type.ARRAY, Type.STRUCT, Type.MAP, Type.QUANTILE_STATE, Type.AGG_STATE, Type.JSONB,
+            Type.VARIANT, Type.TIME, Type.TIMEV2, Type.LAMBDA_FUNCTION
+    );
 
     @SerializedName("count")
     public final double count;
@@ -135,7 +123,7 @@ public class ColumnStatistic {
         ColumnStatistic columnStatistic = null;
         try {
             for (ResultRow resultRow : resultRows) {
-                String partId = resultRow.getColumnValue("part_id");
+                String partId = resultRow.get(6);
                 if (partId == null) {
                     columnStatistic = fromResultRow(resultRow);
                 } else {
@@ -152,50 +140,60 @@ public class ColumnStatistic {
     }
 
     // TODO: use thrift
-    public static ColumnStatistic fromResultRow(ResultRow resultRow) {
+    public static ColumnStatistic fromResultRow(ResultRow row) {
         try {
             ColumnStatisticBuilder columnStatisticBuilder = new ColumnStatisticBuilder();
-            double count = Double.parseDouble(resultRow.getColumnValueWithDefault("count", "0"));
+            double count = Double.parseDouble(row.get(7));
             columnStatisticBuilder.setCount(count);
-            double ndv = Double.parseDouble(resultRow.getColumnValueWithDefault("ndv", "0"));
+            double ndv = Double.parseDouble(row.getWithDefault(8, "0"));
             columnStatisticBuilder.setNdv(ndv);
-            String nullCount = resultRow.getColumnValueWithDefault("null_count", "0");
+            String nullCount = row.getWithDefault(9, "0");
             columnStatisticBuilder.setNumNulls(Double.parseDouble(nullCount));
             columnStatisticBuilder.setDataSize(Double
-                    .parseDouble(resultRow.getColumnValueWithDefault("data_size_in_bytes", "0")));
+                    .parseDouble(row.getWithDefault(12, "0")));
             columnStatisticBuilder.setAvgSizeByte(columnStatisticBuilder.getCount() == 0
                     ? 0 : columnStatisticBuilder.getDataSize()
                     / columnStatisticBuilder.getCount());
-            long catalogId = Long.parseLong(resultRow.getColumnValue("catalog_id"));
-            long idxId = Long.parseLong(resultRow.getColumnValue("idx_id"));
-            long dbID = Long.parseLong(resultRow.getColumnValue("db_id"));
-            long tblId = Long.parseLong(resultRow.getColumnValue("tbl_id"));
-            String colName = resultRow.getColumnValue("col_id");
+            long catalogId = Long.parseLong(row.get(1));
+            long idxId = Long.parseLong(row.get(4));
+            long dbID = Long.parseLong(row.get(2));
+            long tblId = Long.parseLong(row.get(3));
+            String colName = row.get(5);
             Column col = StatisticsUtil.findColumn(catalogId, dbID, tblId, idxId, colName);
             if (col == null) {
                 LOG.warn("Failed to deserialize column statistics, ctlId: {} dbId: {}"
-                        + "tblId: {} column: {} not exists",
+                                + "tblId: {} column: {} not exists",
                         catalogId, dbID, tblId, colName);
                 return ColumnStatistic.UNKNOWN;
             }
-            String min = resultRow.getColumnValue("min");
-            String max = resultRow.getColumnValue("max");
+            String min = row.get(10);
+            String max = row.get(11);
             if (min != null && !min.equalsIgnoreCase("NULL")) {
-                columnStatisticBuilder.setMinValue(StatisticsUtil.convertToDouble(col.getType(), min));
-                columnStatisticBuilder.setMinExpr(StatisticsUtil.readableValue(col.getType(), min));
+                try {
+                    columnStatisticBuilder.setMinValue(StatisticsUtil.convertToDouble(col.getType(), min));
+                    columnStatisticBuilder.setMinExpr(StatisticsUtil.readableValue(col.getType(), min));
+                } catch (AnalysisException e) {
+                    LOG.warn("Failed to deserialize column {} min value {}.", col, min, e);
+                    columnStatisticBuilder.setMinValue(Double.MIN_VALUE);
+                }
             } else {
                 columnStatisticBuilder.setMinValue(Double.MIN_VALUE);
             }
             if (max != null && !max.equalsIgnoreCase("NULL")) {
-                columnStatisticBuilder.setMaxValue(StatisticsUtil.convertToDouble(col.getType(), max));
-                columnStatisticBuilder.setMaxExpr(StatisticsUtil.readableValue(col.getType(), max));
+                try {
+                    columnStatisticBuilder.setMaxValue(StatisticsUtil.convertToDouble(col.getType(), max));
+                    columnStatisticBuilder.setMaxExpr(StatisticsUtil.readableValue(col.getType(), max));
+                } catch (AnalysisException e) {
+                    LOG.warn("Failed to deserialize column {} max value {}.", col, max, e);
+                    columnStatisticBuilder.setMaxValue(Double.MAX_VALUE);
+                }
             } else {
                 columnStatisticBuilder.setMaxValue(Double.MAX_VALUE);
             }
-            columnStatisticBuilder.setUpdatedTime(resultRow.getColumnValue("update_time"));
+            columnStatisticBuilder.setUpdatedTime(row.get(13));
             return columnStatisticBuilder.build();
         } catch (Exception e) {
-            LOG.warn("Failed to deserialize column statistics, column not exists", e);
+            LOG.warn("Failed to deserialize column statistics.", e);
             return ColumnStatistic.UNKNOWN;
         }
     }

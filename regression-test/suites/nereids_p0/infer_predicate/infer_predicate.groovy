@@ -53,5 +53,6 @@ suite("test_infer_predicate") {
         sql "select * from infer_tb1 left join infer_tb2 on infer_tb1.k1 = infer_tb2.k3 left join infer_tb3 on " +
                 "infer_tb2.k3 = infer_tb3.k2 where infer_tb1.k1 = 1;"
         contains "PREDICATES: k3"
+        contains "PREDICATES: k2"
     }
 }

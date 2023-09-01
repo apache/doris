@@ -286,6 +286,9 @@ DEFINE_mInt32(default_num_rows_per_column_file_block, "1024");
 DEFINE_mInt32(pending_data_expire_time_sec, "1800");
 // inc_rowset snapshot rs sweep time interval
 DEFINE_mInt32(tablet_rowset_stale_sweep_time_sec, "300");
+// tablet stale rowset sweep by threshold size
+DEFINE_Bool(tablet_rowset_stale_sweep_by_size, "false");
+DEFINE_mInt32(tablet_rowset_stale_sweep_threshold_size, "100");
 // garbage sweep policy
 DEFINE_Int32(max_garbage_sweep_interval, "3600");
 DEFINE_Int32(min_garbage_sweep_interval, "180");
@@ -297,6 +300,7 @@ DEFINE_mInt32(trash_file_expire_time_sec, "259200");
 // minimum file descriptor number
 // modify them upon necessity
 DEFINE_Int32(min_file_descriptor_number, "60000");
+DEFINE_mBool(disable_segment_cache, "false");
 DEFINE_Int64(index_stream_cache_capacity, "10737418240");
 DEFINE_String(row_cache_mem_limit, "20%");
 
@@ -483,6 +487,8 @@ DEFINE_mInt32(stream_load_record_batch_size, "50");
 DEFINE_Int32(stream_load_record_expire_time_secs, "28800");
 // time interval to clean expired stream load records
 DEFINE_mInt64(clean_stream_load_record_interval_secs, "1800");
+// The buffer size to store stream table function schema info
+DEFINE_Int64(stream_tvf_buffer_size, "1048576"); // 1MB
 
 // OlapTableSink sender's send interval, should be less than the real response time of a tablet writer rpc.
 // You may need to lower the speed when the sink receiver bes are too busy.
@@ -723,6 +729,11 @@ DEFINE_mInt32(mem_tracker_consume_min_size_bytes, "1048576");
 // In most cases, it does not need to be modified.
 DEFINE_mDouble(tablet_version_graph_orphan_vertex_ratio, "0.1");
 
+// number of brpc stream per OlapTableSinkV2
+DEFINE_Int32(num_streams_per_sink, "5");
+// timeout for open stream sink rpc in ms
+DEFINE_Int64(open_stream_sink_timeout_ms, "500");
+
 // max send batch parallelism for OlapTableSink
 // The value set by the user for send_batch_parallelism is not allowed to exceed max_send_batch_parallelism_per_job,
 // if exceed, the value of send_batch_parallelism would be max_send_batch_parallelism_per_job
@@ -765,6 +776,7 @@ DEFINE_mInt32(max_remote_storage_count, "10");
 // and the valid values are: 0.9.0.x, 0.8.x.y.
 DEFINE_String(kafka_api_version_request, "true");
 DEFINE_String(kafka_broker_version_fallback, "0.10.0");
+DEFINE_String(kafka_debug, "disable");
 
 // The number of pool siz of routine load consumer.
 // If you meet the error describe in https://github.com/edenhill/librdkafka/issues/3608
@@ -839,6 +851,9 @@ DEFINE_Validator(jsonb_type_length_soft_limit_bytes,
 // is greater than object_pool_buffer_size, release the object in the unused_object_pool.
 DEFINE_Int32(object_pool_buffer_size, "100");
 
+// Threshold of reading a small file into memory
+DEFINE_mInt32(in_memory_file_size, "1048576"); // 1MB
+
 // ParquetReaderWrap prefetch buffer size
 DEFINE_Int32(parquet_reader_max_buffer_size, "50");
 // Max size of parquet page header in bytes
@@ -893,6 +908,9 @@ DEFINE_Int32(doris_remote_scanner_thread_pool_queue_size, "102400");
 
 // limit the queue of pending batches which will be sent by a single nodechannel
 DEFINE_mInt64(nodechannel_pending_queue_max_bytes, "67108864");
+
+// The batch size for sending data by brpc streaming client
+DEFINE_mInt64(brpc_streaming_client_batch_bytes, "262144");
 
 // Max waiting time to wait the "plan fragment start" rpc.
 // If timeout, the fragment will be cancelled.
@@ -1060,6 +1078,8 @@ DEFINE_mBool(enable_merge_on_write_correctness_check, "true");
 DEFINE_mString(user_files_secure_path, "${DORIS_HOME}");
 
 DEFINE_Int32(partition_topn_partition_threshold, "1024");
+
+DEFINE_Int32(fe_expire_duration_seconds, "60");
 
 #ifdef BE_TEST
 // test s3
@@ -1498,7 +1518,11 @@ std::vector<std::vector<std::string>> get_config_info() {
         _config.push_back(it.first);
 
         _config.push_back(field_it->second.type);
-        _config.push_back(it.second);
+        if (0 == strcmp(field_it->second.type, "bool")) {
+            _config.push_back(it.second == "1" ? "true" : "false");
+        } else {
+            _config.push_back(it.second);
+        }
         _config.push_back(field_it->second.valmutable ? "true" : "false");
 
         configs.push_back(_config);

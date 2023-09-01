@@ -73,7 +73,8 @@ public class ComputeSignatureHelper {
                 collectAnyDataType(((MapType) sigType).getKeyType(), NullType.INSTANCE, indexToArgumentTypes);
                 collectAnyDataType(((MapType) sigType).getValueType(), NullType.INSTANCE, indexToArgumentTypes);
             } else if (sigType instanceof StructType) {
-                throw new AnalysisException("do not support struct type now");
+                // TODO: do not support struct type now
+                // throw new AnalysisException("do not support struct type now");
             } else {
                 if (sigType instanceof AnyDataType && ((AnyDataType) sigType).getIndex() >= 0) {
                     List<DataType> dataTypes = indexToArgumentTypes.computeIfAbsent(
@@ -90,7 +91,8 @@ public class ComputeSignatureHelper {
             collectAnyDataType(((MapType) sigType).getValueType(),
                     ((MapType) expressionType).getValueType(), indexToArgumentTypes);
         } else if (sigType instanceof StructType && expressionType instanceof StructType) {
-            throw new AnalysisException("do not support struct type now");
+            // TODO: do not support struct type now
+            // throw new AnalysisException("do not support struct type now");
         } else {
             if (sigType instanceof AnyDataType && ((AnyDataType) sigType).getIndex() >= 0) {
                 List<DataType> dataTypes = indexToArgumentTypes.computeIfAbsent(
@@ -112,7 +114,8 @@ public class ComputeSignatureHelper {
                 collectFollowToAnyDataType(((MapType) sigType).getValueType(),
                         NullType.INSTANCE, indexToArgumentTypes, allNullTypeIndex);
             } else if (sigType instanceof StructType) {
-                throw new AnalysisException("do not support struct type now");
+                // TODO: do not support struct type now
+                // throw new AnalysisException("do not support struct type now");
             } else {
                 if (sigType instanceof FollowToAnyDataType
                         && allNullTypeIndex.contains(((FollowToAnyDataType) sigType).getIndex())) {
@@ -130,7 +133,8 @@ public class ComputeSignatureHelper {
             collectFollowToAnyDataType(((MapType) sigType).getValueType(),
                     ((MapType) expressionType).getValueType(), indexToArgumentTypes, allNullTypeIndex);
         } else if (sigType instanceof StructType && expressionType instanceof StructType) {
-            throw new AnalysisException("do not support struct type now");
+            // TODO: do not support struct type now
+            // throw new AnalysisException("do not support struct type now");
         } else {
             if (sigType instanceof FollowToAnyDataType
                     && allNullTypeIndex.contains(((FollowToAnyDataType) sigType).getIndex())) {
@@ -149,7 +153,9 @@ public class ComputeSignatureHelper {
             return MapType.of(replaceAnyDataType(((MapType) dataType).getKeyType(), indexToCommonTypes),
                     replaceAnyDataType(((MapType) dataType).getValueType(), indexToCommonTypes));
         } else if (dataType instanceof StructType) {
-            throw new AnalysisException("do not support struct type now");
+            // TODO: do not support struct type now
+            // throw new AnalysisException("do not support struct type now");
+            return dataType;
         } else {
             if (dataType instanceof AnyDataType && ((AnyDataType) dataType).getIndex() >= 0) {
                 Optional<DataType> optionalDataType = indexToCommonTypes.get(((AnyDataType) dataType).getIndex());
@@ -177,7 +183,7 @@ public class ComputeSignatureHelper {
             DataType sigType;
             if (i >= signature.argumentsTypes.size()) {
                 sigType = signature.getVarArgType().orElseThrow(
-                        () -> new IllegalStateException("function arity not match with signature"));
+                        () -> new AnalysisException("function arity not match with signature"));
             } else {
                 sigType = signature.argumentsTypes.get(i);
             }
@@ -334,6 +340,10 @@ public class ComputeSignatureHelper {
             if (!(targetType instanceof DecimalV3Type)) {
                 continue;
             }
+            // only process wildcard decimalv3
+            if (((DecimalV3Type) targetType).getPrecision() > 0) {
+                continue;
+            }
             if (finalType == null) {
                 finalType = DecimalV3Type.forType(arguments.get(i).getDataType());
             } else {
@@ -347,19 +357,20 @@ public class ComputeSignatureHelper {
                 }
                 finalType = DecimalV3Type.widerDecimalV3Type((DecimalV3Type) finalType, argType, true);
             }
-            Preconditions.checkState(finalType.isDecimalV3Type(),
-                    "decimalv3 precision promotion failed.");
+            Preconditions.checkState(finalType.isDecimalV3Type(), "decimalv3 precision promotion failed.");
         }
         DataType argType = finalType;
         List<DataType> newArgTypes = signature.argumentsTypes.stream().map(t -> {
-            if (t instanceof DecimalV3Type) {
+            // only process wildcard decimalv3
+            if (t instanceof DecimalV3Type && ((DecimalV3Type) t).getPrecision() <= 0) {
                 return argType;
             } else {
                 return t;
             }
         }).collect(Collectors.toList());
         signature = signature.withArgumentTypes(signature.hasVarArgs, newArgTypes);
-        if (signature.returnType instanceof DecimalV3Type) {
+        if (signature.returnType instanceof DecimalV3Type
+                && ((DecimalV3Type) signature.returnType).getPrecision() <= 0) {
             signature = signature.withReturnType(argType);
         }
         return signature;

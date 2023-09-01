@@ -261,22 +261,26 @@ Status VFileScanner::_get_block_impl(RuntimeState* state, Block* block, bool* eo
         // use read_rows instead of _src_block_ptr->rows(), because the first column of _src_block_ptr
         // may not be filled after calling `get_next_block()`, so _src_block_ptr->rows() may return wrong result.
         if (read_rows > 0) {
-            // Convert the src block columns type to string in-place.
-            RETURN_IF_ERROR(_cast_to_input_block(block));
-            // FileReader can fill partition and missing columns itself
-            if (!_cur_reader->fill_all_columns()) {
-                // Fill rows in src block with partition columns from path. (e.g. Hive partition columns)
-                RETURN_IF_ERROR(_fill_columns_from_path(read_rows));
-                // Fill columns not exist in file with null or default value
-                RETURN_IF_ERROR(_fill_missing_columns(read_rows));
+            // If the push_down_agg_type is COUNT, no need to do the rest,
+            // because we only save a number in block.
+            if (_parent->get_push_down_agg_type() != TPushAggOp::type::COUNT) {
+                // Convert the src block columns type to string in-place.
+                RETURN_IF_ERROR(_cast_to_input_block(block));
+                // FileReader can fill partition and missing columns itself
+                if (!_cur_reader->fill_all_columns()) {
+                    // Fill rows in src block with partition columns from path. (e.g. Hive partition columns)
+                    RETURN_IF_ERROR(_fill_columns_from_path(read_rows));
+                    // Fill columns not exist in file with null or default value
+                    RETURN_IF_ERROR(_fill_missing_columns(read_rows));
+                }
+                // Apply _pre_conjunct_ctxs to filter src block.
+                RETURN_IF_ERROR(_pre_filter_src_block());
+                // Convert src block to output block (dest block), string to dest data type and apply filters.
+                RETURN_IF_ERROR(_convert_to_output_block(block));
+                // Truncate char columns or varchar columns if size is smaller than file columns
+                // or not found in the file column schema.
+                RETURN_IF_ERROR(_truncate_char_or_varchar_columns(block));
             }
-            // Apply _pre_conjunct_ctxs to filter src block.
-            RETURN_IF_ERROR(_pre_filter_src_block());
-            // Convert src block to output block (dest block), string to dest data type and apply filters.
-            RETURN_IF_ERROR(_convert_to_output_block(block));
-            // Truncate char columns or varchar columns if size is smaller than file columns
-            // or not found in the file column schema.
-            RETURN_IF_ERROR(_truncate_char_or_varchar_columns(block));
             break;
         }
     } while (true);
@@ -335,7 +339,7 @@ Status VFileScanner::_init_src_block(Block* block) {
     for (auto& slot : _input_tuple_desc->slots()) {
         DataTypePtr data_type;
         auto it = _name_to_col_type.find(slot->col_name());
-        if (it == _name_to_col_type.end() || _is_dynamic_schema) {
+        if (it == _name_to_col_type.end()) {
             // not exist in file, using type from _input_tuple_desc
             RETURN_IF_CATCH_EXCEPTION(data_type = DataTypeFactory::instance().create_data_type(
                                               slot->type(), slot->is_nullable()));
@@ -355,9 +359,6 @@ Status VFileScanner::_init_src_block(Block* block) {
 
 Status VFileScanner::_cast_to_input_block(Block* block) {
     if (!_is_load) {
-        return Status::OK();
-    }
-    if (_is_dynamic_schema) {
         return Status::OK();
     }
     SCOPED_TIMER(_cast_to_input_block_timer);
@@ -758,8 +759,10 @@ Status VFileScanner::_get_next_reader() {
         case TFileFormatType::FORMAT_CSV_GZ:
         case TFileFormatType::FORMAT_CSV_BZ2:
         case TFileFormatType::FORMAT_CSV_LZ4FRAME:
+        case TFileFormatType::FORMAT_CSV_LZ4BLOCK:
         case TFileFormatType::FORMAT_CSV_LZOP:
         case TFileFormatType::FORMAT_CSV_DEFLATE:
+        case TFileFormatType::FORMAT_CSV_SNAPPYBLOCK:
         case TFileFormatType::FORMAT_PROTO: {
             _cur_reader = CsvReader::create_unique(_state, _profile, &_counter, *_params, range,
                                                    _file_slot_descs, _io_ctx.get());
@@ -767,9 +770,9 @@ Status VFileScanner::_get_next_reader() {
             break;
         }
         case TFileFormatType::FORMAT_JSON: {
-            _cur_reader = NewJsonReader::create_unique(_state, _profile, &_counter, *_params, range,
-                                                       _file_slot_descs, &_scanner_eof,
-                                                       _io_ctx.get(), _is_dynamic_schema);
+            _cur_reader =
+                    NewJsonReader::create_unique(_state, _profile, &_counter, *_params, range,
+                                                 _file_slot_descs, &_scanner_eof, _io_ctx.get());
             init_status =
                     ((NewJsonReader*)(_cur_reader.get()))->init_reader(_col_default_value_ctx);
             break;
@@ -997,10 +1000,6 @@ Status VFileScanner::_init_expr_ctxes() {
             }
         }
     }
-    // If last slot is_variant from stream plan which indicate table is dynamic schema
-    _is_dynamic_schema =
-            _output_tuple_desc && _output_tuple_desc->slots().back()->type().is_variant_type();
-
     // TODO: It should can move to scan node to process.
     if (!_conjuncts.empty()) {
         _process_conjuncts_for_dict_filter();

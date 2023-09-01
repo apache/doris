@@ -24,6 +24,7 @@ import org.apache.doris.common.exception.UdfRuntimeException;
 import org.apache.doris.common.jni.utils.JNINativeMethod;
 import org.apache.doris.common.jni.utils.UdfUtils;
 import org.apache.doris.common.jni.utils.UdfUtils.JavaUdfDataType;
+import org.apache.doris.thrift.TFunction;
 import org.apache.doris.thrift.TJavaUdfExecutorCtorParams;
 
 import com.esotericsoftware.reflectasm.MethodAccess;
@@ -76,6 +77,7 @@ public abstract class BaseExecutor {
     protected JavaUdfDataType retType;
     protected Class[] argClass;
     protected MethodAccess methodAccess;
+    protected TFunction fn;
 
     /**
      * Create a UdfExecutor, using parameters from a serialized thrift object. Used
@@ -95,9 +97,39 @@ public abstract class BaseExecutor {
         for (int i = 0; i < request.fn.arg_types.size(); ++i) {
             parameterTypes[i] = Type.fromThrift(request.fn.arg_types.get(i));
         }
+        fn = request.fn;
         String jarFile = request.location;
         Type funcRetType = Type.fromThrift(request.fn.ret_type);
         init(request, jarFile, funcRetType, parameterTypes);
+    }
+
+    public String debugString() {
+        String res = "";
+        for (JavaUdfDataType type : argTypes) {
+            res = res + type.toString();
+            if (type.getItemType() != null) {
+                res = res + " item: " + type.getItemType().toString() + " sql: " + type.getItemType().toSql();
+            }
+            if (type.getKeyType() != null) {
+                res = res + " key: " + type.getKeyType().toString() + " sql: " + type.getKeyType().toSql();
+            }
+            if (type.getValueType() != null) {
+                res = res + " key: " + type.getValueType().toString() + " sql: " + type.getValueType().toSql();
+            }
+        }
+        res = res + " return type: " + retType.toString();
+        if (retType.getItemType() != null) {
+            res = res + " item: " + retType.getItemType().toString() + " sql: " + retType.getItemType().toSql();
+        }
+        if (retType.getKeyType() != null) {
+            res = res + " key: " + retType.getKeyType().toString() + " sql: " + retType.getKeyType().toSql();
+        }
+        if (retType.getValueType() != null) {
+            res = res + " key: " + retType.getValueType().toString() + " sql: " + retType.getValueType().toSql();
+        }
+        res = res + " methodAccess: " + methodAccess.toString();
+        res = res + " fn.toString(): " + fn.toString();
+        return res;
     }
 
     protected abstract void init(TJavaUdfExecutorCtorParams request, String jarPath,
@@ -248,17 +280,12 @@ public abstract class BaseExecutor {
                 UdfUtils.UNSAFE.putInt(null, offsetsAddr + 4L * row, Integer.parseUnsignedInt(String.valueOf(offset)));
                 UdfUtils.copyMemory(bytes, UdfUtils.BYTE_ARRAY_OFFSET, null, outputBufferBase + offset - bytes.length,
                         bytes.length);
-                updateOutputOffset(offset);
                 break;
             }
             case ARRAY_TYPE:
             default:
                 throw new UdfRuntimeException("Unsupported return type: " + retType);
         }
-    }
-
-
-    protected void updateOutputOffset(long offset) {
     }
 
     public Object[] convertBasicArg(boolean isUdf, int argIdx, boolean isNullable, int rowStart, int rowEnd,
@@ -442,7 +469,7 @@ public abstract class BaseExecutor {
 
     public Object[] convertMapArg(PrimitiveType type, int argIdx, boolean isNullable, int rowStart, int rowEnd,
             long nullMapAddr,
-            long offsetsAddr, long nestedNullMapAddr, long dataAddr, long strOffsetAddr) {
+            long offsetsAddr, long nestedNullMapAddr, long dataAddr, long strOffsetAddr, int scale) {
         Object[] argument = (Object[]) Array.newInstance(ArrayList.class, rowEnd - rowStart);
         for (int row = rowStart; row < rowEnd; ++row) {
             long offsetStart = UdfUtils.UNSAFE.getLong(null, offsetsAddr + 8L * (row - 1));
@@ -533,19 +560,19 @@ public abstract class BaseExecutor {
                 case DECIMALV2:
                 case DECIMAL128: {
                     argument[row - rowStart] = UdfConvert
-                            .convertArrayDecimalArg(argTypes[argIdx].getScale(), 16L, row, currentRowNum,
+                            .convertArrayDecimalArg(scale, 16L, row, currentRowNum,
                                     offsetStart, isNullable, nullMapAddr, nestedNullMapAddr, dataAddr);
                     break;
                 }
                 case DECIMAL32: {
                     argument[row - rowStart] = UdfConvert
-                            .convertArrayDecimalArg(argTypes[argIdx].getScale(), 4L, row, currentRowNum,
+                            .convertArrayDecimalArg(scale, 4L, row, currentRowNum,
                                     offsetStart, isNullable, nullMapAddr, nestedNullMapAddr, dataAddr);
                     break;
                 }
                 case DECIMAL64: {
                     argument[row - rowStart] = UdfConvert
-                            .convertArrayDecimalArg(argTypes[argIdx].getScale(), 8L, row, currentRowNum,
+                            .convertArrayDecimalArg(scale, 8L, row, currentRowNum,
                                     offsetStart, isNullable, nullMapAddr, nestedNullMapAddr, dataAddr);
                     break;
                 }
@@ -785,18 +812,18 @@ public abstract class BaseExecutor {
 
     public void copyBatchArrayResultImpl(boolean isNullable, int numRows, Object[] result, long nullMapAddr,
             long offsetsAddr, long nestedNullMapAddr, long dataAddr, long strOffsetAddr,
-            PrimitiveType type) {
+            PrimitiveType type, int scale) {
         long hasPutElementNum = 0;
         for (int row = 0; row < numRows; ++row) {
             hasPutElementNum = copyTupleArrayResultImpl(hasPutElementNum, isNullable, row, result[row], nullMapAddr,
-                    offsetsAddr, nestedNullMapAddr, dataAddr, strOffsetAddr, type);
+                    offsetsAddr, nestedNullMapAddr, dataAddr, strOffsetAddr, type, scale);
         }
     }
 
     public long copyTupleArrayResultImpl(long hasPutElementNum, boolean isNullable, int row, Object result,
             long nullMapAddr,
             long offsetsAddr, long nestedNullMapAddr, long dataAddr, long strOffsetAddr,
-            PrimitiveType type) {
+            PrimitiveType type, int scale) {
         switch (type) {
             case BOOLEAN: {
                 hasPutElementNum = UdfConvert
@@ -886,21 +913,21 @@ public abstract class BaseExecutor {
             }
             case DECIMAL32: {
                 hasPutElementNum = UdfConvert
-                        .copyBatchArrayDecimalV3Result(retType.getScale(), 4L, hasPutElementNum, isNullable, row,
+                        .copyBatchArrayDecimalV3Result(scale, 4L, hasPutElementNum, isNullable, row,
                                 result, nullMapAddr,
                                 offsetsAddr, nestedNullMapAddr, dataAddr);
                 break;
             }
             case DECIMAL64: {
                 hasPutElementNum = UdfConvert
-                        .copyBatchArrayDecimalV3Result(retType.getScale(), 8L, hasPutElementNum, isNullable, row,
+                        .copyBatchArrayDecimalV3Result(scale, 8L, hasPutElementNum, isNullable, row,
                                 result, nullMapAddr,
                                 offsetsAddr, nestedNullMapAddr, dataAddr);
                 break;
             }
             case DECIMAL128: {
                 hasPutElementNum = UdfConvert
-                        .copyBatchArrayDecimalV3Result(retType.getScale(), 16L, hasPutElementNum, isNullable, row,
+                        .copyBatchArrayDecimalV3Result(scale, 16L, hasPutElementNum, isNullable, row,
                                 result, nullMapAddr,
                                 offsetsAddr, nestedNullMapAddr, dataAddr);
                 break;

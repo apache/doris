@@ -61,6 +61,12 @@ message PTabletWithPartition {
     required int64 tablet_id = 2;
 }
 
+message PTabletID {
+    optional int64 partition_id = 1;
+    optional int64 index_id = 2;
+    optional int64 tablet_id = 3;
+}
+
 message PTabletInfo {
     required int64 tablet_id = 1;
     required int32 schema_hash = 2;
@@ -295,6 +301,7 @@ message PCacheParam {
     required int64 partition_key = 1;
     optional int64 last_version = 2;
     optional int64 last_version_time = 3;
+    optional int64 partition_num = 4;
 };
 
 message PCacheValue {
@@ -692,6 +699,51 @@ message PGlobResponse {
     repeated PFileInfo files = 2;
 }
 
+message POpenStreamSinkRequest {
+    optional PUniqueId load_id = 1;
+    optional int64 txn_id = 2;
+    optional int64 src_id = 3;
+    optional POlapTableSchemaParam schema = 4;
+    repeated PTabletID tablets = 5;
+    optional bool enable_profile = 6 [default = false];
+}
+
+message PTabletSchemaWithIndex {
+    optional int64 index_id = 1;
+    optional TabletSchemaPB tablet_schema = 2;
+    optional bool enable_unique_key_merge_on_write = 3;
+}
+
+message POpenStreamSinkResponse {
+    optional PStatus status = 1;
+    repeated PTabletSchemaWithIndex tablet_schemas = 2;
+}
+
+message PWriteStreamSinkResponse {
+    optional PStatus status = 1;
+    repeated int64 success_tablet_ids = 2;
+    repeated int64 failed_tablet_ids = 3;
+    optional bytes load_stream_profile = 4;
+}
+
+message PStreamHeader {
+    enum Opcode {
+        APPEND_DATA = 1;
+        CLOSE_LOAD = 2;
+        ADD_SEGMENT = 3;
+    }
+    optional PUniqueId load_id = 1;
+    optional int64 partition_id = 2;
+    optional int64 index_id = 3;
+    optional int64 tablet_id = 4;
+    optional int32 segment_id = 5;
+    optional Opcode opcode = 6;
+    optional bool segment_eos = 7;
+    optional int64 src_id = 8;
+    optional SegmentStatisticsPB segment_statistics = 9;
+    repeated PTabletID tablets_to_commit = 10;
+}
+
 service PBackendService {
     rpc transmit_data(PTransmitDataParams) returns (PTransmitDataResult);
     rpc transmit_data_by_http(PEmptyRequest) returns (PTransmitDataResult);
@@ -703,6 +755,7 @@ service PBackendService {
     rpc cancel_plan_fragment(PCancelPlanFragmentRequest) returns (PCancelPlanFragmentResult);
     rpc fetch_data(PFetchDataRequest) returns (PFetchDataResult);
     rpc tablet_writer_open(PTabletWriterOpenRequest) returns (PTabletWriterOpenResult);
+    rpc open_stream_sink(POpenStreamSinkRequest) returns (POpenStreamSinkResponse);
     rpc tablet_writer_add_block(PTabletWriterAddBlockRequest) returns (PTabletWriterAddBlockResult);
     rpc tablet_writer_add_block_by_http(PEmptyRequest) returns (PTabletWriterAddBlockResult);
     rpc tablet_writer_cancel(PTabletWriterCancelRequest) returns (PTabletWriterCancelResult);

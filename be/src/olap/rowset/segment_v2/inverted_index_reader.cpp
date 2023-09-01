@@ -213,9 +213,8 @@ Status InvertedIndexReader::read_null_bitmap(InvertedIndexQueryCacheHandle* cach
         if (owned_dir) {
             FINALLY_FINALIZE_INPUT(dir);
         }
-        LOG(WARNING) << "Inverted index read null bitmap error occurred: " << e.what();
         return Status::Error<doris::ErrorCode::INVERTED_INDEX_CLUCENE_ERROR>(
-                "Inverted index read null bitmap error occurred");
+                "Inverted index read null bitmap error occurred, reason={}", e.what());
     }
 
     return Status::OK();
@@ -294,12 +293,28 @@ Status FullTextIndexReader::query(OlapReaderStatistics* stats, const std::string
             }
 
             try {
-                SCOPED_RAW_TIMER(&stats->inverted_index_searcher_search_timer);
-                index_searcher->_search(query.get(), [&term_match_bitmap](const int32_t docid,
-                                                                          const float_t /*score*/) {
-                    // docid equal to rowid in segment
-                    term_match_bitmap->add(docid);
-                });
+                if (query_type == InvertedIndexQueryType::MATCH_ANY_QUERY ||
+                    query_type == InvertedIndexQueryType::MATCH_ALL_QUERY ||
+                    query_type == InvertedIndexQueryType::EQUAL_QUERY) {
+                    SCOPED_RAW_TIMER(&stats->inverted_index_searcher_search_timer);
+                    index_searcher->_search(query.get(), [&term_match_bitmap](DocRange* docRange) {
+                        if (docRange->type_ == DocRangeType::kMany) {
+                            term_match_bitmap->addMany(docRange->doc_many_size_,
+                                                       docRange->doc_many.data());
+                        } else {
+                            term_match_bitmap->addRange(docRange->doc_range.first,
+                                                        docRange->doc_range.second);
+                        }
+                    });
+                } else {
+                    SCOPED_RAW_TIMER(&stats->inverted_index_searcher_search_timer);
+                    index_searcher->_search(
+                            query.get(),
+                            [&term_match_bitmap](const int32_t docid, const float_t /*score*/) {
+                                // docid equal to rowid in segment
+                                term_match_bitmap->add(docid);
+                            });
+                }
             } catch (const CLuceneError& e) {
                 return Status::Error<ErrorCode::INVERTED_INDEX_CLUCENE_ERROR>(
                         "CLuceneError occured: {}", e.what());
@@ -518,12 +533,25 @@ Status StringTypeInvertedIndexReader::query(OlapReaderStatistics* stats,
     read_null_bitmap(&null_bitmap_cache_handle, index_searcher->getReader()->directory());
 
     try {
-        SCOPED_RAW_TIMER(&stats->inverted_index_searcher_search_timer);
-        index_searcher->_search(query.get(),
-                                [&result](const int32_t docid, const float_t /*score*/) {
-                                    // docid equal to rowid in segment
-                                    result.add(docid);
-                                });
+        if (query_type == InvertedIndexQueryType::MATCH_ANY_QUERY ||
+            query_type == InvertedIndexQueryType::MATCH_ALL_QUERY ||
+            query_type == InvertedIndexQueryType::EQUAL_QUERY) {
+            SCOPED_RAW_TIMER(&stats->inverted_index_searcher_search_timer);
+            index_searcher->_search(query.get(), [&result](DocRange* docRange) {
+                if (docRange->type_ == DocRangeType::kMany) {
+                    result.addMany(docRange->doc_many_size_, docRange->doc_many.data());
+                } else {
+                    result.addRange(docRange->doc_range.first, docRange->doc_range.second);
+                }
+            });
+        } else {
+            SCOPED_RAW_TIMER(&stats->inverted_index_searcher_search_timer);
+            index_searcher->_search(query.get(),
+                                    [&result](const int32_t docid, const float_t /*score*/) {
+                                        // docid equal to rowid in segment
+                                        result.add(docid);
+                                    });
+        }
     } catch (const CLuceneError& e) {
         if (_is_range_query(query_type) && e.number() == CL_ERR_TooManyClauses) {
             return Status::Error<ErrorCode::INVERTED_INDEX_BYPASS>(
@@ -613,7 +641,6 @@ Status BkdIndexReader::bkd_query(OlapReaderStatistics* stats, const std::string&
 Status BkdIndexReader::try_query(OlapReaderStatistics* stats, const std::string& column_name,
                                  const void* query_value, InvertedIndexQueryType query_type,
                                  uint32_t* count) {
-    uint64_t start = UnixMillis();
     auto visitor = std::make_unique<InvertedIndexVisitor>(nullptr, query_type, true);
     std::shared_ptr<lucene::util::bkd::bkd_reader> r;
     try {
@@ -631,8 +658,7 @@ Status BkdIndexReader::try_query(OlapReaderStatistics* stats, const std::string&
                 "BKD Query CLuceneError Occurred, error msg: {}", e.what());
     }
 
-    LOG(INFO) << "BKD index try search time taken: " << UnixMillis() - start << "ms "
-              << " column: " << column_name << " result: " << *count;
+    VLOG_DEBUG << "BKD index try search column: " << column_name << " result: " << *count;
     return Status::OK();
 }
 
@@ -662,11 +688,9 @@ Status BkdIndexReader::query(OlapReaderStatistics* stats, const std::string& col
     //     stats->inverted_index_query_cache_miss++;
     // }
 
-    uint64_t start = UnixMillis();
     auto visitor = std::make_unique<InvertedIndexVisitor>(bit_map, query_type);
     std::shared_ptr<lucene::util::bkd::bkd_reader> r;
     try {
-        SCOPED_RAW_TIMER(&stats->inverted_index_searcher_search_timer);
         auto st = bkd_query(stats, column_name, query_value, query_type, r, visitor.get());
         if (!st.ok()) {
             if (st.code() == ErrorCode::END_OF_FILE) {
@@ -686,9 +710,8 @@ Status BkdIndexReader::query(OlapReaderStatistics* stats, const std::string& col
     // term_match_bitmap->runOptimize();
     // cache->insert(cache_key, term_match_bitmap, &cache_handle);
 
-    LOG(INFO) << "BKD index search time taken: " << UnixMillis() - start << "ms "
-              << " column: " << column_name << " result: " << bit_map->cardinality()
-              << " reader stats: " << r->stats.to_string();
+    VLOG_DEBUG << "BKD index search column: " << column_name
+               << " result: " << bit_map->cardinality();
     return Status::OK();
 }
 

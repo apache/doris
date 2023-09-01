@@ -17,24 +17,40 @@
 
 #pragma once
 
+#include "pipeline/exec/data_queue.h"
+#include "vec/common/sort/sorter.h"
+#include "vec/exec/join/process_hash_table_probe.h"
+#include "vec/exec/join/vhash_join_node.h"
 #include "vec/exec/vaggregation_node.h"
+#include "vec/exec/vanalytic_eval_node.h"
 
-namespace doris::pipeline {
+namespace doris {
+namespace pipeline {
 class Dependency;
 using DependencySPtr = std::shared_ptr<Dependency>;
 
 class Dependency {
 public:
-    Dependency() : _done(false) {}
+    Dependency(int id) : _id(id), _done(false) {}
     virtual ~Dependency() = default;
 
     [[nodiscard]] bool done() const { return _done; }
     void set_done() { _done = true; }
 
     virtual void* shared_state() = 0;
+    [[nodiscard]] int id() const { return _id; }
 
 private:
+    int _id;
     std::atomic<bool> _done;
+};
+
+struct FakeSharedState {};
+struct FakeDependency : public Dependency {
+public:
+    FakeDependency(int id) : Dependency(0) {}
+    using SharedState = FakeSharedState;
+    void* shared_state() override { return nullptr; }
 };
 
 struct AggSharedState {
@@ -42,6 +58,7 @@ public:
     AggSharedState() {
         agg_data = std::make_unique<vectorized::AggregatedDataVariants>();
         agg_arena_pool = std::make_unique<vectorized::Arena>();
+        data_queue = std::make_unique<DataQueue>(1);
     }
     void init_spill_partition_helper(size_t spill_partition_count_bits) {
         spill_partition_helper =
@@ -59,11 +76,13 @@ public:
     size_t input_num_rows = 0;
     std::vector<vectorized::AggregateDataPtr> values;
     std::unique_ptr<vectorized::Arena> agg_profile_arena;
+    std::unique_ptr<DataQueue> data_queue;
 };
 
 class AggDependency final : public Dependency {
 public:
-    AggDependency() : Dependency() {
+    using SharedState = AggSharedState;
+    AggDependency(int id) : Dependency(id) {
         _mem_tracker = std::make_unique<MemTracker>("AggregateOperator:");
     }
     ~AggDependency() override = default;
@@ -118,4 +137,111 @@ private:
     MemoryRecord _mem_usage_record;
     std::unique_ptr<MemTracker> _mem_tracker;
 };
-} // namespace doris::pipeline
+
+struct SortSharedState {
+public:
+    std::unique_ptr<vectorized::Sorter> sorter;
+};
+
+class SortDependency final : public Dependency {
+public:
+    using SharedState = SortSharedState;
+    SortDependency(int id) : Dependency(id) {}
+    ~SortDependency() override = default;
+    void* shared_state() override { return (void*)&_sort_state; };
+
+private:
+    SortSharedState _sort_state;
+};
+
+struct AnalyticSharedState {
+public:
+    AnalyticSharedState() = default;
+
+    int64_t current_row_position = 0;
+    vectorized::BlockRowPos partition_by_end;
+    vectorized::VExprContextSPtrs partition_by_eq_expr_ctxs;
+    int64_t input_total_rows = 0;
+    vectorized::BlockRowPos all_block_end;
+    std::vector<vectorized::Block> input_blocks;
+    bool input_eos = false;
+    std::atomic_bool need_more_input = true;
+    vectorized::BlockRowPos found_partition_end;
+    std::vector<int64_t> origin_cols;
+    vectorized::VExprContextSPtrs order_by_eq_expr_ctxs;
+    std::vector<int64_t> input_block_first_row_positions;
+    std::vector<std::vector<vectorized::MutableColumnPtr>> agg_input_columns;
+
+    // TODO: maybe global?
+    std::vector<int64_t> partition_by_column_idxs;
+    std::vector<int64_t> ordey_by_column_idxs;
+};
+
+class AnalyticDependency final : public Dependency {
+public:
+    using SharedState = AnalyticSharedState;
+    AnalyticDependency(int id) : Dependency(id) {}
+    ~AnalyticDependency() override = default;
+
+    void* shared_state() override { return (void*)&_analytic_state; };
+
+    vectorized::BlockRowPos get_partition_by_end();
+
+    bool whether_need_next_partition(vectorized::BlockRowPos found_partition_end);
+    vectorized::BlockRowPos compare_row_to_find_end(int idx, vectorized::BlockRowPos start,
+                                                    vectorized::BlockRowPos end,
+                                                    bool need_check_first = false);
+
+private:
+    AnalyticSharedState _analytic_state;
+};
+
+struct JoinSharedState {
+    // mark the join column whether support null eq
+    std::vector<bool> is_null_safe_eq_join;
+    // mark the build hash table whether it needs to store null value
+    std::vector<bool> store_null_in_hash_table;
+    // For some join case, we can apply a short circuit strategy
+    // 1. _short_circuit_for_null_in_probe_side = true
+    // 2. build side rows is empty, Join op is: inner join/right outer join/left semi/right semi/right anti
+    bool short_circuit_for_probe = false;
+    std::shared_ptr<vectorized::Arena> arena = std::make_shared<vectorized::Arena>();
+
+    // maybe share hash table with other fragment instances
+    std::shared_ptr<vectorized::HashTableVariants> hash_table_variants =
+            std::make_shared<vectorized::HashTableVariants>();
+    vectorized::JoinOpVariants join_op_variants;
+    // for full/right outer join
+    vectorized::HashTableIteratorVariants outer_join_pull_visited_iter;
+    vectorized::HashTableIteratorVariants probe_row_match_iter;
+    std::shared_ptr<std::vector<vectorized::Block>> build_blocks;
+    vectorized::Sizes probe_key_sz;
+    const std::vector<TupleDescriptor*> build_side_child_desc;
+    size_t build_exprs_size = 0;
+};
+
+class JoinDependency final : public Dependency {
+public:
+    using SharedState = JoinSharedState;
+    JoinDependency(int id) : Dependency(id) {}
+    ~JoinDependency() override = default;
+
+    void* shared_state() override { return (void*)&_join_state; }
+
+    Status do_evaluate(vectorized::Block& block, vectorized::VExprContextSPtrs& exprs,
+                       RuntimeProfile::Counter& expr_call_timer, std::vector<int>& res_col_ids);
+
+    std::vector<uint16_t> convert_block_to_null(vectorized::Block& block);
+
+    template <bool BuildSide>
+    Status extract_join_column(vectorized::Block& block,
+                               vectorized::ColumnUInt8::MutablePtr& null_map,
+                               vectorized::ColumnRawPtrs& raw_ptrs,
+                               const std::vector<int>& res_col_ids);
+
+private:
+    JoinSharedState _join_state;
+};
+
+} // namespace pipeline
+} // namespace doris
