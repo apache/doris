@@ -28,7 +28,6 @@ Status to_doris_status(const arrow::Status& status) {
     if (status.ok()) {
         return Status::OK();
     } else {
-        // TODO(zc): convert arrow status to doris status
         return Status::InvalidArgument(status.ToString());
     }
 }
@@ -37,7 +36,6 @@ arrow::Status to_arrow_status(const Status& status) {
     if (status.ok()) {
         return arrow::Status::OK();
     } else {
-        // TODO(zc): convert arrow status to doris status
         return arrow::Status::Invalid(status.to_string());
     }
 }

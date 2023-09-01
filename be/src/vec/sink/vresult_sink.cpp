@@ -90,7 +90,7 @@ Status VResultSink::prepare(RuntimeState* state) {
     // create sender
     RETURN_IF_ERROR(state->exec_env()->result_mgr()->create_sender(
             state->fragment_instance_id(), _buf_size, &_sender, state->enable_pipeline_exec(),
-            state->execution_timeout(), _row_desc));
+            state->execution_timeout()));
 
     // create writer based on sink type
     switch (_sink_type) {
@@ -99,6 +99,8 @@ Status VResultSink::prepare(RuntimeState* state) {
                               VMysqlResultWriter(_sender.get(), _output_vexpr_ctxs, _profile));
         break;
     case TResultSinkType::ARROW_FLIGHT_PROTOCAL:
+        state->exec_env()->result_mgr()->register_row_descriptor(state->fragment_instance_id(),
+                                                                 _row_desc);
         _writer.reset(new (std::nothrow) VArrowFlightResultWriter(_sender.get(), _output_vexpr_ctxs,
                                                                   _profile, _row_desc));
         break;

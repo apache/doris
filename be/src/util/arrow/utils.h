@@ -39,13 +39,20 @@ class Status;
 
 namespace doris {
 
-#define ARROW_RETURN_IF_ERROR(stmt)                         \
+#define RETURN_ARROW_STATUS_IF_ERROR(stmt)                  \
     do {                                                    \
         Status _status_ = (stmt);                           \
         if (UNLIKELY(!_status_.ok())) {                     \
-            LOG(WARNING) << _status_.to_string();           \
             ARROW_RETURN_NOT_OK(to_arrow_status(_status_)); \
         }                                                   \
+    } while (false)
+
+#define RETURN_DORIS_STATUS_IF_ERROR(stmt)    \
+    do {                                      \
+        arrow::Status _status_ = (stmt);      \
+        if (UNLIKELY(!_status_.ok())) {       \
+            return to_doris_status(_status_); \
+        }                                     \
     } while (false)
 
 // Pretty print a arrow RecordBatch.

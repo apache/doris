@@ -561,47 +561,6 @@ int main(int argc, char** argv) {
         exit(1);
     }
 
-    // auto fstatus = doris::flight::RunFlightGrpc();
-    // if (!fstatus.ok()) {
-    //     LOG(ERROR) << "flight service did not start correctly, exiting";
-    //     doris::shutdown_logging();
-    //     exit(1);
-    // }
-
-    // TODO ##########
-    // arrow::flight::Location bind_location;
-    // arrow::Status fst = arrow::flight::Location::ForGrpcTcp("0.0.0.0", 10479).Value(&bind_location);
-    // arrow::flight::FlightServerOptions flight_options(bind_location);
-    // std::shared_ptr<doris::flight::FlightSqlServer> flight_server =
-    //         std::move(doris::flight::FlightSqlServer::Create()).ValueOrDie();
-    // fst = flight_server->Init(flight_options);
-    // // ARROW_RETURN_NOT_OK(flight_server->Init(flight_options));
-    // std::cout << "Listening on ports " << 10479 << std::endl;
-    // ##########
-
-    // ARROW_RETURN_NOT_OK(server->SetShutdownOnSignals({SIGTERM}));
-    // ARROW_RETURN_NOT_OK(server->Serve());
-
-    // ASSERT_OK_AND_ASSIGN(auto location, arrow::flight::Location::ForGrpcTcp("0.0.0.0", 10478));
-    // arrow::flight::FlightServerOptions flight_options(location);
-    // ASSERT_OK_AND_ASSIGN(flight_server, doris::flight::DorisFlightSqlServer::Create());
-    // ASSERT_OK(flight_server->Init(options));
-
-    // ASSERT_OK_AND_ASSIGN(bind_location, arrow::flight::Location::ForGrpcTcp("localhost", flight_server->port()));
-    // ASSERT_OK_AND_ASSIGN(auto client, FlightClient::Connect(location));
-
-    // fst = arrow::flight::Location::ForGrpcTcp("0.0.0.0", flight_server->port()).Value(&bind_location);
-    // auto client = std::move(arrow::flight::FlightClient::Connect(bind_location)).ValueOrDie();
-    // std::unique_ptr<arrow::flight::sql::FlightSqlClient> sql_client;
-    // sql_client = std::make_unique<arrow::flight::sql::FlightSqlClient>(std::move(client));
-
-    // auto flight_info = sql_client->Execute({}, "SELECT sum(1)").ValueOrDie();
-    // auto stream = sql_client->DoGet({}, flight_info->endpoints()[0].ticket).ValueOrDie();
-    // auto table = stream->ToTable().ValueOrDie();
-    // const std::shared_ptr<arrow::Array>& result_array = table->column(0)->chunk(0);
-    // auto count_scalar =result_array->GetScalar(0);
-    // LOG(INFO) << "11111 " << reinterpret_cast<arrow::Int64Scalar&>(*count_scalar).value;
-
     // 3. http service
     doris::HttpService http_service(exec_env, doris::config::webserver_port,
                                     doris::config::webserver_num_workers);
@@ -628,6 +587,17 @@ int main(int argc, char** argv) {
     status = heartbeat_thrift_server->start();
     if (!status.ok()) {
         LOG(ERROR) << "Doris BE HeartBeat Service did not start correctly, exiting: " << status;
+        doris::shutdown_logging();
+        exit(1);
+    }
+
+    // 5. arrow flight service
+    std::shared_ptr<doris::flight::FlightSqlServer> flight_server =
+            std::move(doris::flight::FlightSqlServer::create()).ValueOrDie();
+    status = flight_server->init(doris::config::arrow_flight_port);
+    if (!status.ok()) {
+        LOG(ERROR) << "Arrow Flight Service did not start correctly, exiting, "
+                   << status.to_string();
         doris::shutdown_logging();
         exit(1);
     }

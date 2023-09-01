@@ -35,7 +35,7 @@ arrow::flight::sql::SqlInfoResultMap GetSqlInfoResultMap() {
             {arrow::flight::sql::SqlInfoOptions::SqlInfo::FLIGHT_SQL_SERVER_ARROW_VERSION,
              arrow::flight::sql::SqlInfoResult(std::string(ARROW_VERSION_STRING))},
             {arrow::flight::sql::SqlInfoOptions::SqlInfo::FLIGHT_SQL_SERVER_READ_ONLY,
-             arrow::flight::sql::SqlInfoResult(false)},
+             arrow::flight::sql::SqlInfoResult(true)},
             {arrow::flight::sql::SqlInfoOptions::SqlInfo::FLIGHT_SQL_SERVER_SQL,
              arrow::flight::sql::SqlInfoResult(true)},
             {arrow::flight::sql::SqlInfoOptions::SqlInfo::FLIGHT_SQL_SERVER_SUBSTRAIT,
@@ -43,7 +43,7 @@ arrow::flight::sql::SqlInfoResultMap GetSqlInfoResultMap() {
             {arrow::flight::sql::SqlInfoOptions::SqlInfo::FLIGHT_SQL_SERVER_TRANSACTION,
              arrow::flight::sql::SqlInfoResult(
                      arrow::flight::sql::SqlInfoOptions::SqlSupportedTransaction::
-                             SQL_SUPPORTED_TRANSACTION_TRANSACTION)},
+                             SQL_SUPPORTED_TRANSACTION_NONE)},
             {arrow::flight::sql::SqlInfoOptions::SqlInfo::FLIGHT_SQL_SERVER_CANCEL,
              arrow::flight::sql::SqlInfoResult(false)},
             {arrow::flight::sql::SqlInfoOptions::SqlInfo::SQL_DDL_CATALOG,

@@ -18,8 +18,10 @@
 #include "service/arrow_flight/flight_sql_service.h"
 
 #include "arrow/flight/sql/server.h"
+#include "service/arrow_flight/arrow_flight_batch_reader.h"
 #include "service/arrow_flight/flight_sql_info.h"
-#include "service/arrow_flight/flight_sql_statement_batch_reader.h"
+#include "service/backend_options.h"
+#include "util/arrow/utils.h"
 #include "util/uid_util.h"
 
 namespace doris {
@@ -55,17 +57,16 @@ public:
     arrow::Result<std::unique_ptr<arrow::flight::FlightDataStream>> DoGetStatement(
             const arrow::flight::ServerCallContext& context,
             const arrow::flight::sql::StatementQueryTicket& command) {
-        LOG(INFO) << "DorisStatementBatchReader aaaaa";
         ARROW_ASSIGN_OR_RAISE(auto pair, decode_ticket(command.statement_handle));
         const std::string& sql = pair.first;
         const std::string query_id = pair.second;
         TUniqueId queryid;
         parse_id(query_id, &queryid);
 
-        auto statement = std::make_shared<DorisStatement>(sql, queryid);
+        auto statement = std::make_shared<QueryStatement>(queryid, sql);
 
-        std::shared_ptr<DorisStatementBatchReader> reader;
-        ARROW_ASSIGN_OR_RAISE(reader, DorisStatementBatchReader::Create(statement));
+        std::shared_ptr<ArrowFlightBatchReader> reader;
+        ARROW_ASSIGN_OR_RAISE(reader, ArrowFlightBatchReader::Create(statement));
 
         return std::make_unique<arrow::flight::RecordBatchStream>(reader);
     }
@@ -73,7 +74,7 @@ public:
 
 FlightSqlServer::FlightSqlServer(std::shared_ptr<Impl> impl) : impl_(std::move(impl)) {}
 
-arrow::Result<std::shared_ptr<FlightSqlServer>> FlightSqlServer::Create() {
+arrow::Result<std::shared_ptr<FlightSqlServer>> FlightSqlServer::create() {
     std::shared_ptr<Impl> impl = std::make_shared<Impl>();
 
     std::shared_ptr<FlightSqlServer> result(new FlightSqlServer(std::move(impl)));
@@ -84,12 +85,31 @@ arrow::Result<std::shared_ptr<FlightSqlServer>> FlightSqlServer::Create() {
     return result;
 }
 
-FlightSqlServer::~FlightSqlServer() = default;
+FlightSqlServer::~FlightSqlServer() {
+    join();
+}
 
 arrow::Result<std::unique_ptr<arrow::flight::FlightDataStream>> FlightSqlServer::DoGetStatement(
         const arrow::flight::ServerCallContext& context,
         const arrow::flight::sql::StatementQueryTicket& command) {
     return impl_->DoGetStatement(context, command);
+}
+
+Status FlightSqlServer::init(int port) {
+    arrow::flight::Location bind_location;
+    RETURN_DORIS_STATUS_IF_ERROR(
+            arrow::flight::Location::ForGrpcTcp(BackendOptions::get_service_bind_address(), port)
+                    .Value(&bind_location));
+    arrow::flight::FlightServerOptions flight_options(bind_location);
+    RETURN_DORIS_STATUS_IF_ERROR(Init(flight_options));
+    LOG(INFO) << "Arrow Flight Service bind to host: " << BackendOptions::get_service_bind_address()
+              << ", port: " << port;
+    return Status::OK();
+}
+
+Status FlightSqlServer::join() {
+    RETURN_DORIS_STATUS_IF_ERROR(Shutdown());
+    return Status::OK();
 }
 
 } // namespace flight

@@ -62,8 +62,7 @@ Status ResultBufferMgr::init() {
 
 Status ResultBufferMgr::create_sender(const TUniqueId& query_id, int buffer_size,
                                       std::shared_ptr<BufferControlBlock>* sender,
-                                      bool enable_pipeline, int exec_timout,
-                                      const RowDescriptor& row_desc) {
+                                      bool enable_pipeline, int exec_timout) {
     *sender = find_control_block(query_id);
     if (*sender != nullptr) {
         LOG(WARNING) << "already have buffer control block for this instance " << query_id;
@@ -81,7 +80,6 @@ Status ResultBufferMgr::create_sender(const TUniqueId& query_id, int buffer_size
     {
         std::lock_guard<std::mutex> l(_lock);
         _buffer_map.insert(std::make_pair(query_id, control_block));
-        _row_descriptor_map.insert(std::make_pair(query_id, row_desc));
         // BufferControlBlock should destroy after max_timeout
         // for exceed max_timeout FE will return timeout to client
         // otherwise in some case may block all fragment handle threads
@@ -104,6 +102,14 @@ std::shared_ptr<BufferControlBlock> ResultBufferMgr::find_control_block(const TU
     }
 
     return std::shared_ptr<BufferControlBlock>();
+}
+
+void ResultBufferMgr::register_row_descriptor(const TUniqueId& query_id,
+                                              const RowDescriptor& row_desc) {
+    {
+        std::lock_guard<std::mutex> l(_lock);
+        _row_descriptor_map.insert(std::make_pair(query_id, row_desc));
+    }
 }
 
 RowDescriptor ResultBufferMgr::find_row_descriptor(const TUniqueId& query_id) {

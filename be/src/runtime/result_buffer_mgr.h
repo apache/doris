@@ -51,11 +51,12 @@ public:
     // sender is not used when call cancel or unregister
     Status create_sender(const TUniqueId& query_id, int buffer_size,
                          std::shared_ptr<BufferControlBlock>* sender, bool enable_pipeline,
-                         int exec_timeout, const RowDescriptor& row_desc);
+                         int exec_timeout);
 
     void fetch_data(const PUniqueId& finst_id, GetResultBatchCtx* ctx);
     Status fetch_data(const TUniqueId& finst_id, std::shared_ptr<arrow::RecordBatch>* result);
 
+    void register_row_descriptor(const TUniqueId& query_id, const RowDescriptor& row_desc);
     RowDescriptor find_row_descriptor(const TUniqueId& query_id);
 
     // cancel

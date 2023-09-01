@@ -19,7 +19,7 @@
 
 #include "arrow/flight/sql/server.h"
 #include "arrow/result.h"
-#include "service/arrow_flight/flight_sql_statement_batch_reader.h"
+#include "service/arrow_flight/arrow_flight_batch_reader.h"
 
 namespace doris {
 namespace flight {
@@ -28,11 +28,14 @@ class FlightSqlServer : public arrow::flight::sql::FlightSqlServerBase {
 public:
     ~FlightSqlServer() override;
 
-    static arrow::Result<std::shared_ptr<FlightSqlServer>> Create();
+    static arrow::Result<std::shared_ptr<FlightSqlServer>> create();
 
     arrow::Result<std::unique_ptr<arrow::flight::FlightDataStream>> DoGetStatement(
             const arrow::flight::ServerCallContext& context,
             const arrow::flight::sql::StatementQueryTicket& command) override;
+
+    Status init(int port);
+    Status join();
 
 private:
     class Impl;
