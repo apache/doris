@@ -1037,13 +1037,6 @@ BaseCompaction:546859:
   - 增大这个值，可以减少远端数据读取的调用次数，但会增加内存开销。
 * 默认值: 16MB
 
-#### `segment_cache_capacity`
-
-* 类型: int32
-* 描述: Segment Cache 缓存的 Segment 最大数量
-  - 默认值目前只是一个经验值，可能需要根据实际场景修改。增大该值可以缓存更多的segment从而避免一些IO。减少该值则会降低内存使用。
-* 默认值: 1000000
-
 #### `file_cache_type`
 
 * 类型：string
@@ -1205,6 +1198,11 @@ BaseCompaction:546859:
 * 类型：int32
 * 描述：索引页缓存占总页面缓存的百分比，取值为[0, 100]。
 * 默认值：10
+
+#### `segment_cache_capacity`
+* Type: int32
+* Description: segment元数据缓存（以rowset id为key）的最大rowset个数. -1代表向后兼容取值为fd_number * 2/5
+* Default value: -1
 
 #### `storage_strict_check_incompatible_old_format`
 
