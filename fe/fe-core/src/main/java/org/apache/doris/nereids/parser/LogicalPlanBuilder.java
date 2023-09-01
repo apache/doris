@@ -929,7 +929,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             switch (ctx.operator.getType()) {
                 case DorisParser.PLUS:
                     return e;
-                case DorisParser.MINUS:
+                case DorisParser.SUBTRACT:
                     IntegerLiteral zero = new IntegerLiteral(0);
                     return new Subtract(zero, e);
                 case DorisParser.TILDE:
@@ -975,7 +975,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                 Operator op;
                 if (type == DorisParser.PLUS) {
                     op = Operator.ADD;
-                } else if (type == DorisParser.MINUS) {
+                } else if (type == DorisParser.SUBTRACT) {
                     op = Operator.SUBTRACT;
                 } else {
                     throw new ParseException("Only supported: " + Operator.ADD + " and " + Operator.SUBTRACT, ctx);
@@ -990,11 +990,11 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                         return new Multiply(left, right);
                     case DorisParser.SLASH:
                         return new Divide(left, right);
-                    case DorisParser.PERCENT:
+                    case DorisParser.MOD:
                         return new Mod(left, right);
                     case DorisParser.PLUS:
                         return new Add(left, right);
-                    case DorisParser.MINUS:
+                    case DorisParser.SUBTRACT:
                         return new Subtract(left, right);
                     case DorisParser.DIV:
                         return new IntegralDivide(left, right);
@@ -1236,19 +1236,11 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
 
     @Override
     public Expression visitCast(DorisParser.CastContext ctx) {
-        DataType dataType = ((DataType) typedVisit(ctx.dataType())).conversion();
-        Expression cast = ParserUtils.withOrigin(ctx, () ->
-                new Cast(getExpression(ctx.expression()), dataType));
-        if (dataType.isStringLikeType() && ((CharacterType) dataType).getLen() >= 0) {
-            List<Expression> args = ImmutableList.of(
-                    cast,
-                    new TinyIntLiteral((byte) 1),
-                    Literal.of(((CharacterType) dataType).getLen())
-            );
-            return new UnboundFunction("substr", args);
-        } else {
-            return cast;
-        }
+        return ParserUtils.withOrigin(ctx, () -> {
+            DataType dataType = ((DataType) typedVisit(ctx.dataType())).conversion();
+            Expression cast = new Cast(getExpression(ctx.expression()), dataType);
+            return processCast(cast, dataType);
+        });
     }
 
     @Override
@@ -1262,31 +1254,41 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
 
     @Override
     public Expression visitEncryptKey(DorisParser.EncryptKeyContext ctx) {
-        String db = ctx.dbName == null ? "" : ctx.dbName.getText();
-        String key = ctx.keyName.getText();
-        return new EncryptKeyRef(new StringLiteral(db), new StringLiteral(key));
+        return ParserUtils.withOrigin(ctx, () -> {
+            String db = ctx.dbName == null ? "" : ctx.dbName.getText();
+            String key = ctx.keyName.getText();
+            return new EncryptKeyRef(new StringLiteral(db), new StringLiteral(key));
+        });
     }
 
     @Override
     public Expression visitCharFunction(DorisParser.CharFunctionContext ctx) {
-        String charSet = ctx.charSet == null ? "utf8" : ctx.charSet.getText();
-        List<Expression> arguments = ImmutableList.<Expression>builder()
-                .add(new StringLiteral(charSet))
-                .addAll(visit(ctx.arguments, Expression.class))
-                .build();
-        return new Char(arguments);
+        return ParserUtils.withOrigin(ctx, () -> {
+            String charSet = ctx.charSet == null ? "utf8" : ctx.charSet.getText();
+            List<Expression> arguments = ImmutableList.<Expression>builder()
+                    .add(new StringLiteral(charSet))
+                    .addAll(visit(ctx.arguments, Expression.class))
+                    .build();
+            return new Char(arguments);
+        });
     }
 
     @Override
     public Expression visitConvertCharSet(DorisParser.ConvertCharSetContext ctx) {
-        return new ConvertTo(getExpression(ctx.argument), new StringLiteral(ctx.charSet.getText()));
+        return ParserUtils.withOrigin(ctx,
+                () -> new ConvertTo(getExpression(ctx.argument), new StringLiteral(ctx.charSet.getText())));
     }
 
     @Override
     public Expression visitConvertType(DorisParser.ConvertTypeContext ctx) {
-        DataType dataType = ((DataType) typedVisit(ctx.type)).conversion();
-        Expression cast = ParserUtils.withOrigin(ctx, () ->
-                new Cast(getExpression(ctx.argument), dataType));
+        return ParserUtils.withOrigin(ctx, () -> {
+            DataType dataType = ((DataType) typedVisit(ctx.type)).conversion();
+            Expression cast = new Cast(getExpression(ctx.argument), dataType);
+            return processCast(cast, dataType);
+        });
+    }
+
+    private Expression processCast(Expression cast, DataType dataType) {
         if (dataType.isStringLikeType() && ((CharacterType) dataType).getLen() >= 0) {
             List<Expression> args = ImmutableList.of(
                     cast,
@@ -1305,14 +1307,13 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             String functionName = ctx.functionIdentifier().functionNameIdentifier().getText();
             boolean isDistinct = ctx.DISTINCT() != null;
             List<Expression> params = visit(ctx.expression(), Expression.class);
-
             List<OrderKey> orderKeys = visit(ctx.sortItem(), OrderKey.class);
             if (!orderKeys.isEmpty()) {
                 return parseFunctionWithOrderKeys(functionName, isDistinct, params, orderKeys, ctx);
             }
 
             List<UnboundStar> unboundStars = ExpressionUtils.collectAll(params, UnboundStar.class::isInstance);
-            if (unboundStars.size() > 0) {
+            if (!unboundStars.isEmpty()) {
                 if (functionName.equalsIgnoreCase("count")) {
                     if (unboundStars.size() > 1) {
                         throw new ParseException(
@@ -2210,7 +2211,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     @Override
     public DataType visitPrimitiveDataType(PrimitiveDataTypeContext ctx) {
         return ParserUtils.withOrigin(ctx, () -> {
-            String dataType = ctx.identifier().getText().toLowerCase(Locale.ROOT);
+            String dataType = ctx.primitiveColType().type.getText().toLowerCase(Locale.ROOT);
             List<String> l = Lists.newArrayList(dataType);
             ctx.INTEGER_VALUE().stream().map(ParseTree::getText).forEach(l::add);
             return DataType.convertPrimitiveFromStrings(l);
@@ -2240,8 +2241,13 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
 
     @Override
     public StructField visitComplexColType(ComplexColTypeContext ctx) {
-        String comment = ctx.commentSpec().STRING_LITERAL().getText();
-        comment = escapeBackSlash(comment.substring(1, comment.length() - 1));
+        String comment;
+        if (ctx.commentSpec() != null) {
+            comment = ctx.commentSpec().STRING_LITERAL().getText();
+            comment = escapeBackSlash(comment.substring(1, comment.length() - 1));
+        } else {
+            comment = "";
+        }
         return new StructField(ctx.identifier().getText(), typedVisit(ctx.dataType()), true, comment);
     }
 
