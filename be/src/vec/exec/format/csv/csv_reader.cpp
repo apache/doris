@@ -611,10 +611,15 @@ Status CsvReader::_fill_dest_columns(const Slice& line, Block* block,
                 col_idx < _split_values.size() ? _split_values[col_idx] : _s_null_slice;
         // For load task, we always read "string" from file.
         Slice slice {value.data, value.size};
-        if (_use_hive_text_serde) {
-            _serdes[i]->deserialize_one_cell_from_hive_text(*columns[i], slice, _options);
-        } else {
+        switch (_text_serde_type) {
+        case TTextSerdeType::JSON_TEXT_SERDE:
             _serdes[i]->deserialize_one_cell_from_json(*columns[i], slice, _options);
+            break;
+        case TTextSerdeType::HIVE_TEXT_SERDE:
+            _serdes[i]->deserialize_one_cell_from_hive_text(*columns[i], slice, _options);
+            break;
+        default:
+            break;
         }
     }
     ++(*rows);
