@@ -33,6 +33,8 @@ suite("hll", "rollup") {
     sql "insert into test_materialized_view_hll1 values(2, 1, 1, '2020-05-30',100);"
     qt_sql "SELECT store_id, hll_union_agg(hll_hash(sale_amt)) FROM test_materialized_view_hll1 GROUP BY store_id;"
 
+    qt_sql "desc test_materialized_view_hll1 all";
+
     explain {
         sql("SELECT store_id, hll_union_agg(hll_hash(sale_amt)) FROM test_materialized_view_hll1 GROUP BY store_id;")
         contains "(amt_count)"
