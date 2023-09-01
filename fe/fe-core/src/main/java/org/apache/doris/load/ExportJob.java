@@ -239,7 +239,7 @@ public class ExportJob implements Writable {
      *
      * @throws UserException
      */
-    public void analyze() throws UserException {
+    public void generateOutfile() throws UserException {
         exportTable.readLock();
         try {
             // generateQueryStmtOld

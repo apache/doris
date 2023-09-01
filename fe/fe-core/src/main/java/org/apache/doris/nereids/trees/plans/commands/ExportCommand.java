@@ -23,15 +23,12 @@ import org.apache.doris.analysis.OutFileClause;
 import org.apache.doris.analysis.Separator;
 import org.apache.doris.analysis.StorageBackend;
 import org.apache.doris.analysis.TableName;
-import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.BrokerMgr;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.Table;
-import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
-import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.FeNameFormat;
@@ -40,6 +37,7 @@ import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.load.ExportJob;
 import org.apache.doris.mysql.privilege.PrivPredicate;
+import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.nereids.util.RelationUtil;
@@ -52,7 +50,6 @@ import com.google.common.base.Splitter;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Maps;
-import lombok.Getter;
 
 import java.util.List;
 import java.util.Map;
@@ -97,26 +94,6 @@ public class ExportCommand extends Command implements ForwardWithSync {
     private Map<String, String> fileProperties;
     private BrokerDesc brokerDesc;
 
-    // properties
-    private TableName tblName;
-    private String columnSeparator;
-    private String lineDelimiter;
-    private String columns;
-    private String format;
-    private String label;
-    private Integer parallelism;
-    private String maxFileSize;
-    private String deleteExistingFiles;
-
-    // session and user identity
-    private SessionVariable sessionVariables;
-    private String qualifiedUser;
-    private UserIdentity userIdentity;
-
-    // Export Job
-    @Getter
-    private ExportJob exportJob;
-
     /**
      * constructor of ExportCommand
      */
@@ -128,28 +105,17 @@ public class ExportCommand extends Command implements ForwardWithSync {
         this.partitionsNameList = partitions;
         this.whereSql = whereSql;
         this.fileProperties = fileProperties;
-        this.brokerDesc = brokerDesc;
-
-        this.columnSeparator = DEFAULT_COLUMN_SEPARATOR;
-        this.lineDelimiter = DEFAULT_LINE_DELIMITER;
-
-        Optional<SessionVariable> optionalSessionVariable = Optional.ofNullable(
-                ConnectContext.get().getSessionVariable());
-        this.sessionVariables = optionalSessionVariable.orElse(VariableMgr.getDefaultSessionVariable());
+        if (brokerDesc == null) {
+            this.brokerDesc = new BrokerDesc("local", StorageBackend.StorageType.LOCAL, null);
+        } else {
+            this.brokerDesc = brokerDesc;
+        }
     }
 
     @Override
     public void run(ConnectContext ctx, StmtExecutor executor) throws Exception {
-        checkParameterAndAnalyzeExportJob(ctx);
-        // register job
-        ctx.getEnv().getExportMgr().addExportJobAndRegisterTask(exportJob);
-    }
-
-    private void checkParameterAndAnalyzeExportJob(ConnectContext ctx) throws UserException {
         // get tblName
-        List<String> qualifiedTableName = RelationUtil.getQualifierName(ctx, nameParts);
-        this.tblName = new TableName(qualifiedTableName.get(0), qualifiedTableName.get(1), qualifiedTableName.get(2));
-        Util.prohibitExternalCatalog(tblName.getCtl(), this.getClass().getSimpleName());
+        TableName tblName = getTableName(ctx);
 
         // check auth
         if (!Env.getCurrentEnv().getAccessManager().checkTblPriv(ctx, tblName.getDb(), tblName.getTbl(),
@@ -159,39 +125,43 @@ public class ExportCommand extends Command implements ForwardWithSync {
                     ctx.getRemoteIP(),
                     tblName.getDb() + ": " + tblName.getTbl());
         }
-        qualifiedUser = ctx.getQualifiedUser();
-        userIdentity = ctx.getCurrentUserIdentity();
 
-        // check table && partitions whether exist
-        checkPartitions(ctx.getEnv());
+        // convert key to lowercase
+        Map<String, String> lowercaseProperties = convertPropertyKeyToLowercase(fileProperties);
 
-        // check broker whether exist
-        if (brokerDesc == null) {
-            brokerDesc = new BrokerDesc("local", StorageBackend.StorageType.LOCAL, null);
+        // check phases
+        checkAllParameter(ctx, tblName, lowercaseProperties);
+
+        ExportJob exportJob = generateExportJob(ctx, lowercaseProperties, tblName);
+        // register job
+        ctx.getEnv().getExportMgr().addExportJobAndRegisterTask(exportJob);
+    }
+
+    private void checkAllParameter(ConnectContext ctx, TableName tblName, Map<String, String> lowercaseProperties)
+            throws UserException {
+        checkPartitions(ctx.getEnv(), tblName);
+        checkBrokerDesc(ctx);
+        checkFileProperties(lowercaseProperties, tblName);
+    }
+
+    // convert property key to lowercase
+    private Map<String, String> convertPropertyKeyToLowercase(Map<String, String> properties) throws UserException {
+        for (String key : properties.keySet()) {
+            if (!PROPERTIES_SET.contains(key.toLowerCase())) {
+                throw new UserException("Invalid property key: [" + key + "]");
+            }
         }
 
-        // check path is valid
-        path = StorageBackend.checkPath(path, brokerDesc.getStorageType());
-        if (brokerDesc.getStorageType() == StorageBackend.StorageType.BROKER) {
-            BrokerMgr brokerMgr = ctx.getEnv().getBrokerMgr();
-            if (!brokerMgr.containsBroker(brokerDesc.getName())) {
-                throw new AnalysisException("broker " + brokerDesc.getName() + " does not exist");
-            }
-            if (null == brokerMgr.getAnyBroker(brokerDesc.getName())) {
-                throw new AnalysisException("failed to get alive broker");
-            }
+        // convert key to lowercase
+        Map<String, String> lowercaseProperties = Maps.newHashMap();
+        for (String key : properties.keySet()) {
+            lowercaseProperties.put(key.toLowerCase(), properties.get(key));
         }
-
-        // check properties
-        checkProperties(fileProperties);
-
-        // create job and analyze job
-        setJob();
-        exportJob.analyze();
+        return lowercaseProperties;
     }
 
     // check partitions specified by user are belonged to the table.
-    private void checkPartitions(Env env) throws AnalysisException {
+    private void checkPartitions(Env env, TableName tblName) throws AnalysisException, UserException {
         if (this.partitionsNameList == null) {
             return;
         }
@@ -237,117 +207,141 @@ public class ExportCommand extends Command implements ForwardWithSync {
         }
     }
 
-    private void checkProperties(Map<String, String> properties) throws UserException {
-        for (String key : properties.keySet()) {
-            if (!PROPERTIES_SET.contains(key.toLowerCase())) {
-                throw new UserException("Invalid property key: [" + key + "]");
+    private void checkBrokerDesc(ConnectContext ctx) throws UserException {
+        // check path is valid
+        StorageBackend.checkPath(this.path, this.brokerDesc.getStorageType());
+
+        if (brokerDesc.getStorageType() == StorageBackend.StorageType.BROKER) {
+            BrokerMgr brokerMgr = ctx.getEnv().getBrokerMgr();
+            if (!brokerMgr.containsBroker(brokerDesc.getName())) {
+                throw new AnalysisException("broker " + brokerDesc.getName() + " does not exist");
             }
-        }
-
-        // convert key to lowercase
-        Map<String, String> tmpMap = Maps.newHashMap();
-        for (String key : properties.keySet()) {
-            tmpMap.put(key.toLowerCase(), properties.get(key));
-        }
-        properties = tmpMap;
-
-        this.columnSeparator = Separator.convertSeparator(PropertyAnalyzer.analyzeColumnSeparator(
-                properties, DEFAULT_COLUMN_SEPARATOR));
-        this.lineDelimiter = Separator.convertSeparator(PropertyAnalyzer.analyzeLineDelimiter(
-                properties, DEFAULT_LINE_DELIMITER));
-        // null means not specified
-        // "" means user specified zero columns
-        this.columns = properties.getOrDefault(LoadStmt.KEY_IN_PARAM_COLUMNS, null);
-
-        // check columns are exits
-        if (columns != null) {
-            checkColumns();
-        }
-
-        // format
-        this.format = properties.getOrDefault(LoadStmt.KEY_IN_PARAM_FORMAT_TYPE, "csv").toLowerCase();
-
-        // parallelism
-        String parallelismString = properties.getOrDefault(PARALLELISM, DEFAULT_PARALLELISM);
-        try {
-            this.parallelism = Integer.parseInt(parallelismString);
-        } catch (NumberFormatException e) {
-            throw new UserException("The value of parallelism is invalid!");
-        }
-
-        // max_file_size
-        this.maxFileSize = properties.getOrDefault(OutFileClause.PROP_MAX_FILE_SIZE, "");
-        this.deleteExistingFiles = properties.getOrDefault(OutFileClause.PROP_DELETE_EXISTING_FILES, "");
-
-        // label
-        if (properties.containsKey(LABEL)) {
-            FeNameFormat.checkLabel(properties.get(LABEL));
-            this.label = properties.get(LABEL);
-        } else {
-            // generate a random label
-            this.label = "export_" + UUID.randomUUID();
-        }
-    }
-
-    private void checkColumns() throws DdlException {
-        if (this.columns.isEmpty()) {
-            throw new DdlException("columns can not be empty");
-        }
-        Database db = Env.getCurrentInternalCatalog().getDbOrDdlException(this.tblName.getDb());
-        Table table = db.getTableOrDdlException(this.tblName.getTbl());
-        List<String> tableColumns = table.getBaseSchema().stream().map(column -> column.getName())
-                .collect(Collectors.toList());
-        Splitter split = Splitter.on(',').trimResults().omitEmptyStrings();
-
-        List<String> columnsSpecified = split.splitToList(this.columns.toLowerCase());
-        for (String columnName : columnsSpecified) {
-            if (!tableColumns.contains(columnName)) {
-                throw new DdlException("unknown column [" + columnName + "] in table [" + this.tblName.getTbl() + "]");
+            if (null == brokerMgr.getAnyBroker(brokerDesc.getName())) {
+                throw new AnalysisException("failed to get alive broker");
             }
         }
     }
 
-    private void setJob() throws UserException {
-        exportJob = new ExportJob();
-
-        Database db = Env.getCurrentInternalCatalog().getDbOrDdlException(this.tblName.getDb());
+    private ExportJob generateExportJob(ConnectContext ctx, Map<String, String> lowercaseProperties, TableName tblName)
+            throws UserException {
+        ExportJob exportJob = new ExportJob();
+        // set export job
+        Database db = Env.getCurrentInternalCatalog().getDbOrDdlException(tblName.getDb());
         exportJob.setDbId(db.getId());
-        exportJob.setTableName(this.tblName);
-        exportJob.setExportTable(db.getTableOrDdlException(this.tblName.getTbl()));
-        exportJob.setTableId(db.getTableOrDdlException(this.tblName.getTbl()).getId());
+        exportJob.setTableName(tblName);
+        exportJob.setExportTable(db.getTableOrDdlException(tblName.getTbl()));
+        exportJob.setTableId(db.getTableOrDdlException(tblName.getTbl()).getId());
 
         // set partitions
         exportJob.setPartitionNames(this.partitionsNameList);
-
         // set where sql
         exportJob.setWhereSql(this.whereSql);
-
         // set path
         exportJob.setExportPath(this.path);
 
-        // set properties
-        exportJob.setLabel(this.label);
-        exportJob.setColumnSeparator(this.columnSeparator);
-        exportJob.setLineDelimiter(this.lineDelimiter);
-        exportJob.setFormat(this.format);
-        exportJob.setColumns(this.columns);
-        exportJob.setParallelism(this.parallelism);
-        exportJob.setMaxFileSize(this.maxFileSize);
-        exportJob.setDeleteExistingFiles(this.deleteExistingFiles);
+        // set column separator
+        String columnSeparator = Separator.convertSeparator(PropertyAnalyzer.analyzeColumnSeparator(
+                lowercaseProperties, DEFAULT_COLUMN_SEPARATOR));
+        exportJob.setColumnSeparator(columnSeparator);
 
+        // set line delimiter
+        String lineDelimiter = Separator.convertSeparator(PropertyAnalyzer.analyzeLineDelimiter(
+                lowercaseProperties, DEFAULT_LINE_DELIMITER));
+        exportJob.setLineDelimiter(lineDelimiter);
+
+        // set format
+        exportJob.setFormat(lowercaseProperties.getOrDefault(LoadStmt.KEY_IN_PARAM_FORMAT_TYPE, "csv")
+                .toLowerCase());
+
+        // set parallelism
+        Integer parallelism;
+        try {
+            parallelism = Integer.parseInt(lowercaseProperties.getOrDefault(PARALLELISM, DEFAULT_PARALLELISM));
+        } catch (NumberFormatException e) {
+            throw new AnalysisException("The value of parallelism is invalid!");
+        }
+        exportJob.setParallelism(parallelism);
+
+        // set label
+        // if lowercaseProperties contains LABEL, the label has been checked in check phases
+        String defaultLabel = "export_" + UUID.randomUUID();
+        exportJob.setLabel(lowercaseProperties.getOrDefault(LABEL, defaultLabel));
+
+        // set max_file_size
+        exportJob.setMaxFileSize(lowercaseProperties.getOrDefault(OutFileClause.PROP_MAX_FILE_SIZE, ""));
+        // set delete_existing_files
+        exportJob.setDeleteExistingFiles(lowercaseProperties.getOrDefault(
+                OutFileClause.PROP_DELETE_EXISTING_FILES, ""));
+
+        // null means not specified
+        // "" means user specified zero columns
+        // if lowercaseProperties contains KEY_IN_PARAM_COLUMNS, the columns have been checked in check phases
+        String columns = lowercaseProperties.getOrDefault(LoadStmt.KEY_IN_PARAM_COLUMNS, null);
+        exportJob.setColumns(columns);
         if (columns != null) {
             Splitter split = Splitter.on(',').trimResults().omitEmptyStrings();
-            exportJob.setExportColumns(split.splitToList(this.columns.toLowerCase()));
+            exportJob.setExportColumns(split.splitToList(columns.toLowerCase()));
         }
 
         // set broker desc
         exportJob.setBrokerDesc(this.brokerDesc);
 
         // set sessions
-        exportJob.setQualifiedUser(this.qualifiedUser);
-        exportJob.setUserIdentity(this.userIdentity);
-        exportJob.setSessionVariables(this.sessionVariables);
-        exportJob.setTimeoutSecond(this.sessionVariables.getQueryTimeoutS());
+        exportJob.setQualifiedUser(ctx.getQualifiedUser());
+        exportJob.setUserIdentity(ctx.getCurrentUserIdentity());
+
+        Optional<SessionVariable> optionalSessionVariable = Optional.ofNullable(
+                ConnectContext.get().getSessionVariable());
+        exportJob.setSessionVariables(optionalSessionVariable.orElse(VariableMgr.getDefaultSessionVariable()));
+        exportJob.setTimeoutSecond(optionalSessionVariable.orElse(VariableMgr.getDefaultSessionVariable())
+                .getQueryTimeoutS());
+
+        // exportJob generate outfile sql
+        exportJob.generateOutfile();
+        return exportJob;
+    }
+
+    private TableName getTableName(ConnectContext ctx) throws UserException {
+        // get tblName
+        List<String> qualifiedTableName = RelationUtil.getQualifierName(ctx, this.nameParts);
+        TableName tblName = new TableName(qualifiedTableName.get(0), qualifiedTableName.get(1),
+                qualifiedTableName.get(2));
+        Util.prohibitExternalCatalog(tblName.getCtl(), this.getClass().getSimpleName());
+        return tblName;
+    }
+
+    private void checkFileProperties(Map<String, String> lowercaseProperties, TableName tblName) throws UserException {
+        // check user specified columns
+        if (lowercaseProperties.containsKey(LoadStmt.KEY_IN_PARAM_COLUMNS)) {
+            checkColumns(lowercaseProperties.get(LoadStmt.KEY_IN_PARAM_COLUMNS), tblName);
+        }
+
+        // check user specified label
+        if (lowercaseProperties.containsKey(LABEL)) {
+            FeNameFormat.checkLabel(lowercaseProperties.get(LABEL));
+        }
+    }
+
+    private void checkColumns(String columns, TableName tblName) throws AnalysisException, UserException {
+        if (columns.isEmpty()) {
+            throw new AnalysisException("columns can not be empty");
+        }
+        Database db = Env.getCurrentInternalCatalog().getDbOrDdlException(tblName.getDb());
+        Table table = db.getTableOrDdlException(tblName.getTbl());
+        List<String> tableColumns = table.getBaseSchema().stream().map(column -> column.getName())
+                .collect(Collectors.toList());
+        Splitter split = Splitter.on(',').trimResults().omitEmptyStrings();
+
+        List<String> columnsSpecified = split.splitToList(columns.toLowerCase());
+        for (String columnName : columnsSpecified) {
+            if (!tableColumns.contains(columnName)) {
+                throw new AnalysisException("unknown column [" + columnName + "] in table [" + tblName.getTbl() + "]");
+            }
+        }
+    }
+
+    public Map<String, String> getFileProperties() {
+        return this.fileProperties;
     }
 
     @Override

@@ -22,24 +22,15 @@ import org.apache.doris.catalog.FsBroker;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.UserException;
 import org.apache.doris.load.ExportJob;
-import org.apache.doris.nereids.DorisLexer;
-import org.apache.doris.nereids.DorisParser;
-import org.apache.doris.nereids.parser.CaseInsensitiveStream;
-import org.apache.doris.nereids.parser.LogicalPlanBuilder;
-import org.apache.doris.nereids.parser.ParseErrorListener;
-import org.apache.doris.nereids.parser.PostProcessor;
+import org.apache.doris.nereids.glue.LogicalPlanAdapter;
 import org.apache.doris.nereids.trees.plans.commands.ExportCommand;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
+import org.apache.doris.nereids.util.ParseSqlUtils;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.utframe.TestWithFeService;
 
 import mockit.Mock;
 import mockit.MockUp;
-import org.antlr.v4.runtime.CharStreams;
-import org.antlr.v4.runtime.CommonTokenStream;
-import org.antlr.v4.runtime.ParserRuleContext;
-import org.antlr.v4.runtime.atn.PredictionMode;
-import org.antlr.v4.runtime.misc.ParseCancellationException;
 import org.junit.Assert;
 import org.junit.jupiter.api.Test;
 
@@ -47,6 +38,7 @@ import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 
 /**
  * The `Export` sql finally generates the `Outfile` sql.
@@ -809,30 +801,8 @@ public class ExportToOutfileSqlTest extends TestWithFeService {
     }
 
     private LogicalPlan parseSql(String exportSql) {
-        DorisLexer lexer = new DorisLexer(new CaseInsensitiveStream(CharStreams.fromString(exportSql)));
-        CommonTokenStream tokenStream = new CommonTokenStream(lexer);
-        DorisParser parser = new DorisParser(tokenStream);
-
-        parser.addParseListener(new PostProcessor());
-        parser.removeErrorListeners();
-        parser.addErrorListener(new ParseErrorListener());
-
-        ParserRuleContext tree;
-        try {
-            // first, try parsing with potentially faster SLL mode
-            parser.getInterpreter().setPredictionMode(PredictionMode.SLL);
-            tree =  parser.singleStatement();
-        } catch (ParseCancellationException ex) {
-            // if we fail, parse with LL mode
-            tokenStream.seek(0); // rewind input stream
-            parser.reset();
-
-            parser.getInterpreter().setPredictionMode(PredictionMode.LL);
-            tree =  parser.singleStatement();
-        }
-        LogicalPlanBuilder logicalPlanBuilder = new LogicalPlanBuilder();
-        LogicalPlan statements = (LogicalPlan) logicalPlanBuilder.visit(tree);
-        return statements;
+        LogicalPlanAdapter logicalPlanAdapter = ParseSqlUtils.parseSingleStringSql(exportSql);
+        return logicalPlanAdapter.getLogicalPlan();
     }
 
     // need open EnableNereidsPlanner
@@ -840,11 +810,28 @@ public class ExportToOutfileSqlTest extends TestWithFeService {
         ExportCommand exportCommand = (ExportCommand) parseSql(exportSql);
         List<List<String>> outfileSqlPerParallel = new ArrayList<>();
         try {
-            Method privateMethod = exportCommand.getClass().getDeclaredMethod("checkParameterAndAnalyzeExportJob",
-                    ConnectContext.class);
-            privateMethod.setAccessible(true);
-            privateMethod.invoke(exportCommand, connectContext);
-            ExportJob job = exportCommand.getExportJob();
+            Method getTableName = exportCommand.getClass().getDeclaredMethod("getTableName", ConnectContext.class);
+            getTableName.setAccessible(true);
+
+            Method convertPropertyKeyToLowercase = exportCommand.getClass().getDeclaredMethod(
+                    "convertPropertyKeyToLowercase", Map.class);
+            convertPropertyKeyToLowercase.setAccessible(true);
+
+            Method checkAllParameter = exportCommand.getClass().getDeclaredMethod("checkAllParameter",
+                    ConnectContext.class, TableName.class, Map.class);
+            checkAllParameter.setAccessible(true);
+
+            Method generateExportJob = exportCommand.getClass().getDeclaredMethod("generateExportJob",
+                    ConnectContext.class, Map.class, TableName.class);
+            generateExportJob.setAccessible(true);
+
+            TableName tblName = (TableName) getTableName.invoke(exportCommand, connectContext);
+            Map<String, String> lowercaseProperties = (Map<String, String>) convertPropertyKeyToLowercase.invoke(
+                    exportCommand, exportCommand.getFileProperties());
+            checkAllParameter.invoke(exportCommand, connectContext, tblName, lowercaseProperties);
+
+            ExportJob job = (ExportJob) generateExportJob.invoke(exportCommand, connectContext, lowercaseProperties,
+                    tblName);
             outfileSqlPerParallel = job.getOutfileSqlPerParallel();
         } catch (NoSuchMethodException e) {
             throw new UserException(e);

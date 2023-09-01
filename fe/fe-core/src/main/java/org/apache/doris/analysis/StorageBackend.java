@@ -35,7 +35,7 @@ public class StorageBackend implements ParseNode {
     private String location;
     private StorageDesc storageDesc;
 
-    public static String checkPath(String path, StorageBackend.StorageType type) throws AnalysisException {
+    public static void checkPath(String path, StorageBackend.StorageType type) throws AnalysisException {
         if (Strings.isNullOrEmpty(path)) {
             throw new AnalysisException("No destination path specified.");
         }
@@ -69,7 +69,6 @@ public class StorageBackend implements ParseNode {
             throw new AnalysisException(
                     "Invalid export path. please use valid '" + OutFileClause.LOCAL_FILE_PREFIX + "' path.");
         }
-        return path;
     }
 
     public StorageBackend(String storageName, String location,
@@ -116,7 +115,7 @@ public class StorageBackend implements ParseNode {
         if (Strings.isNullOrEmpty(location)) {
             throw new AnalysisException("You must specify a location on the repository");
         }
-        location = checkPath(location, storageType);
+        checkPath(location, storageType);
     }
 
     @Override

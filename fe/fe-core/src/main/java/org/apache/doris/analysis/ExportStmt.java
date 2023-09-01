@@ -174,7 +174,7 @@ public class ExportStmt extends StatementBase {
         }
 
         // check path is valid
-        path = StorageBackend.checkPath(path, brokerDesc.getStorageType());
+        StorageBackend.checkPath(path, brokerDesc.getStorageType());
         if (brokerDesc.getStorageType() == StorageBackend.StorageType.BROKER) {
             BrokerMgr brokerMgr = analyzer.getEnv().getBrokerMgr();
             if (!brokerMgr.containsBroker(brokerDesc.getName())) {
@@ -190,7 +190,7 @@ public class ExportStmt extends StatementBase {
 
         // create job and analyze job
         setJob();
-        exportJob.analyze();
+        exportJob.generateOutfile();
     }
 
     private void setJob() throws UserException {
