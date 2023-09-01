@@ -1176,37 +1176,80 @@ public:
 
     BitmapValue(const BitmapValue& other) {
         _type = other._type;
-        _sv = other._sv;
-        _bitmap = other._bitmap;
-        _set = other._set;
-        _is_shared = true;
-        // should also set other's state to shared, so that other bitmap value will
-        // create a new bitmap when it wants to modify it.
-        const_cast<BitmapValue&>(other)._is_shared = true;
+        switch (other._type) {
+            case EMPTY:
+                break;
+            case SINGLE:
+                _sv = other._sv;
+                break;
+            case BITMAP:
+                _bitmap = other._bitmap;
+                break;
+            case SET:
+                _set = other._set;
+                break;
+        }
+        
+        if (other._type != EMPTY) {
+            _is_shared = true;
+            // should also set other's state to shared, so that other bitmap value will
+            // create a new bitmap when it wants to modify it.
+            const_cast<BitmapValue&>(other)._is_shared = true;
+        }
     }
 
     BitmapValue(BitmapValue&& other) {
         _type = other._type;
-        _sv = other._sv;
+        switch (other._type) {
+            case EMPTY:
+                break;
+            case SINGLE:
+                _sv = other._sv;
+                break;
+            case BITMAP:
+                _bitmap = std::move(other._bitmap);
+                other._bitmap = nullptr;
+                break;
+            case SET:
+                _set = std::move(other._set);
+                break;
+        }
         _is_shared = other._is_shared;
-        _bitmap = std::move(other._bitmap);
-        _set = std::move(other._set);
-
         other._type = EMPTY;
         other._is_shared = false;
-        other._bitmap = nullptr;
     }
 
     BitmapValue& operator=(const BitmapValue& other) {
         _type = other._type;
-        _sv = other._sv;
-        _bitmap = other._bitmap;
-        _is_shared = true;
-        _set = other._set;
-        // should also set other's state to shared, so that other bitmap value will
-        // create a new bitmap when it wants to modify it.
-        const_cast<BitmapValue&>(other)._is_shared = true;
+        switch (other._type) {
+            case EMPTY:
+                break;
+            case SINGLE:
+                _sv = other._sv;
+                break;
+            case BITMAP:
+                _bitmap = other._bitmap;
+                break;
+            case SET:
+                _set = other._set;
+                break;
+        }
+        
+        if (other._type != EMPTY) {
+            _is_shared = true;
+            // should also set other's state to shared, so that other bitmap value will
+            // create a new bitmap when it wants to modify it.
+            const_cast<BitmapValue&>(other)._is_shared = true;
+        }
         return *this;
+    }
+
+    static std::string empty_bitmap() {
+        static BitmapValue btmap;
+        std::string buf;
+        buf.resize(btmap.getSizeInBytes());
+        btmap.write_to((char*)buf.c_str());
+        return buf;
     }
 
     BitmapValue& operator=(BitmapValue&& other) {
@@ -1215,9 +1258,20 @@ public:
         }
 
         _type = other._type;
-        _sv = other._sv;
-        _bitmap = std::move(other._bitmap);
-        _set = std::move(other._set);
+        switch (other._type) {
+            case EMPTY:
+                break;
+            case SINGLE:
+                _sv = other._sv;
+                break;
+            case BITMAP:
+                _bitmap = std::move(other._bitmap);
+                other._bitmap = nullptr;
+                break;
+            case SET:
+                _set = std::move(other._set);
+                break;
+        }
         _is_shared = other._is_shared;
         return *this;
     }
