@@ -41,7 +41,6 @@
 #include "olap/row_cursor.h"
 #include "olap/row_cursor_cell.h"
 #include "olap/rowset/segment_v2/common.h"
-#include "olap/rowset/segment_v2/hierarchical_data_reader.h"
 #include "olap/rowset/segment_v2/segment.h"
 #include "olap/schema.h"
 #include "util/runtime_profile.h"
