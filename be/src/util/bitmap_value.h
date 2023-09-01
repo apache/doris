@@ -1177,19 +1177,19 @@ public:
     BitmapValue(const BitmapValue& other) {
         _type = other._type;
         switch (other._type) {
-            case EMPTY:
-                break;
-            case SINGLE:
-                _sv = other._sv;
-                break;
-            case BITMAP:
-                _bitmap = other._bitmap;
-                break;
-            case SET:
-                _set = other._set;
-                break;
+        case EMPTY:
+            break;
+        case SINGLE:
+            _sv = other._sv;
+            break;
+        case BITMAP:
+            _bitmap = other._bitmap;
+            break;
+        case SET:
+            _set = other._set;
+            break;
         }
-        
+
         if (other._type != EMPTY) {
             _is_shared = true;
             // should also set other's state to shared, so that other bitmap value will
@@ -1201,18 +1201,18 @@ public:
     BitmapValue(BitmapValue&& other) {
         _type = other._type;
         switch (other._type) {
-            case EMPTY:
-                break;
-            case SINGLE:
-                _sv = other._sv;
-                break;
-            case BITMAP:
-                _bitmap = std::move(other._bitmap);
-                other._bitmap = nullptr;
-                break;
-            case SET:
-                _set = std::move(other._set);
-                break;
+        case EMPTY:
+            break;
+        case SINGLE:
+            _sv = other._sv;
+            break;
+        case BITMAP:
+            _bitmap = std::move(other._bitmap);
+            other._bitmap = nullptr;
+            break;
+        case SET:
+            _set = std::move(other._set);
+            break;
         }
         _is_shared = other._is_shared;
         other._type = EMPTY;
@@ -1222,19 +1222,19 @@ public:
     BitmapValue& operator=(const BitmapValue& other) {
         _type = other._type;
         switch (other._type) {
-            case EMPTY:
-                break;
-            case SINGLE:
-                _sv = other._sv;
-                break;
-            case BITMAP:
-                _bitmap = other._bitmap;
-                break;
-            case SET:
-                _set = other._set;
-                break;
+        case EMPTY:
+            break;
+        case SINGLE:
+            _sv = other._sv;
+            break;
+        case BITMAP:
+            _bitmap = other._bitmap;
+            break;
+        case SET:
+            _set = other._set;
+            break;
         }
-        
+
         if (other._type != EMPTY) {
             _is_shared = true;
             // should also set other's state to shared, so that other bitmap value will
@@ -1259,18 +1259,18 @@ public:
 
         _type = other._type;
         switch (other._type) {
-            case EMPTY:
-                break;
-            case SINGLE:
-                _sv = other._sv;
-                break;
-            case BITMAP:
-                _bitmap = std::move(other._bitmap);
-                other._bitmap = nullptr;
-                break;
-            case SET:
-                _set = std::move(other._set);
-                break;
+        case EMPTY:
+            break;
+        case SINGLE:
+            _sv = other._sv;
+            break;
+        case BITMAP:
+            _bitmap = std::move(other._bitmap);
+            other._bitmap = nullptr;
+            break;
+        case SET:
+            _set = std::move(other._set);
+            break;
         }
         _is_shared = other._is_shared;
         return *this;
