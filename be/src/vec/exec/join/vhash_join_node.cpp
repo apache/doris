@@ -663,7 +663,7 @@ Status HashJoinNode::get_next(RuntimeState* state, Block* output_block, bool* eo
                                   ExecNode::get_next,
                           _children[0], std::placeholders::_1, std::placeholders::_2,
                           std::placeholders::_3)));
-        LOG(INFO) << "need_more_input_data() push _probe_eos " << _probe_eos;
+
         RETURN_IF_ERROR(push(state, &_probe_block, _probe_eos));
     }
 
