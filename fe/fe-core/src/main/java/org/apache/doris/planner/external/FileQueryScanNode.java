@@ -257,7 +257,7 @@ public abstract class FileQueryScanNode extends FileScanNode {
             ConnectContext.get().getExecutor().getSummaryProfile().setGetSplitsFinishTime();
         }
         this.inputSplitsNum = inputSplits.size();
-        if (inputSplits.isEmpty()) {
+        if (inputSplits.isEmpty() && !(getLocationType() == TFileType.FILE_STREAM)) {
             return;
         }
         TFileFormatType fileFormatType = getFileFormatType();
@@ -265,6 +265,27 @@ public abstract class FileQueryScanNode extends FileScanNode {
         boolean isCsvOrJson = Util.isCsvFormat(fileFormatType) || fileFormatType == TFileFormatType.FORMAT_JSON;
         if (isCsvOrJson) {
             params.setFileAttributes(getFileAttributes());
+            if (getLocationType() == TFileType.FILE_STREAM) {
+                params.setFileType(TFileType.FILE_STREAM);
+                params.setCompressType(TFileCompressType.PLAIN);
+
+                TScanRangeLocations curLocations = newLocations();
+                TFileRangeDesc rangeDesc = new TFileRangeDesc();
+                rangeDesc.setLoadId(ConnectContext.get().queryId());
+                rangeDesc.setSize(-1);
+                rangeDesc.setFileSize(-1);
+                curLocations.getScanRange().getExtScanRange().getFileScanRange().addToRanges(rangeDesc);
+                curLocations.getScanRange().getExtScanRange().getFileScanRange().setParams(params);
+
+                TScanRangeLocation location = new TScanRangeLocation();
+                long backendId = ConnectContext.get().getBackendId();
+                Backend backend = Env.getCurrentSystemInfo().getIdToBackend().get(backendId);
+                location.setBackendId(backendId);
+                location.setServer(new TNetworkAddress(backend.getHost(), backend.getBePort()));
+                curLocations.addToLocations(location);
+                scanRangeLocations.add(curLocations);
+                return;
+            }
         }
 
         Map<String, String> locationProperties = getLocationProperties();

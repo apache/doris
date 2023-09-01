@@ -36,9 +36,6 @@
 #include "olap/utils.h"
 
 namespace doris {
-namespace {
-const std::string ROWSET_PREFIX = "rst_";
-} // namespace
 
 using namespace ErrorCode;
 
@@ -414,8 +411,7 @@ Status RowsetMetaManager::remove(OlapMeta* meta, TabletUid tablet_uid, const Row
 
 Status RowsetMetaManager::remove_binlog(OlapMeta* meta, const std::string& suffix) {
     return meta->remove(META_COLUMN_FAMILY_INDEX,
-                        std::vector<std::string> {kBinlogMetaPrefix.data() + suffix,
-                                                  kBinlogDataPrefix.data() + suffix});
+                        {kBinlogMetaPrefix.data() + suffix, kBinlogDataPrefix.data() + suffix});
 }
 
 Status RowsetMetaManager::ingest_binlog_metas(OlapMeta* meta, TabletUid tablet_uid,

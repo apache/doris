@@ -1104,6 +1104,7 @@ public class PartitionCacheTest {
         Assert.assertEquals(cacheKey, "SELECT <slot 2> `eventdate` AS `eventdate`, <slot 3> count(`userid`) AS "
                 + "`count(``userid``)` FROM `testCluster:testDb`.`appevent` WHERE `eventdate` >= '2020-01-12' AND "
                 + "`eventdate` <= '2020-01-14' GROUP BY `eventdate`|");
+        Assert.assertEquals(selectedPartitionIds.size(), sqlCache.getSumOfPartitionNum());
     }
 
     @Test
@@ -1123,6 +1124,7 @@ public class PartitionCacheTest {
         String cacheKey = sqlCache.getSqlWithViewStmt();
         Types.PUniqueId sqlKey2 = CacheProxy.getMd5(cacheKey.replace("北京", "上海"));
         Assert.assertNotEquals(CacheProxy.getMd5(sqlCache.getSqlWithViewStmt()), sqlKey2);
+        Assert.assertEquals(selectedPartitionIds.size(), sqlCache.getSumOfPartitionNum());
     }
 
     @Test
@@ -1141,6 +1143,7 @@ public class PartitionCacheTest {
         Assert.assertEquals(cacheKey, "SELECT `testCluster:testDb`.`view1`.`eventdate` AS `eventdate`, `testCluster:testDb`.`view1`."
                 + "`count(`userid`)` AS `count(``userid``)` FROM `testCluster:testDb`.`view1`|select eventdate, COUNT(userid) "
                 + "FROM appevent WHERE eventdate>=\"2020-01-12\" and eventdate<=\"2020-01-14\" GROUP BY eventdate");
+        Assert.assertEquals(selectedPartitionIds.size(), sqlCache.getSumOfPartitionNum());
     }
 
     @Test
@@ -1159,6 +1162,7 @@ public class PartitionCacheTest {
         Assert.assertEquals(cacheKey, "SELECT * from testDb.view1"
                     + "|select eventdate, COUNT(userid) FROM appevent "
                     + "WHERE eventdate>=\"2020-01-12\" and eventdate<=\"2020-01-14\" GROUP BY eventdate");
+        Assert.assertEquals(selectedPartitionIds.size(), sqlCache.getSumOfPartitionNum());
     }
 
     @Test
@@ -1185,6 +1189,7 @@ public class PartitionCacheTest {
                 + "`userid` FROM (SELECT `view2`.`eventdate` AS `eventdate`, `view2`.`userid` AS `userid` FROM "
                 + "`testCluster:testDb`.`view2` view2 WHERE `view2`.`eventdate` >= '2020-01-12' AND `view2`.`eventdate` "
                 + "<= '2020-01-14') origin|select eventdate, userid FROM appevent");
+        Assert.assertEquals(selectedPartitionIds.size(), sqlCache.getSumOfPartitionNum());
     }
 
 
@@ -1214,6 +1219,7 @@ public class PartitionCacheTest {
                     + "    from testDb.view2 view2 \n"
                     + "    where view2.eventdate >=\"2020-01-12\" and view2.eventdate <= \"2020-01-14\"\n"
                     + ") origin" + "|select eventdate, userid FROM appevent");
+        Assert.assertEquals(selectedPartitionIds.size(), sqlCache.getSumOfPartitionNum());
     }
 
     @Test
@@ -1292,6 +1298,7 @@ public class PartitionCacheTest {
                 + "`testCluster:testDb`.`view4`.`count(`userid`)` AS `count(``userid``)` FROM `testCluster:testDb`.`view4`|select "
                 + "eventdate, COUNT(userid) FROM view2 WHERE eventdate>=\"2020-01-12\" and "
                 + "eventdate<=\"2020-01-14\" GROUP BY eventdate|select eventdate, userid FROM appevent");
+        Assert.assertEquals(selectedPartitionIds.size(), sqlCache.getSumOfPartitionNum());
     }
 
     @Test
@@ -1311,6 +1318,7 @@ public class PartitionCacheTest {
                     + "|select eventdate, COUNT(userid) FROM view2 "
                     + "WHERE eventdate>=\"2020-01-12\" and eventdate<=\"2020-01-14\" GROUP BY eventdate"
                     + "|select eventdate, userid FROM appevent");
+        Assert.assertEquals(selectedPartitionIds.size(), sqlCache.getSumOfPartitionNum());
     }
 
     @Test
@@ -1328,10 +1336,12 @@ public class PartitionCacheTest {
         );
         ArrayList<Long> selectedPartitionIds
                 = Lists.newArrayList(20200112L, 20200113L, 20200114L, 20200115L);
-        List<ScanNode> scanNodes = Lists.newArrayList(createProfileScanNode(selectedPartitionIds));
+        ScanNode scanNode = createProfileScanNode(selectedPartitionIds);
+        List<ScanNode> scanNodes = Lists.newArrayList(scanNode, scanNode, scanNode);
         CacheAnalyzer ca = new CacheAnalyzer(context, parseStmt, scanNodes);
         ca.checkCacheMode(0);
         Assert.assertEquals(ca.getCacheMode(), CacheMode.Sql);
+        Assert.assertEquals(selectedPartitionIds.size() * 3, ((SqlCache) ca.getCache()).getSumOfPartitionNum());
     }
 
     @Test

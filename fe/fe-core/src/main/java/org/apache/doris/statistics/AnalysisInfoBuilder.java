@@ -89,6 +89,7 @@ public class AnalysisInfoBuilder {
         externalTableLevelTask = info.externalTableLevelTask;
         partitionOnly = info.partitionOnly;
         samplingPartition = info.samplingPartition;
+        cronExpression = info.cronExpression;
     }
 
     public AnalysisInfoBuilder setJobId(long jobId) {

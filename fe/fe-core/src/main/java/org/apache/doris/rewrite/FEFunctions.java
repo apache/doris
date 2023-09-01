@@ -26,6 +26,7 @@ import org.apache.doris.analysis.LargeIntLiteral;
 import org.apache.doris.analysis.LiteralExpr;
 import org.apache.doris.analysis.NullLiteral;
 import org.apache.doris.analysis.StringLiteral;
+import org.apache.doris.analysis.TimestampArithmeticExpr.TimeUnit;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.InvalidFormatException;
@@ -111,37 +112,37 @@ public class FEFunctions {
     @FEFunction(name = "years_add", argTypes = { "DATETIME", "INT" }, returnType = "DATETIME")
     public static DateLiteral yearsAdd(LiteralExpr date, LiteralExpr year) throws AnalysisException {
         DateLiteral dateLiteral = (DateLiteral) date;
-        return dateLiteral.plusYears((int) year.getLongValue());
+        return dateLiteral.plusYears(year.getLongValue());
     }
 
     @FEFunction(name = "months_add", argTypes = { "DATETIME", "INT" }, returnType = "DATETIME")
     public static DateLiteral monthsAdd(LiteralExpr date, LiteralExpr month) throws AnalysisException {
         DateLiteral dateLiteral = (DateLiteral) date;
-        return dateLiteral.plusMonths((int) month.getLongValue());
+        return dateLiteral.plusMonths(month.getLongValue());
     }
 
     @FEFunction(name = "days_add", argTypes = { "DATETIME", "INT" }, returnType = "DATETIME")
     public static DateLiteral daysAdd(LiteralExpr date, LiteralExpr day) throws AnalysisException {
         DateLiteral dateLiteral = (DateLiteral) date;
-        return dateLiteral.plusDays((int) day.getLongValue());
+        return dateLiteral.plusDays(day.getLongValue());
     }
 
     @FEFunction(name = "hours_add", argTypes = { "DATETIME", "INT" }, returnType = "DATETIME")
     public static DateLiteral hoursAdd(LiteralExpr date, LiteralExpr hour) throws AnalysisException {
         DateLiteral dateLiteral = (DateLiteral) date;
-        return dateLiteral.plusHours((int) hour.getLongValue());
+        return dateLiteral.plusHours(hour.getLongValue());
     }
 
     @FEFunction(name = "minutes_add", argTypes = { "DATETIME", "INT" }, returnType = "DATETIME")
     public static DateLiteral minutesAdd(LiteralExpr date, LiteralExpr minute) throws AnalysisException {
         DateLiteral dateLiteral = (DateLiteral) date;
-        return dateLiteral.plusMinutes((int) minute.getLongValue());
+        return dateLiteral.plusMinutes(minute.getLongValue());
     }
 
     @FEFunction(name = "seconds_add", argTypes = { "DATETIME", "INT" }, returnType = "DATETIME")
      public static DateLiteral secondsAdd(LiteralExpr date, LiteralExpr second) throws AnalysisException {
         DateLiteral dateLiteral = (DateLiteral) date;
-        return dateLiteral.plusSeconds((int) second.getLongValue());
+        return dateLiteral.plusSeconds(second.getLongValue());
     }
 
     @FEFunction(name = "date_format", argTypes = { "DATETIME", "VARCHAR" }, returnType = "VARCHAR")
@@ -348,6 +349,177 @@ public class FEFunctions {
             return new DateLiteral(dateTime.getYear(), dateTime.getMonthValue(), dateTime.getDayOfMonth(), Type.DATEV2);
         }
         return null;
+    }
+
+    @FEFunction(name = "second_floor", argTypes = { "DATETIMEV2", "INT", "DATETIMEV2" }, returnType = "DATETIMEV2")
+    public static DateLiteral second_floor(LiteralExpr datetime, LiteralExpr period, LiteralExpr defaultDatetime)
+            throws AnalysisException {
+        return getFloorCeilDateLiteral(datetime, period, defaultDatetime, false, TimeUnit.SECOND);
+    }
+
+    @FEFunction(name = "second_ceil", argTypes = { "DATETIMEV2", "INT", "DATETIMEV2" }, returnType = "DATETIMEV2")
+    public static DateLiteral second_ceil(LiteralExpr datetime, LiteralExpr period, LiteralExpr defaultDatetime)
+            throws AnalysisException {
+        return getFloorCeilDateLiteral(datetime, period, defaultDatetime, true, TimeUnit.SECOND);
+    }
+
+    @FEFunction(name = "minute_floor", argTypes = { "DATETIMEV2", "INT", "DATETIMEV2" }, returnType = "DATETIMEV2")
+    public static DateLiteral minute_floor(LiteralExpr datetime, LiteralExpr period, LiteralExpr defaultDatetime)
+            throws AnalysisException {
+        return getFloorCeilDateLiteral(datetime, period, defaultDatetime, false, TimeUnit.MINUTE);
+    }
+
+    @FEFunction(name = "minute_ceil", argTypes = { "DATETIMEV2", "INT", "DATETIMEV2" }, returnType = "DATETIMEV2")
+    public static DateLiteral minute_ceil(LiteralExpr datetime, LiteralExpr period, LiteralExpr defaultDatetime)
+            throws AnalysisException {
+        return getFloorCeilDateLiteral(datetime, period, defaultDatetime, true, TimeUnit.MINUTE);
+    }
+
+    @FEFunction(name = "hour_floor", argTypes = { "DATETIMEV2", "INT", "DATETIMEV2" }, returnType = "DATETIMEV2")
+    public static DateLiteral hour_floor(LiteralExpr datetime, LiteralExpr period, LiteralExpr defaultDatetime)
+            throws AnalysisException {
+        return getFloorCeilDateLiteral(datetime, period, defaultDatetime, false, TimeUnit.HOUR);
+    }
+
+    @FEFunction(name = "hour_ceil", argTypes = { "DATETIMEV2", "INT", "DATETIMEV2" }, returnType = "DATETIMEV2")
+    public static DateLiteral hour_ceil(LiteralExpr datetime, LiteralExpr period, LiteralExpr defaultDatetime)
+            throws AnalysisException {
+        return getFloorCeilDateLiteral(datetime, period, defaultDatetime, true, TimeUnit.HOUR);
+    }
+
+    @FEFunction(name = "day_floor", argTypes = { "DATETIMEV2", "INT", "DATETIMEV2" }, returnType = "DATETIMEV2")
+    public static DateLiteral day_floor(LiteralExpr datetime, LiteralExpr period, LiteralExpr defaultDatetime)
+            throws AnalysisException {
+        return getFloorCeilDateLiteral(datetime, period, defaultDatetime, false, TimeUnit.DAY);
+    }
+
+    @FEFunction(name = "day_ceil", argTypes = { "DATETIMEV2", "INT", "DATETIMEV2" }, returnType = "DATETIMEV2")
+    public static DateLiteral day_ceil(LiteralExpr datetime, LiteralExpr period, LiteralExpr defaultDatetime)
+            throws AnalysisException {
+        return getFloorCeilDateLiteral(datetime, period, defaultDatetime, true, TimeUnit.DAY);
+    }
+
+    // get it's from be/src/vec/functions/function_datetime_floor_ceil.cpp##time_round
+    public static DateLiteral getFloorCeilDateLiteral(LiteralExpr datetime, LiteralExpr period,
+            LiteralExpr defaultDatetime, boolean isCeil, TimeUnit type) throws AnalysisException {
+        DateLiteral dt = ((DateLiteral) datetime);
+        DateLiteral start = ((DateLiteral) defaultDatetime);
+        long periodValue = ((IntLiteral) period).getValue();
+        long diff = 0;
+        long trivialPart = 0;
+
+        switch (type) {
+            case YEAR: {
+                diff = dt.getYear() - start.getYear();
+                trivialPart = (dt.getLongValue() % 10000000000L) - (start.getLongValue() % 10000000000L);
+                break;
+            }
+            case MONTH: {
+                diff = (dt.getYear() - start.getYear()) * 12 + (dt.getMonth() - start.getMonth());
+                trivialPart = (dt.getLongValue() % 100000000L) - (start.getLongValue() % 100000000L);
+                break;
+            }
+            case WEEK: {
+                diff = (dt.daynr() / 7) - (start.daynr() / 7);
+                long part2 = (dt.daynr() % 7) * 24 * 3600 + dt.getHour() * 3600 + dt.getMinute() * 60 + dt.getSecond();
+                long part1 = (start.daynr() % 7) * 24 * 3600 + start.getHour() * 3600 + start.getMinute() * 60
+                        + start.getSecond();
+                trivialPart = part2 - part1;
+                break;
+            }
+            case DAY: {
+                diff = dt.daynr() - start.daynr();
+                long part2 = dt.getHour() * 3600 + dt.getMinute() * 60 + dt.getSecond();
+                long part1 = start.getHour() * 3600 + start.getMinute() * 60 + start.getSecond();
+                trivialPart = part2 - part1;
+                break;
+            }
+            case HOUR: {
+                diff = (dt.daynr() - start.daynr()) * 24 + (dt.getHour() - start.getHour());
+                trivialPart = (dt.getMinute() * 60 + dt.getSecond()) - (start.getMinute() * 60 + start.getSecond());
+                break;
+            }
+            case MINUTE: {
+                diff = (dt.daynr() - start.daynr()) * 24 * 60 + (dt.getHour() - start.getHour()) * 60
+                        + (dt.getMinute() - start.getMinute());
+                trivialPart = dt.getSecond() - start.getSecond();
+                break;
+            }
+            case SECOND: {
+                diff = (dt.daynr() - start.daynr()) * 24 * 60 * 60 + (dt.getHour() - start.getHour()) * 60 * 60
+                        + (dt.getMinute() - start.getMinute()) * 60 + (dt.getSecond() - start.getSecond());
+                trivialPart = 0;
+                break;
+            }
+            default:
+                break;
+        }
+
+        if (isCeil) {
+            diff = diff + (trivialPart > 0 ? 1 : 0);
+        } else {
+            diff = diff - (trivialPart < 0 ? 1 : 0);
+        }
+        long deltaInsidePeriod = (diff % periodValue + periodValue) % periodValue;
+        long step = diff - deltaInsidePeriod;
+        if (isCeil) {
+            step = step + (deltaInsidePeriod == 0 ? 0 : periodValue);
+        }
+        switch (type) {
+            case YEAR:
+                return start.plusYears(step);
+            case MONTH:
+                return start.plusMonths(step);
+            case WEEK:
+                return start.plusDays(step * 7);
+            case DAY:
+                return start.plusDays(step);
+            case HOUR:
+                return start.plusHours(step);
+            case MINUTE:
+                return start.plusMinutes(step);
+            case SECOND:
+                return start.plusSeconds(step);
+            default:
+                break;
+        }
+        return null;
+    }
+
+    @FEFunction(name = "week_floor", argTypes = { "DATETIMEV2", "INT", "DATETIMEV2" }, returnType = "DATETIMEV2")
+    public static DateLiteral week_floor(LiteralExpr datetime, LiteralExpr period, LiteralExpr defaultDatetime)
+            throws AnalysisException {
+        return getFloorCeilDateLiteral(datetime, period, defaultDatetime, false, TimeUnit.WEEK);
+    }
+
+    @FEFunction(name = "week_ceil", argTypes = { "DATETIMEV2", "INT", "DATETIMEV2" }, returnType = "DATETIMEV2")
+    public static DateLiteral week_ceil(LiteralExpr datetime, LiteralExpr period, LiteralExpr defaultDatetime)
+            throws AnalysisException {
+        return getFloorCeilDateLiteral(datetime, period, defaultDatetime, true, TimeUnit.WEEK);
+    }
+
+    @FEFunction(name = "month_floor", argTypes = { "DATETIMEV2", "INT", "DATETIMEV2" }, returnType = "DATETIMEV2")
+    public static DateLiteral month_floor(LiteralExpr datetime, LiteralExpr period, LiteralExpr defaultDatetime)
+            throws AnalysisException {
+        return getFloorCeilDateLiteral(datetime, period, defaultDatetime, false, TimeUnit.MONTH);
+    }
+
+    @FEFunction(name = "month_ceil", argTypes = { "DATETIMEV2", "INT", "DATETIMEV2" }, returnType = "DATETIMEV2")
+    public static DateLiteral month_ceil(LiteralExpr datetime, LiteralExpr period, LiteralExpr defaultDatetime)
+            throws AnalysisException {
+        return getFloorCeilDateLiteral(datetime, period, defaultDatetime, true, TimeUnit.MONTH);
+    }
+
+    @FEFunction(name = "year_floor", argTypes = { "DATETIMEV2", "INT", "DATETIMEV2" }, returnType = "DATETIMEV2")
+    public static DateLiteral year_floor(LiteralExpr datetime, LiteralExpr period, LiteralExpr defaultDatetime)
+            throws AnalysisException {
+        return getFloorCeilDateLiteral(datetime, period, defaultDatetime, false, TimeUnit.YEAR);
+    }
+
+    @FEFunction(name = "year_ceil", argTypes = { "DATETIMEV2", "INT", "DATETIMEV2" }, returnType = "DATETIMEV2")
+    public static DateLiteral year_ceil(LiteralExpr datetime, LiteralExpr period, LiteralExpr defaultDatetime)
+            throws AnalysisException {
+        return getFloorCeilDateLiteral(datetime, period, defaultDatetime, true, TimeUnit.YEAR);
     }
 
     @FEFunction(name = "date_trunc", argTypes = {"DATETIME", "VARCHAR"}, returnType = "DATETIME")
