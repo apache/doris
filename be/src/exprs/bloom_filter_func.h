@@ -408,6 +408,7 @@ struct FixedStringFindOp : public StringFindOp {
         const auto* value = reinterpret_cast<const StringRef*>(input_data);
         int64_t size = value->size;
         const char* data = value->data;
+        // CHAR type may pad the tail with \0, need to trim
         while (size > 0 && data[size - 1] == '\0') {
             size--;
         }
