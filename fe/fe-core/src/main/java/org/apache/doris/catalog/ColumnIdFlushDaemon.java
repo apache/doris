@@ -22,10 +22,9 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.util.MasterDaemon;
 import org.apache.doris.persist.AlterLightSchemaChangeInfo;
 
+import com.google.common.collect.Maps;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
-
-import com.google.common.collect.Maps;
 
 import java.util.List;
 import java.util.Map;
@@ -68,18 +67,24 @@ public class ColumnIdFlushDaemon extends MasterDaemon {
 
     private void flush() {
         List<Database> dbs = Env.getCurrentEnv().getInternalCatalog().getDbs();
-        rwLock.writeLock().lock();
-        try {
-            for (Database db : dbs) {
+        for (Database db : dbs) {
+            rwLock.writeLock().lock();
+            try {
                 db.getTables()
                         .stream()
                         .filter(table -> table instanceof OlapTable)
                         .map(table -> (OlapTable) table)
                         .filter(olapTable -> !olapTable.getTableProperty().getUseSchemaLightChange())
                         .forEach(table -> flushFunc.accept(db, table));
+            } finally {
+                rwLock.writeLock().unlock();
             }
-        } finally {
-            rwLock.writeLock().unlock();
+            try {
+                // avoid too often to call be
+                sleep(3000);
+            } catch (InterruptedException ignore) {
+                // do nothing
+            }
         }
     }
 

@@ -48,4 +48,12 @@ std::variant<std::false_type, std::true_type> inline make_bool_variant(bool cond
     }
 }
 
+template <typename... Callables>
+struct Overload : Callables... {
+    using Callables::operator()...;
+};
+
+template <typename... Callables>
+Overload(Callables&&... callables) -> Overload<Callables...>;
+
 } // namespace  doris::vectorized

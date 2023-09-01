@@ -49,7 +49,7 @@ suite("test_outfile_orc_max_file_size", "p2") {
         """
     }
 
-    def table_export_name = "test_export_max_file_size"
+    def table_export_name = "test_outfile_orc_max_file_size"
 
     create_table(table_export_name)
 

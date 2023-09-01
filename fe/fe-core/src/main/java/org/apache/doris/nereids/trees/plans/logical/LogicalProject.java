@@ -231,7 +231,6 @@ public class LogicalProject<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_
     }
 
     public LogicalProject<Plan> readFromJson(JSONObject logicalProject) {
-
         return new LogicalProject<>(ImmutableList.of(new UnboundStar(ImmutableList.of())),
             null, null, isDistinct);
     }

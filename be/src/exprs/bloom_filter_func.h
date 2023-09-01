@@ -94,7 +94,7 @@ private:
 };
 
 // Only Used In RuntimeFilter
-class BloomFilterFuncBase {
+class BloomFilterFuncBase : public FilterFuncBase {
 public:
     BloomFilterFuncBase() : _inited(false) {}
 
@@ -164,7 +164,6 @@ public:
                              << other_func->_bloom_filter_alloced;
                 return Status::InvalidArgument("bloom filter size invalid");
             }
-            set_filter_id(other_func->_filter_id);
             return _bloom_filter->merge(other_func->_bloom_filter.get());
         }
         {
@@ -176,7 +175,6 @@ public:
                 _bloom_filter = bloomfilter_func->_bloom_filter;
                 _bloom_filter_alloced = other_func->_bloom_filter_alloced;
                 _inited = true;
-                set_filter_id(other_func->_filter_id);
                 return Status::OK();
             } else {
                 DCHECK(bloomfilter_func != nullptr);
@@ -187,7 +185,6 @@ public:
                                  << other_func->_bloom_filter_alloced;
                     return Status::InvalidArgument("bloom filter size invalid");
                 }
-                set_filter_id(other_func->_filter_id);
                 return _bloom_filter->merge(other_func->_bloom_filter.get());
             }
         }
@@ -215,12 +212,7 @@ public:
         _bloom_filter_alloced = other_func->_bloom_filter_alloced;
         _bloom_filter = other_func->_bloom_filter;
         _inited = other_func->_inited;
-        set_filter_id(other_func->_filter_id);
     }
-
-    void set_filter_id(int filter_id) { _filter_id = filter_id; }
-
-    int get_filter_id() const { return _filter_id; }
 
     virtual void insert(const void* data) = 0;
 
@@ -255,7 +247,6 @@ protected:
     std::mutex _lock;
     int64_t _bloom_filter_length;
     bool _build_bf_exactly = false;
-    int _filter_id = -1;
 };
 
 template <class T>
@@ -417,6 +408,7 @@ struct FixedStringFindOp : public StringFindOp {
         const auto* value = reinterpret_cast<const StringRef*>(input_data);
         int64_t size = value->size;
         const char* data = value->data;
+        // CHAR type may pad the tail with \0, need to trim
         while (size > 0 && data[size - 1] == '\0') {
             size--;
         }

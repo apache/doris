@@ -90,6 +90,10 @@ Status MemoryScratchSink::open(RuntimeState* state) {
     return VExpr::open(_output_vexpr_ctxs, state);
 }
 
+bool MemoryScratchSink::can_write() {
+    return _queue->size() < 10;
+}
+
 Status MemoryScratchSink::close(RuntimeState* state, Status exec_status) {
     if (_closed) {
         return Status::OK();

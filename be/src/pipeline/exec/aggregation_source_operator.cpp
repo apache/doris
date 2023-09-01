@@ -28,7 +28,7 @@ namespace pipeline {
 OPERATOR_CODE_GENERATOR(AggSourceOperator, SourceOperator)
 
 AggLocalState::AggLocalState(RuntimeState* state, OperatorXBase* parent)
-        : PipelineXLocalState(state, parent),
+        : PipelineXLocalState<AggDependency>(state, parent),
           _get_results_timer(nullptr),
           _serialize_result_timer(nullptr),
           _hash_table_iterate_timer(nullptr),
@@ -37,9 +37,7 @@ AggLocalState::AggLocalState(RuntimeState* state, OperatorXBase* parent)
           _hash_table_size_counter(nullptr) {}
 
 Status AggLocalState::init(RuntimeState* state, LocalStateInfo& info) {
-    RETURN_IF_ERROR(PipelineXLocalState::init(state, info));
-    _dependency = (AggDependency*)info.dependency;
-    _shared_state = (AggSharedState*)_dependency->shared_state();
+    RETURN_IF_ERROR(PipelineXLocalState<AggDependency>::init(state, info));
     _agg_data = _shared_state->agg_data.get();
     _get_results_timer = ADD_TIMER(profile(), "GetResultsTime");
     _serialize_result_timer = ADD_TIMER(profile(), "SerializeResultTime");
@@ -493,8 +491,8 @@ Status AggLocalState::_get_without_key_result(RuntimeState* state, vectorized::B
 }
 
 AggSourceOperatorX::AggSourceOperatorX(ObjectPool* pool, const TPlanNode& tnode,
-                                       const DescriptorTbl& descs, std::string op_name)
-        : OperatorXBase(pool, tnode, descs, op_name),
+                                       const DescriptorTbl& descs)
+        : OperatorX<AggLocalState>(pool, tnode, descs),
           _needs_finalize(tnode.agg_node.need_finalize),
           _without_key(tnode.agg_node.grouping_exprs.empty()) {}
 
@@ -547,13 +545,7 @@ Status AggLocalState::close(RuntimeState* state) {
 
     std::vector<vectorized::AggregateDataPtr> tmp_values;
     _shared_state->values.swap(tmp_values);
-    return PipelineXLocalState::close(state);
-}
-
-Status AggSourceOperatorX::setup_local_state(RuntimeState* state, LocalStateInfo& info) {
-    auto local_state = AggLocalState::create_shared(state, this);
-    state->emplace_local_state(id(), local_state);
-    return local_state->init(state, info);
+    return PipelineXLocalState<AggDependency>::close(state);
 }
 
 bool AggSourceOperatorX::can_read(RuntimeState* state) {

@@ -50,8 +50,8 @@ public abstract class TableValuedFunctionIf {
                 return new S3TableValuedFunction(params);
             case HdfsTableValuedFunction.NAME:
                 return new HdfsTableValuedFunction(params);
-            case StreamTableValuedFunction.NAME:
-                return new StreamTableValuedFunction(params);
+            case HttpStreamTableValuedFunction.NAME:
+                return new HttpStreamTableValuedFunction(params);
             case LocalTableValuedFunction.NAME:
                 return new LocalTableValuedFunction(params);
             case IcebergTableValuedFunction.NAME:

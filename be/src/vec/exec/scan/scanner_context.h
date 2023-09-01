@@ -42,7 +42,7 @@ class RuntimeState;
 class TupleDescriptor;
 
 namespace pipeline {
-class ScanLocalState;
+class ScanLocalStateBase;
 } // namespace pipeline
 
 namespace taskgroup {
@@ -71,7 +71,7 @@ public:
                    const TupleDescriptor* output_tuple_desc,
                    const std::list<VScannerSPtr>& scanners_, int64_t limit_,
                    int64_t max_bytes_in_blocks_queue_, const int num_parallel_instances = 0,
-                   pipeline::ScanLocalState* local_state = nullptr);
+                   pipeline::ScanLocalStateBase* local_state = nullptr);
 
     virtual ~ScannerContext() = default;
     virtual Status init();
@@ -176,7 +176,7 @@ protected:
 
     RuntimeState* _state;
     VScanNode* _parent;
-    pipeline::ScanLocalState* _local_state;
+    pipeline::ScanLocalStateBase* _local_state;
 
     // the comment of same fields in VScanNode
     const TupleDescriptor* _output_tuple_desc;

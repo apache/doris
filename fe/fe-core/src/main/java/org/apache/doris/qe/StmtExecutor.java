@@ -2438,6 +2438,7 @@ public class StmtExecutor {
     }
 
     public List<ResultRow> executeInternalQuery() {
+        LOG.debug("INTERNAL QUERY: " + originStmt.toString());
         try {
             List<ResultRow> resultRows = new ArrayList<>();
             try {
