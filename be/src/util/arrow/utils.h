@@ -39,10 +39,20 @@ class Status;
 
 namespace doris {
 
+#define ARROW_RETURN_IF_ERROR(stmt)                         \
+    do {                                                    \
+        Status _status_ = (stmt);                           \
+        if (UNLIKELY(!_status_.ok())) {                     \
+            LOG(WARNING) << _status_.to_string();           \
+            ARROW_RETURN_NOT_OK(to_arrow_status(_status_)); \
+        }                                                   \
+    } while (false)
+
 // Pretty print a arrow RecordBatch.
 Status arrow_pretty_print(const arrow::RecordBatch& rb, std::ostream* os);
 Status arrow_pretty_print(const arrow::Array& rb, std::ostream* os);
 
-Status to_status(const arrow::Status& status);
+Status to_doris_status(const arrow::Status& status);
+arrow::Status to_arrow_status(const Status& status);
 
 } // namespace doris

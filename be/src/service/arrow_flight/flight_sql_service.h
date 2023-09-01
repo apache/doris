@@ -17,44 +17,29 @@
 
 #pragma once
 
-#include <stdint.h>
-
-#include <string>
-
-#include "common/status.h"
+#include "arrow/flight/sql/server.h"
+#include "arrow/result.h"
+#include "service/arrow_flight/flight_sql_statement_batch_reader.h"
 
 namespace doris {
+namespace flight {
 
-namespace vectorized {
-class Block;
-}
-class RuntimeState;
-
-// abstract class of the result writer
-class ResultWriter {
+class FlightSqlServer : public arrow::flight::sql::FlightSqlServerBase {
 public:
-    ResultWriter() = default;
-    virtual ~ResultWriter() = default;
+    ~FlightSqlServer() override;
 
-    virtual Status init(RuntimeState* state) = 0;
+    static arrow::Result<std::shared_ptr<FlightSqlServer>> Create();
 
-    virtual Status close() = 0;
+    arrow::Result<std::unique_ptr<arrow::flight::FlightDataStream>> DoGetStatement(
+            const arrow::flight::ServerCallContext& context,
+            const arrow::flight::sql::StatementQueryTicket& command) override;
 
-    [[nodiscard]] virtual int64_t get_written_rows() const { return _written_rows; }
+private:
+    class Impl;
+    std::shared_ptr<Impl> impl_;
 
-    [[nodiscard]] bool output_object_data() const { return _output_object_data; }
-
-    virtual Status append_block(vectorized::Block& block) = 0;
-
-    virtual bool can_sink() { return true; }
-
-    void set_output_object_data(bool output_object_data) {
-        _output_object_data = output_object_data;
-    }
-
-protected:
-    int64_t _written_rows = 0; // number of rows written
-    bool _output_object_data = false;
+    explicit FlightSqlServer(std::shared_ptr<Impl> impl);
 };
 
+} // namespace flight
 } // namespace doris

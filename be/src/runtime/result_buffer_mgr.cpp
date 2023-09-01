@@ -62,7 +62,8 @@ Status ResultBufferMgr::init() {
 
 Status ResultBufferMgr::create_sender(const TUniqueId& query_id, int buffer_size,
                                       std::shared_ptr<BufferControlBlock>* sender,
-                                      bool enable_pipeline, int exec_timout) {
+                                      bool enable_pipeline, int exec_timout,
+                                      const RowDescriptor& row_desc) {
     *sender = find_control_block(query_id);
     if (*sender != nullptr) {
         LOG(WARNING) << "already have buffer control block for this instance " << query_id;
@@ -80,6 +81,7 @@ Status ResultBufferMgr::create_sender(const TUniqueId& query_id, int buffer_size
     {
         std::lock_guard<std::mutex> l(_lock);
         _buffer_map.insert(std::make_pair(query_id, control_block));
+        _row_descriptor_map.insert(std::make_pair(query_id, row_desc));
         // BufferControlBlock should destroy after max_timeout
         // for exceed max_timeout FE will return timeout to client
         // otherwise in some case may block all fragment handle threads
@@ -104,17 +106,39 @@ std::shared_ptr<BufferControlBlock> ResultBufferMgr::find_control_block(const TU
     return std::shared_ptr<BufferControlBlock>();
 }
 
+RowDescriptor ResultBufferMgr::find_row_descriptor(const TUniqueId& query_id) {
+    std::lock_guard<std::mutex> l(_lock);
+    RowDescriptorMap::iterator iter = _row_descriptor_map.find(query_id);
+
+    if (_row_descriptor_map.end() != iter) {
+        return iter->second;
+    }
+
+    return RowDescriptor();
+}
+
 void ResultBufferMgr::fetch_data(const PUniqueId& finst_id, GetResultBatchCtx* ctx) {
     TUniqueId tid;
     tid.__set_hi(finst_id.hi());
     tid.__set_lo(finst_id.lo());
     std::shared_ptr<BufferControlBlock> cb = find_control_block(tid);
     if (cb == nullptr) {
-        LOG(WARNING) << "no result for this query, id=" << tid;
+        LOG(WARNING) << "no result for this query, id=" << print_id(tid);
         ctx->on_failure(Status::InternalError("no result for this query"));
         return;
     }
     cb->get_batch(ctx);
+}
+
+Status ResultBufferMgr::fetch_data(const TUniqueId& finst_id,
+                                   std::shared_ptr<arrow::RecordBatch>* result) {
+    std::shared_ptr<BufferControlBlock> cb = find_control_block(finst_id);
+    if (cb == nullptr) {
+        LOG(WARNING) << "no result for this query, id=" << print_id(finst_id);
+        return Status::InternalError("no result for this query");
+    }
+    RETURN_IF_ERROR(cb->get_arrow_batch(result));
+    return Status::OK();
 }
 
 Status ResultBufferMgr::cancel(const TUniqueId& query_id) {
@@ -124,6 +148,12 @@ Status ResultBufferMgr::cancel(const TUniqueId& query_id) {
     if (_buffer_map.end() != iter) {
         iter->second->cancel();
         _buffer_map.erase(iter);
+    }
+
+    RowDescriptorMap::iterator row_desc_iter = _row_descriptor_map.find(query_id);
+
+    if (_row_descriptor_map.end() != row_desc_iter) {
+        _row_descriptor_map.erase(row_desc_iter);
     }
 
     return Status::OK();

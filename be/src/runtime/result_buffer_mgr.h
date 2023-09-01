@@ -28,6 +28,7 @@
 
 #include "common/status.h"
 #include "gutil/ref_counted.h"
+#include "runtime/descriptors.h"
 #include "util/countdown_latch.h"
 #include "util/hash_util.hpp"
 
@@ -50,9 +51,12 @@ public:
     // sender is not used when call cancel or unregister
     Status create_sender(const TUniqueId& query_id, int buffer_size,
                          std::shared_ptr<BufferControlBlock>* sender, bool enable_pipeline,
-                         int exec_timeout);
+                         int exec_timeout, const RowDescriptor& row_desc);
 
     void fetch_data(const PUniqueId& finst_id, GetResultBatchCtx* ctx);
+    Status fetch_data(const TUniqueId& finst_id, std::shared_ptr<arrow::RecordBatch>* result);
+
+    RowDescriptor find_row_descriptor(const TUniqueId& query_id);
 
     // cancel
     Status cancel(const TUniqueId& fragment_id);
@@ -63,6 +67,7 @@ public:
 private:
     using BufferMap = std::unordered_map<TUniqueId, std::shared_ptr<BufferControlBlock>>;
     using TimeoutMap = std::map<time_t, std::vector<TUniqueId>>;
+    using RowDescriptorMap = std::unordered_map<TUniqueId, RowDescriptor>;
 
     std::shared_ptr<BufferControlBlock> find_control_block(const TUniqueId& query_id);
 
@@ -74,6 +79,8 @@ private:
     std::mutex _lock;
     // buffer block map
     BufferMap _buffer_map;
+    // for arrow flight
+    RowDescriptorMap _row_descriptor_map;
 
     // lock for timeout map
     std::mutex _timeout_lock;
@@ -86,6 +93,4 @@ private:
     scoped_refptr<Thread> _clean_thread;
 };
 
-// TUniqueId hash function used for std::unordered_map
-std::size_t hash_value(const TUniqueId& fragment_id);
 } // namespace doris

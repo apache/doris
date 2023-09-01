@@ -24,9 +24,7 @@
 
 namespace doris {
 
-using strings::Substitute;
-
-Status to_status(const arrow::Status& status) {
+Status to_doris_status(const arrow::Status& status) {
     if (status.ok()) {
         return Status::OK();
     } else {
@@ -35,13 +33,22 @@ Status to_status(const arrow::Status& status) {
     }
 }
 
+arrow::Status to_arrow_status(const Status& status) {
+    if (status.ok()) {
+        return arrow::Status::OK();
+    } else {
+        // TODO(zc): convert arrow status to doris status
+        return arrow::Status::Invalid(status.to_string());
+    }
+}
+
 Status arrow_pretty_print(const arrow::RecordBatch& rb, std::ostream* os) {
-    return to_status(arrow::PrettyPrint(rb, 0, os));
+    return to_doris_status(arrow::PrettyPrint(rb, 0, os));
 }
 
 Status arrow_pretty_print(const arrow::Array& arr, std::ostream* os) {
     arrow::PrettyPrintOptions opts(4);
-    return to_status(arrow::PrettyPrint(arr, opts, os));
+    return to_doris_status(arrow::PrettyPrint(arr, opts, os));
 }
 
 } // namespace doris
