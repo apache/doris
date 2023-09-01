@@ -569,7 +569,8 @@ private:
                 (_build_blocks->empty() && _join_op == TJoinOp::RIGHT_OUTER_JOIN) ||
                 (_build_blocks->empty() && _join_op == TJoinOp::RIGHT_SEMI_JOIN) ||
                 (_build_blocks->empty() && _join_op == TJoinOp::RIGHT_ANTI_JOIN);
-        //when build table rows is 0 and not have other_join_conjunct and join type is one of LEFT_OUTER_JOIN/FULL_OUTER_JOIN/LEFT_ANTI_JOIN
+
+        //when build table rows is 0 and not have other_join_conjunct and not _is_mark_join and join type is one of LEFT_OUTER_JOIN/FULL_OUTER_JOIN/LEFT_ANTI_JOIN
         //we could get the result is probe table + null-column(if need output)
         _short_circuit_for_probe_and_additional_data =
                 (_build_blocks->empty() && !_have_other_join_conjunct && !_is_mark_join) &&

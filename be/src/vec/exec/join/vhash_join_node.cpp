@@ -464,41 +464,41 @@ Status HashJoinNode::pull(doris::RuntimeState* state, vectorized::Block* output_
             *eos = _probe_eos;
             return Status::OK();
         }
-        if (!output_block->mem_reuse()) {
-            *output_block = VectorizedUtils::create_empty_columnswithtypename(row_desc());
-        }
 
-        int column_idx = 0;
+        Block temp_block;
         //get probe side output column
         for (int i = 0; i < _left_output_slot_flags.size(); ++i) {
             if (_left_output_slot_flags[i]) {
-                auto result_column_id = -1;
-                RETURN_IF_ERROR(_output_expr_ctxs[i]->execute(&_probe_block, &result_column_id));
-                auto column = _probe_block.get_by_position(result_column_id).column;
-                output_block->replace_by_position(column_idx++, std::move(column));
+                temp_block.insert(_probe_block.get_by_position(i));
             }
         }
-        _probe_block.clear();
+
         //create build side null column, if need output
-        for (int i = 0; i < _right_output_slot_flags.size(); ++i) {
+        for (int i = 0;
+             (_join_op != TJoinOp::LEFT_ANTI_JOIN) && i < _right_output_slot_flags.size(); ++i) {
             if (_right_output_slot_flags[i]) {
-                auto column = remove_nullable(_right_table_data_types[i])->create_column();
+                auto type = remove_nullable(_right_table_data_types[i]);
+                auto column = type->create_column();
                 column->resize(block_rows);
                 auto null_map_column = ColumnVector<UInt8>::create(block_rows, 1);
                 auto nullable_column =
                         ColumnNullable::create(std::move(column), std::move(null_map_column));
-                output_block->replace_by_position(column_idx++, std::move(nullable_column));
+                temp_block.insert(
+                        {std::move(nullable_column), make_nullable(type), "right-null-column"});
             }
         }
+
         {
             SCOPED_TIMER(_join_filter_timer);
             RETURN_IF_ERROR(
-                    VExprContext::filter_block(_conjuncts, output_block, output_block->columns()));
+                    VExprContext::filter_block(_conjuncts, &temp_block, temp_block.columns()));
         }
+
+        RETURN_IF_ERROR(_build_output_block(&temp_block, output_block, false));
+        _probe_block.clear();
         reached_limit(output_block, eos);
         return Status::OK();
     }
-
     _join_block.clear_column_data();
 
     MutableBlock mutable_join_block(&_join_block);
@@ -573,6 +573,7 @@ Status HashJoinNode::pull(doris::RuntimeState* state, vectorized::Block* output_
     if (!st) {
         return st;
     }
+    LOG(INFO) << " 44444 " << temp_block.dump_data();
     if (_is_outer_join) {
         _add_tuple_is_null_column(&temp_block);
     }
@@ -586,8 +587,9 @@ Status HashJoinNode::pull(doris::RuntimeState* state, vectorized::Block* output_
     // Here make _join_block release the columns' ptr
     _join_block.set_columns(_join_block.clone_empty_columns());
     mutable_join_block.clear();
-
+    LOG(INFO) << " 555555 " << temp_block.dump_data();
     RETURN_IF_ERROR(_build_output_block(&temp_block, output_block, false));
+    LOG(INFO) << " 666666 " << output_block->dump_data();
     _reset_tuple_is_null_column();
     reached_limit(output_block, eos);
     return Status::OK();
@@ -666,7 +668,7 @@ Status HashJoinNode::get_next(RuntimeState* state, Block* output_block, bool* eo
                                   ExecNode::get_next,
                           _children[0], std::placeholders::_1, std::placeholders::_2,
                           std::placeholders::_3)));
-
+        LOG(INFO) << "need_more_input_data() push _probe_eos " << _probe_eos;
         RETURN_IF_ERROR(push(state, &_probe_block, _probe_eos));
     }
 
