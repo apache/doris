@@ -39,7 +39,7 @@ public:
               _col_distribute_ids(col_distribute_ids),
               _need_colocate_distribute(!_col_distribute_ids.empty()) {}
 
-    PipScannerContext(RuntimeState* state, ScanLocalState* local_state,
+    PipScannerContext(RuntimeState* state, ScanLocalStateBase* local_state,
                       const TupleDescriptor* output_tuple_desc,
                       const std::list<vectorized::VScannerSPtr>& scanners, int64_t limit,
                       int64_t max_bytes_in_blocks_queue, const std::vector<int>& col_distribute_ids,

@@ -30,6 +30,7 @@ import org.apache.doris.external.hudi.HudiTable;
 import org.apache.doris.statistics.AnalysisInfo;
 import org.apache.doris.statistics.BaseAnalysisTask;
 import org.apache.doris.statistics.ColumnStatistic;
+import org.apache.doris.statistics.TableStats;
 import org.apache.doris.thrift.TTableDescriptor;
 
 import com.google.common.base.Preconditions;
@@ -571,6 +572,15 @@ public abstract class Table extends MetaObject implements Writable, TableIf {
         return Optional.empty();
     }
 
-    public void analyze(String dbName) {
+    public void analyze(String dbName) {}
+
+    @Override
+    public boolean needReAnalyzeTable(TableStats tblStats) {
+        return true;
+    }
+
+    @Override
+    public Set<String> findReAnalyzeNeededPartitions(TableStats tableStats) {
+        return Collections.emptySet();
     }
 }

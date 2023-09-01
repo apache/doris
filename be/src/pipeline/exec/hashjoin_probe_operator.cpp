@@ -27,7 +27,7 @@ namespace pipeline {
 OPERATOR_CODE_GENERATOR(HashJoinProbeOperator, StatefulOperator)
 
 HashJoinProbeLocalState::HashJoinProbeLocalState(RuntimeState* state, OperatorXBase* parent)
-        : JoinProbeLocalState(state, parent),
+        : JoinProbeLocalState<JoinDependency, HashJoinProbeLocalState>(state, parent),
           _child_block(vectorized::Block::create_unique()),
           _child_source_state(SourceState::DEPEND_ON_SOURCE) {}
 
@@ -96,7 +96,7 @@ Status HashJoinProbeLocalState::close(RuntimeState* state) {
     _tuple_is_null_left_flag_column = nullptr;
     _tuple_is_null_right_flag_column = nullptr;
     _probe_block.clear();
-    return PipelineXLocalState<JoinDependency>::close(state);
+    return JoinProbeLocalState<JoinDependency, HashJoinProbeLocalState>::close(state);
 }
 
 bool HashJoinProbeLocalState::_need_probe_null_map(vectorized::Block& block,
@@ -177,7 +177,7 @@ void HashJoinProbeLocalState::_prepare_probe_block() {
 
 HashJoinProbeOperatorX::HashJoinProbeOperatorX(ObjectPool* pool, const TPlanNode& tnode,
                                                const DescriptorTbl& descs)
-        : JoinProbeOperatorX(pool, tnode, descs),
+        : JoinProbeOperatorX<HashJoinProbeLocalState>(pool, tnode, descs),
           _hash_output_slot_ids(tnode.hash_join_node.__isset.hash_output_slot_ids
                                         ? tnode.hash_join_node.hash_output_slot_ids
                                         : std::vector<SlotId> {}) {}
@@ -391,7 +391,7 @@ Status HashJoinProbeOperatorX::push(RuntimeState* state, vectorized::Block* inpu
 }
 
 Status HashJoinProbeOperatorX::init(const TPlanNode& tnode, RuntimeState* state) {
-    RETURN_IF_ERROR(JoinProbeOperatorX::init(tnode, state));
+    RETURN_IF_ERROR(JoinProbeOperatorX<HashJoinProbeLocalState>::init(tnode, state));
     DCHECK(tnode.__isset.hash_join_node);
     const bool probe_dispose_null =
             _match_all_probe || _build_unique || _join_op == TJoinOp::NULL_AWARE_LEFT_ANTI_JOIN ||
@@ -455,7 +455,7 @@ Status HashJoinProbeOperatorX::init(const TPlanNode& tnode, RuntimeState* state)
 }
 
 Status HashJoinProbeOperatorX::prepare(RuntimeState* state) {
-    RETURN_IF_ERROR(JoinProbeOperatorX::prepare(state));
+    RETURN_IF_ERROR(JoinProbeOperatorX<HashJoinProbeLocalState>::prepare(state));
     RETURN_IF_ERROR(vectorized::VExpr::prepare(_output_expr_ctxs, state, *_intermediate_row_desc));
     // _other_join_conjuncts are evaluated in the context of the rows produced by this node
     for (auto& conjunct : _other_join_conjuncts) {
@@ -471,18 +471,12 @@ Status HashJoinProbeOperatorX::prepare(RuntimeState* state) {
 }
 
 Status HashJoinProbeOperatorX::open(RuntimeState* state) {
-    RETURN_IF_ERROR(JoinProbeOperatorX::open(state));
+    RETURN_IF_ERROR(JoinProbeOperatorX<HashJoinProbeLocalState>::open(state));
     RETURN_IF_ERROR(vectorized::VExpr::open(_probe_expr_ctxs, state));
     for (auto& conjunct : _other_join_conjuncts) {
         RETURN_IF_ERROR(conjunct->open(state));
     }
     return Status::OK();
-}
-
-Status HashJoinProbeOperatorX::setup_local_state(RuntimeState* state, LocalStateInfo& info) {
-    auto local_state = HashJoinProbeLocalState::create_shared(state, this);
-    state->emplace_local_state(id(), local_state);
-    return local_state->init(state, info);
 }
 
 bool HashJoinProbeOperatorX::can_read(RuntimeState* state) {

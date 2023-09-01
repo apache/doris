@@ -117,7 +117,7 @@ public class HudiScanNode extends HiveScanNode {
                     String.format("Querying external view '%s.%s' is not supported", table.getDbName(),
                             table.getName()));
         }
-        computeColumnFilter();
+        computeColumnsFilter();
         initBackendPolicy();
         initSchemaParams();
     }

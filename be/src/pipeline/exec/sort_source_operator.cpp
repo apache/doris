@@ -36,7 +36,7 @@ Status SortLocalState::init(RuntimeState* state, LocalStateInfo& info) {
 
 SortSourceOperatorX::SortSourceOperatorX(ObjectPool* pool, const TPlanNode& tnode,
                                          const DescriptorTbl& descs)
-        : OperatorXBase(pool, tnode, descs) {}
+        : OperatorX<SortLocalState>(pool, tnode, descs) {}
 
 Status SortSourceOperatorX::get_block(RuntimeState* state, vectorized::Block* block,
                                       SourceState& source_state) {
@@ -57,12 +57,6 @@ Status SortSourceOperatorX::get_block(RuntimeState* state, vectorized::Block* bl
 bool SortSourceOperatorX::can_read(RuntimeState* state) {
     auto& local_state = state->get_local_state(id())->cast<SortLocalState>();
     return local_state._dependency->done();
-}
-
-Status SortSourceOperatorX::setup_local_state(RuntimeState* state, LocalStateInfo& info) {
-    auto local_state = SortLocalState::create_shared(state, this);
-    state->emplace_local_state(id(), local_state);
-    return local_state->init(state, info);
 }
 
 Status SortLocalState::close(RuntimeState* state) {

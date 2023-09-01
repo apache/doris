@@ -21,6 +21,7 @@
 
 #include "operator.h"
 #include "pipeline/pipeline_x/dependency.h"
+#include "pipeline/pipeline_x/operator.h"
 #include "runtime/block_spill_manager.h"
 #include "runtime/exec_env.h"
 #include "vec/exec/vaggregation_node.h"
@@ -44,14 +45,13 @@ public:
     bool can_write() override { return true; }
 };
 
+template <typename LocalStateType>
 class AggSinkOperatorX;
 
+template <typename Derived>
 class AggSinkLocalState : public PipelineXSinkLocalState<AggDependency> {
-    ENABLE_FACTORY_CREATOR(AggSinkLocalState);
-
 public:
-    AggSinkLocalState(DataSinkOperatorX* parent, RuntimeState* state);
-    ~AggSinkLocalState() = default;
+    virtual ~AggSinkLocalState() = default;
 
     virtual Status init(RuntimeState* state, LocalSinkStateInfo& info) override;
     virtual Status close(RuntimeState* state) override;
@@ -59,6 +59,9 @@ public:
     Status try_spill_disk(bool eos = false);
 
 protected:
+    AggSinkLocalState(DataSinkOperatorXBase* parent, RuntimeState* state);
+
+    template <typename LocalStateType>
     friend class AggSinkOperatorX;
 
     Status _execute_without_key(vectorized::Block* block);
@@ -309,29 +312,40 @@ protected:
     executor _executor;
 };
 
-class AggSinkOperatorX : public DataSinkOperatorX {
+class BlockingAggSinkLocalState : public AggSinkLocalState<BlockingAggSinkLocalState> {
+public:
+    ENABLE_FACTORY_CREATOR(BlockingAggSinkLocalState);
+    using Parent = AggSinkOperatorX<BlockingAggSinkLocalState>;
+
+    BlockingAggSinkLocalState(DataSinkOperatorXBase* parent, RuntimeState* state)
+            : AggSinkLocalState(parent, state) {}
+    ~BlockingAggSinkLocalState() = default;
+};
+
+template <typename LocalStateType = BlockingAggSinkLocalState>
+class AggSinkOperatorX : public DataSinkOperatorX<LocalStateType> {
 public:
     AggSinkOperatorX(ObjectPool* pool, const TPlanNode& tnode, const DescriptorTbl& descs);
+    virtual ~AggSinkOperatorX() = default;
     Status init(const TDataSink& tsink) override {
-        return Status::InternalError("{} should not init with TPlanNode", _name);
+        return Status::InternalError("{} should not init with TPlanNode",
+                                     DataSinkOperatorX<LocalStateType>::_name);
     }
 
     Status init(const TPlanNode& tnode, RuntimeState* state) override;
 
     Status prepare(RuntimeState* state) override;
     Status open(RuntimeState* state) override;
-    virtual Status setup_local_state(RuntimeState* state, LocalSinkStateInfo& info) override;
 
     virtual Status sink(RuntimeState* state, vectorized::Block* in_block,
                         SourceState source_state) override;
 
     virtual bool can_write(RuntimeState* state) override { return true; }
 
-    void get_dependency(DependencySPtr& dependency) override {
-        dependency.reset(new AggDependency(id()));
-    }
+    using DataSinkOperatorX<LocalStateType>::id;
 
-private:
+protected:
+    template <typename Derived>
     friend class AggSinkLocalState;
     friend class StreamingAggSinkLocalState;
     std::vector<vectorized::AggFnEvaluator*> _aggregate_evaluators;
