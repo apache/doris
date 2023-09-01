@@ -15,15 +15,9 @@
 // specific language governing permissions and limitations
 // under the License.
 suite("hll", "rollup") {
-
-    sql """set enable_nereids_planner=true"""
-    sql "SET enable_fallback_to_original_planner=false"
-    
-    def tbName1 = "test_materialized_view_hll1"
-
-    sql "DROP TABLE IF EXISTS ${tbName1}"
+    sql "DROP TABLE IF EXISTS test_materialized_view_hll1"
     sql """
-            CREATE TABLE IF NOT EXISTS ${tbName1}(
+            CREATE TABLE test_materialized_view_hll1(
                 record_id int, 
                 seller_id int, 
                 store_id int, 
@@ -33,14 +27,14 @@ suite("hll", "rollup") {
             DISTRIBUTED BY HASH(record_id) properties("replication_num" = "1");
         """
 
-    createMV "CREATE materialized VIEW amt_count AS SELECT store_id, hll_union(hll_hash(sale_amt)) FROM ${tbName1} GROUP BY store_id;"
+    createMV "CREATE materialized VIEW amt_count AS SELECT store_id, hll_union(hll_hash(sale_amt)) FROM test_materialized_view_hll1 GROUP BY store_id;"
 
-    sql "insert into ${tbName1} values(1, 1, 1, '2020-05-30',100);"
-    sql "insert into ${tbName1} values(2, 1, 1, '2020-05-30',100);"
-    qt_sql "SELECT store_id, hll_union_agg(hll_hash(sale_amt)) FROM ${tbName1} GROUP BY store_id;"
+    sql "insert into test_materialized_view_hll1 values(1, 1, 1, '2020-05-30',100);"
+    sql "insert into test_materialized_view_hll1 values(2, 1, 1, '2020-05-30',100);"
+    qt_sql "SELECT store_id, hll_union_agg(hll_hash(sale_amt)) FROM test_materialized_view_hll1 GROUP BY store_id;"
 
     explain {
-        sql("SELECT store_id, hll_union_agg(hll_hash(sale_amt)) FROM ${tbName1} GROUP BY store_id;")
+        sql("SELECT store_id, hll_union_agg(hll_hash(sale_amt)) FROM test_materialized_view_hll1 GROUP BY store_id;")
         contains "(amt_count)"
     }
 }
