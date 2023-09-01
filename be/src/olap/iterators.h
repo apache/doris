@@ -39,6 +39,10 @@ namespace vectorized {
 struct IteratorRowRef;
 };
 
+namespace segment_v2 {
+struct StreamReader;
+}
+
 class StorageReadOptions {
 public:
     struct KeyRange {
@@ -109,6 +113,8 @@ public:
     RowsetId rowset_id;
     Version version;
     int32_t tablet_id = 0;
+    // shared reader among a segment
+    std::shared_ptr<StreamReader> _shared_stream_reader;
 };
 
 class RowwiseIterator;

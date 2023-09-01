@@ -35,7 +35,6 @@
 #include "io/io_common.h"
 #include "olap/olap_common.h"
 #include "olap/rowset/segment_v2/common.h"
-#include "olap/rowset/segment_v2/hierarchical_data_reader.h"
 #include "olap/rowset/segment_v2/ordinal_page_index.h" // for OrdinalPageIndexIterator
 #include "olap/rowset/segment_v2/page_handle.h"        // for PageHandle
 #include "olap/rowset/segment_v2/page_pointer.h"
@@ -477,48 +476,6 @@ private:
     std::unique_ptr<ColumnIterator> _val_iterator;
 };
 
-// Cache the sub column iterators and columns to reduce data read amplification
-class CachedStreamIterator : public ColumnIterator {
-public:
-    CachedStreamIterator(const vectorized::PathInData& path) : _path(path) {}
-
-    ~CachedStreamIterator() override = default;
-
-    Status init(const ColumnIteratorOptions& opts) override;
-
-    Status next_batch(size_t* n, vectorized::MutableColumnPtr& dst, bool* has_null) override;
-
-    Status read_by_rowids(const rowid_t* rowids, const size_t count,
-                          vectorized::MutableColumnPtr& dst) override;
-
-    Status seek_to_ordinal(ordinal_t ord) override;
-
-    ordinal_t get_current_ordinal() const override { LOG(FATAL) << "Not implemented"; }
-
-    Status seek_to_first() override { LOG(FATAL) << "Not implemented"; }
-
-    void attatch_node(const SubstreamCache::Node* n) {
-        CHECK(n);
-        _attatched_nodes.push_back(n);
-    }
-
-private:
-    // process read
-    template <typename NodeFunction>
-    Status process(NodeFunction&& node_func, size_t nrows) {
-        // Read all sub columns, and merge with root column
-        for (const SubstreamCache::Node* node : _attatched_nodes) {
-            RETURN_IF_ERROR(node_func(node));
-        }
-        _rows_read += nrows;
-        return Status::OK();
-    }
-    vectorized::PathInData _path;
-    size_t _rows_read = 0;
-    // could duplicate with nodes under _path, since node_func is idempotent
-    std::vector<const SubstreamCache::Node*> _attatched_nodes;
-};
-
 class StructFileColumnIterator final : public ColumnIterator {
 public:
     explicit StructFileColumnIterator(ColumnReader* reader, ColumnIterator* null_iterator,
@@ -643,13 +600,13 @@ private:
     int32_t _segment_id = 0;
 };
 
-class VariantColumnIterator : public ColumnIterator {
+class VariantRootColumnIterator : public ColumnIterator {
 public:
-    VariantColumnIterator() = delete;
+    VariantRootColumnIterator() = delete;
 
-    explicit VariantColumnIterator(FileColumnIterator* iter) { _inner_iter.reset(iter); }
+    explicit VariantRootColumnIterator(FileColumnIterator* iter) { _inner_iter.reset(iter); }
 
-    ~VariantColumnIterator() override = default;
+    ~VariantRootColumnIterator() override = default;
 
     Status init(const ColumnIteratorOptions& opts) override { return _inner_iter->init(opts); }
 

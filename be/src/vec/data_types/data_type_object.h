@@ -52,7 +52,7 @@ private:
     bool is_nullable;
 
 public:
-    DataTypeObject(const String& schema_format_, bool is_nullable_);
+    DataTypeObject(const String& schema_format_ = "json", bool is_nullable_ = true);
     const char* get_family_name() const override { return "Variant"; }
     TypeIndex get_type_id() const override { return TypeIndex::VARIANT; }
     TypeDescriptor get_type_as_type_descriptor() const override {

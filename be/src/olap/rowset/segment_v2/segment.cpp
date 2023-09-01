@@ -63,6 +63,7 @@
 #include "vec/data_types/data_type.h"
 #include "vec/data_types/data_type_factory.hpp"
 #include "vec/data_types/data_type_nullable.h"
+#include "vec/data_types/data_type_object.h"
 #include "vec/olap/vgeneric_iterators.h"
 
 namespace doris {
@@ -135,7 +136,9 @@ Status Segment::new_iterator(SchemaSPtr schema, const StorageReadOptions& read_o
             continue;
         }
         if (read_options.col_id_to_predicates.count(column_id) > 0 &&
-            is_same_file_col_type_with_expected(column_id, *schema) &&
+            is_same_file_col_type_with_expected(
+                    column_id, *schema,
+                    read_options.io_ctx.reader_type != ReaderType::READER_QUERY) &&
             !_column_readers.at(uid)->match_condition(entry.second.get())) {
             // any condition not satisfied, return.
             iter->reset(new EmptySegmentIterator(*schema));
@@ -153,7 +156,9 @@ Status Segment::new_iterator(SchemaSPtr schema, const StorageReadOptions& read_o
             AndBlockColumnPredicate and_predicate;
             auto single_predicate = new SingleColumnBlockPredicate(runtime_predicate.get());
             and_predicate.add_column_predicate(single_predicate);
-            if (is_same_file_col_type_with_expected(runtime_predicate->column_id(), *schema) &&
+            if (is_same_file_col_type_with_expected(
+                        runtime_predicate->column_id(), *schema,
+                        read_options.io_ctx.reader_type != ReaderType::READER_QUERY) &&
                 !_column_readers.at(uid)->match_condition(&and_predicate)) {
                 // any condition not satisfied, return.
                 iter->reset(new EmptySegmentIterator(*schema));
@@ -285,12 +290,16 @@ static vectorized::DataTypePtr get_data_type_from_column_meta(
     return vectorized::DataTypeFactory::instance().create_data_type(column);
 }
 
-vectorized::DataTypePtr Segment::get_data_type_of(const Field& field) const {
+vectorized::DataTypePtr Segment::get_data_type_of(const Field& field, bool ignore_children) const {
     // Path has higher priority
     if (!field.path().empty()) {
         auto node = _sub_column_tree.find_leaf(field.path());
         if (node) {
-            return node->data.file_column_type;
+            if (ignore_children || node->children.empty()) {
+                return node->data.file_column_type;
+            }
+            // it contains children, so treat it as variant
+            return std::make_shared<vectorized::DataTypeObject>();
         }
     }
     if (field.unique_id() >= 0) {
@@ -373,8 +382,8 @@ static Status new_default_iterator(const TabletColumn& tablet_column,
 
 Status Segment::new_iterator_with_path(const TabletColumn& tablet_column,
                                        std::unique_ptr<ColumnIterator>* iter,
-                                       HierarchicalDataReader* path_reader) {
-    if (path_reader->get_reader_type() != ReaderType::READER_QUERY) {
+                                       StorageReadOptions* opt) {
+    if (opt->io_ctx.reader_type != ReaderType::READER_QUERY) {
         // Could be compaction ..etc and read flat leaves nodes data
         auto node = _sub_column_tree.find_leaf(tablet_column.path_info());
         if (!node) {
@@ -386,77 +395,58 @@ Status Segment::new_iterator_with_path(const TabletColumn& tablet_column,
         iter->reset(it);
         return Status::OK();
     }
-    // Need read hierarchy data
-    auto add_stream = [&](CachedStreamIterator* iter,
-                          const SubcolumnColumnReaders::Node* node) -> Status {
-        if (path_reader->find_leaf(node->path)) {
-            iter->attatch_node(path_reader->find_leaf(node->path));
-            return Status::OK();
-        }
-        CHECK(node);
-        ColumnIterator* it;
-        RETURN_IF_ERROR(node->data.reader->new_iterator(&it));
-        std::unique_ptr<ColumnIterator> it_ptr;
-        it_ptr.reset(it);
-        bool added = path_reader->add(
-                node->path,
-                StreamReader {nullptr, std::move(it_ptr), node->data.file_column_type, false});
-        if (!added) {
-            return Status::InternalError("Failed to add node path {}", node->path.get_path());
-        }
-        iter->attatch_node(path_reader->find_leaf(node->path));
-        return Status::OK();
-    };
+    // Need read hierarchinal data
+    // init root node shared reader
     vectorized::PathInData root_path({tablet_column.path_info().get_parts()[0]});
+    auto root = _sub_column_tree.find_leaf(root_path);
+    if (root && opt->_shared_stream_reader == nullptr) {
+        ColumnIterator* it;
+        RETURN_IF_ERROR(root->data.reader->new_iterator(&it));
+        opt->_shared_stream_reader = std::make_shared<StreamReader>(
+                root->data.file_column_type->create_column(), std::unique_ptr<ColumnIterator>(it),
+                root->data.file_column_type);
+    }
     // Init iterators with extra path info.
     // TODO If this segment does not contain any data correspond to the relatate path,
     // then we could optimize to generate a default iterator
     // This file doest not contain this column, so only read from sparse column
     // to avoid read amplification
-
     auto node = _sub_column_tree.find_exact(tablet_column.path_info());
+
     if (node != nullptr && node->is_scalar() && node->children.empty()) {
         // Direct read extracted columns
         const auto* node = _sub_column_tree.find_leaf(tablet_column.path_info());
-        auto cache_iter = new CachedStreamIterator(tablet_column.path_info());
-        RETURN_IF_ERROR(add_stream(cache_iter, node));
-        iter->reset(cache_iter);
-        path_reader->set_read_type(tablet_column.path_info(),
-                                   HierarchicalDataReader::ReadType::DIRECT_READ_MATERIALIZED);
+        ColumnIterator* it;
+        RETURN_IF_ERROR(node->data.reader->new_iterator(&it));
+        iter->reset(it);
     } else if (node != nullptr && !node->children.empty()) {
         // None leave node need merge with root
-        auto* stream_iter = new CachedStreamIterator(tablet_column.path_info());
+        auto* stream_iter = new HierarchicalDataReader(tablet_column);
         std::vector<const SubcolumnColumnReaders::Node*> leaves;
         vectorized::PathsInData leaves_paths;
         SubcolumnColumnReaders::get_leaves_of_node(node, leaves, leaves_paths);
         for (size_t i = 0; i < leaves_paths.size(); ++i) {
-            RETURN_IF_ERROR(add_stream(stream_iter, leaves[i]));
+            if (leaves_paths[i] == root_path) {
+                // use set_root to share instead
+                continue;
+            }
+            stream_iter->add_stream(leaves[i]);
         }
-        // Make sure the root node is in stream_cache, so that child can merge data with root
+        // Make sure the root node is in strem_cache, so that child can merge data with root
         // Eg. {"a" : "b" : {"c" : 1}}, access the `a.b` path and merge with root path so that
         // we could make sure the data could be fully merged, since some column may not be extracted but remains in root
         // like {"a" : "b" : {"e" : 1.1}} in jsonb format
-        if (node->path != root_path) {
-            auto root = _sub_column_tree.find_leaf(root_path);
-            CHECK(root);
-            RETURN_IF_ERROR(add_stream(stream_iter, root));
-        }
+        stream_iter->set_root(opt->_shared_stream_reader);
         iter->reset(stream_iter);
-        path_reader->set_read_type(tablet_column.path_info(),
-                                   HierarchicalDataReader::ReadType::COMPOUND);
     } else {
         // If file only exist column `v.a` and `v` but target path is `v.b`, read only read and parse root column
-        const auto* node = _sub_column_tree.find_leaf(root_path);
-        if (node == nullptr) {
+        if (root == nullptr) {
             // No such variant column in this segment, get a default one
             RETURN_IF_ERROR(new_default_iterator(tablet_column, iter));
             return Status::OK();
         }
-        auto cache_iter = new CachedStreamIterator(tablet_column.path_info());
-        RETURN_IF_ERROR(add_stream(cache_iter, node));
-        path_reader->set_read_type(tablet_column.path_info(),
-                                   HierarchicalDataReader::ReadType::EXTRACT_FROM_ROOT);
-        iter->reset(cache_iter);
+        auto stream_iter = new ExtractReader(tablet_column, opt->_shared_stream_reader);
+        iter->reset(stream_iter);
     }
     return Status::OK();
 }
@@ -470,10 +460,10 @@ Status Segment::new_iterator_with_path(const TabletColumn& tablet_column,
 // but they are not the same column
 Status Segment::new_column_iterator(const TabletColumn& tablet_column,
                                     std::unique_ptr<ColumnIterator>* iter,
-                                    HierarchicalDataReader* path_reader) {
+                                    StorageReadOptions* opt) {
     // init column iterator by path info
     if (!tablet_column.path_info().empty()) {
-        return new_iterator_with_path(tablet_column, iter, path_reader);
+        return new_iterator_with_path(tablet_column, iter, opt);
     }
     // init default iterator
     if (_column_readers.count(tablet_column.unique_id()) < 1) {
@@ -602,8 +592,9 @@ Status Segment::read_key_by_rowid(uint32_t row_id, std::string* key) {
     return Status::OK();
 }
 
-bool Segment::is_same_file_col_type_with_expected(int32_t cid, const Schema& schema) const {
-    auto file_column_type = get_data_type_of(*schema.column(cid));
+bool Segment::is_same_file_col_type_with_expected(int32_t cid, const Schema& schema,
+                                                  bool ignore_children) const {
+    auto file_column_type = get_data_type_of(*schema.column(cid), ignore_children);
     auto expected_type = Schema::get_data_type_ptr(*schema.column(cid));
     // ignore struct and map now
     auto type_without_nullable = vectorized::remove_nullable(expected_type);

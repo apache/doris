@@ -635,7 +635,7 @@ Status ColumnReader::new_iterator(ColumnIterator** iterator) {
             return Status::OK();
         }
         case FieldType::OLAP_FIELD_TYPE_VARIANT: {
-            *iterator = new VariantColumnIterator(new FileColumnIterator(this));
+            *iterator = new VariantRootColumnIterator(new FileColumnIterator(this));
             return Status::OK();
         }
         default:
@@ -1438,8 +1438,8 @@ void DefaultValueColumnIterator::_insert_many_default(vectorized::MutableColumnP
     }
 }
 
-Status VariantColumnIterator::next_batch(size_t* n, vectorized::MutableColumnPtr& dst,
-                                         bool* has_null) {
+Status VariantRootColumnIterator::next_batch(size_t* n, vectorized::MutableColumnPtr& dst,
+                                             bool* has_null) {
     size_t size = dst->size();
     auto& obj = assert_cast<vectorized::ColumnObject&>(*dst);
     if (obj.is_null_root()) {
@@ -1459,8 +1459,8 @@ Status VariantColumnIterator::next_batch(size_t* n, vectorized::MutableColumnPtr
     return Status::OK();
 }
 
-Status VariantColumnIterator::read_by_rowids(const rowid_t* rowids, const size_t count,
-                                             vectorized::MutableColumnPtr& dst) {
+Status VariantRootColumnIterator::read_by_rowids(const rowid_t* rowids, const size_t count,
+                                                 vectorized::MutableColumnPtr& dst) {
     size_t size = dst->size();
     auto& obj = assert_cast<vectorized::ColumnObject&>(*dst);
     if (obj.is_null_root()) {
@@ -1478,68 +1478,6 @@ Status VariantColumnIterator::read_by_rowids(const rowid_t* rowids, const size_t
     obj.check_consistency();
 #endif
     return Status::OK();
-}
-
-Status CachedStreamIterator::init(const ColumnIteratorOptions& opts) {
-    for (const SubstreamCache::Node* node : _attatched_nodes) {
-        if (!node->data.inited) {
-            RETURN_IF_ERROR(node->data.iterator->init(opts));
-            // avoid duplicated init
-            const_cast<SubstreamCache::Node*>(node)->data.inited = true;
-        }
-    }
-    return Status::OK();
-}
-
-Status CachedStreamIterator::seek_to_ordinal(ordinal_t ord) {
-    for (const SubstreamCache::Node* node : _attatched_nodes) {
-        CHECK(node->data.inited);
-        RETURN_IF_ERROR(node->data.iterator->seek_to_ordinal(ord));
-    }
-    return Status::OK();
-}
-
-Status CachedStreamIterator::read_by_rowids(const rowid_t* rowids, const size_t count,
-                                            vectorized::MutableColumnPtr& dst) {
-    return process(
-            [&](const SubstreamCache::Node* node) {
-                if (node->data.column == nullptr) {
-                    const_cast<SubstreamCache::Node*>(node)->data.column =
-                            node->data.type->create_column();
-                }
-                if (node->data.column->empty()) {
-                    VLOG_DEBUG << fmt::format(
-                            "path {}, current_row: {}, subcolumn_row: {}, type {}, read_rows: {}",
-                            node->path.get_path(), _rows_read, node->data.rows_read,
-                            node->data.type->get_name(), count);
-                    vectorized::MutableColumnPtr column = node->data.column->assume_mutable();
-                    RETURN_IF_ERROR(node->data.iterator->read_by_rowids(rowids, count, column));
-                }
-                return Status::OK();
-            },
-            count);
-}
-
-Status CachedStreamIterator::next_batch(size_t* n, vectorized::MutableColumnPtr& dst,
-                                        bool* has_null) {
-    return process(
-            [&](const SubstreamCache::Node* node) {
-                if (node->data.column == nullptr) {
-                    const_cast<SubstreamCache::Node*>(node)->data.column =
-                            node->data.type->create_column();
-                }
-                if (_rows_read >= node->data.rows_read) {
-                    vectorized::MutableColumnPtr column = node->data.column->assume_mutable();
-                    RETURN_IF_ERROR(node->data.iterator->next_batch(n, column, has_null));
-                    const_cast<SubstreamCache::Node*>(node)->data.rows_read += *n;
-                    VLOG_DEBUG << fmt::format(
-                            "path {}, current_row: {}, subcolumn_row: {}, type {}, read_rows: {}",
-                            node->path.get_path(), _rows_read, node->data.rows_read,
-                            node->data.type->get_name(), *n);
-                }
-                return Status::OK();
-            },
-            *n);
 }
 
 } // namespace segment_v2
