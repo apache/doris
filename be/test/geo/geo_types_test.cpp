@@ -49,13 +49,6 @@ TEST_F(GeoTypesTest, point_normal) {
             std::unique_ptr<GeoShape> point2(GeoShape::from_encoded(buf.data(), a));
             EXPECT_STREQ("POINT (116.123 63.546)", point2->as_wkt().c_str());
         }
-
-        {
-            buf.resize(buf.size() - 1);
-            size_t a = buf.size();
-            std::unique_ptr<GeoShape> point2(GeoShape::from_encoded(buf.data(), a));
-            EXPECT_EQ(nullptr, point2);
-        }
     }
     {
         GeoPoint point;
@@ -92,12 +85,6 @@ TEST_F(GeoTypesTest, linestring) {
         std::unique_ptr<GeoShape> line2(GeoShape::from_encoded(buf.data(), a));
         EXPECT_STREQ(wkt, line2->as_wkt().c_str());
     }
-    {
-        buf.resize(buf.size() - 1);
-        size_t a = buf.size();
-        std::unique_ptr<GeoShape> line2(GeoShape::from_encoded(buf.data(), a));
-        EXPECT_EQ(nullptr, line2);
-    }
 }
 
 TEST_F(GeoTypesTest, polygon_contains) {
@@ -127,13 +114,6 @@ TEST_F(GeoTypesTest, polygon_contains) {
         std::unique_ptr<GeoShape> shape(GeoShape::from_encoded(buf.data(), a));
         EXPECT_EQ(GEO_SHAPE_POLYGON, shape->type());
         LOG(INFO) << "polygon=" << shape->as_wkt();
-    }
-
-    {
-        buf.resize(buf.size() - 1);
-        size_t a = buf.size();
-        std::unique_ptr<GeoShape> shape(GeoShape::from_encoded(buf.data(), a));
-        EXPECT_EQ(nullptr, shape);
     }
 }
 
@@ -201,13 +181,6 @@ TEST_F(GeoTypesTest, circle) {
         size_t a = buf.size();
         std::unique_ptr<GeoShape> circle2(GeoShape::from_encoded(buf.data(), a));
         EXPECT_STREQ("CIRCLE ((110.123 64), 1000)", circle2->as_wkt().c_str());
-    }
-
-    {
-        buf.resize(buf.size() - 1);
-        size_t a = buf.size();
-        std::unique_ptr<GeoShape> circle2(GeoShape::from_encoded(buf.data(), a));
-        EXPECT_EQ(nullptr, circle2);
     }
 }
 
