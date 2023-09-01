@@ -184,14 +184,14 @@ suite("test_analyze") {
     assert contains_expected_table(show_result)
 
     sql """
-        DROP ANALYZE JOB ${a_result_3[0][4]}
+        DROP ANALYZE JOB ${a_result_3[0][0]}
     """
 
     show_result = sql """
         SHOW ANALYZE
     """
 
-    assert stats_job_removed(show_result, a_result_3[0][4])
+    assert stats_job_removed(show_result, a_result_3[0][0])
 
     sql """
         ANALYZE DATABASE ${db} WITH SAMPLE ROWS 5 WITH PERIOD 100000
