@@ -26,6 +26,7 @@
 #include "pipeline/exec/hashjoin_build_sink.h"
 #include "pipeline/exec/hashjoin_probe_operator.h"
 #include "pipeline/exec/olap_scan_operator.h"
+#include "pipeline/exec/repeat_operator.h"
 #include "pipeline/exec/result_sink_operator.h"
 #include "pipeline/exec/sort_sink_operator.h"
 #include "pipeline/exec/sort_source_operator.h"
@@ -153,6 +154,10 @@ Status OperatorXBase::get_next_after_projects(RuntimeState* state, vectorized::B
     }
     local_state->_peak_memory_usage_counter->set(local_state->_mem_tracker->peak_consumption());
     return get_block(state, block, source_state);
+}
+
+void OperatorXBase::release_block_memory(vectorized::Block& block) {
+    block.clear_column_data(_child_x->row_desc().num_materialized_slots());
 }
 
 bool PipelineXLocalStateBase::reached_limit() const {
