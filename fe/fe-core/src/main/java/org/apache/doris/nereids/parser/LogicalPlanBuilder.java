@@ -1725,8 +1725,8 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         if (ctx.propertyClause() != null) {
             properties = visitPropertyClause(ctx.propertyClause());
         }
-        Literal filePath = (Literal) visit(ctx.filePath);
-        return new LogicalFileSink<>(filePath.getStringValue(), format, properties, ImmutableList.of(), plan);
+        String filePath = ctx.STRING_LITERAL().getText();
+        return new LogicalFileSink<>(filePath, format, properties, ImmutableList.of(), plan);
     }
 
     private LogicalPlan withQueryOrganization(LogicalPlan inputPlan, QueryOrganizationContext ctx) {

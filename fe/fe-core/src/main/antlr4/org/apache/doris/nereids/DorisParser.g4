@@ -112,7 +112,7 @@ withRemoteStorageSystem
 // identifier.
 
 outFileClause
-    : INTO OUTFILE filePath=constant
+    : INTO OUTFILE filePath=STRING_LITERAL
         (FORMAT AS format=identifier)?
         (propertyClause)?
     ;
