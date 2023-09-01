@@ -130,7 +130,7 @@ suite("add_table_policy_by_modify_partition") {
     """
 
     // Test that the partition's specified policy would be covered by the table's policy
-    def partitions = """
+    def partitions = sql """
     show partitions from create_table_partion_use_created_policy_test
     """
 
