@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.trees.plans.commands.info;
 
 import org.apache.doris.analysis.AllPartitionDesc;
+import org.apache.doris.analysis.ColumnDef;
 import org.apache.doris.analysis.CreateTableStmt;
 import org.apache.doris.analysis.KeysDesc;
 import org.apache.doris.analysis.ListPartitionDesc;
@@ -203,6 +204,13 @@ public class CreateTableInfo {
                 }
             } else {
                 columns.add(ColumnDefinition.newRowStoreColumnDefinition(null));
+            }
+        }
+        if (Config.enable_hidden_version_column_by_default && keysType.equals(KeysType.UNIQUE_KEYS)) {
+            if (isEnableMergeOnWrite) {
+                columns.add(ColumnDefinition.newVersionColumnDefinition(AggregateType.NONE));
+            } else {
+                columns.add(ColumnDefinition.newVersionColumnDefinition(AggregateType.REPLACE));
             }
         }
         if (Config.enable_hidden_version_column_by_default && keysType.equals(KeysType.UNIQUE_KEYS)) {
