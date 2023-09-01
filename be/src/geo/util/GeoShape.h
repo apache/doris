@@ -96,7 +96,7 @@ public:
 
     virtual bool contains(const GeoShape* rhs) const { return false; }
 
-    bool intersects(GeoShape* shape);
+    bool intersects(GeoShape* shape) const;
 
     bool ComputeArea(double* angle, std::string square_unit);
 
@@ -116,10 +116,11 @@ public:
 
     std::unique_ptr<GeoShape> find_closest_point(const GeoShape* shape) const;
 
-    bool dwithin(const GeoShape* shape, double distance);
+    bool dwithin(const GeoShape* shape, double distance) const;
 
     std::unique_ptr<GeoShape> buffer(double buffer_radius, double num_seg_quarter_circle = 2,
-                                     std::string end_cap = "ROUND", std::string side = "BOTH");
+                                     std::string end_cap = "ROUND",
+                                     std::string side = "BOTH") const;
 
     std::unique_ptr<GeoShape> simplify();
 
