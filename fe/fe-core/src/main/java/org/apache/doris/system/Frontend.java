@@ -159,7 +159,7 @@ public class Frontend implements Writable {
             lastStartupTime = hbResponse.getProcessUUID();
             diskInfos = hbResponse.getDiskInfos();
             isChanged = true;
-            processUUID = lastStartupTime;
+            processUUID = hbResponse.getProcessUUID();
         } else {
             // A non-master node disconnected.
             // Set startUUID to zero, and be's heartbeat mgr will ignore this hb,
