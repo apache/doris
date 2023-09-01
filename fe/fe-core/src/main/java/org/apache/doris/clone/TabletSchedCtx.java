@@ -1191,8 +1191,16 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
     @Override
     public String toString() {
         StringBuilder sb = new StringBuilder();
-        sb.append("tablet id: ").append(tabletId).append(", status: ").append(tabletStatus.name());
-        sb.append(", state: ").append(state.name()).append(", type: ").append(type.name());
+        sb.append("tablet id: ").append(tabletId);
+        if (tabletStatus != null) {
+            sb.append(", status: ").append(tabletStatus.name());
+        }
+        if (state != null) {
+            sb.append(", state: ").append(state.name());
+        }
+        if (type != null) {
+            sb.append(", type: ").append(type.name());
+        }
         if (type == Type.BALANCE && balanceType != null) {
             sb.append(", balance: ").append(balanceType.name());
         }
