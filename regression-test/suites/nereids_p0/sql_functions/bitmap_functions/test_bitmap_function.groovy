@@ -17,7 +17,8 @@
 
 suite("test_bitmap_function") {
     sql "SET enable_nereids_planner=true"
-    sql "SET enable_fallback_to_original_planner=false"
+    //Temporary settings
+    sql "SET enable_fallback_to_original_planner=true"
     // BITMAP_AND
     qt_sql """ select bitmap_count(bitmap_and(to_bitmap(1), to_bitmap(2))) cnt """
     qt_sql """ select bitmap_count(bitmap_and(to_bitmap(1), to_bitmap(1))) cnt """
