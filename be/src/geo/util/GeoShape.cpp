@@ -186,12 +186,11 @@ GeoShape* GeoShape::from_encoded(const void* ptr, size_t& size) {
     default:
         return nullptr;
     }
-    auto res = shape->decode_from(ptr, size); //shape->decode((const char *) ptr + 2, size - 2);
+    auto res = shape->decode_from(ptr, size);
     if (!res) {
         return nullptr;
     }
 
-    //shape->decode_from(ptr,size);
     return shape.release();
 }
 
