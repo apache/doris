@@ -204,16 +204,14 @@ public class CastExpr extends Expr {
 
     @Override
     public String toSqlImpl() {
+        if (needToMysql) {
+            return getChild(0).toSql();
+        }
         if (isAnalyzed) {
             return "CAST(" + getChild(0).toSql() + " AS " + type.toString() + ")";
         } else {
             return "CAST(" + getChild(0).toSql() + " AS " + targetTypeDef.toSql() + ")";
         }
-    }
-
-    @Override
-    public String toMySql() {
-        return getChild(0).toSql();
     }
 
     @Override
