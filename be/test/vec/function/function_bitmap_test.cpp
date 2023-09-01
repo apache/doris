@@ -23,6 +23,7 @@
 #include <string>
 #include <vector>
 
+#include "common/config.h"
 #include "common/status.h"
 #include "function_test_util.h"
 #include "gtest/gtest_pred_impl.h"
@@ -81,7 +82,17 @@ TEST(function_bitmap_test, function_bitmap_to_string_test) {
     check_function<DataTypeString, true>(func_name, input_types, data_set);
 }
 
+namespace doris {
+namespace config {
+DECLARE_Bool(enable_set_in_bitmap_value);
+}
+} // namespace doris
 TEST(function_bitmap_test, function_bitmap_to_base64) {
+    config::Register::Field field("bool", "enable_set_in_bitmap_value",
+                                  &config::enable_set_in_bitmap_value, "false", false);
+    config::Register::_s_field_map->insert(
+            std::make_pair(std::string("enable_set_in_bitmap_value"), field));
+
     std::string func_name = "bitmap_to_base64";
     InputTypeSet input_types = {TypeIndex::BitMap};
 
@@ -158,6 +169,11 @@ TEST(function_bitmap_test, function_bitmap_to_base64) {
 }
 
 TEST(function_bitmap_test, function_bitmap_from_base64) {
+    config::Register::Field field("bool", "enable_set_in_bitmap_value",
+                                  &config::enable_set_in_bitmap_value, "false", false);
+    config::Register::_s_field_map->insert(
+            std::make_pair(std::string("enable_set_in_bitmap_value"), field));
+
     std::string func_name = "bitmap_from_base64";
     InputTypeSet input_types = {TypeIndex::String};
 

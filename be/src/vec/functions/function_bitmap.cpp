@@ -269,7 +269,7 @@ struct BitmapFromBase64 {
             null_map[0] = 1;
             return Status::OK();
         }
-        std::unique_ptr<char[]> decode_buff;
+        std::string decode_buff;
         int last_decode_buff_len = 0;
         int curr_decode_buff_len = 0;
         for (size_t i = 0; i < input_rows_count; ++i) {
@@ -284,19 +284,18 @@ struct BitmapFromBase64 {
             }
             curr_decode_buff_len = src_size + 3;
             if (curr_decode_buff_len > last_decode_buff_len) {
-                decode_buff.reset(new char[curr_decode_buff_len]);
+                decode_buff.resize(curr_decode_buff_len);
                 last_decode_buff_len = curr_decode_buff_len;
             }
-            int outlen = base64_decode(src_str, src_size, decode_buff.get());
+            int outlen = base64_decode(src_str, src_size, decode_buff.data());
             if (outlen < 0) {
                 res.emplace_back();
                 null_map[i] = 1;
             } else {
                 BitmapValue bitmap_val;
-                if (!bitmap_val.deserialize(decode_buff.get())) {
+                if (!bitmap_val.deserialize(decode_buff.data())) {
                     return Status::RuntimeError(
-                            fmt::format("bitmap_from_base64 decode failed: base64: {}",
-                                        std::string(decode_buff.get(), src_size)));
+                            fmt::format("bitmap_from_base64 decode failed: base64: {}", src_str));
                 }
                 res.emplace_back(std::move(bitmap_val));
             }
@@ -956,20 +955,35 @@ struct BitmapToBase64 {
     static Status vector(const std::vector<BitmapValue>& data, Chars& chars, Offsets& offsets) {
         size_t size = data.size();
         offsets.resize(size);
-        chars.reserve(size);
+        size_t output_char_size = 0;
         for (size_t i = 0; i < size; ++i) {
             BitmapValue& bitmap_val = const_cast<BitmapValue&>(data[i]);
             auto ser_size = bitmap_val.getSizeInBytes();
-            char ser_buff[ser_size];
-            bitmap_val.write_to(ser_buff);
+            output_char_size += ser_size * (int)(4.0 * ceil((double)ser_size / 3.0));
+        }
+        ColumnString::check_chars_length(output_char_size, size);
+        chars.resize(output_char_size);
+        auto chars_data = chars.data();
 
-            int encoded_size = (int)(4.0 * ceil((double)ser_size / 3.0));
-            char dst[encoded_size];
-            memset(dst, 0, encoded_size);
-            int outlen =
-                    base64_encode((const unsigned char*)ser_buff, ser_size, (unsigned char*)dst);
+        size_t cur_ser_size = 0;
+        size_t last_ser_size = 0;
+        std::string ser_buff;
+        size_t encoded_offset = 0;
+        for (size_t i = 0; i < size; ++i) {
+            BitmapValue& bitmap_val = const_cast<BitmapValue&>(data[i]);
+            cur_ser_size = bitmap_val.getSizeInBytes();
+            if (cur_ser_size > last_ser_size) {
+                last_ser_size = cur_ser_size;
+                ser_buff.resize(cur_ser_size);
+            }
+            bitmap_val.write_to(ser_buff.data());
+
+            int outlen = base64_encode((const unsigned char*)ser_buff.data(), cur_ser_size,
+                                       chars_data + encoded_offset);
             DCHECK(outlen > 0);
-            StringOP::push_value_string(std::string_view(dst, outlen), i, chars, offsets);
+
+            encoded_offset += (int)(4.0 * ceil((double)cur_ser_size / 3.0));
+            offsets[i] = encoded_offset;
         }
         return Status::OK();
     }
