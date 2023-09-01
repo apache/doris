@@ -788,12 +788,12 @@ public class ScalarType extends Type {
 
     @Override
     public boolean isWildcardVarchar() {
-        return (type == PrimitiveType.VARCHAR || type == PrimitiveType.HLL) && len == -1;
+        return (type == PrimitiveType.VARCHAR || type == PrimitiveType.HLL) && (len == -1 || len == MAX_VARCHAR_LENGTH);
     }
 
     @Override
     public boolean isWildcardChar() {
-        return type == PrimitiveType.CHAR && len == -1;
+        return type == PrimitiveType.CHAR && (len == -1 || len == MAX_CHAR_LENGTH);
     }
 
     @Override
