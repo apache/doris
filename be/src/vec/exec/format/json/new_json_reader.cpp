@@ -712,7 +712,6 @@ Status NewJsonReader::_parse_json_doc(size_t* size, bool* eof) {
         if (*size == 0) {
             *eof = true;
         }
-        _current_offset += *size;
     }
 
     _bytes_read_counter += *size;

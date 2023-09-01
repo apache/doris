@@ -284,15 +284,15 @@
 9	xian	2345675
 
 -- !json_limit3 --
-1	{"id": 1, "city": "beijing", "code": 2345671}
-2	{"id": 2, "city": "shanghai", "code": 2345672}
-3	{"id": 3, "city": "hangzhou", "code": 2345673}
-4	{"id": 4, "city": "shenzhen", "code": 2345674}
-5	{"id": 5, "city": "guangzhou", "code": 2345675}
+1	{"id":1,"city":"beijing","code":2345671}
+2	{"id":2,"city":"shanghai","code":2345672}
+3	{"id":3,"city":"hangzhou","code":2345673}
+4	{"id":4,"city":"shenzhen","code":2345674}
+5	{"id":5,"city":"guangzhou","code":2345675}
 
 -- !json_limit4 --
-1	{"id": 1, "city": "beijing", "code": 2345671}
-2	{"id": 2, "city": "shanghai", "code": 2345672}
+1	{"id":1,"city":"beijing","code":2345671}
+2	{"id":2,"city":"shanghai","code":2345672}
 
 -- !json_root --
 1	beijing	2345671
