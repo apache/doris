@@ -55,7 +55,9 @@ public:
               _num_rows(0),
               _size(0),
               _disk_size(0),
-              _seq_col_length(seq_col_length) {}
+              _seq_col_length(seq_col_length){}
+
+    ~PrimaryKeyIndexBuilder();
 
     Status init();
 
@@ -72,6 +74,8 @@ public:
 
     Status finalize(segment_v2::PrimaryKeyIndexMetaPB* meta);
 
+    void update_mem_tracker();
+
 private:
     io::FileWriter* _file_writer = nullptr;
     uint32_t _num_rows;
@@ -83,6 +87,8 @@ private:
     faststring _max_key;
     std::unique_ptr<segment_v2::IndexedColumnWriter> _primary_key_index_builder;
     std::unique_ptr<segment_v2::BloomFilterIndexWriter> _bloom_filter_index_builder;
+    // bloom filter index mem tracker
+    std::unique_ptr<MemTracker> _bloom_filter_index_mem_tracker;
 };
 
 class PrimaryKeyIndexReader {

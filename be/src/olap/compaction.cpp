@@ -55,6 +55,7 @@
 #include "olap/task/engine_checksum_task.h"
 #include "olap/txn_manager.h"
 #include "olap/utils.h"
+#include "runtime/memory/mem_tracker.h"
 #include "runtime/memory/mem_tracker_limiter.h"
 #include "util/time.h"
 #include "util/trace.h"
@@ -73,6 +74,9 @@ Compaction::Compaction(const TabletSharedPtr& tablet, const std::string& label)
           _state(CompactionState::INITED),
           _allow_delete_in_cumu_compaction(config::enable_delete_when_cumu_compaction) {
     _mem_tracker = std::make_shared<MemTrackerLimiter>(MemTrackerLimiter::Type::COMPACTION, label);
+    _process_block_mem_tracker = std::make_shared<MemTracker>("ProcessBlock", _mem_tracker.get());
+    _rowid_conversion.set_mem_tracker(
+            std::make_shared<MemTracker>("RowIdConversion", _mem_tracker.get()));
     init_profile(label);
 }
 
@@ -350,10 +354,12 @@ Status Compaction::do_compaction_impl(int64_t permits) {
         if (vertical_compaction) {
             res = Merger::vertical_merge_rowsets(_tablet, compaction_type(), _cur_tablet_schema,
                                                  _input_rs_readers, _output_rs_writer.get(),
-                                                 get_avg_segment_rows(), &stats);
+                                                 get_avg_segment_rows(), &stats,
+                                                 _process_block_mem_tracker);
         } else {
             res = Merger::vmerge_rowsets(_tablet, compaction_type(), _cur_tablet_schema,
-                                         _input_rs_readers, _output_rs_writer.get(), &stats);
+                                         _input_rs_readers, _output_rs_writer.get(), &stats,
+                                         _process_block_mem_tracker);
         }
     }
 
@@ -510,6 +516,10 @@ Status Compaction::do_compaction_impl(int64_t permits) {
         }
     }
 
+    if (_process_block_mem_tracker.get() != nullptr) {
+        _process_block_mem_tracker->release(_process_block_mem_tracker->consumption());
+    }
+
     auto cumu_policy = _tablet->cumulative_compaction_policy();
     DCHECK(cumu_policy);
     LOG(INFO) << "succeed to do " << compaction_name() << " is_vertical=" << vertical_compaction
@@ -523,7 +533,6 @@ Status Compaction::do_compaction_impl(int64_t permits) {
               << ". elapsed time=" << watch.get_elapse_second()
               << "s. cumulative_compaction_policy=" << cumu_policy->name()
               << ", compact_row_per_second=" << int(_input_row_num / watch.get_elapse_second());
-
     return Status::OK();
 }
 

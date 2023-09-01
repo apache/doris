@@ -32,7 +32,9 @@
 #include "olap/types.h"
 
 namespace doris {
-
+PrimaryKeyIndexBuilder::~PrimaryKeyIndexBuilder() {
+        _bloom_filter_index_mem_tracker->release(_bloom_filter_index_mem_tracker->consumption());
+}
 Status PrimaryKeyIndexBuilder::init() {
     // TODO(liaoxin) using the column type directly if there's only one column in unique key columns
     const auto* type_info = get_scalar_type_info<FieldType::OLAP_FIELD_TYPE_VARCHAR>();
@@ -50,6 +52,7 @@ Status PrimaryKeyIndexBuilder::init() {
     opt.fpp = 0.01;
     _bloom_filter_index_builder.reset(
             new segment_v2::PrimaryKeyBloomFilterIndexWriterImpl(opt, type_info));
+    _bloom_filter_index_mem_tracker = std::make_unique<MemTracker>("ProcessBlock-BloomFilterIndex");
     return Status::OK();
 }
 
@@ -87,6 +90,12 @@ Status PrimaryKeyIndexBuilder::finalize(segment_v2::PrimaryKeyIndexMetaPB* meta)
     _primary_key_index_builder.reset(nullptr);
     _bloom_filter_index_builder.reset(nullptr);
     return Status::OK();
+}
+
+void PrimaryKeyIndexBuilder::update_mem_tracker() {
+    if (_bloom_filter_index_mem_tracker.get() != nullptr) {
+        _bloom_filter_index_mem_tracker->set_consumption(_bloom_filter_index_builder->size());
+    }
 }
 
 Status PrimaryKeyIndexReader::parse_index(io::FileReaderSPtr file_reader,

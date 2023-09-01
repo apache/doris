@@ -164,7 +164,8 @@ public:
     Snapshot make_snapshot() const override;
     // Returns a list of all the valid tracker snapshots.
     static void make_process_snapshots(std::vector<MemTracker::Snapshot>* snapshots);
-    static void make_type_snapshots(std::vector<MemTracker::Snapshot>* snapshots, Type type);
+    static void make_type_snapshots(std::vector<MemTracker::Snapshot>* snapshots, Type type,
+                                    bool with_child);
     static void make_top_consumption_snapshots(std::vector<MemTracker::Snapshot>* snapshots,
                                                int top_num);
 
