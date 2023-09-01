@@ -43,7 +43,8 @@ suite("load") {
             `kdcml64v3` decimalv3(10, 5) null,
             `kdcml128v3` decimalv3(20, 8) null,
             `kaint` array<int> null,
-            `kmintint` map<int, int> null
+            `kmintint` map<int, int> null,
+            `kjson` json null
         ) engine=OLAP
         duplicate key(id)
         distributed by hash(id) buckets 4
@@ -67,7 +68,7 @@ suite("load") {
             'agg_nop_t', 'agg_t', 'agg_type_cast',
             'dup_nop_t', 'dup_t', 'dup_type_cast',
             'uni_nop_t', 'uni_t', 'uni_type_cast',
-            'map_t', 'random_t'
+            'map_t', 'random_t', 'json_t'
     ]
 
     for (String file in files) {

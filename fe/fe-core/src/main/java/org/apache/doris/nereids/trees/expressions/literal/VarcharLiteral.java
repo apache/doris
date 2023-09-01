@@ -50,9 +50,4 @@ public class VarcharLiteral extends StringLikeLiteral {
     public LiteralExpr toLegacyLiteral() {
         return new StringLiteral(value);
     }
-
-    @Override
-    public String toString() {
-        return "'" + value + "'";
-    }
 }

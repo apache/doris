@@ -57,18 +57,20 @@ TEST(ColumnFixedLenghtObjectTest, InsertRangeFrom) {
 }
 
 TEST(ColumnFixedLenghtObjectTest, UpdateHashWithValue) {
-    auto column1 = ColumnFixedLengthObject::create(sizeof(size_t));
-    EXPECT_EQ(sizeof(size_t), column1->item_size());
+    auto column1 = ColumnFixedLengthObject::create(sizeof(int64_t));
+    EXPECT_EQ(sizeof(int64_t), column1->item_size());
     const size_t count = 1000;
 
     column1->resize(count);
     auto& data = column1->get_data();
-    for (size_t i = 0; i < count; ++i) {
-        *((size_t*)&data[i * sizeof(size_t)]) = i;
+    for (size_t i = 0; i != count; ++i) {
+        *((int64_t*)&data[i * column1->item_size()]) = i;
     }
 
     SipHash hash1;
-    column1->update_hash_with_value(count, hash1);
+    for (size_t i = 0; i != count; ++i) {
+        column1->update_hash_with_value(i, hash1);
+    }
 
     auto column2 = ColumnVector<int64_t>::create();
     column2->resize(count);
@@ -77,7 +79,9 @@ TEST(ColumnFixedLenghtObjectTest, UpdateHashWithValue) {
     }
 
     SipHash hash2;
-    column2->update_hash_with_value(count, hash2);
+    for (size_t i = 0; i != count; ++i) {
+        column2->update_hash_with_value(i, hash2);
+    }
 
     EXPECT_EQ(hash1.get64(), hash2.get64());
 }

@@ -44,7 +44,7 @@ public class Max extends NullableAggregateFunction
     }
 
     private Max(boolean distinct, boolean alwaysNullable, Expression arg) {
-        super("max", distinct, alwaysNullable, arg);
+        super("max", false, alwaysNullable, arg);
     }
 
     @Override

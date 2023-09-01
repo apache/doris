@@ -952,7 +952,7 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
                 replicaId, schemaHash, Lists.newArrayList(tSrcBe), storageMedium,
                 visibleVersion, (int) (taskTimeoutMs / 1000));
         cloneTask.setPathHash(srcPathHash, destPathHash);
-        LOG.info("create clone task to repair replica, tabletId={}, replicaId={}", tabletId, replica.getId());
+        LOG.info("create clone task to repair replica, tabletId={}, replicaId={}", tabletId, replicaId);
 
         this.state = State.RUNNING;
         return cloneTask;

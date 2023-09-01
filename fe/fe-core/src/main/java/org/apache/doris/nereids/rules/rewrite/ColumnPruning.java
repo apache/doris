@@ -217,15 +217,9 @@ public class ColumnPruning extends DefaultPlanRewriter<PruneContext> implements 
                 .build());
     }
 
-    public static final <P extends Plan> P pruneOutput(P plan, List<NamedExpression> originOutput,
-            Function<List<NamedExpression>, P> withPrunedOutput, PruneContext context) {
-        Optional<List<NamedExpression>> prunedOutputs = pruneOutput(originOutput, context);
-        return prunedOutputs.map(withPrunedOutput).orElse(plan);
-    }
-
     /** prune output */
-    public static Optional<List<NamedExpression>> pruneOutput(
-            List<NamedExpression> originOutput, PruneContext context) {
+    public static <P extends Plan> P pruneOutput(P plan, List<NamedExpression> originOutput,
+            Function<List<NamedExpression>, P> withPrunedOutput, PruneContext context) {
         List<NamedExpression> prunedOutputs = originOutput.stream()
                 .filter(output -> context.requiredSlots.contains(output.toSlot()))
                 .collect(ImmutableList.toImmutableList());
@@ -235,9 +229,11 @@ public class ColumnPruning extends DefaultPlanRewriter<PruneContext> implements 
             prunedOutputs = ImmutableList.of(minimumColumn);
         }
 
-        return prunedOutputs.equals(originOutput)
-                ? Optional.empty()
-                : Optional.of(prunedOutputs);
+        if (prunedOutputs.equals(originOutput)) {
+            return plan;
+        } else {
+            return withPrunedOutput.apply(prunedOutputs);
+        }
     }
 
     private <P extends Plan> P pruneChildren(P plan) {

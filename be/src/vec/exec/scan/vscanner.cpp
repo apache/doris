@@ -39,7 +39,7 @@ VScanner::VScanner(RuntimeState* state, VScanNode* parent, int64_t limit, Runtim
     _total_rf_num = _parent->runtime_filter_num();
 }
 
-VScanner::VScanner(RuntimeState* state, pipeline::ScanLocalState* local_state, int64_t limit,
+VScanner::VScanner(RuntimeState* state, pipeline::ScanLocalStateBase* local_state, int64_t limit,
                    RuntimeProfile* profile)
         : _state(state),
           _parent(nullptr),
@@ -62,8 +62,14 @@ Status VScanner::prepare(RuntimeState* state, const VExprContextSPtrs& conjuncts
 }
 
 Status VScanner::get_block(RuntimeState* state, Block* block, bool* eof) {
+    // debug case failure, to be removed
+    if (state->enable_profile()) {
+        LOG(WARNING) << "debug case failure " << print_id(state->query_id()) << " "
+                     << _parent->get_name() << ": VScanner::get_block";
+    }
     // only empty block should be here
     DCHECK(block->rows() == 0);
+    // scanner running time
     SCOPED_RAW_TIMER(&_per_scanner_timer);
     int64_t rows_read_threshold = _num_rows_read + config::doris_scanner_row_num;
     if (!block->mem_reuse()) {
@@ -85,6 +91,7 @@ Status VScanner::get_block(RuntimeState* state, Block* block, bool* eof) {
             block->clear_same_bit();
             // 1. Get input block from scanner
             {
+                // get block time
                 auto timer = _parent ? _parent->_scan_timer : _local_state->_scan_timer;
                 SCOPED_TIMER(timer);
                 RETURN_IF_ERROR(_get_block_impl(state, block, eof));

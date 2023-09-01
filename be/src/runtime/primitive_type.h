@@ -91,6 +91,10 @@ constexpr bool is_string_type(PrimitiveType type) {
     return type == TYPE_CHAR || type == TYPE_VARCHAR || type == TYPE_STRING;
 }
 
+constexpr bool is_variant_string_type(PrimitiveType type) {
+    return type == TYPE_VARCHAR || type == TYPE_STRING;
+}
+
 constexpr bool is_float_or_double(PrimitiveType type) {
     return type == TYPE_FLOAT || type == TYPE_DOUBLE;
 }
@@ -110,7 +114,7 @@ TTypeDesc gen_type_desc(const TPrimitiveType::type val);
 TTypeDesc gen_type_desc(const TPrimitiveType::type val, const std::string& name);
 
 template <PrimitiveType type>
-constexpr PrimitiveType PredicateEvaluateType = is_string_type(type) ? TYPE_STRING : type;
+constexpr PrimitiveType PredicateEvaluateType = is_variant_string_type(type) ? TYPE_STRING : type;
 
 template <PrimitiveType type>
 struct PrimitiveTypeTraits;

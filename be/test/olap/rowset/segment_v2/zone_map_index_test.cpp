@@ -81,8 +81,8 @@ public:
 
         io::FileReaderSPtr file_reader;
         EXPECT_TRUE(fs->open_file(filename, &file_reader).ok());
-        ZoneMapIndexReader column_zone_map(file_reader, &index_meta.zone_map_index());
-        Status status = column_zone_map.load(true, false);
+        ZoneMapIndexReader column_zone_map(file_reader);
+        Status status = column_zone_map.load(true, false, &index_meta.zone_map_index());
         EXPECT_TRUE(status.ok());
         EXPECT_EQ(3, column_zone_map.num_pages());
         const std::vector<ZoneMapPB>& zone_maps = column_zone_map.page_zone_maps();
@@ -128,8 +128,8 @@ public:
 
         io::FileReaderSPtr file_reader;
         EXPECT_TRUE(fs->open_file(filename, &file_reader).ok());
-        ZoneMapIndexReader column_zone_map(file_reader, &index_meta.zone_map_index());
-        Status status = column_zone_map.load(true, false);
+        ZoneMapIndexReader column_zone_map(file_reader);
+        Status status = column_zone_map.load(true, false, &index_meta.zone_map_index());
         EXPECT_TRUE(status.ok());
         EXPECT_EQ(1, column_zone_map.num_pages());
         const std::vector<ZoneMapPB>& zone_maps = column_zone_map.page_zone_maps();
@@ -181,8 +181,8 @@ TEST_F(ColumnZoneMapTest, NormalTestIntPage) {
 
     io::FileReaderSPtr file_reader;
     EXPECT_TRUE(fs->open_file(filename, &file_reader).ok());
-    ZoneMapIndexReader column_zone_map(file_reader, &index_meta.zone_map_index());
-    Status status = column_zone_map.load(true, false);
+    ZoneMapIndexReader column_zone_map(file_reader);
+    Status status = column_zone_map.load(true, false, &index_meta.zone_map_index());
     EXPECT_TRUE(status.ok());
     EXPECT_EQ(3, column_zone_map.num_pages());
     const std::vector<ZoneMapPB>& zone_maps = column_zone_map.page_zone_maps();

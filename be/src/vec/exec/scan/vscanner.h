@@ -38,7 +38,7 @@ class VExprContext;
 } // namespace vectorized
 
 namespace pipeline {
-class ScanLocalState;
+class ScanLocalStateBase;
 } // namespace pipeline
 } // namespace doris
 
@@ -57,7 +57,7 @@ struct ScannerCounter {
 class VScanner {
 public:
     VScanner(RuntimeState* state, VScanNode* parent, int64_t limit, RuntimeProfile* profile);
-    VScanner(RuntimeState* state, pipeline::ScanLocalState* local_state, int64_t limit,
+    VScanner(RuntimeState* state, pipeline::ScanLocalStateBase* local_state, int64_t limit,
              RuntimeProfile* profile);
 
     virtual ~VScanner() = default;
@@ -162,7 +162,7 @@ protected:
 
     RuntimeState* _state;
     VScanNode* _parent;
-    pipeline::ScanLocalState* _local_state;
+    pipeline::ScanLocalStateBase* _local_state;
     // Set if scan node has sort limit info
     int64_t _limit = -1;
 

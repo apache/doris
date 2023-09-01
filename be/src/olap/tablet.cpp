@@ -676,6 +676,9 @@ void Tablet::delete_expired_stale_rowset() {
     // Compute the end time to delete rowsets, when a expired rowset createtime less then this time, it will be deleted.
     double expired_stale_sweep_endtime =
             ::difftime(now, config::tablet_rowset_stale_sweep_time_sec);
+    if (config::tablet_rowset_stale_sweep_by_size) {
+        expired_stale_sweep_endtime = now;
+    }
 
     std::vector<int64_t> path_id_vec;
     // capture the path version to delete
@@ -1270,7 +1273,7 @@ Status Tablet::_contains_version(const Version& version) {
 }
 
 TabletInfo Tablet::get_tablet_info() const {
-    return TabletInfo(tablet_id(), schema_hash(), tablet_uid());
+    return TabletInfo(tablet_id(), tablet_uid());
 }
 
 std::vector<RowsetSharedPtr> Tablet::pick_candidate_rowsets_to_cumulative_compaction() {
@@ -2830,10 +2833,10 @@ Status Tablet::lookup_row_key(const Slice& encoded_key, bool with_seq_col,
 
         for (auto id : picked_segments) {
             Status s = segments[id]->lookup_row_key(encoded_key, with_seq_col, &loc);
-            if (s.is<NOT_FOUND>()) {
+            if (s.is<KEY_NOT_FOUND>()) {
                 continue;
             }
-            if (!s.ok() && !s.is<ALREADY_EXIST>()) {
+            if (!s.ok() && !s.is<KEY_ALREADY_EXISTS>()) {
                 return s;
             }
             if (s.ok() && _tablet_meta->delete_bitmap().contains_agg_without_cache(
@@ -2846,7 +2849,7 @@ Status Tablet::lookup_row_key(const Slice& encoded_key, bool with_seq_col,
                 // The key is deleted, we don't need to search for it any more.
                 break;
             }
-            // `st` is either OK or ALREADY_EXIST now.
+            // `st` is either OK or KEY_ALREADY_EXISTS now.
             // for partial update, even if the key is already exists, we still need to
             // read it's original values to keep all columns align.
             *row_location = loc;
@@ -2859,7 +2862,7 @@ Status Tablet::lookup_row_key(const Slice& encoded_key, bool with_seq_col,
         }
     }
     g_tablet_pk_not_found << 1;
-    return Status::NotFound("can't find key in all rowsets");
+    return Status::Error<ErrorCode::KEY_NOT_FOUND>("can't find key in all rowsets");
 }
 
 // load segment may do io so it should out lock
@@ -2973,17 +2976,17 @@ Status Tablet::calc_segment_delete_bitmap(RowsetSharedPtr rowset,
             RowsetSharedPtr rowset_find;
             auto st = lookup_row_key(key, true, specified_rowsets, &loc, dummy_version.first - 1,
                                      segment_caches, &rowset_find);
-            bool expected_st = st.ok() || st.is<NOT_FOUND>() || st.is<ALREADY_EXIST>();
+            bool expected_st = st.ok() || st.is<KEY_NOT_FOUND>() || st.is<KEY_ALREADY_EXISTS>();
             DCHECK(expected_st) << "unexpected error status while lookup_row_key:" << st;
             if (!expected_st) {
                 return st;
             }
-            if (st.is<NOT_FOUND>()) {
+            if (st.is<KEY_NOT_FOUND>()) {
                 continue;
             }
 
             // sequence id smaller than the previous one, so delete current row
-            if (st.is<ALREADY_EXIST>()) {
+            if (st.is<KEY_ALREADY_EXISTS>()) {
                 delete_bitmap->add({rowset_id, seg->id(), 0}, row_id);
                 continue;
             } else if (is_partial_update && rowset_writer != nullptr) {
@@ -3213,26 +3216,6 @@ void Tablet::prepare_to_read(const RowLocation& row_location, size_t pos,
     seg_it->second.emplace_back(RidAndPos {row_location.row_id, pos});
 }
 
-Status Tablet::_check_pk_in_pre_segments(
-        RowsetId rowset_id, const std::vector<segment_v2::SegmentSharedPtr>& pre_segments,
-        const Slice& key, DeleteBitmapPtr delete_bitmap, RowLocation* loc) {
-    for (auto it = pre_segments.rbegin(); it != pre_segments.rend(); ++it) {
-        auto st = (*it)->lookup_row_key(key, true, loc);
-        DCHECK(st.ok() || st.is<NOT_FOUND>() || st.is<ALREADY_EXIST>())
-                << "unexpected error status while lookup_row_key:" << st;
-        if (st.is<NOT_FOUND>()) {
-            continue;
-        } else if (st.ok() && _schema->has_sequence_col() &&
-                   delete_bitmap->contains({rowset_id, loc->segment_id, 0}, loc->row_id)) {
-            // if has sequence col, we continue to compare the sequence_id of
-            // all segments, util we find an existing key.
-            continue;
-        }
-        return st;
-    }
-    return Status::NotFound("Can't find key in the segment");
-}
-
 void Tablet::_rowset_ids_difference(const RowsetIdUnorderedSet& cur,
                                     const RowsetIdUnorderedSet& pre, RowsetIdUnorderedSet* to_add,
                                     RowsetIdUnorderedSet* to_del) {
@@ -3300,7 +3283,7 @@ Status Tablet::commit_phase_update_delete_bitmap(
     std::vector<RowsetSharedPtr> specified_rowsets;
     {
         std::shared_lock meta_rlock(_meta_lock);
-        cur_version = max_version().second;
+        cur_version = max_version_unlocked().second;
         cur_rowset_ids = all_rs_id(cur_version);
         _rowset_ids_difference(cur_rowset_ids, pre_rowset_ids, &rowset_ids_to_add,
                                &rowset_ids_to_del);

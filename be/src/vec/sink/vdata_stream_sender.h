@@ -117,7 +117,6 @@ public:
     Status send(RuntimeState* state, Block* block, bool eos = false) override;
     Status try_close(RuntimeState* state, Status exec_status) override;
     Status close(RuntimeState* state, Status exec_status) override;
-    RuntimeProfile* profile() override { return _profile; }
 
     RuntimeState* state() { return _state; }
 
@@ -192,7 +191,6 @@ protected:
     std::vector<Channel<VDataStreamSender>*> _channels;
     std::vector<std::shared_ptr<Channel<VDataStreamSender>>> _channel_shared_ptrs;
 
-    RuntimeProfile* _profile; // Allocated from _pool
     RuntimeProfile::Counter* _serialize_batch_timer;
     RuntimeProfile::Counter* _compress_timer;
     RuntimeProfile::Counter* _brpc_send_timer;
