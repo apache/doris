@@ -94,11 +94,11 @@ public:
 
     Status new_column_iterator(const TabletColumn& tablet_column,
                                std::unique_ptr<ColumnIterator>* iter,
-                               HierarchicalDataReader* path_reader = nullptr);
+                               StorageReadOptions* opt = nullptr);
 
     Status new_iterator_with_path(const TabletColumn& tablet_column,
                                   std::unique_ptr<ColumnIterator>* iter,
-                                  HierarchicalDataReader* path_reader = nullptr);
+                                  StorageReadOptions* opt = nullptr);
 
     Status new_column_iterator(int32_t unique_id, std::unique_ptr<ColumnIterator>* iter);
 
@@ -145,10 +145,14 @@ public:
     int64_t meta_mem_usage() const { return _meta_mem_usage; }
 
     // Get the inner file column's data type
-    std::shared_ptr<const vectorized::IDataType> get_data_type_of(const Field& filed) const;
+    // ignore_chidren set to false will treat field as variant
+    // when it contains children with field paths
+    std::shared_ptr<const vectorized::IDataType> get_data_type_of(const Field& filed,
+                                                                  bool ignore_children) const;
 
     // If column in segment is the same type in schema
-    bool is_same_file_col_type_with_expected(int32_t cid, const Schema& schema) const;
+    bool is_same_file_col_type_with_expected(int32_t cid, const Schema& schema,
+                                             bool ignore_children) const;
 
 private:
     DISALLOW_COPY_AND_ASSIGN(Segment);
@@ -185,13 +189,7 @@ private:
     // map column unique id ---> it's inner data type
     std::map<int32_t, std::shared_ptr<const vectorized::IDataType>> _file_column_types;
 
-    // path -> reader/type
-    struct SubcolumnReader {
-        std::unique_ptr<ColumnReader> reader;
-        std::shared_ptr<const vectorized::IDataType> file_column_type;
-    };
     // subcolumn tree of each subcolumn's unique id
-    using SubcolumnColumnReaders = vectorized::SubcolumnsTree<SubcolumnReader>;
     SubcolumnColumnReaders _sub_column_tree;
     std::unordered_map<vectorized::PathInData, uint32_t, vectorized::PathInData::Hash>
             _column_path_to_footer_ordinal;
