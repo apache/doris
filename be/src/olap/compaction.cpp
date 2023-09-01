@@ -358,8 +358,7 @@ Status Compaction::do_compaction_impl(int64_t permits) {
                                                  _process_block_mem_tracker);
         } else {
             res = Merger::vmerge_rowsets(_tablet, compaction_type(), _cur_tablet_schema,
-                                         _input_rs_readers, _output_rs_writer.get(), &stats,
-                                         _process_block_mem_tracker);
+                                         _input_rs_readers, _output_rs_writer.get(), &stats);
         }
     }
 
