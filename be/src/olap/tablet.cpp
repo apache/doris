@@ -2144,7 +2144,8 @@ Status Tablet::_read_cooldown_meta(const std::shared_ptr<io::RemoteFileSystem>& 
     RETURN_IF_ERROR(tablet_meta_reader->read_at(0, {buf.get(), file_size}, &bytes_read));
     tablet_meta_reader->close();
     if (!tablet_meta_pb->ParseFromArray(buf.get(), file_size)) {
-        return Status::InternalError("malformed tablet meta");
+        return Status::InternalError("malformed tablet meta, path={}/{}", fs->root_path().native(),
+                                     remote_meta_path);
     }
     return Status::OK();
 }
