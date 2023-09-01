@@ -246,14 +246,14 @@ std::unique_ptr<GeoCoordinates> GeoJsonParse::read_coordinates(rapidjson::Value&
 
 std::unique_ptr<GeoCoordinate> GeoJsonParse::read_coordinate(rapidjson::Value& coord_array,
                                                              GeoParseStatus& parse_status) {
-    if (LIKELY(coord_array.Size() == 2 && (coord_array[0].IsDouble() || coord_array[0].IsInt()) &&
-               (coord_array[1].IsDouble() || coord_array[1].IsInt()))) {
+    if (coord_array.Size() == 2 && (coord_array[0].IsDouble() || coord_array[0].IsInt()) &&
+        (coord_array[1].IsDouble() || coord_array[1].IsInt())) {
         parse_status = GEO_PARSE_OK;
         return std::make_unique<GeoCoordinate>(coord_array[0].GetDouble(),
                                                coord_array[1].GetDouble());
-    } else {
-        parse_status = GEO_PARSE_GEOJSON_SYNTAX_ERROR;
-        return nullptr;
     }
+
+    parse_status = GEO_PARSE_GEOJSON_SYNTAX_ERROR;
+    return nullptr;
 }
 } // namespace doris

@@ -194,7 +194,7 @@ GeoShape* GeoShape::from_encoded(const void* ptr, size_t& size) {
     return shape.release();
 }
 
-bool GeoShape::intersects(GeoShape* shape) {
+bool GeoShape::intersects(GeoShape* shape) const {
     MutableS2ShapeIndex shape_index1;
     MutableS2ShapeIndex shape_index2;
     if (!this->add_to_s2shape_index(shape_index1) || !shape->add_to_s2shape_index(shape_index2)) {
@@ -474,7 +474,7 @@ std::unique_ptr<GeoShape> GeoShape::find_closest_point(const GeoShape* shape) co
     return res_point;
 }
 
-bool GeoShape::dwithin(const GeoShape* shape, double distance) {
+bool GeoShape::dwithin(const GeoShape* shape, double distance) const {
     MutableS2ShapeIndex shape_index1;
     MutableS2ShapeIndex shape_index2;
 
@@ -509,7 +509,7 @@ std::unique_ptr<GeoShape> one_geo_buffer(S2BufferOperation::Options& options,
 }
 
 std::unique_ptr<GeoShape> GeoShape::buffer(double buffer_radius, double num_seg_quarter_circle,
-                                           std::string end_cap, std::string side) {
+                                           std::string end_cap, std::string side) const {
     S2BufferOperation::Options options;
     options.set_buffer_radius(S2Earth::MetersToAngle(buffer_radius));
     options.set_circle_segments(num_seg_quarter_circle * 4);
