@@ -227,8 +227,7 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
         }
 
         // TODO Support is needed in the future
-        if (getTFileType() == TFileType.FILE_STREAM && (formatString.equals("json")
-                || formatString.equals("csv_with_names")
+        if (getTFileType() == TFileType.FILE_STREAM && (formatString.equals("csv_with_names")
                 || formatString.equals("csv_with_names_and_types")
                 || formatString.equals("parquet")
                 || formatString.equals("avro")
@@ -524,6 +523,7 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
 
         // set TFileRangeDesc
         TFileRangeDesc fileRangeDesc = new TFileRangeDesc();
+        fileRangeDesc.setLoadId(ctx.queryId());
         fileRangeDesc.setFileType(getTFileType());
         fileRangeDesc.setCompressType(Util.getOrInferCompressType(compressionType, firstFile.getPath()));
         fileRangeDesc.setPath(firstFile.getPath());
