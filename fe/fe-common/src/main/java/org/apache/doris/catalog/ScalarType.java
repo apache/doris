@@ -849,11 +849,9 @@ public class ScalarType extends Type {
         }
         ScalarType scalarType = (ScalarType) t;
         if (type == PrimitiveType.VARCHAR && scalarType.isWildcardVarchar()) {
-            Preconditions.checkState(!isWildcardVarchar());
             return true;
         }
         if (type == PrimitiveType.CHAR && scalarType.isWildcardChar()) {
-            Preconditions.checkState(!isWildcardChar());
             return true;
         }
         if (type.isStringType() && scalarType.isStringType()) {

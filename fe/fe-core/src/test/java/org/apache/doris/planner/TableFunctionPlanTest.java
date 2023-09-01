@@ -202,8 +202,8 @@ public class TableFunctionPlanTest {
     public void tableFunctionInWhere() throws Exception {
         String sql = "explain select /*+ SET_VAR(enable_nereids_planner=false) */ k1 from db1.tbl1 where explode_split(k2, \",\");";
         String explainString = UtFrameUtils.getSQLPlanOrErrorMsg(ctx, sql);
-        Assert.assertTrue(
-                explainString.contains("No matching function with signature: explode_split(varchar(1), varchar)."));
+        Assert.assertTrue(explainString,
+                explainString.contains("No matching function with signature: explode_split(varchar(1), varchar(*))."));
     }
 
     // test projection
