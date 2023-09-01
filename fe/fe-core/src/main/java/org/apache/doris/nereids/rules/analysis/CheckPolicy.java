@@ -47,6 +47,7 @@ public class CheckPolicy implements AnalysisRuleFactory {
                             LogicalFilter<Plan> upperFilter = null;
 
                             Plan child = checkPolicy.child();
+                            // Because the unique table will automatically include a filter condition
                             if (child instanceof LogicalFilter && child.bound() && child
                                     .child(0) instanceof LogicalRelation) {
                                 upperFilter = (LogicalFilter) child;
@@ -63,10 +64,9 @@ public class CheckPolicy implements AnalysisRuleFactory {
                             }
                             Set<Expression> combineFilter = ExpressionUtils.extractConjunctionToSet(filter.get());
                             if (upperFilter != null) {
-                                combineFilter
-                                        .addAll(ExpressionUtils.extractConjunctionToSet(upperFilter.getPredicate()));
+                                combineFilter.addAll(upperFilter.getConjuncts());
                             }
-                            return new LogicalFilter(combineFilter, relation);
+                            return new LogicalFilter<>(combineFilter, relation);
                         })
                 )
         );
