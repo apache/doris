@@ -49,8 +49,10 @@ public class ShowConvertLSCStmt extends ShowStmt {
     @Override
     public ShowResultSetMetaData getMetaData() {
         ShowResultSetMetaData.Builder builder = ShowResultSetMetaData.builder();
-        Column tableNameColumn = new Column("table name", ScalarType.createStringType());
-        Column statusColum = new Column("status", ScalarType.createStringType());
+        Column databaseColumn = new Column("database", ScalarType.createVarcharType(30));
+        Column tableNameColumn = new Column("table", ScalarType.createVarcharType(30));
+        Column statusColum = new Column("status", ScalarType.createVarcharType(30));
+        builder.addColumn(databaseColumn);
         builder.addColumn(tableNameColumn);
         builder.addColumn(statusColum);
         return builder.build();
@@ -58,11 +60,7 @@ public class ShowConvertLSCStmt extends ShowStmt {
 
     @Override
     public RedirectStatus getRedirectStatus() {
-        if (ConnectContext.get().getSessionVariable().getForwardToMaster()) {
-            return RedirectStatus.FORWARD_NO_SYNC;
-        } else {
-            return RedirectStatus.NO_FORWARD;
-        }
+        return RedirectStatus.FORWARD_NO_SYNC;
     }
 
     public String getDbName() {

@@ -2899,6 +2899,7 @@ public class ShowExecutor {
                 if (tblNameToStatus != null) {
                     tblNameToStatus.forEach((tblName, status) -> {
                         List<String> row = new ArrayList<>();
+                        row.add(db);
                         row.add(tblName);
                         row.add(status.getMsg());
                         rows.add(row);
@@ -2908,7 +2909,8 @@ public class ShowExecutor {
                 resultCollector.forEach((dbName, tblNameToStatus) ->
                         tblNameToStatus.forEach((tblName, status) -> {
                             List<String> row = new ArrayList<>();
-                            row.add(dbName + "." + tblName);
+                            row.add(dbName);
+                            row.add(tblName);
                             row.add(status.getMsg());
                             rows.add(row);
                         }));

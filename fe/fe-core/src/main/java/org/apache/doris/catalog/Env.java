@@ -1535,9 +1535,7 @@ public class Env {
 
         // binlog gcer
         binlogGcer.start();
-        if (Config.enable_convert_light_weight_schema_change) {
-            columnIdFlusher.start();
-        }
+        columnIdFlusher.start();
     }
 
     // start threads that should running on all FE
