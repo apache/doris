@@ -58,7 +58,7 @@ suite("test_http_stream_json", "p0") {
             }
         }
 
-        qt_sql1 "select id, city, code from ${tableName1}"
+        qt_sql1 "select id, city, code from ${tableName1} order by id"
     } finally {
         try_sql "DROP TABLE IF EXISTS ${tableName1}"
     }
@@ -101,7 +101,7 @@ suite("test_http_stream_json", "p0") {
             }
         }
 
-        qt_sql2 "select id, city, code from ${tableName2}"
+        qt_sql2 "select id, city, code from ${tableName2} order by id"
     } finally {
         try_sql "DROP TABLE IF EXISTS ${tableName2}"
     }
@@ -145,7 +145,7 @@ suite("test_http_stream_json", "p0") {
             }
         }
 
-        qt_sql3 "select id, city, code from ${tableName3}"
+        qt_sql3 "select id, city, code from ${tableName3} order by id"
     } finally {
         try_sql "DROP TABLE IF EXISTS ${tableName3}"
     }
@@ -189,7 +189,7 @@ suite("test_http_stream_json", "p0") {
             }
         }
 
-        qt_sql4 "select id, code from ${tableName4}"
+        qt_sql4 "select id, code from ${tableName4} order by id"
     } finally {
         try_sql "DROP TABLE IF EXISTS ${tableName4}"
     }
