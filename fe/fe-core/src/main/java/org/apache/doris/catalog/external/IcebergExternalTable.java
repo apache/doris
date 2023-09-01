@@ -65,13 +65,13 @@ public class IcebergExternalTable extends ExternalTable {
         List<Column> tmpSchema = Lists.newArrayListWithCapacity(columns.size());
         for (Types.NestedField field : columns) {
             tmpSchema.add(new Column(field.name(),
-                    icebergTypeToDorisType(field.type()), true, null, true, field.doc(), true,
+                    IcebergExternalTable.icebergTypeToDorisType(field.type()), true, null, true, field.doc(), true,
                     schema.caseInsensitiveFindField(field.name()).fieldId()));
         }
         return tmpSchema;
     }
 
-    private Type icebergPrimitiveTypeToDorisType(org.apache.iceberg.types.Type.PrimitiveType primitive) {
+    private static Type icebergPrimitiveTypeToDorisType(org.apache.iceberg.types.Type.PrimitiveType primitive) {
         switch (primitive.typeId()) {
             case BOOLEAN:
                 return Type.BOOLEAN;
@@ -104,14 +104,14 @@ public class IcebergExternalTable extends ExternalTable {
         }
     }
 
-    protected Type icebergTypeToDorisType(org.apache.iceberg.types.Type type) {
+    public static Type icebergTypeToDorisType(org.apache.iceberg.types.Type type) {
         if (type.isPrimitiveType()) {
             return icebergPrimitiveTypeToDorisType((org.apache.iceberg.types.Type.PrimitiveType) type);
         }
         switch (type.typeId()) {
             case LIST:
                 Types.ListType list = (Types.ListType) type;
-                return ArrayType.create(icebergTypeToDorisType(list.elementType()), true);
+                return ArrayType.create(IcebergExternalTable.icebergTypeToDorisType(list.elementType()), true);
             case MAP:
             case STRUCT:
                 return Type.UNSUPPORTED;

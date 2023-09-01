@@ -53,7 +53,7 @@ import org.apache.hadoop.hive.metastore.api.Partition;
 import org.apache.hadoop.hive.metastore.api.StringColumnStatsData;
 import org.apache.hadoop.hive.ql.io.AcidUtils;
 import org.apache.iceberg.Schema;
-import org.apache.iceberg.Table;
+import org.apache.iceberg.types.Types;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -403,19 +403,22 @@ public class HMSExternalTable extends ExternalTable {
     public List<Column> initSchema() {
         makeSureInitialized();
         List<Column> columns;
-        List<FieldSchema> schema = ((HMSExternalCatalog) catalog).getClient().getSchema(dbName, name);
+        // getSchema will fail when the iceberg customized deser not in hive metastore service
         if (dlaType.equals(DLAType.ICEBERG)) {
-            columns = getIcebergSchema(schema);
-        } else if (dlaType.equals(DLAType.HUDI)) {
-            columns = getHudiSchema(schema);
+            columns = getIcebergSchema();
         } else {
-            List<Column> tmpSchema = Lists.newArrayListWithCapacity(schema.size());
-            for (FieldSchema field : schema) {
-                tmpSchema.add(new Column(field.getName(),
+            List<FieldSchema> schema = ((HMSExternalCatalog) catalog).getClient().getSchema(dbName, name);
+            if (dlaType.equals(DLAType.HUDI)) {
+                columns = getHudiSchema(schema);
+            } else {
+                List<Column> tmpSchema = Lists.newArrayListWithCapacity(schema.size());
+                for (FieldSchema field : schema) {
+                    tmpSchema.add(new Column(field.getName(),
                         HiveMetaStoreClientHelper.hiveTypeToDorisType(field.getType()), true, null,
                         true, field.getComment(), true, -1));
+                }
+                columns = tmpSchema;
             }
-            columns = tmpSchema;
         }
         initPartitionColumns(columns);
         return columns;
@@ -455,16 +458,15 @@ public class HMSExternalTable extends ExternalTable {
         return 1;
     }
 
-    private List<Column> getIcebergSchema(List<FieldSchema> hmsSchema) {
-        Table icebergTable = Env.getCurrentEnv().getExtMetaCacheMgr().getIcebergMetadataCache().getIcebergTable(this);
-        Schema schema = icebergTable.schema();
-        List<Column> tmpSchema = Lists.newArrayListWithCapacity(hmsSchema.size());
-        for (FieldSchema field : hmsSchema) {
-            tmpSchema.add(new Column(field.getName(),
-                    HiveMetaStoreClientHelper.hiveTypeToDorisType(field.getType(),
-                            IcebergExternalTable.ICEBERG_DATETIME_SCALE_MS),
-                    true, null, true, false, null, field.getComment(), true, null,
-                    schema.caseInsensitiveFindField(field.getName()).fieldId(), null));
+    private List<Column> getIcebergSchema() {
+        Schema schema  = Env.getCurrentEnv().getExtMetaCacheMgr().getIcebergMetadataCache().getIcebergTable(this).schema();
+        List<Types.NestedField> iceberg_columns = schema.columns();
+        List<Column> tmpSchema = Lists.newArrayListWithCapacity(iceberg_columns.size());
+        for (Types.NestedField field : iceberg_columns) {
+            tmpSchema.add(new Column(field.name(),
+                IcebergExternalTable.icebergTypeToDorisType(field.type()), true, null,
+                true, field.doc(), true,
+                schema.caseInsensitiveFindField(field.name()).fieldId()));
         }
         return tmpSchema;
     }
