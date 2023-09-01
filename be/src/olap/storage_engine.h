@@ -122,8 +122,8 @@ public:
     //
     // @param [out] shard_path choose an available root_path to clone new tablet
     // @return error code
-    Status obtain_shard_path(TStorageMedium::type storage_medium, std::string* shared_path,
-                             DataDir** store);
+    Status obtain_shard_path(TStorageMedium::type storage_medium, int64_t path_hash,
+                             std::string* shared_path, DataDir** store);
 
     // Load new tablet to make it effective.
     //
@@ -482,6 +482,8 @@ private:
     scoped_refptr<Thread> _async_publish_thread;
     std::mutex _async_publish_mutex;
 
+    // next index for create tablet
+    std::map<TStorageMedium::type, int> _store_next_index;
     DISALLOW_COPY_AND_ASSIGN(StorageEngine);
 };
 
