@@ -55,6 +55,7 @@
 #include "vec/core/block.h"
 #include "vec/exprs/vexpr.h"
 #include "vec/sink/load_stream_stub.h"
+#include "vec/sink/load_stream_stub_pool.h"
 #include "vec/sink/vtablet_block_convertor.h"
 #include "vec/sink/vtablet_finder.h"
 
@@ -153,41 +154,35 @@ Status VOlapTableSinkV2::open(RuntimeState* state) {
     SCOPED_TIMER(_open_timer);
     SCOPED_CONSUME_MEM_TRACKER(_mem_tracker.get());
 
-    _stream_pool_for_node = std::make_shared<NodeToStreams>();
     _delta_writer_for_tablet = std::make_shared<DeltaWriterForTablet>();
     _build_tablet_node_mapping();
-    RETURN_IF_ERROR(_init_stream_pools());
+    LoadStreamStubPool pool {state->backend_id()};
+    RETURN_IF_ERROR(_open_streams(&pool, state));
 
     return Status::OK();
 }
 
-Status VOlapTableSinkV2::_init_stream_pools() {
-    // stub template is for sharing internal schema map among all stubs
-    LoadStreamStub stub_template {_load_id, _sender_id};
+Status VOlapTableSinkV2::_open_streams(LoadStreamStubPool* pool, RuntimeState* state) {
     for (auto& [node_id, _] : _tablets_for_node) {
         auto node_info = _nodes_info->find_node(node_id);
         if (node_info == nullptr) {
             return Status::InternalError("Unknown node {} in tablet location", node_id);
         }
-        Streams& stream_pool = (*_stream_pool_for_node)[node_id];
-        RETURN_IF_ERROR(_init_stream_pool(*node_info, stream_pool, stub_template));
-    }
-    return Status::OK();
-}
-
-Status VOlapTableSinkV2::_init_stream_pool(const NodeInfo& node_info, Streams& stream_pool,
-                                           LoadStreamStub& stub_template) {
-    stream_pool.reserve(config::num_streams_per_sink);
-    for (int i = 0; i < config::num_streams_per_sink; ++i) {
-        // internal tablet schema map will be shared among all stubs
-        auto stream = std::make_unique<LoadStreamStub>(stub_template);
+        auto streams = pool->get_or_create(_load_id, node_id);
         // get tablet schema from each backend only in the 1st stream
-        const std::vector<PTabletID>& tablets_for_schema =
-                i == 0 ? _indexes_from_node[node_info.id] : std::vector<PTabletID> {};
-        RETURN_IF_ERROR(stream->open(_state->exec_env()->brpc_internal_client_cache(), node_info,
-                                     _txn_id, *_schema, tablets_for_schema,
-                                     _state->enable_profile()));
-        stream_pool.emplace_back(std::move(stream));
+        for (auto& stream : *streams | std::ranges::views::take(1)) {
+            const std::vector<PTabletID>& tablets_for_schema = _indexes_from_node[node_info->id];
+            RETURN_IF_ERROR(stream->open(_state->exec_env()->brpc_internal_client_cache(),
+                                         *node_info, _txn_id, *_schema, tablets_for_schema,
+                                         _state->enable_profile()));
+        }
+        // for the rest streams, open without getting tablet schema
+        for (auto& stream : *streams | std::ranges::views::drop(1)) {
+            RETURN_IF_ERROR(stream->open(_state->exec_env()->brpc_internal_client_cache(),
+                                         *node_info, _txn_id, *_schema, {},
+                                         _state->enable_profile()));
+        }
+        _streams_for_node[node_id] = streams;
     }
     return Status::OK();
 }
@@ -238,7 +233,7 @@ Status VOlapTableSinkV2::_select_streams(int64_t tablet_id, Streams& streams) {
         return Status::InternalError("unknown tablet location, tablet id = {}", tablet_id);
     }
     for (auto& node_id : location->node_ids) {
-        streams.emplace_back(_stream_pool_for_node->at(node_id)[_stream_index]);
+        streams.emplace_back(_streams_for_node[node_id]->at(_stream_index));
     }
     _stream_index = (_stream_index + 1) % config::num_streams_per_sink;
     return Status::OK();
@@ -396,23 +391,23 @@ Status VOlapTableSinkV2::close(RuntimeState* state, Status exec_status) {
 
         {
             // send CLOSE_LOAD to all streams, return ERROR if any
-            for (const auto& [node_id, stream_pool] : *_stream_pool_for_node) {
-                RETURN_IF_ERROR(_close_load(stream_pool));
+            for (const auto& [_, streams] : _streams_for_node) {
+                RETURN_IF_ERROR(_close_load(*streams));
             }
         }
 
         {
             SCOPED_TIMER(_close_load_timer);
-            for (const auto& [node_id, stream_pool] : *_stream_pool_for_node) {
-                for (const auto& stream : stream_pool) {
+            for (const auto& [_, streams] : _streams_for_node) {
+                for (const auto& stream : *streams) {
                     stream->close_wait();
                 }
             }
         }
 
         std::vector<TTabletCommitInfo> tablet_commit_infos;
-        for (const auto& [node_id, stream_pool] : *_stream_pool_for_node) {
-            for (const auto& stream : stream_pool) {
+        for (const auto& [node_id, streams] : _streams_for_node) {
+            for (const auto& stream : *streams) {
                 for (auto tablet_id : stream->success_tablets()) {
                     TTabletCommitInfo commit_info;
                     commit_info.tabletId = tablet_id;
@@ -424,7 +419,7 @@ Status VOlapTableSinkV2::close(RuntimeState* state, Status exec_status) {
         state->tablet_commit_infos().insert(state->tablet_commit_infos().end(),
                                             std::make_move_iterator(tablet_commit_infos.begin()),
                                             std::make_move_iterator(tablet_commit_infos.end()));
-        _stream_pool_for_node.reset();
+        _streams_for_node.clear();
 
         // _number_input_rows don't contain num_rows_load_filtered and num_rows_load_unselected in scan node
         int64_t num_rows_load_total = _number_input_rows + state->num_rows_load_filtered() +
