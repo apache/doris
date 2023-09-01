@@ -490,6 +490,11 @@ Status HashJoinNode::pull(doris::RuntimeState* state, vectorized::Block* output_
                 output_block->replace_by_position(column_idx++, std::move(nullable_column));
             }
         }
+        {
+            SCOPED_TIMER(_join_filter_timer);
+            RETURN_IF_ERROR(
+                    VExprContext::filter_block(_conjuncts, output_block, output_block->columns()));
+        }
         reached_limit(output_block, eos);
         return Status::OK();
     }
