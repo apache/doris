@@ -1229,7 +1229,7 @@ public:
             return;
         }
 
-        if (bits.size() == 1 && !config::enable_set_in_bitmap_value) {
+        if (bits.size() == 1) {
             _type = SINGLE;
             _sv = bits[0];
             return;
@@ -1243,6 +1243,27 @@ public:
             _type = SET;
             for (auto v : bits) {
                 _set.insert(v);
+            }
+        }
+    }
+
+    BitmapTypeCode::type get_type_code() const {
+        switch (_type) {
+        case EMPTY:
+            return BitmapTypeCode::EMPTY;
+        case SINGLE:
+            if (_sv <= std::numeric_limits<uint32_t>::max()) {
+                return BitmapTypeCode::SINGLE32;
+            } else {
+                return BitmapTypeCode::SINGLE64;
+            }
+        case SET:
+            return BitmapTypeCode::SET;
+        case BITMAP:
+            if (_bitmap->is32BitsEnough()) {
+                return BitmapTypeCode::BITMAP32;
+            } else {
+                return BitmapTypeCode::BITMAP64;
             }
         }
     }
