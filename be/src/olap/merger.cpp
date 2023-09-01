@@ -55,8 +55,7 @@ namespace doris {
 Status Merger::vmerge_rowsets(TabletSharedPtr tablet, ReaderType reader_type,
                               TabletSchemaSPtr cur_tablet_schema,
                               const std::vector<RowsetReaderSharedPtr>& src_rowset_readers,
-                              RowsetWriter* dst_rowset_writer, Statistics* stats_output,
-                              std::shared_ptr<MemTracker> process_block_mem_tracker) {
+                              RowsetWriter* dst_rowset_writer, Statistics* stats_output) {
     vectorized::BlockReader reader;
     TabletReader::ReaderParams reader_params;
     reader_params.tablet = tablet;
@@ -93,37 +92,25 @@ Status Merger::vmerge_rowsets(TabletSharedPtr tablet, ReaderType reader_type,
     if (reader_params.record_rowids) {
         stats_output->rowid_conversion->set_dst_rowset_id(dst_rowset_writer->rowset_id());
         // init segment rowid map for rowid conversion
-        int64_t init_rowid_mem_size = 0;
-        {
-            SCOPED_MEM_COUNT(&init_rowid_mem_size);
-            std::vector<uint32_t> segment_num_rows;
-            for (auto& rs_split : reader_params.rs_splits) {
-                RETURN_IF_ERROR(rs_split.rs_reader->get_segment_num_rows(&segment_num_rows));
-                stats_output->rowid_conversion->init_segment_map(
-                        rs_split.rs_reader->rowset()->rowset_id(), segment_num_rows);
-            }
+        std::vector<uint32_t> segment_num_rows;
+        for (auto& rs_split : reader_params.rs_splits) {
+            RETURN_IF_ERROR(rs_split.rs_reader->get_segment_num_rows(&segment_num_rows));
+            stats_output->rowid_conversion->init_segment_map(
+                    rs_split.rs_reader->rowset()->rowset_id(), segment_num_rows);
         }
-        stats_output->rowid_conversion->get_mem_tracker()->consume(init_rowid_mem_size);
     }
 
     vectorized::Block block = cur_tablet_schema->create_block(reader_params.return_columns);
     size_t output_rows = 0;
     bool eof = false;
-    int64_t total_process_block_mem = 0;
     while (!eof && !StorageEngine::instance()->stopped()) {
-        int64_t process_one_block_mem_size = 0;
-        {
-            SCOPED_MEM_COUNT(&process_one_block_mem_size);
-            // Read one block from block reader
-            RETURN_NOT_OK_STATUS_WITH_WARN(
-                    reader.next_block_with_aggregation(&block, &eof),
-                    "failed to read next block when merging rowsets of tablet " +
-                            tablet->full_name());
-            RETURN_NOT_OK_STATUS_WITH_WARN(
-                    dst_rowset_writer->add_block(&block),
-                    "failed to write block when merging rowsets of tablet " + tablet->full_name());
-        }
-        total_process_block_mem += process_one_block_mem_size;
+        // Read one block from block reader
+        RETURN_NOT_OK_STATUS_WITH_WARN(
+                reader.next_block_with_aggregation(&block, &eof),
+                "failed to read next block when merging rowsets of tablet " + tablet->full_name());
+        RETURN_NOT_OK_STATUS_WITH_WARN(
+                dst_rowset_writer->add_block(&block),
+                "failed to write block when merging rowsets of tablet " + tablet->full_name());
 
         if (reader_params.record_rowids && block.rows() > 0) {
             std::vector<uint32_t> segment_num_rows;
@@ -135,7 +122,6 @@ Status Merger::vmerge_rowsets(TabletSharedPtr tablet, ReaderType reader_type,
         output_rows += block.rows();
         block.clear_column_data();
     }
-    process_block_mem_tracker->consume(total_process_block_mem);
     if (StorageEngine::instance()->stopped()) {
         return Status::Error<INTERNAL_ERROR>("tablet {} failed to do compaction, engine stopped",
                                              tablet->full_name());
