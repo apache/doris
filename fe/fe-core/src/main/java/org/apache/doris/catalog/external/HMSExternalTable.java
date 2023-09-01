@@ -102,16 +102,16 @@ public class HMSExternalTable extends ExternalTable {
         SUPPORTED_HUDI_FILE_FORMATS.add("com.uber.hoodie.hadoop.realtime.HoodieRealtimeInputFormat");
     }
 
-    private volatile org.apache.hadoop.hive.metastore.api.Table remoteTable = null;
-    private List<Column> partitionColumns;
+    protected volatile org.apache.hadoop.hive.metastore.api.Table remoteTable = null;
+    protected List<Column> partitionColumns;
 
-    private DLAType dlaType = DLAType.UNKNOWN;
+    protected DLAType dlaType = DLAType.UNKNOWN;
 
     // No as precise as row count in TableStats, but better than none.
     private long estimatedRowCount = -1;
 
     public enum DLAType {
-        UNKNOWN, HIVE, HUDI, ICEBERG
+        UNKNOWN, HIVE, HUDI, ICEBERG, DELTALAKE
     }
 
     /**
@@ -124,6 +124,10 @@ public class HMSExternalTable extends ExternalTable {
      */
     public HMSExternalTable(long id, String name, String dbName, HMSExternalCatalog catalog) {
         super(id, name, catalog, dbName, TableType.HMS_EXTERNAL_TABLE);
+    }
+
+    public HMSExternalTable(long id, String name, String dbName, HMSExternalCatalog catalog, TableType type) {
+        super(id, name, catalog, dbName, type);
     }
 
     public boolean isSupportedHmsTable() {
@@ -149,6 +153,7 @@ public class HMSExternalTable extends ExternalTable {
                 }
             }
             objectCreated = true;
+            estimatedRowCount = getRowCountFromExternalSource(true);
         }
     }
 
@@ -272,10 +277,19 @@ public class HMSExternalTable extends ExternalTable {
     @Override
     public long getRowCount() {
         makeSureInitialized();
+        long rowCount = getRowCountFromExternalSource(false);
+        if (rowCount == -1) {
+            LOG.debug("Will estimate row count from file list.");
+            rowCount = StatisticsUtil.getRowCountFromFileList(this);
+        }
+        return rowCount;
+    }
+
+    private long getRowCountFromExternalSource(boolean isInit) {
         long rowCount;
         switch (dlaType) {
             case HIVE:
-                rowCount = StatisticsUtil.getHiveRowCount(this);
+                rowCount = StatisticsUtil.getHiveRowCount(this, isInit);
                 break;
             case ICEBERG:
                 rowCount = StatisticsUtil.getIcebergRowCount(this);
@@ -283,10 +297,6 @@ public class HMSExternalTable extends ExternalTable {
             default:
                 LOG.warn("getRowCount for dlaType {} is not supported.", dlaType);
                 rowCount = -1;
-        }
-        if (rowCount == -1) {
-            LOG.debug("Will estimate row count from file list.");
-            rowCount = StatisticsUtil.getRowCountFromFileList(this);
         }
         return rowCount;
     }
@@ -459,7 +469,7 @@ public class HMSExternalTable extends ExternalTable {
         return tmpSchema;
     }
 
-    private void initPartitionColumns(List<Column> schema) {
+    protected void initPartitionColumns(List<Column> schema) {
         List<String> partitionKeys = remoteTable.getPartitionKeys().stream().map(FieldSchema::getName)
                 .collect(Collectors.toList());
         partitionColumns = Lists.newArrayListWithCapacity(partitionKeys.size());

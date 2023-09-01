@@ -25,7 +25,6 @@ import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.rules.analysis.ArithmeticFunctionBinder;
 import org.apache.doris.nereids.rules.expression.AbstractExpressionRewriteRule;
 import org.apache.doris.nereids.rules.expression.ExpressionRewriteContext;
-import org.apache.doris.nereids.trees.expressions.Between;
 import org.apache.doris.nereids.trees.expressions.BinaryArithmetic;
 import org.apache.doris.nereids.trees.expressions.BitNot;
 import org.apache.doris.nereids.trees.expressions.CaseWhen;
@@ -47,6 +46,7 @@ import org.apache.doris.nereids.trees.expressions.functions.BoundFunction;
 import org.apache.doris.nereids.trees.expressions.functions.FunctionBuilder;
 import org.apache.doris.nereids.trees.expressions.functions.udf.AliasUdfBuilder;
 import org.apache.doris.nereids.trees.expressions.typecoercion.ImplicitCastInputTypes;
+import org.apache.doris.nereids.types.ArrayType;
 import org.apache.doris.nereids.types.BigIntType;
 import org.apache.doris.nereids.types.BooleanType;
 import org.apache.doris.nereids.types.DataType;
@@ -115,6 +115,12 @@ public class FunctionBinder extends AbstractExpressionRewriteRule {
         } else {
             return TypeCoercionUtils.processBoundFunction(boundFunction);
         }
+    }
+
+    @Override
+    public Expression visitBoundFunction(BoundFunction boundFunction, ExpressionRewriteContext context) {
+        boundFunction = (BoundFunction) super.visitBoundFunction(boundFunction, context);
+        return TypeCoercionUtils.processBoundFunction(boundFunction);
     }
 
     /**
@@ -235,14 +241,6 @@ public class FunctionBinder extends AbstractExpressionRewriteRule {
     }
 
     @Override
-    public Expression visitBetween(Between between, ExpressionRewriteContext context) {
-        List<Expression> rewrittenChildren = between.children().stream()
-                .map(e -> e.accept(this, context)).collect(Collectors.toList());
-        Between newBetween = between.withChildren(rewrittenChildren);
-        return TypeCoercionUtils.processBetween(newBetween);
-    }
-
-    @Override
     public Expression visitInSubquery(InSubquery inSubquery, ExpressionRewriteContext context) {
         Expression newCompareExpr = inSubquery.getCompareExpr().accept(this, context);
         Expression newListQuery = inSubquery.getListQuery().accept(this, context);
@@ -279,5 +277,15 @@ public class FunctionBinder extends AbstractExpressionRewriteRule {
                     right.toSql(), match.toSql(), right.getDataType()));
         }
         return match.withChildren(left, right);
+    }
+
+    @Override
+    public Expression visitCast(Cast cast, ExpressionRewriteContext context) {
+        cast = (Cast) super.visitCast(cast, context);
+        // NOTICE: just for compatibility with legacy planner.
+        if (cast.child().getDataType() instanceof ArrayType || cast.getDataType() instanceof ArrayType) {
+            TypeCoercionUtils.checkCanCastTo(cast.child().getDataType(), cast.getDataType());
+        }
+        return cast;
     }
 }

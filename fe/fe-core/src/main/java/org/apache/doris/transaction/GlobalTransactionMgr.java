@@ -134,23 +134,32 @@ public class GlobalTransactionMgr implements Writable {
             TxnCoordinator coordinator, LoadJobSourceType sourceType, long listenerId, long timeoutSecond)
             throws AnalysisException, LabelAlreadyUsedException, BeginTransactionException, DuplicatedRequestException,
             QuotaExceedException, MetaNotFoundException {
+        try {
+            if (Config.disable_load_job) {
+                throw new AnalysisException("disable_load_job is set to true, all load jobs are prevented");
+            }
 
-        if (Config.disable_load_job) {
-            throw new AnalysisException("disable_load_job is set to true, all load jobs are prevented");
-        }
+            switch (sourceType) {
+                case BACKEND_STREAMING:
+                    checkValidTimeoutSecond(timeoutSecond, Config.max_stream_load_timeout_second,
+                            Config.min_load_timeout_second);
+                    break;
+                default:
+                    checkValidTimeoutSecond(timeoutSecond, Config.max_load_timeout_second,
+                            Config.min_load_timeout_second);
+            }
 
-        switch (sourceType) {
-            case BACKEND_STREAMING:
-                checkValidTimeoutSecond(timeoutSecond, Config.max_stream_load_timeout_second,
-                        Config.min_load_timeout_second);
-                break;
-            default:
-                checkValidTimeoutSecond(timeoutSecond, Config.max_load_timeout_second, Config.min_load_timeout_second);
-        }
-
-        DatabaseTransactionMgr dbTransactionMgr = getDatabaseTransactionMgr(dbId);
-        return dbTransactionMgr.beginTransaction(tableIdList, label, requestId,
+            DatabaseTransactionMgr dbTransactionMgr = getDatabaseTransactionMgr(dbId);
+            return dbTransactionMgr.beginTransaction(tableIdList, label, requestId,
                 coordinator, sourceType, listenerId, timeoutSecond);
+        } catch (DuplicatedRequestException e) {
+            throw e;
+        } catch (Exception e) {
+            if (MetricRepo.isInit) {
+                MetricRepo.COUNTER_TXN_REJECT.increase(1L);
+            }
+            throw e;
+        }
     }
 
     private void checkValidTimeoutSecond(long timeoutSecond, int maxLoadTimeoutSecond,

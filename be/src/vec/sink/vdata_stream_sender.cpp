@@ -60,13 +60,13 @@ Status Channel<Parent>::init(RuntimeState* state) {
     }
 
     // initialize brpc request
-    _finst_id.set_hi(_fragment_instance_id.hi);
-    _finst_id.set_lo(_fragment_instance_id.lo);
-    _brpc_request.set_allocated_finst_id(&_finst_id);
+    _brpc_request.mutable_finst_id()->set_hi(_fragment_instance_id.hi);
+    _brpc_request.mutable_finst_id()->set_lo(_fragment_instance_id.lo);
+    _finst_id = _brpc_request.finst_id();
 
-    _query_id.set_hi(state->query_id().hi);
-    _query_id.set_lo(state->query_id().lo);
-    _brpc_request.set_allocated_query_id(&_query_id);
+    _brpc_request.mutable_query_id()->set_hi(state->query_id().hi);
+    _brpc_request.mutable_query_id()->set_lo(state->query_id().lo);
+    _query_id = _brpc_request.query_id();
 
     _brpc_request.set_node_id(_dest_node_id);
     _brpc_request.set_sender_id(_parent->sender_id());
@@ -192,14 +192,15 @@ Status Channel<Parent>::send_block(PBlock* block, bool eos) {
     {
         SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(ExecEnv::GetInstance()->orphan_mem_tracker());
         if (enable_http_send_block(_brpc_request, _parent->transfer_large_data_by_brpc())) {
-            RETURN_IF_ERROR(transmit_block_http(_state, _closure, _brpc_request, _brpc_dest_addr));
+            RETURN_IF_ERROR(transmit_block_http(_state->exec_env(), _closure, _brpc_request,
+                                                _brpc_dest_addr));
         } else {
             transmit_block(*_brpc_stub, _closure, _brpc_request);
         }
     }
 
     if (block != nullptr) {
-        _brpc_request.release_block();
+        static_cast<void>(_brpc_request.release_block());
     }
     return Status::OK();
 }
@@ -299,7 +300,6 @@ VDataStreamSender::VDataStreamSender(RuntimeState* state, ObjectPool* pool, int 
           _pool(pool),
           _current_channel_idx(0),
           _part_type(sink.output_partition.type),
-          _profile(nullptr),
           _serialize_batch_timer(nullptr),
           _bytes_sent_counter(nullptr),
           _local_send_timer(nullptr),
@@ -364,7 +364,6 @@ VDataStreamSender::VDataStreamSender(RuntimeState* state, ObjectPool* pool, int 
           _pool(pool),
           _current_channel_idx(0),
           _part_type(TPartitionType::UNPARTITIONED),
-          _profile(nullptr),
           _serialize_batch_timer(nullptr),
           _compress_timer(nullptr),
           _brpc_send_timer(nullptr),

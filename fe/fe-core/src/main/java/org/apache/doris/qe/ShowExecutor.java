@@ -2451,7 +2451,16 @@ public class ShowExecutor {
         ShowTableStatsStmt showTableStatsStmt = (ShowTableStatsStmt) stmt;
         TableIf tableIf = showTableStatsStmt.getTable();
         TableStats tableStats = Env.getCurrentEnv().getAnalysisManager().findTableStatsStatus(tableIf.getId());
-        resultSet = showTableStatsStmt.constructResultSet(tableStats);
+        /*
+           HMSExternalTable table will fetch row count from HMS
+           or estimate with file size and schema if it's not analyzed.
+           tableStats == null means it's not analyzed, in this case show the estimated row count.
+         */
+        if (tableStats == null && tableIf instanceof HMSExternalTable) {
+            resultSet = showTableStatsStmt.constructResultSet(tableIf.estimatedRowCount());
+        } else {
+            resultSet = showTableStatsStmt.constructResultSet(tableStats);
+        }
     }
 
     private void handleShowColumnStats() throws AnalysisException {
@@ -2661,7 +2670,12 @@ public class ShowExecutor {
                     LocalDateTime.ofInstant(Instant.ofEpochMilli(analysisInfo.lastExecTimeInMs),
                             ZoneId.systemDefault())));
             row.add(analysisInfo.state.toString());
-            row.add(Env.getCurrentEnv().getAnalysisManager().getJobProgress(analysisInfo.jobId));
+            try {
+                row.add(Env.getCurrentEnv().getAnalysisManager().getJobProgress(analysisInfo.jobId));
+            } catch (Exception e) {
+                row.add("N/A");
+                LOG.warn("Failed to get progress for job: {}", analysisInfo, e);
+            }
             row.add(analysisInfo.scheduleType.toString());
             resultRows.add(row);
         }

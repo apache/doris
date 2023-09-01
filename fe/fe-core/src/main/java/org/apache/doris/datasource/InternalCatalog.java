@@ -256,6 +256,9 @@ public class InternalCatalog implements CatalogIf<Database> {
     @Nullable
     @Override
     public Database getDbNullable(String dbName) {
+        if (StringUtils.isEmpty(dbName)) {
+            return null;
+        }
         if (fullNameToDb.containsKey(dbName)) {
             return fullNameToDb.get(dbName);
         } else {
@@ -2220,7 +2223,12 @@ public class InternalCatalog implements CatalogIf<Database> {
                     "Can not create UNIQUE KEY table that enables Merge-On-write"
                      + " with storage policy(" + storagePolicy + ")");
         }
-        olapTable.setStoragePolicy(storagePolicy);
+        // Consider one situation: if the table has no storage policy but some partitions
+        // have their own storage policy then it might be erased by the following function.
+        // So we only set the storage policy if the table's policy is not null or empty
+        if (!Strings.isNullOrEmpty(storagePolicy)) {
+            olapTable.setStoragePolicy(storagePolicy);
+        }
 
         TTabletType tabletType;
         try {
@@ -3106,6 +3114,8 @@ public class InternalCatalog implements CatalogIf<Database> {
             idToDb.put(db.getId(), db);
             fullNameToDb.put(db.getFullName(), db);
             Env.getCurrentGlobalTransactionMgr().addDatabaseTransactionMgr(db.getId());
+
+            db.analyze();
         }
         // ATTN: this should be done after load Db, and before loadAlterJob
         recreateTabletInvertIndex();
@@ -3128,5 +3138,10 @@ public class InternalCatalog implements CatalogIf<Database> {
         Database db = getDbOrMetaException(log.getDbId());
         OlapTable olapTable = (OlapTable) db.getTableOrMetaException(log.getTableId(), TableType.OLAP);
         olapTable.getAutoIncrementGenerator().applyChange(log.getColumnId(), log.getBatchEndId());
+    }
+
+    @Override
+    public boolean enableAutoAnalyze() {
+        return true;
     }
 }

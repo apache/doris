@@ -18,7 +18,6 @@
 package org.apache.doris.nereids.rules.expression;
 
 import org.apache.doris.nereids.rules.expression.check.CheckCast;
-import org.apache.doris.nereids.rules.expression.rules.BetweenToCompoundRule;
 import org.apache.doris.nereids.rules.expression.rules.DigitalMaskingConvert;
 import org.apache.doris.nereids.rules.expression.rules.FoldConstantRule;
 import org.apache.doris.nereids.rules.expression.rules.InPredicateDedup;
@@ -30,7 +29,6 @@ import org.apache.doris.nereids.rules.expression.rules.SimplifyArithmeticRule;
 import org.apache.doris.nereids.rules.expression.rules.SimplifyCastRule;
 import org.apache.doris.nereids.rules.expression.rules.SimplifyNotExprRule;
 import org.apache.doris.nereids.rules.expression.rules.SupportJavaDateFormatter;
-import org.apache.doris.nereids.trees.expressions.Expression;
 
 import com.google.common.collect.ImmutableList;
 
@@ -46,7 +44,6 @@ public class ExpressionNormalization extends ExpressionRewrite {
             SupportJavaDateFormatter.INSTANCE,
             ReplaceVariableByLiteral.INSTANCE,
             NormalizeBinaryPredicatesRule.INSTANCE,
-            BetweenToCompoundRule.INSTANCE,
             InPredicateDedup.INSTANCE,
             InPredicateToEqualToRule.INSTANCE,
             SimplifyNotExprRule.INSTANCE,
@@ -61,11 +58,6 @@ public class ExpressionNormalization extends ExpressionRewrite {
 
     public ExpressionNormalization() {
         super(new ExpressionRuleExecutor(NORMALIZE_REWRITE_RULES));
-    }
-
-    @Override
-    public Expression rewrite(Expression expression, ExpressionRewriteContext context) {
-        return super.rewrite(expression, context);
     }
 }
 

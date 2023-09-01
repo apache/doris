@@ -261,8 +261,8 @@ Status RowsetBuilder::commit_txn() {
     }
     if (_tablet->enable_unique_key_merge_on_write()) {
         _storage_engine->txn_manager()->set_txn_related_delete_bitmap(
-                _req.partition_id, _req.txn_id, _tablet->tablet_id(), _tablet->schema_hash(),
-                _tablet->tablet_uid(), true, _delete_bitmap, _rowset_ids);
+                _req.partition_id, _req.txn_id, _tablet->tablet_id(), _tablet->tablet_uid(), true,
+                _delete_bitmap, _rowset_ids);
     }
 
     _is_committed = true;

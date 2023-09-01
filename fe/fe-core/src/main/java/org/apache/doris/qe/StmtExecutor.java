@@ -207,9 +207,6 @@ public class StmtExecutor {
     private OriginStatement originStmt;
     private StatementBase parsedStmt;
     private Analyzer analyzer;
-    private QueryQueue queryQueue = null;
-    // by default, false means no query queued, then no need to poll when query finish
-    private QueueOfferToken offerRet = new QueueOfferToken(false);
     private ProfileType profileType = ProfileType.QUERY;
     private volatile Coordinator coord = null;
     private MasterOpExecutor masterOpExecutor = null;
@@ -309,6 +306,7 @@ public class StmtExecutor {
                 : context.getState().toString());
         builder.user(context.getQualifiedUser());
         builder.defaultDb(context.getDatabase());
+        builder.workloadGroup(context.getWorkloadGroupName());
         builder.sqlStatement(originStmt.originStmt);
         builder.isCached(isCached ? "Yes" : "No");
 
@@ -578,17 +576,19 @@ public class StmtExecutor {
     private void handleQueryWithRetry(TUniqueId queryId) throws Exception {
         // queue query here
         syncJournalIfNeeded();
+        QueueOfferToken offerRet = null;
+        QueryQueue queryQueue = null;
         if (!parsedStmt.isExplain() && Config.enable_workload_group && Config.enable_query_queue
                 && context.getSessionVariable().getEnablePipelineEngine()) {
-            this.queryQueue = context.getEnv().getWorkloadGroupMgr().getWorkloadGroupQueryQueue(context);
+            queryQueue = context.getEnv().getWorkloadGroupMgr().getWorkloadGroupQueryQueue(context);
             try {
-                this.offerRet = queryQueue.offer();
+                offerRet = queryQueue.offer();
             } catch (InterruptedException e) {
                 // this Exception means try lock/await failed, so no need to handle offer result
                 LOG.error("error happens when offer queue, query id=" + DebugUtil.printId(queryId) + " ", e);
                 throw new RuntimeException("interrupted Exception happens when queue query");
             }
-            if (!offerRet.isOfferSuccess()) {
+            if (offerRet != null && !offerRet.isOfferSuccess()) {
                 String retMsg = "queue failed, reason=" + offerRet.getOfferResultDetail();
                 LOG.error("query (id=" + DebugUtil.printId(queryId) + ") " + retMsg);
                 throw new UserException(retMsg);
@@ -628,7 +628,7 @@ public class StmtExecutor {
                 }
             }
         } finally {
-            if (offerRet.isOfferSuccess()) {
+            if (offerRet != null && offerRet.isOfferSuccess()) {
                 queryQueue.poll();
             }
         }
@@ -1357,6 +1357,8 @@ public class StmtExecutor {
         coord = new Coordinator(context, analyzer, planner, context.getStatsErrorEstimator());
         if (Config.enable_workload_group && context.sessionVariable.getEnablePipelineEngine()) {
             coord.setTWorkloadGroups(context.getEnv().getWorkloadGroupMgr().getWorkloadGroup(context));
+        } else {
+            context.setWorkloadGroupName("");
         }
         QeProcessorImpl.INSTANCE.registerQuery(context.queryId(),
                 new QeProcessorImpl.QueryInfo(context, originStmt.originStmt, coord));
@@ -2439,6 +2441,7 @@ public class StmtExecutor {
     }
 
     public List<ResultRow> executeInternalQuery() {
+        LOG.debug("INTERNAL QUERY: " + originStmt.toString());
         try {
             List<ResultRow> resultRows = new ArrayList<>();
             try {

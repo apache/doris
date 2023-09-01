@@ -60,7 +60,7 @@ public:
 
     Status close(RuntimeState* state, Status exec_status) override;
 
-    RuntimeProfile* profile() override { return _profile; }
+    bool can_write() override;
 
 private:
     Status _prepare_vexpr(RuntimeState* state);

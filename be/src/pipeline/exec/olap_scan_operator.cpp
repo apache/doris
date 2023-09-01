@@ -42,7 +42,7 @@
 namespace doris::pipeline {
 
 Status OlapScanLocalState::_init_profile() {
-    RETURN_IF_ERROR(ScanLocalState::_init_profile());
+    RETURN_IF_ERROR(ScanLocalState<OlapScanLocalState>::_init_profile());
     // 1. init segment profile
     _segment_profile.reset(new RuntimeProfile("SegmentIterator"));
     _scanner_profile->add_child(_segment_profile.get(), true, nullptr);
@@ -200,9 +200,12 @@ Status OlapScanLocalState::_should_push_down_function_filter(
 }
 
 bool OlapScanLocalState::_should_push_down_common_expr() {
+    return state()->enable_common_expr_pushdown() && _storage_no_merge();
+}
+
+bool OlapScanLocalState::_storage_no_merge() {
     auto& p = _parent->cast<OlapScanOperatorX>();
-    return state()->enable_common_expr_pushdown() &&
-           (p._olap_scan_node.keyType == TKeysType::DUP_KEYS ||
+    return (p._olap_scan_node.keyType == TKeysType::DUP_KEYS ||
             (p._olap_scan_node.keyType == TKeysType::UNIQUE_KEYS &&
              p._olap_scan_node.__isset.enable_unique_key_merge_on_write &&
              p._olap_scan_node.enable_unique_key_merge_on_write));
@@ -468,19 +471,14 @@ void OlapScanLocalState::add_filter_info(int id, const PredicateFilterInfo& upda
 }
 
 OlapScanOperatorX::OlapScanOperatorX(ObjectPool* pool, const TPlanNode& tnode,
-                                     const DescriptorTbl& descs, std::string op_name)
-        : ScanOperatorX(pool, tnode, descs, op_name), _olap_scan_node(tnode.olap_scan_node) {
+                                     const DescriptorTbl& descs)
+        : ScanOperatorX<OlapScanLocalState>(pool, tnode, descs),
+          _olap_scan_node(tnode.olap_scan_node) {
     _output_tuple_id = tnode.olap_scan_node.tuple_id;
     _col_distribute_ids = tnode.olap_scan_node.distribute_column_ids;
     if (_olap_scan_node.__isset.sort_info && _olap_scan_node.__isset.sort_limit) {
         _limit_per_scanner = _olap_scan_node.sort_limit;
     }
-}
-
-Status OlapScanOperatorX::setup_local_state(RuntimeState* state, LocalStateInfo& info) {
-    auto local_state = OlapScanLocalState::create_shared(state, this);
-    state->emplace_local_state(id(), local_state);
-    return local_state->init(state, info);
 }
 
 } // namespace doris::pipeline

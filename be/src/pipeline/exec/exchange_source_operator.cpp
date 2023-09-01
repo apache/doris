@@ -41,28 +41,19 @@ bool ExchangeSourceOperator::is_pending_finish() const {
 }
 
 ExchangeLocalState::ExchangeLocalState(RuntimeState* state, OperatorXBase* parent)
-        : PipelineXLocalState(state, parent), num_rows_skipped(0), is_ready(false) {}
+        : PipelineXLocalState<>(state, parent), num_rows_skipped(0), is_ready(false) {}
 
 Status ExchangeLocalState::init(RuntimeState* state, LocalStateInfo& info) {
-    if (_init) {
-        return Status::OK();
-    }
-    RETURN_IF_ERROR(PipelineXLocalState::init(state, info));
-    auto& parent_ref = _parent->cast<ExchangeSourceOperatorX>();
-    stream_recvr = _state->exec_env()->vstream_mgr()->create_recvr(
-            _state, parent_ref._input_row_desc, _state->fragment_instance_id(), parent_ref._id,
-            parent_ref._num_senders, profile(), parent_ref._is_merging,
-            parent_ref._sub_plan_query_statistics_recvr);
+    RETURN_IF_ERROR(PipelineXLocalState<>::init(state, info));
+    stream_recvr = info.recvr;
     RETURN_IF_ERROR(_parent->cast<ExchangeSourceOperatorX>()._vsort_exec_exprs.clone(
             state, vsort_exec_exprs));
-    _init = true;
     return Status::OK();
 }
 
 ExchangeSourceOperatorX::ExchangeSourceOperatorX(ObjectPool* pool, const TPlanNode& tnode,
-                                                 const DescriptorTbl& descs, std::string op_name,
-                                                 int num_senders)
-        : OperatorXBase(pool, tnode, descs, op_name),
+                                                 const DescriptorTbl& descs, int num_senders)
+        : OperatorX<ExchangeLocalState>(pool, tnode, descs),
           _num_senders(num_senders),
           _is_merging(tnode.exchange_node.__isset.sort_info),
           _input_row_desc(descs, tnode.exchange_node.input_row_tuples,
@@ -72,7 +63,7 @@ ExchangeSourceOperatorX::ExchangeSourceOperatorX(ObjectPool* pool, const TPlanNo
           _offset(tnode.exchange_node.__isset.offset ? tnode.exchange_node.offset : 0) {}
 
 Status ExchangeSourceOperatorX::init(const TPlanNode& tnode, RuntimeState* state) {
-    RETURN_IF_ERROR(OperatorXBase::init(tnode, state));
+    RETURN_IF_ERROR(OperatorX<ExchangeLocalState>::init(tnode, state));
     if (!_is_merging) {
         return Status::OK();
     }
@@ -84,7 +75,7 @@ Status ExchangeSourceOperatorX::init(const TPlanNode& tnode, RuntimeState* state
 }
 
 Status ExchangeSourceOperatorX::prepare(RuntimeState* state) {
-    RETURN_IF_ERROR(OperatorXBase::prepare(state));
+    RETURN_IF_ERROR(OperatorX<ExchangeLocalState>::prepare(state));
     DCHECK_GT(_num_senders, 0);
     _sub_plan_query_statistics_recvr.reset(new QueryStatisticsRecvr());
 
@@ -96,7 +87,7 @@ Status ExchangeSourceOperatorX::prepare(RuntimeState* state) {
 }
 
 Status ExchangeSourceOperatorX::open(RuntimeState* state) {
-    RETURN_IF_ERROR(OperatorXBase::open(state));
+    RETURN_IF_ERROR(OperatorX<ExchangeLocalState>::open(state));
     if (_is_merging) {
         RETURN_IF_ERROR(_vsort_exec_exprs.open(state));
     }
@@ -147,12 +138,6 @@ Status ExchangeSourceOperatorX::get_block(RuntimeState* state, vectorized::Block
     return status;
 }
 
-Status ExchangeSourceOperatorX::setup_local_state(RuntimeState* state, LocalStateInfo& info) {
-    auto local_state = ExchangeLocalState::create_shared(state, this);
-    state->emplace_local_state(id(), local_state);
-    return local_state->init(state, info);
-}
-
 bool ExchangeSourceOperatorX::can_read(RuntimeState* state) {
     return state->get_local_state(id())->cast<ExchangeLocalState>().stream_recvr->ready_to_read();
 }
@@ -161,19 +146,24 @@ bool ExchangeSourceOperatorX::is_pending_finish(RuntimeState* /*state*/) const {
     return false;
 }
 
-Status ExchangeSourceOperatorX::close(RuntimeState* state) {
-    if (is_closed()) {
+Status ExchangeLocalState::close(RuntimeState* state) {
+    if (_closed) {
         return Status::OK();
     }
-    auto& local_state = state->get_local_state(id())->cast<ExchangeLocalState>();
-    if (local_state.stream_recvr != nullptr) {
-        local_state.stream_recvr->close();
+    if (stream_recvr != nullptr) {
+        stream_recvr->close();
     }
-    if (_is_merging) {
+    if (_parent->cast<ExchangeSourceOperatorX>()._is_merging) {
+        vsort_exec_exprs.close(state);
+    }
+    return PipelineXLocalState<>::close(state);
+}
+
+Status ExchangeSourceOperatorX::close(RuntimeState* state) {
+    if (_is_merging && !is_closed()) {
         _vsort_exec_exprs.close(state);
-        local_state.vsort_exec_exprs.close(state);
     }
     _is_closed = true;
-    return OperatorXBase::close(state);
+    return OperatorX<ExchangeLocalState>::close(state);
 }
 } // namespace doris::pipeline

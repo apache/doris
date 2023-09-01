@@ -39,7 +39,6 @@ public class MySumReturnMapIntDou {
     }
 
     public void add(State state, Integer k, Double v) {
-        LOG.info("udaf nest  k v " + k + "  " + v);
         state.counter.put(k, v);
     }
 

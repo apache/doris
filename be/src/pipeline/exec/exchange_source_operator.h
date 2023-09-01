@@ -20,6 +20,7 @@
 #include <stdint.h>
 
 #include "operator.h"
+#include "pipeline/pipeline_x/operator.h"
 #include "vec/exec/vexchange_node.h"
 
 namespace doris {
@@ -50,11 +51,12 @@ public:
 };
 
 class ExchangeSourceOperatorX;
-class ExchangeLocalState : public PipelineXLocalState {
+class ExchangeLocalState : public PipelineXLocalState<> {
     ENABLE_FACTORY_CREATOR(ExchangeLocalState);
     ExchangeLocalState(RuntimeState* state, OperatorXBase* parent);
 
     Status init(RuntimeState* state, LocalStateInfo& info) override;
+    Status close(RuntimeState* state) override;
 
     std::shared_ptr<doris::vectorized::VDataStreamRecvr> stream_recvr;
     doris::vectorized::VSortExecExprs vsort_exec_exprs;
@@ -62,23 +64,32 @@ class ExchangeLocalState : public PipelineXLocalState {
     bool is_ready;
 };
 
-class ExchangeSourceOperatorX final : public OperatorXBase {
+class ExchangeSourceOperatorX final : public OperatorX<ExchangeLocalState> {
 public:
     ExchangeSourceOperatorX(ObjectPool* pool, const TPlanNode& tnode, const DescriptorTbl& descs,
-                            std::string op_name, int num_senders);
+                            int num_senders);
     bool can_read(RuntimeState* state) override;
     bool is_pending_finish(RuntimeState* state) const override;
 
     Status init(const TPlanNode& tnode, RuntimeState* state) override;
     Status prepare(RuntimeState* state) override;
     Status open(RuntimeState* state) override;
-    Status setup_local_state(RuntimeState* state, LocalStateInfo& info) override;
 
     Status get_block(RuntimeState* state, vectorized::Block* block,
                      SourceState& source_state) override;
 
     Status close(RuntimeState* state) override;
     bool is_source() const override { return true; }
+    bool need_to_create_exch_recv() const override { return true; }
+
+    RowDescriptor input_row_desc() const { return _input_row_desc; }
+
+    int num_senders() const { return _num_senders; }
+    bool is_merging() const { return _is_merging; }
+
+    std::shared_ptr<QueryStatisticsRecvr> sub_plan_query_statistics_recvr() {
+        return _sub_plan_query_statistics_recvr;
+    }
 
 private:
     friend class ExchangeLocalState;

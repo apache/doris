@@ -112,14 +112,12 @@ public abstract class DataType {
     public static DataType convertPrimitiveFromStrings(List<String> types) {
         String type = types.get(0).toLowerCase().trim();
         switch (type) {
-            case "bool":
             case "boolean":
                 return BooleanType.INSTANCE;
             case "tinyint":
                 return TinyIntType.INSTANCE;
             case "smallint":
                 return SmallIntType.INSTANCE;
-            case "integer":
             case "int":
                 return IntegerType.INSTANCE;
             case "bigint":
@@ -163,7 +161,11 @@ public abstract class DataType {
                     case 1:
                         return VarcharType.SYSTEM_DEFAULT;
                     case 2:
-                        return VarcharType.createVarcharType(Integer.parseInt(types.get(1)));
+                        if (types.get(1).equals("*")) {
+                            return VarcharType.SYSTEM_DEFAULT;
+                        } else {
+                            return VarcharType.createVarcharType(Integer.parseInt(types.get(1)));
+                        }
                     default:
                         throw new AnalysisException("Nereids do not support type: " + type);
                 }
@@ -173,7 +175,11 @@ public abstract class DataType {
                     case 1:
                         return CharType.SYSTEM_DEFAULT;
                     case 2:
-                        return CharType.createCharType(Integer.parseInt(types.get(1)));
+                        if (types.get(1).equals("*")) {
+                            return CharType.SYSTEM_DEFAULT;
+                        } else {
+                            return CharType.createCharType(Integer.parseInt(types.get(1)));
+                        }
                     default:
                         throw new AnalysisException("Nereids do not support type: " + type);
                 }
@@ -211,6 +217,7 @@ public abstract class DataType {
             case "quantile_state":
                 return QuantileStateType.INSTANCE;
             case "json":
+            case "jsonb":
                 return JsonType.INSTANCE;
             default:
                 throw new AnalysisException("Nereids do not support type: " + type);
@@ -290,11 +297,14 @@ public abstract class DataType {
         } else if (type.isJsonbType()) {
             return JsonType.INSTANCE;
         } else if (type.isStructType()) {
-            // TODO: support struct type really
-            return StructType.INSTANCE;
+            List<StructField> structFields = ((org.apache.doris.catalog.StructType) (type)).getFields().stream()
+                    .map(cf -> new StructField(cf.getName(), fromCatalogType(cf.getType()),
+                            cf.getContainsNull(), cf.getComment()))
+                    .collect(ImmutableList.toImmutableList());
+            return new StructType(structFields);
         } else if (type.isMapType()) {
-            // TODO: support map type really
-            return MapType.INSTANCE;
+            org.apache.doris.catalog.MapType mapType = (org.apache.doris.catalog.MapType) type;
+            return MapType.of(fromCatalogType(mapType.getKeyType()), fromCatalogType(mapType.getValueType()));
         } else if (type.isArrayType()) {
             org.apache.doris.catalog.ArrayType arrayType = (org.apache.doris.catalog.ArrayType) type;
             return ArrayType.of(fromCatalogType(arrayType.getItemType()), arrayType.getContainsNull());

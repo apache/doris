@@ -63,6 +63,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.BitmapContain
 import org.apache.doris.nereids.trees.expressions.functions.scalar.BitmapCount;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.BitmapEmpty;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.BitmapFromArray;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.BitmapFromBase64;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.BitmapFromString;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.BitmapHasAll;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.BitmapHasAny;
@@ -76,12 +77,14 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.BitmapOrCount
 import org.apache.doris.nereids.trees.expressions.functions.scalar.BitmapSubsetInRange;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.BitmapSubsetLimit;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.BitmapToArray;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.BitmapToBase64;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.BitmapToString;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.BitmapXor;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.BitmapXorCount;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Cardinality;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Cbrt;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Ceil;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Char;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.CharacterLength;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Coalesce;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Concat;
@@ -92,6 +95,9 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.ConvertTo;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ConvertTz;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Cos;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.CountEqual;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.CreateMap;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.CreateNamedStruct;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.CreateStruct;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.CurrentCatalog;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.CurrentDate;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.CurrentTime;
@@ -196,6 +202,11 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.Lower;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Lpad;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Ltrim;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MakeDate;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.MapContainsKey;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.MapContainsValue;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.MapKeys;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.MapSize;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.MapValues;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Mask;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MaskFirstN;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MaskLastN;
@@ -227,6 +238,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.NullIf;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.NullOrEmpty;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Nvl;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ParseUrl;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Password;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Pi;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Pmod;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Positive;
@@ -298,6 +310,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.StartsWith;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StrLeft;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StrRight;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StrToDate;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.StructElement;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.SubBitmap;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.SubReplace;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Substring;
@@ -399,6 +412,7 @@ public class BuiltinScalarFunctions implements FunctionHelper {
             scalar(BitmapCount.class, "bitmap_count"),
             scalar(BitmapEmpty.class, "bitmap_empty"),
             scalar(BitmapFromArray.class, "bitmap_from_array"),
+            scalar(BitmapFromBase64.class, "bitmap_from_base64"),
             scalar(BitmapFromString.class, "bitmap_from_string"),
             scalar(BitmapHasAll.class, "bitmap_has_all"),
             scalar(BitmapHasAny.class, "bitmap_has_any"),
@@ -412,12 +426,14 @@ public class BuiltinScalarFunctions implements FunctionHelper {
             scalar(BitmapSubsetInRange.class, "bitmap_subset_in_range"),
             scalar(BitmapSubsetLimit.class, "bitmap_subset_limit"),
             scalar(BitmapToArray.class, "bitmap_to_array"),
+            scalar(BitmapToBase64.class, "bitmap_to_base64"),
             scalar(BitmapToString.class, "bitmap_to_string"),
             scalar(BitmapXor.class, "bitmap_xor"),
             scalar(BitmapXorCount.class, "bitmap_xor_count"),
             scalar(Cardinality.class, "array_size", "cardinality", "size"),
             scalar(Cbrt.class, "cbrt"),
             scalar(Ceil.class, "ceil", "ceiling"),
+            scalar(Char.class, "char"),
             scalar(CharacterLength.class, "char_length", "character_length"),
             scalar(Coalesce.class, "coalesce"),
             scalar(Concat.class, "concat"),
@@ -428,6 +444,9 @@ public class BuiltinScalarFunctions implements FunctionHelper {
             scalar(ConvertTz.class, "convert_tz"),
             scalar(Cos.class, "cos"),
             scalar(CountEqual.class, "countequal"),
+            scalar(CreateMap.class, "map"),
+            scalar(CreateStruct.class, "struct"),
+            scalar(CreateNamedStruct.class, "named_struct"),
             scalar(CurrentCatalog.class, "current_catalog"),
             scalar(CurrentDate.class, "curdate", "current_date"),
             scalar(CurrentTime.class, "curtime", "current_time"),
@@ -532,6 +551,11 @@ public class BuiltinScalarFunctions implements FunctionHelper {
             scalar(Lpad.class, "lpad"),
             scalar(Ltrim.class, "ltrim"),
             scalar(MakeDate.class, "makedate"),
+            scalar(MapContainsKey.class, "map_contains_key"),
+            scalar(MapContainsValue.class, "map_contains_value"),
+            scalar(MapKeys.class, "map_keys"),
+            scalar(MapSize.class, "map_size"),
+            scalar(MapValues.class, "map_values"),
             scalar(Mask.class, "mask"),
             scalar(MaskFirstN.class, "mask_first_n"),
             scalar(MaskLastN.class, "mask_last_n"),
@@ -563,6 +587,7 @@ public class BuiltinScalarFunctions implements FunctionHelper {
             scalar(NullOrEmpty.class, "null_or_empty"),
             scalar(Nvl.class, "ifnull", "nvl"),
             scalar(ParseUrl.class, "parse_url"),
+            scalar(Password.class, "password"),
             scalar(Pi.class, "pi"),
             scalar(Pmod.class, "pmod"),
             scalar(Positive.class, "positive"),
@@ -596,6 +621,7 @@ public class BuiltinScalarFunctions implements FunctionHelper {
             scalar(Sign.class, "sign"),
             scalar(Sin.class, "sin"),
             scalar(Sleep.class, "sleep"),
+            scalar(StructElement.class, "struct_element"),
             scalar(Sm3.class, "sm3"),
             scalar(Sm3sum.class, "sm3sum"),
             scalar(Sm4Decrypt.class, "sm4_decrypt"),

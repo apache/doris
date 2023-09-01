@@ -2172,14 +2172,28 @@ public class SchemaChangeHandler extends AlterHandler {
         }
 
         if (isInMemory < 0 && storagePolicyId < 0 && compactionPolicy == null && timeSeriesCompactionConfig.isEmpty()
-                && !properties.containsKey(PropertyAnalyzer.PROPERTIES_IS_BEING_SYNCED)) {
+                && !properties.containsKey(PropertyAnalyzer.PROPERTIES_IS_BEING_SYNCED)
+                && !properties.containsKey(PropertyAnalyzer.PROPERTIES_ENABLE_SINGLE_REPLICA_COMPACTION)
+                && !properties.containsKey(PropertyAnalyzer.PROPERTIES_SKIP_WRITE_INDEX_ON_LOAD)) {
             LOG.info("Properties already up-to-date");
             return;
         }
 
+        String singleCompaction = properties.get(PropertyAnalyzer.PROPERTIES_ENABLE_SINGLE_REPLICA_COMPACTION);
+        int enableSingleCompaction = -1; // < 0 means don't update
+        if (singleCompaction != null) {
+            enableSingleCompaction = Boolean.parseBoolean(singleCompaction) ? 1 : 0;
+        }
+
+        String skipWriteIndexOnLoad = properties.get(PropertyAnalyzer.PROPERTIES_SKIP_WRITE_INDEX_ON_LOAD);
+        int skip = -1; // < 0 means don't update
+        if (skipWriteIndexOnLoad != null) {
+            skip = Boolean.parseBoolean(skipWriteIndexOnLoad) ? 1 : 0;
+        }
+
         for (Partition partition : partitions) {
             updatePartitionProperties(db, olapTable.getName(), partition.getName(), storagePolicyId, isInMemory,
-                                        null, compactionPolicy, timeSeriesCompactionConfig);
+                                    null, compactionPolicy, timeSeriesCompactionConfig, enableSingleCompaction, skip);
         }
 
         olapTable.writeLockOrDdlException();
@@ -2222,7 +2236,7 @@ public class SchemaChangeHandler extends AlterHandler {
         for (String partitionName : partitionNames) {
             try {
                 updatePartitionProperties(db, olapTable.getName(), partitionName, storagePolicyId,
-                                                                                    isInMemory, null, null, null);
+                                                                                isInMemory, null, null, null, -1, -1);
             } catch (Exception e) {
                 String errMsg = "Failed to update partition[" + partitionName + "]'s 'in_memory' property. "
                         + "The reason is [" + e.getMessage() + "]";
@@ -2237,7 +2251,8 @@ public class SchemaChangeHandler extends AlterHandler {
      */
     public void updatePartitionProperties(Database db, String tableName, String partitionName, long storagePolicyId,
                                           int isInMemory, BinlogConfig binlogConfig, String compactionPolicy,
-                                          Map<String, Long> timeSeriesCompactionConfig) throws UserException {
+                                          Map<String, Long> timeSeriesCompactionConfig,
+                                          int enableSingleCompaction, int skipWriteIndexOnLoad) throws UserException {
         // be id -> <tablet id,schemaHash>
         Map<Long, Set<Pair<Long, Integer>>> beIdToTabletIdWithHash = Maps.newHashMap();
         OlapTable olapTable = (OlapTable) db.getTableOrMetaException(tableName, Table.TableType.OLAP);
@@ -2269,7 +2284,8 @@ public class SchemaChangeHandler extends AlterHandler {
         for (Map.Entry<Long, Set<Pair<Long, Integer>>> kv : beIdToTabletIdWithHash.entrySet()) {
             countDownLatch.addMark(kv.getKey(), kv.getValue());
             UpdateTabletMetaInfoTask task = new UpdateTabletMetaInfoTask(kv.getKey(), kv.getValue(), isInMemory,
-                    storagePolicyId, binlogConfig, countDownLatch, compactionPolicy, timeSeriesCompactionConfig);
+                                            storagePolicyId, binlogConfig, countDownLatch, compactionPolicy,
+                                            timeSeriesCompactionConfig, enableSingleCompaction, skipWriteIndexOnLoad);
             batchTask.addTask(task);
         }
         if (!FeConstants.runningUnitTest) {
@@ -2914,7 +2930,7 @@ public class SchemaChangeHandler extends AlterHandler {
 
         for (Partition partition : partitions) {
             updatePartitionProperties(db, olapTable.getName(), partition.getName(), -1, -1,
-                                                newBinlogConfig, null, null);
+                                                newBinlogConfig, null, null, -1, -1);
         }
 
         olapTable.writeLockOrDdlException();

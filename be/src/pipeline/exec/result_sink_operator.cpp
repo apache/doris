@@ -51,16 +51,11 @@ bool ResultSinkOperator::can_write() {
 }
 
 Status ResultSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& info) {
+    RETURN_IF_ERROR(PipelineXSinkLocalState<>::init(state, info));
     auto& p = _parent->cast<ResultSinkOperatorX>();
     auto fragment_instance_id = state->fragment_instance_id();
-    auto title = fmt::format("VDataBufferSender (dst_fragment_instance_id={:x}-{:x})",
-                             fragment_instance_id.hi, fragment_instance_id.lo);
-    // create profile
-    _profile = state->obj_pool()->add(new RuntimeProfile(title));
     // create sender
-    RETURN_IF_ERROR(state->exec_env()->result_mgr()->create_sender(state->fragment_instance_id(),
-                                                                   p._buf_size, &_sender, true,
-                                                                   state->execution_timeout()));
+    _sender = info.sender;
     _output_vexpr_ctxs.resize(p._output_vexpr_ctxs.size());
     for (size_t i = 0; i < _output_vexpr_ctxs.size(); i++) {
         RETURN_IF_ERROR(p._output_vexpr_ctxs[i]->clone(state, _output_vexpr_ctxs[i]));
@@ -81,11 +76,8 @@ Status ResultSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& info)
 
 ResultSinkOperatorX::ResultSinkOperatorX(const RowDescriptor& row_desc,
                                          const std::vector<TExpr>& t_output_expr,
-                                         const TResultSink& sink, int buffer_size)
-        : DataSinkOperatorX(0),
-          _row_desc(row_desc),
-          _t_output_expr(t_output_expr),
-          _buf_size(buffer_size) {
+                                         const TResultSink& sink)
+        : DataSinkOperatorX(0), _row_desc(row_desc), _t_output_expr(t_output_expr) {
     if (!sink.__isset.type || sink.type == TResultSinkType::MYSQL_PROTOCAL) {
         _sink_type = TResultSinkType::MYSQL_PROTOCAL;
     } else {
@@ -119,12 +111,6 @@ Status ResultSinkOperatorX::open(RuntimeState* state) {
     return vectorized::VExpr::open(_output_vexpr_ctxs, state);
 }
 
-Status ResultSinkOperatorX::setup_local_state(RuntimeState* state, LocalSinkStateInfo& info) {
-    auto local_state = ResultSinkLocalState::create_shared(this, state);
-    state->emplace_sink_local_state(id(), local_state);
-    return local_state->init(state, info);
-}
-
 Status ResultSinkOperatorX::sink(RuntimeState* state, vectorized::Block* block,
                                  SourceState source_state) {
     auto& local_state = state->get_sink_local_state(id())->cast<ResultSinkLocalState>();
@@ -155,17 +141,14 @@ Status ResultSinkOperatorX::_second_phase_fetch_data(RuntimeState* state,
     return Status::OK();
 }
 
-Status ResultSinkOperatorX::close(RuntimeState* state) {
+Status ResultSinkLocalState::close(RuntimeState* state) {
     if (_closed) {
         return Status::OK();
     }
-
     Status final_status = Status::OK();
-
-    auto& local_state = state->get_sink_local_state(id())->cast<ResultSinkLocalState>();
-    if (local_state._writer) {
+    if (_writer) {
         // close the writer
-        Status st = local_state._writer->close();
+        Status st = _writer->close();
         if (!st.ok() && final_status.ok()) {
             // close file writer failed, should return this error to client
             final_status = st;
@@ -173,20 +156,21 @@ Status ResultSinkOperatorX::close(RuntimeState* state) {
     }
 
     // close sender, this is normal path end
-    if (local_state._sender) {
-        if (local_state._writer)
-            local_state._sender->update_num_written_rows(local_state._writer->get_written_rows());
-        local_state._sender->update_max_peak_memory_bytes();
-        local_state._sender->close(final_status);
+    if (_sender) {
+        if (_writer) {
+            _sender->update_num_written_rows(_writer->get_written_rows());
+        }
+        _sender->update_max_peak_memory_bytes();
+        _sender->close(final_status);
     }
     state->exec_env()->result_mgr()->cancel_at_time(
             time(nullptr) + config::result_buffer_cancelled_interval_time,
             state->fragment_instance_id());
+    RETURN_IF_ERROR(PipelineXSinkLocalState<>::close(state));
     return final_status;
 }
 
 bool ResultSinkOperatorX::can_write(RuntimeState* state) {
-    auto& local_state = state->get_sink_local_state(id())->cast<ResultSinkLocalState>();
-    return local_state._sender->can_sink();
+    return state->get_sink_local_state(id())->cast<ResultSinkLocalState>()._sender->can_sink();
 }
 } // namespace doris::pipeline

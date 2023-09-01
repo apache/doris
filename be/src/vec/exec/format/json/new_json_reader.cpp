@@ -153,6 +153,10 @@ void NewJsonReader::_init_file_description() {
     _file_description.path = _range.path;
     _file_description.start_offset = _range.start_offset;
     _file_description.file_size = _range.__isset.file_size ? _range.file_size : 0;
+
+    if (_range.__isset.fs_name) {
+        _file_description.fs_name = _range.fs_name;
+    }
 }
 
 Status NewJsonReader::init_reader(
@@ -611,7 +615,6 @@ Status NewJsonReader::_parse_json_doc(size_t* size, bool* eof) {
         if (*size == 0) {
             *eof = true;
         }
-        _current_offset += *size;
     }
 
     _bytes_read_counter += *size;

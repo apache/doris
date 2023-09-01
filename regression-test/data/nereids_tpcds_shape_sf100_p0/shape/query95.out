@@ -20,7 +20,7 @@ PhysicalCteAnchor ( cteId=CTEId#0 )
 ----------------PhysicalProject
 ------------------hashJoin[INNER_JOIN](ws1.ws_ship_date_sk = date_dim.d_date_sk)
 --------------------PhysicalProject
-----------------------filter((date_dim.d_date >= 1999-02-01)(cast(d_date as DATETIMEV2(0)) <= cast(days_add(cast('1999-2-01' as DATEV2), INTERVAL 60 DAY) as DATETIMEV2(0))))
+----------------------filter((date_dim.d_date >= 1999-02-01)(date_dim.d_date <= days_add(cast('1999-2-01' as DATEV2), INTERVAL 60 DAY)))
 ------------------------PhysicalOlapScan[date_dim]
 --------------------PhysicalDistribute
 ----------------------hashJoin[RIGHT_SEMI_JOIN](ws1.ws_order_number = web_returns.wr_order_number)

@@ -26,19 +26,17 @@ namespace doris::pipeline {
 OPERATOR_CODE_GENERATOR(SortSourceOperator, SourceOperator)
 
 SortLocalState::SortLocalState(RuntimeState* state, OperatorXBase* parent)
-        : PipelineXLocalState(state, parent), _get_next_timer(nullptr) {}
+        : PipelineXLocalState<SortDependency>(state, parent), _get_next_timer(nullptr) {}
 
 Status SortLocalState::init(RuntimeState* state, LocalStateInfo& info) {
-    RETURN_IF_ERROR(PipelineXLocalState::init(state, info));
-    _dependency = (SortDependency*)info.dependency;
-    _shared_state = (SortSharedState*)_dependency->shared_state();
+    RETURN_IF_ERROR(PipelineXLocalState<SortDependency>::init(state, info));
     _get_next_timer = ADD_TIMER(profile(), "GetResultTime");
     return Status::OK();
 }
 
 SortSourceOperatorX::SortSourceOperatorX(ObjectPool* pool, const TPlanNode& tnode,
-                                         const DescriptorTbl& descs, std::string op_name)
-        : OperatorXBase(pool, tnode, descs, op_name) {}
+                                         const DescriptorTbl& descs)
+        : OperatorX<SortLocalState>(pool, tnode, descs) {}
 
 Status SortSourceOperatorX::get_block(RuntimeState* state, vectorized::Block* block,
                                       SourceState& source_state) {
@@ -61,16 +59,12 @@ bool SortSourceOperatorX::can_read(RuntimeState* state) {
     return local_state._dependency->done();
 }
 
-Status SortSourceOperatorX::setup_local_state(RuntimeState* state, LocalStateInfo& info) {
-    auto local_state = SortLocalState::create_shared(state, this);
-    state->emplace_local_state(id(), local_state);
-    return local_state->init(state, info);
-}
-
-Status SortSourceOperatorX::close(doris::RuntimeState* state) {
-    auto& local_state = state->get_local_state(id())->cast<SortLocalState>();
-    local_state._shared_state->sorter = nullptr;
-    return Status::OK();
+Status SortLocalState::close(RuntimeState* state) {
+    if (_closed) {
+        return Status::OK();
+    }
+    _shared_state->sorter = nullptr;
+    return PipelineXLocalState<SortDependency>::close(state);
 }
 
 } // namespace doris::pipeline

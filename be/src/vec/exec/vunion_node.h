@@ -91,6 +91,9 @@ private:
     /// to -1 if no child needs to be closed.
     int _to_close_child_idx;
 
+    std::mutex _resource_lock;
+    bool _resource_allocated {false};
+
     // Time spent to evaluates exprs and materializes the results
     RuntimeProfile::Counter* _materialize_exprs_evaluate_timer = nullptr;
     /// GetNext() for the passthrough case. We pass 'block' directly into the GetNext()

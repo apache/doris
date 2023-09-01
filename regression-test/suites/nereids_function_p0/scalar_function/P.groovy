@@ -27,6 +27,7 @@ suite("nereids_scalar_fn_P") {
 	sql "select parse_url(kvchrs1, 'HOST', 'PROTOCOL') from fn_test_not_nullable order by kvchrs1, kvchrs1, kvchrs1"
 	sql "select parse_url(kstr, 'HOST', 'PROTOCOL') from fn_test order by kstr, kstr, kstr"
 	sql "select parse_url(kstr, 'HOST', 'PROTOCOL') from fn_test_not_nullable order by kstr, kstr, kstr"
+	qt_sql_pwd """select password("123")"""
 	qt_sql_pmod_BigInt_BigInt "select pmod(kbint, kbint) from fn_test order by kbint, kbint"
 	qt_sql_pmod_BigInt_BigInt_notnull "select pmod(kbint, kbint) from fn_test_not_nullable order by kbint, kbint"
 	qt_sql_pmod_Double_Double "select pmod(kdbl, kdbl) from fn_test order by kdbl, kdbl"

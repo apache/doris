@@ -24,6 +24,7 @@
 #include "common/status.h"
 #include "exchange_sink_buffer.h"
 #include "operator.h"
+#include "pipeline/pipeline_x/operator.h"
 #include "vec/sink/vdata_stream_sender.h"
 
 namespace doris {
@@ -32,27 +33,22 @@ class RuntimeState;
 class TDataSink;
 
 namespace pipeline {
-class PipelineFragmentContext;
-class PipelineXFragmentContext;
 
 class ExchangeSinkOperatorBuilder final
         : public DataSinkOperatorBuilder<vectorized::VDataStreamSender> {
 public:
-    ExchangeSinkOperatorBuilder(int32_t id, DataSink* sink, PipelineFragmentContext* context,
-                                int mult_cast_id = -1);
+    ExchangeSinkOperatorBuilder(int32_t id, DataSink* sink, int mult_cast_id = -1);
 
     OperatorPtr build_operator() override;
 
 private:
-    PipelineFragmentContext* _context;
     int _mult_cast_id = -1;
 };
 
 // Now local exchange is not supported since VDataStreamRecvr is considered as a pipeline broker.
 class ExchangeSinkOperator final : public DataSinkOperator<ExchangeSinkOperatorBuilder> {
 public:
-    ExchangeSinkOperator(OperatorBuilderBase* operator_builder, DataSink* sink,
-                         PipelineFragmentContext* context, int mult_cast_id);
+    ExchangeSinkOperator(OperatorBuilderBase* operator_builder, DataSink* sink, int mult_cast_id);
     Status init(const TDataSink& tsink) override;
 
     Status prepare(RuntimeState* state) override;
@@ -67,21 +63,21 @@ private:
     std::unique_ptr<ExchangeSinkBuffer<vectorized::VDataStreamSender>> _sink_buffer;
     int _dest_node_id = -1;
     RuntimeState* _state = nullptr;
-    PipelineFragmentContext* _context;
     int _mult_cast_id = -1;
 };
 
-class ExchangeSinkLocalState : public PipelineXSinkLocalState {
+class ExchangeSinkLocalState : public PipelineXSinkLocalState<> {
     ENABLE_FACTORY_CREATOR(ExchangeSinkLocalState);
 
 public:
-    ExchangeSinkLocalState(DataSinkOperatorX* parent, RuntimeState* state)
-            : PipelineXSinkLocalState(parent, state),
+    ExchangeSinkLocalState(DataSinkOperatorXBase* parent, RuntimeState* state)
+            : PipelineXSinkLocalState<>(parent, state),
               current_channel_idx(0),
               only_local_exchange(false),
               _serializer(this) {}
 
     Status init(RuntimeState* state, LocalSinkStateInfo& info) override;
+    Status close(RuntimeState* state) override;
 
     Status serialize_block(vectorized::Block* src, PBlock* dest, int num_receivers = 1);
     void register_channels(pipeline::ExchangeSinkBuffer<ExchangeSinkLocalState>* buffer);
@@ -153,27 +149,23 @@ private:
     vectorized::BlockSerializer<ExchangeSinkLocalState> _serializer;
 };
 
-class ExchangeSinkOperatorX final : public DataSinkOperatorX {
+class ExchangeSinkOperatorX final : public DataSinkOperatorX<ExchangeSinkLocalState> {
 public:
     ExchangeSinkOperatorX(RuntimeState* state, ObjectPool* pool, const RowDescriptor& row_desc,
                           const TDataStreamSink& sink,
                           const std::vector<TPlanFragmentDestination>& destinations,
-                          bool send_query_statistics_with_every_batch,
-                          PipelineXFragmentContext* context);
+                          bool send_query_statistics_with_every_batch);
     ExchangeSinkOperatorX(ObjectPool* pool, const RowDescriptor& row_desc, PlanNodeId dest_node_id,
                           const std::vector<TPlanFragmentDestination>& destinations,
-                          bool send_query_statistics_with_every_batch,
-                          PipelineXFragmentContext* context);
+                          bool send_query_statistics_with_every_batch);
     ExchangeSinkOperatorX(ObjectPool* pool, const RowDescriptor& row_desc,
-                          bool send_query_statistics_with_every_batch,
-                          PipelineXFragmentContext* context);
+                          bool send_query_statistics_with_every_batch);
     Status init(const TDataSink& tsink) override;
 
     RuntimeState* state() { return _state; }
 
     Status prepare(RuntimeState* state) override;
     Status open(RuntimeState* state) override;
-    Status setup_local_state(RuntimeState* state, LocalSinkStateInfo& info) override;
 
     Status sink(RuntimeState* state, vectorized::Block* in_block,
                 SourceState source_state) override;
@@ -181,7 +173,6 @@ public:
     Status serialize_block(ExchangeSinkLocalState& stete, vectorized::Block* src, PBlock* dest,
                            int num_receivers = 1);
 
-    Status close(RuntimeState* state) override;
     Status try_close(RuntimeState* state) override;
     bool can_write(RuntimeState* state) override;
     bool is_pending_finish(RuntimeState* state) const override;
@@ -205,7 +196,6 @@ private:
                             const uint64_t* channel_ids, int rows, vectorized::Block* block,
                             bool eos);
     RuntimeState* _state = nullptr;
-    PipelineXFragmentContext* _context;
 
     ObjectPool* _pool;
     const RowDescriptor& _row_desc;

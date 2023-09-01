@@ -32,6 +32,7 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.View;
+import org.apache.doris.catalog.external.ExternalTable;
 import org.apache.doris.catalog.external.HMSExternalTable;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
@@ -285,9 +286,7 @@ public class AnalysisManager extends Daemon implements Writable {
                 // columnNames null means to add all visitable columns.
                 // Will get all the visible columns in analyzeTblStmt.check()
                 AnalyzeTblStmt analyzeTblStmt = new AnalyzeTblStmt(analyzeProperties, tableName,
-                        table.getBaseSchema().stream().filter(c -> !StatisticsUtil.isUnsupportedType(c.getType())).map(
-                                Column::getName).collect(
-                                Collectors.toList()), db.getId(), table);
+                        null, db.getId(), table);
                 try {
                     analyzeTblStmt.check();
                 } catch (AnalysisException analysisException) {
@@ -334,11 +333,10 @@ public class AnalysisManager extends Daemon implements Writable {
 
         boolean isSync = stmt.isSync();
         Map<Long, BaseAnalysisTask> analysisTaskInfos = new HashMap<>();
+        createTaskForEachColumns(jobInfo, analysisTaskInfos, isSync);
         if (stmt.isAllColumns()
                 && StatisticsUtil.isExternalTable(jobInfo.catalogName, jobInfo.dbName, jobInfo.tblName)) {
-            createTaskForExternalTable(jobInfo, analysisTaskInfos, isSync);
-        } else {
-            createTaskForEachColumns(jobInfo, analysisTaskInfos, isSync);
+            createTableLevelTaskForExternalTable(jobInfo, analysisTaskInfos, isSync);
         }
         if (isSync) {
             syncExecute(analysisTaskInfos.values());
@@ -349,7 +347,9 @@ public class AnalysisManager extends Daemon implements Writable {
         analysisJobIdToTaskMap.put(jobInfo.jobId, analysisTaskInfos);
         // TODO: maybe we should update table stats only when all task succeeded.
         updateTableStats(jobInfo);
-        analysisTaskInfos.values().forEach(taskExecutor::submitTask);
+        if (!jobInfo.scheduleType.equals(ScheduleType.PERIOD)) {
+            analysisTaskInfos.values().forEach(taskExecutor::submitTask);
+        }
         return jobInfo;
     }
 
@@ -466,7 +466,7 @@ public class AnalysisManager extends Daemon implements Writable {
 
     @VisibleForTesting
     public AnalysisInfo buildAnalysisJobInfo(AnalyzeTblStmt stmt) throws DdlException {
-        AnalysisInfoBuilder info = new AnalysisInfoBuilder();
+        AnalysisInfoBuilder infoBuilder = new AnalysisInfoBuilder();
         long jobId = Env.getCurrentEnv().getNextId();
         String catalogName = stmt.getCatalogName();
         String db = stmt.getDBName();
@@ -486,49 +486,49 @@ public class AnalysisManager extends Daemon implements Writable {
         ScheduleType scheduleType = stmt.getScheduleType();
         CronExpression cronExpression = stmt.getCron();
 
-        info.setJobId(jobId);
-        info.setCatalogName(catalogName);
-        info.setDbName(db);
-        info.setTblName(tblName);
+        infoBuilder.setJobId(jobId);
+        infoBuilder.setCatalogName(catalogName);
+        infoBuilder.setDbName(db);
+        infoBuilder.setTblName(tblName);
         StringJoiner stringJoiner = new StringJoiner(",", "[", "]");
         for (String colName : columnNames) {
             stringJoiner.add(colName);
         }
-        info.setColName(stringJoiner.toString());
-        info.setPartitionNames(partitionNames);
-        info.setPartitionOnly(partitionOnly);
-        info.setSamplingPartition(isSamplingPartition);
-        info.setJobType(JobType.MANUAL);
-        info.setState(AnalysisState.PENDING);
-        info.setLastExecTimeInMs(System.currentTimeMillis());
-        info.setAnalysisType(analysisType);
-        info.setAnalysisMode(analysisMode);
-        info.setAnalysisMethod(analysisMethod);
-        info.setScheduleType(scheduleType);
-        info.setLastExecTimeInMs(0);
-        info.setCronExpression(cronExpression);
+        infoBuilder.setColName(stringJoiner.toString());
+        infoBuilder.setPartitionNames(partitionNames);
+        infoBuilder.setPartitionOnly(partitionOnly);
+        infoBuilder.setSamplingPartition(isSamplingPartition);
+        infoBuilder.setJobType(JobType.MANUAL);
+        infoBuilder.setState(AnalysisState.PENDING);
+        infoBuilder.setLastExecTimeInMs(System.currentTimeMillis());
+        infoBuilder.setAnalysisType(analysisType);
+        infoBuilder.setAnalysisMode(analysisMode);
+        infoBuilder.setAnalysisMethod(analysisMethod);
+        infoBuilder.setScheduleType(scheduleType);
+        infoBuilder.setLastExecTimeInMs(0);
+        infoBuilder.setCronExpression(cronExpression);
 
         if (analysisMethod == AnalysisMethod.SAMPLE) {
-            info.setSamplePercent(samplePercent);
-            info.setSampleRows(sampleRows);
+            infoBuilder.setSamplePercent(samplePercent);
+            infoBuilder.setSampleRows(sampleRows);
         }
 
         if (analysisType == AnalysisType.HISTOGRAM) {
             int numBuckets = stmt.getNumBuckets();
             int maxBucketNum = numBuckets > 0 ? numBuckets
                     : StatisticConstants.HISTOGRAM_MAX_BUCKET_NUM;
-            info.setMaxBucketNum(maxBucketNum);
+            infoBuilder.setMaxBucketNum(maxBucketNum);
         }
 
         long periodTimeInMs = stmt.getPeriodTimeInMs();
-        info.setPeriodTimeInMs(periodTimeInMs);
+        infoBuilder.setPeriodTimeInMs(periodTimeInMs);
 
         Map<String, Set<String>> colToPartitions = validateAndGetPartitions(table, columnNames,
                 partitionNames, analysisType, analysisMode);
-        info.setColToPartitions(colToPartitions);
-        info.setTaskIds(Lists.newArrayList());
+        infoBuilder.setColToPartitions(colToPartitions);
+        infoBuilder.setTaskIds(Lists.newArrayList());
 
-        return info.build();
+        return infoBuilder.build();
     }
 
     @VisibleForTesting
@@ -583,7 +583,7 @@ public class AnalysisManager extends Daemon implements Writable {
     }
 
     @VisibleForTesting
-    public void createTaskForExternalTable(AnalysisInfo jobInfo,
+    public void createTableLevelTaskForExternalTable(AnalysisInfo jobInfo,
             Map<Long, BaseAnalysisTask> analysisTasks,
             boolean isSync) throws DdlException {
 
@@ -616,6 +616,10 @@ public class AnalysisManager extends Daemon implements Writable {
     public void updateTableStats(AnalysisInfo jobInfo) {
         TableIf tbl = StatisticsUtil.findTable(jobInfo.catalogName,
                 jobInfo.dbName, jobInfo.tblName);
+        // External Table update table stats after table level task finished.
+        if (tbl instanceof ExternalTable) {
+            return;
+        }
         // TODO: set updatedRows to 0, when loadedRows of transaction info is ready.
         updateTableStatsStatus(new TableStats(tbl.getId(), tbl.estimatedRowCount(), jobInfo));
     }
@@ -818,7 +822,7 @@ public class AnalysisManager extends Daemon implements Writable {
     public List<AnalysisInfo> findPeriodicJobs() {
         synchronized (analysisJobInfoMap) {
             Predicate<AnalysisInfo> p = a -> {
-                if (a.state.equals(AnalysisState.RUNNING) || a.state.equals(AnalysisState.PENDING)) {
+                if (a.state.equals(AnalysisState.RUNNING)) {
                     return false;
                 }
                 if (a.cronExpression == null) {
@@ -842,7 +846,8 @@ public class AnalysisManager extends Daemon implements Writable {
     public List<AnalysisInfo> findTasksByTaskIds(long jobId) {
         AnalysisInfo jobInfo = analysisJobInfoMap.get(jobId);
         if (jobInfo != null && jobInfo.taskIds != null) {
-            return jobInfo.taskIds.stream().map(id -> analysisTaskInfoMap.get(id)).collect(Collectors.toList());
+            return jobInfo.taskIds.stream().map(analysisTaskInfoMap::get).filter(i -> i != null)
+                    .collect(Collectors.toList());
         }
         return null;
     }
@@ -942,6 +947,7 @@ public class AnalysisManager extends Daemon implements Writable {
     }
 
     public void registerSysJob(AnalysisInfo jobInfo, Map<Long, BaseAnalysisTask> taskInfos) {
+        jobInfo.state = AnalysisState.RUNNING;
         systemJobInfoMap.put(jobInfo.jobId, jobInfo);
         analysisJobIdToTaskMap.put(jobInfo.jobId, taskInfos);
     }

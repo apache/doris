@@ -81,7 +81,7 @@ public:
     StorageEngine(const EngineOptions& options);
     ~StorageEngine();
 
-    static Status open(const EngineOptions& options, StorageEngine** engine_ptr);
+    static Status open(const EngineOptions& options, std::unique_ptr<StorageEngine>* engine_ptr);
 
     static StorageEngine* instance() { return _s_instance; }
 
@@ -91,14 +91,14 @@ public:
     void clear_transaction_task(const TTransactionId transaction_id,
                                 const std::vector<TPartitionId>& partition_ids);
 
-    // Note: 这里只能reload原先已经存在的root path，即re-load启动时就登记的root path
-    // 是允许的，但re-load全新的path是不允许的，因为此处没有彻底更新ce调度器信息
-    void load_data_dirs(const std::vector<DataDir*>& stores);
+    // Note: Only the previously existing root path can be reloaded here, that is, the root path registered when re load starts is allowed,
+    // but the brand new path of re load is not allowed because the ce scheduler information has not been thoroughly updated here
+    Status load_data_dirs(const std::vector<DataDir*>& stores);
 
     template <bool include_unused = false>
     std::vector<DataDir*> get_stores();
 
-    // @brief 获取所有root_path信息
+    // get all info of root_path
     Status get_all_data_dir_info(std::vector<DataDirInfo>* data_dir_infos, bool need_update);
 
     int64_t get_file_or_directory_size(const std::string& file_path);
@@ -122,8 +122,8 @@ public:
     //
     // @param [out] shard_path choose an available root_path to clone new tablet
     // @return error code
-    Status obtain_shard_path(TStorageMedium::type storage_medium, std::string* shared_path,
-                             DataDir** store);
+    Status obtain_shard_path(TStorageMedium::type storage_medium, int64_t path_hash,
+                             std::string* shared_path, DataDir** store);
 
     // Load new tablet to make it effective.
     //
@@ -482,6 +482,8 @@ private:
     // aync publish for discontinuous versions of merge_on_write table
     scoped_refptr<Thread> _async_publish_thread;
     std::mutex _async_publish_mutex;
+
+    bool _clear_segment_cache = false;
 
     DISALLOW_COPY_AND_ASSIGN(StorageEngine);
 };

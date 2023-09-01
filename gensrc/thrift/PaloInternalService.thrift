@@ -233,6 +233,13 @@ struct TQueryOptions {
   78: optional bool enable_hash_join_early_start_probe = false
 
   79: optional bool enable_pipeline_x_engine = false;
+
+  80: optional bool enable_memtable_on_sink_node = false;
+
+  81: optional bool enable_delete_sub_predicate_v2 = false;
+
+  // A tag used to distinguish fe start epoch.
+  82: optional i64 fe_process_uuid = 0;
 }
 
 

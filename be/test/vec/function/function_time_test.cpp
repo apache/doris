@@ -539,22 +539,6 @@ TEST(VTimestampFunctionsTest, makedate_test) {
     check_function<DataTypeDate, true>(func_name, input_types, data_set);
 }
 
-TEST(VTimestampFunctionsTest, convert_tz_test) {
-    TimezoneUtils::load_timezone_names();
-    std::string func_name = "convert_tz";
-
-    InputTypeSet input_types = {TypeIndex::DateTime, TypeIndex::String, TypeIndex::String};
-
-    DataSet data_set = {
-            {{DATETIME("2019-08-01 13:21:03"), STRING("Asia/Shanghai"),
-              STRING("America/Los_Angeles")},
-             str_to_date_time("2019-07-31 22:21:03", true)},
-            {{DATETIME("2019-08-01 13:21:03"), STRING("+08:00"), STRING("America/Los_Angeles")},
-             str_to_date_time("2019-07-31 22:21:03", true)}};
-
-    check_function<DataTypeDateTime, true>(func_name, input_types, data_set);
-}
-
 TEST(VTimestampFunctionsTest, weekday_test) {
     std::string func_name = "weekday";
 
@@ -1678,22 +1662,6 @@ TEST(VTimestampFunctionsTest, seconds_sub_v2_test) {
 
         check_function<DataTypeDateTimeV2, true>(func_name, input_types, data_set);
     }
-}
-
-TEST(VTimestampFunctionsTest, convert_tz_v2_test) {
-    TimezoneUtils::load_timezone_names();
-    std::string func_name = "convert_tz";
-
-    InputTypeSet input_types = {TypeIndex::DateTimeV2, TypeIndex::String, TypeIndex::String};
-
-    DataSet data_set = {
-            {{DATETIME("2019-08-01 13:21:03"), STRING("Asia/Shanghai"),
-              STRING("America/Los_Angeles")},
-             str_to_datetime_v2("2019-07-31 22:21:03", "%Y-%m-%d %H:%i:%s.%f")},
-            {{DATETIME("2019-08-01 13:21:03"), STRING("+08:00"), STRING("America/Los_Angeles")},
-             str_to_datetime_v2("2019-07-31 22:21:03", "%Y-%m-%d %H:%i:%s.%f")}};
-
-    check_function<DataTypeDateTimeV2, true>(func_name, input_types, data_set);
 }
 
 } // namespace doris::vectorized

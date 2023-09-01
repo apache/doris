@@ -21,7 +21,6 @@ import org.apache.doris.analysis.TableName;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
-import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.View;
 import org.apache.doris.common.Config;
@@ -53,7 +52,7 @@ public class StatisticsAutoAnalyzer extends MasterDaemon {
 
     private static final Logger LOG = LogManager.getLogger(StatisticsAutoAnalyzer.class);
 
-    private AnalysisTaskExecutor analysisTaskExecutor;
+    private final AnalysisTaskExecutor analysisTaskExecutor;
 
     public StatisticsAutoAnalyzer() {
         super("Automatic Analyzer",
@@ -70,6 +69,7 @@ public class StatisticsAutoAnalyzer extends MasterDaemon {
         if (!StatisticsUtil.statsTblAvailable()) {
             return;
         }
+        analyzePeriodically();
         if (!checkAnalyzeTime(LocalTime.now(TimeUtils.getTimeZone().toZoneId()))) {
             return;
         }
@@ -78,7 +78,6 @@ public class StatisticsAutoAnalyzer extends MasterDaemon {
             return;
         }
 
-        analyzePeriodically();
         if (Config.enable_full_auto_analyze) {
             analyzeAll();
         }
@@ -88,7 +87,9 @@ public class StatisticsAutoAnalyzer extends MasterDaemon {
     private void analyzeAll() {
         Set<CatalogIf> catalogs = Env.getCurrentEnv().getCatalogMgr().getCopyOfCatalog();
         for (CatalogIf ctl : catalogs) {
-
+            if (!ctl.enableAutoAnalyze()) {
+                continue;
+            }
             Collection<DatabaseIf> dbs = ctl.getAllDbs();
             for (DatabaseIf<TableIf> databaseIf : dbs) {
                 if (StatisticConstants.STATISTICS_DB_BLACK_LIST.contains(databaseIf.getFullName())) {
@@ -134,7 +135,6 @@ public class StatisticsAutoAnalyzer extends MasterDaemon {
                     .setScheduleType(AnalysisInfo.ScheduleType.ONCE)
                     .setState(AnalysisState.PENDING)
                     .setTaskIds(new ArrayList<>())
-                    .setLastExecTimeInMs(System.currentTimeMillis())
                     .setJobType(JobType.SYSTEM).build();
             analysisInfos.add(jobInfo);
         }
@@ -146,53 +146,30 @@ public class StatisticsAutoAnalyzer extends MasterDaemon {
             AnalysisManager analysisManager = Env.getCurrentEnv().getAnalysisManager();
             List<AnalysisInfo> jobInfos = analysisManager.findPeriodicJobs();
             for (AnalysisInfo jobInfo : jobInfos) {
-                jobInfo = new AnalysisInfoBuilder(jobInfo).setJobType(JobType.SYSTEM).build();
                 createSystemAnalysisJob(jobInfo);
             }
-        } catch (DdlException e) {
+        } catch (Exception e) {
             LOG.warn("Failed to periodically analyze the statistics." + e);
         }
     }
 
     @VisibleForTesting
-    public AnalysisInfo getReAnalyzeRequiredPart(AnalysisInfo jobInfo) {
-        long lastExecTimeInMs = jobInfo.lastExecTimeInMs;
+    protected AnalysisInfo getReAnalyzeRequiredPart(AnalysisInfo jobInfo) {
         TableIf table = StatisticsUtil
                 .findTable(jobInfo.catalogName, jobInfo.dbName, jobInfo.tblName);
         TableStats tblStats = Env.getCurrentEnv().getAnalysisManager().findTableStatsStatus(table.getId());
 
-        if (!(tblStats == null || needReanalyzeTable(table, tblStats))) {
+        if (!(tblStats == null || table.needReAnalyzeTable(tblStats))) {
             return null;
         }
 
-        Set<String> needRunPartitions = findReAnalyzeNeededPartitions(table, lastExecTimeInMs);
+        Set<String> needRunPartitions = table.findReAnalyzeNeededPartitions(tblStats);
 
         if (needRunPartitions.isEmpty()) {
             return null;
         }
 
         return getAnalysisJobInfo(jobInfo, table, needRunPartitions);
-    }
-
-    @VisibleForTesting
-    public Set<String> findReAnalyzeNeededPartitions(TableIf table, long lastExecTimeInMs) {
-        return table.getPartitionNames().stream()
-                .map(table::getPartition)
-                .filter(Partition::hasData)
-                .filter(partition ->
-                        partition.getVisibleVersionTime() >= lastExecTimeInMs).map(Partition::getName)
-                .collect(Collectors.toSet());
-    }
-
-    private boolean needReanalyzeTable(TableIf table, TableStats tblStats) {
-        long rowCount = table.getRowCount();
-        // TODO: Do we need to analyze an empty table?
-        if (rowCount == 0) {
-            return false;
-        }
-        long updateRows = tblStats.updatedRows.get();
-        int tblHealth = StatisticsUtil.getTableHealth(rowCount, updateRows);
-        return tblHealth < Config.table_stats_health_threshold;
     }
 
     @VisibleForTesting
@@ -236,7 +213,7 @@ public class StatisticsAutoAnalyzer extends MasterDaemon {
 
     // Analysis job created by the system
     @VisibleForTesting
-    public void createSystemAnalysisJob(AnalysisInfo jobInfo)
+    protected void createSystemAnalysisJob(AnalysisInfo jobInfo)
             throws DdlException {
         if (jobInfo.colToPartitions.isEmpty()) {
             // No statistics need to be collected or updated
@@ -246,6 +223,9 @@ public class StatisticsAutoAnalyzer extends MasterDaemon {
         Map<Long, BaseAnalysisTask> analysisTaskInfos = new HashMap<>();
         AnalysisManager analysisManager = Env.getCurrentEnv().getAnalysisManager();
         analysisManager.createTaskForEachColumns(jobInfo, analysisTaskInfos, false);
+        if (StatisticsUtil.isExternalTable(jobInfo.catalogName, jobInfo.dbName, jobInfo.tblName)) {
+            analysisManager.createTableLevelTaskForExternalTable(jobInfo, analysisTaskInfos, false);
+        }
         Env.getCurrentEnv().getAnalysisManager().registerSysJob(jobInfo, analysisTaskInfos);
         analysisTaskInfos.values().forEach(analysisTaskExecutor::submitTask);
     }

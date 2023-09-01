@@ -103,11 +103,12 @@ private:
     Status _create_tree_helper(ObjectPool* pool, const std::vector<TPlanNode>& tnodes,
                                const doris::TPipelineFragmentParams& request,
                                const DescriptorTbl& descs, OperatorXPtr parent, int* node_idx,
-                               OperatorXPtr* root, PipelinePtr& cur_pipe);
+                               OperatorXPtr* root, PipelinePtr& cur_pipe, int child_idx);
 
     Status _create_operator(ObjectPool* pool, const TPlanNode& tnode,
                             const doris::TPipelineFragmentParams& request,
-                            const DescriptorTbl& descs, OperatorXPtr& node, PipelinePtr& cur_pipe);
+                            const DescriptorTbl& descs, OperatorXPtr& node, PipelinePtr& cur_pipe,
+                            int parent_idx, int child_idx);
 
     Status _create_data_sink(ObjectPool* pool, const TDataSink& thrift_sink,
                              const std::vector<TExpr>& output_exprs,
@@ -128,6 +129,12 @@ private:
 
     // `_dag` manage dependencies between pipelines by pipeline ID
     std::map<PipelineId, std::vector<PipelineId>> _dag;
+
+    // We use preorder traversal to create an operator tree. When we meet a join node, we should
+    // build probe operator and build operator in separate pipelines. To do this, we should build
+    // ProbeSide first, and use `_pipelines_to_build` to store which pipeline the build operator
+    // is in, so we can build BuildSide once we complete probe side.
+    std::map<int, PipelinePtr> _build_side_pipelines;
 };
 } // namespace pipeline
 } // namespace doris

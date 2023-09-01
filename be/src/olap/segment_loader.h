@@ -73,7 +73,7 @@ public:
     };
 
     SegmentCache(size_t capacity)
-            : LRUCachePolicy("SegmentCache", capacity, LRUCacheType::NUMBER,
+            : LRUCachePolicy(CachePolicy::CacheType::SEGMENT_CACHE, capacity, LRUCacheType::NUMBER,
                              config::tablet_rowset_stale_sweep_time_sec) {}
 
     // Lookup the given rowset in the cache.
