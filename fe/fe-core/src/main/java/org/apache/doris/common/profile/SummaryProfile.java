@@ -50,6 +50,7 @@ public class SummaryProfile {
     public static final String INSTANCES_NUM_PER_BE = "Instances Num Per BE";
     public static final String PARALLEL_FRAGMENT_EXEC_INSTANCE = "Parallel Fragment Exec Instance Num";
     public static final String TRACE_ID = "Trace ID";
+    public static final String WORKLOAD_GROUP = "Workload Group";
 
     // Execution Summary
     public static final String ANALYSIS_TIME = "Analysis Time";
@@ -72,7 +73,7 @@ public class SummaryProfile {
     // a column, so that should not
     // add many columns here. Add to ExcecutionSummary list.
     public static final ImmutableList<String> SUMMARY_KEYS = ImmutableList.of(PROFILE_ID, TASK_TYPE,
-            START_TIME, END_TIME, TOTAL_TIME, TASK_STATE, USER, DEFAULT_DB, SQL_STATEMENT);
+            START_TIME, END_TIME, TOTAL_TIME, TASK_STATE, USER, DEFAULT_DB, WORKLOAD_GROUP, SQL_STATEMENT);
 
     public static final ImmutableList<String> EXECUTION_SUMMARY_KEYS = ImmutableList.of(ANALYSIS_TIME, PLAN_TIME,
             JOIN_REORDER_TIME, CREATE_SINGLE_NODE_TIME, QUERY_DISTRIBUTED_TIME,
@@ -314,6 +315,11 @@ public class SummaryProfile {
 
         public SummaryBuilder defaultDb(String val) {
             map.put(DEFAULT_DB, val);
+            return this;
+        }
+
+        public SummaryBuilder workloadGroup(String workloadGroup) {
+            map.put(WORKLOAD_GROUP, workloadGroup);
             return this;
         }
 

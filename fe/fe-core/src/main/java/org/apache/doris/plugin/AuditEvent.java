@@ -96,6 +96,8 @@ public class AuditEvent {
     public String traceId = "";
     @AuditField(value = "FuzzyVariables")
     public String fuzzyVariables = "";
+    @AuditField(value = "WorkloadGroup")
+    public String workloadGroup = "";
 
     public static class AuditEventBuilder {
 
@@ -225,6 +227,11 @@ public class AuditEvent {
 
         public AuditEventBuilder setFuzzyVariables(String variables) {
             auditEvent.fuzzyVariables = variables;
+            return this;
+        }
+
+        public AuditEventBuilder setWorkloadGroup(String workloadGroup) {
+            auditEvent.workloadGroup = workloadGroup;
             return this;
         }
 
