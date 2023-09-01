@@ -33,6 +33,7 @@ void DataTypeMapSerDe::serialize_column_to_json(const IColumn& column, int start
                                                 BufferWritable& bw, FormatOptions& options) const {
     SERIALIZE_COLUMN_TO_JSON()
 }
+
 void DataTypeMapSerDe::serialize_one_cell_to_json(const IColumn& column, int row_num,
                                                   BufferWritable& bw,
                                                   FormatOptions& options) const {
@@ -60,6 +61,7 @@ void DataTypeMapSerDe::serialize_one_cell_to_json(const IColumn& column, int row
     }
     bw.write("}", 1);
 }
+
 Status DataTypeMapSerDe::deserialize_one_cell_from_hive_text(IColumn& column, Slice& slice,
                                                              const FormatOptions& options,
                                                              int nesting_level) const {
@@ -125,6 +127,7 @@ Status DataTypeMapSerDe::deserialize_column_from_hive_text_vector(IColumn& colum
     DESERIALIZE_COLUMN_FROM_HIVE_TEXT_VECTOR();
     return Status::OK();
 }
+
 void DataTypeMapSerDe::serialize_one_cell_to_hive_text(const IColumn& column, int row_num,
                                                        BufferWritable& bw, FormatOptions& options,
                                                        int nesting_level) const {
@@ -163,6 +166,7 @@ Status DataTypeMapSerDe::deserialize_column_from_json_vector(IColumn& column,
     DESERIALIZE_COLUMN_FROM_JSON_VECTOR()
     return Status::OK();
 }
+
 Status DataTypeMapSerDe::deserialize_one_cell_from_json(IColumn& column, Slice& slice,
                                                         const FormatOptions& options) const {
     DCHECK(!slice.empty());

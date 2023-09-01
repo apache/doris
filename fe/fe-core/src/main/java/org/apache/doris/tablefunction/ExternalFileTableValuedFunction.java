@@ -62,6 +62,7 @@ import org.apache.doris.thrift.THdfsParams;
 import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TPrimitiveType;
 import org.apache.doris.thrift.TStatusCode;
+import org.apache.doris.thrift.TTextSerdeType;
 
 import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableSet;
@@ -139,7 +140,7 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
     private TFileCompressType compressionType;
     private String headerType = "";
 
-    private boolean useHiveTextSerde = false;
+    private TTextSerdeType textSerdeType = TTextSerdeType.JSON_TEXT_SERDE;
     private String columnSeparator = DEFAULT_COLUMN_SEPARATOR;
     private String lineDelimiter = DEFAULT_LINE_DELIMITER;
     private String jsonRoot = "";
@@ -205,7 +206,7 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
                 break;
             case "hive_text":
                 this.fileFormatType = TFileFormatType.FORMAT_CSV_PLAIN;
-                this.useHiveTextSerde = true;
+                this.textSerdeType = TTextSerdeType.HIVE_TEXT_SERDE;
                 break;
             case "csv_with_names":
                 this.headerType = FeConstants.csv_with_names;
@@ -494,7 +495,7 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
         TFileScanRangeParams fileScanRangeParams = new TFileScanRangeParams();
         fileScanRangeParams.setFormatType(fileFormatType);
         fileScanRangeParams.setProperties(locationProperties);
-        fileScanRangeParams.setUseHiveTextSerde(useHiveTextSerde);
+        fileScanRangeParams.setTextSerdeType(textSerdeType);
         fileScanRangeParams.setFileAttributes(getFileAttributes());
         ConnectContext ctx = ConnectContext.get();
         fileScanRangeParams.setLoadId(ctx.queryId());

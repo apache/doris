@@ -49,6 +49,7 @@ public:
     Status deserialize_one_cell_from_hive_text(IColumn& column, Slice& slice,
                                                const FormatOptions& options,
                                                int nesting_level = 1) const override;
+
     Status deserialize_column_from_hive_text_vector(IColumn& column, std::vector<Slice>& slices,
                                                     int* num_deserialized,
                                                     const FormatOptions& options,
@@ -66,6 +67,7 @@ public:
                                  int32_t col_id, int row_num) const override;
 
     void read_one_cell_from_jsonb(IColumn& column, const JsonbValue* arg) const override;
+
     void write_column_to_arrow(const IColumn& column, const NullMap* null_map,
                                arrow::ArrayBuilder* array_builder, int start,
                                int end) const override;

@@ -45,6 +45,7 @@ import org.apache.doris.thrift.TFileTextScanRangeParams;
 import org.apache.doris.thrift.TFileType;
 import org.apache.doris.thrift.THdfsParams;
 import org.apache.doris.thrift.TScanRangeLocations;
+import org.apache.doris.thrift.TTextSerdeType;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
@@ -90,7 +91,9 @@ public class LoadScanProvider {
         params.setFormatType(formatType(fileGroupInfo.getFileGroup().getFileFormat(), ""));
         params.setCompressType(fileGroupInfo.getFileGroup().getCompressType());
         params.setStrictMode(fileGroupInfo.isStrictMode());
-        params.setUseHiveTextSerde(fileGroupInfo.getFileGroup().getFileFormat().equals("hive_text"));
+        if (fileGroupInfo.getFileGroup().getFileFormat().equals("hive_text")) {
+            params.setTextSerdeType(TTextSerdeType.HIVE_TEXT_SERDE);
+        }
         params.setProperties(fileGroupInfo.getBrokerDesc().getProperties());
         if (fileGroupInfo.getBrokerDesc().getFileType() == TFileType.FILE_HDFS) {
             THdfsParams tHdfsParams = HdfsResource.generateHdfsParam(fileGroupInfo.getBrokerDesc().getProperties());

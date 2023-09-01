@@ -66,6 +66,7 @@ public:
                               int end) const override {
         return Status::NotSupported("write_column_to_pb with type " + column.get_name());
     }
+
     Status read_column_from_pb(IColumn& column, const PValues& arg) const override {
         return Status::NotSupported("read_column_from_pb with type " + column.get_name());
     }

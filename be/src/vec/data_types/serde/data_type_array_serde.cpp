@@ -131,6 +131,7 @@ Status DataTypeArraySerDe::deserialize_one_cell_from_json(IColumn& column, Slice
     offsets.emplace_back(offsets.back() + elem_deserialized);
     return st;
 }
+
 Status DataTypeArraySerDe::deserialize_one_cell_from_hive_text(IColumn& column, Slice& slice,
                                                                const FormatOptions& options,
                                                                int nesting_level) const {
@@ -156,6 +157,7 @@ Status DataTypeArraySerDe::deserialize_one_cell_from_hive_text(IColumn& column, 
     offsets.emplace_back(offsets.back() + elem_deserialized);
     return status;
 }
+
 Status DataTypeArraySerDe::deserialize_column_from_hive_text_vector(IColumn& column,
                                                                     std::vector<Slice>& slices,
                                                                     int* num_deserialized,
@@ -164,6 +166,7 @@ Status DataTypeArraySerDe::deserialize_column_from_hive_text_vector(IColumn& col
     DESERIALIZE_COLUMN_FROM_HIVE_TEXT_VECTOR();
     return Status::OK();
 }
+
 void DataTypeArraySerDe::serialize_one_cell_to_hive_text(const IColumn& column, int row_num,
                                                          BufferWritable& bw, FormatOptions& options,
                                                          int nesting_level) const {

@@ -106,6 +106,7 @@ Status DataTypeNullableSerDe::deserialize_one_cell_from_hive_text(IColumn& colum
     null_column.get_null_map_data().push_back(0);
     return Status::OK();
 }
+
 Status DataTypeNullableSerDe::deserialize_column_from_hive_text_vector(IColumn& column,
                                                                        std::vector<Slice>& slices,
                                                                        int* num_deserialized,
@@ -172,6 +173,7 @@ Status DataTypeNullableSerDe::read_column_from_pb(IColumn& column, const PValues
     }
     return Status::OK();
 }
+
 void DataTypeNullableSerDe::write_one_cell_to_jsonb(const IColumn& column, JsonbWriter& result,
                                                     Arena* mem_pool, int32_t col_id,
                                                     int row_num) const {
@@ -184,6 +186,7 @@ void DataTypeNullableSerDe::write_one_cell_to_jsonb(const IColumn& column, Jsonb
     nested_serde->write_one_cell_to_jsonb(nullable_col.get_nested_column(), result, mem_pool,
                                           col_id, row_num);
 }
+
 void DataTypeNullableSerDe::read_one_cell_from_jsonb(IColumn& column, const JsonbValue* arg) const {
     auto& col = reinterpret_cast<ColumnNullable&>(column);
     if (!arg || arg->isNull()) {

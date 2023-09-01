@@ -171,7 +171,8 @@ CsvReader::CsvReader(RuntimeState* state, RuntimeProfile* profile, ScannerCounte
           _line_reader_eof(false),
           _decompressor(nullptr),
           _skip_lines(0),
-          _io_ctx(io_ctx) {
+          _io_ctx(io_ctx),
+          _text_serde_type(TTextSerdeType::JSON_TEXT_SERDE) {
     _file_format_type = _params.format_type;
     _is_proto_format = _file_format_type == TFileFormatType::FORMAT_PROTO;
     if (_range.__isset.compress_type) {
@@ -186,7 +187,10 @@ CsvReader::CsvReader(RuntimeState* state, RuntimeProfile* profile, ScannerCounte
     _init_system_properties();
     _init_file_description();
     _serdes = vectorized::create_data_type_serdes(_file_slot_descs);
-    _use_hive_text_serde = this->_params.use_hive_text_serde;
+
+    if (this->_params.__isset.text_serde_type) {
+        _text_serde_type = this->_params.text_serde_type;
+    }
 }
 //
 CsvReader::CsvReader(RuntimeProfile* profile, const TFileScanRangeParams& params,
@@ -200,7 +204,8 @@ CsvReader::CsvReader(RuntimeProfile* profile, const TFileScanRangeParams& params
           _line_reader(nullptr),
           _line_reader_eof(false),
           _decompressor(nullptr),
-          _io_ctx(io_ctx) {
+          _io_ctx(io_ctx),
+          _text_serde_type(TTextSerdeType::JSON_TEXT_SERDE) {
     _file_format_type = _params.format_type;
     if (_range.__isset.compress_type) {
         // for compatibility
@@ -212,7 +217,9 @@ CsvReader::CsvReader(RuntimeProfile* profile, const TFileScanRangeParams& params
     _init_system_properties();
     _init_file_description();
     _serdes = vectorized::create_data_type_serdes(_file_slot_descs);
-    _use_hive_text_serde = this->_params.use_hive_text_serde;
+    if (this->_params.__isset.text_serde_type) {
+        _text_serde_type = this->_params.text_serde_type;
+    }
 }
 
 CsvReader::~CsvReader() = default;
@@ -303,19 +310,29 @@ Status CsvReader::init_reader(bool is_load) {
 
     _options.escape_char = _escape;
     if (_params.file_attributes.text_params.collection_delimiter.size() == 0) {
-        if (_use_hive_text_serde) {
-            _options.collection_delim = '\002';
-        } else {
+        switch (_text_serde_type) {
+        case TTextSerdeType::JSON_TEXT_SERDE:
             _options.collection_delim = ',';
+            break;
+        case TTextSerdeType::HIVE_TEXT_SERDE:
+            _options.collection_delim = '\002';
+            break;
+        default:
+            break;
         }
     } else {
         _options.collection_delim = _params.file_attributes.text_params.collection_delimiter[0];
     }
     if (_params.file_attributes.text_params.mapkv_delimiter.size() == 0) {
-        if (_use_hive_text_serde) {
-            _options.map_key_delim = '\003';
-        } else {
-            _options.map_key_delim = ':';
+        switch (_text_serde_type) {
+        case TTextSerdeType::JSON_TEXT_SERDE:
+            _options.collection_delim = ':';
+            break;
+        case TTextSerdeType::HIVE_TEXT_SERDE:
+            _options.collection_delim = '\003';
+            break;
+        default:
+            break;
         }
     } else {
         _options.map_key_delim = _params.file_attributes.text_params.mapkv_delimiter[0];
@@ -588,12 +605,11 @@ Status CsvReader::_fill_dest_columns(const Slice& line, Block* block,
     }
 
     for (int i = 0; i < _file_slot_descs.size(); ++i) {
-        //            auto src_slot_desc = _file_slot_descs[i];
         int col_idx = _col_idxs[i];
         // col idx is out of range, fill with null.
         const Slice& value =
                 col_idx < _split_values.size() ? _split_values[col_idx] : _s_null_slice;
-        // For load task, we always read "string" from file, so use "write_string_column"
+        // For load task, we always read "string" from file.
         Slice slice {value.data, value.size};
         if (_use_hive_text_serde) {
             _serdes[i]->deserialize_one_cell_from_hive_text(*columns[i], slice, _options);
@@ -760,19 +776,29 @@ Status CsvReader::_prepare_parse(size_t* read_line, bool* is_parse_name) {
 
     _options.escape_char = _escape;
     if (_params.file_attributes.text_params.collection_delimiter.size() == 0) {
-        if (_use_hive_text_serde) {
-            _options.collection_delim = '\002';
-        } else {
+        switch (_text_serde_type) {
+        case TTextSerdeType::JSON_TEXT_SERDE:
             _options.collection_delim = ',';
+            break;
+        case TTextSerdeType::HIVE_TEXT_SERDE:
+            _options.collection_delim = '\002';
+            break;
+        default:
+            break;
         }
     } else {
         _options.collection_delim = _params.file_attributes.text_params.collection_delimiter[0];
     }
     if (_params.file_attributes.text_params.mapkv_delimiter.size() == 0) {
-        if (_use_hive_text_serde) {
-            _options.map_key_delim = '\003';
-        } else {
-            _options.map_key_delim = ':';
+        switch (_text_serde_type) {
+        case TTextSerdeType::JSON_TEXT_SERDE:
+            _options.collection_delim = ':';
+            break;
+        case TTextSerdeType::HIVE_TEXT_SERDE:
+            _options.collection_delim = '\003';
+            break;
+        default:
+            break;
         }
     } else {
         _options.map_key_delim = _params.file_attributes.text_params.mapkv_delimiter[0];

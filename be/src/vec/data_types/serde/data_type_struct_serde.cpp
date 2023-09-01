@@ -40,6 +40,7 @@ void DataTypeStructSerDe::write_one_cell_to_jsonb(const IColumn& column, JsonbWr
     result.writeBinary(value.data, value.size);
     result.writeEndBinary();
 }
+
 Status DataTypeStructSerDe::deserialize_one_cell_from_hive_text(IColumn& column, Slice& slice,
                                                                 const FormatOptions& options,
                                                                 int nesting_level) const {
@@ -63,6 +64,7 @@ Status DataTypeStructSerDe::deserialize_one_cell_from_hive_text(IColumn& column,
     }
     return Status::OK();
 }
+
 Status DataTypeStructSerDe::deserialize_column_from_hive_text_vector(IColumn& column,
                                                                      std::vector<Slice>& slices,
                                                                      int* num_deserialized,
@@ -71,6 +73,7 @@ Status DataTypeStructSerDe::deserialize_column_from_hive_text_vector(IColumn& co
     DESERIALIZE_COLUMN_FROM_HIVE_TEXT_VECTOR();
     return Status::OK();
 }
+
 void DataTypeStructSerDe::serialize_one_cell_to_hive_text(const IColumn& column, int row_num,
                                                           BufferWritable& bw,
                                                           FormatOptions& options,
