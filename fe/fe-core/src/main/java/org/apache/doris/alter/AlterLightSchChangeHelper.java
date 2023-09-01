@@ -80,8 +80,7 @@ public class AlterLightSchChangeHelper {
      * 3. write edit log
      */
     public void enableLightSchemaChange() throws IllegalStateException {
-        final Map<Long, PFetchColIdsRequest> params = initParams();
-        final AlterLightSchemaChangeInfo info = callForColumnsInfo(params);
+        final AlterLightSchemaChangeInfo info = callForColumnsInfo();
         updateTableMeta(info);
         Env.getCurrentEnv().getEditLog().logAlterLightSchemaChange(info);
         LOG.info("successfully enable `light_schema_change`, db={}, tbl={}", db.getFullName(), olapTable.getName());
@@ -137,13 +136,13 @@ public class AlterLightSchChangeHelper {
     }
 
     /**
-     * @param beIdToRequest rpc param for corresponding BEs
      * @return contains indexIds to each tablet schema info which consists of columnName to corresponding
      * column unique id pairs
      * @throws IllegalStateException as a wrapper for rpc failures
      */
-    private AlterLightSchemaChangeInfo callForColumnsInfo(Map<Long, PFetchColIdsRequest> beIdToRequest)
+    public AlterLightSchemaChangeInfo callForColumnsInfo()
             throws IllegalStateException {
+        Map<Long, PFetchColIdsRequest> beIdToRequest = initParams();
         Map<Long, Future<PFetchColIdsResponse>> beIdToRespFuture = new HashMap<>();
         try {
             for (Long beId : beIdToRequest.keySet()) {
