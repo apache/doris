@@ -59,8 +59,8 @@ suite("test_insert") {
     sql """
         CREATE TABLE ${insert_tbl_dft} (
             `k1` boolean default "true",
-            `k2` tinyint default "10",
-            `k3` smallint default "10000",
+            `k2` tinyint default 10,
+            `k3` smallint default 10000,
             `k4` int default 10000000,
             `k5` bigint default 92233720368547758,
             `k6` largeint default 19223372036854775807,
@@ -69,7 +69,8 @@ suite("test_insert") {
 
             `k10` varchar(64) default "hello world, today is 15/06/2023",
             `k11` date default "2023-06-15",
-            `k12` datetime default "2023-06-15 16:10:15" 
+            `k12` datetime default "2023-06-15 16:10:15",
+            `k13` decimal(10,2) default 10.3
         ) ENGINE=OLAP
         DUPLICATE KEY(`k1`)
         COMMENT 'OLAP'
@@ -87,5 +88,5 @@ suite("test_insert") {
     sql """ set enable_nereids_dml=false """
     sql """ insert into ${insert_tbl_dft} values() """
     
-    qt_select """ select k1, k2, k3, k4, k5, k6, k8, k10, k11, k12 from ${insert_tbl_dft} """
+    qt_select """ select k1, k2, k3, k4, k5, k6, k8, k10, k11, k12, k13 from ${insert_tbl_dft} """
 }
