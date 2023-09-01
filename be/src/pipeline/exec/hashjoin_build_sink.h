@@ -47,7 +47,7 @@ public:
 class HashJoinBuildSinkOperatorX;
 
 class HashJoinBuildSinkLocalState final
-        : public JoinBuildSinkLocalState<JoinDependency, HashJoinBuildSinkLocalState> {
+        : public JoinBuildSinkLocalState<HashJoinDependency, HashJoinBuildSinkLocalState> {
 public:
     ENABLE_FACTORY_CREATOR(HashJoinBuildSinkLocalState);
     using Parent = HashJoinBuildSinkOperatorX;
