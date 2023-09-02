@@ -46,10 +46,12 @@
 #include "http/http_client.h"
 #include "olap/olap_common.h"
 #include "olap/olap_define.h"
+#include "olap/rowset/beta_rowset.h"
 #include "olap/rowset/rowset_factory.h"
 #include "olap/rowset/rowset_meta.h"
 #include "olap/storage_engine.h"
 #include "olap/tablet_manager.h"
+#include "olap/tablet_meta.h"
 #include "olap/txn_manager.h"
 #include "runtime/exec_env.h"
 #include "runtime/external_scan_context_mgr.h"
@@ -629,7 +631,7 @@ void BackendService::ingest_binlog(TIngestBinlogResult& result,
         }
     }
 
-    // Step 6: create rowset && commit
+    // Step 6: create rowset && calculate delete bitmap && commit
     // Step 6.1: create rowset
     RowsetSharedPtr rowset;
     status = RowsetFactory::create_rowset(local_tablet->tablet_schema(),
@@ -645,7 +647,44 @@ void BackendService::ingest_binlog(TIngestBinlogResult& result,
         return;
     }
 
-    // Step 6.2: commit txn
+    // Step 6.2 calculate delete bitmap before commit
+    auto calc_delete_bitmap_token =
+            StorageEngine::instance()->calc_delete_bitmap_executor()->create_token();
+    DeleteBitmapPtr delete_bitmap = std::make_shared<DeleteBitmap>(local_tablet_id);
+    RowsetIdUnorderedSet pre_rowset_ids;
+    if (local_tablet->enable_unique_key_merge_on_write()) {
+        auto beta_rowset = reinterpret_cast<BetaRowset*>(rowset.get());
+        std::vector<segment_v2::SegmentSharedPtr> segments;
+        status = beta_rowset->load_segments(&segments);
+        if (!status) {
+            LOG(WARNING) << "failed to load segments from rowset"
+                         << ". rowset_id: " << beta_rowset->rowset_id() << ", txn_id=" << txn_id
+                         << ", status=" << status.to_string();
+            status.to_thrift(&tstatus);
+            return;
+        }
+        if (segments.size() > 1) {
+            // calculate delete bitmap between segments
+            status = local_tablet->calc_delete_bitmap_between_segments(rowset, segments,
+                                                                       delete_bitmap);
+            if (!status) {
+                LOG(WARNING) << "failed to calculate delete bitmap"
+                             << ". tablet_id: " << local_tablet->tablet_id()
+                             << ". rowset_id: " << rowset->rowset_id() << ", txn_id=" << txn_id
+                             << ", status=" << status.to_string();
+                status.to_thrift(&tstatus);
+                return;
+            }
+        }
+
+        local_tablet->commit_phase_update_delete_bitmap(rowset, pre_rowset_ids, delete_bitmap,
+                                                        segments, txn_id,
+                                                        calc_delete_bitmap_token.get(), nullptr);
+        calc_delete_bitmap_token->wait();
+        calc_delete_bitmap_token->get_delete_bitmap(delete_bitmap);
+    }
+
+    // Step 6.3: commit txn
     Status commit_txn_status = StorageEngine::instance()->txn_manager()->commit_txn(
             local_tablet->data_dir()->get_meta(), rowset_meta->partition_id(),
             rowset_meta->txn_id(), rowset_meta->tablet_id(), rowset_meta->tablet_schema_hash(),
@@ -659,6 +698,12 @@ void BackendService::ingest_binlog(TIngestBinlogResult& result,
         LOG(WARNING) << err_msg;
         set_tstatus(TStatusCode::RUNTIME_ERROR, std::move(err_msg));
         return;
+    }
+
+    if (local_tablet->enable_unique_key_merge_on_write()) {
+        StorageEngine::instance()->txn_manager()->set_txn_related_delete_bitmap(
+                partition_id, txn_id, local_tablet_id, local_tablet->schema_hash(),
+                local_tablet->tablet_uid(), true, delete_bitmap, pre_rowset_ids);
     }
 
     tstatus.__set_status_code(TStatusCode::OK);
