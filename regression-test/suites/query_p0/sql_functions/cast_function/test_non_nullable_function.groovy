@@ -39,6 +39,8 @@ suite("test_non_nullable_function", "query") {
     sql """ INSERT INTO ${tableName} VALUES(4, [], ["a", "b", "c"], [1.3, 2.14]) """
     sql """ INSERT INTO ${tableName} VALUES(null, null, null, [1.1,2.2,3.3]) """
     
+    sql "set enable_nereids_planner=true"
+    sql "set enable_fallback_to_original_planner=true"
     qt_nullable "SELECT k1, non_nullable(k1) FROM ${tableName} ORDER BY k1"
     qt_nullable "SELECT k1, non_nullable(k2) FROM ${tableName} ORDER BY k1"
     qt_nullable "SELECT k1, non_nullable(k3) FROM ${tableName} ORDER BY k1"
