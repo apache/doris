@@ -552,6 +552,9 @@ public:
     void set_binlog_config(BinlogConfig binlog_config);
     void add_sentinel_mark_to_delete_bitmap(DeleteBitmap* delete_bitmap,
                                             const RowsetIdUnorderedSet& rowsetids);
+    Status check_delete_bitmap_correctness(DeleteBitmapPtr delete_bitmap, int64_t max_version,
+                                           int64_t txn_id, const RowsetIdUnorderedSet& rowset_ids,
+                                           std::vector<RowsetSharedPtr>* rowsets = nullptr);
 
 private:
     Status _init_once_action();
@@ -597,9 +600,6 @@ private:
     ////////////////////////////////////////////////////////////////////////////
 
     void _remove_sentinel_mark_from_delete_bitmap(DeleteBitmapPtr delete_bitmap);
-    Status _check_delete_bitmap_correctness(DeleteBitmapPtr delete_bitmap, int64_t max_version,
-                                            int64_t txn_id, const RowsetIdUnorderedSet& rowset_ids,
-                                            std::vector<RowsetSharedPtr>* rowsets = nullptr);
     std::string _get_rowset_info_str(RowsetSharedPtr rowset, bool delete_flag);
 
 public:
