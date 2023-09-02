@@ -48,7 +48,6 @@ public class SchemaChangeProcDir implements ProcDirInterface {
             .add("JobId").add("TableName").add("CreateTime").add("FinishTime")
             .add("IndexName").add("IndexId").add("OriginIndexId").add("SchemaVersion")
             .add("TransactionId").add("State").add("Msg").add("Progress").add("Timeout")
-            .add("OtherInfos")
             .build();
 
     private static final Logger LOG = LogManager.getLogger(SchemaChangeProcDir.class);

@@ -30,6 +30,7 @@ import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.util.JoinUtils;
 
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 
 import java.util.ArrayList;
@@ -101,10 +102,10 @@ public class JoinExchangeRightProject extends OneExplorationRuleFactory {
                             newTopJoinHashJoinConjuncts, newTopJoinOtherJoinConjuncts, JoinHint.NONE,
                             left, right);
                     JoinExchange.setNewLeftJoinReorder(newLeftJoin, leftJoin);
-                    JoinExchange.setNewRightJoinReorder(newRightJoin, leftJoin);
+                    JoinExchange.setNewRightJoinReorder(newRightJoin, rightJoin);
                     JoinExchange.setNewTopJoinReorder(newTopJoin, topJoin);
 
-                    return CBOUtils.projectOrSelf(new ArrayList<>(topJoin.getOutput()), newTopJoin);
+                    return CBOUtils.projectOrSelf(ImmutableList.copyOf(topJoin.getOutput()), newTopJoin);
                 }).toRule(RuleType.LOGICAL_JOIN_EXCHANGE);
     }
 

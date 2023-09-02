@@ -45,15 +45,14 @@ class TMemoryScratchSink;
 namespace doris::vectorized {
 
 MemoryScratchSink::MemoryScratchSink(const RowDescriptor& row_desc,
-                                     const std::vector<TExpr>& t_output_expr,
-                                     const TMemoryScratchSink& sink, ObjectPool* pool)
-        : _row_desc(row_desc), _t_output_expr(t_output_expr), _pool(pool) {
+                                     const std::vector<TExpr>& t_output_expr)
+        : DataSink(row_desc), _t_output_expr(t_output_expr) {
     _name = "VMemoryScratchSink";
 }
 
 Status MemoryScratchSink::_prepare_vexpr(RuntimeState* state) {
     // From the thrift expressions create the real exprs.
-    RETURN_IF_ERROR(VExpr::create_expr_trees(_pool, _t_output_expr, &_output_vexpr_ctxs));
+    RETURN_IF_ERROR(VExpr::create_expr_trees(_t_output_expr, _output_vexpr_ctxs));
     // Prepare the exprs to run.
     RETURN_IF_ERROR(VExpr::prepare(_output_vexpr_ctxs, state, _row_desc));
     // generate the arrow schema
@@ -91,6 +90,10 @@ Status MemoryScratchSink::open(RuntimeState* state) {
     return VExpr::open(_output_vexpr_ctxs, state);
 }
 
+bool MemoryScratchSink::can_write() {
+    return _queue->size() < 10;
+}
+
 Status MemoryScratchSink::close(RuntimeState* state, Status exec_status) {
     if (_closed) {
         return Status::OK();
@@ -99,7 +102,6 @@ Status MemoryScratchSink::close(RuntimeState* state, Status exec_status) {
     if (_queue != nullptr) {
         _queue->blocking_put(nullptr);
     }
-    VExpr::close(_output_vexpr_ctxs, state);
     return DataSink::close(state, exec_status);
 }
 

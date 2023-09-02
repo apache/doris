@@ -21,6 +21,7 @@ import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.properties.OrderKey;
 import org.apache.doris.nereids.properties.PhysicalProperties;
+import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.SortPhase;
@@ -85,8 +86,10 @@ public class PhysicalQuickSort<CHILD_TYPE extends Plan> extends AbstractPhysical
     }
 
     @Override
-    public PhysicalQuickSort<CHILD_TYPE> withLogicalProperties(Optional<LogicalProperties> logicalProperties) {
-        return new PhysicalQuickSort<>(orderKeys, phase, Optional.empty(), logicalProperties.get(), child());
+    public Plan withGroupExprLogicalPropChildren(Optional<GroupExpression> groupExpression,
+            Optional<LogicalProperties> logicalProperties, List<Plan> children) {
+        Preconditions.checkArgument(children.size() == 1);
+        return new PhysicalQuickSort<>(orderKeys, phase, groupExpression, logicalProperties.get(), children.get(0));
     }
 
     @Override
@@ -98,9 +101,20 @@ public class PhysicalQuickSort<CHILD_TYPE extends Plan> extends AbstractPhysical
 
     @Override
     public String toString() {
-        return Utils.toSqlString("PhysicalQuickSort[" + id.asInt() + "]" + getGroupIdAsString(),
+        return Utils.toSqlString("PhysicalQuickSort[" + id.asInt() + "]" + getGroupIdWithPrefix(),
                 "orderKeys", orderKeys,
-                "phase", phase.toString()
+                "phase", phase.toString(), "stats", statistics
         );
+    }
+
+    @Override
+    public List<Slot> computeOutput() {
+        return child().getOutput();
+    }
+
+    @Override
+    public PhysicalQuickSort<CHILD_TYPE> resetLogicalProperties() {
+        return new PhysicalQuickSort<>(orderKeys, phase, groupExpression, null, physicalProperties,
+                statistics, child());
     }
 }

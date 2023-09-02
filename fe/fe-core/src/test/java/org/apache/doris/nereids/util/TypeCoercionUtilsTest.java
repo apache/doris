@@ -299,8 +299,8 @@ public class TypeCoercionUtilsTest {
                 DecimalV2Type.SYSTEM_DEFAULT);
         testFindCommonPrimitiveTypeForCaseWhen(DoubleType.INSTANCE, DecimalV2Type.SYSTEM_DEFAULT,
                 DecimalV3Type.SYSTEM_DEFAULT);
-        testFindCommonPrimitiveTypeForCaseWhen(DecimalV2Type.SYSTEM_DEFAULT, DecimalV2Type.SYSTEM_DEFAULT, FloatType.INSTANCE);
-        testFindCommonPrimitiveTypeForCaseWhen(DecimalV2Type.SYSTEM_DEFAULT, DecimalV2Type.SYSTEM_DEFAULT, DoubleType.INSTANCE);
+        testFindCommonPrimitiveTypeForCaseWhen(DoubleType.INSTANCE, DecimalV2Type.SYSTEM_DEFAULT, FloatType.INSTANCE);
+        testFindCommonPrimitiveTypeForCaseWhen(DoubleType.INSTANCE, DecimalV2Type.SYSTEM_DEFAULT, DoubleType.INSTANCE);
         testFindCommonPrimitiveTypeForCaseWhen(StringType.INSTANCE, DecimalV2Type.SYSTEM_DEFAULT, CharType.SYSTEM_DEFAULT);
         testFindCommonPrimitiveTypeForCaseWhen(StringType.INSTANCE, DecimalV2Type.SYSTEM_DEFAULT, VarcharType.SYSTEM_DEFAULT);
         testFindCommonPrimitiveTypeForCaseWhen(StringType.INSTANCE, DecimalV2Type.SYSTEM_DEFAULT, StringType.INSTANCE);
@@ -349,7 +349,7 @@ public class TypeCoercionUtilsTest {
         testFindCommonPrimitiveTypeForCaseWhen(FloatType.INSTANCE, FloatType.INSTANCE, IntegerType.INSTANCE);
         testFindCommonPrimitiveTypeForCaseWhen(FloatType.INSTANCE, FloatType.INSTANCE, BigIntType.INSTANCE);
         testFindCommonPrimitiveTypeForCaseWhen(DoubleType.INSTANCE, FloatType.INSTANCE, LargeIntType.INSTANCE);
-        testFindCommonPrimitiveTypeForCaseWhen(DecimalV2Type.SYSTEM_DEFAULT, FloatType.INSTANCE, DecimalV2Type.SYSTEM_DEFAULT);
+        testFindCommonPrimitiveTypeForCaseWhen(DoubleType.INSTANCE, FloatType.INSTANCE, DecimalV2Type.SYSTEM_DEFAULT);
         testFindCommonPrimitiveTypeForCaseWhen(DoubleType.INSTANCE, FloatType.INSTANCE, DecimalV3Type.SYSTEM_DEFAULT);
         testFindCommonPrimitiveTypeForCaseWhen(FloatType.INSTANCE, FloatType.INSTANCE, FloatType.INSTANCE);
         testFindCommonPrimitiveTypeForCaseWhen(DoubleType.INSTANCE, FloatType.INSTANCE, DoubleType.INSTANCE);
@@ -372,7 +372,7 @@ public class TypeCoercionUtilsTest {
         testFindCommonPrimitiveTypeForCaseWhen(DoubleType.INSTANCE, DoubleType.INSTANCE, IntegerType.INSTANCE);
         testFindCommonPrimitiveTypeForCaseWhen(DoubleType.INSTANCE, DoubleType.INSTANCE, BigIntType.INSTANCE);
         testFindCommonPrimitiveTypeForCaseWhen(DoubleType.INSTANCE, DoubleType.INSTANCE, LargeIntType.INSTANCE);
-        testFindCommonPrimitiveTypeForCaseWhen(DecimalV2Type.SYSTEM_DEFAULT, DoubleType.INSTANCE, DecimalV2Type.SYSTEM_DEFAULT);
+        testFindCommonPrimitiveTypeForCaseWhen(DoubleType.INSTANCE, DoubleType.INSTANCE, DecimalV2Type.SYSTEM_DEFAULT);
         testFindCommonPrimitiveTypeForCaseWhen(DoubleType.INSTANCE, DoubleType.INSTANCE, DecimalV3Type.SYSTEM_DEFAULT);
         testFindCommonPrimitiveTypeForCaseWhen(DoubleType.INSTANCE, DoubleType.INSTANCE, FloatType.INSTANCE);
         testFindCommonPrimitiveTypeForCaseWhen(DoubleType.INSTANCE, DoubleType.INSTANCE, DoubleType.INSTANCE);

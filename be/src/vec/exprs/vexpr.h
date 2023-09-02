@@ -29,6 +29,7 @@
 #include <utility>
 #include <vector>
 
+#include "common/factory_creator.h"
 #include "common/status.h"
 #include "runtime/define_primitive_type.h"
 #include "runtime/types.h"
@@ -38,6 +39,7 @@
 #include "vec/core/block.h"
 #include "vec/core/column_with_type_and_name.h"
 #include "vec/data_types/data_type.h"
+#include "vec/exprs/vexpr_fwd.h"
 #include "vec/functions/function.h"
 
 namespace doris {
@@ -49,7 +51,6 @@ class RowDescriptor;
 class RuntimeState;
 
 namespace vectorized {
-class VExprContext;
 
 #define RETURN_IF_ERROR_OR_PREPARED(stmt) \
     if (_prepared) {                      \
@@ -59,6 +60,9 @@ class VExprContext;
         RETURN_IF_ERROR(stmt);            \
     }
 
+// VExpr should be used as shared pointer because it will be passed between classes
+// like runtime filter to scan node, or from scannode to scanner. We could not make sure
+// the relatioinship between threads and classes.
 class VExpr {
 public:
     // resize inserted param column to make sure column size equal to block.rows()
@@ -76,8 +80,6 @@ public:
     // only used for test
     VExpr() = default;
     virtual ~VExpr() = default;
-
-    virtual VExpr* clone(ObjectPool* pool) const = 0;
 
     virtual const std::string& expr_name() const = 0;
 
@@ -99,16 +101,14 @@ public:
     virtual Status open(RuntimeState* state, VExprContext* context,
                         FunctionContext::FunctionStateScope scope);
 
-    virtual Status execute(VExprContext* context, vectorized::Block* block,
-                           int* result_column_id) = 0;
+    virtual Status execute(VExprContext* context, Block* block, int* result_column_id) = 0;
 
     /// Subclasses overriding this function should call VExpr::Close().
     //
     /// If scope if FRAGMENT_LOCAL, both fragment- and thread-local state should be torn
     /// down. Otherwise, if scope is THREAD_LOCAL, only thread-local state should be torn
     /// down.
-    virtual void close(RuntimeState* state, VExprContext* context,
-                       FunctionContext::FunctionStateScope scope);
+    virtual void close(VExprContext* context, FunctionContext::FunctionStateScope scope);
 
     DataTypePtr& data_type() { return _data_type; }
 
@@ -120,39 +120,36 @@ public:
 
     TExprOpcode::type op() const { return _opcode; }
 
-    void add_child(VExpr* expr) { _children.push_back(expr); }
-    VExpr* get_child(int i) const { return _children[i]; }
+    void add_child(const VExprSPtr& expr) { _children.push_back(expr); }
+    VExprSPtr get_child(int i) const { return _children[i]; }
     int get_num_children() const { return _children.size(); }
 
-    static Status create_expr_tree(ObjectPool* pool, const TExpr& texpr, VExprContext** ctx);
+    static Status create_expr_tree(const TExpr& texpr, VExprContextSPtr& ctx);
 
-    static Status create_expr_trees(ObjectPool* pool, const std::vector<TExpr>& texprs,
-                                    std::vector<VExprContext*>* ctxs);
+    static Status create_expr_trees(const std::vector<TExpr>& texprs, VExprContextSPtrs& ctxs);
 
-    static Status prepare(const std::vector<VExprContext*>& ctxs, RuntimeState* state,
+    static Status prepare(const VExprContextSPtrs& ctxs, RuntimeState* state,
                           const RowDescriptor& row_desc);
 
-    static Status open(const std::vector<VExprContext*>& ctxs, RuntimeState* state);
+    static Status open(const VExprContextSPtrs& ctxs, RuntimeState* state);
 
-    static Status clone_if_not_exists(const std::vector<VExprContext*>& ctxs, RuntimeState* state,
-                                      std::vector<VExprContext*>* new_ctxs);
-
-    static void close(const std::vector<VExprContext*>& ctxs, RuntimeState* state);
+    static Status clone_if_not_exists(const VExprContextSPtrs& ctxs, RuntimeState* state,
+                                      VExprContextSPtrs& new_ctxs);
 
     bool is_nullable() const { return _data_type->is_nullable(); }
 
     PrimitiveType result_type() const { return _type.type; }
 
-    static Status create_expr(ObjectPool* pool, const TExprNode& texpr_node, VExpr** expr);
+    static Status create_expr(const TExprNode& expr_node, VExprSPtr& expr);
 
-    static Status create_tree_from_thrift(doris::ObjectPool* pool,
-                                          const std::vector<doris::TExprNode>& nodes, int* node_idx,
-                                          VExpr** root_expr, VExprContext** ctx);
-    virtual const std::vector<VExpr*>& children() const { return _children; }
-    void set_children(std::vector<VExpr*> children) { _children = children; }
+    static Status create_tree_from_thrift(const std::vector<TExprNode>& nodes, int* node_idx,
+                                          VExprSPtr& root_expr, VExprContextSPtr& ctx);
+    virtual const VExprSPtrs& children() const { return _children; }
+    void set_children(const VExprSPtrs& children) { _children = children; }
+    void set_children(VExprSPtrs&& children) { _children = std::move(children); }
     virtual std::string debug_string() const;
-    static std::string debug_string(const std::vector<VExpr*>& exprs);
-    static std::string debug_string(const std::vector<VExprContext*>& ctxs);
+    static std::string debug_string(const VExprSPtrs& exprs);
+    static std::string debug_string(const VExprContextSPtrs& ctxs);
 
     bool is_and_expr() const { return _fn.name.function_name == "and"; }
 
@@ -173,15 +170,15 @@ public:
 
     int fn_context_index() const { return _fn_context_index; }
 
-    static const VExpr* expr_without_cast(const VExpr* expr) {
-        if (expr->node_type() == doris::TExprNodeType::CAST_EXPR) {
+    static const VExprSPtr expr_without_cast(const VExprSPtr& expr) {
+        if (expr->node_type() == TExprNodeType::CAST_EXPR) {
             return expr_without_cast(expr->_children[0]);
         }
         return expr;
     }
 
     // If this expr is a RuntimeFilterWrapper, this method will return an underlying rf expression
-    virtual const VExpr* get_impl() const { return nullptr; }
+    virtual const VExprSPtr get_impl() const { return {}; }
 
     // If this expr is a BloomPredicate, this method will return a BloomFilterFunc
     virtual std::shared_ptr<BloomFilterFuncBase> get_bloom_filter_func() const {
@@ -207,9 +204,22 @@ protected:
         return out.str();
     }
 
+    std::string get_child_names() {
+        std::string res;
+        for (auto child : _children) {
+            if (!res.empty()) {
+                res += ", ";
+            }
+            res += child->expr_name();
+        }
+        return res;
+    }
+
+    Status check_constant(const Block& block, ColumnNumbers arguments) const;
+
     /// Helper function that calls ctx->register(), sets fn_context_index_, and returns the
     /// registered FunctionContext
-    void register_function_context(doris::RuntimeState* state, VExprContext* context);
+    void register_function_context(RuntimeState* state, VExprContext* context);
 
     /// Helper function to initialize function context, called in `open` phase of VExpr:
     /// 1. Set constant columns result of function arguments.
@@ -228,7 +238,7 @@ protected:
     TExprOpcode::type _opcode;
     TypeDescriptor _type;
     DataTypePtr _data_type;
-    std::vector<VExpr*> _children;
+    VExprSPtrs _children;
     TFunction _fn;
 
     /// Index to pass to ExprContext::fn_context() to retrieve this expr's FunctionContext.

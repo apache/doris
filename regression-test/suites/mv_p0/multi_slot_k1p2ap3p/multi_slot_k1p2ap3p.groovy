@@ -18,6 +18,7 @@
 import org.codehaus.groovy.runtime.IOGroovyMethods
 
 suite ("multi_slot_k1p2ap3p") {
+
     sql """ DROP TABLE IF EXISTS d_table; """
 
     sql """

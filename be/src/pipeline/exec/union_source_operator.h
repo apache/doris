@@ -52,6 +52,9 @@ public:
     UnionSourceOperator(OperatorBuilderBase* operator_builder, ExecNode* node,
                         std::shared_ptr<DataQueue>);
 
+    // this operator in source open directly return, do this work in sink
+    Status open(RuntimeState* /*state*/) override { return Status::OK(); }
+
     Status get_block(RuntimeState* state, vectorized::Block* block,
                      SourceState& source_state) override;
     bool can_read() override;
@@ -59,6 +62,8 @@ public:
     Status pull_data(RuntimeState* state, vectorized::Block* output_block, bool* eos);
 
 private:
+    bool _has_data();
+
     std::shared_ptr<DataQueue> _data_queue;
     bool _need_read_for_const_expr;
 };

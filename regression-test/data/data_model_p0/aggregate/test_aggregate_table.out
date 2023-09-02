@@ -37,12 +37,12 @@ datetimev2_value_max	DATETIME	Yes	false	\N	MAX
 datetimev2_value_min	DATETIME	Yes	false	\N	MIN
 datetimev2_value_replace	DATETIME	Yes	false	\N	REPLACE
 datetimev2_value_replace_if_not_null	DATETIME	Yes	false	\N	REPLACE_IF_NOT_NULL
-datetimev2_value_max_1	DATETIME	Yes	false	\N	MAX
-datetimev2_value_min_1	DATETIME	Yes	false	\N	MIN
-datetimev2_value_replace_1	DATETIME	Yes	false	\N	REPLACE
-datetimev2_value_replace_if_not_null_1	DATETIME	Yes	false	\N	REPLACE_IF_NOT_NULL
-datetimev2_value_max_2	DATETIME	Yes	false	\N	MAX
-datetimev2_value_min_2	DATETIME	Yes	false	\N	MIN
-datetimev2_value_replace_2	DATETIME	Yes	false	\N	REPLACE
-datetimev2_value_replace_if_not_null_2	DATETIME	Yes	false	\N	REPLACE_IF_NOT_NULL
+datetimev2_value_max_1	DATETIME(3)	Yes	false	\N	MAX
+datetimev2_value_min_1	DATETIME(3)	Yes	false	\N	MIN
+datetimev2_value_replace_1	DATETIME(3)	Yes	false	\N	REPLACE
+datetimev2_value_replace_if_not_null_1	DATETIME(3)	Yes	false	\N	REPLACE_IF_NOT_NULL
+datetimev2_value_max_2	DATETIME(6)	Yes	false	\N	MAX
+datetimev2_value_min_2	DATETIME(6)	Yes	false	\N	MIN
+datetimev2_value_replace_2	DATETIME(6)	Yes	false	\N	REPLACE
+datetimev2_value_replace_if_not_null_2	DATETIME(6)	Yes	false	\N	REPLACE_IF_NOT_NULL
 

@@ -17,17 +17,20 @@
 
 #include "olap/rowset/segment_v2/zone_map_index.h"
 
-#include <gtest/gtest.h>
+#include <gtest/gtest-message.h>
+#include <gtest/gtest-test-part.h>
+#include <string.h>
 
+#include <algorithm>
 #include <memory>
 #include <string>
 
-#include "common/config.h"
-#include "io/fs/file_system.h"
+#include "gtest/gtest_pred_impl.h"
 #include "io/fs/file_writer.h"
 #include "io/fs/local_file_system.h"
-#include "olap/page_cache.h"
+#include "olap/tablet_schema.h"
 #include "olap/tablet_schema_helper.h"
+#include "util/slice.h"
 
 namespace doris {
 namespace segment_v2 {
@@ -78,8 +81,8 @@ public:
 
         io::FileReaderSPtr file_reader;
         EXPECT_TRUE(fs->open_file(filename, &file_reader).ok());
-        ZoneMapIndexReader column_zone_map(file_reader, &index_meta.zone_map_index());
-        Status status = column_zone_map.load(true, false);
+        ZoneMapIndexReader column_zone_map(file_reader);
+        Status status = column_zone_map.load(true, false, &index_meta.zone_map_index());
         EXPECT_TRUE(status.ok());
         EXPECT_EQ(3, column_zone_map.num_pages());
         const std::vector<ZoneMapPB>& zone_maps = column_zone_map.page_zone_maps();
@@ -125,8 +128,8 @@ public:
 
         io::FileReaderSPtr file_reader;
         EXPECT_TRUE(fs->open_file(filename, &file_reader).ok());
-        ZoneMapIndexReader column_zone_map(file_reader, &index_meta.zone_map_index());
-        Status status = column_zone_map.load(true, false);
+        ZoneMapIndexReader column_zone_map(file_reader);
+        Status status = column_zone_map.load(true, false, &index_meta.zone_map_index());
         EXPECT_TRUE(status.ok());
         EXPECT_EQ(1, column_zone_map.num_pages());
         const std::vector<ZoneMapPB>& zone_maps = column_zone_map.page_zone_maps();
@@ -178,8 +181,8 @@ TEST_F(ColumnZoneMapTest, NormalTestIntPage) {
 
     io::FileReaderSPtr file_reader;
     EXPECT_TRUE(fs->open_file(filename, &file_reader).ok());
-    ZoneMapIndexReader column_zone_map(file_reader, &index_meta.zone_map_index());
-    Status status = column_zone_map.load(true, false);
+    ZoneMapIndexReader column_zone_map(file_reader);
+    Status status = column_zone_map.load(true, false, &index_meta.zone_map_index());
     EXPECT_TRUE(status.ok());
     EXPECT_EQ(3, column_zone_map.num_pages());
     const std::vector<ZoneMapPB>& zone_maps = column_zone_map.page_zone_maps();

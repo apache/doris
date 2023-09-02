@@ -18,6 +18,7 @@
 import org.codehaus.groovy.runtime.IOGroovyMethods
 
 suite ("multi_slot_k123p") {
+
     sql """ DROP TABLE IF EXISTS d_table; """
 
     sql """
@@ -49,6 +50,7 @@ suite ("multi_slot_k123p") {
         file 'multi_slot_k123p.csv'
         time 10000
     }
+    sql """sync"""
     qt_select_star "select * from d_table order by k1,k4;"
 
     explain {

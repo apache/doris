@@ -14,31 +14,58 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
-#include <aws/core/auth/AWSCredentials.h>
-#include <aws/s3/S3Client.h>
+#include "olap/rowset/beta_rowset.h"
 
+#include <aws/core/auth/AWSAuthSigner.h>
+#include <aws/core/auth/AWSCredentials.h>
+#include <aws/core/client/ClientConfiguration.h>
+#include <aws/core/utils/Outcome.h>
+#include <aws/s3/S3Client.h>
+#include <aws/s3/S3Errors.h>
+#include <aws/s3/model/GetObjectResult.h>
+#include <aws/s3/model/HeadObjectResult.h>
+#include <gen_cpp/olap_common.pb.h>
+#include <gtest/gtest-message.h>
+#include <gtest/gtest-test-part.h>
+#include <stdint.h>
+#include <unistd.h>
+
+#include <algorithm>
 #include <memory>
 #include <string>
+#include <utility>
 #include <vector>
 
+#include "common/config.h"
+#include "common/status.h"
 #include "gen_cpp/olap_file.pb.h"
-#include "gtest/gtest.h"
+#include "gtest/gtest_pred_impl.h"
 #include "io/fs/local_file_system.h"
 #include "io/fs/s3_file_system.h"
-#include "olap/comparison_predicate.h"
 #include "olap/data_dir.h"
-#include "olap/row_cursor.h"
-#include "olap/rowset/beta_rowset_reader.h"
-#include "olap/rowset/rowset_factory.h"
-#include "olap/rowset/rowset_reader_context.h"
-#include "olap/rowset/rowset_writer.h"
+#include "olap/olap_common.h"
+#include "olap/options.h"
+#include "olap/rowset/rowset.h"
+#include "olap/rowset/rowset_meta.h"
+#include "olap/rowset/rowset_reader.h"
 #include "olap/rowset/rowset_writer_context.h"
+#include "olap/rowset/segment_v2/segment.h"
 #include "olap/storage_engine.h"
 #include "olap/tablet_schema.h"
-#include "olap/utils.h"
 #include "runtime/exec_env.h"
-#include "runtime/memory/mem_tracker.h"
-#include "util/slice.h"
+#include "util/s3_util.h"
+
+namespace Aws {
+namespace S3 {
+namespace Model {
+class GetObjectRequest;
+class HeadObjectRequest;
+} // namespace Model
+} // namespace S3
+} // namespace Aws
+namespace doris {
+struct RowsetReaderContext;
+} // namespace doris
 
 using std::string;
 
@@ -46,7 +73,7 @@ namespace doris {
 using namespace ErrorCode;
 
 static const uint32_t MAX_PATH_LEN = 1024;
-StorageEngine* k_engine = nullptr;
+static std::unique_ptr<StorageEngine> k_engine;
 static const std::string kTestDir = "./data_test/data/beta_rowset_test";
 
 class BetaRowsetTest : public testing::Test {
@@ -76,19 +103,10 @@ public:
         Status s = doris::StorageEngine::open(options, &k_engine);
         EXPECT_TRUE(s.ok()) << s.to_string();
 
-        ExecEnv* exec_env = doris::ExecEnv::GetInstance();
-        exec_env->set_storage_engine(k_engine);
-
         EXPECT_TRUE(io::global_local_filesystem()->create_directory(kTestDir).ok());
     }
 
-    static void TearDownTestSuite() {
-        if (k_engine != nullptr) {
-            k_engine->stop();
-            delete k_engine;
-            k_engine = nullptr;
-        }
-    }
+    static void TearDownTestSuite() { k_engine.reset(); }
 
 protected:
     OlapReaderStatistics _stats;
@@ -242,7 +260,6 @@ TEST_F(BetaRowsetTest, ReadTest) {
                                  Aws::Client::AWSAuthV4Signer::PayloadSigningPolicy::Never, true));
 
         rowset.rowset_meta()->set_num_segments(1);
-        rowset.rowset_meta()->set_resource_id(resource_id);
         rowset.rowset_meta()->set_fs(fs);
 
         std::vector<segment_v2::SegmentSharedPtr> segments;
@@ -257,7 +274,6 @@ TEST_F(BetaRowsetTest, ReadTest) {
         fs->_client.reset(new S3ClientMockGetError());
 
         rowset.rowset_meta()->set_num_segments(1);
-        rowset.rowset_meta()->set_resource_id(resource_id);
         rowset.rowset_meta()->set_fs(fs);
 
         std::vector<segment_v2::SegmentSharedPtr> segments;
@@ -272,7 +288,6 @@ TEST_F(BetaRowsetTest, ReadTest) {
         fs->_client.reset(new S3ClientMockGetErrorData());
 
         rowset.rowset_meta()->set_num_segments(1);
-        rowset.rowset_meta()->set_resource_id(resource_id);
         rowset.rowset_meta()->set_fs(fs);
 
         std::vector<segment_v2::SegmentSharedPtr> segments;

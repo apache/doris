@@ -29,8 +29,9 @@ import java.util.List;
  */
 public class Node {
     private final int index;
-    private Group group;
-    private List<Edge> edges = new ArrayList<>();
+    // Due to group in Node is base group, so mergeGroup() don't need to consider it.
+    private final Group group;
+    private final List<Edge> edges = new ArrayList<>();
 
     public Node(int index, Group group) {
         this.group = group;
@@ -39,10 +40,6 @@ public class Node {
 
     public List<Edge> getEdges() {
         return edges;
-    }
-
-    public void replaceGroupWith(Group group) {
-        this.group = group;
     }
 
     public int getIndex() {

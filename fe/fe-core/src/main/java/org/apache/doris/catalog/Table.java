@@ -27,18 +27,22 @@ import org.apache.doris.common.util.QueryableReentrantReadWriteLock;
 import org.apache.doris.common.util.SqlUtils;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.external.hudi.HudiTable;
-import org.apache.doris.statistics.AnalysisTaskInfo;
+import org.apache.doris.statistics.AnalysisInfo;
 import org.apache.doris.statistics.BaseAnalysisTask;
+import org.apache.doris.statistics.ColumnStatistic;
+import org.apache.doris.statistics.TableStats;
 import org.apache.doris.thrift.TTableDescriptor;
 
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
+import com.google.gson.annotations.SerializedName;
 import org.apache.commons.lang3.NotImplementedException;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.json.JSONObject;
 
 import java.io.DataInput;
 import java.io.DataOutput;
@@ -47,6 +51,7 @@ import java.time.Instant;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
@@ -64,10 +69,14 @@ public abstract class Table extends MetaObject implements Writable, TableIf {
     public volatile boolean isDropped = false;
 
     private boolean hasCompoundKey = false;
+    @SerializedName(value = "id")
     protected long id;
+    @SerializedName(value = "name")
     protected volatile String name;
     protected volatile String qualifiedDbName;
+    @SerializedName(value = "type")
     protected TableType type;
+    @SerializedName(value = "createTime")
     protected long createTime;
     protected QueryableReentrantReadWriteLock rwLock;
 
@@ -91,6 +100,7 @@ public abstract class Table extends MetaObject implements Writable, TableIf {
      * <p>
      * If you want to get the mv columns, you should call getIndexToSchema in Subclass OlapTable.
      */
+    @SerializedName(value = "fullSchema")
     protected List<Column> fullSchema;
     // tree map for case-insensitive lookup.
     /**
@@ -101,6 +111,7 @@ public abstract class Table extends MetaObject implements Writable, TableIf {
     // DO NOT persist this variable.
     protected boolean isTypeRead = false;
     // table(view)'s comment
+    @SerializedName(value = "comment")
     protected String comment = "";
     // sql for creating this table, default is "";
     protected String ddlSql = "";
@@ -489,6 +500,14 @@ public abstract class Table extends MetaObject implements Writable, TableIf {
         return "Table [id=" + id + ", name=" + name + ", type=" + type + "]";
     }
 
+    public JSONObject toSimpleJson() {
+        JSONObject table = new JSONObject();
+        table.put("Type", type.toEngineName());
+        table.put("Id", Long.toString(id));
+        table.put("Name", name);
+        return table;
+    }
+
     /*
      * 1. Only schedule OLAP table.
      * 2. If table is colocate with other table, not schedule it.
@@ -521,7 +540,7 @@ public abstract class Table extends MetaObject implements Writable, TableIf {
     }
 
     @Override
-    public BaseAnalysisTask createAnalysisTask(AnalysisTaskInfo info) {
+    public BaseAnalysisTask createAnalysisTask(AnalysisInfo info) {
         throw new NotImplementedException("createAnalysisTask not implemented");
     }
 
@@ -541,5 +560,27 @@ public abstract class Table extends MetaObject implements Writable, TableIf {
             }
         }
         return Math.max(cardinality, 1);
+    }
+
+    @Override
+    public DatabaseIf getDatabase() {
+        return Env.getCurrentInternalCatalog().getDbNullable(qualifiedDbName);
+    }
+
+    @Override
+    public Optional<ColumnStatistic> getColumnStatistic(String colName) {
+        return Optional.empty();
+    }
+
+    public void analyze(String dbName) {}
+
+    @Override
+    public boolean needReAnalyzeTable(TableStats tblStats) {
+        return true;
+    }
+
+    @Override
+    public Set<String> findReAnalyzeNeededPartitions(TableStats tableStats) {
+        return Collections.emptySet();
     }
 }

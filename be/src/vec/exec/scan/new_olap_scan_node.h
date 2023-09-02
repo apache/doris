@@ -21,6 +21,7 @@
 #include <gen_cpp/PlanNodes_types.h>
 #include <stdint.h>
 
+#include <cstdint>
 #include <list>
 #include <memory>
 #include <set>
@@ -84,9 +85,20 @@ protected:
 
     PushDownType _should_push_down_is_null_predicate() override { return PushDownType::ACCEPTABLE; }
 
-    bool _should_push_down_common_expr() override;
+    bool _should_push_down_common_expr() override {
+        return _state->enable_common_expr_pushdown() && _storage_no_merge();
+    }
 
-    Status _init_scanners(std::list<VScanner*>* scanners) override;
+    bool _storage_no_merge() override {
+        return (_olap_scan_node.keyType == TKeysType::DUP_KEYS ||
+                (_olap_scan_node.keyType == TKeysType::UNIQUE_KEYS &&
+                 _olap_scan_node.__isset.enable_unique_key_merge_on_write &&
+                 _olap_scan_node.enable_unique_key_merge_on_write));
+    }
+
+    Status _init_scanners(std::list<VScannerSPtr>* scanners) override;
+
+    void add_filter_info(int id, const PredicateFilterInfo& info);
 
 private:
     Status _build_key_ranges_and_filters();
@@ -128,9 +140,11 @@ private:
     RuntimeProfile::Counter* _short_cond_timer = nullptr;
     RuntimeProfile::Counter* _expr_filter_timer = nullptr;
     RuntimeProfile::Counter* _output_col_timer = nullptr;
+    std::map<int, PredicateFilterInfo> _filter_info;
 
     RuntimeProfile::Counter* _stats_filtered_counter = nullptr;
     RuntimeProfile::Counter* _bf_filtered_counter = nullptr;
+    RuntimeProfile::Counter* _dict_filtered_counter = nullptr;
     RuntimeProfile::Counter* _del_filtered_counter = nullptr;
     RuntimeProfile::Counter* _conditions_filtered_counter = nullptr;
     RuntimeProfile::Counter* _key_range_filtered_counter = nullptr;
@@ -186,8 +200,7 @@ private:
     // total number of segment related to this scan node
     RuntimeProfile::Counter* _total_segment_counter = nullptr;
 
-    // for debugging or profiling, record any info as you want
-    RuntimeProfile::Counter* _general_debug_timer[GENERAL_DEBUG_COUNT] = {};
+    std::mutex _profile_mtx;
 };
 
 } // namespace doris::vectorized

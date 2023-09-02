@@ -19,29 +19,41 @@ package org.apache.doris.system;
 
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
+import org.apache.doris.service.ExecuteEnv;
+import org.apache.doris.service.FeDiskInfo;
+
+import com.google.gson.annotations.SerializedName;
 
 import java.io.DataInput;
-import java.io.DataOutput;
 import java.io.IOException;
+import java.util.List;
 
 /**
  * Frontend heartbeat response contains Frontend's query port, rpc port and current replayed journal id.
  * (http port is supposed to the same, so no need to be carried on heartbeat response)
  */
 public class FrontendHbResponse extends HeartbeatResponse implements Writable {
-
+    @SerializedName(value = "name")
     private String name;
+    @SerializedName(value = "queryPort")
     private int queryPort;
+    @SerializedName(value = "rpcPort")
     private int rpcPort;
+    @SerializedName(value = "replayedJournalId")
     private long replayedJournalId;
     private String version;
+    private long feStartTime;
+    private long processUUID;
+    private List<FeDiskInfo> diskInfos;
 
     public FrontendHbResponse() {
         super(HeartbeatResponse.Type.FRONTEND);
     }
 
     public FrontendHbResponse(String name, int queryPort, int rpcPort,
-            long replayedJournalId, long hbTime, String version) {
+            long replayedJournalId, long hbTime, String version,
+            long feStartTime, List<FeDiskInfo> diskInfos,
+            long processUUID) {
         super(HeartbeatResponse.Type.FRONTEND);
         this.status = HbStatus.OK;
         this.name = name;
@@ -50,6 +62,9 @@ public class FrontendHbResponse extends HeartbeatResponse implements Writable {
         this.replayedJournalId = replayedJournalId;
         this.hbTime = hbTime;
         this.version = version;
+        this.processUUID = processUUID;
+        this.diskInfos = diskInfos;
+        this.processUUID = processUUID;
     }
 
     public FrontendHbResponse(String name, String errMsg) {
@@ -57,6 +72,7 @@ public class FrontendHbResponse extends HeartbeatResponse implements Writable {
         this.status = HbStatus.BAD;
         this.name = name;
         this.msg = errMsg;
+        this.processUUID = ExecuteEnv.getInstance().getProcessUUID();
     }
 
     public String getName() {
@@ -79,19 +95,16 @@ public class FrontendHbResponse extends HeartbeatResponse implements Writable {
         return version;
     }
 
-    public static FrontendHbResponse read(DataInput in) throws IOException {
-        FrontendHbResponse result = new FrontendHbResponse();
-        result.readFields(in);
-        return result;
+    public long getProcessUUID() {
+        return processUUID;
     }
 
-    @Override
-    public void write(DataOutput out) throws IOException {
-        super.write(out);
-        Text.writeString(out, name);
-        out.writeInt(queryPort);
-        out.writeInt(rpcPort);
-        out.writeLong(replayedJournalId);
+    public long getFeStartTime() {
+        return feStartTime;
+    }
+
+    public List<FeDiskInfo> getDiskInfos() {
+        return diskInfos;
     }
 
     @Override
@@ -112,6 +125,7 @@ public class FrontendHbResponse extends HeartbeatResponse implements Writable {
         sb.append(", queryPort: ").append(queryPort);
         sb.append(", rpcPort: ").append(rpcPort);
         sb.append(", replayedJournalId: ").append(replayedJournalId);
+        sb.append(", festartTime: ").append(processUUID);
         return sb.toString();
     }
 

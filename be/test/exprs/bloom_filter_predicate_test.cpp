@@ -15,10 +15,19 @@
 // specific language governing permissions and limitations
 // under the License.
 
+#include <gtest/gtest-message.h>
+#include <gtest/gtest-test-part.h>
+#include <string.h>
+
+#include <memory>
 #include <string>
 
+#include "common/object_pool.h"
+#include "common/status.h"
+#include "exprs/bloom_filter_func.h"
 #include "exprs/create_predicate_function.h"
-#include "gtest/gtest.h"
+#include "gtest/gtest_pred_impl.h"
+#include "runtime/define_primitive_type.h"
 #include "vec/common/string_ref.h"
 
 namespace doris {

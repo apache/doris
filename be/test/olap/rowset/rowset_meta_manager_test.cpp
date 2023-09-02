@@ -17,16 +17,26 @@
 
 #include "olap/rowset/rowset_meta_manager.h"
 
-#include <boost/algorithm/string.hpp>
+#include <gen_cpp/olap_file.pb.h>
+#include <glog/logging.h>
+#include <gmock/gmock-actions.h>
+#include <gmock/gmock-matchers.h>
+#include <gtest/gtest-message.h>
+#include <gtest/gtest-test-part.h>
+
+#include <boost/algorithm/string/replace.hpp>
 #include <filesystem>
 #include <fstream>
-#include <sstream>
+#include <new>
 #include <string>
 
-#include "gmock/gmock.h"
-#include "gtest/gtest.h"
+#include "common/config.h"
+#include "gtest/gtest_pred_impl.h"
+#include "olap/olap_define.h"
 #include "olap/olap_meta.h"
+#include "olap/options.h"
 #include "olap/storage_engine.h"
+#include "util/uid_util.h"
 
 using ::testing::_;
 using ::testing::Return;

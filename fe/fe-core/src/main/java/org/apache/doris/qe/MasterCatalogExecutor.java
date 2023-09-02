@@ -19,6 +19,7 @@ package org.apache.doris.qe;
 
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.ClientPool;
+import org.apache.doris.common.UserException;
 import org.apache.doris.thrift.FrontendService;
 import org.apache.doris.thrift.TInitExternalCtlMetaRequest;
 import org.apache.doris.thrift.TInitExternalCtlMetaResult;
@@ -35,6 +36,8 @@ import org.apache.logging.log4j.Logger;
 public class MasterCatalogExecutor {
     private static final Logger LOG = LogManager.getLogger(MasterCatalogExecutor.class);
 
+    public static final String STATUS_OK = "OK";
+
     private int waitTimeoutMs;
 
     public MasterCatalogExecutor(int waitTimeoutMs) {
@@ -45,7 +48,7 @@ public class MasterCatalogExecutor {
         if (!Env.getCurrentEnv().isReady()) {
             throw new Exception("Current catalog is not ready, please wait for a while.");
         }
-        String masterHost = Env.getCurrentEnv().getMasterIp();
+        String masterHost = Env.getCurrentEnv().getMasterHost();
         int masterRpcPort = Env.getCurrentEnv().getMasterRpcPort();
         TNetworkAddress thriftAddress = new TNetworkAddress(masterHost, masterRpcPort);
 
@@ -64,6 +67,9 @@ public class MasterCatalogExecutor {
         try {
             TInitExternalCtlMetaResult result = client.initExternalCtlMeta(request);
             ConnectContext.get().getEnv().getJournalObservable().waitOn(result.maxJournalId, waitTimeoutMs);
+            if (!result.getStatus().equalsIgnoreCase(STATUS_OK)) {
+                throw new UserException(result.getStatus());
+            }
             isReturnToPool = true;
         } catch (Exception e) {
             LOG.warn("Failed to finish forward init operation, please try again. ", e);

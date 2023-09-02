@@ -58,6 +58,7 @@ import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.util.SqlParserUtils;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.StatementContext;
+import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.util.MemoTestUtils;
@@ -82,6 +83,7 @@ import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
+import com.google.common.collect.Sets;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeAll;
@@ -101,6 +103,7 @@ import java.util.Comparator;
 import java.util.ConcurrentModificationException;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 
 /**
@@ -119,12 +122,13 @@ public abstract class TestWithFeService {
     protected String dorisHome;
     protected String runningDir = "fe/mocked/" + getClass().getSimpleName() + "/" + UUID.randomUUID() + "/";
     protected ConnectContext connectContext;
+    protected boolean needCleanDir = true;
 
     protected static final String DEFAULT_CLUSTER_PREFIX = "default_cluster:";
 
     @BeforeAll
     public final void beforeAll() throws Exception {
-        FeConstants.disableInternalSchemaDb = true;
+        FeConstants.enableInternalSchemaDb = false;
         beforeCreatingConnectContext();
         connectContext = createDefaultCtx();
         beforeCluster();
@@ -140,7 +144,9 @@ public abstract class TestWithFeService {
         runAfterAll();
         Env.getCurrentEnv().clear();
         StatementScopeIdGenerator.clear();
-        cleanDorisFeDir();
+        if (needCleanDir) {
+            cleanDorisFeDir();
+        }
     }
 
     @BeforeEach
@@ -188,8 +194,13 @@ public abstract class TestWithFeService {
     }
 
     public LogicalPlan analyze(String sql) {
+        Set<String> originDisableRules = connectContext.getSessionVariable().getDisableNereidsRuleNames();
+        Set<String> disableRuleWithAuth = Sets.newHashSet(originDisableRules);
+        disableRuleWithAuth.add(RuleType.RELATION_AUTHENTICATION.name());
+        connectContext.getSessionVariable().setDisableNereidsRules(String.join(",", disableRuleWithAuth));
         CascadesContext cascadesContext = createCascadesContext(sql);
         cascadesContext.newAnalyzer().analyze();
+        connectContext.getSessionVariable().setDisableNereidsRules(String.join(",", originDisableRules));
         cascadesContext.toMemo();
         return (LogicalPlan) cascadesContext.getRewritePlan();
     }
@@ -290,6 +301,8 @@ public abstract class TestWithFeService {
         Config.plugin_dir = dorisHome + "/plugins";
         Config.custom_config_dir = dorisHome + "/conf";
         Config.edit_log_type = "local";
+        Config.disable_decimalv2 = false;
+        Config.disable_datev1 = false;
         File file = new File(Config.custom_config_dir);
         if (!file.exists()) {
             file.mkdir();
@@ -403,7 +416,6 @@ public abstract class TestWithFeService {
         disks.put(diskInfo1.getRootPath(), diskInfo1);
         be.setDisks(ImmutableMap.copyOf(disks));
         be.setAlive(false);
-        be.setOwnerClusterName(SystemInfoService.DEFAULT_CLUSTER);
         be.setBePort(beThriftPort);
         be.setHttpPort(beHttpPort);
         be.setBrpcPort(beBrpcPort);
@@ -415,7 +427,6 @@ public abstract class TestWithFeService {
         try {
             cleanDir(dorisHome + "/" + runningDir);
             cleanDir(Config.plugin_dir);
-            cleanDir(Config.custom_config_dir);
         } catch (IOException e) {
             e.printStackTrace();
         }
@@ -470,7 +481,8 @@ public abstract class TestWithFeService {
         if (connectContext.getState().getStateType() != QueryState.MysqlStateType.ERR) {
             return stmtExecutor.planner();
         } else {
-            return null;
+            throw new Exception(
+                    connectContext.getState().toString() + ", " + connectContext.getState().getErrorMessage());
         }
     }
 
@@ -527,6 +539,7 @@ public abstract class TestWithFeService {
 
     public void createTable(String sql) throws Exception {
         try {
+            Config.enable_odbc_table = true;
             createTables(sql);
         } catch (ConcurrentModificationException e) {
             e.printStackTrace();
@@ -597,7 +610,8 @@ public abstract class TestWithFeService {
     protected void assertSQLPlanOrErrorMsgContains(String sql, String expect) throws Exception {
         // Note: adding `EXPLAIN` is necessary for non-query SQL, e.g., DDL, DML, etc.
         // TODO: Use a graceful way to get explain plan string, rather than modifying the SQL string.
-        Assertions.assertTrue(getSQLPlanOrErrorMsg("EXPLAIN " + sql).contains(expect));
+        Assertions.assertTrue(getSQLPlanOrErrorMsg("EXPLAIN " + sql).contains(expect),
+                getSQLPlanOrErrorMsg("EXPLAIN " + sql));
     }
 
     protected void assertSQLPlanOrErrorMsgContains(String sql, String... expects) throws Exception {

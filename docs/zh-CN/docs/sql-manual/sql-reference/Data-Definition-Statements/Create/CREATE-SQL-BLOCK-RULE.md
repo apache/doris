@@ -32,7 +32,7 @@ CREATE SQL BLOCK RULE
 
 ### Description
 
-该语句创建SQL阻止规则，该功能仅用于限制查询语句，不会限制explian语句的执行。
+该语句创建SQL阻止规则，该功能可用于限制任何sql语句（包括 DDL 和 DML 语句）。
 
 支持按用户配置SQL黑名单：
 
@@ -64,7 +64,7 @@ CREATE SQL_BLOCK_RULE rule_name
      ```sql
      CREATE SQL_BLOCK_RULE test_rule 
      PROPERTIES(
-       "sql"="select \\* from order_analysis;",
+       "sql"="select \\* from order_analysis",
        "global"="false",
        "enable"="true"
      );

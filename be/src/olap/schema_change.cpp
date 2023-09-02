@@ -63,6 +63,7 @@
 #include "runtime/memory/mem_tracker.h"
 #include "runtime/runtime_state.h"
 #include "util/defer_op.h"
+#include "util/trace.h"
 #include "vec/aggregate_functions/aggregate_function.h"
 #include "vec/aggregate_functions/aggregate_function_reader.h"
 #include "vec/columns/column.h"
@@ -118,15 +119,30 @@ public:
             std::vector<vectorized::AggregateDataPtr> agg_places;
 
             for (int i = key_number; i < columns; i++) {
-                vectorized::AggregateFunctionPtr function =
-                        tablet_schema->column(i).get_aggregate_function(
-                                {finalized_block.get_data_type(i)}, vectorized::AGG_LOAD_SUFFIX);
-                agg_functions.push_back(function);
-                // create aggregate data
-                vectorized::AggregateDataPtr place = new char[function->size_of_data()];
-                function->create(place);
-                agg_places.push_back(place);
+                try {
+                    vectorized::AggregateFunctionPtr function =
+                            tablet_schema->column(i).get_aggregate_function(
+                                    vectorized::AGG_LOAD_SUFFIX);
+                    agg_functions.push_back(function);
+                    // create aggregate data
+                    vectorized::AggregateDataPtr place = new char[function->size_of_data()];
+                    function->create(place);
+                    agg_places.push_back(place);
+                } catch (...) {
+                    for (int j = 0; j < i - key_number; ++j) {
+                        agg_functions[j]->destroy(agg_places[j]);
+                        delete[] agg_places[j];
+                    }
+                    throw;
+                }
             }
+
+            DEFER({
+                for (int i = 0; i < columns - key_number; i++) {
+                    agg_functions[i]->destroy(agg_places[i]);
+                    delete[] agg_places[i];
+                }
+            });
 
             for (int i = 0; i < rows; i++) {
                 auto row_ref = row_refs[i];
@@ -149,7 +165,7 @@ public:
                         agg_functions[j - key_number]->insert_result_into(
                                 agg_places[j - key_number],
                                 finalized_block.get_by_position(j).column->assume_mutable_ref());
-                        agg_functions[j - key_number]->create(agg_places[j - key_number]);
+                        agg_functions[j - key_number]->reset(agg_places[j - key_number]);
                     }
 
                     if (i == rows - 1 || finalized_block.rows() == ALTER_TABLE_BATCH_SIZE) {
@@ -158,11 +174,6 @@ public:
                         finalized_block.clear_column_data();
                     }
                 }
-            }
-
-            for (int i = 0; i < columns - key_number; i++) {
-                agg_functions[i]->destroy(agg_places[i]);
-                delete[] agg_places[i];
             }
         } else {
             std::vector<RowRef> pushed_row_refs;
@@ -252,86 +263,85 @@ ColumnMapping* BlockChanger::get_mutable_column_mapping(size_t column_index) {
 Status BlockChanger::change_block(vectorized::Block* ref_block,
                                   vectorized::Block* new_block) const {
     ObjectPool pool;
-    RuntimeState* state = pool.add(new RuntimeState());
+    RuntimeState* state = pool.add(RuntimeState::create_unique().release());
     state->set_desc_tbl(&_desc_tbl);
     state->set_be_exec_version(_fe_compatible_version);
     RowDescriptor row_desc =
             RowDescriptor(_desc_tbl.get_tuple_descriptor(_desc_tbl.get_row_tuples()[0]), false);
 
     if (_where_expr != nullptr) {
-        vectorized::VExprContext* ctx = nullptr;
-        RETURN_IF_ERROR(vectorized::VExpr::create_expr_tree(&pool, *_where_expr, &ctx));
-        Defer defer {[&]() { ctx->close(state); }};
+        vectorized::VExprContextSPtr ctx = nullptr;
+        RETURN_IF_ERROR(vectorized::VExpr::create_expr_tree(*_where_expr, ctx));
         RETURN_IF_ERROR(ctx->prepare(state, row_desc));
         RETURN_IF_ERROR(ctx->open(state));
 
         RETURN_IF_ERROR(
-                vectorized::VExprContext::filter_block(ctx, ref_block, ref_block->columns()));
+                vectorized::VExprContext::filter_block(ctx.get(), ref_block, ref_block->columns()));
     }
 
     const int row_size = ref_block->rows();
     const int column_size = new_block->columns();
 
     // swap ref_block[key] and new_block[value]
-    std::map<int, int> swap_idx_map;
-
+    std::list<std::pair<int, int>> swap_idx_list;
     for (int idx = 0; idx < column_size; idx++) {
-        int ref_idx = _schema_mapping[idx].ref_column;
-
-        if (ref_idx < 0 && _type != ROLLUP) {
-            // new column, write default value
-            auto value = _schema_mapping[idx].default_value;
-            auto column = new_block->get_by_position(idx).column->assume_mutable();
-            if (value->is_null()) {
-                DCHECK(column->is_nullable());
-                column->insert_many_defaults(row_size);
-            } else {
-                auto type_info = get_type_info(_schema_mapping[idx].new_column);
-                DefaultValueColumnIterator::insert_default_data(type_info.get(), value->size(),
-                                                                value->ptr(), column, row_size);
-            }
-        } else if (_schema_mapping[idx].expr != nullptr) {
-            vectorized::VExprContext* ctx = nullptr;
-            RETURN_IF_ERROR(
-                    vectorized::VExpr::create_expr_tree(&pool, *_schema_mapping[idx].expr, &ctx));
-            Defer defer {[&]() { ctx->close(state); }};
+        if (_schema_mapping[idx].expr != nullptr) {
+            vectorized::VExprContextSPtr ctx;
+            RETURN_IF_ERROR(vectorized::VExpr::create_expr_tree(*_schema_mapping[idx].expr, ctx));
             RETURN_IF_ERROR(ctx->prepare(state, row_desc));
             RETURN_IF_ERROR(ctx->open(state));
 
             int result_column_id = -1;
             RETURN_IF_ERROR(ctx->execute(ref_block, &result_column_id));
+            ref_block->replace_by_position_if_const(result_column_id);
+
             if (ref_block->get_by_position(result_column_id).column->size() != row_size) {
                 return Status::Error<ErrorCode::INTERNAL_ERROR>(
                         "{} size invalid, expect={}, real={}", new_block->get_by_position(idx).name,
                         row_size, ref_block->get_by_position(result_column_id).column->size());
             }
-
+            RETURN_IF_ERROR(_check_cast_valid(ref_block->get_by_position(idx).column,
+                                              ref_block->get_by_position(result_column_id).column,
+                                              _type));
+            swap_idx_list.push_back({result_column_id, idx});
+        } else if (_schema_mapping[idx].ref_column < 0) {
             if (_type != ROLLUP) {
-                RETURN_IF_ERROR(
-                        _check_cast_valid(ref_block->get_by_position(ref_idx).column,
-                                          ref_block->get_by_position(result_column_id).column));
+                // new column, write default value
+                auto value = _schema_mapping[idx].default_value;
+                auto column = new_block->get_by_position(idx).column->assume_mutable();
+                if (value->is_null()) {
+                    DCHECK(column->is_nullable());
+                    column->insert_many_defaults(row_size);
+                } else {
+                    auto type_info = get_type_info(_schema_mapping[idx].new_column);
+                    DefaultValueColumnIterator::insert_default_data(type_info.get(), value->size(),
+                                                                    value->ptr(), column, row_size);
+                }
+            } else {
+                return Status::Error<ErrorCode::INTERNAL_ERROR>(
+                        "rollup job meet invalid ref_column, new_column={}",
+                        _schema_mapping[idx].new_column->name());
             }
-            swap_idx_map[result_column_id] = idx;
         } else {
             // same type, just swap column
-            swap_idx_map[ref_idx] = idx;
+            swap_idx_list.push_back({_schema_mapping[idx].ref_column, idx});
         }
     }
 
-    for (auto it : swap_idx_map) {
-        auto& ref_col = ref_block->get_by_position(it.first);
-        auto& new_col = new_block->get_by_position(it.second);
+    for (auto it : swap_idx_list) {
+        auto& ref_col = ref_block->get_by_position(it.first).column;
+        auto& new_col = new_block->get_by_position(it.second).column;
 
-        bool ref_col_nullable = ref_col.column->is_nullable();
-        bool new_col_nullable = new_col.column->is_nullable();
+        bool ref_col_nullable = ref_col->is_nullable();
+        bool new_col_nullable = new_col->is_nullable();
 
         if (ref_col_nullable != new_col_nullable) {
             // not nullable to nullable
             if (new_col_nullable) {
-                auto* new_nullable_col = assert_cast<vectorized::ColumnNullable*>(
-                        new_col.column->assume_mutable().get());
+                auto* new_nullable_col =
+                        assert_cast<vectorized::ColumnNullable*>(new_col->assume_mutable().get());
 
-                new_nullable_col->swap_nested_column(ref_col.column);
+                new_nullable_col->change_nested_column(ref_col);
                 new_nullable_col->get_null_map_data().resize_fill(new_nullable_col->size());
             } else {
                 // nullable to not nullable:
@@ -339,14 +349,14 @@ Status BlockChanger::change_block(vectorized::Block* ref_block,
                 // then do schema change `alter table test modify column c_phone int not null`,
                 // the cast expr of schema change is `CastExpr(CAST String to Nullable(Int32))`,
                 // so need to handle nullable to not nullable here
-                auto* ref_nullable_col = assert_cast<vectorized::ColumnNullable*>(
-                        ref_col.column->assume_mutable().get());
+                auto* ref_nullable_col =
+                        assert_cast<vectorized::ColumnNullable*>(ref_col->assume_mutable().get());
 
-                ref_nullable_col->swap_nested_column(new_col.column);
+                new_col = ref_nullable_col->get_nested_column_ptr();
             }
         } else {
-            new_block->get_by_position(it.second).column.swap(
-                    ref_block->get_by_position(it.first).column);
+            new_block->get_by_position(it.second).column =
+                    ref_block->get_by_position(it.first).column;
         }
     }
     return Status::OK();
@@ -354,7 +364,16 @@ Status BlockChanger::change_block(vectorized::Block* ref_block,
 
 // This check is to prevent schema-change from causing data loss
 Status BlockChanger::_check_cast_valid(vectorized::ColumnPtr ref_column,
-                                       vectorized::ColumnPtr new_column) const {
+                                       vectorized::ColumnPtr new_column,
+                                       AlterTabletType type) const {
+    if (ref_column->size() != new_column->size()) {
+        return Status::InternalError(
+                "column size is changed, ref_column_size={}, new_column_size={}",
+                ref_column->size(), new_column->size());
+    }
+    if (type == ROLLUP) {
+        return Status::OK();
+    }
     if (ref_column->is_nullable() != new_column->is_nullable()) {
         if (ref_column->is_nullable()) {
             auto* ref_null_map =
@@ -471,10 +490,7 @@ Status VSchemaChangeDirectly::_inner_process(RowsetReaderSharedPtr rowset_reader
         RETURN_IF_ERROR(rowset_writer->add_block(new_block.get()));
     } while (true);
 
-    if (!rowset_writer->flush()) {
-        return Status::Error<ALTER_STATUS_ERR>();
-    }
-
+    RETURN_IF_ERROR(rowset_writer->flush());
     return Status::OK();
 }
 
@@ -545,11 +561,11 @@ Status VSchemaChangeWithSorting::_inner_process(RowsetReaderSharedPtr rowset_rea
             RETURN_IF_ERROR(create_rowset());
 
             if (_mem_tracker->consumption() + new_block->allocated_bytes() > _memory_limitation) {
-                LOG(WARNING) << "Memory limitation is too small for Schema Change."
-                             << " _memory_limitation=" << _memory_limitation
-                             << ", new_block->allocated_bytes()=" << new_block->allocated_bytes()
-                             << ", consumption=" << _mem_tracker->consumption();
-                return Status::Error<INVALID_ARGUMENT>();
+                return Status::Error<INVALID_ARGUMENT>(
+                        "Memory limitation is too small for Schema Change. _memory_limitation={}, "
+                        "new_block->allocated_bytes()={}, consumption={}",
+                        _memory_limitation, new_block->allocated_bytes(),
+                        _mem_tracker->consumption());
             }
         }
         _mem_tracker->consume(new_block->allocated_bytes());
@@ -577,7 +593,6 @@ Status VSchemaChangeWithSorting::_internal_sorting(
         SegmentsOverlapPB segments_overlap, RowsetSharedPtr* rowset) {
     uint64_t merged_rows = 0;
     MultiBlockMerger merger(new_tablet);
-
     std::unique_ptr<RowsetWriter> rowset_writer;
     RowsetWriterContext context;
     context.version = version;
@@ -585,6 +600,7 @@ Status VSchemaChangeWithSorting::_internal_sorting(
     context.segments_overlap = segments_overlap;
     context.tablet_schema = new_tablet->tablet_schema();
     context.newest_write_timestamp = newest_write_timestamp;
+    context.write_type = DataWriteType::TYPE_SCHEMA_CHANGE;
     RETURN_IF_ERROR(new_tablet->create_rowset_writer(context, &rowset_writer));
 
     Defer defer {[&]() {
@@ -610,257 +626,17 @@ Status VSchemaChangeWithSorting::_external_sorting(vector<RowsetSharedPtr>& src_
     }
 
     Merger::Statistics stats;
-    RETURN_IF_ERROR(Merger::vmerge_rowsets(new_tablet, READER_ALTER_TABLE,
+    RETURN_IF_ERROR(Merger::vmerge_rowsets(new_tablet, ReaderType::READER_ALTER_TABLE,
                                            new_tablet->tablet_schema(), rs_readers, rowset_writer,
                                            &stats));
-
     _add_merged_rows(stats.merged_rows);
     _add_filtered_rows(stats.filtered_rows);
     return Status::OK();
 }
 
-SchemaChangeForInvertedIndex::SchemaChangeForInvertedIndex(
-        const std::vector<TOlapTableIndex>& alter_inverted_indexs,
-        const TabletSchemaSPtr& tablet_schema)
-        : _alter_inverted_indexs(alter_inverted_indexs), _tablet_schema(tablet_schema) {
-    _olap_data_convertor = std::make_unique<vectorized::OlapBlockDataConvertor>();
-}
-
-SchemaChangeForInvertedIndex::~SchemaChangeForInvertedIndex() {
-    VLOG_NOTICE << "~SchemaChangeForInvertedIndex()";
-    _inverted_index_builders.clear();
-    _index_metas.clear();
-    _olap_data_convertor.reset();
-}
-
-Status SchemaChangeForInvertedIndex::process(RowsetReaderSharedPtr rowset_reader,
-                                             RowsetWriter* rowset_writer,
-                                             TabletSharedPtr new_tablet,
-                                             TabletSharedPtr base_tablet,
-                                             TabletSchemaSPtr base_tablet_schema) {
-    Status res = Status::OK();
-    if (rowset_reader->rowset()->empty() || rowset_reader->rowset()->num_rows() == 0) {
-        return Status::OK();
-    }
-
-    // create inverted index writer
-    auto rowset_meta = rowset_reader->rowset()->rowset_meta();
-    std::string segment_dir = base_tablet->tablet_path();
-    auto fs = rowset_meta->fs();
-
-    // load segments
-    SegmentCacheHandle segment_cache_handle;
-    RETURN_NOT_OK(SegmentLoader::instance()->load_segments(
-            std::static_pointer_cast<BetaRowset>(rowset_reader->rowset()), &segment_cache_handle,
-            false));
-
-    for (auto& seg_ptr : segment_cache_handle.get_segments()) {
-        std::string segment_filename =
-                fmt::format("{}_{}.dat", rowset_meta->rowset_id().to_string(), seg_ptr->id());
-        std::vector<ColumnId> return_columns;
-        std::vector<std::pair<int64_t, int64_t>> inverted_index_writer_signs;
-        _olap_data_convertor->reserve(_alter_inverted_indexs.size());
-        // create inverted index writer
-        for (auto& inverted_index : _alter_inverted_indexs) {
-            DCHECK_EQ(inverted_index.columns.size(), 1);
-            auto index_id = inverted_index.index_id;
-            auto column_name = inverted_index.columns[0];
-            auto column_idx = _tablet_schema->field_index(column_name);
-            if (column_idx < 0) {
-                LOG(WARNING) << "referenced column was missing. "
-                             << "[column=" << column_name << " referenced_column=" << column_idx
-                             << "]";
-                return Status::Error<CE_CMD_PARAMS_ERROR>();
-            }
-            auto column = _tablet_schema->column(column_idx);
-            return_columns.emplace_back(column_idx);
-            _olap_data_convertor->add_column_data_convertor(column);
-
-            std::unique_ptr<Field> field(FieldFactory::create(column));
-            _index_metas.emplace_back(new TabletIndex());
-            _index_metas.back()->init_from_thrift(inverted_index, *_tablet_schema);
-            std::unique_ptr<segment_v2::InvertedIndexColumnWriter> inverted_index_builder;
-            try {
-                RETURN_IF_ERROR(segment_v2::InvertedIndexColumnWriter::create(
-                        field.get(), &inverted_index_builder, segment_filename, segment_dir,
-                        _index_metas.back().get(), fs));
-            } catch (const std::exception& e) {
-                LOG(WARNING) << "CLuceneError occured: " << e.what();
-                return Status::Error<IO_ERROR>();
-            }
-
-            if (inverted_index_builder) {
-                auto writer_sign = std::make_pair(seg_ptr->id(), index_id);
-                _inverted_index_builders.insert(
-                        std::make_pair(writer_sign, std::move(inverted_index_builder)));
-                inverted_index_writer_signs.push_back(writer_sign);
-            }
-        }
-
-        // create iterator for each segment
-        StorageReadOptions read_options;
-        OlapReaderStatistics stats;
-        read_options.stats = &stats;
-        read_options.tablet_schema = _tablet_schema;
-        std::unique_ptr<Schema> schema =
-                std::make_unique<Schema>(_tablet_schema->columns(), return_columns);
-        std::unique_ptr<RowwiseIterator> iter;
-        res = seg_ptr->new_iterator(*schema, read_options, &iter);
-        if (!res.ok()) {
-            LOG(WARNING) << "failed to create iterator[" << seg_ptr->id()
-                         << "]: " << res.to_string();
-            return Status::Error<ROWSET_READER_INIT>();
-        }
-
-        std::shared_ptr<vectorized::Block> block =
-                std::make_shared<vectorized::Block>(_tablet_schema->create_block(return_columns));
-        while (true) {
-            res = iter->next_batch(block.get());
-            if (!res.ok()) {
-                if (res.is<END_OF_FILE>()) {
-                    break;
-                }
-                RETURN_NOT_OK_LOG(
-                        res, "failed to read next block when schema change for inverted index.");
-            }
-
-            // write inverted index
-            if (_write_inverted_index(iter->data_id(), block.get()) != Status::OK()) {
-                res = Status::Error<SCHEMA_CHANGE_INFO_INVALID>();
-                LOG(WARNING) << "failed to write block.";
-                return res;
-            }
-            block->clear_column_data();
-        }
-
-        // finish write inverted index, flush data to compound file
-        for (auto& writer_sign : inverted_index_writer_signs) {
-            try {
-                if (_inverted_index_builders[writer_sign]) {
-                    _inverted_index_builders[writer_sign]->finish();
-                }
-            } catch (const std::exception& e) {
-                LOG(WARNING) << "CLuceneError occured: " << e.what();
-                return Status::Error<IO_ERROR>();
-            }
-        }
-
-        _olap_data_convertor->reset();
-    }
-
-    _inverted_index_builders.clear();
-    _index_metas.clear();
-
-    LOG(INFO) << "all row nums. source_rows=" << rowset_reader->rowset()->num_rows();
-    return res;
-}
-
-Status SchemaChangeForInvertedIndex::_add_nullable(
-        const std::string& column_name, const std::pair<int64_t, int64_t>& index_writer_sign,
-        Field* field, const uint8_t* null_map, const uint8_t** ptr, size_t num_rows) {
-    size_t offset = 0;
-    auto next_run_step = [&]() {
-        size_t step = 1;
-        for (auto i = offset + 1; i < num_rows; ++i) {
-            if (null_map[offset] == null_map[i]) {
-                step++;
-            } else {
-                break;
-            }
-        }
-        return step;
-    };
-
-    try {
-        do {
-            auto step = next_run_step();
-            if (null_map[offset]) {
-                RETURN_IF_ERROR(_inverted_index_builders[index_writer_sign]->add_nulls(step));
-            } else {
-                if (field->type() == FieldType::OLAP_FIELD_TYPE_ARRAY) {
-                    DCHECK(field->get_sub_field_count() == 1);
-                    const auto* col_cursor = reinterpret_cast<const CollectionValue*>(*ptr);
-                    RETURN_IF_ERROR(_inverted_index_builders[index_writer_sign]->add_array_values(
-                            field->get_sub_field(0)->size(), col_cursor, step));
-                } else {
-                    RETURN_IF_ERROR(_inverted_index_builders[index_writer_sign]->add_values(
-                            column_name, *ptr, step));
-                }
-            }
-            *ptr += field->size() * step;
-            offset += step;
-        } while (offset < num_rows);
-    } catch (const std::exception& e) {
-        LOG(WARNING) << "CLuceneError occured: " << e.what();
-        return Status::Error<IO_ERROR>();
-    }
-
-    return Status::OK();
-}
-
-Status SchemaChangeForInvertedIndex::_add_data(const std::string& column_name,
-                                               const std::pair<int64_t, int64_t>& index_writer_sign,
-                                               Field* field, const uint8_t** ptr, size_t num_rows) {
-    try {
-        if (field->type() == FieldType::OLAP_FIELD_TYPE_ARRAY) {
-            DCHECK(field->get_sub_field_count() == 1);
-            const auto* col_cursor = reinterpret_cast<const CollectionValue*>(*ptr);
-            RETURN_IF_ERROR(_inverted_index_builders[index_writer_sign]->add_array_values(
-                    field->get_sub_field(0)->size(), col_cursor, num_rows));
-        } else {
-            RETURN_IF_ERROR(_inverted_index_builders[index_writer_sign]->add_values(
-                    column_name, *ptr, num_rows));
-        }
-    } catch (const std::exception& e) {
-        LOG(WARNING) << "CLuceneError occured: " << e.what();
-        return Status::Error<IO_ERROR>();
-    }
-
-    return Status::OK();
-}
-
-Status SchemaChangeForInvertedIndex::_write_inverted_index(int32_t segment_idx,
-                                                           vectorized::Block* block) {
-    VLOG_DEBUG << "begin to write inverted index";
-    // converter block data
-    _olap_data_convertor->set_source_content(block, 0, block->rows());
-    int idx = 0;
-    for (auto& inverted_index : _alter_inverted_indexs) {
-        auto column_name = inverted_index.columns[0];
-        auto column_idx = _tablet_schema->field_index(column_name);
-        if (column_idx < 0) {
-            LOG(WARNING) << "referenced column was missing. "
-                         << "[column=" << column_name << " referenced_column=" << column_idx << "]";
-            return Status::Error<CE_CMD_PARAMS_ERROR>();
-        }
-        auto column = _tablet_schema->column(column_idx);
-        auto index_id = inverted_index.index_id;
-
-        auto converted_result = _olap_data_convertor->convert_column_data(idx++);
-        if (converted_result.first != Status::OK()) {
-            LOG(WARNING) << "failed to convert block, errcode: " << converted_result.first;
-            return converted_result.first;
-        }
-
-        auto writer_sign = std::make_pair(segment_idx, index_id);
-        std::unique_ptr<Field> field(FieldFactory::create(column));
-        const auto* ptr = (const uint8_t*)converted_result.second->get_data();
-        if (converted_result.second->get_nullmap()) {
-            RETURN_IF_ERROR(_add_nullable(column_name, writer_sign, field.get(),
-                                          converted_result.second->get_nullmap(), &ptr,
-                                          block->rows()));
-        } else {
-            RETURN_IF_ERROR(_add_data(column_name, writer_sign, field.get(), &ptr, block->rows()));
-        }
-    }
-    _olap_data_convertor->clear_source_content();
-
-    return Status::OK();
-}
-
 Status SchemaChangeHandler::process_alter_tablet_v2(const TAlterTabletReqV2& request) {
     if (!request.__isset.desc_tbl) {
-        return Status::Error<INVALID_ARGUMENT>().append(
+        return Status::Error<INVALID_ARGUMENT>(
                 "desc_tbl is not set. Maybe the FE version is not equal to the BE "
                 "version.");
     }
@@ -872,45 +648,19 @@ Status SchemaChangeHandler::process_alter_tablet_v2(const TAlterTabletReqV2& req
     TabletSharedPtr base_tablet =
             StorageEngine::instance()->tablet_manager()->get_tablet(request.base_tablet_id);
     if (base_tablet == nullptr) {
-        LOG(WARNING) << "fail to find base tablet. base_tablet=" << request.base_tablet_id;
-        return Status::Error<TABLE_NOT_FOUND>();
+        return Status::Error<TABLE_NOT_FOUND>("fail to find base tablet. base_tablet={}",
+                                              request.base_tablet_id);
     }
     // Lock schema_change_lock util schema change info is stored in tablet header
     std::unique_lock<std::mutex> schema_change_lock(base_tablet->get_schema_change_lock(),
                                                     std::try_to_lock);
     if (!schema_change_lock.owns_lock()) {
-        LOG(WARNING) << "failed to obtain schema change lock. "
-                     << "base_tablet=" << request.base_tablet_id;
-        return Status::Error<TRY_LOCK_FAILED>();
+        return Status::Error<TRY_LOCK_FAILED>("failed to obtain schema change lock. base_tablet={}",
+                                              request.base_tablet_id);
     }
 
     Status res = _do_process_alter_tablet_v2(request);
     LOG(INFO) << "finished alter tablet process, res=" << res;
-    return res;
-}
-
-Status SchemaChangeHandler::process_alter_inverted_index(const TAlterInvertedIndexReq& request) {
-    LOG(INFO) << "begin to do request alter inverted index: tablet_id=" << request.tablet_id
-              << ", schema_hash=" << request.schema_hash
-              << ", alter_version=" << request.alter_version;
-    TabletSharedPtr tablet =
-            StorageEngine::instance()->tablet_manager()->get_tablet(request.tablet_id);
-    if (tablet == nullptr) {
-        LOG(WARNING) << "fail to find tablet. tablet=" << request.tablet_id;
-        return Status::Error<TABLE_NOT_FOUND>();
-    }
-
-    // // Lock schema_change_lock util schema change info is stored in tablet header
-    // std::unique_lock<std::mutex> schema_change_lock(tablet->get_schema_change_lock(),
-    //                                                 std::try_to_lock);
-    // if (!schema_change_lock.owns_lock()) {
-    //     LOG(WARNING) << "failed to obtain schema change lock. "
-    //                  << "tablet=" << request.tablet_id;
-    //     return Status::Error<TRY_LOCK_FAILED>();
-    // }
-
-    Status res = _do_process_alter_inverted_index(tablet, request);
-    LOG(INFO) << "finished alter inverted index process, res=" << res;
     return res;
 }
 
@@ -927,17 +677,16 @@ Status SchemaChangeHandler::_do_process_alter_tablet_v2(const TAlterTabletReqV2&
     TabletSharedPtr base_tablet =
             StorageEngine::instance()->tablet_manager()->get_tablet(request.base_tablet_id);
     if (base_tablet == nullptr) {
-        LOG(WARNING) << "fail to find base tablet. base_tablet=" << request.base_tablet_id;
-        return Status::Error<TABLE_NOT_FOUND>();
+        return Status::Error<TABLE_NOT_FOUND>("fail to find base tablet. base_tablet={}",
+                                              request.base_tablet_id);
     }
 
     // new tablet has to exist
     TabletSharedPtr new_tablet =
             StorageEngine::instance()->tablet_manager()->get_tablet(request.new_tablet_id);
     if (new_tablet == nullptr) {
-        LOG(WARNING) << "fail to find new tablet."
-                     << " new_tablet=" << request.new_tablet_id;
-        return Status::Error<TABLE_NOT_FOUND>();
+        return Status::Error<TABLE_NOT_FOUND>("fail to find new tablet. new_tablet={}",
+                                              request.new_tablet_id);
     }
 
     // check if tablet's state is not_ready, if it is ready, it means the tablet already finished
@@ -957,11 +706,13 @@ Status SchemaChangeHandler::_do_process_alter_tablet_v2(const TAlterTabletReqV2&
 
     std::shared_lock base_migration_rlock(base_tablet->get_migration_lock(), std::try_to_lock);
     if (!base_migration_rlock.owns_lock()) {
-        return Status::Error<TRY_LOCK_FAILED>();
+        return Status::Error<TRY_LOCK_FAILED>(
+                "SchemaChangeHandler::_do_process_alter_tablet_v2 get lock failed");
     }
     std::shared_lock new_migration_rlock(new_tablet->get_migration_lock(), std::try_to_lock);
     if (!new_migration_rlock.owns_lock()) {
-        return Status::Error<TRY_LOCK_FAILED>();
+        return Status::Error<TRY_LOCK_FAILED>(
+                "SchemaChangeHandler::_do_process_alter_tablet_v2 get lock failed");
     }
 
     std::vector<Version> versions_to_be_changed;
@@ -969,7 +720,7 @@ Status SchemaChangeHandler::_do_process_alter_tablet_v2(const TAlterTabletReqV2&
     // reader_context is stack variables, it's lifetime should keep the same
     // with rs_readers
     RowsetReaderContext reader_context;
-    std::vector<RowsetReaderSharedPtr> rs_readers;
+    std::vector<RowSetSplits> rs_splits;
     // delete handlers for new tablet
     DeleteHandler delete_handler;
     std::vector<ColumnId> return_columns;
@@ -999,6 +750,7 @@ Status SchemaChangeHandler::_do_process_alter_tablet_v2(const TAlterTabletReqV2&
         std::lock_guard<std::mutex> base_tablet_lock(base_tablet->get_push_lock());
         std::lock_guard<std::mutex> new_tablet_lock(new_tablet->get_push_lock());
         std::lock_guard<std::shared_mutex> base_tablet_wlock(base_tablet->get_header_lock());
+        SCOPED_SIMPLE_TRACE_IF_TIMEOUT(TRACE_TABLET_LOCK_THRESHOLD);
         std::lock_guard<std::shared_mutex> new_tablet_wlock(new_tablet->get_header_lock());
 
         do {
@@ -1037,10 +789,9 @@ Status SchemaChangeHandler::_do_process_alter_tablet_v2(const TAlterTabletReqV2&
                     // we only can remove [7-9] from new tablet. If we add [X-10] to new tablet, it will has version
                     // cross: [X-10] [10-12].
                     // So, we should return OLAP_ERR_VERSION_ALREADY_MERGED for fast fail.
-                    LOG(WARNING) << "New tablet has a version " << pair.first
-                                 << " crossing base tablet's max_version="
-                                 << max_rowset->end_version();
-                    return Status::Error<VERSION_ALREADY_MERGED>();
+                    return Status::Error<VERSION_ALREADY_MERGED>(
+                            "New tablet has a version {} crossing base tablet's max_version={}",
+                            pair.first.to_string(), max_rowset->end_version());
                 }
             }
             std::vector<RowsetSharedPtr> empty_vec;
@@ -1061,12 +812,11 @@ Status SchemaChangeHandler::_do_process_alter_tablet_v2(const TAlterTabletReqV2&
             }
 
             // acquire data sources correspond to history versions
-            base_tablet->capture_rs_readers(versions_to_be_changed, &rs_readers);
-            if (rs_readers.empty()) {
-                LOG(WARNING) << "fail to acquire all data sources. "
-                             << "version_num=" << versions_to_be_changed.size()
-                             << ", data_source_num=" << rs_readers.size();
-                res = Status::Error<ALTER_DELTA_DOES_NOT_EXISTS>();
+            base_tablet->capture_rs_readers(versions_to_be_changed, &rs_splits);
+            if (rs_splits.empty()) {
+                res = Status::Error<ALTER_DELTA_DOES_NOT_EXISTS>(
+                        "fail to acquire all data sources. version_num={}, data_source_num={}",
+                        versions_to_be_changed.size(), rs_splits.size());
                 break;
             }
             auto& all_del_preds = base_tablet->delete_predicates();
@@ -1084,7 +834,7 @@ Status SchemaChangeHandler::_do_process_alter_tablet_v2(const TAlterTabletReqV2&
                 break;
             }
 
-            reader_context.reader_type = READER_ALTER_TABLE;
+            reader_context.reader_type = ReaderType::READER_ALTER_TABLE;
             reader_context.tablet_schema = base_tablet_schema;
             reader_context.need_ordered_result = true;
             reader_context.delete_handler = &delete_handler;
@@ -1094,8 +844,8 @@ Status SchemaChangeHandler::_do_process_alter_tablet_v2(const TAlterTabletReqV2&
             reader_context.batch_size = ALTER_TABLE_BATCH_SIZE;
             reader_context.delete_bitmap = &base_tablet->tablet_meta()->delete_bitmap();
             reader_context.version = Version(0, end_version);
-            for (auto& rs_reader : rs_readers) {
-                res = rs_reader->init(&reader_context);
+            for (auto& rs_split : rs_splits) {
+                res = rs_split.rs_reader->init(&reader_context);
                 if (!res) {
                     LOG(WARNING) << "failed to init rowset reader: " << base_tablet->full_name();
                     break;
@@ -1113,7 +863,10 @@ Status SchemaChangeHandler::_do_process_alter_tablet_v2(const TAlterTabletReqV2&
         DescriptorTbl::create(&sc_params.pool, request.desc_tbl, &sc_params.desc_tbl);
         sc_params.base_tablet = base_tablet;
         sc_params.new_tablet = new_tablet;
-        sc_params.ref_rowset_readers = rs_readers;
+        sc_params.ref_rowset_readers.reserve(rs_splits.size());
+        for (RowSetSplits& split : rs_splits) {
+            sc_params.ref_rowset_readers.emplace_back(split.rs_reader);
+        }
         sc_params.delete_handler = &delete_handler;
         sc_params.base_tablet_schema = base_tablet_schema;
         sc_params.be_exec_version = request.be_exec_version;
@@ -1199,7 +952,8 @@ Status SchemaChangeHandler::_do_process_alter_tablet_v2(const TAlterTabletReqV2&
             // step 3
             std::lock_guard<std::mutex> rwlock(new_tablet->get_rowset_update_lock());
             std::lock_guard<std::shared_mutex> new_wlock(new_tablet->get_header_lock());
-            int64_t new_max_version = new_tablet->max_version().second;
+            SCOPED_SIMPLE_TRACE_IF_TIMEOUT(TRACE_TABLET_LOCK_THRESHOLD);
+            int64_t new_max_version = new_tablet->max_version_unlocked().second;
             rowsets.clear();
             if (max_version < new_max_version) {
                 LOG(INFO)
@@ -1229,6 +983,7 @@ Status SchemaChangeHandler::_do_process_alter_tablet_v2(const TAlterTabletReqV2&
         } else {
             // set state to ready
             std::lock_guard<std::shared_mutex> new_wlock(new_tablet->get_header_lock());
+            SCOPED_SIMPLE_TRACE_IF_TIMEOUT(TRACE_TABLET_LOCK_THRESHOLD);
             res = new_tablet->set_tablet_state(TabletState::TABLET_RUNNING);
             if (!res) {
                 break;
@@ -1253,275 +1008,6 @@ Status SchemaChangeHandler::_do_process_alter_tablet_v2(const TAlterTabletReqV2&
     return res;
 }
 
-Status SchemaChangeHandler::_do_process_alter_inverted_index(
-        TabletSharedPtr tablet, const TAlterInvertedIndexReq& request) {
-    Status res = Status::OK();
-    // TODO(wy): check whether the tablet's max continuous version == request.version
-    if (tablet->tablet_state() == TABLET_TOMBSTONED || tablet->tablet_state() == TABLET_STOPPED ||
-        tablet->tablet_state() == TABLET_SHUTDOWN) {
-        LOG(WARNING) << "tablet's state=" << tablet->tablet_state()
-                     << " cannot alter inverted index";
-        return Status::Error<ErrorCode::INTERNAL_ERROR>();
-    }
-
-    std::shared_lock base_migration_rlock(tablet->get_migration_lock(), std::try_to_lock);
-    if (!base_migration_rlock.owns_lock()) {
-        return Status::Error<TRY_LOCK_FAILED>();
-    }
-
-    TabletSchemaSPtr tablet_schema = std::make_shared<TabletSchema>();
-    tablet_schema->copy_from(*tablet->tablet_schema());
-    if (!request.columns.empty() && request.columns[0].col_unique_id >= 0) {
-        tablet_schema->clear_columns();
-        for (const auto& column : request.columns) {
-            tablet_schema->append_column(TabletColumn(column));
-        }
-    }
-
-    // get rowset reader
-    std::vector<RowsetReaderSharedPtr> rs_readers;
-    RETURN_IF_ERROR(_get_rowset_readers(tablet, tablet_schema, request, &rs_readers));
-    if (request.__isset.is_drop_op && request.is_drop_op) {
-        // drop index
-        res = _drop_inverted_index(rs_readers, tablet_schema, tablet, request);
-    } else {
-        // add index
-        res = _add_inverted_index(rs_readers, tablet_schema, tablet, request);
-    }
-
-    if (!res.ok()) {
-        LOG(WARNING) << "failed to alter tablet. tablet=" << tablet->full_name();
-        return res;
-    }
-
-    return Status::OK();
-}
-
-Status SchemaChangeHandler::_get_rowset_readers(TabletSharedPtr tablet,
-                                                const TabletSchemaSPtr& tablet_schema,
-                                                const TAlterInvertedIndexReq& request,
-                                                std::vector<RowsetReaderSharedPtr>* rs_readers) {
-    Status res = Status::OK();
-    std::vector<Version> versions_to_be_changed;
-    std::vector<ColumnId> return_columns;
-    std::vector<TOlapTableIndex> alter_inverted_indexs;
-
-    if (request.__isset.alter_inverted_indexes) {
-        alter_inverted_indexs = request.alter_inverted_indexes;
-    }
-
-    for (auto& inverted_index : alter_inverted_indexs) {
-        DCHECK_EQ(inverted_index.columns.size(), 1);
-        auto column_name = inverted_index.columns[0];
-        auto idx = tablet_schema->field_index(column_name);
-        if (idx < 0) {
-            LOG(WARNING) << "referenced column was missing. "
-                         << "[column=" << column_name << " referenced_column=" << idx << "]";
-            return Status::Error<CE_CMD_PARAMS_ERROR>();
-        }
-        return_columns.emplace_back(idx);
-    }
-
-    // obtain base tablet's push lock and header write lock to prevent loading data
-    {
-        std::lock_guard<std::mutex> tablet_lock(tablet->get_push_lock());
-        std::lock_guard<std::shared_mutex> tablet_wlock(tablet->get_header_lock());
-
-        do {
-            RowsetSharedPtr max_rowset;
-            // get history data to rebuild inverted index and it will check if there is hold in base tablet
-            res = _get_versions_to_be_changed(tablet, &versions_to_be_changed, &max_rowset);
-            if (!res.ok()) {
-                LOG(WARNING) << "fail to get version to be rebuild inverted index. res=" << res;
-                break;
-            }
-
-            // should check the max_version >= request.alter_version, if not the rebuild index is useless
-            if (max_rowset == nullptr || max_rowset->end_version() < request.alter_version) {
-                LOG(WARNING) << "base tablet's max version="
-                             << (max_rowset == nullptr ? 0 : max_rowset->end_version())
-                             << " is less than request version=" << request.alter_version;
-                res = Status::InternalError(
-                        "base tablet's max version={} is less than request version={}",
-                        (max_rowset == nullptr ? 0 : max_rowset->end_version()),
-                        request.alter_version);
-                break;
-            }
-
-            // init one delete handler
-            int64_t end_version = -1;
-            for (auto& version : versions_to_be_changed) {
-                end_version = std::max(end_version, version.second);
-            }
-
-            auto& all_del_preds = tablet->delete_predicates();
-            for (auto& delete_pred : all_del_preds) {
-                if (delete_pred->version().first > end_version) {
-                    continue;
-                }
-                tablet_schema->merge_dropped_columns(tablet->tablet_schema(delete_pred->version()));
-            }
-            DeleteHandler delete_handler;
-            res = delete_handler.init(tablet_schema, all_del_preds, end_version);
-            if (!res) {
-                LOG(WARNING) << "init delete handler failed. tablet=" << tablet->full_name()
-                             << ", end_version=" << end_version;
-                break;
-            }
-
-            // acquire data sources correspond to history versions
-            tablet->capture_rs_readers(versions_to_be_changed, rs_readers);
-            if (rs_readers->size() < 1) {
-                LOG(WARNING) << "fail to acquire all data sources. "
-                             << "version_num=" << versions_to_be_changed.size()
-                             << ", data_source_num=" << rs_readers->size();
-                res = Status::Error<ALTER_DELTA_DOES_NOT_EXISTS>();
-                break;
-            }
-
-            // reader_context is stack variables, it's lifetime should keep the same with rs_readers
-            RowsetReaderContext reader_context;
-            reader_context.reader_type = READER_ALTER_TABLE;
-            reader_context.tablet_schema = tablet_schema;
-            reader_context.need_ordered_result = false;
-            reader_context.delete_handler = &delete_handler;
-            reader_context.return_columns = &return_columns;
-            reader_context.sequence_id_idx = reader_context.tablet_schema->sequence_col_idx();
-            reader_context.is_unique = tablet->keys_type() == UNIQUE_KEYS;
-            reader_context.batch_size = ALTER_TABLE_BATCH_SIZE;
-            reader_context.delete_bitmap = &tablet->tablet_meta()->delete_bitmap();
-            reader_context.version = Version(0, end_version);
-
-            for (auto& rs_reader : *rs_readers) {
-                res = rs_reader->init(&reader_context);
-                if (!res.ok()) {
-                    LOG(WARNING) << "failed to init rowset reader: " << tablet->full_name();
-                    break;
-                }
-            }
-        } while (false);
-    }
-
-    return res;
-}
-
-Status SchemaChangeHandler::_drop_inverted_index(std::vector<RowsetReaderSharedPtr> rs_readers,
-                                                 const TabletSchemaSPtr& tablet_schema,
-                                                 TabletSharedPtr tablet,
-                                                 const TAlterInvertedIndexReq& request) {
-    LOG(INFO) << "begin to drop inverted index";
-    Status res = Status::OK();
-
-    std::vector<TOlapTableIndex> alter_inverted_indexs;
-    if (request.__isset.alter_inverted_indexes) {
-        alter_inverted_indexs = request.alter_inverted_indexes;
-    }
-
-    for (auto& rs_reader : rs_readers) {
-        auto rowset_meta = rs_reader->rowset()->rowset_meta();
-        auto fs = rowset_meta->fs();
-        for (auto i = 0; i < rowset_meta->num_segments(); ++i) {
-            std::string segment_path = BetaRowset::segment_file_path(tablet->tablet_path(),
-                                                                     rowset_meta->rowset_id(), i);
-            for (auto& inverted_index : alter_inverted_indexs) {
-                auto column_name = inverted_index.columns[0];
-                auto column_idx = tablet_schema->field_index(column_name);
-                if (column_idx < 0) {
-                    LOG(WARNING) << "referenced column was missing. "
-                                 << "[column=" << column_name << " referenced_column=" << column_idx
-                                 << "]";
-                    return Status::Error<CE_CMD_PARAMS_ERROR>();
-                }
-                auto column = tablet_schema->column(column_idx);
-                auto index_id = inverted_index.index_id;
-
-                std::string inverted_index_file =
-                        InvertedIndexDescriptor::get_index_file_name(segment_path, index_id);
-                bool file_exist = false;
-                fs->exists(inverted_index_file, &file_exist);
-                if (!file_exist) {
-                    return Status::OK();
-                }
-                LOG(INFO) << "will drop inverted index cid: " << index_id
-                          << ", column_name: " << column_name
-                          << ", inverted_index_file: " << inverted_index_file;
-                res = fs->delete_file(inverted_index_file);
-                if (!res.ok()) {
-                    LOG(WARNING) << "failed to delete file: " << inverted_index_file
-                                 << ", res: " << res.to_string();
-                    return res;
-                }
-            }
-        }
-    }
-
-    return Status::OK();
-}
-
-Status SchemaChangeHandler::_add_inverted_index(std::vector<RowsetReaderSharedPtr> rs_readers,
-                                                const TabletSchemaSPtr& tablet_schema,
-                                                TabletSharedPtr tablet,
-                                                const TAlterInvertedIndexReq& request) {
-    LOG(INFO) << "begin to add inverted index, tablet=" << tablet->full_name();
-    Status res = Status::OK();
-    std::vector<TOlapTableIndex> alter_inverted_indexs;
-    if (request.__isset.alter_inverted_indexes) {
-        alter_inverted_indexs = request.alter_inverted_indexes;
-    }
-
-    {
-        std::lock_guard<std::shared_mutex> wrlock(_mutex);
-        _tablet_ids_in_converting.insert(tablet->tablet_id());
-    }
-
-    res = _rebuild_inverted_index(rs_readers, tablet_schema, tablet, alter_inverted_indexs);
-
-    {
-        std::lock_guard<std::shared_mutex> wrlock(_mutex);
-        _tablet_ids_in_converting.erase(tablet->tablet_id());
-    }
-
-    // if (res.ok()) {
-    //     // _validate_alter_result should be outside the above while loop.
-    //     // to avoid requiring the header lock twice.
-    //     res = _validate_alter_result(tablet, request);
-    // }
-
-    if (!res.ok()) {
-        LOG(WARNING) << "failed to alter add inverte index. tablet=" << tablet->full_name();
-    }
-    return res;
-}
-
-Status SchemaChangeHandler::_rebuild_inverted_index(
-        const std::vector<RowsetReaderSharedPtr>& rs_readers, const TabletSchemaSPtr& tablet_schema,
-        TabletSharedPtr tablet, const std::vector<TOlapTableIndex>& alter_inverted_indexs) {
-    LOG(INFO) << "begin to rebuild inverted index"
-              << ", tablet=" << tablet->full_name();
-    Status res = Status::OK();
-    auto sc_procedure =
-            std::make_unique<SchemaChangeForInvertedIndex>(alter_inverted_indexs, tablet_schema);
-    // read tablet data and write inverted index
-    for (auto& rs_reader : rs_readers) {
-        VLOG_TRACE << "begin to read a history rowset. version=" << rs_reader->version().first
-                   << "-" << rs_reader->version().second;
-        res = sc_procedure->process(rs_reader, nullptr, nullptr, tablet, nullptr);
-        if (!res.ok() && res.code() != ErrorCode::END_OF_FILE) {
-            LOG(WARNING) << "failed to process the version."
-                         << " version=" << rs_reader->version().first << "-"
-                         << rs_reader->version().second;
-            return res;
-        }
-
-        VLOG_TRACE << "succeed to write inverted index."
-                   << " version=" << rs_reader->version().first << "-"
-                   << rs_reader->version().second;
-    }
-
-    LOG(INFO) << "finish to write inverted index to tablet: " << tablet->full_name();
-    return Status::OK();
-}
-
 bool SchemaChangeHandler::tablet_in_converting(int64_t tablet_id) {
     std::shared_lock rdlock(_mutex);
     return _tablet_ids_in_converting.find(tablet_id) != _tablet_ids_in_converting.end();
@@ -1532,13 +1018,13 @@ Status SchemaChangeHandler::_get_versions_to_be_changed(
         RowsetSharedPtr* max_rowset) {
     RowsetSharedPtr rowset = base_tablet->rowset_with_max_version();
     if (rowset == nullptr) {
-        LOG(WARNING) << "Tablet has no version. base_tablet=" << base_tablet->full_name();
-        return Status::Error<ALTER_DELTA_DOES_NOT_EXISTS>();
+        return Status::Error<ALTER_DELTA_DOES_NOT_EXISTS>("Tablet has no version. base_tablet={}",
+                                                          base_tablet->full_name());
     }
     *max_rowset = rowset;
 
-    RETURN_NOT_OK(base_tablet->capture_consistent_versions(Version(0, rowset->version().second),
-                                                           versions_to_be_changed));
+    RETURN_IF_ERROR(base_tablet->capture_consistent_versions(Version(0, rowset->version().second),
+                                                             versions_to_be_changed));
 
     return Status::OK();
 }
@@ -1574,6 +1060,7 @@ Status SchemaChangeHandler::_convert_historical_rowsets(const SchemaChangeParams
         {
             // save tablet meta here because rowset meta is not saved during add rowset
             std::lock_guard<std::shared_mutex> new_wlock(sc_params.new_tablet->get_header_lock());
+            SCOPED_SIMPLE_TRACE_IF_TIMEOUT(TRACE_TABLET_LOCK_THRESHOLD);
             sc_params.new_tablet->save_meta();
         }
         if (res) {
@@ -1620,9 +1107,11 @@ Status SchemaChangeHandler::_convert_historical_rowsets(const SchemaChangeParams
         context.tablet_schema = new_tablet->tablet_schema();
         context.newest_write_timestamp = rs_reader->newest_write_timestamp();
         context.fs = rs_reader->rowset()->rowset_meta()->fs();
+        context.write_type = DataWriteType::TYPE_SCHEMA_CHANGE;
         Status status = new_tablet->create_rowset_writer(context, &rowset_writer);
         if (!status.ok()) {
-            res = Status::Error<ROWSET_BUILDER_INIT>();
+            res = Status::Error<ROWSET_BUILDER_INIT>("create_rowset_writer failed, reason={}",
+                                                     status.to_string());
             return process_alter_exit();
         }
 
@@ -1693,7 +1182,7 @@ Status SchemaChangeHandler::_parse_request(const SchemaChangeParams& sc_params,
     for (int i = 0, new_schema_size = new_tablet->tablet_schema()->num_columns();
          i < new_schema_size; ++i) {
         const TabletColumn& new_column = new_tablet->tablet_schema()->column(i);
-        const string& column_name = new_column.name();
+        const std::string& column_name = new_column.name();
         ColumnMapping* column_mapping = changer->get_mutable_column_mapping(i);
         column_mapping->new_column = &new_column;
 
@@ -1705,10 +1194,9 @@ Status SchemaChangeHandler::_parse_request(const SchemaChangeParams& sc_params,
                 column_mapping->ref_column = column_index;
                 continue;
             } else if (sc_params.alter_tablet_type != ROLLUP) {
-                LOG(WARNING) << fmt::format(
+                return Status::Error<CE_CMD_PARAMS_ERROR>(
                         "referenced column was missing. [column={} ,origin_column={}]", column_name,
                         mvParam.origin_column_name);
-                return Status::Error<CE_CMD_PARAMS_ERROR>();
             }
         }
 
@@ -1718,6 +1206,11 @@ Status SchemaChangeHandler::_parse_request(const SchemaChangeParams& sc_params,
             continue;
         }
 
+        if (column_name.find("__doris_shadow_") == 0) {
+            // Should delete in the future, just a protection for bug.
+            LOG(INFO) << "a shadow column is encountered " << column_name;
+            return Status::InternalError("failed due to operate on shadow column");
+        }
         // Newly added column go here
         column_mapping->ref_column = -1;
 
@@ -1727,8 +1220,9 @@ Status SchemaChangeHandler::_parse_request(const SchemaChangeParams& sc_params,
         RETURN_IF_ERROR(
                 _init_column_mapping(column_mapping, new_column, new_column.default_value()));
 
-        VLOG_TRACE << "A column with default value will be added after schema changing. "
-                   << "column=" << column_name << ", default_value=" << new_column.default_value();
+        LOG(INFO) << "A column with default value will be added after schema changing. "
+                  << "column=" << column_name << ", default_value=" << new_column.default_value()
+                  << " to table " << new_tablet->get_table_id();
     }
 
     if (materialized_function_map.count(WHERE_SIGN)) {
@@ -1775,6 +1269,12 @@ Status SchemaChangeHandler::_parse_request(const SchemaChangeParams& sc_params,
         // is less, which means the data in new tablet should be more aggregated.
         // so we use sorting schema change to sort and merge the data.
         *sc_sorting = true;
+        return Status::OK();
+    }
+
+    if (new_tablet->enable_unique_key_merge_on_write() &&
+        new_tablet->num_key_columns() > base_tablet_schema->num_key_columns()) {
+        *sc_directly = true;
         return Status::OK();
     }
 
@@ -1837,7 +1337,7 @@ Status SchemaChangeHandler::_init_column_mapping(ColumnMapping* column_mapping,
     column_mapping->default_value = WrapperField::create(column_schema);
 
     if (column_mapping->default_value == nullptr) {
-        return Status::Error<MEM_ALLOC_FAILED>();
+        return Status::Error<MEM_ALLOC_FAILED>("column_mapping->default_value is nullptr");
     }
 
     if (column_schema.is_nullable() && value.length() == 0) {
@@ -1870,7 +1370,8 @@ Status SchemaChangeHandler::_validate_alter_result(TabletSharedPtr new_tablet,
     for (auto& pair : version_rowsets) {
         RowsetSharedPtr rowset = pair.second;
         if (!rowset->check_file_exist()) {
-            return Status::Error<FILE_NOT_EXIST>();
+            return Status::Error<FILE_NOT_EXIST>(
+                    "SchemaChangeHandler::_validate_alter_result meet invalid rowset");
         }
     }
     return Status::OK();

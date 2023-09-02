@@ -22,6 +22,7 @@ import org.apache.doris.common.DdlException;
 import org.apache.doris.datasource.credentials.CloudCredential;
 import org.apache.doris.datasource.credentials.CloudCredentialWithEndpoint;
 import org.apache.doris.datasource.credentials.DataLakeAWSCredentialsProvider;
+import org.apache.doris.datasource.property.PropertyConverter;
 import org.apache.doris.thrift.TS3StorageParam;
 
 import com.amazonaws.auth.EnvironmentVariableCredentialsProvider;
@@ -57,6 +58,8 @@ public class S3Properties extends BaseProperties {
     public static final String VALIDITY_CHECK = "s3_validity_check";
     public static final List<String> REQUIRED_FIELDS = Arrays.asList(ENDPOINT, ACCESS_KEY, SECRET_KEY);
     public static final List<String> TVF_REQUIRED_FIELDS = Arrays.asList(ACCESS_KEY, SECRET_KEY);
+    public static final List<String> FS_KEYS = Arrays.asList(ENDPOINT, REGION, ACCESS_KEY, SECRET_KEY, SESSION_TOKEN,
+            ROOT_PATH, BUCKET, MAX_CONNECTIONS, REQUEST_TIMEOUT_MS, CONNECTION_TIMEOUT_MS);
 
     public static final List<String> AWS_CREDENTIALS_PROVIDERS = Arrays.asList(
             DataLakeAWSCredentialsProvider.class.getName(),
@@ -113,7 +116,7 @@ public class S3Properties extends BaseProperties {
             throw new IllegalArgumentException("Missing 'AWS_ENDPOINT' property. ");
         }
         String endpoint = props.get(Env.ENDPOINT);
-        String region = props.getOrDefault(S3Properties.REGION, S3Properties.getRegionOfEndpoint(endpoint));
+        String region = props.getOrDefault(Env.REGION, S3Properties.getRegionOfEndpoint(endpoint));
         return new CloudCredentialWithEndpoint(endpoint, region, credential);
     }
 
@@ -121,6 +124,10 @@ public class S3Properties extends BaseProperties {
         String[] endpointSplit = endpoint.split("\\.");
         if (endpointSplit.length < 2) {
             return null;
+        }
+        if (endpointSplit[0].contains("oss-")) {
+            // compatible with the endpoint: oss-cn-bejing.aliyuncs.com
+            return endpointSplit[0];
         }
         return endpointSplit[1];
     }
@@ -131,11 +138,17 @@ public class S3Properties extends BaseProperties {
             if (entry.getKey().startsWith(OssProperties.OSS_PREFIX)) {
                 String s3Key = entry.getKey().replace(OssProperties.OSS_PREFIX, S3Properties.S3_PREFIX);
                 s3Properties.put(s3Key, entry.getValue());
-            } else if (entry.getKey().startsWith(CosProperties.COS_PREFIX)) {
+            } else if (entry.getKey().startsWith(GCSProperties.GCS_PREFIX)) {
+                String s3Key = entry.getKey().replace(GCSProperties.GCS_PREFIX, S3Properties.S3_PREFIX);
+                s3Properties.put(s3Key, entry.getValue());
+            }  else if (entry.getKey().startsWith(CosProperties.COS_PREFIX)) {
                 String s3Key = entry.getKey().replace(CosProperties.COS_PREFIX, S3Properties.S3_PREFIX);
                 s3Properties.put(s3Key, entry.getValue());
             } else if (entry.getKey().startsWith(ObsProperties.OBS_PREFIX)) {
                 String s3Key = entry.getKey().replace(ObsProperties.OBS_PREFIX, S3Properties.S3_PREFIX);
+                s3Properties.put(s3Key, entry.getValue());
+            } else if (entry.getKey().startsWith(MinioProperties.MINIO_PREFIX)) {
+                String s3Key = entry.getKey().replace(MinioProperties.MINIO_PREFIX, S3Properties.S3_PREFIX);
                 s3Properties.put(s3Key, entry.getValue());
             }
         }
@@ -158,7 +171,8 @@ public class S3Properties extends BaseProperties {
         // Try to convert env properties to uniform properties
         // compatible with old version
         S3Properties.convertToStdProperties(properties);
-        if (properties.containsKey(S3Properties.Env.ENDPOINT)) {
+        if (properties.containsKey(S3Properties.Env.ENDPOINT)
+                    && !properties.containsKey(S3Properties.ENDPOINT)) {
             for (String field : S3Properties.Env.REQUIRED_FIELDS) {
                 checkRequiredProperty(properties, field);
             }
@@ -193,10 +207,18 @@ public class S3Properties extends BaseProperties {
     }
 
     public static void convertToStdProperties(Map<String, String> properties) {
-        properties.putIfAbsent(S3Properties.ENDPOINT, properties.get(S3Properties.Env.ENDPOINT));
-        properties.putIfAbsent(S3Properties.REGION, properties.get(S3Properties.Env.REGION));
-        properties.putIfAbsent(S3Properties.ACCESS_KEY, properties.get(S3Properties.Env.ACCESS_KEY));
-        properties.putIfAbsent(S3Properties.SECRET_KEY, properties.get(S3Properties.Env.SECRET_KEY));
+        if (properties.containsKey(S3Properties.Env.ENDPOINT)) {
+            properties.putIfAbsent(S3Properties.ENDPOINT, properties.get(S3Properties.Env.ENDPOINT));
+        }
+        if (properties.containsKey(S3Properties.Env.REGION)) {
+            properties.putIfAbsent(S3Properties.REGION, properties.get(S3Properties.Env.REGION));
+        }
+        if (properties.containsKey(S3Properties.Env.ACCESS_KEY)) {
+            properties.putIfAbsent(S3Properties.ACCESS_KEY, properties.get(S3Properties.Env.ACCESS_KEY));
+        }
+        if (properties.containsKey(S3Properties.Env.SECRET_KEY)) {
+            properties.putIfAbsent(S3Properties.SECRET_KEY, properties.get(S3Properties.Env.SECRET_KEY));
+        }
         if (properties.containsKey(S3Properties.Env.TOKEN)) {
             properties.putIfAbsent(S3Properties.SESSION_TOKEN, properties.get(S3Properties.Env.TOKEN));
         }
@@ -218,6 +240,9 @@ public class S3Properties extends BaseProperties {
         if (properties.containsKey(S3Properties.Env.BUCKET)) {
             properties.putIfAbsent(S3Properties.BUCKET, properties.get(S3Properties.Env.BUCKET));
         }
+        if (properties.containsKey(PropertyConverter.USE_PATH_STYLE)) {
+            properties.putIfAbsent(PropertyConverter.USE_PATH_STYLE, properties.get(PropertyConverter.USE_PATH_STYLE));
+        }
     }
 
     public static TS3StorageParam getS3TStorageParam(Map<String, String> properties) {
@@ -238,6 +263,8 @@ public class S3Properties extends BaseProperties {
         String connTimeoutMs = properties.get(S3Properties.CONNECTION_TIMEOUT_MS);
         s3Info.setMaxConn(Integer.parseInt(connTimeoutMs == null
                 ? S3Properties.Env.DEFAULT_CONNECTION_TIMEOUT_MS : connTimeoutMs));
+        String usePathStyle = properties.getOrDefault(PropertyConverter.USE_PATH_STYLE, "false");
+        s3Info.setUsePathStyle(Boolean.parseBoolean(usePathStyle));
         return s3Info;
     }
 }

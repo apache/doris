@@ -81,7 +81,7 @@ RENAME COLUMN old_column_name new_column_name;
 ```
 
 Notice:
-- Currently only tables with column unique id are supported, which are created with property 'light_schema_change'.
+- Currently only tables of the unique model are supported, which are created with property 'light_schema_change=true'.
 
 
 ### Example

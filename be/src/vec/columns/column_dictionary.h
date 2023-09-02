@@ -288,7 +288,9 @@ public:
     }
 
     uint32_t get_hash_value(uint32_t idx) const { return _dict.get_hash_value(_codes[idx], _type); }
-
+    uint32_t get_crc32_hash_value(uint32_t idx) const {
+        return _dict.get_crc32_hash_value(_codes[idx], _type);
+    }
     template <typename HybridSetType>
     void find_codes(const HybridSetType* values, std::vector<vectorized::UInt8>& selected) const {
         return _dict.find_codes(values, selected);
@@ -302,7 +304,13 @@ public:
         return _rowset_segment_id;
     }
 
+    void replicate(const uint32_t* indexs, size_t target_size, IColumn& column) const override {
+        LOG(FATAL) << "not support";
+    }
+
     bool is_dict_sorted() const { return _dict_sorted; }
+
+    bool is_dict_empty() const { return _dict.empty(); }
 
     bool is_dict_code_converted() const { return _dict_code_converted; }
 
@@ -310,7 +318,16 @@ public:
         if (is_dict_sorted() && !is_dict_code_converted()) {
             convert_dict_codes_if_necessary();
         }
-        auto res = vectorized::PredicateColumnType<TYPE_STRING>::create();
+        // if type is OLAP_FIELD_TYPE_CHAR, we need to construct TYPE_CHAR PredicateColumnType,
+        // because the string length will different from varchar and string which needed to be processed after.
+        auto create_column = [this]() -> MutableColumnPtr {
+            if (_type == FieldType::OLAP_FIELD_TYPE_CHAR) {
+                return vectorized::PredicateColumnType<TYPE_CHAR>::create();
+            }
+            return vectorized::PredicateColumnType<TYPE_STRING>::create();
+        };
+
+        auto res = create_column();
         res->reserve(_codes.capacity());
         for (size_t i = 0; i < _codes.size(); ++i) {
             auto& code = reinterpret_cast<T&>(_codes[i]);
@@ -342,7 +359,7 @@ public:
 
         void reserve(size_t n) { _dict_data->reserve(n); }
 
-        void insert_value(StringRef& value) {
+        void insert_value(const StringRef& value) {
             _dict_data->push_back_without_reserve(value);
             _total_str_len += value.size;
         }
@@ -390,6 +407,31 @@ public:
                     len = strnlen(sv.data, sv.size);
                 }
                 uint32_t hash_val = HashUtil::murmur_hash3_32(sv.data, len, 0);
+                _hash_values[code] = hash_val;
+                _compute_hash_value_flags[code] = 1;
+                return _hash_values[code];
+            }
+        }
+
+        inline uint32_t get_crc32_hash_value(T code, FieldType type) const {
+            if (_compute_hash_value_flags[code]) {
+                return _hash_values[code];
+            } else {
+                auto& sv = (*_dict_data)[code];
+                // The char data is stored in the disk with the schema length,
+                // and zeros are filled if the length is insufficient
+
+                // When reading data, use shrink_char_type_column_suffix_zero(_char_type_idx)
+                // Remove the suffix 0
+                // When writing data, use the CharField::consume function to fill in the trailing 0.
+
+                // For dictionary data of char type, sv.size is the schema length,
+                // so use strnlen to remove the 0 at the end to get the actual length.
+                int32_t len = sv.size;
+                if (type == FieldType::OLAP_FIELD_TYPE_CHAR) {
+                    len = strnlen(sv.data, sv.size);
+                }
+                uint32_t hash_val = HashUtil::crc_hash(sv.data, len, 0);
                 _hash_values[code] = hash_val;
                 _compute_hash_value_flags[code] = 1;
                 return _hash_values[code];
@@ -480,7 +522,7 @@ public:
 
         size_t byte_size() { return _dict_data->size() * sizeof((*_dict_data)[0]); }
 
-        bool empty() { return _dict_data->empty(); }
+        bool empty() const { return _dict_data->empty(); }
 
         size_t avg_str_len() { return empty() ? 0 : _total_str_len / _dict_data->size(); }
 
@@ -506,7 +548,6 @@ public:
         }
 
     private:
-        StringRef _null_value = StringRef();
         StringRef::Comparator _comparator;
         // dict code -> dict value
         std::unique_ptr<DictContainer> _dict_data;

@@ -64,9 +64,15 @@ struct MultiplyImpl {
         }
 
         for (int i = 0; i < size; i++) {
-            c[i] = (DecimalV2Value(a[i]).value() * DecimalV2Value(b[i]).value() - sgn[i]) /
-                           DecimalV2Value::ONE_BILLION +
-                   sgn[i];
+            int128_t i128_mul_result;
+            if (common::mul_overflow(DecimalV2Value(a[i]).value(), DecimalV2Value(b[i]).value(),
+                                     i128_mul_result)) {
+                VLOG_DEBUG << "Decimal multiply overflow";
+                c[i] = (sgn[i] == -1) ? -DecimalV2Value::MAX_DECIMAL_VALUE
+                                      : DecimalV2Value::MAX_DECIMAL_VALUE;
+            } else {
+                c[i] = (i128_mul_result - sgn[i]) / DecimalV2Value::ONE_BILLION + sgn[i];
+            }
         }
     }
 

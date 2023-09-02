@@ -16,6 +16,10 @@
 // under the License.
 
 suite("test_colocate_join") {
+
+    // this case check explain, so we disable nereids
+    sql """set enable_nereids_planner=false"""
+
     def db1 = "test_colocate_join_db1"
     def db2 = "test_colocate_join_db2"
     sql """ drop database if exists ${db1}"""
@@ -212,7 +216,7 @@ suite("test_colocate_join") {
             (20220101, 101, 202, 200, 100);"""
 
     explain {
-        sql("select /*+SET_VAR(parallel_fragment_exec_instance_num=1)*/ " +
+        sql("select /*+SET_VAR(parallel_fragment_exec_instance_num=1,parallel_pipeline_task_num=1)*/ " +
                 " sum_col1,sum_col2 " +
                 "from " +
                 "(select datekey,sum(sum_col1) as sum_col1  from test_query_colocate where datekey=20220101 group by datekey) t1 " +

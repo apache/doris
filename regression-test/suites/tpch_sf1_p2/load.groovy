@@ -108,6 +108,8 @@ suite("load") {
                 assertTrue(json.NumberLoadedRows > 0 && json.LoadBytes > 0)
             }
         }
+
+        sql """ ANALYZE TABLE $tableName WITH SYNC """
     }
 
     def table = "revenue1"
@@ -116,4 +118,6 @@ suite("load") {
     // We need wait to make sure BE could pass the stats info to FE so that
     // avoid unnessary inconsistent generated plan which would cause the regression test fail
     sleep(60000)
+
+    sql """ sync """
 }

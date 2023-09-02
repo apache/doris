@@ -18,16 +18,20 @@
 #pragma once
 
 #include "common/status.h"
-#include "http/http_handler.h"
+#include "http/http_handler_with_auth.h"
+#include "http/http_request.h"
 #include "olap/tablet.h"
 
 namespace doris {
 class HttpRequest;
 struct Version;
 
-class PadRowsetAction : public HttpHandler {
+class ExecEnv;
+
+class PadRowsetAction : public HttpHandlerWithAuth {
 public:
-    PadRowsetAction() = default;
+    PadRowsetAction(ExecEnv* exec_env, TPrivilegeHier::type hier, TPrivilegeType::type type)
+            : HttpHandlerWithAuth(exec_env, hier, type) {}
 
     ~PadRowsetAction() override = default;
 

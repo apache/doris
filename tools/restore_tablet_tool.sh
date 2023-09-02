@@ -86,7 +86,6 @@ while true; do
         ;;
     -h | --help)
         usage
-        shift
         ;;
     --)
         shift

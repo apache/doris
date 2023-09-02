@@ -38,12 +38,14 @@ class ColumnString;
 namespace doris::vectorized {
 
 class VExplodeSplitTableFunction final : public TableFunction {
+    ENABLE_FACTORY_CREATOR(VExplodeSplitTableFunction);
+
 public:
     VExplodeSplitTableFunction();
     ~VExplodeSplitTableFunction() override = default;
 
     Status open() override;
-    Status process_init(Block* block) override;
+    Status process_init(Block* block, RuntimeState* state) override;
     Status process_row(size_t row_idx) override;
     Status process_close() override;
     void get_value(MutableColumnPtr& column) override;

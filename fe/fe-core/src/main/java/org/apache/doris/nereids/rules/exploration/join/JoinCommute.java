@@ -37,19 +37,23 @@ import java.util.List;
  */
 public class JoinCommute extends OneExplorationRuleFactory {
 
-    public static final JoinCommute LEFT_DEEP = new JoinCommute(SwapType.LEFT_DEEP);
-    public static final JoinCommute ZIG_ZAG = new JoinCommute(SwapType.ZIG_ZAG);
-    public static final JoinCommute BUSHY = new JoinCommute(SwapType.BUSHY);
+    public static final JoinCommute LEFT_DEEP = new JoinCommute(SwapType.LEFT_DEEP, false);
+    public static final JoinCommute ZIG_ZAG = new JoinCommute(SwapType.ZIG_ZAG, false);
+    public static final JoinCommute BUSHY = new JoinCommute(SwapType.BUSHY, false);
+    public static final JoinCommute NON_INNER = new JoinCommute(SwapType.BUSHY, true);
 
     private final SwapType swapType;
+    private final boolean justNonInner;
 
-    public JoinCommute(SwapType swapType) {
+    public JoinCommute(SwapType swapType, boolean justNonInner) {
         this.swapType = swapType;
+        this.justNonInner = justNonInner;
     }
 
     @Override
     public Rule build() {
         return logicalJoin()
+                .when(join -> !justNonInner || !join.getJoinType().isInnerJoin())
                 .when(join -> check(swapType, join))
                 .whenNot(LogicalJoin::hasJoinHint)
                 .whenNot(join -> joinOrderMatchBitmapRuntimeFilterOrder(join))

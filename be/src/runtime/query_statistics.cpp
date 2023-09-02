@@ -23,7 +23,7 @@
 namespace doris {
 
 void NodeStatistics::merge(const NodeStatistics& other) {
-    peak_memory_bytes += other.peak_memory_bytes;
+    peak_memory_bytes = std::max(other.peak_memory_bytes, peak_memory_bytes);
 }
 
 void NodeStatistics::to_pb(PNodeStatistics* node_statistics) {
@@ -72,13 +72,13 @@ void QueryStatistics::from_pb(const PQueryStatistics& statistics) {
 }
 
 int64_t QueryStatistics::calculate_max_peak_memory_bytes() {
-    int64_t max_peak_memory_bytes = 0;
+    int64_t max_peak_memory = 0;
     for (auto iter = _nodes_statistics_map.begin(); iter != _nodes_statistics_map.end(); ++iter) {
-        if (max_peak_memory_bytes < iter->second->peak_memory_bytes) {
-            max_peak_memory_bytes = iter->second->peak_memory_bytes;
+        if (max_peak_memory < iter->second->peak_memory_bytes) {
+            max_peak_memory = iter->second->peak_memory_bytes;
         }
     }
-    return max_peak_memory_bytes;
+    return max_peak_memory;
 }
 
 void QueryStatistics::merge(QueryStatisticsRecvr* recvr) {

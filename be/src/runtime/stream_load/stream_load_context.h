@@ -31,10 +31,13 @@
 #include <utility>
 #include <vector>
 
+#include "common/config.h"
+#include "common/logging.h"
 #include "common/status.h"
 #include "common/utils.h"
 #include "runtime/exec_env.h"
 #include "runtime/stream_load/stream_load_executor.h"
+#include "util/byte_buffer.h"
 #include "util/time.h"
 #include "util/uid_util.h"
 
@@ -87,6 +90,8 @@ public:
 class MessageBodySink;
 
 class StreamLoadContext {
+    ENABLE_FACTORY_CREATOR(StreamLoadContext);
+
 public:
     StreamLoadContext(ExecEnv* exec_env) : id(UniqueId::gen_uid()), _exec_env(exec_env) {
         start_millis = UnixMillis();
@@ -155,6 +160,10 @@ public:
 
     int64_t txn_id = -1;
 
+    // http stream
+    bool need_schema = false;
+    bool is_read_schema = true;
+
     std::string txn_operation = "";
 
     bool need_rollback = false;
@@ -167,7 +176,10 @@ public:
     std::shared_ptr<MessageBodySink> body_sink;
     std::shared_ptr<io::StreamLoadPipe> pipe;
 
+    ByteBufferPtr schema_buffer = ByteBuffer::allocate(config::stream_tvf_buffer_size);
+
     TStreamLoadPutResult put_result;
+    TStreamLoadMultiTablePutResult multi_table_put_result;
 
     std::vector<TTabletCommitInfo> commit_infos;
 
@@ -207,6 +219,12 @@ public:
 
     // csv with header type
     std::string header_type = "";
+
+    // is this load single-stream-multi-table?
+    bool is_multi_table = false;
+
+    // for single-stream-multi-table, we have table list
+    std::vector<std::string> table_list;
 
 public:
     ExecEnv* exec_env() { return _exec_env; }

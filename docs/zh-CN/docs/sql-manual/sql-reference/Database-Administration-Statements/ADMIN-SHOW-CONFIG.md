@@ -51,11 +51,11 @@ ADMIN SHOW CONFIG
 
 ### Example
 
- 1. 查看当前FE节点的配置
+1. 查看当前FE节点的配置
 
-        ```sql
-        ADMIN SHOW FRONTEND CONFIG;
-        ```
+   ```sql
+   ADMIN SHOW FRONTEND CONFIG;
+   ```
 
 2. 使用like谓词搜索当前Fe节点的配置
 

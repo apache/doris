@@ -50,6 +50,26 @@ CREATE TABLE doris_test.type
 ENGINE = MergeTree
 ORDER BY k1;
 
+CREATE TABLE doris_test.number
+(
+    `k6`  Float32,
+    `k7`  Float64,
+    `k8`  Int8,
+    `k9`  Int16,
+    `k10` Int32,
+    `k11` Int64,
+    `k12` Int128,
+    `k13` Int256,
+    `k14` UInt8,
+    `k15` UInt16,
+    `k16` UInt32,
+    `k17` UInt64,
+    `k18` UInt128,
+    `k19` UInt256
+)
+    ENGINE = MergeTree
+ORDER BY k6;
+
 
 
 CREATE TABLE doris_test.student
@@ -93,4 +113,21 @@ CREATE TABLE doris_test.arr
     `arr27` Array(Datetime64)
 )
 ENGINE = MergeTree
-ORDER BY id
+ORDER BY id;
+
+set allow_experimental_object_type = 1;
+CREATE TABLE doris_test.json
+(
+    `id` String,
+    `o` JSON
+)
+ENGINE = MergeTree
+ORDER BY id;
+
+CREATE TABLE doris_test.final_test
+(
+    key Int64,
+    some String
+)
+    ENGINE = ReplacingMergeTree
+ORDER BY key;

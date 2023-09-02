@@ -51,6 +51,9 @@ namespace doris::vectorized {
 struct AggregateFunctionHLLData {
     HyperLogLog dst_hll {};
 
+    AggregateFunctionHLLData() = default;
+    ~AggregateFunctionHLLData() = default;
+
     void merge(const AggregateFunctionHLLData& rhs) { dst_hll.merge(rhs.dst_hll); }
 
     void write(BufferWritable& buf) const {
@@ -73,7 +76,7 @@ struct AggregateFunctionHLLData {
     void reset() { dst_hll.clear(); }
 
     void add(const IColumn* column, size_t row_num) {
-        const auto& sources = static_cast<const ColumnHLL&>(*column);
+        const auto& sources = assert_cast<const ColumnHLL&>(*column);
         dst_hll.merge(sources.get_element(row_num));
     }
 };

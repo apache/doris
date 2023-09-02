@@ -59,7 +59,6 @@ public:
 
     size_t get_number_of_arguments() const override { return 1; }
     bool use_default_implementation_for_nulls() const override { return false; }
-    bool use_default_implementation_for_constants() const override { return true; }
     ColumnNumbers get_arguments_that_dont_imply_nullable_return_type(
             size_t /*number_of_arguments*/) const override {
         return {0};

@@ -16,14 +16,32 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include <gtest/gtest.h>
+#include "vec/data_types/serde/data_type_serde.h"
 
+#include <gen_cpp/types.pb.h>
+#include <gtest/gtest-message.h>
+#include <gtest/gtest-test-part.h>
+#include <math.h>
+#include <stdlib.h>
+#include <time.h>
+
+#include <iostream>
 #include <memory>
 #include <string>
+#include <vector>
 
+#include "gtest/gtest_pred_impl.h"
+#include "olap/hll.h"
+#include "util/bitmap_value.h"
+#include "util/quantile_state.h"
+#include "vec/columns/column.h"
 #include "vec/columns/column_complex.h"
 #include "vec/columns/column_decimal.h"
 #include "vec/columns/column_nullable.h"
+#include "vec/columns/column_string.h"
+#include "vec/columns/column_vector.h"
+#include "vec/core/types.h"
+#include "vec/data_types/data_type.h"
 #include "vec/data_types/data_type_bitmap.h"
 #include "vec/data_types/data_type_decimal.h"
 #include "vec/data_types/data_type_hll.h"
@@ -34,17 +52,17 @@
 
 namespace doris::vectorized {
 
-void column_to_pb(const DataTypePtr data_type, const IColumn& col, PValues* result) {
+inline void column_to_pb(const DataTypePtr data_type, const IColumn& col, PValues* result) {
     const DataTypeSerDeSPtr serde = data_type->get_serde();
     serde->write_column_to_pb(col, *result, 0, col.size());
 }
 
-void pb_to_column(const DataTypePtr data_type, PValues& result, IColumn& col) {
+inline void pb_to_column(const DataTypePtr data_type, PValues& result, IColumn& col) {
     auto serde = data_type->get_serde();
     serde->read_column_from_pb(col, result);
 }
 
-void check_pb_col(const DataTypePtr data_type, const IColumn& col) {
+inline void check_pb_col(const DataTypePtr data_type, const IColumn& col) {
     PValues pv = PValues();
     column_to_pb(data_type, col, &pv);
     std::string s1 = pv.DebugString();
@@ -58,7 +76,7 @@ void check_pb_col(const DataTypePtr data_type, const IColumn& col) {
     EXPECT_EQ(s1, s2);
 }
 
-void serialize_and_deserialize_pb_test() {
+inline void serialize_and_deserialize_pb_test() {
     // int
     {
         auto vec = vectorized::ColumnVector<Int32>::create();

@@ -16,7 +16,7 @@
 // under the License.
 
 suite("aggregate_group_by_metric_type") {
-    def error_msg = "column must use with specific function, and don't support filter or group by"
+    def error_msg = "column must use with specific function, and don't support filter"
     sql "DROP TABLE IF EXISTS test_group_by_hll_and_bitmap"
 
     sql """
@@ -95,7 +95,7 @@ suite("aggregate_group_by_metric_type") {
     sql "DROP TABLE test_group_by_array"
 
     sql "DROP TABLE IF EXISTS test_group_by_struct"
-    sql "ADMIN SET FRONTEND CONFIG ('enable_struct_type' = 'true')"
+
     sql """
         CREATE TABLE IF NOT EXISTS test_group_by_struct (id int, s_struct struct<f1:tinyint, f2:char(5)>) ENGINE=OLAP DUPLICATE KEY(`id`)
         DISTRIBUTED BY HASH(`id`) BUCKETS 1 properties("replication_num" = "1");

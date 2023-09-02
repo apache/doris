@@ -29,7 +29,7 @@ namespace vectorized {
 
 class Block;
 class MutableBlock;
-class HashJoinNode;
+struct HashJoinProbeContext;
 
 using MutableColumnPtr = IColumn::MutablePtr;
 using MutableColumns = std::vector<MutableColumnPtr>;
@@ -39,7 +39,8 @@ using ConstNullMapPtr = const NullMap*;
 
 template <int JoinOpType>
 struct ProcessHashTableProbe {
-    ProcessHashTableProbe(HashJoinNode* join_node, int batch_size);
+    ProcessHashTableProbe(HashJoinProbeContext* join_context, int batch_size);
+    ~ProcessHashTableProbe() = default;
 
     // output build side result column
     template <bool have_other_join_conjunct = false>
@@ -73,31 +74,39 @@ struct ProcessHashTableProbe {
                                                int right_col_len, UInt8* __restrict null_map_data,
                                                UInt8* __restrict filter_map, Block* output_block);
 
+    void _pre_serialize_key(const ColumnRawPtrs& key_columns, const size_t key_rows,
+                            std::vector<StringRef>& serialized_keys);
+
     // Process full outer join/ right join / right semi/anti join to output the join result
     // in hash table
     template <typename HashTableType>
     Status process_data_in_hashtable(HashTableType& hash_table_ctx, MutableBlock& mutable_block,
                                      Block* output_block, bool* eos);
 
-    vectorized::HashJoinNode* _join_node;
+    vectorized::HashJoinProbeContext* _join_context;
     const int _batch_size;
     const std::vector<Block>& _build_blocks;
     std::unique_ptr<Arena> _arena;
     std::vector<StringRef> _probe_keys;
 
-    std::vector<uint32_t> _items_counts;
+    std::vector<uint32_t> _probe_indexs;
     std::vector<int8_t> _build_block_offsets;
     std::vector<int> _build_block_rows;
+    std::vector<std::pair<int8_t, int>> _build_blocks_locs;
     // only need set the tuple is null in RIGHT_OUTER_JOIN and FULL_OUTER_JOIN
     ColumnUInt8::Container* _tuple_is_null_left_flags;
     // only need set the tuple is null in LEFT_OUTER_JOIN and FULL_OUTER_JOIN
     ColumnUInt8::Container* _tuple_is_null_right_flags;
 
+    size_t _serialized_key_buffer_size {0};
+    uint8_t* _serialized_key_buffer;
+    std::unique_ptr<Arena> _serialize_key_arena;
+
     RuntimeProfile::Counter* _rows_returned_counter;
     RuntimeProfile::Counter* _search_hashtable_timer;
     RuntimeProfile::Counter* _build_side_output_timer;
     RuntimeProfile::Counter* _probe_side_output_timer;
-
+    RuntimeProfile::Counter* _probe_process_hashtable_timer;
     static constexpr int PROBE_SIDE_EXPLODE_RATE = 3;
 };
 

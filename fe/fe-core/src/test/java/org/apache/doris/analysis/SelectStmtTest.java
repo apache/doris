@@ -484,22 +484,22 @@ public class SelectStmtTest {
 
     @Test
     public void testImplicitConvertSupport() throws Exception {
-        String sql1 = "select count(*) from db1.partition_table where datekey='20200730'";
+        String sql1 = "select /*+ SET_VAR(enable_nereids_planner=false) */ count(*) from db1.partition_table where datekey='20200730'";
         Assert.assertTrue(dorisAssert
                 .query(sql1)
                 .explainQuery()
                 .contains("`datekey` = 20200730"));
-        String sql2 = "select count(*) from db1.partition_table where '20200730'=datekey";
+        String sql2 = "select /*+ SET_VAR(enable_nereids_planner=false) */ count(*) from db1.partition_table where '20200730'=datekey";
         Assert.assertTrue(dorisAssert
                 .query(sql2)
                 .explainQuery()
                 .contains("`datekey` = 20200730"));
-        String sql3 = "select count() from db1.date_partition_table where dt=20200908";
+        String sql3 = "select /*+ SET_VAR(enable_nereids_planner=false) */ count() from db1.date_partition_table where dt=20200908";
         Assert.assertTrue(dorisAssert
                 .query(sql3)
                 .explainQuery()
                 .contains(Config.enable_date_conversion ? "`dt` = '2020-09-08'" : "`dt` = '2020-09-08 00:00:00'"));
-        String sql4 = "select count() from db1.date_partition_table where dt='2020-09-08'";
+        String sql4 = "select /*+ SET_VAR(enable_nereids_planner=false) */ count() from db1.date_partition_table where dt='2020-09-08'";
         Assert.assertTrue(dorisAssert
                 .query(sql4)
                 .explainQuery()
@@ -508,24 +508,22 @@ public class SelectStmtTest {
 
     @Test
     public void testDeleteSign() throws Exception {
-        String sql1 = "SELECT * FROM db1.table1  LEFT ANTI JOIN db1.table2 ON db1.table1.siteid = db1.table2.siteid;";
+        String sql1 = "SELECT /*+ SET_VAR(enable_nereids_planner=true, ENABLE_FALLBACK_TO_ORIGINAL_PLANNER=false) */ * FROM db1.table1  LEFT ANTI JOIN db1.table2 ON db1.table1.siteid = db1.table2.siteid;";
         String explain = dorisAssert.query(sql1).explainQuery();
         Assert.assertTrue(explain
-                .contains("PREDICATES: `default_cluster:db1`.`table1`.`__DORIS_DELETE_SIGN__` = 0"));
-        Assert.assertTrue(explain
-                .contains("PREDICATES: `default_cluster:db1`.`table2`.`__DORIS_DELETE_SIGN__` = 0"));
+                .contains("PREDICATES: __DORIS_DELETE_SIGN__ = 0"));
         Assert.assertFalse(explain.contains("other predicates:"));
-        String sql2 = "SELECT * FROM db1.table1 JOIN db1.table2 ON db1.table1.siteid = db1.table2.siteid;";
+        String sql2 = "SELECT /*+ SET_VAR(enable_nereids_planner=false) */ * FROM db1.table1 JOIN db1.table2 ON db1.table1.siteid = db1.table2.siteid;";
         explain = dorisAssert.query(sql2).explainQuery();
         Assert.assertTrue(explain
                 .contains("PREDICATES: `default_cluster:db1`.`table1`.`__DORIS_DELETE_SIGN__` = 0"));
         Assert.assertTrue(explain
                 .contains("PREDICATES: `default_cluster:db1`.`table2`.`__DORIS_DELETE_SIGN__` = 0"));
         Assert.assertFalse(explain.contains("other predicates:"));
-        String sql3 = "SELECT * FROM db1.table1";
+        String sql3 = "SELECT /*+ SET_VAR(enable_nereids_planner=false) */ * FROM db1.table1";
         Assert.assertTrue(dorisAssert.query(sql3).explainQuery()
                 .contains("PREDICATES: `default_cluster:db1`.`table1`.`__DORIS_DELETE_SIGN__` = 0"));
-        String sql4 = " SELECT * FROM db1.table1 table2";
+        String sql4 = " SELECT /*+ SET_VAR(enable_nereids_planner=false) */ * FROM db1.table1 table2";
         Assert.assertTrue(dorisAssert.query(sql4).explainQuery()
                 .contains("PREDICATES: `table2`.`__DORIS_DELETE_SIGN__` = 0"));
         new MockUp<Util>() {
@@ -727,7 +725,7 @@ public class SelectStmtTest {
             SelectStmt stmt = (SelectStmt) UtFrameUtils.parseAndAnalyzeStmt(sql, ctx); // CHECKSTYLE IGNORE THIS LINE
         } catch (Exception e) {
             e.printStackTrace();
-            Assert.assertTrue(e.getMessage().contains("Parquet format does not support column type: LARGEINT"));
+            Assert.assertTrue(e.getMessage().contains("should use byte_array"));
         }
 
         // do not support large int type, contains function
@@ -740,7 +738,7 @@ public class SelectStmtTest {
                     + "\"schema\"=\"required,int32,siteid;\");";
             SelectStmt stmt = (SelectStmt) UtFrameUtils.parseAndAnalyzeStmt(sql, ctx); // CHECKSTYLE IGNORE THIS LINE
         } catch (Exception e) {
-            Assert.assertTrue(e.getMessage().contains("Parquet format does not support column type: LARGEINT"));
+            Assert.assertTrue(e.getMessage().contains("should use byte_array"));
         }
 
         // support cast
@@ -760,12 +758,12 @@ public class SelectStmtTest {
 
     @Test
     public void testSystemViewCaseInsensitive() throws Exception {
-        String sql1 = "SELECT ROUTINE_SCHEMA, ROUTINE_NAME FROM information_schema.ROUTINES WHERE ROUTINE_SCHEMA = "
+        String sql1 = "SELECT /*+ SET_VAR(enable_nereids_planner=false) */ ROUTINE_SCHEMA, ROUTINE_NAME FROM information_schema.ROUTINES WHERE ROUTINE_SCHEMA = "
                 + "'ech_dw' ORDER BY ROUTINES.ROUTINE_SCHEMA\n";
         // The system view names in information_schema are case-insensitive,
         dorisAssert.query(sql1).explainQuery();
 
-        String sql2 = "SELECT ROUTINE_SCHEMA, ROUTINE_NAME FROM information_schema.ROUTINES WHERE ROUTINE_SCHEMA = "
+        String sql2 = "SELECT /*+ SET_VAR(enable_nereids_planner=false) */ ROUTINE_SCHEMA, ROUTINE_NAME FROM information_schema.ROUTINES WHERE ROUTINE_SCHEMA = "
                 + "'ech_dw' ORDER BY routines.ROUTINE_SCHEMA\n";
         try {
             // Should not refer to one of system views using different cases within the same statement.

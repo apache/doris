@@ -29,7 +29,7 @@ suite("test_bitmap_index") {
                 k3 INT,
                 k4 BIGINT,
                 k5 CHAR,
-                k6 VARCHAR,
+                k6 VARCHAR(1),
                 k7 DATE,
                 k8 DATETIME,
                 k9 LARGEINT,
@@ -64,7 +64,8 @@ suite("test_bitmap_index") {
     int max_try_secs = 60
     while (max_try_secs--) {
         String res = getJobState(tbName1)
-        if (res == "FINISHED") {
+        if (res == "FINISHED" || res == "CANCELLED") {
+            assertEquals("FINISHED", res)
             sleep(3000)
             break
         } else {
@@ -85,7 +86,8 @@ suite("test_bitmap_index") {
     max_try_secs = 60
     while (max_try_secs--) {
         String res = getJobState(tbName1)
-        if (res == "FINISHED") {
+        if (res == "FINISHED" || res == "CANCELLED") {
+            assertEquals("FINISHED", res)
             sleep(3000)
             break
         } else {
@@ -108,7 +110,7 @@ suite("test_bitmap_index") {
                 k3 INT,
                 k4 BIGINT,
                 k5 CHAR,
-                k6 VARCHAR,
+                k6 VARCHAR(1),
                 k7 DATE,
                 k8 DATETIME,
                 k9 LARGEINT,
@@ -145,7 +147,8 @@ suite("test_bitmap_index") {
     max_try_secs = 60
     while (max_try_secs--) {
         String res = getJobState(tbName2)
-        if (res == "FINISHED") {
+        if (res == "FINISHED" || res == "CANCELLED") {
+            assertEquals("FINISHED", res)
             sleep(3000)
             break
         } else {
@@ -170,7 +173,8 @@ suite("test_bitmap_index") {
     max_try_secs = 60
     while (max_try_secs--) {
         String res = getJobState(tbName2)
-        if (res == "FINISHED") {
+        if (res == "FINISHED" || res == "CANCELLED") {
+            assertEquals("FINISHED", res)
             sleep(3000)
             break
         } else {
@@ -192,7 +196,7 @@ suite("test_bitmap_index") {
                 k3 INT,
                 k4 BIGINT,
                 k5 CHAR,
-                k6 VARCHAR,
+                k6 VARCHAR(1),
                 k7 DATE,
                 k8 DATETIME,
                 k9 LARGEINT,
@@ -230,7 +234,8 @@ suite("test_bitmap_index") {
     max_try_secs = 60
     while (max_try_secs--) {
         String res = getJobState(tbName3)
-        if (res == "FINISHED") {
+        if (res == "FINISHED" || res == "CANCELLED") {
+            assertEquals("FINISHED", res)
             sleep(3000)
             break
         } else {
@@ -251,7 +256,8 @@ suite("test_bitmap_index") {
     max_try_secs = 60
     while (max_try_secs--) {
         String res = getJobState(tbName3)
-        if (res == "FINISHED") {
+        if (res == "FINISHED" || res == "CANCELLED") {
+            assertEquals("FINISHED", res)
             sleep(3000)
             break
         } else {

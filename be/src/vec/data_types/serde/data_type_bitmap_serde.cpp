@@ -22,7 +22,10 @@
 #include <string>
 
 #include "util/bitmap_value.h"
+#include "util/jsonb_document.h"
 #include "vec/columns/column_complex.h"
+#include "vec/columns/column_const.h"
+#include "vec/common/arena.h"
 #include "vec/common/assert_cast.h"
 
 namespace doris {
@@ -55,5 +58,63 @@ Status DataTypeBitMapSerDe::read_column_from_pb(IColumn& column, const PValues& 
     }
     return Status::OK();
 }
+
+void DataTypeBitMapSerDe::write_one_cell_to_jsonb(const IColumn& column, JsonbWriter& result,
+                                                  Arena* mem_pool, int32_t col_id,
+                                                  int row_num) const {
+    auto& data_column = assert_cast<const ColumnBitmap&>(column);
+    result.writeKey(col_id);
+    auto bitmap_value = const_cast<BitmapValue&>(data_column.get_element(row_num));
+    // serialize the content of string
+    auto size = bitmap_value.getSizeInBytes();
+    // serialize the content of string
+    auto ptr = mem_pool->alloc(size);
+    bitmap_value.write_to(const_cast<char*>(ptr));
+    result.writeStartBinary();
+    result.writeBinary(reinterpret_cast<const char*>(ptr), size);
+    result.writeEndBinary();
+}
+
+void DataTypeBitMapSerDe::read_one_cell_from_jsonb(IColumn& column, const JsonbValue* arg) const {
+    auto& col = reinterpret_cast<ColumnBitmap&>(column);
+    auto blob = static_cast<const JsonbBlobVal*>(arg);
+    BitmapValue bitmap_value(blob->getBlob());
+    col.insert_value(bitmap_value);
+}
+
+template <bool is_binary_format>
+Status DataTypeBitMapSerDe::_write_column_to_mysql(const IColumn& column,
+                                                   MysqlRowBuffer<is_binary_format>& result,
+                                                   int row_idx, bool col_const) const {
+    auto& data_column = assert_cast<const ColumnBitmap&>(column);
+    if (_return_object_as_string) {
+        const auto col_index = index_check_const(row_idx, col_const);
+        BitmapValue bitmapValue = data_column.get_element(col_index);
+        size_t size = bitmapValue.getSizeInBytes();
+        std::unique_ptr<char[]> buf = std::make_unique<char[]>(size);
+        bitmapValue.write_to(buf.get());
+        if (0 != result.push_string(buf.get(), size)) {
+            return Status::InternalError("pack mysql buffer failed.");
+        }
+    } else {
+        if (0 != result.push_null()) {
+            return Status::InternalError("pack mysql buffer failed.");
+        }
+    }
+    return Status::OK();
+}
+
+Status DataTypeBitMapSerDe::write_column_to_mysql(const IColumn& column,
+                                                  MysqlRowBuffer<true>& row_buffer, int row_idx,
+                                                  bool col_const) const {
+    return _write_column_to_mysql(column, row_buffer, row_idx, col_const);
+}
+
+Status DataTypeBitMapSerDe::write_column_to_mysql(const IColumn& column,
+                                                  MysqlRowBuffer<false>& row_buffer, int row_idx,
+                                                  bool col_const) const {
+    return _write_column_to_mysql(column, row_buffer, row_idx, col_const);
+}
+
 } // namespace vectorized
 } // namespace doris

@@ -20,7 +20,6 @@
 #include <gen_cpp/PlanNodes_types.h>
 
 #include "exec/text_converter.h"
-#include "exec/text_converter.hpp"
 #include "runtime/runtime_state.h"
 #include "util/runtime_profile.h"
 #include "util/types.h"
@@ -93,7 +92,6 @@ Status VMysqlScanNode::open(RuntimeState* state) {
     if (nullptr == state) {
         return Status::InternalError("input pointer is nullptr.");
     }
-    START_AND_SCOPE_SPAN(state->get_tracer(), span, "VMysqlScanNode::open");
     SCOPED_TIMER(_runtime_profile->total_time_counter());
     RETURN_IF_ERROR(ExecNode::open(state));
     VLOG_CRITICAL << "MysqlScanNode::Open";
@@ -126,7 +124,6 @@ Status VMysqlScanNode::get_next(RuntimeState* state, vectorized::Block* block, b
     if (state == nullptr || block == nullptr || eos == nullptr) {
         return Status::InternalError("input is nullptr");
     }
-    INIT_AND_SCOPE_GET_NEXT_SPAN(state->get_tracer(), _get_next_span, "VMysqlScanNode::get_next");
     VLOG_CRITICAL << "VMysqlScanNode::GetNext";
 
     if (!_is_init) {
@@ -219,7 +216,6 @@ Status VMysqlScanNode::close(RuntimeState* state) {
     if (is_closed()) {
         return Status::OK();
     }
-    START_AND_SCOPE_SPAN(state->get_tracer(), span, "VMysqlScanNode::close");
     SCOPED_TIMER(_runtime_profile->total_time_counter());
 
     return ExecNode::close(state);

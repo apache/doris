@@ -41,6 +41,7 @@ import java.io.IOException;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
+import java.util.stream.Collectors;
 
 @Setter
 public class JdbcTable extends Table {
@@ -69,6 +70,7 @@ public class JdbcTable extends Table {
 
     static {
         Map<String, TOdbcTableType> tempMap = new CaseInsensitiveMap();
+        tempMap.put("nebula", TOdbcTableType.NEBULA);
         tempMap.put("mysql", TOdbcTableType.MYSQL);
         tempMap.put("postgresql", TOdbcTableType.POSTGRESQL);
         tempMap.put("sqlserver", TOdbcTableType.SQLSERVER);
@@ -76,6 +78,9 @@ public class JdbcTable extends Table {
         tempMap.put("clickhouse", TOdbcTableType.CLICKHOUSE);
         tempMap.put("sap_hana", TOdbcTableType.SAP_HANA);
         tempMap.put("trino", TOdbcTableType.TRINO);
+        tempMap.put("presto", TOdbcTableType.PRESTO);
+        tempMap.put("oceanbase", TOdbcTableType.OCEANBASE);
+        tempMap.put("oceanbase_oracle", TOdbcTableType.OCEANBASE_ORACLE);
         TABLE_TYPE_MAP = Collections.unmodifiableMap(tempMap);
     }
 
@@ -91,6 +96,27 @@ public class JdbcTable extends Table {
 
     public JdbcTable(long id, String name, List<Column> schema, TableType type) {
         super(id, name, type, schema);
+    }
+
+    public String getInsertSql(List<String> insertCols) {
+        StringBuilder sb = new StringBuilder("INSERT INTO ");
+
+        sb.append(databaseProperName(TABLE_TYPE_MAP.get(getTableTypeName()), getExternalTableName()));
+        sb.append("(");
+        List<String> transformedInsertCols = insertCols.stream()
+                .map(col -> databaseProperName(TABLE_TYPE_MAP.get(getTableTypeName()), col))
+                .collect(Collectors.toList());
+        sb.append(String.join(",", transformedInsertCols));
+        sb.append(")");
+        sb.append(" VALUES (");
+        for (int i = 0; i < insertCols.size(); ++i) {
+            if (i != 0) {
+                sb.append(", ");
+            }
+            sb.append("?");
+        }
+        sb.append(")");
+        return sb.toString();
     }
 
     public String getCheckSum() {
@@ -267,6 +293,7 @@ public class JdbcTable extends Table {
         if (Strings.isNullOrEmpty(jdbcTypeName)) {
             throw new DdlException("property " + TABLE_TYPE + " must be set");
         }
+
         if (!TABLE_TYPE_MAP.containsKey(jdbcTypeName.toLowerCase())) {
             throw new DdlException("Unknown jdbc table type: " + jdbcTypeName);
         }
@@ -286,5 +313,84 @@ public class JdbcTable extends Table {
         driverClass = jdbcResource.getProperty(DRIVER_CLASS);
         driverUrl = jdbcResource.getProperty(DRIVER_URL);
         checkSum = jdbcResource.getProperty(CHECK_SUM);
+
+        String urlType = jdbcUrl.split(":")[1];
+        if (!jdbcTypeName.equalsIgnoreCase(urlType)) {
+            if (!(jdbcTypeName.equalsIgnoreCase("oceanbase_oracle") && urlType.equalsIgnoreCase("oceanbase"))
+                    && !(jdbcTypeName.equalsIgnoreCase("sap_hana") && urlType.equalsIgnoreCase("sap"))) {
+                throw new DdlException("property " + TABLE_TYPE + " must be same with resource url");
+            }
+        }
+    }
+
+    /**
+     * Formats the provided name (for example, a database, table, or schema name) according to the specified parameters.
+     *
+     * @param name The name to be formatted.
+     * @param wrapStart The character(s) to be added at the start of each name component.
+     * @param wrapEnd The character(s) to be added at the end of each name component.
+     * @param toUpperCase If true, convert the name to upper case.
+     * @param toLowerCase If true, convert the name to lower case.
+     * <p>
+     * Note: If both toUpperCase and toLowerCase are true, the name will ultimately be converted to lower case.
+     * <p>
+     * The name is expected to be in the format of 'schemaName.tableName'. If there is no '.',
+     * the function will treat the entire string as one name component.
+     * If there is a '.', the function will treat the string before the first '.' as the schema name
+     * and the string after the '.' as the table name.
+     *
+     * @return The formatted name.
+     */
+    public static String formatName(String name, String wrapStart, String wrapEnd, boolean toUpperCase,
+                                    boolean toLowerCase) {
+        int index = name.indexOf(".");
+        if (index == -1) { // No dot in the name
+            String newName = toUpperCase ? name.toUpperCase() : name;
+            newName = toLowerCase ? newName.toLowerCase() : newName;
+            return wrapStart + newName + wrapEnd;
+        } else {
+            String schemaName = toUpperCase ? name.substring(0, index).toUpperCase() : name.substring(0, index);
+            schemaName = toLowerCase ? schemaName.toLowerCase() : schemaName;
+            String tableName = toUpperCase ? name.substring(index + 1).toUpperCase() : name.substring(index + 1);
+            tableName = toLowerCase ? tableName.toLowerCase() : tableName;
+            return wrapStart + schemaName + wrapEnd + "." + wrapStart + tableName + wrapEnd;
+        }
+    }
+
+    /**
+     * Formats a database name according to the database type.
+     *
+     * Rules:
+     * - MYSQL, OCEANBASE: Wrap with backticks (`), case unchanged. Example: mySchema.myTable -> `mySchema.myTable`
+     * - SQLSERVER: Wrap with square brackets ([]), case unchanged. Example: mySchema.myTable -> [mySchema].[myTable]
+     * - POSTGRESQL, CLICKHOUSE, TRINO, OCEANBASE_ORACLE, SAP_HANA: Wrap with double quotes ("), case unchanged.
+     *   Example: mySchema.myTable -> "mySchema"."myTable"
+     * - ORACLE: Wrap with double quotes ("), convert to upper case. Example: mySchema.myTable -> "MYSCHEMA"."MYTABLE"
+     * For other types, the name is returned as is.
+     *
+     * @param tableType The database type.
+     * @param name The name to be formatted, expected in 'schemaName.tableName' format. If no '.', treats entire string
+     *   as one name component. If '.', treats string before first '.' as schema name and after as table name.
+     * @return The formatted name.
+     */
+    public static String databaseProperName(TOdbcTableType tableType, String name) {
+        switch (tableType) {
+            case MYSQL:
+            case OCEANBASE:
+                return formatName(name, "`", "`", false, false);
+            case SQLSERVER:
+                return formatName(name, "[", "]", false, false);
+            case POSTGRESQL:
+            case CLICKHOUSE:
+            case TRINO:
+            case PRESTO:
+            case OCEANBASE_ORACLE:
+            case SAP_HANA:
+                return formatName(name, "\"", "\"", false, false);
+            case ORACLE:
+                return formatName(name, "\"", "\"", true, false);
+            default:
+                return name;
+        }
     }
 }

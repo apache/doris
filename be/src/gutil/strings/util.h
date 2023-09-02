@@ -27,17 +27,19 @@
 
 #include <stddef.h>
 #include <stdio.h>
-#include <stdlib.h>
 #include <string.h>
 #ifndef _MSC_VER
 #include <strings.h> // for strcasecmp, but msvc does not have this header
 #endif
 
 #include <functional>
+
 using std::less;
 #include <string>
+
 using std::string;
 #include <vector>
+
 using std::vector;
 
 #include "gutil/integral_types.h"

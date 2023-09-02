@@ -71,13 +71,17 @@ public:
     bool can_be_inside_nullable() const override { return true; }
     MutableColumnPtr create_column() const override;
     Field get_default() const override;
+
+    [[noreturn]] Field get_field(const TExprNode& node) const override {
+        LOG(FATAL) << "Unimplemented get_field for map";
+    }
+
     bool equals(const IDataType& rhs) const override;
     bool get_is_parametric() const override { return true; }
     bool have_subtypes() const override { return true; }
     bool is_comparable() const override {
         return key_type->is_comparable() && value_type->is_comparable();
     }
-    bool can_be_compared_with_collation() const override { return false; }
     bool is_value_unambiguously_represented_in_contiguous_memory_region() const override {
         return true;
     }

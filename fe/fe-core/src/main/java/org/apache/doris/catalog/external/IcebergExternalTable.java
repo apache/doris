@@ -22,6 +22,8 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.datasource.iceberg.IcebergExternalCatalog;
+import org.apache.doris.statistics.ColumnStatistic;
+import org.apache.doris.statistics.util.StatisticsUtil;
 import org.apache.doris.thrift.THiveTable;
 import org.apache.doris.thrift.TIcebergTable;
 import org.apache.doris.thrift.TTableDescriptor;
@@ -33,10 +35,13 @@ import org.apache.iceberg.types.Types;
 
 import java.util.HashMap;
 import java.util.List;
+import java.util.Optional;
 
 public class IcebergExternalTable extends ExternalTable {
 
-    public static final int ICEBERG_DATETIME_SCALE_MS = 3;
+    // https://iceberg.apache.org/spec/#schemas-and-data-types
+    // All time and timestamp values are stored with microsecond precision
+    public static final int ICEBERG_DATETIME_SCALE_MS = 6;
 
     public IcebergExternalTable(long id, String name, String dbName, IcebergExternalCatalog catalog) {
         super(id, name, catalog, dbName, TableType.ICEBERG_EXTERNAL_TABLE);
@@ -87,7 +92,7 @@ public class IcebergExternalTable extends ExternalTable {
                 return ScalarType.createCharType(fixed.length());
             case DECIMAL:
                 Types.DecimalType decimal = (Types.DecimalType) primitive;
-                return ScalarType.createDecimalType(decimal.precision(), decimal.scale());
+                return ScalarType.createDecimalV3Type(decimal.precision(), decimal.scale());
             case DATE:
                 return ScalarType.createDateV2Type();
             case TIMESTAMP:
@@ -131,5 +136,12 @@ public class IcebergExternalTable extends ExternalTable {
             tTableDescriptor.setIcebergTable(icebergTable);
             return tTableDescriptor;
         }
+    }
+
+    @Override
+    public Optional<ColumnStatistic> getColumnStatistic(String colName) {
+        makeSureInitialized();
+        return StatisticsUtil.getIcebergColumnStats(colName,
+            ((IcebergExternalCatalog) catalog).getIcebergTable(dbName, name));
     }
 }

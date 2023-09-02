@@ -33,12 +33,13 @@
 #include "runtime/define_primitive_type.h"
 #include "runtime/primitive_type.h"
 #include "runtime/types.h"
+#include "util/runtime_profile.h"
+#include "util/string_util.h"
 #include "vec/aggregate_functions/aggregate_function.h"
 #include "vec/common/string_ref.h"
 #include "vec/data_types/data_type.h"
 
 namespace doris {
-class RuntimeProfile;
 class RuntimeState;
 
 namespace vectorized {
@@ -55,13 +56,13 @@ struct Decimal;
 namespace doris::vectorized {
 
 /**
- * Connector to java jni scanner, which should extend org.apache.doris.jni.JniScanner
+ * Connector to java jni scanner, which should extend org.apache.doris.common.jni.JniScanner
  */
 class JniConnector {
 public:
     /**
      * The predicates that can be pushed down to java side.
-     * Reference to java class org.apache.doris.jni.vec.ScanPredicate
+     * Reference to java class org.apache.doris.common.jni.vec.ScanPredicate
      */
     template <typename CppType>
     struct ScanPredicate {
@@ -102,7 +103,7 @@ public:
         /**
          * The value ranges can be stored as byte array as following format:
          * number_filters(4) | length(4) | column_name | op(4) | scale(4) | num_values(4) | value_length(4) | value | ...
-         * The read method is implemented in org.apache.doris.jni.vec.ScanPredicate#parseScanPredicates
+         * The read method is implemented in org.apache.doris.common.jni.vec.ScanPredicate#parseScanPredicates
          */
         int write(std::unique_ptr<char[]>& predicates, int origin_length) {
             int num_filters = 0;
@@ -163,7 +164,21 @@ public:
                  std::vector<std::string> column_names)
             : _connector_class(std::move(connector_class)),
               _scanner_params(std::move(scanner_params)),
-              _column_names(std::move(column_names)) {}
+              _column_names(std::move(column_names)) {
+        // Use java class name as connector name
+        _connector_name = split(_connector_class, "/").back();
+    }
+
+    /**
+     * Just use to get the table schema.
+     * @param connector_class Java scanner class
+     * @param scanner_params Provided configuration map
+     */
+    JniConnector(std::string connector_class, std::map<std::string, std::string> scanner_params)
+            : _connector_class(std::move(connector_class)),
+              _scanner_params(std::move(scanner_params)) {
+        _is_table_schema = true;
+    }
 
     /// Should release jni resources if other functions are failed.
     ~JniConnector();
@@ -198,6 +213,22 @@ public:
     Status get_nex_block(Block* block, size_t* read_rows, bool* eof);
 
     /**
+     * Get performance metrics from java scanner
+     */
+    std::map<std::string, std::string> get_statistics(JNIEnv* env);
+
+    /**
+     * Call java side function JniScanner.getTableSchema.
+     *
+     * The schema information are stored as a string.
+     * Use # between column names and column types.
+     *
+     * like: col_name1,col_name2,col_name3#col_type1,col_type2.col_type3
+     *
+     */
+    Status get_table_schema(std::string& table_schema_str);
+
+    /**
      * Close scanner and release jni resources.
      */
     Status close();
@@ -210,30 +241,41 @@ public:
     static Status generate_meta_info(Block* block, std::unique_ptr<long[]>& meta);
 
 private:
+    std::string _connector_name;
     std::string _connector_class;
     std::map<std::string, std::string> _scanner_params;
     std::vector<std::string> _column_names;
+    bool _is_table_schema = false;
+
+    RuntimeState* _state;
+    RuntimeProfile* _profile;
+    RuntimeProfile::Counter* _open_scanner_time;
+    RuntimeProfile::Counter* _java_scan_time;
+    RuntimeProfile::Counter* _fill_block_time;
+    std::map<std::string, RuntimeProfile::Counter*> _scanner_profile;
 
     size_t _has_read = 0;
 
     bool _closed = false;
+    bool _scanner_initialized = false;
     jclass _jni_scanner_cls;
     jobject _jni_scanner_obj;
     jmethodID _jni_scanner_open;
     jmethodID _jni_scanner_get_next_batch;
+    jmethodID _jni_scanner_get_table_schema;
     jmethodID _jni_scanner_close;
     jmethodID _jni_scanner_release_column;
     jmethodID _jni_scanner_release_table;
+    jmethodID _jni_scanner_get_statistics;
 
     long* _meta_ptr;
     int _meta_index;
-    JNIEnv* _env = nullptr;
 
     int _predicates_length = 0;
     std::unique_ptr<char[]> _predicates = nullptr;
 
     /**
-     * Set the address of meta information, which is returned by org.apache.doris.jni.JniScanner#getNextBatchMeta
+     * Set the address of meta information, which is returned by org.apache.doris.common.jni.JniScanner#getNextBatchMeta
      */
     void _set_meta(long meta_addr) {
         _meta_ptr = static_cast<long*>(reinterpret_cast<void*>(meta_addr));

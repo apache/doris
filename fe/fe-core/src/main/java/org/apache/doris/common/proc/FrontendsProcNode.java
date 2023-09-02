@@ -19,9 +19,10 @@ package org.apache.doris.common.proc;
 
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.Config;
-import org.apache.doris.common.util.NetUtils;
+import org.apache.doris.common.io.DiskUtils;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.service.FeDiskInfo;
 import org.apache.doris.system.Frontend;
 import org.apache.doris.system.SystemInfoService.HostInfo;
 
@@ -44,10 +45,16 @@ public class FrontendsProcNode implements ProcNodeInterface {
     private static final Logger LOG = LogManager.getLogger(FrontendsProcNode.class);
 
     public static final ImmutableList<String> TITLE_NAMES = new ImmutableList.Builder<String>()
-            .add("Name").add("IP").add("HostName").add("EditLogPort").add("HttpPort").add("QueryPort").add("RpcPort")
+            .add("Name").add("Host").add("EditLogPort").add("HttpPort").add("QueryPort").add("RpcPort")
             .add("Role").add("IsMaster").add("ClusterId").add("Join").add("Alive")
-            .add("ReplayedJournalId").add("LastHeartbeat").add("IsHelper").add("ErrMsg").add("Version")
+            .add("ReplayedJournalId").add("LastStartTime").add("LastHeartbeat")
+            .add("IsHelper").add("ErrMsg").add("Version")
             .add("CurrentConnected")
+            .build();
+
+    public static final ImmutableList<String> DISK_TITLE_NAMES = new ImmutableList.Builder<String>()
+            .add("Name").add("Host").add("EditLogPort").add("DirType").add("Dir").add("Filesystem")
+            .add("Capacity").add("Used").add("Available").add("UseRate").add("MountOn")
             .build();
 
     private Env env;
@@ -72,6 +79,14 @@ public class FrontendsProcNode implements ProcNodeInterface {
         return result;
     }
 
+    public static void getFrontendsInfo(Env env, String detailType, List<List<String>> infos) {
+        if (detailType == null) {
+            getFrontendsInfo(env, infos);
+        } else if (detailType.equals("disks")) {
+            getFrontendsDiskInfo(env, infos);
+        }
+    }
+
     public static void getFrontendsInfo(Env env, List<List<String>> infos) {
         InetSocketAddress master = null;
         try {
@@ -88,7 +103,7 @@ public class FrontendsProcNode implements ProcNodeInterface {
 
         // Because the `show frontend` stmt maybe forwarded from other FE.
         // if we only get self node from currrent catalog, the "CurrentConnected" field will always points to Msater FE.
-        String selfNode = Env.getCurrentEnv().getSelfNode().getIp();
+        String selfNode = Env.getCurrentEnv().getSelfNode().getHost();
         if (ConnectContext.get() != null && !Strings.isNullOrEmpty(ConnectContext.get().getCurrentConnectedFEIp())) {
             selfNode = ConnectContext.get().getCurrentConnectedFEIp();
         }
@@ -97,16 +112,11 @@ public class FrontendsProcNode implements ProcNodeInterface {
 
             List<String> info = new ArrayList<String>();
             info.add(fe.getNodeName());
-            info.add(fe.getIp());
-            if (Config.enable_fqdn_mode) {
-                info.add(fe.getHostName());
-            } else {
-                info.add(NetUtils.getHostnameByIp(fe.getIp()));
-            }
+            info.add(fe.getHost());
             info.add(Integer.toString(fe.getEditLogPort()));
             info.add(Integer.toString(Config.http_port));
 
-            if (fe.getIp().equals(env.getSelfNode().getIp())) {
+            if (fe.getHost().equals(env.getSelfNode().getHost())) {
                 info.add(Integer.toString(Config.query_port));
                 info.add(Integer.toString(Config.rpc_port));
             } else {
@@ -115,7 +125,7 @@ public class FrontendsProcNode implements ProcNodeInterface {
             }
 
             info.add(fe.getRole().name());
-            InetSocketAddress socketAddress = new InetSocketAddress(fe.getIp(), fe.getEditLogPort());
+            InetSocketAddress socketAddress = new InetSocketAddress(fe.getHost(), fe.getEditLogPort());
             //An ipv6 address may have different format, so we compare InetSocketAddress objects instead of IP Strings.
             //e.g.  fdbd:ff1:ce00:1c26::d8 and fdbd:ff1:ce00:1c26:0:0:d8
             info.add(String.valueOf(socketAddress.equals(master)));
@@ -123,23 +133,47 @@ public class FrontendsProcNode implements ProcNodeInterface {
             info.add(Integer.toString(env.getClusterId()));
             info.add(String.valueOf(isJoin(allFe, fe)));
 
-            if (fe.getIp().equals(env.getSelfNode().getIp())) {
+            if (fe.getHost().equals(env.getSelfNode().getHost())) {
                 info.add("true");
                 info.add(Long.toString(env.getEditLog().getMaxJournalId()));
             } else {
                 info.add(String.valueOf(fe.isAlive()));
                 info.add(Long.toString(fe.getReplayedJournalId()));
             }
+            info.add(TimeUtils.longToTimeString(fe.getLastStartupTime()));
             info.add(TimeUtils.longToTimeString(fe.getLastUpdateTime()));
             info.add(String.valueOf(isHelperNode(helperNodes, fe)));
             info.add(fe.getHeartbeatErrMsg());
             info.add(fe.getVersion());
             // To indicate which FE we currently connected
-            info.add(fe.getIp().equals(selfNode) ? "Yes" : "No");
+            info.add(fe.getHost().equals(selfNode) ? "Yes" : "No");
 
             infos.add(info);
         }
     }
+
+    public static void getFrontendsDiskInfo(Env env, List<List<String>> infos) {
+        for (Frontend fe : env.getFrontends(null /* all */)) {
+            if (fe.getDiskInfos() != null) {
+                for (FeDiskInfo disk : fe.getDiskInfos()) {
+                    List<String> info = new ArrayList<String>();
+                    info.add(fe.getNodeName());
+                    info.add(fe.getHost());
+                    info.add(Integer.toString(fe.getEditLogPort()));
+                    info.add(disk.getDirType());
+                    info.add(disk.getDir());
+                    info.add(disk.getSpaceInfo().fileSystem);
+                    info.add(DiskUtils.sizeFormat(disk.getSpaceInfo().blocks * 1024));
+                    info.add(DiskUtils.sizeFormat(disk.getSpaceInfo().used * 1024));
+                    info.add(DiskUtils.sizeFormat(disk.getSpaceInfo().available * 1024));
+                    info.add(Integer.toString(disk.getSpaceInfo().useRate) + "%");
+                    info.add(disk.getSpaceInfo().mountedOn);
+                    infos.add(info);
+                }
+            }
+        }
+    }
+
 
     private static boolean isHelperNode(List<HostInfo> helperNodes, Frontend fe) {
         return helperNodes.stream().anyMatch(p -> fe.toHostInfo().isSame(p));
@@ -151,8 +185,7 @@ public class FrontendsProcNode implements ProcNodeInterface {
                 continue;
             }
             if (!Strings.isNullOrEmpty(addr.getHostName())) {
-                if (addr.getHostName().equals(fe.getHostName())
-                        || addr.getHostName().equals(fe.getIp())) {
+                if (addr.getHostName().equals(fe.getHost())) {
                     return true;
                 }
             }
@@ -163,7 +196,7 @@ public class FrontendsProcNode implements ProcNodeInterface {
                 LOG.warn("Failed to get InetAddress {}", addr);
                 continue;
             }
-            if (fe.getIp().equals(address.getHostAddress())) {
+            if (fe.getHost().equals(address.getHostAddress())) {
                 return true;
             }
         }

@@ -4,3 +4,9 @@ a	1
 all	1
 all	2
 
+-- !select2 --
+1	1
+
+-- !select3 --
+1	1
+

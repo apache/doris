@@ -38,6 +38,7 @@ import java.util.Set;
 
 /**
  * Logical Having plan
+ *
  * @param <CHILD_TYPE> Types which inherit from {@link Plan}
  */
 public class LogicalHaving<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_TYPE> implements Filter {
@@ -48,7 +49,7 @@ public class LogicalHaving<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_T
         this(conjuncts, Optional.empty(), Optional.empty(), child);
     }
 
-    public LogicalHaving(Set<Expression> conjuncts, Optional<GroupExpression> groupExpression,
+    private LogicalHaving(Set<Expression> conjuncts, Optional<GroupExpression> groupExpression,
             Optional<LogicalProperties> logicalProperties, CHILD_TYPE child) {
         super(PlanType.LOGICAL_HAVING, groupExpression, logicalProperties, child);
         this.conjuncts = ImmutableSet.copyOf(Objects.requireNonNull(conjuncts, "conjuncts can not be null"));
@@ -80,8 +81,10 @@ public class LogicalHaving<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_T
     }
 
     @Override
-    public Plan withLogicalProperties(Optional<LogicalProperties> logicalProperties) {
-        return new LogicalHaving<>(conjuncts, Optional.empty(), logicalProperties, child());
+    public Plan withGroupExprLogicalPropChildren(Optional<GroupExpression> groupExpression,
+            Optional<LogicalProperties> logicalProperties, List<Plan> children) {
+        Preconditions.checkArgument(children.size() == 1);
+        return new LogicalHaving<>(conjuncts, groupExpression, logicalProperties, children.get(0));
     }
 
     public Plan withExpressions(Set<Expression> expressions) {

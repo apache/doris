@@ -18,6 +18,7 @@
 package org.apache.doris.statistics;
 
 import org.apache.doris.catalog.Env;
+import org.apache.doris.common.util.Util;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -48,6 +49,9 @@ public class AnalysisTaskWrapper extends FutureTask<Void> {
         startTime = System.currentTimeMillis();
         Throwable except = null;
         try {
+            if (task.killed) {
+                return;
+            }
             executor.putJob(this);
             super.run();
             Object result = get();
@@ -57,30 +61,31 @@ public class AnalysisTaskWrapper extends FutureTask<Void> {
         } catch (Exception e) {
             except = e;
         } finally {
-            executor.decr();
-            if (except != null) {
-                LOG.warn("Failed to execute task", except);
-                Env.getCurrentEnv().getAnalysisManager()
-                        .updateTaskStatus(task.info,
-                                AnalysisState.FAILED, except.getMessage(), -1);
-            } else {
-                Env.getCurrentEnv().getAnalysisManager()
-                        .updateTaskStatus(task.info,
-                                AnalysisState.FINISHED, "", System.currentTimeMillis());
+            if (!task.killed) {
+                if (except != null) {
+                    LOG.warn("Analyze {} failed.", task.toString(), except);
+                    Env.getCurrentEnv().getAnalysisManager()
+                            .updateTaskStatus(task.info,
+                                    AnalysisState.FAILED, Util.getRootCauseMessage(except), System.currentTimeMillis());
+                } else {
+                    LOG.debug("Analyze {} finished, cost time:{}", task.toString(),
+                            System.currentTimeMillis() - startTime);
+                    Env.getCurrentEnv().getAnalysisManager()
+                            .updateTaskStatus(task.info,
+                                    AnalysisState.FINISHED, "", System.currentTimeMillis());
+                }
             }
-            LOG.warn("{} finished, cost time:{}", task.toString(), System.currentTimeMillis() - startTime);
         }
     }
 
-    public boolean cancel() {
+    public boolean cancel(String msg) {
         try {
             LOG.warn("{} cancelled, cost time:{}", task.toString(), System.currentTimeMillis() - startTime);
             task.cancel();
         } catch (Exception e) {
-            LOG.warn(String.format("Cancel job failed job info : %s", task.toString()));
-        } finally {
-            executor.decr();
+            LOG.warn(String.format("Cancel job failed job info : %s", msg));
         }
+        // Interrupt thread when it's writing metadata would cause FE crush.
         return super.cancel(false);
     }
 

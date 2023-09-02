@@ -17,6 +17,7 @@
 
 package org.apache.doris.journal.local;
 
+import org.apache.doris.common.Pair;
 import org.apache.doris.journal.JournalCursor;
 import org.apache.doris.journal.JournalEntity;
 import org.apache.doris.persist.EditLogFileInputStream;
@@ -107,71 +108,19 @@ public final class LocalJournalCursor implements JournalCursor {
         }
     }
 
-    public JournalEntity next2() {
-        if (currentKey > toKey) {
-            return null;
-        }
-
-        JournalEntity ret = null;
-        try {
-            short opCode = OperationType.OP_LOCAL_EOF;
-
-            while (true) {
-                try {
-                    opCode = currentStream.readShort();
-                    if (opCode == OperationType.OP_LOCAL_EOF) {
-                        if (nextFilePositionIndex < editFileSequenceNumbers.size()) {
-                            currentStream.close();
-                            currentStream = new DataInputStream(new BufferedInputStream(new EditLogFileInputStream(
-                                    new File(imageDir,
-                                            "edits." + editFileSequenceNumbers.get(nextFilePositionIndex)))));
-                            nextFilePositionIndex++;
-                            continue;
-                        } else {
-                            return null;
-                        }
-                    }
-                } catch (EOFException e) {
-                    if (nextFilePositionIndex < editFileSequenceNumbers.size()) {
-                        currentStream.close();
-                        currentStream = new DataInputStream(new BufferedInputStream(new EditLogFileInputStream(
-                                new File(imageDir, "edits." + editFileSequenceNumbers.get(nextFilePositionIndex)))));
-                        nextFilePositionIndex++;
-                        continue;
-                    } else {
-                        return null;
-                    }
-                }
-                break;
-            }
-
-            ret = getJournalEntity(currentStream);
-            currentKey++;
-            return ret;
-        } catch (IOException e) {
-            LOG.error("something wrong. {}", e);
-            try {
-                currentStream.close();
-            } catch (IOException e1) {
-                LOG.error(e1);
-            }
-            LOG.error(e);
-        }
-        return ret;
-    }
-
     @Override
-    public JournalEntity next() {
+    public Pair<Long, JournalEntity> next() {
         if (currentKey > toKey) {
             return null;
         }
 
-        JournalEntity ret = null;
+        Long key = currentKey;
+        JournalEntity entity = null;
         try {
             while (true) {
                 try {
-                    ret = getJournalEntity(currentStream);
-                    if (ret.getOpCode() == OperationType.OP_LOCAL_EOF) {
+                    entity = getJournalEntity(currentStream);
+                    if (entity.getOpCode() == OperationType.OP_LOCAL_EOF) {
                         if (nextFilePositionIndex < editFileSequenceNumbers.size()) {
                             currentStream.close();
                             currentStream = new DataInputStream(new BufferedInputStream(new EditLogFileInputStream(
@@ -198,7 +147,7 @@ public final class LocalJournalCursor implements JournalCursor {
             }
 
             currentKey++;
-            return ret;
+            return Pair.of(key, entity);
         } catch (IOException e) {
             LOG.error("something wrong. {}", e);
             try {
@@ -208,7 +157,7 @@ public final class LocalJournalCursor implements JournalCursor {
             }
             LOG.error(e);
         }
-        return ret;
+        return Pair.of(key, entity);
     }
 
     @Deprecated

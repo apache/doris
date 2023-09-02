@@ -95,7 +95,7 @@ struct StringUtf8LengthImpl {
         for (int i = 0; i < size; ++i) {
             const char* raw_str = reinterpret_cast<const char*>(&data[offsets[i - 1]]);
             int str_size = offsets[i] - offsets[i - 1];
-            res[i] = get_char_len(StringRef(raw_str, str_size), str_size);
+            res[i] = simd::VStringFunctions::get_char_len(raw_str, str_size);
         }
         return Status::OK();
     }
@@ -205,27 +205,46 @@ struct StringInStrImpl {
         res.resize(size);
 
         if (rdata.size == 0) {
-            for (int i = 0; i < size; ++i) {
-                res[i] = 1;
-            }
+            std::fill(res.begin(), res.end(), 1);
             return Status::OK();
         }
+
+        const UInt8* begin = ldata.data();
+        const UInt8* end = begin + ldata.size();
+        const UInt8* pos = begin;
+
+        /// Current index in the array of strings.
+        size_t i = 0;
+        std::fill(res.begin(), res.end(), 0);
 
         StringRef rstr_ref(rdata.data, rdata.size);
         StringSearch search(&rstr_ref);
 
-        for (int i = 0; i < size; ++i) {
-            const char* l_raw_str = reinterpret_cast<const char*>(&ldata[loffsets[i - 1]]);
-            int l_str_size = loffsets[i] - loffsets[i - 1];
-
-            StringRef lstr_ref(l_raw_str, l_str_size);
-
-            // Hive returns positions starting from 1.
-            int loc = search.search(&lstr_ref);
-            if (loc > 0) {
-                loc = get_char_len(lstr_ref, loc);
+        while (pos < end) {
+            // search return matched substring start offset
+            pos = (UInt8*)search.search((char*)pos, end - pos);
+            if (pos >= end) {
+                break;
             }
-            res[i] = loc + 1;
+
+            /// Determine which index it refers to.
+            /// begin + value_offsets[i] is the start offset of string at i+1
+            while (begin + loffsets[i] < pos) {
+                ++i;
+            }
+
+            /// We check that the entry does not pass through the boundaries of strings.
+            if (pos + rdata.size <= begin + loffsets[i]) {
+                int loc = pos - begin - loffsets[i - 1];
+                int l_str_size = loffsets[i] - loffsets[i - 1];
+                size_t len = std::min(l_str_size, loc);
+                loc = simd::VStringFunctions::get_char_len((char*)(begin + loffsets[i - 1]), len);
+                res[i] = loc + 1;
+            }
+
+            // move to next string offset
+            pos = begin + loffsets[i];
+            ++i;
         }
 
         return Status::OK();
@@ -263,7 +282,8 @@ struct StringInStrImpl {
         // Hive returns positions starting from 1.
         int loc = search.search(&strl);
         if (loc > 0) {
-            loc = get_char_len(strl, loc);
+            size_t len = std::min((size_t)loc, strl.size);
+            loc = simd::VStringFunctions::get_char_len(strl.data, len);
         }
 
         return loc + 1;
@@ -549,8 +569,6 @@ public:
     }
     // The second parameter of "trim" is a constant.
     ColumnNumbers get_arguments_that_are_always_constant() const override { return {1}; }
-
-    bool use_default_implementation_for_constants() const override { return true; }
 
     DataTypes get_variadic_argument_types_impl() const override {
         return impl::get_variadic_argument_types();
@@ -947,7 +965,7 @@ void register_function_string(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionStringElt>();
     factory.register_function<FunctionStringConcatWs>();
     factory.register_function<FunctionStringAppendTrailingCharIfAbsent>();
-    factory.register_function<FunctionStringRepeat>();
+    factory.register_function<FunctionStringRepeat<false>>();
     factory.register_function<FunctionStringLPad>();
     factory.register_function<FunctionStringRPad>();
     factory.register_function<FunctionToBase64>();
@@ -978,6 +996,10 @@ void register_function_string(SimpleFunctionFactory& factory) {
     factory.register_alias(FunctionStringMd5AndSM3<MD5Sum>::name, "md5");
     factory.register_alias(FunctionStringUTF8Length::name, "character_length");
     factory.register_alias(FunctionStringMd5AndSM3<SM3Sum>::name, "sm3");
+
+    /// @TEMPORARY: for be_exec_version=2
+    factory.register_alternative_function<FunctionStringEltOld>();
+    factory.register_alternative_function<FunctionStringRepeat<true>>();
 }
 
 } // namespace doris::vectorized

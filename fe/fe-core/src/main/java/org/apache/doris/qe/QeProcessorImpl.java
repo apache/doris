@@ -17,11 +17,12 @@
 
 package org.apache.doris.qe;
 
+import org.apache.doris.catalog.Env;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.ThreadPoolManager;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.profile.ExecutionProfile;
 import org.apache.doris.common.util.DebugUtil;
-import org.apache.doris.common.util.ProfileWriter;
 import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TQueryType;
@@ -151,6 +152,9 @@ public final class QeProcessorImpl implements QeProcessor {
                 LOG.debug("not found query {} when unregisterQuery", DebugUtil.printId(queryId));
             }
         }
+
+        // commit hive tranaction if needed
+        Env.getCurrentHiveTransactionMgr().deregister(DebugUtil.printId(queryId));
     }
 
     @Override
@@ -163,16 +167,12 @@ public final class QeProcessorImpl implements QeProcessor {
                 continue;
             }
             final String queryIdStr = DebugUtil.printId(info.getConnectContext().queryId());
-            final QueryStatisticsItem item = new QueryStatisticsItem.Builder()
-                    .queryId(queryIdStr)
-                    .queryStartTime(info.getStartExecTime())
-                    .sql(info.getSql())
-                    .user(context.getQualifiedUser())
-                    .connId(String.valueOf(context.getConnectionId()))
-                    .db(context.getDatabase())
+            final QueryStatisticsItem item = new QueryStatisticsItem.Builder().queryId(queryIdStr)
+                    .queryStartTime(info.getStartExecTime()).sql(info.getSql()).user(context.getQualifiedUser())
+                    .connId(String.valueOf(context.getConnectionId())).db(context.getDatabase())
                     .catalog(context.getDefaultCatalog())
                     .fragmentInstanceInfos(info.getCoord().getFragmentInstanceInfos())
-                    .profile(info.getCoord().getQueryProfile())
+                    .profile(info.getCoord().getExecutionProfile().getExecutionProfile())
                     .isReportSucc(context.getSessionVariable().enableProfile()).build();
             querySet.put(queryIdStr, item);
         }
@@ -203,7 +203,7 @@ public final class QeProcessorImpl implements QeProcessor {
         }
         try {
             info.getCoord().updateFragmentExecStatus(params);
-            if (info.getCoord().getProfileWriter() != null && params.isSetProfile()) {
+            if (params.isSetProfile()) {
                 writeProfileExecutor.submit(new WriteProfileTask(params, info));
             }
         } catch (Exception e) {
@@ -276,10 +276,8 @@ public final class QeProcessorImpl implements QeProcessor {
                 return;
             }
 
-            ProfileWriter profileWriter = info.getCoord().getProfileWriter();
-            if (profileWriter != null) {
-                profileWriter.writeProfile(false);
-            }
+            ExecutionProfile executionProfile = info.getCoord().getExecutionProfile();
+            executionProfile.update(-1, false);
         }
     }
 }

@@ -1,6 +1,6 @@
 ---
 {
-    "title": "sleep",
+    "title": "SLEEP",
     "language": "zh-CN"
 }
 ---
@@ -28,7 +28,7 @@ under the License.
 ### description
 #### Syntax
 
-`boolean sleep(Int num)`
+`BOOLEAN sleep(INT num)`
 
 使该线程休眠num秒。
 

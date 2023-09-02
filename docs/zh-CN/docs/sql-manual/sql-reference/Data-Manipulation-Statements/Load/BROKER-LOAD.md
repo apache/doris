@@ -65,6 +65,7 @@ WITH BROKER broker_name
   INTO TABLE `table_name`
   [PARTITION (p1, p2, ...)]
   [COLUMNS TERMINATED BY "column_separator"]
+  [LINES TERMINATED BY "line_delimiter"]
   [FORMAT AS "file_type"]
   [(column_list)]
   [COLUMNS FROM PATH AS (c1, c2, ...)]
@@ -90,11 +91,15 @@ WITH BROKER broker_name
 
   - `PARTITION(p1, p2, ...)`
 
-    可以指定仅导入表的某些分区。不再分区范围内的数据将被忽略。
+    可以指定仅导入表的某些分区。不在分区范围内的数据将被忽略。
 
   - `COLUMNS TERMINATED BY`
 
     指定列分隔符。仅在 CSV 格式下有效。仅能指定单字节分隔符。
+
+  - `LINES TERMINATED BY`
+
+    指定行分隔符。仅在 CSV 格式下有效。仅能指定单字节分隔符。
 
   - `FORMAT AS`
 
@@ -170,6 +175,10 @@ WITH BROKER broker_name
 
       是否对数据进行严格限制。默认为 false。
 
+    - `partial_columns`
+
+      布尔类型，为 true 表示使用部分列更新，默认值为 false，该参数只允许在表模型为 Unique 且采用 Merge on Write 时设置。
+
     - `timezone`
 
       指定某些受时区影响的函数的时区，如 `strftime/alignment_timestamp/from_unixtime` 等等，具体请查阅 [时区](../../../../advanced/time-zone.md) 文档。如果不指定，则使用 "Asia/Shanghai" 时区
@@ -186,8 +195,14 @@ WITH BROKER broker_name
       
       布尔类型，为true表示支持一个任务只导入数据到对应分区的一个tablet，默认值为false，作业的任务数取决于整体并发度。该参数只允许在对带有random分区的olap表导数的时候设置。
 
+    - <version since="dev" type="inline"> priority </version>
+
+      设置导入任务的优先级，可选 `HIGH/NORMAL/LOW` 三种优先级，默认为 `NORMAL`，对于处在 `PENDING` 状态的导入任务，更高优先级的任务将优先被执行进入 `LOADING` 状态。
+
 -  <version since="1.2.3" type="inline"> comment </version>
-  - 指定导入任务的备注信息。可选参数。
+
+   指定导入任务的备注信息。可选参数。
+
 ### Example
 
 1. 从 HDFS 导入一批数据
@@ -208,7 +223,7 @@ WITH BROKER broker_name
 
    导入文件 `file.txt`，按逗号分隔，导入到表 `my_table`。
 
-2. 从 HDFS 导入数据，使用通配符匹配两批两批文件。分别导入到两个表中。
+2. 从 HDFS 导入数据，使用通配符匹配两批文件。分别导入到两个表中。
 
    ```sql
    LOAD LABEL example_db.label2
@@ -253,7 +268,7 @@ WITH BROKER broker_name
        "dfs.ha.namenodes.my_ha" = "my_namenode1, my_namenode2",
        "dfs.namenode.rpc-address.my_ha.my_namenode1" = "nn1_host:rpc_port",
        "dfs.namenode.rpc-address.my_ha.my_namenode2" = "nn2_host:rpc_port",
-       "dfs.client.failover.proxy.provider" = "org.apache.hadoop.hdfs.server.namenode.ha.ConfiguredFailoverProxyProvider"
+       "dfs.client.failover.proxy.provider.my_ha" = "org.apache.hadoop.hdfs.server.namenode.ha.ConfiguredFailoverProxyProvider"
    );
    ```
 

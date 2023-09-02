@@ -18,6 +18,7 @@
 package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.Function.NullableMode;
 import org.apache.doris.catalog.InlineView;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
@@ -99,8 +100,8 @@ public class LateralViewRef extends TableRef {
     public TupleDescriptor createTupleDescriptor(Analyzer analyzer) throws AnalysisException {
         // Create a fake catalog table for the lateral view
         List<Column> columnList = Lists.newArrayList();
-        columnList.add(new Column(columnName, fnExpr.getFn().getReturnType(),
-                false, null, true, null, ""));
+        columnList.add(new Column(columnName, fnExpr.getFn().getReturnType(), false, null,
+                fnExpr.getFn().getNullableMode() == NullableMode.ALWAYS_NULLABLE, null, ""));
         view = new InlineView(viewName, columnList);
 
         // Create the non-materialized tuple and set the fake table in it.
@@ -119,6 +120,12 @@ public class LateralViewRef extends TableRef {
             originSlotRef.getDesc().setIsMaterialized(true);
         }
         explodeSlotRef.getDesc().setIsMaterialized(true);
+
+        for (Expr expr : baseTblSmap.getLhs()) {
+            if (expr instanceof SlotRef && ((SlotRef) expr).getDesc().getIsNullable()) {
+                explodeSlotRef.getDesc().setIsNullable(true);
+            }
+        }
     }
 
     // The default table name must be origin table name

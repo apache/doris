@@ -58,7 +58,7 @@ namespace doris::vectorized {
 
 template <typename T>
 struct AggregateFunctionAvgData {
-    T sum = 0;
+    T sum {};
     UInt64 count = 0;
 
     AggregateFunctionAvgData& operator=(const AggregateFunctionAvgData<T>& src) {
@@ -82,7 +82,7 @@ struct AggregateFunctionAvgData {
         // to keep the same result with row vesion; see AggregateFunctions::decimalv2_avg_get_value
         if constexpr (IsDecimalV2<T> && IsDecimalV2<ResultT>) {
             DecimalV2Value decimal_val_count(count, 0);
-            DecimalV2Value decimal_val_sum(static_cast<Int128>(sum));
+            DecimalV2Value decimal_val_sum(sum);
             DecimalV2Value cal_ret = decimal_val_sum / decimal_val_count;
             Decimal128 ret(cal_ret.value());
             return ret;
@@ -135,7 +135,7 @@ public:
 
     void add(AggregateDataPtr __restrict place, const IColumn** columns, size_t row_num,
              Arena*) const override {
-        const auto& column = static_cast<const ColVecType&>(*columns[0]);
+        const auto& column = assert_cast<const ColVecType&>(*columns[0]);
         if constexpr (IsDecimalNumber<T>) {
             this->data(place).sum += column.get_data()[row_num].value;
         } else {
@@ -145,7 +145,7 @@ public:
     }
 
     void reset(AggregateDataPtr place) const override {
-        this->data(place).sum = 0;
+        this->data(place).sum = {};
         this->data(place).count = 0;
     }
 
@@ -169,7 +169,7 @@ public:
     }
 
     void insert_result_into(ConstAggregateDataPtr __restrict place, IColumn& to) const override {
-        auto& column = static_cast<ColVecResult&>(to);
+        auto& column = assert_cast<ColVecResult&>(to);
         column.get_data().push_back(this->data(place).template result<ResultType>());
     }
 
@@ -196,7 +196,7 @@ public:
     void streaming_agg_serialize_to_column(const IColumn** columns, MutableColumnPtr& dst,
                                            const size_t num_rows, Arena* arena) const override {
         auto* src_data = assert_cast<const ColVecType&>(*columns[0]).get_data().data();
-        auto& dst_col = static_cast<ColumnFixedLengthObject&>(*dst);
+        auto& dst_col = assert_cast<ColumnFixedLengthObject&>(*dst);
         dst_col.set_item_size(sizeof(Data));
         dst_col.resize(num_rows);
         auto* data = dst_col.get_data().data();
@@ -220,12 +220,42 @@ public:
         }
     }
 
+    void deserialize_and_merge_from_column_range(AggregateDataPtr __restrict place,
+                                                 const IColumn& column, size_t begin, size_t end,
+                                                 Arena* arena) const override {
+        DCHECK(end <= column.size() && begin <= end)
+                << ", begin:" << begin << ", end:" << end << ", column.size():" << column.size();
+        auto& col = assert_cast<const ColumnFixedLengthObject&>(column);
+        auto* data = reinterpret_cast<const Data*>(col.get_data().data());
+        for (size_t i = begin; i <= end; ++i) {
+            this->data(place).sum += data[i].sum;
+            this->data(place).count += data[i].count;
+        }
+    }
+
+    void deserialize_and_merge_vec(const AggregateDataPtr* places, size_t offset,
+                                   AggregateDataPtr rhs, const ColumnString* column, Arena* arena,
+                                   const size_t num_rows) const override {
+        this->deserialize_from_column(rhs, *column, arena, num_rows);
+        DEFER({ this->destroy_vec(rhs, num_rows); });
+        this->merge_vec(places, offset, rhs, arena, num_rows);
+    }
+
+    void deserialize_and_merge_vec_selected(const AggregateDataPtr* places, size_t offset,
+                                            AggregateDataPtr rhs, const ColumnString* column,
+                                            Arena* arena, const size_t num_rows) const override {
+        this->deserialize_from_column(rhs, *column, arena, num_rows);
+        DEFER({ this->destroy_vec(rhs, num_rows); });
+        this->merge_vec_selected(places, offset, rhs, arena, num_rows);
+    }
+
     void serialize_without_key_to_column(ConstAggregateDataPtr __restrict place,
-                                         MutableColumnPtr& dst) const override {
-        auto& col = assert_cast<ColumnFixedLengthObject&>(*dst);
+                                         IColumn& to) const override {
+        auto& col = assert_cast<ColumnFixedLengthObject&>(to);
         col.set_item_size(sizeof(Data));
-        col.resize(1);
-        *reinterpret_cast<Data*>(col.get_data().data()) = this->data(place);
+        size_t old_size = col.size();
+        col.resize(old_size + 1);
+        *(reinterpret_cast<Data*>(col.get_data().data()) + old_size) = this->data(place);
     }
 
     MutableColumnPtr create_serialize_column() const override {

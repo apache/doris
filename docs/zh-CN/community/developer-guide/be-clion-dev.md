@@ -64,7 +64,7 @@ cp -R /mnt/datadisk0/chenqi/doris/gensrc /mnt/datadisk0/chenqi/clion/doris/gensr
 
 ![Toolchains](/images/clion-toolchains.png)
 
-5. 在 Clion 中修改 `be/CmakeLists.txt`，修改 `$ENV{JAVA_HOME}` 为远程服务器上的 `JAVA_HOME` 路径。 (否则会找不到 jni.h)
+5. 在 Clion 中打开 **Preferences -> Build, Execution, Deployment -> CMake** ，在CMake options中添加编译选项-DDORIS_JAVA_HOME=/path/to/remote/JAVA_HOME，将DORIS_JAVA_HOME设置为远程服务器的JAVA_HOME路径，否则会找不到 jni.h。
 
 6. 在 Clion 中右键点击 **Load Cmake Project**。此操作会同步代码到远程服务器上，并且调用生成相关 Cmake Build Files。
 

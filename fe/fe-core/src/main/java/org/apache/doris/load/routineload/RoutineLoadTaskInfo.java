@@ -70,20 +70,24 @@ public abstract class RoutineLoadTaskInfo {
 
     protected long timeoutMs = -1;
 
+    protected boolean isMultiTable = false;
+
     // this status will be set when corresponding transaction's status is changed.
     // so that user or other logic can know the status of the corresponding txn.
     protected TransactionStatus txnStatus = TransactionStatus.UNKNOWN;
 
-    public RoutineLoadTaskInfo(UUID id, long jobId, String clusterName, long timeoutMs) {
+    public RoutineLoadTaskInfo(UUID id, long jobId, String clusterName, long timeoutMs, boolean isMultiTable) {
         this.id = id;
         this.jobId = jobId;
         this.clusterName = clusterName;
         this.createTimeMs = System.currentTimeMillis();
         this.timeoutMs = timeoutMs;
+        this.isMultiTable = isMultiTable;
     }
 
-    public RoutineLoadTaskInfo(UUID id, long jobId, String clusterName, long timeoutMs, long previousBeId) {
-        this(id, jobId, clusterName, timeoutMs);
+    public RoutineLoadTaskInfo(UUID id, long jobId, String clusterName, long timeoutMs, long previousBeId,
+                               boolean isMultiTable) {
+        this(id, jobId, clusterName, timeoutMs, isMultiTable);
         this.previousBeId = previousBeId;
     }
 

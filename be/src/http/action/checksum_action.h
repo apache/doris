@@ -19,17 +19,18 @@
 
 #include <cstdint>
 
-#include "http/http_handler.h"
+#include "http/http_handler_with_auth.h"
 
 namespace doris {
 
 class HttpRequest;
 
-class ChecksumAction : public HttpHandler {
+class ChecksumAction : public HttpHandlerWithAuth {
 public:
-    explicit ChecksumAction();
+    explicit ChecksumAction(ExecEnv* exec_env, TPrivilegeHier::type hier,
+                            TPrivilegeType::type type);
 
-    virtual ~ChecksumAction() {}
+    ~ChecksumAction() override = default;
 
     void handle(HttpRequest* req) override;
 

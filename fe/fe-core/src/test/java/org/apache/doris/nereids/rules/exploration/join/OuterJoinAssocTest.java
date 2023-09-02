@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.rules.exploration.join;
 
 import org.apache.doris.common.Pair;
+import org.apache.doris.nereids.trees.expressions.IsNull;
 import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
@@ -28,6 +29,8 @@ import org.apache.doris.nereids.util.MemoTestUtils;
 import org.apache.doris.nereids.util.PlanChecker;
 import org.apache.doris.nereids.util.PlanConstructor;
 
+import com.google.common.collect.ImmutableList;
+import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
 import java.util.Objects;
@@ -77,5 +80,18 @@ class OuterJoinAssocTest implements MemoPatternMatchSupported {
                                 logicalJoin()
                         ).when(top -> Objects.equals(top.getHashJoinConjuncts().toString(), "[(id#0 = id#2)]"))
                 );
+    }
+
+    @Test
+    public void rejectNull() {
+        IsNull isNull = new IsNull(scan3.getOutput().get(0));
+        LogicalPlan join = new LogicalPlanBuilder(scan1)
+                .join(scan2, JoinType.LEFT_OUTER_JOIN, Pair.of(0, 0)) // t1.id = t2.id
+                .join(scan3, JoinType.LEFT_OUTER_JOIN, ImmutableList.of(), ImmutableList.of(isNull)) // t3.id is not null
+                .build();
+
+        PlanChecker.from(MemoTestUtils.createConnectContext(), join)
+                .applyExploration(OuterJoinAssoc.INSTANCE.build())
+                .checkMemo(memo -> Assertions.assertEquals(1, memo.getRoot().getLogicalExpressions().size()));
     }
 }

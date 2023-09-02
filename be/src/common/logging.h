@@ -17,6 +17,8 @@
 
 #pragma once
 
+#include <memory>
+
 // GLOG defines this based on the system but doesn't check if it's already
 // been defined.  undef it first to avoid warnings.
 // glog MUST be included before gflags.  Instead of including them,
@@ -70,43 +72,45 @@ bool init_glog(const char* basename);
 // flushed. May only be called once.
 void shutdown_logging();
 
-/// Wrap a glog stream and tag on the log. usage:
-///   LOG_INFO("here is an info for a {} query", query_type).tag("query_id", queryId);
-#define LOG_INFO(...) doris::TaggableLogger(LOG(INFO), ##__VA_ARGS__)
-#define LOG_WARNING(...) doris::TaggableLogger(LOG(WARNING), ##__VA_ARGS__)
-#define LOG_ERROR(...) doris::TaggableLogger(LOG(ERROR), ##__VA_ARGS__)
-#define LOG_FATAL(...) doris::TaggableLogger(LOG(FATAL), ##__VA_ARGS__)
-
 class TaggableLogger {
 public:
+    TaggableLogger(const char* file, int line, google::LogSeverity severity)
+            : _msg(file, line, severity) {}
+
     template <typename... Args>
-    TaggableLogger(std::ostream& stream, std::string_view fmt, Args&&... args) : _stream(stream) {
+    TaggableLogger& operator()(const std::string_view& fmt, Args&&... args) {
         if constexpr (sizeof...(args) == 0) {
-            _stream << fmt;
+            _msg.stream() << fmt;
         } else {
-            _stream << fmt::format(fmt, std::forward<Args>(args)...);
+            _msg.stream() << fmt::format(fmt, std::forward<Args&&>(args)...);
         }
+        return *this;
     }
 
     template <typename V>
-    TaggableLogger& tag(std::string_view key, const V& value) {
-        _stream << '|' << key << '=';
+    TaggableLogger& tag(std::string_view key, V&& value) {
+        _msg.stream() << '|' << key << '=';
         if constexpr (std::is_same_v<V, TUniqueId> || std::is_same_v<V, PUniqueId>) {
-            _stream << print_id(value);
+            _msg.stream() << print_id(value);
         } else {
-            _stream << value;
+            _msg.stream() << value;
         }
         return *this;
     }
 
     template <typename E>
-    TaggableLogger& error(const E& error) {
-        _stream << "|error=" << error;
+    TaggableLogger& error(E&& error) {
+        _msg.stream() << "|error=" << error;
         return *this;
     }
 
 private:
-    std::ostream& _stream;
+    google::LogMessage _msg;
 };
+
+#define LOG_INFO TaggableLogger(__FILE__, __LINE__, google::GLOG_INFO)
+#define LOG_WARNING TaggableLogger(__FILE__, __LINE__, google::GLOG_WARNING)
+#define LOG_ERROR TaggableLogger(__FILE__, __LINE__, google::GLOG_ERROR)
+#define LOG_FATAL TaggableLogger(__FILE__, __LINE__, google::GLOG_FATAL)
 
 } // namespace doris

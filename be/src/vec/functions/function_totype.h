@@ -51,8 +51,6 @@ public:
         return std::make_shared<typename Impl::ReturnType>();
     }
 
-    bool use_default_implementation_for_constants() const override { return true; }
-
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         size_t result, size_t input_rows_count) override {
         return execute_impl<typename Impl::ReturnType>(block, arguments, result, input_rows_count);
@@ -67,7 +65,8 @@ public:
 
 private:
     // handle result == DataTypeString
-    template <typename T, std::enable_if_t<std::is_same_v<T, DataTypeString>, T>* = nullptr>
+    template <typename T>
+        requires std::is_same_v<T, DataTypeString>
     Status execute_impl(Block& block, const ColumnNumbers& arguments, size_t result,
                         size_t input_rows_count) {
         const ColumnPtr column = block.get_by_position(arguments[0]).column;
@@ -94,7 +93,8 @@ private:
                                     block.get_by_position(arguments[0]).column->get_name(),
                                     get_name());
     }
-    template <typename T, std::enable_if_t<!std::is_same_v<T, DataTypeString>, T>* = nullptr>
+    template <typename T>
+        requires(!std::is_same_v<T, DataTypeString>)
     Status execute_impl(Block& block, const ColumnNumbers& arguments, size_t result,
                         size_t input_rows_count) {
         const ColumnPtr column = block.get_by_position(arguments[0]).column;
@@ -141,8 +141,6 @@ public:
         using ResultDataType = typename Impl<LeftDataType, RightDataType>::ResultDataType;
         return std::make_shared<ResultDataType>();
     }
-
-    bool use_default_implementation_for_constants() const override { return true; }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         size_t result, size_t /*input_rows_count*/) override {
@@ -219,8 +217,6 @@ public:
 
     bool is_variadic() const override { return true; }
 
-    bool use_default_implementation_for_constants() const override { return true; }
-
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         size_t result, size_t /*input_rows_count*/) override {
         const auto& left = block.get_by_position(arguments[0]);
@@ -229,9 +225,8 @@ public:
     }
 
 private:
-    template <typename ReturnDataType,
-              std::enable_if_t<!std::is_same_v<ResultDataType, DataTypeString>, ReturnDataType>* =
-                      nullptr>
+    template <typename ReturnDataType>
+        requires(!std::is_same_v<ResultDataType, DataTypeString>)
     Status execute_inner_impl(const ColumnWithTypeAndName& left, const ColumnWithTypeAndName& right,
                               Block& block, const ColumnNumbers& arguments, size_t result) {
         const auto& [lcol, left_const] = unpack_if_const(left.column);
@@ -267,9 +262,8 @@ private:
         return Status::RuntimeError("unimplements function {}", get_name());
     }
 
-    template <typename ReturnDataType,
-              std::enable_if_t<std::is_same_v<ResultDataType, DataTypeString>, ReturnDataType>* =
-                      nullptr>
+    template <typename ReturnDataType>
+        requires std::is_same_v<ResultDataType, DataTypeString>
     Status execute_inner_impl(const ColumnWithTypeAndName& left, const ColumnWithTypeAndName& right,
                               Block& block, const ColumnNumbers& arguments, size_t result) {
         const auto& [lcol, left_const] = unpack_if_const(left.column);
@@ -317,8 +311,6 @@ public:
                                              ReturnType>::ResultDataType;
         return make_nullable(std::make_shared<ResultDataType>());
     }
-
-    bool use_default_implementation_for_constants() const override { return true; }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         size_t result, size_t input_rows_count) override {
@@ -393,7 +385,6 @@ public:
     DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
         return make_nullable(std::make_shared<typename Impl::ReturnType>());
     }
-    bool use_default_implementation_for_constants() const override { return true; }
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         size_t result, size_t input_rows_count) override {
         auto null_map = ColumnUInt8::create(input_rows_count, 0);
@@ -464,8 +455,6 @@ public:
     DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
         return make_nullable(std::make_shared<typename Impl::ReturnType>());
     }
-
-    bool use_default_implementation_for_constants() const override { return true; }
 
     bool use_default_implementation_for_nulls() const override { return true; }
 

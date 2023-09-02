@@ -24,39 +24,36 @@ import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.DescriptorTable;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.InsertStmt;
+import org.apache.doris.analysis.LiteralExpr;
 import org.apache.doris.analysis.QueryStmt;
+import org.apache.doris.analysis.SelectListItem;
 import org.apache.doris.analysis.SelectStmt;
 import org.apache.doris.analysis.SlotDescriptor;
 import org.apache.doris.analysis.SlotId;
 import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.StatementBase;
 import org.apache.doris.analysis.StorageBackend;
-import org.apache.doris.analysis.TableName;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.ScalarType;
-import org.apache.doris.catalog.Table;
-import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.Type;
-import org.apache.doris.catalog.external.ExternalTable;
-import org.apache.doris.cluster.ClusterNamespace;
-import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.UserException;
-import org.apache.doris.common.util.VectorizedUtil;
-import org.apache.doris.datasource.InternalCatalog;
-import org.apache.doris.mysql.privilege.PrivPredicate;
+import org.apache.doris.qe.CommonResultSet;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.ResultSet;
+import org.apache.doris.qe.ResultSetMetaData;
 import org.apache.doris.rewrite.mvrewrite.MVSelectFailedException;
+import org.apache.doris.statistics.query.StatsDelta;
+import org.apache.doris.thrift.TFetchOption;
 import org.apache.doris.thrift.TQueryOptions;
 import org.apache.doris.thrift.TRuntimeFilterMode;
 
 import com.google.common.base.Preconditions;
-import com.google.common.base.Strings;
-import com.google.common.collect.HashMultimap;
 import com.google.common.collect.Lists;
-import com.google.common.collect.Maps;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -65,6 +62,7 @@ import java.util.Collections;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 
 /**
@@ -146,6 +144,13 @@ public class OriginalPlanner extends Planner {
     }
 
     /**
+     * Return hint information.
+     */
+    @Override
+    public void appendHintInfo(StringBuilder str) {
+    }
+
+    /**
      * Create plan fragments for an analyzed statement, given a set of execution options. The fragments are returned in
      * a list such that element i of that list can only consume output of the following fragments j > i.
      */
@@ -160,20 +165,15 @@ public class OriginalPlanner extends Planner {
         plannerContext = new PlannerContext(analyzer, queryStmt, queryOptions, statement);
         singleNodePlanner = new SingleNodePlanner(plannerContext);
         PlanNode singleNodePlan = singleNodePlanner.createSingleNodePlan();
-        // TODO change to vec should happen after distributed planner
-        if (VectorizedUtil.isVectorized()) {
-            singleNodePlan.convertToVectorized();
+        if (ConnectContext.get().getExecutor() != null) {
+            ConnectContext.get().getExecutor().getSummaryProfile().setCreateSingleNodeFinishTime();
         }
-
         ProjectPlanner projectPlanner = new ProjectPlanner(analyzer);
         projectPlanner.projectSingleNodePlan(queryStmt.getResultExprs(), singleNodePlan);
-
         if (statement instanceof InsertStmt) {
             InsertStmt insertStmt = (InsertStmt) statement;
             insertStmt.prepareExpressions();
         }
-
-        checkColumnPrivileges(singleNodePlan);
 
         // TODO chenhao16 , no used materialization work
         // compute referenced slots before calling computeMemLayout()
@@ -205,11 +205,11 @@ public class OriginalPlanner extends Planner {
          */
         analyzer.getDescTbl().computeMemLayout();
         singleNodePlan.finalize(analyzer);
-
-        // check and set flag for topn detail query opt
-        if (VectorizedUtil.isVectorized()) {
-            checkAndSetTopnOpt(singleNodePlan);
+        if (Config.enable_query_hit_stats && plannerContext.getStatement() != null
+                && plannerContext.getStatement().getExplainOptions() == null) {
+            collectQueryStat(singleNodePlan);
         }
+        checkAndSetTopnOpt(singleNodePlan);
 
         if (queryOptions.num_nodes == 1 || queryStmt.isPointQuery()) {
             // single-node execution; we're almost done
@@ -221,12 +221,13 @@ public class OriginalPlanner extends Planner {
             distributedPlanner = new DistributedPlanner(plannerContext);
             fragments = distributedPlanner.createPlanFragments(singleNodePlan);
         }
+        if (ConnectContext.get().getExecutor() != null) {
+            ConnectContext.get().getExecutor().getSummaryProfile().setQueryDistributedFinishTime();
+        }
 
         // Push sort node down to the bottom of olapscan.
         // Because the olapscan must be in the end. So get the last two nodes.
-        if (VectorizedUtil.isVectorized()) {
-            pushSortToOlapScan();
-        }
+        pushSortToOlapScan();
 
         // Optimize the transfer of query statistic when query doesn't contain limit.
         PlanFragment rootFragment = fragments.get(fragments.size() - 1);
@@ -245,7 +246,7 @@ public class OriginalPlanner extends Planner {
             rootFragment = distributedPlanner.createInsertFragment(rootFragment, insertStmt, fragments);
             rootFragment.setSink(insertStmt.getDataSink());
             insertStmt.complete();
-            ArrayList<Expr> exprs = ((InsertStmt) statement).getResultExprs();
+            List<Expr> exprs = statement.getResultExprs();
             List<Expr> resExprs = Expr.substituteList(
                     exprs, rootFragment.getPlanRoot().getOutputSmap(), analyzer, true);
             rootFragment.setOutputExprs(resExprs);
@@ -265,9 +266,7 @@ public class OriginalPlanner extends Planner {
 
         pushDownResultFileSink(analyzer);
 
-        if (VectorizedUtil.isVectorized()) {
-            pushOutColumnUniqueIdsToOlapScan(rootFragment, analyzer);
-        }
+        pushOutColumnUniqueIdsToOlapScan(rootFragment, analyzer);
 
         if (queryStmt instanceof SelectStmt) {
             SelectStmt selectStmt = (SelectStmt) queryStmt;
@@ -300,6 +299,10 @@ public class OriginalPlanner extends Planner {
                     // Double check this plan to ensure it's a general topn query
                     injectRowIdColumnSlot();
                     ((SortNode) singleNodePlan).setUseTwoPhaseReadOpt(true);
+                } else if (singleNodePlan instanceof OlapScanNode &&  singleNodePlan.getChildren().size() == 0) {
+                    // Optimize query like `SELECT ... FROM <tbl> WHERE ... LIMIT ...`.
+                    // This typically used when row store enabled, to reduce scan cost
+                    injectRowIdColumnSlot();
                 } else {
                     // This is not a general topn query, rollback needMaterialize flag
                     for (SlotDescriptor slot : analyzer.getDescTbl().getSlotDescs().values()) {
@@ -307,66 +310,6 @@ public class OriginalPlanner extends Planner {
                     }
                 }
             }
-        }
-    }
-
-    private void checkColumnPrivileges(PlanNode singleNodePlan) throws UserException {
-        if (ConnectContext.get() == null) {
-            return;
-        }
-        // 1. collect all columns from all scan nodes
-        List<ScanNode> scanNodes = Lists.newArrayList();
-        singleNodePlan.collect((PlanNode planNode) -> planNode instanceof ScanNode, scanNodes);
-        // catalog : <db.table : column>
-        Map<String, HashMultimap<TableName, String>> ctlToTableColumnMap = Maps.newHashMap();
-        for (ScanNode scanNode : scanNodes) {
-            if (!scanNode.needToCheckColumnPriv()) {
-                continue;
-            }
-            TupleDescriptor tupleDesc = scanNode.getTupleDesc();
-            TableIf table = tupleDesc.getTable();
-            if (table == null) {
-                continue;
-            }
-            TableName tableName = getFullQualifiedTableNameFromTable(table);
-            for (SlotDescriptor slotDesc : tupleDesc.getSlots()) {
-                if (!slotDesc.isMaterialized()) {
-                    continue;
-                }
-                Column column = slotDesc.getColumn();
-                if (column == null) {
-                    continue;
-                }
-                HashMultimap<TableName, String> tableColumnMap = ctlToTableColumnMap.get(tableName.getCtl());
-                if (tableColumnMap == null) {
-                    tableColumnMap = HashMultimap.create();
-                    ctlToTableColumnMap.put(tableName.getCtl(), tableColumnMap);
-                }
-                tableColumnMap.put(tableName, column.getName());
-                LOG.debug("collect column {} in {}", column.getName(), tableName);
-            }
-        }
-        // 2. check privs
-        // TODO: only support SELECT_PRIV now
-        PrivPredicate wanted = PrivPredicate.SELECT;
-        for (Map.Entry<String, HashMultimap<TableName, String>> entry : ctlToTableColumnMap.entrySet()) {
-            Env.getCurrentEnv().getAccessManager().checkColumnsPriv(ConnectContext.get().getCurrentUserIdentity(),
-                    entry.getKey(), entry.getValue(), wanted);
-        }
-    }
-
-    private TableName getFullQualifiedTableNameFromTable(TableIf table) throws AnalysisException {
-        if (table instanceof Table) {
-            String dbName = ClusterNamespace.getNameFromFullName(((Table) table).getQualifiedDbName());
-            if (Strings.isNullOrEmpty(dbName)) {
-                throw new AnalysisException("failed to get db name from table " + table.getName());
-            }
-            return new TableName(InternalCatalog.INTERNAL_CATALOG_NAME, dbName, table.getName());
-        } else if (table instanceof ExternalTable) {
-            ExternalTable extTable = (ExternalTable) table;
-            return new TableName(extTable.getCatalog().getName(), extTable.getDbName(), extTable.getName());
-        } else {
-            throw new AnalysisException("table " + table.getName() + " is not internal or external table instance");
         }
     }
 
@@ -442,7 +385,6 @@ public class OriginalPlanner extends Planner {
         topPlanFragment.getPlanRoot().resetTupleIds(Lists.newArrayList(fileStatusDesc.getId()));
     }
 
-
     private SlotDescriptor injectRowIdColumnSlot(Analyzer analyzer, TupleDescriptor tupleDesc) {
         SlotDescriptor slotDesc = analyzer.getDescTbl().addSlotDescriptor(tupleDesc);
         LOG.debug("inject slot {}", slotDesc);
@@ -453,17 +395,17 @@ public class OriginalPlanner extends Planner {
         slotDesc.setColumn(col);
         slotDesc.setIsNullable(false);
         slotDesc.setIsMaterialized(true);
-        // Non-nullable slots will have 0 for the byte offset and -1 for the bit mask
-        slotDesc.setNullIndicatorBit(-1);
-        slotDesc.setNullIndicatorByte(0);
         return slotDesc;
     }
 
-    // We use two phase read to optimize sql like: select * from tbl [where xxx = ???] order by column1 limit n
+    // We use two phase read to optimize sql like: select * from tbl [where xxx = ???] [order by column1] [limit n]
     // in the first phase, we add an extra column `RowId` to Block, and sort blocks in TopN nodes
     // in the second phase, we have n rows, we do a fetch rpc to get all rowids date for the n rows
     // and reconconstruct the final block
     private void injectRowIdColumnSlot() {
+        boolean injected = false;
+        OlapTable olapTable = null;
+        OlapScanNode scanNode = null;
         for (PlanFragment fragment : fragments) {
             PlanNode node = fragment.getPlanRoot();
             PlanNode parent = null;
@@ -474,17 +416,34 @@ public class OriginalPlanner extends Planner {
                 node = node.getChildren().get(0);
             }
 
-            if (!(node instanceof OlapScanNode) || !(parent instanceof SortNode)) {
-                continue;
+            // case1
+            if ((node instanceof OlapScanNode) && (parent instanceof SortNode)) {
+                SortNode sortNode = (SortNode) parent;
+                scanNode = (OlapScanNode) node;
+                SlotDescriptor slot = injectRowIdColumnSlot(analyzer, scanNode.getTupleDesc());
+                injectRowIdColumnSlot(analyzer, sortNode.getSortInfo().getSortTupleDescriptor());
+                SlotRef extSlot = new SlotRef(slot);
+                sortNode.getResolvedTupleExprs().add(extSlot);
+                sortNode.getSortInfo().setUseTwoPhaseRead();
+                injected = true;
+                olapTable = scanNode.getOlapTable();
+                break;
             }
-            SortNode sortNode = (SortNode) parent;
-            OlapScanNode scanNode = (OlapScanNode) node;
-            SlotDescriptor slot = injectRowIdColumnSlot(analyzer, scanNode.getTupleDesc());
-            injectRowIdColumnSlot(analyzer, sortNode.getSortInfo().getSortTupleDescriptor());
-            SlotRef extSlot = new SlotRef(slot);
-            sortNode.getResolvedTupleExprs().add(extSlot);
-            sortNode.getSortInfo().setUseTwoPhaseRead();
-            break;
+            // case2
+            if ((node instanceof OlapScanNode) && parent == null) {
+                scanNode = (OlapScanNode) node;
+                injectRowIdColumnSlot(analyzer, scanNode.getTupleDesc());
+                injected = true;
+                olapTable = scanNode.getOlapTable();
+                break;
+            }
+        }
+        for (PlanFragment fragment : fragments) {
+            if (injected && fragment.getSink() instanceof ResultSink) {
+                TFetchOption fetchOption = olapTable.generateTwoPhaseReadOption(scanNode.getSelectedIndexId());
+                ((ResultSink) fragment.getSink()).setFetchOption(fetchOption);
+                break;
+            }
         }
     }
 
@@ -536,50 +495,16 @@ public class OriginalPlanner extends Planner {
      * column unique id for `A` and `B` will put into outputColumnUniqueIds.
      *
     */
+    // this opt will only work with nereidsPlanner
     private void pushOutColumnUniqueIdsToOlapScan(PlanFragment rootFragment, Analyzer analyzer) {
-        Set<Integer> outputColumnUniqueIds =  new HashSet<>();
-        ArrayList<Expr> outputExprs = rootFragment.getOutputExprs();
-        for (Expr expr : outputExprs) {
-            if (expr instanceof SlotRef) {
-                if (((SlotRef) expr).getColumn() != null) {
-                    outputColumnUniqueIds.add(((SlotRef) expr).getColumn().getUniqueId());
-                }
-            }
-        }
+        Set<Integer> outputColumnUniqueIds = new HashSet<>();
+        // add '-1' to avoid the optimization incorrect work with OriginalPlanner,
+        // because in the storage layer will skip this optimization if outputColumnUniqueIds contains '-1',
+        // to ensure the optimization only correct work with nereidsPlanner
+        outputColumnUniqueIds.add(-1);
 
         for (PlanFragment fragment : fragments) {
             PlanNode node = fragment.getPlanRoot();
-            PlanNode parent = null;
-            while (node.getChildren().size() != 0) {
-                for (PlanNode childNode : node.getChildren()) {
-                    List<SlotId> outputSlotIds = childNode.getOutputSlotIds();
-                    if (outputSlotIds != null) {
-                        for (SlotId sid : outputSlotIds) {
-                            SlotDescriptor slotDesc = analyzer.getSlotDesc(sid);
-                            outputColumnUniqueIds.add(slotDesc.getUniqueId());
-                        }
-                    }
-                }
-                // OlapScanNode is the last node.
-                // So, just get the two node and check if they are SortNode and OlapScan.
-                parent = node;
-                node = node.getChildren().get(0);
-            }
-
-            if (parent instanceof SortNode) {
-                SortNode sortNode = (SortNode) parent;
-                List<Expr> orderingExprs = sortNode.getSortInfo().getOrigOrderingExprs();
-                if (orderingExprs != null) {
-                    for (Expr expr : orderingExprs) {
-                        if (expr instanceof SlotRef) {
-                            if (((SlotRef) expr).getColumn() != null) {
-                                outputColumnUniqueIds.add(((SlotRef) expr).getColumn().getUniqueId());
-                            }
-                        }
-                    }
-                }
-            }
-
             if (!(node instanceof OlapScanNode)) {
                 continue;
             }
@@ -704,5 +629,53 @@ public class OriginalPlanner extends Planner {
     @Override
     public DescriptorTable getDescTable() {
         return analyzer.getDescTbl();
+    }
+
+    private void collectQueryStat(PlanNode root) {
+        try {
+            if (root instanceof ScanNode) {
+                StatsDelta delta = ((ScanNode) root).genQueryStats();
+                if (delta != null && !delta.empty()) {
+                    Env.getCurrentEnv().getQueryStats().addStats(delta);
+                    if (!delta.getTabletStats().isEmpty()) {
+                        Env.getCurrentEnv().getQueryStats().addStats(delta.getTabletStats());
+                    }
+                }
+            }
+            for (PlanNode child : root.getChildren()) {
+                collectQueryStat(child);
+            }
+        } catch (UserException e) {
+            LOG.info("failed to collect query stat: {}", e.getMessage());
+        }
+    }
+
+    @Override
+    public Optional<ResultSet> handleQueryInFe(StatementBase parsedStmt) {
+        if (!(parsedStmt instanceof SelectStmt)) {
+            return Optional.empty();
+        }
+        SelectStmt parsedSelectStmt = (SelectStmt) parsedStmt;
+        if (!parsedSelectStmt.getTableRefs().isEmpty()) {
+            return Optional.empty();
+        }
+        List<SelectListItem> selectItems = parsedSelectStmt.getSelectList().getItems();
+        List<Column> columns = new ArrayList<>(selectItems.size());
+        List<String> columnLabels = parsedSelectStmt.getColLabels();
+        List<String> data = new ArrayList<>();
+        for (int i = 0; i < selectItems.size(); i++) {
+            SelectListItem item = selectItems.get(i);
+            Expr expr = item.getExpr();
+            String columnName = columnLabels.get(i);
+            if (expr instanceof LiteralExpr) {
+                columns.add(new Column(columnName, expr.getType()));
+                super.handleLiteralInFe((LiteralExpr) expr, data);
+            } else {
+                return Optional.empty();
+            }
+        }
+        ResultSetMetaData metadata = new CommonResultSet.CommonResultSetMetaData(columns);
+        ResultSet resultSet = new CommonResultSet(metadata, Collections.singletonList(data));
+        return Optional.of(resultSet);
     }
 }

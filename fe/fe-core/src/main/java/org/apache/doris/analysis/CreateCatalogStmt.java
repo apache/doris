@@ -19,6 +19,7 @@ package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.UserException;
@@ -92,6 +93,13 @@ public class CreateCatalogStmt extends DdlStmt {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_CATALOG_ACCESS_DENIED,
                     analyzer.getQualifiedUser(), catalogName);
         }
+
+        if (Config.disallow_create_catalog_with_resource && !Strings.isNullOrEmpty(resource)) {
+            throw new AnalysisException("Create catalog with resource is deprecated and is not allowed."
+                    + " You can set `disallow_create_catalog_with_resource=false` in fe.conf"
+                    + " to enable it temporarily.");
+        }
+
         String currentDateTime = LocalDateTime.now(ZoneId.systemDefault()).toString().replace("T", " ");
         properties.put(CREATE_TIME_PROP, currentDateTime);
         PropertyAnalyzer.checkCatalogProperties(properties, false);

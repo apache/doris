@@ -28,15 +28,21 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.IdGenerator;
 import org.apache.doris.nereids.CascadesContext;
+import org.apache.doris.nereids.trees.expressions.CTEId;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.VirtualSlotReference;
+import org.apache.doris.nereids.trees.plans.RelationId;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalCTEConsumer;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalCTEProducer;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHashAggregate;
+import org.apache.doris.planner.CTEScanNode;
 import org.apache.doris.planner.PlanFragment;
 import org.apache.doris.planner.PlanFragmentId;
 import org.apache.doris.planner.PlanNode;
 import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.planner.ScanNode;
+import org.apache.doris.thrift.TPushAggOp;
 
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.Lists;
@@ -81,6 +87,16 @@ public class PlanTranslatorContext {
     private final Map<ExprId, SlotRef> bufferedSlotRefForWindow = Maps.newHashMap();
     private TupleDescriptor bufferedTupleForWindow = null;
 
+    private final Map<CTEId, PlanFragment> cteProduceFragments = Maps.newHashMap();
+
+    private final Map<CTEId, PhysicalCTEProducer> cteProducerMap = Maps.newHashMap();
+
+    private final Map<CTEId, PhysicalCTEConsumer> cteConsumerMap = Maps.newHashMap();
+
+    private final Map<PlanFragmentId, CTEScanNode> cteScanNodeMap = Maps.newHashMap();
+
+    private final Map<RelationId, TPushAggOp> tablePushAggOp = Maps.newHashMap();
+
     public PlanTranslatorContext(CascadesContext ctx) {
         this.translator = new RuntimeFilterTranslator(ctx.getRuntimeFilterContext());
     }
@@ -92,6 +108,22 @@ public class PlanTranslatorContext {
 
     public List<PlanFragment> getPlanFragments() {
         return planFragments;
+    }
+
+    public Map<CTEId, PlanFragment> getCteProduceFragments() {
+        return cteProduceFragments;
+    }
+
+    public Map<CTEId, PhysicalCTEProducer> getCteProduceMap() {
+        return cteProducerMap;
+    }
+
+    public Map<CTEId, PhysicalCTEConsumer> getCteConsumerMap() {
+        return cteConsumerMap;
+    }
+
+    public Map<PlanFragmentId, CTEScanNode> getCteScanNodeMap() {
+        return cteScanNodeMap;
     }
 
     public TupleDescriptor generateTupleDesc() {
@@ -123,8 +155,10 @@ public class PlanTranslatorContext {
         slotIdToExprId.put(slotRef.getDesc().getId(), exprId);
     }
 
-    public void removePlanFragment(PlanFragment planFragment) {
-        this.planFragments.remove(planFragment);
+    public void mergePlanFragment(PlanFragment srcFragment, PlanFragment targetFragment) {
+        srcFragment.getTargetRuntimeFilterIds().forEach(targetFragment::setTargetRuntimeFilterIds);
+        srcFragment.getBuilderRuntimeFilterIds().forEach(targetFragment::setBuilderRuntimeFilterIds);
+        this.planFragments.remove(srcFragment);
     }
 
     public SlotRef findSlotRef(ExprId exprId) {
@@ -180,6 +214,7 @@ public class PlanTranslatorContext {
         } else {
             slotRef = new SlotRef(slotDescriptor);
         }
+        slotRef.setTable(table);
         slotRef.setLabel(slotReference.getName());
         this.addExprIdSlotRefPair(slotReference.getExprId(), slotRef);
         slotDescriptor.setIsNullable(slotReference.nullable());
@@ -203,5 +238,13 @@ public class PlanTranslatorContext {
 
     public DescriptorTable getDescTable() {
         return descTable;
+    }
+
+    public void setRelationPushAggOp(RelationId relationId, TPushAggOp aggOp) {
+        tablePushAggOp.put(relationId, aggOp);
+    }
+
+    public TPushAggOp getRelationPushAggOp(RelationId relationId) {
+        return tablePushAggOp.getOrDefault(relationId, TPushAggOp.NONE);
     }
 }

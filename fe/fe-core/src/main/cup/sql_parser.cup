@@ -33,7 +33,9 @@ import org.apache.doris.analysis.AlterDatabaseQuotaStmt.QuotaType;
 import org.apache.doris.analysis.SetOperationStmt.Qualifier;
 import org.apache.doris.analysis.SetOperationStmt.Operation;
 import org.apache.doris.analysis.SetOperationStmt.SetOperand;
+import org.apache.doris.analysis.LoadType;
 import org.apache.doris.catalog.AccessPrivilege;
+import org.apache.doris.catalog.AccessPrivilegeWithCols;
 import org.apache.doris.catalog.AggregateType;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.PrimitiveType;
@@ -66,6 +68,7 @@ parser code {:
     public boolean isVerbose = false;
     public String wild;
     public Expr where;
+    public ArrayList<PlaceHolderExpr> placeholder_expr_list = Lists.newArrayList();
 
     // List of expected tokens ids from current parsing state for generating syntax error message
     private final List<Integer> expectedTokenIds = Lists.newArrayList();
@@ -255,8 +258,10 @@ terminal String
     KW_ANTI,
     KW_APPEND,
     KW_ARRAY,
+    KW_AUTO_INCREMENT,
     KW_AS,
     KW_ASC,
+    KW_AT,
     KW_AUTHORS,
     KW_BACKEND,
     KW_BACKENDS,
@@ -271,11 +276,13 @@ terminal String
     KW_NGRAM_BF,
     KW_BLOB,
     KW_BOOLEAN,
+    KW_BRIEF,
     KW_BROKER,
     KW_BUCKETS,
     KW_BUILD,
     KW_BUILTIN,
     KW_BY,
+    KW_CACHED,
     KW_CANCEL,
     KW_CASE,
     KW_CAST,
@@ -337,6 +344,7 @@ terminal String
     KW_DISTRIBUTED,
     KW_DISTRIBUTION,
     KW_DIV,
+    KW_DO,
     KW_DOUBLE,
     KW_DROP,
     KW_DROPP,
@@ -347,11 +355,13 @@ terminal String
     KW_ENCRYPTKEY,
     KW_ENCRYPTKEYS,
     KW_END,
+    KW_ENDS,
     KW_ENGINE,
     KW_ENGINES,
     KW_ENTER,
     KW_ERRORS,
     KW_EVENTS,
+    KW_EVERY,
     KW_EXCEPT,
     KW_EXCLUDE,
     KW_EXISTS,
@@ -418,7 +428,9 @@ terminal String
     KW_ISOLATION,
     KW_INVERTED,
     KW_JOB,
+    KW_JOBS,    
     KW_JOIN,
+    KW_JSON,
     KW_JSONB,
     KW_KEY,
     KW_KEYS,
@@ -427,6 +439,7 @@ terminal String
     KW_LARGEINT,
     KW_LAST,
     KW_LATERAL,
+    KW_LDAP,
     KW_LDAP_ADMIN_PASSWORD,
     KW_LEFT,
     KW_LESS,
@@ -482,6 +495,7 @@ terminal String
     KW_OUTER,
     KW_OUTFILE,
     KW_OVER,
+    KW_OVERWRITE,
     KW_PARAMETER,
     KW_PARTITION,
     KW_PARTITIONS,
@@ -492,6 +506,7 @@ terminal String
     KW_PASSWORD_REUSE,
     KW_PATH,
     KW_PAUSE,
+    KW_PERIOD,
     KW_PIPE,
     KW_PLUGIN,
     KW_PLUGINS,
@@ -507,6 +522,7 @@ terminal String
     KW_PROPERTY,
     KW_QUANTILE_STATE,
     KW_QUANTILE_UNION,
+    KW_AGG_STATE,
     KW_QUERY,
     KW_QUOTA,
     KW_RANDOM,
@@ -541,6 +557,7 @@ terminal String
     KW_ROWS,
     KW_S3,
     KW_SAMPLE,
+    KW_SCHEDULER,    
     KW_SCHEMA,
     KW_SCHEMAS,
     KW_SECOND,
@@ -559,11 +576,13 @@ terminal String
     KW_SPLIT,
     KW_SQL_BLOCK_RULE,
     KW_START,
+    KW_STARTS,    
     KW_STATS,
     KW_STATUS,
     KW_STOP,
     KW_STORAGE,
     KW_STREAM,
+    KW_STREAMING,
     KW_STRING,
     KW_STRUCT,
     KW_SUM,
@@ -577,6 +596,7 @@ terminal String
     KW_TABLET,
     KW_TABLETS,
     KW_TASK,
+    KW_TASKS,
     KW_TEMPORARY,
     KW_TERMINATED,
     KW_TEXT,
@@ -619,6 +639,7 @@ terminal String
     KW_WHITELIST,
     KW_WITH,
     KW_WORK,
+    KW_WORKLOAD,
     KW_WRITE,
     KW_YEAR,
     KW_MTMV,
@@ -628,7 +649,8 @@ terminal String
     KW_PREPARE,
     KW_EXECUTE,
     KW_LINES,
-    KW_IGNORE;
+    KW_IGNORE,
+    KW_CONVERT_LSC;
 
 terminal COMMA, COLON, DOT, DOTDOTDOT, AT, STAR, LPAREN, RPAREN, SEMICOLON, LBRACKET, RBRACKET, LBRACE, RBRACE, DIVIDE, MOD, ADD, SUBTRACT, PLACEHOLDER, ARROW;
 terminal BITAND, BITOR, BITXOR, BITNOT;
@@ -643,6 +665,7 @@ terminal BigDecimal DECIMAL_LITERAL;
 terminal String STRING_LITERAL;
 terminal String UNMATCHED_STRING_LITERAL;
 terminal String COMMENTED_PLAN_HINTS;
+terminal String KW_CRON;
 
 // Statement that the result of this parser.
 nonterminal List<StatementBase> stmts;
@@ -650,10 +673,11 @@ nonterminal StatementBase stmt, show_stmt, show_param, help_stmt, load_stmt,
     create_routine_load_stmt, pause_routine_load_stmt, resume_routine_load_stmt, stop_routine_load_stmt,
     show_routine_load_stmt, show_routine_load_task_stmt, show_create_routine_load_stmt, show_create_load_stmt, show_create_reporitory_stmt,
     describe_stmt, alter_stmt,
+    create_job_stmt,pause_job_stmt,resume_job_stmt,stop_job_stmt,show_job_stmt,
     use_stmt, kill_stmt, drop_stmt, recover_stmt, grant_stmt, revoke_stmt, create_stmt, set_stmt, sync_stmt, cancel_stmt, cancel_param, delete_stmt,
-    link_stmt, migrate_stmt, switch_stmt, enter_stmt, transaction_stmt, unsupported_stmt, export_stmt, admin_stmt, truncate_stmt,
+    switch_stmt, transaction_stmt, unsupported_stmt, export_stmt, admin_stmt, truncate_stmt,
     import_columns_stmt, import_delete_on_stmt, import_sequence_stmt, import_where_stmt, install_plugin_stmt, uninstall_plugin_stmt,
-    import_preceding_filter_stmt, unlock_tables_stmt, lock_tables_stmt, refresh_stmt, clean_stmt, analyze_stmt, show_mtmv_stmt;
+    import_preceding_filter_stmt, unlock_tables_stmt, lock_tables_stmt, refresh_stmt, clean_stmt, analyze_stmt, show_mtmv_stmt, kill_analysis_job_stmt, insert_overwrite_stmt;
 
 nonterminal FromClause opt_using_clause;
 
@@ -719,8 +743,6 @@ nonterminal PartitionNames opt_partition_names, partition_names;
 nonterminal ArrayList<Long> opt_tablet_list, tablet_list;
 nonterminal TableSample opt_table_sample, table_sample;
 nonterminal TableSnapshot opt_table_snapshot, table_snapshot;
-nonterminal ClusterName cluster_name;
-nonterminal ClusterName des_cluster_name;
 nonterminal TableName table_name, opt_table_name;
 nonterminal FunctionName function_name;
 nonterminal EncryptKeyName encryptkey_name;
@@ -737,8 +759,8 @@ nonterminal OrderByElement order_by_element;
 nonterminal Boolean opt_order_param;
 nonterminal Boolean opt_nulls_order_param;
 nonterminal LimitElement limit_clause;
-nonterminal TypeDef type_def, opt_intermediate_type;
-nonterminal List<TypeDef> type_def_list;
+nonterminal TypeDef type_def, type_def_nullable, opt_intermediate_type;
+nonterminal List<TypeDef> type_def_list, type_def_nullable_list;
 nonterminal FunctionArgsDef func_args_def;
 nonterminal Type type;
 nonterminal Expr cast_expr, case_else_clause, analytic_expr;
@@ -746,7 +768,7 @@ nonterminal LiteralExpr literal;
 nonterminal CaseExpr case_expr;
 nonterminal ArrayList<CaseWhenClause> case_when_clause_list;
 nonterminal FunctionParams function_params;
-nonterminal Expr function_call_expr, array_expr;
+nonterminal Expr function_call_expr, array_expr, map_expr;
 nonterminal ArrayLiteral array_literal;
 nonterminal MapLiteral map_literal;
 nonterminal StructField struct_field;
@@ -785,6 +807,9 @@ nonterminal Expr sign_chain_expr;
 nonterminal Qualifier opt_set_qualifier;
 nonterminal Operation set_op;
 nonterminal ArrayList<String> opt_common_hints;
+nonterminal String optional_on_ident;
+nonterminal String opt_job_starts;
+nonterminal String opt_job_ends;
 
 nonterminal LoadTask.MergeType opt_merge_type, opt_with_merge_type;
 
@@ -803,6 +828,7 @@ nonterminal Map<String, String> key_value_map, opt_key_value_map, opt_key_value_
             opt_ext_properties, opt_enable_feature_properties, properties;
 nonterminal ColumnDef column_definition;
 nonterminal IndexDef index_definition;
+nonterminal IndexDef build_index_definition;
 nonterminal ArrayList<ColumnDef> column_definition_list;
 nonterminal ArrayList<IndexDef> index_definition_list;
 nonterminal AggregateType opt_agg_type;
@@ -827,16 +853,15 @@ nonterminal List<AllPartitionDesc> all_partition_desc_list;
 nonterminal PartitionKeyDesc fixed_multi_partition_key_desc;
 nonterminal MultiPartitionDesc multi_partition_desc;
 
-nonterminal List<AccessPrivilege> privilege_list;
+nonterminal List<AccessPrivilegeWithCols> privilege_list;
 nonterminal List<String> string_list;
 nonterminal List<Long> integer_list, cancel_rollup_job_id_list;
-nonterminal AccessPrivilege privilege_type;
+nonterminal AccessPrivilegeWithCols privilege_type;
 
 nonterminal DataDescription data_desc, mysql_data_desc;
 nonterminal List<DataDescription> data_desc_list;
 nonterminal LabelName job_label;
 nonterminal String opt_with_label;
-nonterminal String opt_system;
 nonterminal BrokerDesc opt_broker;
 nonterminal ResourceDesc resource_desc;
 nonterminal List<String> opt_col_list, opt_dup_keys, opt_columns_from_path;
@@ -847,6 +872,7 @@ nonterminal Separator opt_field_term, opt_line_term, separator;
 nonterminal String opt_user_role;
 nonterminal TablePattern tbl_pattern;
 nonterminal ResourcePattern resource_pattern;
+nonterminal WorkloadGroupPattern workload_group_pattern;
 nonterminal String ident_or_star;
 nonterminal Integer opt_skip_lines;
 
@@ -861,7 +887,7 @@ nonterminal ParseNode load_property;
 nonterminal List<ParseNode> opt_load_property_list;
 
 // Boolean
-nonterminal Boolean opt_negative, opt_is_allow_null, opt_is_key, opt_read_only, opt_aggregate, opt_local;
+nonterminal Boolean opt_negative, opt_is_allow_null, opt_is_key, opt_read_only, opt_aggregate, opt_local, opt_is_auto_inc;
 nonterminal String opt_from_rollup, opt_to_rollup;
 nonterminal ColumnPosition opt_col_pos;
 
@@ -900,6 +926,7 @@ nonterminal ColumnDef.DefaultValue opt_default_value;
 nonterminal Boolean opt_if_exists, opt_if_not_exists;
 nonterminal Boolean opt_external;
 nonterminal Boolean opt_force;
+nonterminal Boolean opt_cached;
 nonterminal IndexDef.IndexType opt_index_type;
 
 nonterminal ShowAlterStmt.AlterType opt_alter_type;
@@ -909,7 +936,7 @@ nonterminal ExplainOptions opt_explain_options;
 nonterminal Boolean opt_tmp;
 
 nonterminal OutFileClause opt_outfile;
-nonterminal RoutineLoadDataSourceProperties opt_datasource_properties;
+nonterminal Map<String, String> opt_datasource_properties;
 
 nonterminal Boolean opt_signed_unsigned;
 
@@ -924,7 +951,6 @@ nonterminal MVRefreshInfo.RefreshMethod opt_refresh_method;
 nonterminal MVRefreshTriggerInfo opt_refresh_trigger;
 nonterminal MVRefreshInfo opt_mv_refersh_info;
 nonterminal PartitionDesc opt_mv_partition;
-nonterminal Boolean opt_sync;
 
 
 precedence nonassoc COMMA;
@@ -958,13 +984,14 @@ precedence left KW_OVER;
 precedence left KW_COLLATE;
 precedence left KW_PARTITION;
 precedence left KW_PARTITIONS;
+precedence left ARROW;
 precedence right KW_TEMPORARY;
 precedence right LBRACKET;
 precedence right LBRACE;
 precedence left KW_ENGINE;
 
 // unused
-// nonterminal Expr where_clause_without_null, List<String> col_list, opt_charset_name, AlterClause alter_cluster_clause;
+// nonterminal Expr where_clause_without_null, List<String> col_list, opt_charset_name;
 
 start with stmts;
 
@@ -1063,16 +1090,14 @@ stmt ::=
     {: RESULT = stmt; :}
     | create_stmt:query
     {: RESULT = query; :}
-    | link_stmt:query
-    {: RESULT = query; :}
-    | migrate_stmt:query
-    {: RESULT = query; :}
     | switch_stmt:stmt
     {: RESULT = stmt; :}
-    | enter_stmt:enter
-    {: RESULT = enter; :}
     | query_stmt:query
-    {: RESULT = query; :}
+    {:
+        RESULT = query;
+        query.setPlaceHolders(parser.placeholder_expr_list);
+        parser.placeholder_expr_list.clear();
+    :}
     | drop_stmt:stmt
     {: RESULT = stmt; :}
     | recover_stmt:stmt
@@ -1083,6 +1108,8 @@ stmt ::=
     {: RESULT = set; :}
     | kill_stmt:kill
     {: RESULT = kill; :}
+    | kill_analysis_job_stmt: k
+    {: RESULT = k; :}
     | describe_stmt:describe
     {: RESULT = describe; :}
     | show_stmt:show
@@ -1115,6 +1142,16 @@ stmt ::=
     {: RESULT = stmt; :}
     | show_create_routine_load_stmt : stmt
     {: RESULT = stmt; :}
+    | create_job_stmt : stmt   
+    {: RESULT = stmt; :}
+    | pause_job_stmt : stmt   
+    {: RESULT = stmt; :}
+    | show_job_stmt : stmt   
+    {: RESULT = stmt; :}
+    | stop_job_stmt : stmt   
+    {: RESULT = stmt; :}
+    | resume_job_stmt : stmt                    
+    {: RESULT = stmt; :}   
     | show_create_load_stmt : stmt
     {: RESULT = stmt; :}
     | show_create_reporitory_stmt : stmt
@@ -1126,6 +1163,12 @@ stmt ::=
     | sync_stmt : stmt
     {: RESULT = stmt; :}
     | insert_stmt : stmt
+    {:
+        RESULT = stmt;
+        stmt.setPlaceHolders(parser.placeholder_expr_list);
+        parser.placeholder_expr_list.clear();
+    :}
+    | insert_overwrite_stmt : stmt
     {: RESULT = stmt; :}
     | update_stmt : stmt
     {: RESULT = stmt; :}
@@ -1169,28 +1212,6 @@ stmt ::=
     :}
     ;
 
-cluster_name ::=
-    ident:cluster
-    {:
-        RESULT = new ClusterName(cluster, "");
-    :}
-    | ident:cluster DOT ident:db
-    {:
-        RESULT = new ClusterName(cluster, db);
-    :}
-    ;
-
-des_cluster_name ::=
-    ident:cluster
-    {:
-        RESULT = new ClusterName(cluster, "");
-    :}
-    | ident:cluster DOT ident:db
-    {:
-        RESULT = new ClusterName(cluster, db);
-    :}
-    ;
-
 refresh_stmt ::=
     KW_REFRESH KW_TABLE table_name:tbl
     {:
@@ -1216,6 +1237,14 @@ refresh_stmt ::=
     {:
         RESULT = new RefreshCatalogStmt(catalogName, properties);
     :}
+    | KW_REFRESH KW_LDAP KW_ALL
+    {:
+        RESULT = new RefreshLdapStmt(true, "");
+    :}
+    | KW_REFRESH KW_LDAP opt_user:user
+    {:
+        RESULT = new RefreshLdapStmt(false, user);
+    :}
     ;
 
 clean_stmt ::=
@@ -1231,6 +1260,18 @@ clean_stmt ::=
     {:
         RESULT = new CleanProfileStmt();
     :}
+    | KW_CLEAN KW_QUERY KW_STATS KW_FOR ident:db
+    {:
+        RESULT = new CleanQueryStatsStmt(db, CleanQueryStatsStmt.Scope.DB);
+    :}
+    | KW_CLEAN KW_ALL KW_QUERY KW_STATS
+    {:
+        RESULT = new CleanQueryStatsStmt();
+    :}
+    | KW_CLEAN KW_QUERY KW_STATS from_or_in table_name:tbl
+    {:
+        RESULT = new CleanQueryStatsStmt(tbl, CleanQueryStatsStmt.Scope.TABLE);
+    :}
     ;
 
 // plugin statement
@@ -1245,22 +1286,6 @@ uninstall_plugin_stmt ::=
     KW_UNINSTALL KW_PLUGIN ident_or_text:name
     {:
         RESULT = new UninstallPluginStmt(name);
-    :}
-    ;
-
-// link statement
-link_stmt ::=
-    KW_LINK KW_DATABASE cluster_name:src_name des_cluster_name:des_name
-    {:
-        RESULT = new LinkDbStmt(src_name, des_name);
-    :}
-    ;
-
-// migrate statement
-migrate_stmt ::=
-    KW_MIGRATE KW_DATABASE cluster_name:src_name des_cluster_name:des_name
-    {:
-        RESULT = new MigrateDbStmt(src_name, des_name);
     :}
     ;
 
@@ -1287,10 +1312,6 @@ alter_stmt ::=
     | KW_ALTER KW_SYSTEM alter_system_clause:clause
     {:
         RESULT = new AlterSystemStmt(clause);
-    :}
-    | KW_ALTER KW_CLUSTER ident:name opt_properties:properties
-    {:
-        RESULT = new AlterClusterStmt(name, properties);
     :}
     | KW_ALTER KW_DATABASE ident:dbName KW_SET KW_DATA KW_QUOTA quantity:quota_quantity
     {:
@@ -1325,6 +1346,10 @@ alter_stmt ::=
     {:
         RESULT = new AlterResourceStmt(resourceName, properties);
     :}
+    | KW_ALTER KW_WORKLOAD KW_GROUP ident_or_text:workloadGroupName opt_properties:properties
+    {:
+        RESULT = new AlterWorkloadGroupStmt(workloadGroupName, properties);
+    :}
     | KW_ALTER KW_ROUTINE KW_LOAD KW_FOR job_label:jobLabel opt_properties:jobProperties
       opt_datasource_properties:datasourceProperties
     {:
@@ -1335,10 +1360,15 @@ alter_stmt ::=
     {:
         RESULT = new AlterSqlBlockRuleStmt(ruleName, properties);
     :}
+    | KW_ALTER KW_TABLE table_name:tbl KW_SET KW_STATS LPAREN
+      key_value_map:map RPAREN opt_partition_names:partitionNames
+    {:
+        RESULT = new AlterTableStatsStmt(tbl, map);
+    :}
     | KW_ALTER KW_TABLE table_name:tbl KW_MODIFY KW_COLUMN ident:columnName
       KW_SET KW_STATS LPAREN key_value_map:map RPAREN opt_partition_names:partitionNames
     {:
-        RESULT = new AlterColumnStatsStmt(tbl, columnName, map);
+        RESULT = new AlterColumnStatsStmt(tbl, columnName, map, partitionNames);
     :}
     | KW_ALTER KW_TABLE table_name:tbl KW_SET LPAREN key_value_map:properties RPAREN
     {:
@@ -1365,15 +1395,14 @@ alter_stmt ::=
 opt_datasource_properties ::=
     // empty
     {:
-        RESULT = new RoutineLoadDataSourceProperties();
+        RESULT = new HashMap<String, String>();
     :}
     | KW_FROM ident:type LPAREN key_value_map:customProperties RPAREN
     {:
-        // the 3rd parameter "true" means this is for AlterRoutineLoad operation.
-        RESULT = new RoutineLoadDataSourceProperties(type, customProperties, true);
+        Map<String, String> properties = new HashMap<String, String>(customProperties);
+        RESULT = properties;
     :}
     ;
-
 quantity ::=
     INTEGER_LITERAL:number
     {:
@@ -1522,6 +1551,10 @@ alter_table_clause ::=
     {:
         RESULT = new DropPartitionClause(ifExists, partitionName, isTempPartition, force ? force : isTempPartition);
     :}
+    | KW_DROP opt_tmp:isTempPartition KW_PARTITION opt_if_exists:ifExists ident:partitionName opt_force:force KW_FROM KW_INDEX ident:indexName
+    {:
+        RESULT = new DropPartitionFromIndexClause(ifExists, partitionName, isTempPartition, force ? force : isTempPartition, indexName);
+    :}
     | KW_MODIFY opt_tmp:isTempPartition KW_PARTITION ident:partitionName KW_SET LPAREN key_value_map:properties RPAREN
     {:
         ArrayList<String> partitions = new ArrayList<String>();
@@ -1603,15 +1636,7 @@ opt_enable_feature_properties ::=
 alter_system_clause ::=
     KW_ADD KW_BACKEND string_list:hostPorts opt_properties:properties
     {:
-        RESULT = new AddBackendClause(hostPorts, false, properties);
-    :}
-    | KW_ADD KW_FREE KW_BACKEND string_list:hostPorts
-    {:
-        RESULT = new AddBackendClause(hostPorts, true, Maps.newHashMap());
-    :}
-    | KW_ADD KW_BACKEND KW_TO ident:clusterName string_list:hostPorts
-    {:
-        RESULT = new AddBackendClause(hostPorts, clusterName);
+        RESULT = new AddBackendClause(hostPorts, properties);
     :}
     | KW_DROP KW_BACKEND string_list:hostPorts
     {:
@@ -1748,7 +1773,7 @@ opt_refresh_trigger ::=
 
 opt_mv_refersh_info ::=
     {:
-        RESULT = null;
+        RESULT = new MVRefreshInfo(true);
     :}
     | KW_REFRESH opt_refresh_method:refreshMethod opt_refresh_trigger:refreshTrigger
     {:
@@ -1756,7 +1781,7 @@ opt_mv_refersh_info ::=
     :}
     | KW_NEVER KW_REFRESH
     {:
-        RESULT = new MVRefreshInfo(false);
+        RESULT = new MVRefreshInfo(true);
     :}
     ;
 
@@ -1802,11 +1827,6 @@ create_stmt ::=
     {:
          RESULT = new CreateCatalogStmt(ifNotExists, catalogName, resourceName, properties, comment);
     :}
-    /* cluster */
-   /* KW_CREATE KW_CLUSTER ident:name  opt_properties:properties KW_IDENTIFIED KW_BY STRING_LITERAL:password
-    {:
-        RESULT = new CreateClusterStmt(name, properties, password);
-    :}*/
     /* Function */
     | KW_CREATE opt_var_type:type opt_aggregate:isAggregate KW_FUNCTION opt_if_not_exists:ifNotExists function_name:functionName LPAREN func_args_def:args RPAREN
             KW_RETURNS type_def:returnType opt_intermediate_type:intermediateType opt_properties:properties
@@ -1845,7 +1865,7 @@ create_stmt ::=
         distribution, tblProperties, extProperties, tableComment, index);
     :}
     | KW_CREATE opt_external:isExternal KW_TABLE opt_if_not_exists:ifNotExists table_name:name
-            LPAREN column_definition_list:columns COMMA DOTDOTDOT RPAREN opt_engine:engineName
+            LPAREN column_definition_list:columns COMMA RPAREN opt_engine:engineName
             opt_keys:keys
             opt_comment:tableComment
             opt_partition:partition
@@ -1855,7 +1875,7 @@ create_stmt ::=
             opt_ext_properties:extProperties
     {:
         RESULT = new CreateTableStmt(ifNotExists, isExternal, name, columns, null, engineName, keys, partition,
-        distribution, tblProperties, extProperties, tableComment, index, true);
+        distribution, tblProperties, extProperties, tableComment, index);
     :}
     | KW_CREATE opt_external:isExternal KW_TABLE opt_if_not_exists:ifNotExists table_name:name
             LPAREN column_definition_list:columns COMMA index_definition_list:indexes RPAREN opt_engine:engineName
@@ -1868,10 +1888,10 @@ create_stmt ::=
             opt_ext_properties:extProperties
     {:
         RESULT = new CreateTableStmt(ifNotExists, isExternal, name, columns, indexes, engineName, keys, partition,
-        distribution, tblProperties, extProperties, tableComment, index, false);
+        distribution, tblProperties, extProperties, tableComment, index);
     :}
     | KW_CREATE opt_external:isExternal KW_TABLE opt_if_not_exists:ifNotExists table_name:name
-            LPAREN column_definition_list:columns COMMA index_definition_list:indexes COMMA DOTDOTDOT RPAREN opt_engine:engineName
+            LPAREN column_definition_list:columns COMMA index_definition_list:indexes COMMA RPAREN opt_engine:engineName
             opt_keys:keys
             opt_comment:tableComment
             opt_partition:partition
@@ -1881,7 +1901,7 @@ create_stmt ::=
             opt_ext_properties:extProperties
     {:
         RESULT = new CreateTableStmt(ifNotExists, isExternal, name, columns, indexes, engineName, keys, partition,
-        distribution, tblProperties, extProperties, tableComment, index, true);
+        distribution, tblProperties, extProperties, tableComment, index);
     :}
     | KW_CREATE opt_external:isExternal KW_TABLE opt_if_not_exists:ifNotExists table_name:name KW_ENGINE EQUAL ident:engineName
           properties:properties opt_comment:tableComment
@@ -1917,11 +1937,6 @@ create_stmt ::=
     {:
         RESULT = new CreateViewStmt(ifNotExists, viewName, columns, comment, view_def);
     :}
-    /* cluster */
-    | KW_CREATE KW_CLUSTER ident:name opt_properties:properties KW_IDENTIFIED KW_BY STRING_LITERAL:password
-    {:
-        RESULT = new CreateClusterStmt(name, properties, password);
-    :}
     | KW_CREATE opt_read_only:isReadOnly KW_REPOSITORY ident:repoName KW_WITH storage_backend:storage
     {:
         RESULT = new CreateRepositoryStmt(isReadOnly, repoName, storage);
@@ -1941,12 +1956,11 @@ create_stmt ::=
     | KW_CREATE KW_MATERIALIZED KW_VIEW ident:mvName build_mv:buildMethod
          opt_mv_refersh_info:refreshInfo
          opt_mv_keys:keyDesc
-         opt_mv_partition:partitionDesc
          opt_distribution:distributionDesc
          opt_properties:properties
          KW_AS query_stmt:query
     {:
-        RESULT = new CreateMultiTableMaterializedViewStmt(mvName, buildMethod, refreshInfo, keyDesc, partitionDesc, distributionDesc, properties, query);
+        RESULT = new CreateMultiTableMaterializedViewStmt(mvName, buildMethod, refreshInfo, keyDesc, null, distributionDesc, properties, query);
     :}
     | KW_CREATE KW_INDEX opt_if_not_exists:ifNotExists ident:indexName KW_ON table_name:tableName LPAREN ident_list:cols RPAREN opt_index_type:indexType opt_properties:properties opt_comment:comment
     {:
@@ -1962,10 +1976,10 @@ create_stmt ::=
     {:
         RESULT = new CreateResourceStmt(false, ifNotExists, resourceName, properties);
     :}
-    /* resource group*/
-    | KW_CREATE KW_RESOURCE KW_GROUP opt_if_not_exists:ifNotExists ident_or_text:resourceGroupName opt_properties:properties
+    /* workload group*/
+    | KW_CREATE KW_WORKLOAD KW_GROUP opt_if_not_exists:ifNotExists ident_or_text:workloadGroupName opt_properties:properties
     {:
-        RESULT = new CreateResourceGroupStmt(ifNotExists, resourceGroupName, properties);
+        RESULT = new CreateWorkloadGroupStmt(ifNotExists, workloadGroupName, properties);
     :}
     /* encryptkey */
     | KW_CREATE KW_ENCRYPTKEY opt_if_not_exists:ifNotExists encryptkey_name:keyName KW_AS STRING_LITERAL:keyString
@@ -1986,12 +2000,21 @@ create_stmt ::=
     | KW_CREATE KW_ROW KW_POLICY opt_if_not_exists:ifNotExists ident:policyName KW_ON table_name:tbl KW_AS ident:filterType KW_TO user_identity:user
     KW_USING LPAREN expr:wherePredicate RPAREN
     {:
-        RESULT = new CreatePolicyStmt(PolicyTypeEnum.ROW, ifNotExists, policyName, tbl, filterType, user, wherePredicate);
+        RESULT = new CreatePolicyStmt(PolicyTypeEnum.ROW, ifNotExists, policyName, tbl, filterType, user, null, wherePredicate);
+    :}
+    | KW_CREATE KW_ROW KW_POLICY opt_if_not_exists:ifNotExists ident:policyName KW_ON table_name:tbl KW_AS ident:filterType KW_TO KW_ROLE ident:role
+    KW_USING LPAREN expr:wherePredicate RPAREN
+    {:
+        RESULT = new CreatePolicyStmt(PolicyTypeEnum.ROW, ifNotExists, policyName, tbl, filterType, null, role, wherePredicate);
     :}
     /* storage policy */
     | KW_CREATE KW_STORAGE KW_POLICY opt_if_not_exists:ifNotExists ident:policyName opt_properties:properties
     {:
         RESULT = new CreatePolicyStmt(PolicyTypeEnum.STORAGE, ifNotExists, policyName, properties);
+    :}
+    | KW_BUILD KW_INDEX ident:indexName KW_ON table_name:tableName opt_partition_names:partitionNames
+    {:
+        RESULT = new AlterTableStmt(tableName, Lists.newArrayList(new BuildIndexClause(tableName, new IndexDef(indexName, partitionNames, true), false)));
     :}
     ;
 
@@ -2311,11 +2334,10 @@ load_stmt ::=
     KW_LOAD KW_LABEL job_label:label
     LPAREN data_desc_list:dataDescList RPAREN
     opt_broker:broker
-    opt_system:system
     opt_properties:properties
     opt_comment:comment
     {:
-        RESULT = new LoadStmt(label, dataDescList, broker, system, properties, comment);
+        RESULT = UnifiedLoadStmt.buildBrokerLoadStmt(label, dataDescList, broker, properties, comment);
     :}
     | KW_LOAD KW_LABEL job_label:label
     LPAREN data_desc_list:dataDescList RPAREN
@@ -2327,7 +2349,7 @@ load_stmt ::=
     :}
     | KW_LOAD mysql_data_desc:desc opt_properties:properties opt_comment:comment
     {:
-        RESULT = new LoadStmt(desc, properties, comment);
+        RESULT = UnifiedLoadStmt.buildMysqlLoadStmt(desc, properties, comment);
     :}
     ;
 
@@ -2409,6 +2431,7 @@ data_desc ::=
     KW_INTO KW_TABLE ident:tableName
     opt_partition_names:partitionNames
     opt_field_term:colSep
+    opt_line_term:lineDelimiter
     opt_file_format:fileFormat
     opt_col_list:colList
     opt_columns_from_path:columnsFromPath
@@ -2419,7 +2442,7 @@ data_desc ::=
     sequence_col_clause:sequenceColName
     opt_properties:properties
     {:
-        RESULT = new DataDescription(tableName, partitionNames, files, colList, colSep, fileFormat,
+        RESULT = new DataDescription(tableName, partitionNames, files, colList, colSep, lineDelimiter, fileFormat,
         columnsFromPath, isNeg, colMappingList, preFilterExpr, whereExpr, mergeType, deleteExpr, sequenceColName, properties);
     :}
     | opt_merge_type:mergeType KW_DATA KW_FROM KW_TABLE ident:srcTableName
@@ -2585,16 +2608,6 @@ opt_col_mapping_list ::=
     :}
     ;
 
-opt_system ::=
-    {:
-        RESULT = null;
-    :}
-    | KW_BY ident_or_text:system
-    {:
-        RESULT = system;
-    :}
-    ;
-
 opt_broker ::=
     {:
         RESULT = null;
@@ -2631,10 +2644,78 @@ resource_desc ::=
         RESULT = new ResourceDesc(resourceName, properties);                         
     :}                                                                               
     ; 
+create_job_stmt ::=
+     KW_CREATE KW_JOB job_label:jobLabel KW_ON KW_SCHEDULER KW_EVERY INTEGER_LITERAL:time_interval ident:time_unit opt_job_starts:startsTime opt_job_ends:endsTime opt_comment:comment KW_DO stmt:executeSql  
+    {:
+        CreateJobStmt stmt = new CreateJobStmt(jobLabel,null,false,time_interval,time_unit, startsTime, endsTime,comment,executeSql);
+        RESULT = stmt;
+    :}
+    | KW_CREATE KW_JOB job_label:jobLabel KW_ON KW_SCHEDULER KW_STREAMING KW_AT STRING_LITERAL:atTime opt_comment:comment KW_DO stmt:executeSql  
+    {:
+        CreateJobStmt stmt = new CreateJobStmt(jobLabel,atTime,true,null,null,null,null,comment,executeSql);
+        RESULT = stmt;
+    :}    
+    | KW_CREATE KW_JOB job_label:jobLabel KW_ON KW_SCHEDULER KW_AT STRING_LITERAL:atTime opt_comment:comment KW_DO stmt:executeSql  
+    {:
+        CreateJobStmt stmt = new CreateJobStmt(jobLabel,atTime,false,null,null,null,null,comment,executeSql);
+        RESULT = stmt;
+    :}
+    ;                           
+ opt_job_starts ::= 
+     {:
+         RESULT = null;
+     :}
+     | KW_STARTS STRING_LITERAL:startTime 
+     {: 
+        RESULT = startTime;    
+     :}
+     ;
+ 
+ opt_job_ends ::= 
+     {:
+         RESULT = null;
+     :}    
+     | KW_ENDS STRING_LITERAL:endTime 
+     {:  
+          RESULT = endTime;  
+     :}
+     ;       
+resume_job_stmt ::=
+    KW_RESUME KW_JOB  KW_FOR job_label:jobLabel
+    {:
+        RESULT = new ResumeJobStmt(jobLabel);
+    :}
+    ;    
+show_job_stmt ::=
+    KW_SHOW KW_JOBS
+    {:
+        RESULT = new ShowJobStmt(null,null);
+    :}
+    | KW_SHOW  KW_JOB KW_FOR job_label:jobLabel
+    {:
+        RESULT = new ShowJobStmt(jobLabel,null);
+    :}
+    | KW_SHOW KW_JOB KW_TASKS KW_FOR job_label:jobLabel
+    {:
+        RESULT = new ShowJobTaskStmt(jobLabel);
+    :}    
+    ;
+pause_job_stmt ::=
+    KW_PAUSE KW_JOB KW_FOR job_label:jobLabel
+    {:
+        RESULT = new PauseJobStmt(jobLabel);
+    :}
+    ;
 
+stop_job_stmt ::=
+    KW_STOP KW_JOB KW_FOR job_label:jobLabel
+    {:
+        RESULT = new StopJobStmt(jobLabel);
+    :}
+    ;                       
 // Routine load statement
 create_routine_load_stmt ::=
-    KW_CREATE KW_ROUTINE KW_LOAD job_label:jobLabel KW_ON ident:tableName
+    KW_CREATE KW_ROUTINE KW_LOAD job_label:jobLabel optional_on_ident:tableName
     opt_with_merge_type:mergeType
     opt_load_property_list:loadPropertyList
     opt_properties:properties
@@ -2645,7 +2726,9 @@ create_routine_load_stmt ::=
          properties, type, customProperties, mergeType, comment);
     :}
     ;
-
+optional_on_ident ::= KW_ON ident:tableName 
+                    {: RESULT = tableName; :}
+                  | {: RESULT = null; :};
 opt_load_property_list ::=
     {:
         RESULT = null;
@@ -2818,7 +2901,7 @@ show_create_reporitory_stmt ::=
 // analyze statment
 analyze_stmt ::=
     // statistics
-    KW_ANALYZE opt_sync:sync KW_TABLE table_name:tbl opt_col_list:cols
+    KW_ANALYZE KW_TABLE table_name:tbl opt_partition_names:partitions opt_col_list:cols
       opt_with_analysis_properties:withAnalysisProperties opt_properties:properties
     {:
         if (properties == null) {
@@ -2826,23 +2909,16 @@ analyze_stmt ::=
         }
         for (Map<String, String> property : withAnalysisProperties) {
             properties.putAll(property);
-        }
-        if (!properties.containsKey("sync")) {
-            properties.put("sync", String.valueOf(sync));
         }
         // Rule: If no type is specified, see if there is a specified column
         if (!properties.containsKey("analysis.type")) {
-            if ((cols == null)) {
-                properties.put("analysis.type", "INDEX");
-            } else {
-                properties.put("analysis.type", "COLUMN");
-            }
+            properties.put("analysis.type", "FUNDAMENTALS");
         }
-        RESULT = new AnalyzeStmt(tbl, cols, properties);
+        AnalyzeProperties analyzeProperties= new AnalyzeProperties(properties);
+        RESULT = new AnalyzeTblStmt(tbl, partitions, cols, analyzeProperties);
     :}
-    // histogram
-    | KW_ANALYZE opt_sync:sync KW_TABLE table_name:tbl opt_col_list:cols KW_UPDATE KW_HISTOGRAM
-      opt_with_analysis_properties:withAnalysisProperties opt_properties:properties
+    | KW_ANALYZE KW_DATABASE ident:ctlName DOT ident:dbName
+          opt_with_analysis_properties:withAnalysisProperties opt_properties:properties
     {:
         if (properties == null) {
             properties = Maps.newHashMap();
@@ -2850,12 +2926,28 @@ analyze_stmt ::=
         for (Map<String, String> property : withAnalysisProperties) {
             properties.putAll(property);
         }
-        if (!properties.containsKey("sync")) {
-            properties.put("sync", String.valueOf(sync));
+        // Rule: If no type is specified, see if there is a specified column
+        if (!properties.containsKey("analysis.type")) {
+            properties.put("analysis.type", "FUNDAMENTALS");
         }
-        // TODO: Support materialized view
-        properties.put("analysis.type", "HISTOGRAM");
-        RESULT = new AnalyzeStmt(tbl, cols, properties);
+        AnalyzeProperties analyzeProperties= new AnalyzeProperties(properties);
+        RESULT = new AnalyzeDBStmt(ctlName, dbName, analyzeProperties);
+    :}
+    | KW_ANALYZE KW_DATABASE ident:dbName
+          opt_with_analysis_properties:withAnalysisProperties opt_properties:properties
+    {:
+        if (properties == null) {
+            properties = Maps.newHashMap();
+        }
+        for (Map<String, String> property : withAnalysisProperties) {
+            properties.putAll(property);
+        }
+        // Rule: If no type is specified, see if there is a specified column
+        if (!properties.containsKey("analysis.type")) {
+            properties.put("analysis.type", "FUNDAMENTALS");
+        }
+        AnalyzeProperties analyzeProperties= new AnalyzeProperties(properties);
+        RESULT = new AnalyzeDBStmt(null, dbName, analyzeProperties);
     :}
     ;
 
@@ -2876,6 +2968,14 @@ grant_stmt ::=
     | KW_GRANT privilege_list:privs KW_ON KW_RESOURCE resource_pattern:resourcePattern KW_TO KW_ROLE STRING_LITERAL:role
     {:
         RESULT = new GrantStmt(null, role, resourcePattern, privs);
+    :}
+    | KW_GRANT privilege_list:privs KW_ON KW_WORKLOAD KW_GROUP workload_group_pattern:workloadGroupPattern KW_TO user_identity:userId
+    {:
+        RESULT = new GrantStmt(userId, null, workloadGroupPattern, privs);
+    :}
+    | KW_GRANT privilege_list:privs KW_ON KW_WORKLOAD KW_GROUP workload_group_pattern:workloadGroupPattern KW_TO KW_ROLE STRING_LITERAL:role
+    {:
+        RESULT = new GrantStmt(null, role, workloadGroupPattern, privs);
     :}
     | KW_GRANT string_list:roles KW_TO user_identity:userId
     {:
@@ -2909,6 +3009,17 @@ resource_pattern ::=
     :}
     ;
 
+workload_group_pattern ::=
+    ident_or_star:workloadGroupName
+    {:
+        RESULT = new WorkloadGroupPattern(workloadGroupName);
+    :}
+    | STRING_LITERAL:workloadGroupName
+    {:
+        RESULT = new WorkloadGroupPattern(workloadGroupName);
+    :}
+    ;
+
 ident_or_star ::=
     STAR
     {:
@@ -2938,6 +3049,14 @@ revoke_stmt ::=
     {:
         RESULT = new RevokeStmt(null, role, resourcePattern, privs);
     :}
+    | KW_REVOKE privilege_list:privs KW_ON KW_WORKLOAD KW_GROUP workload_group_pattern:workloadGroupPattern KW_FROM user_identity:userId
+    {:
+        RESULT = new RevokeStmt(userId, null, workloadGroupPattern, privs);
+    :}
+    | KW_REVOKE privilege_list:privs KW_ON KW_WORKLOAD KW_GROUP workload_group_pattern:workloadGroupPattern KW_FROM KW_ROLE STRING_LITERAL:role
+    {:
+        RESULT = new RevokeStmt(null, role, workloadGroupPattern, privs);
+    :}
     | KW_REVOKE string_list:roles KW_FROM user_identity:userId
     {:
         RESULT = new RevokeStmt(roles, userId);
@@ -2959,11 +3078,6 @@ drop_stmt ::=
     | KW_DROP KW_CATALOG opt_if_exists:ifExists ident:catalogName
     {:
         RESULT = new DropCatalogStmt(ifExists, catalogName);
-    :}
-    /* cluster */
-    | KW_DROP KW_CLUSTER opt_if_exists:ifExists ident:cluster
-    {:
-        RESULT = new DropClusterStmt(ifExists, cluster);
     :}
     /* Function */
     | KW_DROP opt_var_type:type KW_FUNCTION opt_if_exists:ifExists function_name:functionName LPAREN func_args_def:args RPAREN
@@ -3013,6 +3127,10 @@ drop_stmt ::=
     {:
         RESULT = new DropResourceStmt(ifExists, resourceName);
     :}
+    | KW_DROP KW_WORKLOAD KW_GROUP opt_if_exists:ifExists ident_or_text:workloadGroupName
+    {:
+        RESULT = new DropWorkloadGroupStmt(ifExists, workloadGroupName);
+    :}
     | KW_DROP KW_ENCRYPTKEY opt_if_exists:ifExists encryptkey_name:keyName
     {:
         RESULT = new DropEncryptKeyStmt(ifExists, keyName);
@@ -3021,17 +3139,13 @@ drop_stmt ::=
     {:
         RESULT = new DropSqlBlockRuleStmt(ifExists, ruleNames);
     :}
-    | KW_DROP KW_ROW KW_POLICY opt_if_exists:ifExists ident:policyName KW_ON table_name:tbl
+    | KW_DROP KW_ROW KW_POLICY opt_if_exists:ifExists ident:policyName
     {:
-        RESULT = new DropPolicyStmt(PolicyTypeEnum.ROW, ifExists, policyName, tbl, null);
-    :}
-    | KW_DROP KW_ROW KW_POLICY opt_if_exists:ifExists ident:policyName KW_ON table_name:tbl KW_FOR user_identity:user
-    {:
-        RESULT = new DropPolicyStmt(PolicyTypeEnum.ROW, ifExists, policyName, tbl, user);
+        RESULT = new DropPolicyStmt(PolicyTypeEnum.ROW, ifExists, policyName);
     :}
     | KW_DROP KW_STORAGE KW_POLICY opt_if_exists:ifExists ident:policyName
     {:
-        RESULT = new DropPolicyStmt(PolicyTypeEnum.STORAGE, ifExists, policyName, null, null);
+        RESULT = new DropPolicyStmt(PolicyTypeEnum.STORAGE, ifExists, policyName);
     :}
     /* statistics */
     | KW_DROP KW_STATS table_name:tbl opt_col_list:cols
@@ -3041,6 +3155,10 @@ drop_stmt ::=
     | KW_DROP KW_EXPIRED KW_STATS
     {:
         RESULT = new DropStatsStmt(true);
+    :}
+    | KW_DROP KW_ANALYZE KW_JOB INTEGER_LITERAL:job_id
+    {:
+        RESULT = new DropAnalyzeJobStmt(job_id);
     :}
     ;
 
@@ -3061,9 +3179,7 @@ recover_stmt ::=
     ;
 
 opt_agg_type ::=
-    /* not set */
-    {: RESULT = null; :}
-    | KW_SUM
+    KW_SUM
     {:
     RESULT = AggregateType.SUM;
     :}
@@ -3091,8 +3207,6 @@ opt_agg_type ::=
     {:
     RESULT = AggregateType.BITMAP_UNION;
     :}
-
-
     | KW_QUANTILE_UNION
     {:
     RESULT = AggregateType.QUANTILE_UNION;
@@ -3258,6 +3372,10 @@ fixed_multi_partition_key_desc ::=
     {:
         RESULT = PartitionKeyDesc.createMultiFixed(lower, upper, time_interval, time_unit);
     :}
+    | KW_FROM LPAREN partition_key_list:lower RPAREN KW_TO LPAREN partition_key_list:upper RPAREN KW_INTERVAL INTEGER_LITERAL:num_interval
+      {:
+          RESULT = PartitionKeyDesc.createMultiFixed(lower, upper, num_interval);
+      :}
     ;
 
 partition_key_desc ::=
@@ -3307,6 +3425,10 @@ partition_value_list ::=
     {:
         RESULT = Lists.newArrayList(new PartitionValue(item));
     :}
+    | INTEGER_LITERAL:item
+    {:
+        RESULT = Lists.newArrayList(new PartitionValue(item));
+    :}
     /* multi partition keys : (1, "beijing") */
     | LPAREN partition_key_item_list:l RPAREN
     {:
@@ -3325,6 +3447,15 @@ partition_key_item_list ::=
         l.add(new PartitionValue(item));
         RESULT = l;
     :}
+    | INTEGER_LITERAL:item
+    {:
+        RESULT = Lists.newArrayList(new PartitionValue(item));
+    :}
+    | partition_key_item_list:l COMMA INTEGER_LITERAL:item
+    {:
+        l.add(new PartitionValue(item));
+        RESULT = l;
+    :}
     ;
 
 partition_key_list ::=
@@ -3338,12 +3469,21 @@ partition_key_list ::=
         l.add(new PartitionValue(item));
         RESULT = l;
     :}
+    | partition_key_list:l COMMA INTEGER_LITERAL:item
+    {:
+        l.add(new PartitionValue(item));
+        RESULT = l;
+    :}
     | partition_key_list:l COMMA KW_MAX_VALUE
     {:
         l.add(PartitionValue.MAX_VALUE);
         RESULT = l;
     :}
     | STRING_LITERAL:item
+    {:
+        RESULT = Lists.newArrayList(new PartitionValue(item));
+    :}
+    | INTEGER_LITERAL:item
     {:
         RESULT = Lists.newArrayList(new PartitionValue(item));
     :}
@@ -3477,6 +3617,10 @@ opt_default_value ::=
     {:
         RESULT = ColumnDef.DefaultValue.CURRENT_TIMESTAMP_DEFAULT_VALUE;
     :}
+    | KW_DEFAULT KW_CURRENT_TIMESTAMP LPAREN INTEGER_LITERAL:precision RPAREN
+    {:
+        RESULT = ColumnDef.DefaultValue.currentTimeStampDefaultValueWithPrecision(precision);
+    :}
     ;
 
 opt_is_key ::=
@@ -3490,9 +3634,28 @@ opt_is_key ::=
     ;
 
 column_definition ::=
-    ident:columnName type_def:typeDef opt_is_key:isKey opt_agg_type:aggType opt_is_allow_null:isAllowNull opt_default_value:defaultValue opt_comment:comment
+    ident:columnName type_def:typeDef opt_is_key:isKey opt_is_allow_null:isAllowNull opt_is_auto_inc:isAutoInc opt_default_value:defaultValue opt_comment:comment
     {:
-        ColumnDef columnDef = new ColumnDef(columnName, typeDef, isKey, aggType, isAllowNull, defaultValue, comment);
+        ColumnDef columnDef = new ColumnDef(columnName, typeDef, isKey, null, isAllowNull, isAutoInc, defaultValue, comment);
+        RESULT = columnDef;
+    :}
+    | ident:columnName type_def:typeDef IDENT:fnName LPAREN type_def_nullable_list:list RPAREN opt_is_auto_inc:isAutoInc opt_default_value:defaultValue opt_comment:comment
+    {:
+        ColumnDef columnDef = new ColumnDef(columnName, typeDef, false, AggregateType.GENERIC_AGGREGATION, false, defaultValue, comment);
+        columnDef.setGenericAggregationName(fnName);
+        columnDef.setGenericAggregationArguments(list);
+        RESULT = columnDef;
+    :}
+    | ident:columnName type_def:typeDef opt_is_key:isKey opt_agg_type:aggType opt_is_allow_null:isAllowNull opt_is_auto_inc:isAutoInc opt_default_value:defaultValue opt_comment:comment
+    {:
+        ColumnDef columnDef = new ColumnDef(columnName, typeDef, isKey, aggType, isAllowNull, isAutoInc, defaultValue, comment);
+        RESULT = columnDef;
+    :}
+    | ident:columnName type_def:typeDef opt_is_key:isKey opt_agg_type:aggType LPAREN type_def_nullable_list:list RPAREN opt_default_value:defaultValue opt_comment:comment
+    {:
+        ColumnDef columnDef = new ColumnDef(columnName, typeDef, isKey, AggregateType.GENERIC_AGGREGATION, false, defaultValue, comment);
+        columnDef.setGenericAggregationName(aggType);
+        columnDef.setGenericAggregationArguments(list);
         RESULT = columnDef;
     :}
     ;
@@ -3501,6 +3664,13 @@ index_definition ::=
     KW_INDEX opt_if_not_exists:ifNotExists ident:indexName LPAREN ident_list:cols RPAREN opt_index_type:indexType opt_properties:properties opt_comment:comment
     {:
         RESULT = new IndexDef(indexName, ifNotExists, cols, indexType, properties, comment);
+    :}
+    ;
+
+build_index_definition ::=
+    KW_INDEX ident:indexName opt_partition_names:partitionNames
+    {:
+        RESULT = new IndexDef(indexName, partitionNames, true);
     :}
     ;
 
@@ -3518,6 +3688,15 @@ opt_is_allow_null ::=
     :}
     ;
 
+opt_is_auto_inc ::=
+    {:
+        RESULT = false;
+    :}
+    | KW_AUTO_INCREMENT
+    {:
+        RESULT = true;
+    :}
+    ;
 opt_comment ::=
     /* empty */
     {:
@@ -3578,6 +3757,17 @@ opt_external ::=
     :}
     ;
 
+opt_cached ::=
+    /* empty */
+    {:
+        RESULT = false;
+    :}
+    | KW_CACHED
+    {:
+        RESULT = true;
+    :}
+    ;
+
 opt_force ::=
      /* empty */
     {:
@@ -3605,15 +3795,19 @@ show_stmt ::=
     :}
     | KW_SHOW KW_ROW KW_POLICY KW_FOR user_identity:user
     {:
-        RESULT = new ShowPolicyStmt(PolicyTypeEnum.ROW, user);
+        RESULT = new ShowPolicyStmt(PolicyTypeEnum.ROW, user, null);
+    :}
+    | KW_SHOW KW_ROW KW_POLICY KW_FOR KW_ROLE STRING_LITERAL:role
+    {:
+        RESULT = new ShowPolicyStmt(PolicyTypeEnum.ROW, null, role);
     :}
     | KW_SHOW KW_ROW KW_POLICY
     {:
-        RESULT = new ShowPolicyStmt(PolicyTypeEnum.ROW, null);
+        RESULT = new ShowPolicyStmt(PolicyTypeEnum.ROW, null, null);
     :}
     | KW_SHOW KW_STORAGE KW_POLICY
     {:
-        RESULT = new ShowPolicyStmt(PolicyTypeEnum.STORAGE, null);
+        RESULT = new ShowPolicyStmt(PolicyTypeEnum.STORAGE, null, null);
     :}
     ;
 
@@ -3635,12 +3829,12 @@ show_param ::=
     /* show table status */
     | KW_TABLE KW_STATUS opt_db:db opt_wild_where
     {:
-        RESULT = new ShowTableStatusStmt(db, null, parser.wild, parser.where);
+        RESULT = new ShowTableStatusStmt(null, db, parser.wild, parser.where);
     :}
     /* show table status */
     | KW_TABLE KW_STATUS from_or_in ident:ctl DOT ident:db opt_wild_where
     {:
-        RESULT = new ShowTableStatusStmt(db, ctl, parser.wild, parser.where);
+        RESULT = new ShowTableStatusStmt(ctl, db, parser.wild, parser.where);
     :}
     /* show tables */
     | opt_full KW_TABLES opt_db:db opt_wild_where
@@ -3702,9 +3896,13 @@ show_param ::=
     {:
         RESULT = new ShowCreateTableStmt(table);
     :}
-    | KW_CREATE KW_VIEW table_name:table
+    | KW_BRIEF KW_CREATE KW_TABLE table_name:table
     {:
         RESULT = new ShowCreateTableStmt(table, true);
+    :}
+    | KW_CREATE KW_VIEW table_name:table
+    {:
+        RESULT = new ShowCreateTableStmt(table, true, false);
     :}
     /* Create database */
     | KW_CREATE KW_DATABASE ident:db
@@ -3723,15 +3921,6 @@ show_param ::=
     | KW_CREATE opt_var_type:type KW_FUNCTION function_name:functionName LPAREN func_args_def:args RPAREN opt_db:dbName
     {:
         RESULT = new ShowCreateFunctionStmt(type, dbName, functionName, args);
-    :}
-    /* Cluster */
-    | KW_CLUSTERS
-    {:
-        RESULT = new ShowClusterStmt();
-    :}
-    | KW_MIGRATIONS
-    {:
-        RESULT = new ShowMigrationsStmt();
     :}
     /* Database */
     | KW_DATABASES opt_wild_where
@@ -3892,6 +4081,10 @@ show_param ::=
     {:
         RESULT = new ShowRestoreStmt(db, parser.where);
     :}
+    | KW_BRIEF KW_RESTORE opt_db:db opt_wild_where
+    {:
+        RESULT = new ShowRestoreStmt(db, parser.where, true);
+    :}
     | KW_BROKER
     {:
         RESULT = new ShowBrokerStmt();
@@ -3900,9 +4093,9 @@ show_param ::=
     {:
         RESULT = new ShowResourcesStmt(parser.where, orderByClause, limitClause);
     :}
-    | KW_RESOURCE KW_GROUPS
+    | KW_WORKLOAD KW_GROUPS
     {:
-        RESULT = new ShowResourceGroupsStmt();
+        RESULT = new ShowWorkloadGroupsStmt();
     :}
     | KW_BACKENDS
     {:
@@ -3919,6 +4112,10 @@ show_param ::=
     | KW_FRONTENDS
     {:
         RESULT = new ShowFrontendsStmt();
+    :}
+    | KW_FRONTENDS ident:name
+    {:
+        RESULT = new ShowFrontendsStmt(name);
     :}
     | KW_REPOSITORIES
     {:
@@ -3989,10 +4186,15 @@ show_param ::=
     {:
         RESULT = new ShowSyncJobStmt(dbName);
     :}
-    /* show column stats */
-    | KW_COLUMN KW_STATS table_name:tbl opt_col_list:cols opt_partition_names:partitionNames
+    /* show table stats */
+    | KW_TABLE opt_cached:cached KW_STATS table_name:tbl opt_partition_names:partitionNames
     {:
-        RESULT = new ShowColumnStatsStmt(tbl, cols, partitionNames);
+        RESULT = new ShowTableStatsStmt(tbl, partitionNames, cached);
+    :}
+    /* show column stats */
+    | KW_COLUMN opt_cached:cached KW_STATS table_name:tbl opt_col_list:cols opt_partition_names:partitionNames
+    {:
+        RESULT = new ShowColumnStatsStmt(tbl, cols, partitionNames, cached);
     :}
     /* show column histogram */
     | KW_COLUMN KW_HISTOGRAM table_name:tbl opt_col_list:cols
@@ -4022,9 +4224,42 @@ show_param ::=
     {:
         RESULT = new ShowAnalyzeStmt(jobId, parser.where, orderByClause, limitClause);
     :}
+    | KW_ANALYZE KW_TASK KW_STATUS INTEGER_LITERAL:jobId
+    {:
+        RESULT = new ShowAnalyzeTaskStatus(jobId);
+    :}
     | KW_CATALOG KW_RECYCLE KW_BIN opt_wild_where
     {:
         RESULT = new ShowCatalogRecycleBinStmt(parser.where);
+    :}
+     | KW_QUERY KW_STATS
+    {:
+        RESULT = new ShowQueryStatsStmt();
+    :}
+    | KW_QUERY KW_STATS KW_FOR ident:dbName
+    {:
+        RESULT = new ShowQueryStatsStmt(dbName);
+    :}
+    | KW_QUERY KW_STATS KW_FROM table_name:dbTblName
+    {:
+        RESULT = new ShowQueryStatsStmt(dbTblName, false, false);
+    :}
+    | KW_QUERY KW_STATS KW_FROM table_name:dbTblName KW_ALL
+    {:
+        RESULT = new ShowQueryStatsStmt(dbTblName, true, false);
+    :}
+    | KW_QUERY KW_STATS KW_FROM table_name:dbTblName KW_ALL KW_VERBOSE
+    {:
+        RESULT = new ShowQueryStatsStmt(dbTblName, true, true);
+    :}
+    /* show build index job */
+    | KW_BUILD KW_INDEX opt_db:db opt_wild_where order_by_clause:orderByClause limit_clause:limitClause
+    {:
+        RESULT = new ShowBuildIndexStmt(db, parser.where, orderByClause, limitClause);
+    :}
+    | KW_CONVERT_LSC KW_FROM opt_db:db
+    {:
+        RESULT = new ShowConvertLSCStmt(db);
     :}
     ;
 
@@ -4520,13 +4755,6 @@ switch_stmt ::=
     :}
     ;
 
-// Change cluster
-enter_stmt ::=
-    KW_ENTER ident:cluster
-    {:
-        RESULT = new EnterStmt(cluster);
-    :}
-    ;
 // Change database
 use_stmt ::=
     KW_USE ident:db
@@ -4538,12 +4766,19 @@ use_stmt ::=
         RESULT = new UseStmt(ctl, db);
     :}
     ;
+// Insert overwrite statement
+insert_overwrite_stmt ::=
+    KW_INSERT KW_OVERWRITE KW_TABLE insert_target:target opt_with_label:label opt_col_list:cols opt_plan_hints:hints insert_source:source
+    {:
+       RESULT = new InsertOverwriteTableStmt(target, label, cols, source, hints);
+    :}
+    ;
 
 // Insert statement
 insert_stmt ::=
     KW_INSERT KW_INTO insert_target:target opt_with_label:label opt_col_list:cols opt_plan_hints:hints insert_source:source
     {:
-        RESULT = new InsertStmt(target, label, cols, source, hints);
+        RESULT = new NativeInsertStmt(target, label, cols, source, hints);
     :}
     // TODO(zc) add default value for SQL-2003
     // | KW_INSERT KW_INTO insert_target:target KW_DEFAULT KW_VALUES
@@ -4573,6 +4808,7 @@ insert_source ::=
         RESULT = new InsertSource(query);
     :}
     ;
+
 
 // update stmt
 update_stmt ::=
@@ -4749,6 +4985,13 @@ kill_stmt ::=
     :}
     ;
 
+kill_analysis_job_stmt ::=
+    KW_KILL KW_ANALYZE INTEGER_LITERAL:value
+    {:
+        RESULT = new KillAnalysisJobStmt(value.intValue());
+    :}
+    ;
+
 // TODO(zhaochun): stolen from MySQL. Why not use value list, maybe avoid shift/reduce conflict
 // Set statement
 set_stmt ::=
@@ -4874,9 +5117,9 @@ option_value_no_option_type ::=
     {:
         RESULT = new SetVar(variable, expr);
     :}
-    | AT ident_or_text:var equal literal:expr
+    | AT ident_or_text:var equal expr:expr
     {:
-        RESULT = new SetVar(var, expr);
+        RESULT = new SetUserDefinedVar(var, expr);
     :}
     /* Ident */
     | AT AT variable_name:variable equal set_expr_or_default:expr
@@ -5102,6 +5345,8 @@ prepare_stmt ::=
     KW_PREPARE variable_name:name KW_FROM select_stmt:s
     {:
         RESULT = new PrepareStmt(s, name, false);
+        s.setPlaceHolders(parser.placeholder_expr_list);
+        parser.placeholder_expr_list.clear();
     :}
     ;
 
@@ -5781,6 +6026,24 @@ with_analysis_properties ::=
             put("num.buckets", String.valueOf(numBuckets.intValue()));
         }};
     :}
+    | KW_PERIOD INTEGER_LITERAL:periodInSec
+    {:
+        RESULT = new HashMap<String, String>() {{
+            put("period.seconds", String.valueOf(periodInSec.intValue()));
+        }};
+    :}
+    | KW_HISTOGRAM
+    {:
+        RESULT = new HashMap<String, String>() {{
+            put("analysis.type", "HISTOGRAM");
+        }};
+    :}
+    | KW_CRON STRING_LITERAL:cron_expr
+    {:
+        RESULT = new HashMap<String, String>() {{
+            put("period.cron", cron_expr);
+        }};
+    :}
     ;
 
 opt_with_analysis_properties ::=
@@ -6001,8 +6264,12 @@ type ::=
   {: RESULT = Type.BITMAP; :}
   | KW_QUANTILE_STATE
   {: RESULT = Type.QUANTILE_STATE; :}
+  | KW_AGG_STATE
+  {: RESULT = Type.AGG_STATE; :}
   | KW_STRING
   {: RESULT = ScalarType.createStringType(); :}
+  | KW_JSON
+  {: RESULT = ScalarType.createJsonbType(); :}
   | KW_JSONB
   {: RESULT = ScalarType.createJsonbType(); :}
   | KW_TEXT
@@ -6015,6 +6282,8 @@ type ::=
   {: ScalarType type = ScalarType.createVarcharType(lenStr);
      RESULT = type;
   :}
+  | KW_VARCHAR LPAREN STAR RPAREN
+  {: RESULT = ScalarType.createVarcharType(-1); :}
   | KW_VARCHAR
   {: RESULT = ScalarType.createVarcharType(-1); :}
   | KW_ARRAY LESSTHAN type:value_type GREATERTHAN
@@ -6093,6 +6362,24 @@ type_def_list ::=
     RESULT = types;
   :}
   ;
+
+type_def_nullable ::=
+  type:t opt_is_allow_null:isAllowNull
+  {: RESULT = new TypeDef(t, isAllowNull); :}
+  ;
+
+type_def_nullable_list ::=
+  type_def_nullable:typeDef
+  {:
+    RESULT = Lists.newArrayList(typeDef);
+  :}
+  | type_def_nullable_list:types COMMA type_def_nullable:typeDef
+  {:
+    types.add(typeDef);
+    RESULT = types;
+  :}
+  ;
+
 
 func_args_def ::=
   type_def_list:argTypes
@@ -6205,6 +6492,10 @@ function_call_expr ::=
       RESULT = new FunctionCallExpr(fn_name, params);
     }
   :}
+  | KW_LIKE LPAREN function_params:params RPAREN
+  {: RESULT = new FunctionCallExpr("like", params); :}
+  | KW_REGEXP LPAREN function_params:params RPAREN
+  {: RESULT = new FunctionCallExpr("regexp", params); :}
   | function_name:fn_name LPAREN ident:id ARROW expr:e COMMA function_params:params RPAREN
   {: 
     List<Expr> exprs = params.exprs();
@@ -6271,9 +6562,20 @@ map_literal ::=
   :}
   ;
 
+map_expr ::=
+  KW_MAP LPAREN function_params:params RPAREN
+  {:
+    RESULT = new FunctionCallExpr("map", params);
+  :}
+  | KW_MAP LPAREN RPAREN
+  {:
+    RESULT = new MapLiteral();
+  :}
+  ;
+
 struct_field ::=
-  ident:name COLON type:type
-  {: RESULT = new StructField(name, type); :}
+  ident:name COLON type:type opt_comment:comment
+  {: RESULT = new StructField(name, type, comment); :}
   ;
 
 struct_field_list ::=
@@ -6303,19 +6605,25 @@ exists_predicate ::=
 non_pred_expr ::=
   sign_chain_expr:e
   {: RESULT = e; :}
+  | AT ident:l
+  {:
+    RESULT = new VariableExpr(l, SetType.USER);
+  :}
   | AT AT ident:l
   {:
-    RESULT = new SysVariableDesc(l);
+    RESULT = new VariableExpr(l);
   :}
   | AT AT var_ident_type:type ident:l
   {:
-    RESULT = new SysVariableDesc(l, type);
+    RESULT = new VariableExpr(l, type);
   :}
   | literal:l
   {: RESULT = l; :}
   | array_expr:a
   {: RESULT = a; :}
   | array_literal:a
+  {: RESULT = a; :}
+  | map_expr:a
   {: RESULT = a; :}
   | map_literal:a
   {: RESULT = a; :}
@@ -6324,11 +6632,11 @@ non_pred_expr ::=
   | function_call_expr:e
   {: RESULT = e; :}
   | KW_DATE STRING_LITERAL:l
-  {: RESULT = new StringLiteral(l); :}
+  {: RESULT = new CastExpr(TypeDef.create(PrimitiveType.DATE), new StringLiteral(l)); :}
   | KW_DATEV2 STRING_LITERAL:l
-  {: RESULT = new StringLiteral(l); :}
+  {: RESULT = new CastExpr(TypeDef.create(PrimitiveType.DATEV2), new StringLiteral(l)); :}
   | KW_TIMESTAMP STRING_LITERAL:l
-  {: RESULT = new StringLiteral(l); :}
+  {: RESULT = new CastExpr(TypeDef.create(PrimitiveType.DATETIME), new StringLiteral(l)); :}
   | KW_EXTRACT LPAREN function_name:fn_name KW_FROM func_arg_list:exprs RPAREN
   {: RESULT = new FunctionCallExpr(fn_name, exprs); :}
   //| function_name:fn_name LPAREN RPAREN
@@ -6344,6 +6652,13 @@ non_pred_expr ::=
   | expr_pipe_list:exprs
   {:
     RESULT = new FunctionCallExpr("concat", exprs);
+  :}
+  | expr:e ARROW expr:index
+  {: 
+    ArrayList<Expr> exprs = new ArrayList<>();
+    exprs.add(e);
+    exprs.add(index);
+    RESULT = new FunctionCallExpr("json_extract", new FunctionParams(exprs)); 
   :}
   | cast_expr:c
   {: RESULT = c; :}
@@ -6563,8 +6878,14 @@ timestamp_arithmetic_expr ::=
       // This function should not fully qualified
       throw new Exception("interval should not be qualified by database name");
     }
-
-    RESULT = new TimestampArithmeticExpr(functionName.getFunction(), l.get(0), v, u);
+    //eg: date_floor("0001-01-01 00:00:18",interval 5 second) convert to
+    //second_floor("0001-01-01 00:00:18", 5, "0001-01-01 00:00:00");
+    if ("date_floor".equalsIgnoreCase(functionName.getFunction()) || 
+        "date_ceil".equalsIgnoreCase(functionName.getFunction())) {
+      RESULT = FunctionCallExpr.functionWithIntervalConvert(functionName.getFunction().toLowerCase(), l.get(0), v, u); 
+    } else {
+      RESULT = new TimestampArithmeticExpr(functionName.getFunction(), l.get(0), v, u);
+    }
   :}
   | function_name:functionName LPAREN time_unit:u COMMA expr:e1 COMMA expr:e2 RPAREN
   {:
@@ -6590,9 +6911,9 @@ literal ::=
   | KW_NULL
   {: RESULT = new NullLiteral(); :}
   | PLACEHOLDER
-  {: RESULT = new PlaceHolderExpr(); :}
+  {: RESULT = new PlaceHolderExpr(); parser.placeholder_expr_list.add((PlaceHolderExpr) RESULT); :}
   | MOD 
-  {: RESULT = new PlaceHolderExpr(); :}
+  {: RESULT = new PlaceHolderExpr(); parser.placeholder_expr_list.add((PlaceHolderExpr) RESULT); :}
   | UNMATCHED_STRING_LITERAL:l expr:e
   {:
     // we have an unmatched string literal.
@@ -6779,7 +7100,7 @@ column_subscript ::=
   {: ArrayList<Expr> list = new ArrayList<Expr>();
      list.add(e);
      list.add(index);
-     RESULT = new FunctionCallExpr("%element_extract%", list);
+     RESULT = new FunctionCallExpr("element_at", list);
   :}
   ;
 
@@ -6788,28 +7109,29 @@ column_slice ::=
   {: ArrayList<Expr> list = new ArrayList<Expr>();
        list.add(e);
        list.add(offset);
-       RESULT = new FunctionCallExpr("%element_slice%", list);
+       RESULT = new FunctionCallExpr("array_slice", list);
   :}
   | expr:e LBRACKET expr:offset COLON expr:length RBRACKET
   {: ArrayList<Expr> list = new ArrayList<Expr>();
      list.add(e);
      list.add(offset);
      list.add(length);
-     RESULT = new FunctionCallExpr("%element_slice%", list);
+     RESULT = new FunctionCallExpr("array_slice", list);
   :}
   ;
 
 privilege_type ::=
-    ident:name
+    ident:name opt_col_list:cols
     {:
-        RESULT = AccessPrivilege.fromName(name);
-        if (RESULT == null) {
+        AccessPrivilege accessPrivilege = AccessPrivilege.fromName(name);
+        if (accessPrivilege == null) {
             throw new AnalysisException("Unknown privilege type " + name);
         }
+        RESULT = new AccessPrivilegeWithCols(accessPrivilege, cols);
     :}
     | KW_ALL:id
     {:
-        RESULT = AccessPrivilege.ALL;
+        RESULT = new AccessPrivilegeWithCols(AccessPrivilege.ALL);
     :}
     ;
 
@@ -6910,6 +7232,10 @@ admin_stmt ::=
     {:
         RESULT = new AdminCleanTrashStmt(null);
     :}
+    | KW_ADMIN KW_SET KW_TABLE table_name:name KW_PARTITION KW_VERSION opt_properties:properties
+    {:
+        RESULT = new AdminSetPartitionVersionStmt(name, properties);
+    :}
     | KW_ADMIN KW_DIAGNOSE KW_TABLET INTEGER_LITERAL:tabletId
     {:
         RESULT = new AdminDiagnoseTabletStmt(tabletId);
@@ -6925,6 +7251,10 @@ admin_stmt ::=
     | KW_ADMIN KW_COPY KW_TABLET INTEGER_LITERAL:tabletId opt_properties:properties
     {:
         RESULT = new AdminCopyTabletStmt(tabletId, properties);
+    :}
+    | KW_ADMIN KW_SET KW_TABLE table_name:name KW_STATUS opt_properties:properties
+    {:
+        RESULT = new AdminSetTableStatusStmt(name, properties);
     :}
     ;
 
@@ -7027,16 +7357,6 @@ type_func_name_keyword ::=
     {: RESULT = id; :}
     ;
 
-opt_sync ::=
-    {:
-        RESULT = false;
-    :}
-    | KW_SYNC
-    {:
-        RESULT = true;
-    :}
-    ;
-
 // Keyword that we allow for identifiers
 keyword ::=
     KW_AFTER:id
@@ -7059,6 +7379,8 @@ keyword ::=
     {: RESULT = id; :}
     | KW_QUANTILE_STATE:id
     {: RESULT = id; :}
+    | KW_AGG_STATE:id
+    {: RESULT = id; :}
     | KW_BITMAP_UNION:id
     {: RESULT = id; :}
     | KW_NGRAM_BF:id
@@ -7068,6 +7390,8 @@ keyword ::=
     | KW_BLOB:id
     {: RESULT = id; :}
     | KW_BOOLEAN:id
+    {: RESULT = id; :}
+    | KW_BRIEF:id
     {: RESULT = id; :}
     | KW_BROKER:id
     {: RESULT = id; :}
@@ -7080,6 +7404,8 @@ keyword ::=
     | KW_BUILTIN:id
     {: RESULT = id; :}
     | KW_BUILD:id
+    {: RESULT = id; :}
+    | KW_CACHED:id
     {: RESULT = id; :}
     | KW_CHAIN:id
     {: RESULT = id; :}
@@ -7140,6 +7466,8 @@ keyword ::=
     | KW_DISTINCTPC:id
     {: RESULT = id; :}
     | KW_DISTINCTPCSA:id
+    {: RESULT = id; :}
+    | KW_DO:id
     {: RESULT = id; :}
     | KW_BUCKETS:id
     {: RESULT = id; :}
@@ -7205,6 +7533,10 @@ keyword ::=
     {: RESULT = id; :}
     | KW_JOB:id
     {: RESULT = id; :}
+    | KW_JOBS:id    
+    {: RESULT = id; :}
+    | KW_JSON:id
+    {: RESULT = id; :}
     | KW_JSONB:id
     {: RESULT = id; :}
     | KW_ENCRYPTKEY:id
@@ -7269,6 +7601,8 @@ keyword ::=
     {: RESULT = id; :}
     | KW_PASSWORD_LOCK_TIME:id
     {: RESULT = id; :}
+    | KW_LDAP:id
+    {: RESULT = id; :}
     | KW_LDAP_ADMIN_PASSWORD:id
     {: RESULT = id; :}
     | KW_PLUGIN:id
@@ -7313,7 +7647,7 @@ keyword ::=
     {: RESULT = id; :}
     | KW_ROLLBACK:id
     {: RESULT = id; :}
-    | KW_ROLLUP:id
+    | KW_SCHEDULER:id
     {: RESULT = id; :}
     | KW_SCHEMA:id
     {: RESULT = id; :}
@@ -7338,6 +7672,8 @@ keyword ::=
     | KW_STORAGE:id
     {: RESULT = id; :}
     | KW_STREAM:id
+    {: RESULT = id; :}
+    | KW_STREAMING:id    
     {: RESULT = id; :}
     | KW_STRUCT:id
     {: RESULT = id; :}
@@ -7405,7 +7741,19 @@ keyword ::=
     {: RESULT = id; :}
     | KW_TASK:id
     {: RESULT = id; :}
+    | KW_TASKS:id    
+    {: RESULT = id; :}
     | KW_ROUTINE:id
+    {: RESULT = id; :}
+    | KW_EVERY:id   
+    {: RESULT = id; :}
+    | KW_AT:id         
+    {: RESULT = id; :}
+    | KW_ROLLUP:id    
+    {: RESULT = id; :}
+    | KW_STARTS:id     
+    {: RESULT = id; :}
+    | KW_ENDS:id                  
     {: RESULT = id; :}
     | KW_PAUSE:id
     {: RESULT = id; :}
@@ -7424,6 +7772,8 @@ keyword ::=
     | KW_ENABLE:id
     {: RESULT = id; :}
     | KW_FEATURE:id
+    {: RESULT = id; :}
+    | KW_FRONTENDS:id
     {: RESULT = id; :}
     | KW_MAP:id
     {: RESULT = id; :}
@@ -7452,6 +7802,14 @@ keyword ::=
     | KW_EXPIRED: id
     {: RESULT = id; :}
     | KW_SAMPLE:id
+    {: RESULT = id; :}
+    | KW_INCREMENTAL:id
+    {: RESULT = id; :}
+    | KW_PERIOD:id
+    {: RESULT = id; :}
+    | KW_PERCENT:id
+    {: RESULT = id; :}
+    | KW_CRON:id
     {: RESULT = id; :}
     ;
 
@@ -7570,13 +7928,6 @@ time_unit ::=
 //   KW_WHERE expr:e
 //   {: RESULT = e; :}
 //   ;
-//
-// alter_cluster_clause ::=
-//     KW_MODIFY opt_properties:properties
-//     {:
-//         RESULT = new AlterClusterClause(AlterClusterType.ALTER_CLUSTER_PROPERTIES, properties);
-//     :}
-//     ;
 //
 // col_list ::=
 //     KW_COLUMNS LPAREN ident_list:colList RPAREN

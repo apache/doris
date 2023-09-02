@@ -20,16 +20,21 @@ package org.apache.doris.catalog;
 import org.apache.doris.alter.AlterCancelException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.MetaNotFoundException;
-import org.apache.doris.statistics.AnalysisTaskInfo;
+import org.apache.doris.statistics.AnalysisInfo;
 import org.apache.doris.statistics.BaseAnalysisTask;
+import org.apache.doris.statistics.ColumnStatistic;
+import org.apache.doris.statistics.TableStats;
 import org.apache.doris.thrift.TTableDescriptor;
 
 import com.google.common.collect.Lists;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.io.DataOutput;
+import java.io.IOException;
 import java.util.Collections;
 import java.util.List;
+import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.TimeUnit;
 
@@ -124,17 +129,28 @@ public interface TableIf {
 
     TTableDescriptor toThrift();
 
-    BaseAnalysisTask createAnalysisTask(AnalysisTaskInfo info);
+    BaseAnalysisTask createAnalysisTask(AnalysisInfo info);
 
     long estimatedRowCount();
+
+    DatabaseIf getDatabase();
+
+    Optional<ColumnStatistic> getColumnStatistic(String colName);
+
+    boolean needReAnalyzeTable(TableStats tblStats);
+
+    Set<String> findReAnalyzeNeededPartitions(TableStats tableStats);
+
+    void write(DataOutput out) throws IOException;
 
     /**
      * Doris table type.
      */
     enum TableType {
-        MYSQL, ODBC, OLAP, SCHEMA, INLINE_VIEW, VIEW, BROKER, ELASTICSEARCH, HIVE, ICEBERG, HUDI, JDBC,
+        MYSQL, ODBC, OLAP, SCHEMA, INLINE_VIEW, VIEW, BROKER, ELASTICSEARCH, HIVE, ICEBERG, @Deprecated HUDI, JDBC,
         TABLE_VALUED_FUNCTION, HMS_EXTERNAL_TABLE, ES_EXTERNAL_TABLE, MATERIALIZED_VIEW, JDBC_EXTERNAL_TABLE,
-        ICEBERG_EXTERNAL_TABLE, TEST_EXTERNAL_TABLE;
+        ICEBERG_EXTERNAL_TABLE, TEST_EXTERNAL_TABLE, PAIMON_EXTERNAL_TABLE, MAX_COMPUTE_EXTERNAL_TABLE,
+        HUDI_EXTERNAL_TABLE, DELTALAKE_EXTERNAL_TABLE;
 
         public String toEngineName() {
             switch (this) {
@@ -169,6 +185,10 @@ public interface TableIf {
                     return "es";
                 case ICEBERG_EXTERNAL_TABLE:
                     return "iceberg";
+                case HUDI_EXTERNAL_TABLE:
+                    return "hudi";
+                case DELTALAKE_EXTERNAL_TABLE:
+                    return "deltalake";
                 default:
                     return null;
             }
@@ -196,6 +216,8 @@ public interface TableIf {
                 case HMS_EXTERNAL_TABLE:
                 case ES_EXTERNAL_TABLE:
                 case ICEBERG_EXTERNAL_TABLE:
+                case PAIMON_EXTERNAL_TABLE:
+                case DELTALAKE_EXTERNAL_TABLE:
                     return "EXTERNAL TABLE";
                 default:
                     return null;
@@ -213,6 +235,14 @@ public interface TableIf {
 
     default Partition getPartition(String name) {
         return null;
+    }
+
+    default boolean isManagedTable() {
+        return getType() == TableType.OLAP || getType() == TableType.MATERIALIZED_VIEW;
+    }
+
+    default long getLastUpdateTime() {
+        return -1L;
     }
 }
 

@@ -36,6 +36,7 @@
 #include "olap/tablet_meta.h"
 #include "olap/txn_manager.h"
 #include "olap/utils.h"
+#include "util/bvar_helper.h"
 #include "util/threadpool.h"
 
 namespace doris {
@@ -44,12 +45,37 @@ using namespace ErrorCode;
 
 using std::map;
 
-EnginePublishVersionTask::EnginePublishVersionTask(TPublishVersionRequest& publish_version_req,
-                                                   std::vector<TTabletId>* error_tablet_ids,
-                                                   std::vector<TTabletId>* succ_tablet_ids)
+static bvar::LatencyRecorder g_tablet_publish_latency("doris_pk", "tablet_publish");
+static bvar::LatencyRecorder g_tablet_publish_schedule_latency("doris_pk",
+                                                               "tablet_publish_schedule");
+static bvar::LatencyRecorder g_tablet_publish_lock_wait_latency("doris_pk",
+                                                                "tablet_publish_lock_wait");
+static bvar::LatencyRecorder g_tablet_publish_save_meta_latency("doris_pk",
+                                                                "tablet_publish_save_meta");
+static bvar::LatencyRecorder g_tablet_publish_delete_bitmap_latency("doris_pk",
+                                                                    "tablet_publish_delete_bitmap");
+static bvar::LatencyRecorder g_tablet_publish_partial_update_latency(
+        "doris_pk", "tablet_publish_partial_update");
+static bvar::LatencyRecorder g_tablet_publish_add_inc_latency("doris_pk",
+                                                              "tablet_publish_add_inc_rowset");
+
+void TabletPublishStatistics::record_in_bvar() {
+    g_tablet_publish_schedule_latency << schedule_time_us;
+    g_tablet_publish_lock_wait_latency << lock_wait_time_us;
+    g_tablet_publish_save_meta_latency << save_meta_time_us;
+    g_tablet_publish_delete_bitmap_latency << calc_delete_bitmap_time_us;
+    g_tablet_publish_partial_update_latency << partial_update_write_segment_us;
+    g_tablet_publish_add_inc_latency << add_inc_rowset_us;
+}
+
+EnginePublishVersionTask::EnginePublishVersionTask(
+        const TPublishVersionRequest& publish_version_req, std::vector<TTabletId>* error_tablet_ids,
+        std::vector<TTabletId>* succ_tablet_ids,
+        std::vector<std::tuple<int64_t, int64_t, int64_t>>* discontinuous_version_tablets)
         : _publish_version_req(publish_version_req),
           _error_tablet_ids(error_tablet_ids),
-          _succ_tablet_ids(succ_tablet_ids) {}
+          _succ_tablet_ids(succ_tablet_ids),
+          _discontinuous_version_tablets(discontinuous_version_tablets) {}
 
 void EnginePublishVersionTask::add_error_tablet_id(int64_t tablet_id) {
     std::lock_guard<std::mutex> lck(_tablet_ids_mutex);
@@ -61,24 +87,16 @@ void EnginePublishVersionTask::add_succ_tablet_id(int64_t tablet_id) {
     _succ_tablet_ids->push_back(tablet_id);
 }
 
-void EnginePublishVersionTask::wait() {
-    std::unique_lock<std::mutex> lock(_tablet_finish_sleep_mutex);
-    _tablet_finish_sleep_cond.wait_for(lock, std::chrono::milliseconds(10));
-}
-
-void EnginePublishVersionTask::notify() {
-    std::unique_lock<std::mutex> lock(_tablet_finish_sleep_mutex);
-    _tablet_finish_sleep_cond.notify_one();
-}
-
 Status EnginePublishVersionTask::finish() {
     Status res = Status::OK();
     int64_t transaction_id = _publish_version_req.transaction_id;
     OlapStopWatch watch;
     VLOG_NOTICE << "begin to process publish version. transaction_id=" << transaction_id;
+    std::unique_ptr<ThreadPoolToken> token =
+            StorageEngine::instance()->tablet_publish_txn_thread_pool()->new_token(
+                    ThreadPool::ExecutionMode::CONCURRENT);
 
     // each partition
-    std::atomic<int64_t> total_task_num(0);
     for (auto& par_ver_info : _publish_version_req.partition_version_infos) {
         int64_t partition_id = par_ver_info.partition_id;
         // get all partition related tablets and check whether the tablet have the related version
@@ -102,26 +120,25 @@ Status EnginePublishVersionTask::finish() {
             TabletInfo tablet_info = tablet_rs.first;
             RowsetSharedPtr rowset = tablet_rs.second;
             VLOG_CRITICAL << "begin to publish version on tablet. "
-                          << "tablet_id=" << tablet_info.tablet_id
-                          << ", schema_hash=" << tablet_info.schema_hash
-                          << ", version=" << version.first << ", transaction_id=" << transaction_id;
+                          << "tablet_id=" << tablet_info.tablet_id << ", version=" << version.first
+                          << ", transaction_id=" << transaction_id;
             // if rowset is null, it means this be received write task, but failed during write
             // and receive fe's publish version task
             // this be must return as an error tablet
             if (rowset == nullptr) {
-                LOG(WARNING) << "could not find related rowset for tablet " << tablet_info.tablet_id
-                             << " txn id " << transaction_id;
                 _error_tablet_ids->push_back(tablet_info.tablet_id);
-                res = Status::Error<PUSH_ROWSET_NOT_FOUND>();
+                res = Status::Error<PUSH_ROWSET_NOT_FOUND>(
+                        "could not find related rowset for tablet {}, txn id {}",
+                        tablet_info.tablet_id, transaction_id);
                 continue;
             }
             TabletSharedPtr tablet = StorageEngine::instance()->tablet_manager()->get_tablet(
                     tablet_info.tablet_id, tablet_info.tablet_uid);
             if (tablet == nullptr) {
-                LOG(WARNING) << "can't get tablet when publish version. tablet_id="
-                             << tablet_info.tablet_id << " schema_hash=" << tablet_info.schema_hash;
                 _error_tablet_ids->push_back(tablet_info.tablet_id);
-                res = Status::Error<PUSH_TABLE_NOT_EXIST>();
+                res = Status::Error<PUSH_TABLE_NOT_EXIST>(
+                        "can't get tablet when publish version. tablet_id={}",
+                        tablet_info.tablet_id);
                 continue;
             }
             // in uniq key model with merge-on-write, we should see all
@@ -129,45 +146,58 @@ Status EnginePublishVersionTask::finish() {
             // here and wait pre version publish or lock timeout
             if (tablet->keys_type() == KeysType::UNIQUE_KEYS &&
                 tablet->enable_unique_key_merge_on_write()) {
+                bool first_time_update = false;
+                if (StorageEngine::instance()->txn_manager()->get_txn_by_tablet_version(
+                            tablet_info.tablet_id, version.second) < 0) {
+                    first_time_update = true;
+                    StorageEngine::instance()->txn_manager()->update_tablet_version_txn(
+                            tablet_info.tablet_id, version.second, transaction_id);
+                }
                 Version max_version;
                 TabletState tablet_state;
                 {
                     std::shared_lock rdlock(tablet->get_header_lock());
-                    max_version = tablet->max_version();
+                    max_version = tablet->max_version_unlocked();
                     tablet_state = tablet->tablet_state();
                 }
                 if (tablet_state == TabletState::TABLET_RUNNING &&
                     version.first != max_version.second + 1) {
-                    VLOG_NOTICE << "uniq key with merge-on-write version not continuous, current "
-                                   "max "
-                                   "version="
-                                << max_version.second << ", publish_version=" << version.first
-                                << " tablet_id=" << tablet->tablet_id();
                     // If a tablet migrates out and back, the previously failed
                     // publish task may retry on the new tablet, so check
                     // whether the version exists. if not exist, then set
                     // publish failed
                     if (!tablet->check_version_exist(version)) {
                         add_error_tablet_id(tablet_info.tablet_id);
-                        res = Status::Error<PUBLISH_VERSION_NOT_CONTINUOUS>();
+                        _discontinuous_version_tablets->emplace_back(
+                                partition_id, tablet_info.tablet_id, version.first);
+                        res = Status::Error<PUBLISH_VERSION_NOT_CONTINUOUS>(
+                                "check_version_exist failed");
+                        int64_t missed_version = max_version.second + 1;
+                        int64_t missed_txn_id =
+                                StorageEngine::instance()->txn_manager()->get_txn_by_tablet_version(
+                                        tablet->tablet_id(), missed_version);
+                        auto msg = fmt::format(
+                                "uniq key with merge-on-write version not continuous, "
+                                "missed version={}, it's transaction_id={}, current publish "
+                                "version={}, tablet_id={}, transaction_id={}",
+                                missed_version, missed_txn_id, version.second, tablet->tablet_id(),
+                                _publish_version_req.transaction_id);
+                        if (first_time_update) {
+                            LOG(INFO) << msg;
+                        } else {
+                            LOG_EVERY_SECOND(INFO) << msg;
+                        }
                     }
                     continue;
                 }
             }
-            total_task_num.fetch_add(1);
             auto tablet_publish_txn_ptr = std::make_shared<TabletPublishTxnTask>(
-                    this, tablet, rowset, partition_id, transaction_id, version, tablet_info,
-                    &total_task_num);
-            auto submit_st =
-                    StorageEngine::instance()->tablet_publish_txn_thread_pool()->submit_func(
-                            [=]() { tablet_publish_txn_ptr->handle(); });
+                    this, tablet, rowset, partition_id, transaction_id, version, tablet_info);
+            auto submit_st = token->submit_func([=]() { tablet_publish_txn_ptr->handle(); });
             CHECK(submit_st.ok()) << submit_st;
         }
     }
-    // wait for all publish txn finished
-    while (total_task_num.load() != 0) {
-        wait();
-    }
+    token->wait();
 
     // check if the related tablet remained all have the version
     for (auto& par_ver_info : _publish_version_req.partition_version_infos) {
@@ -209,26 +239,29 @@ Status EnginePublishVersionTask::finish() {
 TabletPublishTxnTask::TabletPublishTxnTask(EnginePublishVersionTask* engine_task,
                                            TabletSharedPtr tablet, RowsetSharedPtr rowset,
                                            int64_t partition_id, int64_t transaction_id,
-                                           Version version, const TabletInfo& tablet_info,
-                                           std::atomic<int64_t>* total_task_num)
+                                           Version version, const TabletInfo& tablet_info)
         : _engine_publish_version_task(engine_task),
           _tablet(tablet),
           _rowset(rowset),
           _partition_id(partition_id),
           _transaction_id(transaction_id),
           _version(version),
-          _tablet_info(tablet_info),
-          _total_task_num(total_task_num) {}
+          _tablet_info(tablet_info) {
+    _stats.submit_time_us = MonotonicMicros();
+}
 
 void TabletPublishTxnTask::handle() {
-    Defer defer {[&] {
-        if (_total_task_num->fetch_sub(1) == 1) {
-            _engine_publish_version_task->notify();
-        }
-    }};
+    _stats.schedule_time_us = MonotonicMicros() - _stats.submit_time_us;
+    if (!_rowset->start_publish()) {
+        LOG(WARNING) << "publish is running. rowset_id=" << _rowset->rowset_id()
+                     << ", tablet_id=" << _tablet->tablet_id() << ", txn_id=" << _transaction_id;
+        _engine_publish_version_task->add_error_tablet_id(_tablet_info.tablet_id);
+        return;
+    }
+    Defer defer {[&] { _rowset->finish_publish(); }};
     auto publish_status = StorageEngine::instance()->txn_manager()->publish_txn(
-            _partition_id, _tablet, _transaction_id, _version);
-    if (publish_status != Status::OK()) {
+            _partition_id, _tablet, _transaction_id, _version, &_stats);
+    if (!publish_status.ok()) {
         LOG(WARNING) << "failed to publish version. rowset_id=" << _rowset->rowset_id()
                      << ", tablet_id=" << _tablet_info.tablet_id << ", txn_id=" << _transaction_id
                      << ", res=" << publish_status;
@@ -237,8 +270,10 @@ void TabletPublishTxnTask::handle() {
     }
 
     // add visible rowset to tablet
+    int64_t t1 = MonotonicMicros();
     publish_status = _tablet->add_inc_rowset(_rowset);
-    if (publish_status != Status::OK() && !publish_status.is<PUSH_VERSION_ALREADY_EXIST>()) {
+    _stats.add_inc_rowset_us = MonotonicMicros() - t1;
+    if (!publish_status.ok() && !publish_status.is<PUSH_VERSION_ALREADY_EXIST>()) {
         LOG(WARNING) << "fail to add visible rowset to tablet. rowset_id=" << _rowset->rowset_id()
                      << ", tablet_id=" << _tablet_info.tablet_id << ", txn_id=" << _transaction_id
                      << ", res=" << publish_status;
@@ -246,10 +281,63 @@ void TabletPublishTxnTask::handle() {
         return;
     }
     _engine_publish_version_task->add_succ_tablet_id(_tablet_info.tablet_id);
+    int64_t cost_us = MonotonicMicros() - _stats.submit_time_us;
+    // print stats if publish cost > 500ms
+    g_tablet_publish_latency << cost_us;
+    _stats.record_in_bvar();
     LOG(INFO) << "publish version successfully on tablet"
               << ", table_id=" << _tablet->table_id() << ", tablet=" << _tablet->full_name()
               << ", transaction_id=" << _transaction_id << ", version=" << _version.first
-              << ", num_rows=" << _rowset->num_rows() << ", res=" << publish_status;
+              << ", num_rows=" << _rowset->num_rows() << ", res=" << publish_status
+              << ", cost: " << cost_us << "(us) "
+              << (cost_us > 500 * 1000 ? _stats.to_string() : "");
+}
+
+void AsyncTabletPublishTask::handle() {
+    _stats.schedule_time_us = MonotonicMicros() - _stats.submit_time_us;
+    std::map<TabletInfo, RowsetSharedPtr> tablet_related_rs;
+    StorageEngine::instance()->txn_manager()->get_txn_related_tablets(
+            _transaction_id, _partition_id, &tablet_related_rs);
+    auto iter = tablet_related_rs.find(TabletInfo(_tablet->tablet_id(), _tablet->tablet_uid()));
+    if (iter == tablet_related_rs.end()) {
+        return;
+    }
+    RowsetSharedPtr rowset = iter->second;
+    if (!rowset->start_publish()) {
+        LOG(WARNING) << "publish is running. rowset_id=" << rowset->rowset_id()
+                     << ", tablet_id=" << _tablet->tablet_id() << ", txn_id=" << _transaction_id;
+        return;
+    }
+    Defer defer {[&] { rowset->finish_publish(); }};
+    Version version(_version, _version);
+    auto publish_status = StorageEngine::instance()->txn_manager()->publish_txn(
+            _partition_id, _tablet, _transaction_id, version, &_stats);
+    if (!publish_status.ok()) {
+        LOG(WARNING) << "failed to publish version. rowset_id=" << rowset->rowset_id()
+                     << ", tablet_id=" << _tablet->tablet_id() << ", txn_id=" << _transaction_id
+                     << ", res=" << publish_status;
+        return;
+    }
+
+    // add visible rowset to tablet
+    int64_t t1 = MonotonicMicros();
+    publish_status = _tablet->add_inc_rowset(rowset);
+    _stats.add_inc_rowset_us = MonotonicMicros() - t1;
+    if (!publish_status.ok() && !publish_status.is<PUSH_VERSION_ALREADY_EXIST>()) {
+        LOG(WARNING) << "fail to add visible rowset to tablet. rowset_id=" << rowset->rowset_id()
+                     << ", tablet_id=" << _tablet->tablet_id() << ", txn_id=" << _transaction_id
+                     << ", res=" << publish_status;
+        return;
+    }
+    int64_t cost_us = MonotonicMicros() - _stats.submit_time_us;
+    // print stats if publish cost > 500ms
+    g_tablet_publish_latency << cost_us;
+    _stats.record_in_bvar();
+    LOG(INFO) << "async publish version successfully on tablet, table_id=" << _tablet->table_id()
+              << ", tablet=" << _tablet->full_name() << ", transaction_id=" << _transaction_id
+              << ", version=" << _version << ", num_rows=" << rowset->num_rows()
+              << ", res=" << publish_status << ", cost: " << cost_us << "(us) "
+              << (cost_us > 500 * 1000 ? _stats.to_string() : "");
 }
 
 } // namespace doris

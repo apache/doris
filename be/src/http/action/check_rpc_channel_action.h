@@ -17,17 +17,18 @@
 
 #pragma once
 
-#include "http/http_handler.h"
+#include "http/http_handler_with_auth.h"
 
 namespace doris {
 class ExecEnv;
 class HttpRequest;
 
-class CheckRPCChannelAction : public HttpHandler {
+class CheckRPCChannelAction : public HttpHandlerWithAuth {
 public:
-    explicit CheckRPCChannelAction(ExecEnv* exec_env);
+    explicit CheckRPCChannelAction(ExecEnv* exec_env, TPrivilegeHier::type hier,
+                                   TPrivilegeType::type type);
 
-    virtual ~CheckRPCChannelAction() {}
+    ~CheckRPCChannelAction() override = default;
 
     void handle(HttpRequest* req) override;
 

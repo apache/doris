@@ -17,33 +17,48 @@
 
 #include "olap/task/engine_storage_migration_task.h"
 
-#include <gtest/gtest.h>
-#include <sys/file.h>
+#include <gen_cpp/AgentService_types.h>
+#include <gen_cpp/types.pb.h>
+#include <gtest/gtest-message.h>
+#include <gtest/gtest-test-part.h>
+#include <stdlib.h>
+#include <unistd.h>
 
+#include <algorithm>
+#include <map>
+#include <memory>
 #include <string>
+#include <utility>
 
+#include "common/config.h"
+#include "common/object_pool.h"
 #include "exec/tablet_info.h"
 #include "gen_cpp/Descriptors_types.h"
-#include "gen_cpp/PaloInternalService_types.h"
 #include "gen_cpp/Types_types.h"
 #include "gen_cpp/internal_service.pb.h"
+#include "gtest/gtest_pred_impl.h"
 #include "io/fs/local_file_system.h"
+#include "olap/data_dir.h"
 #include "olap/delta_writer.h"
-#include "olap/field.h"
+#include "olap/olap_common.h"
+#include "olap/olap_define.h"
 #include "olap/options.h"
 #include "olap/storage_engine.h"
 #include "olap/tablet.h"
-#include "olap/tablet_meta_manager.h"
-#include "olap/utils.h"
+#include "olap/tablet_manager.h"
+#include "olap/task/engine_publish_version_task.h"
+#include "olap/txn_manager.h"
+#include "runtime/define_primitive_type.h"
 #include "runtime/descriptor_helper.h"
 #include "runtime/descriptors.h"
 #include "runtime/exec_env.h"
 
 namespace doris {
+class OlapMeta;
 
 static const uint32_t MAX_PATH_LEN = 1024;
 
-static StorageEngine* k_engine = nullptr;
+static std::unique_ptr<StorageEngine> k_engine;
 static std::string path1;
 static std::string path2;
 
@@ -65,16 +80,14 @@ static void set_up() {
     Status s = doris::StorageEngine::open(options, &k_engine);
     EXPECT_TRUE(s.ok()) << s.to_string();
     ExecEnv* exec_env = doris::ExecEnv::GetInstance();
-    exec_env->set_storage_engine(k_engine);
     k_engine->start_bg_threads();
+    exec_env->set_memtable_memory_limiter(new MemTableMemoryLimiter());
 }
 
 static void tear_down() {
-    if (k_engine != nullptr) {
-        k_engine->stop();
-        delete k_engine;
-        k_engine = nullptr;
-    }
+    ExecEnv* exec_env = doris::ExecEnv::GetInstance();
+    exec_env->set_memtable_memory_limiter(nullptr);
+    k_engine.reset();
     EXPECT_EQ(system("rm -rf ./data_test_1"), 0);
     EXPECT_EQ(system("rm -rf ./data_test_2"), 0);
     EXPECT_TRUE(io::global_local_filesystem()
@@ -152,9 +165,11 @@ public:
 };
 
 TEST_F(TestEngineStorageMigrationTask, write_and_migration) {
+    std::unique_ptr<RuntimeProfile> profile;
+    profile = std::make_unique<RuntimeProfile>("CreateTablet");
     TCreateTabletReq request;
     create_tablet_request_with_sequence_col(10005, 270068377, &request);
-    Status res = k_engine->create_tablet(request);
+    Status res = k_engine->create_tablet(request, profile.get());
     EXPECT_EQ(Status::OK(), res);
 
     TDescriptorTable tdesc_tbl = create_descriptor_tablet_with_sequence_col();
@@ -167,15 +182,28 @@ TEST_F(TestEngineStorageMigrationTask, write_and_migration) {
     PUniqueId load_id;
     load_id.set_hi(0);
     load_id.set_lo(0);
-    WriteRequest write_req = {10005,   270068377,  WriteType::LOAD,        20003, 30003,
-                              load_id, tuple_desc, &(tuple_desc->slots()), false, &param};
+    WriteRequest write_req;
+    write_req.tablet_id = 10005;
+    write_req.schema_hash = 270068377;
+    write_req.txn_id = 20003;
+    write_req.partition_id = 30003;
+    write_req.load_id = load_id;
+    write_req.tuple_desc = tuple_desc;
+    write_req.slots = &(tuple_desc->slots());
+    write_req.is_high_priority = false;
+    write_req.table_schema_param = &param;
+
     DeltaWriter* delta_writer = nullptr;
-    DeltaWriter::open(&write_req, &delta_writer);
+
+    profile = std::make_unique<RuntimeProfile>("LoadChannels");
+    DeltaWriter::open(&write_req, &delta_writer, profile.get());
     EXPECT_NE(delta_writer, nullptr);
 
     res = delta_writer->close();
     EXPECT_EQ(Status::OK(), res);
-    res = delta_writer->close_wait(PSlaveTabletNodes(), false);
+    res = delta_writer->build_rowset();
+    EXPECT_EQ(Status::OK(), res);
+    res = delta_writer->commit_txn(PSlaveTabletNodes(), false);
     EXPECT_EQ(Status::OK(), res);
 
     // publish version success
@@ -189,9 +217,10 @@ TEST_F(TestEngineStorageMigrationTask, write_and_migration) {
             write_req.txn_id, write_req.partition_id, &tablet_related_rs);
     for (auto& tablet_rs : tablet_related_rs) {
         RowsetSharedPtr rowset = tablet_rs.second;
+        TabletPublishStatistics stats;
         res = k_engine->txn_manager()->publish_txn(meta, write_req.partition_id, write_req.txn_id,
-                                                   tablet->tablet_id(), tablet->schema_hash(),
-                                                   tablet->tablet_uid(), version);
+                                                   tablet->tablet_id(), tablet->tablet_uid(),
+                                                   version, &stats);
         EXPECT_EQ(Status::OK(), res);
         res = tablet->add_inc_rowset(rowset);
         EXPECT_EQ(Status::OK(), res);

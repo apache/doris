@@ -1,6 +1,6 @@
 ---
 {
-    "title": "NGram BloomFilter索引",
+    "title": "NGram BloomFilter 索引",
     "language": "zh-CN"
 }
 ---
@@ -29,7 +29,7 @@ under the License.
 <version since="2.0.0">
 </version>
 
-为了提升like的查询性能，增加了NGram BloomFilter索引，其实现主要参照了ClickHouse的ngrambf。
+为了提升like的查询性能，增加了NGram BloomFilter索引。
 
 ## NGram BloomFilter创建
 

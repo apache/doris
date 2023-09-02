@@ -16,25 +16,56 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include <gtest/gtest.h>
+#include <gen_cpp/AgentService_types.h>
+#include <gen_cpp/Descriptors_types.h>
+#include <gen_cpp/PaloInternalService_types.h>
+#include <gen_cpp/Types_types.h>
+#include <gen_cpp/olap_common.pb.h>
+#include <gen_cpp/olap_file.pb.h>
+#include <glog/logging.h>
+#include <gtest/gtest-message.h>
+#include <gtest/gtest-test-part.h>
+#include <stdint.h>
+#include <unistd.h>
 
+#include <memory>
+#include <ostream>
+#include <string>
+#include <tuple>
+#include <unordered_map>
+#include <utility>
 #include <vector>
 
+#include "common/config.h"
+#include "common/status.h"
+#include "gtest/gtest_pred_impl.h"
+#include "gutil/stringprintf.h"
+#include "io/fs/local_file_system.h"
 #include "olap/cumulative_compaction.h"
-#include "olap/merger.h"
+#include "olap/data_dir.h"
+#include "olap/delete_handler.h"
+#include "olap/field.h"
+#include "olap/olap_common.h"
+#include "olap/options.h"
 #include "olap/rowset/beta_rowset.h"
 #include "olap/rowset/rowset.h"
 #include "olap/rowset/rowset_factory.h"
+#include "olap/rowset/rowset_meta.h"
 #include "olap/rowset/rowset_reader.h"
 #include "olap/rowset/rowset_reader_context.h"
 #include "olap/rowset/rowset_writer.h"
 #include "olap/rowset/rowset_writer_context.h"
 #include "olap/schema.h"
 #include "olap/storage_engine.h"
+#include "olap/tablet.h"
+#include "olap/tablet_meta.h"
 #include "olap/tablet_schema.h"
-#include "olap/tablet_schema_helper.h"
-#include "vec/olap/vertical_block_reader.h"
-#include "vec/olap/vertical_merge_iterator.h"
+#include "olap/utils.h"
+#include "util/uid_util.h"
+#include "vec/columns/column.h"
+#include "vec/core/block.h"
+#include "vec/core/column_with_type_and_name.h"
+#include "vec/data_types/data_type.h"
 
 namespace doris {
 using namespace ErrorCode;
@@ -256,10 +287,14 @@ protected:
             },
             "creation_time": 1553765670
         })";
-        pb1->init_from_json(json_rowset_meta);
-        pb1->set_start_version(start);
-        pb1->set_end_version(end);
-        pb1->set_creation_time(10000);
+
+        RowsetMetaPB rowset_meta_pb;
+        json2pb::JsonToProtoMessage(json_rowset_meta, &rowset_meta_pb);
+        rowset_meta_pb.set_start_version(start);
+        rowset_meta_pb.set_end_version(end);
+        rowset_meta_pb.set_creation_time(10000);
+
+        pb1->init_from_pb(rowset_meta_pb);
     }
 
     void add_delete_predicate(TabletSharedPtr tablet, DeletePredicatePB& del_pred,
@@ -427,7 +462,7 @@ TEST_F(OrderedDataCompactionTest, test_01) {
             output_data.emplace_back(columns[0].column->get_int(i), columns[1].column->get_int(i));
         }
     } while (s == Status::OK());
-    EXPECT_EQ(Status::Error<END_OF_FILE>(), s);
+    EXPECT_EQ(Status::Error<END_OF_FILE>(""), s);
     EXPECT_EQ(out_rowset->rowset_meta()->num_rows(), output_data.size());
     EXPECT_EQ(output_data.size(), num_input_rowset * num_segments * rows_per_segment);
     std::vector<uint32_t> segment_num_rows;

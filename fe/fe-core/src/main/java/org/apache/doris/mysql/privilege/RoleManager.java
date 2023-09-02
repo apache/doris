@@ -20,8 +20,10 @@ package org.apache.doris.mysql.privilege;
 import org.apache.doris.analysis.ResourcePattern;
 import org.apache.doris.analysis.TablePattern;
 import org.apache.doris.analysis.UserIdentity;
+import org.apache.doris.analysis.WorkloadGroupPattern;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.InfoSchemaDb;
+import org.apache.doris.catalog.MysqlDb;
 import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
@@ -32,6 +34,7 @@ import org.apache.doris.common.io.Writable;
 import org.apache.doris.mysql.privilege.Auth.PrivLevel;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.resource.workloadgroup.WorkloadGroupMgr;
 import org.apache.doris.system.SystemInfoService;
 
 import com.google.common.base.Joiner;
@@ -48,6 +51,7 @@ import java.io.IOException;
 import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
+import java.util.Set;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
@@ -98,7 +102,8 @@ public class RoleManager implements Writable {
         roles.remove(qualifiedRole);
     }
 
-    public Role revokePrivs(String name, TablePattern tblPattern, PrivBitSet privs, boolean errOnNonExist)
+    public Role revokePrivs(String name, TablePattern tblPattern, PrivBitSet privs,
+            Map<ColPrivilegeKey, Set<String>> colPrivileges, boolean errOnNonExist)
             throws DdlException {
         Role existingRole = roles.get(name);
         if (existingRole == null) {
@@ -107,7 +112,7 @@ public class RoleManager implements Writable {
             }
             return null;
         }
-        existingRole.revokePrivs(tblPattern, privs, errOnNonExist);
+        existingRole.revokePrivs(tblPattern, privs, colPrivileges, errOnNonExist);
         return existingRole;
     }
 
@@ -121,6 +126,20 @@ public class RoleManager implements Writable {
             return null;
         }
         existingRole.revokePrivs(resourcePattern, privs, errOnNonExist);
+        return existingRole;
+    }
+
+    public Role revokePrivs(String role, WorkloadGroupPattern workloadGroupPattern, PrivBitSet privs,
+            boolean errOnNonExist)
+            throws DdlException {
+        Role existingRole = roles.get(role);
+        if (existingRole == null) {
+            if (errOnNonExist) {
+                throw new DdlException("Role " + role + " does not exist");
+            }
+            return null;
+        }
+        existingRole.revokePrivs(workloadGroupPattern, privs, errOnNonExist);
         return existingRole;
     }
 
@@ -139,9 +158,12 @@ public class RoleManager implements Writable {
                             role.getTblPatternToPrivs().entrySet().stream()
                                     .collect(Collectors.groupingBy(entry -> entry.getKey().getPrivLevel())).entrySet()
                                     .stream(),
-                            role.getResourcePatternToPrivs().entrySet().stream()
-                                    .collect(Collectors.groupingBy(entry -> entry.getKey().getPrivLevel())).entrySet()
-                                    .stream()
+                            Stream.concat(role.getResourcePatternToPrivs().entrySet().stream()
+                                            .collect(Collectors.groupingBy(entry -> entry.getKey().getPrivLevel()))
+                                            .entrySet().stream(),
+                                    role.getWorkloadGroupPatternToPrivs().entrySet().stream()
+                                            .collect(Collectors.groupingBy(entry -> entry.getKey().getPrivLevel()))
+                                            .entrySet().stream())
                     ).collect(Collectors.toMap(Entry::getKey, entry -> {
                                 if (entry.getKey() == PrivLevel.GLOBAL) {
                                     return entry.getValue().stream().findFirst().map(priv -> priv.getValue().toString())
@@ -170,15 +192,30 @@ public class RoleManager implements Writable {
         if (roles.containsKey(userDefaultRoleName)) {
             return roles.get(userDefaultRoleName);
         }
-        // grant read privs to database information_schema
+        // grant read privs to database information_schema & mysql
         TablePattern tblPattern = new TablePattern(Auth.DEFAULT_CATALOG, InfoSchemaDb.DATABASE_NAME, "*");
         try {
             tblPattern.analyze(SystemInfoService.DEFAULT_CLUSTER);
         } catch (AnalysisException e) {
             LOG.warn("should not happen", e);
         }
-        Role role = new Role(userDefaultRoleName, tblPattern,
-                PrivBitSet.of(Privilege.SELECT_PRIV));
+
+        tblPattern = new TablePattern(Auth.DEFAULT_CATALOG, MysqlDb.DATABASE_NAME, "*");
+        try {
+            tblPattern.analyze(SystemInfoService.DEFAULT_CLUSTER);
+        } catch (AnalysisException e) {
+            LOG.warn("should not happen", e);
+        }
+
+        // grant read privs of default workload group
+        WorkloadGroupPattern workloadGroupPattern = new WorkloadGroupPattern(WorkloadGroupMgr.DEFAULT_GROUP_NAME);
+        try {
+            workloadGroupPattern.analyze();
+        } catch (AnalysisException e) {
+            LOG.warn("should not happen", e);
+        }
+        Role role = new Role(userDefaultRoleName, tblPattern, PrivBitSet.of(Privilege.SELECT_PRIV),
+                workloadGroupPattern, PrivBitSet.of(Privilege.USAGE_PRIV));
         roles.put(role.getRoleName(), role);
         return role;
     }

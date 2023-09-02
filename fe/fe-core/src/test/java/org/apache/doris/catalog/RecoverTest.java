@@ -135,6 +135,10 @@ public class RecoverTest {
                 .flatMap(db -> db.getTable(tblName)).isPresent();
     }
 
+    private static boolean checkTableInDynamicScheduler(Long dbId, Long tableId) {
+        return Env.getCurrentEnv().getDynamicPartitionScheduler().containsDynamicPartitionTable(dbId, tableId);
+    }
+
     private static boolean checkPartitionExist(String dbName, String tblName, String partName) {
         return Env.getCurrentInternalCatalog()
                 .getDb(ClusterNamespace.getFullName(SystemInfoService.DEFAULT_CLUSTER, dbName))
@@ -388,5 +392,48 @@ public class RecoverTest {
 
         recoverPartition("test2", "table2", "p1", -1);
         Assert.assertTrue(checkPartitionExist("test2", "table2", "p1"));
+    }
+
+
+    @Test
+    public void testDynamicTableRecover() throws Exception {
+        createDb("test3");
+        createTable("CREATE TABLE test3.`table3` (\n"
+                + "  `event_date` datetime(3) NOT NULL COMMENT \"\",\n"
+                + "  `app_name` varchar(64) NOT NULL COMMENT \"\",\n"
+                + "  `package_name` varchar(64) NOT NULL COMMENT \"\",\n"
+                + "  `age` varchar(32) NOT NULL COMMENT \"\",\n"
+                + "  `gender` varchar(32) NOT NULL COMMENT \"\",\n"
+                + "  `level` varchar(64) NOT NULL COMMENT \"\",\n"
+                + "  `city` varchar(64) NOT NULL COMMENT \"\",\n"
+                + "  `model` varchar(64) NOT NULL COMMENT \"\",\n"
+                + "  `brand` varchar(64) NOT NULL COMMENT \"\",\n"
+                + "  `hours` varchar(16) NOT NULL COMMENT \"\",\n"
+                + "  `use_num` int(11) SUM NOT NULL COMMENT \"\",\n"
+                + "  `use_time` double SUM NOT NULL COMMENT \"\",\n"
+                + "  `start_times` bigint(20) SUM NOT NULL COMMENT \"\"\n"
+                + ") ENGINE=OLAP\n"
+                + "AGGREGATE KEY(`event_date`, `app_name`, `package_name`, `age`, `gender`, `level`, `city`, \n"
+                + "  `model`, `brand`, `hours`) COMMENT \"OLAP\"\n"
+                + "PARTITION BY RANGE(`event_date`)\n"
+                + "(PARTITION p1 VALUES [('2020-02-27 00:00:00'), ('2020-03-02 00:00:00')),\n"
+                + "PARTITION p2 VALUES [('2020-03-02 00:00:00'), ('2020-03-07 00:00:00')))\n"
+                + "DISTRIBUTED BY HASH(`event_date`, `app_name`, `package_name`, `age`, `gender`, `level`, `city`, \n"
+                + " `model`, `brand`, `hours`) BUCKETS 1 PROPERTIES (\n"
+                + "\"replication_num\" = \"1\",\n"
+                + "\"dynamic_partition.enable\" = \"true\",\n"
+                + "\"dynamic_partition.time_unit\" = \"DAY\",\n"
+                + "\"dynamic_partition.end\" = \"3\",\n"
+                + "\"dynamic_partition.prefix\" = \"p\",\n"
+                + "\"dynamic_partition.buckets\" = \"1\",\n"
+                + "\"dynamic_partition.replication_num\" = \"1\",\n"
+                + "\"dynamic_partition.create_history_partition\"=\"true\",\n"
+                + "\"dynamic_partition.start\" = \"-3\"\n"
+                + ");\n");
+        Long dbId = getDbId("test3");
+        Long tableId = getTableId("test3", "table3");
+        dropTable("test3", "table3");
+        recoverTable("test3", "table3", -1);
+        Assert.assertTrue(checkTableInDynamicScheduler(dbId, tableId));
     }
 }

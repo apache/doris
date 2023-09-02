@@ -40,7 +40,7 @@ beijing	3
 xian	2
 
 -- !select9 --
-beijing, xian, beijing, chengdu, shanghai
+beijing,xian,beijing,chengdu,shanghai
 
 -- !select10 --
 beijing xian beijing chengdu shanghai
@@ -49,8 +49,8 @@ beijing xian beijing chengdu shanghai
 \N
 
 -- !select12 --
-beijing, xian
-beijing, chengdu, shanghai
+beijing,xian
+beijing,chengdu,shanghai
 
 -- !select13 --
 beijing xian
@@ -239,7 +239,7 @@ beijing chengdu shanghai
 2
 
 -- !select44 --
-6	3975	2003	33035710	25819.948000000	78965.368	4449.5830001831055
+6	3975	2003	33035710	25819.948	78965.368	4449.5830001831055
 
 -- !select45 --
 1	10
@@ -269,3 +269,4 @@ beijing chengdu shanghai
 20220201	0	1.0
 20220201	1	3.0
 20220202	2	4999.0
+

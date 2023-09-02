@@ -28,8 +28,6 @@
 
 #include "common/config.h"
 #include "common/status.h"
-#include "runtime/memory/chunk.h"
-#include "runtime/memory/chunk_allocator.h"
 #include "util/sse_util.hpp"
 
 #ifdef NDEBUG
@@ -63,43 +61,13 @@
 #define MAP_ANONYMOUS MAP_ANON
 #endif
 
-#ifdef NDEBUG
-/**
-  * Many modern allocators (for example, tcmalloc) do not do a mremap for
-  * realloc, even in case of large enough chunks of memory. Although this allows
-  * you to increase performance and reduce memory consumption during realloc.
-  * To fix this, we do mremap manually if the chunk of memory is large enough.
-  * The threshold (64 MB) is chosen quite large, since changing the address
-  * space is very slow, especially in the case of a large number of threads. We
-  * expect that the set of operations mmap/something to do/mremap can only be
-  * performed about 1000 times per second.
-  *
-  * P.S. This is also required, because tcmalloc can not allocate a chunk of
-  * memory greater than 16 GB.
-  */
-static constexpr size_t MMAP_THRESHOLD = 64 * (1ULL << 20);
-/**
- * Memory allocation between 4KB and 64MB will be through ChunkAllocator,
- * those less than 4KB will be through malloc (for example, tcmalloc),
- * and those greater than 64MB will be through MMAP.
- * In the actual test, chunkallocator allocates less than 4KB of memory slower than malloc,
- * and chunkallocator allocates more than 64MB of memory slower than MMAP,
- * but the 4KB threshold is an empirical value, which needs to be determined
- * by more detailed test later.
-  */
-static constexpr size_t CHUNK_THRESHOLD = 4096;
-#else
-/**
-  * In debug build, use small mmap threshold to reproduce more memory
-  * stomping bugs. Along with ASLR it will hopefully detect more issues than
-  * ASan. The program may fail due to the limit on number of memory mappings.
-  */
-static constexpr size_t MMAP_THRESHOLD = 4096;
-static constexpr size_t CHUNK_THRESHOLD = 1024;
-#endif
-
 static constexpr size_t MMAP_MIN_ALIGNMENT = 4096;
 static constexpr size_t MALLOC_MIN_ALIGNMENT = 8;
+
+// The memory for __int128 should be aligned to 16 bytes.
+// By the way, in 64-bit system, the address of a block returned by malloc or realloc in GNU systems
+// is always a multiple of sixteen. (https://www.gnu.org/software/libc/manual/html_node/Aligned-Memory-Blocks.html)
+static constexpr int ALLOCATOR_ALIGNMENT_16 = 16;
 
 /** Responsible for allocating / freeing memory. Used, for example, in PODArray, Arena.
   * Also used in hash tables.
@@ -111,7 +79,7 @@ static constexpr size_t MALLOC_MIN_ALIGNMENT = 8;
   * - random hint address for mmap
   * - mmap_threshold for using mmap less or more
   */
-template <bool clear_memory_, bool mmap_populate>
+template <bool clear_memory_, bool mmap_populate, bool use_mmap>
 class Allocator {
 public:
     void sys_memory_check(size_t size) const;
@@ -124,12 +92,15 @@ public:
     void release_memory(size_t size) const;
     void throw_bad_alloc(const std::string& err) const;
 
+    void* alloc(size_t size, size_t alignment = 0);
+    void* realloc(void* buf, size_t old_size, size_t new_size, size_t alignment = 0);
+
     /// Allocate memory range.
-    void* alloc(size_t size, size_t alignment = 0) {
+    void* alloc_impl(size_t size, size_t alignment = 0) {
         memory_check(size);
         void* buf;
 
-        if (size >= MMAP_THRESHOLD) {
+        if (use_mmap && size >= doris::config::mmap_threshold) {
             if (alignment > MMAP_MIN_ALIGNMENT)
                 throw doris::Exception(
                         doris::ErrorCode::INVALID_ARGUMENT,
@@ -137,20 +108,13 @@ public:
                         alignment, size);
 
             consume_memory(size);
-            buf = mmap(get_mmap_hint(), size, PROT_READ | PROT_WRITE, mmap_flags, -1, 0);
+            buf = mmap(nullptr, size, PROT_READ | PROT_WRITE, mmap_flags, -1, 0);
             if (MAP_FAILED == buf) {
                 release_memory(size);
                 throw_bad_alloc(fmt::format("Allocator: Cannot mmap {}.", size));
             }
 
             /// No need for zero-fill, because mmap guarantees it.
-        } else if (!doris::config::disable_chunk_allocator_in_vec && size >= CHUNK_THRESHOLD) {
-            doris::Chunk chunk;
-            if (!doris::ChunkAllocator::instance()->allocate_align(size, &chunk)) {
-                throw_bad_alloc(fmt::format("Allocator: Cannot allocate chunk {}.", size));
-            }
-            buf = chunk.data;
-            if constexpr (clear_memory) memset(buf, 0, chunk.size);
         } else {
             if (alignment <= MALLOC_MIN_ALIGNMENT) {
                 if constexpr (clear_memory)
@@ -177,17 +141,14 @@ public:
     }
 
     /// Free memory range.
-    void free(void* buf, size_t size) {
-        if (size >= MMAP_THRESHOLD) {
+    void free(void* buf, size_t size = -1) {
+        if (use_mmap && size >= doris::config::mmap_threshold) {
+            DCHECK(size != -1);
             if (0 != munmap(buf, size)) {
                 throw_bad_alloc(fmt::format("Allocator: Cannot munmap {}.", size));
             } else {
                 release_memory(size);
             }
-        } else if (!doris::config::disable_chunk_allocator_in_vec && size >= CHUNK_THRESHOLD &&
-                   ((size & (size - 1)) == 0)) {
-            // Only power-of-two length are added to ChunkAllocator
-            doris::ChunkAllocator::instance()->free((uint8_t*)buf, size);
         } else {
             ::free(buf);
         }
@@ -197,12 +158,13 @@ public:
       * Data from old range is moved to the beginning of new range.
       * Address of memory range could change.
       */
-    void* realloc(void* buf, size_t old_size, size_t new_size, size_t alignment = 0) {
+    void* realloc_impl(void* buf, size_t old_size, size_t new_size, size_t alignment = 0) {
         if (old_size == new_size) {
             /// nothing to do.
             /// BTW, it's not possible to change alignment while doing realloc.
-        } else if (old_size < CHUNK_THRESHOLD && new_size < CHUNK_THRESHOLD &&
-                   alignment <= MALLOC_MIN_ALIGNMENT) {
+        } else if (!use_mmap || (old_size < doris::config::mmap_threshold &&
+                                 new_size < doris::config::mmap_threshold &&
+                                 alignment <= MALLOC_MIN_ALIGNMENT)) {
             memory_check(new_size);
             /// Resize malloc'd memory region with no special alignment requirement.
             void* new_buf = ::realloc(buf, new_size);
@@ -215,7 +177,8 @@ public:
             if constexpr (clear_memory)
                 if (new_size > old_size)
                     memset(reinterpret_cast<char*>(buf) + old_size, 0, new_size - old_size);
-        } else if (old_size >= MMAP_THRESHOLD && new_size >= MMAP_THRESHOLD) {
+        } else if (old_size >= doris::config::mmap_threshold &&
+                   new_size >= doris::config::mmap_threshold) {
             memory_check(new_size);
             /// Resize mmap'd memory region.
             consume_memory(new_size - old_size);
@@ -238,7 +201,6 @@ public:
             }
         } else {
             memory_check(new_size);
-            // CHUNK_THRESHOLD <= old_size <= MMAP_THRESHOLD use system realloc is slow, use ChunkAllocator.
             // Big allocs that requires a copy.
             void* new_buf = alloc(new_size, alignment);
             memcpy(new_buf, buf, std::min(old_size, new_size));
@@ -266,19 +228,6 @@ protected:
                                       | (mmap_populate ? MAP_POPULATE : 0)
 #endif
             ;
-
-private:
-#ifndef NDEBUG
-    /// In debug builds, request mmap() at random addresses (a kind of ASLR), to
-    /// reproduce more memory stomping bugs. Note that Linux doesn't do it by
-    /// default. This may lead to worse TLB performance.
-    void* get_mmap_hint() {
-        // return reinterpret_cast<void *>(std::uniform_int_distribution<intptr_t>(0x100000000000UL, 0x700000000000UL)(thread_local_rng));
-        return nullptr;
-    }
-#else
-    void* get_mmap_hint() { return nullptr; }
-#endif
 };
 
 /** Allocator with optimization to place small memory ranges in automatic memory.

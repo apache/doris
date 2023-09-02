@@ -245,10 +245,6 @@ public abstract class DorisHttpTestCase {
                     internalCatalog.getDbNames();
                     minTimes = 0;
                     result = Lists.newArrayList("default_cluster:testDb");
-
-                    internalCatalog.getClusterDbNames("default_cluster");
-                    minTimes = 0;
-                    result = Lists.newArrayList("default_cluster:testDb");
                 }
             };
 
@@ -299,9 +295,6 @@ public abstract class DorisHttpTestCase {
                     minTimes = 0;
 
                     env.changeDb((ConnectContext) any, anyString);
-                    minTimes = 0;
-
-                    env.initDefaultCluster();
                     minTimes = 0;
 
                     env.getCatalogMgr();

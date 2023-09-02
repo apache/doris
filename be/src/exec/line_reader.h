@@ -17,13 +17,14 @@
 
 #pragma once
 
+#include "common/factory_creator.h"
 #include "common/status.h"
 
 namespace doris {
 namespace io {
 class IOContext;
 }
-// This class is used for CSV scanner, to read content line by line
+// This class is used to read content line by line
 class LineReader {
 public:
     virtual ~LineReader() = default;

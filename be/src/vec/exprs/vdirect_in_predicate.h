@@ -22,14 +22,15 @@
 
 namespace doris::vectorized {
 class VDirectInPredicate final : public VExpr {
+    ENABLE_FACTORY_CREATOR(VDirectInPredicate);
+
 public:
     VDirectInPredicate(const TExprNode& node)
             : VExpr(node), _filter(nullptr), _expr_name("direct_in_predicate") {}
     ~VDirectInPredicate() override = default;
 
-    Status execute(VExprContext* context, doris::vectorized::Block* block,
-                   int* result_column_id) override {
-        doris::vectorized::ColumnNumbers arguments(_children.size());
+    Status execute(VExprContext* context, Block* block, int* result_column_id) override {
+        ColumnNumbers arguments(_children.size());
         for (int i = 0; i < _children.size(); ++i) {
             int column_id = -1;
             RETURN_IF_ERROR(_children[i]->execute(context, block, &column_id));
@@ -59,10 +60,6 @@ public:
 
         *result_column_id = num_columns_without_result;
         return Status::OK();
-    }
-
-    VExpr* clone(doris::ObjectPool* pool) const override {
-        return pool->add(new VDirectInPredicate(*this));
     }
 
     const std::string& expr_name() const override { return _expr_name; }

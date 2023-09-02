@@ -18,6 +18,7 @@
 import org.codehaus.groovy.runtime.IOGroovyMethods
 
 suite ("case_ignore") {
+
     sql """ DROP TABLE IF EXISTS d_table; """
 
     sql """

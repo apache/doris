@@ -17,18 +17,17 @@
 
 #include "olap/rowset/segment_v2/ordinal_page_index.h"
 
-#include <gtest/gtest.h>
+#include <gen_cpp/segment_v2.pb.h>
+#include <gtest/gtest-message.h>
+#include <gtest/gtest-test-part.h>
 
 #include <iostream>
 #include <memory>
 #include <string>
 
-#include "common/logging.h"
-#include "io/fs/file_reader.h"
-#include "io/fs/file_system.h"
+#include "gtest/gtest_pred_impl.h"
 #include "io/fs/file_writer.h"
 #include "io/fs/local_file_system.h"
-#include "olap/page_cache.h"
 
 namespace doris {
 namespace segment_v2 {
@@ -71,8 +70,8 @@ TEST_F(OrdinalPageIndexTest, normal) {
 
     io::FileReaderSPtr file_reader;
     EXPECT_TRUE(fs->open_file(filename, &file_reader).ok());
-    OrdinalIndexReader index(file_reader, &index_meta.ordinal_index(), 16 * 1024 * 4096 + 1);
-    EXPECT_TRUE(index.load(true, false).ok());
+    OrdinalIndexReader index(file_reader, 16 * 1024 * 4096 + 1);
+    EXPECT_TRUE(index.load(true, false, &index_meta.ordinal_index()).ok());
     EXPECT_EQ(16 * 1024, index.num_data_pages());
     EXPECT_EQ(1, index.get_first_ordinal(0));
     EXPECT_EQ(4096, index.get_last_ordinal(0));
@@ -125,8 +124,8 @@ TEST_F(OrdinalPageIndexTest, one_data_page) {
         EXPECT_EQ(data_page_pointer, root_page_pointer);
     }
 
-    OrdinalIndexReader index(nullptr, &index_meta.ordinal_index(), num_values);
-    EXPECT_TRUE(index.load(true, false).ok());
+    OrdinalIndexReader index(nullptr, num_values);
+    EXPECT_TRUE(index.load(true, false, &index_meta.ordinal_index()).ok());
     EXPECT_EQ(1, index.num_data_pages());
     EXPECT_EQ(0, index.get_first_ordinal(0));
     EXPECT_EQ(num_values - 1, index.get_last_ordinal(0));

@@ -91,7 +91,7 @@ public class HashDistributionPrunerTest {
         filters.put("channel", channelFilter);
         filters.put("shop_type", shopTypeFilter);
 
-        HashDistributionPruner pruner = new HashDistributionPruner(tabletIds, columns, filters, tabletIds.size());
+        HashDistributionPruner pruner = new HashDistributionPruner(tabletIds, columns, filters, tabletIds.size(), true);
 
         Collection<Long> results = pruner.prune();
         // 20 = 1 * 5 * 2 * 2 * 1 (element num of each filter)

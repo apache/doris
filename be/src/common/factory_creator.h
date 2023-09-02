@@ -35,21 +35,33 @@
 // during inherits
 // TODO try to allow make_unique
 //
-#define ENABLE_FACTORY_CREATOR(TypeName)                                                     \
-private:                                                                                     \
-    void* operator new(std::size_t size) { return ::operator new(size); }                    \
-    void* operator new[](std::size_t size) { return ::operator new[](size); }                \
-                                                                                             \
-public:                                                                                      \
-    void* operator new(std::size_t count, void* ptr) { return ::operator new(count, ptr); }  \
-    void operator delete(void* ptr) noexcept { ::operator delete(ptr); }                     \
-    void operator delete[](void* ptr) noexcept { ::operator delete[](ptr); }                 \
-    void operator delete(void* ptr, void* place) noexcept { ::operator delete(ptr, place); } \
-    template <typename... Args>                                                              \
-    static std::shared_ptr<TypeName> create_shared(Args&&... args) {                         \
-        return std::make_shared<TypeName>(std::forward<Args>(args)...);                      \
-    }                                                                                        \
-    template <typename... Args>                                                              \
-    static std::unique_ptr<TypeName> create_unique(Args&&... args) {                         \
-        return std::unique_ptr<TypeName>(new TypeName(std::forward<Args>(args)...));         \
+#define ENABLE_FACTORY_CREATOR(TypeName)                                             \
+private:                                                                             \
+    void* operator new(std::size_t size) {                                           \
+        return ::operator new(size);                                                 \
+    }                                                                                \
+    void* operator new[](std::size_t size) {                                         \
+        return ::operator new[](size);                                               \
+    }                                                                                \
+                                                                                     \
+public:                                                                              \
+    void* operator new(std::size_t count, void* ptr) {                               \
+        return ::operator new(count, ptr);                                           \
+    }                                                                                \
+    void operator delete(void* ptr) noexcept {                                       \
+        ::operator delete(ptr);                                                      \
+    }                                                                                \
+    void operator delete[](void* ptr) noexcept {                                     \
+        ::operator delete[](ptr);                                                    \
+    }                                                                                \
+    void operator delete(void* ptr, void* place) noexcept {                          \
+        ::operator delete(ptr, place);                                               \
+    }                                                                                \
+    template <typename... Args>                                                      \
+    static std::shared_ptr<TypeName> create_shared(Args&&... args) {                 \
+        return std::make_shared<TypeName>(std::forward<Args>(args)...);              \
+    }                                                                                \
+    template <typename... Args>                                                      \
+    static std::unique_ptr<TypeName> create_unique(Args&&... args) {                 \
+        return std::unique_ptr<TypeName>(new TypeName(std::forward<Args>(args)...)); \
     }

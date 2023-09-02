@@ -59,8 +59,10 @@ INSERT INTO table_name
 >
 > query: a common query, the result of the query will be written to the target
 >
-> hint: some indicator used to indicate the execution behavior of `INSERT`. Both `streaming` and the default non-`streaming` method use synchronous mode to complete `INSERT` statement execution
-> The non-`streaming` method will return a label after the execution is completed, which is convenient for users to query the import status through `SHOW LOAD`
+> hint: some indicator used to indicate the execution behavior of `INSERT`. You can choose one of this values: `/*+ STREAMING */`, `/*+ SHUFFLE */` or `/*+ NOSHUFFLE */.
+> 1. STREAMING: At present, it has no practical effect and is only reserved for compatibility with previous versions. (In the previous version, adding this hint would return a label, but now it defaults to returning a label)
+> 2. SHUFFLE: When the target table is a partition table, enabling this hint will do repartiiton.
+> 3. NOSHUFFLE: Even if the target table is a partition table, repartiiton will not be performed, but some other operations will be performed to ensure that the data is correctly dropped into each partition.
 
 Notice:
 
@@ -108,9 +110,6 @@ INSERT INTO test PARTITION(p1, p2) WITH LABEL `label1` SELECT * FROM test2;
 INSERT INTO test WITH LABEL `label1` (c1, c2) SELECT * from test2;
 ````
 
-Asynchronous import is actually a synchronous import encapsulated into asynchronous. Filling in streaming and not filling in **execution efficiency is the same**.
-
-Since the previous import methods of Doris are all asynchronous import methods, in order to be compatible with the old usage habits, the `INSERT` statement without streaming will still return a label. Users need to view the `label` import job through the `SHOW LOAD` command. state.
 
 ### Keywords
 

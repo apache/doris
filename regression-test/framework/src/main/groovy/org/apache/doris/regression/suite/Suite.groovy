@@ -17,9 +17,11 @@
 
 package org.apache.doris.regression.suite
 
+import com.google.common.collect.Maps
 import com.google.common.util.concurrent.Futures
 import com.google.common.util.concurrent.ListenableFuture
 import com.google.common.util.concurrent.MoreExecutors
+import com.google.gson.Gson
 import groovy.json.JsonSlurper
 import com.google.common.collect.ImmutableList
 import org.apache.doris.regression.action.BenchmarkAction
@@ -190,9 +192,39 @@ class Suite implements GroovyInterceptable {
         return context.connect(user, password, url, actionSupplier)
     }
 
+    String get_ccr_body(String table) {
+        Gson gson = new Gson()
+
+        Map<String, String> srcSpec = context.getSrcSpec()
+        srcSpec.put("table", table)
+
+        Map<String, String> destSpec = context.getDestSpec()
+        destSpec.put("table", table)
+
+        Map<String, Object> body = Maps.newHashMap()
+        body.put("name", context.suiteName + "_" + context.dbName + "_" + table)
+        body.put("src", srcSpec)
+        body.put("dest", destSpec)
+
+        return gson.toJson(body)
+    }
+
+    Syncer getSyncer() {
+        return context.getSyncer(this)
+    }
+
     List<List<Object>> sql(String sqlStr, boolean isOrder = false) {
         logger.info("Execute ${isOrder ? "order_" : ""}sql: ${sqlStr}".toString())
         def (result, meta) = JdbcUtils.executeToList(context.getConnection(), sqlStr)
+        if (isOrder) {
+            result = DataUtils.sortByToString(result)
+        }
+        return result
+    }
+
+    List<List<Object>> target_sql(String sqlStr, boolean isOrder = false) {
+        logger.info("Execute ${isOrder ? "order_" : ""}target_sql: ${sqlStr}".toString())
+        def (result, meta) = JdbcUtils.executeToList(context.getTargetConnection(this), sqlStr)
         if (isOrder) {
             result = DataUtils.sortByToString(result)
         }
@@ -380,6 +412,40 @@ class Suite implements GroovyInterceptable {
         String s3Url = "http://${s3BucketName}.${s3Endpoint}"
         return s3Url
     }
+    
+    void scpFiles(String username, String host, String files, String filePath, boolean fromDst=true) {
+        String cmd = "scp -r ${username}@${host}:${files} ${filePath}"
+        if (!fromDst) {
+            cmd = "scp -r ${files} ${username}@${host}:${filePath}"
+        }
+        logger.info("Execute: ${cmd}".toString())
+        Process process = cmd.execute()
+        def code = process.waitFor()
+        Assert.assertEquals(0, code)
+    }
+    
+    void sshExec(String username, String host, String cmd) {
+        String command = "ssh ${username}@${host} '${cmd}'"
+        def cmds = ["/bin/bash", "-c", command]
+        logger.info("Execute: ${cmds}".toString())
+        Process p = cmds.execute()
+        def errMsg = new StringBuilder()
+        def msg = new StringBuilder()
+        p.waitForProcessOutput(msg, errMsg)
+        assert errMsg.length() == 0: "error occurred!" + errMsg
+        assert p.exitValue() == 0
+    }
+    
+
+    void getBackendIpHttpPort(Map<String, String> backendId_to_backendIP, Map<String, String> backendId_to_backendHttpPort) {
+        List<List<Object>> backends = sql("show backends");
+        String backend_id;
+        for (List<Object> backend : backends) {
+            backendId_to_backendIP.put(String.valueOf(backend[0]), String.valueOf(backend[1]));
+            backendId_to_backendHttpPort.put(String.valueOf(backend[0]), String.valueOf(backend[4]));
+        }
+        return;
+    } 
 
     int getTotalLine(String filePath) {
         def file = new File(filePath)
@@ -542,5 +608,24 @@ class Suite implements GroovyInterceptable {
         }
     }
 
+    Boolean checkSnapshotFinish() {
+        String checkSQL = "SHOW BACKUP FROM " + context.dbName
+        int size = sql(checkSQL).size()
+        logger.info("Now size is ${size}")
+        List<Object> row = sql(checkSQL)[size-1]
+        logger.info("Now row is ${row}")
+
+        return (row[3] as String) == "FINISHED"
+    }
+
+    Boolean checkRestoreFinish() {
+        String checkSQL = "SHOW RESTORE FROM " + context.dbName
+        int size = sql(checkSQL).size()
+        logger.info("Now size is ${size}")
+        List<Object> row = sql(checkSQL)[size-1]
+        logger.info("Now row is ${row}")
+
+        return (row[4] as String) == "FINISHED"
+    }
 }
 

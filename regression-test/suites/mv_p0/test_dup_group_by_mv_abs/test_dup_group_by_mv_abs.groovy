@@ -18,6 +18,7 @@
 import org.codehaus.groovy.runtime.IOGroovyMethods
 
 suite ("test_dup_group_by_mv_abs") {
+
     sql """ DROP TABLE IF EXISTS d_table; """
 
     sql """

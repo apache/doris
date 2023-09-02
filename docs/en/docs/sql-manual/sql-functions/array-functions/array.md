@@ -1,6 +1,6 @@
 ---
 {
-    "title": "array",
+    "title": "ARRAY",
     "language": "en"
 }
 ---
@@ -34,9 +34,8 @@ array()
 
 #### Syntax
 
-```
-ARRAY<T> array(T, ...)
-```
+`ARRAY<T> array(T, ...)`
+
 construct an array with variadic elements and return it, T could be column or literal
 
 ### notice

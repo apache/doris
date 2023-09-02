@@ -26,6 +26,7 @@
 #include <vector>
 
 #include "agent/utils.h"
+#include "common/config.h"
 #include "common/logging.h"
 #include "io/fs/hdfs.h"
 #include "util/string_util.h"
@@ -49,9 +50,17 @@ Status HDFSCommonBuilder::run_kinit() {
         return Status::InvalidArgument("Invalid hdfs_kerberos_principal or hdfs_kerberos_keytab");
     }
     std::string ticket_path = TICKET_CACHE_PATH + generate_uuid_string();
+    const char* krb_home = getenv("KRB_HOME");
+    std::string krb_home_str(krb_home ? krb_home : "");
     fmt::memory_buffer kinit_command;
-    fmt::format_to(kinit_command, "kinit -c {} -R -t {} -k {}", ticket_path, hdfs_kerberos_keytab,
-                   hdfs_kerberos_principal);
+    if (krb_home_str.empty()) {
+        fmt::format_to(kinit_command, "kinit -c {} -R -t {} -k {}", ticket_path,
+                       hdfs_kerberos_keytab, hdfs_kerberos_principal);
+    } else {
+        // Assign kerberos home in env, get kinit in kerberos home
+        fmt::format_to(kinit_command, krb_home_str + "/bin/kinit -c {} -R -t {} -k {}", ticket_path,
+                       hdfs_kerberos_keytab, hdfs_kerberos_principal);
+    }
     VLOG_NOTICE << "kinit command: " << fmt::to_string(kinit_command);
     std::string msg;
     AgentUtils util;
@@ -61,8 +70,10 @@ Status HDFSCommonBuilder::run_kinit() {
     }
 #ifdef USE_LIBHDFS3
     hdfsBuilderSetPrincipal(hdfs_builder, hdfs_kerberos_principal.c_str());
-    hdfsBuilderSetKerbTicketCachePath(hdfs_builder, ticket_path.c_str());
 #endif
+    hdfsBuilderConfSetStr(hdfs_builder, "hadoop.security.kerberos.ticket.cache.path",
+                          ticket_path.c_str());
+    LOG(INFO) << "finished to run kinit command: " << fmt::to_string(kinit_command);
     return Status::OK();
 }
 
@@ -98,39 +109,67 @@ THdfsParams parse_properties(const std::map<std::string, std::string>& propertie
     return hdfsParams;
 }
 
-Status createHDFSBuilder(const THdfsParams& hdfsParams, HDFSCommonBuilder* builder) {
+Status create_hdfs_builder(const THdfsParams& hdfsParams, const std::string& fs_name,
+                           HDFSCommonBuilder* builder) {
     RETURN_IF_ERROR(builder->init_hdfs_builder());
-    hdfsBuilderSetNameNode(builder->get(), hdfsParams.fs_name.c_str());
+    hdfsBuilderSetNameNode(builder->get(), fs_name.c_str());
     // set kerberos conf
     if (hdfsParams.__isset.hdfs_kerberos_principal) {
         builder->need_kinit = true;
         builder->hdfs_kerberos_principal = hdfsParams.hdfs_kerberos_principal;
+        hdfsBuilderSetUserName(builder->get(), hdfsParams.hdfs_kerberos_principal.c_str());
+    } else if (hdfsParams.__isset.user) {
+        hdfsBuilderSetUserName(builder->get(), hdfsParams.user.c_str());
+#ifdef USE_HADOOP_HDFS
+        hdfsBuilderSetKerb5Conf(builder->get(), nullptr);
+        hdfsBuilderSetKeyTabFile(builder->get(), nullptr);
+#endif
     }
     if (hdfsParams.__isset.hdfs_kerberos_keytab) {
         builder->need_kinit = true;
         builder->hdfs_kerberos_keytab = hdfsParams.hdfs_kerberos_keytab;
+#ifdef USE_HADOOP_HDFS
+        hdfsBuilderSetKeyTabFile(builder->get(), hdfsParams.hdfs_kerberos_keytab.c_str());
+#endif
     }
     // set other conf
     if (hdfsParams.__isset.hdfs_conf) {
         for (const THdfsConf& conf : hdfsParams.hdfs_conf) {
             hdfsBuilderConfSetStr(builder->get(), conf.key.c_str(), conf.value.c_str());
+            LOG(INFO) << "set hdfs config: " << conf.key << ", value: " << conf.value;
+#ifdef USE_HADOOP_HDFS
+            // Set krb5.conf, we should define java.security.krb5.conf in catalog properties
+            if (strcmp(conf.key.c_str(), "java.security.krb5.conf") == 0) {
+                hdfsBuilderSetKerb5Conf(builder->get(), conf.value.c_str());
+            }
+#endif
         }
     }
 
+#ifdef USE_HADOOP_HDFS
+    if (config::enable_hdfs_hedged_read) {
+        hdfsBuilderConfSetStr(builder->get(), "dfs.client.hedged.read.threadpool.size",
+                              std::to_string(config::hdfs_hedged_read_thread_num).c_str());
+        hdfsBuilderConfSetStr(builder->get(), "dfs.client.hedged.read.threshold.millis",
+                              std::to_string(config::hdfs_hedged_read_threshold_time).c_str());
+        LOG(INFO) << "set hdfs hedged read config: " << config::hdfs_hedged_read_thread_num << ", "
+                  << config::hdfs_hedged_read_threshold_time;
+    }
+#endif
+
+    hdfsBuilderConfSetStr(builder->get(), "ipc.client.fallback-to-simple-auth-allowed", "true");
+
     if (builder->is_need_kinit()) {
         RETURN_IF_ERROR(builder->run_kinit());
-    } else if (hdfsParams.__isset.user) {
-        // set hdfs user
-        hdfsBuilderSetUserName(builder->get(), hdfsParams.user.c_str());
     }
 
     return Status::OK();
 }
 
-Status createHDFSBuilder(const std::map<std::string, std::string>& properties,
-                         HDFSCommonBuilder* builder) {
+Status create_hdfs_builder(const std::map<std::string, std::string>& properties,
+                           HDFSCommonBuilder* builder) {
     THdfsParams hdfsParams = parse_properties(properties);
-    return createHDFSBuilder(hdfsParams, builder);
+    return create_hdfs_builder(hdfsParams, hdfsParams.fs_name, builder);
 }
 
 } // namespace doris

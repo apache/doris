@@ -18,11 +18,12 @@
 
 #include "vec/columns/column_nullable.h"
 
-#include <gtest/gtest.h>
+#include <gtest/gtest-message.h>
+#include <gtest/gtest-test-part.h>
 
-#include <memory>
 #include <string>
 
+#include "gtest/gtest_pred_impl.h"
 #include "vec/columns/column_vector.h"
 #include "vec/common/sip_hash.h"
 

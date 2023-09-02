@@ -40,8 +40,8 @@ public class Date extends ScalarFunction
         implements UnaryExpression, ExplicitlyCastableSignature, AlwaysNullable {
 
     public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
-            FunctionSignature.ret(DateType.INSTANCE).args(DateTimeType.INSTANCE),
-            FunctionSignature.ret(DateV2Type.INSTANCE).args(DateTimeV2Type.SYSTEM_DEFAULT)
+            FunctionSignature.ret(DateV2Type.INSTANCE).args(DateTimeV2Type.SYSTEM_DEFAULT),
+            FunctionSignature.ret(DateType.INSTANCE).args(DateTimeType.INSTANCE)
     );
 
     /**

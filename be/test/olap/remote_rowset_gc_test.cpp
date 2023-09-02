@@ -15,36 +15,58 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include <gtest/gtest.h>
+#include <gen_cpp/AgentService_types.h>
+#include <gen_cpp/Descriptors_types.h>
+#include <gen_cpp/Types_types.h>
+#include <gen_cpp/types.pb.h>
+#include <gtest/gtest-message.h>
+#include <gtest/gtest-test-part.h>
+#include <stdint.h>
+#include <unistd.h>
 
+#include <map>
 #include <memory>
+#include <string>
+#include <utility>
+#include <vector>
 
 #include "common/config.h"
+#include "common/object_pool.h"
 #include "common/status.h"
 #include "exec/tablet_info.h"
 #include "gen_cpp/internal_service.pb.h"
+#include "gtest/gtest_pred_impl.h"
+#include "io/fs/local_file_system.h"
+#include "io/fs/remote_file_system.h"
 #include "io/fs/s3_file_system.h"
+#include "olap/data_dir.h"
 #include "olap/delta_writer.h"
+#include "olap/olap_common.h"
+#include "olap/options.h"
 #include "olap/rowset/beta_rowset.h"
+#include "olap/rowset/rowset.h"
 #include "olap/storage_engine.h"
 #include "olap/storage_policy.h"
 #include "olap/tablet.h"
 #include "olap/tablet_manager.h"
+#include "olap/tablet_meta.h"
+#include "olap/task/engine_publish_version_task.h"
 #include "olap/txn_manager.h"
+#include "runtime/define_primitive_type.h"
 #include "runtime/descriptor_helper.h"
 #include "runtime/descriptors.h"
+#include "util/doris_metrics.h"
 #include "util/s3_util.h"
 
 namespace doris {
+class OlapMeta;
 
-static StorageEngine* k_engine = nullptr;
+static std::unique_ptr<StorageEngine> k_engine;
 
 static const std::string kTestDir = "./ut_dir/remote_rowset_gc_test";
 static constexpr int64_t kResourceId = 10000;
 static constexpr int64_t kStoragePolicyId = 10002;
 
-// remove DISABLED_ when need run this test
-#define RemoteRowsetGcTest DISABLED_RemoteRowsetGcTest
 class RemoteRowsetGcTest : public testing::Test {
 public:
     static void SetUpTestSuite() {
@@ -83,13 +105,7 @@ public:
         doris::StorageEngine::open(options, &k_engine);
     }
 
-    static void TearDownTestSuite() {
-        if (k_engine != nullptr) {
-            k_engine->stop();
-            delete k_engine;
-            k_engine = nullptr;
-        }
-    }
+    static void TearDownTestSuite() { k_engine.reset(); }
 };
 
 static void create_tablet_request_with_sequence_col(int64_t tablet_id, int32_t schema_hash,
@@ -151,9 +167,10 @@ static TDescriptorTable create_descriptor_tablet_with_sequence_col() {
 }
 
 TEST_F(RemoteRowsetGcTest, normal) {
+    RuntimeProfile profile("CreateTablet");
     TCreateTabletReq request;
     create_tablet_request_with_sequence_col(10005, 270068377, &request);
-    Status st = k_engine->create_tablet(request);
+    Status st = k_engine->create_tablet(request, &profile);
     ASSERT_EQ(Status::OK(), st);
 
     TDescriptorTable tdesc_tbl = create_descriptor_tablet_with_sequence_col();
@@ -166,10 +183,20 @@ TEST_F(RemoteRowsetGcTest, normal) {
     PUniqueId load_id;
     load_id.set_hi(0);
     load_id.set_lo(0);
-    WriteRequest write_req = {10005,   270068377,  WriteType::LOAD,        20003, 30003,
-                              load_id, tuple_desc, &(tuple_desc->slots()), false, &param};
+    WriteRequest write_req;
+    write_req.tablet_id = 10005;
+    write_req.schema_hash = 270068377;
+    write_req.txn_id = 20003;
+    write_req.partition_id = 30003;
+    write_req.load_id = load_id;
+    write_req.tuple_desc = tuple_desc;
+    write_req.slots = &(tuple_desc->slots());
+    write_req.is_high_priority = false;
+    write_req.table_schema_param = &param;
+    std::unique_ptr<RuntimeProfile> profile;
+    profile = std::make_unique<RuntimeProfile>("LoadChannels");
     DeltaWriter* delta_writer = nullptr;
-    DeltaWriter::open(&write_req, &delta_writer);
+    DeltaWriter::open(&write_req, &delta_writer, profile.get());
     ASSERT_NE(delta_writer, nullptr);
 
     st = delta_writer->close();
@@ -189,9 +216,10 @@ TEST_F(RemoteRowsetGcTest, normal) {
             write_req.txn_id, write_req.partition_id, &tablet_related_rs);
     for (auto& tablet_rs : tablet_related_rs) {
         RowsetSharedPtr rowset = tablet_rs.second;
+        TabletPublishStatistics stats;
         st = k_engine->txn_manager()->publish_txn(meta, write_req.partition_id, write_req.txn_id,
                                                   write_req.tablet_id, write_req.schema_hash,
-                                                  tablet_rs.first.tablet_uid, version);
+                                                  tablet_rs.first.tablet_uid, version, &stats);
         ASSERT_EQ(Status::OK(), st);
         st = tablet->add_inc_rowset(rowset);
         ASSERT_EQ(Status::OK(), st);

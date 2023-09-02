@@ -18,27 +18,29 @@
 package org.apache.doris.datasource.iceberg;
 
 import org.apache.doris.common.DdlException;
-import org.apache.doris.datasource.CatalogIf;
+import org.apache.doris.datasource.ExternalCatalog;
 
 import java.util.Map;
 
 public class IcebergExternalCatalogFactory {
 
-    public static CatalogIf createCatalog(long catalogId, String name, String resource, Map<String, String> props)
-            throws DdlException {
+    public static ExternalCatalog createCatalog(long catalogId, String name, String resource, Map<String, String> props,
+            String comment) throws DdlException {
         String catalogType = props.get(IcebergExternalCatalog.ICEBERG_CATALOG_TYPE);
         if (catalogType == null) {
             throw new DdlException("Missing " + IcebergExternalCatalog.ICEBERG_CATALOG_TYPE + " property");
         }
         switch (catalogType) {
             case IcebergExternalCatalog.ICEBERG_REST:
-                return new IcebergRestExternalCatalog(catalogId, name, resource, props);
+                return new IcebergRestExternalCatalog(catalogId, name, resource, props, comment);
             case IcebergExternalCatalog.ICEBERG_HMS:
-                return new IcebergHMSExternalCatalog(catalogId, name, resource, props);
+                return new IcebergHMSExternalCatalog(catalogId, name, resource, props, comment);
             case IcebergExternalCatalog.ICEBERG_GLUE:
-                return new IcebergGlueExternalCatalog(catalogId, name, resource, props);
+                return new IcebergGlueExternalCatalog(catalogId, name, resource, props, comment);
             case IcebergExternalCatalog.ICEBERG_DLF:
-                return new IcebergDLFExternalCatalog(catalogId, name, resource, props);
+                return new IcebergDLFExternalCatalog(catalogId, name, resource, props, comment);
+            case IcebergExternalCatalog.ICEBERG_HADOOP:
+                return new IcebergHadoopExternalCatalog(catalogId, name, resource, props, comment);
             default:
                 throw new DdlException("Unknown " + IcebergExternalCatalog.ICEBERG_CATALOG_TYPE
                     + " value: " + catalogType);

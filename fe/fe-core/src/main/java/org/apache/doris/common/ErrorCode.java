@@ -717,8 +717,7 @@ public enum ErrorCode {
     WARN_OPTION_IGNORED(1618, new byte[]{'H', 'Y', '0', '0', '0'}, "<%s> option ignored"),
     WARN_PLUGIN_DELETE_BUILTIN(1619, new byte[]{'H', 'Y', '0', '0', '0'}, "Built-in plugins cannot be deleted"),
     WARN_PLUGIN_BUSY(1620, new byte[]{'H', 'Y', '0', '0', '0'}, "Plugin is busy and will be uninstalled on shutdown"),
-    ERR_VARIABLE_IS_READONLY(1621, new byte[]{'H', 'Y', '0', '0', '0'}, "%s variable '%s' is read-only. Use SET %s to"
-            + " assign the value"),
+    ERR_VARIABLE_IS_READONLY(1621, new byte[]{'H', 'Y', '0', '0', '0'}, "Variable '%s' is a read only variable"),
     ERR_WARN_ENGINE_TRANSACTION_ROLLBACK(1622, new byte[]{'H', 'Y', '0', '0', '0'}, "Storage engine %s does not "
             + "support rollback for this statement. Transaction rolled back and must be restarted"),
     ERR_SLAVE_HEARTBEAT_FAILURE(1623, new byte[]{'H', 'Y', '0', '0', '0'}, "Unexpected master's heartbeat data: %s"),
@@ -1099,8 +1098,6 @@ public enum ErrorCode {
             "There is %d instance already"),
     ERR_CLUSTER_ALTER_BE_IN_DECOMMISSION(5059, new byte[]{'4', '2', '0', '0', '0'},
             "Cluster '%s' has backends in decommission"),
-    ERR_WRONG_CLUSTER_NAME(5062, new byte[]{'4', '2', '0', '0', '0'},
-            "Incorrect cluster name '%s'(name 'default_cluster' is a reserved name)"),
     ERR_WRONG_NAME_FORMAT(5063, new byte[]{'4', '2', '0', '0', '0'},
             "Incorrect %s name '%s'"),
     ERR_COMMON_ERROR(5064, new byte[]{'4', '2', '0', '0', '0'},
@@ -1125,7 +1122,7 @@ public enum ErrorCode {
     ERR_DYNAMIC_PARTITION_MUST_HAS_SAME_BUCKET_NUM_WITH_COLOCATE_TABLE(5063, new byte[]{'4', '2', '0', '0', '0'},
         "Dynamic partition buckets must equal the distribution buckets if creating a colocate table: %s"),
     ERROR_DYNAMIC_PARTITION_TIME_UNIT(5065, new byte[]{'4', '2', '0', '0', '0'},
-            "Unsupported time unit %s. Expect HOUR/DAY/WEEK/MONTH."),
+            "Unsupported time unit %s. Expect HOUR/DAY/WEEK/MONTH/YEAR."),
     ERROR_DYNAMIC_PARTITION_START_ZERO(5066, new byte[]{'4', '2', '0', '0', '0'},
             "Dynamic partition start must less than 0"),
     ERROR_DYNAMIC_PARTITION_START_FORMAT(5066, new byte[]{'4', '2', '0', '0', '0'},
@@ -1188,11 +1185,26 @@ public enum ErrorCode {
     ERR_TABLE_NAME_LENGTH_LIMIT(5089, new byte[]{'4', '2', '0', '0', '0'}, "Table name length exceeds limit, "
      + "the length of table name '%s' is %d which is greater than the configuration 'table_name_length_limit' (%d)."),
 
-    ERR_NONSUPPORT_TIME_TRAVEL_TABLE(5090, new byte[]{'4', '2', '0', '0', '0'}, "Only iceberg external"
+    ERR_NONSUPPORT_TIME_TRAVEL_TABLE(5090, new byte[]{'4', '2', '0', '0', '0'}, "Only iceberg/hudi external"
      + " table supports time travel in current version"),
 
     ERR_NONSSL_HANDSHAKE_RESPONSE(5091, new byte[] {'4', '2', '0', '0'},
-            "SSL mode on but received non-ssl handshake response from client.");
+            "SSL mode on but received non-ssl handshake response from client."),
+
+    ERR_MORE_THAN_ONE_AUTO_INCREMENT_COLUMN(5092, new byte[]{'4', '2', '0', '0', '0'},
+            "there can be at most one auto increment column in OlapTable."),
+
+    ERR_AUTO_INCREMENT_COLUMN_NULLABLE(5093, new byte[]{'4', '2', '0', '0', '0'},
+            "the auto increment column should be NOT NULL."),
+
+    ERR_AUTO_INCREMENT_COLUMN_WITH_DEFAULT_VALUE(5094, new byte[]{'4', '2', '0', '0', '0'},
+            "the auto increment column can't have default value."),
+
+    ERR_AUTO_INCREMENT_COLUMN_NOT_BIGINT_TYPE(5095, new byte[]{'4', '2', '0', '0', '0'},
+            "the auto increment must be BIGINT type."),
+
+    ERR_AUTO_INCREMENT_COLUMN_IN_AGGREGATE_TABLE(5096, new byte[]{'4', '2', '0', '0', '0'},
+            "the auto increment is only supported in duplicate table and unique table.");
 
     // This is error code
     private final int code;

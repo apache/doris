@@ -40,14 +40,14 @@ import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.load.BrokerFileGroup;
+import org.apache.doris.planner.external.FederationBackendPolicy;
 import org.apache.doris.planner.external.FileGroupInfo;
 import org.apache.doris.planner.external.FileScanNode;
-import org.apache.doris.planner.external.FileScanProviderIf;
 import org.apache.doris.planner.external.LoadScanProvider;
 import org.apache.doris.rewrite.ExprRewriter;
 import org.apache.doris.statistics.StatisticalType;
+import org.apache.doris.system.BeSelectionPolicy;
 import org.apache.doris.thrift.TBrokerFileStatus;
-import org.apache.doris.thrift.TExpr;
 import org.apache.doris.thrift.TFileScanRangeParams;
 import org.apache.doris.thrift.TFileType;
 import org.apache.doris.thrift.TUniqueId;
@@ -69,33 +69,21 @@ public class FileLoadScanNode extends FileScanNode {
 
     public static class ParamCreateContext {
         public BrokerFileGroup fileGroup;
-        public List<Expr> conjuncts;
-
         public TupleDescriptor destTupleDescriptor;
-        public Map<String, SlotDescriptor> destSlotDescByName;
         // === Set when init ===
         public TupleDescriptor srcTupleDescriptor;
         public Map<String, SlotDescriptor> srcSlotDescByName;
         public Map<String, Expr> exprMap;
         public String timezone;
         // === Set when init ===
-
         public TFileScanRangeParams params;
-
-        public void createDestSlotMap() {
-            Preconditions.checkNotNull(destTupleDescriptor);
-            destSlotDescByName = Maps.newHashMap();
-            for (SlotDescriptor slot : destTupleDescriptor.getSlots()) {
-                destSlotDescByName.put(slot.getColumn().getName(), slot);
-            }
-        }
     }
 
     // Save all info about load attributes and files.
     // Each DataDescription in a load stmt conreponding to a FileGroupInfo in this list.
     private final List<FileGroupInfo> fileGroupInfos = Lists.newArrayList();
     // For load, the num of providers equals to the num of file group infos.
-    private final List<FileScanProviderIf> scanProviders = Lists.newArrayList();
+    private final List<LoadScanProvider> scanProviders = Lists.newArrayList();
     // For load, the num of ParamCreateContext equals to the num of file group infos.
     private final List<ParamCreateContext> contexts = Lists.newArrayList();
 
@@ -122,36 +110,30 @@ public class FileLoadScanNode extends FileScanNode {
     // Only for stream load/routine load job.
     public void setLoadInfo(TUniqueId loadId, long txnId, Table targetTable, BrokerDesc brokerDesc,
                             BrokerFileGroup fileGroup, TBrokerFileStatus fileStatus, boolean strictMode,
-                            TFileType fileType, List<String> hiddenColumns) {
+                            TFileType fileType, List<String> hiddenColumns, boolean isPartialUpdate) {
         FileGroupInfo fileGroupInfo = new FileGroupInfo(loadId, txnId, targetTable, brokerDesc,
-                fileGroup, fileStatus, strictMode, fileType, hiddenColumns);
+                fileGroup, fileStatus, strictMode, fileType, hiddenColumns, isPartialUpdate);
         fileGroupInfos.add(fileGroupInfo);
     }
 
     @Override
     public void init(Analyzer analyzer) throws UserException {
         super.init(analyzer);
-
         for (FileGroupInfo fileGroupInfo : fileGroupInfos) {
             this.scanProviders.add(new LoadScanProvider(fileGroupInfo, desc));
         }
-
-        backendPolicy.init();
-        numNodes = backendPolicy.numBackends();
-
         initParamCreateContexts(analyzer);
     }
 
     // For each scan provider, create a corresponding ParamCreateContext
     private void initParamCreateContexts(Analyzer analyzer) throws UserException {
-        for (FileScanProviderIf scanProvider : scanProviders) {
+        for (LoadScanProvider scanProvider : scanProviders) {
             ParamCreateContext context = scanProvider.createContext(analyzer);
-            context.createDestSlotMap();
             // set where and preceding filter.
             // FIXME(cmy): we should support set different expr for different file group.
             initAndSetPrecedingFilter(context.fileGroup.getPrecedingFilterExpr(), context.srcTupleDescriptor, analyzer);
             initAndSetWhereExpr(context.fileGroup.getWhereExpr(), context.destTupleDescriptor, analyzer);
-            context.conjuncts = conjuncts;
+            setDefaultValueExprs(scanProvider.getTargetTable(), context.srcSlotDescByName, context.params, true);
             this.contexts.add(context);
         }
     }
@@ -211,59 +193,39 @@ public class FileLoadScanNode extends FileScanNode {
     public void finalize(Analyzer analyzer) throws UserException {
         Preconditions.checkState(contexts.size() == scanProviders.size(),
                 contexts.size() + " vs. " + scanProviders.size());
+        // ATTN: for load scan node, do not use backend policy in ExternalScanNode.
+        // Because backend policy in ExternalScanNode may only contain compute backend.
+        // But for load job, we should select backends from all backends, both compute and mix.
+        BeSelectionPolicy policy = new BeSelectionPolicy.Builder()
+                .needQueryAvailable()
+                .needLoadAvailable()
+                .build();
+        FederationBackendPolicy localBackendPolicy = new FederationBackendPolicy();
+        localBackendPolicy.init(policy);
         for (int i = 0; i < contexts.size(); ++i) {
             FileLoadScanNode.ParamCreateContext context = contexts.get(i);
-            FileScanProviderIf scanProvider = scanProviders.get(i);
-            setDefaultValueExprs(scanProvider, context);
+            LoadScanProvider scanProvider = scanProviders.get(i);
             finalizeParamsForLoad(context, analyzer);
-            createScanRangeLocations(context, scanProvider);
+            createScanRangeLocations(context, scanProvider, localBackendPolicy);
             this.inputSplitsNum += scanProvider.getInputSplitNum();
             this.totalFileSize += scanProvider.getInputFileSize();
         }
     }
 
-    protected void setDefaultValueExprs(FileScanProviderIf scanProvider, ParamCreateContext context)
+    // TODO: This api is for load job only. Will remove it later.
+    private void createScanRangeLocations(FileLoadScanNode.ParamCreateContext context,
+            LoadScanProvider scanProvider, FederationBackendPolicy backendPolicy)
             throws UserException {
-        TableIf tbl = scanProvider.getTargetTable();
-        Preconditions.checkNotNull(tbl);
-        TExpr tExpr = new TExpr();
-        tExpr.setNodes(Lists.newArrayList());
+        scanProvider.createScanRangeLocations(context, backendPolicy, scanRangeLocations);
+    }
 
-        for (Column column : tbl.getBaseSchema()) {
-            Expr expr;
-            if (column.getDefaultValue() != null) {
-                if (column.getDefaultValueExprDef() != null) {
-                    expr = column.getDefaultValueExpr();
-                } else {
-                    expr = new StringLiteral(column.getDefaultValue());
-                }
-            } else {
-                if (column.isAllowNull()) {
-                    // In load process, the source type is string.
-                    expr = NullLiteral.create(org.apache.doris.catalog.Type.VARCHAR);
-                } else {
-                    expr = null;
-                }
-            }
-            SlotDescriptor slotDesc = context.srcSlotDescByName.get(column.getName());
-            // if slot desc is null, which mean it is an unrelated slot, just skip.
-            // eg:
-            // (a, b, c) set (x=a, y=b, z=c)
-            // c does not exist in file, the z will be filled with null, even if z has default value.
-            // and if z is not nullable, the load will fail.
-            if (slotDesc != null) {
-                if (expr != null) {
-                    expr = castToSlot(slotDesc, expr);
-                    context.params.putToDefaultValueOfSrcSlot(slotDesc.getId().asInt(), expr.treeToThrift());
-                } else {
-                    context.params.putToDefaultValueOfSrcSlot(slotDesc.getId().asInt(), tExpr);
-                }
-            }
-        }
+    @Override
+    protected void createScanRangeLocations() throws UserException {
+        // do nothing, we have already created scan range locations in finalize
     }
 
     protected void finalizeParamsForLoad(ParamCreateContext context,
-                                         Analyzer analyzer) throws UserException {
+            Analyzer analyzer) throws UserException {
         Map<String, SlotDescriptor> slotDescByName = context.srcSlotDescByName;
         Map<String, Expr> exprMap = context.exprMap;
         TupleDescriptor srcTupleDesc = context.srcTupleDescriptor;
@@ -293,11 +255,17 @@ public class FileLoadScanNode extends FileScanNode {
                     if (column.getDefaultValue() != null) {
                         if (column.getDefaultValueExprDef() != null) {
                             expr = column.getDefaultValueExpr();
+                            expr.analyze(analyzer);
                         } else {
                             expr = new StringLiteral(destSlotDesc.getColumn().getDefaultValue());
                         }
                     } else {
                         if (column.isAllowNull()) {
+                            expr = NullLiteral.create(column.getType());
+                        } else if (column.isAutoInc()) {
+                            // auto-increment column should be non-nullable
+                            // however, here we use `NullLiteral` to indicate that a cell should
+                            // be filled with generated value in `VOlapTableSink::_fill_auto_inc_cols()`
                             expr = NullLiteral.create(column.getType());
                         } else {
                             throw new AnalysisException("column has no source field, column=" + column.getName());
@@ -361,10 +329,8 @@ public class FileLoadScanNode extends FileScanNode {
         // Need re compute memory layout after set some slot descriptor to nullable
         srcTupleDesc.computeStatAndMemLayout();
 
-        if (!preFilterConjuncts.isEmpty()) {
-            Expr vPreFilterExpr = convertConjunctsToAndCompoundPredicate(preFilterConjuncts);
-            initCompoundPredicate(vPreFilterExpr);
-            params.setPreFilterExprs(vPreFilterExpr.treeToThrift());
+        for (Expr conjunct : preFilterConjuncts) {
+            params.addToPreFilterExprsList(conjunct.treeToThrift());
         }
     }
 

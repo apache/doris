@@ -30,7 +30,9 @@ Dynamic partition is a new feature introduced in Doris version 0.12. It's design
 
 At present, the functions of dynamically adding partitions and dynamically deleting partitions are realized.
 
-Dynamic partitioning is only supported for Range partitions.
+Dynamic partitioning is only supported for Range partitions.  
+
+Node: This feature will be disabled when synchronized by CCR. If this table is copied by CCR, that is, PROPERTIES contains `is_being_synced = true`, it will be displayed as enabled in show create table, but will not actually take effect. When `is_being_synced` is set to `false`, these features will resume working, but the `is_being_synced` property is for CCR peripheral modules only and should not be manually set during CCR synchronization.
 
 ## Noun Interpretation
 
@@ -81,9 +83,9 @@ The rules of dynamic partition are prefixed with `dynamic_partition.`:
 
     Whether to enable the dynamic partition feature. Can be specified as `TRUE` or` FALSE`. If not filled, the default is `TRUE`. If it is `FALSE`, Doris will ignore the dynamic partitioning rules of the table.
 
-* `dynamic_partition.time_unit`
+* `dynamic_partition.time_unit`(required parameters)
 
-    The unit for dynamic partition scheduling. Can be specified as `HOUR`,`DAY`,` WEEK`, and `MONTH`, means to create or delete partitions by hour, day, week, and month, respectively.
+    The unit for dynamic partition scheduling. Can be specified as `HOUR`,`DAY`,` WEEK`, `MONTH` and `YEAR`, means to create or delete partitions by hour, day, week, month and year, respectively.
 
     When specified as `HOUR`, the suffix format of the dynamically created partition name is `yyyyMMddHH`, for example, `2020032501`. *When the time unit is HOUR, the data type of partition column cannot be DATE.*
 
@@ -93,6 +95,8 @@ The rules of dynamic partition are prefixed with `dynamic_partition.`:
 
     When specified as `MONTH`, the suffix format of the dynamically created partition name is `yyyyMM`, for example, `202003`.
 
+    When specified as `YEAR`, the suffix format of the dynamically created partition name is `yyyy`, for example, `2020`.
+
 * `dynamic_partition.time_zone`
 
     The time zone of the dynamic partition, if not filled in, defaults to the time zone of the current machine's system, such as `Asia/Shanghai`, if you want to know the supported TimeZone, you can found in `https://en.wikipedia.org/wiki/List_of_tz_database_time_zones`.
@@ -101,11 +105,11 @@ The rules of dynamic partition are prefixed with `dynamic_partition.`:
 
     The starting offset of the dynamic partition, usually a negative number. Depending on the `time_unit` attribute, based on the current day (week / month), the partitions with a partition range before this offset will be deleted. If not filled, the default is `-2147483648`, that is, the history partition will not be  deleted.
 
-* `dynamic_partition.end`
+* `dynamic_partition.end`(required parameters)
 
     The end offset of the dynamic partition, usually a positive number. According to the difference of the `time_unit` attribute, the partition of the corresponding range is created in advance based on the current day (week / month).
 
-* `dynamic_partition.prefix`
+* `dynamic_partition.prefix`(required parameters)
 
     The dynamically created partition name prefix.
 
@@ -159,11 +163,11 @@ The rules of dynamic partition are prefixed with `dynamic_partition.`:
 
 * `dynamic_partition.reserved_history_periods`
 
-    The range of reserved history periods. It should be in the form of `[yyyy-MM-dd,yyyy-MM-dd],[...,...]` while the `dynamic_partition.time_unit` is "DAY, WEEK, and MONTH". And it should be in the form of `[yyyy-MM-dd HH:mm:ss,yyyy-MM-dd HH:mm:ss],[...,...]` while the dynamic_partition.time_unit` is "HOUR". And no more spaces expected. The default value is `"NULL"`, which means it is not set.
+    The range of reserved history periods. It should be in the form of `[yyyy-MM-dd,yyyy-MM-dd],[...,...]` while the `dynamic_partition.time_unit` is "DAY, WEEK, MONTH and YEAR". And it should be in the form of `[yyyy-MM-dd HH:mm:ss,yyyy-MM-dd HH:mm:ss],[...,...]` while the dynamic_partition.time_unit` is "HOUR". And no more spaces expected. The default value is `"NULL"`, which means it is not set.
 
     Let us give an example. Suppose today is 2021-09-06，partitioned by day, and the properties of dynamic partition are set to: 
 
-    ```time_unit="DAY/WEEK/MONTH", end=3, start=-3, reserved_history_periods="[2020-06-01,2020-06-20],[2020-10-31,2020-11-15]"```.
+    ```time_unit="DAY/WEEK/MONTH/YEAR", end=3, start=-3, reserved_history_periods="[2020-06-01,2020-06-20],[2020-10-31,2020-11-15]"```.
 
     The system will automatically reserve following partitions in following period :
 

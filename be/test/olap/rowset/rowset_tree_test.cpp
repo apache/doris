@@ -21,13 +21,15 @@
 
 #include "olap/rowset/rowset_tree.h"
 
+#include <gen_cpp/olap_file.pb.h>
 #include <glog/logging.h>
-#include <gtest/gtest.h>
+#include <gtest/gtest-message.h>
+#include <gtest/gtest-param-test.h>
+#include <gtest/gtest-test-part.h>
 
-#include <boost/optional/optional.hpp>
+#include <algorithm>
 #include <cstdlib>
 #include <cstring>
-#include <functional>
 #include <memory>
 #include <string>
 #include <tuple>
@@ -35,10 +37,12 @@
 #include <utility>
 #include <vector>
 
+#include "gtest/gtest_pred_impl.h"
 #include "gutil/map-util.h"
 #include "gutil/stringprintf.h"
 #include "gutil/strings/substitute.h"
 #include "olap/rowset/rowset.h"
+#include "olap/rowset/rowset_meta.h"
 #include "olap/rowset/unique_rowset_id_generator.h"
 #include "olap/tablet_schema.h"
 #include "testutil/mock_rowset.h"

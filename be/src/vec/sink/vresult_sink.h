@@ -28,12 +28,14 @@
 
 #include "common/status.h"
 #include "exec/data_sink.h"
+#include "vec/exprs/vexpr_fwd.h"
 
 namespace doris {
 class RuntimeState;
 class RuntimeProfile;
 class BufferControlBlock;
 class QueryStatistics;
+class ResultWriter;
 class RowDescriptor;
 class TExpr;
 
@@ -41,9 +43,7 @@ namespace pipeline {
 class ResultSinkOperator;
 }
 namespace vectorized {
-class VExprContext;
 class Block;
-class VResultWriter;
 
 struct ResultFileOptions {
     // [[deprecated]]
@@ -69,6 +69,8 @@ struct ResultFileOptions {
     bool is_refactor_before_flag = false;
     std::string orc_schema;
 
+    bool delete_existing_files = false;
+
     ResultFileOptions(const TResultFileSinkOptions& t_opt) {
         file_path = t_opt.file_path;
         file_format = t_opt.file_format;
@@ -76,6 +78,8 @@ struct ResultFileOptions {
         line_delimiter = t_opt.__isset.line_delimiter ? t_opt.line_delimiter : "\n";
         max_file_size_bytes =
                 t_opt.__isset.max_file_size_bytes ? t_opt.max_file_size_bytes : max_file_size_bytes;
+        delete_existing_files =
+                t_opt.__isset.delete_existing_files ? t_opt.delete_existing_files : false;
 
         is_local_file = true;
         if (t_opt.__isset.broker_addresses) {
@@ -114,6 +118,8 @@ struct ResultFileOptions {
     }
 };
 
+constexpr int RESULT_SINK_BUFFER_SIZE = 4096;
+
 class VResultSink : public DataSink {
 public:
     friend class pipeline::ResultSinkOperator;
@@ -129,29 +135,26 @@ public:
     // Flush all buffered data and close all existing channels to destination
     // hosts. Further send() calls are illegal after calling close().
     virtual Status close(RuntimeState* state, Status exec_status) override;
-    virtual RuntimeProfile* profile() override { return _profile; }
 
     void set_query_statistics(std::shared_ptr<QueryStatistics> statistics) override;
 
-    const RowDescriptor& row_desc() { return _row_desc; }
-
 private:
     Status prepare_exprs(RuntimeState* state);
+    Status second_phase_fetch_data(RuntimeState* state, Block* final_block);
     TResultSinkType::type _sink_type;
     // set file options when sink type is FILE
     std::unique_ptr<ResultFileOptions> _file_opts;
 
     // Owned by the RuntimeState.
-    const RowDescriptor& _row_desc;
-
-    // Owned by the RuntimeState.
     const std::vector<TExpr>& _t_output_expr;
-    std::vector<vectorized::VExprContext*> _output_vexpr_ctxs;
+    VExprContextSPtrs _output_vexpr_ctxs;
 
     std::shared_ptr<BufferControlBlock> _sender;
-    std::shared_ptr<VResultWriter> _writer;
-    RuntimeProfile* _profile; // Allocated from _pool
-    int _buf_size;            // Allocated from _pool
+    std::shared_ptr<ResultWriter> _writer;
+    int _buf_size; // Allocated from _pool
+
+    // for fetch data by rowids
+    TFetchOption _fetch_option;
 };
 } // namespace vectorized
 

@@ -17,13 +17,15 @@
 
 #include "util/faststring.h"
 
-#include <gtest/gtest.h>
+#include <gtest/gtest-message.h>
+#include <gtest/gtest-test-part.h>
 #include <time.h>
 
 #include <algorithm>
 #include <cstring>
 #include <memory>
 
+#include "gtest/gtest_pred_impl.h"
 #include "util/random.h"
 
 namespace doris {

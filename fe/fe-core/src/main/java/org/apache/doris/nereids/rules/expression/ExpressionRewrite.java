@@ -42,7 +42,6 @@ import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
 
 import java.util.ArrayList;
-import java.util.HashSet;
 import java.util.List;
 import java.util.Objects;
 import java.util.Set;
@@ -112,7 +111,7 @@ public class ExpressionRewrite implements RewriteRuleFactory {
                 if (projects.equals(newProjects)) {
                     return oneRowRelation;
                 }
-                return new LogicalOneRowRelation(newProjects);
+                return new LogicalOneRowRelation(oneRowRelation.getRelationId(), newProjects);
             }).toRule(RuleType.REWRITE_ONE_ROW_RELATION_EXPRESSION);
         }
     }
@@ -189,7 +188,7 @@ public class ExpressionRewrite implements RewriteRuleFactory {
                 for (Expression expr : hashJoinConjuncts) {
                     Expression newExpr = rewriter.rewrite(expr, context);
                     hashJoinConjunctsChanged = hashJoinConjunctsChanged || !newExpr.equals(expr);
-                    rewriteHashJoinConjuncts.add(newExpr);
+                    rewriteHashJoinConjuncts.addAll(ExpressionUtils.extractConjunction(newExpr));
                 }
 
                 List<Expression> rewriteOtherJoinConjuncts = Lists.newArrayList();
@@ -197,7 +196,7 @@ public class ExpressionRewrite implements RewriteRuleFactory {
                 for (Expression expr : otherJoinConjuncts) {
                     Expression newExpr = rewriter.rewrite(expr, context);
                     otherJoinConjunctsChanged = otherJoinConjunctsChanged || !newExpr.equals(expr);
-                    rewriteOtherJoinConjuncts.add(newExpr);
+                    rewriteOtherJoinConjuncts.addAll(ExpressionUtils.extractConjunction(newExpr));
                 }
 
                 if (!hashJoinConjunctsChanged && !otherJoinConjunctsChanged) {
@@ -205,7 +204,7 @@ public class ExpressionRewrite implements RewriteRuleFactory {
                 }
                 return new LogicalJoin<>(join.getJoinType(), rewriteHashJoinConjuncts,
                         rewriteOtherJoinConjuncts, join.getHint(), join.getMarkJoinSlotReference(),
-                        join.left(), join.right());
+                        join.children());
             }).toRule(RuleType.REWRITE_JOIN_EXPRESSION);
         }
     }
@@ -233,12 +232,13 @@ public class ExpressionRewrite implements RewriteRuleFactory {
         public Rule build() {
             return logicalHaving().thenApply(ctx -> {
                 LogicalHaving<Plan> having = ctx.root;
-                Set<Expression> rewrittenExpr = new HashSet<>();
                 ExpressionRewriteContext context = new ExpressionRewriteContext(ctx.cascadesContext);
-                for (Expression e : having.getExpressions()) {
-                    rewrittenExpr.add(rewriter.rewrite(e, context));
+                Set<Expression> newConjuncts = ImmutableSet.copyOf(ExpressionUtils.extractConjunction(
+                        rewriter.rewrite(having.getPredicate(), context)));
+                if (newConjuncts.equals(having.getConjuncts())) {
+                    return having;
                 }
-                return having.withExpressions(rewrittenExpr);
+                return having.withExpressions(newConjuncts);
             }).toRule(RuleType.REWRITE_HAVING_EXPRESSION);
         }
     }

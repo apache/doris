@@ -7,7 +7,7 @@
 }
 ---
 
-<!-- 
+<!--
 Licensed to the Apache Software Foundation (ASF) under one
 or more contributor license agreements.  See the NOTICE file
 distributed with this work for additional information
@@ -48,7 +48,7 @@ There are two ways to view the configuration items of FE:
 
 2. View by command
 
-    After the FE is started, you can view the configuration items of the FE in the MySQL client with the following command:
+    After the FE is started, you can view the configuration items of the FE in the MySQL client with the following command,Concrete language law reference [ADMIN-SHOW-CONFIG](../../sql-manual/sql-reference/Database-Administration-Statements/ADMIN-SHOW-CONFIG.md):
 
     `ADMIN SHOW FRONTEND CONFIG;`
 
@@ -82,7 +82,7 @@ There are two ways to configure FE configuration items:
     **Configuration items modified in this way will become invalid after the FE process restarts.**
 
     For more help on this command, you can view it through the `HELP ADMIN SET CONFIG;` command.
-    
+
 3. Dynamic configuration via HTTP protocol
 
     For details, please refer to [Set Config Action](../http-actions/fe/set-config-action.md)
@@ -167,7 +167,7 @@ Default：100
 
 the max txn number which bdbje can rollback when trying to rejoin the group
 
-### grpc_threadmgr_threads_nums
+### `grpc_threadmgr_threads_nums`
 
 Default: 4096
 
@@ -181,7 +181,7 @@ The replica ack timeout when writing to bdbje ， When writing some relatively l
 
 #### `bdbje_lock_timeout_second`
 
-Default：1
+Default：5
 
 The lock timeout of bdbje operation， If there are many LockTimeoutException in FE WARN log, you can try to increase this value
 
@@ -335,7 +335,7 @@ The multi cluster feature will be deprecated in version 0.12 ，set this config 
 
 Default：disable
 
-Set to true if you deploy Doris using thirdparty deploy manager 
+Set to true if you deploy Doris using thirdparty deploy manager
 
 Valid options are:
 
@@ -386,11 +386,11 @@ FE MySQL server port
 
 #### `frontend_address`
 
-Status: Deprecated, not recommended use. This parameter may be deleted later 
+Status: Deprecated, not recommended use. This parameter may be deleted later
 
-Type: string 
+Type: string
 
-Description: Explicitly set the IP address of FE instead of using *InetAddress.getByName* to get the IP address. Usually in *InetAddress.getByName* When the expected results cannot be obtained. Only IP address is supported, not hostname. 
+Description: Explicitly set the IP address of FE instead of using *InetAddress.getByName* to get the IP address. Usually in *InetAddress.getByName* When the expected results cannot be obtained. Only IP address is supported, not hostname.
 
 Default value: 0.0.0.0
 
@@ -418,6 +418,12 @@ Default：false
 
 Https enable flag. If the value is false, http is supported. Otherwise, both http and https are supported, and http requests are automatically redirected to https.
 If enable_https is true, you need to configure ssl certificate information in fe.conf.
+
+#### `enable_ssl`
+
+Default：true
+
+If set to ture, doris will establish an encrypted channel based on the SSL protocol with mysql.
 
 #### `qe_max_connection`
 
@@ -492,13 +498,13 @@ Used to set the initial flow window size of the GRPC client channel, and also us
 
 Default：4096
 
-When FeEstarts the MySQL server based on NIO model, the number of threads responsible for Task events. Only `mysql_service_nio_enabled` is true takes effect.
+The number of threads responsible for Task events.
 
 #### `mysql_service_io_threads_num`
 
 Default：4
 
-When FeEstarts the MySQL server based on NIO model, the number of threads responsible for IO events.
+When FE starts the MySQL server based on NIO model, the number of threads responsible for IO events.
 
 #### `mysql_nio_backlog_num`
 
@@ -541,7 +547,7 @@ MasterOnly：true
 
 #### `max_backend_down_time_second`
 
-Default：3600  （1 hours）
+Default：3600  （1 hour）
 
 IsMutable：true
 
@@ -627,7 +633,7 @@ HTTP Server V2 is implemented by SpringBoot. It uses an architecture that separa
 
 #### `http_api_extra_base_path`
 
-In some deployment environments, user need to specify an additional base path as the unified prefix of the HTTP API. This parameter is used by the user to specify additional prefixes. 
+In some deployment environments, user need to specify an additional base path as the unified prefix of the HTTP API. This parameter is used by the user to specify additional prefixes.
 After setting, user can get the parameter value through the `GET /api/basepath` interface. And the new UI will also try to get this base path first to assemble the URL. Only valid when `enable_http_server_v2` is true.
 
 The default is empty, that is, not set
@@ -658,9 +664,9 @@ This is the maximum number of bytes of the file uploaded by the put or post meth
 
 #### `jetty_server_max_http_header_size`
 
-Default：10240  （10K）
+Default：1048576  （1M）
 
-http header size configuration parameter, the default value is 10K
+http header size configuration parameter, the default value is 1M.
 
 #### `enable_tracing`
 
@@ -723,7 +729,7 @@ IsMutable：true
 
 MasterOnly：true
 
-Used to limit the maximum number of partitions that can be created when creating a dynamic partition table,  to avoid creating too many partitions at one time. The number is determined by "start" and "end" in the dynamic partition parameters..
+Used to limit the maximum number of partitions that can be created when creating a dynamic partition table,  to avoid creating too many partitions at one time. The number is determined by "start" and "end" in the dynamic partition parameters.
 
 #### `dynamic_partition_enable`
 
@@ -751,13 +757,22 @@ Decide how often to check dynamic partition
 
 Default：4096
 
-IsMutable：false
+IsMutable：true
 
 MasterOnly：true
 
-Used to limit the maximum number of partitions that can be created when multi creating partitions, to avoid creating too many partitions at one time.
-
+Use this parameter to set the partition name prefix for multi partition,Only multi partition takes effect, not dynamic partitions. The default prefix is "p_".
 </version>
+
+#### `multi_partition_name_prefix`
+
+Default：p_
+
+IsMutable：true
+
+MasterOnly：true
+
+Use this parameter to set the partition name prefix for multi partition, Only multi partition takes effect, not dynamic partitions.The default prefix is "p_".
 
 #### `partition_in_memory_update_interval_secs`
 
@@ -812,7 +827,7 @@ IsMutable：true
 
 MasterOnly：false
 
-If this switch is turned on, the SQL query result set will be cached. If the interval between the last visit version time in all partitions of all tables in the query is greater than cache_last_version_interval_second, and the result set is less than cache_result_max_row_count, the result set will be cached, and the next same SQL will hit the cache
+If this switch is turned on, the SQL query result set will be cached. If the interval between the last visit version time in all partitions of all tables in the query is greater than cache_last_version_interval_second, and the result set is less than cache_result_max_row_count, and the data size is less than cache_result_max_data_size, the result set will be cached, and the next same SQL will hit the cache
 
 If set to true, fe will enable sql result caching. This option is suitable for offline data update scenarios
 
@@ -839,7 +854,17 @@ IsMutable：true
 
 MasterOnly：false
 
-In order to avoid occupying too much memory, the maximum number of rows that can be cached is 2000 by default. If this threshold is exceeded, the cache cannot be set
+In order to avoid occupying too much memory, the maximum number of rows that can be cached is 3000 by default. If this threshold is exceeded, the cache cannot be set
+
+#### `cache_result_max_data_size`
+
+Default: 31457280
+
+IsMutable: true
+
+MasterOnly: false
+
+In order to avoid occupying too much memory, the maximum data size of rows that can be cached is 10MB by default. If this threshold is exceeded, the cache cannot be set
 
 #### `cache_last_version_interval_second`
 
@@ -901,7 +926,7 @@ Default：false
 
 IsMutable：true
 
-If set to true, Planner will try to select replica of tablet on same host as this Frontend. 
+If set to true, Planner will try to select replica of tablet on same host as this Frontend.
 This may reduce network transmission in following case:
 
 -  N hosts with N Backends and N Frontends deployed.
@@ -1064,8 +1089,8 @@ MasterOnly：true
 
 if this is set to true
 
-- all pending load job will failed when call begin txn api 
-- all prepare load job will failed when call commit txn api 
+- all pending load job will failed when call begin txn api
+- all prepare load job will failed when call commit txn api
 - all committed load job will waiting to be published
 
 #### `commit_timeout_second`
@@ -1135,7 +1160,7 @@ fetch stream load record interval.
 
 #### `max_bytes_per_broker_scanner`
 
-Default：`3 * 1024 * 1024 * 1024L`  （3G）
+Default：`500 * 1024 * 1024 * 1024L`  （500G）
 
 IsMutable：true
 
@@ -1482,9 +1507,9 @@ IsMutable：true
 
 MasterOnly：true
 
-labels of finished or cancelled load jobs will be removed after `label_keep_max_second` ， 
+labels of finished or cancelled load jobs will be removed after `label_keep_max_second` ，
 
-1. The removed labels can be reused.  
+1. The removed labels can be reused.
 2. Set a short time will lower the FE memory usage.  (Because all load jobs' info is kept in memory before being removed)
 
 In the case of high concurrent writes, if there is a large backlog of jobs and call frontend service failed, check the log. If the metadata write takes too long to lock, you can adjust this value to 12 hours, or 6 hours less
@@ -1674,6 +1699,12 @@ Default：SIZE-MB-1024
 
 The size of the log split, split a log file every 1 G
 
+#### `sys_log_enable_compress`
+
+Default: false
+
+If true, will compress fe.log & fe.warn.log by gzip
+
 #### `audit_log_dir`
 
 Default：DORIS_HOME_DIR + "/log"
@@ -1718,6 +1749,12 @@ support format:
 - 10h     10 hours
 - 60m     60 min
 - 120s    120 seconds
+
+#### `audit_log_enable_compress`
+
+Default: false
+
+If true, will compress fe.audit.log by gzip
 
 ### Storage
 
@@ -1778,6 +1815,20 @@ MasterOnly：true
 In some very special circumstances, such as code bugs, or human misoperation, etc., all replicas of some tablets may be lost. In this case, the data has been substantially lost. However, in some scenarios, the business still hopes to ensure that the query will not report errors even if there is data loss, and reduce the perception of the user layer. At this point, we can use the blank Tablet to fill the missing replica to ensure that the query can be executed normally.
 
 Set to true so that Doris will automatically use blank replicas to fill tablets which all replicas have been damaged or missing
+
+#### `recover_with_skip_missing_version`
+
+Default：disable
+
+IsMutable：true
+
+MasterOnly：true
+
+In some scenarios, there is an unrecoverable metadata problem in the cluster, and the visibleVersion of the data does not match be. In this case, it is still necessary to restore the remaining data (which may cause problems with the correctness of the data). This configuration is the same as` recover_with_empty_tablet` should only be used in emergency situations
+This configuration has three values:
+* disable : If an exception occurs, an error will be reported normally.
+* ignore_version: ignore the visibleVersion information recorded in fe partition, use replica version
+* ignore_all: In addition to ignore_version, when encountering no queryable replica, skip it directly instead of throwing an exception
 
 #### `min_clone_task_timeout_sec` `And max_clone_task_timeout_sec`
 
@@ -1945,6 +1996,16 @@ This configs can set to true to disable the automatic colocate tables's relocate
 2. Because once the balance is turned off, the unstable colocate table may not be restored
 3. Eventually the colocate plan cannot be used when querying.
 
+#### `balance_slot_num_per_path`
+
+Default: 1
+
+IsMutable：true
+
+MasterOnly：true
+
+Default number of slots per path during balance.
+
 #### `disable_tablet_scheduler`
 
 Default:false
@@ -2051,7 +2112,7 @@ IsMutable：true
 
 MasterOnly：true
 
-the factor of delay time before deciding to repair tablet.  
+the factor of delay time before deciding to repair tablet.
 
 -  if priority is VERY_HIGH, repair it immediately.
 -  HIGH, delay tablet_repair_delay_factor_second * 1;
@@ -2130,8 +2191,7 @@ When create a table(or partition), you can specify its storage medium(HDD or SSD
 
 #### `enable_storage_policy`
 
-Whether to enable the Storage Policy feature. This feature allows users to separate hot and cold data. This feature is still under development. Recommended for test environments only.
-
+- Whether to enable the Storage Policy feature. This config allows users to separate hot and cold data.
 Default: false
 
 Is it possible to dynamically configure: true
@@ -2280,7 +2340,7 @@ IsMutable：true
 
 MasterOnly：true
 
-Whether to enable the ODBC table, it is not enabled by default. You need to manually configure it when you use it. 
+Whether to enable the ODBC table, it is not enabled by default. You need to manually configure it when you use it.
 
 This parameter can be set by: ADMIN SET FRONTEND CONFIG("key"="value")
 
@@ -2680,4 +2740,31 @@ MasterOnly: false
 If false, when select from tables in information_schema database,
 the result will not contain the information of the table in external catalog.
 This is to avoid query time when external catalog is not reachable.
+
+
+#### `enable_query_hit_stats`
+
+<version since="dev"></version>
+
+Default: false
+
+IsMutable: true
+
+MasterOnly: false
+
+Controls whether to enable query hit statistics. The default is false.
+
+#### `div_precision_increment`
+<version since="dev"></version>
+
+Default: 4
+
+This variable indicates the number of digits by which to increase the scale of the result of
+division operations performed with the `/` operator.
+
+#### `enable_convert_light_weight_schema_change`
+
+Default：true
+
+Temporary configuration option. After it is enabled, a background thread will be started to automatically modify all olap tables to light schema change. The modification results can be viewed through the command `show convert_light_schema_change [from db]`, and the conversion results of all non-light schema change tables will be displayed.
 

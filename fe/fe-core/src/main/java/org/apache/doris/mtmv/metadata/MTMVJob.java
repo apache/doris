@@ -17,6 +17,7 @@
 
 package org.apache.doris.mtmv.metadata;
 
+import org.apache.doris.catalog.Env;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.mtmv.MTMVUtils;
@@ -28,6 +29,8 @@ import org.apache.doris.persist.gson.GsonUtils;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 import com.google.gson.annotations.SerializedName;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.NotNull;
 
 import java.io.DataInput;
@@ -38,9 +41,13 @@ import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
 
 public class MTMVJob implements Writable, Comparable {
+    private static final Logger LOG = LogManager.getLogger(MTMVJob.class);
+
     @SerializedName("id")
     private long id;
 
@@ -51,9 +58,8 @@ public class MTMVJob implements Writable, Comparable {
     @SerializedName("triggerMode")
     private MTMVUtils.TriggerMode triggerMode = MTMVUtils.TriggerMode.MANUAL;
 
-    // set default to UNKNOWN is for compatibility
     @SerializedName("state")
-    private MTMVUtils.JobState state = MTMVUtils.JobState.UNKNOWN;
+    private MTMVUtils.JobState state = JobState.ACTIVE;
 
     @SerializedName("schedule")
     private JobSchedule schedule;
@@ -85,6 +91,8 @@ public class MTMVJob implements Writable, Comparable {
 
     @SerializedName("lastModifyTime")
     private long lastModifyTime;
+
+    private ScheduledFuture<?> future;
 
     public MTMVJob(String name) {
         this.name = name;
@@ -297,6 +305,56 @@ public class MTMVJob implements Writable, Comparable {
         list.add(MTMVUtils.getTimeString(getExpireTime()));
         list.add(MTMVUtils.getTimeString(getLastModifyTime()));
         return list;
+    }
+
+    public synchronized void start() {
+
+        if (state == JobState.COMPLETE || state == JobState.PAUSE) {
+            return;
+        }
+        if (getTriggerMode() == TriggerMode.PERIODICAL) {
+            JobSchedule schedule = getSchedule();
+            ScheduledExecutorService periodScheduler = Env.getCurrentEnv().getMTMVJobManager().getPeriodScheduler();
+            future = periodScheduler.scheduleAtFixedRate(
+                    () -> Env.getCurrentEnv().getMTMVJobManager().getTaskManager().submitJobTask(this),
+                    MTMVUtils.getDelaySeconds(this), schedule.getSecondPeriod(), TimeUnit.SECONDS);
+
+        } else if (getTriggerMode() == TriggerMode.ONCE) {
+            Env.getCurrentEnv().getMTMVJobManager().getTaskManager().submitJobTask(this);
+        }
+    }
+
+    public synchronized void stop() {
+        // MUST not set true for "mayInterruptIfRunning".
+        // Because this thread may doing bdbje write operation, it is interrupted,
+        // FE may exit due to bdbje write failure.
+        if (future != null) {
+            boolean isCancel = future.cancel(false);
+            if (!isCancel) {
+                LOG.warn("fail to cancel scheduler for job [{}]", name);
+            }
+        }
+        Env.getCurrentEnv().getMTMVJobManager().getTaskManager().dealJobRemoved(this);
+    }
+
+    public void taskFinished() {
+        if (triggerMode == TriggerMode.ONCE) {
+            // update the run once job status
+            ChangeMTMVJob changeJob = new ChangeMTMVJob(id, JobState.COMPLETE);
+            updateJob(changeJob, false);
+        } else if (triggerMode == TriggerMode.PERIODICAL) {
+            // just update the last modify time.
+            ChangeMTMVJob changeJob = new ChangeMTMVJob(id, JobState.ACTIVE);
+            updateJob(changeJob, false);
+        }
+    }
+
+    public void updateJob(ChangeMTMVJob changeJob, boolean isReplay) {
+        setState(changeJob.getToStatus());
+        setLastModifyTime(changeJob.getLastModifyTime());
+        if (!isReplay) {
+            Env.getCurrentEnv().getEditLog().logChangeMTMVJob(changeJob);
+        }
     }
 
     @Override

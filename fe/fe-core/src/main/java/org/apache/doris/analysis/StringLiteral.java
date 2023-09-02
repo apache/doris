@@ -136,15 +136,12 @@ public class StringLiteral extends LiteralExpr {
 
     @Override
     protected void toThrift(TExprNode msg) {
-        msg.node_type = TExprNodeType.STRING_LITERAL;
-        msg.string_literal = new TStringLiteral(getUnescapedValue());
-    }
-
-    // FIXME: modify by zhaochun
-    public String getUnescapedValue() {
-        // Unescape string exactly like Hive does. Hive's method assumes
-        // quotes so we add them here to reuse Hive's code.
-        return value;
+        if (value == null) {
+            msg.node_type = TExprNodeType.NULL_LITERAL;
+        } else {
+            msg.string_literal = new TStringLiteral(value);
+            msg.node_type = TExprNodeType.STRING_LITERAL;
+        }
     }
 
     @Override
@@ -202,9 +199,9 @@ public class StringLiteral extends LiteralExpr {
         return newLiteral;
     }
 
-    public boolean canConvertToDateV2(Type targetType) {
+    public boolean canConvertToDateType(Type targetType) {
         try {
-            Preconditions.checkArgument(targetType.isDateV2());
+            Preconditions.checkArgument(targetType.isDateType());
             new DateLiteral(value, targetType);
             return true;
         } catch (AnalysisException e) {
@@ -250,16 +247,21 @@ public class StringLiteral extends LiteralExpr {
                 case DECIMAL32:
                 case DECIMAL64:
                 case DECIMAL128:
-                    DecimalLiteral res = new DecimalLiteral(new BigDecimal(value));
-                    res.setType(targetType);
-                    return res;
+                    try {
+                        DecimalLiteral res = new DecimalLiteral(new BigDecimal(value).stripTrailingZeros());
+                        res.setType(targetType);
+                        return res;
+                    } catch (Exception e) {
+                        throw new AnalysisException(
+                                String.format("input value can't parse to decimal, value=%s", value));
+                    }
                 default:
                     break;
             }
         } else if (targetType.isDateType()) {
             // FE only support 'yyyy-MM-dd hh:mm:ss' && 'yyyy-MM-dd' format
             // so if FE unchecked cast fail, we also build CastExpr for BE
-            // BE support other format suck as 'yyyyMMdd'...
+            // BE support other format such as 'yyyyMMdd'...
             try {
                 return convertToDate(targetType);
             } catch (AnalysisException e) {

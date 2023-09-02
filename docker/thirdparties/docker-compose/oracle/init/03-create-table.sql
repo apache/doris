@@ -72,11 +72,12 @@ t3 interval day(3) to second(6)
 create table doris_test.test_timestamp(
 id int,
 t1 date,
-t2 timestamp(6),
-t3 timestamp(9),
-t4 timestamp,
-t5 interval year(3) to month,
-t6 interval day(3) to second(6)
+t2 timestamp(3),
+t3 timestamp(6),
+t4 timestamp(9),
+t5 timestamp,
+t6 interval year(3) to month,
+t7 interval day(3) to second(6)
 );
 
 create table doris_test.test_insert(
@@ -105,4 +106,21 @@ create table doris_test.test_number3 (
 create table doris_test.test_number4 (
   id number(11) not null primary key,
   num1 NUMBER(5,-7)
+);
+
+create table doris_test.test_clob (
+  id number(11) not null primary key,
+  num1 clob
+);
+
+create table doris_test."AA/D" (
+     id number(5),
+     name varchar2(20),
+     age number(2),
+     score number(3,1)
+);
+
+create table doris_test.aaad (
+     id number(5),
+     name varchar2(20)
 );

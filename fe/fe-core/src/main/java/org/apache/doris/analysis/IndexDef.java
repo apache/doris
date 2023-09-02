@@ -41,6 +41,8 @@ public class IndexDef {
     private IndexType indexType;
     private String comment;
     private Map<String, String> properties;
+    private boolean isBuildDeferred = false;
+    private PartitionNames partitionNames;
 
     public static final String NGRAM_SIZE_KEY = "gram_size";
     public static final String NGRAM_BF_SIZE_KEY = "bf_size";
@@ -68,12 +70,29 @@ public class IndexDef {
             this.properties = properties;
         }
         if (indexType == IndexType.NGRAM_BF) {
-            properties.putIfAbsent(NGRAM_SIZE_KEY, DEFAULT_NGRAM_SIZE);
-            properties.putIfAbsent(NGRAM_BF_SIZE_KEY, DEFAULT_NGRAM_BF_SIZE);
+            this.properties.putIfAbsent(NGRAM_SIZE_KEY, DEFAULT_NGRAM_SIZE);
+            this.properties.putIfAbsent(NGRAM_BF_SIZE_KEY, DEFAULT_NGRAM_BF_SIZE);
         }
     }
 
+    public IndexDef(String indexName, PartitionNames partitionNames, boolean isBuildDeferred) {
+        this.indexName = indexName;
+        this.indexType = IndexType.INVERTED;
+        this.partitionNames = partitionNames;
+        this.isBuildDeferred = isBuildDeferred;
+    }
+
     public void analyze() throws AnalysisException {
+        if (isBuildDeferred && indexType == IndexDef.IndexType.INVERTED) {
+            if (Strings.isNullOrEmpty(indexName)) {
+                throw new AnalysisException("index name cannot be blank.");
+            }
+            if (indexName.length() > 128) {
+                throw new AnalysisException("index name too long, the index name length at most is 128.");
+            }
+            return;
+        }
+
         if (indexType == IndexDef.IndexType.BITMAP
                 || indexType == IndexDef.IndexType.INVERTED) {
             if (columns == null || columns.size() != 1) {
@@ -103,23 +122,25 @@ public class IndexDef {
         if (tableName != null && !tableName.isEmpty()) {
             sb.append(" ON ").append(tableName);
         }
-        sb.append(" (");
-        boolean first = true;
-        for (String col : columns) {
-            if (first) {
-                first = false;
-            } else {
-                sb.append(",");
+        if (columns != null && columns.size() > 0) {
+            sb.append(" (");
+            boolean first = true;
+            for (String col : columns) {
+                if (first) {
+                    first = false;
+                } else {
+                    sb.append(",");
+                }
+                sb.append("`" + col + "`");
             }
-            sb.append("`" + col + "`");
+            sb.append(")");
         }
-        sb.append(")");
         if (indexType != null) {
             sb.append(" USING ").append(indexType.toString());
         }
         if (properties != null && properties.size() > 0) {
             sb.append(" PROPERTIES(");
-            first = true;
+            boolean first = true;
             for (Map.Entry<String, String> e : properties.entrySet()) {
                 if (first) {
                     first = false;
@@ -166,6 +187,14 @@ public class IndexDef {
 
     public boolean isSetIfNotExists() {
         return ifNotExists;
+    }
+
+    public boolean isBuildDeferred() {
+        return isBuildDeferred;
+    }
+
+    public List<String> getPartitionNames() {
+        return partitionNames == null ? Lists.newArrayList() : partitionNames.getPartitionNames();
     }
 
     public enum IndexType {

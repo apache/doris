@@ -29,6 +29,8 @@ namespace vectorized {
 class VExprContext;
 
 class VStructLiteral : public VLiteral {
+    ENABLE_FACTORY_CREATOR(VStructLiteral);
+
 public:
     VStructLiteral(const TExprNode& node) : VLiteral(node, false) {}
     ~VStructLiteral() override = default;

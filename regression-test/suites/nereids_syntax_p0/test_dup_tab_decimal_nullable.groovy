@@ -19,7 +19,9 @@ suite("test_nereids_dup_tab_decimal_nullable") {
     sql "SET enable_nereids_planner=true"
     sql "SET enable_fallback_to_original_planner=false"
 
-    def table1 = "test_dup_tab_decimal_nullable"
+    sql  "ADMIN SET FRONTEND CONFIG ('disable_decimalv2' = 'false')"
+
+    def table1 = "test_nereids_dup_tab_decimal_nullable"
 
     sql "drop table if exists ${table1}"
 

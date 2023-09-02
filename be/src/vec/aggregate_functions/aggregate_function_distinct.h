@@ -219,7 +219,6 @@ public:
         this->data(place).deserialize(buf, arena);
     }
 
-    // void insert_result_into(AggregateDataPtr place, IColumn & to, Arena * arena) const override
     void insert_result_into(ConstAggregateDataPtr targetplace, IColumn& to) const override {
         auto place = const_cast<AggregateDataPtr>(targetplace);
         auto arguments = this->data(place).get_arguments(this->argument_types);
@@ -243,7 +242,7 @@ public:
 
     void create(AggregateDataPtr __restrict place) const override {
         new (place) Data;
-        nested_func->create(get_nested_place(place));
+        SAFE_CREATE(nested_func->create(get_nested_place(place)), this->data(place).~Data());
     }
 
     void destroy(AggregateDataPtr __restrict place) const noexcept override {

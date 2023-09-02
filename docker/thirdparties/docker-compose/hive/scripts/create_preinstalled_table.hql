@@ -167,9 +167,16 @@ CREATE TABLE `delta_encoding_required_column`(
      c_email_address string,
      c_last_review_date  string
   )
-STORED AS parquet;
-
-load data inpath '/user/doris/preinstalled_data/different_types_parquet/delta_encoding_required_column/delta_encoding_required_column.parquet' into table default.delta_encoding_required_column;
+ROW FORMAT SERDE
+  'org.apache.hadoop.hive.ql.io.parquet.serde.ParquetHiveSerDe'
+STORED AS INPUTFORMAT
+  'org.apache.hadoop.hive.ql.io.parquet.MapredParquetInputFormat'
+OUTPUTFORMAT
+  'org.apache.hadoop.hive.ql.io.parquet.MapredParquetOutputFormat'
+LOCATION
+  '/user/doris/preinstalled_data/different_types_parquet/delta_encoding_required_column/'
+TBLPROPERTIES (
+  'transient_lastDdlTime'='1661955829');
 
 msck repair table delta_encoding_required_column;
 
@@ -527,6 +534,30 @@ TBLPROPERTIES (
 
 msck repair table table_with_vertical_line;
 
+CREATE external TABLE `table_with_pars`(
+  `id` int COMMENT 'id',
+  `data` string COMMENT 'data')
+PARTITIONED BY (
+  `dt_par` date,
+  `time_par` timestamp,
+  `decimal_par1` decimal(8, 4),
+  `decimal_par2` decimal(18, 6),
+  `decimal_par3` decimal(38, 12))
+ROW FORMAT SERDE
+  'org.apache.hadoop.hive.serde2.lazy.LazySimpleSerDe'
+WITH SERDEPROPERTIES (
+  'field.delim'='|',
+  'serialization.format'='|')
+STORED AS INPUTFORMAT
+  'org.apache.hadoop.mapred.TextInputFormat'
+OUTPUTFORMAT
+  'org.apache.hadoop.hive.ql.io.HiveIgnoreKeyTextOutputFormat'
+LOCATION
+  '/user/doris/preinstalled_data/csv_partition_table/table_with_pars/';
+
+set hive.msck.path.validation=ignore;
+msck repair table table_with_pars;
+
 CREATE TABLE `table_with_x01`(
   `k1` string COMMENT 'k1',
   `k2` string COMMENT 'k2',
@@ -569,5 +600,91 @@ CREATE TABLE `unsupported_type_table`(
            >,
   k6 int
 );
+
+CREATE TABLE `schema_evo_test_text`(
+  id int,
+  name string
+)
+ROW FORMAT DELIMITED FIELDS TERMINATED by ',';
+insert into `schema_evo_test_text` select 1, "kaka";
+alter table `schema_evo_test_text` ADD COLUMNS (`ts` timestamp);
+insert into `schema_evo_test_text` select 2, "messi", from_unixtime(to_unix_timestamp('20230101 13:01:03','yyyyMMdd HH:mm:ss'));
+
+CREATE TABLE `schema_evo_test_parquet`(
+  id int,
+  name string
+)
+stored as parquet;
+insert into `schema_evo_test_parquet` select 1, "kaka";
+alter table `schema_evo_test_parquet` ADD COLUMNS (`ts` timestamp);
+insert into `schema_evo_test_parquet` select 2, "messi", from_unixtime(to_unix_timestamp('20230101 13:01:03','yyyyMMdd HH:mm:ss'));
+
+CREATE TABLE `schema_evo_test_orc`(
+  id int,
+  name string
+)
+stored as orc;
+insert into `schema_evo_test_orc` select 1, "kaka";
+alter table `schema_evo_test_orc` ADD COLUMNS (`ts` timestamp);
+insert into `schema_evo_test_orc` select 2, "messi", from_unixtime(to_unix_timestamp('20230101 13:01:03','yyyyMMdd HH:mm:ss'));
+
+-- Currently docker is hive 2.x version. Hive 2.x versioned full-acid tables need to run major compaction.
+SET hive.support.concurrency=true;
+SET hive.txn.manager=org.apache.hadoop.hive.ql.lockmgr.DbTxnManager;
+
+create table orc_full_acid (id INT, value STRING)
+CLUSTERED BY (id) INTO 3 BUCKETS
+STORED AS ORC
+TBLPROPERTIES ('transactional' = 'true');
+
+insert into orc_full_acid values
+(1, 'A'),
+(2, 'B'),
+(3, 'C');
+
+update orc_full_acid set value = 'CC' where id = 3;
+
+alter table orc_full_acid compact 'major';
+
+create table orc_full_acid_par (id INT, value STRING)
+PARTITIONED BY (part_col INT)
+CLUSTERED BY (id) INTO 3 BUCKETS
+STORED AS ORC
+TBLPROPERTIES ('transactional' = 'true');
+
+insert into orc_full_acid_par PARTITION(part_col=20230101) values
+(1, 'A'),
+(2, 'B'),
+(3, 'C');
+
+insert into orc_full_acid_par PARTITION(part_col=20230102) values
+(4, 'D'),
+(5, 'E'),
+(6, 'F');
+
+update orc_full_acid_par set value = 'BB' where id = 2;
+
+alter table orc_full_acid_par PARTITION(part_col=20230101) compact 'major';
+alter table orc_full_acid_par PARTITION(part_col=20230102) compact 'major';
+
+CREATE TABLE `test_different_column_orders_orc`(
+  `name` string,
+  `id` int,
+  `city` string,
+  `age` int,
+  `sex` string)
+STORED AS ORC
+LOCATION
+  '/user/doris/preinstalled_data/test_different_column_orders/orc';
+
+CREATE TABLE `test_different_column_orders_parquet`(
+  `name` string,
+  `id` int,
+  `city` string,
+  `age` int,
+  `sex` string)
+STORED AS PARQUET
+LOCATION
+  '/user/doris/preinstalled_data/test_different_column_orders/parquet';
 
 show tables;

@@ -22,7 +22,7 @@ suite("test_sum") {
     // qt_select """
     //               select k1, sum(k5) over 
     //                   (partition by k1 order by k3 range between current row and unbounded following) as w 
-    //               from test_query_db.test order by k1, w
+    //               from nereids_test_query_db.test order by k1, w
     //           """
 }
 

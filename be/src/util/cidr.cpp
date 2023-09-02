@@ -59,7 +59,7 @@ bool CIDR::reset(const std::string& cidr_str) {
     try {
         len = std::stoi(suffix, &pos);
     } catch (const std::exception& e) {
-        LOG(WARNING) << "Wrong CIDR format. network=" << cidr_str;
+        LOG(WARNING) << "Wrong CIDR format. network=" << cidr_str << ", reason=" << e.what();
         return false;
     }
 

@@ -20,6 +20,7 @@ package org.apache.doris.httpv2.controller;
 import org.apache.doris.common.Config;
 import org.apache.doris.httpv2.entity.ResponseEntityBuilder;
 
+import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import org.apache.logging.log4j.LogManager;
@@ -31,32 +32,42 @@ import org.springframework.web.bind.annotation.RestController;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import javax.servlet.http.HttpServletRequest;
+import javax.servlet.http.HttpServletResponse;
 
 @RestController
 @RequestMapping("/rest/v1")
 public class ConfigController {
     private static final Logger LOG = LogManager.getLogger(ConfigController.class);
     private static final List<String> CONFIG_TABLE_HEADER = Lists.newArrayList("Name", "Value");
+    private static final String CONF_ITEM = "conf_item";
 
     @RequestMapping(path = "/config/fe", method = RequestMethod.GET)
-    public Object variable() {
+    public Object variable(HttpServletRequest request, HttpServletResponse response) {
         Map<String, Object> result = Maps.newHashMap();
-        appendConfigureInfo(result);
+        String confItem = request.getParameter(CONF_ITEM);
+        appendConfigureInfo(result, confItem);
         return ResponseEntityBuilder.ok(result);
     }
 
-    private void appendConfigureInfo(Map<String, Object> result) {
-
+    private void appendConfigureInfo(Map<String, Object> result, String confItem) {
         result.put("column_names", CONFIG_TABLE_HEADER);
         List<Map<String, String>> list = Lists.newArrayList();
         result.put("rows", list);
         try {
             Map<String, String> confmap = Config.dump();
-            for (String key : confmap.keySet()) {
+            if (!Strings.isNullOrEmpty(confItem)) {
                 Map<String, String> info = new HashMap<>();
-                info.put("Name", key);
-                info.put("Value", confmap.get(key));
+                info.put("Name", confItem);
+                info.put("Value", confmap.get(confItem));
                 list.add(info);
+            } else {
+                for (String key : confmap.keySet()) {
+                    Map<String, String> info = new HashMap<>();
+                    info.put("Name", key);
+                    info.put("Value", confmap.get(key));
+                    list.add(info);
+                }
             }
         } catch (Exception e) {
             LOG.warn("", e);

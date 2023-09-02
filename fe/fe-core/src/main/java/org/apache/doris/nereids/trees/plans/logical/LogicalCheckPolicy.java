@@ -100,8 +100,10 @@ public class LogicalCheckPolicy<CHILD_TYPE extends Plan> extends LogicalUnary<CH
     }
 
     @Override
-    public Plan withLogicalProperties(Optional<LogicalProperties> logicalProperties) {
-        return new LogicalCheckPolicy<>(Optional.empty(), logicalProperties, child());
+    public Plan withGroupExprLogicalPropChildren(Optional<GroupExpression> groupExpression,
+            Optional<LogicalProperties> logicalProperties, List<Plan> children) {
+        Preconditions.checkArgument(children.size() == 1);
+        return new LogicalCheckPolicy<>(groupExpression, logicalProperties, children.get(0));
     }
 
     @Override
@@ -123,18 +125,14 @@ public class LogicalCheckPolicy<CHILD_TYPE extends Plan> extends LogicalUnary<CH
 
         PolicyMgr policyMgr = connectContext.getEnv().getPolicyMgr();
         UserIdentity currentUserIdentity = connectContext.getCurrentUserIdentity();
-        String user = connectContext.getQualifiedUser();
         if (currentUserIdentity.isRootUser() || currentUserIdentity.isAdminUser()) {
-            return Optional.empty();
-        }
-        if (!policyMgr.existPolicy(user)) {
             return Optional.empty();
         }
 
         CatalogRelation catalogRelation = (CatalogRelation) logicalRelation;
         long dbId = catalogRelation.getDatabase().getId();
         long tableId = catalogRelation.getTable().getId();
-        List<RowPolicy> policies = policyMgr.getMatchRowPolicy(dbId, tableId, currentUserIdentity);
+        List<RowPolicy> policies = policyMgr.getUserPolicies(dbId, tableId, currentUserIdentity);
         if (policies.isEmpty()) {
             return Optional.empty();
         }

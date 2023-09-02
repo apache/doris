@@ -21,7 +21,7 @@ import org.apache.doris.alter.AlterOpType;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.util.PropertyAnalyzer;
 
-import org.apache.parquet.Strings;
+import com.google.common.base.Strings;
 
 import java.util.Map;
 

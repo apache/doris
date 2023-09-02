@@ -109,16 +109,12 @@ public class CatalogTestUtil {
         diskInfo.setAvailableCapacityB(2 << 40); // 1TB
         diskInfo.setTotalCapacityB(2 << 40);
         diskInfo.setDataUsedCapacityB(2 << 10);
-        backend1.setOwnerClusterName(SystemInfoService.DEFAULT_CLUSTER);
         backend1.setDisks(ImmutableMap.of("disk1", diskInfo));
-        backend2.setOwnerClusterName(SystemInfoService.DEFAULT_CLUSTER);
         backend2.setDisks(ImmutableMap.of("disk1", diskInfo));
-        backend3.setOwnerClusterName(SystemInfoService.DEFAULT_CLUSTER);
         backend3.setDisks(ImmutableMap.of("disk1", diskInfo));
         Env.getCurrentSystemInfo().addBackend(backend1);
         Env.getCurrentSystemInfo().addBackend(backend2);
         Env.getCurrentSystemInfo().addBackend(backend3);
-        env.initDefaultCluster();
 
         Database db = createSimpleDb(testDbId1, testTableId1, testPartitionId1, testIndexId1, testTabletId1,
                 testStartVersion);

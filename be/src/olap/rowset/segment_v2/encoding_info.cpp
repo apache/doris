@@ -326,6 +326,8 @@ EncodingInfoResolver::EncodingInfoResolver() {
     _add_map<FieldType::OLAP_FIELD_TYPE_OBJECT, PLAIN_ENCODING>();
 
     _add_map<FieldType::OLAP_FIELD_TYPE_QUANTILE_STATE, PLAIN_ENCODING>();
+
+    _add_map<FieldType::OLAP_FIELD_TYPE_AGG_STATE, PLAIN_ENCODING>();
 }
 
 EncodingInfoResolver::~EncodingInfoResolver() {

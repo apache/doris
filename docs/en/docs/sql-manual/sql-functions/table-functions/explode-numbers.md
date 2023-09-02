@@ -1,6 +1,6 @@
 ---
 {
-    "title": "explode_numbers",
+    "title": "EXPLODE_NUMBERS",
     "language": "en"
 }
 ---
@@ -32,11 +32,9 @@ Table functions must be used in conjunction with Lateral View.
 
 Get a number sequence [0,n).
 
-grammar:
+#### syntax
 
-```
-explode_numbers(n)
-```
+`explode_numbers(n)`
 
 ### example
 ```

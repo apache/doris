@@ -17,11 +17,14 @@
 
 #include "olap/itoken_extractor.h"
 
-#include <gtest/gtest.h>
+#include <gtest/gtest-message.h>
+#include <gtest/gtest-test-part.h>
 
+#include <algorithm>
 #include <string>
+#include <vector>
 
-#include "common/logging.h"
+#include "gtest/gtest_pred_impl.h"
 #include "util/utf8_check.h"
 
 namespace doris {

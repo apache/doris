@@ -19,6 +19,8 @@ package org.apache.doris.mysql.privilege;
 
 import org.apache.doris.analysis.CompoundPredicate.Operator;
 
+import java.util.Optional;
+
 public class PrivPredicate {
 
     // user can 'see' this meta
@@ -29,8 +31,11 @@ public class PrivPredicate {
             Privilege.CREATE_PRIV,
             Privilege.DROP_PRIV),
             Operator.OR);
-    //show resources
+    // show resources
     public static final PrivPredicate SHOW_RESOURCES = PrivPredicate.of(PrivBitSet.of(Privilege.ADMIN_PRIV,
+            Privilege.USAGE_PRIV),
+            Operator.OR);
+    public static final PrivPredicate SHOW_WORKLOAD_GROUP = PrivPredicate.of(PrivBitSet.of(Privilege.ADMIN_PRIV,
             Privilege.USAGE_PRIV),
             Operator.OR);
     // create/drop/alter/show user
@@ -70,7 +75,7 @@ public class PrivPredicate {
     public static final PrivPredicate OPERATOR = PrivPredicate.of(PrivBitSet.of(Privilege.NODE_PRIV),
             Operator.OR);
 
-    // resource usage
+    // resource/workloadGroup usage
     public static final PrivPredicate USAGE = PrivPredicate.of(PrivBitSet.of(Privilege.ADMIN_PRIV,
             Privilege.USAGE_PRIV),
             Operator.OR);
@@ -105,6 +110,18 @@ public class PrivPredicate {
 
     public Operator getOp() {
         return op;
+    }
+
+    // Determine which column Privilege correspond to PrivPredicate
+    //The current logic is to include a SELECT_ PRIV returns SELECT_ PRIV, if load is included_ PRIV returns LOAD_ PRIV,
+    // the order cannot be reversed
+    public Optional<Privilege> getColPrivilege() {
+        if (privs.get(Privilege.SELECT_PRIV.getIdx())) {
+            return Optional.of(Privilege.SELECT_PRIV);
+        } else if (privs.get(Privilege.LOAD_PRIV.getIdx())) {
+            return Optional.of(Privilege.LOAD_PRIV);
+        }
+        return Optional.empty();
     }
 
     @Override

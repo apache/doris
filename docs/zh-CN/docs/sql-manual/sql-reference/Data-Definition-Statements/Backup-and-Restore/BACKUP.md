@@ -100,7 +100,7 @@ BACKUP
 
 1. 同一个数据库下只能进行一个备份操作。
 
-2. 备份操作会备份指定表或分区的基础表及 [物化视图](../../../../advanced/materialized-view.md)，并且仅备份一副本。
+2. 备份操作会备份指定表或分区的基础表及 [物化视图](../../../../query-acceleration/materialized-view.md)，并且仅备份一副本。
 
 3. 备份操作的效率
 

@@ -23,6 +23,7 @@ import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.UserException;
+import org.apache.doris.fs.FileSystemFactory;
 
 import com.google.common.collect.Lists;
 import org.apache.hadoop.fs.FileSystem;
@@ -42,6 +43,7 @@ import org.apache.hadoop.util.ReflectionUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.io.IOException;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 import java.util.List;
@@ -182,20 +184,21 @@ public final class HiveUtil {
         }
     }
 
-    public static boolean isSplittable(InputFormat<?, ?> inputFormat, FileSystem fileSystem, Path path) {
+    public static boolean isSplittable(InputFormat<?, ?> inputFormat, Path path, JobConf jobConf) {
         // ORC uses a custom InputFormat but is always splittable
         if (inputFormat.getClass().getSimpleName().equals("OrcInputFormat")) {
             return true;
         }
 
-        // use reflection to get isSplittable method on FileInputFormat
+        // use reflection to get isSplitable method on FileInputFormat
+        // ATTN: the method name is actually "isSplitable", but the right spell is "isSplittable"
         Method method = null;
         for (Class<?> clazz = inputFormat.getClass(); clazz != null; clazz = clazz.getSuperclass()) {
             try {
                 method = clazz.getDeclaredMethod("isSplitable", FileSystem.class, Path.class);
                 break;
             } catch (NoSuchMethodException ignored) {
-                LOG.warn("Class {} doesn't contain isSplitable method.", clazz);
+                LOG.debug("Class {} doesn't contain isSplitable method.", clazz);
             }
         }
 
@@ -204,8 +207,8 @@ public final class HiveUtil {
         }
         try {
             method.setAccessible(true);
-            return (boolean) method.invoke(inputFormat, fileSystem, path);
-        } catch (InvocationTargetException | IllegalAccessException e) {
+            return (boolean) method.invoke(inputFormat, FileSystemFactory.getNativeByPath(path, jobConf), path);
+        } catch (InvocationTargetException | IllegalAccessException | IOException e) {
             throw new RuntimeException(e);
         }
     }

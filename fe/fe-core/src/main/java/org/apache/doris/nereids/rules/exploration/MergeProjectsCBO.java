@@ -19,7 +19,7 @@ package org.apache.doris.nereids.rules.exploration;
 
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
-import org.apache.doris.nereids.rules.rewrite.logical.MergeProjects;
+import org.apache.doris.nereids.rules.rewrite.MergeProjects;
 
 /**
  * this rule aims to merge projects.

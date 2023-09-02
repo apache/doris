@@ -57,6 +57,17 @@ public abstract class MetastoreEvent {
 
     protected final String catalogName;
 
+    // for test
+    protected MetastoreEvent(long eventId, String catalogName, String dbName, String tblName) {
+        this.eventId = eventId;
+        this.catalogName = catalogName;
+        this.dbName = dbName;
+        this.tblName = tblName;
+        this.eventType = null;
+        this.metastoreNotificationEvent = null;
+        this.event = null;
+    }
+
     protected MetastoreEvent(NotificationEvent event, String catalogName) {
         this.event = event;
         this.dbName = event.getDbName();
@@ -128,6 +139,9 @@ public abstract class MetastoreEvent {
 
     /**
      * Process the information available in the NotificationEvent.
+     * Better not to call (direct/indirect) apis of {@link org.apache.doris.datasource.hive.PooledHiveMetaStoreClient}
+     * during handling hms events (Reference to https://github.com/apache/doris/pull/19120).
+     * Try to add some fallback strategies if it is highly necessary.
      */
     protected abstract void process() throws MetastoreNotificationException;
 

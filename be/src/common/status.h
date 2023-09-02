@@ -6,6 +6,7 @@
 
 #include <fmt/format.h>
 #include <gen_cpp/Status_types.h> // for TStatus
+#include <gen_cpp/types.pb.h>
 #include <glog/logging.h>
 #include <stdint.h>
 
@@ -20,6 +21,8 @@
 #ifdef ENABLE_STACKTRACE
 #include "util/stack_util.h"
 #endif
+
+#include "common/expected.h"
 
 namespace doris {
 
@@ -53,6 +56,8 @@ TStatusError(UNINITIALIZED);
 TStatusError(ABORTED);
 TStatusError(DATA_QUALITY_ERROR);
 TStatusError(LABEL_ALREADY_EXISTS);
+TStatusError(NOT_AUTHORIZED);
+TStatusError(HTTP_ERROR);
 #undef TStatusError
 // BE internal errors
 E(OS_ERROR, -100);
@@ -68,7 +73,6 @@ E(COMPRESS_ERROR, -111);
 E(DECOMPRESS_ERROR, -112);
 E(UNKNOWN_COMPRESSION_TYPE, -113);
 E(MMAP_ERROR, -114);
-E(READ_UNENOUGH, -116);
 E(CANNOT_CREATE_DIR, -117);
 E(UB_NETWORK_ERROR, -118);
 E(FILE_FORMAT_ERROR, -119);
@@ -91,8 +95,6 @@ E(VERSION_NOT_EXIST, -214);
 E(TABLE_NOT_FOUND, -215);
 E(TRY_LOCK_FAILED, -216);
 E(OUT_OF_BOUND, -218);
-E(FILE_DATA_ERROR, -220);
-E(TEST_FILE_ERROR, -221);
 E(INVALID_ROOT_PATH, -222);
 E(NO_AVAILABLE_ROOT_PATH, -223);
 E(CHECK_LINES_ERROR, -224);
@@ -225,6 +227,8 @@ E(CUMULATIVE_INVALID_NEED_MERGED_VERSIONS, -2004);
 E(CUMULATIVE_ERROR_DELETE_ACTION, -2005);
 E(CUMULATIVE_MISS_VERSION, -2006);
 E(CUMULATIVE_CLONE_OCCURRED, -2007);
+E(FULL_NO_SUITABLE_VERSION, -2008);
+E(FULL_MISS_VERSION, -2009);
 E(META_INVALID_ARGUMENT, -3000);
 E(META_OPEN_DB_ERROR, -3001);
 E(META_KEY_NOT_FOUND, -3002);
@@ -253,20 +257,25 @@ E(SEGCOMPACTION_INIT_WRITER, -3118);
 E(SEGCOMPACTION_FAILED, -3119);
 E(PIP_WAIT_FOR_RF, -3120);
 E(PIP_WAIT_FOR_SC, -3121);
+E(ROWSET_ADD_TO_BINLOG_FAILED, -3122);
+E(ROWSET_BINLOG_NOT_ONLY_ONE_VERSION, -3123);
 E(INVERTED_INDEX_INVALID_PARAMETERS, -6000);
 E(INVERTED_INDEX_NOT_SUPPORTED, -6001);
 E(INVERTED_INDEX_CLUCENE_ERROR, -6002);
 E(INVERTED_INDEX_FILE_NOT_FOUND, -6003);
-E(INVERTED_INDEX_FILE_HIT_LIMIT, -6004);
+E(INVERTED_INDEX_BYPASS, -6004);
 E(INVERTED_INDEX_NO_TERMS, -6005);
 E(INVERTED_INDEX_RENAME_FILE_FAILED, -6006);
+E(INVERTED_INDEX_EVALUATE_SKIPPED, -6007);
+E(INVERTED_INDEX_BUILD_WAITTING, -6008);
+E(KEY_NOT_FOUND, -6009);
+E(KEY_ALREADY_EXISTS, -6010);
 #undef E
 } // namespace ErrorCode
 
 // clang-format off
 // whether to capture stacktrace
-template <int code>
-constexpr bool capture_stacktrace() {
+constexpr bool capture_stacktrace(int code) {
     return code != ErrorCode::OK
         && code != ErrorCode::END_OF_FILE
         && code != ErrorCode::MEM_LIMIT_EXCEEDED
@@ -278,6 +287,7 @@ constexpr bool capture_stacktrace() {
         && code != ErrorCode::PUSH_TRANSACTION_ALREADY_EXIST
         && code != ErrorCode::BE_NO_SUITABLE_VERSION
         && code != ErrorCode::CUMULATIVE_NO_SUITABLE_VERSION
+        && code != ErrorCode::FULL_NO_SUITABLE_VERSION
         && code != ErrorCode::PUBLISH_VERSION_NOT_CONTINUOUS
         && code != ErrorCode::ROWSET_RENAME_FILE_FAILED
         && code != ErrorCode::SEGCOMPACTION_INIT_READER
@@ -287,14 +297,27 @@ constexpr bool capture_stacktrace() {
         && code != ErrorCode::INVERTED_INDEX_NOT_SUPPORTED
         && code != ErrorCode::INVERTED_INDEX_CLUCENE_ERROR
         && code != ErrorCode::INVERTED_INDEX_FILE_NOT_FOUND
-        && code != ErrorCode::INVERTED_INDEX_FILE_HIT_LIMIT
-        && code != ErrorCode::INVERTED_INDEX_NO_TERMS;
+        && code != ErrorCode::INVERTED_INDEX_BYPASS
+        && code != ErrorCode::INVERTED_INDEX_NO_TERMS
+        && code != ErrorCode::INVERTED_INDEX_EVALUATE_SKIPPED
+        && code != ErrorCode::INVERTED_INDEX_BUILD_WAITTING
+        && code != ErrorCode::META_KEY_NOT_FOUND
+        && code != ErrorCode::PUSH_VERSION_ALREADY_EXIST
+        && code != ErrorCode::TABLE_ALREADY_DELETED_ERROR
+        && code != ErrorCode::TRANSACTION_NOT_EXIST
+        && code != ErrorCode::TRANSACTION_ALREADY_VISIBLE
+        && code != ErrorCode::TOO_MANY_TRANSACTIONS
+        && code != ErrorCode::TRANSACTION_ALREADY_COMMITTED
+        && code != ErrorCode::KEY_NOT_FOUND
+        && code != ErrorCode::KEY_ALREADY_EXISTS
+        && code != ErrorCode::CANCELLED
+        && code != ErrorCode::UNINITIALIZED;
 }
 // clang-format on
 
 class Status {
 public:
-    Status() : _code(ErrorCode::OK) {}
+    Status() : _code(ErrorCode::OK), _err_msg(nullptr) {}
 
     // copy c'tor makes copy of error detail so Status can be returned by value
     Status(const Status& rhs) { *this = rhs; }
@@ -312,12 +335,23 @@ public:
     }
 
     // move assign
-    Status& operator=(Status&& rhs) noexcept = default;
+    Status& operator=(Status&& rhs) noexcept {
+        _code = rhs._code;
+        if (rhs._err_msg) {
+            _err_msg = std::move(rhs._err_msg);
+        }
+        return *this;
+    }
 
-    // "Copy" c'tor from TStatus.
-    Status(const TStatus& status);
+    Status static create(const TStatus& status) {
+        return Error<true>(status.status_code,
+                           status.error_msgs.empty() ? "" : status.error_msgs[0]);
+    }
 
-    Status(const PStatus& pstatus);
+    Status static create(const PStatus& pstatus) {
+        return Error<true>(pstatus.status_code(),
+                           pstatus.error_msgs_size() == 0 ? "" : pstatus.error_msgs(0));
+    }
 
     template <int code, bool stacktrace = true, typename... Args>
     Status static Error(std::string_view msg, Args&&... args) {
@@ -330,27 +364,15 @@ public:
             status._err_msg->_msg = fmt::format(msg, std::forward<Args>(args)...);
         }
 #ifdef ENABLE_STACKTRACE
-        if constexpr (stacktrace && capture_stacktrace<code>()) {
+        if constexpr (stacktrace && capture_stacktrace(code)) {
             status._err_msg->_stack = get_stack_trace();
+            LOG(WARNING) << "meet error status: " << status; // may print too many stacks.
         }
 #endif
         return status;
     }
 
-    template <int code, bool stacktrace = true>
-    Status static Error() {
-        Status status;
-        status._code = code;
-#ifdef ENABLE_STACKTRACE
-        if constexpr (stacktrace && capture_stacktrace<code>()) {
-            status._err_msg = std::make_unique<ErrMsg>();
-            status._err_msg->_stack = get_stack_trace();
-        }
-#endif
-        return status;
-    }
-
-    template <typename... Args>
+    template <bool stacktrace = true, typename... Args>
     Status static Error(int code, std::string_view msg, Args&&... args) {
         Status status;
         status._code = code;
@@ -360,21 +382,21 @@ public:
         } else {
             status._err_msg->_msg = fmt::format(msg, std::forward<Args>(args)...);
         }
-        return status;
-    }
-
-    Status static Error(int code) {
-        Status status;
-        status._code = code;
+#ifdef ENABLE_STACKTRACE
+        if (stacktrace && capture_stacktrace(code)) {
+            status._err_msg->_stack = get_stack_trace();
+            LOG(WARNING) << "meet error status: " << status; // may print too many stacks.
+        }
+#endif
         return status;
     }
 
     static Status OK() { return Status(); }
 
-#define ERROR_CTOR(name, code)                                                  \
-    template <typename... Args>                                                 \
-    static Status name(std::string_view msg, Args&&... args) {                  \
-        return Error<ErrorCode::code, false>(msg, std::forward<Args>(args)...); \
+#define ERROR_CTOR(name, code)                                                 \
+    template <typename... Args>                                                \
+    static Status name(std::string_view msg, Args&&... args) {                 \
+        return Error<ErrorCode::code, true>(msg, std::forward<Args>(args)...); \
     }
 
     ERROR_CTOR(PublishTimeout, PUBLISH_TIMEOUT)
@@ -401,6 +423,8 @@ public:
     ERROR_CTOR(Uninitialized, UNINITIALIZED)
     ERROR_CTOR(Aborted, ABORTED)
     ERROR_CTOR(DataQualityError, DATA_QUALITY_ERROR)
+    ERROR_CTOR(NotAuthorized, NOT_AUTHORIZED)
+    ERROR_CTOR(HttpError, HTTP_ERROR)
 #undef ERROR_CTOR
 
     template <int code>
@@ -408,17 +432,9 @@ public:
         return code == _code;
     }
 
+    void set_code(int code) { _code = code; }
+
     bool ok() const { return _code == ErrorCode::OK; }
-
-    bool is_io_error() const {
-        return ErrorCode::IO_ERROR == _code || ErrorCode::READ_UNENOUGH == _code ||
-               ErrorCode::CHECKSUM_ERROR == _code || ErrorCode::FILE_DATA_ERROR == _code ||
-               ErrorCode::TEST_FILE_ERROR == _code;
-    }
-
-    bool is_invalid_argument() const { return ErrorCode::INVALID_ARGUMENT == _code; }
-
-    bool is_not_found() const { return _code == ErrorCode::NOT_FOUND; }
 
     // Convert into TStatus. Call this if 'status_container' contains an optional
     // TStatus field named 'status'. This also sets __isset.status.
@@ -432,11 +448,6 @@ public:
     void to_thrift(TStatus* status) const;
     TStatus to_thrift() const;
     void to_protobuf(PStatus* status) const;
-
-    std::string code_as_string() const {
-        return (int)_code >= 0 ? doris::to_string(static_cast<TStatusCode::type>(_code))
-                               : fmt::format("E{}", (int16_t)_code);
-    }
 
     std::string to_string() const;
 
@@ -466,12 +477,12 @@ public:
     // if(!status) or if (status) will use this operator
     operator bool() const { return this->ok(); }
 
-    // Used like if (res == Status::OK())
+    // Used like if ASSERT_EQ(res, Status::OK())
     // if the state is ok, then both code and precise code is not initialized properly, so that should check ok state
     // ignore error messages during comparison
     bool operator==(const Status& st) const { return _code == st._code; }
 
-    // Used like if (res != Status::OK())
+    // Used like if ASSERT_NE(res, Status::OK())
     bool operator!=(const Status& st) const { return _code != st._code; }
 
     friend std::ostream& operator<<(std::ostream& ostr, const Status& status);
@@ -485,6 +496,11 @@ private:
 #endif
     };
     std::unique_ptr<ErrMsg> _err_msg;
+
+    std::string code_as_string() const {
+        return (int)_code >= 0 ? doris::to_string(static_cast<TStatusCode::type>(_code))
+                               : fmt::format("E{}", (int16_t)_code);
+    }
 };
 
 inline std::ostream& operator<<(std::ostream& ostr, const Status& status) {
@@ -515,19 +531,6 @@ inline std::string Status::to_string() const {
 
 #define RETURN_ERROR_IF_NON_VEC \
     return Status::NotSupported("Non-vectorized engine is not supported since Doris 2.0.");
-
-// End _get_next_span after last call to get_next method
-#define RETURN_IF_ERROR_AND_CHECK_SPAN(stmt, get_next_span, done) \
-    do {                                                          \
-        Status _status_ = (stmt);                                 \
-        auto _span = (get_next_span);                             \
-        if (UNLIKELY(_span && (!_status_.ok() || done))) {        \
-            _span->End();                                         \
-        }                                                         \
-        if (UNLIKELY(!_status_.ok())) {                           \
-            return _status_;                                      \
-        }                                                         \
-    } while (false)
 
 #define RETURN_IF_STATUS_ERROR(status, stmt) \
     do {                                     \
@@ -572,9 +575,16 @@ inline std::string Status::to_string() const {
             return _s;                                             \
         }                                                          \
     } while (false);
-} // namespace doris
-#ifdef WARN_UNUSED_RESULT
-#undef WARN_UNUSED_RESULT
-#endif
 
-#define WARN_UNUSED_RESULT __attribute__((warn_unused_result))
+template <typename T>
+using Result = expected<T, Status>;
+
+#define RETURN_IF_ERROR_RESULT(stmt)                \
+    do {                                            \
+        Status _status_ = (stmt);                   \
+        if (UNLIKELY(!_status_.ok())) {             \
+            return unexpected(std::move(_status_)); \
+        }                                           \
+    } while (false)
+
+} // namespace doris

@@ -121,7 +121,7 @@ public class TokenManager {
         if (!Env.getCurrentEnv().isReady()) {
             throw new TException("Node catalog is not ready, please wait for a while.");
         }
-        String masterHost = Env.getCurrentEnv().getMasterIp();
+        String masterHost = Env.getCurrentEnv().getMasterHost();
         int masterRpcPort = Env.getCurrentEnv().getMasterRpcPort();
         return new TNetworkAddress(masterHost, masterRpcPort);
     }

@@ -11,15 +11,15 @@
     "message": "Doris 介绍",
     "description": "The label for category Doris Introduction in sidebar docs"
   },
-  "sidebar.docs.category.Install And Deploy": {
+  "sidebar.docs.category.Install and Deploy": {
     "message": "安装部署",
-    "description": "The label for category Install And Deploy in sidebar docs"
+    "description": "The label for category Install and Deploy in sidebar docs"
   },
-  "sidebar.docs.category.Construct Docker": {
-    "message": "构建 Docker 集群",
+  "sidebar.docs.category.Docker Deployment": {
+    "message": "Docker 部署",
     "description": "Make docker image and quickly start Doris's Docker cluster"
   },
-  "sidebar.docs.category.Compile": {
+  "sidebar.docs.category.Source Code Compilation": {
     "message": "源码编译",
     "description": "The label for category Compile in sidebar docs"
   },
@@ -78,6 +78,10 @@
   "sidebar.docs.category.Best Practice": {
     "message": "最佳实践",
     "description": "The label for category Best Practice in sidebar docs"
+  },
+  "sidebar.docs.category.Query Acceleration": {
+    "message": "查询加速",
+    "description": "The label for category Query Acceleration in sidebar docs"
   },
   "sidebar.docs.category.Ecosystem": {
     "message": "生态扩展",
@@ -143,9 +147,9 @@
     "message": "Bitwise 函数",
     "description": "The label for category Bitwise Functions in sidebar docs"
   },
-  "sidebar.docs.category.Condition Functions": {
+  "sidebar.docs.category.Conditional Functions": {
     "message": "条件函数",
-    "description": "The label for category Condition Functions in sidebar docs"
+    "description": "The label for category Conditional Functions in sidebar docs"
   },
   "sidebar.docs.category.JSON Functions": {
     "message": "JSON 函数",
@@ -159,9 +163,9 @@
     "message": "HLL 函数",
     "description": "The label for category HLL Functions in sidebar docs"
   },
-  "sidebar.docs.category.Math Functions": {
+  "sidebar.docs.category.Numeric Functions": {
     "message": "数学函数",
-    "description": "The label for category Math Functions in sidebar docs"
+    "description": "The label for category Numeric Functions in sidebar docs"
   },
   "sidebar.docs.category.Encryption Functions": {
     "message": "加密和信息摘要函数",
@@ -302,5 +306,9 @@
   "sidebar.docs.category.External Table": {
     "message": "外部表",
     "description": "The label for category Lakehouse.External Table in sidebar docs"
+  },
+  "sidebar.docs.category.Release notes": {
+    "message": "版本发布",
+    "description": "The label for category Release notes in sidebar docs"
   }
 }

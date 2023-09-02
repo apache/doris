@@ -60,28 +60,51 @@ BlockReader::~BlockReader() {
     }
 }
 
-bool BlockReader::_rowsets_overlapping(const std::vector<RowsetReaderSharedPtr>& rs_readers) {
+bool BlockReader::_rowsets_overlapping(const ReaderParams& read_params) {
     std::string cur_max_key;
-    for (const auto& rs_reader : rs_readers) {
+    const std::vector<RowSetSplits>& rs_splits = read_params.rs_splits;
+    for (const auto& rs_split : rs_splits) {
         // version 0-1 of every tablet is empty, just skip this rowset
-        if (rs_reader->rowset()->version().second == 1) {
+        if (rs_split.rs_reader->rowset()->version().second == 1) {
             continue;
         }
-        if (rs_reader->rowset()->num_rows() == 0) {
+        if (rs_split.rs_reader->rowset()->num_rows() == 0) {
             continue;
         }
-        if (rs_reader->rowset()->is_segments_overlapping()) {
+        if (rs_split.rs_reader->rowset()->is_segments_overlapping()) {
             return true;
         }
         std::string min_key;
-        bool has_min_key = rs_reader->rowset()->min_key(&min_key);
+        bool has_min_key = rs_split.rs_reader->rowset()->min_key(&min_key);
         if (!has_min_key) {
             return true;
         }
         if (min_key <= cur_max_key) {
             return true;
         }
-        CHECK(rs_reader->rowset()->max_key(&cur_max_key));
+        CHECK(rs_split.rs_reader->rowset()->max_key(&cur_max_key));
+    }
+
+    for (const auto& rs_reader : rs_splits) {
+        // version 0-1 of every tablet is empty, just skip this rowset
+        if (rs_reader.rs_reader->rowset()->version().second == 1) {
+            continue;
+        }
+        if (rs_reader.rs_reader->rowset()->num_rows() == 0) {
+            continue;
+        }
+        if (rs_reader.rs_reader->rowset()->is_segments_overlapping()) {
+            return true;
+        }
+        std::string min_key;
+        bool has_min_key = rs_reader.rs_reader->rowset()->min_key(&min_key);
+        if (!has_min_key) {
+            return true;
+        }
+        if (min_key <= cur_max_key) {
+            return true;
+        }
+        CHECK(rs_reader.rs_reader->rowset()->max_key(&cur_max_key));
     }
     return false;
 }
@@ -91,36 +114,33 @@ Status BlockReader::_init_collect_iter(const ReaderParams& read_params) {
         LOG(WARNING) << "fail to init reader when _capture_rs_readers. res:" << res
                      << ", tablet_id:" << read_params.tablet->tablet_id()
                      << ", schema_hash:" << read_params.tablet->schema_hash()
-                     << ", reader_type:" << read_params.reader_type
+                     << ", reader_type:" << int(read_params.reader_type)
                      << ", version:" << read_params.version;
         return res;
     }
     // check if rowsets are noneoverlapping
-    _is_rowsets_overlapping = _rowsets_overlapping(read_params.rs_readers);
+    _is_rowsets_overlapping = _rowsets_overlapping(read_params);
     _vcollect_iter.init(this, _is_rowsets_overlapping, read_params.read_orderby_key,
                         read_params.read_orderby_key_reverse);
 
     _reader_context.push_down_agg_type_opt = read_params.push_down_agg_type_opt;
     std::vector<RowsetReaderSharedPtr> valid_rs_readers;
-    DCHECK(read_params.rs_readers_segment_offsets.empty() ||
-           read_params.rs_readers_segment_offsets.size() == read_params.rs_readers.size());
 
-    bool is_empty = read_params.rs_readers_segment_offsets.empty();
-    for (int i = 0; i < read_params.rs_readers.size(); ++i) {
-        auto& rs_reader = read_params.rs_readers[i];
+    for (int i = 0; i < read_params.rs_splits.size(); ++i) {
+        auto& rs_split = read_params.rs_splits[i];
+
         // _vcollect_iter.topn_next() will init rs_reader by itself
         if (!_vcollect_iter.use_topn_next()) {
-            RETURN_NOT_OK(rs_reader->init(
-                    &_reader_context,
-                    is_empty ? std::pair {0, 0} : read_params.rs_readers_segment_offsets[i]));
+            RETURN_IF_ERROR(rs_split.rs_reader->init(&_reader_context, rs_split));
         }
-        Status res = _vcollect_iter.add_child(rs_reader);
+
+        Status res = _vcollect_iter.add_child(rs_split);
         if (!res.ok() && !res.is<END_OF_FILE>()) {
             LOG(WARNING) << "failed to add child to iterator, err=" << res;
             return res;
         }
         if (res.ok()) {
-            valid_rs_readers.push_back(rs_reader);
+            valid_rs_readers.push_back(rs_split.rs_reader);
         }
     }
 
@@ -147,16 +167,19 @@ void BlockReader::_init_agg_state(const ReaderParams& read_params) {
 
     auto& tablet_schema = *_tablet_schema;
     for (auto idx : _agg_columns_idx) {
+        auto column = tablet_schema.column(
+                read_params.origin_return_columns->at(_return_columns_loc[idx]));
         AggregateFunctionPtr function =
-                tablet_schema
-                        .column(read_params.origin_return_columns->at(_return_columns_loc[idx]))
-                        .get_aggregate_function({_next_row.block->get_data_type(idx)},
-                                                vectorized::AGG_READER_SUFFIX);
+                column.get_aggregate_function(vectorized::AGG_READER_SUFFIX);
+
         DCHECK(function != nullptr);
         _agg_functions.push_back(function);
         // create aggregate data
         AggregateDataPtr place = new char[function->size_of_data()];
-        function->create(place);
+        SAFE_CREATE(function->create(place), {
+            _agg_functions.pop_back();
+            delete[] place;
+        });
         _agg_places.push_back(place);
 
         // calculate `has_string` tag.
@@ -170,7 +193,7 @@ void BlockReader::_init_agg_state(const ReaderParams& read_params) {
 }
 
 Status BlockReader::init(const ReaderParams& read_params) {
-    RETURN_NOT_OK(TabletReader::init(read_params));
+    RETURN_IF_ERROR(TabletReader::init(read_params));
 
     int32_t return_column_size = read_params.origin_return_columns->size();
     _return_columns_loc.resize(read_params.return_columns.size());
@@ -204,7 +227,8 @@ Status BlockReader::init(const ReaderParams& read_params) {
         _next_block_func = &BlockReader::_direct_next_block;
         break;
     case KeysType::UNIQUE_KEYS:
-        if (_reader_context.enable_unique_key_merge_on_write) {
+        if (read_params.reader_type == ReaderType::READER_QUERY &&
+            _reader_context.enable_unique_key_merge_on_write) {
             _next_block_func = &BlockReader::_direct_next_block;
         } else {
             _next_block_func = &BlockReader::_unique_key_next_block;
@@ -234,7 +258,7 @@ Status BlockReader::_direct_next_block(Block* block, bool* eof) {
     _eof = *eof;
     if (UNLIKELY(_reader_context.record_rowids)) {
         res = _vcollect_iter.current_block_row_locations(&_block_row_locations);
-        if (UNLIKELY(!res.ok() && res != Status::Error<END_OF_FILE>())) {
+        if (UNLIKELY(!res.ok() && res != Status::Error<END_OF_FILE>(""))) {
             return res;
         }
         DCHECK_EQ(_block_row_locations.size(), block->rows());
@@ -361,7 +385,7 @@ Status BlockReader::_unique_key_next_block(Block* block, bool* eof) {
                                                          std::make_shared<DataTypeUInt8>(),
                                                          "__DORIS_COMPACTION_FILTER__"};
         block->insert(column_with_type_and_name);
-        Block::filter_block(block, target_columns.size(), target_columns.size());
+        RETURN_IF_ERROR(Block::filter_block(block, target_columns.size(), target_columns.size()));
         _stats.rows_del_filtered += target_block_row - block->rows();
         DCHECK(block->try_get_by_name("__DORIS_COMPACTION_FILTER__") == nullptr);
     }
@@ -459,14 +483,13 @@ void BlockReader::_update_agg_value(MutableColumns& columns, int begin, int end,
 
         if (begin <= end) {
             function->add_batch_range(begin, end, place, const_cast<const IColumn**>(&column_ptr),
-                                      nullptr, _stored_has_null_tag[idx]);
+                                      &_arena, _stored_has_null_tag[idx]);
         }
 
         if (is_close) {
             function->insert_result_into(place, *columns[_return_columns_loc[idx]]);
             // reset aggregate data
-            function->destroy(place);
-            function->create(place);
+            function->reset(place);
         }
     }
 }
@@ -478,17 +501,6 @@ bool BlockReader::_get_next_row_same() {
         auto block = _next_row.block.get();
         return block->get_same_bit(_next_row.row_pos);
     }
-}
-
-ColumnPredicate* BlockReader::_parse_to_predicate(const FunctionFilter& function_filter) {
-    int32_t index = _tablet_schema->field_index(function_filter._col_name);
-    if (index < 0) {
-        return nullptr;
-    }
-
-    // currently only support like predicate
-    return new LikeColumnPredicate(function_filter._opposite, index, function_filter._fn_ctx,
-                                   function_filter._string_param);
 }
 
 } // namespace doris::vectorized

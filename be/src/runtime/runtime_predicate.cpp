@@ -19,6 +19,8 @@
 
 #include <stdint.h>
 
+#include <memory>
+
 // IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "olap/accept_null_predicate.h"
@@ -161,26 +163,26 @@ Status RuntimePredicate::update(const Field& value, const String& col_name, bool
     const TabletColumn& column = _tablet_schema->column_by_uid(col_unique_id);
     uint32_t index = _tablet_schema->field_index(col_unique_id);
     auto val = _get_value_fn(_orderby_extrem);
-    ColumnPredicate* pred = nullptr;
+    std::unique_ptr<ColumnPredicate> pred {nullptr};
     if (is_reverse) {
         // For DESC sort, create runtime predicate col_name >= min_top_value
         // since values that < min_top_value are less than any value in current topn values
-        pred = create_comparison_predicate<PredicateType::GE>(column, index, val, false,
-                                                              _predicate_arena.get());
+        pred.reset(create_comparison_predicate<PredicateType::GE>(column, index, val, false,
+                                                                  _predicate_arena.get()));
     } else {
         // For ASC  sort, create runtime predicate col_name <= max_top_value
         // since values that > min_top_value are large than any value in current topn values
-        pred = create_comparison_predicate<PredicateType::LE>(column, index, val, false,
-                                                              _predicate_arena.get());
+        pred.reset(create_comparison_predicate<PredicateType::LE>(column, index, val, false,
+                                                                  _predicate_arena.get()));
     }
 
     // For NULLS FIRST, wrap a AcceptNullPredicate to return true for NULL
     // since ORDER BY ASC/DESC should get NULL first but pred returns NULL
     // and NULL in where predicate will be treated as FALSE
     if (_nulls_first) {
-        pred = new AcceptNullPredicate(pred);
+        pred = AcceptNullPredicate::create_unique(pred.release());
     }
-    _predictate.reset(pred);
+    _predictate.reset(pred.release());
 
     return Status::OK();
 }

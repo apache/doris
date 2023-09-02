@@ -379,14 +379,14 @@ public class BinaryPredicate extends Predicate implements Writable {
                 return getChild(1).getType();
             } else if (getChild(0).getType().isDateV2()
                     && (getChild(1).getType().isStringType() && getChild(1) instanceof StringLiteral)) {
-                if (((StringLiteral) getChild(1)).canConvertToDateV2(Type.DATEV2)) {
+                if (((StringLiteral) getChild(1)).canConvertToDateType(Type.DATEV2)) {
                     return Type.DATEV2;
                 } else {
                     return Type.DATETIMEV2;
                 }
             } else if (getChild(1).getType().isDateV2()
                     && (getChild(0).getType().isStringType() && getChild(0) instanceof StringLiteral)) {
-                if (((StringLiteral) getChild(0)).canConvertToDateV2(Type.DATEV2)) {
+                if (((StringLiteral) getChild(0)).canConvertToDateType(Type.DATEV2)) {
                     return Type.DATEV2;
                 } else {
                     return Type.DATETIMEV2;
@@ -397,6 +397,12 @@ public class BinaryPredicate extends Predicate implements Writable {
             } else if (getChild(1).getType().isDatetimeV2()
                     && (getChild(0).getType().isStringType() && getChild(0) instanceof StringLiteral)) {
                 return getChild(1).getType();
+            } else if (getChild(0).getType().isDate()
+                    && (getChild(1).getType().isStringType() && getChild(1) instanceof StringLiteral)) {
+                return ((StringLiteral) getChild(1)).canConvertToDateType(Type.DATE) ? Type.DATE : Type.DATETIME;
+            } else if (getChild(1).getType().isDate()
+                    && (getChild(0).getType().isStringType() && getChild(0) instanceof StringLiteral)) {
+                return ((StringLiteral) getChild(0)).canConvertToDateType(Type.DATE) ? Type.DATE : Type.DATETIME;
             } else {
                 return Type.DATETIME;
             }
@@ -414,9 +420,13 @@ public class BinaryPredicate extends Predicate implements Writable {
         if (t1 == PrimitiveType.BIGINT && t2 == PrimitiveType.BIGINT) {
             return Type.getAssignmentCompatibleType(getChild(0).getType(), getChild(1).getType(), false);
         }
-        if ((t1 == PrimitiveType.BIGINT || t1 == PrimitiveType.DECIMALV2)
-                && (t2 == PrimitiveType.BIGINT || t2 == PrimitiveType.DECIMALV2)) {
-            return Type.DECIMALV2;
+        if ((t1 == PrimitiveType.BIGINT && t2 == PrimitiveType.DECIMALV2)
+                || (t2 == PrimitiveType.BIGINT && t1 == PrimitiveType.DECIMALV2)
+                || (t1 == PrimitiveType.LARGEINT && t2 == PrimitiveType.DECIMALV2)
+                || (t2 == PrimitiveType.LARGEINT && t1 == PrimitiveType.DECIMALV2)) {
+            // only decimalv3 can hold big and large int
+            return ScalarType.createDecimalType(PrimitiveType.DECIMAL128, ScalarType.MAX_DECIMAL128_PRECISION,
+                    ScalarType.MAX_DECIMALV2_SCALE);
         }
         if ((t1 == PrimitiveType.BIGINT || t1 == PrimitiveType.LARGEINT)
                 && (t2 == PrimitiveType.BIGINT || t2 == PrimitiveType.LARGEINT)) {
@@ -599,9 +609,9 @@ public class BinaryPredicate extends Predicate implements Writable {
     }
 
     public Range<LiteralExpr> convertToRange() {
-        Preconditions.checkState(getChild(0) instanceof SlotRef);
-        Preconditions.checkState(getChild(1) instanceof LiteralExpr);
-        LiteralExpr literalExpr = (LiteralExpr) getChild(1);
+        Preconditions.checkState(getChildWithoutCast(0) instanceof SlotRef);
+        Preconditions.checkState(getChildWithoutCast(1) instanceof LiteralExpr);
+        LiteralExpr literalExpr = (LiteralExpr) getChildWithoutCast(1);
         switch (op) {
             case EQ:
                 return Range.singleton(literalExpr);

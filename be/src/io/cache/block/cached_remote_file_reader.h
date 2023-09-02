@@ -39,7 +39,11 @@ struct FileCacheStatistics;
 
 class CachedRemoteFileReader final : public FileReader {
 public:
-    CachedRemoteFileReader(FileReaderSPtr remote_file_reader, const std::string& cache_path);
+    CachedRemoteFileReader(FileReaderSPtr remote_file_reader, const std::string& cache_path,
+                           const long modification_time);
+
+    CachedRemoteFileReader(FileReaderSPtr remote_file_reader, const std::string& cache_base_path,
+                           const std::string& cache_path, const long modification_time);
 
     ~CachedRemoteFileReader() override;
 
@@ -53,6 +57,8 @@ public:
 
     FileSystemSPtr fs() const override { return _remote_file_reader->fs(); }
 
+    FileReader* get_remote_reader() { return _remote_file_reader.get(); }
+
 protected:
     Status read_at_impl(size_t offset, Slice result, size_t* bytes_read,
                         const IOContext* io_ctx) override;
@@ -63,7 +69,6 @@ private:
     FileReaderSPtr _remote_file_reader;
     IFileCache::Key _cache_key;
     CloudFileCachePtr _cache;
-    CloudFileCachePtr _disposable_cache;
 
     struct ReadStatistics {
         bool hit_cache = true;

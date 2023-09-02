@@ -18,5 +18,5 @@
 suite("test_nvl") {
     sql "SET enable_nereids_planner=true"
     sql "SET enable_fallback_to_original_planner=false"
-    qt_select "select nvl(k6, \"false\") k from test_query_db.test order by k1"
+    qt_select "select nvl(k6, \"false\") k from nereids_test_query_db.test order by k1"
 }

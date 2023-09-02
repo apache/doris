@@ -38,10 +38,10 @@ namespace doris {
 
 // Thread counters name
 static const std::string THREAD_TOTAL_TIME = "TotalWallClockTime";
-static const std::string THREAD_USER_TIME = "UserTime";
-static const std::string THREAD_SYS_TIME = "SysTime";
 static const std::string THREAD_VOLUNTARY_CONTEXT_SWITCHES = "VoluntaryContextSwitches";
 static const std::string THREAD_INVOLUNTARY_CONTEXT_SWITCHES = "InvoluntaryContextSwitches";
+
+static const std::string SPAN_ATTRIBUTE_KEY_SEPARATOR = "-";
 
 // The root counter name for all top level counters.
 static const std::string ROOT_COUNTER;
@@ -50,6 +50,7 @@ RuntimeProfile::RuntimeProfile(const std::string& name, bool is_averaged_profile
         : _pool(new ObjectPool()),
           _name(name),
           _metadata(-1),
+          _timestamp(-1),
           _is_averaged_profile(is_averaged_profile),
           _counter_total_time(TUnit::TIME_NS, 0),
           _local_time_percent(0) {
@@ -115,6 +116,7 @@ void RuntimeProfile::merge(RuntimeProfile* other) {
                 child = _pool->add(new RuntimeProfile(other_child->_name));
                 child->_local_time_percent = other_child->_local_time_percent;
                 child->_metadata = other_child->_metadata;
+                child->_timestamp = other_child->_timestamp;
                 bool indent_other_child = other->_children[i].second;
                 _child_map[child->_name] = child;
                 _children.push_back(std::make_pair(child, indent_other_child));
@@ -203,6 +205,7 @@ void RuntimeProfile::update(const std::vector<TRuntimeProfileNode>& nodes, int* 
             } else {
                 child = _pool->add(new RuntimeProfile(tchild.name));
                 child->_metadata = tchild.metadata;
+                child->_timestamp = tchild.timestamp;
                 _child_map[tchild.name] = child;
                 _children.push_back(std::make_pair(child, tchild.indent));
             }
@@ -543,9 +546,8 @@ void RuntimeProfile::pretty_print(std::ostream* s, const std::string& prefix) co
     }
 }
 
-void RuntimeProfile::add_to_span() {
-    auto span = opentelemetry::trace::Tracer::GetCurrentSpan();
-    if (!span->IsRecording() || _added_to_span) {
+void RuntimeProfile::add_to_span(OpentelemetrySpan span) {
+    if (!span || !span->IsRecording() || _added_to_span) {
         return;
     }
     _added_to_span = true;
@@ -565,7 +567,8 @@ void RuntimeProfile::add_to_span() {
     // to "VDataBufferSender"
     auto i = _name.find_first_of("(: ");
     auto short_name = _name.substr(0, i);
-    span->SetAttribute("TotalTime", print_json_counter(short_name, total_time->second));
+    span->SetAttribute(short_name + SPAN_ATTRIBUTE_KEY_SEPARATOR + "TotalTime",
+                       print_counter(total_time->second));
 
     {
         std::lock_guard<std::mutex> l(_info_strings_lock);
@@ -574,7 +577,8 @@ void RuntimeProfile::add_to_span() {
             if (key.compare("KeyRanges") == 0) {
                 continue;
             }
-            span->SetAttribute(key, print_json_info(short_name, _info_strings.find(key)->second));
+            span->SetAttribute(short_name + SPAN_ATTRIBUTE_KEY_SEPARATOR + key,
+                               _info_strings.find(key)->second);
         }
     }
 
@@ -587,9 +591,8 @@ void RuntimeProfile::add_to_span() {
         children = _children;
     }
 
-    for (int i = 0; i < children.size(); ++i) {
-        RuntimeProfile* profile = children[i].first;
-        profile->add_to_span();
+    for (auto& [profile, flag] : children) {
+        profile->add_to_span(span);
     }
 }
 
@@ -605,24 +608,12 @@ void RuntimeProfile::add_child_counters_to_span(OpentelemetrySpan span,
         for (const std::string& child_counter : child_counters) {
             CounterMap::const_iterator iter = counter_map.find(child_counter);
             DCHECK(iter != counter_map.end());
-            span->SetAttribute(iter->first, print_json_counter(profile_name, iter->second));
+            span->SetAttribute(profile_name + SPAN_ATTRIBUTE_KEY_SEPARATOR + iter->first,
+                               print_counter(iter->second));
             RuntimeProfile::add_child_counters_to_span(span, profile_name, child_counter,
                                                        counter_map, child_counter_map);
         }
     }
-}
-
-std::string RuntimeProfile::print_json_info(const std::string& profile_name, std::string value) {
-    rapidjson::StringBuffer s;
-    rapidjson::Writer<rapidjson::StringBuffer> writer(s);
-
-    writer.StartObject();
-    writer.Key("profile");
-    writer.String(profile_name.c_str());
-    writer.Key("pretty");
-    writer.String(value.c_str());
-    writer.EndObject();
-    return s.GetString();
 }
 
 void RuntimeProfile::to_thrift(TRuntimeProfileTree* tree) {
@@ -637,8 +628,8 @@ void RuntimeProfile::to_thrift(std::vector<TRuntimeProfileNode>* nodes) {
     nodes->push_back(TRuntimeProfileNode());
     TRuntimeProfileNode& node = (*nodes)[index];
     node.name = _name;
-    node.num_children = _children.size();
     node.metadata = _metadata;
+    node.timestamp = _timestamp;
     node.indent = true;
 
     CounterMap counter_map;
@@ -668,6 +659,7 @@ void RuntimeProfile::to_thrift(std::vector<TRuntimeProfileNode>* nodes) {
         std::lock_guard<std::mutex> l(_children_lock);
         children = _children;
     }
+    node.num_children = children.size();
 
     for (int i = 0; i < children.size(); ++i) {
         int child_idx = nodes->size();

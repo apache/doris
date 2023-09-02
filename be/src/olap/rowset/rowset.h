@@ -75,7 +75,8 @@ public:
             break;
 
         default:
-            return Status::Error<ErrorCode::ROWSET_INVALID_STATE_TRANSITION>();
+            return Status::Error<ErrorCode::ROWSET_INVALID_STATE_TRANSITION>(
+                    "RowsetStateMachine meet invalid state");
         }
         return Status::OK();
     }
@@ -91,7 +92,8 @@ public:
             break;
 
         default:
-            return Status::Error<ErrorCode::ROWSET_INVALID_STATE_TRANSITION>();
+            return Status::Error<ErrorCode::ROWSET_INVALID_STATE_TRANSITION>(
+                    "RowsetStateMachine meet invalid state");
         }
         return Status::OK();
     }
@@ -103,7 +105,8 @@ public:
             break;
 
         default:
-            return Status::Error<ErrorCode::ROWSET_INVALID_STATE_TRANSITION>();
+            return Status::Error<ErrorCode::ROWSET_INVALID_STATE_TRANSITION>(
+                    "RowsetStateMachine meet invalid state");
         }
         return Status::OK();
     }
@@ -166,6 +169,10 @@ public:
     // TODO should we rename the method to remove_files() to be more specific?
     virtual Status remove() = 0;
 
+    // used for partial update, when publish, partial update may add a new rowset
+    // and we should update rowset meta
+    void merge_rowset_meta(const RowsetMetaSharedPtr& other);
+
     // close to clear the resource owned by rowset
     // including: open files, indexes and so on
     // NOTICE: can not call this function in multithreads
@@ -198,7 +205,8 @@ public:
 
     // hard link all files in this rowset to `dir` to form a new rowset with id `new_rowset_id`.
     virtual Status link_files_to(const std::string& dir, RowsetId new_rowset_id,
-                                 size_t new_rowset_start_seg_id = 0) = 0;
+                                 size_t new_rowset_start_seg_id = 0,
+                                 std::set<int32_t>* without_index_uids = nullptr) = 0;
 
     // copy all files to `dir`
     virtual Status copy_files_to(const std::string& dir, const RowsetId& new_rowset_id) = 0;
@@ -261,6 +269,14 @@ public:
         }
     }
 
+    void update_delayed_expired_timestamp(uint64_t delayed_expired_timestamp) {
+        if (delayed_expired_timestamp > _delayed_expired_timestamp) {
+            _delayed_expired_timestamp = delayed_expired_timestamp;
+        }
+    }
+
+    uint64_t delayed_expired_timestamp() { return _delayed_expired_timestamp; }
+
     virtual Status get_segments_key_bounds(std::vector<KeyBoundsPB>* segments_key_bounds) {
         _rowset_meta->get_segments_key_bounds(segments_key_bounds);
         return Status::OK();
@@ -286,6 +302,14 @@ public:
 
     bool check_rowset_segment();
 
+    bool start_publish() {
+        bool expect = false;
+        return _is_publish_running.compare_exchange_strong(expect, true);
+    }
+    void finish_publish() { _is_publish_running.store(false); }
+
+    [[nodiscard]] virtual Status add_to_binlog() { return Status::OK(); }
+
 protected:
     friend class RowsetFactory;
 
@@ -302,9 +326,6 @@ protected:
 
     // release resources in this api
     virtual void do_close() = 0;
-
-    // allow subclass to add custom logic when rowset is being published
-    virtual void make_visible_extra(Version version) {}
 
     virtual bool check_current_rowset_segment() = 0;
 
@@ -324,6 +345,8 @@ protected:
     std::atomic<uint64_t> _refs_by_reader;
     // rowset state machine
     RowsetStateMachine _rowset_state_machine;
+    std::atomic<uint64_t> _delayed_expired_timestamp = 0;
+    std::atomic<bool> _is_publish_running {false};
 };
 
 } // namespace doris

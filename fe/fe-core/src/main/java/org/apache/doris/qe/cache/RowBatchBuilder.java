@@ -55,6 +55,10 @@ public class RowBatchBuilder {
         return rowSize;
     }
 
+    public int getDataSize() {
+        return dataSize;
+    }
+
     public RowBatchBuilder(CacheAnalyzer.CacheMode model) {
         cacheMode = model;
         keyIndex = 0;
@@ -99,8 +103,16 @@ public class RowBatchBuilder {
         }
     }
 
+    public void clear() {
+        rowList = Lists.newArrayList();
+        cachePartMap = new HashMap<>();
+        batchSize = 0;
+        rowSize = 0;
+        dataSize = 0;
+    }
+
     public InternalService.PUpdateCacheRequest buildSqlUpdateRequest(
-            String sql, long partitionKey, long lastVersion, long lastestTime) {
+            String sql, long partitionKey, long lastVersion, long lastestTime, long partitionNum) {
         if (updateRequest == null) {
             updateRequest = InternalService.PUpdateCacheRequest.newBuilder()
                     .setSqlKey(CacheProxy.getMd5(sql))
@@ -112,6 +124,7 @@ public class RowBatchBuilder {
                                 .setPartitionKey(partitionKey)
                                 .setLastVersion(lastVersion)
                                 .setLastVersionTime(lastestTime)
+                                .setPartitionNum(partitionNum)
                                 .build()).setDataSize(dataSize).addAllRows(
                                 rowList.stream().map(row -> ByteString.copyFrom(row))
                                         .collect(Collectors.toList()))).build();

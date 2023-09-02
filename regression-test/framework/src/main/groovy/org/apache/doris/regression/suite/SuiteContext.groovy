@@ -17,6 +17,7 @@
 
 package org.apache.doris.regression.suite
 
+import com.google.common.collect.Maps
 import groovy.transform.CompileStatic
 import org.apache.doris.regression.Config
 import org.apache.doris.regression.util.OutputUtils
@@ -36,6 +37,7 @@ class SuiteContext implements Closeable {
     public final String group
     public final String dbName
     public final ThreadLocal<Connection> threadLocalConn = new ThreadLocal<>()
+    private final ThreadLocal<Syncer> syncer = new ThreadLocal<>()
     public final Config config
     public final File dataPath
     public final File outputFile
@@ -102,6 +104,15 @@ class SuiteContext implements Closeable {
         return className
     }
 
+    Syncer getSyncer(Suite suite) {
+        Syncer syncerImpl = syncer.get()
+        if (syncerImpl == null) {
+            syncerImpl = new Syncer(suite, config)
+            syncer.set(syncerImpl)
+        }
+        return syncerImpl
+    }
+
     // compatible to context.conn
     Connection getConn() {
         return getConnection()
@@ -114,6 +125,47 @@ class SuiteContext implements Closeable {
             threadLocalConn.set(threadConn)
         }
         return threadConn
+    }
+
+    private String getJdbcNetInfo() {
+        String subJdbc = config.jdbcUrl.substring(config.jdbcUrl.indexOf("://") + 3)
+        return subJdbc.substring(0, subJdbc.indexOf("/"))
+    }
+
+    private Map<String, String> getSpec() {
+        Map<String, String> spec = Maps.newHashMap()
+        String[] jdbc = getJdbcNetInfo().split(":")
+        spec.put("host", jdbc[0])
+        spec.put("port", jdbc[1])
+        spec.put("user", config.feSyncerUser)
+        spec.put("password", config.feSyncerPassword)
+        spec.put("cluster", "")
+
+        return spec
+    }
+
+    Map<String, String> getSrcSpec() {
+        Map<String, String> spec = getSpec()
+        spec.put("thrift_port", config.feSourceThriftNetworkAddress.port.toString())
+        spec.put("database", dbName)
+
+        return spec
+    }
+
+    Map<String, String> getDestSpec() {
+        Map<String, String> spec = getSpec()
+        spec.put("thrift_port", config.feTargetThriftNetworkAddress.port.toString())
+        spec.put("database", "TEST_" + dbName)
+
+        return spec
+    }
+
+    Connection getTargetConnection(Suite suite) {
+        def context = getSyncer(suite).context
+        if (context.targetConnection == null) {
+            context.targetConnection = config.getConnectionByDbName("TEST_" + dbName)
+        }
+        return context.targetConnection
     }
 
     public <T> T connect(String user, String password, String url, Closure<T> actionSupplier) {
@@ -203,6 +255,20 @@ class SuiteContext implements Closeable {
                 outputIterator.close()
             } catch (Throwable t) {
                 log.warn("Close outputIterator failed", t)
+            }
+        }
+
+        Syncer syncerImpl = syncer.get()
+        if (syncerImpl != null) {
+            syncer.remove()
+            SyncerContext context = syncerImpl.getContext()
+            if (context != null) {
+                try {
+                    syncerImpl.context.closeAllClients()
+                    syncerImpl.context.closeConn()
+                } catch (Throwable t) {
+                    log.warn("Close syncer failed", t)
+                }
             }
         }
 

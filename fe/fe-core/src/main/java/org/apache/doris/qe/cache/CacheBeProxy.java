@@ -49,7 +49,7 @@ public class CacheBeProxy extends CacheProxy {
             LOG.warn("update cache can't find backend, sqlKey {}", sqlKey);
             return;
         }
-        TNetworkAddress address = new TNetworkAddress(backend.getIp(), backend.getBrpcPort());
+        TNetworkAddress address = new TNetworkAddress(backend.getHost(), backend.getBrpcPort());
         try {
             Future<InternalService.PCacheResponse> future = BackendServiceProxy.getInstance()
                     .updateCache(address, request);
@@ -73,7 +73,7 @@ public class CacheBeProxy extends CacheProxy {
         if (backend == null) {
             return null;
         }
-        TNetworkAddress address = new TNetworkAddress(backend.getIp(), backend.getBrpcPort());
+        TNetworkAddress address = new TNetworkAddress(backend.getHost(), backend.getBrpcPort());
         try {
             Future<InternalService.PFetchCacheResult> future = BackendServiceProxy.getInstance()
                     .fetchCache(address, request);
@@ -122,7 +122,7 @@ public class CacheBeProxy extends CacheProxy {
 
     protected boolean clearCache(InternalService.PClearCacheRequest request,
             Backend backend, int timeoutMs, Status status) {
-        TNetworkAddress address = new TNetworkAddress(backend.getIp(), backend.getBrpcPort());
+        TNetworkAddress address = new TNetworkAddress(backend.getHost(), backend.getBrpcPort());
         try {
             request = request.toBuilder().setClearType(InternalService.PClearType.CLEAR_ALL).build();
             LOG.info("clear all backend cache, backendId {}", backend.getId());

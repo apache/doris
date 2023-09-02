@@ -36,15 +36,6 @@ ${GEN_FUNC_OUTPUT}: gen_functions.py | ${BUILD_DIR}/python
 gen_func: ${GEN_FUNC_OUTPUT}
 .PHONY: gen_func
 
-# generated vector function
-GEN_VEC_FUNC_OUTPUT = ${BUILD_DIR}/python/generated_vector_functions.py \
-                 ${BUILD_DIR}/gen_cpp/opcode/vector-functions.cc \
-                 ${BUILD_DIR}/gen_cpp/opcode/vector-functions.h
-${GEN_VEC_FUNC_OUTPUT}: gen_vector_functions.py | ${BUILD_DIR}/python
-	cd ${BUILD_DIR}/python && ${PYTHON} ${CURDIR}/gen_vector_functions.py
-gen_vec_func: ${GEN_VEC_FUNC_OUTPUT}
-.PHONY: gen_vec_func
-
 # generate 
 GEN_BUILTINS_OUTPUT = ${FE_TARGET_DIR}/org/apache/doris/builtins/ScalarBuiltins.java
 
@@ -57,5 +48,3 @@ gen_builtins: ${GEN_BUILTINS_OUTPUT}
 gen_version:
 	${CURDIR}/gen_build_version.sh
 .PHONY: gen_version
-
-

@@ -33,8 +33,10 @@
 #include "common/status.h"
 #include "exec/olap_common.h"
 #include "io/file_factory.h"
+#include "io/fs/file_meta_cache.h"
 #include "io/fs/file_reader.h"
 #include "io/fs/file_reader_writer_fwd.h"
+#include "util/obj_lru_cache.h"
 #include "util/runtime_profile.h"
 #include "vec/exec/format/generic_reader.h"
 #include "vec/exec/format/parquet/parquet_common.h"
@@ -69,6 +71,8 @@ struct TypeDescriptor;
 namespace doris::vectorized {
 
 class ParquetReader : public GenericReader {
+    ENABLE_FACTORY_CREATOR(ParquetReader);
+
 public:
     struct Statistics {
         int32_t filtered_row_groups = 0;
@@ -90,10 +94,11 @@ public:
 
     ParquetReader(RuntimeProfile* profile, const TFileScanRangeParams& params,
                   const TFileRangeDesc& range, size_t batch_size, cctz::time_zone* ctz,
-                  io::IOContext* io_ctx, RuntimeState* state, ShardedKVCache* kv_cache = nullptr);
+                  io::IOContext* io_ctx, RuntimeState* state, FileMetaCache* meta_cache = nullptr,
+                  bool enable_lazy_mat = true);
 
     ParquetReader(const TFileScanRangeParams& params, const TFileRangeDesc& range,
-                  io::IOContext* io_ctx, RuntimeState* state);
+                  io::IOContext* io_ctx, RuntimeState* state, bool enable_lazy_mat = true);
 
     ~ParquetReader() override;
     // for test
@@ -105,16 +110,16 @@ public:
             const std::vector<std::string>& all_column_names,
             const std::vector<std::string>& missing_column_names,
             std::unordered_map<std::string, ColumnValueRangeType>* colname_to_value_range,
-            VExprContext* vconjunct_ctx, const TupleDescriptor* tuple_descriptor,
+            const VExprContextSPtrs& conjuncts, const TupleDescriptor* tuple_descriptor,
             const RowDescriptor* row_descriptor,
             const std::unordered_map<std::string, int>* colname_to_slot_id,
-            const std::vector<VExprContext*>* not_single_slot_filter_conjuncts,
-            const std::unordered_map<int, std::vector<VExprContext*>>* slot_id_to_filter_conjuncts,
+            const VExprContextSPtrs* not_single_slot_filter_conjuncts,
+            const std::unordered_map<int, VExprContextSPtrs>* slot_id_to_filter_conjuncts,
             bool filter_groups = true);
 
     Status get_next_block(Block* block, size_t* read_rows, bool* eof) override;
 
-    void close();
+    void close() override;
 
     RowRange get_whole_range() { return _whole_range; }
 
@@ -137,7 +142,7 @@ public:
     Status set_fill_columns(
             const std::unordered_map<std::string, std::tuple<std::string, const SlotDescriptor*>>&
                     partition_columns,
-            const std::unordered_map<std::string, VExprContext*>& missing_columns) override;
+            const std::unordered_map<std::string, VExprContextSPtr>& missing_columns) override;
 
     std::vector<tparquet::KeyValue> get_metadata_key_values();
     void set_table_to_file_col_map(std::unordered_map<std::string, std::string>& map) {
@@ -164,6 +169,7 @@ private:
 
         RuntimeProfile::Counter* file_read_time;
         RuntimeProfile::Counter* file_read_calls;
+        RuntimeProfile::Counter* file_meta_read_calls;
         RuntimeProfile::Counter* file_read_bytes;
         RuntimeProfile::Counter* decompress_time;
         RuntimeProfile::Counter* decompress_cnt;
@@ -176,11 +182,11 @@ private:
 
     Status _open_file();
     void _init_profile();
+    void _close_internal();
     Status _next_row_group_reader();
     RowGroupReader::PositionDeleteContext _get_position_delete_ctx(
             const tparquet::RowGroup& row_group,
             const RowGroupReader::RowGroupIndex& row_group_index);
-    Status _init_read_columns();
     Status _init_row_groups(const bool& is_filter_groups);
     void _init_system_properties();
     void _init_file_description();
@@ -200,32 +206,40 @@ private:
     Status _process_bloom_filter(bool* filter_group);
     int64_t _get_column_start_offset(const tparquet::ColumnMetaData& column_init_column_readers);
     std::string _meta_cache_key(const std::string& path) { return "meta_" + path; }
+    std::vector<io::PrefetchRange> _generate_random_access_ranges(
+            const RowGroupReader::RowGroupIndex& group, size_t* avg_io_size);
 
     RuntimeProfile* _profile;
     const TFileScanRangeParams& _scan_params;
     const TFileRangeDesc& _scan_range;
-    FileSystemProperties _system_properties;
-    FileDescription _file_description;
+    io::FileSystemProperties _system_properties;
+    io::FileDescription _file_description;
+
+    // the following fields are for parquet meta data cache.
+    // if _meta_cache is not null, the _file_metadata will be got from _meta_cache,
+    // and it is owned by _meta_cache_handle.
+    // if _meta_cache is null, _file_metadata will be managed by _file_metadata_ptr,
+    // which will be released when deconstructing.
+    // ATTN: these fields must be before _file_reader, to make sure they will be released
+    // after _file_reader. Otherwise, there may be heap-use-after-free bug.
+    ObjLRUCache::CacheHandle _meta_cache_handle;
+    std::unique_ptr<FileMetaData> _file_metadata_ptr;
+    FileMetaData* _file_metadata = nullptr;
+    const tparquet::FileMetaData* _t_metadata;
+
     std::shared_ptr<io::FileSystem> _file_system = nullptr;
     io::FileReaderSPtr _file_reader = nullptr;
-    FileMetaData* _file_metadata = nullptr;
-    // set to true if _file_metadata is owned by this reader.
-    // otherwise, it is owned by someone else, such as _kv_cache
-    bool _is_file_metadata_owned = false;
-    const tparquet::FileMetaData* _t_metadata;
     std::unique_ptr<RowGroupReader> _current_group_reader = nullptr;
     // read to the end of current reader
     bool _row_group_eof = true;
-    int32_t _total_groups;                  // num of groups(stripes) of a parquet(orc) file
-    std::map<std::string, int> _map_column; // column-name <---> column-index
+    int32_t _total_groups; // num of groups(stripes) of a parquet(orc) file
     // table column name to file column name map. For iceberg schema evolution.
     std::unordered_map<std::string, std::string> _table_col_to_file_col;
     std::unordered_map<std::string, ColumnValueRangeType>* _colname_to_value_range;
-    std::vector<ParquetReadColumn> _read_columns;
+    std::vector<std::string> _read_columns;
     RowRange _whole_range = RowRange(0, 0);
     const std::vector<int64_t>* _delete_rows = nullptr;
     int64_t _delete_rows_index = 0;
-
     // should turn off filtering by page index and lazy read if having complex type
     bool _has_complex_type = false;
 
@@ -249,14 +263,14 @@ private:
     bool _closed = false;
     io::IOContext* _io_ctx;
     RuntimeState* _state;
+    // Cache to save some common part such as file footer.
+    // Maybe null if not used
+    FileMetaCache* _meta_cache = nullptr;
+    bool _enable_lazy_mat = true;
     const TupleDescriptor* _tuple_descriptor;
     const RowDescriptor* _row_descriptor;
     const std::unordered_map<std::string, int>* _colname_to_slot_id;
-    const std::vector<VExprContext*>* _not_single_slot_filter_conjuncts;
-    const std::unordered_map<int, std::vector<VExprContext*>>* _slot_id_to_filter_conjuncts;
-    // Cache to save some common part such as file footer.
-    // Owned by scan node and shared by all parquet readers of this scan node.
-    // Maybe null if not used
-    ShardedKVCache* _kv_cache = nullptr;
+    const VExprContextSPtrs* _not_single_slot_filter_conjuncts;
+    const std::unordered_map<int, VExprContextSPtrs>* _slot_id_to_filter_conjuncts;
 };
 } // namespace doris::vectorized

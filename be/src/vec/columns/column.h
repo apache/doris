@@ -98,6 +98,7 @@ protected:
     using Offsets64 = PaddedPODArray<Offset64>;
 
 public:
+    static constexpr int PREFETCH_STEP = 64;
     // 32bit offsets for string
     using Offset = UInt32;
     using Offsets = PaddedPODArray<Offset>;
@@ -148,6 +149,7 @@ public:
     virtual void set_rowset_segment_id(std::pair<RowsetId, uint32_t> rowset_segment_id) {}
 
     virtual std::pair<RowsetId, uint32_t> get_rowset_segment_id() const { return {}; }
+    // todo(Amory) from column to get data type is not correct ,column is memory data,can not to assume memory data belong to which data type
     virtual TypeIndex get_data_type() const {
         LOG(FATAL) << "Cannot get_data_type() column " << get_name();
         __builtin_unreachable();
@@ -363,7 +365,7 @@ public:
     /// On subsequent calls of this method for sequence of column values of arbitrary types,
     ///  passed bytes to hash must identify sequence of values unambiguously.
     virtual void update_hash_with_value(size_t n, SipHash& hash) const {
-        LOG(FATAL) << "update_hash_with_value siphash not supported";
+        LOG(FATAL) << get_name() << " update_hash_with_value siphash not supported";
     }
 
     /// Update state of hash function with value of n elements to avoid the virtual function call
@@ -372,7 +374,7 @@ public:
     /// do xxHash here, faster than other hash method
     virtual void update_hashes_with_value(std::vector<SipHash>& hashes,
                                           const uint8_t* __restrict null_data = nullptr) const {
-        LOG(FATAL) << "update_hashes_with_value siphash not supported";
+        LOG(FATAL) << get_name() << " update_hashes_with_value siphash not supported";
     }
 
     /// Update state of hash function with value of n elements to avoid the virtual function call
@@ -381,7 +383,13 @@ public:
     /// do xxHash here, faster than other sip hash
     virtual void update_hashes_with_value(uint64_t* __restrict hashes,
                                           const uint8_t* __restrict null_data = nullptr) const {
-        LOG(FATAL) << "update_hashes_with_value xxhash not supported";
+        LOG(FATAL) << get_name() << " update_hashes_with_value xxhash not supported";
+    }
+
+    // use range for one hash value to avoid virtual function call in loop
+    virtual void update_xxHash_with_value(size_t start, size_t end, uint64_t& hash,
+                                          const uint8_t* __restrict null_data) const {
+        LOG(FATAL) << get_name() << " update_hash_with_value xxhash not supported";
     }
 
     /// Update state of crc32 hash function with value of n elements to avoid the virtual function call
@@ -389,7 +397,13 @@ public:
     /// means all element need to do hash function, else only *null_data != 0 need to do hash func
     virtual void update_crcs_with_value(std::vector<uint64_t>& hash, PrimitiveType type,
                                         const uint8_t* __restrict null_data = nullptr) const {
-        LOG(FATAL) << "update_crcs_with_value not supported";
+        LOG(FATAL) << get_name() << "update_crcs_with_value not supported";
+    }
+
+    // use range for one hash value to avoid virtual function call in loop
+    virtual void update_crc_with_value(size_t start, size_t end, uint64_t& hash,
+                                       const uint8_t* __restrict null_data) const {
+        LOG(FATAL) << get_name() << " update_crc_with_value not supported";
     }
 
     /** Removes elements that don't match the filter.
@@ -474,10 +488,7 @@ public:
       * If `begin` and `count_sz` specified, it means elements in range [`begin`, `begin` + `count_sz`) will be replicated.
       * If `count_sz` is -1, `begin` must be 0.
       */
-    virtual void replicate(const uint32_t* counts, size_t target_size, IColumn& column,
-                           size_t begin = 0, int count_sz = -1) const {
-        LOG(FATAL) << "not support";
-    }
+    virtual void replicate(const uint32_t* indexs, size_t target_size, IColumn& column) const = 0;
 
     /// Appends one field multiple times. Can be optimized in inherited classes.
     virtual void insert_many(const Field& field, size_t length) {
@@ -661,7 +672,6 @@ public:
     virtual bool is_column_map() const { return false; }
 
     /// If the only value column can contain is NULL.
-    /// Does not imply type of object, because it can be ColumnNullable(ColumnNothing) or ColumnConst(ColumnNullable(ColumnNothing))
     virtual bool only_null() const { return false; }
 
     /// Can be inside ColumnNullable.

@@ -26,6 +26,7 @@ import org.apache.doris.thrift.TPartitionVersionInfo;
 import org.apache.doris.thrift.TStorageMedium;
 import org.apache.doris.thrift.TTablet;
 import org.apache.doris.thrift.TTabletInfo;
+import org.apache.doris.thrift.TTabletMetaInfo;
 import org.apache.doris.transaction.GlobalTransactionMgr;
 import org.apache.doris.transaction.PartitionCommitInfo;
 import org.apache.doris.transaction.TableCommitInfo;
@@ -42,8 +43,6 @@ import com.google.common.collect.Maps;
 import com.google.common.collect.Ordering;
 import com.google.common.collect.Table;
 import com.google.common.collect.TreeMultimap;
-import org.apache.commons.lang3.tuple.ImmutableTriple;
-import org.apache.commons.lang3.tuple.Triple;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -127,9 +126,10 @@ public class TabletInvertedIndex {
                              Map<Long, ListMultimap<Long, TPartitionVersionInfo>> transactionsToPublish,
                              ListMultimap<Long, Long> transactionsToClear,
                              ListMultimap<Long, Long> tabletRecoveryMap,
-                             List<Triple<Long, Integer, Boolean>> tabletToInMemory,
+                             List<TTabletMetaInfo> tabletToUpdate,
                              List<CooldownConf> cooldownConfToPush,
                              List<CooldownConf> cooldownConfToUpdate) {
+        List<Pair<TabletMeta, TTabletInfo>> cooldownTablets = new ArrayList<>();
         long stamp = readLock();
         long start = System.currentTimeMillis();
         try {
@@ -148,11 +148,18 @@ public class TabletInvertedIndex {
                             Replica replica = entry.getValue();
                             tabletFoundInMeta.add(tabletId);
                             TTabletInfo backendTabletInfo = backendTablet.getTabletInfos().get(0);
+                            TTabletMetaInfo tabletMetaInfo = null;
+                            if (backendTabletInfo.getReplicaId() != replica.getId()
+                                    && replica.getState() != ReplicaState.CLONE) {
+                                // Need to update replica id in BE
+                                tabletMetaInfo = new TTabletMetaInfo();
+                                tabletMetaInfo.setReplicaId(replica.getId());
+                            }
                             if (partitionIdInMemorySet.contains(
                                     backendTabletInfo.getPartitionId()) != backendTabletInfo.isIsInMemory()) {
-                                synchronized (tabletToInMemory) {
-                                    tabletToInMemory.add(new ImmutableTriple<>(tabletId,
-                                            backendTabletInfo.getSchemaHash(), !backendTabletInfo.isIsInMemory()));
+                                if (tabletMetaInfo == null) {
+                                    tabletMetaInfo = new TTabletMetaInfo();
+                                    tabletMetaInfo.setIsInMemory(!backendTabletInfo.isIsInMemory());
                                 }
                             }
                             // 1. (intersection)
@@ -192,8 +199,11 @@ public class TabletInvertedIndex {
                             }
 
                             if (Config.enable_storage_policy && backendTabletInfo.isSetCooldownTerm()) {
-                                handleCooldownConf(tabletMeta, backendTabletInfo, cooldownConfToPush,
-                                        cooldownConfToUpdate);
+                                // Place tablet info in a container and process it outside of read lock to avoid
+                                // deadlock with OlapTable lock
+                                synchronized (cooldownTablets) {
+                                    cooldownTablets.add(Pair.of(tabletMeta, backendTabletInfo));
+                                }
                                 replica.setCooldownMetaId(backendTabletInfo.getCooldownMetaId());
                                 replica.setCooldownTerm(backendTabletInfo.getCooldownTerm());
                             }
@@ -300,6 +310,12 @@ public class TabletInvertedIndex {
                             if (backendTabletInfo.isSetVersionCount()) {
                                 replica.setVersionCount(backendTabletInfo.getVersionCount());
                             }
+                            if (tabletMetaInfo != null) {
+                                tabletMetaInfo.setTabletId(tabletId);
+                                synchronized (tabletToUpdate) {
+                                    tabletToUpdate.add(tabletMetaInfo);
+                                }
+                            }
                         } else {
                             // 2. (meta - be)
                             // may need delete from meta
@@ -314,14 +330,15 @@ public class TabletInvertedIndex {
         } finally {
             readUnlock(stamp);
         }
+        cooldownTablets.forEach(p -> handleCooldownConf(p.first, p.second, cooldownConfToPush, cooldownConfToUpdate));
 
         long end = System.currentTimeMillis();
         LOG.info("finished to do tablet diff with backend[{}]. sync: {}."
                         + " metaDel: {}. foundInMeta: {}. migration: {}. "
-                        + "found invalid transactions {}. found republish transactions {}. tabletInMemorySync: {}."
+                        + "found invalid transactions {}. found republish transactions {}. tabletToUpdate: {}."
                         + " need recovery: {}. cost: {} ms", backendId, tabletSyncMap.size(),
                 tabletDeleteFromMeta.size(), tabletFoundInMeta.size(), tabletMigrationMap.size(),
-                transactionsToClear.size(), transactionsToPublish.size(), tabletToInMemory.size(),
+                transactionsToClear.size(), transactionsToPublish.size(), tabletToUpdate.size(),
                 tabletRecoveryMap.size(), (end - start));
     }
 
@@ -410,9 +427,7 @@ public class TabletInvertedIndex {
         if (cooldownConf.first <= 0) { // invalid cooldownReplicaId
             CooldownConf conf = new CooldownConf(tabletMeta.getDbId(), tabletMeta.getTableId(),
                     tabletMeta.getPartitionId(), tabletMeta.getIndexId(), beTabletInfo.tablet_id, cooldownConf.second);
-            synchronized (cooldownConfToUpdate) {
-                cooldownConfToUpdate.add(conf);
-            }
+            cooldownConfToUpdate.add(conf);
             return;
         }
 
@@ -433,17 +448,13 @@ public class TabletInvertedIndex {
         if (!replicaAlive) {
             CooldownConf conf = new CooldownConf(tabletMeta.getDbId(), tabletMeta.getTableId(),
                     tabletMeta.getPartitionId(), tabletMeta.getIndexId(), beTabletInfo.tablet_id, cooldownConf.second);
-            synchronized (cooldownConfToUpdate) {
-                cooldownConfToUpdate.add(conf);
-            }
+            cooldownConfToUpdate.add(conf);
             return;
         }
 
         if (beTabletInfo.getCooldownTerm() < cooldownConf.second) {
             CooldownConf conf = new CooldownConf(beTabletInfo.tablet_id, cooldownConf.first, cooldownConf.second);
-            synchronized (cooldownConfToPush) {
-                cooldownConfToPush.add(conf);
-            }
+            cooldownConfToPush.add(conf);
             return;
         }
     }

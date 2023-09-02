@@ -37,7 +37,7 @@ class Block;
 class VNumbersTVF : public VDataGenFunctionInf {
 public:
     VNumbersTVF(TupleId tuple_id, const TupleDescriptor* tuple_desc);
-    ~VNumbersTVF() = default;
+    ~VNumbersTVF() override = default;
 
     Status get_next(RuntimeState* state, vectorized::Block* block, bool* eos) override;
 

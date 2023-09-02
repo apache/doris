@@ -163,7 +163,7 @@ Observer 角色和这个单词的含义一样，仅仅作为观察者来同步�
 
 Doris支持一个BE节点配置多个存储路径。通常情况下，每块盘配置一个存储路径即可。同时，Doris支持指定路径的存储介质属性，如SSD或HDD。SSD代表高速存储设备，HDD代表低速存储设备。
 
-如果集群只有一种介质比如都是HDD或者都是SSD，最佳实践是不用在be.conf中显式指定介质属性。如果遇到上述报错```Failed to find enough host with storage medium and tag```，一般是因为be.conf中只配置了SSD的介质，而fe中参数default_storage_medium默认为HDD，因此建表时会发现没有HDD介质的存储而报错。解决方案可以修改此FE配置并重启FE生效；或者将be.conf中SSD的显式配置去掉；或者建表时增加properties参数 ```properties {"storage_medium" = "ssd"}```均可
+如果集群只有一种介质比如都是HDD或者都是SSD，最佳实践是不用在be.conf中显式指定介质属性。如果遇到上述报错```Failed to find enough host with storage medium and tag```，一般是因为be.conf中只配置了SSD的介质，而建表阶段中显式指定了```properties {"storage_medium" = "hdd"}```；同理如果be.conf只配置了HDD的介质，而而建表阶段中显式指定了```properties {"storage_medium" = "ssd"}```也会出现上述错误。解决方案可以修改建表的properties参数与配置匹配；或者将be.conf中SSD/HDD的显式配置去掉即可。
 
 通过指定路径的存储介质属性，我们可以利用Doris的冷热数据分区存储功能，在分区级别将热数据存储在SSD中，而冷数据会自动转移到HDD中。
 
@@ -267,7 +267,7 @@ http {
 
 ### Q12. Doris编译安装JDK版本不兼容问题
 
-在自己使用 Docker 编译 Doris 的时候，编译完成安装以后启动FE，出现 `java.lang.Suchmethoderror: java.nio. ByteBuffer. limit (I)Ljava/nio/ByteBuffer;` 异常信息，这是因为Docker里默认是JDK 11，如果你的安装环境是使用JDK8 ，需要在 Docker 里 JDK 环境切换成 JDK8，具体切换方法参照[编译文档](../install/source-install/compilation.md)
+在自己使用 Docker 编译 Doris 的时候，编译完成安装以后启动FE，出现 `java.lang.Suchmethoderror: java.nio. ByteBuffer. limit (I)Ljava/nio/ByteBuffer;` 异常信息，这是因为Docker里默认是JDK 11，如果你的安装环境是使用JDK8 ，需要在 Docker 里 JDK 环境切换成 JDK8，具体切换方法参照[编译文档](../install/source-install/compilation-general.md)
 
 ### Q13. 本地启动 FE 或者启动单元测试报错 Cannot find external parser table action_table.dat
 执行如下命令
@@ -313,4 +313,4 @@ Caused by: java.lang.ClassNotFoundException: org.apache.doris.udf.JniUtil
 ```
 Failed to initialize JNI: Failed to find the library libjvm.so.
 ```
-需要在系统设置 `JAVA_HOME` 环境变量，或者在 `start_be.sh` 启动脚本第一行添加 `export JAVA_HOME=your_java_home_path`，然后重新启动 BE 节点。
+需要在系统设置 `JAVA_HOME` 环境变量，或者在 be.conf 中设置 `JAVA_HOME` 变量，然后重新启动 BE 节点。

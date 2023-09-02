@@ -23,11 +23,13 @@
 
 // IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
 #include "common/compiler_util.h" // IWYU pragma: keep
+#include "common/exception.h"
 #include "common/object_pool.h"
 #include "runtime/runtime_state.h"
 #include "runtime/thread_context.h"
 #include "udf/udf.h"
 #include "util/stack_util.h"
+#include "vec/columns/column_const.h"
 #include "vec/core/column_with_type_and_name.h"
 #include "vec/core/columns_with_type_and_name.h"
 #include "vec/exprs/vexpr.h"
@@ -37,21 +39,24 @@ class RowDescriptor;
 } // namespace doris
 
 namespace doris::vectorized {
-VExprContext::VExprContext(VExpr* expr)
+VExprContext::VExprContext(const VExprSPtr& expr)
         : _root(expr),
           _is_clone(false),
           _prepared(false),
           _opened(false),
-          _closed(false),
           _last_result_column_id(-1) {}
 
 VExprContext::~VExprContext() {
-    // Do not delete this code, this code here is used to check if forget to close the opened context
-    // Or there will be memory leak
-    DCHECK(!_prepared || _closed) << get_stack_trace();
+    // In runtime filter, only create expr context to get expr root, will not call
+    // prepare or open, so that it is not need to call close. And call close may core
+    // because the function context in expr is not set.
+    if (!_prepared || !_opened) {
+        return;
+    }
+    close();
 }
 
-doris::Status VExprContext::execute(doris::vectorized::Block* block, int* result_column_id) {
+Status VExprContext::execute(vectorized::Block* block, int* result_column_id) {
     Status st;
     RETURN_IF_CATCH_EXCEPTION({
         st = _root->execute(this, block, result_column_id);
@@ -60,13 +65,14 @@ doris::Status VExprContext::execute(doris::vectorized::Block* block, int* result
     return st;
 }
 
-doris::Status VExprContext::prepare(doris::RuntimeState* state,
-                                    const doris::RowDescriptor& row_desc) {
+Status VExprContext::prepare(RuntimeState* state, const RowDescriptor& row_desc) {
     _prepared = true;
-    return _root->prepare(state, row_desc, this);
+    Status st;
+    RETURN_IF_CATCH_EXCEPTION({ st = _root->prepare(state, row_desc, this); });
+    return st;
 }
 
-doris::Status VExprContext::open(doris::RuntimeState* state) {
+Status VExprContext::open(RuntimeState* state) {
     DCHECK(_prepared);
     if (_opened) {
         return Status::OK();
@@ -76,32 +82,36 @@ doris::Status VExprContext::open(doris::RuntimeState* state) {
     // original's fragment state and only need to have thread-local state initialized.
     FunctionContext::FunctionStateScope scope =
             _is_clone ? FunctionContext::THREAD_LOCAL : FunctionContext::FRAGMENT_LOCAL;
-    return _root->open(state, this, scope);
+    Status st;
+    RETURN_IF_CATCH_EXCEPTION({ st = _root->open(state, this, scope); });
+    return st;
 }
 
-void VExprContext::close(doris::RuntimeState* state) {
-    DCHECK(!_closed);
+void VExprContext::close() {
+    // Sometimes expr context may not have a root, then it need not call close
+    if (_root == nullptr) {
+        return;
+    }
     FunctionContext::FunctionStateScope scope =
             _is_clone ? FunctionContext::THREAD_LOCAL : FunctionContext::FRAGMENT_LOCAL;
-    _root->close(state, this, scope);
-    _closed = true;
+    _root->close(this, scope);
 }
 
-doris::Status VExprContext::clone(RuntimeState* state, VExprContext** new_ctx) {
-    DCHECK(_prepared);
+Status VExprContext::clone(RuntimeState* state, VExprContextSPtr& new_ctx) {
+    DCHECK(_prepared) << "expr context not prepared";
     DCHECK(_opened);
-    DCHECK(*new_ctx == nullptr);
+    DCHECK(new_ctx.get() == nullptr);
 
-    *new_ctx = state->obj_pool()->add(new VExprContext(_root));
+    new_ctx = std::make_shared<VExprContext>(_root);
     for (auto& _fn_context : _fn_contexts) {
-        (*new_ctx)->_fn_contexts.push_back(_fn_context->clone());
+        new_ctx->_fn_contexts.push_back(_fn_context->clone());
     }
 
-    (*new_ctx)->_is_clone = true;
-    (*new_ctx)->_prepared = true;
-    (*new_ctx)->_opened = true;
+    new_ctx->_is_clone = true;
+    new_ctx->_prepared = true;
+    new_ctx->_opened = true;
 
-    return _root->open(state, *new_ctx, FunctionContext::THREAD_LOCAL);
+    return _root->open(state, new_ctx.get(), FunctionContext::THREAD_LOCAL);
 }
 
 void VExprContext::clone_fn_contexts(VExprContext* other) {
@@ -110,9 +120,8 @@ void VExprContext::clone_fn_contexts(VExprContext* other) {
     }
 }
 
-int VExprContext::register_function_context(RuntimeState* state,
-                                            const doris::TypeDescriptor& return_type,
-                                            const std::vector<doris::TypeDescriptor>& arg_types) {
+int VExprContext::register_function_context(RuntimeState* state, const TypeDescriptor& return_type,
+                                            const std::vector<TypeDescriptor>& arg_types) {
     _fn_contexts.push_back(FunctionContext::create_context(state, return_type, arg_types));
     _fn_contexts.back()->set_check_overflow_for_decimal(state->check_overflow_for_decimal());
     return _fn_contexts.size() - 1;
@@ -127,33 +136,169 @@ Status VExprContext::filter_block(VExprContext* vexpr_ctx, Block* block, int col
     return Block::filter_block(block, result_column_id, column_to_keep);
 }
 
-Status VExprContext::filter_block(const std::unique_ptr<VExprContext*>& vexpr_ctx_ptr, Block* block,
+Status VExprContext::filter_block(const VExprContextSPtrs& expr_contexts, Block* block,
                                   int column_to_keep) {
-    if (vexpr_ctx_ptr == nullptr || block->rows() == 0) {
+    if (expr_contexts.empty() || block->rows() == 0) {
         return Status::OK();
     }
-    DCHECK((*vexpr_ctx_ptr) != nullptr);
-    int result_column_id = -1;
-    RETURN_IF_ERROR((*vexpr_ctx_ptr)->execute(block, &result_column_id));
-    return Block::filter_block(block, result_column_id, column_to_keep);
+
+    std::vector<uint32_t> columns_to_filter(column_to_keep);
+    std::iota(columns_to_filter.begin(), columns_to_filter.end(), 0);
+
+    return execute_conjuncts_and_filter_block(expr_contexts, nullptr, block, columns_to_filter,
+                                              column_to_keep);
 }
 
-Block VExprContext::get_output_block_after_execute_exprs(
-        const std::vector<vectorized::VExprContext*>& output_vexpr_ctxs, const Block& input_block,
-        Status& status) {
+Status VExprContext::execute_conjuncts(const VExprContextSPtrs& ctxs,
+                                       const std::vector<IColumn::Filter*>* filters, Block* block,
+                                       IColumn::Filter* result_filter, bool* can_filter_all) {
+    return execute_conjuncts(ctxs, filters, false, block, result_filter, can_filter_all);
+}
+
+// TODO Performance Optimization
+Status VExprContext::execute_conjuncts(const VExprContextSPtrs& ctxs,
+                                       const std::vector<IColumn::Filter*>* filters,
+                                       const bool accept_null, Block* block,
+                                       IColumn::Filter* result_filter, bool* can_filter_all) {
+    DCHECK(result_filter->size() == block->rows());
+    *can_filter_all = false;
+    auto* __restrict result_filter_data = result_filter->data();
+    for (auto& ctx : ctxs) {
+        int result_column_id = -1;
+        RETURN_IF_ERROR(ctx->execute(block, &result_column_id));
+        ColumnPtr& filter_column = block->get_by_position(result_column_id).column;
+        if (auto* nullable_column = check_and_get_column<ColumnNullable>(*filter_column)) {
+            size_t column_size = nullable_column->size();
+            if (column_size == 0) {
+                *can_filter_all = true;
+                return Status::OK();
+            } else {
+                const ColumnPtr& nested_column = nullable_column->get_nested_column_ptr();
+                const IColumn::Filter& filter =
+                        assert_cast<const ColumnUInt8&>(*nested_column).get_data();
+                auto* __restrict filter_data = filter.data();
+                const size_t size = filter.size();
+                auto* __restrict null_map_data = nullable_column->get_null_map_data().data();
+
+                if (accept_null) {
+                    for (size_t i = 0; i < size; ++i) {
+                        result_filter_data[i] &= (null_map_data[i]) || filter_data[i];
+                    }
+                } else {
+                    for (size_t i = 0; i < size; ++i) {
+                        result_filter_data[i] &= (!null_map_data[i]) & filter_data[i];
+                    }
+                }
+
+                if (memchr(result_filter_data, 0x1, size) == nullptr) {
+                    *can_filter_all = true;
+                    return Status::OK();
+                }
+            }
+        } else if (auto* const_column = check_and_get_column<ColumnConst>(*filter_column)) {
+            // filter all
+            if (!const_column->get_bool(0)) {
+                *can_filter_all = true;
+                memset(result_filter_data, 0, result_filter->size());
+                return Status::OK();
+            }
+        } else {
+            const IColumn::Filter& filter =
+                    assert_cast<const ColumnUInt8&>(*filter_column).get_data();
+            auto* __restrict filter_data = filter.data();
+
+            const size_t size = filter.size();
+            for (size_t i = 0; i < size; ++i) {
+                result_filter_data[i] &= filter_data[i];
+            }
+
+            if (memchr(result_filter_data, 0x1, size) == nullptr) {
+                *can_filter_all = true;
+                return Status::OK();
+            }
+        }
+    }
+    if (filters != nullptr) {
+        for (auto* filter : *filters) {
+            auto* __restrict filter_data = filter->data();
+            const size_t size = filter->size();
+            for (size_t i = 0; i < size; ++i) {
+                result_filter_data[i] &= filter_data[i];
+            }
+            if (memchr(result_filter_data, 0x1, size) == nullptr) {
+                *can_filter_all = true;
+                return Status::OK();
+            }
+        }
+    }
+    return Status::OK();
+}
+
+// TODO Performance Optimization
+// need exception safety
+Status VExprContext::execute_conjuncts_and_filter_block(
+        const VExprContextSPtrs& ctxs, const std::vector<IColumn::Filter*>* filters, Block* block,
+        std::vector<uint32_t>& columns_to_filter, int column_to_keep) {
+    IColumn::Filter result_filter(block->rows(), 1);
+    bool can_filter_all;
+    RETURN_IF_ERROR(
+            execute_conjuncts(ctxs, filters, false, block, &result_filter, &can_filter_all));
+    if (can_filter_all) {
+        for (auto& col : columns_to_filter) {
+            std::move(*block->get_by_position(col).column).assume_mutable()->clear();
+        }
+    } else {
+        try {
+            Block::filter_block_internal(block, columns_to_filter, result_filter);
+        } catch (const Exception& e) {
+            std::string str;
+            for (auto ctx : ctxs) {
+                if (str.length()) {
+                    str += ",";
+                }
+                str += ctx->root()->debug_string();
+            }
+
+            return Status::InternalError(
+                    "filter_block_internal meet exception, exprs=[{}], exception={}", str,
+                    e.what());
+        }
+    }
+    Block::erase_useless_column(block, column_to_keep);
+    return Status::OK();
+}
+
+Status VExprContext::execute_conjuncts_and_filter_block(const VExprContextSPtrs& ctxs, Block* block,
+                                                        std::vector<uint32_t>& columns_to_filter,
+                                                        int column_to_keep,
+                                                        IColumn::Filter& filter) {
+    filter.resize_fill(block->rows(), 1);
+    bool can_filter_all;
+    RETURN_IF_ERROR(execute_conjuncts(ctxs, nullptr, false, block, &filter, &can_filter_all));
+    if (can_filter_all) {
+        for (auto& col : columns_to_filter) {
+            std::move(*block->get_by_position(col).column).assume_mutable()->clear();
+        }
+    } else {
+        RETURN_IF_CATCH_EXCEPTION(Block::filter_block_internal(block, columns_to_filter, filter));
+    }
+
+    Block::erase_useless_column(block, column_to_keep);
+    return Status::OK();
+}
+
+Status VExprContext::get_output_block_after_execute_exprs(
+        const VExprContextSPtrs& output_vexpr_ctxs, const Block& input_block, Block* output_block) {
     vectorized::Block tmp_block(input_block.get_columns_with_type_and_name());
     vectorized::ColumnsWithTypeAndName result_columns;
-    for (auto vexpr_ctx : output_vexpr_ctxs) {
+    for (auto& vexpr_ctx : output_vexpr_ctxs) {
         int result_column_id = -1;
-        status = vexpr_ctx->execute(&tmp_block, &result_column_id);
-        if (UNLIKELY(!status)) {
-            return {};
-        }
+        RETURN_IF_ERROR(vexpr_ctx->execute(&tmp_block, &result_column_id));
         DCHECK(result_column_id != -1);
         result_columns.emplace_back(tmp_block.get_by_position(result_column_id));
     }
-
-    return {result_columns};
+    *output_block = {result_columns};
+    return Status::OK();
 }
 
 } // namespace doris::vectorized

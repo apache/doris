@@ -16,6 +16,7 @@
 // under the License.
 
 suite ("testJoinOnLeftProjectToJoin") {
+
     sql """ DROP TABLE IF EXISTS emps; """
     sql """
             create table emps (

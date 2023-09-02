@@ -38,7 +38,6 @@ import java.util.Set;
  */
 public class LogicalProperties {
     protected final Supplier<List<Slot>> outputSupplier;
-    protected final Supplier<List<Slot>> nonUserVisibleOutputSupplier;
     protected final Supplier<List<Id>> outputExprIdsSupplier;
     protected final Supplier<Set<Slot>> outputSetSupplier;
     protected final Supplier<Map<Slot, Slot>> outputMapSupplier;
@@ -58,9 +57,6 @@ public class LogicalProperties {
     public LogicalProperties(Supplier<List<Slot>> outputSupplier, Supplier<List<Slot>> nonUserVisibleOutputSupplier) {
         this.outputSupplier = Suppliers.memoize(
                 Objects.requireNonNull(outputSupplier, "outputSupplier can not be null")
-        );
-        this.nonUserVisibleOutputSupplier = Suppliers.memoize(
-                Objects.requireNonNull(nonUserVisibleOutputSupplier, "nonUserVisibleOutputSupplier can not be null")
         );
         this.outputExprIdsSupplier = Suppliers.memoize(
                 () -> this.outputSupplier.get().stream().map(NamedExpression::getExprId).map(Id.class::cast)
@@ -83,10 +79,6 @@ public class LogicalProperties {
         return outputSupplier.get();
     }
 
-    public List<Slot> getNonUserVisibleOutput() {
-        return nonUserVisibleOutputSupplier.get();
-    }
-
     public Set<Slot> getOutputSet() {
         return outputSetSupplier.get();
     }
@@ -103,8 +95,16 @@ public class LogicalProperties {
         return outputExprIdsSupplier.get();
     }
 
-    public LogicalProperties withOutput(List<Slot> output) {
-        return new LogicalProperties(Suppliers.ofInstance(output), nonUserVisibleOutputSupplier);
+    @Override
+    public String toString() {
+        return "LogicalProperties{"
+                + "\noutputSupplier=" + outputSupplier.get()
+                + "\noutputExprIdsSupplier=" + outputExprIdsSupplier.get()
+                + "\noutputSetSupplier=" + outputSetSupplier.get()
+                + "\noutputMapSupplier=" + outputMapSupplier.get()
+                + "\noutputExprIdSetSupplier=" + outputExprIdSetSupplier.get()
+                + "\nhashCode=" + hashCode
+                + '}';
     }
 
     @Override

@@ -23,6 +23,7 @@
 #include <string>
 
 #include "common/logging.h"
+#include "io/fs/file_writer.h"
 #include "olap/key_coder.h"
 #include "olap/olap_common.h"
 #include "olap/rowset/segment_v2/encoding_info.h"
@@ -45,6 +46,7 @@ IndexedColumnWriter::IndexedColumnWriter(const IndexedColumnWriterOptions& optio
           _file_writer(file_writer),
           _num_values(0),
           _num_data_pages(0),
+          _disk_size(0),
           _value_key_coder(nullptr),
           _compress_codec(nullptr) {
     _first_value.resize(_type_info->size());
@@ -63,6 +65,7 @@ Status IndexedColumnWriter::init() {
     PageBuilder* data_page_builder = nullptr;
     PageBuilderOptions builder_option;
     builder_option.need_check_bitmap = false;
+    builder_option.data_page_size = _options.data_page_size;
     RETURN_IF_ERROR(encoding_info->create_page_builder(builder_option, &data_page_builder));
     _data_page_builder.reset(data_page_builder);
 
@@ -88,6 +91,15 @@ Status IndexedColumnWriter::add(const void* value) {
     size_t num_to_write = 1;
     RETURN_IF_ERROR(
             _data_page_builder->add(reinterpret_cast<const uint8_t*>(value), &num_to_write));
+    CHECK(num_to_write == 1 || num_to_write == 0);
+    if (num_to_write == 0) {
+        CHECK(_data_page_builder->is_page_full());
+        // current page is already full, we need to first flush the current page,
+        // and then add the value to the new page
+        size_t num_val;
+        RETURN_IF_ERROR(_finish_current_data_page(num_val));
+        return add(value);
+    }
     _num_values++;
     size_t num_val;
     if (_data_page_builder->is_page_full()) {
@@ -115,10 +127,12 @@ Status IndexedColumnWriter::_finish_current_data_page(size_t& num_val) {
     footer.mutable_data_page_footer()->set_num_values(num_values_in_page);
     footer.mutable_data_page_footer()->set_nullmap_size(0);
 
+    uint64_t start_size = _file_writer->bytes_appended();
     RETURN_IF_ERROR(PageIO::compress_and_write_page(
             _compress_codec, _options.compression_min_space_saving, _file_writer,
             {page_body.slice()}, footer, &_last_data_page));
     _num_data_pages++;
+    _disk_size += (_file_writer->bytes_appended() - start_size);
 
     if (_options.write_ordinal_index) {
         std::string key;
@@ -170,9 +184,11 @@ Status IndexedColumnWriter::_flush_index(IndexPageBuilder* index_builder, BTreeM
         index_builder->finish(&page_body, &page_footer);
 
         PagePointer pp;
+        uint64_t start_size = _file_writer->bytes_appended();
         RETURN_IF_ERROR(PageIO::compress_and_write_page(
                 _compress_codec, _options.compression_min_space_saving, _file_writer,
                 {page_body.slice()}, page_footer, &pp));
+        _disk_size += (_file_writer->bytes_appended() - start_size);
 
         meta->set_is_root_data_page(false);
         pp.to_proto(meta->mutable_root_page());

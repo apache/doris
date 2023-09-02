@@ -19,6 +19,7 @@ package org.apache.doris.common.util;
 
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.Reference;
+import org.apache.doris.common.profile.SummaryProfile;
 import org.apache.doris.thrift.TCounter;
 import org.apache.doris.thrift.TRuntimeProfileNode;
 import org.apache.doris.thrift.TRuntimeProfileTree;
@@ -64,6 +65,11 @@ public class RuntimeProfile {
 
     private String name;
 
+    private Long timestamp = -1L;
+
+    private Boolean isDone = false;
+    private Boolean isCancel = false;
+
     public RuntimeProfile(String name) {
         this();
         this.name = name;
@@ -73,6 +79,22 @@ public class RuntimeProfile {
         this.counterTotalTime = new Counter(TUnit.TIME_NS, 0);
         this.localTimePercent = 0;
         this.counterMap.put("TotalTime", counterTotalTime);
+    }
+
+    public void setIsCancel(Boolean isCancel) {
+        this.isCancel = isCancel;
+    }
+
+    public Boolean getIsCancel() {
+        return isCancel;
+    }
+
+    public void setIsDone(Boolean isDone) {
+        this.isDone = isDone;
+    }
+
+    public Boolean getIsDone() {
+        return isDone;
     }
 
     public String getName() {
@@ -137,6 +159,11 @@ public class RuntimeProfile {
     // preorder traversal, idx should be modified in the traversal process
     private void update(List<TRuntimeProfileNode> nodes, Reference<Integer> idx) {
         TRuntimeProfileNode node = nodes.get(idx.getRef());
+        // Make sure to update the latest LoadChannel profile according to the timestamp.
+        if (node.timestamp != -1 && node.timestamp < timestamp) {
+            return;
+        }
+        Preconditions.checkState(timestamp == -1 || node.timestamp != -1);
         // update this level's counters
         if (node.counters != null) {
             for (TCounter tcounter : node.counters) {
@@ -148,7 +175,7 @@ public class RuntimeProfile {
                         LOG.error("Cannot update counters with the same name but different types"
                                 + " type=" + tcounter.type);
                     } else {
-                        counter.setValue(tcounter.value);
+                        counter.setValue(tcounter.type, tcounter.value);
                     }
                 }
             }
@@ -242,7 +269,13 @@ public class RuntimeProfile {
         infoStringsLock.readLock().lock();
         try {
             for (String key : this.infoStringsDisplayOrder) {
-                builder.append(prefix).append("   - ").append(key).append(": ")
+                builder.append(prefix);
+                if (SummaryProfile.EXECUTION_SUMMARY_KEYS_IDENTATION.containsKey(key)) {
+                    for (int i = 0; i < SummaryProfile.EXECUTION_SUMMARY_KEYS_IDENTATION.get(key); i++) {
+                        builder.append("  ");
+                    }
+                }
+                builder.append("   - ").append(key).append(": ")
                         .append(this.infoStrings.get(key)).append("\n");
             }
         } finally {
@@ -296,6 +329,10 @@ public class RuntimeProfile {
         StringBuilder builder = new StringBuilder();
         long tmpValue = value;
         switch (type) {
+            case NONE: {
+                // Do nothing, it is just a label
+                break;
+            }
             case UNIT: {
                 Pair<Double, String> pair = DebugUtil.getUint(tmpValue);
                 if (pair.second.isEmpty()) {
@@ -320,6 +357,15 @@ public class RuntimeProfile {
                     builder.append(tmpValue / 1000).append(".").append(tmpValue % 1000).append("us");
                 } else {
                     builder.append(tmpValue).append("ns");
+                }
+                break;
+            }
+            case TIME_MS: {
+                if (tmpValue >= DebugUtil.THOUSAND) {
+                    // If the time is over a second, print it up to ms.
+                    DebugUtil.printTimeMs(tmpValue, builder);
+                } else {
+                    builder.append(tmpValue).append("ms");
                 }
                 break;
             }
@@ -454,11 +500,9 @@ public class RuntimeProfile {
         infoStringsLock.writeLock().lock();
         try {
             String target = this.infoStrings.get(key);
+            this.infoStrings.put(key, value);
             if (target == null) {
-                this.infoStrings.put(key, value);
                 this.infoStringsDisplayOrder.add(key);
-            } else {
-                this.infoStrings.put(key, value);
             }
         } finally {
             infoStringsLock.writeLock().unlock();
@@ -479,3 +523,4 @@ public class RuntimeProfile {
         return infoStrings;
     }
 }
+

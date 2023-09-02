@@ -19,7 +19,7 @@
 
 namespace doris::vectorized {
 
-TableFormatReader::TableFormatReader(GenericReader* file_format_reader)
-        : _file_format_reader(file_format_reader) {}
+TableFormatReader::TableFormatReader(std::unique_ptr<GenericReader> file_format_reader)
+        : _file_format_reader(std::move(file_format_reader)) {}
 
 } // namespace doris::vectorized

@@ -18,17 +18,20 @@
 package org.apache.doris.task;
 
 import org.apache.doris.analysis.OutFileClause;
-import org.apache.doris.analysis.QueryStmt;
+import org.apache.doris.analysis.SelectStmt;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
-import org.apache.doris.common.Version;
-import org.apache.doris.common.util.DebugUtil;
-import org.apache.doris.common.util.ProfileManager;
-import org.apache.doris.common.util.RuntimeProfile;
-import org.apache.doris.common.util.TimeUtils;
+import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.catalog.Partition;
+import org.apache.doris.catalog.TabletMeta;
+import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.Config;
+import org.apache.doris.common.ThreadPoolManager;
 import org.apache.doris.load.ExportFailMsg;
+import org.apache.doris.load.ExportFailMsg.CancelType;
 import org.apache.doris.load.ExportJob;
-import org.apache.doris.load.ExportJob.JobState;
+import org.apache.doris.load.ExportJobState;
+import org.apache.doris.load.OutfileInfo;
 import org.apache.doris.qe.AutoCloseConnectContext;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.QueryState.MysqlStateType;
@@ -43,29 +46,58 @@ import org.apache.logging.log4j.Logger;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.CompletionService;
+import java.util.concurrent.ExecutorCompletionService;
+import java.util.concurrent.Future;
+import java.util.concurrent.ThreadPoolExecutor;
 
 public class ExportExportingTask extends MasterTask {
     private static final Logger LOG = LogManager.getLogger(ExportExportingTask.class);
 
     protected final ExportJob job;
 
-    private RuntimeProfile profile = new RuntimeProfile("Export");
-    private List<RuntimeProfile> fragmentProfiles = Lists.newArrayList();
-
-    private StmtExecutor stmtExecutor;
+    ThreadPoolExecutor exportExecPool = ThreadPoolManager.newDaemonCacheThreadPool(
+            Config.maximum_parallelism_of_export_job, "exporting-pool-", false);
 
     public ExportExportingTask(ExportJob job) {
         this.job = job;
         this.signature = job.getId();
     }
 
+    private class ExportResult {
+        private boolean isFailed;
+
+        private ExportFailMsg failMsg;
+
+        private OutfileInfo outfileInfo;
+
+        public ExportResult(boolean isFailed, ExportFailMsg failMsg, OutfileInfo outfileInfo) {
+            this.isFailed = isFailed;
+            this.failMsg = failMsg;
+            this.outfileInfo = outfileInfo;
+        }
+
+
+        public boolean isFailed() {
+            return isFailed;
+        }
+
+        public ExportFailMsg getFailMsg() {
+            return failMsg;
+        }
+
+        public OutfileInfo getOutfileInfo() {
+            return outfileInfo;
+        }
+    }
+
     @Override
     protected void exec() {
-        if (job.getState() == JobState.IN_QUEUE) {
+        if (job.getState() == ExportJobState.IN_QUEUE) {
             handleInQueueState();
         }
 
-        if (job.getState() != ExportJob.JobState.EXPORTING) {
+        if (job.getState() != ExportJobState.EXPORTING) {
             return;
         }
         LOG.info("begin execute export job in exporting state. job: {}", job);
@@ -78,49 +110,113 @@ public class ExportExportingTask extends MasterTask {
             job.setDoExportingThread(Thread.currentThread());
         }
 
-        List<QueryStmt> selectStmtList = job.getSelectStmtList();
-        boolean isFailed = false;
-        ExportFailMsg errorMsg = null;
+        List<SelectStmt> selectStmtList = job.getSelectStmtList();
         int completeTaskNum = 0;
-        List<ExportJob.OutfileInfo> outfileInfoList = Lists.newArrayList();
+        List<OutfileInfo> outfileInfoList = Lists.newArrayList();
+
+        int parallelNum = selectStmtList.size();
+        CompletionService<ExportResult> completionService = new ExecutorCompletionService<>(exportExecPool);
+
         // begin exporting
-        for (int i = 0; i < selectStmtList.size(); ++i) {
-            try (AutoCloseConnectContext r = buildConnectContext()) {
-                this.stmtExecutor = new StmtExecutor(r.connectContext, selectStmtList.get(i));
-                this.stmtExecutor.execute();
-                if (r.connectContext.getState().getStateType() == MysqlStateType.ERR) {
-                    errorMsg = new ExportFailMsg(ExportFailMsg.CancelType.RUN_FAIL,
-                            r.connectContext.getState().getErrorMessage());
+        for (int i = 0; i < parallelNum; ++i) {
+            final int idx = i;
+            completionService.submit(() -> {
+                // maybe user cancelled this job
+                if (job.getState() != ExportJobState.EXPORTING) {
+                    return new ExportResult(true, null, null);
+                }
+                try {
+                    Database db = Env.getCurrentEnv().getInternalCatalog().getDbOrAnalysisException(
+                            job.getTableName().getDb());
+                    OlapTable table = db.getOlapTableOrAnalysisException(job.getTableName().getTbl());
+                    table.readLock();
+                    try {
+                        SelectStmt selectStmt = selectStmtList.get(idx);
+                        List<Long> tabletIds = selectStmt.getTableRefs().get(0).getSampleTabletIds();
+                        for (Long tabletId : tabletIds) {
+                            TabletMeta tabletMeta = Env.getCurrentEnv().getTabletInvertedIndex().getTabletMeta(
+                                    tabletId);
+                            Partition partition = table.getPartition(tabletMeta.getPartitionId());
+                            long nowVersion = partition.getVisibleVersion();
+                            long oldVersion = job.getPartitionToVersion().get(partition.getName());
+                            if (nowVersion != oldVersion) {
+                                LOG.warn("Tablet {} has changed version, old version = {}, now version = {}",
+                                        tabletId, oldVersion, nowVersion);
+                                return new ExportResult(true, new ExportFailMsg(
+                                        ExportFailMsg.CancelType.RUN_FAIL,
+                                        "Tablet {" + tabletId + "} has changed"), null);
+                            }
+                        }
+                    } finally {
+                        table.readUnlock();
+                    }
+                } catch (AnalysisException e) {
+                    return new ExportResult(true,
+                            new ExportFailMsg(ExportFailMsg.CancelType.RUN_FAIL, e.getMessage()), null);
+                }
+                try (AutoCloseConnectContext r = buildConnectContext()) {
+                    StmtExecutor stmtExecutor = new StmtExecutor(r.connectContext, selectStmtList.get(idx));
+                    job.setStmtExecutor(idx, stmtExecutor);
+                    stmtExecutor.execute();
+                    if (r.connectContext.getState().getStateType() == MysqlStateType.ERR) {
+                        return new ExportResult(true, new ExportFailMsg(ExportFailMsg.CancelType.RUN_FAIL,
+                                r.connectContext.getState().getErrorMessage()), null);
+                    }
+                    OutfileInfo outfileInfo = getOutFileInfo(r.connectContext.getResultAttachedInfo());
+                    return new ExportResult(false, null, outfileInfo);
+                } catch (Exception e) {
+                    return new ExportResult(true, new ExportFailMsg(ExportFailMsg.CancelType.RUN_FAIL,
+                            e.getMessage()),
+                            null);
+                } finally {
+                    job.getStmtExecutor(idx).addProfileToSpan();
+                }
+            });
+        }
+
+        Boolean isFailed = false;
+        ExportFailMsg failMsg = new ExportFailMsg();
+        try {
+            for (int i = 0; i < parallelNum; ++i) {
+                Future<ExportResult> future = completionService.take();
+                ExportResult result = future.get();
+                if (!result.isFailed) {
+                    outfileInfoList.add(result.getOutfileInfo());
+                    ++completeTaskNum;
+                    int progress = completeTaskNum * 100 / selectStmtList.size();
+                    if (progress >= 100) {
+                        progress = 99;
+                    }
+                    job.setProgress(progress);
+                    LOG.info("Export Job {} finished {} outfile export and it's progress is {}%", job.getId(),
+                            completeTaskNum, progress);
+                } else {
                     isFailed = true;
+                    failMsg.setCancelType(result.failMsg.getCancelType());
+                    failMsg.setMsg(result.failMsg.getMsg());
+                    LOG.warn("Exporting task failed because: {}", result.failMsg.getMsg());
                     break;
                 }
-                ExportJob.OutfileInfo outfileInfo = getOutFileInfo(r.connectContext.getResultAttachedInfo());
-                outfileInfoList.add(outfileInfo);
-                ++completeTaskNum;
-            } catch (Exception e) {
-                errorMsg = new ExportFailMsg(ExportFailMsg.CancelType.RUN_FAIL, e.getMessage());
-                isFailed = true;
-                break;
-            } finally {
-                this.stmtExecutor.addProfileToSpan();
             }
+        } catch (Exception e) {
+            isFailed = true;
+            failMsg.setCancelType(CancelType.RUN_FAIL);
+            failMsg.setMsg(e.getMessage());
+        } finally {
+            // cancel all executor
+            if (isFailed) {
+                for (int idx = 0; idx < parallelNum; ++idx) {
+                    job.getStmtExecutor(idx).cancel();
+                }
+            }
+            exportExecPool.shutdownNow();
         }
-
-        int progress = completeTaskNum * 100 / selectStmtList.size();
-        if (progress >= 100) {
-            progress = 99;
-        }
-        job.setProgress(progress);
-        LOG.info("Exporting task progress is {}%, export job: {}", progress, job.getId());
 
         if (isFailed) {
-            registerProfile();
-            job.cancel(errorMsg.getCancelType(), errorMsg.getMsg());
-            LOG.warn("Exporting task failed because Exception: {}", errorMsg.getMsg());
+            job.cancel(failMsg.getCancelType(), failMsg.getMsg());
             return;
         }
 
-        registerProfile();
         if (job.finish(outfileInfoList)) {
             LOG.info("export job success. job: {}", job);
             // TODO(ftw): when we implement exporting tablet one by one, we should release snapshot here
@@ -154,45 +250,13 @@ public class ExportExportingTask extends MasterTask {
         return new AutoCloseConnectContext(connectContext);
     }
 
-    private ExportJob.OutfileInfo getOutFileInfo(Map<String, String> resultAttachedInfo) {
-        ExportJob.OutfileInfo outfileInfo = new ExportJob.OutfileInfo();
+    private OutfileInfo getOutFileInfo(Map<String, String> resultAttachedInfo) {
+        OutfileInfo outfileInfo = new OutfileInfo();
         outfileInfo.setFileNumber(resultAttachedInfo.get(OutFileClause.FILE_NUMBER));
         outfileInfo.setTotalRows(resultAttachedInfo.get(OutFileClause.TOTAL_ROWS));
         outfileInfo.setFileSize(resultAttachedInfo.get(OutFileClause.FILE_SIZE) + "bytes");
         outfileInfo.setUrl(resultAttachedInfo.get(OutFileClause.URL));
         return outfileInfo;
-    }
-
-    private void initProfile() {
-        profile = new RuntimeProfile("ExportJob");
-        RuntimeProfile summaryProfile = new RuntimeProfile("Summary");
-        summaryProfile.addInfoString(ProfileManager.JOB_ID, String.valueOf(job.getId()));
-        summaryProfile.addInfoString(ProfileManager.QUERY_ID, job.getQueryId());
-        summaryProfile.addInfoString(ProfileManager.START_TIME, TimeUtils.longToTimeString(job.getStartTimeMs()));
-
-        long currentTimestamp = System.currentTimeMillis();
-        long totalTimeMs = currentTimestamp - job.getStartTimeMs();
-        summaryProfile.addInfoString(ProfileManager.END_TIME, TimeUtils.longToTimeString(currentTimestamp));
-        summaryProfile.addInfoString(ProfileManager.TOTAL_TIME, DebugUtil.getPrettyStringMs(totalTimeMs));
-
-        summaryProfile.addInfoString(ProfileManager.QUERY_TYPE, "Export");
-        summaryProfile.addInfoString(ProfileManager.QUERY_STATE, job.getState().toString());
-        summaryProfile.addInfoString(ProfileManager.DORIS_VERSION, Version.DORIS_BUILD_VERSION);
-        summaryProfile.addInfoString(ProfileManager.USER, job.getQualifiedUser());
-        summaryProfile.addInfoString(ProfileManager.DEFAULT_DB, String.valueOf(job.getDbId()));
-        summaryProfile.addInfoString(ProfileManager.SQL_STATEMENT, job.getSql());
-        profile.addChild(summaryProfile);
-    }
-
-    private void registerProfile() {
-        if (!job.getEnableProfile()) {
-            return;
-        }
-        initProfile();
-        for (RuntimeProfile p : fragmentProfiles) {
-            profile.addChild(p);
-        }
-        ProfileManager.getInstance().pushProfile(profile);
     }
 
     private void handleInQueueState() {
@@ -210,7 +274,7 @@ public class ExportExportingTask extends MasterTask {
         //     return;
         // }
 
-        if (job.updateState(ExportJob.JobState.EXPORTING)) {
+        if (job.updateState(ExportJobState.EXPORTING)) {
             LOG.info("Exchange pending status to exporting status success. job: {}", job);
         }
     }

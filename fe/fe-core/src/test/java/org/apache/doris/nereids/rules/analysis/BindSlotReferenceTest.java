@@ -30,7 +30,6 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSubQueryAlias;
-import org.apache.doris.nereids.trees.plans.logical.RelationUtil;
 import org.apache.doris.nereids.util.MemoTestUtils;
 import org.apache.doris.nereids.util.PlanChecker;
 import org.apache.doris.nereids.util.PlanConstructor;
@@ -51,7 +50,7 @@ class BindSlotReferenceTest {
     @Test
     public void testCannotFindSlot() {
         LogicalProject project = new LogicalProject<>(ImmutableList.of(new UnboundSlot("foo")),
-                new LogicalOlapScan(RelationUtil.newRelationId(), PlanConstructor.student));
+                new LogicalOlapScan(StatementScopeIdGenerator.newRelationId(), PlanConstructor.student));
         AnalysisException exception = Assertions.assertThrows(AnalysisException.class,
                 () -> PlanChecker.from(MemoTestUtils.createConnectContext()).analyze(project));
         Assertions.assertEquals("unbounded object foo in PROJECT clause.", exception.getMessage());
@@ -59,8 +58,8 @@ class BindSlotReferenceTest {
 
     @Test
     public void testAmbiguousSlot() {
-        LogicalOlapScan scan1 = new LogicalOlapScan(RelationUtil.newRelationId(), PlanConstructor.student);
-        LogicalOlapScan scan2 = new LogicalOlapScan(RelationUtil.newRelationId(), PlanConstructor.student);
+        LogicalOlapScan scan1 = new LogicalOlapScan(StatementScopeIdGenerator.newRelationId(), PlanConstructor.student);
+        LogicalOlapScan scan2 = new LogicalOlapScan(StatementScopeIdGenerator.newRelationId(), PlanConstructor.student);
         LogicalJoin<LogicalOlapScan, LogicalOlapScan> join = new LogicalJoin<>(
                 JoinType.CROSS_JOIN, scan1, scan2);
         LogicalProject<LogicalJoin<LogicalOlapScan, LogicalOlapScan>> project = new LogicalProject<>(
@@ -79,9 +78,9 @@ class BindSlotReferenceTest {
      */
     @Test
     public void testGroupByOnJoin() {
-        LogicalOlapScan scan1 = new LogicalOlapScan(RelationUtil.newRelationId(), PlanConstructor.student);
+        LogicalOlapScan scan1 = new LogicalOlapScan(StatementScopeIdGenerator.newRelationId(), PlanConstructor.student);
         LogicalSubQueryAlias sub1 = new LogicalSubQueryAlias("t1", scan1);
-        LogicalOlapScan scan2 = new LogicalOlapScan(RelationUtil.newRelationId(), PlanConstructor.student);
+        LogicalOlapScan scan2 = new LogicalOlapScan(StatementScopeIdGenerator.newRelationId(), PlanConstructor.student);
         LogicalSubQueryAlias sub2 = new LogicalSubQueryAlias("t2", scan2);
         LogicalJoin<LogicalSubQueryAlias<LogicalOlapScan>, LogicalSubQueryAlias<LogicalOlapScan>> join =
                 new LogicalJoin<>(JoinType.CROSS_JOIN, sub1, sub2);
@@ -91,10 +90,11 @@ class BindSlotReferenceTest {
                 join
         );
         PlanChecker checker = PlanChecker.from(MemoTestUtils.createConnectContext()).analyze(aggregate);
-        LogicalAggregate plan = (LogicalAggregate) checker.getCascadesContext().getMemo().copyOut();
+        LogicalAggregate plan = (LogicalAggregate) ((LogicalProject) checker.getCascadesContext()
+                .getMemo().copyOut()).child();
         SlotReference groupByKey = (SlotReference) plan.getGroupByExpressions().get(0);
-        SlotReference t1id = (SlotReference) ((LogicalJoin) plan.child()).left().getOutput().get(0);
-        SlotReference t2id = (SlotReference) ((LogicalJoin) plan.child()).right().getOutput().get(0);
+        SlotReference t1id = (SlotReference) ((LogicalJoin) plan.child().child(0)).left().getOutput().get(0);
+        SlotReference t2id = (SlotReference) ((LogicalJoin) plan.child().child(0)).right().getOutput().get(0);
         Assertions.assertEquals(groupByKey.getExprId(), t1id.getExprId());
         Assertions.assertNotEquals(t1id.getExprId(), t2id.getExprId());
     }
@@ -105,9 +105,9 @@ class BindSlotReferenceTest {
      */
     @Test
     public void testGroupByOnJoinAmbiguous() {
-        LogicalOlapScan scan1 = new LogicalOlapScan(RelationUtil.newRelationId(), PlanConstructor.student);
+        LogicalOlapScan scan1 = new LogicalOlapScan(StatementScopeIdGenerator.newRelationId(), PlanConstructor.student);
         LogicalSubQueryAlias sub1 = new LogicalSubQueryAlias("t1", scan1);
-        LogicalOlapScan scan2 = new LogicalOlapScan(RelationUtil.newRelationId(), PlanConstructor.student);
+        LogicalOlapScan scan2 = new LogicalOlapScan(StatementScopeIdGenerator.newRelationId(), PlanConstructor.student);
         LogicalSubQueryAlias sub2 = new LogicalSubQueryAlias("t2", scan2);
         LogicalJoin<LogicalSubQueryAlias<LogicalOlapScan>, LogicalSubQueryAlias<LogicalOlapScan>> join =
                 new LogicalJoin<>(JoinType.CROSS_JOIN, sub1, sub2);

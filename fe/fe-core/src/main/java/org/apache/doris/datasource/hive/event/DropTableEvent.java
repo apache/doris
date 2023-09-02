@@ -34,6 +34,13 @@ import java.util.List;
 public class DropTableEvent extends MetastoreTableEvent {
     private final String tableName;
 
+    // for test
+    public DropTableEvent(long eventId, String catalogName, String dbName,
+                           String tblName) {
+        super(eventId, catalogName, dbName, tblName);
+        this.tableName = tblName;
+    }
+
     private DropTableEvent(NotificationEvent event,
             String catalogName) {
         super(event, catalogName);
@@ -56,13 +63,25 @@ public class DropTableEvent extends MetastoreTableEvent {
     }
 
     @Override
+    protected boolean willCreateOrDropTable() {
+        return true;
+    }
+
+    @Override
     protected void process() throws MetastoreNotificationException {
         try {
             infoLog("catalogName:[{}],dbName:[{}],tableName:[{}]", catalogName, dbName, tableName);
-            Env.getCurrentEnv().getCatalogMgr().dropExternalTable(dbName, tableName, catalogName);
+            Env.getCurrentEnv().getCatalogMgr().dropExternalTable(dbName, tableName, catalogName, true);
         } catch (DdlException e) {
             throw new MetastoreNotificationException(
-                    debugString("Failed to process event"));
+                    debugString("Failed to process event"), e);
         }
+    }
+
+    @Override
+    protected boolean canBeBatched(MetastoreEvent that) {
+        // `that` event must not be a rename table event
+        // so merge all events which belong to this table before is ok
+        return isSameTable(that);
     }
 }

@@ -71,6 +71,7 @@ struct DecodeParams {
     static const cctz::time_zone utc0;
     // schema.logicalType.TIMESTAMP.isAdjustedToUTC == true, we should set the time zone
     cctz::time_zone* ctz = nullptr;
+    size_t offset_days = 0;
     int64_t second_mask = 1;
     int64_t scale_to_nano_factor = 1;
     DecimalScaleParams decimal_scale;
@@ -173,6 +174,7 @@ protected:
      * Decode dictionary-coded values into doris_column, ensure that doris_column is ColumnDictI32 type,
      * and the coded values must be read into _indexes previously.
      */
+    template <bool has_filter>
     Status _decode_dict_values(MutableColumnPtr& doris_column, ColumnSelectVector& select_vector,
                                bool is_dict_filter) {
         DCHECK(doris_column->is_column_dictionary() || is_dict_filter);
@@ -182,7 +184,7 @@ protected:
                 doris_column->is_column_dictionary()
                         ? assert_cast<ColumnDictI32&>(*doris_column).get_data()
                         : assert_cast<ColumnInt32&>(*doris_column).get_data();
-        while (size_t run_length = select_vector.get_next_run(&read_type)) {
+        while (size_t run_length = select_vector.get_next_run<has_filter>(&read_type)) {
             switch (read_type) {
             case ColumnSelectVector::CONTENT: {
                 uint32_t* start_index = &_indexes[0];

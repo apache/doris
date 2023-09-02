@@ -11,8 +11,8 @@ char_value	CHAR(10)	Yes	false	\N	NONE
 date_value	DATE	Yes	false	\N	NONE
 date_value2	DATE	Yes	false	\N	NONE
 date_value3	DATETIME	Yes	false	\N	NONE
-date_value4	DATETIME	Yes	false	\N	NONE
-date_value5	DATETIME	Yes	false	\N	NONE
+date_value4	DATETIME(3)	Yes	false	\N	NONE
+date_value5	DATETIME(6)	Yes	false	\N	NONE
 
 -- !select_dup_table --
 0	1	2	3

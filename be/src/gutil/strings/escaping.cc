@@ -6,10 +6,13 @@
 #include <assert.h>
 #include <stdio.h>
 #include <string.h>
-
+#include <glog/logging.h>
 #include <limits>
+#include <ostream>
+
 using std::numeric_limits;
 #include <vector>
+
 using std::vector;
 
 #include "gutil/charmap.h"
@@ -17,8 +20,8 @@ using std::vector;
 #include "gutil/integral_types.h"
 #include "gutil/port.h"
 #include "gutil/stl_util.h"
-#include "gutil/strings/join.h"
 #include "gutil/utf/utf.h" // for runetochar
+#include "gutil/strings/strcat.h"
 
 namespace strings {
 

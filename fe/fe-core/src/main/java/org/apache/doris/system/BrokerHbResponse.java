@@ -20,8 +20,9 @@ package org.apache.doris.system;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 
+import com.google.gson.annotations.SerializedName;
+
 import java.io.DataInput;
-import java.io.DataOutput;
 import java.io.IOException;
 
 /*
@@ -29,8 +30,11 @@ import java.io.IOException;
  */
 public class BrokerHbResponse extends HeartbeatResponse implements Writable {
 
+    @SerializedName(value = "name")
     private String name;
+    @SerializedName(value = "host")
     private String host;
+    @SerializedName(value = "port")
     private int port;
 
     public BrokerHbResponse() {
@@ -67,22 +71,8 @@ public class BrokerHbResponse extends HeartbeatResponse implements Writable {
         return port;
     }
 
-    public static BrokerHbResponse read(DataInput in) throws IOException {
-        BrokerHbResponse result = new BrokerHbResponse();
-        result.readFields(in);
-        return result;
-    }
-
     @Override
-    public void write(DataOutput out) throws IOException {
-        super.write(out);
-        Text.writeString(out, name);
-        Text.writeString(out, host);
-        out.writeInt(port);
-    }
-
-    @Override
-    public void readFields(DataInput in) throws IOException {
+    protected void readFields(DataInput in) throws IOException {
         super.readFields(in);
         name = Text.readString(in);
         host = Text.readString(in);

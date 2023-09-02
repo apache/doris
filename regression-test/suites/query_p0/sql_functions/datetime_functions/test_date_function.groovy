@@ -37,12 +37,18 @@ suite("test_date_function") {
     sql """ insert into ${tableName} values ("2019-08-01 13:21:03") """
     // convert_tz
     qt_sql """ SELECT convert_tz(test_datetime, 'Asia/Shanghai', 'America/Los_Angeles') result from ${tableName}; """
+    qt_sql """ SELECT convert_tz(test_datetime, 'Asia/SHANGHAI', 'america/Los_angeles') result from ${tableName}; """
     qt_sql """ SELECT convert_tz(test_datetime, '+08:00', 'America/Los_Angeles') result from ${tableName}; """
 
     qt_sql """ SELECT convert_tz(test_datetime, 'Asia/Shanghai', 'Europe/London') result from ${tableName}; """
     qt_sql """ SELECT convert_tz(test_datetime, '+08:00', 'Europe/London') result from ${tableName}; """
 
     qt_sql """ SELECT convert_tz(test_datetime, '+08:00', 'America/London') result from ${tableName}; """
+
+    qt_sql """ select convert_tz("2019-08-01 02:18:27",  'Asia/Shanghai', 'UTC'); """
+    qt_sql """ select convert_tz("2019-08-01 02:18:27",  'Asia/Shanghai', 'UTc'); """
+    qt_sql """ select convert_tz("2019-08-01 02:18:27",  'America/Los_Angeles', 'CST'); """
+    qt_sql """ select convert_tz("2019-08-01 02:18:27",  'America/Los_Angeles', 'cSt'); """
 
     // some invalid date
     qt_sql """ SELECT convert_tz('2022-2-29 13:21:03', '+08:00', 'America/London') result; """
@@ -311,10 +317,15 @@ suite("test_date_function") {
     // NOW
     def now_result = sql """ select now() """
     assertTrue(now_result[0].size() == 1)
+    def now_null_result = sql """ select now(null) """
+    assertTrue(now_null_result[0].size() == 1)
 
     // SECOND
     qt_sql """ select second('2018-12-31 23:59:59') """
     qt_sql """ select second('2018-12-31 00:00:00') """
+
+    // MICROSECOND
+    qt_sql """ select microsecond(cast('1999-01-02 10:11:12.767890' as datetimev2(6))) """
 
     // STR_TO_DATE
     sql """ truncate table ${tableName} """
@@ -328,6 +339,7 @@ suite("test_date_function") {
     qt_sql """ select str_to_date(test_datetime, "%Y-%m-%d %H:%i:%s") from ${tableName};"""
 
     // TIME_ROUND
+    qt_sql_year_floor """ select year_floor(cast('2023-04-28' as date)); """
     qt_sql """ SELECT YEAR_FLOOR('20200202000000') """
     qt_sql """ SELECT MONTH_CEIL(CAST('2020-02-02 13:09:20' AS DATETIME), 3) """
     qt_sql """ SELECT WEEK_CEIL('2020-02-02 13:09:20', '2020-01-06') """
@@ -406,6 +418,18 @@ suite("test_date_function") {
 
     qt_sql """ select count(*) from (select * from numbers("number" = "200")) tmp1 WHERE 0 <= UNIX_TIMESTAMP(); """
 
+    // microsecond
+    sql """ drop table ${tableName} """
+    tableName = "test_microsecond"
+    sql """ DROP TABLE IF EXISTS ${tableName} """
+    sql """
+           CREATE TABLE IF NOT EXISTS ${tableName} (k1 datetimev2(6)) duplicate key(k1) distributed by hash(k1) buckets 1 properties('replication_num' = '1');
+        """
+    sql """ insert into ${tableName} values('1999-01-02 10:11:12.767891') """
+
+    qt_sql """ select microsecond(k1) from ${tableName}; """
+    
+    // from_unixtime
     sql """ drop table ${tableName} """
 
     tableName = "test_from_unixtime"
@@ -589,7 +613,7 @@ suite("test_date_function") {
         insert into ${tableName} values 
         ('2022-01-01', '2022-01-01', '2022-01-01 00:00:00', '2022-01-01 00:00:00'), 
         ('2000-02-01', '2000-02-01', '2000-02-01 00:00:00', '2000-02-01 00:00:00.123'), 
-        ('2022-02-29', '2022-02-29', '2022-02-29 00:00:00', '2022-02-29 00:00:00'),
+        ('2022-02-27', '2022-02-27', '2022-02-27 00:00:00', '2022-02-27 00:00:00'),
         ('2022-02-28', '2022-02-28', '2022-02-28T23:59:59', '2022-02-28T23:59:59');"""
     qt_sql """
         select last_day(birth), last_day(birth1), 
@@ -611,7 +635,7 @@ suite("test_date_function") {
         insert into ${tableName} values 
         ('2022-01-01', '2022-01-01 00:00:00'), 
         ('2000-02-01', '2000-02-01 00:00:00'), 
-        ('2022-02-29', '2022-02-29 00:00:00'),
+        ('2022-02-27', '2022-02-27 00:00:00'),
         ('2022-02-28', '2022-02-28 23:59:59');"""
     qt_sql """
         select last_day(birth), last_day(birth1) from ${tableName};
@@ -631,21 +655,18 @@ suite("test_date_function") {
             PROPERTIES( "replication_allocation" = "tag.location.default: 1");
         """
 
-    explain {
-        sql("select * from ${tableName} where date(birth) < timestamp(date '2022-01-01')")
-        contains "`birth` < '2022-01-01 00:00:00'"
-    }
+    String explainResult
+    explainResult = sql("select * from ${tableName} where date(birth) < timestamp(date '2022-01-01')")
+    assertFalse(explainResult.contains("timestamp"))
 
-    explain {
-        sql("select * from ${tableName} where date(birth1) < timestamp(date '2022-01-01')")
-        contains "`birth1` < '2022-01-01'"
-    }
+    explainResult = sql("select * from ${tableName} where date(birth1) < timestamp(date '2022-01-01')")
+    assertFalse(explainResult.contains("timestamp"))
 
     sql """
         insert into ${tableName} values 
         ('2022-01-01', '2022-01-01', '2022-01-01 00:00:00', '2022-01-01 00:00:00'), 
         ('2000-02-01', '2000-02-01', '2000-02-01 00:00:00', '2000-02-01 00:00:00.123'), 
-        ('2022-02-29', '2022-02-29', '2022-02-29 00:00:00', '2022-02-29 00:00:00'),
+        ('2022-02-27', '2022-02-27', '2022-02-27 00:00:00', '2022-02-27 00:00:00'),
         ('2022-02-28', '2022-02-28', '2022-02-28 23:59:59', '2022-02-28 23:59:59'),
         ('1970-01-02', '1970-01-02', '1970-01-02 01:02:03', '1970-01-02 02:03:04');"""
     qt_sql """
@@ -688,5 +709,14 @@ suite("test_date_function") {
         }
     }
     sql """ DROP TABLE IF EXISTS ${tableName}; """
+    
+    test {
+        sql "select cast('20230631' as date), cast('20230632' as date)"
+        result([[null, null]])
+    }
+    
+    res = sql "explain select date_trunc('2022-04-24', 'day'), date_trunc('1999-03-12 00:31:23', 'hour')"
+    assertFalse(res.contains("date_trunc"))
 
+    qt_sql """ select date_add("2023-08-17T01:41:18Z", interval 8 hour) """
 }

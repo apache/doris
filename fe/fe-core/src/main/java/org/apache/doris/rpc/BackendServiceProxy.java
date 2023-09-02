@@ -19,6 +19,7 @@ package org.apache.doris.rpc;
 
 import org.apache.doris.common.Config;
 import org.apache.doris.common.ThreadPoolManager;
+import org.apache.doris.common.util.NetUtils;
 import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.proto.InternalService;
 import org.apache.doris.proto.InternalService.PExecPlanFragmentStartRequest;
@@ -37,6 +38,7 @@ import org.apache.thrift.TException;
 import org.apache.thrift.TSerializer;
 import org.apache.thrift.protocol.TCompactProtocol;
 
+import java.net.UnknownHostException;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.Executor;
@@ -52,14 +54,14 @@ public class BackendServiceProxy {
 
     private Executor grpcThreadPool = ThreadPoolManager.newDaemonCacheThreadPool(Config.grpc_threadmgr_threads_nums,
             "grpc_thread_pool", true);
-    private final Map<TNetworkAddress, BackendServiceClient> serviceMap;
+    private final Map<TNetworkAddress, BackendServiceClientExtIp> serviceMap;
 
     public BackendServiceProxy() {
         serviceMap = Maps.newConcurrentMap();
     }
 
     private static class Holder {
-        private static final int PROXY_NUM = 20;
+        private static final int PROXY_NUM = Config.backend_proxy_num;
         private static BackendServiceProxy[] proxies = new BackendServiceProxy[PROXY_NUM];
         private static AtomicInteger count = new AtomicInteger();
 
@@ -78,36 +80,52 @@ public class BackendServiceProxy {
         return Holder.get();
     }
 
+    private class BackendServiceClientExtIp {
+        private String realIp;
+        private BackendServiceClient client;
+
+        public BackendServiceClientExtIp(String realIp, BackendServiceClient client) {
+            this.realIp = realIp;
+            this.client = client;
+        }
+
+    }
+
     public void removeProxy(TNetworkAddress address) {
         LOG.warn("begin to remove proxy: {}", address);
-        BackendServiceClient service;
+        BackendServiceClientExtIp serviceClientExtIp;
         lock.lock();
         try {
-            service = serviceMap.remove(address);
+            serviceClientExtIp = serviceMap.remove(address);
         } finally {
             lock.unlock();
         }
 
-        if (service != null) {
-            service.shutdown();
+        if (serviceClientExtIp != null) {
+            serviceClientExtIp.client.shutdown();
         }
     }
 
-    private BackendServiceClient getProxy(TNetworkAddress address) {
-        BackendServiceClient service = serviceMap.get(address);
-        if (service != null) {
-            return service;
+    private BackendServiceClient getProxy(TNetworkAddress address) throws UnknownHostException {
+        String realIp = NetUtils.getIpByHost(address.getHostname());
+        BackendServiceClientExtIp serviceClientExtIp = serviceMap.get(address);
+        if (serviceClientExtIp != null && serviceClientExtIp.realIp.equals(realIp)) {
+            return serviceClientExtIp.client;
         }
-
         // not exist, create one and return.
         lock.lock();
         try {
-            service = serviceMap.get(address);
-            if (service == null) {
-                service = new BackendServiceClient(address, grpcThreadPool);
-                serviceMap.put(address, service);
+            serviceClientExtIp = serviceMap.get(address);
+            if (serviceClientExtIp != null && !serviceClientExtIp.realIp.equals(realIp)) {
+                LOG.warn("Cached ip changed ,before ip: {}, curIp: {}", serviceClientExtIp.realIp, realIp);
+                serviceMap.remove(address);
             }
-            return service;
+            serviceClientExtIp = serviceMap.get(address);
+            if (serviceClientExtIp == null) {
+                BackendServiceClient client = new BackendServiceClient(address, grpcThreadPool);
+                serviceMap.put(address, new BackendServiceClientExtIp(realIp, client));
+            }
+            return serviceMap.get(address).client;
         } finally {
             lock.unlock();
         }
@@ -251,6 +269,18 @@ public class BackendServiceProxy {
         }
     }
 
+    public Future<InternalService.PReportStreamLoadStatusResponse> reportStreamLoadStatus(
+            TNetworkAddress address, InternalService.PReportStreamLoadStatusRequest request) throws RpcException {
+        try {
+            final BackendServiceClient client = getProxy(address);
+            return client.reportStreamLoadStatus(request);
+        } catch (Throwable e) {
+            LOG.warn("report stream load status catch a exception, address={}:{}",
+                    address.getHostname(), address.getPort(), e);
+            throw new RpcException(address.hostname, e.getMessage());
+        }
+    }
+
     public Future<InternalService.PCacheResponse> updateCache(
             TNetworkAddress address, InternalService.PUpdateCacheRequest request) throws RpcException {
         try {
@@ -365,6 +395,18 @@ public class BackendServiceProxy {
             return client.getColIdsByTabletIds(request);
         } catch (Throwable e) {
             LOG.warn("failed to fetch column id from address={}:{}", address.getHostname(), address.getPort());
+            throw new RpcException(address.hostname, e.getMessage());
+        }
+    }
+
+    public Future<InternalService.PGlobResponse> glob(TNetworkAddress address,
+            InternalService.PGlobRequest request) throws RpcException {
+        try {
+            final BackendServiceClient client = getProxy(address);
+            return client.glob(request);
+        } catch (Throwable e) {
+            LOG.warn("failed to glob dir from BE {}:{}, path: {}, error: ",
+                    address.getHostname(), address.getPort(), request.getPattern());
             throw new RpcException(address.hostname, e.getMessage());
         }
     }

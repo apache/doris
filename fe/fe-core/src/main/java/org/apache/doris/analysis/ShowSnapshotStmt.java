@@ -28,6 +28,11 @@ import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableList;
 
 public class ShowSnapshotStmt extends ShowStmt {
+    public enum SnapshotType {
+        REMOTE,
+        LOCAL
+    }
+
     public static final ImmutableList<String> SNAPSHOT_ALL = new ImmutableList.Builder<String>()
             .add("Snapshot").add("Timestamp").add("Status")
             .build();
@@ -39,6 +44,7 @@ public class ShowSnapshotStmt extends ShowStmt {
     private Expr where;
     private String snapshotName;
     private String timestamp;
+    private SnapshotType snapshotType = SnapshotType.REMOTE;
 
     public ShowSnapshotStmt(String repoName, Expr where) {
         this.repoName = repoName;
@@ -87,7 +93,7 @@ public class ShowSnapshotStmt extends ShowStmt {
 
             if (!ok) {
                 throw new AnalysisException("Where clause should looks like: SNAPSHOT = 'your_snapshot_name'"
-                        + " [AND TIMESTAMP = '2018-04-18-19-19-10']");
+                        + " [AND TIMESTAMP = '2018-04-18-19-19-10'] [AND SNAPSHOTTYPE = 'remote' | 'local']");
             }
         }
     }
@@ -116,10 +122,25 @@ public class ShowSnapshotStmt extends ShowStmt {
                 return false;
             }
             return true;
+        } else if (name.equalsIgnoreCase("snapshotType")) {
+            String snapshotTypeVal = ((StringLiteral) val).getStringValue();
+            if (Strings.isNullOrEmpty(snapshotTypeVal)) {
+                return false;
+            }
+            // snapshotType now only support "remote" and "local"
+            switch (snapshotTypeVal.toLowerCase()) {
+                case "remote":
+                    snapshotType = SnapshotType.REMOTE;
+                    return true;
+                case "local":
+                    snapshotType = SnapshotType.LOCAL;
+                    return true;
+                default:
+                    return false;
+            }
+        } else {
+            return false;
         }
-
-        return false;
-
     }
 
     public String getRepoName() {
@@ -132,6 +153,10 @@ public class ShowSnapshotStmt extends ShowStmt {
 
     public String getTimestamp() {
         return timestamp;
+    }
+
+    public String getSnapshotType() {
+        return snapshotType.name();
     }
 
     @Override

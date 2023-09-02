@@ -99,5 +99,50 @@ suite("test_delete_where_in", "delete_p0") {
         //drop table
         qt_sql """truncate table ${tb_name}"""
         qt_sql """drop table ${tb_name}"""
-        
+
+    sql 'drop table if exists t1'
+    sql 'drop table if exists t2'
+    sql 'drop table if exists t3'
+
+    sql '''
+        create table t1 (
+            id int,
+            id1 int,
+            c1 bigint,
+            c2 string,
+            c3 double,
+            c4 date
+        ) unique key (id, id1)
+        distributed by hash(id, id1) buckets 13
+        properties(
+            'replication_num'='1',
+            "function_column.sequence_col" = "c4"
+        );
+    '''
+
+    sql '''
+        create table t3 (
+            id int
+        ) distributed by hash(id) buckets 13
+        properties(
+            'replication_num'='1'
+        );
+    '''
+
+    sql '''
+        INSERT INTO t1 VALUES
+            (1, 10, 1, '1', 1.0, '2000-01-01'),
+            (2, 20, 2, '2', 2.0, '2000-01-02'),
+            (3, 30, 3, '3', 3.0, '2000-01-03');
+    '''
+
+    sql '''
+        INSERT INTO t3 VALUES
+            (1),
+            (4),
+            (5);
+    '''  
+    
+    sql 'delete from t1 where id in (select id from t3)'
+    qt_delete_in 'select * from t1 order by id'
 }

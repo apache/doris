@@ -53,7 +53,7 @@ struct PageReadOptions {
     // whether to verify page checksum
     bool verify_checksum = true;
     // whether to use page cache in read path
-    bool use_page_cache = true;
+    bool use_page_cache = false;
     // if true, use DURABLE CachePriority in page cache
     // currently used for in memory olap table
     bool kept_in_memory = false;

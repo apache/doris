@@ -23,6 +23,7 @@ import javax.annotation.Nullable;
 
 /** RewriteJobContext */
 public class RewriteJobContext {
+
     final boolean childrenVisited;
     final RewriteJobContext parentContext;
     final int childIndexInParentContext;

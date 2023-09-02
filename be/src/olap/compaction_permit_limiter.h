@@ -36,7 +36,7 @@ public:
     CompactionPermitLimiter();
     virtual ~CompactionPermitLimiter() {}
 
-    bool request(int64_t permits);
+    void request(int64_t permits);
 
     void release(int64_t permits);
 

@@ -17,13 +17,15 @@
 
 package org.apache.doris.task;
 
-import org.apache.doris.alter.AlterJobV2;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Index;
 import org.apache.doris.thrift.TAlterInvertedIndexReq;
 import org.apache.doris.thrift.TColumn;
 import org.apache.doris.thrift.TOlapTableIndex;
 import org.apache.doris.thrift.TTaskType;
+
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -35,68 +37,68 @@ import java.util.List;
  * The new replica can be a rollup replica, or a shadow replica of schema change.
  */
 public class AlterInvertedIndexTask extends AgentTask {
+    private static final Logger LOG = LogManager.getLogger(AlterInvertedIndexTask.class);
     private long tabletId;
-    private long version;
-    private long jobId;
-    private AlterJobV2.JobType jobType;
     private int schemaHash;
-    private boolean isDropOp = false;
     private List<Index> alterInvertedIndexes;
-    List<Index> indexes;
     private List<Column> schemaColumns;
-    private long expiration;
+    private List<Index> existIndexes;
+    private boolean isDropOp = false;
+    private long jobId;
 
     public AlterInvertedIndexTask(long backendId, long dbId, long tableId,
-            long partitionId, long indexId, long version,
-            long tabletId, int schemaHash,
-            long jobId, AlterJobV2.JobType jobType,
-            boolean isDropOp, List<Index> alterInvertedIndexes,
-            List<Index> indexes, List<Column> schemaColumns, long expiration) {
-        super(null, backendId, TTaskType.ALTER_INVERTED_INDEX, dbId, tableId, partitionId, indexId, tabletId);
+            long partitionId, long indexId, long tabletId, int schemaHash,
+            List<Index> existIndexes, List<Index> alterInvertedIndexes,
+            List<Column> schemaColumns, boolean isDropOp, long taskSignature,
+            long jobId) {
+        super(null, backendId, TTaskType.ALTER_INVERTED_INDEX, dbId, tableId,
+                partitionId, indexId, tabletId, taskSignature);
         this.tabletId = tabletId;
-        this.version = version;
-        this.jobId = jobId;
-        this.jobType = jobType;
         this.schemaHash = schemaHash;
-        this.isDropOp = isDropOp;
+        this.existIndexes = existIndexes;
         this.alterInvertedIndexes = alterInvertedIndexes;
-        this.indexes = indexes;
         this.schemaColumns = schemaColumns;
-        this.expiration = expiration;
+        this.isDropOp = isDropOp;
+        this.jobId = jobId;
     }
 
     public long getTabletId() {
         return tabletId;
     }
 
-    public long getVersion() {
-        return version;
-    }
-
-    public long getJobId() {
-        return jobId;
-    }
-
     public int getSchemaHash() {
         return schemaHash;
-    }
-
-    public AlterJobV2.JobType getJobType() {
-        return jobType;
     }
 
     public List<Index> getAlterInvertedIndexes() {
         return alterInvertedIndexes;
     }
 
+    public String toString() {
+        StringBuilder sb = new StringBuilder("");
+        if (isDropOp) {
+            sb.append("DROP");
+        } else {
+            sb.append("ADD");
+        }
+        sb.append(" (");
+        for (Index alterIndex : alterInvertedIndexes) {
+            sb.append(alterIndex.getIndexId());
+            sb.append(": ");
+            sb.append(alterIndex.toString());
+            sb.append(", ");
+        }
+        sb.append(" )");
+        return sb.toString();
+    }
+
     public TAlterInvertedIndexReq toThrift() {
         TAlterInvertedIndexReq req = new TAlterInvertedIndexReq();
         req.setTabletId(tabletId);
-        req.setAlterVersion(version);
         req.setSchemaHash(schemaHash);
         req.setIsDropOp(isDropOp);
+        // set jonId for debugging in BE
         req.setJobId(jobId);
-        req.setExpiration(expiration);
 
         if (!alterInvertedIndexes.isEmpty()) {
             List<TOlapTableIndex> tIndexes = new ArrayList<>();
@@ -106,12 +108,13 @@ public class AlterInvertedIndexTask extends AgentTask {
             req.setAlterInvertedIndexes(tIndexes);
         }
 
-        if (indexes != null && !indexes.isEmpty()) {
-            List<TOlapTableIndex> tIndexes = new ArrayList<>();
-            for (Index index : indexes) {
-                tIndexes.add(index.toThrift());
+        if (existIndexes != null) {
+            List<TOlapTableIndex> indexDesc = new ArrayList<TOlapTableIndex>();
+            for (Index index : existIndexes) {
+                TOlapTableIndex tIndex = index.toThrift();
+                indexDesc.add(tIndex);
             }
-            req.setIndexes(tIndexes);
+            req.setIndexesDesc(indexDesc);
         }
 
         if (schemaColumns != null) {

@@ -33,6 +33,8 @@ class Block;
 class VExprContext;
 
 class VLiteral : public VExpr {
+    ENABLE_FACTORY_CREATOR(VLiteral);
+
 public:
     VLiteral(const TExprNode& node, bool should_init = true)
             : VExpr(node), _expr_name(_data_type->get_name()) {
@@ -40,12 +42,13 @@ public:
             init(node);
         }
     }
-    Status execute(VExprContext* context, vectorized::Block* block, int* result_column_id) override;
+    Status execute(VExprContext* context, Block* block, int* result_column_id) override;
     const std::string& expr_name() const override { return _expr_name; }
-    VExpr* clone(doris::ObjectPool* pool) const override { return pool->add(new VLiteral(*this)); }
     std::string debug_string() const override;
 
     std::string value() const;
+
+    const ColumnPtr& get_column_ptr() const { return _column_ptr; }
 
 protected:
     ColumnPtr _column_ptr;

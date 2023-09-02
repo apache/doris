@@ -20,19 +20,21 @@ package org.apache.doris.statistics;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
-import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.datasource.CatalogIf;
+import org.apache.doris.qe.QueryState;
+import org.apache.doris.qe.QueryState.MysqlStateType;
 import org.apache.doris.qe.StmtExecutor;
-import org.apache.doris.statistics.AnalysisTaskInfo.AnalysisMethod;
-import org.apache.doris.statistics.AnalysisTaskInfo.AnalysisType;
+import org.apache.doris.statistics.AnalysisInfo.AnalysisMethod;
+import org.apache.doris.statistics.AnalysisInfo.AnalysisType;
+import org.apache.doris.statistics.util.StatisticsUtil;
 
 import com.google.common.annotations.VisibleForTesting;
+import com.google.common.base.Preconditions;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
-import java.util.HashSet;
-import java.util.Set;
+import java.util.concurrent.TimeUnit;
 
 public abstract class BaseAnalysisTask {
 
@@ -64,7 +66,7 @@ public abstract class BaseAnalysisTask {
     protected static final String INSERT_COL_STATISTICS = "INSERT INTO "
             + "${internalDB}.${columnStatTbl}"
             + "    SELECT id, catalog_id, db_id, tbl_id, idx_id, col_id, part_id, row_count, "
-            + "        ndv, null_count, min, max, data_size, update_time\n"
+            + "        ndv, null_count, CAST(min AS string), CAST(max AS string), data_size, update_time\n"
             + "    FROM \n"
             + "     (SELECT CONCAT(${tblId}, '-', ${idxId}, '-', '${colId}') AS id, "
             + "         ${catalogId} AS catalog_id, "
@@ -87,7 +89,7 @@ public abstract class BaseAnalysisTask {
             + "     ${internalDB}.${columnStatTbl}.part_id IS NOT NULL"
             + "     ) t1, \n";
 
-    protected AnalysisTaskInfo info;
+    protected AnalysisInfo info;
 
     protected CatalogIf catalog;
 
@@ -99,31 +101,19 @@ public abstract class BaseAnalysisTask {
 
     protected StmtExecutor stmtExecutor;
 
-    protected AnalysisState analysisState;
-
-    protected Set<PrimitiveType> unsupportedType = new HashSet<>();
+    protected volatile boolean killed;
 
     @VisibleForTesting
     public BaseAnalysisTask() {
 
     }
 
-    public BaseAnalysisTask(AnalysisTaskInfo info) {
+    public BaseAnalysisTask(AnalysisInfo info) {
         this.info = info;
         init(info);
     }
 
-    protected void initUnsupportedType() {
-        unsupportedType.add(PrimitiveType.HLL);
-        unsupportedType.add(PrimitiveType.BITMAP);
-        unsupportedType.add(PrimitiveType.ARRAY);
-        unsupportedType.add(PrimitiveType.MAP);
-        unsupportedType.add(PrimitiveType.JSONB);
-        unsupportedType.add(PrimitiveType.STRUCT);
-    }
-
-    private void init(AnalysisTaskInfo info) {
-        initUnsupportedType();
+    private void init(AnalysisInfo info) {
         catalog = Env.getCurrentEnv().getCatalogMgr().getCatalog(info.catalogName);
         if (catalog == null) {
             Env.getCurrentEnv().getAnalysisManager().updateTaskStatus(info, AnalysisState.FAILED,
@@ -142,52 +132,85 @@ public abstract class BaseAnalysisTask {
                     info, AnalysisState.FAILED,
                     String.format("Table with name %s not exists", info.tblName), System.currentTimeMillis());
         }
-        if (info.analysisType != null && (info.analysisType.equals(AnalysisType.COLUMN)
+        // External Table level task doesn't contain a column. Don't need to do the column related analyze.
+        if (info.externalTableLevelTask) {
+            return;
+        }
+        if (info.analysisType != null && (info.analysisType.equals(AnalysisType.FUNDAMENTALS)
                 || info.analysisType.equals(AnalysisType.HISTOGRAM))) {
             col = tbl.getColumn(info.colName);
             if (col == null) {
                 throw new RuntimeException(String.format("Column with name %s not exists", info.tblName));
             }
-            if (isUnsupportedType(col.getType().getPrimitiveType())) {
-                throw new RuntimeException(String.format("Column with type %s is not supported",
-                        col.getType().toString()));
-            }
+            Preconditions.checkArgument(!StatisticsUtil.isUnsupportedType(col.getType()),
+                    String.format("Column with type %s is not supported", col.getType().toString()));
         }
 
     }
 
-    public abstract void execute() throws Exception;
+    public void execute() {
+        prepareExecution();
+        executeWithRetry();
+        afterExecution();
+    }
+
+    protected void prepareExecution() {
+        setTaskStateToRunning();
+    }
+
+    protected void executeWithRetry() {
+        int retriedTimes = 0;
+        while (retriedTimes <= StatisticConstants.ANALYZE_TASK_RETRY_TIMES) {
+            if (killed) {
+                break;
+            }
+            try {
+                doExecute();
+                break;
+            } catch (Throwable t) {
+                LOG.warn("Failed to execute analysis task, retried times: {}", retriedTimes++, t);
+                if (retriedTimes > StatisticConstants.ANALYZE_TASK_RETRY_TIMES) {
+                    throw new RuntimeException(t);
+                }
+                StatisticsUtil.sleep(TimeUnit.SECONDS.toMillis(2 ^ retriedTimes) * 10);
+            }
+        }
+    }
+
+    public abstract void doExecute() throws Exception;
+
+    protected void afterExecution() {
+        if (killed) {
+            return;
+        }
+        Env.getCurrentEnv().getStatisticsCache().syncLoadColStats(tbl.getId(), -1, col.getName());
+    }
+
+    protected void setTaskStateToRunning() {
+        Env.getCurrentEnv().getAnalysisManager()
+            .updateTaskStatus(info, AnalysisState.RUNNING, "", System.currentTimeMillis());
+    }
 
     public void cancel() {
+        killed = true;
         if (stmtExecutor != null) {
             stmtExecutor.cancel();
         }
         Env.getCurrentEnv().getAnalysisManager()
                 .updateTaskStatus(info, AnalysisState.FAILED,
-                        String.format("Job has been cancelled: %s", info.toString()), -1);
-    }
-
-    public int getLastExecTime() {
-        return info.lastExecTimeInMs;
+                        String.format("Job has been cancelled: %s", info.message), System.currentTimeMillis());
     }
 
     public long getJobId() {
         return info.jobId;
     }
 
-    public AnalysisState getAnalysisState() {
-        return analysisState;
-    }
-
+    // TODO : time cost is intolerable when column is string type, return 0 directly for now.
     protected String getDataSizeFunction(Column column) {
         if (column.getType().isStringType()) {
             return "SUM(LENGTH(`${colName}`))";
         }
         return "COUNT(1) * " + column.getType().getSlotSize();
-    }
-
-    private boolean isUnsupportedType(PrimitiveType type) {
-        return unsupportedType.contains(type);
     }
 
     protected String getSampleExpression() {
@@ -199,6 +222,27 @@ public abstract class BaseAnalysisTask {
             return String.format("TABLESAMPLE(%d PERCENT)", info.samplePercent);
         } else {
             return String.format("TABLESAMPLE(%d ROWS)", info.sampleRows);
+        }
+    }
+
+    @Override
+    public String toString() {
+        return String.format("Job id [%d], Task id [%d], catalog [%s], db [%s], table [%s], column [%s]",
+            info.jobId, info.taskId, catalog.getName(), db.getFullName(), tbl.getName(),
+            col == null ? "TableRowCount" : col.getName());
+    }
+
+    protected void executeWithExceptionOnFail(StmtExecutor stmtExecutor) throws Exception {
+        if (killed) {
+            return;
+        }
+        LOG.debug("execute internal sql: {}", stmtExecutor.getOriginStmt());
+        stmtExecutor.execute();
+        QueryState queryState = stmtExecutor.getContext().getState();
+        if (queryState.getStateType().equals(MysqlStateType.ERR)) {
+            throw new RuntimeException(String.format("Failed to analyze %s.%s.%s, error: %s sql: %s",
+                    info.catalogName, info.dbName, info.colName, stmtExecutor.getOriginStmt().toString(),
+                    queryState.getErrorMessage()));
         }
     }
 }

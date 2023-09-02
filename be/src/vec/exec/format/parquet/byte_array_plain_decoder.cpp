@@ -45,13 +45,24 @@ Status ByteArrayPlainDecoder::skip_values(size_t num_values) {
 Status ByteArrayPlainDecoder::decode_values(MutableColumnPtr& doris_column, DataTypePtr& data_type,
                                             ColumnSelectVector& select_vector,
                                             bool is_dict_filter) {
+    if (select_vector.has_filter()) {
+        return _decode_values<true>(doris_column, data_type, select_vector, is_dict_filter);
+    } else {
+        return _decode_values<false>(doris_column, data_type, select_vector, is_dict_filter);
+    }
+}
+
+template <bool has_filter>
+Status ByteArrayPlainDecoder::_decode_values(MutableColumnPtr& doris_column, DataTypePtr& data_type,
+                                             ColumnSelectVector& select_vector,
+                                             bool is_dict_filter) {
     TypeIndex logical_type = remove_nullable(data_type)->get_type_id();
     switch (logical_type) {
     case TypeIndex::String:
         [[fallthrough]];
     case TypeIndex::FixedString: {
         ColumnSelectVector::DataReadType read_type;
-        while (size_t run_length = select_vector.get_next_run(&read_type)) {
+        while (size_t run_length = select_vector.get_next_run<has_filter>(&read_type)) {
             switch (read_type) {
             case ColumnSelectVector::CONTENT: {
                 std::vector<StringRef> string_values;
@@ -100,13 +111,13 @@ Status ByteArrayPlainDecoder::decode_values(MutableColumnPtr& doris_column, Data
         return Status::OK();
     }
     case TypeIndex::Decimal32:
-        return _decode_binary_decimal<Int32>(doris_column, data_type, select_vector);
+        return _decode_binary_decimal<Int32, has_filter>(doris_column, data_type, select_vector);
     case TypeIndex::Decimal64:
-        return _decode_binary_decimal<Int64>(doris_column, data_type, select_vector);
+        return _decode_binary_decimal<Int64, has_filter>(doris_column, data_type, select_vector);
     case TypeIndex::Decimal128:
-        return _decode_binary_decimal<Int128>(doris_column, data_type, select_vector);
+        return _decode_binary_decimal<Int128, has_filter>(doris_column, data_type, select_vector);
     case TypeIndex::Decimal128I:
-        return _decode_binary_decimal<Int128>(doris_column, data_type, select_vector);
+        return _decode_binary_decimal<Int128, has_filter>(doris_column, data_type, select_vector);
     default:
         break;
     }

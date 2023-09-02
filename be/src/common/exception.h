@@ -29,9 +29,11 @@
 #include <utility>
 
 #include "common/status.h"
+#include "util/defer_op.h"
 
 namespace doris {
 
+inline thread_local int enable_thread_catch_bad_alloc = 0;
 class Exception : public std::exception {
 public:
     Exception() : _code(ErrorCode::OK) {}
@@ -45,16 +47,13 @@ public:
     Exception(int code, const std::string_view fmt, Args&&... args)
             : Exception(code, fmt::format(fmt, std::forward<Args>(args)...)) {}
 
-    std::string code_as_string() const {
-        return (int)_code >= 0 ? doris::to_string(static_cast<TStatusCode::type>(_code))
-                               : fmt::format("E{}", (int16_t)_code);
-    }
-
     int code() const { return _code; }
 
-    std::string to_string() const;
+    const std::string& to_string() const;
 
-    friend std::ostream& operator<<(std::ostream& ostr, const Exception& exp);
+    const char* what() const noexcept override { return to_string().c_str(); }
+
+    Status to_status() const { return Status::Error<false>(code(), to_string()); }
 
 private:
     int _code;
@@ -64,24 +63,63 @@ private:
     };
     std::unique_ptr<ErrMsg> _err_msg;
     std::unique_ptr<Exception> _nested_excption;
+    mutable std::string _cache_string;
 };
 
-inline std::ostream& operator<<(std::ostream& ostr, const Exception& exp) {
-    ostr << '[' << exp.code_as_string() << "] ";
-    ostr << (exp._err_msg ? exp._err_msg->_msg : "");
-    if (exp._err_msg && !exp._err_msg->_stack.empty()) {
-        ostr << '\n' << exp._err_msg->_stack;
+inline const std::string& Exception::to_string() const {
+    if (!_cache_string.empty()) {
+        return _cache_string;
     }
-    if (exp._nested_excption != nullptr) {
-        ostr << '\n' << "Caused by:" << *exp._nested_excption;
+    std::stringstream ostr;
+    ostr << "[E" << _code << "] ";
+    ostr << (_err_msg ? _err_msg->_msg : "");
+    if (_err_msg && !_err_msg->_stack.empty()) {
+        ostr << '\n' << _err_msg->_stack;
     }
-    return ostr;
-}
-
-inline std::string Exception::to_string() const {
-    std::stringstream ss;
-    ss << *this;
-    return ss.str();
+    if (_nested_excption != nullptr) {
+        ostr << '\n' << "Caused by:" << _nested_excption->to_string();
+    }
+    _cache_string = ostr.str();
+    return _cache_string;
 }
 
 } // namespace doris
+
+#define RETURN_IF_CATCH_EXCEPTION(stmt)                                                          \
+    do {                                                                                         \
+        try {                                                                                    \
+            doris::enable_thread_catch_bad_alloc++;                                              \
+            Defer defer {[&]() { doris::enable_thread_catch_bad_alloc--; }};                     \
+            { stmt; }                                                                            \
+        } catch (const doris::Exception& e) {                                                    \
+            if (e.code() == doris::ErrorCode::MEM_ALLOC_FAILED) {                                \
+                return Status::MemoryLimitExceeded(fmt::format(                                  \
+                        "PreCatch error code:{}, {}, __FILE__:{}, __LINE__:{}, __FUNCTION__:{}", \
+                        e.code(), e.to_string(), __FILE__, __LINE__, __PRETTY_FUNCTION__));      \
+            } else {                                                                             \
+                return Status::Error<false>(e.code(), e.to_string());                            \
+            }                                                                                    \
+        }                                                                                        \
+    } while (0)
+
+#define RETURN_IF_ERROR_OR_CATCH_EXCEPTION(stmt)                                                 \
+    do {                                                                                         \
+        try {                                                                                    \
+            doris::enable_thread_catch_bad_alloc++;                                              \
+            Defer defer {[&]() { doris::enable_thread_catch_bad_alloc--; }};                     \
+            {                                                                                    \
+                Status _status_ = (stmt);                                                        \
+                if (UNLIKELY(!_status_.ok())) {                                                  \
+                    return _status_;                                                             \
+                }                                                                                \
+            }                                                                                    \
+        } catch (const doris::Exception& e) {                                                    \
+            if (e.code() == doris::ErrorCode::MEM_ALLOC_FAILED) {                                \
+                return Status::MemoryLimitExceeded(fmt::format(                                  \
+                        "PreCatch error code:{}, {}, __FILE__:{}, __LINE__:{}, __FUNCTION__:{}", \
+                        e.code(), e.to_string(), __FILE__, __LINE__, __PRETTY_FUNCTION__));      \
+            } else {                                                                             \
+                return Status::Error<false>(e.code(), e.to_string());                            \
+            }                                                                                    \
+        }                                                                                        \
+    } while (0)

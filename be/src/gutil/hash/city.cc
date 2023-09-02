@@ -16,9 +16,12 @@
 
 #include "gutil/hash/city.h"
 
-#include <sys/types.h>
+// IWYU pragma: no_include <pstl/glue_algorithm_defs.h>
 
+#include <sys/types.h>
 #include <algorithm>
+#include <iterator>
+
 using std::copy;
 using std::max;
 using std::min;
@@ -26,15 +29,17 @@ using std::reverse;
 using std::sort;
 using std::swap;
 #include <utility>
+
 using std::make_pair;
 using std::pair;
 
-#include <common/logging.h>
+#include "common/logging.h"
 
 #include "gutil/endian.h"
 #include "gutil/hash/hash128to64.h"
 #include "gutil/int128.h"
 #include "gutil/integral_types.h"
+#include "gutil/port.h"
 
 namespace util_hash {
 

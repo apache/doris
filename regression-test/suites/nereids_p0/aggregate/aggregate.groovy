@@ -38,7 +38,7 @@ suite("aggregate") {
                 c_timestamp_3 datetimev2(6),
                 c_boolean boolean,
                 c_short_decimal decimal(5,2),
-                c_long_decimal decimal(27,9)
+                c_long_decimal decimal(38,10)
             )
             DUPLICATE KEY(c_bigint)
             DISTRIBUTED BY HASH(c_bigint) BUCKETS 1
@@ -63,7 +63,7 @@ suite("aggregate") {
                 c_timestamp_3 datetimev2(6),
                 c_boolean boolean,
                 c_short_decimal decimal(5,2),
-                c_long_decimal decimal(27,9)
+                c_long_decimal decimal(38,10)
             )
             DUPLICATE KEY(c_bigint)
             DISTRIBUTED BY HASH(c_bigint) BUCKETS 1
@@ -169,12 +169,11 @@ suite("aggregate") {
                     'again'
                     ELSE 'other' end
                  """
-    
+
     qt_aggregate """ select any(c_bigint), any(c_double),any(c_string), any(c_date), any(c_timestamp),any_value(c_date_1), any(c_timestamp_1), 
                  any_value(c_timestamp_2), any(c_timestamp_3) , any(c_boolean), any(c_short_decimal), any(c_long_decimal)from ${tableName2} """
 
-
-    sql "use test_query_db"
+    sql 'use nereids_test_query_db'
     List<String> fields = ["k1", "k2", "k3", "k4", "k5", "k6", "k10", "k11", "k7", "k8", "k9"]
     // test_query_normal_aggression
     String k1 = fields[1]
@@ -314,4 +313,19 @@ suite("aggregate") {
 
     qt_aggregate """ select avg(distinct c_bigint), avg(distinct c_double) from regression_test_nereids_p0_aggregate.${tableName} """
     qt_aggregate """ select count(distinct c_bigint),count(distinct c_double),count(distinct c_string),count(distinct c_date_1),count(distinct c_timestamp_1),count(distinct c_timestamp_2),count(distinct c_timestamp_3),count(distinct c_boolean) from regression_test_nereids_p0_aggregate.${tableName} """
+    qt_select_quantile_percent """ select QUANTILE_PERCENT(QUANTILE_UNION(TO_QUANTILE_STATE(c_bigint,2048)),0.5) from regression_test_nereids_p0_aggregate.${tableName};  """
+
+    sql "select k1 as k, k1 from tempbaseall group by k1 having k1 > 0"
+    sql "select k1 as k, k1 from tempbaseall group by k1 having k > 0"
+    
+    // remove distinct for max, min, any_value
+    def plan = sql(
+            """explain optimized plan SELECT max(distinct c_bigint), 
+            min(distinct c_bigint), 
+            any_value(distinct c_bigint)
+            FROM regression_test_nereids_p0_aggregate.${tableName};"""
+        ).toString()
+    assertTrue(plan.contains("max(c_bigint"))
+    assertTrue(plan.contains("min(c_bigint"))
+    assertTrue(plan.contains("any_value(c_bigint"))
 }

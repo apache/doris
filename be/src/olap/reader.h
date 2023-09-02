@@ -68,8 +68,7 @@ class VExprContext;
 // So we should compare the common prefix columns of lhs and rhs.
 //
 // NOTE: if you are not sure if you can use it, please don't use this function.
-template <typename LhsRowType, typename RhsRowType>
-int compare_row_key(const LhsRowType& lhs, const RhsRowType& rhs) {
+inline int compare_row_key(const RowCursor& lhs, const RowCursor& rhs) {
     auto cmp_cids = std::min(lhs.schema()->num_column_ids(), rhs.schema()->num_column_ids());
     for (uint32_t cid = 0; cid < cmp_cids; ++cid) {
         auto res = lhs.schema()->column(cid)->compare_cell(lhs.cell(cid), rhs.cell(cid));
@@ -94,12 +93,21 @@ public:
     // Params for Reader,
     // mainly include tablet, data version and fetch range.
     struct ReaderParams {
+        bool has_single_version() const {
+            return (rs_splits.size() == 1 &&
+                    rs_splits[0].rs_reader->rowset()->start_version() == 0 &&
+                    !rs_splits[0].rs_reader->rowset()->rowset_meta()->is_segments_overlapping()) ||
+                   (rs_splits.size() == 2 &&
+                    rs_splits[0].rs_reader->rowset()->rowset_meta()->num_rows() == 0 &&
+                    rs_splits[1].rs_reader->rowset()->start_version() == 2 &&
+                    !rs_splits[1].rs_reader->rowset()->rowset_meta()->is_segments_overlapping());
+        }
+
         TabletSharedPtr tablet;
         TabletSchemaSPtr tablet_schema;
-        ReaderType reader_type = READER_QUERY;
+        ReaderType reader_type = ReaderType::READER_QUERY;
         bool direct_mode = false;
         bool aggregation = false;
-        bool need_agg_finalize = true;
         // for compaction, schema_change, check_sum: we don't use page cache
         // for query and config::disable_storage_page_cache is false, we use page cache
         bool use_page_cache = false;
@@ -120,12 +128,7 @@ public:
 
         // For unique key table with merge-on-write
         DeleteBitmap* delete_bitmap {nullptr};
-
-        std::vector<RowsetReaderSharedPtr> rs_readers;
-        // if rs_readers_segment_offsets is not empty, means we only scan
-        // [pair.first, pair.second) segment in rs_reader, only effective in dup key
-        // and pipeline
-        std::vector<std::pair<int, int>> rs_readers_segment_offsets;
+        std::vector<RowSetSplits> rs_splits;
 
         // return_columns is init from query schema
         std::vector<uint32_t> return_columns;
@@ -139,7 +142,8 @@ public:
         std::unordered_set<uint32_t>* tablet_columns_convert_to_null_set = nullptr;
         TPushAggOp::type push_down_agg_type_opt = TPushAggOp::NONE;
         vectorized::VExpr* remaining_vconjunct_root = nullptr;
-        vectorized::VExprContext* common_vexpr_ctxs_pushdown = nullptr;
+        std::vector<vectorized::VExprSPtr> remaining_conjunct_roots;
+        vectorized::VExprContextSPtrs common_expr_ctxs_push_down;
 
         // used for compaction to record row ids
         bool record_rowids = false;
@@ -154,7 +158,7 @@ public:
         // limit of rows for read_orderby_key
         size_t read_orderby_key_limit = 0;
         // filter_block arguments
-        vectorized::VExprContext** filter_block_vconjunct_ctx_ptr = nullptr;
+        vectorized::VExprContextSPtrs filter_block_conjuncts;
 
         // for vertical compaction
         bool is_key_column_group = false;
@@ -183,7 +187,8 @@ public:
     // Return OK and set `*eof` to true when no more rows can be read.
     // Return others when unexpected error happens.
     virtual Status next_block_with_aggregation(vectorized::Block* block, bool* eof) {
-        return Status::Error<ErrorCode::READER_INITIALIZE_ERROR>();
+        return Status::Error<ErrorCode::READER_INITIALIZE_ERROR>(
+                "TabletReader not support next_block_with_aggregation");
     }
 
     virtual uint64_t merged_rows() const { return _merged_rows; }
@@ -265,8 +270,7 @@ protected:
 
     bool _aggregation = false;
     // for agg query, we don't need to finalize when scan agg object data
-    bool _need_agg_finalize = true;
-    ReaderType _reader_type = READER_QUERY;
+    ReaderType _reader_type = ReaderType::READER_QUERY;
     bool _next_delete_flag = false;
     bool _filter_delete = false;
     int32_t _sequence_col_idx = -1;

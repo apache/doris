@@ -69,7 +69,7 @@ Variables that support both session-level and global-level setting include:
 * `sql_mode`
 * `enable_profile`
 * `query_timeout`
-* `insert_timeout`<version since="dev"></version>
+* <version since="dev" type="inline">`insert_timeout`</version>
 * `exec_mem_limit`
 * `batch_size`
 * `parallel_fragment_exec_instance_num`
@@ -177,6 +177,10 @@ Note that the comment must start with /*+ and can only follow the SELECT.
 
     Used for compatibility with MySQL clients. No practical effect.
 
+* `have_query_cache`
+
+  Used for compatibility with MySQL clients. No practical effect.
+
 * `default_order_by_limit`
 
   Used to control the default number of items returned after OrderBy. The default value is -1, and the maximum number of records after the query is returned by default, and the upper limit is the MAX_VALUE of the long data type.
@@ -189,11 +193,11 @@ Note that the comment must start with /*+ and can only follow the SELECT.
 
 * `disable_colocate_join`
 
-    Controls whether the [Colocation Join](../advanced/join-optimization/colocation-join.md) function is enabled. The default is false, which means that the feature is enabled. True means that the feature is disabled. When this feature is disabled, the query plan will not attempt to perform a Colocation Join.
+    Controls whether the [Colocation Join](../query-acceleration/join-optimization/colocation-join.md) function is enabled. The default is false, which means that the feature is enabled. True means that the feature is disabled. When this feature is disabled, the query plan will not attempt to perform a Colocation Join.
     
 * `enable_bucket_shuffle_join`
 
-    Controls whether the [Bucket Shuffle Join](../advanced/join-optimization/bucket-shuffle-join.md) function is enabled. The default is true, which means that the feature is enabled. False means that the feature is disabled. When this feature is disabled, the query plan will not attempt to perform a Bucket Shuffle Join.
+    Controls whether the [Bucket Shuffle Join](../query-acceleration/join-optimization/bucket-shuffle-join.md) function is enabled. The default is true, which means that the feature is enabled. False means that the feature is disabled. When this feature is disabled, the query plan will not attempt to perform a Bucket Shuffle Join.
 
 * `disable_streaming_preaggregations`
 
@@ -220,6 +224,8 @@ Note that the comment must start with /*+ and can only follow the SELECT.
     Usually, only some blocking nodes (such as sorting node, aggregation node, and join node) consume more memory, while in other nodes (such as scan node), data is streamed and does not occupy much memory.
     
     When a `Memory Exceed Limit` error occurs, you can try to increase the parameter exponentially, such as 4G, 8G, 16G, and so on.
+
+    It should be noted that this value may fluctuate by a few MB.
     
 * `forward_to_master`
 
@@ -384,7 +390,7 @@ Translated with www.DeepL.com/Translator (free version)
     
 * `sql_select_limit`
 
-    Used for compatibility with MySQL clients. No practical effect.
+    Used to limit return rows of select stmt, including select clause of insert stmt.
 
 * `system_time_zone`
 
@@ -486,7 +492,33 @@ Translated with www.DeepL.com/Translator (free version)
     Used to control whether to perform predicate derivation. There are two values: true and false. It is turned off by default, that is, the system does not perform predicate derivation, and uses the original predicate to perform related operations. After it is set to true, predicate expansion is performed.
 
 * `return_object_data_as_binary`
-  Used to identify whether to return the bitmap/hll result in the select result. In the select into outfile statement, if the export file format is csv, the bimap/hll data will be base64-encoded, if it is the parquet file format, the data will be stored as a byte array
+  Used to identify whether to return the bitmap/hll result in the select result. In the select into outfile statement, if the export file format is csv, the bimap/hll data will be base64-encoded, if it is the parquet file format, the data will be stored as a byte array. Below will be an example of Java, more examples can be found in [samples](https://github.com/apache/doris/tree/master/samples/read_bitmap).
+
+  ```java
+  try (Connection conn = DriverManager.getConnection("jdbc:mysql://127.0.0.1:9030/test?user=root");
+               Statement stmt = conn.createStatement()
+  ) {
+      stmt.execute("set return_object_data_as_binary=true"); // IMPORTANT!!!
+      ResultSet rs = stmt.executeQuery("select uids from t_bitmap");
+      while(rs.next()){
+          byte[] bytes = rs.getBytes(1);
+          RoaringBitmap bitmap32 = new RoaringBitmap();
+          switch(bytes[0]) {
+              case 0: // for empty bitmap
+                  break;
+              case 1: // for only 1 element in bitmap32
+                  bitmap32.add(ByteBuffer.wrap(bytes,1,bytes.length-1)
+                          .order(ByteOrder.LITTLE_ENDIAN)
+                          .getInt());
+                  break;
+              case 2: // for more than 1 elements in bitmap32
+                  bitmap32.deserialize(ByteBuffer.wrap(bytes,1,bytes.length-1));
+                  break;
+              // for more details, see https://github.com/apache/doris/tree/master/samples/read_bitmap
+          }
+      }
+  }
+  ```
 
 * `block_encryption_mode`
   The block_encryption_mode variable controls the block encryption mode. The default setting is empty, when use AES equal to `AES_128_ECB`, when use SM4 equal to `SM3_128_ECB`
@@ -580,7 +612,15 @@ Translated with www.DeepL.com/Translator (free version)
 
 * `enable_file_cache`
 
-    Set wether to use block file cache. This variable takes effect only if the BE config enable_file_cache=true. The cache is not used when BE config enable_file_cache=false.
+    Set wether to use block file cache, default false. This variable takes effect only if the BE config enable_file_cache=true. The cache is not used when BE config enable_file_cache=false.
+
+* `file_cache_base_path`
+
+    Specify the storage path of the block file cache on BE, default 'random', and randomly select the storage path configured by BE.
+
+* `enable_inverted_index_query`
+
+    Set wether to use inverted index query, default true.
 
 * `topn_opt_limit_threshold`
 
@@ -597,6 +637,8 @@ Translated with www.DeepL.com/Translator (free version)
     Controls whether to show each user's implicit roles in the results of `show roles`. Default is false.
 
 * `use_fix_replica`
+
+    <version since="1.2.0"></version>
 
     Use a fixed replica to query. If use_fix_replica is 1, the smallest one is used, if use_fix_replica is 2, the second smallest one is used, and so on. The default value is -1, which means it is not enabled.
 
@@ -616,6 +658,39 @@ Translated with www.DeepL.com/Translator (free version)
     | 10000000     |
     +--------------+
     ```
+  
+* `enable_parquet_lazy_materialization`
+
+  Controls whether to use lazy materialization technology in parquet reader. The default value is true.
+
+* `enable_orc_lazy_materialization`
+
+  Controls whether to use lazy materialization technology in orc reader. The default value is true.
+
+* `enable_strong_consistency_read`
+
+  Used to enable strong consistent reading. By default, Doris supports strong consistency within the same session, that is, changes to data within the same session are visible in real time. If you want strong consistent reads between sessions, set this variable to true. 
+
+* `truncate_char_or_varchar_columns`
+
+  Whether to truncate char or varchar columns according to the table's schema. The default is false.
+
+  Because the maximum length of the char or varchar column in the schema of the table is inconsistent with the schema in the underlying parquet or orc file. At this time, if the option is turned on, it will be truncated according to the maximum length in the schema of the table.
+
+* `jdbc_clickhouse_query_final`
+
+  Whether to add the final keyword when using the JDBC Catalog function to query ClickHouse,default is false.
+  
+  It is used for the ReplacingMergeTree table engine of ClickHouse to deduplicate queries.
+
+* `enable_memtable_on_sink_node`
+
+  <version since="2.1.0">
+  Whether to enable MemTable on DataSink node when loading data, default is false.
+  </version>
+
+  Build MemTable on DataSink node, and send segments to other backends through brpc streaming.
+  It reduces duplicate work among replicas, and saves time in data serialization & deserialization.
 
 ***
 

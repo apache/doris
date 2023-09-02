@@ -17,15 +17,19 @@
 
 #include "util/radix_sort.h"
 
-#include <gtest/gtest.h>
+#include <gtest/gtest-message.h>
+#include <gtest/gtest-test-part.h>
 
 #include <algorithm>
+// IWYU pragma: no_include <bits/std_abs.h>
+#include <cmath> // IWYU pragma: keep
+#include <cmath>
 #include <cstdlib>
-#include <iostream>
-#include <iterator>
+#include <limits>
 #include <random>
+#include <vector>
 
-#include "util/tdigest.h"
+#include "gtest/gtest_pred_impl.h"
 
 namespace doris {
 

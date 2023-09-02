@@ -17,11 +17,13 @@
 
 #include "vec/columns/column_array.h"
 
-#include <gtest/gtest.h>
+#include <gtest/gtest-message.h>
+#include <gtest/gtest-test-part.h>
 
-#include <memory>
 #include <string>
+#include <vector>
 
+#include "gtest/gtest_pred_impl.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_string.h"
 #include "vec/columns/column_vector.h"
@@ -198,8 +200,8 @@ TEST(ColumnArrayTest, IntArrayReplicateTest) {
     }
     ColumnArray array_column(std::move(data_column), std::move(off_column));
 
-    uint32_t counts[] = {2, 1, 0, 3}; // size should be equal array_column.size()
-    size_t target_size = 6;           // sum(counts)
+    uint32_t counts[] = {0, 0, 1, 3, 3, 3}; // size should be equal array_column.size()
+    size_t target_size = 6;                 // sum(counts)
 
     // return array column: [[1,2,3],[1,2,3],[],[5,6],[5,6],[5,6]];
     auto res1 = array_column.clone_empty();
@@ -222,8 +224,8 @@ TEST(ColumnArrayTest, StringArrayReplicateTest) {
     }
     ColumnArray array_column(std::move(data_column), std::move(off_column));
 
-    uint32_t counts[] = {2, 1, 0, 3}; // size should be equal array_column.size()
-    size_t target_size = 6;           // sum(counts)
+    uint32_t counts[] = {0, 0, 1, 3, 3, 3}; // size should be equal array_column.size()
+    size_t target_size = 6;                 // sum(counts)
 
     // return array column: [["abc","d"],["abc","d"],["ef"],[""],[""],[""]];
     auto res1 = array_column.clone_empty();

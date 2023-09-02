@@ -25,6 +25,7 @@ import org.apache.doris.nereids.jobs.JobContext;
 import org.apache.doris.nereids.jobs.JobType;
 import org.apache.doris.nereids.memo.Group;
 import org.apache.doris.nereids.memo.GroupExpression;
+import org.apache.doris.nereids.minidump.NereidsTracer;
 import org.apache.doris.nereids.properties.ChildOutputPropertyDeriver;
 import org.apache.doris.nereids.properties.ChildrenPropertiesRegulator;
 import org.apache.doris.nereids.properties.EnforceMissingPropertiesHelper;
@@ -45,6 +46,7 @@ import java.util.Optional;
  * Inspired by NoisePage and ORCA-Paper.
  */
 public class CostAndEnforcerJob extends Job implements Cloneable {
+
     private static final Logger LOG = LogManager.getLogger(CostAndEnforcerJob.class);
 
     // GroupExpression to optimize
@@ -139,7 +141,7 @@ public class CostAndEnforcerJob extends Job implements Cloneable {
             // Calculate cost
             if (curChildIndex == 0 && prevChildIndex == -1) {
                 curNodeCost = CostCalculator.calculateCost(groupExpression, requestChildrenProperties);
-                groupExpression.setCost(curNodeCost.getValue());
+                groupExpression.setCost(curNodeCost);
                 curTotalCost = curNodeCost;
             }
 
@@ -220,8 +222,8 @@ public class CostAndEnforcerJob extends Job implements Cloneable {
         // it's certain that lowestCostChildren is equals to arity().
         ChildrenPropertiesRegulator regulator = new ChildrenPropertiesRegulator(groupExpression,
                 lowestCostChildren, outputChildrenProperties, requestChildrenProperties, context);
-        double enforceCost = regulator.adjustChildrenProperties();
-        if (enforceCost < 0) {
+        boolean success = regulator.adjustChildrenProperties();
+        if (!success) {
             // invalid enforce, return.
             return false;
         }
@@ -235,14 +237,27 @@ public class CostAndEnforcerJob extends Job implements Cloneable {
 
         // update current group statistics and re-compute costs.
         if (groupExpression.children().stream().anyMatch(group -> group.getStatistics() == null)) {
+            // TODO: If it's error, add some warning log at least.
             // if we come here, mean that we have some error in stats calculator and should fix it.
             return false;
         }
-        StatsCalculator.estimate(groupExpression);
+
+        StatsCalculator statsCalculator = StatsCalculator.estimate(groupExpression,
+                context.getCascadesContext().getConnectContext().getSessionVariable().getForbidUnknownColStats(),
+                context.getCascadesContext().getConnectContext().getTotalColumnStatisticMap(),
+                context.getCascadesContext().getConnectContext().getSessionVariable().isPlayNereidsDump(),
+                context.getCascadesContext());
+        if (!context.getCascadesContext().getConnectContext().getSessionVariable().isPlayNereidsDump()
+                && context.getCascadesContext().getConnectContext().getSessionVariable().isEnableMinidump()) {
+            context.getCascadesContext().getConnectContext().getTotalColumnStatisticMap()
+                    .putAll(statsCalculator.getTotalColumnStatisticMap());
+            context.getCascadesContext().getConnectContext().getTotalHistogramMap()
+                    .putAll(statsCalculator.getTotalHistogramMap());
+        }
 
         // recompute cost after adjusting property
         curNodeCost = CostCalculator.calculateCost(groupExpression, requestChildrenProperties);
-        groupExpression.setCost(curNodeCost.getValue());
+        groupExpression.setCost(curNodeCost);
         curTotalCost = curNodeCost;
         for (int i = 0; i < outputChildrenProperties.size(); i++) {
             PhysicalProperties childProperties = outputChildrenProperties.get(i);
@@ -303,6 +318,8 @@ public class CostAndEnforcerJob extends Job implements Cloneable {
             groupExpression.putOutputPropertiesMap(outputProperty, requestProperty);
         }
         this.groupExpression.getOwnerGroup().setBestPlan(groupExpression, curTotalCost, requestProperty);
+        NereidsTracer.logPropertyAndCostEvent(groupExpression.getOwnerGroup().getGroupId(),
+                groupExpression.children(), groupExpression.getPlan(), requestProperty, curTotalCost);
     }
 
     private void clear() {

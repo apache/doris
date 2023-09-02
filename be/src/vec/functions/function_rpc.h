@@ -101,11 +101,12 @@ public:
 
     bool is_deterministic_in_scope_of_query() const override { return false; }
 
+    bool is_use_default_implementation_for_constants() const override { return true; }
+
 private:
     DataTypes _argument_types;
     DataTypePtr _return_type;
     TFunction _tfn;
-    std::unique_ptr<RPCFnImpl> _fn;
 };
 
 } // namespace doris::vectorized

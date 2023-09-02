@@ -50,11 +50,7 @@ struct UInt128 {
     }
 
     bool operator==(const UInt128 rhs) const { return tuple() == rhs.tuple(); }
-    bool operator!=(const UInt128 rhs) const { return tuple() != rhs.tuple(); }
-    bool operator<(const UInt128 rhs) const { return tuple() < rhs.tuple(); }
-    bool operator<=(const UInt128 rhs) const { return tuple() <= rhs.tuple(); }
-    bool operator>(const UInt128 rhs) const { return tuple() > rhs.tuple(); }
-    bool operator>=(const UInt128 rhs) const { return tuple() >= rhs.tuple(); }
+    auto operator<=>(const UInt128 rhs) const { return tuple() <=> rhs.tuple(); }
 
     UInt128 operator<<(const UInt128& rhs) const {
         const uint64_t shift = rhs.low;
@@ -93,24 +89,8 @@ struct UInt128 {
         return *this == UInt128(rhs);
     }
     template <typename T>
-    bool operator!=(const T rhs) const {
-        return *this != UInt128(rhs);
-    }
-    template <typename T>
-    bool operator>=(const T rhs) const {
-        return *this >= UInt128(rhs);
-    }
-    template <typename T>
-    bool operator>(const T rhs) const {
-        return *this > UInt128(rhs);
-    }
-    template <typename T>
-    bool operator<=(const T rhs) const {
-        return *this <= UInt128(rhs);
-    }
-    template <typename T>
-    bool operator<(const T rhs) const {
-        return *this < UInt128(rhs);
+    auto operator<=>(const T rhs) const {
+        return *this <=> UInt128(rhs);
     }
 
     template <typename T>
@@ -124,31 +104,6 @@ struct UInt128 {
         return *this;
     }
 };
-
-template <typename T>
-bool inline operator==(T a, const UInt128 b) {
-    return UInt128(a) == b;
-}
-template <typename T>
-bool inline operator!=(T a, const UInt128 b) {
-    return UInt128(a) != b;
-}
-template <typename T>
-bool inline operator>=(T a, const UInt128 b) {
-    return UInt128(a) >= b;
-}
-template <typename T>
-bool inline operator>(T a, const UInt128 b) {
-    return UInt128(a) > b;
-}
-template <typename T>
-bool inline operator<=(T a, const UInt128 b) {
-    return UInt128(a) <= b;
-}
-template <typename T>
-bool inline operator<(T a, const UInt128 b) {
-    return UInt128(a) < b;
-}
 
 template <>
 inline constexpr bool IsNumber<UInt128> = true;
@@ -199,10 +154,7 @@ struct UInt256 {
         return a == rhs.a && b == rhs.b && c == rhs.c && d == rhs.d;
     }
 
-    bool operator!=(const UInt256 rhs) const { return !operator==(rhs); }
-
     bool operator==(const UInt64 rhs) const { return a == rhs && b == 0 && c == 0 && d == 0; }
-    bool operator!=(const UInt64 rhs) const { return !operator==(rhs); }
 
     UInt256& operator=(const UInt64 rhs) {
         a = rhs;
@@ -212,6 +164,17 @@ struct UInt256 {
         return *this;
     }
 };
+
+#pragma pack(1)
+struct UInt136 {
+    UInt8 a;
+    UInt64 b;
+    UInt64 c;
+
+    bool operator==(const UInt136 rhs) const { return a == rhs.a && b == rhs.b && c == rhs.c; }
+};
+#pragma pack()
+
 } // namespace doris::vectorized
 
 /// Overload hash for type casting

@@ -117,10 +117,9 @@ doris::Status vectorized::VBitmapPredicate::execute(vectorized::VExprContext* co
     return Status::OK();
 }
 
-void vectorized::VBitmapPredicate::close(doris::RuntimeState* state,
-                                         vectorized::VExprContext* context,
+void vectorized::VBitmapPredicate::close(vectorized::VExprContext* context,
                                          FunctionContext::FunctionStateScope scope) {
-    VExpr::close(state, context, scope);
+    VExpr::close(context, scope);
 }
 
 const std::string& vectorized::VBitmapPredicate::expr_name() const {

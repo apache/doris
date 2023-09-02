@@ -40,6 +40,7 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.load.loadv2.LoadTask;
+import org.apache.doris.load.routineload.kafka.KafkaConfiguration;
 import org.apache.doris.mysql.privilege.AccessControllerManager;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.persist.EditLog;
@@ -91,9 +92,9 @@ public class RoutineLoadManagerTest {
         String typeName = LoadDataSourceType.KAFKA.name();
         Map<String, String> customProperties = Maps.newHashMap();
         String topicName = "topic1";
-        customProperties.put(CreateRoutineLoadStmt.KAFKA_TOPIC_PROPERTY, topicName);
+        customProperties.put(KafkaConfiguration.KAFKA_TOPIC.getName(), topicName);
         String serverAddress = "http://127.0.0.1:8080";
-        customProperties.put(CreateRoutineLoadStmt.KAFKA_BROKER_LIST_PROPERTY, serverAddress);
+        customProperties.put(KafkaConfiguration.KAFKA_BROKER_LIST.getName(), serverAddress);
         CreateRoutineLoadStmt createRoutineLoadStmt = new CreateRoutineLoadStmt(labelName, tableNameString,
                                                                                 loadPropertyList, properties,
                                                                                 typeName, customProperties,
@@ -160,9 +161,9 @@ public class RoutineLoadManagerTest {
         String typeName = LoadDataSourceType.KAFKA.name();
         Map<String, String> customProperties = Maps.newHashMap();
         String topicName = "topic1";
-        customProperties.put(CreateRoutineLoadStmt.KAFKA_TOPIC_PROPERTY, topicName);
+        customProperties.put(KafkaConfiguration.KAFKA_TOPIC.getName(), topicName);
         String serverAddress = "http://127.0.0.1:8080";
-        customProperties.put(CreateRoutineLoadStmt.KAFKA_BROKER_LIST_PROPERTY, serverAddress);
+        customProperties.put(KafkaConfiguration.KAFKA_BROKER_LIST.getName(), serverAddress);
         CreateRoutineLoadStmt createRoutineLoadStmt = new CreateRoutineLoadStmt(labelName, tableNameString,
                                                                                 loadPropertyList, properties,
                                                                                 typeName, customProperties,
@@ -276,10 +277,7 @@ public class RoutineLoadManagerTest {
 
         new Expectations() {
             {
-                systemInfoService.getClusterBackendIds(anyString, true);
-                minTimes = 0;
-                result = beIds;
-                systemInfoService.getBackendIds(true);
+                systemInfoService.getAllBackendIds(true);
                 minTimes = 0;
                 result = beIds;
             }
@@ -315,7 +313,7 @@ public class RoutineLoadManagerTest {
     public void testGetMinTaskBeIdWhileClusterDeleted() {
         new Expectations() {
             {
-                systemInfoService.getClusterBackendIds(anyString, true);
+                systemInfoService.getAllBackendIds(true);
                 minTimes = 0;
                 result = null;
             }
@@ -346,10 +344,7 @@ public class RoutineLoadManagerTest {
 
         new Expectations() {
             {
-                systemInfoService.getClusterBackendIds(anyString, true);
-                minTimes = 0;
-                result = beIds;
-                systemInfoService.getBackendIds(true);
+                systemInfoService.getAllBackendIds(true);
                 minTimes = 0;
                 result = beIds;
                 routineLoadJob.getBeCurrentTasksNumMap();
@@ -390,7 +385,7 @@ public class RoutineLoadManagerTest {
 
         new Expectations() {
             {
-                systemInfoService.getBackendIds(true);
+                systemInfoService.getAllBackendIds(true);
                 minTimes = 0;
                 result = beIds;
             }
@@ -435,7 +430,7 @@ public class RoutineLoadManagerTest {
 
         new Expectations() {
             {
-                systemInfoService.getBackendIds(true);
+                systemInfoService.getAllBackendIds(true);
                 minTimes = 0;
                 returns(oldBeIds, newBeIds);
             }

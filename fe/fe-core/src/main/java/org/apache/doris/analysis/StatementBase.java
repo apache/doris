@@ -32,6 +32,7 @@ import org.apache.doris.thrift.TQueryOptions;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
 
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 
@@ -56,6 +57,10 @@ public abstract class StatementBase implements ParseNode {
     private UserIdentity userInfo;
 
     private boolean isPrepared = false;
+
+    // select * from tbl where a = ? and b = ?
+    // `?` is the placeholder
+    private ArrayList<PlaceHolderExpr> placeholders = new ArrayList<>();
 
     protected StatementBase() { }
 
@@ -99,6 +104,14 @@ public abstract class StatementBase implements ParseNode {
 
     public boolean isExplain() {
         return this.explainOptions != null;
+    }
+
+    public void setPlaceHolders(ArrayList<PlaceHolderExpr> placeholders) {
+        this.placeholders = new ArrayList<PlaceHolderExpr>(placeholders);
+    }
+
+    public ArrayList<PlaceHolderExpr> getPlaceHolders() {
+        return this.placeholders;
     }
 
     public boolean isVerbose() {

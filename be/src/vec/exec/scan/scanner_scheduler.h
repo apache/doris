@@ -21,15 +21,19 @@
 #include <memory>
 
 #include "common/status.h"
+#include "scan_task_queue.h"
 #include "util/threadpool.h"
+#include "vec/exec/scan/vscanner.h"
 
 namespace doris {
 class ExecEnv;
-class PriorityThreadPool;
 
 namespace vectorized {
 class VScanner;
 } // namespace vectorized
+namespace taskgroup {
+class ScanTaskTaskGroupQueue;
+}
 template <typename T>
 class BlockingQueue;
 } // namespace doris
@@ -62,10 +66,13 @@ public:
 
     Status init(ExecEnv* env);
 
-    Status submit(ScannerContext* ctx);
+    [[nodiscard]] Status submit(ScannerContext* ctx);
 
     std::unique_ptr<ThreadPoolToken> new_limited_scan_pool_token(ThreadPool::ExecutionMode mode,
                                                                  int max_concurrency);
+    taskgroup::ScanTaskTaskGroupQueue* local_scan_task_queue() {
+        return _task_group_local_scan_queue.get();
+    }
 
 private:
     // scheduling thread function
@@ -73,9 +80,11 @@ private:
     // schedule scanners in a certain ScannerContext
     void _schedule_scanners(ScannerContext* ctx);
     // execution thread function
-    void _scanner_scan(ScannerScheduler* scheduler, ScannerContext* ctx, VScanner* scanner);
+    void _scanner_scan(ScannerScheduler* scheduler, ScannerContext* ctx, VScannerSPtr scanner);
 
-private:
+    void _task_group_scanner_scan(ScannerScheduler* scheduler,
+                                  taskgroup::ScanTaskTaskGroupQueue* scan_queue);
+
     // Scheduling queue number.
     // TODO: make it configurable.
     static const int QUEUE_NUM = 4;
@@ -96,6 +105,9 @@ private:
     std::unique_ptr<PriorityThreadPool> _local_scan_thread_pool;
     std::unique_ptr<ThreadPool> _remote_scan_thread_pool;
     std::unique_ptr<ThreadPool> _limited_scan_thread_pool;
+
+    std::unique_ptr<taskgroup::ScanTaskTaskGroupQueue> _task_group_local_scan_queue;
+    std::unique_ptr<ThreadPool> _group_local_scan_thread_pool;
 
     // true is the scheduler is closed.
     std::atomic_bool _is_closed = {false};

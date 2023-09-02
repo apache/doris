@@ -69,10 +69,22 @@ public:
     // delete dir or file
     Status delete_directory_or_file(const Path& path);
 
+    // read local file and save content to "content"
+    Status read_file_to_string(const Path& file, std::string* content);
+
+    Status canonicalize_local_file(const std::string& dir, const std::string& file_path,
+                                   std::string* full_path);
+
+    // glob list the files match the path pattern.
+    // the result will be saved in "res", in absolute path with file size.
+    // "safe" means the path will be concat with the path prefix config::user_files_secure_path,
+    // so that it can not list any files outside the config::user_files_secure_path
+    Status safe_glob(const std::string& path, std::vector<FileInfo>* res);
+
 protected:
     Status create_file_impl(const Path& file, FileWriterPtr* writer) override;
-    Status open_file_impl(const Path& file, const FileReaderOptions& reader_options,
-                          FileReaderSPtr* reader) override;
+    Status open_file_impl(const FileDescription& file_desc, const Path& abs_path,
+                          const FileReaderOptions& reader_options, FileReaderSPtr* reader) override;
     Status create_directory_impl(const Path& dir, bool failed_if_exists = false) override;
     Status delete_file_impl(const Path& file) override;
     Status delete_directory_impl(const Path& dir) override;
@@ -94,6 +106,8 @@ protected:
     Status delete_directory_or_file_impl(const Path& path);
 
 private:
+    // a wrapper for glob(), return file list in "res"
+    Status _glob(const std::string& pattern, std::vector<std::string>* res);
     LocalFileSystem(Path&& root_path, std::string&& id = "");
 };
 

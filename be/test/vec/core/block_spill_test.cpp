@@ -15,30 +15,49 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include <gtest/gtest.h>
+#include <gen_cpp/PaloInternalService_types.h>
+#include <gtest/gtest-message.h>
+#include <gtest/gtest-test-part.h>
+#include <stdint.h>
+#include <unistd.h>
 
+#include <cmath>
+#include <iostream>
+#include <memory>
+#include <string>
+#include <utility>
+#include <vector>
+
+#include "common/status.h"
+#include "gtest/gtest_pred_impl.h"
 #include "io/fs/local_file_system.h"
+#include "olap/options.h"
 #include "runtime/block_spill_manager.h"
 #include "runtime/exec_env.h"
 #include "runtime/runtime_state.h"
-#include "vec/columns/column_array.h"
+#include "util/bitmap_value.h"
+#include "vec/columns/column.h"
+#include "vec/columns/column_complex.h"
 #include "vec/columns/column_decimal.h"
 #include "vec/columns/column_nullable.h"
 #include "vec/columns/column_string.h"
 #include "vec/columns/column_vector.h"
+#include "vec/common/string_ref.h"
+#include "vec/core/block.h"
 #include "vec/core/block_spill_reader.h"
 #include "vec/core/block_spill_writer.h"
+#include "vec/core/column_with_type_and_name.h"
+#include "vec/core/types.h"
 #include "vec/data_types/data_type.h"
-#include "vec/data_types/data_type_array.h"
 #include "vec/data_types/data_type_bitmap.h"
-#include "vec/data_types/data_type_date.h"
-#include "vec/data_types/data_type_date_time.h"
 #include "vec/data_types/data_type_decimal.h"
 #include "vec/data_types/data_type_nullable.h"
 #include "vec/data_types/data_type_number.h"
 #include "vec/data_types/data_type_string.h"
 
 namespace doris {
+class RuntimeProfile;
+
 static const uint32_t MAX_PATH_LEN = 1024;
 
 static const std::string TMP_DATA_DIR = "block_spill_test";
@@ -339,7 +358,7 @@ TEST_F(TestBlockSpill, TestDecimal) {
                 (vectorized::ColumnDecimal<vectorized::Decimal<vectorized::Int128>>*)column.get();
         for (size_t j = 0; j < batch_size; ++j) {
             __int128_t value = (j + i * batch_size) * (pow(10, 9) + pow(10, 8));
-            EXPECT_EQ(real_column->get_element(j), value);
+            EXPECT_EQ(real_column->get_element(j).value, value);
         }
     }
 
@@ -351,7 +370,7 @@ TEST_F(TestBlockSpill, TestDecimal) {
     auto column = block_read.get_by_position(0).column;
     auto* real_column =
             (vectorized::ColumnDecimal<vectorized::Decimal<vectorized::Int128>>*)column.get();
-    EXPECT_EQ(real_column->get_element(0), batch_size * 3 * (pow(10, 9) + pow(10, 8)));
+    EXPECT_EQ(real_column->get_element(0).value, batch_size * 3 * (pow(10, 9) + pow(10, 8)));
 }
 TEST_F(TestBlockSpill, TestDecimalNullable) {
     int batch_size = 3; // rows in a block
@@ -400,7 +419,7 @@ TEST_F(TestBlockSpill, TestDecimalNullable) {
                 ASSERT_TRUE(real_column->is_null_at(j));
             } else {
                 __int128_t value = (j + i * batch_size) * (pow(10, 9) + pow(10, 8));
-                EXPECT_EQ(decimal_col.get_element(j), value);
+                EXPECT_EQ(decimal_col.get_element(j).value, value);
             }
         }
     }
@@ -415,7 +434,7 @@ TEST_F(TestBlockSpill, TestDecimalNullable) {
     const auto& decimal_col =
             (vectorized::ColumnDecimal<
                     vectorized::Decimal<vectorized::Int128>>&)(real_column->get_nested_column());
-    EXPECT_EQ(decimal_col.get_element(0), batch_size * 3 * (pow(10, 9) + pow(10, 8)));
+    EXPECT_EQ(decimal_col.get_element(0).value, batch_size * 3 * (pow(10, 9) + pow(10, 8)));
 }
 std::string convert_bitmap_to_string(BitmapValue& bitmap);
 TEST_F(TestBlockSpill, TestBitmap) {

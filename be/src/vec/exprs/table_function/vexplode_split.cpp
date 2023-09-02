@@ -43,18 +43,18 @@ Status VExplodeSplitTableFunction::open() {
     return Status::OK();
 }
 
-Status VExplodeSplitTableFunction::process_init(Block* block) {
-    CHECK(_vexpr_context->root()->children().size() == 2)
+Status VExplodeSplitTableFunction::process_init(Block* block, RuntimeState* state) {
+    CHECK(_expr_context->root()->children().size() == 2)
             << "VExplodeSplitTableFunction must be have 2 children but have "
-            << _vexpr_context->root()->children().size();
+            << _expr_context->root()->children().size();
 
     int text_column_idx = -1;
     int delimiter_column_idx = -1;
 
-    RETURN_IF_ERROR(_vexpr_context->root()->children()[0]->execute(_vexpr_context, block,
-                                                                   &text_column_idx));
-    RETURN_IF_ERROR(_vexpr_context->root()->children()[1]->execute(_vexpr_context, block,
-                                                                   &delimiter_column_idx));
+    RETURN_IF_ERROR(_expr_context->root()->children()[0]->execute(_expr_context.get(), block,
+                                                                  &text_column_idx));
+    RETURN_IF_ERROR(_expr_context->root()->children()[1]->execute(_expr_context.get(), block,
+                                                                  &delimiter_column_idx));
 
     // dispose test column
     _text_column =
@@ -71,6 +71,10 @@ Status VExplodeSplitTableFunction::process_init(Block* block) {
     auto& delimiter_const_column = block->get_by_position(delimiter_column_idx).column;
     if (is_column_const(*delimiter_const_column)) {
         _delimiter = delimiter_const_column->get_data_at(0);
+        if (_delimiter.empty()) {
+            return Status::InvalidArgument(
+                    "explode_split(test, delimiter) delimiter column must be not empty");
+        }
     } else {
         return Status::NotSupported(
                 "explode_split(test, delimiter) delimiter column must be const");

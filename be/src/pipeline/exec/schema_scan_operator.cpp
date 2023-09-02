@@ -32,7 +32,6 @@ namespace doris::pipeline {
 OPERATOR_CODE_GENERATOR(SchemaScanOperator, SourceOperator)
 
 Status SchemaScanOperator::open(RuntimeState* state) {
-    SCOPED_TIMER(_runtime_profile->total_time_counter());
     return _node->open(state);
 }
 

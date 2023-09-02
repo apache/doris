@@ -36,7 +36,7 @@ import java.util.stream.Collectors;
 /**
  * MetastoreEvent for ADD_PARTITION event type
  */
-public class DropPartitionEvent extends MetastoreTableEvent {
+public class DropPartitionEvent extends MetastorePartitionEvent {
     private final Table hmsTbl;
     private final List<String> partitionNames;
 
@@ -79,10 +79,10 @@ public class DropPartitionEvent extends MetastoreTableEvent {
                 return;
             }
             Env.getCurrentEnv().getCatalogMgr()
-                    .dropExternalPartitions(catalogName, dbName, hmsTbl.getTableName(), partitionNames);
+                    .dropExternalPartitions(catalogName, dbName, hmsTbl.getTableName(), partitionNames, true);
         } catch (DdlException e) {
             throw new MetastoreNotificationException(
-                    debugString("Failed to process event"));
+                    debugString("Failed to process event"), e);
         }
     }
 }

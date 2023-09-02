@@ -21,7 +21,6 @@ import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.analyzer.Scope;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.BinaryOperator;
-import org.apache.doris.nereids.trees.expressions.ComparisonPredicate;
 import org.apache.doris.nereids.trees.expressions.Exists;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.InSubquery;
@@ -104,14 +103,6 @@ class SubExprAnalyzer extends DefaultExpressionRewriter<CascadesContext> {
         return new ScalarSubquery(analyzedResult.getLogicalPlan(), analyzedResult.getCorrelatedSlots());
     }
 
-    @Override
-    public Expression visitBinaryOperator(BinaryOperator binaryOperator, CascadesContext context) {
-        if (childrenAtLeastOneInOrExistsSub(binaryOperator) && (binaryOperator instanceof ComparisonPredicate)) {
-            throw new AnalysisException("Not support binaryOperator children at least one is in or exists subquery");
-        }
-        return visit(binaryOperator, context);
-    }
-
     private boolean childrenAtLeastOneInOrExistsSub(BinaryOperator binaryOperator) {
         return binaryOperator.left().anyMatch(InSubquery.class::isInstance)
                 || binaryOperator.left().anyMatch(Exists.class::isInstance)
@@ -168,8 +159,8 @@ class SubExprAnalyzer extends DefaultExpressionRewriter<CascadesContext> {
     }
 
     private AnalyzedResult analyzeSubquery(SubqueryExpr expr) {
-        CascadesContext subqueryContext = CascadesContext.newRewriteContext(
-                cascadesContext.getStatementContext(), expr.getQueryPlan(), cascadesContext.getCteContext());
+        CascadesContext subqueryContext = CascadesContext.newContextWithCteContext(
+                cascadesContext, expr.getQueryPlan(), cascadesContext.getCteContext());
         Scope subqueryScope = genScopeWithSubquery(expr);
         subqueryContext.setOuterScope(subqueryScope);
         subqueryContext.newAnalyzer().analyze();

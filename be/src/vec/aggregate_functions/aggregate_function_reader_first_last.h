@@ -20,14 +20,17 @@
 #include "factory_helpers.h"
 #include "vec/aggregate_functions/aggregate_function.h"
 #include "vec/aggregate_functions/helpers.h"
+#include "vec/columns/column_array.h"
+#include "vec/columns/column_map.h"
 #include "vec/columns/column_nullable.h"
+#include "vec/columns/column_struct.h"
 #include "vec/columns/column_vector.h"
 #include "vec/data_types/data_type_decimal.h"
 #include "vec/data_types/data_type_nullable.h"
 #include "vec/data_types/data_type_number.h"
 #include "vec/data_types/data_type_string.h"
+#include "vec/functions/function.h"
 #include "vec/io/io_helper.h"
-#include "vec/utils/template_helpers.hpp"
 
 namespace doris::vectorized {
 
@@ -232,20 +235,20 @@ private:
 
 template <template <typename> class AggregateFunctionTemplate, template <typename> class Impl,
           bool result_is_nullable, bool arg_is_nullable, bool is_copy = false>
-IAggregateFunction* create_function_single_value(const String& name,
-                                                 const DataTypes& argument_types) {
+AggregateFunctionPtr create_function_single_value(const String& name,
+                                                  const DataTypes& argument_types) {
     auto type = remove_nullable(argument_types[0]);
     WhichDataType which(*type);
 
-#define DISPATCH(TYPE, COLUMN_TYPE)                                       \
-    if (which.idx == TypeIndex::TYPE)                                     \
-        return new AggregateFunctionTemplate<Impl<ReaderFirstAndLastData< \
-                COLUMN_TYPE, result_is_nullable, arg_is_nullable, is_copy>>>(argument_types);
+#define DISPATCH(TYPE, COLUMN_TYPE)                                                    \
+    if (which.idx == TypeIndex::TYPE)                                                  \
+        return std::make_shared<AggregateFunctionTemplate<Impl<ReaderFirstAndLastData< \
+                COLUMN_TYPE, result_is_nullable, arg_is_nullable, is_copy>>>>(argument_types);
     TYPE_TO_COLUMN_TYPE(DISPATCH)
 #undef DISPATCH
 
-    LOG(FATAL) << "with unknowed type, failed in  create_aggregate_function_" << name
-               << " and type is: " << argument_types[0]->get_name();
+    LOG(WARNING) << "with unknowed type, failed in  create_aggregate_function_" << name
+                 << " and type is: " << argument_types[0]->get_name();
     return nullptr;
 }
 

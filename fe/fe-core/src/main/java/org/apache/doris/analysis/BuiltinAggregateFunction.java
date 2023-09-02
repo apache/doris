@@ -66,8 +66,8 @@ public class BuiltinAggregateFunction extends Function {
     }
 
     @Override
-    public TFunction toThrift(Type realReturnType, Type[] realArgTypes) {
-        TFunction fn = super.toThrift(realReturnType, realArgTypes);
+    public TFunction toThrift(Type realReturnType, Type[] realArgTypes, Boolean[] realArgTypeNullables) {
+        TFunction fn = super.toThrift(realReturnType, realArgTypes, realArgTypeNullables);
         // TODO: for now, just put the op_ enum as the id.
         if (op == BuiltinAggregateFunction.Operator.FIRST_VALUE_REWRITE) {
             fn.setId(0);

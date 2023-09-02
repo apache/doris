@@ -1,6 +1,6 @@
 ---
 {
-    "title": "Inverted index",
+    "title": "Inverted Index",
     "language": "en"
 }
 ---
@@ -40,8 +40,6 @@ From version 2.0.0, Doris implemented inverted index to support fulltext search 
 
 ## Basic Principles
 
-Doris use [CLucene](https://clucene.sourceforge.net/) as its underlying lib for inverted index. CLucene is a high performance and robust implementation of the famous Lucene inverted index library written in C++. Doris optimize CLucene to be more simple, fast and suitable for a database.
-
 In the inverted index of Doris, a row in a table corresponds to a doc in CLucene, a column corresponds to a field in doc. So using inverted index, doris can get the rows that meet the filter of SQL WHERE clause, and then get the rows quickly without reading other unrelated rows.
 
 Doris use a seperate file to store inverted index. It's related to segment file in logic, but iosolated with each other. The advantange is that, create and drop inverted index does not need to rewrite tablet and segment file, which is very heavy work.
@@ -54,7 +52,7 @@ The features for inverted index is as follows:
 - add fulltext search on text(string, varchar, char) field
   - MATCH_ALL matches all keywords, MATCH_ANY matches any keywords
   - support fulltext on array of text field
-  - support english and chinese word parser
+  - support english, chinese and mixed unicode word parser
 - accelerate normal equal, range query, replacing bitmap index in the future
   - suport =, !=, >, >=, <, <= on text, numeric, datetime types
   - suport =, !=, >, >=, <, <= on array of text, numeric, datetime types
@@ -71,28 +69,72 @@ The features for inverted index is as follows:
 
 - The inverted index definition syntax on table creation is as follows
   - USING INVERTED is mandatory, it specify index type to be inverted index
-  - PROPERTIES is optional, it allows user to specify additional properties for index, "parser" is for type of word tokenizor/parser
-    - missing stands for no parser, the whole field is considered to be a term
-    - "english" stands for english parser
-    - "chinese" stands for chinese parser
+  - PROPERTIES is optional, it allows user to specify additional properties for index. Currently, there are three types of properties available.
+    - "parser" is utilized to set the type of tokenizer/parser
+      - missing stands for no parser, the whole field is considered to be a term
+      - "english" stands for english parser
+      - "chinese" stands for chinese parser
+      - "unicode" stands for muti-language mixed word segmentation suitable for situations with a mix of Chinese and English. It can segment email prefixes and suffixes, IP addresses, and mixed characters and numbers, and can also segment Chinese characters one by one.
+
+    - "parser_mode" is utilized to set the tokenizer/parser type for Chinese word segmentation.
+      - in "fine_grained" mode, the system tend to generate short words, eg. 6 words '武汉' '武汉市' '市长' '长江' '长江大桥' '大桥' for '武汉长江大桥'.
+      - in "coarse_grained" mode, the system tend to generate long words, eg. 2 words '武汉市' '市长' '长江大桥' for '武汉长江大桥'.
+      - default mode is "coarse_grained".
+    - "support_phrase" is utilized to specify if the index requires support for phrase mode query MATCH_PHRASE
+      - "true" indicates that support is needed, but needs more storage for index.
+      - "false" indicates that support is not needed, and less storage for index. MATCH_ALL can be used for matching multi words without order.
+      - default mode is "false".
   - COMMENT is optional
 
 ```sql
 CREATE TABLE table_name
 (
   columns_difinition,
-  INDEX idx_name1(column_name1) USING INVERTED [PROPERTIES("parser" = "english|chinese")] [COMMENT 'your comment']
-  INDEX idx_name2(column_name2) USING INVERTED [PROPERTIES("parser" = "english|chinese")] [COMMENT 'your comment']
+  INDEX idx_name1(column_name1) USING INVERTED [PROPERTIES("parser" = "english|chinese|unicode")] [COMMENT 'your comment']
+  INDEX idx_name2(column_name2) USING INVERTED [PROPERTIES("parser" = "english|chinese|unicode")] [COMMENT 'your comment']
+  INDEX idx_name3(column_name3) USING INVERTED [PROPERTIES("parser" = "chinese", "parser_mode" = "fine_grained|coarse_grained")] [COMMENT 'your comment']
+  INDEX idx_name4(column_name4) USING INVERTED [PROPERTIES("parser" = "english|chinese|unicode", "support_phrase" = "true|false")] [COMMENT 'your comment']
 )
 table_properties;
 ```
 
+:::tip
+
+Inverted indexes have different limitations in different data models:
+- Aggregate model: Inverted indexes can only be created for the Key column.
+- Unique model: The merge on write feature needs to be enabled. After enabling it, an inverted index can be created for any column.
+- Duplicate model: An inverted index can be created for any column.
+
+:::
+
 - add an inverted index to existed table
+
+**Before version 2.0-beta:**
 ```sql
 -- syntax 1
-CREATE INDEX idx_name ON table_name(column_name) USING INVERTED [PROPERTIES("parser" = "english|chinese")] [COMMENT 'your comment'];
+CREATE INDEX idx_name ON table_name(column_name) USING INVERTED [PROPERTIES("parser" = "english|chinese|unicode")] [COMMENT 'your comment'];
 -- syntax 2
-ALTER TABLE table_name ADD INDEX idx_name(column_name) USING INVERTED [PROPERTIES("parser" = "english|chinese")] [COMMENT 'your comment'];
+ALTER TABLE table_name ADD INDEX idx_name(column_name) USING INVERTED [PROPERTIES("parser" = "english|chinese|unicode")] [COMMENT 'your comment'];
+```
+
+**After version 2.0-beta (including 2.0-beta):**
+
+The above 'create/add index' operation only generates inverted index for incremental data. The syntax of build index is added to add inverted index to stock data:
+```sql
+-- syntax 1, add inverted index to the stock data of the whole table by default
+BUILD INDEX index_name ON table_name;
+-- syntax 2, partition can be specified, and one or more can be specified
+BUILD INDEX index_name ON table_name PARTITIONS(partition_name1, partition_name2);
+```
+(**The above 'create/add index' operation needs to be executed before executing the build index**)
+
+To view the progress of the `build index`, you can use the following statement
+```sql
+show build index [FROM db_name];
+-- Example 1: Viewing the progress of all build index tasks
+show build index;
+-- Example 2: Viewing the progress of the build index task for a specified table
+show build index where TableName = "table1";
 ```
 
 - drop an inverted index
@@ -112,11 +154,13 @@ SELECT * FROM table_name WHERE column_name MATCH_ANY | MATCH_ALL 'keyword1 ...';
 SELECT * FROM table_name WHERE logmsg MATCH_ANY 'keyword1';
 
 -- 1.2 find rows that logmsg contains keyword1 or keyword2 or more keywords
-SELECT * FROM table_name WHERE logmsg MATCH_ANY 'keyword2 keyword2';
+SELECT * FROM table_name WHERE logmsg MATCH_ANY 'keyword1 keyword2';
 
 -- 1.3 find rows that logmsg contains both keyword1 and keyword2 and more keywords
-SELECT * FROM table_name WHERE logmsg MATCH_ALL 'keyword2 keyword2';
+SELECT * FROM table_name WHERE logmsg MATCH_ALL 'keyword1 keyword2';
 
+-- 1.4 find rows that logmsg contains both keyword1 and keyword2, and in the order of keyword1 appearing first and keyword2 appearing later.
+SELECT * FROM table_name WHERE logmsg MATCH_PHRASE 'keyword1 keyword2';
 
 -- 2. normal equal, range query
 SELECT * FROM table_name WHERE id = 123;
@@ -124,11 +168,56 @@ SELECT * FROM table_name WHERE ts > '2023-01-01 00:00:00';
 SELECT * FROM table_name WHERE op_type IN ('add', 'delete');
 ```
 
-## Example
+- Tokenization Function
+
+To evaluate the actual effects of tokenization or to tokenize a block of text, the `tokenize` function can be utilized.
+```sql
+mysql> SELECT TOKENIZE('武汉长江大桥','"parser"="chinese","parser_mode"="fine_grained");
++-----------------------------------------------------------------------------------+
+| tokenize('武汉长江大桥', '"parser"="chinese","parser_mode"="fine_grained"')       |
++-----------------------------------------------------------------------------------+
+| ["武汉", "武汉长江大桥", "长江", "长江大桥", "大桥"]                              |
++-----------------------------------------------------------------------------------+
+1 row in set (0.02 sec)
+
+mysql> SELECT TOKENIZE('武汉市长江大桥','"parser"="chinese","parser_mode"="fine_grained");
++--------------------------------------------------------------------------------------+
+| tokenize('武汉市长江大桥', '"parser"="chinese","parser_mode"="fine_grained"')        |
++--------------------------------------------------------------------------------------+
+| ["武汉", "武汉市", "市长", "长江", "长江大桥", "大桥"]                               |
++--------------------------------------------------------------------------------------+
+1 row in set (0.02 sec)
+
+mysql> SELECT TOKENIZE('武汉市长江大桥','"parser"="chinese","parser_mode"="coarse_grained");
++----------------------------------------------------------------------------------------+
+| tokenize('武汉市长江大桥', '"parser"="chinese","parser_mode"="coarse_grained"')        |
++----------------------------------------------------------------------------------------+
+| ["武汉市", "长江大桥"]                                                                 |
++----------------------------------------------------------------------------------------+
+1 row in set (0.02 sec)
+
+mysql> SELECT TOKENIZE('I love CHINA','"parser"="english");
++------------------------------------------------+
+| tokenize('I love CHINA', '"parser"="english"') |
++------------------------------------------------+
+| ["i", "love", "china"]                         |
++------------------------------------------------+
+1 row in set (0.02 sec)
+
+mysql> SELECT TOKENIZE('I love CHINA 我爱我的祖国','"parser"="unicode");
++-------------------------------------------------------------------+
+| tokenize('I love CHINA 我爱我的祖国', '"parser"="unicode"')       |
++-------------------------------------------------------------------+
+| ["i", "love", "china", "我", "爱", "我", "的", "祖", "国"]        |
++-------------------------------------------------------------------+
+1 row in set (0.02 sec)
+```
+
+## Examples
 
 This example will demostrate inverted index creation, fulltext query, normal query using a hackernews dataset with 1 million rows. The performanc comparation between using  and without inverted index will also be showed.
 
-### Create table
+### Create Table
 
 ```sql
 
@@ -165,7 +254,7 @@ PROPERTIES ("replication_num" = "1");
 ```
 
 
-### Load data
+### Load Data
 
 - load data by stream load
 
@@ -208,7 +297,7 @@ mysql> SELECT count() FROM hackernews_1m;
 
 ### Query
 
-#### Fulltext search query
+#### Fulltext Search Query
 
 - count the rows that comment contains 'OLAP' using LIKE, cost 0.18s
 ```sql
@@ -294,7 +383,7 @@ mysql> SELECT count() FROM hackernews_1m WHERE comment MATCH_ANY 'OLAP OLTP';
 ```
 
 
-#### normal equal, range query
+#### Normal Equal, Range Query
 
 - range query on DateTime column
 ```sql
@@ -314,6 +403,11 @@ mysql> SELECT count() FROM hackernews_1m WHERE timestamp > '2007-08-23 04:17:00'
 mysql> CREATE INDEX idx_timestamp ON hackernews_1m(timestamp) USING INVERTED;
 Query OK, 0 rows affected (0.03 sec)
 ```
+**After 2.0-beta (including 2.0-beta), you need to execute `build index` to add inverted index to the stock data:**
+```sql
+mysql> BUILD INDEX idx_timestamp ON hackernews_1m;
+Query OK, 0 rows affected (0.01 sec)
+```
 
 - progress of building index can be view by SQL. It just costs 1s (compare FinishTime and CreateTime) to build index for timestamp column with 1 million rows.
 ```sql
@@ -324,6 +418,18 @@ mysql> SHOW ALTER TABLE COLUMN;
 | 10030 | hackernews_1m | 2023-02-10 19:44:12.929 | 2023-02-10 19:44:13.938 | hackernews_1m | 10031   | 10008         | 1:1994690496  | 3             | FINISHED |      | NULL     | 2592000 |
 +-------+---------------+-------------------------+-------------------------+---------------+---------+---------------+---------------+---------------+----------+------+----------+---------+
 1 row in set (0.00 sec)
+```
+
+**After 2.0-beta (including 2.0-beta), you can view the progress of stock data creating index by `show build index`:**
+```sql
+-- If the table has no partitions, the PartitionName defaults to TableName
+mysql> show build index;
++-------+---------------+---------------+----------------------------------------------------------+-------------------------+-------------------------+---------------+----------+------+----------+
+| JobId | TableName     | PartitionName | AlterInvertedIndexes                                     | CreateTime              | FinishTime              | TransactionId | State    | Msg  | Progress |
++-------+---------------+---------------+----------------------------------------------------------+-------------------------+-------------------------+---------------+----------+------+----------+
+| 10191 | hackernews_1m | hackernews_1m | [ADD INDEX idx_timestamp (`timestamp`) USING INVERTED],  | 2023-06-26 15:32:33.894 | 2023-06-26 15:32:34.847 | 3             | FINISHED |      | NULL     |
++-------+---------------+---------------+----------------------------------------------------------+-------------------------+-------------------------+---------------+----------+------+----------+
+1 row in set (0.04 sec)
 ```
 
 - after the index is build, Doris will automaticaly use index for range query, but the performance is almost the same since it's already fast on the small dataset
@@ -352,6 +458,10 @@ mysql> SELECT count() FROM hackernews_1m WHERE parent = 11189;
 mysql> ALTER TABLE hackernews_1m ADD INDEX idx_parent(parent) USING INVERTED;
 Query OK, 0 rows affected (0.01 sec)
 
+-- After 2.0-beta (including 2.0-beta), you need to execute `build index` to add inverted index to the stock data:
+mysql> BUILD INDEX idx_parent ON hackernews_1m;
+Query OK, 0 rows affected (0.01 sec)
+
 mysql> SHOW ALTER TABLE COLUMN;
 +-------+---------------+-------------------------+-------------------------+---------------+---------+---------------+---------------+---------------+----------+------+----------+---------+
 | JobId | TableName     | CreateTime              | FinishTime              | IndexName     | IndexId | OriginIndexId | SchemaVersion | TransactionId | State    | Msg  | Progress | Timeout |
@@ -359,6 +469,14 @@ mysql> SHOW ALTER TABLE COLUMN;
 | 10030 | hackernews_1m | 2023-02-10 19:44:12.929 | 2023-02-10 19:44:13.938 | hackernews_1m | 10031   | 10008         | 1:1994690496  | 3             | FINISHED |      | NULL     | 2592000 |
 | 10053 | hackernews_1m | 2023-02-10 19:49:32.893 | 2023-02-10 19:49:33.982 | hackernews_1m | 10054   | 10008         | 1:378856428   | 4             | FINISHED |      | NULL     | 2592000 |
 +-------+---------------+-------------------------+-------------------------+---------------+---------+---------------+---------------+---------------+----------+------+----------+---------+
+
+mysql> show build index;
++-------+---------------+---------------+----------------------------------------------------+-------------------------+-------------------------+---------------+----------+------+----------+
+| JobId | TableName     | PartitionName | AlterInvertedIndexes                               | CreateTime              | FinishTime              | TransactionId | State    | Msg  | Progress |
++-------+---------------+---------------+----------------------------------------------------+-------------------------+-------------------------+---------------+----------+------+----------+
+| 11005 | hackernews_1m | hackernews_1m | [ADD INDEX idx_parent (`parent`) USING INVERTED],  | 2023-06-26 16:25:10.167 | 2023-06-26 16:25:10.838 | 1002          | FINISHED |      | NULL     |
++-------+---------------+---------------+----------------------------------------------------+-------------------------+-------------------------+---------------+----------+------+----------+
+1 row in set (0.01 sec)
 
 mysql> SELECT count() FROM hackernews_1m WHERE parent = 11189;
 +---------+
@@ -383,6 +501,10 @@ mysql> SELECT count() FROM hackernews_1m WHERE author = 'faster';
 mysql> ALTER TABLE hackernews_1m ADD INDEX idx_author(author) USING INVERTED;
 Query OK, 0 rows affected (0.01 sec)
 
+-- After 2.0-beta (including 2.0-beta), you need to execute `build index` to add inverted index to the stock data:
+mysql> BUILD INDEX idx_author ON hackernews_1m;
+Query OK, 0 rows affected (0.01 sec)
+
 -- costs 1.5s to build index for author column with 1 million rows.
 mysql> SHOW ALTER TABLE COLUMN;
 +-------+---------------+-------------------------+-------------------------+---------------+---------+---------------+---------------+---------------+----------+------+----------+---------+
@@ -392,6 +514,14 @@ mysql> SHOW ALTER TABLE COLUMN;
 | 10053 | hackernews_1m | 2023-02-10 19:49:32.893 | 2023-02-10 19:49:33.982 | hackernews_1m | 10054   | 10008         | 1:378856428   | 4             | FINISHED |      | NULL     | 2592000 |
 | 10076 | hackernews_1m | 2023-02-10 19:54:20.046 | 2023-02-10 19:54:21.521 | hackernews_1m | 10077   | 10008         | 1:1335127701  | 5             | FINISHED |      | NULL     | 2592000 |
 +-------+---------------+-------------------------+-------------------------+---------------+---------+---------------+---------------+---------------+----------+------+----------+---------+
+
+mysql> show build index order by CreateTime desc limit 1;
++-------+---------------+---------------+----------------------------------------------------+-------------------------+-------------------------+---------------+----------+------+----------+
+| JobId | TableName     | PartitionName | AlterInvertedIndexes                               | CreateTime              | FinishTime              | TransactionId | State    | Msg  | Progress |
++-------+---------------+---------------+----------------------------------------------------+-------------------------+-------------------------+---------------+----------+------+----------+
+| 13006 | hackernews_1m | hackernews_1m | [ADD INDEX idx_author (`author`) USING INVERTED],  | 2023-06-26 17:23:02.610 | 2023-06-26 17:23:03.755 | 3004          | FINISHED |      | NULL     |
++-------+---------------+---------------+----------------------------------------------------+-------------------------+-------------------------+---------------+----------+------+----------+
+1 row in set (0.01 sec)
 
 -- equal qury on text field autor get 3x speedup
 mysql> SELECT count() FROM hackernews_1m WHERE author = 'faster';

@@ -17,9 +17,7 @@
 
 package org.apache.doris.mtmv;
 
-import org.apache.doris.catalog.Env;
 import org.apache.doris.mtmv.MTMVUtils.TaskState;
-import org.apache.doris.mtmv.metadata.ChangeMTMVTask;
 import org.apache.doris.mtmv.metadata.MTMVTask;
 
 import org.apache.logging.log4j.LogManager;
@@ -78,10 +76,6 @@ public class MTMVTaskExecutorPool {
                 task.setErrorCode(-1);
             }
             task.setFinishTime(MTMVUtils.getNowTimeStamp());
-
-            ChangeMTMVTask changeTask = new ChangeMTMVTask(taskExecutor.getJob().getId(), task, TaskState.RUNNING,
-                    task.getState());
-            Env.getCurrentEnv().getEditLog().logChangeMTMVTask(changeTask);
         });
         taskExecutor.setFuture(future);
     }

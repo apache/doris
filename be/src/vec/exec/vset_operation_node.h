@@ -70,16 +70,16 @@ public:
     Status pull(RuntimeState* state, Block* output_block, bool* eos) override;
 
     Status sink_probe(RuntimeState* state, int child_id, Block* block, bool eos);
-    Status finalize_probe(RuntimeState* state, int child_id);
 
     bool is_child_finished(int child_id) const;
 
 private:
+    void _finalize_probe(int child_id);
     //Todo: In build process of hashtable, It's same as join node.
     //It's time to abstract out the same methods and provide them directly to others;
     void hash_table_init();
     Status hash_table_build(RuntimeState* state);
-    Status process_build_block(Block& block, uint8_t offset);
+    Status process_build_block(Block& block, uint8_t offset, RuntimeState* state);
     Status extract_build_column(Block& block, ColumnRawPtrs& raw_ptrs);
     Status extract_probe_column(Block& block, ColumnRawPtrs& raw_ptrs, int child_id);
     void refresh_hash_table();
@@ -104,7 +104,7 @@ private:
     int64_t _valid_element_in_hash_tbl;
 
     //The i-th result expr list refers to the i-th child.
-    std::vector<std::vector<VExprContext*>> _child_expr_lists;
+    std::vector<VExprContextSPtrs> _child_expr_lists;
     //record build column type
     DataTypes _left_table_data_types;
     //first:column_id, could point to origin column or cast column

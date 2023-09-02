@@ -19,6 +19,7 @@ package org.apache.doris.rewrite;
 
 import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.BoolLiteral;
+import org.apache.doris.analysis.CastExpr;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.InPredicate;
 import org.apache.doris.analysis.LiteralExpr;
@@ -68,8 +69,17 @@ public class RewriteInPredicateRule implements ExprRewriteRule {
             return expr;
         }
 
-        Expr newColumnExpr = expr.getChild(0).getType().getPrimitiveType() == columnType.getPrimitiveType()
-                ? expr.getChild(0) : expr.getChild(0).castTo(columnType);
+        Expr newColumnExpr;
+        if (expr.getChild(0).getType().getPrimitiveType() == columnType.getPrimitiveType()) {
+            newColumnExpr = expr.getChild(0);
+        } else {
+            if (inPredicate.getChild(0) instanceof CastExpr && inPredicate.getChild(0).getChild(0).getType()
+                    .equals(columnType)) {
+                newColumnExpr = inPredicate.getChild(0).getChild(0);
+            } else {
+                newColumnExpr = expr.getChild(0).castTo(columnType);
+            }
+        }
         List<Expr> newInList = Lists.newArrayList();
         boolean isCast = false;
         for (int i = 1; i < inPredicate.getChildren().size(); ++i) {

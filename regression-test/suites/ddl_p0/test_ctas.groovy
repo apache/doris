@@ -50,7 +50,8 @@ suite("test_ctas") {
     ) as select * from test_ctas;
     """
 
-        qt_select """SHOW CREATE TABLE `test_ctas1`"""
+        def res = sql """SHOW CREATE TABLE `test_ctas1`"""
+        assertTrue(res.size() != 0)
 
         qt_select """select count(*) from test_ctas1"""
 
@@ -63,7 +64,8 @@ suite("test_ctas") {
     ) as select test_varchar, lpad(test_text,10,'0') as test_text, test_datetime, test_default_timestamp from test_ctas;
     """
 
-        qt_select """SHOW CREATE TABLE `test_ctas2`"""
+        res = sql """SHOW CREATE TABLE `test_ctas2`"""
+        assertTrue(res.size() != 0)
 
         qt_select """select count(*) from test_ctas2"""
 
@@ -152,6 +154,32 @@ suite("test_ctas") {
               and substring(col8, 1, 10) = '1451601';
         """
 
+        sql """
+            DROP TABLE IF EXISTS tbl_3210581
+        """
+
+        sql """
+            CREATE TABLE tbl_3210581 (col1 varchar(11451) not null, col2 int not null, col3 int not null)
+            UNIQUE KEY(`col1`)
+            DISTRIBUTED BY HASH(col1)
+            BUCKETS 3
+            PROPERTIES(
+                "replication_num"="1"
+            )
+        """
+
+        sql """
+            DROP TABLE IF EXISTS ctas_113815;
+        """
+
+        sql """
+            create table ctas_113815
+            PROPERTIES('replication_num' = '1')
+            as 
+            select     group_concat(col1 ORDER BY col1) from     `tbl_3210581`
+            group by `col2`;
+        """
+
     } finally {
         sql """ DROP TABLE IF EXISTS test_ctas """
 
@@ -168,7 +196,56 @@ suite("test_ctas") {
         sql """DROP TABLE IF EXISTS test_tbl_81748325"""
 
         sql """DROP TABLE IF EXISTS test_tbl_3156019"""
-    }
 
+        sql """
+            DROP TABLE IF EXISTS tbl_3210581
+        """
+
+        sql """
+            DROP TABLE IF EXISTS ctas_113815
+        """
+    }
+    
+    try {
+        sql '''create table a (
+                id int not null,
+                        name varchar(20) not null
+        )
+        distributed by hash(id) buckets 4
+        properties (
+                "replication_num"="1"
+        );
+        '''
+
+        sql '''create table b (
+                id int not null,
+                        age int not null
+        )
+        distributed by hash(id) buckets 4
+        properties (
+                "replication_num"="1"
+        );
+        '''
+
+        sql 'insert into a values(1, \'ww\'), (2, \'zs\');'
+        sql 'insert into b values(1, 22);'
+
+        sql 'create table c properties("replication_num"="1") as select a.id, a.name, b.age from a left join b on a.id = b.id;'
+        
+        String desc = sql 'desc c'
+        assertTrue(desc.contains('Yes'))
+        sql '''create table test_date_v2 
+        properties (
+                "replication_num"="1"
+        ) as select to_date('20250829');
+        '''
+        desc = sql 'desc test_date_v2'
+        assertTrue(desc.contains('Yes'))
+    } finally {
+        sql 'drop table a'
+        sql 'drop table b'
+        sql 'drop table c'
+        sql 'drop table test_date_v2'
+    }
 }
 

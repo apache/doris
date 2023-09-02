@@ -245,7 +245,7 @@ public:
         // keep it after query, since query will try to read null_bitmap and put it to cache
         InvertedIndexQueryCacheHandle null_bitmap_cache_handle;
         RETURN_IF_ERROR(iterator->read_null_bitmap(&null_bitmap_cache_handle));
-        roaring::Roaring* null_bitmap = null_bitmap_cache_handle.get_bitmap();
+        std::shared_ptr<roaring::Roaring> null_bitmap = null_bitmap_cache_handle.get_bitmap();
         if (null_bitmap) {
             *result -= *null_bitmap;
         }
@@ -260,6 +260,8 @@ public:
 
     uint16_t evaluate(const vectorized::IColumn& column, uint16_t* sel,
                       uint16_t size) const override {
+        int64_t new_size = 0;
+
         if (column.is_nullable()) {
             auto* nullable_col =
                     vectorized::check_and_get_column<vectorized::ColumnNullable>(column);
@@ -269,18 +271,23 @@ public:
             auto& nested_col = nullable_col->get_nested_column();
 
             if (_opposite) {
-                return _base_evaluate<true, true>(&nested_col, &null_map, sel, size);
+                new_size = _base_evaluate<true, true>(&nested_col, &null_map, sel, size);
             } else {
-                return _base_evaluate<true, false>(&nested_col, &null_map, sel, size);
+                new_size = _base_evaluate<true, false>(&nested_col, &null_map, sel, size);
             }
         } else {
             if (_opposite) {
-                return _base_evaluate<false, true>(&column, nullptr, sel, size);
+                new_size = _base_evaluate<false, true>(&column, nullptr, sel, size);
             } else {
-                return _base_evaluate<false, false>(&column, nullptr, sel, size);
+                new_size = _base_evaluate<false, false>(&column, nullptr, sel, size);
             }
         }
+        _evaluated_rows += size;
+        _passed_rows += new_size;
+        return new_size;
     }
+    int get_filter_id() const override { return _values->get_filter_id(); }
+    bool is_filter() const override { return true; }
 
     template <bool is_and>
     void _evaluate_bit(const vectorized::IColumn& column, const uint16_t* sel, uint16_t size,
@@ -341,6 +348,17 @@ public:
         }
     }
 
+    bool evaluate_and(const StringRef* dict_words, const size_t count) const override {
+        for (size_t i = 0; i != count; ++i) {
+            const auto found = _values->find(dict_words[i].data, dict_words[i].size) ^ _opposite;
+            if (found == (PT == PredicateType::IN_LIST)) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
     bool evaluate_del(const std::pair<WrapperField*, WrapperField*>& statistic) const override {
         if (statistic.first->is_null() || statistic.second->is_null()) {
             return false;
@@ -365,6 +383,8 @@ public:
 
     bool evaluate_and(const segment_v2::BloomFilter* bf) const override {
         if constexpr (PT == PredicateType::IN_LIST) {
+            // IN predicate can not use ngram bf, just return true to accept
+            if (bf->is_ngram_bf()) return true;
             HybridSetBase::IteratorBase* iter = _values->begin();
             while (iter->has_next()) {
                 if constexpr (std::is_same_v<T, StringRef>) {
@@ -392,7 +412,9 @@ public:
         }
     }
 
-    bool can_do_bloom_filter() const override { return PT == PredicateType::IN_LIST; }
+    bool can_do_bloom_filter(bool ngram) const override {
+        return PT == PredicateType::IN_LIST && !ngram;
+    }
 
 private:
     template <typename LeftT, typename RightT>

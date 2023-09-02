@@ -55,6 +55,7 @@ public:
         Statistics()
                 : read_time(0),
                   read_calls(0),
+                  meta_read_calls(0),
                   read_bytes(0),
                   decompress_time(0),
                   decompress_cnt(0),
@@ -68,6 +69,7 @@ public:
                    int64_t null_map_time)
                 : read_time(fs.read_time),
                   read_calls(fs.read_calls),
+                  meta_read_calls(0),
                   read_bytes(fs.read_bytes),
                   decompress_time(cs.decompress_time),
                   decompress_cnt(cs.decompress_cnt),
@@ -79,6 +81,7 @@ public:
 
         int64_t read_time;
         int64_t read_calls;
+        int64_t meta_read_calls;
         int64_t read_bytes;
         int64_t decompress_time;
         int64_t decompress_cnt;
@@ -92,6 +95,7 @@ public:
             read_time += statistics.read_time;
             read_calls += statistics.read_calls;
             read_bytes += statistics.read_bytes;
+            meta_read_calls += statistics.meta_read_calls;
             decompress_time += statistics.decompress_time;
             decompress_cnt += statistics.decompress_cnt;
             decode_header_time += statistics.decode_header_time;
@@ -128,7 +132,6 @@ public:
                          const std::vector<RowRange>& row_ranges, cctz::time_zone* ctz,
                          io::IOContext* io_ctx, std::unique_ptr<ParquetColumnReader>& reader,
                          size_t max_buf_size);
-    void add_offset_index(tparquet::OffsetIndex* offset_index) { _offset_index = offset_index; }
     void set_nested_column() { _nested_column = true; }
     virtual const std::vector<level_t>& get_rep_level() const = 0;
     virtual const std::vector<level_t>& get_def_level() const = 0;
@@ -145,13 +148,13 @@ protected:
     const std::vector<RowRange>& _row_ranges;
     cctz::time_zone* _ctz;
     io::IOContext* _io_ctx;
-    tparquet::OffsetIndex* _offset_index;
     int64_t _current_row_index = 0;
     int _row_range_index = 0;
     int64_t _decode_null_map_time = 0;
 };
 
 class ScalarColumnReader : public ParquetColumnReader {
+    ENABLE_FACTORY_CREATOR(ScalarColumnReader)
 public:
     ScalarColumnReader(const std::vector<RowRange>& row_ranges,
                        const tparquet::ColumnChunk& chunk_meta, cctz::time_zone* ctz,
@@ -186,11 +189,12 @@ private:
                         ColumnSelectVector& select_vector, bool is_dict_filter);
     Status _read_nested_column(ColumnPtr& doris_column, DataTypePtr& type,
                                ColumnSelectVector& select_vector, size_t batch_size,
-                               size_t* read_rows, bool* eof, bool is_dict_filter);
+                               size_t* read_rows, bool* eof, bool is_dict_filter, bool align_rows);
     Status _try_load_dict_page(bool* loaded, bool* has_dict);
 };
 
 class ArrayColumnReader : public ParquetColumnReader {
+    ENABLE_FACTORY_CREATOR(ArrayColumnReader)
 public:
     ArrayColumnReader(const std::vector<RowRange>& row_ranges, cctz::time_zone* ctz,
                       io::IOContext* io_ctx)
@@ -214,6 +218,7 @@ private:
 };
 
 class MapColumnReader : public ParquetColumnReader {
+    ENABLE_FACTORY_CREATOR(MapColumnReader)
 public:
     MapColumnReader(const std::vector<RowRange>& row_ranges, cctz::time_zone* ctz,
                     io::IOContext* io_ctx)
@@ -248,6 +253,7 @@ private:
 };
 
 class StructColumnReader : public ParquetColumnReader {
+    ENABLE_FACTORY_CREATOR(StructColumnReader)
 public:
     StructColumnReader(const std::vector<RowRange>& row_ranges, cctz::time_zone* ctz,
                        io::IOContext* io_ctx)

@@ -157,34 +157,4 @@ bool ColumnSelectVector::can_filter_all(size_t remaining_num_values) {
 void ColumnSelectVector::skip(size_t num_values) {
     _filter_map_index += num_values;
 }
-
-size_t ColumnSelectVector::get_next_run(DataReadType* data_read_type) {
-    if (_has_filter) {
-        if (_read_index == _num_values) {
-            return 0;
-        }
-        const DataReadType& type = _data_map[_read_index++];
-        size_t run_length = 1;
-        while (_read_index < _num_values) {
-            if (_data_map[_read_index] == type) {
-                run_length++;
-                _read_index++;
-            } else {
-                break;
-            }
-        }
-        *data_read_type = type;
-        return run_length;
-    } else {
-        size_t run_length = 0;
-        while (run_length == 0) {
-            if (_read_index == (*_run_length_null_map).size()) {
-                return 0;
-            }
-            *data_read_type = _read_index % 2 == 0 ? CONTENT : NULL_DATA;
-            run_length = (*_run_length_null_map)[_read_index++];
-        }
-        return run_length;
-    }
-}
 } // namespace doris::vectorized

@@ -33,19 +33,6 @@ under the License.
 If you haven’t yet, subscribe to {dev,commits}@doris.apache.org mailing lists.
 Commits mailing list is especially important because all of Github Issue, Pull Request and build notifications are sent there.
 
-### Subscribe to the private mailing list
-
-Subscribe to private@doris.apache.org by sending an email to private-subscribe@doris.apache.org.
-Keep in mind that this list is private and your subscription needs to be approved by a moderator.
-If you are PPMC, you can subscribe the mailing list through [Subscription Helper](https://whimsy.apache.org/committers/subscribe)
-
-### Link your ASF and Github account
-
-We use Github for managing issues and user contributions (pull requests).
-As such, you need to link your Github.com account with your ASF account using [Gitbox](https://gitbox.apache.org/setup/).
-This way you will get write access to [Doris](https://github.com/apache/doris) repository
-and you will be able to manage issues and pull request directly through our Github repository.
-
 ## Code Review Guidelines
 
 1. Always maintain a high standard of review so that the quality of the entire product can be better guaranteed.

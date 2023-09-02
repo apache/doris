@@ -55,15 +55,15 @@ struct AggregateFunctionProductData<Decimal128> {
     Decimal128 product {};
 
     void add(Decimal128 value, Decimal128) {
-        DecimalV2Value decimal_product(static_cast<Int128>(product));
-        DecimalV2Value decimal_value(static_cast<Int128>(value));
+        DecimalV2Value decimal_product(product);
+        DecimalV2Value decimal_value(value);
         DecimalV2Value ret = decimal_product * decimal_value;
         memcpy(&product, &ret, sizeof(Decimal128));
     }
 
     void merge(const AggregateFunctionProductData& other, Decimal128) {
-        DecimalV2Value decimal_product(static_cast<Int128>(product));
-        DecimalV2Value decimal_value(static_cast<Int128>(other.product));
+        DecimalV2Value decimal_product(product);
+        DecimalV2Value decimal_value(other.product);
         DecimalV2Value ret = decimal_product * decimal_value;
         memcpy(&product, &ret, sizeof(Decimal128));
     }
@@ -98,7 +98,7 @@ struct AggregateFunctionProductData<Decimal128I> {
 
     Decimal128 get() const { return product; }
 
-    void reset(Decimal128 value) { product = std::move(value); }
+    void reset(Decimal128 value) { product = value; }
 };
 
 template <typename T, typename TResult, typename Data>
@@ -133,13 +133,13 @@ public:
 
     void add(AggregateDataPtr __restrict place, const IColumn** columns, size_t row_num,
              Arena*) const override {
-        const auto& column = static_cast<const ColVecType&>(*columns[0]);
+        const auto& column = assert_cast<const ColVecType&>(*columns[0]);
         this->data(place).add(column.get_data()[row_num], multiplier);
     }
 
     void reset(AggregateDataPtr place) const override {
         if constexpr (IsDecimalNumber<T>) {
-            this->data(place).reset(T(1 * multiplier));
+            this->data(place).reset(multiplier);
         } else {
             this->data(place).reset(1);
         }
@@ -160,7 +160,7 @@ public:
     }
 
     void insert_result_into(ConstAggregateDataPtr __restrict place, IColumn& to) const override {
-        auto& column = static_cast<ColVecResult&>(to);
+        auto& column = assert_cast<ColVecResult&>(to);
         column.get_data().push_back(this->data(place).get());
     }
 

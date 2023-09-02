@@ -15,19 +15,41 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include <glog/logging.h>
-#include <gtest/gtest.h>
+#include <cctz/time_zone.h>
+#include <gen_cpp/Descriptors_types.h>
+#include <gen_cpp/PaloInternalService_types.h>
+#include <gen_cpp/PlanNodes_types.h>
+#include <gen_cpp/Types_types.h>
+#include <gtest/gtest-message.h>
+#include <gtest/gtest-test-part.h>
+#include <stddef.h>
+
+#include <memory>
+#include <string>
+#include <tuple>
+#include <unordered_map>
+#include <utility>
+#include <vector>
 
 #include "common/object_pool.h"
+#include "exec/olap_common.h"
+#include "gtest/gtest_pred_impl.h"
+#include "io/fs/file_reader_writer_fwd.h"
+#include "io/fs/file_system.h"
 #include "io/fs/local_file_system.h"
 #include "runtime/descriptors.h"
 #include "runtime/runtime_state.h"
-#include "util/runtime_profile.h"
+#include "util/timezone_utils.h"
+#include "vec/columns/column.h"
+#include "vec/core/block.h"
+#include "vec/core/column_with_type_and_name.h"
+#include "vec/data_types/data_type.h"
 #include "vec/data_types/data_type_factory.hpp"
 #include "vec/exec/format/parquet/vparquet_reader.h"
 
 namespace doris {
 namespace vectorized {
+class VExprContext;
 
 class ParquetReaderTest : public testing::Test {
 public:
@@ -118,11 +140,11 @@ TEST_F(ParquetReaderTest, normal) {
 
     std::unordered_map<std::string, ColumnValueRangeType> colname_to_value_range;
     p_reader->open();
-    p_reader->init_reader(column_names, missing_column_names, nullptr, nullptr, nullptr, nullptr,
+    p_reader->init_reader(column_names, missing_column_names, nullptr, {}, nullptr, nullptr,
                           nullptr, nullptr, nullptr);
     std::unordered_map<std::string, std::tuple<std::string, const SlotDescriptor*>>
             partition_columns;
-    std::unordered_map<std::string, VExprContext*> missing_columns;
+    std::unordered_map<std::string, VExprContextSPtr> missing_columns;
     p_reader->set_fill_columns(partition_columns, missing_columns);
     BlockUPtr block = Block::create_unique();
     for (const auto& slot_desc : tuple_desc->slots()) {

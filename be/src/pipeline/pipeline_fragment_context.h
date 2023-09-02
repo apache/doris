@@ -34,7 +34,7 @@
 #include "common/status.h"
 #include "pipeline/pipeline.h"
 #include "pipeline/pipeline_task.h"
-#include "runtime/query_fragments_ctx.h"
+#include "runtime/query_context.h"
 #include "runtime/runtime_state.h"
 #include "util/runtime_profile.h"
 #include "util/stopwatch.hpp"
@@ -47,10 +47,6 @@ class ExecEnv;
 class RuntimeFilterMergeControllerEntity;
 class TDataSink;
 class TPipelineFragmentParams;
-
-namespace taskgroup {
-class TaskGroup;
-} // namespace taskgroup
 
 namespace pipeline {
 
@@ -65,11 +61,11 @@ public:
     using report_status_callback = std::function<void(const ReportStatusRequest)>;
     PipelineFragmentContext(const TUniqueId& query_id, const TUniqueId& instance_id,
                             const int fragment_id, int backend_num,
-                            std::shared_ptr<QueryFragmentsCtx> query_ctx, ExecEnv* exec_env,
+                            std::shared_ptr<QueryContext> query_ctx, ExecEnv* exec_env,
                             const std::function<void(RuntimeState*, Status*)>& call_back,
                             const report_status_callback& report_status_cb);
 
-    ~PipelineFragmentContext();
+    virtual ~PipelineFragmentContext();
 
     PipelinePtr add_pipeline();
 
@@ -78,26 +74,34 @@ public:
     RuntimeState* get_runtime_state() { return _runtime_state.get(); }
 
     // should be protected by lock?
-    bool is_canceled() const { return _runtime_state->is_cancelled(); }
+    [[nodiscard]] bool is_canceled() const { return _runtime_state->is_cancelled(); }
 
     int32_t next_operator_builder_id() { return _next_operator_builder_id++; }
 
     Status prepare(const doris::TPipelineFragmentParams& request, const size_t idx);
 
-    Status submit();
+    virtual Status prepare(const doris::TPipelineFragmentParams& request) {
+        return Status::InternalError("Pipeline fragment context do not implement prepare");
+    }
 
-    void close_if_prepare_failed();
+    virtual Status submit();
+
+    virtual void close_if_prepare_failed();
+    virtual void close_sink();
 
     void set_is_report_success(bool is_report_success) { _is_report_success = is_report_success; }
 
-    void cancel(const PPlanFragmentCancelReason& reason = PPlanFragmentCancelReason::INTERNAL_ERROR,
-                const std::string& msg = "");
+    virtual void cancel(
+            const PPlanFragmentCancelReason& reason = PPlanFragmentCancelReason::INTERNAL_ERROR,
+            const std::string& msg = "");
 
     // TODO: Support pipeline runtime filter
 
-    QueryFragmentsCtx* get_query_context() { return _query_ctx.get(); }
+    QueryContext* get_query_context() { return _query_ctx.get(); }
 
     TUniqueId get_query_id() const { return _query_id; }
+
+    [[nodiscard]] int get_fragment_id() const { return _fragment_id; }
 
     void close_a_pipeline();
 
@@ -110,25 +114,27 @@ public:
 
     void send_report(bool);
 
-    void report_profile();
+    virtual void report_profile();
 
     Status update_status(Status status) {
         std::lock_guard<std::mutex> l(_status_lock);
-        if (!status.ok() && _exec_status.ok()) {
-            _exec_status = status;
+        if (!status.ok() && _query_ctx->exec_status().ok()) {
+            _query_ctx->set_exec_status(status);
         }
-        return _exec_status;
+        return _query_ctx->exec_status();
     }
 
-    taskgroup::TaskGroup* get_task_group() const { return _query_ctx->get_task_group(); }
+    taskgroup::TaskGroupPipelineTaskEntity* get_task_group_entity() const {
+        return _task_group_entity;
+    }
 
-private:
-    Status _create_sink(const TDataSink& t_data_sink);
+protected:
+    Status _create_sink(int sender_id, const TDataSink& t_data_sink, RuntimeState* state);
     Status _build_pipelines(ExecNode*, PipelinePtr);
-    Status _build_pipeline_tasks(const doris::TPipelineFragmentParams& request);
+    virtual Status _build_pipeline_tasks(const doris::TPipelineFragmentParams& request);
     template <bool is_intersect>
     Status _build_operators_for_set_operation_node(ExecNode*, PipelinePtr);
-    void _close_action();
+    virtual void _close_action();
     void _stop_report_thread();
     void _set_is_report_on_cancel(bool val) { _is_report_on_cancel = val; }
 
@@ -139,23 +145,20 @@ private:
 
     int _backend_num;
 
-    ExecEnv* _exec_env;
+    ExecEnv* _exec_env = nullptr;
 
     bool _prepared = false;
     bool _submitted = false;
 
     std::mutex _status_lock;
-    Status _exec_status;
-    PPlanFragmentCancelReason _cancel_reason;
-    std::string _cancel_msg;
 
     Pipelines _pipelines;
     PipelineId _next_pipeline_id = 0;
-    std::atomic_int _closed_tasks = 0;
+    std::mutex _task_mutex;
+    int _closed_tasks = 0;
     // After prepared, `_total_tasks` is equal to the size of `_tasks`.
     // When submit fail, `_total_tasks` is equal to the number of tasks submitted.
-    std::atomic_int _total_tasks = 0;
-    std::vector<std::unique_ptr<PipelineTask>> _tasks;
+    int _total_tasks = 0;
 
     int32_t _next_operator_builder_id = 10000;
 
@@ -167,9 +170,14 @@ private:
     std::unique_ptr<RuntimeState> _runtime_state;
 
     ExecNode* _root_plan = nullptr; // lives in _runtime_state->obj_pool()
+    // TODO: remove the _sink and _multi_cast_stream_sink_senders to set both
+    // of it in pipeline task not the fragment_context
     std::unique_ptr<DataSink> _sink;
+    std::vector<std::unique_ptr<DataSink>> _multi_cast_stream_sink_senders;
 
-    std::shared_ptr<QueryFragmentsCtx> _query_ctx;
+    std::shared_ptr<QueryContext> _query_ctx;
+
+    taskgroup::TaskGroupPipelineTaskEntity* _task_group_entity = nullptr;
 
     std::shared_ptr<RuntimeFilterMergeControllerEntity> _merge_controller_handler;
 
@@ -195,6 +203,9 @@ private:
     // If this is set to false, and '_is_report_success' is false as well,
     // This executor will not report status to FE on being cancelled.
     bool _is_report_on_cancel;
+
+private:
+    std::vector<std::unique_ptr<PipelineTask>> _tasks;
 };
 } // namespace pipeline
 } // namespace doris

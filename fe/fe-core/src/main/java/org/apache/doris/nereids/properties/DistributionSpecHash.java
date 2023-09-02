@@ -43,20 +43,15 @@ import java.util.Set;
 public class DistributionSpecHash extends DistributionSpec {
 
     private final List<ExprId> orderedShuffledColumns;
-
     private final ShuffleType shuffleType;
-
-    // below two attributes use for colocate join
-    private final long tableId;
-
-    private final Set<Long> partitionIds;
-
-    private final long selectedIndexId;
-
     // use for satisfied judge
     private final List<Set<ExprId>> equivalenceExprIds;
-
     private final Map<ExprId, Integer> exprIdToEquivalenceSet;
+
+    // below two attributes use for colocate join, only store one table info is enough
+    private final long tableId;
+    private final Set<Long> partitionIds;
+    private final long selectedIndexId;
 
     /**
      * Use for no need set table related attributes.
@@ -205,22 +200,11 @@ public class DistributionSpecHash extends DistributionSpec {
             return false;
         }
 
-        if (requiredHash.shuffleType == ShuffleType.NATURAL && this.shuffleType != ShuffleType.NATURAL) {
-            // this shuffle type is not natural but require natural
-            return false;
-        }
-
-        if (requiredHash.shuffleType == ShuffleType.AGGREGATE) {
+        if (requiredHash.getShuffleType() == ShuffleType.REQUIRE) {
             return containsSatisfy(requiredHash.getOrderedShuffledColumns());
         }
-
-        // If the required property is from join and this property is not enforced, we only need to check to contain
-        // And more checking is in ChildrenPropertiesRegulator
-        if (requiredHash.shuffleType == shuffleType.JOIN && this.shuffleType != shuffleType.ENFORCED) {
-            return containsSatisfy(requiredHash.getOrderedShuffledColumns());
-        }
-
-        return equalsSatisfy(requiredHash.getOrderedShuffledColumns());
+        return requiredHash.getShuffleType() == this.getShuffleType()
+                && equalsSatisfy(requiredHash.getOrderedShuffledColumns());
     }
 
     private boolean containsSatisfy(List<ExprId> required) {
@@ -250,16 +234,22 @@ public class DistributionSpecHash extends DistributionSpec {
                 equivalenceExprIds, exprIdToEquivalenceSet);
     }
 
+    public DistributionSpecHash withShuffleTypeAndForbidColocateJoin(ShuffleType shuffleType) {
+        return new DistributionSpecHash(orderedShuffledColumns, shuffleType, -1, -1, partitionIds,
+                equivalenceExprIds, exprIdToEquivalenceSet);
+    }
+
     /**
      * generate a new DistributionSpec after projection.
      */
-    public DistributionSpec project(Map<ExprId, ExprId> projections, Set<ExprId> obstructions) {
+    public DistributionSpec project(Map<ExprId, ExprId> projections,
+            Set<ExprId> obstructions, DistributionSpec defaultAnySpec) {
         List<ExprId> orderedShuffledColumns = Lists.newArrayList();
         List<Set<ExprId>> equivalenceExprIds = Lists.newArrayList();
         Map<ExprId, Integer> exprIdToEquivalenceSet = Maps.newHashMap();
         for (ExprId shuffledColumn : this.orderedShuffledColumns) {
             if (obstructions.contains(shuffledColumn)) {
-                return DistributionSpecAny.INSTANCE;
+                return defaultAnySpec;
             }
             orderedShuffledColumns.add(projections.getOrDefault(shuffledColumn, shuffledColumn));
         }
@@ -267,7 +257,7 @@ public class DistributionSpecHash extends DistributionSpec {
             Set<ExprId> projectionEquivalenceSet = Sets.newHashSet();
             for (ExprId equivalence : equivalenceSet) {
                 if (obstructions.contains(equivalence)) {
-                    return DistributionSpecAny.INSTANCE;
+                    return defaultAnySpec;
                 }
                 projectionEquivalenceSet.add(projections.getOrDefault(equivalence, equivalence));
             }
@@ -275,7 +265,7 @@ public class DistributionSpecHash extends DistributionSpec {
         }
         for (Map.Entry<ExprId, Integer> exprIdSetKV : this.exprIdToEquivalenceSet.entrySet()) {
             if (obstructions.contains(exprIdSetKV.getKey())) {
-                return DistributionSpecAny.INSTANCE;
+                return defaultAnySpec;
             }
             if (projections.containsKey(exprIdSetKV.getKey())) {
                 exprIdToEquivalenceSet.put(projections.get(exprIdSetKV.getKey()), exprIdSetKV.getValue());
@@ -317,19 +307,14 @@ public class DistributionSpecHash extends DistributionSpec {
      * Enums for concrete shuffle type.
      */
     public enum ShuffleType {
-        // 1. The following properties are the required properties for children
-        // require, need to satisfy the distribution spec by aggregation way.
-        AGGREGATE,
-        // require, need to satisfy the distribution spec by join way.
-        JOIN,
-
-        // 2. The following properties are the output properties from some operators
-        // output, for olap scan node and colocate join
+        // require, need to satisfy the distribution spec by contains.
+        REQUIRE,
+        // output, execution only could be done on the node with data
         NATURAL,
-        // output, for all join except colocate join
-        BUCKETED,
-        // output, all distribute enforce
-        ENFORCED,
+        // output, for shuffle by execution hash method
+        EXECUTION_BUCKETED,
+        // output, for shuffle by storage hash method
+        STORAGE_BUCKETED,
     }
 
 }

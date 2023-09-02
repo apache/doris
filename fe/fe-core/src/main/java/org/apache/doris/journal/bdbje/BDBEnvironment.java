@@ -205,7 +205,7 @@ public class BDBEnvironment {
                 .getFrontends(FrontendNodeType.FOLLOWER)
                 .stream()
                 .filter(Frontend::isAlive)
-                .map(fe -> new InetSocketAddress(fe.getIp(), fe.getEditLogPort()))
+                .map(fe -> new InetSocketAddress(fe.getHost(), fe.getEditLogPort()))
                 .collect(Collectors.toSet());
         return new ReplicationGroupAdmin(PALO_JOURNAL_GROUP, addresses);
     }
@@ -362,7 +362,6 @@ public class BDBEnvironment {
                 db.close();
             } catch (DatabaseException exception) {
                 LOG.error("Error closing db {} will exit", db.getDatabaseName(), exception);
-                System.exit(-1);
             }
         }
         openedDatabases.clear();
@@ -372,7 +371,6 @@ public class BDBEnvironment {
                 epochDB.close();
             } catch (DatabaseException exception) {
                 LOG.error("Error closing db {} will exit", epochDB.getDatabaseName(), exception);
-                System.exit(-1);
             }
         }
 
@@ -382,7 +380,6 @@ public class BDBEnvironment {
                 replicatedEnvironment.close();
             } catch (DatabaseException exception) {
                 LOG.error("Error closing replicatedEnvironment", exception);
-                System.exit(-1);
             }
         }
     }
@@ -396,7 +393,6 @@ public class BDBEnvironment {
                 replicatedEnvironment.close();
             } catch (DatabaseException exception) {
                 LOG.error("Error closing replicatedEnvironment", exception);
-                System.exit(-1);
             }
         }
     }

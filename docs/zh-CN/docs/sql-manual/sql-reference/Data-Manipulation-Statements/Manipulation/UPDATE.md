@@ -34,6 +34,8 @@ UPDATE
 
 该语句是为进行对数据进行更新的操作，UPDATE 语句目前仅支持 UNIQUE KEY 模型。
 
+UPDATE操作目前只支持更新Value列，Key列的更新可参考[使用FlinkCDC更新Key列](../../../../ecosystem/flink-doris-connector.md#使用flinkcdc更新key列)。
+
 #### Syntax
 
 ```sql

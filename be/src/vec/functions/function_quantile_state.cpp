@@ -91,8 +91,6 @@ public:
 
     bool use_default_implementation_for_nulls() const override { return false; }
 
-    bool use_default_implementation_for_constants() const override { return true; }
-
     template <typename ColumnType, bool is_nullable>
     Status execute_internal(const ColumnPtr& column, const DataTypePtr& data_type,
                             MutableColumnPtr& column_result) {
@@ -248,8 +246,6 @@ public:
 
     bool use_default_implementation_for_nulls() const override { return false; }
 
-    bool use_default_implementation_for_constants() const override { return true; }
-
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         size_t result, size_t input_rows_count) override {
         auto res_data_column = ColumnFloat64::create();
@@ -273,11 +269,9 @@ public:
         }
         float percent_arg_value = percent_arg->get_value<Float32>();
         if (percent_arg_value < 0 || percent_arg_value > 1) {
-            std::stringstream ss;
-            ss << "the input argument of percentage: " << percent_arg_value
-               << " is not valid, must be in range [0,1] ";
-            LOG(WARNING) << ss.str();
-            return Status::InternalError(ss.str());
+            return Status::InternalError(
+                    "the input argument of percentage: {} is not valid, must be in range [0,1] ",
+                    percent_arg_value);
         }
 
         res.reserve(input_rows_count);

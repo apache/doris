@@ -32,6 +32,7 @@
 #include "runtime/thread_context.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_nullable.h"
+#include "vec/core/block.h"
 #include "vec/core/block_spill_reader.h"
 #include "vec/core/block_spill_writer.h"
 #include "vec/core/column_with_type_and_name.h"
@@ -39,6 +40,7 @@
 #include "vec/data_types/data_type.h"
 #include "vec/data_types/data_type_nullable.h"
 #include "vec/exprs/vexpr_context.h"
+#include "vec/utils/util.hpp"
 
 namespace doris {
 class RowDescriptor;
@@ -160,9 +162,8 @@ Status MergeSorterState::_merge_sort_read_not_spilled(int batch_size,
                                                       doris::vectorized::Block* block, bool* eos) {
     size_t num_columns = sorted_blocks_[0].columns();
 
-    bool mem_reuse = block->mem_reuse();
-    MutableColumns merged_columns =
-            mem_reuse ? block->mutate_columns() : sorted_blocks_[0].clone_empty_columns();
+    MutableBlock m_block = VectorizedUtils::build_mutable_mem_reuse_block(block, sorted_blocks_[0]);
+    MutableColumns& merged_columns = m_block.mutable_columns();
 
     /// Take rows from queue in right order and push to 'merged'.
     size_t merged_rows = 0;
@@ -189,11 +190,6 @@ Status MergeSorterState::_merge_sort_read_not_spilled(int batch_size,
     if (merged_rows == 0) {
         *eos = true;
         return Status::OK();
-    }
-
-    if (!mem_reuse) {
-        Block merge_block = sorted_blocks_[0].clone_with_columns(std::move(merged_columns));
-        merge_block.swap(*block);
     }
 
     return Status::OK();
@@ -313,8 +309,7 @@ FullSorter::FullSorter(VSortExecExprs& vsort_exec_exprs, int limit, int64_t offs
                        std::vector<bool>& nulls_first, const RowDescriptor& row_desc,
                        RuntimeState* state, RuntimeProfile* profile)
         : Sorter(vsort_exec_exprs, limit, offset, pool, is_asc_order, nulls_first),
-          _state(std::unique_ptr<MergeSorterState>(
-                  new MergeSorterState(row_desc, offset, limit, state, profile))) {}
+          _state(MergeSorterState::create_unique(row_desc, offset, limit, state, profile)) {}
 
 Status FullSorter::append_block(Block* block) {
     DCHECK(block->rows() > 0);
@@ -328,8 +323,8 @@ Status FullSorter::append_block(Block* block) {
                     << " type1: " << data[i].type->get_name()
                     << " type2: " << arrival_data[i].type->get_name();
             //TODO: to eliminate unnecessary expansion, we need a `insert_range_from_const` for every column type.
-            RETURN_IF_CATCH_EXCEPTION(data[i].column->assume_mutable()->insert_range_from(
-                    *arrival_data[i].column->convert_to_full_column_if_const(), 0, sz));
+            data[i].column->assume_mutable()->insert_range_from(
+                    *arrival_data[i].column->convert_to_full_column_if_const(), 0, sz);
         }
         block->clear_column_data();
     }

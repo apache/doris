@@ -147,6 +147,12 @@ public class MTMVTaskExecutor implements Comparable<MTMVTaskExecutor> {
         return task;
     }
 
+    public void stop() {
+        if (ctx != null) {
+            ctx.kill(false);
+        }
+    }
+
     @Override
     public int compareTo(@NotNull MTMVTaskExecutor task) {
         if (this.getTask().getPriority() != task.getTask().getPriority()) {

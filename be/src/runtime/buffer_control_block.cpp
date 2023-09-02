@@ -40,7 +40,7 @@ void GetResultBatchCtx::on_failure(const Status& status) {
     status.to_protobuf(result->mutable_status());
     {
         // call by result sink
-        SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(ExecEnv::GetInstance()->orphan_mem_tracker());
+        SCOPED_TRACK_MEMORY_TO_UNKNOWN();
         done->Run();
     }
     delete this;
@@ -55,7 +55,7 @@ void GetResultBatchCtx::on_close(int64_t packet_seq, QueryStatistics* statistics
     result->set_packet_seq(packet_seq);
     result->set_eos(true);
     {
-        SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(ExecEnv::GetInstance()->orphan_mem_tracker());
+        SCOPED_TRACK_MEMORY_TO_UNKNOWN();
         done->Run();
     }
     delete this;
@@ -83,7 +83,7 @@ void GetResultBatchCtx::on_data(const std::unique_ptr<TFetchDataResult>& t_resul
     }
     st.to_protobuf(result->mutable_status());
     {
-        SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(ExecEnv::GetInstance()->orphan_mem_tracker());
+        SCOPED_TRACK_MEMORY_TO_UNKNOWN();
         done->Run();
     }
     delete this;
@@ -128,8 +128,18 @@ Status BufferControlBlock::add_batch(std::unique_ptr<TFetchDataResult>& result) 
     }
 
     if (_waiting_rpc.empty()) {
+        // Merge result into batch to reduce rpc times
+        if (!_batch_queue.empty() &&
+            ((_batch_queue.back()->result_batch.rows.size() + num_rows) < _buffer_limit) &&
+            !result->eos) {
+            std::vector<std::string>& back_rows = _batch_queue.back()->result_batch.rows;
+            std::vector<std::string>& result_rows = result->result_batch.rows;
+            back_rows.insert(back_rows.end(), std::make_move_iterator(result_rows.begin()),
+                             std::make_move_iterator(result_rows.end()));
+        } else {
+            _batch_queue.push_back(std::move(result));
+        }
         _buffer_rows += num_rows;
-        _batch_queue.push_back(std::move(result));
         _data_arrival.notify_one();
     } else {
         auto ctx = _waiting_rpc.front();

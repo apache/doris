@@ -28,10 +28,17 @@ import org.apache.doris.analysis.StringLiteral;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
+import org.apache.doris.datasource.hive.HiveMetaStoreCache;
 
 import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
+import com.google.gson.JsonArray;
+import com.google.gson.JsonElement;
+import com.google.gson.JsonParseException;
+import com.google.gson.JsonPrimitive;
+import com.google.gson.JsonSerializationContext;
+import com.google.gson.JsonSerializer;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -46,12 +53,14 @@ import java.util.zip.CRC32;
 public class PartitionKey implements Comparable<PartitionKey>, Writable {
     private static final Logger LOG = LogManager.getLogger(PartitionKey.class);
     private List<LiteralExpr> keys;
+    private List<String> originHiveKeys;
     private List<PrimitiveType> types;
     private boolean isDefaultListPartitionKey = false;
 
     // constructor for partition prune
     public PartitionKey() {
         keys = Lists.newArrayList();
+        originHiveKeys = Lists.newArrayList();
         types = Lists.newArrayList();
     }
 
@@ -94,7 +103,8 @@ public class PartitionKey implements Comparable<PartitionKey>, Writable {
         return partitionKey;
     }
 
-    public static PartitionKey createListPartitionKeyWithTypes(List<PartitionValue> values, List<Type> types)
+    public static PartitionKey createListPartitionKeyWithTypes(List<PartitionValue> values, List<Type> types,
+            boolean isHive)
             throws AnalysisException {
         // for multi list partition:
         //
@@ -127,6 +137,9 @@ public class PartitionKey implements Comparable<PartitionKey>, Writable {
         PartitionKey partitionKey = new PartitionKey();
         for (int i = 0; i < values.size(); i++) {
             partitionKey.keys.add(values.get(i).getValue(types.get(i)));
+            if (isHive) {
+                partitionKey.originHiveKeys.add(values.get(i).getStringValue());
+            }
             partitionKey.types.add(types.get(i).getPrimitiveType());
         }
         if (values.isEmpty()) {
@@ -144,7 +157,7 @@ public class PartitionKey implements Comparable<PartitionKey>, Writable {
     public static PartitionKey createListPartitionKey(List<PartitionValue> values, List<Column> columns)
             throws AnalysisException {
         List<Type> types = columns.stream().map(c -> c.getType()).collect(Collectors.toList());
-        return createListPartitionKeyWithTypes(values, types);
+        return createListPartitionKeyWithTypes(values, types, false);
     }
 
     public void pushColumn(LiteralExpr keyValue, PrimitiveType keyType) {
@@ -196,6 +209,11 @@ public class PartitionKey implements Comparable<PartitionKey>, Writable {
 
     public List<String> getPartitionValuesAsStringList() {
         return keys.stream().map(k -> k.getStringValue()).collect(Collectors.toList());
+    }
+
+    public List<String> getPartitionValuesAsStringListForHive() {
+        Preconditions.checkState(originHiveKeys.size() == keys.size());
+        return originHiveKeys;
     }
 
     public static int compareLiteralExpr(LiteralExpr key1, LiteralExpr key2) {
@@ -428,10 +446,96 @@ public class PartitionKey implements Comparable<PartitionKey>, Writable {
 
     @Override
     public int hashCode() {
+        int hashCode = 1;
+        for (LiteralExpr key : keys) {
+            hashCode = 31 * hashCode + (key == null ? 0 : key.hashCode());
+        }
         int ret = types.size() * 1000;
         for (PrimitiveType type : types) {
             ret += type.ordinal();
         }
-        return ret;
+        return hashCode + ret;
+    }
+
+    public static class PartitionKeySerializer implements JsonSerializer<PartitionKey> {
+        @Override
+        public JsonElement serialize(PartitionKey partitionKey, java.lang.reflect.Type reflectType,
+                                     JsonSerializationContext context) {
+            JsonArray result = new JsonArray();
+
+            List<PrimitiveType> types = partitionKey.getTypes();
+            List<LiteralExpr> keys = partitionKey.getKeys();
+            int count = keys.size();
+            if (count != types.size()) {
+                throw new JsonParseException("Size of keys and types are not equal");
+            }
+
+            for (int i = 0; i < count; i++) {
+                JsonArray typeAndKey = new JsonArray();
+                PrimitiveType type = types.get(i);
+                typeAndKey.add(new JsonPrimitive(type.toString()));
+
+                if (keys.get(i) == MaxLiteral.MAX_VALUE) {
+                    typeAndKey.add(new JsonPrimitive("MAX_VALUE"));
+                } else {
+                    switch (type) {
+                        case TINYINT:
+                        case SMALLINT:
+                        case INT:
+                        case BIGINT: {
+                            IntLiteral key = (IntLiteral) keys.get(i);
+                            typeAndKey.add(new JsonPrimitive(key.getLongValue()));
+                        }
+                            break;
+                        case LARGEINT: {
+                            LargeIntLiteral key = (LargeIntLiteral) keys.get(i);
+                            typeAndKey.add(new JsonPrimitive(key.getRealValue().toString()));
+                        }
+                            break;
+                        case DATE:
+                        case DATETIME:
+                        case DATEV2:
+                        case DATETIMEV2: {
+                            DateLiteral key = (DateLiteral) keys.get(i);
+                            typeAndKey.add(new JsonPrimitive(key.convertToString(type)));
+                        }
+                            break;
+                        case CHAR:
+                        case VARCHAR:
+                        case STRING: {
+                            StringLiteral key = (StringLiteral) keys.get(i);
+                            typeAndKey.add(new JsonPrimitive(key.getValue()));
+                        }
+                            break;
+                        case BOOLEAN: {
+                            BoolLiteral key = (BoolLiteral) keys.get(i);
+                            typeAndKey.add(new JsonPrimitive(key.getValue()));
+                        }
+                            break;
+                        default:
+                            throw new JsonParseException("type[" + type.name() + "] not supported: ");
+                    }
+                }
+
+                result.add(typeAndKey);
+            }
+
+            return result;
+        }
+    }
+
+    // if any of partition value is HIVE_DEFAULT_PARTITION
+    // return true to indicate that this is a hive default partition
+    public boolean isHiveDefaultPartition() {
+        for (LiteralExpr literalExpr : keys) {
+            if (!(literalExpr instanceof StringLiteral)) {
+                continue;
+            }
+            StringLiteral key = (StringLiteral) literalExpr;
+            if (key.getValue().equals(HiveMetaStoreCache.HIVE_DEFAULT_PARTITION)) {
+                return true;
+            }
+        }
+        return false;
     }
 }

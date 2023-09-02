@@ -51,6 +51,7 @@ class TRuntimeProfileTree;
 #define CONCAT_IMPL(x, y) x##y
 #define MACRO_CONCAT(x, y) CONCAT_IMPL(x, y)
 
+#define ADD_LABEL_COUNTER(profile, name) (profile)->add_counter(name, TUnit::NONE)
 #define ADD_COUNTER(profile, name, type) (profile)->add_counter(name, type)
 #define ADD_TIMER(profile, name) (profile)->add_counter(name, TUnit::TIME_NS)
 #define ADD_CHILD_COUNTER(profile, name, type, parent) (profile)->add_counter(name, type, parent)
@@ -62,9 +63,6 @@ class TRuntimeProfileTree;
     ScopedTimer<ThreadCpuStopWatch> MACRO_CONCAT(SCOPED_TIMER, __COUNTER__)(c)
 #define CANCEL_SAFE_SCOPED_TIMER(c, is_cancelled) \
     ScopedTimer<MonotonicStopWatch> MACRO_CONCAT(SCOPED_TIMER, __COUNTER__)(c, is_cancelled)
-#define CANCEL_SAFE_SCOPED_TIMER_ATOMIC(c, is_cancelled)                                       \
-    ScopedTimer<MonotonicStopWatch, std::atomic_bool> MACRO_CONCAT(SCOPED_TIMER, __COUNTER__)( \
-            c, is_cancelled)
 #define SCOPED_RAW_TIMER(c)                                                                  \
     doris::ScopedRawTimer<doris::MonotonicStopWatch, int64_t> MACRO_CONCAT(SCOPED_RAW_TIMER, \
                                                                            __COUNTER__)(c)
@@ -324,7 +322,7 @@ public:
     // Does not hold locks when it makes any function calls.
     void pretty_print(std::ostream* s, const std::string& prefix = "") const;
 
-    void add_to_span();
+    void add_to_span(OpentelemetrySpan span);
 
     // Serializes profile to thrift.
     // Does not hold locks when it makes any function calls.
@@ -351,6 +349,9 @@ public:
 
     int64_t metadata() const { return _metadata; }
     void set_metadata(int64_t md) { _metadata = md; }
+
+    time_t timestamp() const { return _timestamp; }
+    void set_timestamp(time_t ss) { _timestamp = ss; }
 
     // Derived counter function: return measured throughput as input_value/second.
     static int64_t units_per_second(const Counter* total_counter, const Counter* timer);
@@ -409,6 +410,9 @@ private:
 
     // user-supplied, uninterpreted metadata.
     int64_t _metadata;
+
+    // The timestamp when the profile was modified, make sure the update is up to date.
+    time_t _timestamp;
 
     /// True if this profile is an average derived from other profiles.
     /// All counters in this profile must be of unit AveragedCounter.
@@ -504,12 +508,9 @@ private:
                                            const CounterMap& counter_map,
                                            const ChildCounterMap& child_counter_map);
 
-    static std::string print_json_counter(const std::string& profile_name, Counter* counter) {
-        return print_json_info(profile_name,
-                               PrettyPrinter::print(counter->value(), counter->type()));
+    static std::string print_counter(Counter* counter) {
+        return PrettyPrinter::print(counter->value(), counter->type());
     }
-
-    static std::string print_json_info(const std::string& profile_name, std::string value);
 };
 
 // Utility class to update the counter at object construction and destruction.

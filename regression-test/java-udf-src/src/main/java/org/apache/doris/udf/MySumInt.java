@@ -31,6 +31,10 @@ public class MySumInt {
     public void destroy(State state) {
     }
 
+    public void reset(State state) {
+        state.counter = 0;
+    }
+
     public void add(State state, Integer val) {
         if (val == null) return;
         state.counter += val;

@@ -51,6 +51,7 @@ enum CompressionTypePB {
     LZ4F = 5;
     ZLIB = 6;
     ZSTD = 7;
+    LZ4HC = 8;
 }
 
 enum PageTypePB {
@@ -59,6 +60,7 @@ enum PageTypePB {
     INDEX_PAGE = 2;
     DICTIONARY_PAGE = 3;
     SHORT_KEY_PAGE = 4;
+    PRIMARY_KEY_INDEX_PAGE = 5;
 }
 
 message DataPageFooterPB {

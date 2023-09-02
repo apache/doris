@@ -18,6 +18,7 @@
 #pragma once
 
 #include <aws/core/utils/memory/stl/AWSStringStream.h>
+#include <bthread/countdown_event.h>
 
 #include <cstddef>
 #include <list>
@@ -40,6 +41,7 @@ class S3Client;
 
 namespace doris {
 namespace io {
+struct S3FileBuffer;
 
 class S3FileWriter final : public FileWriter {
 public:
@@ -48,6 +50,7 @@ public:
     ~S3FileWriter() override;
 
     Status close() override;
+
     Status abort() override;
     Status appendv(const Slice* data, size_t data_cnt) override;
     Status finalize() override;
@@ -55,23 +58,38 @@ public:
         return Status::NotSupported("not support");
     }
 
-private:
-    Status _close();
-    Status _open();
-    Status _upload_part();
-    void _reset_stream();
+    [[nodiscard]] int64_t upload_cost_ms() const { return *_upload_cost_ms; }
 
 private:
-    std::shared_ptr<Aws::S3::S3Client> _client;
-    S3Conf _s3_conf;
-    std::string _upload_id;
-    bool _is_open = false;
+    void _wait_until_finish(std::string_view task_name);
+    Status _complete();
+    Status _create_multi_upload_request();
+    void _put_object(S3FileBuffer& buf);
+    void _upload_one_part(int64_t part_num, S3FileBuffer& buf);
+
+    std::string _bucket;
+    std::string _key;
     bool _closed = false;
+    bool _aborted = false;
 
-    std::shared_ptr<Aws::StringStream> _stream_ptr;
+    std::unique_ptr<int64_t> _upload_cost_ms;
+
+    std::shared_ptr<Aws::S3::S3Client> _client;
+    std::string _upload_id;
+
     // Current Part Num for CompletedPart
-    int _cur_part_num = 0;
-    std::list<std::shared_ptr<Aws::S3::Model::CompletedPart>> _completed_parts;
+    int _cur_part_num = 1;
+    std::mutex _completed_lock;
+    std::vector<std::unique_ptr<Aws::S3::Model::CompletedPart>> _completed_parts;
+
+    // **Attention** call add_count() before submitting buf to async thread pool
+    bthread::CountdownEvent _countdown_event {0};
+
+    std::atomic_bool _failed = false;
+    Status _st = Status::OK();
+    size_t _bytes_written = 0;
+
+    std::shared_ptr<S3FileBuffer> _pending_buf = nullptr;
 };
 
 } // namespace io

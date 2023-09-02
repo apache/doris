@@ -165,7 +165,9 @@ bool DataTypeNullable::equals(const IDataType& rhs) const {
 }
 
 DataTypePtr make_nullable(const DataTypePtr& type) {
-    if (type->is_nullable()) return type;
+    if (type->is_nullable()) {
+        return type;
+    }
     return std::make_shared<DataTypeNullable>(type);
 }
 
@@ -178,7 +180,9 @@ DataTypes make_nullable(const DataTypes& types) {
 }
 
 DataTypePtr remove_nullable(const DataTypePtr& type) {
-    if (type->is_nullable()) return static_cast<const DataTypeNullable&>(*type).get_nested_type();
+    if (type->is_nullable()) {
+        return assert_cast<const DataTypeNullable*>(type.get())->get_nested_type();
+    }
     return type;
 }
 

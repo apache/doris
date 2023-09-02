@@ -43,43 +43,50 @@ suite("test_recover") {
 
             // test drop/recover partition
 
-                qt_select """ SHOW CREATE TABLE `test_recover_db`.`test_recover_tb` """
+                def res = sql """ SHOW CREATE TABLE `test_recover_db`.`test_recover_tb` """
+                assertTrue(res.size() != 0)
 
                 sql """
             ALTER TABLE `test_recover_db`.`test_recover_tb` DROP PARTITION p1000;
             """
 
-                qt_select """ SHOW CREATE TABLE `test_recover_db`.`test_recover_tb` """
+                res = sql """ SHOW CREATE TABLE `test_recover_db`.`test_recover_tb` """
+                assertTrue(res.size() != 0)
 
                 sql """
             RECOVER PARTITION p1000 FROM `test_recover_db`.`test_recover_tb`
             """
 
-                qt_select """ SHOW CREATE TABLE `test_recover_db`.`test_recover_tb` """
+                res = sql """ SHOW CREATE TABLE `test_recover_db`.`test_recover_tb` """
+                assertTrue(res.size() != 0)
 
                 sql """
             ALTER TABLE `test_recover_db`.`test_recover_tb` DROP PARTITION p1000
             """
 
-                qt_select """ SHOW CREATE TABLE `test_recover_db`.`test_recover_tb` """
+                res = sql """ SHOW CREATE TABLE `test_recover_db`.`test_recover_tb` """
+                assertTrue(res.size() != 0)
 
                 sql """
             RECOVER PARTITION p1000 AS p2000 FROM `test_recover_db`.`test_recover_tb`
             """
 
-                qt_select """ SHOW CREATE TABLE `test_recover_db`.`test_recover_tb` """
+                res = sql """ SHOW CREATE TABLE `test_recover_db`.`test_recover_tb` """
+                assertTrue(res.size() != 0)
 
                 sql """
             ALTER TABLE `test_recover_db`.`test_recover_tb` DROP PARTITION p2000
             """
 
-                qt_select """ SHOW CREATE TABLE `test_recover_db`.`test_recover_tb` """
+                res = sql """ SHOW CREATE TABLE `test_recover_db`.`test_recover_tb` """
+                assertTrue(res.size() != 0)
 
                 sql """
             ALTER TABLE `test_recover_db`.`test_recover_tb` ADD PARTITION p2000 VALUES [('1000'), ('2000'))
             """
 
-                qt_select """ SHOW CREATE TABLE `test_recover_db`.`test_recover_tb` """
+                res = sql """ SHOW CREATE TABLE `test_recover_db`.`test_recover_tb` """
+                assertTrue(res.size() != 0)
 
                 sql """
             ALTER TABLE `test_recover_db`.`test_recover_tb` DROP PARTITION p2000
@@ -88,7 +95,8 @@ suite("test_recover") {
             ALTER TABLE `test_recover_db`.`test_recover_tb` ADD PARTITION p2000 VALUES [('2000'), ('3000'))
             """
 
-                qt_select """ SHOW CREATE TABLE `test_recover_db`.`test_recover_tb` """
+                res = sql """ SHOW CREATE TABLE `test_recover_db`.`test_recover_tb` """
+                assertTrue(res.size() != 0)
 
                 sql """
             ALTER TABLE `test_recover_db`.`test_recover_tb` DROP PARTITION p2000
@@ -97,7 +105,8 @@ suite("test_recover") {
             ALTER TABLE `test_recover_db`.`test_recover_tb` ADD PARTITION p2000 VALUES [('3000'), ('4000'))
             """
 
-                qt_select """ SHOW CREATE TABLE `test_recover_db`.`test_recover_tb` """
+                res = sql """ SHOW CREATE TABLE `test_recover_db`.`test_recover_tb` """
+                assertTrue(res.size() != 0)
 
                 sql """
             ALTER TABLE `test_recover_db`.`test_recover_tb` DROP PARTITION p2000
@@ -106,26 +115,30 @@ suite("test_recover") {
             ALTER TABLE `test_recover_db`.`test_recover_tb` ADD PARTITION p2000 VALUES [('4000'), ('5000'))
             """
 
-                qt_select """ SHOW CREATE TABLE `test_recover_db`.`test_recover_tb` """
+                res = sql """ SHOW CREATE TABLE `test_recover_db`.`test_recover_tb` """
+                assertTrue(res.size() != 0)
 
                 sql """
             ALTER TABLE `test_recover_db`.`test_recover_tb` DROP PARTITION p2000
             """
 
-                qt_select """ SHOW CREATE TABLE `test_recover_db`.`test_recover_tb` """
+                res = sql """ SHOW CREATE TABLE `test_recover_db`.`test_recover_tb` """
+                assertTrue(res.size() != 0)
 
                 sql """
             RECOVER PARTITION p2000 FROM `test_recover_db`.`test_recover_tb`
             """
 
-                qt_select """ SHOW CREATE TABLE `test_recover_db`.`test_recover_tb` """
+                res = sql """ SHOW CREATE TABLE `test_recover_db`.`test_recover_tb` """
+                assertTrue(res.size() != 0)
 
                 sql """
             RECOVER PARTITION p2000 AS p1000 FROM `test_recover_db`.`test_recover_tb`
             """
 
-                qt_select """ SHOW CREATE TABLE `test_recover_db`.`test_recover_tb` """
-
+                res = sql """ SHOW CREATE TABLE `test_recover_db`.`test_recover_tb` """
+                assertTrue(res.size() != 0)
+                
             // test drop/recover table
 
                 sql """
@@ -402,7 +415,8 @@ suite("test_recover") {
 
                 qt_select """ SHOW CREATE DATABASE `test_recover_db` """
                 qt_select """ SHOW CREATE DATABASE `test_recover_db_new` """
-                qt_select """SHOW CREATE TABLE `test_recover_db`.`test_recover_tb`"""
+                res = sql """SHOW CREATE TABLE `test_recover_db`.`test_recover_tb`"""
+                assertTrue(res.size() != 0)
                 qt_select """SHOW TABLES FROM `test_recover_db`"""
                 qt_select """SHOW TABLES FROM `test_recover_db_new`"""
 

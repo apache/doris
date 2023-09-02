@@ -25,6 +25,7 @@ import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.Util;
+import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.datasource.InitDatabaseLog;
 import org.apache.doris.persist.gson.GsonPostProcessable;
@@ -32,6 +33,9 @@ import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.MasterCatalogExecutor;
 
+import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
+import com.google.common.collect.Sets;
 import com.google.gson.annotations.SerializedName;
 import org.apache.commons.lang3.NotImplementedException;
 import org.apache.logging.log4j.LogManager;
@@ -41,6 +45,7 @@ import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
@@ -50,8 +55,8 @@ import java.util.concurrent.locks.ReentrantReadWriteLock;
  *
  * @param <T> External table type is ExternalTable or its subclass.
  */
-public class ExternalDatabase<T extends ExternalTable> implements DatabaseIf<T>, Writable, GsonPostProcessable {
-
+public abstract class ExternalDatabase<T extends ExternalTable>
+            implements DatabaseIf<T>, Writable, GsonPostProcessable {
     private static final Logger LOG = LogManager.getLogger(ExternalDatabase.class);
 
     protected ReentrantReadWriteLock rwLock = new ReentrantReadWriteLock(true);
@@ -64,15 +69,15 @@ public class ExternalDatabase<T extends ExternalTable> implements DatabaseIf<T>,
     protected DatabaseProperty dbProperties = new DatabaseProperty();
     @SerializedName(value = "initialized")
     protected boolean initialized = false;
+    // Cache of table name to table id.
+    protected Map<String, Long> tableNameToId = Maps.newConcurrentMap();
+    @SerializedName(value = "idToTbl")
+    protected Map<Long, T> idToTbl = Maps.newConcurrentMap();
+    @SerializedName(value = "lastUpdateTime")
+    protected long lastUpdateTime;
+    protected final InitDatabaseLog.Type dbLogType;
     protected ExternalCatalog extCatalog;
     protected boolean invalidCacheInInit = true;
-
-    /**
-     * No args constructor for persist.
-     */
-    public ExternalDatabase() {
-        initialized = false;
-    }
 
     /**
      * Create external database.
@@ -81,10 +86,11 @@ public class ExternalDatabase<T extends ExternalTable> implements DatabaseIf<T>,
      * @param id Database id.
      * @param name Database name.
      */
-    public ExternalDatabase(ExternalCatalog extCatalog, long id, String name) {
+    public ExternalDatabase(ExternalCatalog extCatalog, long id, String name, InitDatabaseLog.Type dbLogType) {
         this.extCatalog = extCatalog;
         this.id = id;
         this.name = name;
+        this.dbLogType = dbLogType;
     }
 
     public void setExtCatalog(ExternalCatalog extCatalog) {
@@ -92,6 +98,9 @@ public class ExternalDatabase<T extends ExternalTable> implements DatabaseIf<T>,
     }
 
     public void setTableExtCatalog(ExternalCatalog extCatalog) {
+        for (T table : idToTbl.values()) {
+            table.setCatalog(extCatalog);
+        }
     }
 
     public void setUnInitialized(boolean invalidCache) {
@@ -125,16 +134,66 @@ public class ExternalDatabase<T extends ExternalTable> implements DatabaseIf<T>,
         }
     }
 
-    protected void init() {
-        throw new NotImplementedException("init() is not implemented");
+    public void replayInitDb(InitDatabaseLog log, ExternalCatalog catalog) {
+        Map<String, Long> tmpTableNameToId = Maps.newConcurrentMap();
+        Map<Long, T> tmpIdToTbl = Maps.newConcurrentMap();
+        for (int i = 0; i < log.getRefreshCount(); i++) {
+            T table = getTableForReplay(log.getRefreshTableIds().get(i));
+            tmpTableNameToId.put(table.getName(), table.getId());
+            tmpIdToTbl.put(table.getId(), table);
+        }
+        for (int i = 0; i < log.getCreateCount(); i++) {
+            T table = getExternalTable(log.getCreateTableNames().get(i), log.getCreateTableIds().get(i), catalog);
+            tmpTableNameToId.put(table.getName(), table.getId());
+            tmpIdToTbl.put(table.getId(), table);
+        }
+        tableNameToId = tmpTableNameToId;
+        idToTbl = tmpIdToTbl;
+        lastUpdateTime = log.getLastUpdateTime();
+        initialized = true;
     }
+
+    protected void init() {
+        InitDatabaseLog initDatabaseLog = new InitDatabaseLog();
+        initDatabaseLog.setType(dbLogType);
+        initDatabaseLog.setCatalogId(extCatalog.getId());
+        initDatabaseLog.setDbId(id);
+        List<String> tableNames = extCatalog.listTableNames(null, name);
+        if (tableNames != null) {
+            Map<String, Long> tmpTableNameToId = Maps.newConcurrentMap();
+            Map<Long, T> tmpIdToTbl = Maps.newHashMap();
+            for (String tableName : tableNames) {
+                long tblId;
+                if (tableNameToId != null && tableNameToId.containsKey(tableName)) {
+                    tblId = tableNameToId.get(tableName);
+                    tmpTableNameToId.put(tableName, tblId);
+                    T table = idToTbl.get(tblId);
+                    table.unsetObjectCreated();
+                    tmpIdToTbl.put(tblId, table);
+                    initDatabaseLog.addRefreshTable(tblId);
+                } else {
+                    tblId = Env.getCurrentEnv().getNextId();
+                    tmpTableNameToId.put(tableName, tblId);
+                    T table = getExternalTable(tableName, tblId, extCatalog);
+                    tmpIdToTbl.put(tblId, table);
+                    initDatabaseLog.addCreateTable(tblId, tableName);
+                }
+            }
+            tableNameToId = tmpTableNameToId;
+            idToTbl = tmpIdToTbl;
+        }
+
+        long currentTime = System.currentTimeMillis();
+        lastUpdateTime = currentTime;
+        initDatabaseLog.setLastUpdateTime(lastUpdateTime);
+        initialized = true;
+        Env.getCurrentEnv().getEditLog().logInitExternalDb(initDatabaseLog);
+    }
+
+    protected abstract T getExternalTable(String tableName, long tblId, ExternalCatalog catalog);
 
     public T getTableForReplay(long tableId) {
-        throw new NotImplementedException("getTableForReplay() is not implemented");
-    }
-
-    public void replayInitDb(InitDatabaseLog log, ExternalCatalog catalog) {
-        throw new NotImplementedException("replayInitDb() is not implemented");
+        return idToTbl.get(tableId);
     }
 
     @Override
@@ -210,7 +269,8 @@ public class ExternalDatabase<T extends ExternalTable> implements DatabaseIf<T>,
 
     @Override
     public List<T> getTables() {
-        throw new NotImplementedException("getTables() is not implemented");
+        makeSureInitialized();
+        return Lists.newArrayList(idToTbl.values());
     }
 
     @Override
@@ -235,17 +295,31 @@ public class ExternalDatabase<T extends ExternalTable> implements DatabaseIf<T>,
 
     @Override
     public Set<String> getTableNamesWithLock() {
-        throw new NotImplementedException("getTableNamesWithLock() is not implemented");
+        makeSureInitialized();
+        return Sets.newHashSet(tableNameToId.keySet());
     }
 
     @Override
     public T getTableNullable(String tableName) {
-        throw new NotImplementedException("getTableNullable() is not implemented");
+        makeSureInitialized();
+        if (!tableNameToId.containsKey(tableName)) {
+            return null;
+        }
+        return idToTbl.get(tableNameToId.get(tableName));
     }
 
     @Override
     public T getTableNullable(long tableId) {
-        throw new NotImplementedException("getTableNullable() is not implemented");
+        makeSureInitialized();
+        return idToTbl.get(tableId);
+    }
+
+    public long getLastUpdateTime() {
+        return lastUpdateTime;
+    }
+
+    public void setLastUpdateTime(long lastUpdateTime) {
+        this.lastUpdateTime = lastUpdateTime;
     }
 
     @Override
@@ -253,20 +327,37 @@ public class ExternalDatabase<T extends ExternalTable> implements DatabaseIf<T>,
         Text.writeString(out, GsonUtils.GSON.toJson(this));
     }
 
+    @SuppressWarnings("rawtypes")
     public static ExternalDatabase read(DataInput in) throws IOException {
         String json = Text.readString(in);
         return GsonUtils.GSON.fromJson(json, ExternalDatabase.class);
     }
 
     @Override
-    public void gsonPostProcess() throws IOException {}
+    public void gsonPostProcess() throws IOException {
+        tableNameToId = Maps.newConcurrentMap();
+        for (T tbl : idToTbl.values()) {
+            tableNameToId.put(tbl.getName(), tbl.getId());
+        }
+        rwLock = new ReentrantReadWriteLock(true);
+    }
 
     @Override
     public void dropTable(String tableName) {
         throw new NotImplementedException("dropTable() is not implemented");
     }
 
-    public void createTable(String tableName, long tableId) {
+    public void dropTableForReplay(String tableName) {
+        throw new NotImplementedException("replayDropTableFromEvent() is not implemented");
+    }
+
+    @Override
+    public CatalogIf getCatalog() {
+        return extCatalog;
+    }
+
+    // Only used for sync hive metastore event
+    public void createTableForReplay(String tableName, long tableId) {
         throw new NotImplementedException("createTable() is not implemented");
     }
 }

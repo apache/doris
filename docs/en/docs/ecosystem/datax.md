@@ -1,6 +1,6 @@
 ---
 {
-    "title": "DataX doriswriter",
+    "title": "DataX Doriswriter",
     "language": "en"
 }
 ---
@@ -24,7 +24,7 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# DataX doriswriter
+# DataX Doriswriter
 
 [DataX](https://github.com/alibaba/DataX) doriswriter plug-in, used to synchronize data from other data sources to Doris through DataX.
 
@@ -122,7 +122,7 @@ After compiling, you can see the datax.tar.gz package under `datax/target/Datax`
   - Default: None
 * **loadUrl**
 
-  - Description: As a connection target for Stream Load. The format is "ip:port". Where IP is the FE node IP, port is the http_port of the FE node. You can fill in more than one, separated by a semicolon in English: `;`, doriswriter will visit in a polling manner.
+  - Description: As a connection target for Stream Load. The format is "ip:port". Where IP is the FE node IP, port is the http_port of the FE node. You can fill in more than one, separated by commas in English: `,`, doriswriter will visit in a polling manner.
   - Mandatory: Yes
   - Default: None
 * **username**

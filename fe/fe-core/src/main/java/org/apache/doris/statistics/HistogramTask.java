@@ -19,7 +19,7 @@ package org.apache.doris.statistics;
 
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.FeConstants;
-import org.apache.doris.statistics.AnalysisTaskInfo.AnalysisMethod;
+import org.apache.doris.statistics.AnalysisInfo.AnalysisMethod;
 import org.apache.doris.statistics.util.StatisticsUtil;
 
 import com.google.common.annotations.VisibleForTesting;
@@ -53,12 +53,12 @@ public class HistogramTask extends BaseAnalysisTask {
         super();
     }
 
-    public HistogramTask(AnalysisTaskInfo info) {
+    public HistogramTask(AnalysisInfo info) {
         super(info);
     }
 
     @Override
-    public void execute() throws Exception {
+    public void doExecute() throws Exception {
         Map<String, String> params = new HashMap<>();
         params.put("internalDB", FeConstants.INTERNAL_DB_NAME);
         params.put("histogramStatTbl", StatisticConstants.HISTOGRAM_TBL_NAME);
@@ -79,6 +79,11 @@ public class HistogramTask extends BaseAnalysisTask {
         Env.getCurrentEnv().getStatisticsCache().refreshHistogramSync(tbl.getId(), -1, col.getName());
     }
 
+    @Override
+    protected void afterExecution() {
+        // DO NOTHING
+    }
+
     private String getSampleRateFunction() {
         if (info.analysisMethod == AnalysisMethod.FULL) {
             return "0";
@@ -86,7 +91,8 @@ public class HistogramTask extends BaseAnalysisTask {
         if (info.samplePercent > 0) {
             return String.valueOf(info.samplePercent / 100.0);
         } else {
-            double sampRate = (double) info.sampleRows / tbl.getRowCount();
+            long rowCount = tbl.getRowCount() > 0 ? tbl.getRowCount() : 1;
+            double sampRate = (double) info.sampleRows / rowCount;
             return sampRate >= 1 ? "1.0" : String.format("%.4f", sampRate);
         }
     }

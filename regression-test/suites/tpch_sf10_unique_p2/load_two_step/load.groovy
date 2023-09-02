@@ -72,6 +72,5 @@ suite("load_two_step") {
         finally {
             try_sql("DROP TABLE IF EXISTS ${table}")
         }
-
     }
 }

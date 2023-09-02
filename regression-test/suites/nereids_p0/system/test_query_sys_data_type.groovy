@@ -19,7 +19,7 @@ suite("test_query_sys_data_type", 'query,p0') {
     sql "SET enable_nereids_planner=true"
     sql "SET enable_fallback_to_original_planner=false"
     def tbName = "test_data_type"
-    def dbName = "test_query_db"
+    def dbName = "nereids_test_query_db"
     sql "CREATE DATABASE IF NOT EXISTS ${dbName}"
     sql "USE ${dbName}"
 

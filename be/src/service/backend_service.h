@@ -56,6 +56,8 @@ class TStatus;
 class TTabletStatResult;
 class TTransmitDataParams;
 class TUniqueId;
+class TIngestBinlogRequest;
+class TIngestBinlogResult;
 
 // This class just forward rpc for actual handler
 // make this class because we can bind multiple service on single point
@@ -66,7 +68,8 @@ public:
     ~BackendService() override = default;
 
     // NOTE: now we do not support multiple backend in one process
-    static Status create_service(ExecEnv* exec_env, int port, ThriftServer** server);
+    static Status create_service(ExecEnv* exec_env, int port,
+                                 std::unique_ptr<ThriftServer>* server);
 
     // Agent service
     void submit_tasks(TAgentResult& return_value,
@@ -126,6 +129,8 @@ public:
     void clean_trash() override;
 
     void check_storage_format(TCheckStorageFormatResult& result) override;
+
+    void ingest_binlog(TIngestBinlogResult& result, const TIngestBinlogRequest& request) override;
 
 private:
     Status start_plan_fragment_execution(const TExecPlanFragmentParams& exec_params);

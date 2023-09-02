@@ -44,7 +44,7 @@ class DataTypeFixedLengthObject final : public IDataType {
 public:
     using ColumnType = ColumnFixedLengthObject;
 
-    DataTypeFixedLengthObject() {}
+    DataTypeFixedLengthObject() = default;
 
     DataTypeFixedLengthObject(const DataTypeFixedLengthObject& other) {}
 
@@ -59,6 +59,10 @@ public:
     }
 
     Field get_default() const override { return String(); }
+
+    [[noreturn]] Field get_field(const TExprNode& node) const override {
+        LOG(FATAL) << "Unimplemented get_field for DataTypeFixedLengthObject";
+    }
 
     bool equals(const IDataType& rhs) const override { return typeid(rhs) == typeid(*this); }
 
@@ -76,7 +80,6 @@ public:
     bool get_is_parametric() const override { return false; }
     bool have_subtypes() const override { return false; }
 
-    bool is_categorial() const override { return is_value_represented_by_integer(); }
     bool can_be_inside_low_cardinality() const override { return false; }
     DataTypeSerDeSPtr get_serde() const override {
         return std::make_shared<DataTypeFixedLengthObjectSerDe>();

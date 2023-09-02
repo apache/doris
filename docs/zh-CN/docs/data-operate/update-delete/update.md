@@ -30,7 +30,7 @@ under the License.
 
 ## 适用场景
 
-- 对满足某些条件的行，修改他的取值；
+- 对满足某些条件的行，修改其取值；
 - 点更新，小范围更新，待更新的行最好是整个表的非常小的一部分；
 - update 命令只能在 Unique 数据模型的表中执行。
 
@@ -120,6 +120,9 @@ Query OK, 1 row affected (0.11 sec)
   |订单id | 订单金额| 订单状态| 
   |---|---|---| 
   | 1 | 100 | 待发货 |
+
+## 更新Key列
+目前Update操作只支持更新Value列，Key列的更新可参考[使用FlinkCDC更新Key列](../../ecosystem/flink-doris-connector.md#使用FlinkCDC更新Key列)
 
 ## 更多帮助
 

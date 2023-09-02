@@ -61,19 +61,17 @@ public class LogicalSubQueryAlias<CHILD_TYPE extends Plan> extends LogicalUnary<
     }
 
     public LogicalSubQueryAlias(List<String> qualifier, Optional<List<String>> columnAliases,
-                                Optional<GroupExpression> groupExpression,
-                                Optional<LogicalProperties> logicalProperties, CHILD_TYPE child) {
+            Optional<GroupExpression> groupExpression,
+            Optional<LogicalProperties> logicalProperties, CHILD_TYPE child) {
         super(PlanType.LOGICAL_SUBQUERY_ALIAS, groupExpression, logicalProperties, child);
-        this.qualifier = ImmutableList.copyOf(Objects.requireNonNull(qualifier));
+        this.qualifier = ImmutableList.copyOf(Objects.requireNonNull(qualifier, "qualifier is null"));
         this.columnAliases = columnAliases;
     }
 
     @Override
     public List<Slot> computeOutput() {
         List<Slot> childOutput = child().getOutput();
-        List<String> columnAliases = this.columnAliases.isPresent()
-                ? this.columnAliases.get()
-                : ImmutableList.of();
+        List<String> columnAliases = this.columnAliases.orElseGet(ImmutableList::of);
         ImmutableList.Builder<Slot> currentOutput = ImmutableList.builder();
         for (int i = 0; i < childOutput.size(); i++) {
             Slot originSlot = childOutput.get(i);
@@ -101,15 +99,12 @@ public class LogicalSubQueryAlias<CHILD_TYPE extends Plan> extends LogicalUnary<
 
     @Override
     public String toString() {
-        if (columnAliases.isPresent()) {
-            return Utils.toSqlString("LogicalSubQueryAlias",
+        return columnAliases.map(strings -> Utils.toSqlString("LogicalSubQueryAlias",
                 "qualifier", qualifier,
-                "columnAliases", StringUtils.join(columnAliases.get(), ",")
-            );
-        }
-        return Utils.toSqlString("LogicalSubQueryAlias",
+                "columnAliases", StringUtils.join(strings, ",")
+        )).orElseGet(() -> Utils.toSqlString("LogicalSubQueryAlias",
                 "qualifier", qualifier
-        );
+        ));
     }
 
     @Override
@@ -121,12 +116,12 @@ public class LogicalSubQueryAlias<CHILD_TYPE extends Plan> extends LogicalUnary<
             return false;
         }
         LogicalSubQueryAlias that = (LogicalSubQueryAlias) o;
-        return qualifier.equals(that.qualifier);
+        return qualifier.equals(that.qualifier) && this.child().equals(that.child());
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(qualifier);
+        return Objects.hash(qualifier, child().hashCode());
     }
 
     @Override
@@ -137,7 +132,7 @@ public class LogicalSubQueryAlias<CHILD_TYPE extends Plan> extends LogicalUnary<
 
     @Override
     public <R, C> R accept(PlanVisitor<R, C> visitor, C context) {
-        return visitor.visitSubQueryAlias(this, context);
+        return visitor.visitLogicalSubQueryAlias(this, context);
     }
 
     @Override
@@ -152,8 +147,10 @@ public class LogicalSubQueryAlias<CHILD_TYPE extends Plan> extends LogicalUnary<
     }
 
     @Override
-    public LogicalSubQueryAlias<CHILD_TYPE> withLogicalProperties(Optional<LogicalProperties> logicalProperties) {
-        return new LogicalSubQueryAlias<>(qualifier, columnAliases, Optional.empty(),
-                logicalProperties, child());
+    public Plan withGroupExprLogicalPropChildren(Optional<GroupExpression> groupExpression,
+            Optional<LogicalProperties> logicalProperties, List<Plan> children) {
+        Preconditions.checkArgument(children.size() == 1);
+        return new LogicalSubQueryAlias<>(qualifier, columnAliases, groupExpression, logicalProperties,
+                children.get(0));
     }
 }

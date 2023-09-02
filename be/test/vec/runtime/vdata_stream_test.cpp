@@ -15,21 +15,56 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include <gtest/gtest.h>
+#include <brpc/controller.h>
+#include <bthread/id.h>
+#include <gen_cpp/DataSinks_types.h>
+#include <gen_cpp/PaloInternalService_types.h>
+#include <gen_cpp/Partitions_types.h>
+#include <gen_cpp/Types_types.h>
+#include <glog/logging.h>
+#include <gtest/gtest-message.h>
+#include <gtest/gtest-test-part.h>
+#include <stddef.h>
 
+#include <memory>
+#include <ostream>
+#include <string>
+#include <utility>
+#include <vector>
+
+#include "common/global_types.h"
 #include "common/object_pool.h"
+#include "common/status.h"
 #include "gen_cpp/internal_service.pb.h"
-#include "google/protobuf/descriptor.h"
 #include "google/protobuf/service.h"
+#include "gtest/gtest_pred_impl.h"
+#include "runtime/define_primitive_type.h"
+#include "runtime/descriptors.h"
 #include "runtime/exec_env.h"
-#include "service/brpc.h"
+#include "runtime/query_statistics.h"
+#include "runtime/runtime_state.h"
 #include "testutil/desc_tbl_builder.h"
 #include "util/brpc_client_cache.h"
 #include "util/proto_util.h"
+#include "util/runtime_profile.h"
+#include "util/uid_util.h"
+#include "vec/columns/column_vector.h"
+#include "vec/core/block.h"
+#include "vec/core/column_with_type_and_name.h"
+#include "vec/core/types.h"
+#include "vec/data_types/data_type.h"
 #include "vec/data_types/data_type_number.h"
 #include "vec/runtime/vdata_stream_mgr.h"
 #include "vec/runtime/vdata_stream_recvr.h"
 #include "vec/sink/vdata_stream_sender.h"
+
+namespace google {
+namespace protobuf {
+class Closure;
+class Message;
+class MethodDescriptor;
+} // namespace protobuf
+} // namespace google
 
 namespace doris::vectorized {
 
@@ -39,8 +74,6 @@ public:
                         const ::doris::PTransmitDataParams* request,
                         ::doris::PTransmitDataResult* response, ::google::protobuf::Closure* done) {
         // stream_mgr->transmit_block(request, &done);
-        brpc::Controller* cntl = static_cast<brpc::Controller*>(controller);
-        attachment_transfer_request_block<PTransmitDataParams>(request, cntl);
         // The response is accessed when done->Run is called in transmit_block(),
         // give response a default value to avoid null pointers in high concurrency.
         Status st;
@@ -155,11 +188,9 @@ TEST_F(VDataStreamTest, BasicTest) {
         dest.__set_server(addr);
         dests.push_back(dest);
     }
-    int per_channel_buffer_size = 1024 * 1024;
     bool send_query_statistics_with_every_batch = false;
     VDataStreamSender sender(&runtime_stat, &_object_pool, sender_id, row_desc, tsink.stream_sink,
-                             dests, per_channel_buffer_size,
-                             send_query_statistics_with_every_batch);
+                             dests, send_query_statistics_with_every_batch);
     sender.set_query_statistics(std::make_shared<QueryStatistics>());
     sender.init(tsink);
     sender.prepare(&runtime_stat);
@@ -175,14 +206,15 @@ TEST_F(VDataStreamTest, BasicTest) {
     vectorized::Block block({type_and_name});
     sender.send(&runtime_stat, &block);
 
+    Status exec_status;
+    sender.close(&runtime_stat, exec_status);
+
     Block block_2;
     bool eos;
     recv->get_next(&block_2, &eos);
 
     EXPECT_EQ(block_2.rows(), 1024);
 
-    Status exec_status;
-    sender.close(&runtime_stat, exec_status);
     recv->close();
 }
 } // namespace doris::vectorized

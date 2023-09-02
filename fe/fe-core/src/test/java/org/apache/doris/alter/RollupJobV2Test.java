@@ -327,7 +327,7 @@ public class RollupJobV2Test {
         Column column = new Column(mvColumnName, Type.BITMAP, false, AggregateType.BITMAP_UNION, false, "1", "");
         columns.add(column);
 
-        RollupJobV2 rollupJobV2 = new RollupJobV2(1, 1, 1, "test", 1, 1, 1, "test", "rollup", columns, null, 1, 1,
+        RollupJobV2 rollupJobV2 = new RollupJobV2("", 1, 1, 1, "test", 1, 1, 1, "test", "rollup", columns, null, 1, 1,
                 KeysType.AGG_KEYS, keysCount,
                 new OriginStatement("create materialized view rollup as select bitmap_union(to_bitmap(c1)) from test",
                         0));

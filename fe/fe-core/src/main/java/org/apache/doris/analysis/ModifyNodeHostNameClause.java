@@ -22,8 +22,6 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.system.SystemInfoService.HostInfo;
 
-import com.google.common.base.Preconditions;
-import com.google.common.base.Strings;
 import org.apache.commons.lang3.NotImplementedException;
 import org.apache.commons.validator.routines.InetAddressValidator;
 
@@ -32,27 +30,22 @@ import java.net.UnknownHostException;
 
 public class ModifyNodeHostNameClause extends AlterClause {
     protected String hostPort;
-    protected String ip;
-    protected String hostName;
-    protected String newHostName;
+    protected String host;
+    protected String newHost;
     protected int port;
 
-    protected ModifyNodeHostNameClause(String hostPort, String newHostName) {
+    protected ModifyNodeHostNameClause(String hostPort, String newHost) {
         super(AlterOpType.ALTER_OTHER);
         this.hostPort = hostPort;
-        this.newHostName = newHostName;
+        this.newHost = newHost;
     }
 
-    public String getIp() {
-        return ip;
+    public String getHost() {
+        return host;
     }
 
-    public String getHostName() {
-        return hostName;
-    }
-
-    public String getNewHostName() {
-        return newHostName;
+    public String getNewHost() {
+        return newHost;
     }
 
     public int getPort() {
@@ -61,20 +54,18 @@ public class ModifyNodeHostNameClause extends AlterClause {
 
     @Override
     public void analyze(Analyzer analyzer) throws AnalysisException {
-        HostInfo hostInfo = SystemInfoService.getIpHostAndPort(hostPort, true);
-        this.ip = hostInfo.getIp();
-        this.hostName = hostInfo.getHostName();
+        HostInfo hostInfo = SystemInfoService.getHostAndPort(hostPort);
+        this.host = hostInfo.getHost();
         this.port = hostInfo.getPort();
-        Preconditions.checkState(!Strings.isNullOrEmpty(ip));
 
         try {
             // validate hostname
-            if (!InetAddressValidator.getInstance().isValid(newHostName)) {
+            if (!InetAddressValidator.getInstance().isValid(newHost)) {
                 // if no IP address for the host could be found, 'getByName'
                 // will throw UnknownHostException
-                InetAddress.getByName(newHostName);
+                InetAddress.getByName(newHost);
             } else {
-                throw new AnalysisException("Invalid hostname: " + newHostName);
+                throw new AnalysisException("Invalid hostname: " + newHost);
             }
         } catch (UnknownHostException e) {
             throw new AnalysisException("Unknown hostname:  " + e.getMessage());

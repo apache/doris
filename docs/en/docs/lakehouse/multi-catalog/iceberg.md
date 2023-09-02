@@ -27,26 +27,16 @@ under the License.
 
 # Iceberg
 
-## Usage
+## Limitations
 
-When connecting to Iceberg, Doris:
-
-1. Supports Iceberg V1/V2 table formats;
-2. Supports Position Delete but not Equality Delete for V2 format;
-
-<version since="dev">
-
-3. Supports Hive / Iceberg tables with data stored in GooseFS(GFS), which can be used the same way as normal Hive tables. Follow below steps to prepare doris environment：
-    1. put goosefs-x.x.x-client.jar in fe/lib/ and apache_hdfs_broker/lib/
-    2. add extra properties 'fs.AbstractFileSystem.gfs.impl' = 'com.qcloud.cos.goosefs.hadoop.GooseFileSystem'， 'fs.gfs.impl' = 'com.qcloud.cos.goosefs.hadoop.FileSystem' when creating catalog
-
-</version>
+1. Support Iceberg V1/V2.
+2. The V2 format only supports Position Delete, not Equality Delete.
 
 ## Create Catalog
 
-### Hive Metastore Catalog
+### Create Catalog Based on Hive Metastore
 
-Same as creating Hive Catalogs. A simple example is provided here. See [Hive](./hive.md) for more information.
+It is basically the same as Hive Catalog, and only a simple example is given here. See [Hive Catalog](./hive.md) for other examples.
 
 ```sql
 CREATE CATALOG iceberg PROPERTIES (
@@ -61,20 +51,34 @@ CREATE CATALOG iceberg PROPERTIES (
 );
 ```
 
-> `specified_database_list`:
-> 
-> only synchronize the specified databases, split with ','. Default values is '' will synchronize all databases. db name is case sensitive.
-> 
+### Create Catalog based on Iceberg API
 
-### Iceberg Native Catalog
+Use the Iceberg API to access metadata, and support services such as Hadoop File System, Hive, REST, DLF and Glue as Iceberg's Catalog.
 
-<version since="dev">
+#### Hadoop Catalog
 
-Access metadata with the iceberg API. The Hive, REST, Glue and other services can serve as the iceberg catalog.
+```sql
+CREATE CATALOG iceberg_hadoop PROPERTIES (
+    'type'='iceberg',
+    'iceberg.catalog.type' = 'hadoop',
+    'warehouse' = 'hdfs://your-host:8020/dir/key'
+);
+```
 
-</version>
+```sql
+CREATE CATALOG iceberg_hadoop_ha PROPERTIES (
+    'type'='iceberg',
+    'iceberg.catalog.type' = 'hadoop',
+    'warehouse' = 'hdfs://your-nameservice/dir/key',
+    'dfs.nameservices'='your-nameservice',
+    'dfs.ha.namenodes.your-nameservice'='nn1,nn2',
+    'dfs.namenode.rpc-address.your-nameservice.nn1'='172.21.0.2:4007',
+    'dfs.namenode.rpc-address.your-nameservice.nn2'='172.21.0.3:4007',
+    'dfs.client.failover.proxy.provider.your-nameservice'='org.apache.hadoop.hdfs.server.namenode.ha.ConfiguredFailoverProxyProvider'
+);
+```
 
-#### Using Iceberg Hive Catalog
+#### Hive Metastore
 
 ```sql
 CREATE CATALOG iceberg PROPERTIES (
@@ -90,70 +94,122 @@ CREATE CATALOG iceberg PROPERTIES (
 );
 ```
 
-#### Using Iceberg Glue Catalog
+#### AWS Glue
 
 ```sql
 CREATE CATALOG glue PROPERTIES (
-"type"="iceberg",
-"iceberg.catalog.type" = "glue",
-"glue.endpoint" = "https://glue.us-east-1.amazonaws.com",
-"warehouse" = "s3://bucket/warehouse",
-"AWS_ENDPOINT" = "s3.us-east-1.amazonaws.com",
-"AWS_REGION" = "us-east-1",
-"AWS_ACCESS_KEY" = "ak",
-"AWS_SECRET_KEY" = "sk",
-"use_path_style" = "true"
+    "type"="iceberg",
+    "iceberg.catalog.type" = "glue",
+    "glue.endpoint" = "https://glue.us-east-1.amazonaws.com",
+    "glue.access_key" = "ak",
+    "glue.secret_key" = "sk"
 );
 ```
 
-`glue.endpoint`: Glue Endpoint. See [AWS Glue endpoints and quotas](https://docs.aws.amazon.com/general/latest/gr/glue.html).
+For Iceberg properties, see [Iceberg Glue Catalog](https://iceberg.apache.org/docs/latest/aws/#glue-catalog)
 
-`warehouse`: Glue Warehouse Location.  To determine the root path of the data warehouse in storage.
+#### Alibaba Cloud DLF
 
-The other properties can refer to [Iceberg Glue Catalog](https://iceberg.apache.org/docs/latest/aws/#glue-catalog)
+see [Alibaba Cloud DLF Catalog](dlf.md)
 
-- Using Iceberg REST Catalog
+#### REST Catalog
 
-RESTful service as the server side. Implementing RESTCatalog interface of iceberg to obtain metadata.
+This method needs to provide REST services in advance, and users need to implement the REST interface for obtaining Iceberg metadata.
+
+```sql
+CREATE CATALOG iceberg PROPERTIES (
+    'type'='iceberg',
+    'iceberg.catalog.type'='rest',
+    'uri' = 'http://172.21.0.1:8181'
+);
+```
+
+If the data is on HDFS and High Availability (HA) is set up, need to add HA configuration to the Catalog.
 
 ```sql
 CREATE CATALOG iceberg PROPERTIES (
     'type'='iceberg',
     'iceberg.catalog.type'='rest',
     'uri' = 'http://172.21.0.1:8181',
+    'dfs.nameservices'='your-nameservice',
+    'dfs.ha.namenodes.your-nameservice'='nn1,nn2',
+    'dfs.namenode.rpc-address.your-nameservice.nn1'='172.21.0.1:8020',
+    'dfs.namenode.rpc-address.your-nameservice.nn2'='172.21.0.2:8020',
+    'dfs.client.failover.proxy.provider.your-nameservice'='org.apache.hadoop.hdfs.server.namenode.ha.ConfiguredFailoverProxyProvider'
 );
 ```
 
-If you want to use S3 storage, the following properties need to be set.
+#### Google Dataproc Metastore
+
+```sql
+CREATE CATALOG iceberg PROPERTIES (
+    "type"="iceberg",
+    "iceberg.catalog.type"="hms",
+    "hive.metastore.uris" = "thrift://172.21.0.1:9083",
+    "gs.endpoint" = "https://storage.googleapis.com",
+    "gs.region" = "us-east-1",
+    "gs.access_key" = "ak",
+    "gs.secret_key" = "sk",
+    "use_path_style" = "true"
+);
+```
+
+`hive.metastore.uris`: Dataproc Metastore URI，See in Metastore Services ：[Dataproc Metastore Services](https://console.cloud.google.com/dataproc/metastore).
+
+### Iceberg On Object Storage
+
+If the data is stored on S3, the following parameters can be used in properties:
 
 ```
-"AWS_ACCESS_KEY" = "ak"
-"AWS_SECRET_KEY" = "sk"
-"AWS_REGION" = "region-name"
-"AWS_ENDPOINT" = "http://endpoint-uri"
-"AWS_CREDENTIALS_PROVIDER" = "provider-class-name" // Optional. The default credentials class is based on BasicAWSCredentials.
+"s3.access_key" = "ak"
+"s3.secret_key" = "sk"
+"s3.endpoint" = "s3.us-east-1.amazonaws.com"
+"s3.region" = "us-east-1"
 ```
 
-## Column Type Mapping
+The data is stored on Alibaba Cloud OSS:
 
-Same as that in Hive Catalogs. See the relevant section in [Hive](./hive.md).
+```
+"oss.access_key" = "ak"
+"oss.secret_key" = "sk"
+"oss.endpoint" = "oss-cn-beijing-internal.aliyuncs.com"
+"oss.region" = "oss-cn-beijing"
+```
+
+The data is stored on Tencent Cloud COS:
+
+```
+"cos.access_key" = "ak"
+"cos.secret_key" = "sk"
+"cos.endpoint" = "cos.ap-beijing.myqcloud.com"
+"cos.region" = "ap-beijing"
+```
+
+The data is stored on Huawei Cloud OBS:
+
+```
+"obs.access_key" = "ak"
+"obs.secret_key" = "sk"
+"obs.endpoint" = "obs.cn-north-4.myhuaweicloud.com"
+"obs.region" = "cn-north-4"
+```
+
+## Column type mapping
+
+Consistent with Hive Catalog, please refer to the **column type mapping** section in [Hive Catalog](./hive.md).
 
 ## Time Travel
 
-<version since="1.2.2">
+Supports reading the snapshot specified by the Iceberg table.
 
-Doris supports reading the specified Snapshot of Iceberg tables.
+Every write operation to the iceberg table will generate a new snapshot.
 
-</version>
+By default, read requests will only read the latest version of the snapshot.
 
-Each write operation to an Iceberg table will generate a new Snapshot.
-
-By default, a read request will only read the latest Snapshot.
-
-You can read data of historical table versions using the  `FOR TIME AS OF`  or  `FOR VERSION AS OF`  statements based on the Snapshot ID or the timepoint the Snapshot is generated. For example:
+You can use the `FOR TIME AS OF` and `FOR VERSION AS OF` statements to read historical versions of data based on the snapshot ID or the time when the snapshot was generated. Examples are as follows:
 
 `SELECT * FROM iceberg_tbl FOR TIME AS OF "2022-10-07 17:20:37";`
 
 `SELECT * FROM iceberg_tbl FOR VERSION AS OF 868895038966572;`
 
-You can use the [iceberg_meta](https://doris.apache.org/docs/dev/sql-manual/sql-functions/table-functions/iceberg_meta/) table function to view the Snapshot details of the specified table.
+In addition, you can use the [iceberg_meta](../../sql-manual/sql-functions/table-functions/iceberg_meta.md) table function to query the snapshot information of the specified table.

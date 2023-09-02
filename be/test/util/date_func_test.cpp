@@ -17,10 +17,10 @@
 
 #include "util/date_func.h"
 
-#include <gtest/gtest.h>
+#include <gtest/gtest-message.h>
+#include <gtest/gtest-test-part.h>
 
-#include <iostream>
-
+#include "gtest/gtest_pred_impl.h"
 #include "olap/uint24.h"
 
 namespace doris {

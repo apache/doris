@@ -24,6 +24,7 @@ suite("test_cast_function") {
     qt_sql """ select cast ("0.0000031417" as datetime) """
     qt_sql """ select cast (NULL AS CHAR(1)); """
     qt_sql """ select cast ('20190101' AS CHAR(2)); """
+    qt_sql """ select cast ('1.23' AS int); """
     qt_sql_null_cast_bitmap """ select cast (case when BITMAP_EMPTY() is NULL then null else null end as bitmap) is NULL; """
 }
 

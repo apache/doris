@@ -49,7 +49,8 @@ suite("rollup") {
     int max_try_secs = 60
     while (max_try_secs--) {
         String res = getJobRollupState("rollup_t1")
-        if (res == "FINISHED") {
+        if (res == "FINISHED" || res == "CANCELLED") {
+            assertEquals("FINISHED", res)
             sleep(3000)
             break
         } else {

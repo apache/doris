@@ -37,7 +37,7 @@ Usage: $0 <options>
      --stop             stop the specified components
 
   All valid components:
-    mysql,pg,oracle,sqlserver,clickhouse,es,hive,iceberg
+    mysql,pg,oracle,sqlserver,clickhouse,es,hive,iceberg,hudi,trino
   "
     exit 1
 }
@@ -60,7 +60,7 @@ STOP=0
 
 if [[ "$#" == 1 ]]; then
     # default
-    COMPONENTS="mysql,pg,oracle,sqlserver,clickhouse,hive,iceberg"
+    COMPONENTS="mysql,pg,oracle,sqlserver,clickhouse,hive,iceberg,hudi,trino"
 else
     while true; do
         case "$1" in
@@ -92,20 +92,18 @@ else
     done
     if [[ "${COMPONENTS}"x == ""x ]]; then
         if [[ "${STOP}" -eq 1 ]]; then
-            COMPONENTS="mysql,pg,oracle,sqlserver,clickhouse,hive,iceberg"
+            COMPONENTS="mysql,es,pg,oracle,sqlserver,clickhouse,hive,iceberg,hudi,trino"
         fi
     fi
 fi
 
 if [[ "${HELP}" -eq 1 ]]; then
     usage
-    exit 0
 fi
 
 if [[ "${COMPONENTS}"x == ""x ]]; then
     echo "Invalid arguments"
     usage
-    exit 1
 fi
 
 if [[ "${CONTAINER_UID}"x == "doris--"x ]]; then
@@ -130,6 +128,9 @@ RUN_CLICKHOUSE=0
 RUN_HIVE=0
 RUN_ES=0
 RUN_ICEBERG=0
+RUN_HUDI=0
+RUN_TRINO=0
+
 for element in "${COMPONENTS_ARR[@]}"; do
     if [[ "${element}"x == "mysql"x ]]; then
         RUN_MYSQL=1
@@ -147,10 +148,13 @@ for element in "${COMPONENTS_ARR[@]}"; do
         RUN_HIVE=1
     elif [[ "${element}"x == "iceberg"x ]]; then
         RUN_ICEBERG=1
+    elif [[ "${element}"x == "hudi"x ]]; then
+        RUN_HUDI=1
+    elif [[ "${element}"x == "trino"x ]];then
+        RUN_TRINO=1
     else
         echo "Invalid component: ${element}"
         usage
-        exit 1
     fi
 done
 
@@ -190,7 +194,7 @@ if [[ "${RUN_PG}" -eq 1 ]]; then
     sudo docker compose -f "${ROOT}"/docker-compose/postgresql/postgresql-14.yaml --env-file "${ROOT}"/docker-compose/postgresql/postgresql-14.env down
     if [[ "${STOP}" -ne 1 ]]; then
         sudo mkdir -p "${ROOT}"/docker-compose/postgresql/data/data
-        sudo rm "${ROOT}"/docker-compose/postgresql/data/data/* -rf
+        sudo rm "${ROOT}"/docker-compose/postgresql/data/* -rf
         sudo docker compose -f "${ROOT}"/docker-compose/postgresql/postgresql-14.yaml --env-file "${ROOT}"/docker-compose/postgresql/postgresql-14.env up -d
     fi
 fi
@@ -241,10 +245,10 @@ if [[ "${RUN_HIVE}" -eq 1 ]]; then
     sed -i "s/doris--/${CONTAINER_UID}/g" "${ROOT}"/docker-compose/hive/hive-2x.yaml
     sed -i "s/doris--/${CONTAINER_UID}/g" "${ROOT}"/docker-compose/hive/hadoop-hive.env.tpl
     sudo bash "${ROOT}"/docker-compose/hive/gen_env.sh
-    sudo docker-compose -f "${ROOT}"/docker-compose/hive/hive-2x.yaml --env-file "${ROOT}"/docker-compose/hive/hadoop-hive.env down
+    sudo docker compose -f "${ROOT}"/docker-compose/hive/hive-2x.yaml --env-file "${ROOT}"/docker-compose/hive/hadoop-hive.env down
     sudo sed -i '/${CONTAINER_UID}namenode/d' /etc/hosts
     if [[ "${STOP}" -ne 1 ]]; then
-        sudo docker-compose -f "${ROOT}"/docker-compose/hive/hive-2x.yaml --env-file "${ROOT}"/docker-compose/hive/hadoop-hive.env up --build --remove-orphans -d
+        sudo docker compose -f "${ROOT}"/docker-compose/hive/hive-2x.yaml --env-file "${ROOT}"/docker-compose/hive/hadoop-hive.env up --build --remove-orphans -d
         sudo echo "127.0.0.1 ${CONTAINER_UID}namenode" >> /etc/hosts
     fi
 fi
@@ -266,5 +270,104 @@ if [[ "${RUN_ICEBERG}" -eq 1 ]]; then
         sudo rm -rf "${ROOT}"/docker-compose/iceberg/warehouse
         sudo mkdir "${ROOT}"/docker-compose/iceberg/warehouse
         sudo docker compose -f "${ROOT}"/docker-compose/iceberg/iceberg.yaml --env-file "${ROOT}"/docker-compose/iceberg/iceberg.env up -d
+    fi
+fi
+
+if [[ "${RUN_HUDI}" -eq 1 ]]; then
+    # hudi
+    cp "${ROOT}"/docker-compose/hudi/hudi.yaml.tpl "${ROOT}"/docker-compose/hudi/hudi.yaml
+    sed -i "s/doris--/${CONTAINER_UID}/g" "${ROOT}"/docker-compose/hudi/hudi.yaml
+    sudo docker compose -f "${ROOT}"/docker-compose/hudi/hudi.yaml --env-file "${ROOT}"/docker-compose/hudi/hadoop.env down
+    if [[ "${STOP}" -ne 1 ]]; then
+        sudo rm -rf "${ROOT}"/docker-compose/hudi/historyserver
+        sudo mkdir "${ROOT}"/docker-compose/hudi/historyserver
+        sudo rm -rf "${ROOT}"/docker-compose/hudi/hive-metastore-postgresql
+        sudo mkdir "${ROOT}"/docker-compose/hudi/hive-metastore-postgresql
+        if [[ ! -d "${ROOT}/docker-compose/hudi/scripts/hudi_docker_compose_attached_file" ]]; then
+            echo "Attached files does not exist, please download the https://doris-build-hk-1308700295.cos.ap-hongkong.myqcloud.com/regression/load/hudi/hudi_docker_compose_attached_file.zip file to the docker-compose/hudi/scripts/ directory and unzip it."
+            exit 1
+        fi
+        sudo docker compose -f "${ROOT}"/docker-compose/hudi/hudi.yaml --env-file "${ROOT}"/docker-compose/hudi/hadoop.env up -d
+        echo "sleep 15, wait server start"
+        sleep 15
+        docker exec -it adhoc-1 /bin/bash /var/scripts/setup_demo_container_adhoc_1.sh
+        docker exec -it adhoc-2 /bin/bash /var/scripts/setup_demo_container_adhoc_2.sh
+    fi
+fi
+
+if  [[ "${RUN_TRINO}" -eq 1 ]]; then
+    # trino
+    trino_docker="${ROOT}"/docker-compose/trino
+    TRINO_CONTAINER_ID="${CONTAINER_UID}trino"
+    NAMENODE_CONTAINER_ID="${CONTAINER_UID}namenode"
+    HIVE_METASTORE_CONTAINER_ID=${CONTAINER_UID}hive-metastore
+    for file in trino_hive.yaml trino_hive.env gen_env.sh hive.properties
+    do
+        cp "${trino_docker}/$file.tpl" "${trino_docker}/$file"
+        if [[ $file != "hive.properties" ]]; then
+            sed -i "s/doris--/${CONTAINER_UID}/g" "${trino_docker}/$file"
+        fi
+    done
+
+    bash "${trino_docker}"/gen_env.sh
+    sudo docker compose -f "${trino_docker}"/trino_hive.yaml --env-file "${trino_docker}"/trino_hive.env down
+    if [[ "${STOP}" -ne 1 ]]; then
+        sudo sed -i "/${NAMENODE_CONTAINER_ID}/d" /etc/hosts
+        sudo docker compose -f "${trino_docker}"/trino_hive.yaml --env-file "${trino_docker}"/trino_hive.env up --build --remove-orphans -d
+        sudo echo "127.0.0.1 ${NAMENODE_CONTAINER_ID}" >> /etc/hosts
+        sleep 20s
+        hive_metastore_ip=$(docker inspect --format='{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' ${HIVE_METASTORE_CONTAINER_ID})
+
+        if [ -z "$hive_metastore_ip" ]; then
+            echo "Failed to get Hive Metastore IP address" >&2
+            exit 1
+        else
+          echo "Hive Metastore IP address is: $hive_metastore_ip"
+        fi
+
+        sed -i "s/metastore_ip/${hive_metastore_ip}/g" "${trino_docker}"/hive.properties
+        docker cp "${trino_docker}"/hive.properties "${CONTAINER_UID}trino":/etc/trino/catalog/
+
+        # trino load hive catalog need restart server
+        max_retries=3
+
+        function control_container() {
+            max_retries=3
+            operation=$1
+            expected_status=$2
+            retries=0
+
+            while [ $retries -lt $max_retries ]
+            do
+                status=$(docker inspect --format '{{.State.Running}}' ${TRINO_CONTAINER_ID})
+                if [ "${status}" == "${expected_status}" ]; then
+                    echo "Container ${TRINO_CONTAINER_ID} has ${operation}ed successfully."
+                    break
+                else
+                    echo "Waiting for container ${TRINO_CONTAINER_ID} to ${operation}..."
+                    sleep 5s
+                    ((retries++))
+                fi
+                sleep 3s
+            done
+
+            if [ $retries -eq $max_retries ]; then
+                echo "${operation} operation failed to complete after $max_retries attempts."
+                exit 1
+            fi
+        }
+        # Stop the container
+        docker stop ${TRINO_CONTAINER_ID}
+        sleep 5s
+        control_container "stop" "false"
+
+        # Start the container
+        docker start ${TRINO_CONTAINER_ID}
+        control_container "start" "true"
+
+        # waite trino init
+        sleep 20s
+        # execute create table sql
+        docker exec -it ${TRINO_CONTAINER_ID} /bin/bash -c 'trino -f /scripts/create_trino_table.sql'
     fi
 fi

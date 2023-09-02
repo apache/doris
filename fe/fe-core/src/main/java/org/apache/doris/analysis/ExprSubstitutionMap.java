@@ -154,7 +154,7 @@ public final class ExprSubstitutionMap {
         if (f == null) {
             return g;
         }
-        if (g == null) {
+        if (g == null || g.size() == 0) {
             return f;
         }
         ExprSubstitutionMap result = new ExprSubstitutionMap();
@@ -230,7 +230,7 @@ public final class ExprSubstitutionMap {
         if (f == null) {
             return g;
         }
-        if (g == null) {
+        if (g == null || g.size() == 0) {
             return f;
         }
         ExprSubstitutionMap result = new ExprSubstitutionMap();
@@ -345,5 +345,15 @@ public final class ExprSubstitutionMap {
     @Override
     public ExprSubstitutionMap clone() {
         return new ExprSubstitutionMap(Expr.cloneList(lhs), Expr.cloneList(rhs));
+    }
+
+    public void reCalculateNullableInfoForSlotInRhs() {
+        Preconditions.checkState(lhs.size() == rhs.size(), "lhs and rhs must be same size");
+        for (int i = 0; i < rhs.size(); i++) {
+            if (rhs.get(i) instanceof SlotRef) {
+                ((SlotRef) rhs.get(i)).getDesc().setIsNullable(lhs.get(i).isNullable()
+                        || ((SlotRef) rhs.get(i)).getDesc().getIsNullable());
+            }
+        }
     }
 }

@@ -18,12 +18,12 @@
 package org.apache.doris.analysis;
 
 import org.apache.doris.analysis.StorageBackend.StorageType;
-import org.apache.doris.backup.BlobStorage;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.PrintableMap;
 import org.apache.doris.datasource.property.S3ClientBEProperties;
 import org.apache.doris.datasource.property.constants.BosProperties;
+import org.apache.doris.fs.PersistentFileSystem;
 import org.apache.doris.thrift.TFileType;
 
 import com.google.common.collect.Maps;
@@ -101,8 +101,7 @@ public class BrokerDesc extends StorageDesc implements Writable {
     }
 
     public static BrokerDesc createForStreamLoad() {
-        BrokerDesc brokerDesc = new BrokerDesc("", StorageType.STREAM, null);
-        return brokerDesc;
+        return new BrokerDesc("", StorageType.STREAM, null);
     }
 
     public boolean isMultiLoadBroker() {
@@ -134,7 +133,7 @@ public class BrokerDesc extends StorageDesc implements Writable {
     @Override
     public void write(DataOutput out) throws IOException {
         Text.writeString(out, name);
-        properties.put(BlobStorage.STORAGE_TYPE, storageType.name());
+        properties.put(PersistentFileSystem.STORAGE_TYPE, storageType.name());
         out.writeInt(properties.size());
         for (Map.Entry<String, String> entry : properties.entrySet()) {
             Text.writeString(out, entry.getKey());
@@ -152,7 +151,7 @@ public class BrokerDesc extends StorageDesc implements Writable {
             properties.put(key, val);
         }
         StorageBackend.StorageType st = StorageBackend.StorageType.BROKER;
-        String typeStr = properties.remove(BlobStorage.STORAGE_TYPE);
+        String typeStr = properties.remove(PersistentFileSystem.STORAGE_TYPE);
         if (typeStr != null) {
             try {
                 st = StorageBackend.StorageType.valueOf(typeStr);

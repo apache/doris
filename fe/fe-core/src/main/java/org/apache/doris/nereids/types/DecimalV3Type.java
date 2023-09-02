@@ -20,7 +20,6 @@ package org.apache.doris.nereids.types;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.nereids.annotation.Developing;
-import org.apache.doris.nereids.types.coercion.AbstractDataType;
 import org.apache.doris.nereids.types.coercion.FractionalType;
 
 import com.google.common.base.Preconditions;
@@ -41,6 +40,7 @@ public class DecimalV3Type extends FractionalType {
 
     public static final DecimalV3Type WILDCARD = new DecimalV3Type(-1, -1);
     public static final DecimalV3Type SYSTEM_DEFAULT = new DecimalV3Type(MAX_DECIMAL128_PRECISION, DEFAULT_SCALE);
+    public static final DecimalV3Type CATALOG_DEFAULT = new DecimalV3Type(MAX_DECIMAL32_PRECISION, DEFAULT_SCALE);
 
     private static final DecimalV3Type BOOLEAN_DECIMAL = new DecimalV3Type(1, 0);
     private static final DecimalV3Type TINYINT_DECIMAL = new DecimalV3Type(3, 0);
@@ -60,6 +60,7 @@ public class DecimalV3Type extends FractionalType {
             .put(LargeIntType.INSTANCE, LARGEINT_DECIMAL)
             .put(FloatType.INSTANCE, FLOAT_DECIMAL)
             .put(DoubleType.INSTANCE, DOUBLE_DECIMAL)
+            .put(NullType.INSTANCE, BOOLEAN_DECIMAL)
             .build();
 
     protected final int precision;
@@ -98,9 +99,11 @@ public class DecimalV3Type extends FractionalType {
 
     /** createDecimalV3Type. */
     public static DecimalV3Type createDecimalV3Type(int precision, int scale) {
-        Preconditions.checkArgument(precision > 0 && precision <= MAX_DECIMAL128_PRECISION);
-        Preconditions.checkArgument(scale >= 0);
-        Preconditions.checkArgument(precision >= scale);
+        Preconditions.checkArgument(precision > 0 && precision <= MAX_DECIMAL128_PRECISION,
+                "precision should in (0, " + MAX_DECIMAL128_PRECISION + "], but real precision is " + precision);
+        Preconditions.checkArgument(scale >= 0, "scale should not smaller than 0, but real scale is " + scale);
+        Preconditions.checkArgument(precision >= scale, "precision should not smaller than scale,"
+                + " but precision is " + precision, ", scale is " + scale);
         return new DecimalV3Type(precision, scale);
     }
 
@@ -146,11 +149,11 @@ public class DecimalV3Type extends FractionalType {
 
     @Override
     public DataType defaultConcreteType() {
-        return SYSTEM_DEFAULT;
+        return this;
     }
 
     @Override
-    public boolean acceptsType(AbstractDataType other) {
+    public boolean acceptsType(DataType other) {
         return other.equals(this);
     }
 

@@ -17,9 +17,11 @@
 
 package org.apache.doris.load.loadv2;
 
+import org.apache.doris.analysis.BrokerDesc;
 import org.apache.doris.analysis.CancelLoadStmt;
 import org.apache.doris.analysis.CleanLabelStmt;
 import org.apache.doris.analysis.CompoundPredicate.Operator;
+import org.apache.doris.analysis.InsertStmt;
 import org.apache.doris.analysis.LoadStmt;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Database;
@@ -49,7 +51,6 @@ import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.OriginStatement;
 import org.apache.doris.thrift.TUniqueId;
 import org.apache.doris.transaction.DatabaseTransactionMgr;
-import org.apache.doris.transaction.TransactionState;
 
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Strings;
@@ -109,7 +110,7 @@ public class LoadManager implements Writable {
     public long createLoadJobFromStmt(LoadStmt stmt) throws DdlException {
         Database database = checkDb(stmt.getLabel().getDbName());
         long dbId = database.getId();
-        LoadJob loadJob = null;
+        LoadJob loadJob;
         writeLock();
         try {
             if (stmt.getBrokerDesc() != null && stmt.getBrokerDesc().isMultiLoadBroker()) {
@@ -238,23 +239,29 @@ public class LoadManager implements Writable {
         String state = stmt.getState();
         PatternMatcher matcher = PatternMatcherWrapper.createMysqlPattern(label,
                 CaseSensibility.LABEL.getCaseSensibility());
-        matchLoadJobs.addAll(loadJobs.stream().filter(job -> {
-            if (stmt.getOperator() != null) {
-                // compound
-                boolean labelFilter =
-                        label.contains("%") ? matcher.match(job.getLabel()) : job.getLabel().equalsIgnoreCase(label);
-                boolean stateFilter = job.getState().name().equalsIgnoreCase(state);
-                return Operator.AND.equals(stmt.getOperator()) ? labelFilter && stateFilter :
-                        labelFilter || stateFilter;
-            }
-            if (StringUtils.isNotEmpty(label)) {
-                return label.contains("%") ? matcher.match(job.getLabel()) : job.getLabel().equalsIgnoreCase(label);
-            }
-            if (StringUtils.isNotEmpty(state)) {
-                return job.getState().name().equalsIgnoreCase(state);
-            }
-            return false;
-        }).collect(Collectors.toList()));
+        matchLoadJobs.addAll(
+                loadJobs.stream()
+                        .filter(job -> job.getState() != JobState.CANCELLED)
+                        .filter(job -> {
+                            if (stmt.getOperator() != null) {
+                                // compound
+                                boolean labelFilter =
+                                        label.contains("%") ? matcher.match(job.getLabel())
+                                                : job.getLabel().equalsIgnoreCase(label);
+                                boolean stateFilter = job.getState().name().equalsIgnoreCase(state);
+                                return Operator.AND.equals(stmt.getOperator()) ? labelFilter && stateFilter :
+                                        labelFilter || stateFilter;
+                            }
+                            if (StringUtils.isNotEmpty(label)) {
+                                return label.contains("%") ? matcher.match(job.getLabel())
+                                        : job.getLabel().equalsIgnoreCase(label);
+                            }
+                            if (StringUtils.isNotEmpty(state)) {
+                                return job.getState().name().equalsIgnoreCase(state);
+                            }
+                            return false;
+                        }).collect(Collectors.toList())
+        );
     }
 
     /**
@@ -492,13 +499,13 @@ public class LoadManager implements Writable {
     /**
      * This method will return the jobs info which can meet the condition of input param.
      *
-     * @param dbId          used to filter jobs which belong to this db
-     * @param labelValue    used to filter jobs which's label is or like labelValue.
+     * @param dbId used to filter jobs which belong to this db
+     * @param labelValue used to filter jobs which's label is or like labelValue.
      * @param accurateMatch true: filter jobs which's label is labelValue. false: filter jobs which's label like itself.
-     * @param statesValue   used to filter jobs which's state within the statesValue set.
+     * @param statesValue used to filter jobs which's state within the statesValue set.
      * @return The result is the list of jobInfo.
-     *         JobInfo is a list which includes the comparable object: jobId, label, state etc.
-     *         The result is unordered.
+     * JobInfo is a list which includes the comparable object: jobId, label, state etc.
+     * The result is unordered.
      */
     public List<List<Comparable>> getLoadJobInfosByDb(long dbId, String labelValue, boolean accurateMatch,
             Set<String> statesValue) throws AnalysisException {
@@ -702,48 +709,46 @@ public class LoadManager implements Writable {
         int counter = 0;
         writeLock();
         try {
-            if (!dbIdToLabelToLoadJobs.containsKey(dbId)) {
-                // no label in this db, just return
-                return;
-            }
-            Map<String, List<LoadJob>> labelToJob = dbIdToLabelToLoadJobs.get(dbId);
-            if (Strings.isNullOrEmpty(label)) {
-                // clean all labels in this db
-                Iterator<Map.Entry<String, List<LoadJob>>> iter = labelToJob.entrySet().iterator();
-                while (iter.hasNext()) {
-                    List<LoadJob> jobs = iter.next().getValue();
-                    Iterator<LoadJob> innerIter = jobs.iterator();
-                    while (innerIter.hasNext()) {
-                        LoadJob job = innerIter.next();
+            if (dbIdToLabelToLoadJobs.containsKey(dbId)) {
+                Map<String, List<LoadJob>> labelToJob = dbIdToLabelToLoadJobs.get(dbId);
+                if (Strings.isNullOrEmpty(label)) {
+                    // clean all labels in this db
+                    Iterator<Map.Entry<String, List<LoadJob>>> iter = labelToJob.entrySet().iterator();
+                    while (iter.hasNext()) {
+                        List<LoadJob> jobs = iter.next().getValue();
+                        Iterator<LoadJob> innerIter = jobs.iterator();
+                        while (innerIter.hasNext()) {
+                            LoadJob job = innerIter.next();
+                            if (!job.isCompleted()) {
+                                continue;
+                            }
+                            innerIter.remove();
+                            idToLoadJob.remove(job.getId());
+                            ++counter;
+                        }
+                        if (jobs.isEmpty()) {
+                            iter.remove();
+                        }
+                    }
+                } else {
+                    List<LoadJob> jobs = labelToJob.get(label);
+                    if (jobs == null) {
+                        // no job for this label, just return
+                        return;
+                    }
+                    Iterator<LoadJob> iter = jobs.iterator();
+                    while (iter.hasNext()) {
+                        LoadJob job = iter.next();
                         if (!job.isCompleted()) {
                             continue;
                         }
-                        innerIter.remove();
+                        iter.remove();
                         idToLoadJob.remove(job.getId());
                         ++counter;
                     }
                     if (jobs.isEmpty()) {
-                        iter.remove();
+                        labelToJob.remove(label);
                     }
-                }
-            } else {
-                List<LoadJob> jobs = labelToJob.get(label);
-                if (jobs == null) {
-                    // no job for this label, just return
-                    return;
-                }
-                Iterator<LoadJob> iter = jobs.iterator();
-                while (iter.hasNext()) {
-                    LoadJob job = iter.next();
-                    if (!job.isCompleted()) {
-                        continue;
-                    }
-                    iter.remove();
-                    idToLoadJob.remove(job.getId());
-                    ++counter;
-                }
-                if (jobs.isEmpty()) {
-                    labelToJob.remove(label);
                 }
             }
         } finally {
@@ -809,7 +814,8 @@ public class LoadManager implements Writable {
     public void write(DataOutput out) throws IOException {
         long currentTimeMs = System.currentTimeMillis();
         List<LoadJob> loadJobs =
-                idToLoadJob.values().stream().filter(t -> !t.isExpired(currentTimeMs)).collect(Collectors.toList());
+                idToLoadJob.values().stream().filter(t -> !t.isExpired(currentTimeMs))
+                        .filter(t -> !(t instanceof MiniLoadJob)).collect(Collectors.toList());
 
         out.writeInt(loadJobs.size());
         for (LoadJob loadJob : loadJobs) {
@@ -830,25 +836,9 @@ public class LoadManager implements Writable {
             }
 
             if (loadJob.getJobType() == EtlJobType.MINI) {
-                // This is a bug fix. the mini load job should not with state LOADING.
-                if (loadJob.getState() == JobState.LOADING) {
-                    LOG.warn("skip mini load job {} in db {} with LOADING state", loadJob.getId(), loadJob.getDbId());
-                    continue;
-                }
-
-                if (loadJob.getState() == JobState.PENDING) {
-                    // bad case. When a mini load job is created and then FE restart.
-                    // the job will be in PENDING state forever.
-                    // This is a temp solution to remove these jobs.
-                    // And the mini load job should be deprecated in Doris v1.1
-                    TransactionState state = Env.getCurrentEnv().getGlobalTransactionMgr()
-                            .getTransactionState(loadJob.getDbId(), loadJob.getTransactionId());
-                    if (state == null) {
-                        LOG.warn("skip mini load job {} in db {} with PENDING state and with txn: {}", loadJob.getId(),
-                                loadJob.getDbId(), loadJob.getTransactionId());
-                        continue;
-                    }
-                }
+                LOG.warn("skip mini load job {} in db {} as it is no longer supported", loadJob.getId(),
+                        loadJob.getDbId());
+                continue;
             }
             idToLoadJob.put(loadJob.getId(), loadJob);
             Map<String, List<LoadJob>> map = dbIdToLabelToLoadJobs.get(loadJob.getDbId());
@@ -870,5 +860,44 @@ public class LoadManager implements Writable {
                 Env.getCurrentGlobalTransactionMgr().getCallbackFactory().addCallback(loadJob);
             }
         }
+    }
+
+    // ------------------------ for load refactor ------------------------
+    public long createLoadJobFromStmt(InsertStmt insertStmt) throws DdlException {
+        Database database = checkDb(insertStmt.getLoadLabel().getDbName());
+        long dbId = database.getId();
+        LoadJob loadJob;
+        writeLock();
+        BrokerDesc brokerDesc = (BrokerDesc) insertStmt.getResourceDesc();
+        try {
+            if (brokerDesc != null && brokerDesc.isMultiLoadBroker()) {
+                if (!Env.getCurrentEnv().getLoadInstance()
+                        .isUncommittedLabel(dbId, insertStmt.getLoadLabel().getLabelName())) {
+                    throw new DdlException("label: " + insertStmt.getLoadLabel().getLabelName() + " not found!");
+                }
+            } else {
+                checkLabelUsed(dbId, insertStmt.getLoadLabel().getLabelName());
+                if (brokerDesc == null && insertStmt.getResourceDesc() == null) {
+                    throw new DdlException("LoadManager only support the broker and spark load.");
+                }
+                if (unprotectedGetUnfinishedJobNum() >= Config.desired_max_waiting_jobs) {
+                    throw new DdlException(
+                            "There are more than " + Config.desired_max_waiting_jobs
+                                    + " unfinished load jobs, please retry later. "
+                                    + "You can use `SHOW LOAD` to view submitted jobs");
+                }
+            }
+
+            loadJob = BulkLoadJob.fromInsertStmt(insertStmt);
+            createLoadJob(loadJob);
+        } finally {
+            writeUnlock();
+        }
+        Env.getCurrentEnv().getEditLog().logCreateLoadJob(loadJob);
+
+        // The job must be submitted after edit log.
+        // It guarantee that load job has not been changed before edit log.
+        loadJobScheduler.submitJob(loadJob);
+        return loadJob.getId();
     }
 }

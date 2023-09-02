@@ -34,6 +34,7 @@ import org.apache.doris.nereids.util.Utils;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
+import org.json.JSONObject;
 
 import java.util.List;
 import java.util.Objects;
@@ -75,7 +76,7 @@ public class LogicalProject<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_
         this(projects, excepts, true, child, isDistinct);
     }
 
-    public LogicalProject(List<NamedExpression> projects, List<NamedExpression> excepts,
+    private LogicalProject(List<NamedExpression> projects, List<NamedExpression> excepts,
                           boolean canEliminate, CHILD_TYPE child, boolean isDistinct) {
         this(projects, excepts, canEliminate, Optional.empty(), Optional.empty(), child, isDistinct);
     }
@@ -150,15 +151,14 @@ public class LogicalProject<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_
         if (o == null || getClass() != o.getClass()) {
             return false;
         }
-        LogicalProject that = (LogicalProject) o;
+        LogicalProject<?> that = (LogicalProject<?>) o;
         boolean equal = projects.equals(that.projects)
                 && excepts.equals(that.excepts)
                 && canEliminate == that.canEliminate
                 && isDistinct == that.isDistinct;
         // TODO: should add exprId for UnBoundStar and BoundStar for equality comparasion
-        if (!projects.isEmpty() && (projects.get(0) instanceof UnboundStar || projects.get(0) instanceof BoundStar)
-                && (child().getClass() == that.child().getClass())) {
-            equal = Objects.equals(child(), that.child());
+        if (!projects.isEmpty() && (projects.get(0) instanceof UnboundStar || projects.get(0) instanceof BoundStar)) {
+            equal = child().getLogicalProperties().equals(that.child().getLogicalProperties());
         }
         return equal;
     }
@@ -181,9 +181,11 @@ public class LogicalProject<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_
     }
 
     @Override
-    public LogicalProject<Plan> withLogicalProperties(Optional<LogicalProperties> logicalProperties) {
-        return new LogicalProject<>(projects, excepts, canEliminate, Optional.empty(), logicalProperties, child(),
-                isDistinct);
+    public Plan withGroupExprLogicalPropChildren(Optional<GroupExpression> groupExpression,
+            Optional<LogicalProperties> logicalProperties, List<Plan> children) {
+        Preconditions.checkArgument(children.size() == 1);
+        return new LogicalProject<>(projects, excepts, canEliminate,
+                groupExpression, logicalProperties, children.get(0), isDistinct);
     }
 
     public LogicalProject<Plan> withEliminate(boolean isEliminate) {
@@ -214,5 +216,22 @@ public class LogicalProject<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_
     @Override
     public Plan pruneOutputs(List<NamedExpression> prunedOutputs) {
         return withProjects(prunedOutputs);
+    }
+
+    @Override
+    public JSONObject toJson() {
+        JSONObject logicalProject = super.toJson();
+        JSONObject properties = new JSONObject();
+        properties.put("Projects", projects.toString());
+        properties.put("Excepts", excepts.toString());
+        properties.put("CanEliminate", canEliminate);
+        properties.put("IsDistinct", isDistinct);
+        logicalProject.put("Properties", properties);
+        return logicalProject;
+    }
+
+    public LogicalProject<Plan> readFromJson(JSONObject logicalProject) {
+        return new LogicalProject<>(ImmutableList.of(new UnboundStar(ImmutableList.of())),
+            null, null, isDistinct);
     }
 }

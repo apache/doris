@@ -46,6 +46,8 @@ const static std::string OP = "op";
 const static std::string DATA_SIZE = "data_size";
 const static std::string HEADER = "header";
 
+MetaAction::MetaAction(ExecEnv* exec_env, TPrivilegeHier::type hier, TPrivilegeType::type type)
+        : HttpHandlerWithAuth(exec_env, hier, type) {}
 Status MetaAction::_handle_header(HttpRequest* req, std::string* json_meta) {
     req->add_output_header(HttpHeaders::CONTENT_TYPE, HEADER_JSON.c_str());
     std::string req_tablet_id = req->param(TABLET_ID_KEY);

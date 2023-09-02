@@ -50,6 +50,7 @@
 #include "olap/data_dir.h"
 #include "olap/olap_common.h"
 #include "olap/olap_define.h"
+#include "olap/pb_helper.h"
 #include "olap/rowset/rowset.h"
 #include "olap/snapshot_manager.h"
 #include "olap/storage_engine.h"
@@ -63,6 +64,7 @@
 #include "util/network_util.h"
 #include "util/stopwatch.hpp"
 #include "util/thrift_rpc_helper.h"
+#include "util/trace.h"
 
 using std::set;
 using std::stringstream;
@@ -72,12 +74,13 @@ using strings::SkipWhitespace;
 namespace doris {
 using namespace ErrorCode;
 
-const std::string HTTP_REQUEST_PREFIX = "/api/_tablet/_download?";
-const std::string HTTP_REQUEST_TOKEN_PARAM = "token=";
-const std::string HTTP_REQUEST_FILE_PARAM = "&file=";
-const uint32_t DOWNLOAD_FILE_MAX_RETRY = 3;
-const uint32_t LIST_REMOTE_FILE_TIMEOUT = 15;
-const uint32_t GET_LENGTH_TIMEOUT = 10;
+#define RETURN_IF_ERROR_(status, stmt) \
+    do {                               \
+        status = (stmt);               \
+        if (UNLIKELY(!status.ok())) {  \
+            return status;             \
+        }                              \
+    } while (false)
 
 EngineCloneTask::EngineCloneTask(const TCloneReq& clone_req, const TMasterInfo& master_info,
                                  int64_t signature, std::vector<TTabletInfo>* tablet_infos)
@@ -113,23 +116,35 @@ Status EngineCloneTask::_do_clone() {
     std::vector<Version> missed_versions;
     // try to repair a tablet with missing version
     if (tablet != nullptr) {
-        if (tablet->replica_id() != _clone_req.replica_id) {
-            // `tablet` may be a dropped replica in FE, e.g: BE1 migrates replica of tablet_1 to BE2,
-            // but before BE1 drop this replica, another new replica of tablet_1 is migrated to BE1.
-            // If we allow to clone success on dropped replica, replica id may never be consistent between FE and BE.
-            return Status::InternalError("replica_id not match({} vs {})", tablet->replica_id(),
-                                         _clone_req.replica_id);
-        }
         std::shared_lock migration_rlock(tablet->get_migration_lock(), std::try_to_lock);
         if (!migration_rlock.owns_lock()) {
-            return Status::Error<TRY_LOCK_FAILED>();
+            return Status::Error<TRY_LOCK_FAILED>(
+                    "EngineCloneTask::_do_clone meet try lock failed");
+        }
+        if (tablet->replica_id() < _clone_req.replica_id) {
+            // `tablet` may be a dropped replica in FE, e.g:
+            //   BE1 migrates replica of tablet_1 to BE2, but before BE1 drop this replica, another new replica of tablet_1 is migrated to BE1.
+            // Clone can still continue in this case. But to keep `replica_id` consitent with FE, MUST reset `replica_id` with request `replica_id`.
+            tablet->tablet_meta()->set_replica_id(_clone_req.replica_id);
         }
 
         // get download path
         auto local_data_path = fmt::format("{}/{}", tablet->tablet_path(), CLONE_PREFIX);
         bool allow_incremental_clone = false;
 
-        tablet->calc_missed_versions(_clone_req.committed_version, &missed_versions);
+        int64_t specified_version = _clone_req.committed_version;
+        if (tablet->enable_unique_key_merge_on_write()) {
+            int64_t min_pending_ver =
+                    StorageEngine::instance()->get_pending_publish_min_version(tablet->tablet_id());
+            if (min_pending_ver - 1 < specified_version) {
+                LOG(INFO) << "use min pending publish version for clone, min_pending_ver: "
+                          << min_pending_ver
+                          << " committed_version: " << _clone_req.committed_version;
+                specified_version = min_pending_ver - 1;
+            }
+        }
+
+        tablet->calc_missed_versions(specified_version, &missed_versions);
 
         // if missed version size is 0, then it is useless to clone from remote be, it means local data is
         // completed. Or remote be will just return header not the rowset files. clone will failed.
@@ -152,7 +167,7 @@ Status EngineCloneTask::_do_clone() {
         RETURN_IF_ERROR(_make_and_download_snapshots(*(tablet->data_dir()), local_data_path,
                                                      &src_host, &src_file_path, missed_versions,
                                                      &allow_incremental_clone));
-        RETURN_IF_ERROR(_finish_clone(tablet.get(), local_data_path, _clone_req.committed_version,
+        RETURN_IF_ERROR(_finish_clone(tablet.get(), local_data_path, specified_version,
                                       allow_incremental_clone));
     } else {
         LOG(INFO) << "clone tablet not exist, begin clone a new tablet from remote be. "
@@ -164,7 +179,8 @@ Status EngineCloneTask::_do_clone() {
         string local_shard_root_path;
         DataDir* store = nullptr;
         RETURN_IF_ERROR(StorageEngine::instance()->obtain_shard_path(
-                _clone_req.storage_medium, &local_shard_root_path, &store));
+                _clone_req.storage_medium, _clone_req.dest_path_hash, &local_shard_root_path,
+                &store));
         auto tablet_dir = fmt::format("{}/{}/{}", local_shard_root_path, _clone_req.tablet_id,
                                       _clone_req.schema_hash);
 
@@ -179,21 +195,27 @@ Status EngineCloneTask::_do_clone() {
         }};
 
         bool allow_incremental_clone = false;
-        status = _make_and_download_snapshots(*store, tablet_dir, &src_host, &src_file_path,
-                                              missed_versions, &allow_incremental_clone);
-        if (!status.ok()) {
-            return status;
-        }
+        RETURN_IF_ERROR_(status,
+                         _make_and_download_snapshots(*store, tablet_dir, &src_host, &src_file_path,
+                                                      missed_versions, &allow_incremental_clone));
 
         LOG(INFO) << "clone copy done. src_host: " << src_host.host
                   << " src_file_path: " << src_file_path;
+        auto tablet_manager = StorageEngine::instance()->tablet_manager();
+        RETURN_IF_ERROR_(status, tablet_manager->load_tablet_from_dir(store, _clone_req.tablet_id,
+                                                                      _clone_req.schema_hash,
+                                                                      tablet_dir, false));
+        auto tablet = tablet_manager->get_tablet(_clone_req.tablet_id);
+        if (!tablet) {
+            status = Status::NotFound("tablet not found, tablet_id={}", _clone_req.tablet_id);
+            return status;
+        }
+        // MUST reset `replica_id` to request `replica_id` to keep consistent with FE
+        tablet->tablet_meta()->set_replica_id(_clone_req.replica_id);
+        // clone success, delete .hdr file because tablet meta is stored in rocksdb
         string header_path =
                 TabletMeta::construct_header_file_path(tablet_dir, _clone_req.tablet_id);
-        RETURN_IF_ERROR(TabletMeta::reset_tablet_uid(header_path));
-        RETURN_IF_ERROR(StorageEngine::instance()->tablet_manager()->load_tablet_from_dir(
-                store, _clone_req.tablet_id, _clone_req.schema_hash, tablet_dir, false));
-        // clone success, delete .hdr file because tablet meta is stored in rocksdb
-        RETURN_IF_ERROR(io::global_local_filesystem()->delete_file(header_path));
+        io::global_local_filesystem()->delete_file(header_path);
     }
     return _set_tablet_info(is_new_tablet);
 }
@@ -281,9 +303,15 @@ Status EngineCloneTask::_make_and_download_snapshots(DataDir& data_dir,
             // TODO(zc): if snapshot path has been returned from source, it is some strange to
             // concat tablet_id and schema hash here.
             std::stringstream ss;
-            ss << "http://" << get_host_port(src.host, src.http_port) << HTTP_REQUEST_PREFIX
-               << HTTP_REQUEST_TOKEN_PARAM << token << HTTP_REQUEST_FILE_PARAM << *snapshot_path
-               << "/" << _clone_req.tablet_id << "/" << _clone_req.schema_hash << "/";
+            if (snapshot_path->back() == '/') {
+                ss << "http://" << get_host_port(src.host, src.http_port) << HTTP_REQUEST_PREFIX
+                   << HTTP_REQUEST_TOKEN_PARAM << token << HTTP_REQUEST_FILE_PARAM << *snapshot_path
+                   << _clone_req.tablet_id << "/" << _clone_req.schema_hash << "/";
+            } else {
+                ss << "http://" << get_host_port(src.host, src.http_port) << HTTP_REQUEST_PREFIX
+                   << HTTP_REQUEST_TOKEN_PARAM << token << HTTP_REQUEST_FILE_PARAM << *snapshot_path
+                   << "/" << _clone_req.tablet_id << "/" << _clone_req.schema_hash << "/";
+            }
 
             remote_url_prefix = ss.str();
         }
@@ -328,6 +356,7 @@ Status EngineCloneTask::_make_snapshot(const std::string& ip, int port, TTableId
     request.__set_schema_hash(schema_hash);
     request.__set_preferred_snapshot_version(g_Types_constants.TPREFER_SNAPSHOT_REQ_VERSION);
     request.__set_version(_clone_req.committed_version);
+    request.__set_is_copy_binlog(true);
     // TODO: missing version composed of singleton delta.
     // if not, this place should be rewrote.
     // we make every TSnapshotRequest sent from be with __isset.missing_version = true
@@ -347,7 +376,7 @@ Status EngineCloneTask::_make_snapshot(const std::string& ip, int port, TTableId
                 client->make_snapshot(result, request);
             }));
     if (result.status.status_code != TStatusCode::OK) {
-        return Status(result.status);
+        return Status::create(result.status);
     }
 
     if (!result.__isset.snapshot_path) {
@@ -374,7 +403,7 @@ Status EngineCloneTask::_release_snapshot(const std::string& ip, int port,
             ip, port, [&snapshot_path, &result](BackendServiceConnection& client) {
                 client->release_snapshot(result, snapshot_path);
             }));
-    return Status(result.status);
+    return Status::create(result.status);
 }
 
 Status EngineCloneTask::_download_files(DataDir* data_dir, const std::string& remote_url_prefix,
@@ -393,8 +422,7 @@ Status EngineCloneTask::_download_files(DataDir* data_dir, const std::string& re
     auto list_files_cb = [&remote_url_prefix, &file_list_str](HttpClient* client) {
         RETURN_IF_ERROR(client->init(remote_url_prefix));
         client->set_timeout_ms(LIST_REMOTE_FILE_TIMEOUT * 1000);
-        RETURN_IF_ERROR(client->execute(&file_list_str));
-        return Status::OK();
+        return client->execute(&file_list_str);
     };
     RETURN_IF_ERROR(HttpClient::execute_with_retry(DOWNLOAD_FILE_MAX_RETRY, 1, list_files_cb));
     std::vector<string> file_name_list =
@@ -512,6 +540,30 @@ Status EngineCloneTask::_finish_clone(Tablet* tablet, const std::string& clone_d
     // remove the cloned meta file
     RETURN_IF_ERROR(io::global_local_filesystem()->delete_file(cloned_tablet_meta_file));
 
+    // remove rowset binlog metas
+    const auto& tablet_dir = tablet->tablet_path();
+    auto binlog_metas_file = fmt::format("{}/rowset_binlog_metas.pb", clone_dir);
+    bool binlog_metas_file_exists = false;
+    auto file_exists_status =
+            io::global_local_filesystem()->exists(binlog_metas_file, &binlog_metas_file_exists);
+    if (!file_exists_status.ok()) {
+        return file_exists_status;
+    }
+    bool contain_binlog = false;
+    RowsetBinlogMetasPB rowset_binlog_metas_pb;
+    if (binlog_metas_file_exists) {
+        auto binlog_meta_filesize = std::filesystem::file_size(binlog_metas_file);
+        if (binlog_meta_filesize > 0) {
+            contain_binlog = true;
+            RETURN_IF_ERROR(read_pb(binlog_metas_file, &rowset_binlog_metas_pb));
+        }
+        RETURN_IF_ERROR(io::global_local_filesystem()->delete_file(binlog_metas_file));
+    }
+    if (contain_binlog) {
+        auto binlog_dir = fmt::format("{}/_binlog", tablet_dir);
+        RETURN_IF_ERROR(io::global_local_filesystem()->create_directory(binlog_dir));
+    }
+
     // check all files in /clone and /tablet
     std::vector<io::FileInfo> clone_files;
     RETURN_IF_ERROR(io::global_local_filesystem()->list(clone_dir, true, &clone_files, &exists));
@@ -521,7 +573,6 @@ Status EngineCloneTask::_finish_clone(Tablet* tablet, const std::string& clone_d
     }
 
     std::vector<io::FileInfo> local_files;
-    const auto& tablet_dir = tablet->tablet_path();
     RETURN_IF_ERROR(io::global_local_filesystem()->list(tablet_dir, true, &local_files, &exists));
     std::unordered_set<std::string> local_file_names;
     for (auto& file : local_files) {
@@ -550,19 +601,39 @@ Status EngineCloneTask::_finish_clone(Tablet* tablet, const std::string& clone_d
         }
 
         auto from = fmt::format("{}/{}", clone_dir, clone_file);
-        auto to = fmt::format("{}/{}", tablet_dir, clone_file);
+        std::string to;
+        if (clone_file.ends_with(".binlog")) {
+            if (!contain_binlog) {
+                LOG(WARNING) << "clone binlog file, but not contain binlog metas. "
+                             << "tablet=" << tablet->full_name() << ", clone_file=" << clone_file;
+                break;
+            }
+
+            // change clone_file suffix .binlog to .dat
+            std::string new_clone_file = clone_file;
+            new_clone_file.replace(clone_file.size() - 7, 7, ".dat");
+            to = fmt::format("{}/_binlog/{}", tablet_dir, new_clone_file);
+        } else {
+            to = fmt::format("{}/{}", tablet_dir, clone_file);
+        }
+
         RETURN_IF_ERROR(io::global_local_filesystem()->link_file(from, to));
         linked_success_files.emplace_back(std::move(to));
+    }
+    if (contain_binlog) {
+        RETURN_IF_ERROR(tablet->ingest_binlog_metas(&rowset_binlog_metas_pb));
     }
 
     // clone and compaction operation should be performed sequentially
     std::lock_guard base_compaction_lock(tablet->get_base_compaction_lock());
     std::lock_guard cumulative_compaction_lock(tablet->get_cumulative_compaction_lock());
     std::lock_guard cold_compaction_lock(tablet->get_cold_compaction_lock());
+    std::lock_guard build_inverted_index_lock(tablet->get_build_inverted_index_lock());
     tablet->set_clone_occurred(true);
     std::lock_guard<std::mutex> push_lock(tablet->get_push_lock());
     std::lock_guard<std::mutex> rwlock(tablet->get_rowset_update_lock());
     std::lock_guard<std::shared_mutex> wrlock(tablet->get_header_lock());
+    SCOPED_SIMPLE_TRACE_IF_TIMEOUT(TRACE_TABLET_LOCK_THRESHOLD);
     if (is_incremental_clone) {
         status = _finish_incremental_clone(tablet, cloned_tablet_meta, committed_version);
     } else {
@@ -664,7 +735,22 @@ Status EngineCloneTask::_finish_full_clone(Tablet* tablet,
         RETURN_IF_ERROR(tablet->create_rowset(rs_meta, &rs));
         to_add.push_back(std::move(rs));
     }
-    tablet->tablet_meta()->set_cooldown_meta_id(cloned_tablet_meta->cooldown_meta_id());
+    {
+        std::shared_lock cooldown_conf_rlock(tablet->get_cooldown_conf_lock());
+        if (tablet->cooldown_conf_unlocked().first == tablet->replica_id()) {
+            // If this replica is cooldown replica, MUST generate a new `cooldown_meta_id` to avoid use `cooldown_meta_id`
+            // generated in old cooldown term which may lead to such situation:
+            // Replica A is cooldown replica, cooldown_meta_id=2,
+            // Replica B: cooldown_replica=A, cooldown_meta_id=1
+            // Replica A: full clone Replica A, cooldown_meta_id=1, but remote cooldown_meta is still with cooldown_meta_id=2
+            // After tablet report. FE finds all replicas' cooldowned data is consistent
+            // Replica A: confirm_unused_remote_files, delete some cooldowned data of cooldown_meta_id=2
+            // Replica B: follow_cooldown_data, cooldown_meta_id=2, data lost
+            tablet->tablet_meta()->set_cooldown_meta_id(UniqueId::gen_uid());
+        } else {
+            tablet->tablet_meta()->set_cooldown_meta_id(cloned_tablet_meta->cooldown_meta_id());
+        }
+    }
     if (tablet->enable_unique_key_merge_on_write()) {
         tablet->tablet_meta()->delete_bitmap() = cloned_tablet_meta->delete_bitmap();
     }

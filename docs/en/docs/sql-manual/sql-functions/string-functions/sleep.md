@@ -1,6 +1,6 @@
 ---
 {
-    "title": "sleep",
+    "title": "SLEEP",
     "language": "en"
 }
 ---
@@ -28,7 +28,7 @@ under the License.
 ### Description
 #### Syntax
 
-`boolean sleep (int num)`
+`BOOLEAN sleep(INT num)`
 
 Make the thread sleep for num seconds.
 

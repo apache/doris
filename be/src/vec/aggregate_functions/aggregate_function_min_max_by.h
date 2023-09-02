@@ -45,9 +45,9 @@ public:
         key.write(buf);
     }
 
-    void read(BufferReadable& buf) {
-        value.read(buf);
-        key.read(buf);
+    void read(BufferReadable& buf, Arena* arena) {
+        value.read(buf, arena);
+        key.read(buf, arena);
     }
 };
 
@@ -129,8 +129,8 @@ public:
     }
 
     void deserialize(AggregateDataPtr __restrict place, BufferReadable& buf,
-                     Arena*) const override {
-        this->data(place).read(buf);
+                     Arena* arena) const override {
+        this->data(place).read(buf, arena);
     }
 
     void insert_result_into(ConstAggregateDataPtr __restrict place, IColumn& to) const override {
@@ -188,6 +188,10 @@ template <template <typename> class AggregateFunctionTemplate,
 AggregateFunctionPtr create_aggregate_function_min_max_by(const String& name,
                                                           const DataTypes& argument_types,
                                                           const bool result_is_nullable) {
+    if (argument_types.size() != 2) {
+        return nullptr;
+    }
+
     WhichDataType which(remove_nullable(argument_types[0]));
 #define DISPATCH(TYPE)                                                                    \
     if (which.idx == TypeIndex::TYPE)                                                     \

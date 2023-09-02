@@ -176,7 +176,7 @@ struct TQueryOptions {
   51: optional bool enable_new_shuffle_hash_method
 
   52: optional i32 be_exec_version = 0
-  
+
   53: optional i32 partitioned_hash_join_rows_threshold = 0
 
   54: optional bool enable_share_hash_table_for_broadcast_join
@@ -195,8 +195,8 @@ struct TQueryOptions {
   // deprecated
   60: optional i32 partitioned_hash_agg_rows_threshold = 0
 
-  61: optional bool enable_file_cache = true
-  
+  61: optional bool enable_file_cache = false
+
   62: optional i32 insert_timeout = 14400
 
   63: optional i32 execution_timeout = 3600
@@ -212,8 +212,36 @@ struct TQueryOptions {
 
   // partition count(1 << external_agg_partition_bits) when spill aggregation data into disk
   69: optional i32 external_agg_partition_bits = 4
+
+  // Specify base path for file cache
+  70: optional string file_cache_base_path
+
+  71: optional bool enable_parquet_lazy_mat = true
+
+  72: optional bool enable_orc_lazy_mat = true
+
+  73: optional i64 scan_queue_mem_limit
+
+  74: optional bool enable_scan_node_run_serial = false; 
+
+  75: optional bool enable_insert_strict = false;
+
+  76: optional bool enable_inverted_index_query = true;
+
+  77: optional bool truncate_char_or_varchar_columns = false
+
+  78: optional bool enable_hash_join_early_start_probe = false
+
+  79: optional bool enable_pipeline_x_engine = false;
+
+  80: optional bool enable_memtable_on_sink_node = false;
+
+  81: optional bool enable_delete_sub_predicate_v2 = false;
+
+  // A tag used to distinguish fe start epoch.
+  82: optional i64 fe_process_uuid = 0;
 }
-    
+
 
 // A scan range plus the parameters needed to execute that scan.
 struct TScanRangeParams {
@@ -221,18 +249,14 @@ struct TScanRangeParams {
   2: optional i32 volume_id = -1
 }
 
-// Specification of one output destination of a plan fragment
-struct TPlanFragmentDestination {
-  // the globally unique fragment instance id
-  1: required Types.TUniqueId fragment_instance_id
-
-  // ... which is being executed on this server
-  2: required Types.TNetworkAddress server
-  3: optional Types.TNetworkAddress brpc_server
-}
-
 struct TRuntimeFilterTargetParams {
   1: required Types.TUniqueId target_fragment_instance_id
+  // The address of the instance where the fragment is expected to run
+  2: required Types.TNetworkAddress target_fragment_instance_addr
+}
+
+struct TRuntimeFilterTargetParamsV2 {
+  1: required list<Types.TUniqueId> target_fragment_instance_ids
   // The address of the instance where the fragment is expected to run
   2: required Types.TNetworkAddress target_fragment_instance_addr
 }
@@ -250,6 +274,8 @@ struct TRuntimeFilterParams {
 
   // Number of Runtime filter producers
   4: optional map<i32, i32> runtime_filter_builder_num
+
+  5: optional map<i32, list<TRuntimeFilterTargetParamsV2>> rid_to_target_paramv2
 }
 
 // Parameters for a single execution instance of a particular TPlanFragment
@@ -273,7 +299,7 @@ struct TPlanFragmentExecParams {
   // The partitioning of the output is specified by
   // TPlanFragment.output_sink.output_partition.
   // The number of output partitions is destinations.size().
-  5: list<TPlanFragmentDestination> destinations
+  5: list<DataSinks.TPlanFragmentDestination> destinations
 
   // Debug options: perform some action in a particular phase of a particular node
   // 6: optional Types.TPlanNodeId debug_node_id // Never used
@@ -296,7 +322,7 @@ struct TQueryGlobals {
   1: required string now_string
 
   // To support timezone in Doris. timestamp_ms is the millisecond uinix timestamp for
-  // this query to calculate time zone relative function 
+  // this query to calculate time zone relative function
   2: optional i64 timestamp_ms
 
   // time_zone is the timezone this query used.
@@ -408,6 +434,10 @@ struct TExecPlanFragmentParams {
   21: optional bool build_hash_table_for_broadcast_join = false;
 
   22: optional list<Types.TUniqueId> instances_sharing_hash_table;
+  23: optional string table_name;
+
+  // scan node id -> scan range params, only for external file scan
+  24: optional map<Types.TPlanNodeId, PlanNodes.TFileScanRangeParams> file_scan_params
 }
 
 struct TExecPlanFragmentParamsList {
@@ -582,7 +612,7 @@ struct TPipelineInstanceParams {
   7: optional map<Types.TPlanNodeId, bool> per_node_shared_scans
 }
 
-struct TPipelineResourceGroup {
+struct TPipelineWorkloadGroup {
   1: optional i64 id
   2: optional string name
   3: optional map<string, string> properties
@@ -598,7 +628,7 @@ struct TPipelineFragmentParams {
   5: optional Descriptors.TDescriptorTable desc_tbl
   // Deprecated
   6: optional Types.TResourceInfo resource_info
-  7: list<TPlanFragmentDestination> destinations
+  7: list<DataSinks.TPlanFragmentDestination> destinations
   8: optional i32 num_senders
   9: optional bool send_query_statistics_with_every_batch
   10: optional Types.TNetworkAddress coord
@@ -617,7 +647,11 @@ struct TPipelineFragmentParams {
   22: optional TGlobalDict global_dict  // scan node could use the global dict to encode the string value to an integer
   23: optional Planner.TPlanFragment fragment
   24: list<TPipelineInstanceParams> local_params
-  26: optional list<TPipelineResourceGroup> resource_groups
+  26: optional list<TPipelineWorkloadGroup> workload_groups
+  27: optional TTxnParams txn_conf
+  28: optional string table_name
+  // scan node id -> scan range params, only for external file scan
+  29: optional map<Types.TPlanNodeId, PlanNodes.TFileScanRangeParams> file_scan_params
 }
 
 struct TPipelineFragmentParamsList {

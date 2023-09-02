@@ -33,7 +33,7 @@ import org.apache.doris.catalog.Table;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.jmockit.Deencapsulation;
-import org.apache.doris.common.util.RuntimeProfile;
+import org.apache.doris.common.profile.Profile;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.load.BrokerFileGroup;
 import org.apache.doris.load.BrokerFileGroupAggInfo;
@@ -132,6 +132,8 @@ public class BrokerLoadJobTest {
         List<DataDescription> dataDescriptionList = Lists.newArrayList();
         dataDescriptionList.add(dataDescription);
         BrokerDesc brokerDesc = new BrokerDesc("broker0", Maps.newHashMap());
+        Map<String, String> properties = new HashMap<>();
+        properties.put(LoadStmt.PRIORITY, "HIGH");
 
         new Expectations() {
             {
@@ -171,6 +173,9 @@ public class BrokerLoadJobTest {
                 loadStmt.getEtlJobType();
                 minTimes = 0;
                 result = EtlJobType.BROKER;
+                loadStmt.getProperties();
+                minTimes = 0;
+                result = properties;
             }
         };
 
@@ -188,6 +193,7 @@ public class BrokerLoadJobTest {
             Assert.assertEquals(label, Deencapsulation.getField(brokerLoadJob, "label"));
             Assert.assertEquals(JobState.PENDING, Deencapsulation.getField(brokerLoadJob, "state"));
             Assert.assertEquals(EtlJobType.BROKER, Deencapsulation.getField(brokerLoadJob, "jobType"));
+            Assert.assertEquals(brokerLoadJob.getPriority(), LoadTask.Priority.HIGH);
         } catch (DdlException e) {
             Assert.fail(e.getMessage());
         }
@@ -358,11 +364,9 @@ public class BrokerLoadJobTest {
         fileGroups.add(brokerFileGroup);
         UUID uuid = UUID.randomUUID();
         TUniqueId loadId = new TUniqueId(uuid.getMostSignificantBits(), uuid.getLeastSignificantBits());
-        RuntimeProfile jobProfile = new RuntimeProfile("test");
-        LoadLoadingTask task = new LoadLoadingTask(database, olapTable, brokerDesc, fileGroups,
-                100, 100, false, 100, callback, "",
-                100, 1, 1, true, jobProfile, false,
-                false);
+        Profile jobProfile = new Profile("test", false);
+        LoadLoadingTask task = new LoadLoadingTask(database, olapTable, brokerDesc, fileGroups, 100, 100, false, false, 100,
+                callback, "", 100, 1, 1, true, jobProfile, false, false, LoadTask.Priority.NORMAL);
         try {
             UserIdentity userInfo = new UserIdentity("root", "localhost");
             userInfo.setIsAnalyzed();

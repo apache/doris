@@ -17,14 +17,17 @@
 
 #include "util/core_local.h"
 
-#include <gtest/gtest.h>
+#include <gtest/gtest-message.h>
+#include <gtest/gtest-test-part.h>
+#include <stdint.h>
+#include <unistd.h>
 
-#include <atomic>
+#include <ostream>
 #include <thread>
 
 #include "common/logging.h"
+#include "gtest/gtest_pred_impl.h"
 #include "testutil/test_util.h"
-#include "time.h"
 #include "util/stopwatch.hpp"
 
 namespace doris {

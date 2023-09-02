@@ -28,6 +28,10 @@ namespace io {
 
 Status FileReader::read_at(size_t offset, Slice result, size_t* bytes_read,
                            const IOContext* io_ctx) {
+#if !defined(USE_BTHREAD_SCANNER)
+    DCHECK(bthread_self() == 0);
+    Status st = read_at_impl(offset, result, bytes_read, io_ctx);
+#else
     Status st;
     if (bthread_self() == 0) {
         st = read_at_impl(offset, result, bytes_read, io_ctx);
@@ -35,6 +39,7 @@ Status FileReader::read_at(size_t offset, Slice result, size_t* bytes_read,
         auto task = [&] { st = read_at_impl(offset, result, bytes_read, io_ctx); };
         AsyncIO::run_task(task, fs()->type());
     }
+#endif
     if (!st) {
         LOG(WARNING) << st;
     }

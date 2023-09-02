@@ -19,6 +19,7 @@
 
 #include <butil/macros.h>
 #include <gen_cpp/Types_types.h>
+#include <gen_cpp/internal_service.pb.h>
 #include <gen_cpp/olap_file.pb.h>
 #include <stdint.h>
 
@@ -36,6 +37,7 @@
 
 #include "common/status.h"
 #include "gutil/ref_counted.h"
+#include "olap/calc_delete_bitmap_executor.h"
 #include "olap/compaction_permit_limiter.h"
 #include "olap/olap_common.h"
 #include "olap/options.h"
@@ -43,6 +45,7 @@
 #include "olap/rowset/rowset_id_generator.h"
 #include "olap/rowset/segment_v2/segment.h"
 #include "olap/tablet.h"
+#include "olap/task/index_builder.h"
 #include "runtime/heartbeat_flags.h"
 #include "util/countdown_latch.h"
 
@@ -52,12 +55,12 @@ class DataDir;
 class EngineTask;
 class MemTableFlushExecutor;
 class TaskWorkerPool;
-class BetaRowsetWriter;
+class SegcompactionWorker;
 class BaseCompaction;
 class CumulativeCompaction;
+class SingleReplicaCompaction;
 class CumulativeCompactionPolicy;
 class MemTracker;
-class PriorityThreadPool;
 class StreamLoadRecorder;
 class TCloneReq;
 class TCreateTabletReq;
@@ -78,24 +81,24 @@ public:
     StorageEngine(const EngineOptions& options);
     ~StorageEngine();
 
-    static Status open(const EngineOptions& options, StorageEngine** engine_ptr);
+    static Status open(const EngineOptions& options, std::unique_ptr<StorageEngine>* engine_ptr);
 
     static StorageEngine* instance() { return _s_instance; }
 
-    Status create_tablet(const TCreateTabletReq& request);
+    Status create_tablet(const TCreateTabletReq& request, RuntimeProfile* profile);
 
     void clear_transaction_task(const TTransactionId transaction_id);
     void clear_transaction_task(const TTransactionId transaction_id,
                                 const std::vector<TPartitionId>& partition_ids);
 
-    // Note: 这里只能reload原先已经存在的root path，即re-load启动时就登记的root path
-    // 是允许的，但re-load全新的path是不允许的，因为此处没有彻底更新ce调度器信息
-    void load_data_dirs(const std::vector<DataDir*>& stores);
+    // Note: Only the previously existing root path can be reloaded here, that is, the root path registered when re load starts is allowed,
+    // but the brand new path of re load is not allowed because the ce scheduler information has not been thoroughly updated here
+    Status load_data_dirs(const std::vector<DataDir*>& stores);
 
     template <bool include_unused = false>
     std::vector<DataDir*> get_stores();
 
-    // @brief 获取所有root_path信息
+    // get all info of root_path
     Status get_all_data_dir_info(std::vector<DataDirInfo>* data_dir_infos, bool need_update);
 
     int64_t get_file_or_directory_size(const std::string& file_path);
@@ -119,8 +122,8 @@ public:
     //
     // @param [out] shard_path choose an available root_path to clone new tablet
     // @return error code
-    Status obtain_shard_path(TStorageMedium::type storage_medium, std::string* shared_path,
-                             DataDir** store);
+    Status obtain_shard_path(TStorageMedium::type storage_medium, int64_t path_hash,
+                             std::string* shared_path, DataDir** store);
 
     // Load new tablet to make it effective.
     //
@@ -140,6 +143,9 @@ public:
     TabletManager* tablet_manager() { return _tablet_manager.get(); }
     TxnManager* txn_manager() { return _txn_manager.get(); }
     MemTableFlushExecutor* memtable_flush_executor() { return _memtable_flush_executor.get(); }
+    CalcDeleteBitmapExecutor* calc_delete_bitmap_executor() {
+        return _calc_delete_bitmap_executor.get();
+    }
 
     bool check_rowset_id_in_unused_rowsets(const RowsetId& rowset_id);
 
@@ -173,10 +179,24 @@ public:
 
     void stop();
 
+    void get_tablet_rowset_versions(const PGetTabletVersionsRequest* request,
+                                    PGetTabletVersionsResponse* response);
+
     void create_cumulative_compaction(TabletSharedPtr best_tablet,
                                       std::shared_ptr<CumulativeCompaction>& cumulative_compaction);
     void create_base_compaction(TabletSharedPtr best_tablet,
                                 std::shared_ptr<BaseCompaction>& base_compaction);
+
+    void create_full_compaction(TabletSharedPtr best_tablet,
+                                std::shared_ptr<FullCompaction>& full_compaction);
+
+    void create_single_replica_compaction(
+            TabletSharedPtr best_tablet,
+            std::shared_ptr<SingleReplicaCompaction>& single_replica_compaction,
+            CompactionType compaction_type);
+    bool get_peer_replica_info(int64_t tablet_id, TReplicaInfo* replica, std::string* token);
+
+    bool should_fetch_from_peer(int64_t tablet_id);
 
     std::shared_ptr<StreamLoadRecorder> get_stream_load_recorder() { return _stream_load_recorder; }
 
@@ -188,8 +208,9 @@ public:
     // check cumulative compaction config
     void check_cumulative_compaction_config();
 
-    Status submit_compaction_task(TabletSharedPtr tablet, CompactionType compaction_type);
-    Status submit_seg_compaction_task(BetaRowsetWriter* writer,
+    Status submit_compaction_task(TabletSharedPtr tablet, CompactionType compaction_type,
+                                  bool force);
+    Status submit_seg_compaction_task(SegcompactionWorker* worker,
                                       SegCompactionCandidatesSharedPtr segments);
 
     std::unique_ptr<ThreadPool>& tablet_publish_txn_thread_pool() {
@@ -197,6 +218,20 @@ public:
     }
     bool stopped() { return _stopped; }
     ThreadPool* get_bg_multiget_threadpool() { return _bg_multi_get_thread_pool.get(); }
+
+    Status process_index_change_task(const TAlterInvertedIndexReq& reqest);
+
+    void gc_binlogs(const std::unordered_map<int64_t, int64_t>& gc_tablet_infos);
+
+    void add_async_publish_task(int64_t partition_id, int64_t tablet_id, int64_t publish_version,
+                                int64_t transaction_id, bool is_recover);
+    int64_t get_pending_publish_min_version(int64_t tablet_id);
+
+    void add_quering_rowset(RowsetSharedPtr rs);
+
+    RowsetSharedPtr get_quering_rowset(RowsetId rs_id);
+
+    void evict_querying_rowset(RowsetId rs_id);
 
 private:
     // Instance should be inited from `static open()`
@@ -215,11 +250,17 @@ private:
     Status _check_all_root_path_cluster_id();
     Status _judge_and_update_effective_cluster_id(int32_t cluster_id);
 
-    bool _delete_tablets_on_unused_root_path();
+    void _exit_if_too_many_disks_are_failed();
 
     void _clean_unused_txns();
 
     void _clean_unused_rowset_metas();
+
+    void _clean_unused_binlog_metas();
+
+    void _clean_unused_delete_bitmap();
+
+    void _clean_unused_pending_publish_info();
 
     Status _do_sweep(const std::string& scan_root, const time_t& local_tm_now,
                      const int32_t expire);
@@ -235,7 +276,7 @@ private:
     void _disk_stat_monitor_thread_callback();
 
     // clean file descriptors cache
-    void _fd_cache_clean_callback();
+    void _cache_clean_callback();
 
     // path gc process function
     void _path_gc_thread_callback(DataDir* data_dir);
@@ -244,12 +285,10 @@ private:
 
     void _tablet_checkpoint_callback(const std::vector<DataDir*>& data_dirs);
 
+    void _tablet_path_check_callback();
+
     // parse the default rowset type config to RowsetTypePB
     void _parse_default_rowset_type();
-
-    void _start_clean_cache();
-
-    void _start_clean_lookup_cache();
 
     // Disk status monitoring. Monitoring unused_flag Road King's new corresponding root_path unused flag,
     // When the unused mark is detected, the corresponding table information is deleted from the memory, and the disk data does not move.
@@ -258,6 +297,8 @@ private:
     void _start_disk_stat_monitor();
 
     void _compaction_tasks_producer_callback();
+
+    void _update_replica_infos_callback();
 
     std::vector<TabletSharedPtr> _generate_compaction_tasks(CompactionType compaction_type,
                                                             std::vector<DataDir*>& data_dirs,
@@ -271,7 +312,11 @@ private:
 
     Status _init_stream_load_recorder(const std::string& stream_load_record_path);
 
-    Status _submit_compaction_task(TabletSharedPtr tablet, CompactionType compaction_type);
+    Status _submit_compaction_task(TabletSharedPtr tablet, CompactionType compaction_type,
+                                   bool force);
+
+    Status _submit_single_replica_compaction_task(TabletSharedPtr tablet,
+                                                  CompactionType compaction_type);
 
     void _adjust_compaction_thread_num();
 
@@ -281,8 +326,14 @@ private:
 
     void _cache_file_cleaner_tasks_producer_callback();
 
-    Status _handle_seg_compaction(BetaRowsetWriter* writer,
+    Status _handle_seg_compaction(SegcompactionWorker* worker,
                                   SegCompactionCandidatesSharedPtr segments);
+
+    Status _handle_index_change(IndexBuilderSharedPtr index_builder);
+
+    void _gc_binlogs(int64_t tablet_id, int64_t version);
+
+    void _async_publish_callback();
 
 private:
     struct CompactionCandidate {
@@ -330,6 +381,10 @@ private:
     // map<rowset_id(str), RowsetSharedPtr>, if we use RowsetId as the key, we need custom hash func
     std::unordered_map<std::string, RowsetSharedPtr> _unused_rowsets;
 
+    // Hold reference of quering rowsets
+    std::mutex _quering_rowsets_mutex;
+    std::unordered_map<RowsetId, RowsetSharedPtr, HashOfRowsetId> _querying_rowsets;
+
     // Count the memory consumption of segment compaction tasks.
     std::shared_ptr<MemTracker> _segcompaction_mem_tracker;
     // This mem tracker is only for tracking memory use by segment meta data such as footer or index page.
@@ -344,13 +399,16 @@ private:
     scoped_refptr<Thread> _disk_stat_monitor_thread;
     // thread to produce both base and cumulative compaction tasks
     scoped_refptr<Thread> _compaction_tasks_producer_thread;
-    scoped_refptr<Thread> _fd_cache_clean_thread;
+    scoped_refptr<Thread> _update_replica_infos_thread;
+    scoped_refptr<Thread> _cache_clean_thread;
     // threads to clean all file descriptor not actively in use
     std::vector<scoped_refptr<Thread>> _path_gc_threads;
     // threads to scan disk paths
     std::vector<scoped_refptr<Thread>> _path_scan_threads;
     // thread to produce tablet checkpoint tasks
     scoped_refptr<Thread> _tablet_checkpoint_tasks_producer_thread;
+    // thread to check tablet path
+    scoped_refptr<Thread> _tablet_path_check_thread;
     // thread to clean tablet lookup cache
     scoped_refptr<Thread> _lookup_cache_clean_thread;
 
@@ -366,6 +424,7 @@ private:
     std::unique_ptr<RowsetIdGenerator> _rowset_id_generator;
 
     std::unique_ptr<MemTableFlushExecutor> _memtable_flush_executor;
+    std::unique_ptr<CalcDeleteBitmapExecutor> _calc_delete_bitmap_executor;
 
     // Used to control the migration from segment_v1 to segment_v2, can be deleted in futrue.
     // Type of new loaded data
@@ -375,6 +434,7 @@ private:
 
     std::unique_ptr<ThreadPool> _base_compaction_thread_pool;
     std::unique_ptr<ThreadPool> _cumu_compaction_thread_pool;
+    std::unique_ptr<ThreadPool> _single_replica_compaction_thread_pool;
     std::unique_ptr<ThreadPool> _seg_compaction_thread_pool;
     std::unique_ptr<ThreadPool> _cold_data_compaction_thread_pool;
 
@@ -390,6 +450,11 @@ private:
     std::map<DataDir*, std::unordered_set<TTabletId>> _tablet_submitted_cumu_compaction;
     std::map<DataDir*, std::unordered_set<TTabletId>> _tablet_submitted_base_compaction;
 
+    std::mutex _peer_replica_infos_mutex;
+    // key: tabletId
+    std::unordered_map<int64_t, TReplicaInfo> _peer_replica_infos;
+    std::string _token;
+
     std::atomic<int32_t> _wakeup_producer_flag {0};
 
     std::mutex _compaction_producer_sleep_mutex;
@@ -397,7 +462,9 @@ private:
 
     std::shared_ptr<StreamLoadRecorder> _stream_load_recorder;
 
-    std::shared_ptr<CumulativeCompactionPolicy> _cumulative_compaction_policy;
+    // we use unordered_map to store all cumulative compaction policy sharded ptr
+    std::unordered_map<std::string_view, std::shared_ptr<CumulativeCompactionPolicy>>
+            _cumulative_compaction_policies;
 
     scoped_refptr<Thread> _cooldown_tasks_producer_thread;
     scoped_refptr<Thread> _remove_unused_remote_files_thread;
@@ -409,6 +476,14 @@ private:
 
     std::mutex _running_cooldown_mutex;
     std::unordered_set<int64_t> _running_cooldown_tablets;
+
+    // tablet_id, publish_version, transaction_id, partition_id
+    std::map<int64_t, std::map<int64_t, std::pair<int64_t, int64_t>>> _async_publish_tasks;
+    // aync publish for discontinuous versions of merge_on_write table
+    scoped_refptr<Thread> _async_publish_thread;
+    std::mutex _async_publish_mutex;
+
+    bool _clear_segment_cache = false;
 
     DISALLOW_COPY_AND_ASSIGN(StorageEngine);
 };

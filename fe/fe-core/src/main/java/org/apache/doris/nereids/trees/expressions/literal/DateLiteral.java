@@ -20,6 +20,7 @@ package org.apache.doris.nereids.trees.expressions.literal;
 import org.apache.doris.analysis.LiteralExpr;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.nereids.exceptions.AnalysisException;
+import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.DateType;
@@ -32,6 +33,7 @@ import org.apache.logging.log4j.Logger;
 import java.time.LocalDateTime;
 import java.time.Year;
 import java.time.format.DateTimeFormatter;
+import java.time.format.ResolverStyle;
 import java.time.temporal.ChronoField;
 import java.time.temporal.TemporalAccessor;
 
@@ -44,7 +46,10 @@ public class DateLiteral extends Literal {
     protected static DateTimeFormatter DATE_FORMATTER = null;
     protected static DateTimeFormatter DATE_FORMATTER_TWO_DIGIT = null;
     protected static DateTimeFormatter DATEKEY_FORMATTER = null;
-
+    // for cast datetime type to date type.
+    protected static DateTimeFormatter DATE_TIME_FORMATTER = null;
+    private static final LocalDateTime startOfAD = LocalDateTime.of(0, 1, 1, 0, 0, 0);
+    private static final LocalDateTime endOfAD = LocalDateTime.of(9999, 12, 31, 23, 59, 59);
     private static final Logger LOG = LogManager.getLogger(DateLiteral.class);
 
     private static final DateLiteral MIN_DATE = new DateLiteral(0000, 1, 1);
@@ -58,9 +63,14 @@ public class DateLiteral extends Literal {
 
     static {
         try {
-            DATE_FORMATTER = DateUtils.formatBuilder("%Y-%m-%d").toFormatter();
-            DATEKEY_FORMATTER = DateUtils.formatBuilder("%Y%m%d").toFormatter();
-            DATE_FORMATTER_TWO_DIGIT = DateUtils.formatBuilder("%y-%m-%d").toFormatter();
+            DATE_FORMATTER = DateUtils.formatBuilder("%Y-%m-%d").toFormatter()
+                    .withResolverStyle(ResolverStyle.STRICT);
+            DATEKEY_FORMATTER = DateUtils.formatBuilder("%Y%m%d").toFormatter()
+                    .withResolverStyle(ResolverStyle.STRICT);
+            DATE_FORMATTER_TWO_DIGIT = DateUtils.formatBuilder("%y-%m-%d").toFormatter()
+                    .withResolverStyle(ResolverStyle.STRICT);
+            DATE_TIME_FORMATTER = DateUtils.formatBuilder("%Y-%m-%d %H:%i:%s").toFormatter()
+                    .withResolverStyle(ResolverStyle.STRICT);
         } catch (AnalysisException e) {
             LOG.error("invalid date format", e);
             System.exit(-1);
@@ -114,6 +124,8 @@ public class DateLiteral extends Literal {
                 dateTime = DATE_FORMATTER_TWO_DIGIT.parse(s);
             } else if (s.length() == DATEKEY_LENGTH && !s.contains("-")) {
                 dateTime = DATEKEY_FORMATTER.parse(s);
+            } else if (s.length() == 19) {
+                dateTime = DATE_TIME_FORMATTER.parse(s);
             } else {
                 dateTime = DATE_FORMATTER.parse(s);
             }
@@ -141,6 +153,10 @@ public class DateLiteral extends Literal {
             return true;
         }
         return false;
+    }
+
+    protected static boolean isDateOutOfRange(LocalDateTime dateTime) {
+        return dateTime.isBefore(startOfAD) || dateTime.isAfter(endOfAD);
     }
 
     @Override
@@ -190,18 +206,53 @@ public class DateLiteral extends Literal {
         return day;
     }
 
-    public DateLiteral plusDays(int days) {
-        LocalDateTime dateTime = DateUtils.getTime(DATE_FORMATTER, getStringValue()).plusDays(days);
-        return new DateLiteral(dateTime.getYear(), dateTime.getMonthValue(), dateTime.getDayOfMonth());
+    public Expression plusDays(long days) {
+        return fromJavaDateType(DateUtils.getTime(DATE_FORMATTER, getStringValue()).plusDays(days));
     }
 
-    public DateLiteral plusMonths(int months) {
-        LocalDateTime dateTime = DateUtils.getTime(DATE_FORMATTER, getStringValue()).plusMonths(months);
-        return new DateLiteral(dateTime.getYear(), dateTime.getMonthValue(), dateTime.getDayOfMonth());
+    public Expression plusMonths(long months) {
+        return fromJavaDateType(DateUtils.getTime(DATE_FORMATTER, getStringValue()).plusMonths(months));
     }
 
-    public DateLiteral plusYears(int years) {
-        LocalDateTime dateTime = DateUtils.getTime(DATE_FORMATTER, getStringValue()).plusYears(years);
-        return new DateLiteral(dateTime.getYear(), dateTime.getMonthValue(), dateTime.getDayOfMonth());
+    public Expression plusYears(long years) {
+        return fromJavaDateType(DateUtils.getTime(DATE_FORMATTER, getStringValue()).plusYears(years));
+    }
+
+    public LocalDateTime toJavaDateType() {
+        return LocalDateTime.of(((int) getYear()), ((int) getMonth()), ((int) getDay()), 0, 0, 0);
+    }
+
+    public long getTotalDays() {
+        return calculateDays(this.year, this.month, this.day);
+    }
+
+    // calculate the number of days from year 0000-00-00 to year-month-day
+    private long calculateDays(long year, long month, long day) {
+        long totalDays = 0;
+        long y = year;
+
+        if (year == 0 && month == 0) {
+            return 0;
+        }
+
+        /* Cast to int to be able to handle month == 0 */
+        totalDays = 365 * y + 31 * (month - 1) + day;
+        if (month <= 2) {
+            // No leap year
+            y--;
+        } else {
+            // This is great!!!
+            // 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12
+            // 0, 0, 3, 3, 4, 4, 5, 5, 5,  6,  7,  8
+            totalDays -= (month * 4 + 23) / 10;
+        }
+        // Every 400 year has 97 leap year, 100, 200, 300 are not leap year.
+        return totalDays + y / 4 - y / 100 + y / 400;
+    }
+
+    public static Expression fromJavaDateType(LocalDateTime dateTime) {
+        return isDateOutOfRange(dateTime)
+                ? new NullLiteral(DateType.INSTANCE)
+                : new DateLiteral(dateTime.getYear(), dateTime.getMonthValue(), dateTime.getDayOfMonth());
     }
 }

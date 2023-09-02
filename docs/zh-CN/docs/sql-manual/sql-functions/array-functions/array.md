@@ -1,6 +1,6 @@
 ---
 {
-    "title": "array",
+    "title": "ARRAY",
     "language": "zh-CN"
 }
 ---
@@ -34,9 +34,7 @@ array()
 
 #### Syntax
 
-```
-ARRAY<T> array(T, ...)
-```
+`ARRAY<T> array(T, ...)`
 根据参数构造并返回array, 参数可以是多列或者常量
 
 ### notice

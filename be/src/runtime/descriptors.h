@@ -90,7 +90,6 @@ public:
     int col_pos() const { return _col_pos; }
     // Returns the field index in the generated llvm struct for this slot's tuple
     int field_idx() const { return _field_idx; }
-    const NullIndicatorOffset& null_indicator_offset() const { return _null_indicator_offset; }
     bool is_materialized() const { return _is_materialized; }
     bool is_nullable() const { return _null_indicator_offset.bit_mask != 0; }
 
@@ -109,6 +108,8 @@ public:
 
     bool is_key() const { return _is_key; }
     bool need_materialize() const { return _need_materialize; }
+
+    bool is_auto_increment() const { return _is_auto_increment; }
 
 private:
     friend class DescriptorTbl;
@@ -143,6 +144,8 @@ private:
     const bool _is_key;
     const bool _need_materialize;
 
+    const bool _is_auto_increment;
+
     SlotDescriptor(const TSlotDescriptor& tdesc);
     SlotDescriptor(const PSlotDescriptor& pdesc);
 };
@@ -162,11 +165,13 @@ public:
         return slot_desc->col_pos() < _num_clustering_cols;
     }
 
+    ::doris::TTableType::type table_type() const { return _table_type; }
     const std::string& name() const { return _name; }
     const std::string& database() const { return _database; }
     int32_t table_id() const { return _table_id; }
 
 private:
+    ::doris::TTableType::type _table_type;
     std::string _name;
     std::string _database;
     int32_t _table_id;
@@ -216,6 +221,27 @@ public:
     std::string debug_string() const override;
 
 private:
+};
+
+class MaxComputeTableDescriptor : public TableDescriptor {
+public:
+    MaxComputeTableDescriptor(const TTableDescriptor& tdesc);
+    ~MaxComputeTableDescriptor() override;
+    std::string debug_string() const override;
+    const std::string region() const { return _region; }
+    const std::string project() const { return _project; }
+    const std::string table() const { return _table; }
+    const std::string access_key() const { return _access_key; }
+    const std::string secret_key() const { return _secret_key; }
+    const std::string public_access() const { return _public_access; }
+
+private:
+    std::string _region;
+    std::string _project;
+    std::string _table;
+    std::string _access_key;
+    std::string _secret_key;
+    std::string _public_access;
 };
 
 class EsTableDescriptor : public TableDescriptor {
@@ -326,6 +352,24 @@ public:
                 return true;
             }
             if (desc->collection_slots().size() > 0) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    bool has_hll_slot() const {
+        for (auto slot : _slots) {
+            if (slot->type().is_hll_type()) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    bool has_bitmap_slot() const {
+        for (auto slot : _slots) {
+            if (slot->type().is_bitmap_type()) {
                 return true;
             }
         }
@@ -494,7 +538,7 @@ public:
 
     std::string debug_string() const;
 
-    int get_column_id(int slot_id) const;
+    int get_column_id(int slot_id, bool force_materialize_slot = false) const;
 
 private:
     // Initializes tupleIdxMap during c'tor using the _tuple_desc_map.

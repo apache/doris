@@ -63,7 +63,7 @@ under the License.
         </mailingList>
     </mailingLists>
     <properties>
-        <palo.home>${basedir}/../../</palo.home>
+        <doris.home>${basedir}/../../</doris.home>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
         <maven.compiler.source>1.8</maven.compiler.source>
         <maven.compiler.target>1.8</maven.compiler.target>
@@ -71,6 +71,7 @@ under the License.
         <project.scm.id>github</project.scm.id>
         <hadoop.version>2.10.2</hadoop.version>
         <netty.version>4.1.65.Final</netty.version>
+        <gcs.version>hadoop2-2.2.15</gcs.version>
     </properties>
     <profiles>
         <!-- for custom internal repository -->
@@ -266,6 +267,13 @@ under the License.
             <artifactId>log4j-core</artifactId>
             <version>${log4j2.version}</version>
         </dependency>
+        <!-- gcs connector-->
+        <dependency>
+            <groupId>com.google.cloud.bigdataoss</groupId>
+            <artifactId>gcs-connector</artifactId>
+            <version>${gcs.version}</version>
+            <classifier>shaded</classifier>
+        </dependency>
         <!-- https://mvnrepository.com/artifact/com.google.protobuf/protobuf-java -->
         <dependency>
             <groupId>com.google.protobuf</groupId>
@@ -363,7 +371,7 @@ under the License.
                         <configuration>
                             <executable>cp</executable>
                             <arguments>
-                                <argument>${palo.home}/gensrc/thrift/PaloBrokerService.thrift</argument>
+                                <argument>${doris.home}/gensrc/thrift/PaloBrokerService.thrift</argument>
                                 <argument>${basedir}/src/main/resources/thrift/</argument>
                             </arguments>
                             <skip>${skip.plugin}</skip>
@@ -392,6 +400,15 @@ under the License.
                         </goals>
                     </execution>
                 </executions>
+            </plugin>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-jar-plugin</artifactId>
+                <configuration>
+                    <excludes>
+                        <exclude>**/gcs-connector-${gcs.version}.jar</exclude>
+                    </excludes>
+                </configuration>
             </plugin>
             <!-- copy all dependency libs to target lib dir -->
             <plugin>

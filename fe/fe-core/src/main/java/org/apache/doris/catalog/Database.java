@@ -18,7 +18,6 @@
 package org.apache.doris.catalog;
 
 import org.apache.doris.catalog.TableIf.TableType;
-import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
@@ -29,12 +28,15 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.DebugUtil;
+import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.persist.CreateTableInfo;
+import org.apache.doris.persist.gson.GsonUtils;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
+import com.google.gson.annotations.SerializedName;
 import org.apache.commons.codec.digest.DigestUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -46,8 +48,10 @@ import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
+import java.util.Map.Entry;
 import java.util.Objects;
 import java.util.Set;
 import java.util.concurrent.ConcurrentMap;
@@ -73,24 +77,32 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table> 
 
     private static final String TRANSACTION_QUOTA_SIZE = "transactionQuotaSize";
 
+    @SerializedName(value = "id")
     private long id;
+    @SerializedName(value = "fullQualifiedName")
     private volatile String fullQualifiedName;
+    @SerializedName(value = "clusterName")
     private String clusterName;
     private ReentrantReadWriteLock rwLock;
 
     // table family group map
     private Map<Long, Table> idToTable;
+    @SerializedName(value = "nameToTable")
     private Map<String, Table> nameToTable;
     // table name lower cast -> table name
     private Map<String, String> lowerCaseToTableName;
 
     // user define function
+    @SerializedName(value = "name2Function")
     private ConcurrentMap<String, ImmutableList<Function>> name2Function = Maps.newConcurrentMap();
     // user define encryptKey for current db
+    @SerializedName(value = "dbEncryptKey")
     private DatabaseEncryptKey dbEncryptKey;
 
+    @SerializedName(value = "dataQuotaBytes")
     private volatile long dataQuotaBytes;
 
+    @SerializedName(value = "replicaQuotaSize")
     private volatile long replicaQuotaSize;
 
     private volatile long transactionQuotaSize;
@@ -101,10 +113,15 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table> 
         NORMAL, LINK, MOVE
     }
 
+    @SerializedName(value = "attachDbName")
     private String attachDbName;
+    @SerializedName(value = "dbState")
     private DbState dbState;
 
+    @SerializedName(value = "dbProperties")
     private DatabaseProperty dbProperties = new DatabaseProperty();
+
+    private BinlogConfig binlogConfig = new BinlogConfig();
 
     public Database() {
         this(0, null);
@@ -418,6 +435,11 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table> 
         }
     }
 
+    @Override
+    public CatalogIf getCatalog() {
+        return Env.getCurrentInternalCatalog();
+    }
+
     public List<Table> getTables() {
         return new ArrayList<>(idToTable.values());
     }
@@ -555,6 +577,7 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table> 
         out.writeLong(id);
         Text.writeString(out, fullQualifiedName);
         // write tables
+        discardHudiTable();
         int numTables = nameToTable.size();
         out.writeInt(numTables);
         for (Map.Entry<String, Table> entry : nameToTable.entrySet()) {
@@ -574,6 +597,24 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table> 
 
         out.writeLong(replicaQuotaSize);
         dbProperties.write(out);
+    }
+
+    private void discardHudiTable() {
+        Iterator<Entry<String, Table>> iterator = nameToTable.entrySet().iterator();
+        while (iterator.hasNext()) {
+            Map.Entry<String, Table> entry = iterator.next();
+            if (entry.getValue().getType() == TableType.HUDI) {
+                LOG.warn("hudi table is deprecated, discard it. table name: {}", entry.getKey());
+                iterator.remove();
+                idToTable.remove(entry.getValue().getId());
+            }
+        }
+    }
+
+    public void analyze() {
+        for (Table table : nameToTable.values()) {
+            table.analyze(getFullName());
+        }
     }
 
     @Override
@@ -599,7 +640,7 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table> 
         dbState = DbState.valueOf(Text.readString(in));
         attachDbName = Text.readString(in);
 
-        FunctionUtil.readFields(in, name2Function);
+        FunctionUtil.readFields(in, this.getFullName(), name2Function);
 
         // read encryptKeys
         if (Env.getCurrentEnvJournalVersion() >= FeMetaVersion.VERSION_102) {
@@ -613,6 +654,7 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table> 
             String txnQuotaStr = dbProperties.getOrDefault(TRANSACTION_QUOTA_SIZE,
                     String.valueOf(Config.max_running_txn_num_per_db));
             transactionQuotaSize = Long.parseLong(txnQuotaStr);
+            binlogConfig = dbProperties.getBinlogConfig();
         } else {
             transactionQuotaSize = Config.default_db_max_running_txn_num == -1L
                     ? Config.max_running_txn_num_per_db
@@ -680,12 +722,14 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table> 
         function.checkWritable();
         if (FunctionUtil.addFunctionImpl(function, ifNotExists, false, name2Function)) {
             Env.getCurrentEnv().getEditLog().logAddFunction(function);
+            FunctionUtil.translateToNereids(this.getFullName(), function);
         }
     }
 
     public synchronized void replayAddFunction(Function function) {
         try {
             FunctionUtil.addFunctionImpl(function, false, true, name2Function);
+            FunctionUtil.translateToNereids(this.getFullName(), function);
         } catch (UserException e) {
             throw new RuntimeException(e);
         }
@@ -694,12 +738,14 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table> 
     public synchronized void dropFunction(FunctionSearchDesc function, boolean ifExists) throws UserException {
         if (FunctionUtil.dropFunctionImpl(function, ifExists, name2Function)) {
             Env.getCurrentEnv().getEditLog().logDropFunction(function);
+            FunctionUtil.dropFromNereids(this.getFullName(), function);
         }
     }
 
     public synchronized void replayDropFunction(FunctionSearchDesc functionSearchDesc) {
         try {
             FunctionUtil.dropFunctionImpl(functionSearchDesc, false, name2Function);
+            FunctionUtil.dropFromNereids(this.getFullName(), functionSearchDesc);
         } catch (UserException e) {
             throw new RuntimeException(e);
         }
@@ -715,10 +761,6 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table> 
 
     public synchronized List<Function> getFunctions() {
         return FunctionUtil.getFunctions(name2Function);
-    }
-
-    public boolean isInfoSchemaDb() {
-        return ClusterNamespace.getNameFromFullName(fullQualifiedName).equalsIgnoreCase(InfoSchemaDb.DATABASE_NAME);
     }
 
     public synchronized void addEncryptKey(EncryptKey encryptKey, boolean ifNotExists) throws UserException {
@@ -812,4 +854,61 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table> 
     public Map<Long, Table> getIdToTable() {
         return new HashMap<>(idToTable);
     }
+
+    public void replayUpdateDbProperties(Map<String, String> properties) {
+        dbProperties.updateProperties(properties);
+        binlogConfig = dbProperties.getBinlogConfig();
+    }
+
+    public boolean updateDbProperties(Map<String, String> properties) throws DdlException {
+        BinlogConfig oldBinlogConfig = getBinlogConfig();
+        BinlogConfig newBinlogConfig = BinlogConfig.fromProperties(properties);
+        if (oldBinlogConfig.equals(newBinlogConfig)) {
+            return false;
+        }
+
+        if (newBinlogConfig.isEnable() && !oldBinlogConfig.isEnable()) {
+            // check all tables binlog enable is true
+            for (Table table : idToTable.values()) {
+                if (table.getType() != TableType.OLAP) {
+                    continue;
+                }
+
+                OlapTable olapTable = (OlapTable) table;
+                olapTable.readLock();
+                try {
+                    if (!olapTable.getBinlogConfig().isEnable()) {
+                        String errMsg = String.format("binlog is not enable in table[%s] in db [%s]", table.getName(),
+                                getFullName());
+                        throw new DdlException(errMsg);
+                    }
+                } finally {
+                    olapTable.readUnlock();
+                }
+            }
+        }
+
+        replayUpdateDbProperties(properties);
+        return true;
+    }
+
+    public BinlogConfig getBinlogConfig() {
+        return binlogConfig;
+    }
+
+    public String toJson() {
+        return GsonUtils.GSON.toJson(this);
+    }
+
+    @Override
+    public String toString() {
+        return toJson();
+    }
+
+    // Return ture if database is created for mysql compatibility.
+    // Currently, we have two dbs that are created for this purpose, InformationSchemaDb and MysqlDb,
+    public boolean isMysqlCompatibleDatabase() {
+        return false;
+    }
+
 }

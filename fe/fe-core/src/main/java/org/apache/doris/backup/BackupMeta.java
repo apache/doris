@@ -21,8 +21,10 @@ import org.apache.doris.catalog.Resource;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.meta.MetaContext;
+import org.apache.doris.persist.gson.GsonUtils;
 
 import com.google.common.collect.Maps;
+import com.google.gson.annotations.SerializedName;
 
 import java.io.DataInput;
 import java.io.DataInputStream;
@@ -38,10 +40,13 @@ import java.util.Map;
 public class BackupMeta implements Writable {
 
     // tbl name -> tbl
+    @SerializedName(value = "tblNameMap")
     private Map<String, Table> tblNameMap = Maps.newHashMap();
     // tbl id -> tbl
+    @SerializedName(value = "tblIdMap")
     private Map<Long, Table> tblIdMap = Maps.newHashMap();
     // resource name -> resource
+    @SerializedName(value = "resourceNameMap")
     private Map<String, Resource> resourceNameMap = Maps.newHashMap();
 
     private BackupMeta() {
@@ -135,5 +140,14 @@ public class BackupMeta implements Writable {
             Resource resource = Resource.read(in);
             resourceNameMap.put(resource.getName(), resource);
         }
+    }
+
+    public String toJson() {
+        return GsonUtils.GSON.toJson(this);
+    }
+
+    @Override
+    public String toString() {
+        return toJson();
     }
 }

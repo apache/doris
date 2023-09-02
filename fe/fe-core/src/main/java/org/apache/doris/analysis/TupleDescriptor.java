@@ -290,8 +290,7 @@ public class TupleDescriptor {
         // assign offsets to slots in order of ascending size
         numNullBytes = (numNullableSlots + 7) / 8;
         int offset = numNullBytes;
-        int nullIndicatorByte = 0;
-        int nullIndicatorBit = 0;
+
         // slotIdx is the index into the resulting tuple struct.  The first (smallest) field
         // is 0, next is 1, etc.
         int slotIdx = 0;
@@ -310,20 +309,6 @@ public class TupleDescriptor {
                 d.setByteOffset(offset);
                 d.setSlotIdx(slotIdx++);
                 offset += slotSize;
-
-                // assign null indicator
-                if (d.getIsNullable()) {
-                    d.setNullIndicatorByte(nullIndicatorByte);
-                    d.setNullIndicatorBit(nullIndicatorBit);
-                    nullIndicatorBit = (nullIndicatorBit + 1) % 8;
-                    if (nullIndicatorBit == 0) {
-                        ++nullIndicatorByte;
-                    }
-                } else {
-                    // Non-nullable slots will have 0 for the byte offset and -1 for the bit mask
-                    d.setNullIndicatorBit(-1);
-                    d.setNullIndicatorByte(0);
-                }
             }
         }
 

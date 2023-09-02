@@ -120,7 +120,7 @@ public class StatisticDeriveTest extends TestWithFeService {
     @Test
     public void testAnalyticEvalStatsDerive() throws Exception {
         // contain SortNode/ExchangeNode/OlapScanNode
-        String sql = "select dt, min(id) OVER (PARTITION BY dt ORDER BY id) from test.join1";
+        String sql = "select /*+ SET_VAR(enable_nereids_planner=false) */ dt, min(id) OVER (PARTITION BY dt ORDER BY id) from test.join1";
         StmtExecutor stmtExecutor = new StmtExecutor(connectContext, sql);
         SessionVariable sessionVariable = connectContext.getSessionVariable();
         sessionVariable.setEnableJoinReorderBasedCost(true);

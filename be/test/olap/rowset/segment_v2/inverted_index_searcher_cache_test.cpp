@@ -15,9 +15,21 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include <gtest/gtest.h>
+#include <gtest/gtest-message.h>
+#include <gtest/gtest-test-part.h>
 
+#include <atomic>
+// IWYU pragma: no_include <bits/chrono.h>
+#include <chrono> // IWYU pragma: keep
+#include <memory>
+#include <string>
+#include <thread>
+
+#include "common/status.h"
+#include "gtest/gtest_pred_impl.h"
 #include "io/fs/local_file_system.h"
+#include "olap/lru_cache.h"
+#include "olap/olap_common.h"
 #include "olap/rowset/segment_v2/inverted_index_cache.h"
 #include "util/time.h"
 

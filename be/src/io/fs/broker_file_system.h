@@ -49,7 +49,8 @@ public:
 protected:
     Status connect_impl() override;
     Status create_file_impl(const Path& file, FileWriterPtr* writer) override;
-    Status open_file_internal(const Path& file, int64_t file_size, FileReaderSPtr* reader) override;
+    Status open_file_internal(const FileDescription& fd, const Path& abs_path,
+                              FileReaderSPtr* reader) override;
     Status create_directory_impl(const Path& dir, bool failed_if_exists = false) override;
     Status delete_file_impl(const Path& file) override;
     Status delete_directory_impl(const Path& dir) override;

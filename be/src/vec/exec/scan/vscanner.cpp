@@ -20,6 +20,7 @@
 #include <glog/logging.h>
 
 #include "common/config.h"
+#include "pipeline/exec/scan_operator.h"
 #include "runtime/descriptors.h"
 #include "util/runtime_profile.h"
 #include "vec/core/column_with_type_and_name.h"
@@ -31,26 +32,44 @@ namespace doris::vectorized {
 VScanner::VScanner(RuntimeState* state, VScanNode* parent, int64_t limit, RuntimeProfile* profile)
         : _state(state),
           _parent(parent),
+          _local_state(nullptr),
           _limit(limit),
           _profile(profile),
-          _input_tuple_desc(parent->input_tuple_desc()),
           _output_tuple_desc(parent->output_tuple_desc()) {
-    _real_tuple_desc = _input_tuple_desc != nullptr ? _input_tuple_desc : _output_tuple_desc;
     _total_rf_num = _parent->runtime_filter_num();
-    _is_load = (_input_tuple_desc != nullptr);
 }
 
-Status VScanner::prepare(RuntimeState* state, VExprContext** vconjunct_ctx_ptr) {
-    if (vconjunct_ctx_ptr != nullptr) {
-        // Copy vconjunct_ctx_ptr from scan node to this scanner's _vconjunct_ctx.
-        RETURN_IF_ERROR((*vconjunct_ctx_ptr)->clone(_state, &_vconjunct_ctx));
+VScanner::VScanner(RuntimeState* state, pipeline::ScanLocalStateBase* local_state, int64_t limit,
+                   RuntimeProfile* profile)
+        : _state(state),
+          _parent(nullptr),
+          _local_state(local_state),
+          _limit(limit),
+          _profile(profile),
+          _output_tuple_desc(_local_state->output_tuple_desc()) {
+    _total_rf_num = _local_state->runtime_filter_num();
+}
+
+Status VScanner::prepare(RuntimeState* state, const VExprContextSPtrs& conjuncts) {
+    if (!conjuncts.empty()) {
+        _conjuncts.resize(conjuncts.size());
+        for (size_t i = 0; i != conjuncts.size(); ++i) {
+            RETURN_IF_ERROR(conjuncts[i]->clone(state, _conjuncts[i]));
+        }
     }
+
     return Status::OK();
 }
 
 Status VScanner::get_block(RuntimeState* state, Block* block, bool* eof) {
+    // debug case failure, to be removed
+    if (state->enable_profile()) {
+        LOG(WARNING) << "debug case failure " << print_id(state->query_id()) << " "
+                     << _parent->get_name() << ": VScanner::get_block";
+    }
     // only empty block should be here
     DCHECK(block->rows() == 0);
+    // scanner running time
     SCOPED_RAW_TIMER(&_per_scanner_timer);
     int64_t rows_read_threshold = _num_rows_read + config::doris_scanner_row_num;
     if (!block->mem_reuse()) {
@@ -72,7 +91,9 @@ Status VScanner::get_block(RuntimeState* state, Block* block, bool* eof) {
             block->clear_same_bit();
             // 1. Get input block from scanner
             {
-                SCOPED_TIMER(_parent->_scan_timer);
+                // get block time
+                auto timer = _parent ? _parent->_scan_timer : _local_state->_scan_timer;
+                SCOPED_TIMER(timer);
                 RETURN_IF_ERROR(_get_block_impl(state, block, eof));
                 if (*eof) {
                     DCHECK(block->rows() == 0);
@@ -83,7 +104,8 @@ Status VScanner::get_block(RuntimeState* state, Block* block, bool* eof) {
 
             // 2. Filter the output block finally.
             {
-                SCOPED_TIMER(_parent->_filter_timer);
+                auto timer = _parent ? _parent->_filter_timer : _local_state->_filter_timer;
+                SCOPED_TIMER(timer);
                 RETURN_IF_ERROR(_filter_output_block(block));
             }
             // record rows return (after filter) for _limit check
@@ -106,9 +128,19 @@ Status VScanner::get_block(RuntimeState* state, Block* block, bool* eof) {
 }
 
 Status VScanner::_filter_output_block(Block* block) {
+    if (block->has(BeConsts::BLOCK_TEMP_COLUMN_SCANNER_FILTERED)) {
+        // scanner filter_block is already done (only by _topn_next currently), just skip it
+        return Status::OK();
+    }
     auto old_rows = block->rows();
-    Status st = VExprContext::filter_block(_vconjunct_ctx, block, block->columns());
+    Status st = VExprContext::filter_block(_conjuncts, block, block->columns());
     _counter.num_rows_unselected += old_rows - block->rows();
+    auto all_column_names = block->get_names();
+    for (auto& name : all_column_names) {
+        if (name.rfind(BeConsts::BLOCK_TEMP_COLUMN_PREFIX, 0) == 0) {
+            block->erase(name);
+        }
+    }
     return st;
 }
 
@@ -119,7 +151,11 @@ Status VScanner::try_append_late_arrival_runtime_filter() {
     DCHECK(_applied_rf_num < _total_rf_num);
 
     int arrived_rf_num = 0;
-    RETURN_IF_ERROR(_parent->try_append_late_arrival_runtime_filter(&arrived_rf_num));
+    if (_parent) {
+        RETURN_IF_ERROR(_parent->try_append_late_arrival_runtime_filter(&arrived_rf_num));
+    } else {
+        RETURN_IF_ERROR(_local_state->try_append_late_arrival_runtime_filter(&arrived_rf_num));
+    }
 
     if (arrived_rf_num == _applied_rf_num) {
         // No newly arrived runtime filters, just return;
@@ -127,13 +163,17 @@ Status VScanner::try_append_late_arrival_runtime_filter() {
     }
 
     // There are newly arrived runtime filters,
-    // renew the vconjunct_ctx_ptr
-    if (_vconjunct_ctx) {
+    // renew the _conjuncts
+    if (!_conjuncts.empty()) {
         _discard_conjuncts();
     }
     // Notice that the number of runtime filters may be larger than _applied_rf_num.
     // But it is ok because it will be updated at next time.
-    RETURN_IF_ERROR(_parent->clone_vconjunct_ctx(&_vconjunct_ctx));
+    if (_parent) {
+        RETURN_IF_ERROR(_parent->clone_conjunct_ctxs(_conjuncts));
+    } else {
+        RETURN_IF_ERROR(_local_state->clone_conjunct_ctxs(_conjuncts));
+    }
     _applied_rf_num = arrived_rf_num;
     return Status::OK();
 }
@@ -142,25 +182,25 @@ Status VScanner::close(RuntimeState* state) {
     if (_is_closed) {
         return Status::OK();
     }
-    for (auto& ctx : _stale_vexpr_ctxs) {
-        ctx->close(state);
-    }
-    if (_vconjunct_ctx) {
-        _vconjunct_ctx->close(state);
-    }
-    if (_common_vexpr_ctxs_pushdown) {
-        _common_vexpr_ctxs_pushdown->close(state);
-    }
 
-    COUNTER_UPDATE(_parent->_scanner_wait_worker_timer, _scanner_wait_worker_timer);
+    if (_parent) {
+        COUNTER_UPDATE(_parent->_scanner_wait_worker_timer, _scanner_wait_worker_timer);
+    } else {
+        COUNTER_UPDATE(_local_state->_scanner_wait_worker_timer, _scanner_wait_worker_timer);
+    }
     _is_closed = true;
     return Status::OK();
 }
 
 void VScanner::_update_counters_before_close() {
-    COUNTER_UPDATE(_parent->_scan_cpu_timer, _scan_cpu_timer);
+    if (_parent) {
+        COUNTER_UPDATE(_parent->_scan_cpu_timer, _scan_cpu_timer);
+        COUNTER_UPDATE(_parent->_rows_read_counter, _num_rows_read);
+    } else {
+        COUNTER_UPDATE(_local_state->_scan_cpu_timer, _scan_cpu_timer);
+        COUNTER_UPDATE(_local_state->_rows_read_counter, _num_rows_read);
+    }
     if (!_state->enable_profile() && !_is_load) return;
-    COUNTER_UPDATE(_parent->_rows_read_counter, _num_rows_read);
     // Update stats for load
     _state->update_num_rows_load_filtered(_counter.num_rows_filtered);
     _state->update_num_rows_load_unselected(_counter.num_rows_unselected);

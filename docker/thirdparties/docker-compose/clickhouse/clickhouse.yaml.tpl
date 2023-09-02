@@ -19,7 +19,7 @@ version: "2.1"
 
 services:
   doris--clickhouse:
-    image: "clickhouse/clickhouse-server:22.8.15.23-alpine"
+    image: "clickhouse/clickhouse-server:latest"
     restart: always
     environment:
       CLICKHOUSE_PASSWORD: 123456

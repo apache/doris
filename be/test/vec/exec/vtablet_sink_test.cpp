@@ -16,29 +16,44 @@
 // under the License.
 #include "vec/sink/vtablet_sink.h"
 
-#include <gtest/gtest.h>
+#include <brpc/closure_guard.h>
+#include <brpc/server.h>
+#include <gen_cpp/DataSinks_types.h>
+#include <gen_cpp/Descriptors_types.h>
+#include <gen_cpp/Exprs_types.h>
+#include <gtest/gtest-message.h>
+#include <gtest/gtest-test-part.h>
 
-#include <map>
 #include <string>
 #include <vector>
 
 #include "common/config.h"
+#include "common/object_pool.h"
 #include "gen_cpp/HeartbeatService_types.h"
 #include "gen_cpp/internal_service.pb.h"
+#include "gtest/gtest_pred_impl.h"
+#include "olap/olap_define.h"
 #include "runtime/decimalv2_value.h"
+#include "runtime/define_primitive_type.h"
 #include "runtime/descriptor_helper.h"
 #include "runtime/descriptors.h"
 #include "runtime/exec_env.h"
-#include "runtime/result_queue_mgr.h"
 #include "runtime/runtime_state.h"
-#include "runtime/types.h"
-#include "service/brpc.h"
 #include "util/brpc_client_cache.h"
-#include "util/cpu_info.h"
 #include "util/debug/leakcheck_disabler.h"
 #include "util/proto_util.h"
+#include "util/threadpool.h"
+#include "vec/core/block.h"
+#include "vec/core/column_with_type_and_name.h"
+
+namespace google {
+namespace protobuf {
+class RpcController;
+} // namespace protobuf
+} // namespace google
 
 namespace doris {
+class PFunctionService_Stub;
 
 namespace stream_load {
 
@@ -301,9 +316,8 @@ public:
             k_add_batch_status.to_protobuf(response->mutable_status());
 
             if (request->has_block() && _row_desc != nullptr) {
-                brpc::Controller* cntl = static_cast<brpc::Controller*>(controller);
-                attachment_transfer_request_block<PTabletWriterAddBlockRequest>(request, cntl);
-                vectorized::Block block(request->block());
+                vectorized::Block block;
+                block.deserialize(request->block());
 
                 for (size_t row_num = 0; row_num < block.rows(); ++row_num) {
                     std::stringstream out;

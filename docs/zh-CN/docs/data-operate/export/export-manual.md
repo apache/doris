@@ -50,7 +50,7 @@ under the License.
 | +-------------------+  |
 |                        | 2. Generate Tasks
 | +--------------------+ |
-| | ExportExporingTask | |
+| | ExportExportingTask | |
 | +--------------------+ |
 |                        |
 | +-----------+          |     +----+   +------+   +---------+

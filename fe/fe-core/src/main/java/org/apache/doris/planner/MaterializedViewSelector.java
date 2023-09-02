@@ -125,6 +125,11 @@ public class MaterializedViewSelector {
         long start = System.currentTimeMillis();
         Preconditions.checkState(scanNode instanceof OlapScanNode);
         OlapScanNode olapScanNode = (OlapScanNode) scanNode;
+
+        if (olapScanNode.getOlapTable().getVisibleIndex().size() == 1) {
+            return new BestIndexInfo(olapScanNode.getOlapTable().getBaseIndexId(), isPreAggregation, reasonOfDisable);
+        }
+
         Map<Long, List<Column>> candidateIndexIdToSchema = predicates(olapScanNode);
         if (candidateIndexIdToSchema.keySet().size() == 0) {
             return null;
@@ -143,7 +148,7 @@ public class MaterializedViewSelector {
     }
 
     private Map<Long, List<Column>> predicates(OlapScanNode scanNode) throws AnalysisException {
-        // Step1: all of predicates is compensating predicates
+        // Step1: all predicates is compensating predicates
         Map<Long, MaterializedIndexMeta> candidateIndexIdToMeta = scanNode.getOlapTable().getVisibleIndexIdToMeta();
         OlapTable table = scanNode.getOlapTable();
         Preconditions.checkState(table != null);
@@ -157,18 +162,15 @@ public class MaterializedViewSelector {
             }
         }
 
-        // Step2: check all columns in compensating predicates are available in the view
-        // output
+        // Step2: check all columns in compensating predicates are available in the view output
         checkCompensatingPredicates(columnNamesInPredicates.get(tableId), candidateIndexIdToMeta, selectBaseIndex,
                 scanNode.getTupleId());
-        // Step3: group by list in query is the subset of group by list in view or view
-        // contains no aggregation
+        // Step3: group by list in query is the subset of group by list in view or view contains no aggregation
         checkGrouping(table, columnNamesInGrouping.get(tableId), candidateIndexIdToMeta, selectBaseIndex,
                 scanNode.getTupleId());
         // Step4: aggregation functions are available in the view output
         checkAggregationFunction(table, aggColumnsInQuery.get(tableId), candidateIndexIdToMeta, scanNode.getTupleId());
-        // Step5: columns required to compute output expr are available in the view
-        // output
+        // Step5: columns required to compute output expr are available in the view output
         checkOutputColumns(columnNamesInQueryOutput.get(tableId), candidateIndexIdToMeta, selectBaseIndex,
                 scanNode.getTupleId());
         // Step6: if table type is aggregate and the candidateIndexIdToSchema is empty,
@@ -654,7 +656,7 @@ public class MaterializedViewSelector {
         }
 
         // Step4: compute the output column
-        // ISSUE-3174: all of columns which belong to top tuple should be considered in
+        // ISSUE-3174: all columns which belong to top tuple should be considered in
         // selector.
         List<TupleId> tupleIds = selectStmt.getTableRefIdsWithoutInlineView();
         for (TupleId tupleId : tupleIds) {
@@ -664,12 +666,7 @@ public class MaterializedViewSelector {
     }
 
     private void addAggColumnInQuery(Long tableId, FunctionCallExpr fnExpr) {
-        Set<FunctionCallExpr> aggColumns = aggColumnsInQuery.get(tableId);
-        if (aggColumns == null) {
-            aggColumns = Sets.newHashSet();
-            aggColumnsInQuery.put(tableId, aggColumns);
-        }
-        aggColumns.add(fnExpr);
+        aggColumnsInQuery.computeIfAbsent(tableId, k -> Sets.newHashSet()).add(fnExpr);
     }
 
     private boolean aggFunctionsMatchAggColumns(Set<FunctionCallExpr> queryExprList,

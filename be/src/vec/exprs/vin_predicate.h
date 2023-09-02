@@ -37,20 +37,16 @@ class VExprContext;
 
 namespace doris::vectorized {
 class VInPredicate final : public VExpr {
+    ENABLE_FACTORY_CREATOR(VInPredicate);
+
 public:
     VInPredicate(const TExprNode& node);
     ~VInPredicate() override = default;
-    doris::Status execute(VExprContext* context, doris::vectorized::Block* block,
-                          int* result_column_id) override;
-    doris::Status prepare(doris::RuntimeState* state, const doris::RowDescriptor& desc,
-                          VExprContext* context) override;
-    doris::Status open(doris::RuntimeState* state, VExprContext* context,
-                       FunctionContext::FunctionStateScope scope) override;
-    void close(doris::RuntimeState* state, VExprContext* context,
-               FunctionContext::FunctionStateScope scope) override;
-    VExpr* clone(doris::ObjectPool* pool) const override {
-        return pool->add(new VInPredicate(*this));
-    }
+    Status execute(VExprContext* context, Block* block, int* result_column_id) override;
+    Status prepare(RuntimeState* state, const RowDescriptor& desc, VExprContext* context) override;
+    Status open(RuntimeState* state, VExprContext* context,
+                FunctionContext::FunctionStateScope scope) override;
+    void close(VExprContext* context, FunctionContext::FunctionStateScope scope) override;
     const std::string& expr_name() const override;
 
     std::string debug_string() const override;

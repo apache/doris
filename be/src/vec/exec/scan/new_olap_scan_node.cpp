@@ -144,6 +144,7 @@ Status NewOlapScanNode::_init_profile() {
 
     _stats_filtered_counter = ADD_COUNTER(_segment_profile, "RowsStatsFiltered", TUnit::UNIT);
     _bf_filtered_counter = ADD_COUNTER(_segment_profile, "RowsBloomFilterFiltered", TUnit::UNIT);
+    _dict_filtered_counter = ADD_COUNTER(_segment_profile, "RowsDictFiltered", TUnit::UNIT);
     _del_filtered_counter = ADD_COUNTER(_scanner_profile, "RowsDelFiltered", TUnit::UNIT);
     _conditions_filtered_counter =
             ADD_COUNTER(_segment_profile, "RowsConditionsFiltered", TUnit::UNIT);
@@ -182,12 +183,6 @@ Status NewOlapScanNode::_init_profile() {
     _filtered_segment_counter = ADD_COUNTER(_segment_profile, "NumSegmentFiltered", TUnit::UNIT);
     _total_segment_counter = ADD_COUNTER(_segment_profile, "NumSegmentTotal", TUnit::UNIT);
 
-    // for the purpose of debugging or profiling
-    for (int i = 0; i < GENERAL_DEBUG_COUNT; ++i) {
-        char name[64];
-        snprintf(name, sizeof(name), "GeneralDebugTimer%d", i);
-        _general_debug_timer[i] = ADD_TIMER(_segment_profile, name);
-    }
     return Status::OK();
 }
 
@@ -254,8 +249,8 @@ Status NewOlapScanNode::_process_conjuncts() {
 }
 
 Status NewOlapScanNode::_build_key_ranges_and_filters() {
-    if (!_olap_scan_node.__isset.push_down_agg_type_opt ||
-        _olap_scan_node.push_down_agg_type_opt == TPushAggOp::NONE) {
+    if (_push_down_agg_type == TPushAggOp::NONE ||
+        _push_down_agg_type == TPushAggOp::COUNT_ON_INDEX) {
         const std::vector<std::string>& column_names = _olap_scan_node.key_column_name;
         const std::vector<TPrimitiveType::type>& column_types = _olap_scan_node.key_column_type;
         DCHECK(column_types.size() == column_names.size());
@@ -331,9 +326,8 @@ Status NewOlapScanNode::_build_key_ranges_and_filters() {
                        range);
         }
     } else {
-        _runtime_profile->add_info_string(
-                "PushDownAggregate",
-                push_down_agg_to_string(_olap_scan_node.push_down_agg_type_opt));
+        _runtime_profile->add_info_string("PushDownAggregate",
+                                          push_down_agg_to_string(_push_down_agg_type));
     }
 
     if (_state->enable_profile()) {
@@ -389,14 +383,6 @@ Status NewOlapScanNode::_should_push_down_function_filter(VectorizedFnCall* fn_c
     return Status::OK();
 }
 
-bool NewOlapScanNode::_should_push_down_common_expr() {
-    return _state->enable_common_expr_pushdown() &&
-           (_olap_scan_node.keyType == TKeysType::DUP_KEYS ||
-            (_olap_scan_node.keyType == TKeysType::UNIQUE_KEYS &&
-             _olap_scan_node.__isset.enable_unique_key_merge_on_write &&
-             _olap_scan_node.enable_unique_key_merge_on_write));
-}
-
 // PlanFragmentExecutor will call this method to set scan range
 // Doris scan range is defined in thrift file like this
 // struct TPaloScanRange {
@@ -423,7 +409,7 @@ std::string NewOlapScanNode::get_name() {
     return fmt::format("VNewOlapScanNode({0})", _olap_scan_node.table_name);
 }
 
-Status NewOlapScanNode::_init_scanners(std::list<VScanner*>* scanners) {
+Status NewOlapScanNode::_init_scanners(std::list<VScannerSPtr>* scanners) {
     if (_scan_ranges.empty()) {
         _eos = true;
         return Status::OK();
@@ -431,16 +417,21 @@ Status NewOlapScanNode::_init_scanners(std::list<VScanner*>* scanners) {
     SCOPED_TIMER(_scanner_init_timer);
     auto span = opentelemetry::trace::Tracer::GetCurrentSpan();
 
-    if (_vconjunct_ctx_ptr && (*_vconjunct_ctx_ptr)->root()) {
-        _runtime_profile->add_info_string("RemainedDownPredicates",
-                                          (*_vconjunct_ctx_ptr)->root()->debug_string());
+    if (!_conjuncts.empty()) {
+        std::string message;
+        for (auto& conjunct : _conjuncts) {
+            if (conjunct->root()) {
+                if (!message.empty()) {
+                    message += ", ";
+                }
+                message += conjunct->root()->debug_string();
+            }
+        }
+        _runtime_profile->add_info_string("RemainedPredicates", message);
     }
 
     if (!_olap_scan_node.output_column_unique_ids.empty()) {
         for (auto uid : _olap_scan_node.output_column_unique_ids) {
-            if (uid < 0) {
-                continue;
-            }
             _maybe_read_column_ids.emplace(uid);
         }
     }
@@ -453,10 +444,10 @@ Status NewOlapScanNode::_init_scanners(std::list<VScanner*>* scanners) {
     }
     int scanners_per_tablet = std::max(1, 64 / (int)_scan_ranges.size());
 
-    bool is_duplicate_key = false;
-    int segment_count = 0;
-    std::vector<std::vector<RowsetReaderSharedPtr>> rowset_readers_vector(_scan_ranges.size());
-    std::vector<std::vector<int>> tablet_rs_seg_count(_scan_ranges.size());
+    bool is_dup_mow_key = false;
+    size_t segment_count = 0;
+    std::vector<std::vector<RowSetSplits>> rowset_splits_vector(_scan_ranges.size());
+    std::vector<std::vector<size_t>> tablet_rs_seg_count(_scan_ranges.size());
 
     // Split tablet segment by scanner, only use in pipeline in duplicate key
     // 1. if tablet count lower than scanner thread num, count segment num of all tablet ready for scan
@@ -470,8 +461,10 @@ Status NewOlapScanNode::_init_scanners(std::list<VScanner*>* scanners) {
                                                                                        true);
             RETURN_IF_ERROR(status);
 
-            is_duplicate_key = tablet->keys_type() == DUP_KEYS;
-            if (!is_duplicate_key) {
+            is_dup_mow_key =
+                    tablet->keys_type() == DUP_KEYS || (tablet->keys_type() == UNIQUE_KEYS &&
+                                                        tablet->enable_unique_key_merge_on_write());
+            if (!is_dup_mow_key) {
                 break;
             }
 
@@ -484,7 +477,7 @@ Status NewOlapScanNode::_init_scanners(std::list<VScanner*>* scanners) {
             // to prevent this case: when there are lots of olap scanners to run for example 10000
             // the rowsets maybe compacted when the last olap scanner starts
             Status acquire_reader_st =
-                    tablet->capture_rs_readers({0, version}, &rowset_readers_vector[i]);
+                    tablet->capture_rs_readers({0, version}, &rowset_splits_vector[i]);
             if (!acquire_reader_st.ok()) {
                 LOG(WARNING) << "fail to init reader.res=" << acquire_reader_st;
                 std::stringstream ss;
@@ -494,34 +487,30 @@ Status NewOlapScanNode::_init_scanners(std::list<VScanner*>* scanners) {
                 return Status::InternalError(ss.str());
             }
 
-            for (const auto& rowset_reader : rowset_readers_vector[i]) {
-                auto num_segments = rowset_reader->rowset()->num_segments();
+            for (const auto& rowset_splits : rowset_splits_vector[i]) {
+                auto num_segments = rowset_splits.rs_reader->rowset()->num_segments();
                 tablet_rs_seg_count[i].emplace_back(num_segments);
                 segment_count += num_segments;
             }
         }
     }
 
-    auto build_new_scanner = [&](const TPaloScanRange& scan_range,
-                                 const std::vector<OlapScanRange*>& key_ranges,
-                                 const std::vector<RowsetReaderSharedPtr>& rs_readers,
-                                 const std::vector<std::pair<int, int>>& rs_reader_seg_offsets) {
-        NewOlapScanner* scanner = new NewOlapScanner(_state, this, _limit_per_scanner,
-                                                     _olap_scan_node.is_preaggregation, scan_range,
-                                                     key_ranges, rs_readers, rs_reader_seg_offsets,
-                                                     _need_agg_finalize, _scanner_profile.get());
+    if (is_dup_mow_key) {
+        auto build_new_scanner = [&](const TPaloScanRange& scan_range,
+                                     const std::vector<OlapScanRange*>& key_ranges,
+                                     const std::vector<RowSetSplits>& rs_splits) {
+            std::shared_ptr<NewOlapScanner> scanner = NewOlapScanner::create_shared(
+                    _state, this, _limit_per_scanner, _olap_scan_node.is_preaggregation, scan_range,
+                    key_ranges, rs_splits, _scanner_profile.get());
 
-        scanner->set_compound_filters(_compound_filters);
-        // add scanner to pool before doing prepare.
-        // so that scanner can be automatically deconstructed if prepare failed.
-        _scanner_pool.add(scanner);
-        scanners->push_back((VScanner*)scanner);
-        return Status::OK();
-    };
-    if (is_duplicate_key) {
-        // 2. Split by segment count, each scanner need scan avg segment count
-        auto avg_segment_count =
-                std::max(segment_count / config::doris_scanner_thread_pool_thread_num, 1);
+            RETURN_IF_ERROR(scanner->prepare(_state, _conjuncts));
+            scanner->set_compound_filters(_compound_filters);
+            scanners->push_back(scanner);
+            return Status::OK();
+        };
+        // 2. Split segment evenly to each scanner (e.g. each scanner need to scan `avg_segment_count_per_scanner` segments)
+        const auto avg_segment_count_by_scanner =
+                std::max(segment_count / config::doris_scanner_thread_pool_thread_num, (size_t)1);
         for (int i = 0; i < _scan_ranges.size(); ++i) {
             auto& scan_range = _scan_ranges[i];
             std::vector<std::unique_ptr<doris::OlapScanRange>>* ranges = &_cond_ranges;
@@ -531,56 +520,84 @@ Status NewOlapScanNode::_init_scanners(std::list<VScanner*>* scanners) {
                 scanner_ranges[j] = (*ranges)[j].get();
             }
 
+            // Segment count in current rowset vector
             const auto& rs_seg_count = tablet_rs_seg_count[i];
-            int rs_seg_count_index = 0;
-            int rs_seg_start_scan = 0;
-            int scanner_seg_occupy = 0;
-            std::vector<RowsetReaderSharedPtr> rs_readers;
-            std::vector<std::pair<int, int>> rs_reader_seg_offsets;
 
-            while (rs_seg_count_index < rs_seg_count.size()) {
-                auto max_add_seg_nums = rs_seg_count[rs_seg_count_index] - rs_seg_start_scan;
-                rs_readers.emplace_back(rowset_readers_vector[i][rs_seg_count_index]->clone());
+            size_t rowset_idx = 0;
+            size_t segment_idx_to_scan = 0;
+            size_t num_segments_assigned = 0;
 
-                if (scanner_seg_occupy + max_add_seg_nums > avg_segment_count) {
-                    auto need_add_seg_nums = avg_segment_count - scanner_seg_occupy;
-                    rs_reader_seg_offsets.emplace_back(
-                            rs_seg_start_scan,
-                            rs_seg_start_scan + need_add_seg_nums); // only scan need_add_seg_nums
-                    RETURN_IF_ERROR(build_new_scanner(*scan_range, scanner_ranges, rs_readers,
-                                                      rs_reader_seg_offsets));
+            std::vector<RowSetSplits> rs_splits;
 
-                    rs_seg_start_scan += need_add_seg_nums;
-                    scanner_seg_occupy = 0;
-                    rs_readers.clear();
-                    rs_reader_seg_offsets.clear();
-                } else if (scanner_seg_occupy + max_add_seg_nums == avg_segment_count) {
-                    rs_reader_seg_offsets.emplace_back(rs_seg_start_scan,
-                                                       rs_seg_count[rs_seg_count_index]);
-                    RETURN_IF_ERROR(build_new_scanner(*scan_range, scanner_ranges, rs_readers,
-                                                      rs_reader_seg_offsets));
+            while (rowset_idx < rs_seg_count.size()) {
+                // do not generator range of segment (0, 0)
+                if (rs_seg_count[rowset_idx] == 0) {
+                    segment_idx_to_scan = 0;
+                    rowset_idx++;
+                    continue;
+                }
 
-                    rs_seg_start_scan = 0;
-                    scanner_seg_occupy = 0;
-                    rs_readers.clear();
-                    rs_reader_seg_offsets.clear();
-                    rs_seg_count_index++;
+                const auto max_add_seg_nums = rs_seg_count[rowset_idx] - segment_idx_to_scan;
+                rs_splits.emplace_back(RowSetSplits());
+                rs_splits.back().rs_reader = rowset_splits_vector[i][rowset_idx].rs_reader->clone();
+
+                // if segments assigned to current scanner are already more than the average count,
+                // this scanner will just scan segments equal to the average count
+                if (num_segments_assigned + max_add_seg_nums > avg_segment_count_by_scanner) {
+                    auto need_add_seg_nums = avg_segment_count_by_scanner - num_segments_assigned;
+                    rs_splits.back().segment_offsets = {
+                            segment_idx_to_scan,
+                            segment_idx_to_scan + need_add_seg_nums}; // only scan need_add_seg_nums
+
+                    RETURN_IF_ERROR(build_new_scanner(*scan_range, scanner_ranges, rs_splits));
+
+                    segment_idx_to_scan += need_add_seg_nums;
+                    num_segments_assigned = 0;
+                    rs_splits.clear();
+                } else if (num_segments_assigned + max_add_seg_nums ==
+                           avg_segment_count_by_scanner) {
+                    rs_splits.back().segment_offsets = {segment_idx_to_scan,
+                                                        rs_seg_count[rowset_idx]};
+                    RETURN_IF_ERROR(build_new_scanner(*scan_range, scanner_ranges, rs_splits));
+
+                    segment_idx_to_scan = 0;
+                    num_segments_assigned = 0;
+                    rs_splits.clear();
+                    rowset_idx++;
                 } else {
-                    rs_reader_seg_offsets.emplace_back(rs_seg_start_scan,
-                                                       rs_seg_count[rs_seg_count_index]);
+                    rs_splits.back().segment_offsets = {segment_idx_to_scan,
+                                                        rs_seg_count[rowset_idx]};
 
-                    rs_seg_start_scan = 0;
-                    scanner_seg_occupy += max_add_seg_nums;
-                    rs_seg_count_index++;
+                    segment_idx_to_scan = 0;
+                    num_segments_assigned += max_add_seg_nums;
+                    rowset_idx++;
                 }
             }
 
+#ifndef NDEBUG
+            for (const auto& rs_reader_with_segments : rs_splits) {
+                DCHECK_NE(rs_reader_with_segments.segment_offsets.first,
+                          rs_reader_with_segments.segment_offsets.second);
+            }
+#endif
+
             // dispose some segment tail
-            if (!rs_readers.empty()) {
-                build_new_scanner(*scan_range, scanner_ranges, rs_readers, rs_reader_seg_offsets);
+            if (!rs_splits.empty()) {
+                build_new_scanner(*scan_range, scanner_ranges, rs_splits);
             }
         }
     } else {
+        auto build_new_scanner = [&](const TPaloScanRange& scan_range,
+                                     const std::vector<OlapScanRange*>& key_ranges) {
+            std::shared_ptr<NewOlapScanner> scanner = NewOlapScanner::create_shared(
+                    _state, this, _limit_per_scanner, _olap_scan_node.is_preaggregation, scan_range,
+                    key_ranges, _scanner_profile.get());
+
+            RETURN_IF_ERROR(scanner->prepare(_state, _conjuncts));
+            scanner->set_compound_filters(_compound_filters);
+            scanners->push_back(scanner);
+            return Status::OK();
+        };
         for (auto& scan_range : _scan_ranges) {
             auto tablet_id = scan_range->tablet_id;
             auto [tablet, status] =
@@ -609,7 +626,7 @@ Status NewOlapScanNode::_init_scanners(std::list<VScanner*>* scanners) {
                      ++j, ++i) {
                     scanner_ranges.push_back((*ranges)[i].get());
                 }
-                RETURN_IF_ERROR(build_new_scanner(*scan_range, scanner_ranges, {}, {}));
+                RETURN_IF_ERROR(build_new_scanner(*scan_range, scanner_ranges));
             }
         }
     }
@@ -630,6 +647,26 @@ bool NewOlapScanNode::_is_key_column(const std::string& key_name) {
     auto res = std::find(_olap_scan_node.key_column_name.begin(),
                          _olap_scan_node.key_column_name.end(), key_name);
     return res != _olap_scan_node.key_column_name.end();
+}
+
+void NewOlapScanNode::add_filter_info(int id, const PredicateFilterInfo& update_info) {
+    std::unique_lock lock(_profile_mtx);
+    // update
+    _filter_info[id].filtered_row += update_info.filtered_row;
+    _filter_info[id].input_row += update_info.input_row;
+    _filter_info[id].type = update_info.type;
+    // to string
+    auto& info = _filter_info[id];
+    std::string filter_name = "RuntimeFilterInfo id ";
+    filter_name += std::to_string(id);
+    std::string info_str;
+    info_str += "type = " + type_to_string(static_cast<PredicateType>(info.type)) + ", ";
+    info_str += "input = " + std::to_string(info.input_row) + ", ";
+    info_str += "filtered = " + std::to_string(info.filtered_row);
+    info_str = "[" + info_str + "]";
+
+    // add info
+    _segment_profile->add_info_string(filter_name, info_str);
 }
 
 }; // namespace doris::vectorized

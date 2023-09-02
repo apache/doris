@@ -17,17 +17,27 @@
 
 package org.apache.doris.datasource.hive;
 
+import org.apache.doris.catalog.Column;
+
+import com.google.common.base.Preconditions;
 import lombok.Data;
 
 import java.util.List;
 
 @Data
 public class HivePartition {
+    private String dbName;
+    private String tblName;
     private String inputFormat;
     private String path;
     private List<String> partitionValues;
+    private boolean isDummyPartition;
 
-    public HivePartition(String inputFormat, String path, List<String> partitionValues) {
+    public HivePartition(String dbName, String tblName, boolean isDummyPartition,
+                         String inputFormat, String path, List<String> partitionValues) {
+        this.dbName = dbName;
+        this.tblName = tblName;
+        this.isDummyPartition = isDummyPartition;
         // eg: org.apache.hadoop.hive.ql.io.parquet.MapredParquetInputFormat
         this.inputFormat = inputFormat;
         // eg: hdfs://hk-dev01:8121/user/doris/parquet/partition_table/nation=cn/city=beijing
@@ -36,10 +46,30 @@ public class HivePartition {
         this.partitionValues = partitionValues;
     }
 
+    // return partition name like: nation=cn/city=beijing
+    public String getPartitionName(List<Column> partColumns) {
+        Preconditions.checkState(partColumns.size() == partitionValues.size());
+        StringBuilder sb = new StringBuilder();
+        for (int i = 0; i < partColumns.size(); ++i) {
+            if (i != 0) {
+                sb.append("/");
+            }
+            sb.append(partColumns.get(i).getName()).append("=").append(partitionValues.get(i));
+        }
+        return sb.toString();
+    }
+
+    public boolean isDummyPartition() {
+        return this.isDummyPartition;
+    }
+
     @Override
     public String toString() {
         return "HivePartition{"
-                + "inputFormat='" + inputFormat + '\''
+                + "dbName='" + dbName + '\''
+                + ", tblName='" + tblName + '\''
+                + ", isDummyPartition='" + isDummyPartition + '\''
+                + ", inputFormat='" + inputFormat + '\''
                 + ", path='" + path + '\''
                 + ", partitionValues=" + partitionValues + '}';
     }

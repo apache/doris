@@ -37,7 +37,7 @@ import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.CheckedMath;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
-import org.apache.doris.common.util.VectorizedUtil;
+import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.statistics.StatisticalType;
 import org.apache.doris.thrift.TEqJoinCondition;
 import org.apache.doris.thrift.TExplainLevel;
@@ -48,13 +48,14 @@ import org.apache.doris.thrift.TPlanNodeType;
 import com.google.common.base.MoreObjects;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.Collections;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -73,14 +74,14 @@ public class HashJoinNode extends JoinNodeBase {
     private List<BinaryPredicate> eqJoinConjuncts = Lists.newArrayList();
     // join conjuncts from the JOIN clause that aren't equi-join predicates
     private List<Expr> otherJoinConjuncts;
-    // join conjunct from the JOIN clause that aren't equi-join predicates, only use in
-    // vec exec engine
-    private Expr votherJoinConjunct = null;
+
     private DistributionMode distrMode;
     private boolean isColocate = false; //the flag for colocate join
     private String colocateReason = ""; // if can not do colocate join, set reason here
 
-    private List<SlotId> hashOutputSlotIds = new ArrayList<>(); //init for nereids
+    private Set<SlotId> hashOutputSlotIds = Sets.newHashSet(); //init for nereids
+
+    private Map<ExprId, SlotId> hashOutputExprSlotIdMap = Maps.newHashMap();
 
     /**
      * Constructor of HashJoinNode.
@@ -91,17 +92,11 @@ public class HashJoinNode extends JoinNodeBase {
         Preconditions.checkArgument(eqJoinConjuncts != null && !eqJoinConjuncts.isEmpty());
         Preconditions.checkArgument(otherJoinConjuncts != null);
 
-        // TODO: Support not vec exec engine cut unless tupleid in semi/anti join
-        if (VectorizedUtil.isVectorized()) {
-            if (joinOp.equals(JoinOperator.LEFT_ANTI_JOIN) || joinOp.equals(JoinOperator.LEFT_SEMI_JOIN)
-                    || joinOp.equals(JoinOperator.NULL_AWARE_LEFT_ANTI_JOIN)) {
-                tupleIds.addAll(outer.getTupleIds());
-            } else if (joinOp.equals(JoinOperator.RIGHT_ANTI_JOIN) || joinOp.equals(JoinOperator.RIGHT_SEMI_JOIN)) {
-                tupleIds.addAll(inner.getTupleIds());
-            } else {
-                tupleIds.addAll(outer.getTupleIds());
-                tupleIds.addAll(inner.getTupleIds());
-            }
+        if (joinOp.equals(JoinOperator.LEFT_ANTI_JOIN) || joinOp.equals(JoinOperator.LEFT_SEMI_JOIN)
+                || joinOp.equals(JoinOperator.NULL_AWARE_LEFT_ANTI_JOIN)) {
+            tupleIds.addAll(outer.getTupleIds());
+        } else if (joinOp.equals(JoinOperator.RIGHT_ANTI_JOIN) || joinOp.equals(JoinOperator.RIGHT_SEMI_JOIN)) {
+            tupleIds.addAll(inner.getTupleIds());
         } else {
             tupleIds.addAll(outer.getTupleIds());
             tupleIds.addAll(inner.getTupleIds());
@@ -134,17 +129,11 @@ public class HashJoinNode extends JoinNodeBase {
         tblRefIds.addAll(outer.getTblRefIds());
         tblRefIds.addAll(inner.getTblRefIds());
 
-        // TODO: Support not vec exec engine cut unless tupleid in semi/anti join
-        if (VectorizedUtil.isVectorized()) {
-            if (joinOp.equals(JoinOperator.LEFT_ANTI_JOIN) || joinOp.equals(JoinOperator.LEFT_SEMI_JOIN)
-                    || joinOp.equals(JoinOperator.NULL_AWARE_LEFT_ANTI_JOIN)) {
-                tupleIds.addAll(outer.getTupleIds());
-            } else if (joinOp.equals(JoinOperator.RIGHT_ANTI_JOIN) || joinOp.equals(JoinOperator.RIGHT_SEMI_JOIN)) {
-                tupleIds.addAll(inner.getTupleIds());
-            } else {
-                tupleIds.addAll(outer.getTupleIds());
-                tupleIds.addAll(inner.getTupleIds());
-            }
+        if (joinOp.equals(JoinOperator.LEFT_ANTI_JOIN) || joinOp.equals(JoinOperator.LEFT_SEMI_JOIN)
+                || joinOp.equals(JoinOperator.NULL_AWARE_LEFT_ANTI_JOIN)) {
+            tupleIds.addAll(outer.getTupleIds());
+        } else if (joinOp.equals(JoinOperator.RIGHT_ANTI_JOIN) || joinOp.equals(JoinOperator.RIGHT_SEMI_JOIN)) {
+            tupleIds.addAll(inner.getTupleIds());
         } else {
             tupleIds.addAll(outer.getTupleIds());
             tupleIds.addAll(inner.getTupleIds());
@@ -246,7 +235,15 @@ public class HashJoinNode extends JoinNodeBase {
         Expr.getIds(otherJoinConjuncts, null, otherAndConjunctSlotIds);
         Expr.getIds(conjuncts, null, otherAndConjunctSlotIds);
         hashOutputSlotIdSet.addAll(otherAndConjunctSlotIds);
-        hashOutputSlotIds = new ArrayList<>(hashOutputSlotIdSet);
+        hashOutputSlotIds = new HashSet<>(hashOutputSlotIdSet);
+    }
+
+    public Map<ExprId, SlotId> getHashOutputExprSlotIdMap() {
+        return hashOutputExprSlotIdMap;
+    }
+
+    public Set<SlotId> getHashOutputSlotIds() {
+        return hashOutputSlotIds;
     }
 
     @Override
@@ -258,11 +255,6 @@ public class HashJoinNode extends JoinNodeBase {
     @Override
     protected void computeOtherConjuncts(Analyzer analyzer, ExprSubstitutionMap originToIntermediateSmap) {
         otherJoinConjuncts = Expr.substituteList(otherJoinConjuncts, originToIntermediateSmap, analyzer, false);
-        if (votherJoinConjunct != null) {
-            votherJoinConjunct =
-                    Expr.substituteList(Arrays.asList(votherJoinConjunct), originToIntermediateSmap, analyzer, false)
-                            .get(0);
-        }
     }
 
     @Override
@@ -287,10 +279,7 @@ public class HashJoinNode extends JoinNodeBase {
                 newEqJoinConjuncts.stream().map(entity -> (BinaryPredicate) entity).collect(Collectors.toList());
         otherJoinConjuncts = Expr.substituteList(otherJoinConjuncts, combinedChildSmap, analyzer, false);
 
-        // Only for Vec: create new tuple for join result
-        if (VectorizedUtil.isVectorized()) {
-            computeOutputTuple(analyzer);
-        }
+        computeOutputTuple(analyzer);
     }
 
     @Override
@@ -717,10 +706,6 @@ public class HashJoinNode extends JoinNodeBase {
             msg.hash_join_node.addToOtherJoinConjuncts(e.treeToThrift());
         }
 
-        // use in vec exec engine to replace otherJoinConjuncts
-        if (votherJoinConjunct != null) {
-            msg.hash_join_node.setVotherJoinConjunct(votherJoinConjunct.treeToThrift());
-        }
         if (hashOutputSlotIds != null) {
             for (SlotId slotId : hashOutputSlotIds) {
                 msg.hash_join_node.addToHashOutputSlotIds(slotId.asInt());
@@ -762,7 +747,7 @@ public class HashJoinNode extends JoinNodeBase {
             output.append(detailPrefix).append(
                     String.format("cardinality=%,d", cardinality)).append("\n");
             if (!runtimeFilters.isEmpty()) {
-                output.append(detailPrefix).append("Build RFs: ");
+                output.append(detailPrefix).append("runtime filters: ");
                 output.append(getRuntimeFilterExplainString(true, true));
             }
             return output.toString();
@@ -829,20 +814,15 @@ public class HashJoinNode extends JoinNodeBase {
         }
     }
 
-    @Override
-    public void convertToVectorized() {
-        if (!otherJoinConjuncts.isEmpty()) {
-            votherJoinConjunct = convertConjunctsToAndCompoundPredicate(otherJoinConjuncts);
-            initCompoundPredicate(votherJoinConjunct);
-        }
-        super.convertToVectorized();
-    }
-
     /**
      * Used by nereids.
      */
     public void setOtherJoinConjuncts(List<Expr> otherJoinConjuncts) {
         this.otherJoinConjuncts = otherJoinConjuncts;
+    }
+
+    public List<Expr> getOtherJoinConjuncts() {
+        return otherJoinConjuncts;
     }
 
     SlotRef getMappedInputSlotRef(SlotRef slotRef) {

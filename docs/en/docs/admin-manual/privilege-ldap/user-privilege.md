@@ -115,7 +115,7 @@ Doris currently supports the following permissions
 
 1. Node_priv
 
-	Nodes change permissions. Including FE, BE, BROKER node addition, deletion, offline operations. Currently, this permission can only be granted to Root users.
+	Nodes change permissions. Including FE, BE, BROKER node addition, deletion, offline operations. User who has Node_priv and Grant_priv permission, can grant Node_priv to other users.
 
     The root user has this permission by default.
 
@@ -149,6 +149,10 @@ Doris currently supports the following permissions
 
 	Delete permissions for databases, tables, and views.
 
+8. Usage_priv
+
+   Use of resources <version since="dev" type="inline" >and workload groups</version>.
+
 ## Permission hierarchy
 
 At the same time, according to the scope of application of permissions, we divide them into four levels:
@@ -158,6 +162,15 @@ At the same time, according to the scope of application of permissions, we divid
 3. DATABASE LEVEL: Database-level permissions. That is, the permissions on `ctl.db.*` granted through the GRANT statement. The privileges granted apply to any table in the specified database.
 4. TABLE LEVEL: Table-level permissions. That is, the permissions on `ctl.db.tbl` granted through the GRANT statement. The privileges granted apply to the specified table in the specified database.
 
+The privileges of the resources are divided into two levels as follows:
+
+1. GLOBAL LEVEL: Global privileges. That is, the privileges granted on `*` by the GRANT statement. The privileges granted apply to the resource.
+2. RESOURCE LEVEL: Resource-level privileges. This is the permission on `resource_name` granted by the GRANT statement. The privilege granted applies to the specified resource.
+
+<version since="dev">
+The workload group has only one level:
+1. WORKLOAD GROUP LEVEL: privileges on `workload_group_name` that can be granted with the GRANT statement. The privileges granted apply to the specified workload group. workload_group_name supports `%` and `_` match characters, `%` can match any string and `_` matches any single character.
+</version>
 
 ## ADMIN /GRANT
 
@@ -236,9 +249,9 @@ ADMIN_PRIV and GRANT_PRIV have the authority of **"grant authority"** at the sam
 
 5. Forget passwords
 
-	If you forget your password and cannot log in to Doris, you can log in to Doris without a password using the following command on the machine where the Doris FE node is located:
+	If you forget your password and cannot log in to Doris, you can add `skip_localhost_auth_check` in fe config and restart FE so that logging to Doris without a password in localhost.
 
-	`mysql-client -h 127.0.0.1 -P query_port -uroot`
+	`skip_localhost_auth_check = true`
 
 	After login, the password can be reset through the SET PASSWORD command.
 

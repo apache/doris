@@ -42,10 +42,9 @@
 #include "util/debug_util.h"
 #include "util/runtime_profile.h"
 #include "util/uid_util.h"
-#include "vec/columns/column.h"
 #include "vec/columns/column_nullable.h"
 #include "vec/core/block.h"
-#include "vec/core/column_with_type_and_name.h"
+#include "vec/exec/distinct_vaggregation_node.h"
 #include "vec/exec/join/vhash_join_node.h"
 #include "vec/exec/join/vnested_loop_join_node.h"
 #include "vec/exec/scan/new_es_scan_node.h"
@@ -62,6 +61,7 @@
 #include "vec/exec/vempty_set_node.h"
 #include "vec/exec/vexchange_node.h"
 #include "vec/exec/vmysql_scan_node.h" // IWYU pragma: keep
+#include "vec/exec/vpartition_sort_node.h"
 #include "vec/exec/vrepeat_node.h"
 #include "vec/exec/vschema_scan_node.h"
 #include "vec/exec/vselect_node.h"
@@ -71,7 +71,6 @@
 #include "vec/exec/vunion_node.h"
 #include "vec/exprs/vexpr.h"
 #include "vec/exprs/vexpr_context.h"
-#include "vec/runtime/vdatetime_value.h"
 #include "vec/utils/util.hpp"
 
 namespace doris {
@@ -91,6 +90,7 @@ ExecNode::ExecNode(ObjectPool* pool, const TPlanNode& tnode, const DescriptorTbl
           _rows_returned_counter(nullptr),
           _rows_returned_rate(nullptr),
           _memory_used_counter(nullptr),
+          _peak_memory_usage_counter(nullptr),
           _is_closed(false),
           _ref(0) {
     if (tnode.__isset.output_tuple_id) {
@@ -104,16 +104,21 @@ Status ExecNode::init(const TPlanNode& tnode, RuntimeState* state) {
     init_runtime_profile(get_name());
 
     if (tnode.__isset.vconjunct) {
-        _vconjunct_ctx_ptr.reset(new doris::vectorized::VExprContext*);
-        RETURN_IF_ERROR(doris::vectorized::VExpr::create_expr_tree(_pool, tnode.vconjunct,
-                                                                   _vconjunct_ctx_ptr.get()));
+        vectorized::VExprContextSPtr context;
+        RETURN_IF_ERROR(vectorized::VExpr::create_expr_tree(tnode.vconjunct, context));
+        _conjuncts.emplace_back(context);
+    } else if (tnode.__isset.conjuncts) {
+        for (auto& conjunct : tnode.conjuncts) {
+            vectorized::VExprContextSPtr context;
+            RETURN_IF_ERROR(vectorized::VExpr::create_expr_tree(conjunct, context));
+            _conjuncts.emplace_back(context);
+        }
     }
 
     // create the projections expr
     if (tnode.__isset.projections) {
         DCHECK(tnode.__isset.output_tuple_id);
-        RETURN_IF_ERROR(
-                vectorized::VExpr::create_expr_trees(_pool, tnode.projections, &_projections));
+        RETURN_IF_ERROR(vectorized::VExpr::create_expr_trees(tnode.projections, _projections));
     }
 
     return Status::OK();
@@ -121,6 +126,8 @@ Status ExecNode::init(const TPlanNode& tnode, RuntimeState* state) {
 
 Status ExecNode::prepare(RuntimeState* state) {
     DCHECK(_runtime_profile.get() != nullptr);
+    _span = state->get_tracer()->StartSpan(get_name());
+    OpentelemetryScope scope {_span};
     _rows_returned_counter = ADD_COUNTER(_runtime_profile, "RowsReturned", TUnit::UNIT);
     _projection_timer = ADD_TIMER(_runtime_profile, "ProjectionTime");
     _rows_returned_rate = runtime_profile()->add_derived_counter(
@@ -128,11 +135,13 @@ Status ExecNode::prepare(RuntimeState* state) {
             std::bind<int64_t>(&RuntimeProfile::units_per_second, _rows_returned_counter,
                                runtime_profile()->total_time_counter()),
             "");
-    _mem_tracker = std::make_unique<MemTracker>("ExecNode:" + _runtime_profile->name(),
-                                                _runtime_profile.get(), nullptr, "PeakMemoryUsage");
+    _memory_used_counter = ADD_LABEL_COUNTER(runtime_profile(), "MemoryUsage");
+    _peak_memory_usage_counter = _runtime_profile->AddHighWaterMarkCounter(
+            "PeakMemoryUsage", TUnit::BYTES, "MemoryUsage");
+    _mem_tracker = std::make_unique<MemTracker>("ExecNode:" + _runtime_profile->name());
 
-    if (_vconjunct_ctx_ptr) {
-        RETURN_IF_ERROR((*_vconjunct_ctx_ptr)->prepare(state, intermediate_row_desc()));
+    for (auto& conjunct : _conjuncts) {
+        RETURN_IF_ERROR(conjunct->prepare(state, intermediate_row_desc()));
     }
 
     RETURN_IF_ERROR(vectorized::VExpr::prepare(_projections, state, intermediate_row_desc()));
@@ -140,13 +149,12 @@ Status ExecNode::prepare(RuntimeState* state) {
     for (int i = 0; i < _children.size(); ++i) {
         RETURN_IF_ERROR(_children[i]->prepare(state));
     }
-
     return Status::OK();
 }
 
 Status ExecNode::alloc_resource(doris::RuntimeState* state) {
-    if (_vconjunct_ctx_ptr) {
-        RETURN_IF_ERROR((*_vconjunct_ctx_ptr)->open(state));
+    for (auto& conjunct : _conjuncts) {
+        RETURN_IF_ERROR(conjunct->open(state));
     }
     RETURN_IF_ERROR(vectorized::VExpr::open(_projections, state));
     return Status::OK();
@@ -167,7 +175,7 @@ Status ExecNode::reset(RuntimeState* state) {
 Status ExecNode::collect_query_statistics(QueryStatistics* statistics) {
     DCHECK(statistics != nullptr);
     for (auto child_node : _children) {
-        child_node->collect_query_statistics(statistics);
+        RETURN_IF_ERROR(child_node->collect_query_statistics(statistics));
     }
     return Status::OK();
 }
@@ -178,12 +186,7 @@ void ExecNode::release_resource(doris::RuntimeState* state) {
             COUNTER_SET(_rows_returned_counter, _num_rows_returned);
         }
 
-        if (_vconjunct_ctx_ptr) {
-            (*_vconjunct_ctx_ptr)->close(state);
-        }
-        vectorized::VExpr::close(_projections, state);
-
-        runtime_profile()->add_to_span();
+        runtime_profile()->add_to_span(_span);
         _is_resource_released = true;
     }
 }
@@ -203,6 +206,9 @@ Status ExecNode::close(RuntimeState* state) {
         if (result.ok() && !st.ok()) {
             result = st;
         }
+    }
+    if (_peak_memory_usage_counter) {
+        _peak_memory_usage_counter->set(_mem_tracker->peak_consumption());
     }
     release_resource(state);
     return result;
@@ -317,6 +323,7 @@ Status ExecNode::create_node(RuntimeState* state, ObjectPool* pool, const TPlanN
     case TPlanNodeType::FILE_SCAN_NODE:
     case TPlanNodeType::JDBC_SCAN_NODE:
     case TPlanNodeType::META_SCAN_NODE:
+    case TPlanNodeType::PARTITION_SORT_NODE:
         break;
     default: {
         const auto& i = _TPlanNodeType_VALUES_TO_NAMES.find(tnode.node_type);
@@ -371,7 +378,11 @@ Status ExecNode::create_node(RuntimeState* state, ObjectPool* pool, const TPlanN
         return Status::OK();
 
     case TPlanNodeType::AGGREGATION_NODE:
-        *node = pool->add(new vectorized::AggregationNode(pool, tnode, descs));
+        if (tnode.agg_node.aggregate_functions.empty() && state->enable_pipeline_exec()) {
+            *node = pool->add(new vectorized::DistinctAggregationNode(pool, tnode, descs));
+        } else {
+            *node = pool->add(new vectorized::AggregationNode(pool, tnode, descs));
+        }
         return Status::OK();
 
     case TPlanNodeType::HASH_JOIN_NODE:
@@ -437,6 +448,9 @@ Status ExecNode::create_node(RuntimeState* state, ObjectPool* pool, const TPlanN
         *node = pool->add(new vectorized::VDataGenFunctionScanNode(pool, tnode, descs));
         return Status::OK();
 
+    case TPlanNodeType::PARTITION_SORT_NODE:
+        *node = pool->add(new vectorized::VPartitionSortNode(pool, tnode, descs));
+        return Status::OK();
     default:
         std::map<int, const char*>::const_iterator i =
                 _TPlanNodeType_VALUES_TO_NAMES.find(tnode.node_type);
@@ -490,38 +504,8 @@ void ExecNode::collect_scan_nodes(vector<ExecNode*>* nodes) {
     collect_nodes(TPlanNodeType::DATA_GEN_SCAN_NODE, nodes);
     collect_nodes(TPlanNodeType::FILE_SCAN_NODE, nodes);
     collect_nodes(TPlanNodeType::META_SCAN_NODE, nodes);
-}
-
-void ExecNode::try_do_aggregate_serde_improve() {
-    std::vector<ExecNode*> agg_node;
-    collect_nodes(TPlanNodeType::AGGREGATION_NODE, &agg_node);
-    if (agg_node.size() != 1) {
-        return;
-    }
-
-    if (agg_node[0]->_children.size() != 1) {
-        return;
-    }
-
-    if (agg_node[0]->_children[0]->type() != TPlanNodeType::OLAP_SCAN_NODE) {
-        return;
-    }
-
-    // TODO(cmy): should be removed when NewOlapScanNode is ready
-    ExecNode* child0 = agg_node[0]->_children[0];
-    if (typeid(*child0) == typeid(vectorized::NewOlapScanNode) ||
-        typeid(*child0) == typeid(vectorized::NewFileScanNode) ||
-        typeid(*child0) == typeid(vectorized::NewOdbcScanNode) ||
-        typeid(*child0) == typeid(vectorized::NewEsScanNode) ||
-        typeid(*child0) == typeid(vectorized::NewJdbcScanNode) ||
-        typeid(*child0) == typeid(vectorized::VMetaScanNode)) {
-        vectorized::VScanNode* scan_node =
-                static_cast<vectorized::VScanNode*>(agg_node[0]->_children[0]);
-        scan_node->set_no_agg_finalize();
-    } else {
-        ScanNode* scan_node = static_cast<ScanNode*>(agg_node[0]->_children[0]);
-        scan_node->set_no_agg_finalize();
-    }
+    collect_nodes(TPlanNodeType::JDBC_SCAN_NODE, nodes);
+    collect_nodes(TPlanNodeType::ODBC_SCAN_NODE, nodes);
 }
 
 void ExecNode::init_runtime_profile(const std::string& name) {
@@ -557,11 +541,8 @@ std::string ExecNode::get_name() {
 Status ExecNode::do_projections(vectorized::Block* origin_block, vectorized::Block* output_block) {
     SCOPED_TIMER(_projection_timer);
     using namespace vectorized;
-    auto is_mem_reuse = output_block->mem_reuse();
     MutableBlock mutable_block =
-            is_mem_reuse ? MutableBlock(output_block)
-                         : MutableBlock(VectorizedUtils::create_empty_columnswithtypename(
-                                   *_output_row_descriptor));
+            VectorizedUtils::build_mutable_mem_reuse_block(output_block, *_output_row_descriptor);
     auto rows = origin_block->rows();
 
     if (rows != 0) {
@@ -581,9 +562,7 @@ Status ExecNode::do_projections(vectorized::Block* origin_block, vectorized::Blo
                 mutable_columns[i]->insert_range_from(*column_ptr, 0, rows);
             }
         }
-
-        if (!is_mem_reuse) output_block->swap(mutable_block.to_block());
-        DCHECK(output_block->rows() == rows);
+        DCHECK(mutable_block.rows() == rows);
     }
 
     return Status::OK();
@@ -601,6 +580,7 @@ Status ExecNode::get_next_after_projects(
         if (UNLIKELY(!status.ok())) return status;
         return do_projections(&_origin_block, block);
     }
+    _peak_memory_usage_counter->set(_mem_tracker->peak_consumption());
     return func(state, block, eos);
 }
 

@@ -262,6 +262,10 @@ struct DecimalBinaryOperation {
             for (size_t i = 0; i < size; ++i) {
                 null_map[i] = apply_op_safely(a[i], b[i], c[i].value);
             }
+        } else {
+            for (size_t i = 0; i < size; ++i) {
+                c[i] = apply(a[i], b[i], null_map[i]);
+            }
         }
     }
 
@@ -455,8 +459,7 @@ private:
                 NativeResultType res;
                 // TODO handle overflow gracefully
                 if (Op::template apply<NativeResultType>(a, b, res)) {
-                    LOG(WARNING) << "Decimal math overflow";
-                    res = max_decimal_value<ResultType>();
+                    res = type_limit<ResultType>::max();
                 }
                 return res;
             } else {
@@ -496,7 +499,7 @@ private:
                 // TODO handle overflow gracefully
                 if (overflow) {
                     LOG(WARNING) << "Decimal math overflow";
-                    res = max_decimal_value<ResultType>();
+                    res = type_limit<ResultType>::max();
                 }
             } else {
                 res = apply(a, b);

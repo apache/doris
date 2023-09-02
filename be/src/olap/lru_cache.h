@@ -239,12 +239,12 @@ private:
 
 // An entry is a variable length heap-allocated structure.  Entries
 // are kept in a circular doubly linked list ordered by access time.
-typedef struct LRUHandle {
+struct LRUHandle {
     void* value;
     void (*deleter)(const CacheKey&, void* value);
-    LRUHandle* next_hash = nullptr; // next entry in hash table
-    LRUHandle* next = nullptr;      // next entry in lru list
-    LRUHandle* prev = nullptr;      // previous entry in lru list
+    struct LRUHandle* next_hash = nullptr; // next entry in hash table
+    struct LRUHandle* next = nullptr;      // next entry in lru list
+    struct LRUHandle* prev = nullptr;      // previous entry in lru list
     size_t charge;
     size_t key_length;
     size_t total_size; // including key length
@@ -254,8 +254,8 @@ typedef struct LRUHandle {
     uint32_t hash; // Hash of key(); used for fast sharding and comparisons
     CachePriority priority = CachePriority::NORMAL;
     MemTrackerLimiter* mem_tracker;
-    char key_data[1]; // Beginning of key
     LRUCacheType type;
+    char key_data[1]; // Beginning of key
 
     CacheKey key() const {
         // For cheaper lookups, we allow a temporary Handle object
@@ -273,8 +273,7 @@ typedef struct LRUHandle {
         DorisMetrics::instance()->lru_cache_memory_bytes->increment(-bytes);
         ::free(this);
     }
-
-} LRUHandle;
+};
 
 // We provide our own simple hash tablet since it removes a whole bunch
 // of porting hacks and is also faster than some of the built-in hash
@@ -444,6 +443,11 @@ private:
     IntAtomicCounter* cache_lookup_count = nullptr;
     IntAtomicCounter* cache_hit_count = nullptr;
     DoubleGauge* cache_hit_ratio = nullptr;
+    // bvars
+    std::unique_ptr<bvar::Adder<uint64_t>> _hit_count_bvar;
+    std::unique_ptr<bvar::PerSecond<bvar::Adder<uint64_t>>> _hit_count_per_second;
+    std::unique_ptr<bvar::Adder<uint64_t>> _lookup_count_bvar;
+    std::unique_ptr<bvar::PerSecond<bvar::Adder<uint64_t>>> _lookup_count_per_second;
 };
 
 } // namespace doris

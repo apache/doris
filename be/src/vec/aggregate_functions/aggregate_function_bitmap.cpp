@@ -25,15 +25,18 @@
 namespace doris::vectorized {
 
 template <bool nullable, template <bool, typename> class AggregateFunctionTemplate>
-IAggregateFunction* create_with_int_data_type(const DataTypes& argument_type) {
+AggregateFunctionPtr create_with_int_data_type(const DataTypes& argument_type) {
     auto type = remove_nullable(argument_type[0]);
     WhichDataType which(type);
-#define DISPATCH(TYPE)                                                                     \
-    if (which.idx == TypeIndex::TYPE) {                                                    \
-        return new AggregateFunctionTemplate<nullable, ColumnVector<TYPE>>(argument_type); \
+#define DISPATCH(TYPE)                                                                    \
+    if (which.idx == TypeIndex::TYPE) {                                                   \
+        return std::make_shared<AggregateFunctionTemplate<nullable, ColumnVector<TYPE>>>( \
+                argument_type);                                                           \
     }
     FOR_INTEGER_TYPES(DISPATCH)
 #undef DISPATCH
+    LOG(WARNING) << "with unknowed type, failed in create_with_int_data_type bitmap_union_int"
+                 << " and type is: " << argument_type[0]->get_name();
     return nullptr;
 }
 

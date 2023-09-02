@@ -1,6 +1,6 @@
 ---
 {
-    "title": "elt",
+    "title": "ELT",
     "language": "en"
 }
 ---
@@ -26,7 +26,7 @@ under the License.
 ### Description
 #### Syntax
 
-`VARCHAR elt (INT,VARCHAR,...)`
+`VARCHAR elt(INT, VARCHAR,...)`
 
 Returns the string at specified index. Returns NULL if there is no string at specified index.
 

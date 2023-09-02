@@ -27,11 +27,7 @@ under the License.
 
 # 文件缓存
 
-<version since="dev">
-
 文件缓存(File Cache)通过缓存最近访问的远端存储系统(HDFS 或对象存储)的数据文件，加速后续访问相同数据的查询。在频繁访问相同数据的查询场景中，File Cache 可以避免重复的远端数据访问开销，提升热点数据的查询分析性能和稳定性。
-
-</version>
 
 ## 原理
 
@@ -48,26 +44,32 @@ File Cache 默认关闭，需要在 FE 和 BE 中设置相关参数进行开启�
 ```
 SET enable_file_cache = true;
 ```
+
 全局开启 File Cache:
 
 ```
 SET GLOBAL enable_file_cache = true;
 ```
 
+> File Cache 功能仅作用于针对文件的外表查询（如 Hive、Hudi ）。对内表查询，或非文件的外表查询（如 JDBC、Elasticsearch）等无影响。
+
 ### BE 配置
+
 添加参数到 BE 节点的配置文件 conf/be.conf 中，并重启 BE 节点让配置生效。
 
 |  参数   | 说明  |
 |  ---  | ---  |
 | `enable_file_cache`  | 是否启用 File Cache，默认 false |
+| `file_cache_path` | 缓存目录的相关配置，json格式，例子: `[{"path": "/path/to/file_cache1", "total_size":53687091200,"query_limit": "10737418240"},{"path": "/path/to/file_cache2", "total_size":53687091200,"query_limit": "10737418240"},{"path": "/path/to/file_cache3", "total_size":53687091200,"query_limit": "10737418240"}]`。`path` 是缓存的保存路径，`total_size` 是缓存的大小上限，`query_limit` 是单个查询能够使用的最大缓存大小。 |
+| `file_cache_min_file_segment_size` | 单个 Block 的大小下限，默认 1MB，需要大于 4096 |
 | `file_cache_max_file_segment_size` | 单个 Block 的大小上限，默认 4MB，需要大于 4096 |
-| `file_cache_path` | 缓存目录的相关配置，json格式，例子: `[{"path": "storage1", "normal":53687091200,"persistent":21474836480,"query_limit": "10737418240"},{"path": "storage2", "normal":53687091200,"persistent":21474836480},{"path": "storage3","normal":53687091200,"persistent":21474836480}]`。`path` 是缓存的保存路径，`normal` 是缓存的大小上限，`query_limit` 是单个查询能够使用的最大缓存大小，`persistent` / `file_cache_max_file_segment_size` 是最多缓存的 Block 数量。 |
 | `enable_file_cache_query_limit` | 是否限制单个 query 使用的缓存大小，默认 false |
 | `clear_file_cache` | BE 重启时是否删除之前的缓存数据，默认 false |
 
 ### 查看 File Cache 命中情况
 
 执行 `set enable_profile=true` 打开会话变量，可以在 FE 的 web 页面的 Queris 标签中查看到作业的 Profile。File Cache 相关的指标如下:
+
 ```
 -  FileCache:
   -  IOHitCacheNum:  552
@@ -90,3 +92,4 @@ SET GLOBAL enable_file_cache = true;
 `IOHitCacheNum` / `IOTotalNum` 等于1，表示缓存完全命中
 
 `ReadFromFileCacheBytes` / `ReadTotalBytes` 等于1，表示缓存完全命中
+

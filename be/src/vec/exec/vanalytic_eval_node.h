@@ -37,6 +37,7 @@
 #include "vec/common/arena.h"
 #include "vec/core/block.h"
 #include "vec/data_types/data_type.h"
+#include "vec/exprs/vexpr_fwd.h"
 
 namespace doris {
 class DescriptorTbl;
@@ -44,9 +45,6 @@ class ObjectPool;
 class RuntimeState;
 class TupleDescriptor;
 
-namespace vectorized {
-class VExprContext;
-} // namespace vectorized
 } // namespace doris
 
 namespace doris::vectorized {
@@ -68,6 +66,8 @@ struct BlockRowPos {
 };
 
 class AggFnEvaluator;
+
+enum AnalyticFnScope { PARTITION, RANGE, ROWS };
 
 class VAnalyticEvalNode : public ExecNode {
 public:
@@ -102,8 +102,8 @@ private:
     Status _init_result_columns();
     Status _create_agg_status();
     Status _destroy_agg_status();
-    Status _insert_range_column(vectorized::Block* block, VExprContext* expr, IColumn* dst_column,
-                                size_t length);
+    Status _insert_range_column(vectorized::Block* block, const VExprContextSPtr& expr,
+                                IColumn* dst_column, size_t length);
 
     void _update_order_by_range();
     bool _init_next_partition(BlockRowPos found_partition_end);
@@ -136,13 +136,12 @@ private:
     void _release_mem();
 
 private:
-    enum AnalyticFnScope { PARTITION, RANGE, ROWS };
     std::vector<Block> _input_blocks;
     std::vector<int64_t> input_block_first_row_positions;
     std::vector<AggFnEvaluator*> _agg_functions;
-    std::vector<std::vector<VExprContext*>> _agg_expr_ctxs;
-    std::vector<VExprContext*> _partition_by_eq_expr_ctxs;
-    std::vector<VExprContext*> _order_by_eq_expr_ctxs;
+    std::vector<VExprContextSPtrs> _agg_expr_ctxs;
+    VExprContextSPtrs _partition_by_eq_expr_ctxs;
+    VExprContextSPtrs _order_by_eq_expr_ctxs;
     std::vector<std::vector<MutableColumnPtr>> _agg_intput_columns;
     std::vector<MutableColumnPtr> _result_window_columns;
 
@@ -165,6 +164,7 @@ private:
     int64_t _rows_start_offset = 0;
     int64_t _rows_end_offset = 0;
     size_t _agg_functions_size = 0;
+    bool _agg_functions_created = false;
 
     /// The offset of the n-th functions.
     std::vector<size_t> _offsets_of_aggregate_states;
@@ -185,6 +185,7 @@ private:
     std::vector<int64_t> _origin_cols;
 
     RuntimeProfile::Counter* _evaluation_timer;
+    RuntimeProfile::Counter* _memory_usage_counter;
     RuntimeProfile::HighWaterMarkCounter* _blocks_memory_usage;
 
     std::vector<bool> _change_to_nullable_flags;

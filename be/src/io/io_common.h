@@ -21,7 +21,7 @@
 
 namespace doris {
 
-enum ReaderType {
+enum class ReaderType {
     READER_QUERY = 0,
     READER_ALTER_TABLE = 1,
     READER_BASE_COMPACTION = 2,
@@ -29,6 +29,8 @@ enum ReaderType {
     READER_CHECKSUM = 4,
     READER_COLD_DATA_COMPACTION = 5,
     READER_SEGMENT_COMPACTION = 6,
+    READER_FULL_COMPACTION = 7,
+    UNKNOWN = 8
 };
 
 namespace io {
@@ -49,17 +51,15 @@ class IOContext {
 public:
     IOContext() = default;
 
-    IOContext(const TUniqueId* query_id_, FileCacheStatistics* stats_, bool is_presistent_,
-              bool use_disposable_cache_, bool read_segment_index_, bool enable_file_cache)
-            : query_id(query_id_),
-              is_persistent(is_presistent_),
-              use_disposable_cache(use_disposable_cache_),
-              read_segment_index(read_segment_index_),
-              file_cache_stats(stats_) {}
-    ReaderType reader_type;
+    IOContext(const TUniqueId* query_id, FileCacheStatistics* stats, bool use_disposable_cache,
+              bool read_segment_index)
+            : query_id(query_id),
+              is_disposable(use_disposable_cache),
+              read_segment_index(read_segment_index),
+              file_cache_stats(stats) {}
+    ReaderType reader_type = ReaderType::UNKNOWN;
     const TUniqueId* query_id = nullptr;
-    bool is_persistent = false;
-    bool use_disposable_cache = false;
+    bool is_disposable = false;
     bool read_segment_index = false;
     FileCacheStatistics* file_cache_stats = nullptr;
 };

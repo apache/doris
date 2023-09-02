@@ -55,30 +55,28 @@ public:
     Status init(const TPlanNode& tnode, RuntimeState* state = nullptr) override;
     Status prepare(RuntimeState* state) override;
     Status open(RuntimeState* state) override {
-        START_AND_SCOPE_SPAN(state->get_tracer(), span, "TableFunctionNode::open");
         RETURN_IF_ERROR(alloc_resource(state));
+        RETURN_IF_ERROR(VExpr::open(_vfn_ctxs, state));
         return _children[0]->open(state);
     }
     Status get_next(RuntimeState* state, Block* block, bool* eos) override;
     bool need_more_input_data() const { return !_child_block.rows() && !_child_eos; }
 
     void release_resource(doris::RuntimeState* state) override {
-        VExpr::close(_vfn_ctxs, state);
-
         if (_num_rows_filtered_counter != nullptr) {
             COUNTER_SET(_num_rows_filtered_counter, static_cast<int64_t>(_num_rows_filtered));
         }
         ExecNode::release_resource(state);
     }
 
-    Status push(RuntimeState*, Block* input_block, bool eos) override {
+    Status push(RuntimeState* state, Block* input_block, bool eos) override {
         _child_eos = eos;
         if (input_block->rows() == 0) {
             return Status::OK();
         }
 
         for (TableFunction* fn : _fns) {
-            RETURN_IF_ERROR(fn->process_init(input_block));
+            RETURN_IF_ERROR(fn->process_init(input_block, state));
         }
         RETURN_IF_ERROR(_process_next_child_row());
         return Status::OK();
@@ -146,7 +144,7 @@ private:
     std::vector<SlotDescriptor*> _output_slots;
     int64_t _cur_child_offset = 0;
 
-    std::vector<VExprContext*> _vfn_ctxs;
+    VExprContextSPtrs _vfn_ctxs;
 
     std::vector<TableFunction*> _fns;
     int _fn_num = 0;

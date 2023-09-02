@@ -45,7 +45,8 @@ suite("test_alter_table_column") {
     int max_try_secs = 60
     while (max_try_secs--) {
         String res = getJobState(tbName1)
-        if (res == "FINISHED") {
+        if (res == "FINISHED" || res == "CANCELLED") {
+            assertEquals("FINISHED", res)
             sleep(3000)
             break
         } else {
@@ -65,7 +66,8 @@ suite("test_alter_table_column") {
     max_try_secs = 60
     while (max_try_secs--) {
         String res = getJobState(tbName1)
-        if (res == "FINISHED") {
+        if (res == "FINISHED" || res == "CANCELLED") {
+            assertEquals("FINISHED", res)
             sleep(3000)
             break
         } else {
@@ -102,7 +104,8 @@ suite("test_alter_table_column") {
     max_try_secs = 60
     while (max_try_secs--) {
         String res = getJobState(tbName2)
-        if (res == "FINISHED") {
+        if (res == "FINISHED" || res == "CANCELLED") {
+            assertEquals("FINISHED", res)
             sleep(3000)
             break
         } else {
@@ -146,7 +149,8 @@ suite("test_alter_table_column") {
     max_try_secs = 60
     while (max_try_secs--) {
         String res = getJobState(tbNameAddArray)
-        if (res == "FINISHED") {
+        if (res == "FINISHED" || res == "CANCELLED") {
+            assertEquals("FINISHED", res)
             break
         } else {
             Thread.sleep(2000)
@@ -189,7 +193,7 @@ suite("test_alter_table_column") {
                 `v1` int(11) SUM NULL COMMENT ""
             ) ENGINE=OLAP
             AGGREGATE KEY(`k1`, `k2`)
-            DISTRIBUTED BY HASH(`k1`) BUCKETS 1
+            DISTRIBUTED BY HASH(`k1`) BUCKETS 5
             PROPERTIES (
                 "storage_type" = "COLUMN",
                 "replication_num" = "1"
@@ -209,7 +213,8 @@ suite("test_alter_table_column") {
     max_try_secs = 60
     while (max_try_secs--) {
         String res = getJobState(tbName3)
-        if (res == "FINISHED") {
+        if (res == "FINISHED" || res == "CANCELLED") {
+            assertEquals("FINISHED", res)
             sleep(3000)
             break
         } else {

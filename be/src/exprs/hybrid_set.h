@@ -18,6 +18,7 @@
 #pragma once
 
 #include "common/object_pool.h"
+#include "exprs/runtime_filter.h"
 #include "runtime/decimalv2_value.h"
 #include "runtime/define_primitive_type.h"
 #include "runtime/primitive_type.h"
@@ -43,7 +44,7 @@ public:
 
     class Iterator;
 
-    FixedContainer() : _size(0) { static_assert(N >= 1 && N <= FIXED_CONTAINER_MAX_SIZE); }
+    FixedContainer() : _size(0) { static_assert(N >= 0 && N <= FIXED_CONTAINER_MAX_SIZE); }
 
     ~FixedContainer() = default;
 
@@ -60,7 +61,10 @@ public:
     }
 
     // Use '|' instead of '||' has better performance by test.
-    bool find(const T& value) const {
+    ALWAYS_INLINE bool find(const T& value) const {
+        if constexpr (N == 0) {
+            return false;
+        }
         if constexpr (N == 1) {
             return (value == _data[0]);
         }
@@ -171,7 +175,7 @@ private:
 };
 
 // TODO Maybe change void* parameter to template parameter better.
-class HybridSetBase {
+class HybridSetBase : public FilterFuncBase {
 public:
     HybridSetBase() = default;
     virtual ~HybridSetBase() = default;
@@ -255,8 +259,8 @@ bool check_hybrid_set(const HybridSetBase* column) {
 }
 
 template <PrimitiveType T,
-          typename _ContainerType = DynamicContainer<typename VecPrimitiveTypeTraits<T>::CppType>,
-          typename _ColumnType = typename VecPrimitiveTypeTraits<T>::ColumnType>
+          typename _ContainerType = DynamicContainer<typename PrimitiveTypeTraits<T>::CppType>,
+          typename _ColumnType = typename PrimitiveTypeTraits<T>::ColumnType>
 class HybridSet : public HybridSetBase {
 public:
     using ContainerType = _ContainerType;
@@ -585,21 +589,26 @@ public:
                      const doris::vectorized::NullMap* null_map,
                      doris::vectorized::ColumnUInt8::Container& results) {
         auto& col = assert_cast<const doris::vectorized::ColumnString&>(column);
+        const uint32_t* __restrict offset = col.get_offsets().data();
+        const uint8_t* __restrict data = col.get_chars().data();
+        uint8_t* __restrict cursor = const_cast<uint8_t*>(data);
         const uint8_t* __restrict null_map_data;
         if constexpr (is_nullable) {
             null_map_data = null_map->data();
         }
         auto* __restrict result_data = results.data();
         for (size_t i = 0; i < rows; ++i) {
+            uint32_t len = offset[i] - offset[i - 1];
             if constexpr (!is_nullable && !is_negative) {
-                result_data[i] = _set.find(col.get_data_at(i));
+                result_data[i] = _set.find(StringRef(cursor, len));
             } else if constexpr (!is_nullable && is_negative) {
-                result_data[i] = !_set.find(col.get_data_at(i));
+                result_data[i] = !_set.find(StringRef(cursor, len));
             } else if constexpr (is_nullable && !is_negative) {
-                result_data[i] = _set.find(col.get_data_at(i)) & (!null_map_data[i]);
+                result_data[i] = (!null_map_data[i]) & _set.find(StringRef(cursor, len));
             } else { // (is_nullable && is_negative)
-                result_data[i] = !(_set.find(col.get_data_at(i)) & (!null_map_data[i]));
+                result_data[i] = !((!null_map_data[i]) & _set.find(StringRef(cursor, len)));
             }
+            cursor += len;
         }
     }
 

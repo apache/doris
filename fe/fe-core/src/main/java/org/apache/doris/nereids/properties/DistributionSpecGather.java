@@ -18,7 +18,7 @@
 package org.apache.doris.nereids.properties;
 
 /**
- * Gather distribution which put all data into one node.
+ * Gather distribution which put all data into one instance.
  */
 public class DistributionSpecGather extends DistributionSpec {
 

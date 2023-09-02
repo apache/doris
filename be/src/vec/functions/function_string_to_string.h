@@ -53,8 +53,6 @@ public:
         return arguments[0];
     }
 
-    bool use_default_implementation_for_constants() const override { return true; }
-
     DataTypes get_variadic_argument_types_impl() const override {
         if constexpr (has_variadic_argument) return Impl::get_variadic_argument_types();
         return {};

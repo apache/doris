@@ -120,7 +120,7 @@ public class RewriteBinaryPredicatesRuleTest extends TestWithFeService {
     }
 
     private Expr getExpr(Operator operator, String queryLiteral) throws Exception {
-        String queryFormat = "select * from table1 where id %s %s;";
+        String queryFormat = "select /*+ SET_VAR(enable_nereids_planner=false) */ * from table1 where id %s %s;";
         String query = String.format(queryFormat, operator.toString(), queryLiteral);
         StmtExecutor executor1 = getSqlStmtExecutor(query);
         Assertions.assertNotNull(executor1);

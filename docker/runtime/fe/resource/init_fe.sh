@@ -286,10 +286,17 @@ check_fe_status() {
     done
 }
 
+cleanup() {
+    doris_note "Container stopped, running stop_fe script"
+    ${DORIS_HOME}/fe/bin/stop_fe.sh
+}
+
 _main() {
     docker_required_variables_env
+    trap 'cleanup' SIGTERM SIGINT
     if [[ $RUN_TYPE == "K8S" ]]; then
-        start_fe.sh
+        start_fe.sh &
+        child_pid=$!
     else
         docker_setup_env
         get_doris_fe_args
@@ -303,12 +310,14 @@ _main() {
         doris_note "Ready to start CURRENT_FE！"
 
         if [ $CURRENT_FE_IS_MASTER == true ]; then
-            start_fe.sh
+            start_fe.sh &
+            child_pid=$!
         else
-            start_fe.sh --helper ${MASTER_FE_IP}:${MASTER_FE_EDIT_PORT}
+            start_fe.sh --helper ${MASTER_FE_IP}:${MASTER_FE_EDIT_PORT} &
+            child_pid=$!
         fi
     fi
-
+    wait $child_pid
     exec "$@"
 }
 

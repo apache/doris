@@ -37,13 +37,19 @@ This statement is used to display the creation statement of the data table.
 grammar:
 
 ```sql
-SHOW CREATE TABLE [DBNAME.]TABLE_NAME
+SHOW [BRIEF] CREATE TABLE [DBNAME.]TABLE_NAME
 ````
 
 illustrate:
 
-1. `DBNAMNE` : database name
-2. `TABLE_NAME` : table name
+<version since="dev">
+
+1. `BRIEF` : will not show partitions info
+
+</version>
+
+2. `DBNAMNE` : database name
+3. `TABLE_NAME` : table name
 
 ### Example
 

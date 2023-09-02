@@ -24,6 +24,8 @@ HIVE_SITE_CONF_hive_metastore_uris=thrift://doris--hive-metastore:9083
 HDFS_CONF_dfs_namenode_datanode_registration_ip___hostname___check=false
 HIVE_SITE_CONF_hive_server2_thrift_bind_host=0.0.0.0
 HIVE_SITE_CONF_hive_server2_thrift_port=10000
+HIVE_SITE_CONF_hive_compactor_initiator_on=true
+HIVE_SITE_CONF_hive_compactor_worker_threads=2
 
 CORE_CONF_hadoop_http_staticuser_user=root
 CORE_CONF_hadoop_proxyuser_hue_hosts=*

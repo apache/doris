@@ -24,7 +24,9 @@ import org.apache.doris.httpv2.entity.ResponseBody;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.system.Frontend;
 
+import com.google.common.base.Strings;
 import com.google.gson.reflect.TypeToken;
+import org.apache.commons.io.IOUtils;
 import org.apache.http.client.config.RequestConfig;
 import org.apache.http.client.methods.HttpGet;
 import org.apache.http.client.methods.HttpPost;
@@ -33,23 +35,25 @@ import org.apache.http.entity.StringEntity;
 import org.apache.http.impl.client.CloseableHttpClient;
 import org.apache.http.impl.client.HttpClientBuilder;
 import org.apache.http.util.EntityUtils;
-import org.apache.parquet.Strings;
 
 import java.io.IOException;
+import java.nio.charset.StandardCharsets;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.stream.Collectors;
+import javax.servlet.http.HttpServletRequest;
 
 /*
  * used to forward http requests from manager to be.
  */
 public class HttpUtils {
     static final int REQUEST_SUCCESS_CODE = 0;
+    static final int DEFAULT_TIME_OUT_MS = 2000;
 
     static List<Pair<String, Integer>> getFeList() {
         return Env.getCurrentEnv().getFrontends(null)
-                .stream().filter(Frontend::isAlive).map(fe -> Pair.of(fe.getIp(), Config.http_port))
+                .stream().filter(Frontend::isAlive).map(fe -> Pair.of(fe.getHost(), Config.http_port))
                 .collect(Collectors.toList());
     }
 
@@ -71,10 +75,14 @@ public class HttpUtils {
         return url.toString();
     }
 
-    static String doGet(String url, Map<String, String> headers) throws IOException {
+    public static String doGet(String url, Map<String, String> headers, int timeoutMs) throws IOException {
         HttpGet httpGet = new HttpGet(url);
-        setRequestConfig(httpGet, headers);
+        setRequestConfig(httpGet, headers, timeoutMs);
         return executeRequest(httpGet);
+    }
+
+    public static String doGet(String url, Map<String, String> headers) throws IOException {
+        return doGet(url, headers, DEFAULT_TIME_OUT_MS);
     }
 
     static String doPost(String url, Map<String, String> headers, Object body) throws IOException {
@@ -85,11 +93,11 @@ public class HttpUtils {
             httpPost.setEntity(stringEntity);
         }
 
-        setRequestConfig(httpPost, headers);
+        setRequestConfig(httpPost, headers, DEFAULT_TIME_OUT_MS);
         return executeRequest(httpPost);
     }
 
-    private static void setRequestConfig(HttpRequestBase request, Map<String, String> headers) {
+    private static void setRequestConfig(HttpRequestBase request, Map<String, String> headers, int timeoutMs) {
         if (null != headers) {
             for (String key : headers.keySet()) {
                 request.setHeader(key, headers.get(key));
@@ -97,9 +105,9 @@ public class HttpUtils {
         }
 
         RequestConfig config = RequestConfig.custom()
-                .setConnectTimeout(2000)
-                .setConnectionRequestTimeout(2000)
-                .setSocketTimeout(2000)
+                .setConnectTimeout(timeoutMs)
+                .setConnectionRequestTimeout(timeoutMs)
+                .setSocketTimeout(timeoutMs)
                 .build();
         request.setConfig(config);
     }
@@ -115,5 +123,9 @@ public class HttpUtils {
             throw new RuntimeException(responseEntity.getMsg());
         }
         return GsonUtils.GSON.toJson(responseEntity.getData());
+    }
+
+    public static String getBody(HttpServletRequest request) throws IOException {
+        return IOUtils.toString(request.getInputStream(), StandardCharsets.UTF_8);
     }
 }

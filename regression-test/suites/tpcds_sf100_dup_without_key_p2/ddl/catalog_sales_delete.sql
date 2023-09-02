@@ -1,0 +1,1 @@
+truncate table catalog_sales;

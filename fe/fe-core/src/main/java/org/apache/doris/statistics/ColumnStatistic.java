@@ -19,15 +19,21 @@ package org.apache.doris.statistics;
 
 import org.apache.doris.analysis.LiteralExpr;
 import org.apache.doris.catalog.Column;
-import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.PartitionInfo;
 import org.apache.doris.catalog.Type;
-import org.apache.doris.statistics.util.InternalQueryResult.ResultRow;
+import org.apache.doris.common.AnalysisException;
 import org.apache.doris.statistics.util.StatisticsUtil;
 
+import com.google.common.base.Preconditions;
+import com.google.common.collect.Sets;
+import com.google.gson.annotations.SerializedName;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.json.JSONObject;
 
-import java.util.HashSet;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
 import java.util.Set;
 
 public class ColumnStatistic {
@@ -43,99 +49,116 @@ public class ColumnStatistic {
 
     public static ColumnStatistic UNKNOWN = new ColumnStatisticBuilder().setAvgSizeByte(1).setNdv(1)
             .setNumNulls(1).setCount(1).setMaxValue(Double.POSITIVE_INFINITY).setMinValue(Double.NEGATIVE_INFINITY)
-            .setSelectivity(1.0).setIsUnknown(true)
+            .setIsUnknown(true).setUpdatedTime("")
             .build();
 
     public static ColumnStatistic ZERO = new ColumnStatisticBuilder().setAvgSizeByte(0).setNdv(0)
             .setNumNulls(0).setCount(0).setMaxValue(Double.NaN).setMinValue(Double.NaN)
-            .setSelectivity(0)
             .build();
 
-    public static final Set<Type> MAX_MIN_UNSUPPORTED_TYPE = new HashSet<>();
+    public static final Set<Type> UNSUPPORTED_TYPE = Sets.newHashSet(
+            Type.HLL, Type.BITMAP, Type.ARRAY, Type.STRUCT, Type.MAP, Type.QUANTILE_STATE, Type.AGG_STATE, Type.JSONB,
+            Type.VARIANT, Type.TIME, Type.TIMEV2, Type.LAMBDA_FUNCTION
+    );
 
-    static {
-        MAX_MIN_UNSUPPORTED_TYPE.add(Type.HLL);
-        MAX_MIN_UNSUPPORTED_TYPE.add(Type.BITMAP);
-        MAX_MIN_UNSUPPORTED_TYPE.add(Type.ARRAY);
-        MAX_MIN_UNSUPPORTED_TYPE.add(Type.STRUCT);
-        MAX_MIN_UNSUPPORTED_TYPE.add(Type.MAP);
-    }
-
+    @SerializedName("count")
     public final double count;
+    @SerializedName("ndv")
     public final double ndv;
+    @SerializedName("numNulls")
     public final double numNulls;
+    @SerializedName("dataSize")
     public final double dataSize;
+    @SerializedName("avgSizeByte")
     public final double avgSizeByte;
+    @SerializedName("minValue")
     public final double minValue;
+    @SerializedName("maxValue")
     public final double maxValue;
     public final boolean isUnKnown;
-    /*
-    selectivity of Column T1.A:
-    if T1.A = T2.B is the inner join condition, for a given `b` in B, b in
-    intersection of range(A) and range(B), selectivity means the probability that
-    the equation can be satisfied.
-    We take tpch as example.
-    l_orderkey = o_orderkey and o_orderstatus='o'
-        there are 3 distinct o_orderstatus in orders table. filter o_orderstatus='o' reduces orders table by 1/3
-        because o_orderkey is primary key, thus the o_orderkey.selectivity = 1/3,
-        and after join(l_orderkey = o_orderkey), lineitem is reduced by 1/3.
-        But after filter, other columns' selectivity is still 1.0
-     */
-    public final double selectivity;
 
     /*
     originalNdv is the ndv in stats of ScanNode. ndv may be changed after filter or join,
     but originalNdv is not. It is used to trace the change of a column's ndv through serials
     of sql operators.
      */
-    public final double originalNdv;
+    public final ColumnStatistic original;
 
-    // For display only.
     public final LiteralExpr minExpr;
     public final LiteralExpr maxExpr;
 
+    @SerializedName("histogram")
     // assign value when do stats estimation.
     public final Histogram histogram;
 
-    public ColumnStatistic(double count, double ndv, double originalNdv, double avgSizeByte,
+    @SerializedName("partitionIdToColStats")
+    public final Map<Long, ColumnStatistic> partitionIdToColStats = new HashMap<>();
+
+    public final String updatedTime;
+
+    public final PartitionInfo partitionInfo;
+
+    public ColumnStatistic(double count, double ndv, ColumnStatistic original, double avgSizeByte,
             double numNulls, double dataSize, double minValue, double maxValue,
-            double selectivity, LiteralExpr minExpr, LiteralExpr maxExpr, boolean isUnKnown, Histogram histogram) {
+            LiteralExpr minExpr, LiteralExpr maxExpr, boolean isUnKnown, Histogram histogram,
+            String updatedTime, PartitionInfo partitionInfo) {
         this.count = count;
         this.ndv = ndv;
+        this.original = original;
         this.avgSizeByte = avgSizeByte;
         this.numNulls = numNulls;
         this.dataSize = dataSize;
         this.minValue = minValue;
         this.maxValue = maxValue;
-        this.selectivity = selectivity;
         this.minExpr = minExpr;
         this.maxExpr = maxExpr;
         this.isUnKnown = isUnKnown;
         this.histogram = histogram;
-        this.originalNdv = originalNdv;
+        this.updatedTime = updatedTime;
+        this.partitionInfo = partitionInfo;
+    }
+
+    public static ColumnStatistic fromResultRow(List<ResultRow> resultRows) {
+        Map<Long, ColumnStatistic> partitionIdToColStats = new HashMap<>();
+        ColumnStatistic columnStatistic = null;
+        try {
+            for (ResultRow resultRow : resultRows) {
+                String partId = resultRow.get(6);
+                if (partId == null) {
+                    columnStatistic = fromResultRow(resultRow);
+                } else {
+                    partitionIdToColStats.put(Long.parseLong(partId), fromResultRow(resultRow));
+                }
+            }
+        } catch (Throwable t) {
+            LOG.debug("Failed to deserialize column stats", t);
+            return ColumnStatistic.UNKNOWN;
+        }
+        Preconditions.checkState(columnStatistic != null, "Column stats is null");
+        columnStatistic.partitionIdToColStats.putAll(partitionIdToColStats);
+        return columnStatistic;
     }
 
     // TODO: use thrift
-    public static ColumnStatistic fromResultRow(ResultRow resultRow) {
+    public static ColumnStatistic fromResultRow(ResultRow row) {
         try {
             ColumnStatisticBuilder columnStatisticBuilder = new ColumnStatisticBuilder();
-            double count = Double.parseDouble(resultRow.getColumnValue("count"));
+            double count = Double.parseDouble(row.get(7));
             columnStatisticBuilder.setCount(count);
-            double ndv = Double.parseDouble(resultRow.getColumnValue("ndv"));
-            if (0.99 * count < ndv && ndv < 1.01 * count) {
-                ndv = count;
-            }
+            double ndv = Double.parseDouble(row.getWithDefault(8, "0"));
             columnStatisticBuilder.setNdv(ndv);
-            columnStatisticBuilder.setNumNulls(Double.parseDouble(resultRow.getColumnValue("null_count")));
+            String nullCount = row.getWithDefault(9, "0");
+            columnStatisticBuilder.setNumNulls(Double.parseDouble(nullCount));
             columnStatisticBuilder.setDataSize(Double
-                    .parseDouble(resultRow.getColumnValue("data_size_in_bytes")));
-            columnStatisticBuilder.setAvgSizeByte(columnStatisticBuilder.getDataSize()
+                    .parseDouble(row.getWithDefault(12, "0")));
+            columnStatisticBuilder.setAvgSizeByte(columnStatisticBuilder.getCount() == 0
+                    ? 0 : columnStatisticBuilder.getDataSize()
                     / columnStatisticBuilder.getCount());
-            long catalogId = Long.parseLong(resultRow.getColumnValue("catalog_id"));
-            long idxId = Long.parseLong(resultRow.getColumnValue("idx_id"));
-            long dbID = Long.parseLong(resultRow.getColumnValue("db_id"));
-            long tblId = Long.parseLong(resultRow.getColumnValue("tbl_id"));
-            String colName = resultRow.getColumnValue("col_id");
+            long catalogId = Long.parseLong(row.get(1));
+            long idxId = Long.parseLong(row.get(4));
+            long dbID = Long.parseLong(row.get(2));
+            long tblId = Long.parseLong(row.get(3));
+            String colName = row.get(5);
             Column col = StatisticsUtil.findColumn(catalogId, dbID, tblId, idxId, colName);
             if (col == null) {
                 LOG.warn("Failed to deserialize column statistics, ctlId: {} dbId: {}"
@@ -143,24 +166,34 @@ public class ColumnStatistic {
                         catalogId, dbID, tblId, colName);
                 return ColumnStatistic.UNKNOWN;
             }
-            String min = resultRow.getColumnValue("min");
-            String max = resultRow.getColumnValue("max");
-            if (!StatisticsUtil.isNullOrEmpty(min)) {
-                columnStatisticBuilder.setMinValue(StatisticsUtil.convertToDouble(col.getType(), min));
-                columnStatisticBuilder.setMinExpr(StatisticsUtil.readableValue(col.getType(), min));
+            String min = row.get(10);
+            String max = row.get(11);
+            if (min != null && !min.equalsIgnoreCase("NULL")) {
+                try {
+                    columnStatisticBuilder.setMinValue(StatisticsUtil.convertToDouble(col.getType(), min));
+                    columnStatisticBuilder.setMinExpr(StatisticsUtil.readableValue(col.getType(), min));
+                } catch (AnalysisException e) {
+                    LOG.warn("Failed to deserialize column {} min value {}.", col, min, e);
+                    columnStatisticBuilder.setMinValue(Double.MIN_VALUE);
+                }
+            } else {
+                columnStatisticBuilder.setMinValue(Double.MIN_VALUE);
             }
-            if (!StatisticsUtil.isNullOrEmpty(max)) {
-                columnStatisticBuilder.setMaxValue(StatisticsUtil.convertToDouble(col.getType(), max));
-                columnStatisticBuilder.setMaxExpr(StatisticsUtil.readableValue(col.getType(), max));
+            if (max != null && !max.equalsIgnoreCase("NULL")) {
+                try {
+                    columnStatisticBuilder.setMaxValue(StatisticsUtil.convertToDouble(col.getType(), max));
+                    columnStatisticBuilder.setMaxExpr(StatisticsUtil.readableValue(col.getType(), max));
+                } catch (AnalysisException e) {
+                    LOG.warn("Failed to deserialize column {} max value {}.", col, max, e);
+                    columnStatisticBuilder.setMaxValue(Double.MAX_VALUE);
+                }
+            } else {
+                columnStatisticBuilder.setMaxValue(Double.MAX_VALUE);
             }
-            columnStatisticBuilder.setSelectivity(1.0);
-            columnStatisticBuilder.setOriginalNdv(ndv);
-            Histogram histogram = Env.getCurrentEnv().getStatisticsCache().getHistogram(tblId, idxId, colName)
-                    .orElse(null);
-            columnStatisticBuilder.setHistogram(histogram);
+            columnStatisticBuilder.setUpdatedTime(row.get(13));
             return columnStatisticBuilder.build();
         } catch (Exception e) {
-            LOG.warn("Failed to deserialize column statistics, column not exists", e);
+            LOG.warn("Failed to deserialize column statistics.", e);
             return ColumnStatistic.UNKNOWN;
         }
     }
@@ -173,7 +206,7 @@ public class ColumnStatistic {
         return new ColumnStatisticBuilder().setCount(count).setNdv(ndv).setAvgSizeByte(avgSizeByte)
                 .setNumNulls(numNulls).setDataSize(dataSize).setMinValue(minValue)
                 .setMaxValue(maxValue).setMinExpr(minExpr).setMaxExpr(maxExpr)
-                .setSelectivity(selectivity).setIsUnknown(isUnKnown).build();
+                .setIsUnknown(isUnKnown).build();
     }
 
     public ColumnStatistic updateByLimit(long limit, double rowCount) {
@@ -182,12 +215,6 @@ public class ColumnStatistic {
             ratio = limit / rowCount;
         }
         double newNdv = Math.ceil(Math.min(ndv, limit));
-        double newSelectivity = selectivity;
-        if (newNdv != 0) {
-            newSelectivity = newSelectivity * newNdv / ndv;
-        } else {
-            newSelectivity = 0;
-        }
         return new ColumnStatisticBuilder()
                 .setCount(Math.ceil(limit))
                 .setNdv(newNdv)
@@ -198,7 +225,6 @@ public class ColumnStatistic {
                 .setMaxValue(maxValue)
                 .setMinExpr(minExpr)
                 .setMaxExpr(maxExpr)
-                .setSelectivity(newSelectivity)
                 .setIsUnknown(isUnKnown)
                 .build();
     }
@@ -214,14 +240,11 @@ public class ColumnStatistic {
         ColumnStatisticBuilder builder = new ColumnStatisticBuilder(this);
         Double rowsAfterFilter = rowCount * selectivity;
         if (isAlmostUnique(ndv, rowCount)) {
-            builder.setSelectivity(this.selectivity * selectivity);
             builder.setNdv(ndv * selectivity);
         } else {
             if (ndv > rowsAfterFilter) {
-                builder.setSelectivity(this.selectivity * rowsAfterFilter / ndv);
                 builder.setNdv(rowsAfterFilter);
             } else {
-                builder.setSelectivity(this.selectivity);
                 builder.setNdv(this.ndv);
             }
         }
@@ -264,11 +287,116 @@ public class ColumnStatistic {
 
     @Override
     public String toString() {
-        return isUnKnown ? "unKnown" : String.format("ndv=%.4f, min=%f, max=%f, sel=%f, count=%.4f",
-                ndv, minValue, maxValue, selectivity, count);
+        return isUnKnown ? "unknown" : String.format("ndv=%.4f, min=%f(%s), max=%f(%s), count=%.4f, avgSizeByte=%f",
+                ndv, minValue, minExpr, maxValue, maxExpr, count, avgSizeByte);
+    }
+
+    public JSONObject toJson() {
+        JSONObject statistic = new JSONObject();
+        statistic.put("Ndv", ndv);
+        if (Double.isInfinite(minValue)) {
+            statistic.put("MinValueType", "Infinite");
+        } else if (Double.isNaN(minValue)) {
+            statistic.put("MinValueType", "Invalid");
+        } else {
+            statistic.put("MinValueType", "Normal");
+            statistic.put("MinValue", minValue);
+        }
+        if (Double.isInfinite(maxValue)) {
+            statistic.put("MaxValueType", "Infinite");
+        } else if (Double.isNaN(maxValue)) {
+            statistic.put("MaxValueType", "Invalid");
+        } else {
+            statistic.put("MaxValueType", "Normal");
+            statistic.put("MaxValue", maxValue);
+        }
+        statistic.put("Count", count);
+        statistic.put("AvgSizeByte", avgSizeByte);
+        statistic.put("NumNulls", numNulls);
+        statistic.put("DataSize", dataSize);
+        statistic.put("MinExpr", minExpr);
+        statistic.put("MaxExpr", maxExpr);
+        statistic.put("IsUnKnown", isUnKnown);
+        statistic.put("Histogram", Histogram.serializeToJson(histogram));
+        statistic.put("Original", original);
+        statistic.put("LastUpdatedTime", updatedTime);
+        return statistic;
+    }
+
+    // MinExpr and MaxExpr serialize and deserialize is not complete
+    // Histogram is got by other place
+    public static ColumnStatistic fromJson(String statJson) {
+        JSONObject stat = new JSONObject(statJson);
+        Double minValue;
+        switch (stat.getString("MinValueType")) {
+            case "Infinite":
+                minValue = Double.NEGATIVE_INFINITY;
+                break;
+            case "Invalid":
+                minValue = Double.NaN;
+                break;
+            case "Normal":
+                minValue = stat.getDouble("MinValue");
+                break;
+            default:
+                throw new RuntimeException(String.format("Min value does not get anytype"));
+        }
+        Double maxValue;
+        switch (stat.getString("MaxValueType")) {
+            case "Infinite":
+                maxValue = Double.POSITIVE_INFINITY;
+                break;
+            case "Invalid":
+                maxValue = Double.NaN;
+                break;
+            case "Normal":
+                maxValue = stat.getDouble("MaxValue");
+                break;
+            default:
+                throw new RuntimeException(String.format("Min value does not get anytype"));
+        }
+        return new ColumnStatistic(
+            stat.getDouble("Count"),
+            stat.getDouble("Ndv"),
+            null,
+            stat.getDouble("AvgSizeByte"),
+            stat.getDouble("NumNulls"),
+            stat.getDouble("DataSize"),
+            minValue,
+            maxValue,
+            null,
+            null,
+            stat.getBoolean("IsUnKnown"),
+            Histogram.deserializeFromJson(stat.getString("Histogram")),
+            stat.getString("LastUpdatedTime"), null
+        );
     }
 
     public boolean minOrMaxIsInf() {
         return Double.isInfinite(maxValue) || Double.isInfinite(minValue);
+    }
+
+    public boolean hasHistogram() {
+        return histogram != null && histogram != Histogram.UNKNOWN;
+    }
+
+    public double getOriginalNdv() {
+        if (original != null) {
+            return original.ndv;
+        }
+        return ndv;
+    }
+
+    // TODO expanded this function to support more cases, help to compute the change of ndv density
+    public boolean rangeChanged() {
+        return original != null && (minValue != original.minValue || maxValue != original.maxValue);
+    }
+
+    public boolean isUnKnown() {
+        return isUnKnown;
+    }
+
+    public void putPartStats(long partId, ColumnStatistic columnStatistic) {
+        this.partitionIdToColStats.put(partId, columnStatistic);
     }
 }

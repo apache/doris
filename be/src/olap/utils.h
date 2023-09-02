@@ -70,7 +70,7 @@ private:
 template <typename T>
 Status split_string(const std::string& base, const T separator, std::vector<std::string>* result) {
     if (!result) {
-        return Status::Error<ErrorCode::INVALID_ARGUMENT>();
+        return Status::Error<ErrorCode::INVALID_ARGUMENT>("split_string meet nullptr result input");
     }
 
     // 处理base为空的情况
@@ -301,6 +301,18 @@ struct GlobalRowLoacation {
             : tablet_id(tid), row_location(rsid, sid, rid) {}
     uint32_t tablet_id;
     RowLocation row_location;
+
+    bool operator==(const GlobalRowLoacation& rhs) const {
+        return tablet_id == rhs.tablet_id && row_location == rhs.row_location;
+    }
+
+    bool operator<(const GlobalRowLoacation& rhs) const {
+        if (tablet_id != rhs.tablet_id) {
+            return tablet_id < rhs.tablet_id;
+        } else {
+            return row_location < rhs.row_location;
+        }
+    }
 };
 
 } // namespace doris

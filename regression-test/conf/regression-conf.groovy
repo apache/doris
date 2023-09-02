@@ -25,8 +25,15 @@ defaultDb = "regression_test"
 // at each time we connect.
 // add allowLoadLocalInfile so that the jdbc can execute mysql load data from client.
 jdbcUrl = "jdbc:mysql://127.0.0.1:9030/?useLocalSessionState=true&allowLoadLocalInfile=true"
+targetJdbcUrl = "jdbc:mysql://127.0.0.1:9030/?useLocalSessionState=true&allowLoadLocalInfile=true"
 jdbcUser = "root"
 jdbcPassword = ""
+
+feSourceThriftAddress = "127.0.0.1:9020"
+feTargetThriftAddress = "127.0.0.1:9020"
+syncerAddress = "127.0.0.1:9190"
+feSyncerUser = "root"
+feSyncerPassword = ""
 
 feHttpAddress = "127.0.0.1:8030"
 feHttpUser = "root"
@@ -53,7 +60,7 @@ excludeGroups = ""
 // this suites will not be executed
 excludeSuites = "test_broker_load"
 // this directories will not be executed
-excludeDirectories = "segcompaction_p1"
+excludeDirectories = "segcompaction_p2"
 
 customConf1 = "test_custom_conf_value"
 
@@ -78,9 +85,10 @@ pg_14_port=5442
 oracle_11_port=1521
 sqlserver_2022_port=1433
 clickhouse_22_port=8123
+doris_port=9030
 
 // hive catalog test config
-// To enable jdbc test, you need first start hive container.
+// To enable hive test, you need first start hive container.
 // See `docker/thirdparties/start-thirdparties-docker.sh`
 enableHiveTest=false
 hms_port=9183
@@ -101,6 +109,9 @@ extHiveHmsPort = 7004
 extHdfsPort = 4007
 extHiveHmsUser = "****"
 extHiveHmsPassword= "***********"
+
+//paimon catalog test config for bigdata
+enableExternalPaimonTest = false
 
 //mysql jdbc connector test config for bigdata
 enableExternalMysqlTest = false
@@ -126,3 +137,13 @@ extEsPassword = "***********"
 s3Endpoint = "cos.ap-hongkong.myqcloud.com"
 s3BucketName = "doris-build-hk-1308700295"
 s3Region = "ap-hongkong"
+
+// If the failure suite num exceeds this config
+// all following suite will be skipped to fast quit the run.
+// <=0 means no limit.
+max_failure_num=0
+
+// used for exporting test
+s3ExportBucketName = ""
+
+externalEnvIp="127.0.0.1"

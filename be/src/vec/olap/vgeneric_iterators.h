@@ -51,7 +51,7 @@ public:
     VStatisticsIterator(std::shared_ptr<Segment> segment, const Schema& schema)
             : _segment(std::move(segment)), _schema(schema) {}
 
-    ~VStatisticsIterator() override;
+    ~VStatisticsIterator() override = default;
 
     Status init(const StorageReadOptions& opts) override;
 
@@ -66,7 +66,7 @@ private:
     size_t _output_rows = 0;
     bool _init = false;
     TPushAggOp::type _push_down_agg_type_opt;
-    std::map<int32_t, ColumnIterator*> _column_iterators_map;
+    std::map<int32_t, std::unique_ptr<ColumnIterator>> _column_iterators_map;
     std::vector<ColumnIterator*> _column_iterators;
 
     static constexpr size_t MAX_ROW_SIZE_IN_COUNT = 65535;
@@ -99,7 +99,7 @@ public:
     VMergeIteratorContext& operator=(const VMergeIteratorContext&) = delete;
     VMergeIteratorContext& operator=(VMergeIteratorContext&&) = delete;
 
-    ~VMergeIteratorContext() {}
+    ~VMergeIteratorContext() = default;
 
     Status block_reset(const std::shared_ptr<Block>& block);
 

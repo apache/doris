@@ -179,7 +179,11 @@ public:
 
     virtual bool evaluate_and(const BloomFilter* bf) const { return true; }
 
-    virtual bool can_do_bloom_filter() const { return false; }
+    virtual bool evaluate_and(const StringRef* dict_words, const size_t dict_count) const {
+        return true;
+    }
+
+    virtual bool can_do_bloom_filter(bool ngram) const { return false; }
 
     // used to evaluate pre read column in lazy materialization
     // now only support integer/float
@@ -213,6 +217,14 @@ public:
     virtual bool need_to_clone() const { return false; }
 
     virtual void clone(ColumnPredicate** to) const { LOG(FATAL) << "clone not supported"; }
+
+    virtual int get_filter_id() const { return -1; }
+    // now InListPredicateBase BloomFilterColumnPredicate BitmapFilterColumnPredicate  = true
+    virtual bool is_filter() const { return false; }
+    PredicateFilterInfo get_filtered_info() const {
+        return PredicateFilterInfo {static_cast<int>(type()), _evaluated_rows - 1,
+                                    _evaluated_rows - 1 - _passed_rows};
+    }
 
     std::shared_ptr<PredicateParams> predicate_params() { return _predicate_params; }
 
@@ -262,6 +274,8 @@ protected:
     // TODO: the value is only in delete condition, better be template value
     bool _opposite;
     std::shared_ptr<PredicateParams> _predicate_params;
+    mutable uint64_t _evaluated_rows = 1;
+    mutable uint64_t _passed_rows = 0;
 };
 
 } //namespace doris

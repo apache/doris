@@ -155,7 +155,7 @@ public:
             PValues* arg = request.add_args();
             auto data_type = argument_types[i];
             if (auto st = data_type->get_serde()->write_column_to_pb(*columns[i], *arg, start, end);
-                st != Status::OK()) {
+                !st.ok()) {
                 return st;
             }
         }
@@ -349,7 +349,8 @@ public:
     void create(AggregateDataPtr __restrict place) const override {
         new (place) Data(argument_types.size());
         Status status = Status::OK();
-        RETURN_IF_STATUS_ERROR(status, data(place).init(_fn));
+        SAFE_CREATE(RETURN_IF_STATUS_ERROR(status, data(place).init(_fn)),
+                    this->data(place).~Data());
     }
 
     String get_name() const override { return _fn.name.function_name; }

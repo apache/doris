@@ -17,16 +17,23 @@
 
 #include "runtime/routine_load/routine_load_task_executor.h"
 
-#include <gtest/gtest.h>
+#include <gen_cpp/Types_types.h>
+#include <gtest/gtest-message.h>
+#include <gtest/gtest-test-part.h>
 #include <librdkafka/rdkafkacpp.h>
+#include <unistd.h>
 
+#include <map>
+
+#include "common/config.h"
+#include "common/status.h"
 #include "gen_cpp/BackendService_types.h"
 #include "gen_cpp/FrontendService_types.h"
 #include "gen_cpp/HeartbeatService_types.h"
+#include "gtest/gtest_pred_impl.h"
 #include "runtime/exec_env.h"
 #include "runtime/stream_load/new_load_stream_mgr.h"
 #include "runtime/stream_load/stream_load_executor.h"
-#include "util/cpu_info.h"
 
 namespace doris {
 
@@ -49,18 +56,14 @@ public:
         k_stream_load_put_result = TStreamLoadPutResult();
 
         _env.set_master_info(new TMasterInfo());
-        _env.set_new_load_stream_mgr(new NewLoadStreamMgr());
-        _env.set_stream_load_executor(new StreamLoadExecutor(&_env));
+        _env.set_new_load_stream_mgr(NewLoadStreamMgr::create_unique());
+        _env.set_stream_load_executor(StreamLoadExecutor::create_unique(&_env));
 
         config::routine_load_thread_pool_size = 5;
         config::max_consumer_num_per_group = 3;
     }
 
-    void TearDown() override {
-        delete _env.master_info();
-        delete _env.new_load_stream_mgr();
-        delete _env.stream_load_executor();
-    }
+    void TearDown() override { delete _env.master_info(); }
 
     ExecEnv _env;
 };

@@ -87,4 +87,26 @@ suite("test_arithmetic_expressions") {
 
     qt_select """ select id, fz/fm as dec,fzv3/fm as decv3 from ${table2} ORDER BY id; """
     sql "drop table if exists ${table2}"
+
+    def table3 = "test_mod_expressions"
+
+    sql "drop table if exists ${table3}"
+    sql """ create table ${table3} (
+            id smallint,
+            v1 decimalv3(27,9),
+            v2 decimalv3(9,0),
+            v3 int )
+            DISTRIBUTED BY HASH(`id`) BUCKETS auto
+            PROPERTIES
+            (
+                "replication_num" = "1"
+            ); """
+
+    sql """ insert into ${table3} values (1,92594283.129196000,1,1); """
+    sql """ insert into ${table3} values (2,107684988.257976000,3,3); """
+    sql """ insert into ${table3} values (3,76891560.464178000,5,5); """
+    sql """ insert into ${table3} values (4,277170831.851350000,7,7); """
+
+    qt_select """ select v1, v2, v1 % v2, v1 % v3 from ${table3} ORDER BY id; """
+    sql "drop table if exists ${table3}"
 }

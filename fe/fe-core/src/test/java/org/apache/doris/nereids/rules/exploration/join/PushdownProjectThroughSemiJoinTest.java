@@ -39,6 +39,7 @@ import java.util.List;
 class PushdownProjectThroughSemiJoinTest implements MemoPatternMatchSupported {
     private final LogicalOlapScan scan1 = PlanConstructor.newLogicalOlapScan(0, "t1", 0);
     private final LogicalOlapScan scan2 = PlanConstructor.newLogicalOlapScan(1, "t2", 0);
+    private final LogicalOlapScan scan3 = PlanConstructor.newLogicalOlapScan(2, "t3", 0);
 
     @Test
     public void pushdownProject() {
@@ -51,17 +52,21 @@ class PushdownProjectThroughSemiJoinTest implements MemoPatternMatchSupported {
         LogicalPlan plan = new LogicalPlanBuilder(scan1)
                 .join(scan2, JoinType.LEFT_SEMI_JOIN, Pair.of(1, 1))
                 .projectExprs(projectExprs)
+                .join(scan3, JoinType.INNER_JOIN, Pair.of(1, 1))
                 .build();
 
         PlanChecker.from(MemoTestUtils.createConnectContext(), plan)
-                .applyExploration(PushdownProjectThroughSemiJoin.INSTANCE.build())
+                .applyExploration(PushdownProjectThroughSemiJoin.INSTANCE.buildRules())
                 .printlnOrigin()
                 .printlnExploration()
                 .matchesExploration(
-                        leftSemiLogicalJoin(
-                                logicalProject(
+                        logicalJoin(
+                                leftSemiLogicalJoin(
+                                        logicalProject(
+                                                logicalOlapScan()
+                                        ).when(project -> project.getProjects().size() == 2),
                                         logicalOlapScan()
-                                ).when(project -> project.getProjects().size() == 2),
+                                ),
                                 logicalOlapScan()
                         )
                 );
@@ -78,21 +83,24 @@ class PushdownProjectThroughSemiJoinTest implements MemoPatternMatchSupported {
         LogicalPlan plan = new LogicalPlanBuilder(scan1)
                 .join(scan2, JoinType.LEFT_SEMI_JOIN, Pair.of(0, 0))
                 .projectExprs(projectExprs)
+                .join(scan3, JoinType.INNER_JOIN, Pair.of(1, 1))
                 .build();
 
         PlanChecker.from(MemoTestUtils.createConnectContext(), plan)
-                .applyExploration(PushdownProjectThroughSemiJoin.INSTANCE.build())
+                .applyExploration(PushdownProjectThroughSemiJoin.INSTANCE.buildRules())
                 .printlnOrigin()
                 .printlnExploration()
                 .matchesExploration(
-                        logicalProject(
-                                leftSemiLogicalJoin(
-                                        logicalProject(
+                        logicalJoin(
+                                logicalProject(
+                                        leftSemiLogicalJoin(
+                                                logicalProject(
+                                                        logicalOlapScan()
+                                                ).when(project -> project.getProjects().size() == 3),
                                                 logicalOlapScan()
-                                        ).when(project -> project.getProjects().size() == 3),
-                                        logicalOlapScan()
-                                )
-                        ).when(project -> project.getProjects().size() == 2)
+                                        )
+                                ).when(project -> project.getProjects().size() == 2), logicalOlapScan()
+                        )
                 );
     }
 
@@ -105,21 +113,24 @@ class PushdownProjectThroughSemiJoinTest implements MemoPatternMatchSupported {
         LogicalPlan plan = new LogicalPlanBuilder(scan1)
                 .join(scan2, JoinType.LEFT_SEMI_JOIN, Pair.of(0, 0))
                 .projectExprs(projectExprs)
+                .join(scan3, JoinType.INNER_JOIN, Pair.of(0, 0))
                 .build();
 
         PlanChecker.from(MemoTestUtils.createConnectContext(), plan)
-                .applyExploration(PushdownProjectThroughSemiJoin.INSTANCE.build())
+                .applyExploration(PushdownProjectThroughSemiJoin.INSTANCE.buildRules())
                 .printlnOrigin()
                 .printlnExploration()
                 .matchesExploration(
-                    logicalProject(
-                        leftSemiLogicalJoin(
-                            logicalProject()
-                                .when(project -> project.getProjects().get(0).toSql().equals("(id + name) AS `complex`")
-                                    && project.getProjects().get(1).toSql().equals("id")),
-                            logicalOlapScan()
+                        logicalJoin(
+                                logicalProject(
+                                        leftSemiLogicalJoin(
+                                                logicalProject()
+                                                        .when(project -> project.getProjects().get(0).toSql().equals("(id + name) AS `complex`")
+                                                                && project.getProjects().get(1).toSql().equals("id")),
+                                                logicalOlapScan()
+                                        )
+                                ).when(project -> project.getProjects().get(0).toSql().equals("complex")), logicalOlapScan()
                         )
-                    ).when(project -> project.getProjects().get(0).toSql().equals("complex"))
                 );
     }
 }

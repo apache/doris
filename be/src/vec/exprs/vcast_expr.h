@@ -38,22 +38,18 @@ class VExprContext;
 
 namespace doris::vectorized {
 class VCastExpr final : public VExpr {
+    ENABLE_FACTORY_CREATOR(VCastExpr);
+
 public:
     VCastExpr(const TExprNode& node) : VExpr(node) {}
-    ~VCastExpr() = default;
-    virtual doris::Status execute(VExprContext* context, doris::vectorized::Block* block,
-                                  int* result_column_id) override;
-    virtual doris::Status prepare(doris::RuntimeState* state, const doris::RowDescriptor& desc,
-                                  VExprContext* context) override;
-    virtual doris::Status open(doris::RuntimeState* state, VExprContext* context,
-                               FunctionContext::FunctionStateScope scope) override;
-    virtual void close(doris::RuntimeState* state, VExprContext* context,
-                       FunctionContext::FunctionStateScope scope) override;
-    virtual VExpr* clone(doris::ObjectPool* pool) const override {
-        return pool->add(new VCastExpr(*this));
-    }
-    virtual const std::string& expr_name() const override;
-    virtual std::string debug_string() const override;
+    ~VCastExpr() override = default;
+    Status execute(VExprContext* context, Block* block, int* result_column_id) override;
+    Status prepare(RuntimeState* state, const RowDescriptor& desc, VExprContext* context) override;
+    Status open(RuntimeState* state, VExprContext* context,
+                FunctionContext::FunctionStateScope scope) override;
+    void close(VExprContext* context, FunctionContext::FunctionStateScope scope) override;
+    const std::string& expr_name() const override;
+    std::string debug_string() const override;
 
 private:
     FunctionBasePtr _function;
@@ -65,7 +61,6 @@ private:
     DataTypePtr _cast_param_data_type;
     ColumnPtr _cast_param;
 
-private:
     static const constexpr char* function_name = "CAST";
 };
 } // namespace doris::vectorized

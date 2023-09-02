@@ -37,6 +37,8 @@ This document describes the main process and prep work for release. For specific
 * [Doris Core Release](./release-doris-core.md)
 * [Doris Connectors Release](./release-doris-connectors.md)
 * [Doris Manager Release](./release-doris-manager.md)
+* [Doris Shade Release](./release-doris-shade.md)
+* [Doris Sdk Release](./release-doris-sdk.md)
 
 There are three main forms of releases for Apache projects.
 

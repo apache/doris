@@ -161,18 +161,19 @@ public class GroupExpressionMatching implements Iterable<Plan> {
 
             // assemble all combination of plan tree by current root plan and children plan
             while (offset < childrenPlans.size()) {
-                List<Plan> children = Lists.newArrayList();
+                ImmutableList.Builder<Plan> childrenBuilder =
+                        ImmutableList.builderWithExpectedSize(childrenPlans.size());
                 for (int i = 0; i < childrenPlans.size(); i++) {
-                    children.add(childrenPlans.get(i).get(childrenPlanIndex[i]));
+                    childrenBuilder.add(childrenPlans.get(i).get(childrenPlanIndex[i]));
                 }
+                List<Plan> children = childrenBuilder.build();
 
                 LogicalProperties logicalProperties = groupExpression.getOwnerGroup().getLogicalProperties();
                 // assemble children: replace GroupPlan to real plan,
                 // withChildren will erase groupExpression, so we must
                 // withGroupExpression too.
-                Plan rootWithChildren = root.withChildren(children)
-                        .withLogicalProperties(Optional.of(logicalProperties))
-                        .withGroupExpression(Optional.of(groupExpression));
+                Plan rootWithChildren = root.withGroupExprLogicalPropChildren(Optional.of(groupExpression),
+                        Optional.of(logicalProperties), children);
                 if (rootPattern.matchPredicates(rootWithChildren)) {
                     results.add(rootWithChildren);
                 }

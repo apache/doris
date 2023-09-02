@@ -28,7 +28,6 @@ import org.apache.doris.analysis.SlotId;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.common.NotImplementedException;
 import org.apache.doris.common.UserException;
-import org.apache.doris.common.util.VectorizedUtil;
 import org.apache.doris.statistics.StatisticalType;
 import org.apache.doris.statistics.StatsRecursiveDerive;
 import org.apache.doris.thrift.TAggregationNode;
@@ -177,6 +176,9 @@ public class AggregationNode extends PlanNode {
         // to our input; our conjuncts don't get substituted because they already
         // refer to our output
         outputSmap = getCombinedChildSmap();
+        if (aggInfo.isMerge()) {
+            aggInfo.substitute(aggInfo.getIntermediateSmap(), analyzer);
+        }
         aggInfo.substitute(outputSmap, analyzer);
 
         // assert consistent aggregate expr and slot materialization
@@ -225,7 +227,7 @@ public class AggregationNode extends PlanNode {
 
     private void updateplanNodeName() {
         StringBuilder sb = new StringBuilder();
-        sb.append(VectorizedUtil.isVectorized() ? "VAGGREGATE" : "AGGREGATE");
+        sb.append("VAGGREGATE");
         sb.append(" (");
         if (aggInfo.isMerge()) {
             sb.append("merge");
@@ -275,7 +277,6 @@ public class AggregationNode extends PlanNode {
         msg.agg_node.setAggSortInfos(aggSortInfos);
         msg.agg_node.setUseStreamingPreaggregation(useStreamingPreagg);
         msg.agg_node.setIsFirstPhase(aggInfo.isFirstPhase());
-        msg.agg_node.setUseFixedLengthSerializationOpt(true);
         List<Expr> groupingExprs = aggInfo.getGroupingExprs();
         if (groupingExprs != null) {
             msg.agg_node.setGroupingExprs(Expr.treesToThrift(groupingExprs));
@@ -333,11 +334,6 @@ public class AggregationNode extends PlanNode {
         // we indirectly reference all grouping slots (because we write them)
         // so they're all materialized.
         aggInfo.getRefdSlots(ids);
-    }
-
-    @Override
-    public int getNumInstances() {
-        return children.get(0).getNumInstances();
     }
 
     @Override

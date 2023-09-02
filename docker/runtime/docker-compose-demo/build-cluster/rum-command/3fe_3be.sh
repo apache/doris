@@ -23,11 +23,10 @@ docker run -itd \
     -p 8031:8030 \
     -p 9031:9030 \
     -v /data/fe-01/doris-meta:/opt/apache-doris/fe/doris-meta \
-    -v /data/fe-01/conf:/opt/apache-doris/fe/conf \
     -v /data/fe-01/log:/opt/apache-doris/fe/log \
     --network=doris-network \
     --ip=172.20.80.2 \
-    apache/doris:1.2.1-fe-x86_64
+    apache/doris:2.0.0_alpha-fe-x86_64
 
 docker run -itd \
     --name=fe-02 \
@@ -36,11 +35,10 @@ docker run -itd \
     -p 8032:8030 \
     -p 9032:9030 \
     -v /data/fe-02/doris-meta:/opt/apache-doris/fe/doris-meta \
-    -v /data/fe-02/conf:/opt/apache-doris/fe/conf \
     -v /data/fe-02/log:/opt/apache-doris/fe/log \
     --network=doris-network \
     --ip=172.20.80.3 \
-    apache/doris:1.2.1-fe-x86_64
+    apache/doris:2.0.0_alpha-fe-x86_64
 
 docker run -itd \
     --name=fe-03 \
@@ -49,11 +47,10 @@ docker run -itd \
     -p 8033:8030 \
     -p 9033:9030 \
     -v /data/fe-03/doris-meta:/opt/apache-doris/fe/doris-meta \
-    -v /data/fe-03/conf:/opt/apache-doris/fe/conf \
     -v /data/fe-03/log:/opt/apache-doris/fe/log \
     --network=doris-network \
     --ip=172.20.80.4 \
-    apache/doris:1.2.1-fe-x86_64
+    apache/doris:2.0.0_alpha-fe-x86_64
 
 docker run -itd \
     --name=be-01 \
@@ -61,11 +58,10 @@ docker run -itd \
     --env BE_ADDR="172.20.80.5:9050" \
     -p 8041:8040 \
     -v /data/be-01/storage:/opt/apache-doris/be/storage \
-    -v /data/be-01/conf:/opt/apache-doris/be/conf \
     -v /data/be-01/log:/opt/apache-doris/be/log \
     --network=doris-network \
     --ip=172.20.80.5 \
-    apache/doris:1.2.1-be-x86_64
+    apache/doris:2.0.0_alpha-be-x86_64
 
 docker run -itd \
     --name=be-02 \
@@ -73,11 +69,10 @@ docker run -itd \
     --env BE_ADDR="172.20.80.6:9050" \
     -p 8042:8040 \
     -v /data/be-02/storage:/opt/apache-doris/be/storage \
-    -v /data/be-02/conf:/opt/apache-doris/be/conf \
     -v /data/be-02/log:/opt/apache-doris/be/log \
     --network=doris-network \
     --ip=172.20.80.6 \
-    apache/doris:1.2.1-be-x86_64
+    apache/doris:2.0.0_alpha-be-x86_64
 
 docker run -itd \
     --name=be-03 \
@@ -85,8 +80,7 @@ docker run -itd \
     --env BE_ADDR="172.20.80.7:9050" \
     -p 8043:8040 \
     -v /data/be-03/storage:/opt/apache-doris/be/storage \
-    -v /data/be-03/conf:/opt/apache-doris/be/conf \
     -v /data/be-03/log:/opt/apache-doris/be/log \
     --network=doris-network \
     --ip=172.20.80.7 \
-    apache/doris:1.2.1-be-x86_64
+    apache/doris:2.0.0_alpha-be-x86_64

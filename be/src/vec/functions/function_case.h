@@ -17,8 +17,6 @@
 
 #pragma once
 
-#include <string.h>
-
 #include <algorithm>
 #include <cstdint>
 #include <memory>
@@ -30,8 +28,12 @@
 #include "gutil/integral_types.h"
 #include "vec/aggregate_functions/aggregate_function.h"
 #include "vec/columns/column.h"
+#include "vec/columns/column_array.h"
 #include "vec/columns/column_complex.h"
+#include "vec/columns/column_const.h"
+#include "vec/columns/column_map.h"
 #include "vec/columns/column_nullable.h"
+#include "vec/columns/column_struct.h"
 #include "vec/columns/columns_number.h"
 #include "vec/core/block.h"
 #include "vec/core/column_numbers.h"
@@ -41,17 +43,6 @@
 #include "vec/data_types/data_type_nullable.h"
 #include "vec/functions/function.h"
 #include "vec/utils/template_helpers.hpp"
-
-namespace doris {
-class FunctionContext;
-
-namespace vectorized {
-class ColumnArray;
-class ColumnMap;
-class ColumnString;
-class ColumnStruct;
-} // namespace vectorized
-} // namespace doris
 
 namespace doris::vectorized {
 
@@ -197,7 +188,8 @@ public:
         }
 
         auto result_column_ptr = data_type->create_column();
-        update_result_normal(result_column_ptr, then_idx, column_holder);
+        update_result_normal<int, ColumnType, then_null>(result_column_ptr, then_idx,
+                                                         column_holder);
         block.replace_by_position(result, std::move(result_column_ptr));
         return Status::OK();
     }
@@ -239,7 +231,7 @@ public:
                     }
                 } else {
                     auto* __restrict cond_raw_data =
-                            reinterpret_cast<const ColumnUInt8*>(when_column_ptr.get())
+                            assert_cast<const ColumnUInt8*>(when_column_ptr.get())
                                     ->get_data()
                                     .data();
 
@@ -269,11 +261,13 @@ public:
                       std::is_same_v<ColumnType, ColumnHLL>) {
             // result_column and all then_column is not nullable.
             // can't simd when type is string.
-            update_result_normal(result_column_ptr, then_idx, column_holder);
+            update_result_normal<uint8_t, ColumnType, then_null>(result_column_ptr, then_idx,
+                                                                 column_holder);
         } else if constexpr (then_null) {
             // result_column and all then_column is nullable.
             // TODO: make here simd automatically.
-            update_result_normal(result_column_ptr, then_idx, column_holder);
+            update_result_normal<uint8_t, ColumnType, then_null>(result_column_ptr, then_idx,
+                                                                 column_holder);
         } else {
             update_result_auto_simd<ColumnType>(result_column_ptr, then_idx, column_holder);
         }
@@ -282,9 +276,17 @@ public:
         return Status::OK();
     }
 
-    template <typename IndexType>
+    template <typename IndexType, typename ColumnType, bool then_null>
     void update_result_normal(MutableColumnPtr& result_column_ptr, IndexType* then_idx,
                               CaseWhenColumnHolder& column_holder) {
+        std::vector<uint8_t> is_consts(column_holder.then_ptrs.size());
+        std::vector<ColumnPtr> raw_columns(column_holder.then_ptrs.size());
+        for (size_t i = 0; i < column_holder.then_ptrs.size(); i++) {
+            if (column_holder.then_ptrs[i].has_value()) {
+                std::tie(raw_columns[i], is_consts[i]) =
+                        unpack_if_const(column_holder.then_ptrs[i].value());
+            }
+        }
         for (int row_idx = 0; row_idx < column_holder.rows_count; row_idx++) {
             if constexpr (!has_else) {
                 if (!then_idx[row_idx]) {
@@ -292,8 +294,15 @@ public:
                     continue;
                 }
             }
-            result_column_ptr->insert_from(*column_holder.then_ptrs[then_idx[row_idx]].value(),
-                                           row_idx);
+            size_t target = is_consts[then_idx[row_idx]] ? 0 : row_idx;
+            if constexpr (then_null) {
+                assert_cast<ColumnNullable*>(result_column_ptr.get())
+                        ->insert_from_with_type<ColumnType>(*raw_columns[then_idx[row_idx]],
+                                                            target);
+            } else {
+                assert_cast<ColumnType*>(result_column_ptr.get())
+                        ->insert_from(*raw_columns[then_idx[row_idx]], target);
+            }
         }
     }
 
@@ -301,20 +310,25 @@ public:
     void update_result_auto_simd(MutableColumnPtr& result_column_ptr,
                                  const uint8* __restrict then_idx,
                                  CaseWhenColumnHolder& column_holder) {
+        for (size_t i = 0; i < column_holder.then_ptrs.size(); i++) {
+            column_holder.then_ptrs[i]->reset(
+                    column_holder.then_ptrs[i].value()->convert_to_full_column_if_const());
+        }
+
         size_t rows_count = column_holder.rows_count;
         result_column_ptr->resize(rows_count);
         auto* __restrict result_raw_data =
-                reinterpret_cast<ColumnType*>(result_column_ptr.get())->get_data().data();
+                assert_cast<ColumnType*>(result_column_ptr.get())->get_data().data();
 
         // set default value
         for (int i = 0; i < rows_count; i++) {
-            result_raw_data[i] = 0;
+            result_raw_data[i] = {};
         }
 
         // some types had simd automatically, but some not.
         for (uint8_t i = (has_else ? 0 : 1); i < column_holder.pair_count; i++) {
             auto* __restrict column_raw_data =
-                    reinterpret_cast<ColumnType*>(
+                    assert_cast<ColumnType*>(
                             column_holder.then_ptrs[i].value()->assume_mutable().get())
                             ->get_data()
                             .data();
@@ -331,14 +345,12 @@ public:
                                  size_t input_rows_count) {
         bool then_null = false;
         for (int i = 1 + has_case; i < arguments.size() - has_else; i += 2) {
-            auto then_column_ptr = block.get_by_position(arguments[i]).column;
-            if (then_column_ptr->is_nullable()) {
+            if (block.get_by_position(arguments[i]).type->is_nullable()) {
                 then_null = true;
             }
         }
         if constexpr (has_else) {
-            auto else_column_ptr = block.get_by_position(arguments[arguments.size() - 1]).column;
-            if (else_column_ptr->is_nullable()) {
+            if (block.get_by_position(arguments[arguments.size() - 1]).type->is_nullable()) {
                 then_null = true;
             }
         } else {
@@ -363,14 +375,14 @@ public:
                                  size_t input_rows_count) {
         bool when_null = false;
         if constexpr (has_case) {
-            auto case_column_ptr = block.get_by_position(arguments[0]).column;
-            if (case_column_ptr->is_nullable()) {
+            block.replace_by_position_if_const(arguments[0]);
+            if (block.get_by_position(arguments[0]).type->is_nullable()) {
                 when_null = true;
             }
         }
         for (int i = has_case; i < arguments.size() - has_else; i += 2) {
-            auto when_column_ptr = block.get_by_position(arguments[i]).column;
-            if (when_column_ptr->is_nullable()) {
+            block.replace_by_position_if_const(arguments[i]);
+            if (block.get_by_position(arguments[i]).type->is_nullable()) {
                 when_null = true;
             }
         }
@@ -387,10 +399,10 @@ public:
     Status execute_get_type(const DataTypePtr& data_type, Block& block,
                             const ColumnNumbers& arguments, size_t result,
                             size_t input_rows_count) {
-        WhichDataType which(data_type->is_nullable()
-                                    ? reinterpret_cast<const DataTypeNullable*>(data_type.get())
-                                              ->get_nested_type()
-                                    : data_type);
+        WhichDataType which(
+                data_type->is_nullable()
+                        ? assert_cast<const DataTypeNullable*>(data_type.get())->get_nested_type()
+                        : data_type);
 #define DISPATCH(TYPE, COLUMN_TYPE)                                                    \
     if (which.idx == TypeIndex::TYPE)                                                  \
         return execute_get_when_null<COLUMN_TYPE>(data_type, block, arguments, result, \

@@ -83,10 +83,9 @@ Status VInPredicate::open(RuntimeState* state, VExprContext* context,
     return Status::OK();
 }
 
-void VInPredicate::close(RuntimeState* state, VExprContext* context,
-                         FunctionContext::FunctionStateScope scope) {
+void VInPredicate::close(VExprContext* context, FunctionContext::FunctionStateScope scope) {
     VExpr::close_function_context(context, scope, _function);
-    VExpr::close(state, context, scope);
+    VExpr::close(context, scope);
 }
 
 Status VInPredicate::execute(VExprContext* context, Block* block, int* result_column_id) {

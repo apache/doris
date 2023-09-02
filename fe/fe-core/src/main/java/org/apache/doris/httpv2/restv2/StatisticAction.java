@@ -65,7 +65,7 @@ public class StatisticAction extends RestBaseController {
         resultMap.put("dbCount", env.getInternalCatalog().getDbIds().size());
         resultMap.put("tblCount", getTblCount(env));
         resultMap.put("diskOccupancy", getDiskOccupancy(infoService));
-        resultMap.put("beCount", infoService.getClusterBackendIds(SystemInfoService.DEFAULT_CLUSTER).size());
+        resultMap.put("beCount", infoService.getAllBackendIds().size());
         resultMap.put("feCount", env.getFrontends(null).size());
         resultMap.put("remainDisk", getRemainDisk(infoService));
 
@@ -80,7 +80,7 @@ public class StatisticAction extends RestBaseController {
 
     private long getDiskOccupancy(SystemInfoService infoService) {
         long diskOccupancy = 0;
-        List<Backend> backends = infoService.getClusterBackends(SystemInfoService.DEFAULT_CLUSTER);
+        List<Backend> backends = infoService.getAllBackends();
         for (Backend be : backends) {
             diskOccupancy += be.getDataUsedCapacityB();
         }
@@ -89,7 +89,7 @@ public class StatisticAction extends RestBaseController {
 
     private long getRemainDisk(SystemInfoService infoService) {
         long remainDisk = 0;
-        List<Backend> backends = infoService.getClusterBackends(SystemInfoService.DEFAULT_CLUSTER);
+        List<Backend> backends = infoService.getAllBackends();
         for (Backend be : backends) {
             remainDisk += be.getAvailableCapacityB();
         }

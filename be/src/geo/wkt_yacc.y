@@ -92,7 +92,7 @@ shape:
 point:
      KW_POINT '(' coordinate ')'
      {
-        std::unique_ptr<doris::GeoPoint> point(new doris::GeoPoint());
+        std::unique_ptr<doris::GeoPoint> point = doris::GeoPoint::create_unique();
         ctx->parse_status = point->from_coord($3);
         if (ctx->parse_status != doris::GEO_PARSE_OK) {
             YYABORT;
@@ -106,7 +106,7 @@ linestring:
     {
         // to avoid memory leak
         std::unique_ptr<doris::GeoCoordinateList> list($3);
-        std::unique_ptr<doris::GeoLine> line(new doris::GeoLine());
+        std::unique_ptr<doris::GeoLine> line = doris::GeoLine::create_unique();
         ctx->parse_status = line->from_coords(*$3);
         if (ctx->parse_status != doris::GEO_PARSE_OK) {
             YYABORT;
@@ -120,7 +120,7 @@ polygon:
     {
         // to avoid memory leak
         std::unique_ptr<doris::GeoCoordinateListList> list($3);
-        std::unique_ptr<doris::GeoPolygon> polygon(new doris::GeoPolygon());
+        std::unique_ptr<doris::GeoPolygon> polygon = doris::GeoPolygon::create_unique();
         ctx->parse_status = polygon->from_coords(*$3);
         if (ctx->parse_status != doris::GEO_PARSE_OK) {
             YYABORT;

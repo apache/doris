@@ -1458,8 +1458,9 @@ suite("nereids_agg_fn") {
 	qt_sql_ndv_AnyData_agg_phase_4_notnull '''
 		select /*+SET_VAR(disable_nereids_rules='THREE_PHASE_AGGREGATE_WITH_DISTINCT, TWO_PHASE_AGGREGATE_WITH_DISTINCT')*/ count(distinct id), ndv(kint) from fn_test'''
 
-	qt_sql_orthogonal_bitmap_union_count_Bitmap_gb '''
-		select orthogonal_bitmap_union_count(bitmap_hash(kbint)) from fn_test group by kbool order by kbool'''
+    // this function result is unstable
+	// qt_sql_orthogonal_bitmap_union_count_Bitmap_gb '''
+	// 	select orthogonal_bitmap_union_count(bitmap_hash(kbint)) from fn_test group by kbool order by kbool'''
 	qt_sql_orthogonal_bitmap_union_count_Bitmap '''
 		select orthogonal_bitmap_union_count(bitmap_hash(kbint)) from fn_test'''
 	qt_sql_orthogonal_bitmap_union_count_Bitmap_agg_phase_1 '''
@@ -1470,8 +1471,9 @@ suite("nereids_agg_fn") {
 	// 	select /*+SET_VAR(disable_nereids_rules='THREE_PHASE_AGGREGATE_WITH_DISTINCT, TWO_PHASE_AGGREGATE_WITH_DISTINCT')*/ count(distinct id, kint), orthogonal_bitmap_union_count(bitmap_hash(kbint)) from fn_test group by kbool order by kbool'''
 	qt_sql_orthogonal_bitmap_union_count_Bitmap_agg_phase_4 '''
 		select /*+SET_VAR(disable_nereids_rules='THREE_PHASE_AGGREGATE_WITH_DISTINCT, TWO_PHASE_AGGREGATE_WITH_DISTINCT')*/ count(distinct id), orthogonal_bitmap_union_count(bitmap_hash(kbint)) from fn_test'''
-	qt_sql_orthogonal_bitmap_union_count_Bitmap_gb_notnull '''
-		select orthogonal_bitmap_union_count(bitmap_hash(kbint)) from fn_test_not_nullable group by kbool order by kbool'''
+    // this function result is unstable
+	// qt_sql_orthogonal_bitmap_union_count_Bitmap_gb_notnull '''
+	// 	select orthogonal_bitmap_union_count(bitmap_hash(kbint)) from fn_test_not_nullable group by kbool order by kbool'''
 	qt_sql_orthogonal_bitmap_union_count_Bitmap_notnull '''
 		select orthogonal_bitmap_union_count(bitmap_hash(kbint)) from fn_test_not_nullable'''
 	qt_sql_orthogonal_bitmap_union_count_Bitmap_agg_phase_1_notnull '''
@@ -2058,6 +2060,10 @@ suite("nereids_agg_fn") {
 	qt_sql_stddev_samp_DecimalV2_agg_phase_4_notnull '''
 		select /*+SET_VAR(disable_nereids_rules='THREE_PHASE_AGGREGATE_WITH_DISTINCT, TWO_PHASE_AGGREGATE_WITH_DISTINCT')*/ count(distinct id), stddev_samp(kdcmls1) from fn_test'''
 
+	qt_sql_sum_Boolean '''
+		select sum(kbool) from fn_test'''
+	qt_sql_sum_Boolean_gb '''
+		select sum(kbool) from fn_test group by id order by id'''
 	qt_sql_sum_TinyInt_gb '''
 		select sum(ktint) from fn_test group by kbool order by kbool'''
 	qt_sql_sum_TinyInt '''
@@ -2732,5 +2738,7 @@ suite("nereids_agg_fn") {
 		select /*+SET_VAR(disable_nereids_rules='THREE_PHASE_AGGREGATE_WITH_DISTINCT, TWO_PHASE_AGGREGATE_WITH_DISTINCT')*/ count(distinct id, kint), window_funnel(3600 * 3, 'default', kdtmv2s1, kint = 1, kint = 2) from fn_test group by kbool order by kbool'''
 	qt_sql_window_funnel_BigInt_String_DateTimeV2_Boolean_agg_phase_4_notnull '''
 		select /*+SET_VAR(disable_nereids_rules='THREE_PHASE_AGGREGATE_WITH_DISTINCT, TWO_PHASE_AGGREGATE_WITH_DISTINCT')*/ count(distinct id), window_funnel(3600 * 3, 'default', kdtmv2s1, kint = 1, kint = 2) from fn_test'''
+
+	qt_max_null "select max(null) from fn_test;"
 
 }

@@ -33,6 +33,7 @@ import org.apache.doris.thrift.TTabletType;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
+import com.google.gson.annotations.SerializedName;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -53,6 +54,7 @@ import java.util.stream.Collectors;
 public class PartitionInfo implements Writable {
     private static final Logger LOG = LogManager.getLogger(PartitionInfo.class);
 
+    @SerializedName("Type")
     protected PartitionType type;
     // partition columns for list and range partitions
     protected List<Column> partitionColumns = Lists.newArrayList();
@@ -61,14 +63,17 @@ public class PartitionInfo implements Writable {
     // temp partition id -> partition item
     protected Map<Long, PartitionItem> idToTempItem = Maps.newHashMap();
     // partition id -> data property
+    @SerializedName("IdToDataProperty")
     protected Map<Long, DataProperty> idToDataProperty;
     // partition id -> storage policy
     protected Map<Long, String> idToStoragePolicy;
     // partition id -> replication allocation
+    @SerializedName("IdToReplicaAllocation")
     protected Map<Long, ReplicaAllocation> idToReplicaAllocation;
     // true if the partition has multi partition columns
     protected boolean isMultiColumnPartition = false;
 
+    @SerializedName("IdToInMemory")
     protected Map<Long, Boolean> idToInMemory;
 
     // partition id -> tablet type
@@ -225,6 +230,13 @@ public class PartitionInfo implements Writable {
         idToDataProperty.put(partitionId, newDataProperty);
     }
 
+    public void refreshTableStoragePolicy(String storagePolicy) {
+        idToStoragePolicy.replaceAll((k, v) -> storagePolicy);
+        idToDataProperty.entrySet().forEach(entry -> {
+            entry.getValue().setStoragePolicy(storagePolicy);
+        });
+    }
+
     public String getStoragePolicy(long partitionId) {
         return idToStoragePolicy.getOrDefault(partitionId, "");
     }
@@ -318,7 +330,7 @@ public class PartitionInfo implements Writable {
             if (expr == MaxLiteral.MAX_VALUE) {
                 return PartitionValue.MAX_VALUE;
             } else if (expr instanceof DateLiteral) {
-                return new PartitionValue(expr.toSql());
+                return new PartitionValue(expr.getStringValue());
             } else {
                 return new PartitionValue(expr.getRealValue().toString());
             }
@@ -352,7 +364,7 @@ public class PartitionInfo implements Writable {
         out.writeInt(idToDataProperty.size());
         for (Map.Entry<Long, DataProperty> entry : idToDataProperty.entrySet()) {
             out.writeLong(entry.getKey());
-            if (entry.getValue().equals(new DataProperty(TStorageMedium.HDD))) {
+            if (entry.getValue().equals(DataProperty.DEFAULT_HDD_DATA_PROPERTY)) {
                 out.writeBoolean(true);
             } else {
                 out.writeBoolean(false);
@@ -372,7 +384,7 @@ public class PartitionInfo implements Writable {
             long partitionId = in.readLong();
             boolean isDefaultHddDataProperty = in.readBoolean();
             if (isDefaultHddDataProperty) {
-                idToDataProperty.put(partitionId, new DataProperty(TStorageMedium.HDD));
+                idToDataProperty.put(partitionId, new DataProperty(DataProperty.DEFAULT_HDD_DATA_PROPERTY));
             } else {
                 idToDataProperty.put(partitionId, DataProperty.read(in));
             }

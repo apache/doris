@@ -24,7 +24,7 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# Data Partitioning
+# Data Partition
 
 This topic is about table creation and data partitioning in Doris, including the common problems in table creation and their solutions.
 
@@ -36,9 +36,9 @@ In Doris, data is logically described in the form of table.
 
 A table contains rows and columns. 
 
-Row refers to a row of data about the user. Column is used to describe different fields in a row of data.
+Row refers to a row of user data. Column is used to describe different fields in a row of data.
 
-Columns can be divided into two categories: Key and Value. From a business perspective, Key and Value correspond to dimension columns and metric columns, respectively. In the Aggregate Model, rows with the same values in Key columns will be aggregated into one row. The way how Value columns are aggregated is specified by the user when the table is built. For more information about the Aggregate Model, please see the [Data Model](./data-model.md).
+Columns can be divided into two categories: Key and Value. From a business perspective, Key and Value correspond to dimension columns and metric columns, respectively. The key column of Doris is the column specified in the table creation statement. The column after the keyword 'unique key' or 'aggregate key' or 'duplicate key' in the table creation statement is the key column, and the rest except the key column is the value column. In the Aggregate Model, rows with the same values in Key columns will be aggregated into one row. The way how Value columns are aggregated is specified by the user when the table is built. For more information about the Aggregate Model, please see the [Data Model](./data-model.md).
 
 ### Tablet & Partition
 
@@ -139,9 +139,9 @@ A few suggested rules for defining columns include:
 
 ### Partitioning and Bucketing
 
-Doris supports two layers of data partitioning. The first level is Partition, including range partitioning and list partitioning. The second is Bucket (Tablet), which only supports hash partitioning.
+Doris supports two layers of data partitioning. The first level is Partition, including range partitioning and list partitioning. The second is Bucket (Tablet), including hash and random partitioning.
 
-It is also possible to use one layer of data partitioning. In this case, it only supports data bucketing.
+It is also possible to use one layer of data partitioning, If you do not write the partition statement when creating the table, Doris will generate a default partition at this time, which is transparent to the user. In this case, it only supports data bucketing.
 
 1. Partition
 
@@ -154,6 +154,8 @@ It is also possible to use one layer of data partitioning. In this case, it only
    #### Range Partitioning
 
    * Partitioning columns are usually time columns for easy management of old and new data.
+
+   * Range partitioning support column type: [DATE,DATETIME,TINYINT,SMALLINT,INT,BIGINT,LARGEINT]
 
    * Range partitioning supports specifying only the upper bound by `VALUES LESS THAN (...)`. The system will use the upper bound of the previous partition as the lower bound of the next partition, and generate a left-closed right-open interval. It also supports specifying both the upper and lower bounds by `VALUES [...)`, and generate a left-closed right-open interval.
 
@@ -230,26 +232,27 @@ It is also possible to use one layer of data partitioning. In this case, it only
 
     In the above example, we specify `date` (DATE type) and `id` (INT type) as the partitioning columns, so the resulting partitions will be as follows:
 
-    ```
-   *p201701_1000: [(MIN_VALUE, MIN_VALUE), ("2017-02-01", "1000") )
-   *p201702_2000: [("2017-02-01", "1000"), ("2017-03-01", "2000") )
-   *p201703_all: [("2017-03-01", "2000"), ("2017-04-01", MIN_VALUE))
+    ``` text
+        *p201701_1000: [(MIN_VALUE, MIN_VALUE), ("2017-02-01", "1000") )
+        *p201702_2000: [("2017-02-01", "1000"), ("2017-03-01", "2000") )
+        *p201703_all: [("2017-03-01", "2000"), ("2017-04-01", MIN_VALUE))
     ```
 
    Note that in the last partition, the user only specifies the partition value of the `date` column, so the system fills in `MIN_VALUE` as the partition value of the `id` column by default. When data are imported, the system will compare them with the partition values in order, and put the data in their corresponding partitions. Examples are as follows:
 
+    ``` text
+       * Data --> Partition
+       * 2017-01-01, 200   --> p201701_1000
+       * 2017-01-01, 2000  --> p201701_1000
+       * 2017-02-01, 100   --> p201701_1000
+       * 2017-02-01, 2000  --> p201702_2000
+       * 2017-02-15, 5000  --> p201702_2000
+       * 2017-03-01, 2000  --> p201703_all
+       * 2017-03-10, 1     --> p201703_all
+       * 2017-04-01, 1000  --> Unable to import
+       * 2017-05-01, 1000  --> Unable to import
     ```
-   * Data --> Partition
-   * 2017-01-01, 200   --> p201701_1000
-   * 2017-01-01, 2000  --> p201701_1000
-   * 2017-02-01, 100   --> p201701_1000
-   * 2017-02-01, 2000  --> p201702_2000
-   * 2017-02-15, 5000  --> p201702_2000
-   * 2017-03-01, 2000  --> p201703_all
-   * 2017-03-10, 1     --> p201703_all
-   * 2017-04-01, 1000  --> Unable to import
-   * 2017-05-01, 1000  --> Unable to import
-    ```
+
 
 <version since="1.2.0">
     
@@ -273,7 +276,7 @@ Range partitioning also supports batch partitioning. For example, you can create
 
   * As in the `example_list_tbl` example above, when the table is created, the following three partitions are automatically created.
 
-    ```
+    ```text
     p_cn: ("Beijing", "Shanghai", "Hong Kong")
     p_usa: ("New York", "San Francisco")
     p_jp: ("Tokyo")
@@ -282,7 +285,7 @@ Range partitioning also supports batch partitioning. For example, you can create
 
   * If we add Partition p_uk VALUES IN ("London"), the results will be as follows:
 
-    ```
+    ```text
     p_cn: ("Beijing", "Shanghai", "Hong Kong")
     p_usa: ("New York", "San Francisco")
     p_jp: ("Tokyo")
@@ -291,16 +294,15 @@ Range partitioning also supports batch partitioning. For example, you can create
 
   * Now we delete Partition p_jp, the results will be as follows:
 
-    ```
+    ```text
     p_cn: ("Beijing", "Shanghai", "Hong Kong")
     p_usa: ("New York", "San Francisco")
-    p_jp: ("Tokyo")
     p_uk: ("London")
     ```
 
   List partitioning also supports **multi-column partitioning**. Examples are as follows:
 
-  ```
+  ```text
   PARTITION BY LIST(`id`, `city`)
   (
       PARTITION `p1_city` VALUES IN (("1", "Beijing"), ("1", "Shanghai")),
@@ -311,14 +313,14 @@ Range partitioning also supports batch partitioning. For example, you can create
 
   In the above example, we specify `id` (INT type) and `city` (VARCHAR type) as the partitioning columns, so the resulting partitions will be as follows:
 
-  ```
-  * p1_city: [("1", "Beijing"), ("1", "Shanghai")]
-  * p2_city: [("2", "Beijing"), ("2", "Shanghai")]
-  * p3_city: [("3", "Beijing"), ("3", "Shanghai")]
+  ```text
+    * p1_city: [("1", "Beijing"), ("1", "Shanghai")]
+    * p2_city: [("2", "Beijing"), ("2", "Shanghai")]
+    * p3_city: [("3", "Beijing"), ("3", "Shanghai")]
   ```
 
   When data are imported, the system will compare them with the partition values in order, and put the data in their corresponding partitions. Examples are as follows:
-  ```
+  ```text
   Data ---> Partition
   1, Beijing  ---> p1_city
   1, Shanghai ---> p1_city
@@ -404,7 +406,7 @@ In this example, the ENGINE is of OLAP type, which is the default ENGINE type. I
    1. In fe.log, find the `Failed to create partition` log of the corresponding time point. In that log, find a number pair that looks like `{10001-10010}` . The first number of the pair is the Backend ID and the second number is the Tablet ID. As for `{10001-10010}`, it means that on Backend ID 10001, the creation of Tablet ID 10010 failed.
    2. After finding the target Backend, go to the corresponding be.INFO log and find the log of the target tablet, and then check the error message.
    3. A few common tablet creation failures include but not limited to:
-      * The task is not received by BE. In this case, the tablet ID related information will be found in be.INFO, or the creation is successful in BE but it still reports a failure. To solve the above problems, see [Installation and Deployment](https://doris.apache.org/docs/dev/install/install-deploy/) about how to check the connectivity of FE and BE.
+      * The task is not received by BE. In this case, the tablet ID related information will be found in be.INFO, or the creation is successful in BE but it still reports a failure. To solve the above problems, see [Installation and Deployment](https://doris.apache.org/docs/dev/install/standard-deployment/) about how to check the connectivity of FE and BE.
       * Pre-allocated memory failure. It may be that the length of a row in the table exceeds 100KB.
       * `Too many open files`. The number of open file descriptors exceeds the Linux system limit. In this case, you need to change the open file descriptor limit of the Linux system.
 

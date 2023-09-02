@@ -61,6 +61,7 @@ import java.util.Map;
 public class JdbcResource extends Resource {
     private static final Logger LOG = LogManager.getLogger(JdbcResource.class);
 
+    public static final String JDBC_NEBULA = "jdbc:nebula";
     public static final String JDBC_MYSQL = "jdbc:mysql";
     public static final String JDBC_MARIADB = "jdbc:mariadb";
     public static final String JDBC_POSTGRESQL = "jdbc:postgresql";
@@ -69,7 +70,10 @@ public class JdbcResource extends Resource {
     public static final String JDBC_CLICKHOUSE = "jdbc:clickhouse";
     public static final String JDBC_SAP_HANA = "jdbc:sap";
     public static final String JDBC_TRINO = "jdbc:trino";
+    public static final String JDBC_PRESTO = "jdbc:presto";
+    public static final String JDBC_OCEANBASE = "jdbc:oceanbase";
 
+    public static final String NEBULA = "NEBULA";
     public static final String MYSQL = "MYSQL";
     public static final String POSTGRESQL = "POSTGRESQL";
     public static final String ORACLE = "ORACLE";
@@ -77,6 +81,9 @@ public class JdbcResource extends Resource {
     public static final String CLICKHOUSE = "CLICKHOUSE";
     public static final String SAP_HANA = "SAP_HANA";
     public static final String TRINO = "TRINO";
+    public static final String PRESTO = "PRESTO";
+    public static final String OCEANBASE = "OCEANBASE";
+    public static final String OCEANBASE_ORACLE = "OCEANBASE_ORACLE";
 
     public static final String JDBC_PROPERTIES_PREFIX = "jdbc.";
     public static final String JDBC_URL = "jdbc_url";
@@ -97,12 +104,14 @@ public class JdbcResource extends Resource {
             TYPE,
             ONLY_SPECIFIED_DATABASE,
             LOWER_CASE_TABLE_NAMES,
-            SPECIFIED_DATABASE_LIST
+            INCLUDE_DATABASE_LIST,
+            EXCLUDE_DATABASE_LIST
     ).build();
     private static final ImmutableList<String> OPTIONAL_PROPERTIES = new ImmutableList.Builder<String>().add(
             ONLY_SPECIFIED_DATABASE,
             LOWER_CASE_TABLE_NAMES,
-            SPECIFIED_DATABASE_LIST
+            INCLUDE_DATABASE_LIST,
+            EXCLUDE_DATABASE_LIST
     ).build();
 
     // The default value of optional properties
@@ -112,7 +121,8 @@ public class JdbcResource extends Resource {
     static {
         OPTIONAL_PROPERTIES_DEFAULT_VALUE.put(ONLY_SPECIFIED_DATABASE, "false");
         OPTIONAL_PROPERTIES_DEFAULT_VALUE.put(LOWER_CASE_TABLE_NAMES, "false");
-        OPTIONAL_PROPERTIES_DEFAULT_VALUE.put(SPECIFIED_DATABASE_LIST, "");
+        OPTIONAL_PROPERTIES_DEFAULT_VALUE.put(INCLUDE_DATABASE_LIST, "");
+        OPTIONAL_PROPERTIES_DEFAULT_VALUE.put(EXCLUDE_DATABASE_LIST, "");
     }
 
     // timeout for both connection and read. 10 seconds is long enough.
@@ -270,6 +280,12 @@ public class JdbcResource extends Resource {
             return SAP_HANA;
         } else if (url.startsWith(JDBC_TRINO)) {
             return TRINO;
+        } else if (url.startsWith(JDBC_PRESTO)) {
+            return PRESTO;
+        } else if (url.startsWith(JDBC_OCEANBASE)) {
+            return OCEANBASE;
+        } else if (url.startsWith(JDBC_NEBULA)) {
+            return NEBULA;
         }
         throw new DdlException("Unsupported jdbc database type, please check jdbcUrl: " + url);
     }
@@ -278,20 +294,29 @@ public class JdbcResource extends Resource {
         // delete all space in jdbcUrl
         String newJdbcUrl = jdbcUrl.replaceAll(" ", "");
         String dbType = parseDbType(newJdbcUrl);
-        if (dbType.equals(MYSQL)) {
+        if (dbType.equals(MYSQL) || dbType.equals(OCEANBASE)) {
             // `yearIsDateType` is a parameter of JDBC, and the default is true.
             // We force the use of `yearIsDateType=false`
             newJdbcUrl = checkAndSetJdbcBoolParam(newJdbcUrl, "yearIsDateType", "true", "false");
-            // `tinyInt1isBit` is a parameter of JDBC, and the default is true.
-            // We force the use of `tinyInt1isBit=false`, so that for mysql type tinyint,
-            // it will convert to Doris tinyint, not bit.
+            // MySQL Types and Return Values for GetColumnTypeName and GetColumnClassName
+            // are presented in https://dev.mysql.com/doc/connector-j/8.0/en/connector-j-reference-type-conversions.html
+            // When mysql's tinyint stores non-0 or 1, we need to read the data correctly,
+            // so we need tinyInt1isBit=false
             newJdbcUrl = checkAndSetJdbcBoolParam(newJdbcUrl, "tinyInt1isBit", "true", "false");
             // set useUnicode and characterEncoding to false and utf-8
             newJdbcUrl = checkAndSetJdbcBoolParam(newJdbcUrl, "useUnicode", "false", "true");
+            newJdbcUrl = checkAndSetJdbcBoolParam(newJdbcUrl, "rewriteBatchedStatements", "false", "true");
             newJdbcUrl = checkAndSetJdbcParam(newJdbcUrl, "characterEncoding", "utf-8");
+            if (dbType.equals(OCEANBASE)) {
+                // set useCursorFetch to true
+                newJdbcUrl = checkAndSetJdbcBoolParam(newJdbcUrl, "useCursorFetch", "false", "true");
+            }
         }
         if (dbType.equals(POSTGRESQL)) {
-            newJdbcUrl = checkAndSetJdbcBoolParam(newJdbcUrl, "useCursorFetch", "false", "true");
+            newJdbcUrl = checkAndSetJdbcBoolParam(newJdbcUrl, "reWriteBatchedInserts", "false", "true");
+        }
+        if (dbType.equals(SQLSERVER)) {
+            newJdbcUrl = checkAndSetJdbcBoolParam(newJdbcUrl, "useBulkCopyForBatchInsert", "false", "true");
         }
         return newJdbcUrl;
     }

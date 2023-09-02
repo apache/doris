@@ -18,6 +18,7 @@
 import org.codehaus.groovy.runtime.IOGroovyMethods
 
 suite ("agg_have_dup_base") {
+
     sql """ DROP TABLE IF EXISTS d_table; """
 
     sql """

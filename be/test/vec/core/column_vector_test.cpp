@@ -18,12 +18,12 @@
 
 #include "vec/columns/column_vector.h"
 
-#include <gtest/gtest.h>
+#include <gtest/gtest-message.h>
+#include <gtest/gtest-test-part.h>
 
-#include <memory>
 #include <string>
 
-#include "vec/data_types/data_type_date.h"
+#include "gtest/gtest_pred_impl.h"
 
 namespace doris::vectorized {
 

@@ -103,8 +103,7 @@ Status EngineStorageMigrationTask::_check_running_txns() {
     std::set<int64_t> transaction_ids;
     // check if this tablet has related running txns. if yes, can not do migration.
     StorageEngine::instance()->txn_manager()->get_tablet_related_txns(
-            _tablet->tablet_id(), _tablet->schema_hash(), _tablet->tablet_uid(), &partition_id,
-            &transaction_ids);
+            _tablet->tablet_id(), _tablet->tablet_uid(), &partition_id, &transaction_ids);
     if (transaction_ids.size() > 0) {
         return Status::InternalError("tablet {} has unfinished txns", _tablet->tablet_id());
     }
@@ -148,9 +147,6 @@ Status EngineStorageMigrationTask::_gen_and_write_header_to_hdr_file(
     }
     std::string new_meta_file = full_path + "/" + std::to_string(tablet_id) + ".hdr";
     RETURN_IF_ERROR(new_tablet_meta->save(new_meta_file));
-
-    // reset tablet id and rowset id
-    RETURN_IF_ERROR(TabletMeta::reset_tablet_uid(new_meta_file));
 
     // it will change rowset id and its create time
     // rowset create time is useful when load tablet from meta to check which tablet is the tablet to load

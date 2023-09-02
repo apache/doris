@@ -29,8 +29,9 @@ import java.util.Map;
 
 public class IcebergHMSExternalCatalog extends IcebergExternalCatalog {
 
-    public IcebergHMSExternalCatalog(long catalogId, String name, String resource, Map<String, String> props) {
-        super(catalogId, name);
+    public IcebergHMSExternalCatalog(long catalogId, String name, String resource, Map<String, String> props,
+            String comment) {
+        super(catalogId, name, comment);
         props = PropertyConverter.convertToMetaProperties(props);
         catalogProperty = new CatalogProperty(resource, props);
     }

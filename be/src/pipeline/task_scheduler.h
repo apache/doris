@@ -91,8 +91,7 @@ public:
 
     void shutdown();
 
-    void try_update_task_group(const taskgroup::TaskGroupInfo& task_group_info,
-                               taskgroup::TaskGroupPtr& task_group);
+    TaskQueue* task_queue() const { return _task_queue.get(); }
 
 private:
     std::unique_ptr<ThreadPool> _fix_thread_pool;

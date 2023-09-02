@@ -26,6 +26,7 @@
 
 #include "common/config.h"
 #include "runtime/define_primitive_type.h"
+#include "util/trace.h"
 #include "vec/columns/column_array.h"
 #include "vec/columns/column_dictionary.h"
 #include "vec/columns/column_map.h"
@@ -170,6 +171,13 @@ vectorized::IColumn::MutablePtr Schema::get_predicate_column_ptr(const Field& fi
         ptr = doris::vectorized::PredicateColumnType<TYPE_DATETIME>::create();
         break;
     case FieldType::OLAP_FIELD_TYPE_CHAR:
+        if (config::enable_low_cardinality_optimize && reader_type == ReaderType::READER_QUERY) {
+            ptr = doris::vectorized::ColumnDictionary<doris::vectorized::Int32>::create(
+                    field.type());
+        } else {
+            ptr = doris::vectorized::PredicateColumnType<TYPE_CHAR>::create();
+        }
+        break;
     case FieldType::OLAP_FIELD_TYPE_VARCHAR:
     case FieldType::OLAP_FIELD_TYPE_STRING:
         if (config::enable_low_cardinality_optimize && reader_type == ReaderType::READER_QUERY) {

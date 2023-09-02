@@ -18,6 +18,8 @@
 
 #include <glog/logging.h>
 
+#include <limits> // IWYU pragma: keep
+
 #include "gutil/port.h"
 #include "util/bit_stream_utils.inline.h"
 #include "util/bit_util.h"

@@ -8,7 +8,7 @@
 
 ---
 
-<!-- 
+<!--
 Licensed to the Apache Software Foundation (ASF) under one
 or more contributor license agreements.  See the NOTICE file
 distributed with this work for additional information
@@ -47,7 +47,7 @@ FE 的配置项有两种方式进行查看：
 
 2. 通过命令查看
 
-   FE 启动后，可以在 MySQL 客户端中，通过以下命令查看 FE 的配置项：
+   FE 启动后，可以在 MySQL 客户端中，通过以下命令查看 FE 的配置项，具体语法参照[ADMIN-SHOW-CONFIG](../../sql-manual/sql-reference/Database-Administration-Statements/ADMIN-SHOW-CONFIG.md)：
 
    `ADMIN SHOW FRONTEND CONFIG;`
 
@@ -173,15 +173,15 @@ Doris 元数据将保存在这里。 强烈建议将此目录的存储为：
 
 元数据会同步写入到多个 Follower FE，这个参数用于控制 Master FE 等待 Follower FE 发送 ack 的超时时间。当写入的数据较大时，可能 ack 时间较长，如果超时，会导致写元数据失败，FE 进程退出。此时可以适当调大这个参数。
 
-### grpc_threadmgr_threads_nums
+### `grpc_threadmgr_threads_nums`
 
 默认值: 4096
 
 在grpc_threadmgr中处理grpc events的线程数量。
 
-#### `bdbje_lock_timeout_second`>>>>>>> 1b46f49ad0 (use customed threadpool instead of the default threadpool of grpc java to get better metrics)
+#### `bdbje_lock_timeout_second`
 
-默认值：1
+默认值：5
 
 bdbje 操作的 lock timeout  如果 FE WARN 日志中有很多 LockTimeoutException，可以尝试增加这个值
 
@@ -231,7 +231,7 @@ Master FE 的 bdbje 同步策略。 如果您只部署一个 Follower FE，请�
 
 是否可以动态配置：true
 
-如果为 true，非主 FE 将忽略主 FE 与其自身之间的元数据延迟间隙，即使元数据延迟间隙超过 `meta_delay_toleration_second`。 
+如果为 true，非主 FE 将忽略主 FE 与其自身之间的元数据延迟间隙，即使元数据延迟间隙超过 `meta_delay_toleration_second`。
 非主 FE 仍将提供读取服务。 当您出于某种原因尝试停止 Master FE 较长时间，但仍希望非 Master FE 可以提供读取服务时，这会很有帮助。
 
 #### `meta_delay_toleration_second`
@@ -388,7 +388,7 @@ Doris FE 通过 mysql 协议查询连接端口
 
 状态:已弃用，不建议使用。
 
-类型:string 
+类型:string
 
 描述:显式配置FE的IP地址，不使用*InetAddress。getByName*获取IP地址。通常在*InetAddress中。getByName*当无法获得预期结果时。只支持IP地址，不支持主机名。
 
@@ -418,6 +418,12 @@ FE https 端口，当前所有 FE https 端口都必须相同
 
 FE https 使能标志位，false 表示支持 http，true 表示同时支持 http 与 https，并且会自动将 http 请求重定向到 https
 如果 enable_https 为 true，需要在 fe.conf 中配置 ssl 证书信息
+
+#### `enable_ssl`
+
+默认值: true
+
+如果设置为 ture，doris 将与 mysql服务 建立基于 SSL 协议的加密通道。
 
 #### `qe_max_connection`
 
@@ -471,7 +477,7 @@ thrift 服务器的 backlog_num 当你扩大这个 backlog_num 时，你应该�
 
 默认值：0
 
-thrift 服务器的连接超时和套接字超时配置 
+thrift 服务器的连接超时和套接字超时配置
 
 thrift_client_timeout_ms 的默认值设置为零以防止读取超时
 
@@ -658,7 +664,7 @@ workers 线程池默认不做设置，根据自己需要进行设置
 
 #### `jetty_server_max_http_header_size`
 
-默认值：10240  （10K）
+默认值：1048576  （1M）
 
 http header size 配置参数
 
@@ -759,6 +765,16 @@ trace导出到 collector: `http://127.0.0.1:4318/v1/traces`
 
 </version>
 
+#### `multi_partition_name_prefix`
+
+默认值：p_
+
+是否可以动态配置：true
+
+是否为 Master FE 节点独有的配置项：true
+
+使用此参数设置 multi partition 的分区名前缀，仅仅multi partition 生效，不作用于动态分区，默认前缀是“p_”。
+
 #### `partition_in_memory_update_interval_secs`
 
 默认值：300 (s)
@@ -790,8 +806,8 @@ trace导出到 collector: `http://127.0.0.1:4318/v1/traces`
 用于控制用户表表名大小写是否敏感。
 该配置只能在集群初始化时配置，初始化完成后集群重启和升级时不能修改。
 
-0：表名按指定存储，比较区分大小写。 
-1：表名以小写形式存储，比较不区分大小写。 
+0：表名按指定存储，比较区分大小写。
+1：表名以小写形式存储，比较不区分大小写。
 2：表名按指定存储，但以小写形式进行比较。
 
 #### `table_name_length_limit`
@@ -812,7 +828,7 @@ trace导出到 collector: `http://127.0.0.1:4318/v1/traces`
 
 是否为 Master FE 节点独有的配置项：false
 
-如果设置为 true，SQL 查询结果集将被缓存。如果查询中所有表的所有分区最后一次访问版本时间的间隔大于cache_last_version_interval_second，且结果集小于cache_result_max_row_count，则结果集会被缓存，下一条相同的SQL会命中缓存
+如果设置为 true，SQL 查询结果集将被缓存。如果查询中所有表的所有分区最后一次访问版本时间的间隔大于cache_last_version_interval_second，且结果集行数小于cache_result_max_row_count，且数据大小小于cache_result_max_data_size，则结果集会被缓存，下一条相同的SQL会命中缓存
 
 如果设置为 true，FE 会启用 sql 结果缓存，该选项适用于离线数据更新场景
 
@@ -840,6 +856,16 @@ trace导出到 collector: `http://127.0.0.1:4318/v1/traces`
 是否为 Master FE 节点独有的配置项：false
 
 设置可以缓存的最大行数，详细的原理可以参考官方文档：操作手册->分区缓存
+
+#### `cache_result_max_data_size`
+
+默认值：31457280
+
+是否可以动态配置：true
+
+是否为 Master FE 节点独有的配置项：false
+
+设置可以缓存的最大数据大小，单位Bytes
 
 #### `cache_last_version_interval_second`
 
@@ -1135,7 +1161,7 @@ current running txns on db xxx is xx, larger than limit xx
 
 #### `max_bytes_per_broker_scanner`
 
-默认值：3 * 1024 * 1024 * 1024L  （3G）
+默认值：500 * 1024 * 1024 * 1024L  （500G）
 
 是否可以动态配置：true
 
@@ -1465,7 +1491,7 @@ NORMAL 优先级挂起加载作业的并发数。
 
 负载中落后节点的最大等待秒数
    例如：
-      有 3 个副本 A, B, C 
+      有 3 个副本 A, B, C
       load 已经在 t1 时仲裁完成 (A,B) 并且 C 没有完成，
       如果 (current_time-t1)> 300s，那么 doris会将 C 视为故障节点，
       将调用事务管理器提交事务并告诉事务管理器 C 失败。
@@ -1674,6 +1700,12 @@ sys_log_dir:
 
 日志拆分的大小，每1G拆分一个日志文件
 
+#### `sys_log_enable_compress`
+
+默认值：false
+
+控制是否压缩fe log, 包括fe.log 及 fe.warn.log。如果开启，则使用gzip算法进行压缩。
+
 #### `audit_log_dir`
 
 默认值：DorisFE.DORIS_HOME_DIR + "/log"
@@ -1718,6 +1750,12 @@ HOUR: log前缀是：yyyyMMddHH
 - 10小时  10 小时
 - 60m    60 分钟
 - 120s   120 秒
+
+#### `audit_log_enable_compress`
+
+默认值：false
+
+控制是否压缩 fe.audit.log。如果开启，则使用gzip算法进行压缩。
 
 ### 存储
 
@@ -1775,9 +1813,27 @@ show data （其他用法：HELP SHOW DATA）
 
 是否为 Master FE 节点独有的配置项：true
 
-在某些情况下，某些 tablet 可能会损坏或丢失所有副本。 此时数据已经丢失，损坏的 tablet 会导致整个查询失败，无法查询剩余的健康 tablet。 
+在某些情况下，某些 tablet 可能会损坏或丢失所有副本。 此时数据已经丢失，损坏的 tablet 会导致整个查询失败，无法查询剩余的健康 tablet。
 
 在这种情况下，您可以将此配置设置为 true。 系统会将损坏的 tablet 替换为空 tablet，以确保查询可以执行。 （但此时数据已经丢失，所以查询结果可能不准确）
+
+#### `recover_with_skip_missing_version`
+
+默认值：disable
+
+是否可以动态配置：true
+
+是否为 Master FE 节点独有的配置项：true
+
+有些场景下集群出现了不可恢复的元数据问题，数据已的visibleversion 已经和be 不匹配，
+
+这种情况下仍然需要恢复剩余的数据（可能能会导致数据的正确性有问题），这个配置同`recover_with_empty_tablet` 一样只能在紧急情况下使用
+
+这个配置有三个值：
+
+   * disable ：出现异常会正常报错。
+   * ignore_version: 忽略 fe partition 中记录的visibleVersion 信息， 使用replica version
+   * ignore_all: 除了ignore_version， 在遇到找不到可查询的replica 时，直接跳过而不是抛出异常
 
 #### `min_clone_task_timeout_sec`  和 `max_clone_task_timeout_sec`
 
@@ -1944,6 +2000,16 @@ BE副本数的平衡阈值。
 1. 一般情况下，根本不需要关闭平衡。
 2. 因为一旦关闭平衡，不稳定的 colocate 表可能无法恢复
 3. 最终查询时无法使用 colocate 计划。
+
+#### `balance_slot_num_per_path`
+
+默认值：1
+
+是否可以动态配置：true
+
+是否为 Master FE 节点独有的配置项：true
+
+balance 时每个路径的默认 slot 数量
 
 #### `disable_tablet_scheduler`
 
@@ -2130,7 +2196,7 @@ tablet 状态更新间隔
 
 #### `enable_storage_policy`
 
-是否开启 Storage Policy 功能。该功能用户冷热数据分离功能。该功能仍在开发中，不排除后续后功能修改或重构。仅建议测试环境使用。
+是否开启 Storage Policy 功能。该功能用户冷热数据分离功能。
 
 默认值：false。即不开启
 
@@ -2533,7 +2599,7 @@ SmallFileMgr 中存储的最大文件数
 
 是否为  Master FE  节点独有的配置项：true
 
-这个阈值是为了避免在 FE 中堆积过多的报告任务，可能会导致 OOM 异常等问题。 
+这个阈值是为了避免在 FE 中堆积过多的报告任务，可能会导致 OOM 异常等问题。
 
 并且每个 BE 每 1 分钟会报告一次 tablet 信息，因此无限制接收报告是不可接受的。
 以后我们会优化 tablet 报告的处理速度
@@ -2679,3 +2745,28 @@ show data （其他用法：HELP SHOW DATA）
 当设置为 false 时，查询 `information_schema` 中的表时，将不再返回 external catalog 中的表的信息。
 
 这个参数主要用于避免因 external catalog 无法访问、信息过多等原因导致的查询 `information_schema` 超时的问题。
+
+#### `enable_query_hit_stats`
+
+<version since="dev"></version>
+
+默认值：false
+
+是否可以动态配置：true
+
+是否为 Master FE 节点独有的配置项：false
+
+控制是否启用查询命中率统计。默认为 false。
+
+#### `div_precision_increment`
+<version since="dev"></version>
+
+默认值：4
+
+此变量表示增加与/运算符执行的除法操作结果规模的位数。默认为4。
+
+#### `enable_convert_light_weight_schema_change`
+
+默认值：true
+
+暂时性配置项，开启后会启动后台线程自动将所有的olap表修改为可light schema change，修改结果可通过命令`show convert_light_schema_change [from db]` 来查看，将会展示所有非light schema change表的转换结果

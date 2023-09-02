@@ -57,11 +57,13 @@ namespace vectorized {
 template <class HashTableContext, bool is_intersect>
 struct HashTableBuild {
     HashTableBuild(int rows, ColumnRawPtrs& build_raw_ptrs,
-                   VSetOperationNode<is_intersect>* operation_node, uint8_t offset)
+                   VSetOperationNode<is_intersect>* operation_node, uint8_t offset,
+                   RuntimeState* state)
             : _rows(rows),
               _offset(offset),
               _build_raw_ptrs(build_raw_ptrs),
-              _operation_node(operation_node) {}
+              _operation_node(operation_node),
+              _state(state) {}
 
     Status operator()(HashTableContext& hash_table_ctx) {
         using KeyGetter = typename HashTableContext::State;
@@ -81,6 +83,9 @@ struct HashTableBuild {
         }
 
         for (size_t k = 0; k < _rows; ++k) {
+            if (k % 65536 == 0) {
+                RETURN_IF_CANCELLED(_state);
+            }
             auto emplace_result = key_getter.emplace_key(hash_table_ctx.hash_table, k,
                                                          *(_operation_node->_arena));
 
@@ -100,6 +105,7 @@ private:
     const uint8_t _offset;
     ColumnRawPtrs& _build_raw_ptrs;
     VSetOperationNode<is_intersect>* _operation_node;
+    RuntimeState* _state;
 };
 
 template <class HashTableContext, bool is_intersected>
@@ -170,9 +176,6 @@ VSetOperationNode<is_intersect>::VSetOperationNode(ObjectPool* pool, const TPlan
 
 template <bool is_intersect>
 void VSetOperationNode<is_intersect>::release_resource(RuntimeState* state) {
-    for (auto& exprs : _child_expr_lists) {
-        VExpr::close(exprs, state);
-    }
     release_mem();
     ExecNode::release_resource(state);
 }
@@ -181,7 +184,6 @@ Status VSetOperationNode<is_intersect>::close(RuntimeState* state) {
     if (is_closed()) {
         return Status::OK();
     }
-    START_AND_SCOPE_SPAN(state->get_tracer(), span, "VSetOperationNode<is_intersect>::close");
     return ExecNode::close(state);
 }
 
@@ -200,8 +202,8 @@ Status VSetOperationNode<is_intersect>::init(const TPlanNode& tnode, RuntimeStat
     }
 
     for (auto& texprs : result_texpr_lists) {
-        std::vector<VExprContext*> ctxs;
-        RETURN_IF_ERROR(VExpr::create_expr_trees(_pool, texprs, &ctxs));
+        VExprContextSPtrs ctxs;
+        RETURN_IF_ERROR(VExpr::create_expr_trees(texprs, ctxs));
         _child_expr_lists.push_back(ctxs);
     }
 
@@ -213,16 +215,18 @@ Status VSetOperationNode<is_intersect>::init(const TPlanNode& tnode, RuntimeStat
 template <bool is_intersect>
 Status VSetOperationNode<is_intersect>::alloc_resource(RuntimeState* state) {
     // open result expr lists.
-    for (const std::vector<VExprContext*>& exprs : _child_expr_lists) {
+    for (const VExprContextSPtrs& exprs : _child_expr_lists) {
         RETURN_IF_ERROR(VExpr::open(exprs, state));
     }
-    _probe_columns.resize(_child_expr_lists[1].size());
+    // Add the if check only for compatible with old optimiser
+    if (_child_expr_lists.size() > 1) {
+        _probe_columns.resize(_child_expr_lists[1].size());
+    }
     return Status::OK();
 }
 
 template <bool is_intersect>
 Status VSetOperationNode<is_intersect>::open(RuntimeState* state) {
-    START_AND_SCOPE_SPAN(state->get_tracer(), span, "VSetOperationNode<is_intersect>::open");
     SCOPED_TIMER(_runtime_profile->total_time_counter());
     RETURN_IF_ERROR(ExecNode::open(state));
 
@@ -237,16 +241,12 @@ Status VSetOperationNode<is_intersect>::open(RuntimeState* state) {
         while (!eos) {
             release_block_memory(_probe_block, i);
             RETURN_IF_CANCELLED(state);
-            RETURN_IF_ERROR_AND_CHECK_SPAN(
-                    child(i)->get_next_after_projects(
-                            state, &_probe_block, &eos,
-                            std::bind((Status(ExecNode::*)(RuntimeState*, vectorized::Block*,
-                                                           bool*)) &
-                                              ExecNode::get_next,
-                                      _children[i], std::placeholders::_1, std::placeholders::_2,
-                                      std::placeholders::_3)),
-                    child(i)->get_next_span(), eos);
-
+            RETURN_IF_ERROR(child(i)->get_next_after_projects(
+                    state, &_probe_block, &eos,
+                    std::bind((Status(ExecNode::*)(RuntimeState*, vectorized::Block*, bool*)) &
+                                      ExecNode::get_next,
+                              _children[i], std::placeholders::_1, std::placeholders::_2,
+                              std::placeholders::_3)));
             RETURN_IF_ERROR(sink_probe(state, i, &_probe_block, eos));
         }
     }
@@ -257,7 +257,6 @@ template <bool is_intersect>
 Status VSetOperationNode<is_intersect>::get_next(RuntimeState* state, Block* output_block,
                                                  bool* eos) {
     SCOPED_TIMER(_runtime_profile->total_time_counter());
-    INIT_AND_SCOPE_GET_NEXT_SPAN(state->get_tracer(), _get_next_span, "VExceptNode::get_next");
     return pull(state, output_block, eos);
 }
 
@@ -328,10 +327,11 @@ void VSetOperationNode<is_intersect>::hash_table_init() {
 
     bool use_fixed_key = true;
     bool has_null = false;
-    int key_byte_size = 0;
+    size_t key_byte_size = 0;
+    size_t bitmap_size = get_bitmap_size(_child_expr_lists[0].size());
 
-    _probe_key_sz.resize(_child_expr_lists[1].size());
     _build_key_sz.resize(_child_expr_lists[0].size());
+    _probe_key_sz.resize(_child_expr_lists[0].size());
     for (int i = 0; i < _child_expr_lists[0].size(); ++i) {
         const auto vexpr = _child_expr_lists[0][i]->root();
         const auto& data_type = vexpr->data_type();
@@ -348,16 +348,15 @@ void VSetOperationNode<is_intersect>::hash_table_init() {
         key_byte_size += _probe_key_sz[i];
     }
 
-    if (std::tuple_size<KeysNullMap<UInt256>>::value + key_byte_size > sizeof(UInt256)) {
+    if (bitmap_size + key_byte_size > sizeof(UInt256)) {
         use_fixed_key = false;
     }
     if (use_fixed_key) {
         if (has_null) {
-            if (std::tuple_size<KeysNullMap<UInt64>>::value + key_byte_size <= sizeof(UInt64)) {
+            if (bitmap_size + key_byte_size <= sizeof(UInt64)) {
                 _hash_table_variants
                         ->emplace<I64FixedKeyHashTableContext<true, RowRefListWithFlags>>();
-            } else if (std::tuple_size<KeysNullMap<UInt128>>::value + key_byte_size <=
-                       sizeof(UInt128)) {
+            } else if (bitmap_size + key_byte_size <= sizeof(UInt128)) {
                 _hash_table_variants
                         ->emplace<I128FixedKeyHashTableContext<true, RowRefListWithFlags>>();
             } else {
@@ -382,17 +381,18 @@ void VSetOperationNode<is_intersect>::hash_table_init() {
 }
 
 template <bool is_intersect>
-Status VSetOperationNode<is_intersect>::sink(RuntimeState*, Block* block, bool eos) {
+Status VSetOperationNode<is_intersect>::sink(RuntimeState* state, Block* block, bool eos) {
     constexpr static auto BUILD_BLOCK_MAX_SIZE = 4 * 1024UL * 1024UL * 1024UL;
 
     if (block->rows() != 0) {
         _mem_used += block->allocated_bytes();
-        _mutable_block.merge(*block);
+        RETURN_IF_ERROR(_mutable_block.merge(*block));
     }
 
     if (eos || _mutable_block.allocated_bytes() >= BUILD_BLOCK_MAX_SIZE) {
         _build_blocks.emplace_back(_mutable_block.to_block());
-        RETURN_IF_ERROR(process_build_block(_build_blocks[_build_block_index], _build_block_index));
+        RETURN_IF_ERROR(
+                process_build_block(_build_blocks[_build_block_index], _build_block_index, state));
         _mutable_block.clear();
         ++_build_block_index;
 
@@ -410,6 +410,7 @@ Status VSetOperationNode<is_intersect>::sink(RuntimeState*, Block* block, bool e
                         *_hash_table_variants);
             }
             _build_finished = true;
+            _can_read = _children.size() == 1;
         }
     }
     return Status::OK();
@@ -431,8 +432,7 @@ Status VSetOperationNode<is_intersect>::pull(RuntimeState* state, Block* output_
             },
             *_hash_table_variants);
     RETURN_IF_ERROR(st);
-    RETURN_IF_ERROR(
-            VExprContext::filter_block(_vconjunct_ctx_ptr, output_block, output_block->columns()));
+    RETURN_IF_ERROR(VExprContext::filter_block(_conjuncts, output_block, output_block->columns()));
     reached_limit(output_block, eos);
     return Status::OK();
 }
@@ -447,14 +447,12 @@ Status VSetOperationNode<is_intersect>::hash_table_build(RuntimeState* state) {
     while (!eos) {
         block.clear_column_data();
         RETURN_IF_CANCELLED(state);
-        RETURN_IF_ERROR_AND_CHECK_SPAN(
-                child(0)->get_next_after_projects(
-                        state, &block, &eos,
-                        std::bind((Status(ExecNode::*)(RuntimeState*, vectorized::Block*, bool*)) &
-                                          ExecNode::get_next,
-                                  _children[0], std::placeholders::_1, std::placeholders::_2,
-                                  std::placeholders::_3)),
-                child(0)->get_next_span(), eos);
+        RETURN_IF_ERROR(child(0)->get_next_after_projects(
+                state, &block, &eos,
+                std::bind((Status(ExecNode::*)(RuntimeState*, vectorized::Block*, bool*)) &
+                                  ExecNode::get_next,
+                          _children[0], std::placeholders::_1, std::placeholders::_2,
+                          std::placeholders::_3)));
         if (eos) {
             child(0)->close(state);
         }
@@ -465,7 +463,8 @@ Status VSetOperationNode<is_intersect>::hash_table_build(RuntimeState* state) {
 }
 
 template <bool is_intersect>
-Status VSetOperationNode<is_intersect>::process_build_block(Block& block, uint8_t offset) {
+Status VSetOperationNode<is_intersect>::process_build_block(Block& block, uint8_t offset,
+                                                            RuntimeState* state) {
     size_t rows = block.rows();
     if (rows == 0) {
         return Status::OK();
@@ -480,7 +479,7 @@ Status VSetOperationNode<is_intersect>::process_build_block(Block& block, uint8_
                 using HashTableCtxType = std::decay_t<decltype(arg)>;
                 if constexpr (!std::is_same_v<HashTableCtxType, std::monostate>) {
                     HashTableBuild<HashTableCtxType, is_intersect> hash_table_build_process(
-                            rows, raw_ptrs, this, offset);
+                            rows, raw_ptrs, this, offset, state);
                     hash_table_build_process(arg);
                 } else {
                     LOG(FATAL) << "FATAL: uninited hash table";
@@ -535,11 +534,14 @@ Status VSetOperationNode<is_intersect>::sink_probe(RuntimeState* state, int chil
                 *_hash_table_variants));
     }
 
-    return eos ? finalize_probe(state, child_id) : Status::OK();
+    if (eos) {
+        _finalize_probe(child_id);
+    }
+    return Status::OK();
 }
 
 template <bool is_intersect>
-Status VSetOperationNode<is_intersect>::finalize_probe(RuntimeState* /*state*/, int child_id) {
+void VSetOperationNode<is_intersect>::_finalize_probe(int child_id) {
     if (child_id != (_children.size() - 1)) {
         refresh_hash_table();
         if constexpr (is_intersect) {
@@ -559,7 +561,6 @@ Status VSetOperationNode<is_intersect>::finalize_probe(RuntimeState* /*state*/, 
         _can_read = true;
     }
     _probe_finished_children_index[child_id] = true;
-    return Status::OK();
 }
 
 template <bool is_intersect>

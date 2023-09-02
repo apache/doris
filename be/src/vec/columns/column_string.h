@@ -64,6 +64,16 @@ public:
     using Char = UInt8;
     using Chars = PaddedPODArray<UInt8>;
 
+    static constexpr size_t MAX_STRINGS_OVERFLOW_SIZE = 128;
+
+    void static check_chars_length(size_t total_length, size_t element_number) {
+        if (UNLIKELY(total_length > MAX_STRING_SIZE)) {
+            throw Exception(ErrorCode::STRING_OVERFLOW_IN_VEC_ENGINE,
+                            "string column length is too large: total_length={}, element_number={}",
+                            total_length, element_number);
+        }
+    }
+
 private:
     // currently Offsets is uint32, if chars.size() exceeds 4G, offset will overflow.
     // limit chars.size() and check the size when inserting data into ColumnString.
@@ -84,15 +94,6 @@ private:
     /// Size of i-th element, including terminating zero.
     size_t ALWAYS_INLINE size_at(ssize_t i) const { return offsets[i] - offsets[i - 1]; }
 
-    void ALWAYS_INLINE check_chars_length(size_t total_length, size_t element_number) const {
-        if (UNLIKELY(total_length > MAX_STRING_SIZE)) {
-            throw doris::Exception(
-                    ErrorCode::STRING_OVERFLOW_IN_VEC_ENGINE,
-                    "string column length is too large: total_length={}, element_number={}",
-                    total_length, element_number);
-        }
-    }
-
     template <bool positive>
     struct less;
     template <bool positive>
@@ -105,6 +106,8 @@ private:
               chars(src.chars.begin(), src.chars.end()) {}
 
 public:
+    void sanity_check() const;
+
     const char* get_family_name() const override { return "String"; }
 
     size_t size() const override { return offsets.size(); }
@@ -136,14 +139,8 @@ public:
         return StringRef(&chars[offset_at(n)], size_at(n));
     }
 
-/// Suppress gcc 7.3.1 warning: '*((void*)&<anonymous> +8)' may be used uninitialized in this function
-#if !__clang__
-#pragma GCC diagnostic push
-#pragma GCC diagnostic ignored "-Wmaybe-uninitialized"
-#endif
-
     void insert(const Field& x) override {
-        const String& s = doris::vectorized::get<const String&>(x);
+        const String& s = vectorized::get<const String&>(x);
         const size_t old_size = chars.size();
         const size_t size_to_append = s.size();
         const size_t new_size = old_size + size_to_append;
@@ -154,10 +151,6 @@ public:
         memcpy(chars.data() + old_size, s.c_str(), size_to_append);
         offsets.push_back(new_size);
     }
-
-#if !__clang__
-#pragma GCC diagnostic pop
-#endif
 
     void insert_from(const IColumn& src_, size_t n) override {
         const ColumnString& src = assert_cast<const ColumnString&>(src_);
@@ -222,8 +215,13 @@ public:
             if (i != num - 1 && strings[i].data + len == strings[i + 1].data) {
                 continue;
             }
-            memcpy(data, ptr, length);
-            data += length;
+
+            if (length != 0) {
+                DCHECK(ptr != nullptr);
+                memcpy(data, ptr, length);
+                data += length;
+            }
+
             if (LIKELY(i != num - 1)) {
                 ptr = strings[i + 1].data;
                 length = 0;
@@ -304,7 +302,6 @@ public:
         }
     }
 
-#define MAX_STRINGS_OVERFLOW_SIZE 128
     template <typename T, size_t copy_length>
     void insert_many_strings_fixed_length(const StringRef* strings, size_t num)
             __attribute__((noinline));
@@ -398,6 +395,44 @@ public:
     void deserialize_vec_with_null_map(std::vector<StringRef>& keys, const size_t num_rows,
                                        const uint8_t* null_map) override;
 
+    void update_xxHash_with_value(size_t start, size_t end, uint64_t& hash,
+                                  const uint8_t* __restrict null_data) const override {
+        if (null_data) {
+            for (size_t i = start; i < end; ++i) {
+                if (null_data[i] == 0) {
+                    size_t string_size = size_at(i);
+                    size_t offset = offset_at(i);
+                    hash = HashUtil::xxHash64WithSeed(reinterpret_cast<const char*>(&chars[offset]),
+                                                      string_size, hash);
+                }
+            }
+        } else {
+            for (size_t i = start; i < end; ++i) {
+                size_t string_size = size_at(i);
+                size_t offset = offset_at(i);
+                hash = HashUtil::xxHash64WithSeed(reinterpret_cast<const char*>(&chars[offset]),
+                                                  string_size, hash);
+            }
+        }
+    }
+
+    void update_crc_with_value(size_t start, size_t end, uint64_t& hash,
+                               const uint8_t* __restrict null_data) const override {
+        if (null_data) {
+            for (size_t i = start; i < end; ++i) {
+                if (null_data[i] == 0) {
+                    auto data_ref = get_data_at(i);
+                    hash = HashUtil::zlib_crc_hash(data_ref.data, data_ref.size, hash);
+                }
+            }
+        } else {
+            for (size_t i = start; i < end; ++i) {
+                auto data_ref = get_data_at(i);
+                hash = HashUtil::zlib_crc_hash(data_ref.data, data_ref.size, hash);
+            }
+        }
+    }
+
     void update_hash_with_value(size_t n, SipHash& hash) const override {
         size_t string_size = size_at(n);
         size_t offset = offset_at(n);
@@ -473,8 +508,7 @@ public:
 
     ColumnPtr replicate(const Offsets& replicate_offsets) const override;
 
-    void replicate(const uint32_t* counts, size_t target_size, IColumn& column, size_t begin = 0,
-                   int count_sz = -1) const override;
+    void replicate(const uint32_t* indexs, size_t target_size, IColumn& column) const override;
 
     MutableColumns scatter(ColumnIndex num_columns, const Selector& selector) const override {
         return scatter_impl<ColumnString>(num_columns, selector);

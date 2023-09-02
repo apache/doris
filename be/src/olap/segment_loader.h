@@ -33,6 +33,7 @@
 #include "olap/lru_cache.h"
 #include "olap/olap_common.h" // for rowset id
 #include "olap/rowset/segment_v2/segment.h"
+#include "runtime/memory/lru_cache_policy.h"
 #include "util/time.h"
 
 namespace doris {
@@ -46,14 +47,15 @@ class BetaRowset;
 // the segments of a specified rowset:
 //
 //  SegmentCacheHandle cache_handle;
-//  RETURN_NOT_OK(SegmentCache::instance()->load_segments(_rowset, &cache_handle));
+//  RETURN_IF_ERROR(SegmentCache::instance()->load_segments(_rowset, &cache_handle));
 //  for (auto& seg_ptr : cache_handle.value()->segments) {
 //      ... visit segment ...
 //  }
 //
 // Make sure that cache_handle is valid during the segment usage period.
 using BetaRowsetSharedPtr = std::shared_ptr<BetaRowset>;
-class SegmentLoader {
+
+class SegmentCache : public LRUCachePolicy {
 public:
     // The cache key or segment lru cache
     struct CacheKey {
@@ -61,18 +63,34 @@ public:
         RowsetId rowset_id;
 
         // Encode to a flat binary which can be used as LRUCache's key
-        std::string encode() const { return rowset_id.to_string(); }
+        [[nodiscard]] std::string encode() const { return rowset_id.to_string(); }
     };
 
     // The cache value of segment lru cache.
     // Holding all opened segments of a rowset.
-    struct CacheValue {
-        // Save the last visit time of this cache entry.
-        // Use atomic because it may be modified by multi threads.
-        std::atomic<int64_t> last_visit_time = 0;
+    struct CacheValue : public LRUCacheValueBase {
         std::vector<segment_v2::SegmentSharedPtr> segments;
     };
 
+    SegmentCache(size_t capacity)
+            : LRUCachePolicy(CachePolicy::CacheType::SEGMENT_CACHE, capacity, LRUCacheType::NUMBER,
+                             config::tablet_rowset_stale_sweep_time_sec) {}
+
+    // Lookup the given rowset in the cache.
+    // If the rowset is found, the cache entry will be written into handle.
+    // Return true if entry is found, otherwise return false.
+    bool lookup(const SegmentCache::CacheKey& key, SegmentCacheHandle* handle);
+
+    // Insert a cache entry by key.
+    // And the cache entry will be returned in handle.
+    // This function is thread-safe.
+    void insert(const SegmentCache::CacheKey& key, CacheValue& value, SegmentCacheHandle* handle);
+
+    void erase(const SegmentCache::CacheKey& key);
+};
+
+class SegmentLoader {
+public:
     // Create global instance of this class.
     // "capacity" is the capacity of lru cache.
     // TODO: Currently we use the number of rowset as the cache capacity.
@@ -86,41 +104,20 @@ public:
     // Client should call create_global_cache before.
     static SegmentLoader* instance() { return _s_instance; }
 
-    SegmentLoader(size_t capacity);
+    SegmentLoader(size_t capacity) { _segment_cache = std::make_unique<SegmentCache>(capacity); }
 
     // Load segments of "rowset", return the "cache_handle" which contains segments.
     // If use_cache is true, it will be loaded from _cache.
     Status load_segments(const BetaRowsetSharedPtr& rowset, SegmentCacheHandle* cache_handle,
                          bool use_cache = false);
 
-    // Try to prune the segment cache if expired.
-    Status prune();
-    int64_t prune_all() { return _cache->prune(); };
-    int64_t segment_cache_mem_consumption() { return _cache->mem_consumption(); }
-    int64_t segment_cache_get_usage() { return _cache->get_usage(); }
-    double segment_cache_get_usage_ratio() {
-        return _cache->get_total_capacity() == 0
-                       ? 0
-                       : ((double)_cache->get_usage() / _cache->get_total_capacity());
-    }
+    void erase_segments(const SegmentCache::CacheKey& key);
 
 private:
     SegmentLoader();
 
-    // Lookup the given rowset in the cache.
-    // If the rowset is found, the cache entry will be written into handle.
-    // Return true if entry is found, otherwise return false.
-    bool _lookup(const SegmentLoader::CacheKey& key, SegmentCacheHandle* handle);
-
-    // Insert a cache entry by key.
-    // And the cache entry will be returned in handle.
-    // This function is thread-safe.
-    void _insert(const SegmentLoader::CacheKey& key, CacheValue& value, SegmentCacheHandle* handle);
-
-private:
     static SegmentLoader* _s_instance;
-    // A LRU cache to cache all opened segments
-    std::unique_ptr<Cache> _cache = nullptr;
+    std::unique_ptr<SegmentCache> _segment_cache = nullptr;
 };
 
 // A handle for a single rowset from segment lru cache.
@@ -130,50 +127,49 @@ private:
 // So the caller need to make sure the handle is valid in lifecycle.
 class SegmentCacheHandle {
 public:
-    SegmentCacheHandle() {}
-    SegmentCacheHandle(Cache* cache, Cache::Handle* handle) : _cache(cache), _handle(handle) {}
+    SegmentCacheHandle() = default;
 
     ~SegmentCacheHandle() {
         if (_handle != nullptr) {
             CHECK(_cache != nullptr);
-            CHECK(segments.empty()) << segments.size();
-            CHECK(!owned);
+            CHECK(_segments.empty()) << _segments.size();
+            CHECK(!_owned);
             // last_visit_time is set when release.
             // because it only be needed when pruning.
-            ((SegmentLoader::CacheValue*)_cache->value(_handle))->last_visit_time = UnixMillis();
+            ((SegmentCache::CacheValue*)_cache->value(_handle))->last_visit_time = UnixMillis();
             _cache->release(_handle);
         }
     }
 
-    SegmentCacheHandle(SegmentCacheHandle&& other) noexcept {
-        std::swap(_cache, other._cache);
-        std::swap(_handle, other._handle);
-        this->owned = other.owned;
-        this->segments = std::move(other.segments);
+    [[nodiscard]] bool is_inited() const { return _init; }
+
+    void init(std::vector<segment_v2::SegmentSharedPtr> segments) {
+        DCHECK(!_init);
+        _owned = true;
+        _segments = std::move(segments);
+        _init = true;
     }
 
-    SegmentCacheHandle& operator=(SegmentCacheHandle&& other) noexcept {
-        std::swap(_cache, other._cache);
-        std::swap(_handle, other._handle);
-        this->owned = other.owned;
-        this->segments = std::move(other.segments);
-        return *this;
+    void init(Cache* cache, Cache::Handle* handle) {
+        DCHECK(!_init);
+        _owned = false;
+        _cache = cache;
+        _handle = handle;
+        _init = true;
     }
 
     std::vector<segment_v2::SegmentSharedPtr>& get_segments() {
-        if (owned) {
-            return segments;
+        if (_owned) {
+            return _segments;
         } else {
-            return ((SegmentLoader::CacheValue*)_cache->value(_handle))->segments;
+            return ((SegmentCache::CacheValue*)_cache->value(_handle))->segments;
         }
     }
 
-public:
-    // If set to true, the loaded segments will be saved in segments, not in lru cache;
-    bool owned = false;
-    std::vector<segment_v2::SegmentSharedPtr> segments;
-
 private:
+    bool _init {false};
+    bool _owned {false};
+    std::vector<segment_v2::SegmentSharedPtr> _segments;
     Cache* _cache = nullptr;
     Cache::Handle* _handle = nullptr;
 

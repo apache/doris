@@ -34,14 +34,13 @@ import org.apache.doris.catalog.Type;
 import org.apache.doris.catalog.View;
 import org.apache.doris.catalog.external.HMSExternalTable;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.IdGenerator;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.util.TimeUtils;
-import org.apache.doris.common.util.VectorizedUtil;
-import org.apache.doris.external.hudi.HudiTable;
-import org.apache.doris.external.hudi.HudiUtils;
+import org.apache.doris.planner.AggregationNode;
 import org.apache.doris.planner.PlanNode;
 import org.apache.doris.planner.RuntimeFilter;
 import org.apache.doris.qe.ConnectContext;
@@ -63,6 +62,7 @@ import org.apache.doris.rewrite.RewriteEncryptKeyRule;
 import org.apache.doris.rewrite.RewriteFromUnixTimeRule;
 import org.apache.doris.rewrite.RewriteImplicitCastRule;
 import org.apache.doris.rewrite.RewriteInPredicateRule;
+import org.apache.doris.rewrite.RewriteIsNullIsNotNullRule;
 import org.apache.doris.rewrite.RoundLiteralInBinaryPredicatesRule;
 import org.apache.doris.rewrite.mvrewrite.CountDistinctToBitmap;
 import org.apache.doris.rewrite.mvrewrite.CountDistinctToBitmapOrHLLRule;
@@ -70,7 +70,6 @@ import org.apache.doris.rewrite.mvrewrite.ExprToSlotRefRule;
 import org.apache.doris.rewrite.mvrewrite.HLLHashToSlotRefRule;
 import org.apache.doris.rewrite.mvrewrite.NDVToHll;
 import org.apache.doris.rewrite.mvrewrite.ToBitmapToSlotRefRule;
-import org.apache.doris.thrift.TPipelineResourceGroup;
 import org.apache.doris.thrift.TQueryGlobals;
 
 import com.google.common.base.Joiner;
@@ -81,10 +80,10 @@ import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Multimap;
 import com.google.common.collect.Sets;
+import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
-import java.text.SimpleDateFormat;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.Calendar;
@@ -147,9 +146,6 @@ public class Analyzer {
     private String schemaWild;
     private String schemaTable; // table used in DESCRIBE Table
 
-    // True if the corresponding select block has a limit and/or offset clause.
-    private boolean hasLimitOffsetClause = false;
-
     // Current depth of nested analyze() calls. Used for enforcing a
     // maximum expr-tree depth. Needs to be manually maintained by the user
     // of this Analyzer with incrementCallDepth() and decrementCallDepth().
@@ -180,6 +176,8 @@ public class Analyzer {
     // The runtime filter that is expected to be used
     private final List<RuntimeFilter> assignedRuntimeFilters = new ArrayList<>();
 
+    private boolean isReAnalyze = false;
+
     public void setIsSubquery() {
         isSubquery = true;
         isFirstScopeInSubquery = true;
@@ -200,6 +198,14 @@ public class Analyzer {
 
     public boolean isWithClause() {
         return isWithClause;
+    }
+
+    public void setReAnalyze(boolean reAnalyze) {
+        isReAnalyze = reAnalyze;
+    }
+
+    public boolean isReAnalyze() {
+        return isReAnalyze;
     }
 
     public void setUDFAllowed(boolean val) {
@@ -319,6 +325,11 @@ public class Analyzer {
         // True if at least one of the analyzers belongs to a subquery.
         public boolean containsSubquery = false;
 
+        // When parsing a ddl of hive view, it does not contains any catalog info,
+        // so we need to record it in Analyzer
+        // otherwise some error will occurs when resolving TableRef later.
+        public String externalCtl;
+
         // all registered conjuncts (map from id to Predicate)
         private final Map<ExprId, Expr> conjuncts = Maps.newHashMap();
 
@@ -404,8 +415,6 @@ public class Analyzer {
 
         private final Map<InlineViewRef, Set<Expr>> migrateFailedConjuncts = Maps.newHashMap();
 
-        public List<TPipelineResourceGroup> tResourceGroups;
-
         public GlobalState(Env env, ConnectContext context) {
             this.env = env;
             this.context = context;
@@ -429,6 +438,7 @@ public class Analyzer {
             rules.add(RewriteEncryptKeyRule.INSTANCE);
             rules.add(RewriteInPredicateRule.INSTANCE);
             rules.add(RewriteAliasFunctionRule.INSTANCE);
+            rules.add(RewriteIsNullIsNotNullRule.INSTANCE);
             rules.add(MatchPredicateRule.INSTANCE);
             rules.add(EliminateUnnecessaryFunctions.INSTANCE);
             List<ExprRewriteRule> onceRules = Lists.newArrayList();
@@ -541,6 +551,14 @@ public class Analyzer {
         return new Analyzer(parentAnalyzer, globalState, new InferPredicateState());
     }
 
+    public void setExternalCtl(String externalCtl) {
+        globalState.externalCtl = externalCtl;
+    }
+
+    public String getExternalCtl() {
+        return globalState.externalCtl;
+    }
+
     public void setIsExplain() {
         globalState.isExplain = true;
     }
@@ -585,14 +603,6 @@ public class Analyzer {
         return explicitViewAlias;
     }
 
-    public void setResourceGroups(List<TPipelineResourceGroup> tResourceGroups) {
-        globalState.tResourceGroups = tResourceGroups;
-    }
-
-    public List<TPipelineResourceGroup> getResourceGroups() {
-        return globalState.tResourceGroups;
-    }
-
     /**
      * Registers a local view definition with this analyzer. Throws an exception if a view
      * definition with the same alias has already been registered or if the number of
@@ -620,10 +630,11 @@ public class Analyzer {
      * Create query global parameters to be set in each TPlanExecRequest.
      */
     public static TQueryGlobals createQueryGlobals() {
-        SimpleDateFormat formatter = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss.SSSSSSSSS");
         TQueryGlobals queryGlobals = new TQueryGlobals();
         Calendar currentDate = Calendar.getInstance();
-        String nowStr = formatter.format(currentDate.getTime());
+        LocalDateTime localDateTime = LocalDateTime.ofInstant(currentDate.toInstant(),
+                currentDate.getTimeZone().toZoneId());
+        String nowStr = localDateTime.format(TimeUtils.DATETIME_NS_FORMAT);
         queryGlobals.setNowString(nowStr);
         queryGlobals.setNanoSeconds(LocalDateTime.now().getNano());
         return queryGlobals;
@@ -640,6 +651,14 @@ public class Analyzer {
                 continue;
             }
             globalState.conjuncts.put(id, (Predicate) globalState.conjuncts.get(id).substitute(sMap));
+        }
+    }
+
+    public void registerTupleDescriptor(TupleDescriptor desc) {
+        tupleByAlias.put(desc.getAlias(), desc);
+        for (SlotDescriptor slot : desc.getSlots()) {
+            String key = desc.getAlias() + "." + slot.getColumn().getName();
+            slotRefMap.put(key, slot);
         }
     }
 
@@ -757,6 +776,10 @@ public class Analyzer {
         }
         // Try to find a matching local view.
         TableName tableName = tableRef.getName();
+        if (StringUtils.isNotEmpty(this.globalState.externalCtl)
+                && StringUtils.isEmpty(tableName.getCtl())) {
+            tableName.setCtl(this.globalState.externalCtl);
+        }
         if (!tableName.isFullyQualified()) {
             // Searches the hierarchy of analyzers bottom-up for a registered local view with
             // a matching alias.
@@ -794,18 +817,28 @@ public class Analyzer {
             }
         }
 
-        if (table.getType() == TableType.HUDI && table.getFullSchema().isEmpty()) {
-            // resolve hudi table's schema when table schema is empty from doris meta
-            table = HudiUtils.resolveHudiTable((HudiTable) table);
-        }
-
         // Now hms table only support a bit of table kinds in the whole hive system.
         // So Add this strong checker here to avoid some undefine behaviour in doris.
-        if (table.getType() == TableType.HMS_EXTERNAL_TABLE && !((HMSExternalTable) table).isSupportedHmsTable()) {
-            ErrorReport.reportAnalysisException(ErrorCode.ERR_NONSUPPORT_HMS_TABLE,
-                    table.getName(),
-                    ((HMSExternalTable) table).getDbName(),
-                    tableName.getCtl());
+        if (table.getType() == TableType.HMS_EXTERNAL_TABLE) {
+            if (!((HMSExternalTable) table).isSupportedHmsTable()) {
+                ErrorReport.reportAnalysisException(ErrorCode.ERR_NONSUPPORT_HMS_TABLE,
+                        table.getName(),
+                        ((HMSExternalTable) table).getDbName(),
+                        tableName.getCtl());
+            }
+            if (Config.enable_query_hive_views) {
+                if (((HMSExternalTable) table).isView()
+                        && StringUtils.isNotEmpty(((HMSExternalTable) table).getViewText())) {
+                    View hmsView = new View(table.getId(), table.getName(), table.getFullSchema());
+                    hmsView.setInlineViewDefWithSqlMode(((HMSExternalTable) table).getViewText(),
+                            ConnectContext.get().getSessionVariable().getSqlMode());
+                    InlineViewRef inlineViewRef = new InlineViewRef(hmsView, tableRef);
+                    if (StringUtils.isNotEmpty(tableName.getCtl())) {
+                        inlineViewRef.setExternalCtl(tableName.getCtl());
+                    }
+                    return inlineViewRef;
+                }
+            }
         }
 
         // tableName.getTbl() stores the table name specified by the user in the from statement.
@@ -894,7 +927,34 @@ public class Analyzer {
             // ===================================================
             // Someone may concern that if t2 is not alias of t, this fix will cause incorrect resolve. In fact,
             // this does not happen, since we push t2.a in (1.2) down to this inline view, t2 must be alias of t.
-            if (d == null && isInlineView && newTblName.getTbl().equals(explicitViewAlias)) {
+            // create table tmp_can_drop_t1 (
+            //     cust_id varchar(96),
+            //     user_id varchar(96)
+            // )
+            // create table tmp_can_drop_t2 (
+            //     cust_id varchar(96),
+            //     usr_id varchar(96)
+            // )
+            // select
+            // a.cust_id,
+            // a.usr_id
+            // from (
+            // select
+            //     a.cust_id,
+            //     a.usr_id, --------->(report error, because there is no user_id column in tmp_can_drop_t1)
+            //     a.user_id
+            // from tmp_can_drop_t1 a
+            // full join (
+            //     select
+            //     cust_id,
+            //     usr_id
+            //     from
+            //     tmp_can_drop_t2
+            // ) b
+            // on b.cust_id = a.cust_id
+            // ) a;
+            if (d == null && isInlineView && newTblName.getTbl().equals(explicitViewAlias)
+                    && !tupleByAlias.containsKey(newTblName.getTbl())) {
                 d = resolveColumnRef(colName);
             }
         }
@@ -937,11 +997,7 @@ public class Analyzer {
         result = globalState.descTbl.addSlotDescriptor(d);
         result.setColumn(col);
         boolean isNullable;
-        if (VectorizedUtil.isVectorized()) {
-            isNullable = col.isAllowNull();
-        } else {
-            isNullable = col.isAllowNull() || isOuterJoined(d.getId());
-        }
+        isNullable = col.isAllowNull();
         result.setIsNullable(isNullable);
 
         slotRefMap.put(key, result);
@@ -1387,10 +1443,10 @@ public class Analyzer {
             }
             if (e.isBoundByTupleIds(tupleIds)
                     && !e.isAuxExpr()
-                    && !globalState.assignedConjuncts.contains(e.getId())
+                    && (!globalState.assignedConjuncts.contains(e.getId()) || e.isConstant())
                     && ((inclOjConjuncts && !e.isConstant())
-                    || (!globalState.ojClauseByConjunct.containsKey(e.getId())
-                    && !globalState.sjClauseByConjunct.containsKey(e.getId())))) {
+                            || (!globalState.ojClauseByConjunct.containsKey(e.getId())
+                                    && !globalState.sjClauseByConjunct.containsKey(e.getId())))) {
                 result.add(e);
             }
         }
@@ -1794,10 +1850,6 @@ public class Analyzer {
         return hasEmptySpjResultSet;
     }
 
-    public void setHasLimitOffsetClause(boolean hasLimitOffset) {
-        this.hasLimitOffsetClause = hasLimitOffset;
-    }
-
     /**
      * Register all conjuncts in 'conjuncts' that make up the On-clause of the given
      * right-hand side of a join. Assigns each conjunct a unique id. If rhsRef is
@@ -1867,7 +1919,9 @@ public class Analyzer {
                     // aliases and having it analyzed is needed for the following EvalPredicate() call
                     conjunct.analyze(this);
                 }
-                Expr newConjunct = conjunct.getResultValue(true);
+                // getResultValue will modify the conjunct internally
+                // we have to use a clone to keep conjunct unchanged
+                Expr newConjunct = conjunct.clone().getResultValue(true);
                 newConjunct = FoldConstantsRule.INSTANCE.apply(newConjunct, this, null);
                 if (newConjunct instanceof BoolLiteral || newConjunct instanceof NullLiteral) {
                     boolean evalResult = true;
@@ -2108,7 +2162,7 @@ public class Analyzer {
         for (int i = 1; i < exprs.size(); ++i) {
             exprs.get(i).analyze(this);
             if (compatibleType.isDateV2() && exprs.get(i) instanceof StringLiteral
-                    && ((StringLiteral) exprs.get(i)).canConvertToDateV2(compatibleType)) {
+                    && ((StringLiteral) exprs.get(i)).canConvertToDateType(compatibleType)) {
                 // If string literal can be converted to dateV2, we use datev2 as the compatible type
                 // instead of datetimev2.
             } else if (exprs.get(i).isConstantImpl()) {
@@ -2284,20 +2338,6 @@ public class Analyzer {
     /**
      * Returns true if predicate 'e' can be correctly evaluated by a tree materializing
      * 'tupleIds', otherwise false:
-     * - the predicate needs to be bound by tupleIds
-     * - a Where clause predicate can only be correctly evaluated if for all outer-joined
-     *   referenced tids the last join to outer-join this tid has been materialized
-     * - an On clause predicate against the non-nullable side of an Outer Join clause
-     *   can only be correctly evaluated by the join node that materializes the
-     *   Outer Join clause
-     */
-    private boolean canEvalPredicate(PlanNode node, Expr e) {
-        return canEvalPredicate(node.getTblRefIds(), e);
-    }
-
-    /**
-     * Returns true if predicate 'e' can be correctly evaluated by a tree materializing
-     * 'tupleIds', otherwise false:
      * - The predicate needs to be bound by tupleIds.
      * - For On-clause predicates:
      *   - If the predicate is from an anti-join On-clause it must be evaluated by the
@@ -2417,7 +2457,16 @@ public class Analyzer {
      * Wrapper around getUnassignedConjuncts(List<TupleId> tupleIds).
      */
     public List<Expr> getUnassignedConjuncts(PlanNode node) {
-        return getUnassignedConjuncts(node.getTblRefIds());
+        // constant conjuncts should be push down to all leaf node except agg node.
+        // (see getPredicatesBoundedByGroupbysSourceExpr method)
+        // so we need remove constant conjuncts when expr is not a leaf node.
+        List<Expr> unassigned = getUnassignedConjuncts(
+                node instanceof AggregationNode ? node.getTupleIds() : node.getTblRefIds());
+        if (!node.getChildren().isEmpty() && !(node instanceof AggregationNode)) {
+            unassigned = unassigned.stream()
+                    .filter(e -> !e.isConstant()).collect(Collectors.toList());
+        }
+        return unassigned;
     }
 
     /**

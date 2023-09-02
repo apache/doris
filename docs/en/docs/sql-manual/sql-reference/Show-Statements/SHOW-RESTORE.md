@@ -37,7 +37,7 @@ This statement is used to view RESTORE tasks
 grammar:
 
 ````SQL
-SHOW RESTORE [FROM DB_NAME]
+SHOW [BRIEF] RESTORE [FROM DB_NAME]
 ````
 
 illustrate:
@@ -67,6 +67,12 @@ illustrate:
             UnfinishedTasks: Displays unfinished subtask ids during SNAPSHOTING, DOWNLOADING and COMMITING stages
             Status: If the job fails, display the failure message
             Timeout: Job timeout, in seconds
+
+<version since="dev">
+
+        2. brief: only show key information of RESTORE tasks, columns RestoreObjs, Progress, TaskErrMsg will not show
+
+</version>
 
 ### Example
 

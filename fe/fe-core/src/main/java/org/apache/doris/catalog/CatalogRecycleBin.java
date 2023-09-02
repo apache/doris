@@ -24,6 +24,7 @@ import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
+import org.apache.doris.common.util.DynamicPartitionUtil;
 import org.apache.doris.common.util.MasterDaemon;
 import org.apache.doris.common.util.RangeUtils;
 import org.apache.doris.common.util.TimeUtils;
@@ -166,7 +167,7 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
         return true;
     }
 
-    public synchronized boolean recyclePartition(long dbId, long tableId, Partition partition,
+    public synchronized boolean recyclePartition(long dbId, long tableId, String tableName, Partition partition,
                                                  Range<PartitionKey> range, PartitionItem listPartitionItem,
                                                  DataProperty dataProperty, ReplicaAllocation replicaAlloc,
                                                  boolean isInMemory, boolean isMutable) {
@@ -180,7 +181,8 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
                 range, listPartitionItem, dataProperty, replicaAlloc, isInMemory, isMutable);
         idToRecycleTime.put(partition.getId(), System.currentTimeMillis());
         idToPartition.put(partition.getId(), partitionInfo);
-        LOG.info("recycle partition[{}-{}]", partition.getId(), partition.getName());
+        LOG.info("recycle partition[{}-{}] of table [{}-{}]", partition.getId(), partition.getName(),
+                tableId, tableName);
         return true;
     }
 
@@ -512,6 +514,10 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
         RecyclePartitionInfo partitionInfo = idToPartition.remove(partitionId);
         idToRecycleTime.remove(partitionId);
 
+        if (partitionInfo == null) {
+            LOG.error("replayErasePartition: partitionInfo is null for partitionId[{}]", partitionId);
+        }
+
         Partition partition = partitionInfo.getPartition();
         if (!Env.isCheckpointThread()) {
             Env.getCurrentEnv().onErasePartition(partition);
@@ -691,6 +697,10 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
                 // log
                 RecoverInfo recoverInfo = new RecoverInfo(db.getId(), table.getId(), -1L, "", newTableName, "");
                 Env.getCurrentEnv().getEditLog().logRecoverTable(recoverInfo);
+            }
+            // Only olap table need recover dynamic partition, other table like jdbc odbc view.. do not need it
+            if (table.getType() == TableType.OLAP) {
+                DynamicPartitionUtil.registerOrRemoveDynamicPartitionTable(db.getId(), (OlapTable) table, isReplay);
             }
         } finally {
             table.writeUnlock();

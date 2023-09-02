@@ -472,7 +472,9 @@ const char* DataTypeStruct::deserialize(const char* buf, IColumn* column,
 void DataTypeStruct::to_pb_column_meta(PColumnMeta* col_meta) const {
     IDataType::to_pb_column_meta(col_meta);
     for (size_t i = 0; i < elems.size(); ++i) {
-        elems[i]->to_pb_column_meta(col_meta->add_children());
+        auto child = col_meta->add_children();
+        child->set_name(names[i]);
+        elems[i]->to_pb_column_meta(child);
     }
 }
 

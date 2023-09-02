@@ -36,8 +36,9 @@ public class IcebergGlueExternalCatalog extends IcebergExternalCatalog {
     // As a default placeholder. The path just use for 'create table', query stmt will not use it.
     private static final String CHECKED_WAREHOUSE = "s3://doris";
 
-    public IcebergGlueExternalCatalog(long catalogId, String name, String resource, Map<String, String> props) {
-        super(catalogId, name);
+    public IcebergGlueExternalCatalog(long catalogId, String name, String resource, Map<String, String> props,
+            String comment) {
+        super(catalogId, name, comment);
         props = PropertyConverter.convertToMetaProperties(props);
         catalogProperty = new CatalogProperty(resource, props);
     }

@@ -62,6 +62,8 @@ public:
     RowsetSharedPtr output_rowset();
 #endif
 
+    RuntimeProfile* runtime_profile() const { return _profile.get(); }
+
 protected:
     virtual Status pick_rowsets_to_compact() = 0;
     virtual std::string compaction_name() const = 0;
@@ -73,7 +75,7 @@ protected:
     virtual Status modify_rowsets(const Merger::Statistics* stats = nullptr);
     void gc_output_rowset();
 
-    Status construct_output_rowset_writer(bool is_vertical = false);
+    Status construct_output_rowset_writer(RowsetWriterContext& ctx, bool is_vertical = false);
     Status construct_input_rowset_readers();
 
     Status check_version_continuity(const std::vector<RowsetSharedPtr>& rowsets);
@@ -89,6 +91,14 @@ protected:
     Status do_compact_ordered_rowsets();
     bool is_rowset_tidy(std::string& pre_max_key, const RowsetSharedPtr& rhs);
     void build_basic_info();
+
+    void init_profile(const std::string& label);
+    [[nodiscard]] bool allow_delete_in_cumu_compaction() const {
+        return _allow_delete_in_cumu_compaction;
+    }
+
+private:
+    bool _check_if_includes_input_rowsets(const RowsetIdUnorderedSet& commit_rowset_ids_set) const;
 
 protected:
     // the root tracker for this compaction
@@ -114,6 +124,20 @@ protected:
     int64_t _newest_write_timestamp;
     RowIdConversion _rowid_conversion;
     TabletSchemaSPtr _cur_tablet_schema;
+
+    std::unique_ptr<RuntimeProfile> _profile;
+    bool _allow_delete_in_cumu_compaction = false;
+
+    RuntimeProfile::Counter* _input_rowsets_data_size_counter = nullptr;
+    RuntimeProfile::Counter* _input_rowsets_counter = nullptr;
+    RuntimeProfile::Counter* _input_row_num_counter = nullptr;
+    RuntimeProfile::Counter* _input_segments_num_counter = nullptr;
+    RuntimeProfile::Counter* _merged_rows_counter = nullptr;
+    RuntimeProfile::Counter* _filtered_rows_counter = nullptr;
+    RuntimeProfile::Counter* _output_rowset_data_size_counter = nullptr;
+    RuntimeProfile::Counter* _output_row_num_counter = nullptr;
+    RuntimeProfile::Counter* _output_segments_num_counter = nullptr;
+    RuntimeProfile::Counter* _merge_rowsets_latency_timer = nullptr;
 
     DISALLOW_COPY_AND_ASSIGN(Compaction);
 };

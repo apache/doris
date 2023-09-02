@@ -47,6 +47,7 @@ class PageBuilder;
 
 struct IndexedColumnWriterOptions {
     size_t index_page_size = 64 * 1024;
+    size_t data_page_size = 1024 * 1024;
     bool write_ordinal_index = false;
     bool write_value_index = false;
     EncodingTypePB encoding = DEFAULT_ENCODING;
@@ -82,6 +83,8 @@ public:
 
     Status finish(IndexedColumnMetaPB* meta);
 
+    uint64_t disk_size() const { return _disk_size; }
+
 private:
     Status _finish_current_data_page(size_t& num_val);
 
@@ -95,6 +98,7 @@ private:
 
     ordinal_t _num_values;
     uint32_t _num_data_pages;
+    uint64_t _disk_size;
     // remember the first value in current page
     faststring _first_value;
     PagePointer _last_data_page;

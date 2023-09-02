@@ -30,6 +30,7 @@
 #include "olap/rowset/beta_rowset.h"
 #include "olap/rowset/rowset.h"
 #include "olap/rowset/rowset_reader.h"
+#include "olap/schema.h"
 #include "olap/segment_loader.h"
 #include "vec/core/block.h"
 
@@ -45,13 +46,11 @@ public:
 
     ~BetaRowsetReader() override { _rowset->release(); }
 
-    Status init(RowsetReaderContext* read_context,
-                const std::pair<int, int>& segment_offset) override;
+    Status init(RowsetReaderContext* read_context, const RowSetSplits& rs_splits) override;
 
     Status get_segment_iterators(RowsetReaderContext* read_context,
                                  std::vector<RowwiseIteratorUPtr>* out_iters,
-                                 const std::pair<int, int>& segment_offset,
-                                 bool use_cache = false) override;
+                                 const RowSetSplits& rs_splits, bool use_cache = false) override;
     void reset_read_options() override;
     Status next_block(vectorized::Block* block) override;
     Status next_block_view(vectorized::BlockView* block_view) override;
@@ -87,7 +86,7 @@ public:
 private:
     bool _should_push_down_value_predicates() const;
 
-    std::shared_ptr<Schema> _input_schema;
+    SchemaSPtr _input_schema;
     RowsetReaderContext* _context;
     BetaRowsetSharedPtr _rowset;
 

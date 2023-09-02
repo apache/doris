@@ -19,6 +19,7 @@
 
 #include <algorithm>
 
+#include "exprs/runtime_filter.h"
 #include "gutil/integral_types.h"
 #include "runtime/define_primitive_type.h"
 #include "runtime/primitive_type.h"
@@ -27,7 +28,7 @@
 namespace doris {
 
 // only used in Runtime Filter
-class BitmapFilterFuncBase {
+class BitmapFilterFuncBase : public FilterFuncBase {
 public:
     virtual void insert(const void* data) = 0;
     virtual void insert_many(const std::vector<const BitmapValue*> bitmaps) = 0;
@@ -151,6 +152,7 @@ void BitmapFilterFunc<type>::light_copy(BitmapFilterFuncBase* bitmapfilter_func)
     BitmapFilterFuncBase::light_copy(bitmapfilter_func);
     auto other_func = reinterpret_cast<BitmapFilterFunc*>(bitmapfilter_func);
     _bitmap_value = other_func->_bitmap_value;
+    set_filter_id(bitmapfilter_func->get_filter_id());
 }
 
 } // namespace doris

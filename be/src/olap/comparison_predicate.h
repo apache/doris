@@ -114,7 +114,7 @@ public:
         // keep it after query, since query will try to read null_bitmap and put it to cache
         InvertedIndexQueryCacheHandle null_bitmap_cache_handle;
         RETURN_IF_ERROR(iterator->read_null_bitmap(&null_bitmap_cache_handle));
-        roaring::Roaring* null_bitmap = null_bitmap_cache_handle.get_bitmap();
+        std::shared_ptr<roaring::Roaring> null_bitmap = null_bitmap_cache_handle.get_bitmap();
         if (null_bitmap) {
             *bitmap -= *null_bitmap;
         }
@@ -244,6 +244,8 @@ public:
 
     bool evaluate_and(const segment_v2::BloomFilter* bf) const override {
         if constexpr (PT == PredicateType::EQ) {
+            // EQ predicate can not use ngram bf, just return true to accept
+            if (bf->is_ngram_bf()) return true;
             if constexpr (std::is_same_v<T, StringRef>) {
                 return bf->test_bytes(_value.data, _value.size);
             } else if constexpr (Type == TYPE_DATE) {
@@ -259,7 +261,22 @@ public:
         }
     }
 
-    bool can_do_bloom_filter() const override { return PT == PredicateType::EQ; }
+    bool evaluate_and(const StringRef* dict_words, const size_t count) const override {
+        if constexpr (std::is_same_v<T, StringRef>) {
+            for (size_t i = 0; i != count; ++i) {
+                if (_operator(dict_words[i], _value) ^ _opposite) {
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        return true;
+    }
+
+    bool can_do_bloom_filter(bool ngram) const override {
+        return PT == PredicateType::EQ && !ngram;
+    }
 
     void evaluate_or(const vectorized::IColumn& column, const uint16_t* sel, uint16_t size,
                      bool* flags) const override {
@@ -565,8 +582,26 @@ private:
             const vectorized::ColumnDictI32& column) const {
         /// if _cache_code_enabled is false, always find the code from dict.
         if (UNLIKELY(!_cache_code_enabled || _cached_code == _InvalidateCodeValue)) {
-            _cached_code = _is_range() ? column.find_code_by_bound(_value, _is_greater(), _is_eq())
+            int32_t code = _is_range() ? column.find_code_by_bound(_value, _is_greater(), _is_eq())
                                        : column.find_code(_value);
+
+            // Protect the invalid code logic, to avoid data error.
+            if (code == _InvalidateCodeValue) {
+                LOG(FATAL) << "column dictionary should not return the code " << code
+                           << ", because it is assumed as an invalid code in comparison predicate";
+            }
+            // Sometimes the dict is not initialized when run comparison predicate here, for example,
+            // the full page is null, then the reader will skip read, so that the dictionary is not
+            // inited. The cached code is wrong during this case, because the following page maybe not
+            // null, and the dict should have items in the future.
+            //
+            // Cached code may have problems, so that add a config here, if not opened, then
+            // we will return the code and not cache it.
+            if (column.is_dict_empty() || !config::enable_low_cardinality_cache_code) {
+                return code;
+            }
+            // If the dict is not empty, then the dict is inited and we could cache the value.
+            _cached_code = code;
         }
         return _cached_code;
     }

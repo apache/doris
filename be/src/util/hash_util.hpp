@@ -28,6 +28,7 @@
 
 // IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
 #include "common/compiler_util.h" // IWYU pragma: keep
+#include "gutil/hash/hash.h"      // IWYU pragma: keep
 #include "runtime/define_primitive_type.h"
 #include "util/cpu_info.h"
 #include "util/murmur_hash3.h"
@@ -329,6 +330,10 @@ public:
         seed ^= hasher(v) + 0x9e3779b9 + (seed << 6) + (seed >> 2);
     }
 
+#if defined(__clang__)
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wused-but-marked-unused"
+#endif
     // xxHash function for a byte array.  For convenience, a 64-bit seed is also
     // hashed into the result.  The mapping may change from time to time.
     static xxh_u64 xxHash64WithSeed(const char* s, size_t len, xxh_u64 seed) {
@@ -340,6 +345,9 @@ public:
         static const int INT_VALUE = 0;
         return XXH3_64bits_withSeed(reinterpret_cast<const char*>(&INT_VALUE), sizeof(int), seed);
     }
+#if defined(__clang__)
+#pragma clang diagnostic pop
+#endif
 };
 
 } // namespace doris

@@ -90,7 +90,7 @@ docker build -t doris .
 
 run image
 
-note! [problems with mounting](../../docs/install/source-install/compilation.md)
+note! [problems with mounting](../../docs/install/source-install/compilation-general.md)
 
 > See the link above: It is recommended to run the image by mounting the local Doris source code directory as a volume .....
 

@@ -20,6 +20,8 @@ package org.apache.doris.qe;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.FunctionRegistry;
+import org.apache.doris.catalog.TableIf;
 import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.telemetry.Telemetry;
@@ -36,6 +38,9 @@ import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.stats.StatsErrorEstimator;
 import org.apache.doris.plugin.AuditEvent.AuditEventBuilder;
 import org.apache.doris.resource.Tag;
+import org.apache.doris.statistics.ColumnStatistic;
+import org.apache.doris.statistics.Histogram;
+import org.apache.doris.task.LoadTaskInfo;
 import org.apache.doris.thrift.TUniqueId;
 import org.apache.doris.transaction.TransactionEntry;
 import org.apache.doris.transaction.TransactionStatus;
@@ -47,9 +52,11 @@ import com.google.common.collect.Sets;
 import io.opentelemetry.api.trace.Tracer;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.json.JSONObject;
 import org.xnio.StreamConnection;
 
 import java.io.IOException;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -68,6 +75,11 @@ public class ConnectContext {
     // set this id before analyze
     protected volatile long stmtId;
     protected volatile long forwardedStmtId;
+
+    // set for http_stream
+    protected volatile TUniqueId loadId;
+    protected volatile long backendId;
+    protected volatile LoadTaskInfo streamLoadInfo;
 
     protected volatile TUniqueId queryId;
     protected volatile String traceId;
@@ -144,6 +156,8 @@ public class ConnectContext {
 
     private String sqlHash;
 
+    private JSONObject minidump = null;
+
     // The FE ip current connected
     private String currentConnectedFEIp = "";
 
@@ -157,6 +171,8 @@ public class ConnectContext {
     private StatsErrorEstimator statsErrorEstimator;
 
     private Map<String, String> resultAttachedInfo;
+
+    private String workloadGroupName = "";
 
     public void setUserQueryTimeout(int queryTimeout) {
         if (queryTimeout > 0) {
@@ -172,6 +188,28 @@ public class ConnectContext {
 
     private StatementContext statementContext;
     private Map<String, PrepareStmtContext> preparedStmtCtxs = Maps.newHashMap();
+
+    private List<TableIf> tables = null;
+
+    private Map<String, ColumnStatistic> totalColumnStatisticMap = new HashMap<>();
+
+    public Map<String, ColumnStatistic> getTotalColumnStatisticMap() {
+        return totalColumnStatisticMap;
+    }
+
+    public void setTotalColumnStatisticMap(Map<String, ColumnStatistic> totalColumnStatisticMap) {
+        this.totalColumnStatisticMap = totalColumnStatisticMap;
+    }
+
+    private Map<String, Histogram> totalHistogramMap = new HashMap<>();
+
+    public Map<String, Histogram> getTotalHistogramMap() {
+        return totalHistogramMap;
+    }
+
+    public void setTotalHistogramMap(Map<String, Histogram> totalHistogramMap) {
+        this.totalHistogramMap = totalHistogramMap;
+    }
 
     public SessionContext getSessionContext() {
         return sessionContext;
@@ -255,8 +293,20 @@ public class ConnectContext {
         this.preparedStmtCtxs.put(stmtName, ctx);
     }
 
+    public void removePrepareStmt(String stmtName) {
+        this.preparedStmtCtxs.remove(stmtName);
+    }
+
     public PrepareStmtContext getPreparedStmt(String stmtName) {
         return this.preparedStmtCtxs.get(stmtName);
+    }
+
+    public List<TableIf> getTables() {
+        return tables;
+    }
+
+    public void setTables(List<TableIf> tables) {
+        this.tables = tables;
     }
 
     public void closeTxn() {
@@ -276,6 +326,30 @@ public class ConnectContext {
 
     public long getStmtId() {
         return stmtId;
+    }
+
+    public long getBackendId() {
+        return backendId;
+    }
+
+    public void setBackendId(long backendId) {
+        this.backendId = backendId;
+    }
+
+    public TUniqueId getLoadId() {
+        return loadId;
+    }
+
+    public void setLoadId(TUniqueId loadId) {
+        this.loadId = loadId;
+    }
+
+    public void setStreamLoadInfo(LoadTaskInfo streamLoadInfo) {
+        this.streamLoadInfo = streamLoadInfo;
+    }
+
+    public LoadTaskInfo getStreamLoadInfo() {
+        return streamLoadInfo;
     }
 
     public void setStmtId(long stmtId) {
@@ -461,6 +535,13 @@ public class ConnectContext {
         return env.getCatalogMgr().getCatalog(realCatalogName);
     }
 
+    public FunctionRegistry getFunctionRegistry() {
+        if (env == null) {
+            return Env.getCurrentEnv().getFunctionRegistry();
+        }
+        return env.getFunctionRegistry();
+    }
+
     public void changeDefaultCatalog(String catalogName) {
         defaultCatalog = catalogName;
         currentDb = "";
@@ -535,6 +616,14 @@ public class ConnectContext {
 
     public void setSqlHash(String sqlHash) {
         this.sqlHash = sqlHash;
+    }
+
+    public JSONObject getMinidump() {
+        return minidump;
+    }
+
+    public void setMinidump(JSONObject minidump) {
+        this.minidump = minidump;
     }
 
     public Tracer getTracer() {
@@ -668,8 +757,11 @@ public class ConnectContext {
     public class ThreadInfo {
         public boolean isFull;
 
-        public List<String> toRow(long nowMs) {
+        public List<String> toRow(long nowMs, boolean showFe) {
             List<String> row = Lists.newArrayList();
+            if (showFe) {
+                row.add(Env.getCurrentEnv().getSelfNode().getHost());
+            }
             row.add("" + connectionId);
             row.add(ClusterNamespace.getNameFromFullName(qualifiedUser));
             row.add(getMysqlChannel().getRemoteHostPortString());
@@ -719,5 +811,14 @@ public class ConnectContext {
     public void setStatsErrorEstimator(StatsErrorEstimator statsErrorEstimator) {
         this.statsErrorEstimator = statsErrorEstimator;
     }
+
+    public void setWorkloadGroupName(String workloadGroupName) {
+        this.workloadGroupName = workloadGroupName;
+    }
+
+    public String getWorkloadGroupName() {
+        return this.workloadGroupName;
+    }
+
 }
 

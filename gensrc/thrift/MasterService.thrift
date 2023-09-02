@@ -101,6 +101,8 @@ struct TReportRequest {
     8: optional i64 tablet_max_compaction_score
     9: optional list<AgentService.TStoragePolicy> storage_policy // only id and version
     10: optional list<AgentService.TStorageResource> resource // only id and version
+    11: i32 num_cores
+    12: i32 pipeline_executor_size
 }
 
 struct TMasterResult {

@@ -32,16 +32,14 @@ class Block;
 class VExprContext;
 
 class VInfoFunc : public VExpr {
+    ENABLE_FACTORY_CREATOR(VInfoFunc);
+
 public:
     VInfoFunc(const TExprNode& node);
-    virtual ~VInfoFunc() {}
+    ~VInfoFunc() override = default;
 
-    virtual VExpr* clone(doris::ObjectPool* pool) const override {
-        return pool->add(new VInfoFunc(*this));
-    }
-    virtual const std::string& expr_name() const override { return _expr_name; }
-    virtual Status execute(VExprContext* context, vectorized::Block* block,
-                           int* result_column_id) override;
+    const std::string& expr_name() const override { return _expr_name; }
+    Status execute(VExprContext* context, Block* block, int* result_column_id) override;
 
 private:
     const std::string _expr_name = "vinfofunc expr";

@@ -93,7 +93,8 @@ suite("test_pk_uk_case", "inverted_index") {
         UNIQUE KEY(L_ORDERKEY, L_PARTKEY, L_SUPPKEY, L_LINENUMBER)
         DISTRIBUTED BY HASH(L_ORDERKEY) BUCKETS 1
         PROPERTIES (
-        "replication_num" = "1"
+        "replication_num" = "1",
+        "enable_unique_key_merge_on_write" = "false"
         )       
     """
 
@@ -102,14 +103,13 @@ suite("test_pk_uk_case", "inverted_index") {
     def part_key = rd.nextInt(1000)
     def sub_key = 13
     def line_num = 29
-    def decimal = rd.nextFloat()
+    def decimal = rd.nextInt(1000) + 0.11
     def city = RandomStringUtils.randomAlphabetic(10)
     def name = UUID.randomUUID().toString()
     def date = DateTimeFormatter.ofPattern("yyyy-MM-dd").format(LocalDateTime.now())
     for (int idx = 0; idx < 10; idx++) {
         order_key = rd.nextInt(10)
         part_key = rd.nextInt(10)
-        decimal = rd.nextFloat()
         city = RandomStringUtils.randomAlphabetic(10)
         name = UUID.randomUUID().toString()
         sql """ INSERT INTO ${tableNamePk} VALUES
@@ -123,7 +123,6 @@ suite("test_pk_uk_case", "inverted_index") {
 
         order_key = rd.nextInt(10)
         part_key = rd.nextInt(10)
-        decimal = rd.nextFloat()
         city = RandomStringUtils.randomAlphabetic(10)
         name = UUID.randomUUID().toString()
         sql """ INSERT INTO ${tableNamePk} VALUES
@@ -137,7 +136,6 @@ suite("test_pk_uk_case", "inverted_index") {
 
         order_key = rd.nextInt(10)
         part_key = rd.nextInt(10)
-        decimal = rd.nextFloat()
         city = RandomStringUtils.randomAlphabetic(10)
         name = UUID.randomUUID().toString()
         sql """ INSERT INTO ${tableNamePk} VALUES
@@ -151,7 +149,6 @@ suite("test_pk_uk_case", "inverted_index") {
 
         order_key = rd.nextInt(10)
         part_key = rd.nextInt(10)
-        decimal = rd.nextFloat()
         city = RandomStringUtils.randomAlphabetic(10)
         name = UUID.randomUUID().toString()
         sql """ INSERT INTO ${tableNamePk} VALUES
@@ -165,7 +162,6 @@ suite("test_pk_uk_case", "inverted_index") {
         
         order_key = rd.nextInt(10)
         part_key = rd.nextInt(10)
-        decimal = rd.nextFloat()
         city = RandomStringUtils.randomAlphabetic(10)
         name = UUID.randomUUID().toString()
         sql """ INSERT INTO ${tableNamePk} VALUES
@@ -180,7 +176,6 @@ suite("test_pk_uk_case", "inverted_index") {
         // insert batch key 
         order_key = rd.nextInt(10)
         part_key = rd.nextInt(10)
-        decimal = rd.nextFloat()
         city = RandomStringUtils.randomAlphabetic(10)
         name = UUID.randomUUID().toString()
         sql """ INSERT INTO ${tableNamePk} VALUES
@@ -196,9 +191,11 @@ suite("test_pk_uk_case", "inverted_index") {
             ($order_key, $part_key, $sub_key, $line_num, $decimal, $decimal, $decimal, $decimal, '1', '1', '$date', '$date', '$date', '$name', '$name', '$city')
         """
 
+        sql "sync"
+
         // count(*)
-        result0 = sql """ SELECT count(*) FROM ${tableNamePk}; """
-        result1 = sql """ SELECT count(*) FROM ${tableNameUk}; """
+        def result0 = sql """ SELECT count(*) FROM ${tableNamePk}; """
+        def result1 = sql """ SELECT count(*) FROM ${tableNameUk}; """
         logger.info("result:" + result0[0][0] + "|" + result1[0][0])
         assertTrue(result0[0]==result1[0])
         if (result0[0][0]!=result1[0][0]) {
@@ -218,8 +215,6 @@ suite("test_pk_uk_case", "inverted_index") {
                             count(*)                                              AS count_order
                             FROM
                             ${tableNamePk}
-                            WHERE
-                            l_shipdate <= DATE '2023-01-01' - INTERVAL '90' DAY
                             GROUP BY
                             l_returnflag,
                             l_linestatus
@@ -240,8 +235,6 @@ suite("test_pk_uk_case", "inverted_index") {
                             count(*)                                              AS count_order
                             FROM
                             ${tableNameUk}
-                            WHERE
-                            l_shipdate <= DATE '2023-01-01' - INTERVAL '90' DAY
                             GROUP BY
                             l_returnflag,
                             l_linestatus

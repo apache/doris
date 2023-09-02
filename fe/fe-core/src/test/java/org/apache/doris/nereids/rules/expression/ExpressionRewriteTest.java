@@ -17,7 +17,6 @@
 
 package org.apache.doris.nereids.rules.expression;
 
-import org.apache.doris.nereids.rules.expression.rules.BetweenToCompoundRule;
 import org.apache.doris.nereids.rules.expression.rules.DistinctPredicatesRule;
 import org.apache.doris.nereids.rules.expression.rules.ExtractCommonFactorRule;
 import org.apache.doris.nereids.rules.expression.rules.InPredicateDedup;
@@ -25,6 +24,7 @@ import org.apache.doris.nereids.rules.expression.rules.InPredicateToEqualToRule;
 import org.apache.doris.nereids.rules.expression.rules.NormalizeBinaryPredicatesRule;
 import org.apache.doris.nereids.rules.expression.rules.SimplifyCastRule;
 import org.apache.doris.nereids.rules.expression.rules.SimplifyComparisonPredicate;
+import org.apache.doris.nereids.rules.expression.rules.SimplifyDecimalV3Comparison;
 import org.apache.doris.nereids.rules.expression.rules.SimplifyNotExprRule;
 import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
@@ -38,6 +38,7 @@ import org.apache.doris.nereids.trees.expressions.literal.DateTimeLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.DateTimeV2Literal;
 import org.apache.doris.nereids.trees.expressions.literal.DateV2Literal;
 import org.apache.doris.nereids.trees.expressions.literal.DecimalLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.DecimalV3Literal;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.SmallIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
@@ -46,6 +47,7 @@ import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
 import org.apache.doris.nereids.types.DateTimeType;
 import org.apache.doris.nereids.types.DateTimeV2Type;
 import org.apache.doris.nereids.types.DecimalV2Type;
+import org.apache.doris.nereids.types.DecimalV3Type;
 import org.apache.doris.nereids.types.StringType;
 import org.apache.doris.nereids.types.VarcharType;
 
@@ -57,10 +59,10 @@ import java.math.BigDecimal;
 /**
  * all expr rewrite rule test case.
  */
-public class ExpressionRewriteTest extends ExpressionRewriteTestHelper {
+class ExpressionRewriteTest extends ExpressionRewriteTestHelper {
 
     @Test
-    public void testNotRewrite() {
+    void testNotRewrite() {
         executor = new ExpressionRuleExecutor(ImmutableList.of(SimplifyNotExprRule.INSTANCE));
 
         assertRewrite("not x", "not x");
@@ -85,7 +87,7 @@ public class ExpressionRewriteTest extends ExpressionRewriteTestHelper {
     }
 
     @Test
-    public void testNormalizeExpressionRewrite() {
+    void testNormalizeExpressionRewrite() {
         executor = new ExpressionRuleExecutor(ImmutableList.of(NormalizeBinaryPredicatesRule.INSTANCE));
 
         assertRewrite("1 = 1", "1 = 1");
@@ -97,7 +99,7 @@ public class ExpressionRewriteTest extends ExpressionRewriteTestHelper {
     }
 
     @Test
-    public void testDistinctPredicatesRewrite() {
+    void testDistinctPredicatesRewrite() {
         executor = new ExpressionRuleExecutor(ImmutableList.of(DistinctPredicatesRule.INSTANCE));
 
         assertRewrite("a = 1", "a = 1");
@@ -109,7 +111,7 @@ public class ExpressionRewriteTest extends ExpressionRewriteTestHelper {
     }
 
     @Test
-    public void testExtractCommonFactorRewrite() {
+    void testExtractCommonFactorRewrite() {
         executor = new ExpressionRuleExecutor(ImmutableList.of(ExtractCommonFactorRule.INSTANCE));
 
         assertRewrite("a", "a");
@@ -162,46 +164,30 @@ public class ExpressionRewriteTest extends ExpressionRewriteTestHelper {
     }
 
     @Test
-    public void testBetweenToCompoundRule() {
-        executor = new ExpressionRuleExecutor(ImmutableList.of(BetweenToCompoundRule.INSTANCE,
-                SimplifyNotExprRule.INSTANCE));
-
-        assertRewrite("a between c and d", "(a >= c) and (a <= d)");
-        assertRewrite("a not between c and d)", "(a < c) or (a > d)");
-
-    }
-
-    @Test
-    public void testInPredicateToEqualToRule() {
+    void testInPredicateToEqualToRule() {
         executor = new ExpressionRuleExecutor(ImmutableList.of(InPredicateToEqualToRule.INSTANCE));
 
         assertRewrite("a in (1)", "a = 1");
-        assertRewrite("a in (1, 2)", "((a = 1) OR (a = 2))");
         assertRewrite("a not in (1)", "not a = 1");
-        assertRewrite("a not in (1, 2)", "not ((a = 1) OR (a = 2))");
         assertRewrite("a in (a in (1))", "a = (a = 1)");
-        assertRewrite("a in (a in (1, 2))", "a = ((a = 1) OR (a = 2))");
         assertRewrite("(a in (1)) in (1)", "(a = 1) = 1");
-        assertRewrite("(a in (1, 2)) in (1)", "((a = 1) OR (a = 2)) = 1");
-        assertRewrite("(a in (1)) in (1, 2)", "((a = 1) = 1) OR ((a = 1) = 2)");
+        assertRewrite("(a in (1, 2)) in (1)", "(a in (1, 2)) = 1");
+        assertRewrite("(a in (1)) in (1, 2)", "((a = 1) in (1, 2))");
         assertRewrite("case a when b in (1) then a else c end in (1)",
                 "case a when b = 1 then a else c end = 1");
         assertRewrite("case a when b not in (1) then a else c end not in (1)",
                 "not case a when not b = 1 then a else c end = 1");
-        assertRewrite("case a when b not in (1) then a else c end in (1, 2)",
-                "(CASE  WHEN (a = ( not (b = 1))) THEN a ELSE c END = 1) OR (CASE  WHEN (a = ( not (b = 1))) THEN a ELSE c END = 2)");
-
     }
 
     @Test
-    public void testInPredicateDedup() {
+    void testInPredicateDedup() {
         executor = new ExpressionRuleExecutor(ImmutableList.of(InPredicateDedup.INSTANCE));
 
         assertRewrite("a in (1, 2, 1, 2)", "a in (1, 2)");
     }
 
     @Test
-    public void testSimplifyCastRule() {
+    void testSimplifyCastRule() {
         executor = new ExpressionRuleExecutor(ImmutableList.of(SimplifyCastRule.INSTANCE));
 
         // deduplicate
@@ -233,7 +219,7 @@ public class ExpressionRewriteTest extends ExpressionRewriteTestHelper {
     }
 
     @Test
-    public void testSimplifyComparisonPredicateRule() {
+    void testSimplifyComparisonPredicateRule() {
         executor = new ExpressionRuleExecutor(ImmutableList.of(SimplifyCastRule.INSTANCE, SimplifyComparisonPredicate.INSTANCE));
 
         Expression dtv2 = new DateTimeV2Literal(1, 1, 1, 1, 1, 1, 0);
@@ -282,5 +268,23 @@ public class ExpressionRewriteTest extends ExpressionRewriteTestHelper {
                 new EqualTo(new Cast(dv2, DateTimeV2Type.SYSTEM_DEFAULT), dtv2AtZeroClock),
                 new EqualTo(dv2, dv2));
 
+    }
+
+    @Test
+    void testSimplifyDecimalV3Comparison() {
+        executor = new ExpressionRuleExecutor(ImmutableList.of(SimplifyDecimalV3Comparison.INSTANCE));
+
+        // do rewrite
+        Expression left = new DecimalV3Literal(new BigDecimal("12345.67"));
+        Expression cast = new Cast(left, DecimalV3Type.createDecimalV3Type(27, 9));
+        Expression right = new DecimalV3Literal(DecimalV3Type.createDecimalV3Type(27, 9), new BigDecimal("0.01"));
+        Expression expectedRight = new DecimalV3Literal(DecimalV3Type.createDecimalV3Type(7, 2), new BigDecimal("0.01"));
+        Expression comparison = new EqualTo(cast, right);
+        Expression expected = new EqualTo(left, expectedRight);
+        assertRewrite(comparison, expected);
+
+        // not cast
+        comparison = new EqualTo(new DecimalV3Literal(new BigDecimal("12345.67")), new DecimalV3Literal(new BigDecimal("76543.21")));
+        assertRewrite(comparison, comparison);
     }
 }

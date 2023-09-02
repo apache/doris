@@ -28,8 +28,13 @@ public class InvertedIndexUtil {
     public static String INVERTED_INDEX_PARSER_UNKNOWN = "unknown";
     public static String INVERTED_INDEX_PARSER_NONE = "none";
     public static String INVERTED_INDEX_PARSER_STANDARD = "standard";
+    public static String INVERTED_INDEX_PARSER_UNICODE = "unicode";
     public static String INVERTED_INDEX_PARSER_ENGLISH = "english";
     public static String INVERTED_INDEX_PARSER_CHINESE = "chinese";
+
+    public static String INVERTED_INDEX_PARSER_MODE_KEY = "parser_mode";
+    public static String INVERTED_INDEX_PARSER_FINE_GRANULARITY = "fine_grained";
+    public static String INVERTED_INDEX_PARSER_COARSE_GRANULARITY = "coarse_grained";
 
     public static String getInvertedIndexParser(Map<String, String> properties) {
         String parser = properties == null ? null : properties.get(INVERTED_INDEX_PARSER_KEY);
@@ -37,14 +42,33 @@ public class InvertedIndexUtil {
         return parser != null ? parser : INVERTED_INDEX_PARSER_NONE;
     }
 
+    public static String getInvertedIndexParserMode(Map<String, String> properties) {
+        String mode = properties == null ? null : properties.get(INVERTED_INDEX_PARSER_MODE_KEY);
+        // default is "none" if not set
+        return mode != null ? mode : INVERTED_INDEX_PARSER_FINE_GRANULARITY;
+    }
+
     public static void checkInvertedIndexParser(String indexColName, PrimitiveType colType,
             Map<String, String> properties) throws AnalysisException {
-        String parser = getInvertedIndexParser(properties);
+        String parser = null;
+        if (properties != null) {
+            parser = properties.get(INVERTED_INDEX_PARSER_KEY);
+            if (parser == null && !properties.isEmpty()) {
+                throw new AnalysisException("invalid index properties, please check the properties");
+            }
+        }
+
+        // default is "none" if not set
+        if (parser == null) {
+            parser = INVERTED_INDEX_PARSER_NONE;
+        }
+
         if (colType.isStringType()) {
             if (!(parser.equals(INVERTED_INDEX_PARSER_NONE)
                     || parser.equals(INVERTED_INDEX_PARSER_STANDARD)
-                        || parser.equals(INVERTED_INDEX_PARSER_ENGLISH)
-                            || parser.equals(INVERTED_INDEX_PARSER_CHINESE))) {
+                        || parser.equals(INVERTED_INDEX_PARSER_UNICODE)
+                            || parser.equals(INVERTED_INDEX_PARSER_ENGLISH)
+                                || parser.equals(INVERTED_INDEX_PARSER_CHINESE))) {
                 throw new AnalysisException("INVERTED index parser: " + parser
                     + " is invalid for column: " + indexColName + " of type " + colType);
             }

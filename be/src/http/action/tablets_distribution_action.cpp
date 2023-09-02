@@ -42,7 +42,9 @@ namespace doris {
 
 const static std::string HEADER_JSON = "application/json";
 
-TabletsDistributionAction::TabletsDistributionAction() {
+TabletsDistributionAction::TabletsDistributionAction(ExecEnv* exec_env, TPrivilegeHier::type hier,
+                                                     TPrivilegeType::type type)
+        : HttpHandlerWithAuth(exec_env, hier, type) {
     _host = BackendOptions::get_localhost();
 }
 
@@ -57,8 +59,8 @@ void TabletsDistributionAction::handle(HttpRequest* req) {
             try {
                 partition_id = std::stoull(req_partition_id);
             } catch (const std::exception& e) {
-                LOG(WARNING) << "invalid argument. partition_id:" << req_partition_id;
-                Status status = Status::InternalError("invalid argument: {}", req_partition_id);
+                Status status = Status::InternalError("invalid argument: {}, reason:{}",
+                                                      req_partition_id, e.what());
                 std::string status_result = status.to_json();
                 HttpChannel::send_reply(req, HttpStatus::INTERNAL_SERVER_ERROR, status_result);
                 return;
@@ -114,9 +116,6 @@ EasyJson TabletsDistributionAction::get_tablets_distribution_group_by_partition(
                     tablet["tablet_id"] =
                             tablets_info_on_disk[partition_iter->first][disk_iter->first][i]
                                     .tablet_id;
-                    tablet["schema_hash"] =
-                            tablets_info_on_disk[partition_iter->first][disk_iter->first][i]
-                                    .schema_hash;
                     tablet["tablet_size"] =
                             tablets_info_on_disk[partition_iter->first][disk_iter->first][i]
                                     .tablet_size;

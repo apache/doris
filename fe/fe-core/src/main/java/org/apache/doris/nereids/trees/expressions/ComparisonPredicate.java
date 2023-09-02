@@ -17,12 +17,14 @@
 
 package org.apache.doris.nereids.trees.expressions;
 
+import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.exceptions.UnboundException;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.BooleanType;
 import org.apache.doris.nereids.types.DataType;
-import org.apache.doris.nereids.types.coercion.AbstractDataType;
 import org.apache.doris.nereids.types.coercion.AnyDataType;
+
+import java.util.List;
 
 /**
  * Comparison predicate expression.
@@ -30,14 +32,8 @@ import org.apache.doris.nereids.types.coercion.AnyDataType;
  */
 public abstract class ComparisonPredicate extends BinaryOperator {
 
-    /**
-     * Constructor of ComparisonPredicate.
-     *
-     * @param left     left child of comparison predicate
-     * @param right    right child of comparison predicate
-     */
-    public ComparisonPredicate(Expression left, Expression right, String symbol) {
-        super(left, right, symbol);
+    public ComparisonPredicate(List<Expression> children, String symbol) {
+        super(children, symbol);
     }
 
     @Override
@@ -50,12 +46,21 @@ public abstract class ComparisonPredicate extends BinaryOperator {
     }
 
     @Override
-    public AbstractDataType inputType() {
-        return AnyDataType.INSTANCE;
+    public DataType inputType() {
+        return AnyDataType.INSTANCE_WITHOUT_INDEX;
     }
 
     /**
      * Commute between left and right children.
      */
     public abstract ComparisonPredicate commute();
+
+    @Override
+    public void checkLegalityBeforeTypeCoercion() {
+        children().forEach(c -> {
+            if (c.getDataType().isComplexType()) {
+                throw new AnalysisException("comparison predicate could not contains complex type: " + this.toSql());
+            }
+        });
+    }
 }

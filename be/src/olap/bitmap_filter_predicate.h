@@ -99,6 +99,9 @@ private:
 
     std::shared_ptr<BitmapFilterFuncBase> _filter;
     SpecificFilter* _specific_filter; // owned by _filter
+
+    int get_filter_id() const override { return _filter->get_filter_id(); }
+    bool is_filter() const override { return true; }
 };
 
 template <PrimitiveType T>
@@ -113,6 +116,8 @@ uint16_t BitmapFilterColumnPredicate<T>::evaluate(const vectorized::IColumn& col
     } else {
         new_size = evaluate<false>(column, nullptr, sel, size);
     }
+    _evaluated_rows += size;
+    _passed_rows += new_size;
     return new_size;
 }
 } //namespace doris

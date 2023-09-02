@@ -22,6 +22,8 @@
 
 #include <glog/logging.h>
 // IWYU pragma: no_include <bits/chrono.h>
+#include <sys/resource.h>
+
 #include <chrono> // IWYU pragma: keep
 #include <filesystem>
 #include <utility>
@@ -38,12 +40,12 @@ namespace io {
 
 IFileCache::IFileCache(const std::string& cache_base_path, const FileCacheSettings& cache_settings)
         : _cache_base_path(cache_base_path),
-          _max_size(cache_settings.max_size),
-          _max_element_size(cache_settings.max_elements),
-          _persistent_max_size(cache_settings.persistent_max_size),
-          _persistent_max_element_size(cache_settings.persistent_max_elements),
+          _total_size(cache_settings.total_size),
           _max_file_segment_size(cache_settings.max_file_segment_size),
-          _max_query_cache_size(cache_settings.max_query_cache_size) {}
+          _max_query_cache_size(cache_settings.max_query_cache_size) {
+    _cur_size_metrics =
+            std::make_shared<bvar::Status<size_t>>(_cache_base_path.c_str(), "cur_size", 0);
+}
 
 std::string IFileCache::Key::to_string() const {
     return vectorized::get_hex_uint_lowercase(key);
@@ -55,16 +57,34 @@ IFileCache::Key IFileCache::hash(const std::string& path) {
     return Key(key);
 }
 
-std::string IFileCache::get_path_in_local_cache(const Key& key, size_t offset,
-                                                bool is_persistent) const {
-    auto key_str = key.to_string();
-    std::string suffix = is_persistent ? "_persistent" : "";
-    if constexpr (USE_CACHE_VERSION2) {
-        return fs::path(_cache_base_path) / key_str.substr(0, KEY_PREFIX_LENGTH) / key_str /
-               (std::to_string(offset) + suffix);
-    } else {
-        return fs::path(_cache_base_path) / key_str / (std::to_string(offset) + suffix);
+std::string IFileCache::cache_type_to_string(CacheType type) {
+    switch (type) {
+    case CacheType::INDEX:
+        return "_idx";
+    case CacheType::DISPOSABLE:
+        return "_disposable";
+    case CacheType::NORMAL:
+        return "";
     }
+    return "";
+}
+
+CacheType IFileCache::string_to_cache_type(const std::string& str) {
+    switch (str[0]) {
+    case 'i':
+        return CacheType::INDEX;
+    case 'd':
+        return CacheType::DISPOSABLE;
+    default:
+        DCHECK(false);
+    }
+    return CacheType::DISPOSABLE;
+}
+
+std::string IFileCache::get_path_in_local_cache(const Key& key, size_t offset,
+                                                CacheType type) const {
+    return get_path_in_local_cache(key) + "/" +
+           (std::to_string(offset) + cache_type_to_string(type));
 }
 
 std::string IFileCache::get_path_in_local_cache(const Key& key) const {
@@ -125,20 +145,82 @@ IFileCache::QueryFileCacheContextPtr IFileCache::get_or_set_query_context(
     return query_iter->second;
 }
 
-void IFileCache::QueryFileCacheContext::remove(const Key& key, size_t offset, bool is_presistent,
-                                               size_t size,
+void IFileCache::QueryFileCacheContext::remove(const Key& key, size_t offset,
                                                std::lock_guard<std::mutex>& cache_lock) {
-    auto record = records.find({key, offset, is_presistent});
+    auto pair = std::make_pair(key, offset);
+    auto record = records.find(pair);
     DCHECK(record != records.end());
-    lru_queue.remove(record->second, cache_lock);
-    records.erase({key, offset, is_presistent});
+    auto iter = record->second;
+    records.erase(pair);
+    lru_queue.remove(iter, cache_lock);
 }
 
-void IFileCache::QueryFileCacheContext::reserve(const Key& key, size_t offset, bool is_presistent,
-                                                size_t size,
+void IFileCache::QueryFileCacheContext::reserve(const Key& key, size_t offset, size_t size,
                                                 std::lock_guard<std::mutex>& cache_lock) {
-    auto queue_iter = lru_queue.add(key, offset, is_presistent, size, cache_lock);
-    records.insert({{key, offset, is_presistent}, queue_iter});
+    auto pair = std::make_pair(key, offset);
+    if (records.find(pair) == records.end()) {
+        auto queue_iter = lru_queue.add(key, offset, size, cache_lock);
+        records.insert({pair, queue_iter});
+    }
+}
+
+void IFileCache::set_read_only(bool read_only) {
+    s_read_only = read_only;
+    if (read_only) {
+        std::lock_guard lock(s_file_reader_cache_mtx);
+        s_file_reader_cache.clear();
+        s_file_name_to_reader.clear();
+    }
+}
+
+std::weak_ptr<FileReader> IFileCache::cache_file_reader(const AccessKeyAndOffset& key,
+                                                        std::shared_ptr<FileReader> file_reader) {
+    std::weak_ptr<FileReader> wp;
+    if (!s_read_only) [[likely]] {
+        std::lock_guard lock(s_file_reader_cache_mtx);
+        if (s_file_reader_cache.size() >= _max_file_reader_cache_size) {
+            s_file_name_to_reader.erase(s_file_reader_cache.back().first);
+            s_file_reader_cache.pop_back();
+        }
+        wp = file_reader;
+        s_file_reader_cache.emplace_front(key, std::move(file_reader));
+        s_file_name_to_reader.insert(std::make_pair(key, s_file_reader_cache.begin()));
+    }
+    return wp;
+}
+
+void IFileCache::remove_file_reader(const AccessKeyAndOffset& key) {
+    std::lock_guard lock(s_file_reader_cache_mtx);
+    if (auto iter = s_file_name_to_reader.find(key); iter != s_file_name_to_reader.end()) {
+        s_file_reader_cache.erase(iter->second);
+        s_file_name_to_reader.erase(key);
+    }
+}
+
+bool IFileCache::contains_file_reader(const AccessKeyAndOffset& key) {
+    std::lock_guard lock(s_file_reader_cache_mtx);
+    return s_file_name_to_reader.find(key) != s_file_name_to_reader.end();
+}
+
+size_t IFileCache::file_reader_cache_size() {
+    std::lock_guard lock(s_file_reader_cache_mtx);
+    return s_file_name_to_reader.size();
+}
+
+void IFileCache::init() {
+    struct rlimit limit;
+    if (getrlimit(RLIMIT_NOFILE, &limit) != 0) {
+        LOG(FATAL) << "getrlimit() failed with errno: " << errno;
+        return;
+    }
+
+    _max_file_reader_cache_size =
+            std::min((uint64_t)config::file_cache_max_file_reader_cache_size, limit.rlim_max / 3);
+    LOG(INFO) << "max file reader cache size is: " << _max_file_reader_cache_size
+              << ", resource hard limit is: " << limit.rlim_max
+              << ", config file_cache_max_file_reader_cache_size is: "
+              << config::file_cache_max_file_reader_cache_size;
+    return;
 }
 
 } // namespace io

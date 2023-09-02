@@ -29,7 +29,6 @@ import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.TreeNode;
-import org.apache.doris.common.util.VectorizedUtil;
 import org.apache.doris.thrift.TExprNode;
 
 import com.google.common.base.Joiner;
@@ -263,18 +262,6 @@ public class AnalyticExpr extends Expr {
      * that we want to equal.
      */
     public static Expr rewrite(AnalyticExpr analyticExpr) {
-        Function fn = analyticExpr.getFnCall().getFn();
-        // TODO(zc)
-        // if (AnalyticExpr.isPercentRankFn(fn)) {
-        //     return createPercentRank(analyticExpr);
-        // } else if (AnalyticExpr.isCumeDistFn(fn)) {
-        //     return createCumeDist(analyticExpr);
-        // } else if (AnalyticExpr.isNtileFn(fn)) {
-        //     return createNtile(analyticExpr);
-        // }
-        if (isNTileFn(fn) && !VectorizedUtil.isVectorized()) {
-            return createNTile(analyticExpr);
-        }
         return null;
     }
 
@@ -478,7 +465,7 @@ public class AnalyticExpr extends Expr {
         type = getFnCall().getType();
 
         for (Expr e : partitionExprs) {
-            if (e.isConstant()) {
+            if (e.isLiteral()) {
                 throw new AnalysisException(
                     "Expressions in the PARTITION BY clause must not be constant: "
                     + e.toSql() + " (in " + toSql() + ")");
@@ -486,7 +473,7 @@ public class AnalyticExpr extends Expr {
         }
 
         for (OrderByElement e : orderByElements) {
-            if (e.getExpr().isConstant()) {
+            if (e.getExpr().isLiteral()) {
                 throw new AnalysisException(
                     "Expressions in the ORDER BY clause must not be constant: "
                             + e.getExpr().toSql() + " (in " + toSql() + ")");
@@ -572,19 +559,6 @@ public class AnalyticExpr extends Expr {
         sqlString = toSql();
 
         standardize(analyzer);
-
-        // But in Vectorized mode, after calculate a window, will be call reset() to reset state,
-        // And then restarted calculate next new window;
-        if (!VectorizedUtil.isVectorized()) {
-            // min/max is not currently supported on sliding windows (i.e. start bound is not
-            // unbounded).
-            if (window != null && isMinMax(fn)
-                    && window.getLeftBoundary().getType() != BoundaryType.UNBOUNDED_PRECEDING) {
-                throw new AnalysisException(
-                    "'" + getFnCall().toSql() + "' is only supported with an "
-                    + "UNBOUNDED PRECEDING start bound.");
-            }
-        }
 
         setChildren();
     }
@@ -686,8 +660,6 @@ public class AnalyticExpr extends Expr {
                 Preconditions.checkState(getFnCall().getChildren().size() == 3);
             }
 
-            Type type = getFnCall().getChildren().get(2).getType();
-
             try {
                 if (!Type.matchExactType(getFnCall().getChildren().get(0).getType(),
                         getFnCall().getChildren().get(2).getType())) {
@@ -700,10 +672,10 @@ public class AnalyticExpr extends Expr {
                                             + getFnCall().getChildren().get(0).getType());
             }
 
-            if (getFnCall().getChildren().get(2) instanceof CastExpr) {
-                throw new AnalysisException("Type = " + type + " can't not convert to "
-                                            + getFnCall().getChildren().get(0).getType());
-            }
+            // if (getFnCall().getChildren().get(2) instanceof CastExpr) {
+            //     throw new AnalysisException("Type = " + type + " can't not convert to "
+            //                                 + getFnCall().getChildren().get(0).getType());
+            // }
 
             // check the value whether out of range
             checkDefaultValue(analyzer);
@@ -754,28 +726,6 @@ public class AnalyticExpr extends Expr {
                                             window.getLeftBoundary());
                 fnCall = new FunctionCallExpr(new FunctionName(LASTVALUE),
                                               getFnCall().getParams());
-            } else {
-                //TODO: Now we don't want to first_value to rewrite in vectorized mode;
-                //if have to rewrite in future, could exec this rule;
-                if (!VectorizedUtil.isVectorized()) {
-                    List<Expr> paramExprs = Expr.cloneList(getFnCall().getParams().exprs());
-
-                    if (window.getRightBoundary().getType() == BoundaryType.PRECEDING) {
-                        // The number of rows preceding for the end bound determines the number of
-                        // rows at the beginning of each partition that should have a NULL value.
-                        paramExprs.add(window.getRightBoundary().getExpr());
-                    } else {
-                        // -1 indicates that no NULL values are inserted even though we set the end
-                        // bound to the start bound (which is PRECEDING) below; this is different from
-                        // the default behavior of windows with an end bound PRECEDING.
-                        paramExprs.add(new IntLiteral(-1, Type.BIGINT));
-                    }
-
-                    window = new AnalyticWindow(window.getType(),
-                            new Boundary(BoundaryType.UNBOUNDED_PRECEDING, null),
-                            window.getLeftBoundary());
-                    fnCall = new FunctionCallExpr("FIRST_VALUE_REWRITE", new FunctionParams(paramExprs));
-                }
             }
 
             fnCall.setIsAnalyticFnCall(true);

@@ -25,6 +25,7 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.metric.MetricRepo;
+import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.task.PublishVersionTask;
 import org.apache.doris.thrift.TUniqueId;
 
@@ -33,6 +34,9 @@ import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
+import com.google.gson.annotations.SerializedName;
+import lombok.Getter;
+import lombok.Setter;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -151,7 +155,9 @@ public class TransactionState implements Writable {
     }
 
     public static class TxnCoordinator {
+        @SerializedName(value = "sourceType")
         public TxnSourceType sourceType;
+        @SerializedName(value = "ip")
         public String ip;
 
         public TxnCoordinator() {
@@ -168,25 +174,41 @@ public class TransactionState implements Writable {
         }
     }
 
+    @SerializedName(value = "dbId")
     private long dbId;
+    @SerializedName(value = "tableIdList")
+    @Setter
+    @Getter
     private List<Long> tableIdList;
     private int replicaNum = 0;
+    @SerializedName(value = "txnId")
     private long transactionId;
+    @SerializedName(value = "label")
     private String label;
     // requestId is used to judge whether a begin request is a internal retry request.
     // no need to persist it.
     private TUniqueId requestId;
+    @SerializedName(value = "idToTableCommitInfos")
     private Map<Long, TableCommitInfo> idToTableCommitInfos;
     // coordinator is show who begin this txn (FE, or one of BE, etc...)
+    @SerializedName(value = "txnCoordinator")
     private TxnCoordinator txnCoordinator;
+    @SerializedName(value = "txnStatus")
     private TransactionStatus transactionStatus;
+    @SerializedName(value = "sourceType")
     private LoadJobSourceType sourceType;
+    @SerializedName(value = "prepareTime")
     private long prepareTime;
+    @SerializedName(value = "preCommitTime")
     private long preCommitTime;
+    @SerializedName(value = "commitTime")
     private long commitTime;
+    @SerializedName(value = "finishTime")
     private long finishTime;
+    @SerializedName(value = "reason")
     private String reason = "";
     // error replica ids
+    @SerializedName(value = "errorReplicas")
     private Set<Long> errorReplicas;
     // this latch will be counted down when txn status change to VISIBLE
     private CountDownLatch visibleLatch;
@@ -197,6 +219,7 @@ public class TransactionState implements Writable {
     private long publishVersionTime = -1;
     private TransactionStatus preStatus = null;
 
+    @SerializedName(value = "callbackId")
     private long callbackId = -1;
     // In the beforeStateTransform() phase, we will get the callback object through the callbackId,
     // and if we get it, we will save it in this variable.
@@ -208,6 +231,7 @@ public class TransactionState implements Writable {
     // 2. callback object has been removed from CallbackFactory
     // 3. in afterStateTransform(), callback object can not be found, so the write lock can not be released.
     private TxnStateChangeCallback callback = null;
+    @SerializedName(value = "timeoutMs")
     private long timeoutMs = Config.stream_load_default_timeout_second * 1000;
     private long preCommittedTimeoutMs = Config.stream_load_default_precommit_timeout_second * 1000;
 
@@ -215,6 +239,7 @@ public class TransactionState implements Writable {
     private boolean prolongPublishTimeout = false;
 
     // optional
+    @SerializedName(value = "txnCommitAttachment")
     private TxnCommitAttachment txnCommitAttachment;
 
     // this map should be set when load execution begin, so that when the txn commit, it will know
@@ -498,10 +523,6 @@ public class TransactionState implements Writable {
         return this.idToTableCommitInfos.get(tableId);
     }
 
-    public void removeTable(long tableId) {
-        this.idToTableCommitInfos.remove(tableId);
-    }
-
     public void setTxnCommitAttachment(TxnCommitAttachment txnCommitAttachment) {
         this.txnCommitAttachment = txnCommitAttachment;
     }
@@ -534,16 +555,10 @@ public class TransactionState implements Writable {
     }
 
     public synchronized void addTableIndexes(OlapTable table) {
-        Set<Long> indexIds = loadedTblIndexes.get(table.getId());
-        if (indexIds == null) {
-            indexIds = Sets.newHashSet();
-            loadedTblIndexes.put(table.getId(), indexIds);
-        }
+        Set<Long> indexIds = loadedTblIndexes.computeIfAbsent(table.getId(), k -> Sets.newHashSet());
         // always equal the index ids
         indexIds.clear();
-        for (Long indexId : table.getIndexIdToMeta().keySet()) {
-            indexIds.add(indexId);
-        }
+        indexIds.addAll(table.getIndexIdToMeta().keySet());
     }
 
     public Map<Long, Set<Long>> getLoadedTblIndexes() {
@@ -570,6 +585,10 @@ public class TransactionState implements Writable {
             sb.append(" attactment: ").append(txnCommitAttachment);
         }
         return sb.toString();
+    }
+
+    public String toJson() {
+        return GsonUtils.GSON.toJson(this);
     }
 
     public LoadJobSourceType getSourceType() {
@@ -626,8 +645,8 @@ public class TransactionState implements Writable {
         out.writeLong(callbackId);
         out.writeLong(timeoutMs);
         out.writeInt(tableIdList.size());
-        for (int i = 0; i < tableIdList.size(); i++) {
-            out.writeLong(tableIdList.get(i));
+        for (Long aLong : tableIdList) {
+            out.writeLong(aLong);
         }
     }
 

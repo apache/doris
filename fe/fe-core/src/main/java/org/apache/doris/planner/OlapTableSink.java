@@ -17,6 +17,8 @@
 
 package org.apache.doris.planner;
 
+import org.apache.doris.analysis.Analyzer;
+import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.SlotDescriptor;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.catalog.Column;
@@ -77,6 +79,7 @@ import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Random;
@@ -90,11 +93,16 @@ public class OlapTableSink extends DataSink {
     private TupleDescriptor tupleDescriptor;
     // specified partition ids.
     private List<Long> partitionIds;
+    // partial update input columns
+    private boolean isPartialUpdate = false;
+    private HashSet<String> partialUpdateInputColumns;
 
     // set after init called
     private TDataSink tDataSink;
 
     private boolean singleReplicaLoad;
+
+    private boolean isStrictMode = false;
 
     public OlapTableSink(OlapTable dstTable, TupleDescriptor tupleDescriptor, List<Long> partitionIds,
             boolean singleReplicaLoad) {
@@ -105,13 +113,14 @@ public class OlapTableSink extends DataSink {
     }
 
     public void init(TUniqueId loadId, long txnId, long dbId, long loadChannelTimeoutS, int sendBatchParallelism,
-            boolean loadToSingleTablet) throws AnalysisException {
+            boolean loadToSingleTablet, boolean isStrictMode) throws AnalysisException {
         TOlapTableSink tSink = new TOlapTableSink();
         tSink.setLoadId(loadId);
         tSink.setTxnId(txnId);
         tSink.setDbId(dbId);
         tSink.setLoadChannelTimeoutS(loadChannelTimeoutS);
         tSink.setSendBatchParallelism(sendBatchParallelism);
+        this.isStrictMode = isStrictMode;
         if (loadToSingleTablet && !(dstTable.getDefaultDistributionInfo() instanceof RandomDistributionInfo)) {
             throw new AnalysisException(
                     "if load_to_single_tablet set to true," + " the olap table must be with random distribution");
@@ -138,6 +147,17 @@ public class OlapTableSink extends DataSink {
             singleReplicaLoad = false;
             LOG.warn("Single replica load not supported by TStorageFormat.V1. table: {}", dstTable.getName());
         }
+        if (dstTable.getEnableUniqueKeyMergeOnWrite()) {
+            singleReplicaLoad = false;
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("Single replica load not supported by merge-on-write table: {}", dstTable.getName());
+            }
+        }
+    }
+
+    public void setPartialUpdateInputColumns(boolean isPartialUpdate, HashSet<String> columns) {
+        this.isPartialUpdate = isPartialUpdate;
+        this.partialUpdateInputColumns = columns;
     }
 
     public void updateLoadId(TUniqueId newLoadId) {
@@ -145,7 +165,7 @@ public class OlapTableSink extends DataSink {
     }
 
     // must called after tupleDescriptor is computed
-    public void complete() throws UserException {
+    public void complete(Analyzer analyzer) throws UserException {
         TOlapTableSink tSink = tDataSink.getOlapTableSink();
 
         tSink.setTableId(dstTable.getId());
@@ -157,7 +177,7 @@ public class OlapTableSink extends DataSink {
         }
         tSink.setNumReplicas(numReplicas);
         tSink.setNeedGenRollup(dstTable.shouldLoadToNewRollup());
-        tSink.setSchema(createSchema(tSink.getDbId(), dstTable));
+        tSink.setSchema(createSchema(tSink.getDbId(), dstTable, analyzer));
         tSink.setPartition(createPartition(tSink.getDbId(), dstTable));
         List<TOlapTableLocationParam> locationParams = createLocation(dstTable);
         tSink.setLocation(locationParams.get(0));
@@ -195,12 +215,12 @@ public class OlapTableSink extends DataSink {
         return tDataSink;
     }
 
-    private TOlapTableSchemaParam createSchema(long dbId, OlapTable table) {
+    private TOlapTableSchemaParam createSchema(long dbId, OlapTable table, Analyzer analyzer) throws AnalysisException {
         TOlapTableSchemaParam schemaParam = new TOlapTableSchemaParam();
         schemaParam.setDbId(dbId);
         schemaParam.setTableId(table.getId());
         schemaParam.setVersion(table.getIndexMetaByIndexId(table.getBaseIndexId()).getSchemaVersion());
-        schemaParam.setIsDynamicSchema(table.isDynamicSchema());
+        schemaParam.setIsStrictMode(isStrictMode);
 
         schemaParam.tuple_desc = tupleDescriptor.toThrift();
         for (SlotDescriptor slotDesc : tupleDescriptor.getSlots()) {
@@ -212,24 +232,43 @@ public class OlapTableSink extends DataSink {
             List<String> columns = Lists.newArrayList();
             List<TColumn> columnsDesc = Lists.newArrayList();
             List<TOlapTableIndex> indexDesc = Lists.newArrayList();
-            columns.addAll(indexMeta.getSchema().stream().map(Column::getName).collect(Collectors.toList()));
+            columns.addAll(indexMeta.getSchema().stream().map(Column::getNonShadowName).collect(Collectors.toList()));
             for (Column column : indexMeta.getSchema()) {
                 TColumn tColumn = column.toThrift();
                 column.setIndexFlag(tColumn, table);
                 columnsDesc.add(tColumn);
             }
-            for (Index index : table.getIndexes()) {
+            List<Index> indexes = indexMeta.getIndexes();
+            if (indexes.size() == 0 && pair.getKey() == table.getBaseIndexId()) {
+                // for compatible with old version befor 2.0-beta
+                // if indexMeta.getIndexes() is empty, use table.getIndexes()
+                indexes = table.getIndexes();
+            }
+            for (Index index : indexes) {
                 TOlapTableIndex tIndex = index.toThrift();
                 indexDesc.add(tIndex);
             }
             TOlapTableIndexSchema indexSchema = new TOlapTableIndexSchema(pair.getKey(), columns,
                     indexMeta.getSchemaHash());
             if (indexMeta.getWhereClause() != null) {
-                indexSchema.setWhereClause(indexMeta.getWhereClause().treeToThrift());
+                Expr expr = indexMeta.getWhereClause().clone();
+                expr.replaceSlot(tupleDescriptor);
+                if (analyzer != null) {
+                    tupleDescriptor.setTable(table);
+                    analyzer.registerTupleDescriptor(tupleDescriptor);
+                    expr.analyze(analyzer);
+                }
+                indexSchema.setWhereClause(expr.treeToThrift());
             }
             indexSchema.setColumnsDesc(columnsDesc);
             indexSchema.setIndexesDesc(indexDesc);
             schemaParam.addToIndexes(indexSchema);
+        }
+        schemaParam.setIsPartialUpdate(isPartialUpdate);
+        if (isPartialUpdate) {
+            for (String s : partialUpdateInputColumns) {
+                schemaParam.addToPartialUpdateInputColumns(s);
+            }
         }
         return schemaParam;
     }
@@ -371,7 +410,8 @@ public class OlapTableSink extends DataSink {
                     Multimap<Long, Long> bePathsMap = tablet.getNormalReplicaBackendPathMap();
                     if (bePathsMap.keySet().size() < quorum) {
                         throw new UserException(InternalErrorCode.REPLICA_FEW_ERR,
-                                "tablet " + tablet.getId() + " has few replicas: " + bePathsMap.keySet().size()
+                                "tablet " + tablet.getId() + " alive replica num " + bePathsMap.keySet().size()
+                                        + " < quorum replica num " + quorum
                                         + ", alive backends: [" + StringUtils.join(bePathsMap.keySet(), ",") + "]");
                     }
 
@@ -406,9 +446,9 @@ public class OlapTableSink extends DataSink {
     private TPaloNodesInfo createPaloNodesInfo() {
         TPaloNodesInfo nodesInfo = new TPaloNodesInfo();
         SystemInfoService systemInfoService = Env.getCurrentSystemInfo();
-        for (Long id : systemInfoService.getBackendIds(false)) {
+        for (Long id : systemInfoService.getAllBackendIds(false)) {
             Backend backend = systemInfoService.getBackend(id);
-            nodesInfo.addToNodes(new TNodeInfo(backend.getId(), 0, backend.getIp(), backend.getBrpcPort()));
+            nodesInfo.addToNodes(new TNodeInfo(backend.getId(), 0, backend.getHost(), backend.getBrpcPort()));
         }
         return nodesInfo;
     }
