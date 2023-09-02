@@ -491,7 +491,8 @@ Status HashJoinNode::pull(doris::RuntimeState* state, vectorized::Block* output_
         }
 
         RETURN_IF_ERROR(_build_output_block(&temp_block, output_block, false));
-        _probe_block.clear();
+        temp_block.clear();
+        release_block_memory(_probe_block);
         reached_limit(output_block, eos);
         return Status::OK();
     }
