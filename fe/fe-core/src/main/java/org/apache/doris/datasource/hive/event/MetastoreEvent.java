@@ -23,6 +23,7 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 
 /**
@@ -70,7 +71,7 @@ public abstract class MetastoreEvent {
 
     protected MetastoreEvent(NotificationEvent event, String catalogName) {
         this.event = event;
-        this.dbName = event.getDbName();
+        this.dbName = event.getDbName().toLowerCase(Locale.ROOT);
         this.tblName = event.getTableName();
         this.eventId = event.getEventId();
         this.eventType = MetastoreEventType.from(event.getEventType());
