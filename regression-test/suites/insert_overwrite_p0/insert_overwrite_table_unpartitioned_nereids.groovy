@@ -117,38 +117,6 @@ suite("test_iot_unpartitioned_nereids") {
            assertTrue(true)
        }
 
-       // overwrite with data which is not in partition's list
-        try {
-           sql """INSERT OVERWRITE TABLE test_iot PARTITION(p1) select * from test_iot1 where test_int = 4 """
-           throw new IllegalStateException("Should be wrong data")
-        } catch (java.sql.SQLException t) {
-           assertTrue(true)
-       }
-        // overwrite partition with values list
-        sql """INSERT OVERWRITE TABLE test_iot PARTITION(p1) VALUES (1,'aaa','aaa')"""   
-        order_qt_select """select * from test_iot"""
-     
-        // overwrite partition with origin data
-        sql """INSERT OVERWRITE TABLE test_iot PARTITION(p1) select 1,'aaa','aaa' """
-        order_qt_select """select * from test_iot"""
-
-        // overwrite partition with another table
-        sql """INSERT OVERWRITE TABLE test_iot PARTITION(p1) select * from test_iot1 where test_varchar = 'aaa' """
-        order_qt_select """ select * from test_iot partition p1 """
-
-        // overwrite tow partitions with another table
-        sql """INSERT OVERWRITE TABLE test_iot PARTITION(p1,p2) select * from test_iot1"""
-        order_qt_select """ select * from test_iot partition p1 """
-        order_qt_select """ select * from test_iot partition p2 """
-
-        // overwrite partition with some cols
-        sql """INSERT OVERWRITE TABLE test_iot PARTITION(p1) (test_int, test_varchar) select test_int, test_varchar from test_iot1 where test_varchar = 'aaa'"""
-        order_qt_select """select * from test_iot"""
-
-       // overwrite partition with label
-       sql """INSERT OVERWRITE TABLE test_iot PARTITION(p1) WITH LABEL `label2` (test_int, test_varchar, test_text) select * from test_iot1 where test_varchar = 'aaa'"""
-       order_qt_select """select * from test_iot"""
-
     } finally {
         sql """ DROP TABLE IF EXISTS test_iot """
 
