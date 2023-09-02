@@ -460,7 +460,7 @@ Status HashJoinNode::pull(doris::RuntimeState* state, vectorized::Block* output_
         // we could get the result is probe table + null-column(if need output)
         // If we use a short-circuit strategy, should return block directly by add additional null data.
         auto block_rows = _probe_block.rows();
-        if (_probe_eos) {
+        if (_probe_eos && block_rows == 0) {
             *eos = _probe_eos;
             return Status::OK();
         }
