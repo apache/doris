@@ -66,7 +66,7 @@ public class GetDataTypeTest {
     @Test
     public void testSum() {
         Assertions.assertEquals(BigIntType.INSTANCE, checkAndGetDataType(new Sum(nullLiteral)));
-        Assertions.assertThrows(RuntimeException.class, () -> checkAndGetDataType(new Sum(booleanLiteral)));
+        Assertions.assertEquals(BigIntType.INSTANCE, checkAndGetDataType(new Sum(booleanLiteral)));
         Assertions.assertEquals(BigIntType.INSTANCE, checkAndGetDataType(new Sum(tinyIntLiteral)));
         Assertions.assertEquals(BigIntType.INSTANCE, checkAndGetDataType(new Sum(smallIntLiteral)));
         Assertions.assertEquals(BigIntType.INSTANCE, checkAndGetDataType(new Sum(integerLiteral)));

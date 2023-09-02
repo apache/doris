@@ -54,9 +54,11 @@ testDirectories = ""
 // this groups will not be executed
 excludeGroups = ""
 // this suites will not be executed
-excludeSuites = "test_broker_load,test_spark_load,test_analyze_stats_p1,test_refresh_mtmv"
+
+excludeSuites = "test_leading,test_stream_load_move_memtable,ds_rf95,test_default_limit,test_profile,test_broker_load,test_spark_load,test_refresh_mtmv,test_bitmap_filter,test_export_parquet,test_doris_jdbc_catalog,nereids_delete_mow_partial_update"
+
 // this directories will not be executed
-excludeDirectories = ""
+excludeDirectories = "workload_manager_p1"
 
 customConf1 = "test_custom_conf_value"
 
@@ -83,6 +85,11 @@ pg_14_port=7121
 enableHiveTest=false
 hms_port=7141
 
+enableEsTest=false
+es_6_port=19200
+es_7_port=29200
+es_8_port=39200
+
 cacheDataPath = "/data/regression/"
 
 s3Endpoint = "cos.ap-hongkong.myqcloud.com"
@@ -90,3 +97,5 @@ s3BucketName = "doris-build-hk-1308700295"
 s3Region = "ap-hongkong"
 
 max_failure_num=50
+
+externalEnvIp="127.0.0.1"

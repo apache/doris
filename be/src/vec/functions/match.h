@@ -129,7 +129,7 @@ public:
 class FunctionMatchElementEQ : public FunctionMatchBase {
 public:
     static constexpr auto name = "match_element_eq";
-    static FunctionPtr create() { return std::make_shared<FunctionMatchPhrase>(); }
+    static FunctionPtr create() { return std::make_shared<FunctionMatchElementEQ>(); }
 
     String get_name() const override { return name; }
 
@@ -146,7 +146,7 @@ public:
 class FunctionMatchElementLT : public FunctionMatchBase {
 public:
     static constexpr auto name = "match_element_lt";
-    static FunctionPtr create() { return std::make_shared<FunctionMatchPhrase>(); }
+    static FunctionPtr create() { return std::make_shared<FunctionMatchElementLT>(); }
 
     String get_name() const override { return name; }
 
@@ -163,7 +163,7 @@ public:
 class FunctionMatchElementGT : public FunctionMatchBase {
 public:
     static constexpr auto name = "match_element_gt";
-    static FunctionPtr create() { return std::make_shared<FunctionMatchPhrase>(); }
+    static FunctionPtr create() { return std::make_shared<FunctionMatchElementGT>(); }
 
     String get_name() const override { return name; }
 
@@ -180,7 +180,7 @@ public:
 class FunctionMatchElementLE : public FunctionMatchBase {
 public:
     static constexpr auto name = "match_element_le";
-    static FunctionPtr create() { return std::make_shared<FunctionMatchPhrase>(); }
+    static FunctionPtr create() { return std::make_shared<FunctionMatchElementLE>(); }
 
     String get_name() const override { return name; }
 
@@ -197,7 +197,7 @@ public:
 class FunctionMatchElementGE : public FunctionMatchBase {
 public:
     static constexpr auto name = "match_element_ge";
-    static FunctionPtr create() { return std::make_shared<FunctionMatchPhrase>(); }
+    static FunctionPtr create() { return std::make_shared<FunctionMatchElementGE>(); }
 
     String get_name() const override { return name; }
 

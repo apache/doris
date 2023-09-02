@@ -15,10 +15,14 @@
 -- !select_q_2_1 --
 1	1993	brand
 
--- !select_mv --
+-- !select_q_3_1 --
 ASIA	ASIA	1992	1
 
--- !select_mv --
+-- !select_q_4_1 --
 0	nation	0
 1993	nation	0
+
+-- !select_temp_2 --
+1	4	1	1
+2	8	2	2
 

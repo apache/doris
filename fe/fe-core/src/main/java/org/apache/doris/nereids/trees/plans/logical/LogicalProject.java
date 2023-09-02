@@ -151,15 +151,14 @@ public class LogicalProject<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_
         if (o == null || getClass() != o.getClass()) {
             return false;
         }
-        LogicalProject that = (LogicalProject) o;
+        LogicalProject<?> that = (LogicalProject<?>) o;
         boolean equal = projects.equals(that.projects)
                 && excepts.equals(that.excepts)
                 && canEliminate == that.canEliminate
                 && isDistinct == that.isDistinct;
         // TODO: should add exprId for UnBoundStar and BoundStar for equality comparasion
-        if (!projects.isEmpty() && (projects.get(0) instanceof UnboundStar || projects.get(0) instanceof BoundStar)
-                && (child().getClass() == that.child().getClass())) {
-            equal = Objects.equals(child(), that.child());
+        if (!projects.isEmpty() && (projects.get(0) instanceof UnboundStar || projects.get(0) instanceof BoundStar)) {
+            equal = child().getLogicalProperties().equals(that.child().getLogicalProperties());
         }
         return equal;
     }
@@ -232,7 +231,6 @@ public class LogicalProject<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_
     }
 
     public LogicalProject<Plan> readFromJson(JSONObject logicalProject) {
-
         return new LogicalProject<>(ImmutableList.of(new UnboundStar(ImmutableList.of())),
             null, null, isDistinct);
     }

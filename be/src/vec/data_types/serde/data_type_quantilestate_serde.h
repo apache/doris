@@ -40,6 +40,30 @@ namespace vectorized {
 template <typename T>
 class DataTypeQuantileStateSerDe : public DataTypeSerDe {
 public:
+    void serialize_one_cell_to_text(const IColumn& column, int row_num, BufferWritable& bw,
+                                    FormatOptions& options) const override {
+        throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
+                               "serialize_one_cell_to_text with type " + column.get_name());
+    }
+
+    void serialize_column_to_text(const IColumn& column, int start_idx, int end_idx,
+                                  BufferWritable& bw, FormatOptions& options) const override {
+        throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
+                               "serialize_column_to_text with type " + column.get_name());
+    }
+    Status deserialize_one_cell_from_text(IColumn& column, Slice& slice,
+                                          const FormatOptions& options) const override {
+        return Status::NotSupported("deserialize_one_cell_from_text with type " +
+                                    column.get_name());
+    }
+
+    Status deserialize_column_from_text_vector(IColumn& column, std::vector<Slice>& slices,
+                                               int* num_deserialized,
+                                               const FormatOptions& options) const override {
+        return Status::NotSupported("deserialize_column_from_text_vector with type " +
+                                    column.get_name());
+    }
+
     Status write_column_to_pb(const IColumn& column, PValues& result, int start,
                               int end) const override;
     Status read_column_from_pb(IColumn& column, const PValues& arg) const override;
@@ -51,11 +75,13 @@ public:
     void write_column_to_arrow(const IColumn& column, const NullMap* null_map,
                                arrow::ArrayBuilder* array_builder, int start,
                                int end) const override {
-        LOG(FATAL) << "Not support write " << column.get_name() << " to arrow";
+        throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
+                               "write_column_to_arrow with type " + column.get_name());
     }
     void read_column_from_arrow(IColumn& column, const arrow::Array* arrow_array, int start,
                                 int end, const cctz::time_zone& ctz) const override {
-        LOG(FATAL) << "Not support read " << column.get_name() << " from arrow";
+        throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
+                               "read_column_from_arrow with type " + column.get_name());
     }
 
     Status write_column_to_mysql(const IColumn& column, MysqlRowBuffer<true>& row_buffer,

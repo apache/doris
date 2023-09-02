@@ -53,10 +53,9 @@ public:
     // Hold reader point to get reader params
     ~VCollectIterator();
 
-    void init(TabletReader* reader, bool ori_data_overlapping, bool force_merge, bool is_reverse,
-              std::vector<std::pair<int, int>> rs_readers_segment_offsets);
+    void init(TabletReader* reader, bool ori_data_overlapping, bool force_merge, bool is_reverse);
 
-    Status add_child(RowsetReaderSharedPtr rs_reader);
+    Status add_child(const RowSetSplits& rs_splits);
 
     Status build_heap(std::vector<RowsetReaderSharedPtr>& rs_readers);
     // Get top row of the heap, nullptr if reach end.
@@ -259,8 +258,8 @@ private:
     // Iterate from LevelIterators (maybe Level0Iterators or Level1Iterator or mixed)
     class Level1Iterator : public LevelIterator {
     public:
-        Level1Iterator(const std::list<LevelIterator*>& children, TabletReader* reader, bool merge,
-                       bool is_reverse, bool skip_same);
+        Level1Iterator(std::list<std::unique_ptr<LevelIterator>> children, TabletReader* reader,
+                       bool merge, bool is_reverse, bool skip_same);
 
         Status init(bool get_data_by_ref = false) override;
 
@@ -296,10 +295,10 @@ private:
 
         // Each LevelIterator corresponds to a rowset reader,
         // it will be cleared after '_heap' has been initialized when '_merge == true'.
-        std::list<LevelIterator*> _children;
+        std::list<std::unique_ptr<LevelIterator>> _children;
         // point to the Level0Iterator containing the next output row.
         // null when VCollectIterator hasn't been initialized or reaches EOF.
-        LevelIterator* _cur_child = nullptr;
+        std::unique_ptr<LevelIterator> _cur_child;
         TabletReader* _reader = nullptr;
 
         // when `_merge == true`, rowset reader returns ordered rows and VCollectIterator uses a priority queue to merge
@@ -322,7 +321,7 @@ private:
 
     // Each LevelIterator corresponds to a rowset reader,
     // it will be cleared after '_inner_iter' has been initialized.
-    std::list<LevelIterator*> _children;
+    std::list<std::unique_ptr<LevelIterator>> _children;
 
     bool _merge = true;
     // reverse the compare order
@@ -330,9 +329,7 @@ private:
     // for topn next
     size_t _topn_limit = 0;
     bool _topn_eof = false;
-    // when we use scanner pooling + query with topn_with_limit, we use it.
-    std::vector<RowsetReaderSharedPtr> _rs_readers;
-    std::vector<std::pair<int, int>> _rs_readers_segment_offsets;
+    std::vector<RowSetSplits> _rs_splits;
 
     // Hold reader point to access read params, such as fetch conditions.
     TabletReader* _reader = nullptr;

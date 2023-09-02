@@ -17,6 +17,7 @@
 
 package org.apache.doris.regression.suite
 
+import com.google.common.collect.Maps
 import groovy.transform.CompileStatic
 import org.apache.doris.regression.Config
 import org.apache.doris.regression.util.OutputUtils
@@ -124,6 +125,39 @@ class SuiteContext implements Closeable {
             threadLocalConn.set(threadConn)
         }
         return threadConn
+    }
+
+    private String getJdbcNetInfo() {
+        String subJdbc = config.jdbcUrl.substring(config.jdbcUrl.indexOf("://") + 3)
+        return subJdbc.substring(0, subJdbc.indexOf("/"))
+    }
+
+    private Map<String, String> getSpec() {
+        Map<String, String> spec = Maps.newHashMap()
+        String[] jdbc = getJdbcNetInfo().split(":")
+        spec.put("host", jdbc[0])
+        spec.put("port", jdbc[1])
+        spec.put("user", config.feSyncerUser)
+        spec.put("password", config.feSyncerPassword)
+        spec.put("cluster", "")
+
+        return spec
+    }
+
+    Map<String, String> getSrcSpec() {
+        Map<String, String> spec = getSpec()
+        spec.put("thrift_port", config.feSourceThriftNetworkAddress.port.toString())
+        spec.put("database", dbName)
+
+        return spec
+    }
+
+    Map<String, String> getDestSpec() {
+        Map<String, String> spec = getSpec()
+        spec.put("thrift_port", config.feTargetThriftNetworkAddress.port.toString())
+        spec.put("database", "TEST_" + dbName)
+
+        return spec
     }
 
     Connection getTargetConnection(Suite suite) {

@@ -18,17 +18,13 @@
 package org.apache.doris.common.jni.utils;
 
 import org.apache.doris.catalog.ArrayType;
-import org.apache.doris.catalog.PrimitiveType;
+import org.apache.doris.catalog.MapType;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.exception.InternalException;
 import org.apache.doris.thrift.TPrimitiveType;
-import org.apache.doris.thrift.TScalarType;
-import org.apache.doris.thrift.TTypeDesc;
-import org.apache.doris.thrift.TTypeNode;
 
-import com.google.common.base.Preconditions;
 import com.google.common.collect.Sets;
 import com.vesoft.nebula.client.graph.data.DateTimeWrapper;
 import com.vesoft.nebula.client.graph.data.DateWrapper;
@@ -52,7 +48,7 @@ import java.time.LocalDateTime;
 import java.util.Set;
 
 public class UdfUtils {
-    private static final Logger LOG = Logger.getLogger(UdfUtils.class);
+    public static final Logger LOG = Logger.getLogger(UdfUtils.class);
     public static final Unsafe UNSAFE;
     private static final long UNSAFE_COPY_THRESHOLD = 1024L * 1024L;
     public static final long BYTE_ARRAY_OFFSET;
@@ -95,7 +91,8 @@ public class UdfUtils {
         DECIMAL32("DECIMAL32", TPrimitiveType.DECIMAL32, 4),
         DECIMAL64("DECIMAL64", TPrimitiveType.DECIMAL64, 8),
         DECIMAL128("DECIMAL128", TPrimitiveType.DECIMAL128I, 16),
-        ARRAY_TYPE("ARRAY_TYPE", TPrimitiveType.ARRAY, 0);
+        ARRAY_TYPE("ARRAY_TYPE", TPrimitiveType.ARRAY, 0),
+        MAP_TYPE("MAP_TYPE", TPrimitiveType.MAP, 0);
 
         private final String description;
         private final TPrimitiveType thriftType;
@@ -103,6 +100,10 @@ public class UdfUtils {
         private int precision;
         private int scale;
         private Type itemType;
+        private Type keyType;
+        private Type valueType;
+        private int keyScale;
+        private int valueScale;
 
         JavaUdfDataType(String description, TPrimitiveType thriftType, int len) {
             this.description = description;
@@ -153,6 +154,8 @@ public class UdfUtils {
                         JavaUdfDataType.DECIMAL128);
             } else if (c == java.util.ArrayList.class) {
                 return Sets.newHashSet(JavaUdfDataType.ARRAY_TYPE);
+            } else if (c == java.util.HashMap.class) {
+                return Sets.newHashSet(JavaUdfDataType.MAP_TYPE);
             }
             return Sets.newHashSet(JavaUdfDataType.INVALID_TYPE);
         }
@@ -192,55 +195,38 @@ public class UdfUtils {
         public void setItemType(Type type) {
             this.itemType = type;
         }
-    }
 
-    public static Pair<Type, Integer> fromThrift(TTypeDesc typeDesc, int nodeIdx) throws InternalException {
-        TTypeNode node = typeDesc.getTypes().get(nodeIdx);
-        Type type = null;
-        switch (node.getType()) {
-            case SCALAR: {
-                Preconditions.checkState(node.isSetScalarType());
-                TScalarType scalarType = node.getScalarType();
-                if (scalarType.getType() == TPrimitiveType.CHAR) {
-                    Preconditions.checkState(scalarType.isSetLen());
-                    type = ScalarType.createCharType(scalarType.getLen());
-                } else if (scalarType.getType() == TPrimitiveType.VARCHAR) {
-                    Preconditions.checkState(scalarType.isSetLen());
-                    type = ScalarType.createVarcharType(scalarType.getLen());
-                } else if (scalarType.getType() == TPrimitiveType.DECIMALV2) {
-                    Preconditions.checkState(scalarType.isSetPrecision()
-                            && scalarType.isSetScale());
-                    type = ScalarType.createDecimalType(scalarType.getPrecision(),
-                            scalarType.getScale());
-                } else if (scalarType.getType() == TPrimitiveType.DECIMAL32
-                        || scalarType.getType() == TPrimitiveType.DECIMAL64
-                        || scalarType.getType() == TPrimitiveType.DECIMAL128I) {
-                    Preconditions.checkState(scalarType.isSetPrecision()
-                            && scalarType.isSetScale());
-                    type = ScalarType.createDecimalV3Type(scalarType.getPrecision(),
-                            scalarType.getScale());
-                } else {
-                    type = ScalarType.createType(
-                            PrimitiveType.fromThrift(scalarType.getType()));
-                }
-                break;
-            }
-            case ARRAY: {
-                Preconditions.checkState(nodeIdx + 1 < typeDesc.getTypesSize());
-                Pair<Type, Integer> childType = fromThrift(typeDesc, nodeIdx + 1);
-                type = new ArrayType(childType.first);
-                nodeIdx = childType.second;
-                break;
-            }
-
-            default:
-                throw new InternalException("Return type " + node.getType() + " is not supported now!");
+        public Type getKeyType() {
+            return keyType;
         }
-        return Pair.of(type, nodeIdx);
-    }
 
-    public static long getAddressAtOffset(long base, int offset) {
-        return base + 8L * offset;
+        public Type getValueType() {
+            return valueType;
+        }
+
+        public void setKeyType(Type type) {
+            this.keyType = type;
+        }
+
+        public void setValueType(Type type) {
+            this.valueType = type;
+        }
+
+        public void setKeyScale(int scale) {
+            this.keyScale = scale;
+        }
+
+        public void setValueScale(int scale) {
+            this.valueScale = scale;
+        }
+
+        public int getKeyScale() {
+            return keyScale;
+        }
+
+        public int getValueScale() {
+            return valueScale;
+        }
     }
 
     public static void copyMemory(
@@ -307,6 +293,18 @@ public class UdfUtils {
                 result.setPrecision(arrType.getItemType().getPrecision());
                 result.setScale(((ScalarType) arrType.getItemType()).getScalarScale());
             }
+        } else if (retType.isMapType()) {
+            MapType mapType = (MapType) retType;
+            result.setKeyType(mapType.getKeyType());
+            result.setValueType(mapType.getValueType());
+            Type keyType = mapType.getKeyType();
+            Type valuType = mapType.getValueType();
+            if (keyType.isDatetimeV2() || keyType.isDecimalV3()) {
+                result.setKeyScale(((ScalarType) keyType).getScalarScale());
+            }
+            if (valuType.isDatetimeV2() || valuType.isDecimalV3()) {
+                result.setValueScale(((ScalarType) valuType).getScalarScale());
+            }
         }
         return Pair.of(res.length != 0, result);
     }
@@ -332,6 +330,22 @@ public class UdfUtils {
             } else if (parameterTypes[finalI].isArrayType()) {
                 ArrayType arrType = (ArrayType) parameterTypes[finalI];
                 inputArgTypes[i].setItemType(arrType.getItemType());
+                if (arrType.getItemType().isDatetimeV2() || arrType.getItemType().isDecimalV3()) {
+                    inputArgTypes[i].setPrecision(arrType.getItemType().getPrecision());
+                    inputArgTypes[i].setScale(((ScalarType) arrType.getItemType()).getScalarScale());
+                }
+            } else if (parameterTypes[finalI].isMapType()) {
+                MapType mapType = (MapType) parameterTypes[finalI];
+                Type keyType = mapType.getKeyType();
+                Type valuType = mapType.getValueType();
+                inputArgTypes[i].setKeyType(mapType.getKeyType());
+                inputArgTypes[i].setValueType(mapType.getValueType());
+                if (keyType.isDatetimeV2() || keyType.isDecimalV3()) {
+                    inputArgTypes[i].setKeyScale(((ScalarType) keyType).getScalarScale());
+                }
+                if (valuType.isDatetimeV2() || valuType.isDecimalV3()) {
+                    inputArgTypes[i].setValueScale(((ScalarType) valuType).getScalarScale());
+                }
             }
             if (res.length == 0) {
                 return Pair.of(false, inputArgTypes);

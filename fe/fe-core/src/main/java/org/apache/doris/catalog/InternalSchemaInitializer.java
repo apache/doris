@@ -30,6 +30,8 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.util.PropertyAnalyzer;
+import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.ha.FrontendNodeType;
 import org.apache.doris.statistics.StatisticConstants;
 import org.apache.doris.statistics.util.StatisticsUtil;
@@ -55,7 +57,7 @@ public class InternalSchemaInitializer extends Thread {
     private static final Logger LOG = LogManager.getLogger(InternalSchemaInitializer.class);
 
     public void run() {
-        if (FeConstants.disableInternalSchemaDb) {
+        if (!FeConstants.enableInternalSchemaDb) {
             return;
         }
         while (!created()) {
@@ -75,10 +77,55 @@ public class InternalSchemaInitializer extends Thread {
             }
         }
         LOG.info("Internal schema is initialized");
+        Optional<Database> op
+                = Env.getCurrentEnv().getInternalCatalog().getDb(StatisticConstants.DB_NAME);
+        if (!op.isPresent()) {
+            LOG.warn("Internal DB got deleted!");
+            return;
+        }
+        Database database = op.get();
+        modifyTblReplicaCount(database, StatisticConstants.STATISTIC_TBL_NAME);
+        modifyTblReplicaCount(database, StatisticConstants.HISTOGRAM_TBL_NAME);
+    }
+
+    public void modifyTblReplicaCount(Database database, String tblName) {
+        if (!(Config.min_replication_num_per_tablet < StatisticConstants.STATISTIC_INTERNAL_TABLE_REPLICA_NUM
+                && Config.max_replication_num_per_tablet >= StatisticConstants.STATISTIC_INTERNAL_TABLE_REPLICA_NUM)) {
+            return;
+        }
+        while (true) {
+            if (Env.getCurrentSystemInfo().aliveBECount() >= StatisticConstants.STATISTIC_INTERNAL_TABLE_REPLICA_NUM) {
+                try {
+                    Map<String, String> props = new HashMap<>();
+                    props.put(PropertyAnalyzer.PROPERTIES_REPLICATION_ALLOCATION, "tag.location.default: "
+                            + StatisticConstants.STATISTIC_INTERNAL_TABLE_REPLICA_NUM);
+                    TableIf colStatsTbl = StatisticsUtil.findTable(InternalCatalog.INTERNAL_CATALOG_NAME,
+                            StatisticConstants.DB_NAME, tblName);
+                    OlapTable olapTable = (OlapTable) colStatsTbl;
+                    Partition partition = olapTable.getPartition(olapTable.getName());
+                    if (partition.getReplicaCount() >= StatisticConstants.STATISTIC_INTERNAL_TABLE_REPLICA_NUM) {
+                        return;
+                    }
+                    try {
+                        colStatsTbl.writeLock();
+                        Env.getCurrentEnv().modifyTableReplicaAllocation(database, (OlapTable) colStatsTbl, props);
+                    } finally {
+                        colStatsTbl.writeUnlock();
+                    }
+                    break;
+                } catch (Throwable t) {
+                    LOG.warn("Failed to scale replica of stats tbl:{} to 3", tblName, t);
+                }
+            }
+            try {
+                Thread.sleep(5000);
+            } catch (InterruptedException t) {
+                // IGNORE
+            }
+        }
     }
 
     private void createTbl() throws UserException {
-        Env.getCurrentEnv().getInternalCatalog().createTable(buildAnalysisTblStmt());
         Env.getCurrentEnv().getInternalCatalog().createTable(buildStatisticsTblStmt());
         Env.getCurrentEnv().getInternalCatalog().createTable(buildHistogramTblStmt());
     }
@@ -95,40 +142,6 @@ public class InternalSchemaInitializer extends Thread {
             LOG.warn("Failed to create database: {}, will try again later",
                     FeConstants.INTERNAL_DB_NAME, e);
         }
-    }
-
-    @VisibleForTesting
-    public CreateTableStmt buildAnalysisTblStmt() throws UserException {
-        TableName tableName = new TableName("",
-                FeConstants.INTERNAL_DB_NAME, StatisticConstants.ANALYSIS_TBL_NAME);
-        List<ColumnDef> columnDefs = new ArrayList<>();
-        columnDefs.add(new ColumnDef("id", TypeDef.createVarchar(StatisticConstants.ID_LEN)));
-        columnDefs.add(new ColumnDef("catalog_id", TypeDef.createVarchar(StatisticConstants.MAX_NAME_LEN)));
-        columnDefs.add(new ColumnDef("db_id", TypeDef.createVarchar(StatisticConstants.MAX_NAME_LEN)));
-        columnDefs.add(new ColumnDef("tbl_id", TypeDef.createVarchar(StatisticConstants.MAX_NAME_LEN)));
-        columnDefs.add(new ColumnDef("idx_id", TypeDef.createVarchar(StatisticConstants.MAX_NAME_LEN)));
-        ColumnDef partId = new ColumnDef("part_id", TypeDef.createVarchar(StatisticConstants.MAX_NAME_LEN));
-        partId.setAllowNull(true);
-        columnDefs.add(partId);
-        columnDefs.add(new ColumnDef("count", TypeDef.create(PrimitiveType.BIGINT)));
-        columnDefs.add(new ColumnDef("last_analyze_time_in_ms", TypeDef.create(PrimitiveType.BIGINT)));
-        columnDefs.add(new ColumnDef("update_time", TypeDef.create(PrimitiveType.DATETIME)));
-        String engineName = "olap";
-        ArrayList<String> uniqueKeys = Lists.newArrayList("id", "catalog_id",
-                "db_id", "tbl_id", "idx_id", "part_id");
-        KeysDesc keysDesc = new KeysDesc(KeysType.UNIQUE_KEYS, uniqueKeys);
-        DistributionDesc distributionDesc = new HashDistributionDesc(
-                StatisticConstants.STATISTIC_TABLE_BUCKET_COUNT, uniqueKeys);
-        Map<String, String> properties = new HashMap<String, String>() {
-            {
-                put("replication_num", String.valueOf(Config.statistic_internal_table_replica_num));
-            }
-        };
-        CreateTableStmt createTableStmt = new CreateTableStmt(true, false,
-                tableName, columnDefs, engineName, keysDesc, null, distributionDesc,
-                properties, null, "Doris internal statistics table, don't modify it", null);
-        StatisticsUtil.analyze(createTableStmt);
-        return createTableStmt;
     }
 
     @VisibleForTesting
@@ -160,12 +173,13 @@ public class InternalSchemaInitializer extends Thread {
                 StatisticConstants.STATISTIC_TABLE_BUCKET_COUNT, uniqueKeys);
         Map<String, String> properties = new HashMap<String, String>() {
             {
-                put("replication_num", String.valueOf(Config.statistic_internal_table_replica_num));
+                put("replication_num", String.valueOf(
+                        Math.max(1, Config.min_replication_num_per_tablet)));
             }
         };
         CreateTableStmt createTableStmt = new CreateTableStmt(true, false,
                 tableName, columnDefs, engineName, keysDesc, null, distributionDesc,
-                properties, null, "Doris internal statistics table, don't modify it", null);
+                properties, null, "Doris internal statistics table, DO NOT MODIFY IT", null);
         // createTableStmt.setClusterName(SystemInfoService.DEFAULT_CLUSTER);
         StatisticsUtil.analyze(createTableStmt);
         return createTableStmt;
@@ -193,12 +207,13 @@ public class InternalSchemaInitializer extends Thread {
                 StatisticConstants.STATISTIC_TABLE_BUCKET_COUNT, uniqueKeys);
         Map<String, String> properties = new HashMap<String, String>() {
             {
-                put("replication_num", String.valueOf(Config.statistic_internal_table_replica_num));
+                put("replication_num", String.valueOf(Math.max(1,
+                        Config.min_replication_num_per_tablet)));
             }
         };
         CreateTableStmt createTableStmt = new CreateTableStmt(true, false,
                 tableName, columnDefs, engineName, keysDesc, null, distributionDesc,
-                properties, null, "Doris internal statistics table, don't modify it", null);
+                properties, null, "Doris internal statistics table, DO NOT MODIFY IT", null);
         StatisticsUtil.analyze(createTableStmt);
         // createTableStmt.setClusterName(SystemInfoService.DEFAULT_CLUSTER);
         return createTableStmt;
@@ -212,8 +227,7 @@ public class InternalSchemaInitializer extends Thread {
             return false;
         }
         Database db = optionalDatabase.get();
-        return db.getTable(StatisticConstants.ANALYSIS_TBL_NAME).isPresent()
-                && db.getTable(StatisticConstants.STATISTIC_TBL_NAME).isPresent()
+        return db.getTable(StatisticConstants.STATISTIC_TBL_NAME).isPresent()
                 && db.getTable(StatisticConstants.HISTOGRAM_TBL_NAME).isPresent();
     }
 

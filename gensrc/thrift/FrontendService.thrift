@@ -308,12 +308,15 @@ struct TGetDbsParams {
   3: optional string user_ip    // deprecated
   4: optional Types.TUserIdentity current_user_ident // to replace the user and user ip
   5: optional string catalog
+  6: optional bool get_null_catalog  //if catalog is empty , get dbName ="NULL" and dbId = -1.
 }
 
-// getDbNames returns a list of database names and catalog names
+// getDbNames returns a list of database names , database ids and catalog names ,catalog ids
 struct TGetDbsResult {
   1: optional list<string> dbs
   2: optional list<string> catalogs
+  3: optional list<i64> db_ids
+  4: optional list<i64> catalog_ids
 }
 
 // Arguments to getTableNames, which returns a list of tables that match an
@@ -349,6 +352,15 @@ struct TTableStatus {
 
 struct TListTableStatusResult {
     1: required list<TTableStatus> tables
+}
+
+struct TTableMetadataNameIds {
+    1: optional string name
+    2: optional i64 id 
+}
+
+struct TListTableMetadataNameIdsResult {
+    1: optional list<TTableMetadataNameIds> tables 
 }
 
 // getTableNames returns a list of unqualified table names
@@ -469,6 +481,7 @@ struct TMasterOpRequest {
     22: optional string clientNodeHost
     23: optional i32 clientNodePort
     24: optional bool syncJournalOnly // if set to true, this request means to do nothing but just sync max journal id of master
+    25: optional string defaultCatalog
 }
 
 struct TColumnDefinition {
@@ -605,6 +618,15 @@ struct TStreamLoadPutRequest {
     44: optional bool enable_profile
     45: optional bool partial_update
     46: optional list<string> table_names
+    47: optional string load_sql // insert into sql used by stream load
+    48: optional i64 backend_id
+    49: optional i32 version // version 1 means use load_sql
+    50: optional string label
+    // only valid when file type is CSV
+    51: optional i8 enclose
+    // only valid when file type is CSV
+    52: optional i8 escape
+    53: optional bool memtable_on_sink_node;
 }
 
 struct TStreamLoadPutResult {
@@ -619,6 +641,15 @@ struct TStreamLoadMultiTablePutResult {
     // valid when status is OK
     2: optional list<PaloInternalService.TExecPlanFragmentParams> params
     3: optional list<PaloInternalService.TPipelineFragmentParams> pipeline_params
+}
+
+struct TStreamLoadWithLoadStatusResult {
+    1: optional Status.TStatus status
+    2: optional i64 txn_id
+    3: optional i64 total_rows
+    4: optional i64 loaded_rows
+    5: optional i64 filtered_rows
+    6: optional i64 unselected_rows
 }
 
 struct TKafkaRLTaskProgress {
@@ -759,6 +790,17 @@ struct TFrontendPingFrontendRequest {
    2: required string token
 }
 
+struct TDiskInfo {
+    1: required string dirType
+    2: required string dir
+    3: required string filesystem
+    4: required i64 blocks
+    5: required i64 used
+    6: required i64 available
+    7: required i32 useRate
+    8: required string mountedOn
+}
+
 struct TFrontendPingFrontendResult {
     1: required TFrontendPingFrontendStatusCode status
     2: required string msg
@@ -767,6 +809,8 @@ struct TFrontendPingFrontendResult {
     5: required i64 replayedJournalId
     6: required string version
     7: optional i64 lastStartupTime
+    8: optional list<TDiskInfo> diskInfos
+    9: optional i64 processUUID
 }
 
 struct TPropertyVal {
@@ -965,6 +1009,11 @@ enum TBinlogType {
   ALTER_JOB = 5,
   MODIFY_TABLE_ADD_OR_DROP_COLUMNS = 6,
   DUMMY = 7,
+  ALTER_DATABASE_PROPERTY = 8,
+  MODIFY_TABLE_PROPERTY = 9,
+  BARRIER = 10,
+  MODIFY_PARTITIONS = 11,
+  REPLACE_PARTITIONS = 12,
 }
 
 struct TBinlog {
@@ -976,6 +1025,7 @@ struct TBinlog {
     6: optional string data
     7: optional i64 belong  // belong == -1 if type is not DUMMY
     8: optional i64 table_ref // only use for gc
+    9: optional bool remove_enable_cache
 }
 
 struct TGetBinlogResult {
@@ -1062,7 +1112,21 @@ struct TGetBinlogLagResult {
 
 struct TUpdateFollowerStatsCacheRequest {
     1: optional string key;
-    2: optional string colStats;
+    2: list<string> statsRows;
+}
+
+struct TAutoIncrementRangeRequest {
+    1: optional i64 db_id;
+    2: optional i64 table_id;
+    3: optional i64 column_id;
+    4: optional i64 length
+    5: optional i64 lower_bound // if set, values in result range must larger than `lower_bound`
+}
+
+struct TAutoIncrementRangeResult {
+    1: optional Status.TStatus status
+    2: optional i64 start
+    3: optional i64 length
 }
 
 service FrontendService {
@@ -1081,6 +1145,7 @@ service FrontendService {
     TMasterOpResult forward(1: TMasterOpRequest params)
 
     TListTableStatusResult listTableStatus(1: TGetTablesParams params)
+    TListTableMetadataNameIdsResult listTableMetadataNameIds(1: TGetTablesParams params)
     TListPrivilegesResult listTablePrivilegeStatus(1: TGetTablesParams params)
     TListPrivilegesResult listSchemaPrivilegeStatus(1: TGetTablesParams params)
     TListPrivilegesResult listUserPrivilegeStatus(1: TGetTablesParams params)
@@ -1131,4 +1196,6 @@ service FrontendService {
     TGetBinlogLagResult getBinlogLag(1: TGetBinlogLagRequest request)
 
     Status.TStatus updateStatsCache(1: TUpdateFollowerStatsCacheRequest request)
+
+    TAutoIncrementRangeResult getAutoIncrementRange(1: TAutoIncrementRangeRequest request)
 }

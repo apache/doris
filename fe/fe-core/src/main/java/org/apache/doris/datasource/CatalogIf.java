@@ -153,6 +153,10 @@ public interface CatalogIf<T extends DatabaseIf> {
 
     String getComment();
 
+    default long getLastUpdateTime() {
+        return -1L;
+    }
+
     default CatalogLog constructEditLog() {
         CatalogLog log = new CatalogLog();
         log.setCatalogId(getId());
@@ -166,4 +170,6 @@ public interface CatalogIf<T extends DatabaseIf> {
     // Return a copy of all db collection.
     @SuppressWarnings({"rawtypes", "unchecked"})
     public Collection<DatabaseIf> getAllDbs();
+
+    public boolean enableAutoAnalyze();
 }

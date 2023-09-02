@@ -68,14 +68,14 @@ illustrate:
 
     ```sql
     create table `test`.`select_varchar` 
-    PROPERTIES(\"replication_num\" = \"1\") 
+    PROPERTIES("replication_num" = "1") 
     as select * from `test`.`varchar_table`
     ```
 
 2. Custom field names (need to match the number of fields returned)
     ```sql
     create table `test`.`select_name`(user, testname, userstatus) 
-    PROPERTIES(\"replication_num\" = \"1\") 
+    PROPERTIES("replication_num" = "1") 
     as select vt.userId, vt.username, jt.status 
     from `test`.`varchar_table` vt join 
     `test`.`join_table` jt on vt.userId=jt.userId

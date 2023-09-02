@@ -51,17 +51,9 @@ struct decimal12_t {
         return *this;
     }
 
-    bool operator<(const decimal12_t& value) const { return cmp(value) < 0; }
-
-    bool operator<=(const decimal12_t& value) const { return cmp(value) <= 0; }
-
-    bool operator>(const decimal12_t& value) const { return cmp(value) > 0; }
-
-    bool operator>=(const decimal12_t& value) const { return cmp(value) >= 0; }
-
     bool operator==(const decimal12_t& value) const { return cmp(value) == 0; }
 
-    bool operator!=(const decimal12_t& value) const { return cmp(value) != 0; }
+    auto operator<=>(const decimal12_t& value) const { return cmp(value) <=> 0; }
 
     int32_t cmp(const decimal12_t& other) const {
         if (integer > other.integer) {

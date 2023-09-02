@@ -446,6 +446,7 @@ Status RuntimeFilterMergeControllerEntity::merge(const PMergeFilterRequest* requ
                 rpc_contexts[cur]->request.set_filter_id(request->filter_id());
                 rpc_contexts[cur]->request.set_is_pipeline(request->has_is_pipeline() &&
                                                            request->is_pipeline());
+                rpc_contexts[cur]->request.set_merge_time(merge_time);
                 *rpc_contexts[cur]->request.mutable_query_id() = request->query_id();
                 if (has_attachment) {
                     rpc_contexts[cur]->cntl.request_attachment().append(request_attachment);

@@ -1,6 +1,6 @@
 ---
 {
-    "title": "Data transformation, column mapping and filtering",
+    "title": "Data Transformation, Column Mapping and Filtering",
     "language": "en"
 }
 ---
@@ -24,7 +24,7 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# Imported data transformation, column mapping and filtering
+# Imported Data Transformation, Column Mapping and Filtering
 
 ## Supported import methods
 

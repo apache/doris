@@ -27,7 +27,7 @@ suite("nereids_test_javaudf_murmurhash3") {
 
     def tableName = "test_javaudf_murmurhash3"
     File path = new File("${context.file.parent}")
-    def jarPath = "${path.getParent()}/../../../java-udf-src/target/java-udf-case-jar-with-dependencies.jar"
+    def jarPath = """${context.file.parent}/../../../javaudf_p0/jars/java-udf-case-jar-with-dependencies.jar"""
 
     log.info("Jar path: ${jarPath}".toString())
     try {

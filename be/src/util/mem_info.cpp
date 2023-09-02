@@ -60,14 +60,14 @@ std::string MemInfo::_s_mem_limit_str = "";
 int64_t MemInfo::_s_soft_mem_limit = -1;
 std::string MemInfo::_s_soft_mem_limit_str = "";
 
-int64_t MemInfo::_s_allocator_cache_mem = 0;
+std::atomic<int64_t> MemInfo::_s_allocator_cache_mem = 0;
 std::string MemInfo::_s_allocator_cache_mem_str = "";
-int64_t MemInfo::_s_virtual_memory_used = 0;
-int64_t MemInfo::_s_proc_mem_no_allocator_cache = -1;
+std::atomic<int64_t> MemInfo::_s_virtual_memory_used = 0;
+std::atomic<int64_t> MemInfo::_s_proc_mem_no_allocator_cache = -1;
 std::atomic<int64_t> MemInfo::refresh_interval_memory_growth = 0;
 
 static std::unordered_map<std::string, int64_t> _mem_info_bytes;
-int64_t MemInfo::_s_sys_mem_available = -1;
+std::atomic<int64_t> MemInfo::_s_sys_mem_available = -1;
 std::string MemInfo::_s_sys_mem_available_str = "";
 int64_t MemInfo::_s_sys_mem_available_low_water_mark = -1;
 int64_t MemInfo::_s_sys_mem_available_warning_water_mark = -1;
@@ -86,21 +86,26 @@ void MemInfo::refresh_allocator_mem() {
 
     // https://jemalloc.net/jemalloc.3.html
     // https://www.bookstack.cn/read/aliyun-rds-core/4a0cdf677f62feb3.md
-    _s_allocator_cache_mem = get_je_all_arena_metrics("tcache_bytes") +
-                             get_je_metrics("stats.metadata") +
-                             get_je_all_arena_metrics("pdirty") * get_page_size();
-    _s_allocator_cache_mem_str =
-            PrettyPrinter::print(static_cast<uint64_t>(_s_allocator_cache_mem), TUnit::BYTES);
-    _s_virtual_memory_used = get_je_metrics("stats.mapped");
+    _s_allocator_cache_mem.store(get_je_all_arena_metrics("tcache_bytes") +
+                                         get_je_metrics("stats.metadata") +
+                                         get_je_all_arena_metrics("pdirty") * get_page_size(),
+                                 std::memory_order_relaxed);
+    _s_allocator_cache_mem_str = PrettyPrinter::print(
+            static_cast<uint64_t>(_s_allocator_cache_mem.load(std::memory_order_relaxed)),
+            TUnit::BYTES);
+    _s_virtual_memory_used.store(get_je_metrics("stats.mapped"), std::memory_order_relaxed);
 #else
-    _s_allocator_cache_mem = get_tc_metrics("tcmalloc.pageheap_free_bytes") +
-                             get_tc_metrics("tcmalloc.central_cache_free_bytes") +
-                             get_tc_metrics("tcmalloc.transfer_cache_free_bytes") +
-                             get_tc_metrics("tcmalloc.thread_cache_free_bytes");
-    _s_allocator_cache_mem_str =
-            PrettyPrinter::print(static_cast<uint64_t>(_s_allocator_cache_mem), TUnit::BYTES);
-    _s_virtual_memory_used = get_tc_metrics("generic.total_physical_bytes") +
-                             get_tc_metrics("tcmalloc.pageheap_unmapped_bytes");
+    _s_allocator_cache_mem.store(get_tc_metrics("tcmalloc.pageheap_free_bytes") +
+                                         get_tc_metrics("tcmalloc.central_cache_free_bytes") +
+                                         get_tc_metrics("tcmalloc.transfer_cache_free_bytes") +
+                                         get_tc_metrics("tcmalloc.thread_cache_free_bytes"),
+                                 std::memory_order_relaxed);
+    _s_allocator_cache_mem_str = PrettyPrinter::print(
+            static_cast<uint64_t>(_s_allocator_cache_mem.load(std::memory_order_relaxed)),
+            TUnit::BYTES);
+    _s_virtual_memory_used.store(get_tc_metrics("generic.total_physical_bytes") +
+                                         get_tc_metrics("tcmalloc.pageheap_unmapped_bytes"),
+                                 std::memory_order_relaxed);
 #endif
 }
 
@@ -120,8 +125,9 @@ bool MemInfo::process_minor_gc() {
         je_purge_all_arena_dirty_pages();
         std::stringstream ss;
         profile->pretty_print(&ss);
-        LOG(INFO) << fmt::format("End Minor GC, Free Memory {} Bytes. cost(us): {}, details: {}",
-                                 freed_mem, watch.elapsed_time() / 1000, ss.str());
+        LOG(INFO) << fmt::format("End Minor GC, Free Memory {}. cost(us): {}, details: {}",
+                                 PrettyPrinter::print(freed_mem, TUnit::BYTES),
+                                 watch.elapsed_time() / 1000, ss.str());
     }};
 
     freed_mem += CacheManager::instance()->for_each_cache_prune_stale(profile.get());
@@ -169,8 +175,9 @@ bool MemInfo::process_full_gc() {
         je_purge_all_arena_dirty_pages();
         std::stringstream ss;
         profile->pretty_print(&ss);
-        LOG(INFO) << fmt::format("End Full GC Free, Memory {} Bytes. cost(us): {}, details: {}",
-                                 freed_mem, watch.elapsed_time() / 1000, ss.str());
+        LOG(INFO) << fmt::format("End Full GC, Free Memory {}. cost(us): {}, details: {}",
+                                 PrettyPrinter::print(freed_mem, TUnit::BYTES),
+                                 watch.elapsed_time() / 1000, ss.str());
     }};
 
     freed_mem += CacheManager::instance()->for_each_cache_prune_all(profile.get());
@@ -219,7 +226,23 @@ bool MemInfo::process_full_gc() {
 }
 
 int64_t MemInfo::tg_hard_memory_limit_gc() {
+    MonotonicStopWatch watch;
+    watch.start();
     std::vector<taskgroup::TaskGroupPtr> task_groups;
+    std::unique_ptr<RuntimeProfile> tg_profile = std::make_unique<RuntimeProfile>("WorkloadGroup");
+    int64_t total_free_memory = 0;
+
+    Defer defer {[&]() {
+        if (total_free_memory > 0) {
+            std::stringstream ss;
+            tg_profile->pretty_print(&ss);
+            LOG(INFO) << fmt::format(
+                    "End Task Group Overcommit Memory GC, Free Memory {}. cost(us): {}, "
+                    "details: {}",
+                    PrettyPrinter::print(total_free_memory, TUnit::BYTES),
+                    watch.elapsed_time() / 1000, ss.str());
+        }
+    }};
 
     ExecEnv::GetInstance()->task_group_manager()->get_resource_groups(
             [](const taskgroup::TaskGroupPtr& task_group) {
@@ -227,14 +250,13 @@ int64_t MemInfo::tg_hard_memory_limit_gc() {
             },
             &task_groups);
 
-    int64_t total_free_memory = 0;
     for (const auto& task_group : task_groups) {
         taskgroup::TaskGroupInfo tg_info;
         task_group->task_group_info(&tg_info);
         auto used = task_group->memory_used();
         total_free_memory += MemTrackerLimiter::tg_memory_limit_gc(
                 used - tg_info.memory_limit, used, tg_info.id, tg_info.name, tg_info.memory_limit,
-                task_group->mem_tracker_limiter_pool(), nullptr);
+                task_group->mem_tracker_limiter_pool(), tg_profile.get());
     }
     return total_free_memory;
 }
@@ -251,9 +273,9 @@ int64_t MemInfo::tg_soft_memory_limit_gc(int64_t request_free_memory, RuntimePro
     std::vector<int64_t> used_memorys;
     std::vector<int64_t> exceeded_memorys;
     for (const auto& task_group : task_groups) {
-        auto used_memory = task_group->memory_used();
-        auto exceeded = used_memory - task_group->memory_limit();
-        auto exceeded_memory = exceeded > 0 ? exceeded : 0;
+        int64_t used_memory = task_group->memory_used();
+        int64_t exceeded = used_memory - task_group->memory_limit();
+        int64_t exceeded_memory = exceeded > 0 ? exceeded : 0;
         total_exceeded_memory += exceeded_memory;
         used_memorys.emplace_back(used_memory);
         exceeded_memorys.emplace_back(exceeded_memory);
@@ -307,8 +329,9 @@ void MemInfo::refresh_proc_meminfo() {
     if (meminfo.is_open()) meminfo.close();
 
     if (_mem_info_bytes.find("MemAvailable") != _mem_info_bytes.end()) {
-        _s_sys_mem_available = _mem_info_bytes["MemAvailable"];
-        _s_sys_mem_available_str = PrettyPrinter::print(_s_sys_mem_available, TUnit::BYTES);
+        _s_sys_mem_available.store(_mem_info_bytes["MemAvailable"], std::memory_order_relaxed);
+        _s_sys_mem_available_str = PrettyPrinter::print(
+                _s_sys_mem_available.load(std::memory_order_relaxed), TUnit::BYTES);
     }
 }
 

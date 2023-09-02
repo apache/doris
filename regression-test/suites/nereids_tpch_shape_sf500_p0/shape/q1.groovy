@@ -24,7 +24,7 @@ suite("q1") {
     sql 'set enable_fallback_to_original_planner=false'
     sql 'set exec_mem_limit=21G' 
     sql 'SET enable_pipeline_engine = true'
-
+    sql 'set parallel_pipeline_task_num=8'
     
 sql 'set be_number_for_test=3'
 

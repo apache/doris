@@ -28,15 +28,15 @@ import java.util.HashMap;
 import java.util.Map;
 
 public class S3ClientBEProperties {
-
     /**
      *  convert FE properties to BE S3 client properties
      *  On BE, should use properties like AWS_XXX.
      */
     public static Map<String, String> getBeFSProperties(Map<String, String> properties) {
         if (properties.containsKey(MinioProperties.ENDPOINT)) {
-            // minio does not have region, use an arbitrary one.
-            properties.put(MinioProperties.REGION, "us-east-1");
+            if (!properties.containsKey(MinioProperties.REGION)) {
+                properties.put(MinioProperties.REGION, MinioProperties.DEFAULT_REGION);
+            }
             return getBeAWSPropertiesFromS3(S3Properties.prefixToS3(properties));
         } else if (properties.containsKey(S3Properties.ENDPOINT)) {
             // s3,oss,cos,obs use this.

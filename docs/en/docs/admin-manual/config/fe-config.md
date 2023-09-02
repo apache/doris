@@ -181,7 +181,7 @@ The replica ack timeout when writing to bdbje ， When writing some relatively l
 
 #### `bdbje_lock_timeout_second`
 
-Default：1
+Default：5
 
 The lock timeout of bdbje operation， If there are many LockTimeoutException in FE WARN log, you can try to increase this value
 
@@ -504,7 +504,7 @@ The number of threads responsible for Task events.
 
 Default：4
 
-When FeEstarts the MySQL server based on NIO model, the number of threads responsible for IO events.
+When FE starts the MySQL server based on NIO model, the number of threads responsible for IO events.
 
 #### `mysql_nio_backlog_num`
 
@@ -547,7 +547,7 @@ MasterOnly：true
 
 #### `max_backend_down_time_second`
 
-Default：3600  （1 hours）
+Default：3600  （1 hour）
 
 IsMutable：true
 
@@ -666,7 +666,7 @@ This is the maximum number of bytes of the file uploaded by the put or post meth
 
 Default：1048576  （1M）
 
-http header size configuration parameter, the default value is 10K
+http header size configuration parameter, the default value is 1M.
 
 #### `enable_tracing`
 
@@ -729,7 +729,7 @@ IsMutable：true
 
 MasterOnly：true
 
-Used to limit the maximum number of partitions that can be created when creating a dynamic partition table,  to avoid creating too many partitions at one time. The number is determined by "start" and "end" in the dynamic partition parameters..
+Used to limit the maximum number of partitions that can be created when creating a dynamic partition table,  to avoid creating too many partitions at one time. The number is determined by "start" and "end" in the dynamic partition parameters.
 
 #### `dynamic_partition_enable`
 
@@ -757,13 +757,22 @@ Decide how often to check dynamic partition
 
 Default：4096
 
-IsMutable：false
+IsMutable：true
 
 MasterOnly：true
 
-Used to limit the maximum number of partitions that can be created when multi creating partitions, to avoid creating too many partitions at one time.
-
+Use this parameter to set the partition name prefix for multi partition,Only multi partition takes effect, not dynamic partitions. The default prefix is "p_".
 </version>
+
+#### `multi_partition_name_prefix`
+
+Default：p_
+
+IsMutable：true
+
+MasterOnly：true
+
+Use this parameter to set the partition name prefix for multi partition, Only multi partition takes effect, not dynamic partitions.The default prefix is "p_".
 
 #### `partition_in_memory_update_interval_secs`
 
@@ -818,7 +827,7 @@ IsMutable：true
 
 MasterOnly：false
 
-If this switch is turned on, the SQL query result set will be cached. If the interval between the last visit version time in all partitions of all tables in the query is greater than cache_last_version_interval_second, and the result set is less than cache_result_max_row_count, the result set will be cached, and the next same SQL will hit the cache
+If this switch is turned on, the SQL query result set will be cached. If the interval between the last visit version time in all partitions of all tables in the query is greater than cache_last_version_interval_second, and the result set is less than cache_result_max_row_count, and the data size is less than cache_result_max_data_size, the result set will be cached, and the next same SQL will hit the cache
 
 If set to true, fe will enable sql result caching. This option is suitable for offline data update scenarios
 
@@ -845,7 +854,17 @@ IsMutable：true
 
 MasterOnly：false
 
-In order to avoid occupying too much memory, the maximum number of rows that can be cached is 2000 by default. If this threshold is exceeded, the cache cannot be set
+In order to avoid occupying too much memory, the maximum number of rows that can be cached is 3000 by default. If this threshold is exceeded, the cache cannot be set
+
+#### `cache_result_max_data_size`
+
+Default: 31457280
+
+IsMutable: true
+
+MasterOnly: false
+
+In order to avoid occupying too much memory, the maximum data size of rows that can be cached is 10MB by default. If this threshold is exceeded, the cache cannot be set
 
 #### `cache_last_version_interval_second`
 
@@ -1141,7 +1160,7 @@ fetch stream load record interval.
 
 #### `max_bytes_per_broker_scanner`
 
-Default：`3 * 1024 * 1024 * 1024L`  （3G）
+Default：`500 * 1024 * 1024 * 1024L`  （500G）
 
 IsMutable：true
 
@@ -1680,6 +1699,12 @@ Default：SIZE-MB-1024
 
 The size of the log split, split a log file every 1 G
 
+#### `sys_log_enable_compress`
+
+Default: false
+
+If true, will compress fe.log & fe.warn.log by gzip
+
 #### `audit_log_dir`
 
 Default：DORIS_HOME_DIR + "/log"
@@ -1724,6 +1749,12 @@ support format:
 - 10h     10 hours
 - 60m     60 min
 - 120s    120 seconds
+
+#### `audit_log_enable_compress`
+
+Default: false
+
+If true, will compress fe.audit.log by gzip
 
 ### Storage
 
@@ -2723,15 +2754,6 @@ MasterOnly: false
 
 Controls whether to enable query hit statistics. The default is false.
 
-#### `max_instance_num`
-
-<version since="dev"></version>
-
-Default: 128
-
-This is used to limit the setting of "parallel_fragment_exec_instance_num".
-"parallel_fragment_exec_instance_num" cannot be set higher than "max_instance_num".
-
 #### `div_precision_increment`
 <version since="dev"></version>
 
@@ -2739,3 +2761,10 @@ Default: 4
 
 This variable indicates the number of digits by which to increase the scale of the result of
 division operations performed with the `/` operator.
+
+#### `enable_convert_light_weight_schema_change`
+
+Default：true
+
+Temporary configuration option. After it is enabled, a background thread will be started to automatically modify all olap tables to light schema change. The modification results can be viewed through the command `show convert_light_schema_change [from db]`, and the conversion results of all non-light schema change tables will be displayed.
+

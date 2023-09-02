@@ -27,17 +27,17 @@ import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.rules.rewrite.RewriteRuleFactory;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
+import org.apache.doris.nereids.trees.plans.logical.LogicalCatalogRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
-import org.apache.doris.nereids.trees.plans.logical.LogicalRelation;
 import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.nereids.types.StringType;
 import org.apache.doris.nereids.util.MemoTestUtils;
 import org.apache.doris.nereids.util.PlanChecker;
 import org.apache.doris.nereids.util.PlanConstructor;
-import org.apache.doris.nereids.util.RelationUtil;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
@@ -70,7 +70,7 @@ public class RewriteTopDownJobTest {
 
     @Test
     public void testSimplestScene() {
-        Plan leaf = new UnboundRelation(RelationUtil.newRelationId(), Lists.newArrayList("test"));
+        Plan leaf = new UnboundRelation(StatementScopeIdGenerator.newRelationId(), Lists.newArrayList("test"));
         LogicalProject<Plan> project = new LogicalProject<>(ImmutableList.of(
                 new SlotReference("name", StringType.INSTANCE, true, ImmutableList.of("test"))),
                 leaf
@@ -101,15 +101,15 @@ public class RewriteTopDownJobTest {
                 });
     }
 
-    private static class LogicalBoundRelation extends LogicalRelation {
+    private static class LogicalBoundRelation extends LogicalCatalogRelation {
 
         public LogicalBoundRelation(TableIf table, List<String> qualifier) {
-            super(RelationUtil.newRelationId(), PlanType.LOGICAL_BOUND_RELATION, table, qualifier);
+            super(StatementScopeIdGenerator.newRelationId(), PlanType.LOGICAL_BOUND_RELATION, table, qualifier);
         }
 
         public LogicalBoundRelation(TableIf table, List<String> qualifier, Optional<GroupExpression> groupExpression,
                 Optional<LogicalProperties> logicalProperties) {
-            super(RelationUtil.newRelationId(), PlanType.LOGICAL_BOUND_RELATION, table, qualifier,
+            super(StatementScopeIdGenerator.newRelationId(), PlanType.LOGICAL_BOUND_RELATION, table, qualifier,
                     groupExpression, logicalProperties);
         }
 

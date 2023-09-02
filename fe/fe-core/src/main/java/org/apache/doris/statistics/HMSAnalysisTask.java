@@ -22,8 +22,8 @@ import org.apache.doris.catalog.external.HMSExternalTable;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.qe.AutoCloseConnectContext;
+import org.apache.doris.qe.QueryState;
 import org.apache.doris.qe.StmtExecutor;
-import org.apache.doris.statistics.util.InternalQueryResult;
 import org.apache.doris.statistics.util.StatisticsUtil;
 
 import org.apache.commons.lang3.StringUtils;
@@ -104,7 +104,7 @@ public class HMSAnalysisTask extends BaseAnalysisTask {
         table = (HMSExternalTable) tbl;
     }
 
-    public void execute() throws Exception {
+    public void doExecute() throws Exception {
         if (isTableLevelTask) {
             getTableStats();
         } else {
@@ -116,39 +116,14 @@ public class HMSAnalysisTask extends BaseAnalysisTask {
      * Get table row count and insert the result to __internal_schema.table_statistics
      */
     private void getTableStats() throws Exception {
-        // Get table level information. An example sql for table stats:
-        // INSERT INTO __internal_schema.table_statistics VALUES
-        //   ('13055', 13002, 13038, 13055, -1, 'NULL', 5, 1686111064658, NOW())
-        Map<String, String> parameters = table.getRemoteTable().getParameters();
-        if (isPartitionOnly) {
-            for (String partId : partitionNames) {
-                StringBuilder sb = new StringBuilder();
-                sb.append(ANALYZE_SQL_PARTITION_TEMPLATE);
-                sb.append(" where ");
-                String[] splits = partId.split("/");
-                for (int i = 0; i < splits.length; i++) {
-                    String value = splits[i].split("=")[1];
-                    splits[i] = splits[i].replace(value, "\'" + value + "\'");
-                }
-                sb.append(StringUtils.join(splits, " and "));
-                Map<String, String> params = buildTableStatsParams(partId);
-                setParameterData(parameters, params);
-                List<InternalQueryResult.ResultRow> columnResult =
-                        StatisticsUtil.execStatisticQuery(new StringSubstitutor(params)
-                        .replace(sb.toString()));
-                String rowCount = columnResult.get(0).getColumnValue("rowCount");
-                params.put("rowCount", rowCount);
-                StatisticsRepository.persistTableStats(params);
-            }
-        } else {
-            Map<String, String> params = buildTableStatsParams(null);
-            List<InternalQueryResult.ResultRow> columnResult =
-                    StatisticsUtil.execStatisticQuery(new StringSubstitutor(params)
-                    .replace(ANALYZE_TABLE_COUNT_TEMPLATE));
-            String rowCount = columnResult.get(0).getColumnValue("rowCount");
-            params.put("rowCount", rowCount);
-            StatisticsRepository.persistTableStats(params);
-        }
+        Map<String, String> params = buildTableStatsParams(null);
+        List<ResultRow> columnResult =
+                StatisticsUtil.execStatisticQuery(new StringSubstitutor(params)
+                        .replace(ANALYZE_TABLE_COUNT_TEMPLATE));
+        String rowCount = columnResult.get(0).get(0);
+        Env.getCurrentEnv().getAnalysisManager()
+                .updateTableStatsStatus(
+                        new TableStats(table.getId(), Long.parseLong(rowCount), info));
     }
 
     /**
@@ -190,11 +165,7 @@ public class HMSAnalysisTask extends BaseAnalysisTask {
                 params.put("dataSizeFunction", getDataSizeFunction(col));
                 StringSubstitutor stringSubstitutor = new StringSubstitutor(params);
                 String sql = stringSubstitutor.replace(sb.toString());
-                try (AutoCloseConnectContext r = StatisticsUtil.buildConnectContext()) {
-                    r.connectContext.getSessionVariable().disableNereidsPlannerOnce();
-                    this.stmtExecutor = new StmtExecutor(r.connectContext, sql);
-                    this.stmtExecutor.execute();
-                }
+                executeInsertSql(sql);
             }
         } else {
             StringBuilder sb = new StringBuilder();
@@ -233,12 +204,25 @@ public class HMSAnalysisTask extends BaseAnalysisTask {
             params.put("dataSizeFunction", getDataSizeFunction(col));
             StringSubstitutor stringSubstitutor = new StringSubstitutor(params);
             String sql = stringSubstitutor.replace(sb.toString());
-            try (AutoCloseConnectContext r = StatisticsUtil.buildConnectContext()) {
-                r.connectContext.getSessionVariable().disableNereidsPlannerOnce();
-                this.stmtExecutor = new StmtExecutor(r.connectContext, sql);
-                this.stmtExecutor.execute();
+            executeInsertSql(sql);
+        }
+    }
+
+    private void executeInsertSql(String sql) throws Exception {
+        long startTime = System.currentTimeMillis();
+        try (AutoCloseConnectContext r = StatisticsUtil.buildConnectContext()) {
+            r.connectContext.getSessionVariable().disableNereidsPlannerOnce();
+            this.stmtExecutor = new StmtExecutor(r.connectContext, sql);
+            r.connectContext.setExecutor(stmtExecutor);
+            this.stmtExecutor.execute();
+            QueryState queryState = r.connectContext.getState();
+            if (queryState.getStateType().equals(QueryState.MysqlStateType.ERR)) {
+                LOG.warn(String.format("Failed to analyze %s.%s.%s, sql: [%s], error: [%s]",
+                        info.catalogName, info.dbName, info.colName, sql, queryState.getErrorMessage()));
+                throw new RuntimeException(queryState.getErrorMessage());
             }
-            Env.getCurrentEnv().getStatisticsCache().refreshColStatsSync(tbl.getId(), -1, col.getName());
+            LOG.debug(String.format("Analyze %s.%s.%s done. SQL: [%s]. Cost %d ms.",
+                    info.catalogName, info.dbName, info.colName, sql, (System.currentTimeMillis() - startTime)));
         }
     }
 
@@ -281,5 +265,14 @@ public class HMSAnalysisTask extends BaseAnalysisTask {
         params.put("update_time", TimeUtils.DATETIME_FORMAT.format(
                 LocalDateTime.ofInstant(Instant.ofEpochMilli(Long.parseLong(timestamp) * 1000),
                         ZoneId.systemDefault())));
+    }
+
+    @Override
+    protected void afterExecution() {
+        // Table level task doesn't need to sync any value to sync stats, it stores the value in metadata.
+        if (isTableLevelTask) {
+            return;
+        }
+        Env.getCurrentEnv().getStatisticsCache().syncLoadColStats(tbl.getId(), -1, col.getName());
     }
 }

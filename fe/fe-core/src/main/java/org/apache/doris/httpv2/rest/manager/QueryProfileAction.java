@@ -171,7 +171,7 @@ public class QueryProfileAction extends RestBaseController {
         }
 
         Stream<List<String>> queryStream = ProfileManager.getInstance().getAllQueries().stream()
-                .filter(profile -> profile.get(4).equals("Query"));
+                .filter(profile -> profile.get(1).equalsIgnoreCase("Query"));
         queryStream = filterQueriesByUserAndQueryId(queryStream, queryId);
         queries = queryStream.collect(Collectors.toList());
 

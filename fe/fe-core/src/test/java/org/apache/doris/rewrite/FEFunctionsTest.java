@@ -250,7 +250,7 @@ public class FEFunctionsTest {
     @Test
     public void fromUnixTimeTestException() throws AnalysisException {
         expectedEx.expect(AnalysisException.class);
-        expectedEx.expectMessage("unixtime should larger than zero");
+        expectedEx.expectMessage("unix timestamp out of range");
         FEFunctions.fromUnixTime(new IntLiteral(-100));
     }
 

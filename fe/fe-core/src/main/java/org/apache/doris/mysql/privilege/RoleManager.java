@@ -23,6 +23,7 @@ import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.analysis.WorkloadGroupPattern;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.InfoSchemaDb;
+import org.apache.doris.catalog.MysqlDb;
 import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
@@ -50,6 +51,7 @@ import java.io.IOException;
 import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
+import java.util.Set;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
@@ -100,7 +102,8 @@ public class RoleManager implements Writable {
         roles.remove(qualifiedRole);
     }
 
-    public Role revokePrivs(String name, TablePattern tblPattern, PrivBitSet privs, boolean errOnNonExist)
+    public Role revokePrivs(String name, TablePattern tblPattern, PrivBitSet privs,
+            Map<ColPrivilegeKey, Set<String>> colPrivileges, boolean errOnNonExist)
             throws DdlException {
         Role existingRole = roles.get(name);
         if (existingRole == null) {
@@ -109,7 +112,7 @@ public class RoleManager implements Writable {
             }
             return null;
         }
-        existingRole.revokePrivs(tblPattern, privs, errOnNonExist);
+        existingRole.revokePrivs(tblPattern, privs, colPrivileges, errOnNonExist);
         return existingRole;
     }
 
@@ -189,13 +192,21 @@ public class RoleManager implements Writable {
         if (roles.containsKey(userDefaultRoleName)) {
             return roles.get(userDefaultRoleName);
         }
-        // grant read privs to database information_schema
+        // grant read privs to database information_schema & mysql
         TablePattern tblPattern = new TablePattern(Auth.DEFAULT_CATALOG, InfoSchemaDb.DATABASE_NAME, "*");
         try {
             tblPattern.analyze(SystemInfoService.DEFAULT_CLUSTER);
         } catch (AnalysisException e) {
             LOG.warn("should not happen", e);
         }
+
+        tblPattern = new TablePattern(Auth.DEFAULT_CATALOG, MysqlDb.DATABASE_NAME, "*");
+        try {
+            tblPattern.analyze(SystemInfoService.DEFAULT_CLUSTER);
+        } catch (AnalysisException e) {
+            LOG.warn("should not happen", e);
+        }
+
         // grant read privs of default workload group
         WorkloadGroupPattern workloadGroupPattern = new WorkloadGroupPattern(WorkloadGroupMgr.DEFAULT_GROUP_NAME);
         try {
