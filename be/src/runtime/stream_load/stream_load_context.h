@@ -37,6 +37,7 @@
 #include "common/utils.h"
 #include "runtime/exec_env.h"
 #include "runtime/stream_load/stream_load_executor.h"
+#include "util/byte_buffer.h"
 #include "util/time.h"
 #include "util/uid_util.h"
 
@@ -159,9 +160,9 @@ public:
 
     int64_t txn_id = -1;
 
-    // TODO delete code
-    // for local file
-    // std::string path;
+    // http stream
+    bool need_schema = false;
+    bool is_read_schema = true;
 
     std::string txn_operation = "";
 
@@ -174,6 +175,9 @@ public:
 
     std::shared_ptr<MessageBodySink> body_sink;
     std::shared_ptr<io::StreamLoadPipe> pipe;
+
+    ByteBufferPtr schema_buffer = ByteBuffer::allocate(config::stream_tvf_buffer_size);
+
     TStreamLoadPutResult put_result;
     TStreamLoadMultiTablePutResult multi_table_put_result;
 

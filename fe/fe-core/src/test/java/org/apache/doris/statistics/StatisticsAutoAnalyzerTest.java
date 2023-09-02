@@ -39,7 +39,6 @@ import mockit.Expectations;
 import mockit.Injectable;
 import mockit.Mock;
 import mockit.MockUp;
-import mockit.Mocked;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
@@ -140,14 +139,25 @@ public class StatisticsAutoAnalyzerTest {
     }
 
     @Test
-    public void testGetReAnalyzeRequiredPart0(@Mocked TableIf tableIf) {
+    public void testGetReAnalyzeRequiredPart0() {
 
-        new Expectations() {
-            {
-                tableIf.getRowCount();
-                result = 100;
+        TableIf tableIf = new OlapTable();
+
+        new MockUp<OlapTable>() {
+            @Mock
+            protected Set<String> findReAnalyzeNeededPartitions(TableStats tableStats) {
+                Set<String> partitionNames = new HashSet<>();
+                partitionNames.add("p1");
+                partitionNames.add("p2");
+                return partitionNames;
+            }
+
+            @Mock
+            public long getRowCount() {
+                return 100;
             }
         };
+
         new MockUp<StatisticsUtil>() {
             @Mock
             public TableIf findTable(String catalogName, String dbName, String tblName) {
@@ -176,14 +186,6 @@ public class StatisticsAutoAnalyzerTest {
         };
 
         new MockUp<StatisticsAutoAnalyzer>() {
-            @Mock
-            protected Set<String> findReAnalyzeNeededPartitions(TableIf table, TableStats tableStats)  {
-                Set<String> partitionNames = new HashSet<>();
-                partitionNames.add("p1");
-                partitionNames.add("p2");
-                return partitionNames;
-            }
-
             @Mock
             public AnalysisInfo getAnalysisJobInfo(AnalysisInfo jobInfo, TableIf table,
                     Set<String> needRunPartitions) {

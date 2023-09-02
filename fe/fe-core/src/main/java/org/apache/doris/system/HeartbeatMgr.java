@@ -39,6 +39,7 @@ import org.apache.doris.thrift.TBrokerOperationStatus;
 import org.apache.doris.thrift.TBrokerOperationStatusCode;
 import org.apache.doris.thrift.TBrokerPingBrokerRequest;
 import org.apache.doris.thrift.TBrokerVersion;
+import org.apache.doris.thrift.TFrontendInfo;
 import org.apache.doris.thrift.TFrontendPingFrontendRequest;
 import org.apache.doris.thrift.TFrontendPingFrontendResult;
 import org.apache.doris.thrift.TFrontendPingFrontendStatusCode;
@@ -101,11 +102,12 @@ public class HeartbeatMgr extends MasterDaemon {
      */
     @Override
     protected void runAfterCatalogReady() {
+        // Get feInfos of previous iteration.
+        List<TFrontendInfo> feInfos = Env.getCurrentEnv().getFrontendInfos();
         List<Future<HeartbeatResponse>> hbResponses = Lists.newArrayList();
-
         // send backend heartbeat
         for (Backend backend : nodeMgr.getIdToBackend().values()) {
-            BackendHeartbeatHandler handler = new BackendHeartbeatHandler(backend);
+            BackendHeartbeatHandler handler = new BackendHeartbeatHandler(backend, feInfos);
             hbResponses.add(executor.submit(handler));
         }
 
@@ -204,9 +206,11 @@ public class HeartbeatMgr extends MasterDaemon {
     // backend heartbeat
     private class BackendHeartbeatHandler implements Callable<HeartbeatResponse> {
         private Backend backend;
+        private List<TFrontendInfo> feInfos;
 
-        public BackendHeartbeatHandler(Backend backend) {
+        public BackendHeartbeatHandler(Backend backend, List<TFrontendInfo> feInfos) {
             this.backend = backend;
+            this.feInfos = feInfos;
         }
 
         @Override
@@ -222,6 +226,7 @@ public class HeartbeatMgr extends MasterDaemon {
                 long flags = heartbeatFlags.getHeartbeatFlags();
                 copiedMasterInfo.setHeartbeatFlags(flags);
                 copiedMasterInfo.setBackendId(backendId);
+                copiedMasterInfo.setFrontendInfos(feInfos);
                 THeartbeatResult result;
                 if (!FeConstants.runningUnitTest) {
                     client = ClientPool.backendHeartbeatPool.borrowObject(beAddr);
@@ -301,7 +306,8 @@ public class HeartbeatMgr extends MasterDaemon {
                     return new FrontendHbResponse(fe.getNodeName(), Config.query_port, Config.rpc_port,
                             Env.getCurrentEnv().getMaxJournalId(), System.currentTimeMillis(),
                             Version.DORIS_BUILD_VERSION + "-" + Version.DORIS_BUILD_SHORT_HASH,
-                            ExecuteEnv.getInstance().getStartupTime(), ExecuteEnv.getInstance().getDiskInfos());
+                            ExecuteEnv.getInstance().getStartupTime(), ExecuteEnv.getInstance().getDiskInfos(),
+                            ExecuteEnv.getInstance().getProcessUUID());
                 } else {
                     return new FrontendHbResponse(fe.getNodeName(), "not ready");
                 }
@@ -323,7 +329,7 @@ public class HeartbeatMgr extends MasterDaemon {
                     return new FrontendHbResponse(fe.getNodeName(), result.getQueryPort(),
                             result.getRpcPort(), result.getReplayedJournalId(),
                             System.currentTimeMillis(), result.getVersion(), result.getLastStartupTime(),
-                            FeDiskInfo.fromThrifts(result.getDiskInfos()));
+                            FeDiskInfo.fromThrifts(result.getDiskInfos()), result.getProcessUUID());
                 } else {
                     return new FrontendHbResponse(fe.getNodeName(), result.getMsg());
                 }

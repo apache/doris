@@ -85,7 +85,8 @@ using apache::thrift::concurrency::ThreadFactory;
 BackendService::BackendService(ExecEnv* exec_env)
         : _exec_env(exec_env), _agent_server(new AgentServer(exec_env, *exec_env->master_info())) {}
 
-Status BackendService::create_service(ExecEnv* exec_env, int port, ThriftServer** server) {
+Status BackendService::create_service(ExecEnv* exec_env, int port,
+                                      std::unique_ptr<ThriftServer>* server) {
     std::shared_ptr<BackendService> handler(new BackendService(exec_env));
     // TODO: do we want a BoostThreadFactory?
     // TODO: we want separate thread factories here, so that fe requests can't starve
@@ -94,7 +95,8 @@ Status BackendService::create_service(ExecEnv* exec_env, int port, ThriftServer*
 
     std::shared_ptr<TProcessor> be_processor(new BackendServiceProcessor(handler));
 
-    *server = new ThriftServer("backend", be_processor, port, config::be_service_threads);
+    *server = std::make_unique<ThriftServer>("backend", be_processor, port,
+                                             config::be_service_threads);
 
     LOG(INFO) << "Doris BackendService listening on " << port;
 
@@ -118,7 +120,8 @@ Status BackendService::start_plan_fragment_execution(const TExecPlanFragmentPara
 void BackendService::cancel_plan_fragment(TCancelPlanFragmentResult& return_val,
                                           const TCancelPlanFragmentParams& params) {
     LOG(INFO) << "cancel_plan_fragment(): instance_id=" << params.fragment_instance_id;
-    _exec_env->fragment_mgr()->cancel(params.fragment_instance_id);
+    _exec_env->fragment_mgr()->cancel_instance(params.fragment_instance_id,
+                                               PPlanFragmentCancelReason::INTERNAL_ERROR);
 }
 
 void BackendService::transmit_data(TTransmitDataResult& return_val,

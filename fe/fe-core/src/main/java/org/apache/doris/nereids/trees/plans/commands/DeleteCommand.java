@@ -53,17 +53,19 @@ public class DeleteCommand extends Command implements ForwardWithSync, Explainab
     private final List<String> partitions;
     private LogicalPlan logicalQuery;
     private OlapTable targetTable;
+    private final Optional<LogicalPlan> cte;
 
     /**
      * constructor
      */
     public DeleteCommand(List<String> nameParts, String tableAlias, List<String> partitions,
-            LogicalPlan logicalQuery) {
+            LogicalPlan logicalQuery, Optional<LogicalPlan> cte) {
         super(PlanType.DELETE_COMMAND);
         this.nameParts = Utils.copyRequiredList(nameParts);
         this.tableAlias = tableAlias;
         this.partitions = Utils.copyRequiredList(partitions);
         this.logicalQuery = logicalQuery;
+        this.cte = cte;
     }
 
     @Override
@@ -110,12 +112,12 @@ public class DeleteCommand extends Command implements ForwardWithSync, Explainab
         }
 
         logicalQuery = new LogicalProject<>(selectLists, logicalQuery);
-
-        boolean isPartialUpdate = false;
-        if (targetTable.getEnableUniqueKeyMergeOnWrite()
-                && cols.size() < targetTable.getColumns().size()) {
-            isPartialUpdate = true;
+        if (cte.isPresent()) {
+            logicalQuery = ((LogicalPlan) cte.get().withChildren(logicalQuery));
         }
+
+        boolean isPartialUpdate = targetTable.getEnableUniqueKeyMergeOnWrite()
+                && cols.size() < targetTable.getColumns().size();
 
         // make UnboundTableSink
         return new UnboundOlapTableSink<>(nameParts, cols, ImmutableList.of(),
