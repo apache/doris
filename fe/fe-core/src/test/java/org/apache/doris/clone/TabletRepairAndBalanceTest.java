@@ -404,9 +404,10 @@ public class TabletRepairAndBalanceTest {
                 + " set ('replication_allocation' = 'tag.location.zone1:4')";
         ExceptionChecker.expectThrows(AnalysisException.class, () -> alterTable(alterStr4));
 
-        // change col_tbl1's default replica allocation to zone2:2, which is allowed
+        // change col_tbl1's default replica allocation to zone2:2, which is forbidden
         String alterStr5 = "alter table test.col_tbl1 set ('default.replication_allocation' = 'tag.location.zone2:2')";
-        ExceptionChecker.expectThrowsNoException(() -> alterTable(alterStr5));
+        ExceptionChecker.expectThrowsWithMsg(DdlException.class,
+                "Cannot change replication allocation of colocate table", () -> alterTable(alterStr5));
 
         // Drop all tables
         String dropStmt1 = "drop table test.tbl1 force";

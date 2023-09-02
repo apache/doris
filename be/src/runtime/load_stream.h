@@ -128,6 +128,7 @@ public:
 
 private:
     void _parse_header(butil::IOBuf* const message, PStreamHeader& hdr);
+    void _dispatch(StreamId id, const PStreamHeader& hdr, butil::IOBuf* data);
     Status _append_data(const PStreamHeader& header, butil::IOBuf* data);
     void _report_result(StreamId stream, Status& st, std::vector<int64_t>* success_tablet_ids,
                         std::vector<int64_t>* failed_tablet_ids);

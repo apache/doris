@@ -526,6 +526,8 @@ public:
         size_t hdr_len = header.ByteSizeLong();
         append_buf.append((char*)&hdr_len, sizeof(size_t));
         append_buf.append(header.SerializeAsString());
+        size_t data_len = data.length();
+        append_buf.append((char*)&data_len, sizeof(size_t));
         append_buf.append(data);
         LOG(INFO) << "send " << header.DebugString() << data;
         client.send(&append_buf);
