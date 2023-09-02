@@ -1286,7 +1286,6 @@ under the License.
                 <groupId>org.scala-lang</groupId>
                 <artifactId>scala-library</artifactId>
                 <version>${scala.version}</version>
-                <scope>provided</scope>
             </dependency>
             <dependency>
                 <groupId>com.esotericsoftware</groupId>

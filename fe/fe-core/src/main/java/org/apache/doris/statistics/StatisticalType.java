@@ -34,6 +34,7 @@ public enum StatisticalType {
     ICEBERG_SCAN_NODE,
     PAIMON_SCAN_NODE,
     HUDI_SCAN_NODE,
+    DELTALAKE_SCAN_NODE,
     TVF_SCAN_NODE,
     INTERSECT_NODE,
     LOAD_SCAN_NODE,

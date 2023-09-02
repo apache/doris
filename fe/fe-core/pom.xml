@@ -706,6 +706,13 @@ under the License.
             <artifactId>quartz</artifactId>
             <version>2.3.2</version>
         </dependency>
+
+        <!--  for delta lake catalog-->
+        <dependency>
+            <groupId>io.delta</groupId>
+            <artifactId>delta-core_2.12</artifactId>
+            <version>0.8.0</version>
+        </dependency>
     </dependencies>
     <repositories>
         <!-- for huawei obs sdk -->

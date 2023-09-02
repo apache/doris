@@ -70,6 +70,7 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.planner.external.FileQueryScanNode;
 import org.apache.doris.planner.external.HiveScanNode;
 import org.apache.doris.planner.external.MaxComputeScanNode;
+import org.apache.doris.planner.external.deltalake.DeltaLakeScanNode;
 import org.apache.doris.planner.external.hudi.HudiScanNode;
 import org.apache.doris.planner.external.iceberg.IcebergScanNode;
 import org.apache.doris.planner.external.jdbc.JdbcScanNode;
@@ -2028,6 +2029,9 @@ public class SingleNodePlanner {
                 break;
             case PAIMON_EXTERNAL_TABLE:
                 scanNode = new PaimonScanNode(ctx.getNextNodeId(), tblRef.getDesc(), true);
+                break;
+            case DELTALAKE_EXTERNAL_TABLE:
+                scanNode = new DeltaLakeScanNode(ctx.getNextNodeId(), tblRef.getDesc(), true);
                 break;
             case MAX_COMPUTE_EXTERNAL_TABLE:
                 // TODO: support max compute scan node
