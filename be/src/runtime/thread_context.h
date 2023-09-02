@@ -99,8 +99,6 @@ class ThreadContext;
 class MemTracker;
 class RuntimeState;
 
-inline bool k_doris_run = false;
-extern bool k_doris_exit;
 extern bthread_key_t btls_key;
 
 // Using gcc11 compiles thread_local variable on lower versions of GLIBC will report an error,
@@ -156,8 +154,7 @@ class ThreadContext {
 public:
     ThreadContext() {
         thread_mem_tracker_mgr.reset(new ThreadMemTrackerMgr());
-        if (doris::k_doris_run && ExecEnv::GetInstance()->initialized())
-            thread_mem_tracker_mgr->init();
+        if (ExecEnv::ready()) thread_mem_tracker_mgr->init();
     }
 
     ~ThreadContext() { thread_context_ptr.init = false; }
@@ -238,7 +235,7 @@ public:
                 // The brpc server should respond as quickly as possible.
                 bthread_context->thread_mem_tracker_mgr->disable_wait_gc();
                 // set the data so that next time bthread_getspecific in the thread returns the data.
-                CHECK((0 == bthread_setspecific(btls_key, bthread_context)) || doris::k_doris_exit);
+                CHECK(0 == bthread_setspecific(btls_key, bthread_context) || k_doris_exit);
                 thread_context_ptr.init = true;
             }
             bthread_id = bthread_self();
@@ -391,7 +388,7 @@ private:
     do {                                                                                           \
         if (doris::thread_context_ptr.init) {                                                      \
             doris::thread_context()->consume_memory(size);                                         \
-        } else if (doris::k_doris_run && doris::ExecEnv::GetInstance()->initialized()) {           \
+        } else if (doris::ExecEnv::ready()) {                                                      \
             doris::ExecEnv::GetInstance()->orphan_mem_tracker_raw()->consume_no_update_peak(size); \
         }                                                                                          \
     } while (0)
@@ -399,7 +396,7 @@ private:
     do {                                                                                     \
         if (doris::thread_context_ptr.init) {                                                \
             doris::thread_context()->consume_memory(-size);                                  \
-        } else if (doris::k_doris_run && doris::ExecEnv::GetInstance()->initialized()) {     \
+        } else if (doris::ExecEnv::ready()) {                                                \
             doris::ExecEnv::GetInstance()->orphan_mem_tracker_raw()->consume_no_update_peak( \
                     -size);                                                                  \
         }                                                                                    \

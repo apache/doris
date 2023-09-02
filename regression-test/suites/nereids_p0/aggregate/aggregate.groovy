@@ -317,4 +317,15 @@ suite("aggregate") {
 
     sql "select k1 as k, k1 from tempbaseall group by k1 having k1 > 0"
     sql "select k1 as k, k1 from tempbaseall group by k1 having k > 0"
+    
+    // remove distinct for max, min, any_value
+    def plan = sql(
+            """explain optimized plan SELECT max(distinct c_bigint), 
+            min(distinct c_bigint), 
+            any_value(distinct c_bigint)
+            FROM regression_test_nereids_p0_aggregate.${tableName};"""
+        ).toString()
+    assertTrue(plan.contains("max(c_bigint"))
+    assertTrue(plan.contains("min(c_bigint"))
+    assertTrue(plan.contains("any_value(c_bigint"))
 }

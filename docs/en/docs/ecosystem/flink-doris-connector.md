@@ -301,15 +301,16 @@ ON a.city = c.city
 
 ### General configuration items
 
-| Key                              | Default Value | Required | Comment                                                      |
-| -------------------------------- | ------------- | -------- | ------------------------------------------------------------ |
-| fenodes                          | --            | Y        | Doris FE http address, multiple addresses are supported, separated by commas |
-| table.identifier                 | --            | Y        | Doris table name, such as: db.tbl                            |
-| username                         | --            | Y        | username to access Doris                                     |
-| password                         | --            | Y        | Password to access Doris                                     |
-| doris.request.retries            | 3             | N        | Number of retries to send requests to Doris                  |
-| doris.request.connect.timeout.ms | 30000         | N        | Connection timeout for sending requests to Doris             |
-| doris.request.read.timeout.ms    | 30000         | N        | Read timeout for sending requests to Doris                   |
+| Key                              | Default Value | Required | Comment                                                                                                                                                 |
+|----------------------------------|---------------|----------|---------------------------------------------------------------------------------------------------------------------------------------------------------|
+| fenodes                          | --            | Y        | Doris FE http address, multiple addresses are supported, separated by commas                                                                            |
+| benodes                          | --            | N        | Doris BE http address, multiple addresses are supported, separated by commas. refer to [#187](https://github.com/apache/doris-flink-connector/pull/187) |
+| table.identifier                 | --            | Y        | Doris table name, such as: db.tbl                                                                                                                       |
+| username                         | --            | Y        | username to access Doris                                                                                                                                |
+| password                         | --            | Y        | Password to access Doris                                                                                                                                |
+| doris.request.retries            | 3             | N        | Number of retries to send requests to Doris                                                                                                             |
+| doris.request.connect.timeout.ms | 30000         | N        | Connection timeout for sending requests to Doris                                                                                                        |
+| doris.request.read.timeout.ms    | 30000         | N        | Read timeout for sending requests to Doris                                                                                                              |
 
 ### Source configuration item
 
@@ -439,6 +440,8 @@ insert into doris_sink select id,name from cdc_mysql_source;
 - **--oracle-conf** Oracle CDCSource configuration, for example --oracle-conf hostname=127.0.0.1, you can view all configurations of Oracle-CDC in [here](https://ververica.github.io/flink-cdc-connectors/master/content/connectors/oracle-cdc.html), where hostname/username/password/database-name/schema-name is required.
 - **--sink-conf** All configurations of Doris Sink, you can view the complete configuration items in [here](https://doris.apache.org/zh-CN/docs/dev/ecosystem/flink-doris-connector/#%E9%80%9A%E7%94%A8%E9%85%8D%E7%BD%AE%E9%A1%B9).
 - **--table-conf** The configuration item of the Doris table, that is, the content contained in properties. For example --table-conf replication_num=1
+- **--ignore-default-value** Turn off the default for synchronizing mysql table structures. It is suitable for synchronizing mysql data to doris, the field has a default value, but the actual inserted data is null. refer to[#152](https://github.com/apache/doris-flink-connector/pull/152)
+- **--use-new-schema-change** The new schema change supports synchronous mysql multi-column changes and default values. refer to[#167](https://github.com/apache/doris-flink-connector/pull/167)
 
 >Note: When synchronizing, you need to add the corresponding Flink CDC dependencies in the $FLINK_HOME/lib directory, such as flink-sql-connector-mysql-cdc-${version}.jar, flink-sql-connector-oracle-cdc-${version}.jar
 

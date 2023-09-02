@@ -103,13 +103,14 @@ static Status _validate_options(const EngineOptions& options) {
     return Status::OK();
 }
 
-Status StorageEngine::open(const EngineOptions& options, StorageEngine** engine_ptr) {
+Status StorageEngine::open(const EngineOptions& options,
+                           std::unique_ptr<StorageEngine>* engine_ptr) {
     RETURN_IF_ERROR(_validate_options(options));
     LOG(INFO) << "starting backend using uid:" << options.backend_uid.to_string();
     std::unique_ptr<StorageEngine> engine(new StorageEngine(options));
     RETURN_NOT_OK_STATUS_WITH_WARN(engine->_open(), "open engine failed");
-    *engine_ptr = engine.release();
     LOG(INFO) << "success to init storage engine.";
+    *engine_ptr = std::move(engine);
     return Status::OK();
 }
 
@@ -138,6 +139,8 @@ StorageEngine::StorageEngine(const EngineOptions& options)
 }
 
 StorageEngine::~StorageEngine() {
+    stop();
+
     DEREGISTER_HOOK_METRIC(unused_rowsets_count);
 
     if (_base_compaction_thread_pool) {
@@ -541,6 +544,7 @@ void StorageEngine::_exit_if_too_many_disks_are_failed() {
 }
 
 void StorageEngine::stop() {
+    if (_stopped) return;
     // trigger the waiting threads
     notify_listeners();
 
@@ -1039,7 +1043,7 @@ Status StorageEngine::create_tablet(const TCreateTabletReq& request, RuntimeProf
     return _tablet_manager->create_tablet(request, stores, profile);
 }
 
-Status StorageEngine::obtain_shard_path(TStorageMedium::type storage_medium,
+Status StorageEngine::obtain_shard_path(TStorageMedium::type storage_medium, int64_t path_hash,
                                         std::string* shard_path, DataDir** store) {
     LOG(INFO) << "begin to process obtain root path. storage_medium=" << storage_medium;
 
@@ -1054,18 +1058,30 @@ Status StorageEngine::obtain_shard_path(TStorageMedium::type storage_medium,
                 "no available disk can be used to create tablet.");
     }
 
+    *store = nullptr;
+    if (path_hash != -1) {
+        for (auto data_dir : stores) {
+            if (data_dir->path_hash() == path_hash) {
+                *store = data_dir;
+                break;
+            }
+        }
+    }
+    if (*store == nullptr) {
+        *store = stores[0];
+    }
+
     Status res = Status::OK();
     uint64_t shard = 0;
-    res = stores[0]->get_shard(&shard);
+    res = (*store)->get_shard(&shard);
     if (!res.ok()) {
         LOG(WARNING) << "fail to get root path shard. res=" << res;
         return res;
     }
 
     std::stringstream root_path_stream;
-    root_path_stream << stores[0]->path() << "/" << DATA_PREFIX << "/" << shard;
+    root_path_stream << (*store)->path() << "/" << DATA_PREFIX << "/" << shard;
     *shard_path = root_path_stream.str();
-    *store = stores[0];
 
     LOG(INFO) << "success to process obtain root path. path=" << shard_path;
     return res;

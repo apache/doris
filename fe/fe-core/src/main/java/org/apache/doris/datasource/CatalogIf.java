@@ -170,4 +170,6 @@ public interface CatalogIf<T extends DatabaseIf> {
     // Return a copy of all db collection.
     @SuppressWarnings({"rawtypes", "unchecked"})
     public Collection<DatabaseIf> getAllDbs();
+
+    public boolean enableAutoAnalyze();
 }

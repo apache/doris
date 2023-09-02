@@ -71,7 +71,7 @@ namespace doris {
 class OlapMeta;
 struct Slice;
 
-static StorageEngine* k_engine = nullptr;
+static std::unique_ptr<StorageEngine> k_engine;
 
 static const std::string kTestDir = "ut_dir/tablet_cooldown_test";
 static constexpr int64_t kResourceId = 10000;
@@ -268,11 +268,7 @@ public:
     static void TearDownTestSuite() {
         ExecEnv* exec_env = doris::ExecEnv::GetInstance();
         exec_env->set_memtable_memory_limiter(nullptr);
-        if (k_engine != nullptr) {
-            k_engine->stop();
-            delete k_engine;
-            k_engine = nullptr;
-        }
+        k_engine.reset();
     }
 };
 
@@ -339,15 +335,15 @@ static TDescriptorTable create_descriptor_tablet_with_sequence_col() {
     return desc_tbl_builder.desc_tbl();
 }
 
-void createTablet(StorageEngine* engine, TabletSharedPtr* tablet, int64_t replica_id,
-                  int32_t schema_hash, int64_t tablet_id, int64_t txn_id, int64_t partition_id) {
+void createTablet(TabletSharedPtr* tablet, int64_t replica_id, int32_t schema_hash,
+                  int64_t tablet_id, int64_t txn_id, int64_t partition_id) {
     // create tablet
     std::unique_ptr<RuntimeProfile> profile;
     profile = std::make_unique<RuntimeProfile>("CreateTablet");
     TCreateTabletReq request;
     create_tablet_request_with_sequence_col(tablet_id, schema_hash, &request);
     request.__set_replica_id(replica_id);
-    Status st = engine->create_tablet(request, profile.get());
+    Status st = k_engine->create_tablet(request, profile.get());
     ASSERT_EQ(Status::OK(), st);
 
     TDescriptorTable tdesc_tbl = create_descriptor_tablet_with_sequence_col();
@@ -414,20 +410,20 @@ void createTablet(StorageEngine* engine, TabletSharedPtr* tablet, int64_t replic
     delete delta_writer;
 
     // publish version success
-    *tablet = engine->tablet_manager()->get_tablet(write_req.tablet_id, write_req.schema_hash);
+    *tablet = k_engine->tablet_manager()->get_tablet(write_req.tablet_id, write_req.schema_hash);
     OlapMeta* meta = (*tablet)->data_dir()->get_meta();
     Version version;
     version.first = (*tablet)->rowset_with_max_version()->end_version() + 1;
     version.second = (*tablet)->rowset_with_max_version()->end_version() + 1;
     std::map<TabletInfo, RowsetSharedPtr> tablet_related_rs;
-    engine->txn_manager()->get_txn_related_tablets(write_req.txn_id, write_req.partition_id,
-                                                   &tablet_related_rs);
+    k_engine->txn_manager()->get_txn_related_tablets(write_req.txn_id, write_req.partition_id,
+                                                     &tablet_related_rs);
     for (auto& tablet_rs : tablet_related_rs) {
         RowsetSharedPtr rowset = tablet_rs.second;
         TabletPublishStatistics stats;
-        st = engine->txn_manager()->publish_txn(meta, write_req.partition_id, write_req.txn_id,
-                                                (*tablet)->tablet_id(), (*tablet)->tablet_uid(),
-                                                version, &stats);
+        st = k_engine->txn_manager()->publish_txn(meta, write_req.partition_id, write_req.txn_id,
+                                                  (*tablet)->tablet_id(), (*tablet)->tablet_uid(),
+                                                  version, &stats);
         ASSERT_EQ(Status::OK(), st);
         st = (*tablet)->add_inc_rowset(rowset);
         ASSERT_EQ(Status::OK(), st);
@@ -438,8 +434,8 @@ void createTablet(StorageEngine* engine, TabletSharedPtr* tablet, int64_t replic
 TEST_F(TabletCooldownTest, normal) {
     TabletSharedPtr tablet1;
     TabletSharedPtr tablet2;
-    createTablet(k_engine, &tablet1, kReplicaId, kSchemaHash, kTabletId, kTxnId, kPartitionId);
-    createTablet(k_engine, &tablet2, kReplicaId2, kSchemaHash2, kTabletId2, kTxnId2, kPartitionId2);
+    createTablet(&tablet1, kReplicaId, kSchemaHash, kTabletId, kTxnId, kPartitionId);
+    createTablet(&tablet2, kReplicaId2, kSchemaHash2, kTabletId2, kTxnId2, kPartitionId2);
     // test cooldown
     tablet1->set_storage_policy_id(kStoragePolicyId);
     Status st = tablet1->cooldown(); // rowset [0-1]
