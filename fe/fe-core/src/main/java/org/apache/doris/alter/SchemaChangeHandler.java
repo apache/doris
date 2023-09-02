@@ -2013,7 +2013,12 @@ public class SchemaChangeHandler extends AlterHandler {
 
     private void enableLightSchemaChange(Database db, OlapTable olapTable) throws DdlException {
         final AlterLightSchChangeHelper alterLightSchChangeHelper = new AlterLightSchChangeHelper(db, olapTable);
-        alterLightSchChangeHelper.enableLightSchemaChange();
+        try {
+            alterLightSchChangeHelper.enableLightSchemaChange();
+        } catch (IllegalStateException e) {
+            throw new DdlException(String.format("failed to enable light schema change for table %s.%s",
+                    db.getFullName(), olapTable.getName()), e);
+        }
     }
 
     public void replayAlterLightSchChange(AlterLightSchemaChangeInfo info) throws MetaNotFoundException {
@@ -2023,7 +2028,7 @@ public class SchemaChangeHandler extends AlterHandler {
         final AlterLightSchChangeHelper alterLightSchChangeHelper = new AlterLightSchChangeHelper(db, olapTable);
         try {
             alterLightSchChangeHelper.updateTableMeta(info);
-        } catch (DdlException e) {
+        } catch (IllegalStateException e) {
             LOG.warn("failed to replay alter light schema change", e);
         } finally {
             olapTable.writeUnlock();

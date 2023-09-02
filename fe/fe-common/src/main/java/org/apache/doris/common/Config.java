@@ -2100,4 +2100,14 @@ public class Config extends ConfigBase {
 
     @ConfField
     public static boolean forbid_running_alter_job = false;
+
+    @ConfField
+    public static int table_stats_health_threshold = 80;
+
+    @ConfField(description = {
+            "暂时性配置项，开启后会自动将所有的olap表修改为可light schema change",
+            "temporary config filed, will make all olap tables enable light schema change"
+    })
+    public static boolean enable_convert_light_weight_schema_change = true;
+
 }
