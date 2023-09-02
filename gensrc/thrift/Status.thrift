@@ -97,6 +97,10 @@ enum TStatusCode {
 
     // BE Status HTTP_ERROR
     HTTP_ERROR = 71,
+
+    TABLET_MISSING = 72,
+
+    NOT_MASTER = 73,
 }
 
 struct TStatus {

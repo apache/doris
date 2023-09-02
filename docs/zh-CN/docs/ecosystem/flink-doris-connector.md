@@ -91,7 +91,7 @@ CREATE TABLE flink_doris_source (
     ) 
     WITH (
       'connector' = 'doris',
-      'fenodes' = 'FE_IP:8030',
+      'fenodes' = 'FE_IP:HTTP_PORT',
       'table.identifier' = 'database.table',
       'username' = 'root',
       'password' = 'password'
@@ -102,7 +102,7 @@ CREATE TABLE flink_doris_source (
 
 ```java
 DorisOptions.Builder builder = DorisOptions.builder()
-        .setFenodes("FE_IP:8030")
+        .setFenodes("FE_IP:HTTP_PORT")
         .setTableIdentifier("db.table")
         .setUsername("root")
         .setPassword("password");
@@ -133,7 +133,7 @@ CREATE TABLE flink_doris_sink (
     ) 
     WITH (
       'connector' = 'doris',
-      'fenodes' = 'FE_IP:8030',
+      'fenodes' = 'FE_IP:HTTP_PORT',
       'table.identifier' = 'db.table',
       'username' = 'root',
       'password' = 'password',
@@ -158,7 +158,7 @@ env.setRuntimeMode(RuntimeExecutionMode.BATCH);
 
 DorisSink.Builder<String> builder = DorisSink.builder();
 DorisOptions.Builder dorisBuilder = DorisOptions.builder();
-dorisBuilder.setFenodes("FE_IP:8030")
+dorisBuilder.setFenodes("FE_IP:HTTP_PORT")
         .setTableIdentifier("db.table")
         .setUsername("root")
         .setPassword("password");
@@ -192,7 +192,7 @@ env.setRuntimeMode(RuntimeExecutionMode.BATCH);
 //doris sink option
 DorisSink.Builder<RowData> builder = DorisSink.builder();
 DorisOptions.Builder dorisBuilder = DorisOptions.builder();
-dorisBuilder.setFenodes("FE_IP:8030")
+dorisBuilder.setFenodes("FE_IP:HTTP_PORT")
         .setTableIdentifier("db.table")
         .setUsername("root")
         .setPassword("password");
@@ -303,15 +303,16 @@ ON a.city = c.city
 
 ### 通用配置项
 
-| Key                              | Default Value | Required | Comment                                         |
-| -------------------------------- | ------------- | -------- | ----------------------------------------------- |
-| fenodes                          | --            | Y        | Doris FE http 地址， 支持多个地址，使用逗号分隔 |
-| table.identifier                 | --            | Y        | Doris 表名，如：db.tbl                          |
-| username                         | --            | Y        | 访问 Doris 的用户名                             |
-| password                         | --            | Y        | 访问 Doris 的密码                               |
-| doris.request.retries            | 3             | N        | 向 Doris 发送请求的重试次数                     |
-| doris.request.connect.timeout.ms | 30000         | N        | 向 Doris 发送请求的连接超时时间                 |
-| doris.request.read.timeout.ms    | 30000         | N        | 向 Doris 发送请求的读取超时时间                 |
+| Key                              | Default Value | Required | Comment                                                                                            |
+|----------------------------------|---------------|----------|----------------------------------------------------------------------------------------------------|
+| fenodes                          | --            | Y        | Doris FE http 地址， 支持多个地址，使用逗号分隔                                                                    |
+| benodes                          | --            | N        | Doris BE http 地址， 支持多个地址，使用逗号分隔，参考[#187](https://github.com/apache/doris-flink-connector/pull/187) |
+| table.identifier                 | --            | Y        | Doris 表名，如：db.tbl                                                                                  |
+| username                         | --            | Y        | 访问 Doris 的用户名                                                                                      |
+| password                         | --            | Y        | 访问 Doris 的密码                                                                                       |
+| doris.request.retries            | 3             | N        | 向 Doris 发送请求的重试次数                                                                                  |
+| doris.request.connect.timeout.ms | 30000         | N        | 向 Doris 发送请求的连接超时时间                                                                                |
+| doris.request.read.timeout.ms    | 30000         | N        | 向 Doris 发送请求的读取超时时间                                                                                |
 
 ### Source 配置项
 
@@ -415,10 +416,10 @@ insert into doris_sink select id,name from cdc_mysql_source;
 ## 使用FlinkCDC接入多表或整库示例
 ### 语法
 ```shell
-<FLINK_HOME>/bin/flink run \
+<FLINK_HOME>bin/flink run \
     -c org.apache.doris.flink.tools.cdc.CdcTools \
     lib/flink-doris-connector-1.16-1.4.0-SNAPSHOT.jar \
-    <mysql-sync-database|oracle-sync-database> \
+    <mysql-sync-database|oracle-sync-database|postgres-sync-database|sqlserver-sync-database> \
     --database <doris-database-name> \
     [--job-name <flink-job-name>] \
     [--table-prefix <doris-table-prefix>] \
@@ -441,12 +442,14 @@ insert into doris_sink select id,name from cdc_mysql_source;
 - **--oracle-conf** Oracle CDCSource 配置，例如--oracle-conf hostname=127.0.0.1 ，您可以在[这里](https://ververica.github.io/flink-cdc-connectors/master/content/connectors/oracle-cdc.html)查看所有配置Oracle-CDC，其中hostname/username/password/database-name/schema-name 是必需的。
 - **--sink-conf** Doris Sink 的所有配置，可以在[这里](https://doris.apache.org/zh-CN/docs/dev/ecosystem/flink-doris-connector/#%E9%80%9A%E7%94%A8%E9%85%8D%E7%BD%AE%E9%A1%B9)查看完整的配置项。
 - **--table-conf** Doris表的配置项，即properties中包含的内容。 例如 --table-conf replication_num=1
+- **--ignore-default-value** 关闭同步mysql表结构的默认值。适用于同步mysql数据到doris时，字段有默认值，但实际插入数据为null情况。参考[#152](https://github.com/apache/doris-flink-connector/pull/152)
+- **--use-new-schema-change** 新的schema change支持同步mysql多列变更、默认值。参考[#167](https://github.com/apache/doris-flink-connector/pull/167)
 
 >注：同步时需要在$FLINK_HOME/lib 目录下添加对应的Flink CDC依赖，比如 flink-sql-connector-mysql-cdc-${version}.jar，flink-sql-connector-oracle-cdc-${version}.jar
 
 ### MySQL同步示例
 ```shell
-<FLINK_HOME>/bin/flink run \
+<FLINK_HOME>bin/flink run \
     -Dexecution.checkpointing.interval=10s \
     -Dparallelism.default=1 \
     -c org.apache.doris.flink.tools.cdc.CdcTools \
@@ -469,7 +472,7 @@ insert into doris_sink select id,name from cdc_mysql_source;
 ### Oracle同步示例
 
 ```shell
-<FLINK_HOME>/bin/flink run \
+<FLINK_HOME>bin/flink run \
      -Dexecution.checkpointing.interval=10s \
      -Dparallelism.default=1 \
      -c org.apache.doris.flink.tools.cdc.CdcTools \
@@ -482,6 +485,58 @@ insert into doris_sink select id,name from cdc_mysql_source;
      --oracle-conf password="password" \
      --oracle-conf database-name=XE \
      --oracle-conf schema-name=ADMIN \
+     --including-tables "tbl1|tbl2" \
+     --sink-conf fenodes=127.0.0.1:8030 \
+     --sink-conf username=root \
+     --sink-conf password=\
+     --sink-conf jdbc-url=jdbc:mysql://127.0.0.1:9030 \
+     --sink-conf sink.label-prefix=label \
+     --table-conf replication_num=1
+```
+
+### PostgreSQL同步示例
+
+```shell
+<FLINK_HOME>/bin/flink run \
+     -Dexecution.checkpointing.interval=10s \
+     -Dparallelism.default=1\
+     -c org.apache.doris.flink.tools.cdc.CdcTools \
+     ./lib/flink-doris-connector-1.16-1.5.0-SNAPSHOT.jar \
+     postgres-sync-database \
+     --database db1\
+     --postgres-conf hostname=127.0.0.1 \
+     --postgres-conf port=5432 \
+     --postgres-conf username=postgres \
+     --postgres-conf password="123456" \
+     --postgres-conf database-name=postgres \
+     --postgres-conf schema-name=public \
+     --postgres-conf slot.name=test \
+     --postgres-conf decoding.plugin.name=pgoutput \
+     --including-tables "tbl1|tbl2" \
+     --sink-conf fenodes=127.0.0.1:8030 \
+     --sink-conf username=root \
+     --sink-conf password=\
+     --sink-conf jdbc-url=jdbc:mysql://127.0.0.1:9030 \
+     --sink-conf sink.label-prefix=label \
+     --table-conf replication_num=1
+```
+
+### SQLServer同步示例
+
+```shell
+<FLINK_HOME>/bin/flink run \
+     -Dexecution.checkpointing.interval=10s \
+     -Dparallelism.default=1 \
+     -c org.apache.doris.flink.tools.cdc.CdcTools \
+     ./lib/flink-doris-connector-1.16-1.5.0-SNAPSHOT.jar \
+     sqlserver-sync-database \
+     --database db1\
+     --sqlserver-conf hostname=127.0.0.1 \
+     --sqlserver-conf port=1433 \
+     --sqlserver-conf username=sa \
+     --sqlserver-conf password="123456" \
+     --sqlserver-conf database-name=CDC_DB \
+     --sqlserver-conf schema-name=dbo \
      --including-tables "tbl1|tbl2" \
      --sink-conf fenodes=127.0.0.1:8030 \
      --sink-conf username=root \
@@ -619,3 +674,10 @@ Flink在数据导入时，如果有脏数据，比如字段格式、长度等问
 11. **源表和Doris表应如何对应？**
 使用Flink Connector导入数据时，要注意两个方面，第一是源表的列和类型跟flink sql中的列和类型要对应上；第二个是flink sql中的列和类型要跟doris表的列和类型对应上，具体可以参考上面的"Doris 和 Flink 列类型映射关系"
 
+12. **TApplicationException: get_next failed: out of sequence response: expected 4 but got 3**
+
+这是由于 Thrift 框架存在并发 bug 导致的，建议你使用尽可能新的 connector 以及与之兼容的 flink 版本。
+
+13. **DorisRuntimeException: Fail to abort transaction 26153 with url http://192.168.0.1:8040/api/table_name/_stream_load_2pc**
+
+你可以在 TaskManager 中搜索日志 `abort transaction response`，根据 http 返回码确定是 client 的问题还是 server 的问题。

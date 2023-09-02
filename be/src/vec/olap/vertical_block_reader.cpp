@@ -69,8 +69,9 @@ Status VerticalBlockReader::_get_segment_iterators(const ReaderParams& read_para
         // segment iterator will be inited here
         // In vertical compaction, every group will load segment so we should cache
         // segment to avoid tot many s3 head request
+        bool use_cache = !rs_split.rs_reader->rowset()->is_local();
         RETURN_IF_ERROR(rs_split.rs_reader->get_segment_iterators(&_reader_context, segment_iters,
-                                                                  {}, true));
+                                                                  {}, use_cache));
         // if segments overlapping, all segment iterator should be inited in
         // heap merge iterator. If segments are none overlapping, only first segment of this
         // rowset will be inited and push to heap, other segment will be inited later when current
@@ -204,7 +205,7 @@ Status VerticalBlockReader::init(const ReaderParams& read_params) {
 
     auto status = _init_collect_iter(read_params);
     if (!status.ok()) {
-        if (status.is_io_error()) {
+        if (status.is<IO_ERROR>()) {
             _tablet->increase_io_error_times();
         }
         return status;

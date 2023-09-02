@@ -123,25 +123,13 @@ Status ParquetColumnReader::create(io::FileReaderSPtr file, FieldSchema* field,
                                    size_t max_buf_size) {
     if (field->type.type == TYPE_ARRAY) {
         std::unique_ptr<ParquetColumnReader> element_reader;
-        if (field->children[0].type.type == TYPE_MAP ||
-            field->children[0].type.type == TYPE_STRUCT) {
-            return Status::InternalError(
-                    "Array does not support nested map/struct type in column {}", field->name);
-        }
         RETURN_IF_ERROR(create(file, &field->children[0], row_group, row_ranges, ctz, io_ctx,
                                element_reader, max_buf_size));
         element_reader->set_nested_column();
-        ArrayColumnReader* array_reader = new ArrayColumnReader(row_ranges, ctz, io_ctx);
+        auto array_reader = ArrayColumnReader::create_unique(row_ranges, ctz, io_ctx);
         RETURN_IF_ERROR(array_reader->init(std::move(element_reader), field));
-        reader.reset(array_reader);
+        reader.reset(array_reader.release());
     } else if (field->type.type == TYPE_MAP) {
-        auto key_type = field->children[0].children[0].type.type;
-        auto value_type = field->children[0].children[1].type.type;
-        if (key_type == TYPE_ARRAY || key_type == TYPE_MAP || key_type == TYPE_STRUCT ||
-            value_type == TYPE_ARRAY || value_type == TYPE_MAP || value_type == TYPE_STRUCT) {
-            return Status::InternalError("Map does not support nested complex type in column {}",
-                                         field->name);
-        }
         std::unique_ptr<ParquetColumnReader> key_reader;
         std::unique_ptr<ParquetColumnReader> value_reader;
         RETURN_IF_ERROR(create(file, &field->children[0].children[0], row_group, row_ranges, ctz,
@@ -150,31 +138,27 @@ Status ParquetColumnReader::create(io::FileReaderSPtr file, FieldSchema* field,
                                io_ctx, value_reader, max_buf_size));
         key_reader->set_nested_column();
         value_reader->set_nested_column();
-        MapColumnReader* map_reader = new MapColumnReader(row_ranges, ctz, io_ctx);
+        auto map_reader = MapColumnReader::create_unique(row_ranges, ctz, io_ctx);
         RETURN_IF_ERROR(map_reader->init(std::move(key_reader), std::move(value_reader), field));
-        reader.reset(map_reader);
+        reader.reset(map_reader.release());
     } else if (field->type.type == TYPE_STRUCT) {
         std::vector<std::unique_ptr<ParquetColumnReader>> child_readers;
+        child_readers.reserve(field->children.size());
         for (int i = 0; i < field->children.size(); ++i) {
-            auto child_type = field->children[i].type.type;
-            if (child_type == TYPE_ARRAY || child_type == TYPE_MAP || child_type == TYPE_STRUCT) {
-                return Status::InternalError(
-                        "Struct does not support nested complex type in column {}", field->name);
-            }
             std::unique_ptr<ParquetColumnReader> child_reader;
             RETURN_IF_ERROR(create(file, &field->children[i], row_group, row_ranges, ctz, io_ctx,
                                    child_reader, max_buf_size));
             child_reader->set_nested_column();
             child_readers.emplace_back(std::move(child_reader));
         }
-        StructColumnReader* struct_reader = new StructColumnReader(row_ranges, ctz, io_ctx);
+        auto struct_reader = StructColumnReader::create_unique(row_ranges, ctz, io_ctx);
         RETURN_IF_ERROR(struct_reader->init(std::move(child_readers), field));
-        reader.reset(struct_reader);
+        reader.reset(struct_reader.release());
     } else {
         const tparquet::ColumnChunk& chunk = row_group.columns[field->physical_column_index];
-        ScalarColumnReader* scalar_reader = new ScalarColumnReader(row_ranges, chunk, ctz, io_ctx);
+        auto scalar_reader = ScalarColumnReader::create_unique(row_ranges, chunk, ctz, io_ctx);
         RETURN_IF_ERROR(scalar_reader->init(file, field, max_buf_size));
-        reader.reset(scalar_reader);
+        reader.reset(scalar_reader.release());
     }
     return Status::OK();
 }
@@ -319,11 +303,25 @@ Status ScalarColumnReader::_read_values(size_t num_values, ColumnPtr& doris_colu
     return _chunk_reader->decode_values(data_column, type, select_vector, is_dict_filter);
 }
 
+/**
+ * Load the nested column data of complex type.
+ * A row of complex type may be stored across two(or more) pages, and the parameter `align_rows` indicates that
+ * whether the reader should read the remaining value of the last row in previous page.
+ */
 Status ScalarColumnReader::_read_nested_column(ColumnPtr& doris_column, DataTypePtr& type,
                                                ColumnSelectVector& select_vector, size_t batch_size,
-                                               size_t* read_rows, bool* eof, bool is_dict_filter) {
-    _rep_levels.resize(0);
-    _def_levels.resize(0);
+                                               size_t* read_rows, bool* eof, bool is_dict_filter,
+                                               bool align_rows = false) {
+    size_t origin_size = 0;
+    if (align_rows) {
+        origin_size = _rep_levels.size();
+        // just read the remaining values of the last row in previous page,
+        // so there's no a new row should be read.
+        batch_size = 0;
+    } else {
+        _rep_levels.resize(0);
+        _def_levels.resize(0);
+    }
     size_t parsed_rows = 0;
     size_t remaining_values = _chunk_reader->remaining_num_values();
     bool has_rep_level = _chunk_reader->max_rep_level() > 0;
@@ -343,22 +341,18 @@ Status ScalarColumnReader::_read_nested_column(ColumnPtr& doris_column, DataType
             _rep_levels.emplace_back(rep_level);
             remaining_values--;
         }
-    } else {
+    } else if (!align_rows) {
+        // case : required child columns in struct type
         parsed_rows = std::min(remaining_values, batch_size);
         remaining_values -= parsed_rows;
-        _rep_levels.resize(parsed_rows);
-        for (size_t i = 0; i < parsed_rows; ++i) {
-            _rep_levels[i] = 0;
-        }
+        _rep_levels.resize(parsed_rows, 0);
     }
     size_t parsed_values = _chunk_reader->remaining_num_values() - remaining_values;
-    _def_levels.resize(parsed_values);
+    _def_levels.resize(origin_size + parsed_values);
     if (has_def_level) {
-        _chunk_reader->def_level_decoder().get_levels(&_def_levels[0], parsed_values);
+        _chunk_reader->def_level_decoder().get_levels(&_def_levels[origin_size], parsed_values);
     } else {
-        for (size_t i = 0; i < parsed_values; ++i) {
-            _def_levels[i] = 0;
-        }
+        std::fill(_def_levels.begin() + origin_size, _def_levels.end(), 0);
     }
 
     MutableColumnPtr data_column;
@@ -376,14 +370,14 @@ Status ScalarColumnReader::_read_nested_column(ColumnPtr& doris_column, DataType
         }
         data_column = doris_column->assume_mutable();
     }
-    size_t has_read = 0;
+    size_t has_read = origin_size;
     size_t ancestor_nulls = 0;
     null_map.emplace_back(0);
     bool prev_is_null = false;
-    while (has_read < parsed_values) {
+    while (has_read < origin_size + parsed_values) {
         level_t def_level = _def_levels[has_read++];
         size_t loop_read = 1;
-        while (has_read < parsed_values && _def_levels[has_read] == def_level) {
+        while (has_read < origin_size + parsed_values && _def_levels[has_read] == def_level) {
             has_read++;
             loop_read++;
         }
@@ -423,9 +417,24 @@ Status ScalarColumnReader::_read_nested_column(ColumnPtr& doris_column, DataType
         _chunk_reader->skip_values(ancestor_nulls, false);
     }
 
-    *read_rows = parsed_rows;
-    if (_chunk_reader->remaining_num_values() == 0 && !_chunk_reader->has_next_page()) {
-        *eof = true;
+    if (!align_rows) {
+        *read_rows = parsed_rows;
+    }
+    if (_chunk_reader->remaining_num_values() == 0) {
+        if (_chunk_reader->has_next_page()) {
+            RETURN_IF_ERROR(_chunk_reader->next_page());
+            RETURN_IF_ERROR(_chunk_reader->load_page_data());
+            select_vector.reset();
+            return _read_nested_column(doris_column, type, select_vector, 0, read_rows, eof,
+                                       is_dict_filter, true);
+        } else {
+            *eof = true;
+        }
+    }
+    if (_rep_levels.size() > 0) {
+        // make sure the rows of complex type are aligned correctly,
+        // so the repetition level of first element should be 0, meaning a new row is started.
+        DCHECK_EQ(_rep_levels[0], 0);
     }
     return Status::OK();
 }

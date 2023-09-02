@@ -78,12 +78,17 @@ if [[ "${MAX_FILE_COUNT}" -lt 65536 ]]; then
 fi
 
 # add java libs
-for f in "${DORIS_HOME}/lib/java_extensions"/*.jar; do
-    if [[ -z "${DORIS_CLASSPATH}" ]]; then
-        export DORIS_CLASSPATH="${f}"
-    else
-        export DORIS_CLASSPATH="${DORIS_CLASSPATH}:${f}"
-    fi
+preload_jars=("preload-extensions")
+preload_jars+=("java-udf")
+
+for preload_jar_dir in "${preload_jars[@]}"; do
+    for f in "${DORIS_HOME}/lib/java_extensions/${preload_jar_dir}"/*.jar; do
+        if [[ -z "${DORIS_CLASSPATH}" ]]; then
+            export DORIS_CLASSPATH="${f}"
+        else
+            export DORIS_CLASSPATH="${DORIS_CLASSPATH}:${f}"
+        fi
+    done
 done
 
 if [[ -d "${DORIS_HOME}/lib/hadoop_hdfs/" ]]; then
@@ -103,7 +108,7 @@ if [[ -d "${DORIS_HOME}/lib/hadoop_hdfs/" ]]; then
 fi
 
 if [[ -n "${HADOOP_CONF_DIR}" ]]; then
-    export DORIS_CLASSPATH="${HADOOP_CONF_DIR}:${DORIS_CLASSPATH}"
+    export DORIS_CLASSPATH="${DORIS_CLASSPATH}:${HADOOP_CONF_DIR}"
 fi
 
 # the CLASSPATH and LIBHDFS_OPTS is used for hadoop libhdfs

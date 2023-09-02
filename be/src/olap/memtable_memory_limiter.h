@@ -24,9 +24,9 @@
 #include "util/countdown_latch.h"
 
 namespace doris {
-class DeltaWriter;
+class MemTableWriter;
 struct WriterMemItem {
-    DeltaWriter* writer;
+    std::weak_ptr<MemTableWriter> writer;
     int64_t mem_size;
 };
 class MemTableMemoryLimiter {
@@ -40,9 +40,7 @@ public:
     // If yes, it will flush memtable to try to reduce memory consumption.
     void handle_memtable_flush();
 
-    void register_writer(DeltaWriter* writer);
-
-    void deregister_writer(DeltaWriter* writer);
+    void register_writer(std::weak_ptr<MemTableWriter> writer);
 
     void refresh_mem_tracker() {
         std::lock_guard<std::mutex> l(_lock);
@@ -50,6 +48,8 @@ public:
     }
 
     MemTrackerLimiter* mem_tracker() { return _mem_tracker.get(); }
+
+    int64_t mem_usage() const { return _mem_usage; }
 
 private:
     void _refresh_mem_tracker_without_lock();
@@ -66,6 +66,6 @@ private:
     int64_t _load_soft_mem_limit = -1;
     bool _soft_reduce_mem_in_progress = false;
 
-    std::unordered_set<DeltaWriter*> _writers;
+    std::vector<std::weak_ptr<MemTableWriter>> _writers;
 };
 } // namespace doris

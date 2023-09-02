@@ -249,9 +249,8 @@ Status StorageEngine::start_bg_threads() {
 }
 
 void StorageEngine::_cache_clean_callback() {
-    int32_t interval = 600;
+    int32_t interval = config::cache_prune_stale_interval;
     while (!_stop_background_threads_latch.wait_for(std::chrono::seconds(interval))) {
-        interval = config::cache_prune_stale_interval;
         if (interval <= 0) {
             LOG(WARNING) << "config of cache clean interval is illegal: [" << interval
                          << "], force set to 3600 ";
@@ -259,6 +258,17 @@ void StorageEngine::_cache_clean_callback() {
         }
 
         CacheManager::instance()->for_each_cache_prune_stale();
+
+        // Dynamically modify the config to clear the cache, each time the disable cache will only be cleared once.
+        // TODO, Support page cache and other caches.
+        if (config::disable_segment_cache) {
+            if (!_clear_segment_cache) {
+                CacheManager::instance()->clear_once(CachePolicy::CacheType::SEGMENT_CACHE);
+                _clear_segment_cache = true;
+            }
+        } else {
+            _clear_segment_cache = false;
+        }
     }
 }
 
@@ -1197,11 +1207,21 @@ void StorageEngine::_cold_data_compaction_producer_callback() {
 }
 
 void StorageEngine::_cache_file_cleaner_tasks_producer_callback() {
-    int64_t interval = config::generate_cache_cleaner_task_interval_sec;
-    do {
+    while (true) {
+        int64_t interval = config::generate_cache_cleaner_task_interval_sec;
+        if (interval <= 0) {
+            interval = 10;
+        }
+        bool stop = _stop_background_threads_latch.wait_for(std::chrono::seconds(interval));
+        if (stop) {
+            break;
+        }
+        if (config::generate_cache_cleaner_task_interval_sec <= 0) {
+            continue;
+        }
         LOG(INFO) << "Begin to Clean cache files";
         FileCacheManager::instance()->gc_file_caches();
-    } while (!_stop_background_threads_latch.wait_for(std::chrono::seconds(interval)));
+    }
 }
 
 void StorageEngine::add_async_publish_task(int64_t partition_id, int64_t tablet_id,

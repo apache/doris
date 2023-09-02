@@ -208,12 +208,8 @@ struct HashMethodKeysFixed
             : Base(key_columns), key_sizes(key_sizes_), keys_size(key_columns.size()) {}
 
     ALWAYS_INLINE Key get_key_holder(size_t row, Arena&) const {
-        if constexpr (has_nullable_keys_) {
-            auto bitmap = Base::create_bitmap(row);
-            return pack_fixed<Key>(row, keys_size, Base::get_actual_columns(), key_sizes, bitmap);
-        } else {
-            return pack_fixed<Key>(row, keys_size, Base::get_actual_columns(), key_sizes);
-        }
+        return pack_fixed<Key>(row, keys_size, Base::get_actual_columns(), key_sizes,
+                               Base::get_nullmap_columns());
     }
 
     Key pack_key_holder(Key key, Arena& pool) const { return key; }
@@ -315,8 +311,9 @@ struct HashMethodSingleLowNullableColumn : public SingleColumnMethod {
     }
 
     template <typename Data, typename Func, typename CreatorForNull>
-    ALWAYS_INLINE typename std::enable_if_t<has_mapped, Mapped>& lazy_emplace_key(
-            Data& data, size_t row, Arena& pool, Func&& f, CreatorForNull&& null_creator) {
+        requires has_mapped
+    ALWAYS_INLINE Mapped& lazy_emplace_key(Data& data, size_t row, Arena& pool, Func&& f,
+                                           CreatorForNull&& null_creator) {
         if (key_column->is_null_at(row)) {
             bool has_null_key = data.has_null_key_data();
             data.has_null_key_data() = true;
@@ -330,9 +327,9 @@ struct HashMethodSingleLowNullableColumn : public SingleColumnMethod {
     }
 
     template <typename Data, typename Func, typename CreatorForNull>
-    ALWAYS_INLINE typename std::enable_if_t<has_mapped, Mapped>& lazy_emplace_key(
-            Data& data, size_t row, Arena& pool, size_t hash_value, Func&& f,
-            CreatorForNull&& null_creator) {
+        requires has_mapped
+    ALWAYS_INLINE Mapped& lazy_emplace_key(Data& data, size_t row, Arena& pool, size_t hash_value,
+                                           Func&& f, CreatorForNull&& null_creator) {
         if (key_column->is_null_at(row)) {
             bool has_null_key = data.has_null_key_data();
             data.has_null_key_data() = true;

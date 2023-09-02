@@ -203,6 +203,8 @@ public class FunctionSet<T> {
     public static final String HISTOGRAM = "histogram";
     public static final String HIST = "hist";
     public static final String MAP_AGG = "map_agg";
+
+    public static final String BITMAP_AGG = "bitmap_agg";
     public static final String COUNT_BY_ENUM = "count_by_enum";
 
     private static final Map<Type, String> TOPN_UPDATE_SYMBOL =
@@ -343,10 +345,12 @@ public class FunctionSet<T> {
     public Function specializeTemplateFunction(Function templateFunction, Function requestFunction, boolean isVariadic) {
         try {
             boolean hasTemplateType = false;
-            LOG.debug("templateFunction signature: " + templateFunction.signatureString()
-                        + "  return: " + templateFunction.getReturnType());
-            LOG.debug("requestFunction signature: " + requestFunction.signatureString()
-                        + "  return: " + requestFunction.getReturnType());
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("templateFunction signature: {}, return type: {}",
+                            templateFunction.signatureString(), templateFunction.getReturnType());
+                LOG.debug("requestFunction signature: {}, return type: {}",
+                            requestFunction.signatureString(), requestFunction.getReturnType());
+            }
             List<Type> newArgTypes = Lists.newArrayList();
             List<Type> newRetType = Lists.newArrayList();
             if (isVariadic) {
@@ -395,12 +399,14 @@ public class FunctionSet<T> {
                         specializedFunction.getReturnType().specializeTemplateType(
                         requestFunction.getReturnType(), specializedTypeMap, true));
             }
-            LOG.debug("specializedFunction signature: " + specializedFunction.signatureString()
-                        + "  return: " + specializedFunction.getReturnType());
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("specializedFunction signature: {}, return type: {}",
+                            specializedFunction.signatureString(), specializedFunction.getReturnType());
+            }
             return hasTemplateType ? specializedFunction : templateFunction;
         } catch (TypeException e) {
-            if (inited) {
-                LOG.warn("specializeTemplateFunction exception", e);
+            if (inited && LOG.isDebugEnabled()) {
+                LOG.debug("specializeTemplateFunction exception", e);
             }
             return null;
         }
@@ -1033,9 +1039,18 @@ public class FunctionSet<T> {
             }
 
             if (!Type.JSONB.equals(t)) {
-                for (Type valueType : Type.getTrivialTypes()) {
-                    addBuiltin(AggregateFunction.createBuiltin(MAP_AGG, Lists.newArrayList(t, valueType), new MapType(t, valueType),
+                for (Type valueType : Type.getMapSubTypes()) {
+                    addBuiltin(AggregateFunction.createBuiltin(MAP_AGG, Lists.newArrayList(t, valueType),
+                            new MapType(t, valueType),
                             Type.VARCHAR,
+                            "", "", "", "", "", null, "",
+                            true, true, false, true));
+                }
+
+                for (Type v : Type.getArraySubTypes()) {
+                    addBuiltin(AggregateFunction.createBuiltin(MAP_AGG, Lists.newArrayList(t, new ArrayType(v)),
+                            new MapType(t, new ArrayType(v)),
+                            new MapType(t, new ArrayType(v)),
                             "", "", "", "", "", null, "",
                             true, true, false, true));
                 }
@@ -1278,6 +1293,16 @@ public class FunctionSet<T> {
             addBuiltin(AggregateFunction.createBuiltin("group_bit_xor",
                     Lists.newArrayList(t), t, t, "", "", "", "", "",
                     false, true, false, true));
+            if (!t.equals(Type.LARGEINT)) {
+                addBuiltin(
+                        AggregateFunction.createBuiltin("bitmap_agg", Lists.newArrayList(t), Type.BITMAP, Type.BITMAP,
+                                "",
+                                "",
+                                "",
+                                "",
+                                "",
+                                true, false, true, true));
+            }
         }
 
         addBuiltin(AggregateFunction.createBuiltin(QUANTILE_UNION, Lists.newArrayList(Type.QUANTILE_STATE),
@@ -1417,6 +1442,10 @@ public class FunctionSet<T> {
                 false, true, false, true));
         addBuiltin(AggregateFunction.createBuiltin("avg",
                 Lists.<Type>newArrayList(Type.BIGINT), Type.DOUBLE, Type.BIGINT,
+                "", "", "", "", "", "", "",
+                false, true, false, true));
+        addBuiltin(AggregateFunction.createBuiltin("avg",
+                Lists.<Type>newArrayList(Type.LARGEINT), Type.DOUBLE, Type.LARGEINT,
                 "", "", "", "", "", "", "",
                 false, true, false, true));
         addBuiltin(AggregateFunction.createBuiltin("avg",

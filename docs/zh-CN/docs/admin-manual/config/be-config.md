@@ -738,6 +738,11 @@ BaseCompaction:546859:
 * 描述: 导入线程数，用于处理NORMAL优先级任务
 * 默认值: 3
 
+#### `enable_single_replica_load`
+
+* 描述: 是否启动单副本数据导入功能
+* 默认值: false
+
 #### `load_error_log_reserve_hours`
 
 * 描述: load错误日志将在此时间后删除
@@ -1048,13 +1053,6 @@ BaseCompaction:546859:
   - 增大这个值，可以减少远端数据读取的调用次数，但会增加内存开销。
 * 默认值: 16MB
 
-#### `segment_cache_capacity`
-
-* 类型: int32
-* 描述: Segment Cache 缓存的 Segment 最大数量
-  - 默认值目前只是一个经验值，可能需要根据实际场景修改。增大该值可以缓存更多的segment从而避免一些IO。减少该值则会降低内存使用。
-* 默认值: 1000000
-
 #### `file_cache_type`
 
 * 类型：string
@@ -1217,6 +1215,11 @@ BaseCompaction:546859:
 * 描述：索引页缓存占总页面缓存的百分比，取值为[0, 100]。
 * 默认值：10
 
+#### `segment_cache_capacity`
+* Type: int32
+* Description: segment元数据缓存（以rowset id为key）的最大rowset个数. -1代表向后兼容取值为fd_number * 2/5
+* Default value: -1
+
 #### `storage_strict_check_incompatible_old_format`
 
 * 类型：bool
@@ -1235,7 +1238,7 @@ BaseCompaction:546859:
 * 描述：存储引擎保留的未生效数据的最大时长
 * 默认值：1800 (s)
 
-#### `ignore_rowset_stale_unconsistent_delete`
+#### `ignore_rowset_stale_inconsistent_delete`
 
 * 类型：bool
 * 描述：用来决定当删除过期的合并过的rowset后无法构成一致的版本路径时，是否仍要删除。
@@ -1505,3 +1508,13 @@ load tablets from header failed, failed tablets size: xxx, path=xxx
 
 * 描述: 如果为true，则当内存未超过 exec_mem_limit 时，查询内存将不受限制；当进程内存超过 exec_mem_limit 且大于 2GB 时，查询会被取消。如果为false，则在使用的内存超过 exec_mem_limit 时取消查询。
 * 默认值: true
+
+#### `user_files_secure_path`
+
+* 描述: `local` 表函数查询的文件的存储目录。
+* 默认值: `${DORIS_HOME}`
+
+#### `brpc_streaming_client_batch_bytes`
+
+* 描述: brpc streaming 客户端发送数据时的攒批大小（字节）
+* 默认值: 262144

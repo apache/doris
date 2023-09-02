@@ -156,7 +156,7 @@ FROM data_source [data_source_properties]
 
      这三个参数分别表示：
 
-     1. 每个子任务最大执行时间，单位是秒。范围为 5 到 60。默认为10。
+     1. 每个子任务最大执行时间，单位是秒。范围为 1 到 60。默认为10。
      2. 每个子任务最多读取的行数。必须大于等于200000。默认是200000。
      3. 每个子任务最多读取的字节数。单位是字节，范围是 100MB 到 1GB。默认是 100MB。
 
@@ -247,6 +247,9 @@ FROM data_source [data_source_properties]
   11. `load_to_single_tablet`
 
       布尔类型，为 true 表示支持一个任务只导入数据到对应分区的一个 tablet，默认值为 false，该参数只允许在对带有 random 分区的 olap 表导数的时候设置。
+
+  12. `partial_columns`
+      布尔类型，为 true 表示使用部分列更新，默认值为 false，该参数只允许在表模型为 Unique 且采用 Merge on Write 时设置。一流多表不支持此参数。
 
 - `FROM data_source [data_source_properties]`
 

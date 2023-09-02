@@ -206,10 +206,6 @@ void ParquetReader::_close_internal() {
         }
         _closed = true;
     }
-
-    if (_is_file_metadata_owned && _file_metadata != nullptr) {
-        delete _file_metadata;
-    }
 }
 
 Status ParquetReader::_open_file() {
@@ -230,23 +226,25 @@ Status ParquetReader::_open_file() {
         }
         size_t meta_size = 0;
         if (_meta_cache == nullptr) {
-            _is_file_metadata_owned = true;
             RETURN_IF_ERROR(
                     parse_thrift_footer(_file_reader, &_file_metadata, &meta_size, _io_ctx));
+            // wrap it with unique ptr, so that it can be released finally.
+            _file_metadata_ptr.reset(_file_metadata);
+            _file_metadata = _file_metadata_ptr.get();
+
             _column_statistics.read_bytes += meta_size;
             // parse magic number & parse meta data
             _column_statistics.meta_read_calls += 1;
         } else {
-            _is_file_metadata_owned = false;
-            RETURN_IF_ERROR(_meta_cache->get_parquet_footer(_file_reader, _io_ctx, 0, &meta_size,
-                                                            &_cache_handle));
-
+            RETURN_IF_ERROR(_meta_cache->get_parquet_footer(_file_reader, _io_ctx,
+                                                            _file_description.mtime, &meta_size,
+                                                            &_meta_cache_handle));
             _column_statistics.read_bytes += meta_size;
             if (meta_size > 0) {
                 _column_statistics.meta_read_calls += 1;
             }
 
-            _file_metadata = (FileMetaData*)_cache_handle.data();
+            _file_metadata = (FileMetaData*)_meta_cache_handle.data();
         }
 
         if (_file_metadata == nullptr) {
@@ -291,6 +289,9 @@ void ParquetReader::_init_file_description() {
     _file_description.path = _scan_range.path;
     _file_description.start_offset = _scan_range.start_offset;
     _file_description.file_size = _scan_range.__isset.file_size ? _scan_range.file_size : 0;
+    if (_scan_range.__isset.fs_name) {
+        _file_description.fs_name = _scan_range.fs_name;
+    }
 }
 
 Status ParquetReader::init_reader(
@@ -322,6 +323,10 @@ Status ParquetReader::init_reader(
     // e.g. table added a column after this parquet file was written.
     _column_names = &all_column_names;
     auto schema_desc = _file_metadata->schema();
+    std::set<std::string> required_columns(all_column_names.begin(), all_column_names.end());
+    // Currently only used in iceberg, the columns are dropped but added back
+    std::set<std::string> dropped_columns(missing_column_names.begin(), missing_column_names.end());
+    // Make the order of read columns the same as physical order in parquet file
     for (int i = 0; i < schema_desc.size(); ++i) {
         auto name = schema_desc.get_column(i)->name;
         // If the column in parquet file is included in all_column_names and not in missing_column_names,
@@ -329,15 +334,17 @@ Status ParquetReader::init_reader(
         // Here to check against missing_column_names is for the 'Add a column back to the table
         // with the same column name' case. (drop column a then add column a).
         // Shouldn't read this column data in this case.
-        if (find(all_column_names.begin(), all_column_names.end(), name) !=
-                    all_column_names.end() &&
-            find(missing_column_names.begin(), missing_column_names.end(), name) ==
-                    missing_column_names.end()) {
-            _map_column.emplace(name, i);
+        if (required_columns.find(name) != required_columns.end() &&
+            dropped_columns.find(name) == dropped_columns.end()) {
+            required_columns.erase(name);
+            _read_columns.emplace_back(name);
         }
     }
+    for (const std::string& name : required_columns) {
+        _missing_cols.emplace_back(name);
+    }
+
     _colname_to_value_range = colname_to_value_range;
-    RETURN_IF_ERROR(_init_read_columns());
     // build column predicates for column lazy read
     _lazy_read_ctx.conjuncts = conjuncts;
     RETURN_IF_ERROR(_init_row_groups(filter_groups));
@@ -394,15 +401,15 @@ Status ParquetReader::set_fill_columns(
 
     const FieldDescriptor& schema = _file_metadata->schema();
     for (auto& read_col : _read_columns) {
-        _lazy_read_ctx.all_read_columns.emplace_back(read_col._file_slot_name);
-        PrimitiveType column_type = schema.get_column(read_col._file_slot_name)->type.type;
+        _lazy_read_ctx.all_read_columns.emplace_back(read_col);
+        PrimitiveType column_type = schema.get_column(read_col)->type.type;
         if (column_type == TYPE_ARRAY || column_type == TYPE_MAP || column_type == TYPE_STRUCT) {
             _has_complex_type = true;
         }
         if (predicate_columns.size() > 0) {
-            auto iter = predicate_columns.find(read_col._file_slot_name);
+            auto iter = predicate_columns.find(read_col);
             if (iter == predicate_columns.end()) {
-                _lazy_read_ctx.lazy_read_columns.emplace_back(read_col._file_slot_name);
+                _lazy_read_ctx.lazy_read_columns.emplace_back(read_col);
             } else {
                 _lazy_read_ctx.predicate_columns.first.emplace_back(iter->first);
                 _lazy_read_ctx.predicate_columns.second.emplace_back(iter->second.second);
@@ -447,29 +454,6 @@ Status ParquetReader::set_fill_columns(
     }
 
     _fill_all_columns = true;
-    return Status::OK();
-}
-
-Status ParquetReader::_init_read_columns() {
-    std::vector<int> include_column_ids;
-    for (auto& file_col_name : *_column_names) {
-        auto iter = _map_column.find(file_col_name);
-        if (iter != _map_column.end()) {
-            include_column_ids.emplace_back(iter->second);
-        } else {
-            _missing_cols.push_back(file_col_name);
-        }
-    }
-    // It is legal to get empty include_column_ids in query task.
-    if (include_column_ids.empty()) {
-        return Status::OK();
-    }
-    // The same order as physical columns
-    std::sort(include_column_ids.begin(), include_column_ids.end());
-    for (int& parquet_col_id : include_column_ids) {
-        _read_columns.emplace_back(parquet_col_id,
-                                   _file_metadata->schema().get_column(parquet_col_id)->name);
-    }
     return Status::OK();
 }
 
@@ -643,11 +627,24 @@ Status ParquetReader::_init_row_groups(const bool& is_filter_groups) {
             RETURN_IF_ERROR(_process_row_group_filter(row_group, &filter_group));
         }
         int64_t group_size = 0; // only calculate the needed columns
-        for (auto& read_col : _read_columns) {
-            auto& parquet_col_id = read_col._parquet_col_id;
-            if (row_group.columns[parquet_col_id].__isset.meta_data) {
-                group_size += row_group.columns[parquet_col_id].meta_data.total_compressed_size;
+        std::function<int64_t(const FieldSchema*)> column_compressed_size =
+                [&row_group, &column_compressed_size](const FieldSchema* field) -> int64_t {
+            if (field->physical_column_index >= 0) {
+                int parquet_col_id = field->physical_column_index;
+                if (row_group.columns[parquet_col_id].__isset.meta_data) {
+                    return row_group.columns[parquet_col_id].meta_data.total_compressed_size;
+                }
+                return 0;
             }
+            int64_t size = 0;
+            for (const FieldSchema& child : field->children) {
+                size += column_compressed_size(&child);
+            }
+            return size;
+        };
+        for (auto& read_col : _read_columns) {
+            const FieldSchema* field = _file_metadata->schema().get_column(read_col);
+            group_size += column_compressed_size(field);
         }
         if (!filter_group) {
             _read_row_groups.emplace_back(row_group_idx, row_index, row_index + row_group.num_rows);
@@ -703,7 +700,7 @@ std::vector<io::PrefetchRange> ParquetReader::_generate_random_access_ranges(
             };
     const tparquet::RowGroup& row_group = _t_metadata->row_groups[group.row_group_id];
     for (const auto& read_col : _read_columns) {
-        const FieldSchema* field = _file_metadata->schema().get_column(read_col._file_slot_name);
+        const FieldSchema* field = _file_metadata->schema().get_column(read_col);
         scalar_range(field, row_group);
     }
     if (!result.empty()) {
@@ -766,11 +763,16 @@ Status ParquetReader::_process_page_index(const tparquet::RowGroup& row_group,
     // read twice: parse column index & parse offset index
     _column_statistics.meta_read_calls += 2;
     for (auto& read_col : _read_columns) {
-        auto conjunct_iter = _colname_to_value_range->find(read_col._file_slot_name);
+        auto conjunct_iter = _colname_to_value_range->find(read_col);
         if (_colname_to_value_range->end() == conjunct_iter) {
             continue;
         }
-        auto& chunk = row_group.columns[read_col._parquet_col_id];
+        int parquet_col_id = _file_metadata->schema().get_column(read_col)->physical_column_index;
+        if (parquet_col_id < 0) {
+            // complex type, not support page index yet.
+            continue;
+        }
+        auto& chunk = row_group.columns[parquet_col_id];
         if (chunk.column_index_offset == 0 && chunk.column_index_length == 0) {
             continue;
         }
@@ -782,7 +784,7 @@ Status ParquetReader::_process_page_index(const tparquet::RowGroup& row_group,
         }
         auto& conjuncts = conjunct_iter->second;
         std::vector<int> skipped_page_range;
-        const FieldSchema* col_schema = schema_desc.get_column(read_col._file_slot_name);
+        const FieldSchema* col_schema = schema_desc.get_column(read_col);
         page_index.collect_skipped_page_range(&column_index, conjuncts, col_schema,
                                               skipped_page_range, *_ctz);
         if (skipped_page_range.empty()) {
@@ -797,7 +799,7 @@ Status ParquetReader::_process_page_index(const tparquet::RowGroup& row_group,
             // use the union row range
             skipped_row_ranges.emplace_back(skipped_row_range);
         }
-        _col_offsets.emplace(read_col._parquet_col_id, offset_index);
+        _col_offsets.emplace(parquet_col_id, offset_index);
     }
     if (skipped_row_ranges.empty()) {
         read_whole_row_group();
@@ -849,16 +851,16 @@ Status ParquetReader::_process_column_stat_filter(const std::vector<tparquet::Co
         return Status::OK();
     }
     auto& schema_desc = _file_metadata->schema();
-    for (auto& col_name : *_column_names) {
-        auto col_iter = _map_column.find(col_name);
-        if (col_iter == _map_column.end()) {
-            continue;
-        }
+    for (auto& col_name : _read_columns) {
         auto slot_iter = _colname_to_value_range->find(col_name);
         if (slot_iter == _colname_to_value_range->end()) {
             continue;
         }
-        int parquet_col_id = col_iter->second;
+        int parquet_col_id = _file_metadata->schema().get_column(col_name)->physical_column_index;
+        if (parquet_col_id < 0) {
+            // complex type, not support filter yet.
+            continue;
+        }
         auto& meta_data = columns[parquet_col_id].meta_data;
         auto& statistic = meta_data.statistics;
         bool is_all_null =

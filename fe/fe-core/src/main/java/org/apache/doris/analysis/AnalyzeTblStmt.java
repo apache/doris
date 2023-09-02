@@ -142,8 +142,11 @@ public class AnalyzeTblStmt extends AnalyzeStmt {
         }
         checkAnalyzePriv(tableName.getDb(), tableName.getTbl());
         if (columnNames == null) {
-            columnNames = table.getBaseSchema(false)
-                    .stream().map(Column::getName).collect(Collectors.toList());
+            // Filter unsupported type columns.
+            columnNames = table.getBaseSchema(false).stream()
+                .filter(c -> !StatisticsUtil.isUnsupportedType(c.getType()))
+                .map(Column::getName)
+                .collect(Collectors.toList());
         }
         table.readLock();
         try {

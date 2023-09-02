@@ -203,6 +203,17 @@ public:
         return Status::OK();
     }
 
+    Status add_document() {
+        try {
+            _index_writer->addDocument(_doc.get());
+        } catch (const CLuceneError& e) {
+            _dir->deleteDirectory();
+            return Status::Error<ErrorCode::INVERTED_INDEX_CLUCENE_ERROR>(
+                    "CLuceneError add_document: {}", e.what());
+        }
+        return Status::OK();
+    }
+
     Status add_nulls(uint32_t count) override {
         _null_bitmap.addRange(_rid, _rid + count);
         _rid += count;
@@ -215,7 +226,7 @@ public:
 
             for (int i = 0; i < count; ++i) {
                 new_fulltext_field(empty_value.c_str(), 0);
-                _index_writer->addDocument(_doc.get());
+                RETURN_IF_ERROR(add_document());
             }
         }
         return Status::OK();
@@ -261,7 +272,7 @@ public:
             auto* v = (Slice*)values;
             for (int i = 0; i < count; ++i) {
                 new_fulltext_field(v->get_data(), v->get_size());
-                _index_writer->addDocument(_doc.get());
+                RETURN_IF_ERROR(add_document());
                 ++v;
                 _rid++;
             }
@@ -271,6 +282,60 @@ public:
         return Status::OK();
     }
 
+    Status add_array_values(size_t field_size, const void* value_ptr, const uint8_t* null_map,
+                            const uint8_t* offsets_ptr, size_t count) override {
+        if (count == 0) {
+            // no values to add inverted index
+            return Status::OK();
+        }
+        auto offsets = reinterpret_cast<const uint64_t*>(offsets_ptr);
+        if constexpr (field_is_slice_type(field_type)) {
+            if (_field == nullptr || _index_writer == nullptr) {
+                LOG(ERROR) << "field or index writer is null in inverted index writer.";
+                return Status::InternalError(
+                        "field or index writer is null in inverted index writer");
+            }
+            for (int i = 0; i < count; ++i) {
+                // offsets[i+1] is now row element count
+                std::vector<std::string> strings;
+                // [0, 3, 6]
+                // [10,20,30] [20,30,40], [30,40,50]
+                auto start_off = offsets[i];
+                auto end_off = offsets[i + 1];
+                for (auto j = start_off; j < end_off; ++j) {
+                    if (null_map[j] == 1) {
+                        continue;
+                    }
+                    auto* v = (Slice*)((const uint8_t*)value_ptr + j * field_size);
+                    strings.emplace_back(std::string(v->get_data(), v->get_size()));
+                }
+
+                auto value = join(strings, " ");
+                new_fulltext_field(value.c_str(), value.length());
+                _rid++;
+                _index_writer->addDocument(_doc.get());
+            }
+        } else if constexpr (field_is_numeric_type(field_type)) {
+            for (int i = 0; i < count; ++i) {
+                auto start_off = offsets[i];
+                auto end_off = offsets[i + 1];
+                for (size_t j = start_off; j < end_off; ++j) {
+                    if (null_map[j] == 1) {
+                        continue;
+                    }
+                    const CppType* p = &reinterpret_cast<const CppType*>(value_ptr)[j];
+                    std::string new_value;
+                    size_t value_length = sizeof(CppType);
+
+                    _value_key_coder->full_encode_ascending(p, &new_value);
+                    _bkd_writer->add((const uint8_t*)new_value.c_str(), value_length, _rid);
+                }
+                _row_ids_seen_for_bkd++;
+                _rid++;
+            }
+        }
+        return Status::OK();
+    }
     Status add_array_values(size_t field_size, const CollectionValue* values,
                             size_t count) override {
         if constexpr (field_is_slice_type(field_type)) {
@@ -294,7 +359,7 @@ public:
                 auto value = join(strings, " ");
                 new_fulltext_field(value.c_str(), value.length());
                 _rid++;
-                _index_writer->addDocument(_doc.get());
+                RETURN_IF_ERROR(add_document());
                 values++;
             }
         } else if constexpr (field_is_numeric_type(field_type)) {

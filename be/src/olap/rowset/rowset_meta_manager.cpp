@@ -36,9 +36,6 @@
 #include "olap/utils.h"
 
 namespace doris {
-namespace {
-const std::string ROWSET_PREFIX = "rst_";
-} // namespace
 
 using namespace ErrorCode;
 
