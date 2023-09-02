@@ -597,11 +597,11 @@ There are three relevant parameters:
 
 - `kafka_partitions`: Specify a list of partitions to be consumed, such as "0, 1, 2, 3".
 - `kafka_offsets`: Specify the starting offset of each partition, which must correspond to the number of `kafka_partitions` list. For example: "1000, 1000, 2000, 2000"
-- `property.kafka_default_offset`: Specifies the default starting offset of the partition.
+- `property.kafka_default_offsets`: Specifies the default starting offset of the partition.
 
 When creating an import job, these three parameters can have the following combinations:
 
-| Composition | `kafka_partitions` | `kafka_offsets` | `property.kafka_default_offset` | Behavior                                                     |
+| Composition | `kafka_partitions` | `kafka_offsets` | `property.kafka_default_offsets` | Behavior                                                     |
 | ----------- | ------------------ | --------------- | ------------------------------- | ------------------------------------------------------------ |
 | 1           | No                 | No              | No                              | The system will automatically find all partitions corresponding to the topic and start consumption from OFFSET_END |
 | 2           | No                 | No              | Yes                             | The system will automatically find all partitions corresponding to the topic and start consumption from the location specified by default offset |
