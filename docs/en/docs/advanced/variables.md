@@ -640,7 +640,7 @@ Translated with www.DeepL.com/Translator (free version)
 
     <version since="1.2.0"></version>
 
-    Use a fixed replica to query. If use_fix_replica is 1, the smallest one is used, if use_fix_replica is 2, the second smallest one is used, and so on. The default value is -1, which means it is not enabled.
+    Use a fixed replica to search. replica starts with 0 and if use_fix_replica is 0, the smallest is used, if use_fix_replica is 1, the second smallest is used, and so on. The default value is -1, indicating that the function is disabled.
 
 * `dry_run_query`
 
