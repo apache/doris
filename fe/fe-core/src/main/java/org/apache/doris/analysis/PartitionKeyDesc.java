@@ -28,6 +28,7 @@ import java.util.List;
 // Describe the partition key values in create table or add partition clause
 public class PartitionKeyDesc {
     public static final PartitionKeyDesc MAX_VALUE = new PartitionKeyDesc();
+    // UNPARTITIONED table not have real keyDesc,therefore, provide this DUMMY_KEY_DESC
     public static final PartitionKeyDesc DUMMY_KEY_DESC = new PartitionKeyDesc();
 
     public enum PartitionKeyValueType {

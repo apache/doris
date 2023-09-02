@@ -180,7 +180,7 @@ public class InsertIntoTableCommand extends Command implements ForwardWithSync, 
     }
 
     /**
-     * when  `isOverwrite` is true,use this logic
+     * when `isOverwrite` is true, use this logic
      *
      * @param ctx ctx
      * @param executor executor
