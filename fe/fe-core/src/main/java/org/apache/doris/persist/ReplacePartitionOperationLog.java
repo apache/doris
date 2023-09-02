@@ -35,8 +35,12 @@ public class ReplacePartitionOperationLog implements Writable {
 
     @SerializedName(value = "dbId")
     private long dbId;
+    @SerializedName(value = "dbName")
+    private String dbName;
     @SerializedName(value = "tblId")
     private long tblId;
+    @SerializedName(value = "tblName")
+    private String tblName;
     @SerializedName(value = "partitions")
     private List<String> partitions;
     @SerializedName(value = "tempPartitions")
@@ -46,10 +50,14 @@ public class ReplacePartitionOperationLog implements Writable {
     @SerializedName(value = "useTempPartitionName")
     private boolean useTempPartitionName;
 
-    public ReplacePartitionOperationLog(long dbId, long tblId, List<String> partitionNames,
-            List<String> tempPartitonNames, boolean strictRange, boolean useTempPartitionName) {
+    public ReplacePartitionOperationLog(long dbId, String dbName, long tblId, String tblName,
+                                        List<String> partitionNames,
+                                        List<String> tempPartitonNames, boolean strictRange,
+                                        boolean useTempPartitionName) {
         this.dbId = dbId;
+        this.dbName = dbName;
         this.tblId = tblId;
+        this.tblName = tblName;
         this.partitions = partitionNames;
         this.tempPartitions = tempPartitonNames;
         this.strictRange = strictRange;
@@ -89,5 +97,14 @@ public class ReplacePartitionOperationLog implements Writable {
     public void write(DataOutput out) throws IOException {
         String json = GsonUtils.GSON.toJson(this);
         Text.writeString(out, json);
+    }
+
+    public String toJson() {
+        return GsonUtils.GSON.toJson(this);
+    }
+
+    @Override
+    public String toString() {
+        return toJson();
     }
 }
