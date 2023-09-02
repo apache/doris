@@ -27,6 +27,7 @@ import com.google.common.net.InetAddresses;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.net.Inet4Address;
 import java.net.Inet6Address;
 import java.net.InetAddress;
 import java.net.UnknownHostException;
@@ -74,14 +75,15 @@ public class FrontendOptions {
                     hasMatchedIp = true;
                     break;
                 }
-            } else {
+            } else if (addr instanceof Inet4Address) {
                 localAddr = addr;
                 break;
             }
         }
         //if all ips not match the priority_networks then print the warning log
         if (!priorityCidrs.isEmpty() && !hasMatchedIp) {
-            LOG.warn("ip address range configured for priority_networks does not include the current IP address");
+            LOG.error("ip address range configured for priority_networks does not include the current IP address");
+            System.exit(-1);
         }
         // nothing found, use loopback addr
         if (localAddr == null) {
