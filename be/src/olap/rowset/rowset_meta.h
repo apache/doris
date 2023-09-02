@@ -365,6 +365,10 @@ public:
 
     TabletSchemaSPtr tablet_schema() { return _schema; }
 
+    inline DeletePredicatePB* mutable_delete_pred_pb() {
+        return _rowset_meta_pb.mutable_delete_predicate();
+    }
+
 private:
     bool _deserialize_from_pb(const std::string& value) {
         RowsetMetaPB rowset_meta_pb;

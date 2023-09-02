@@ -385,6 +385,7 @@ Status Compaction::do_compaction_impl(int64_t permits) {
                 });
         // now version in delete_predicate is deprecated
         if (!delete_predicate.in_predicates().empty() ||
+            !delete_predicate.sub_predicates_v2().empty() ||
             !delete_predicate.sub_predicates().empty()) {
             _output_rowset->rowset_meta()->set_delete_predicate(std::move(delete_predicate));
         }

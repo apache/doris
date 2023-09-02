@@ -394,6 +394,11 @@ public:
                _query_options.enable_share_hash_table_for_broadcast_join;
     }
 
+    inline bool enable_delete_sub_pred_v2() const {
+        return _query_options.__isset.enable_delete_sub_predicate_v2 &&
+               _query_options.enable_delete_sub_predicate_v2;
+    }
+
     int repeat_max_num() const {
 #ifndef BE_TEST
         if (!_query_options.__isset.repeat_max_num) {

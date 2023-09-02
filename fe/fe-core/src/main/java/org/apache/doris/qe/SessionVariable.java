@@ -379,6 +379,8 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String JDBC_CLICKHOUSE_QUERY_FINAL = "jdbc_clickhouse_query_final";
 
+    public static final String ENABLE_DELETE_SUB_PREDICATE_V2 = "enable_delete_sub_predicate_v2";
+
     public static final List<String> DEBUG_VARIABLES = ImmutableList.of(
             SKIP_DELETE_PREDICATE,
             SKIP_DELETE_BITMAP,
@@ -1081,6 +1083,9 @@ public class SessionVariable implements Serializable, Writable {
             needForward = true)
     public boolean truncateCharOrVarcharColumns = false;
 
+    @VariableMgr.VarAttr(name = ENABLE_DELETE_SUB_PREDICATE_V2, fuzzy = true, needForward = true)
+    public boolean enableDeleteSubPredicateV2 = true;
+
     // If this fe is in fuzzy mode, then will use initFuzzyModeVariables to generate some variables,
     // not the default value set in the code.
     public void initFuzzyModeVariables() {
@@ -1098,8 +1103,10 @@ public class SessionVariable implements Serializable, Writable {
         int randomInt = random.nextInt(4);
         if (randomInt % 2 == 0) {
             this.rewriteOrToInPredicateThreshold = 100000;
+            this.enableDeleteSubPredicateV2 = false;
         } else {
             this.rewriteOrToInPredicateThreshold = 2;
+            this.enableDeleteSubPredicateV2 = true;
         }
         this.runtimeFilterType = 1 << randomInt;
         /*

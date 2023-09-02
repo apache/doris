@@ -229,6 +229,8 @@ struct TQueryOptions {
   76: optional bool enable_inverted_index_query = true;
 
   77: optional bool truncate_char_or_varchar_columns = false
+
+  81: optional bool enable_delete_sub_predicate_v2 = false;
 }
 
 
