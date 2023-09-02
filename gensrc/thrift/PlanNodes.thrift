@@ -630,7 +630,8 @@ enum TPushAggOp {
 	NONE = 0,
 	MINMAX = 1,
 	COUNT = 2,
-	MIX = 3
+	MIX = 3,
+	COUNT_ON_INDEX = 4
 }
 
 struct TOlapScanNode {
