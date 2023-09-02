@@ -15,23 +15,30 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.planner.external;
+package org.apache.doris.planner.external.deltalake;
 
-public enum TableFormatType {
-    HIVE("hive"),
-    ICEBERG("iceberg"),
-    HUDI("hudi"),
-    PAIMON("paimon"),
-    DELTALAKE("deltalake"),
-    TRANSACTIONAL_HIVE("transactional_hive");
+import org.apache.doris.analysis.TupleDescriptor;
+import org.apache.doris.catalog.external.DeltaLakeExternalTable;
+import org.apache.doris.planner.ColumnRange;
 
-    private final String tableFormatType;
+import java.util.Map;
 
-    TableFormatType(String tableFormatType) {
-        this.tableFormatType = tableFormatType;
+public class DeltaLakeSource  {
+    private final DeltaLakeExternalTable deltalakeExtTable;
+    private final TupleDescriptor desc;
+
+    public DeltaLakeSource(DeltaLakeExternalTable table, TupleDescriptor desc,
+            Map<String, ColumnRange> columnNameToRange) {
+        this.deltalakeExtTable = table;
+        this.desc = desc;
     }
 
-    public String value() {
-        return tableFormatType;
+    public DeltaLakeExternalTable getDeltalakeExtTable() {
+        return deltalakeExtTable;
     }
+
+    public TupleDescriptor getDesc() {
+        return desc;
+    }
+
 }

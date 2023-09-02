@@ -38,6 +38,8 @@ import org.apache.doris.datasource.hive.AcidInfo;
 import org.apache.doris.datasource.hive.AcidInfo.DeleteDeltaInfo;
 import org.apache.doris.nereids.glue.translator.PlanTranslatorContext;
 import org.apache.doris.planner.PlanNodeId;
+import org.apache.doris.planner.external.deltalake.DeltaLakeScanNode;
+import org.apache.doris.planner.external.deltalake.DeltaLakeSplit;
 import org.apache.doris.planner.external.hudi.HudiScanNode;
 import org.apache.doris.planner.external.hudi.HudiSplit;
 import org.apache.doris.planner.external.iceberg.IcebergScanNode;
@@ -325,6 +327,8 @@ public abstract class FileQueryScanNode extends FileScanNode {
                 PaimonScanNode.setPaimonParams(rangeDesc, (PaimonSplit) fileSplit);
             } else if (fileSplit instanceof HudiSplit) {
                 HudiScanNode.setHudiParams(rangeDesc, (HudiSplit) fileSplit);
+            } else if (fileSplit instanceof DeltaLakeSplit) {
+                DeltaLakeScanNode.setDeltaLakeParams(rangeDesc, (DeltaLakeSplit) fileSplit);
             }
 
             curLocations.getScanRange().getExtScanRange().getFileScanRange().addToRanges(rangeDesc);

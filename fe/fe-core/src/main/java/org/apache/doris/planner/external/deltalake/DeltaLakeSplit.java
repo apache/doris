@@ -15,23 +15,21 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.planner.external;
+package org.apache.doris.planner.external.deltalake;
 
-public enum TableFormatType {
-    HIVE("hive"),
-    ICEBERG("iceberg"),
-    HUDI("hudi"),
-    PAIMON("paimon"),
-    DELTALAKE("deltalake"),
-    TRANSACTIONAL_HIVE("transactional_hive");
+import org.apache.doris.planner.external.FileSplit;
 
-    private final String tableFormatType;
+import org.apache.hadoop.conf.Configuration;
+import org.apache.hadoop.fs.Path;
 
-    TableFormatType(String tableFormatType) {
-        this.tableFormatType = tableFormatType;
-    }
+import java.util.List;
 
-    public String value() {
-        return tableFormatType;
+public class DeltaLakeSplit extends FileSplit {
+    private Configuration conf;
+
+    public DeltaLakeSplit(Path file, long start, long length, long fileLength, String[] hosts,
+            List<String> partitionValues, Configuration configuration) {
+        super(file, start, length, fileLength, hosts, partitionValues);
+        conf = configuration;
     }
 }

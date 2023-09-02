@@ -306,6 +306,13 @@ struct TPaimonFileDesc {
     6: optional map<string, string> paimon_options
 }
 
+struct TDeltaLakeFileDesc {
+    1: optional string path
+    2: optional string delta_lake_column_names
+    3: optional string db_name
+    4: optional string table_name
+    5: optional string conf
+}
 
 struct THudiFileDesc {
     1: optional string instant_time;
@@ -336,6 +343,7 @@ struct TTableFormatFileDesc {
     3: optional THudiFileDesc hudi_params
     4: optional TPaimonFileDesc paimon_params
     5: optional TTransactionalHiveDesc transactional_hive_params
+    6: optional TDeltaLakeFileDesc delta_lake_params
 }
 
 struct TFileScanRangeParams {
