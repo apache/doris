@@ -400,6 +400,7 @@ CREATE CATALOG jdbc_doris PROPERTIES (
 | TEXT       | STRING                 |                                                                                      |
 | HLL        | HLL                    | Query HLL needs to set `return_object_data_as_binary=true`                           |
 | Array      | Array                  | The internal type adaptation logic of Array refers to the above types, and nested complex types are not supported        |
+| BITMAP     | BITMAP                 | Query BITMAP needs to set `return_object_data_as_binary=true`                        |
 | Other      | UNSUPPORTED            |                                                                                      |
 
 ### Clickhouse
