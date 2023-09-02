@@ -165,6 +165,9 @@ class FlushPageCallback {
 public:
     virtual ~FlushPageCallback() = default;
     virtual Status put_extra_info_in_page(DataPageFooterPB* footer) { return Status::OK(); }
+    virtual Status put_extra_info_in_page(DataPageFooterPB* footer, const uint8_t* next_data_ptr) {
+        return Status::OK();
+    }
 };
 
 // Encode one column's data into some memory slice.
@@ -183,6 +186,10 @@ public:
     Status append_nulls(size_t num_rows) override;
 
     Status finish_current_page() override;
+
+    // this method is used for pass next data when current page is full and next data need in extra
+    // info
+    Status finish_current_page(const uint8_t* next_data_ptr);
 
     uint64_t estimate_buffer_size() override;
 
@@ -374,6 +381,8 @@ public:
 
 private:
     Status put_extra_info_in_page(DataPageFooterPB* header) override;
+
+    Status put_extra_info_in_page(DataPageFooterPB* header, const uint8_t* next_data_ptr) override;
     Status write_null_column(size_t num_rows, bool is_null); // 写入num_rows个null标记
     bool has_empty_items() const { return _item_writer->get_next_rowid() == 0; }
 
@@ -433,7 +442,7 @@ public:
 
 private:
     Status put_extra_info_in_page(DataPageFooterPB* header) override;
-
+    Status put_extra_info_in_page(DataPageFooterPB* header, const uint8_t* next_data_ptr) override;
     std::vector<std::unique_ptr<ColumnWriter>> _kv_writers;
     // we need null writer to make sure a row is null or not
     std::unique_ptr<ScalarColumnWriter> _null_writer;
