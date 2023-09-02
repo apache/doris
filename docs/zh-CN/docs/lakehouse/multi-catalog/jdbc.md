@@ -392,8 +392,9 @@ CREATE CATALOG jdbc_doris PROPERTIES (
 | VARCHAR    | VARCHAR                |                                                      |
 | STRING     | STRING                 |                                                      |
 | TEXT       | STRING                 |                                                      |
-| HLL        | HLL                    | 查询HLL需要设置`return_object_data_as_binary=true`   |
+| HLL        | HLL                    | 查询HLL需要设置`return_object_data_as_binary=true`     |
 | Array      | Array                  | Array内部类型适配逻辑参考上述类型，不支持嵌套复杂类型        |
+| BITMAP     | BITMAP                 | 查询BITMAP需要设置`return_object_data_as_binary=true`  |
 | Other      | UNSUPPORTED            |                                                      |
 
 ### Clickhouse
