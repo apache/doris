@@ -197,7 +197,10 @@ public class InsertIntoTableCommand extends Command implements ForwardWithSync, 
             partitionNames = Lists.newArrayList(targetTable.getPartitionNames());
         }
         List<String> tempPartitionNames = addTempPartition(ctx, tableName, partitionNames);
-        insertInto(ctx, executor, tempPartitionNames, tableName);
+        boolean insertRes = insertInto(ctx, executor, tempPartitionNames, tableName);
+        if (!insertRes) {
+            return;
+        }
         replacePartition(ctx, tableName, partitionNames, tempPartitionNames);
     }
 
@@ -238,9 +241,8 @@ public class InsertIntoTableCommand extends Command implements ForwardWithSync, 
      * @param tableName tableName
      * @throws Exception Exception
      */
-    private void insertInto(ConnectContext ctx, StmtExecutor executor, List<String> tempPartitionNames,
-            TableName tableName)
-            throws Exception {
+    private boolean insertInto(ConnectContext ctx, StmtExecutor executor, List<String> tempPartitionNames,
+            TableName tableName) {
         try {
             UnboundOlapTableSink sink = (UnboundOlapTableSink) logicalQuery;
             UnboundOlapTableSink<?> copySink = new UnboundOlapTableSink<>(
@@ -250,12 +252,18 @@ public class InsertIntoTableCommand extends Command implements ForwardWithSync, 
                     tempPartitionNames,
                     (LogicalPlan) (sink.child(0)));
             new InsertIntoTableCommand(copySink, labelName, false).run(ctx, executor);
+            if (ctx.getState().getStateType() == MysqlStateType.ERR) {
+                String errMsg = Strings.emptyToNull(ctx.getState().getErrorMessage());
+                LOG.warn("InsertInto state error:{}", errMsg);
+                handleIotPartitionRollback(ctx, tableName, tempPartitionNames);
+                return false;
+            }
+            return true;
         } catch (Exception e) {
-            LOG.warn("IOT create tmp table partitions error", e);
+            LOG.warn("InsertInto error", e);
             handleIotPartitionRollback(ctx, tableName, tempPartitionNames);
-            throw e;
+            return false;
         }
-
     }
 
     /**
