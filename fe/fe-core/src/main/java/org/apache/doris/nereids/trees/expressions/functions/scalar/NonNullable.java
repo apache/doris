@@ -20,12 +20,14 @@ package org.apache.doris.nereids.trees.expressions.functions.scalar;
 import org.apache.doris.catalog.FunctionSignature;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.AlwaysNotNullable;
+import org.apache.doris.nereids.trees.expressions.functions.CustomSignature;
 import org.apache.doris.nereids.trees.expressions.functions.IdenticalSignature;
 import org.apache.doris.nereids.trees.expressions.shape.UnaryExpression;
 import org.apache.doris.nereids.types.ArrayType;
 import org.apache.doris.nereids.types.BigIntType;
 import org.apache.doris.nereids.types.BitmapType;
 import org.apache.doris.nereids.types.BooleanType;
+import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.DateTimeType;
 import org.apache.doris.nereids.types.DateTimeV2Type;
 import org.apache.doris.nereids.types.DateType;
@@ -49,38 +51,17 @@ import java.util.List;
 /**
  * change nullable input col to non_nullable col
  */
-public class NonNullable extends ScalarFunction implements UnaryExpression, IdenticalSignature, AlwaysNotNullable {
-
-    public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
-            FunctionSignature.ret(BooleanType.INSTANCE).args(BooleanType.INSTANCE),
-            FunctionSignature.ret(TinyIntType.INSTANCE).args(TinyIntType.INSTANCE),
-            FunctionSignature.ret(SmallIntType.INSTANCE).args(SmallIntType.INSTANCE),
-            FunctionSignature.ret(IntegerType.INSTANCE).args(IntegerType.INSTANCE),
-            FunctionSignature.ret(BigIntType.INSTANCE).args(BigIntType.INSTANCE),
-            FunctionSignature.ret(LargeIntType.INSTANCE).args(LargeIntType.INSTANCE),
-            FunctionSignature.ret(FloatType.INSTANCE).args(FloatType.INSTANCE),
-            FunctionSignature.ret(DoubleType.INSTANCE).args(DoubleType.INSTANCE),
-            FunctionSignature.ret(DateType.INSTANCE).args(DateType.INSTANCE),
-            FunctionSignature.ret(DateV2Type.INSTANCE).args(DateV2Type.INSTANCE),
-            FunctionSignature.ret(DateTimeType.INSTANCE).args(DateTimeType.INSTANCE),
-            FunctionSignature.ret(DateTimeV2Type.SYSTEM_DEFAULT).args(DateTimeV2Type.SYSTEM_DEFAULT),
-            FunctionSignature.ret(DateType.INSTANCE).args(DateType.INSTANCE),
-            FunctionSignature.ret(DecimalV2Type.INSTANCE).args(DecimalV2Type.INSTANCE),
-            FunctionSignature.ret(DecimalV3Type.INSTANCE).args(DecimalV3Type.INSTANCE),
-            FunctionSignature.ret(VarcharType.SYSTEM_DEFAULT).args(VarcharType.SYSTEM_DEFAULT),
-            FunctionSignature.ret(StringType.INSTANCE).args(StringType.INSTANCE),
-            FunctionSignature.ret(BitmapType.INSTANCE).args(BitmapType.INSTANCE),
-            FunctionSignature.ret(JsonType.INSTANCE).args(JsonType.INSTANCE),
-            FunctionSignature.ret(ArrayType.SYSTEM_DEFAULT).args(ArrayType.SYSTEM_DEFAULT)
-            );
+public class NonNullable extends ScalarFunction implements UnaryExpression, CustomSignature, AlwaysNotNullable {
 
     public NonNullable(Expression expr) {
         super("non_nullable", expr);
     }
 
     @Override
-    public List<FunctionSignature> getSignatures() {
-        return SIGNATURES;
+    public FunctionSignature customSignature() {
+        DataType dataType = getArgument(0).getDataType();
+        return FunctionSignature.ret(dataType).args(dataType);
     }
+
 
 }
