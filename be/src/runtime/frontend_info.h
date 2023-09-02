@@ -15,12 +15,16 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "runtime/result_writer.h"
+#include <gen_cpp/HeartbeatService_types.h>
+
+#include <ctime>
 
 namespace doris {
 
-const std::string ResultWriter::NULL_IN_CSV = "\\N";
+struct FrontendInfo {
+    TFrontendInfo info;
+    std::time_t first_receiving_time_ms;
+    std::time_t last_reveiving_time_ms;
+};
 
-}
-
-/* vim: set ts=4 sw=4 sts=4 tw=100 expandtab : */
+} // namespace doris

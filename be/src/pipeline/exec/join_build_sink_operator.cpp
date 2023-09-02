@@ -17,13 +17,39 @@
 
 #include "join_build_sink_operator.h"
 
-#include "pipeline/exec/operator.h"
+#include "pipeline/exec/hashjoin_build_sink.h"
+#include "pipeline/pipeline_x/operator.h"
 
 namespace doris::pipeline {
 
-JoinBuildSinkOperatorX::JoinBuildSinkOperatorX(ObjectPool* pool, const TPlanNode& tnode,
-                                               const DescriptorTbl& descs)
-        : DataSinkOperatorX(tnode.node_id),
+template <typename DependencyType, typename Derived>
+Status JoinBuildSinkLocalState<DependencyType, Derived>::init(RuntimeState* state,
+                                                              LocalSinkStateInfo& info) {
+    RETURN_IF_ERROR(PipelineXSinkLocalState<DependencyType>::init(state, info));
+    auto& p = PipelineXSinkLocalState<DependencyType>::_parent
+                      ->template cast<typename Derived::Parent>();
+
+    PipelineXSinkLocalState<DependencyType>::profile()->add_info_string("JoinType",
+                                                                        to_string(p._join_op));
+    _build_phase_profile = PipelineXSinkLocalState<DependencyType>::profile()->create_child(
+            "BuildPhase", true, true);
+    _build_get_next_timer = ADD_TIMER(_build_phase_profile, "BuildGetNextTime");
+    _build_timer = ADD_TIMER(_build_phase_profile, "BuildTime");
+    _build_rows_counter = ADD_COUNTER(_build_phase_profile, "BuildRows", TUnit::UNIT);
+
+    _push_down_timer = ADD_TIMER(PipelineXSinkLocalState<DependencyType>::profile(),
+                                 "PublishRuntimeFilterTime");
+    _push_compute_timer =
+            ADD_TIMER(PipelineXSinkLocalState<DependencyType>::profile(), "PushDownComputeTime");
+
+    return Status::OK();
+}
+
+template <typename LocalStateType>
+JoinBuildSinkOperatorX<LocalStateType>::JoinBuildSinkOperatorX(ObjectPool* pool,
+                                                               const TPlanNode& tnode,
+                                                               const DescriptorTbl& descs)
+        : DataSinkOperatorX<LocalStateType>(tnode.node_id),
           _join_op(tnode.__isset.hash_join_node ? tnode.hash_join_node.join_op
                                                 : (tnode.__isset.nested_loop_join_node
                                                            ? tnode.nested_loop_join_node.join_op
@@ -75,7 +101,8 @@ JoinBuildSinkOperatorX::JoinBuildSinkOperatorX(ObjectPool* pool, const TPlanNode
     M(RIGHT_ANTI_JOIN)               \
     M(NULL_AWARE_LEFT_ANTI_JOIN)
 
-void JoinBuildSinkOperatorX::_init_join_op() {
+template <typename LocalStateType>
+void JoinBuildSinkOperatorX<LocalStateType>::_init_join_op() {
     switch (_join_op) {
 #define M(NAME)                                                                            \
     case TJoinOp::NAME:                                                                    \
@@ -88,5 +115,8 @@ void JoinBuildSinkOperatorX::_init_join_op() {
         break;
     }
 }
+
+template class JoinBuildSinkOperatorX<HashJoinBuildSinkLocalState>;
+template class JoinBuildSinkLocalState<JoinDependency, HashJoinBuildSinkLocalState>;
 
 } // namespace doris::pipeline

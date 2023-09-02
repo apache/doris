@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "vec/runtime/vfile_result_writer.h"
+#include "vfile_result_writer.h"
 
 #include <gen_cpp/Data_types.h>
 #include <gen_cpp/Metrics_types.h>
@@ -72,18 +72,20 @@ namespace doris::vectorized {
 const size_t VFileResultWriter::OUTSTREAM_BUFFER_SIZE_BYTES = 1024 * 1024;
 using doris::operator<<;
 
+VFileResultWriter::VFileResultWriter(const TDataSink& t_sink, const VExprContextSPtrs& output_exprs)
+        : AsyncResultWriter(output_exprs) {}
+
 VFileResultWriter::VFileResultWriter(const ResultFileOptions* file_opts,
                                      const TStorageBackendType::type storage_type,
                                      const TUniqueId fragment_instance_id,
                                      const VExprContextSPtrs& output_vexpr_ctxs,
-                                     RuntimeProfile* parent_profile, BufferControlBlock* sinker,
-                                     Block* output_block, bool output_object_data,
+                                     BufferControlBlock* sinker, Block* output_block,
+                                     bool output_object_data,
                                      const RowDescriptor& output_row_descriptor)
-        : _file_opts(file_opts),
+        : AsyncResultWriter(output_vexpr_ctxs),
+          _file_opts(file_opts),
           _storage_type(storage_type),
           _fragment_instance_id(fragment_instance_id),
-          _output_vexpr_ctxs(output_vexpr_ctxs),
-          _parent_profile(parent_profile),
           _sinker(sinker),
           _output_block(output_block),
           _output_row_descriptor(output_row_descriptor),
@@ -91,9 +93,9 @@ VFileResultWriter::VFileResultWriter(const ResultFileOptions* file_opts,
     _output_object_data = output_object_data;
 }
 
-Status VFileResultWriter::init(RuntimeState* state) {
+Status VFileResultWriter::_init(RuntimeState* state, RuntimeProfile* profile) {
     _state = state;
-    _init_profile();
+    _init_profile(profile);
     // Delete existing files
     if (_file_opts->delete_existing_files) {
         RETURN_IF_ERROR(_delete_dir());
@@ -101,8 +103,8 @@ Status VFileResultWriter::init(RuntimeState* state) {
     return _create_next_file_writer();
 }
 
-void VFileResultWriter::_init_profile() {
-    RuntimeProfile* profile = _parent_profile->create_child("VFileResultWriter", true, true);
+void VFileResultWriter::_init_profile(RuntimeProfile* parent_profile) {
+    RuntimeProfile* profile = parent_profile->create_child("VFileResultWriter", true, true);
     _append_row_batch_timer = ADD_TIMER(profile, "AppendBatchTime");
     _convert_tuple_timer = ADD_CHILD_TIMER(profile, "TupleConvertTime", "AppendBatchTime");
     _file_write_timer = ADD_CHILD_TIMER(profile, "FileWriteTime", "AppendBatchTime");
@@ -160,13 +162,13 @@ Status VFileResultWriter::_create_file_writer(const std::string& file_name) {
         break;
     case TFileFormatType::FORMAT_PARQUET:
         _vfile_writer.reset(new VParquetWriterWrapper(
-                _file_writer_impl.get(), _output_vexpr_ctxs, _file_opts->parquet_schemas,
+                _file_writer_impl.get(), _vec_output_expr_ctxs, _file_opts->parquet_schemas,
                 _file_opts->parquet_commpression_type, _file_opts->parquert_disable_dictionary,
                 _file_opts->parquet_version, _output_object_data));
         RETURN_IF_ERROR(_vfile_writer->prepare());
         break;
     case TFileFormatType::FORMAT_ORC:
-        _vfile_writer.reset(new VOrcWriterWrapper(_file_writer_impl.get(), _output_vexpr_ctxs,
+        _vfile_writer.reset(new VOrcWriterWrapper(_file_writer_impl.get(), _vec_output_expr_ctxs,
                                                   _file_opts->orc_schema, _output_object_data));
         RETURN_IF_ERROR(_vfile_writer->prepare());
         break;
@@ -237,12 +239,9 @@ Status VFileResultWriter::append_block(Block& block) {
     }
     RETURN_IF_ERROR(write_csv_header());
     SCOPED_TIMER(_append_row_batch_timer);
-    Status status = Status::OK();
-    // Exec vectorized expr here to speed up, block.rows() == 0 means expr exec
-    // failed, just return the error status
     Block output_block;
-    RETURN_IF_ERROR(VExprContext::get_output_block_after_execute_exprs(_output_vexpr_ctxs, block,
-                                                                       &output_block));
+    RETURN_IF_ERROR(_projection_block(block, &output_block));
+
     if (_vfile_writer) {
         RETURN_IF_ERROR(_write_file(output_block));
     } else {
@@ -267,7 +266,7 @@ Status VFileResultWriter::_write_csv_file(const Block& block) {
             if (col.column->is_null_at(i)) {
                 _plain_text_outstream << NULL_IN_CSV;
             } else {
-                switch (_output_vexpr_ctxs[col_id]->root()->type().type) {
+                switch (_vec_output_expr_ctxs[col_id]->root()->type().type) {
                 case TYPE_BOOLEAN:
                 case TYPE_TINYINT:
                     _plain_text_outstream << (int)*reinterpret_cast<const int8_t*>(
@@ -327,7 +326,7 @@ Status VFileResultWriter::_write_csv_file(const Block& block) {
                     const DateV2Value<DateTimeV2ValueType>* time_val =
                             (const DateV2Value<DateTimeV2ValueType>*)(col.column->get_data_at(i)
                                                                               .data);
-                    time_val->to_string(buf, _output_vexpr_ctxs[col_id]->root()->type().scale);
+                    time_val->to_string(buf, _vec_output_expr_ctxs[col_id]->root()->type().scale);
                     _plain_text_outstream << buf;
                     break;
                 }
@@ -406,9 +405,9 @@ Status VFileResultWriter::_write_csv_file(const Block& block) {
 
 std::string VFileResultWriter::gen_types() {
     std::string types;
-    int num_columns = _output_vexpr_ctxs.size();
+    int num_columns = _vec_output_expr_ctxs.size();
     for (int i = 0; i < num_columns; ++i) {
-        types += type_to_string(_output_vexpr_ctxs[i]->root()->type().type);
+        types += type_to_string(_vec_output_expr_ctxs[i]->root()->type().type);
         if (i < num_columns - 1) {
             types += _file_opts->column_separator;
         }
@@ -419,7 +418,7 @@ std::string VFileResultWriter::gen_types() {
 
 Status VFileResultWriter::write_csv_header() {
     if (!_header_sent && _header.size() > 0) {
-        std::string tmp_header = _header;
+        std::string tmp_header(_header);
         if (_header_type == BeConsts::CSV_WITH_NAMES_AND_TYPES) {
             tmp_header += gen_types();
         }
@@ -628,9 +627,13 @@ Status VFileResultWriter::close() {
     // because `_close_file_writer()` may be called in deconstructor,
     // at that time, the RuntimeState may already been deconstructed,
     // so does the profile in RuntimeState.
-    COUNTER_SET(_written_rows_counter, _written_rows);
-    SCOPED_TIMER(_writer_close_timer);
+    if (_written_rows_counter) {
+        COUNTER_SET(_written_rows_counter, _written_rows);
+        SCOPED_TIMER(_writer_close_timer);
+    }
     return _close_file_writer(true);
 }
+
+const string VFileResultWriter::NULL_IN_CSV = "\\N";
 
 } // namespace doris::vectorized

@@ -24,6 +24,7 @@
 #include "common/status.h"
 #include "exchange_sink_buffer.h"
 #include "operator.h"
+#include "pipeline/pipeline_x/operator.h"
 #include "vec/sink/vdata_stream_sender.h"
 
 namespace doris {
@@ -69,7 +70,7 @@ class ExchangeSinkLocalState : public PipelineXSinkLocalState<> {
     ENABLE_FACTORY_CREATOR(ExchangeSinkLocalState);
 
 public:
-    ExchangeSinkLocalState(DataSinkOperatorX* parent, RuntimeState* state)
+    ExchangeSinkLocalState(DataSinkOperatorXBase* parent, RuntimeState* state)
             : PipelineXSinkLocalState<>(parent, state),
               current_channel_idx(0),
               only_local_exchange(false),
@@ -148,7 +149,7 @@ private:
     vectorized::BlockSerializer<ExchangeSinkLocalState> _serializer;
 };
 
-class ExchangeSinkOperatorX final : public DataSinkOperatorX {
+class ExchangeSinkOperatorX final : public DataSinkOperatorX<ExchangeSinkLocalState> {
 public:
     ExchangeSinkOperatorX(RuntimeState* state, ObjectPool* pool, const RowDescriptor& row_desc,
                           const TDataStreamSink& sink,
@@ -165,7 +166,6 @@ public:
 
     Status prepare(RuntimeState* state) override;
     Status open(RuntimeState* state) override;
-    Status setup_local_state(RuntimeState* state, LocalSinkStateInfo& info) override;
 
     Status sink(RuntimeState* state, vectorized::Block* in_block,
                 SourceState source_state) override;

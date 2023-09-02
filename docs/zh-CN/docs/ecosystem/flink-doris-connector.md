@@ -303,15 +303,16 @@ ON a.city = c.city
 
 ### 通用配置项
 
-| Key                              | Default Value | Required | Comment                                         |
-| -------------------------------- | ------------- | -------- | ----------------------------------------------- |
-| fenodes                          | --            | Y        | Doris FE http 地址， 支持多个地址，使用逗号分隔 |
-| table.identifier                 | --            | Y        | Doris 表名，如：db.tbl                          |
-| username                         | --            | Y        | 访问 Doris 的用户名                             |
-| password                         | --            | Y        | 访问 Doris 的密码                               |
-| doris.request.retries            | 3             | N        | 向 Doris 发送请求的重试次数                     |
-| doris.request.connect.timeout.ms | 30000         | N        | 向 Doris 发送请求的连接超时时间                 |
-| doris.request.read.timeout.ms    | 30000         | N        | 向 Doris 发送请求的读取超时时间                 |
+| Key                              | Default Value | Required | Comment                                                                                            |
+|----------------------------------|---------------|----------|----------------------------------------------------------------------------------------------------|
+| fenodes                          | --            | Y        | Doris FE http 地址， 支持多个地址，使用逗号分隔                                                                    |
+| benodes                          | --            | N        | Doris BE http 地址， 支持多个地址，使用逗号分隔，参考[#187](https://github.com/apache/doris-flink-connector/pull/187) |
+| table.identifier                 | --            | Y        | Doris 表名，如：db.tbl                                                                                  |
+| username                         | --            | Y        | 访问 Doris 的用户名                                                                                      |
+| password                         | --            | Y        | 访问 Doris 的密码                                                                                       |
+| doris.request.retries            | 3             | N        | 向 Doris 发送请求的重试次数                                                                                  |
+| doris.request.connect.timeout.ms | 30000         | N        | 向 Doris 发送请求的连接超时时间                                                                                |
+| doris.request.read.timeout.ms    | 30000         | N        | 向 Doris 发送请求的读取超时时间                                                                                |
 
 ### Source 配置项
 
@@ -441,6 +442,8 @@ insert into doris_sink select id,name from cdc_mysql_source;
 - **--oracle-conf** Oracle CDCSource 配置，例如--oracle-conf hostname=127.0.0.1 ，您可以在[这里](https://ververica.github.io/flink-cdc-connectors/master/content/connectors/oracle-cdc.html)查看所有配置Oracle-CDC，其中hostname/username/password/database-name/schema-name 是必需的。
 - **--sink-conf** Doris Sink 的所有配置，可以在[这里](https://doris.apache.org/zh-CN/docs/dev/ecosystem/flink-doris-connector/#%E9%80%9A%E7%94%A8%E9%85%8D%E7%BD%AE%E9%A1%B9)查看完整的配置项。
 - **--table-conf** Doris表的配置项，即properties中包含的内容。 例如 --table-conf replication_num=1
+- **--ignore-default-value** 关闭同步mysql表结构的默认值。适用于同步mysql数据到doris时，字段有默认值，但实际插入数据为null情况。参考[#152](https://github.com/apache/doris-flink-connector/pull/152)
+- **--use-new-schema-change** 新的schema change支持同步mysql多列变更、默认值。参考[#167](https://github.com/apache/doris-flink-connector/pull/167)
 
 >注：同步时需要在$FLINK_HOME/lib 目录下添加对应的Flink CDC依赖，比如 flink-sql-connector-mysql-cdc-${version}.jar，flink-sql-connector-oracle-cdc-${version}.jar
 

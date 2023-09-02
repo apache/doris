@@ -40,6 +40,7 @@
 #include "common/factory_creator.h"
 #include "common/status.h"
 #include "gutil/integral_types.h"
+#include "util/debug_util.h"
 #include "util/runtime_profile.h"
 #include "util/telemetry/telemetry.h"
 
@@ -173,7 +174,9 @@ public:
         _is_cancelled.store(v);
         // Create a error status, so that we could print error stack, and
         // we could know which path call cancel.
-        LOG(INFO) << "task is cancelled, st = " << Status::Error<ErrorCode::CANCELLED>(msg);
+        LOG(WARNING) << "Task is cancelled, instance: "
+                     << PrintInstanceStandardInfo(_query_id, _fragment_id, _fragment_instance_id)
+                     << " st = " << Status::Error<ErrorCode::CANCELLED>(msg);
     }
 
     void set_backend_id(int64_t backend_id) { _backend_id = backend_id; }

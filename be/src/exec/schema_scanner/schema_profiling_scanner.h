@@ -15,28 +15,32 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.scheduler.constants;
+#pragma once
 
-import lombok.Getter;
+#include <gen_cpp/FrontendService_types.h>
 
-/**
- * System scheduler event job
- * They will start when scheduler starts,don't use this job in other place,it just for system inner scheduler
- */
-public enum SystemJob {
+#include <vector>
 
-    /**
-     * System cycle scheduler event job, it will start cycle scheduler
-     */
-    SYSTEM_SCHEDULER_JOB("system_scheduler_event_job", 1L);
+#include "common/status.h"
+#include "exec/schema_scanner.h"
 
-    @Getter
-    private final String description;
-    @Getter
-    private final Long id;
+namespace doris {
+class RuntimeState;
+namespace vectorized {
+class Block;
+} // namespace vectorized
 
-    SystemJob(String description, Long id) {
-        this.description = description;
-        this.id = id;
-    }
-}
+class SchemaProfilingScanner : public SchemaScanner {
+    ENABLE_FACTORY_CREATOR(SchemaProfilingScanner);
+
+public:
+    SchemaProfilingScanner();
+    ~SchemaProfilingScanner() override;
+
+    Status start(RuntimeState* state) override;
+    Status get_next_block(vectorized::Block* block, bool* eos) override;
+
+    static std::vector<SchemaScanner::ColumnDesc> _s_tbls_columns;
+};
+
+} // namespace doris

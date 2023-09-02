@@ -62,6 +62,7 @@ void HeartbeatServer::heartbeat(THeartbeatResult& heartbeat_result,
                           << "host:" << master_info.network_address.hostname
                           << ", port:" << master_info.network_address.port
                           << ", cluster id:" << master_info.cluster_id
+                          << ", frontend_info:" << PrintFrontendInfos(master_info.frontend_infos)
                           << ", counter:" << google::COUNTER << ", BE start time: " << _be_epoch;
 
     MonotonicStopWatch watch;
@@ -97,7 +98,8 @@ Status HeartbeatServer::_heartbeat(const TMasterInfo& master_info) {
         _master_info->cluster_id = master_info.cluster_id;
         LOG(INFO) << "record cluster id. host: " << master_info.network_address.hostname
                   << ". port: " << master_info.network_address.port
-                  << ". cluster id: " << master_info.cluster_id;
+                  << ". cluster id: " << master_info.cluster_id
+                  << ". frontend_infos: " << PrintFrontendInfos(master_info.frontend_infos);
     } else {
         if (_master_info->cluster_id != master_info.cluster_id) {
             return Status::InternalError("invalid cluster id. ignore. cluster_id={}",
@@ -210,6 +212,10 @@ Status HeartbeatServer::_heartbeat(const TMasterInfo& master_info) {
         _master_info->__set_backend_id(master_info.backend_id);
     }
 
+    if (master_info.__isset.frontend_infos) {
+        ExecEnv::GetInstance()->update_frontends(master_info.frontend_infos);
+    }
+
     if (need_report) {
         LOG(INFO) << "Master FE is changed or restarted. report tablet and disk info immediately";
         _olap_engine->notify_listeners();
@@ -219,8 +225,8 @@ Status HeartbeatServer::_heartbeat(const TMasterInfo& master_info) {
 }
 
 Status create_heartbeat_server(ExecEnv* exec_env, uint32_t server_port,
-                               ThriftServer** thrift_server, uint32_t worker_thread_num,
-                               TMasterInfo* local_master_info) {
+                               std::unique_ptr<ThriftServer>* thrift_server,
+                               uint32_t worker_thread_num, TMasterInfo* local_master_info) {
     HeartbeatServer* heartbeat_server = new HeartbeatServer(local_master_info);
     if (heartbeat_server == nullptr) {
         return Status::InternalError("Get heartbeat server failed");
@@ -231,8 +237,8 @@ Status create_heartbeat_server(ExecEnv* exec_env, uint32_t server_port,
     std::shared_ptr<HeartbeatServer> handler(heartbeat_server);
     std::shared_ptr<HeartbeatServiceProcessor::TProcessor> server_processor(
             new HeartbeatServiceProcessor(handler));
-    *thrift_server =
-            new ThriftServer("heartbeat", server_processor, server_port, worker_thread_num);
+    *thrift_server = std::make_unique<ThriftServer>("heartbeat", server_processor, server_port,
+                                                    worker_thread_num);
     return Status::OK();
 }
 } // namespace doris

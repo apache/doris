@@ -37,8 +37,6 @@ public enum JobStatus {
      */
     STOPPED,
 
-    WAITING_FINISH,
-
     /**
      * When the task is finished, the finished state will be triggered.
      */

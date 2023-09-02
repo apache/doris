@@ -37,7 +37,7 @@ struct Overload : Callables... {
 template <typename... Callables>
 Overload(Callables&&... callables) -> Overload<Callables...>;
 
-HashJoinBuildSinkLocalState::HashJoinBuildSinkLocalState(DataSinkOperatorX* parent,
+HashJoinBuildSinkLocalState::HashJoinBuildSinkLocalState(DataSinkOperatorXBase* parent,
                                                          RuntimeState* state)
         : JoinBuildSinkLocalState(parent, state),
           _build_block_idx(0),
@@ -583,19 +583,12 @@ Status HashJoinBuildSinkOperatorX::sink(RuntimeState* state, vectorized::Block* 
     return Status::OK();
 }
 
-Status HashJoinBuildSinkOperatorX::setup_local_state(RuntimeState* state,
-                                                     LocalSinkStateInfo& info) {
-    auto local_state = HashJoinBuildSinkLocalState::create_shared(this, state);
-    state->emplace_sink_local_state(id(), local_state);
-    return local_state->init(state, info);
-}
-
 Status HashJoinBuildSinkOperatorX::close(RuntimeState* state) {
     if (!is_closed()) {
         _shared_hash_table_context = nullptr;
         _is_closed = true;
     }
-    return JoinBuildSinkOperatorX::close(state);
+    return JoinBuildSinkOperatorX<HashJoinBuildSinkLocalState>::close(state);
 }
 
 } // namespace doris::pipeline

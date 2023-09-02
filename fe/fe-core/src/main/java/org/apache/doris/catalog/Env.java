@@ -241,6 +241,7 @@ import org.apache.doris.task.MasterTaskExecutor;
 import org.apache.doris.task.PriorityMasterTaskExecutor;
 import org.apache.doris.thrift.BackendService;
 import org.apache.doris.thrift.TCompressionType;
+import org.apache.doris.thrift.TFrontendInfo;
 import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TStorageMedium;
 import org.apache.doris.transaction.DbUsedDataQuotaInfoCollector;
@@ -476,6 +477,19 @@ public class Env {
     private StatisticsAutoAnalyzer statisticsAutoAnalyzer;
 
     private HiveTransactionMgr hiveTransactionMgr;
+
+    public List<TFrontendInfo> getFrontendInfos() {
+        List<TFrontendInfo> res = new ArrayList<>();
+
+        for (Frontend fe : frontends.values()) {
+            TFrontendInfo feInfo = new TFrontendInfo();
+            feInfo.setCoordinatorAddress(new TNetworkAddress(fe.getHost(), fe.getRpcPort()));
+            feInfo.setProcessUuid(fe.getProcessUUID());
+            res.add(feInfo);
+        }
+
+        return res;
+    }
 
     public List<Frontend> getFrontends(FrontendNodeType nodeType) {
         if (nodeType == null) {
@@ -4473,6 +4487,9 @@ public class Env {
     public void modifyTableDynamicPartition(Database db, OlapTable table, Map<String, String> properties)
             throws UserException {
         convertDynamicPartitionReplicaNumToReplicaAllocation(properties);
+        if (properties.containsKey(DynamicPartitionProperty.REPLICATION_ALLOCATION)) {
+            table.checkChangeReplicaAllocation();
+        }
         Map<String, String> logProperties = new HashMap<>(properties);
         TableProperty tableProperty = table.getTableProperty();
         if (tableProperty == null) {
@@ -4532,6 +4549,7 @@ public class Env {
         }
 
         ReplicaAllocation replicaAlloc = PropertyAnalyzer.analyzeReplicaAllocation(properties, "");
+        table.checkChangeReplicaAllocation();
         Env.getCurrentSystemInfo().checkReplicaAllocation(replicaAlloc);
         Preconditions.checkState(!replicaAlloc.isNotSet());
         boolean isInMemory = partitionInfo.getIsInMemory(partition.getId());
@@ -4561,8 +4579,10 @@ public class Env {
      * @param properties
      */
     // The caller need to hold the table write lock
-    public void modifyTableDefaultReplicaAllocation(Database db, OlapTable table, Map<String, String> properties) {
+    public void modifyTableDefaultReplicaAllocation(Database db, OlapTable table,
+            Map<String, String> properties) throws UserException {
         Preconditions.checkArgument(table.isWriteLockHeldByCurrentThread());
+        table.checkChangeReplicaAllocation();
         table.setReplicaAllocation(properties);
         ModifyTablePropertyOperationLog info =
                 new ModifyTablePropertyOperationLog(db.getId(), table.getId(), table.getName(),
@@ -5180,8 +5200,9 @@ public class Env {
         olapTable.replaceTempPartitions(partitionNames, tempPartitionNames, isStrictRange, useTempPartitionName);
 
         // write log
-        ReplacePartitionOperationLog info = new ReplacePartitionOperationLog(db.getId(), olapTable.getId(),
-                partitionNames, tempPartitionNames, isStrictRange, useTempPartitionName);
+        ReplacePartitionOperationLog info =
+                new ReplacePartitionOperationLog(db.getId(), db.getFullName(), olapTable.getId(), olapTable.getName(),
+                        partitionNames, tempPartitionNames, isStrictRange, useTempPartitionName);
         editLog.logReplaceTempPartition(info);
         LOG.info("finished to replace partitions {} with temp partitions {} from table: {}", clause.getPartitionNames(),
                 clause.getTempPartitionNames(), olapTable.getName());

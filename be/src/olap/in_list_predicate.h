@@ -287,6 +287,8 @@ public:
         return new_size;
     }
     int get_filter_id() const override { return _values->get_filter_id(); }
+    bool is_filter() const override { return true; }
+
     template <bool is_and>
     void _evaluate_bit(const vectorized::IColumn& column, const uint16_t* sel, uint16_t size,
                        bool* flags) const {

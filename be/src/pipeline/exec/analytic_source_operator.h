@@ -21,6 +21,7 @@
 
 #include "common/status.h"
 #include "operator.h"
+#include "pipeline/pipeline_x/operator.h"
 #include "vec/exec/vanalytic_eval_node.h"
 
 namespace doris {
@@ -113,12 +114,10 @@ private:
     executor _executor;
 };
 
-class AnalyticSourceOperatorX final : public OperatorXBase {
+class AnalyticSourceOperatorX final : public OperatorX<AnalyticLocalState> {
 public:
     AnalyticSourceOperatorX(ObjectPool* pool, const TPlanNode& tnode, const DescriptorTbl& descs);
     bool can_read(RuntimeState* state) override;
-
-    Status setup_local_state(RuntimeState* state, LocalStateInfo& info) override;
 
     Status get_block(RuntimeState* state, vectorized::Block* block,
                      SourceState& source_state) override;

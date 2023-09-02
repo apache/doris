@@ -101,6 +101,8 @@ public:
 
     TUniqueId get_query_id() const { return _query_id; }
 
+    [[nodiscard]] int get_fragment_id() const { return _fragment_id; }
+
     void close_a_pipeline();
 
     std::string to_http_path(const std::string& file_name);

@@ -347,6 +347,7 @@ DECLARE_mInt32(trash_file_expire_time_sec);
 // minimum file descriptor number
 // modify them upon necessity
 DECLARE_Int32(min_file_descriptor_number);
+DECLARE_mBool(disable_segment_cache);
 DECLARE_Int64(index_stream_cache_capacity);
 DECLARE_String(row_cache_mem_limit);
 
@@ -359,6 +360,7 @@ DECLARE_Int32(storage_page_cache_shard_size);
 // all storage page cache will be divided into data_page_cache and index_page_cache
 DECLARE_Int32(index_page_cache_percentage);
 // whether to disable page cache feature in storage
+// TODO delete it. Divided into Data page, Index page, pk index page
 DECLARE_Bool(disable_storage_page_cache);
 // whether to disable row cache feature in storage
 DECLARE_Bool(disable_storage_row_cache);
@@ -1069,6 +1071,9 @@ DECLARE_Bool(enable_shrink_memory);
 DECLARE_mInt32(schema_cache_capacity);
 DECLARE_mInt32(schema_cache_sweep_time_sec);
 
+// max number of segment cache
+DECLARE_mInt32(segment_cache_capacity);
+
 // enable binlog
 DECLARE_Bool(enable_feature_binlog);
 
@@ -1136,6 +1141,10 @@ DECLARE_mString(user_files_secure_path);
 // This threshold determines how many partitions will be allocated for window function get topn.
 // and if this threshold is exceeded, the remaining data will be pass through to other node directly.
 DECLARE_Int32(partition_topn_partition_threshold);
+
+// If fe's frontend info has not been updated for more than fe_expire_duration_seconds, it will be regarded
+// as an abnormal fe, this will cause be to cancel this fe's related query.
+DECLARE_Int32(fe_expire_duration_seconds);
 
 #ifdef BE_TEST
 // test s3
