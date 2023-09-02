@@ -75,6 +75,12 @@ suite("nereids_scalar_fn_C") {
 	qt_sql_concat_Varchar_notnull "select concat(kvchrs1) from fn_test_not_nullable order by kvchrs1"
 	qt_sql_concat_String "select concat(kstr) from fn_test order by kstr"
 	qt_sql_concat_String_notnull "select concat(kstr) from fn_test_not_nullable order by kstr"
+	qt_sql_concat_ws_Varchar "select concat_ws(', ', kvchrs1) from fn_test order by kvchrs1"
+	qt_sql_concat_ws_Varchar_notnull "select concat_ws(', ', kvchrs1) from fn_test_not_nullable order by kvchrs1"
+	qt_sql_concat_ws_String "select concat_ws(', ', kstr) from fn_test order by kstr"
+	qt_sql_concat_ws_String_notnull "select concat_ws(', ', kstr) from fn_test_not_nullable order by kstr"
+	order_qt_sql_concat_ws_ArrayVarchar "select concat_ws(', ', kavchr) from fn_test"
+	order_qt_sql_concat_ws_ArrayVarchar_notnull "select concat_ws(', ', kavchr) from fn_test_not_nullable"
 	sql "select connection_id() from fn_test"
 	sql "select connection_id() from fn_test_not_nullable"
 	qt_sql_conv_BigInt_TinyInt_TinyInt "select conv(kbint, ktint, ktint) from fn_test order by kbint, ktint, ktint"
@@ -93,4 +99,8 @@ suite("nereids_scalar_fn_C") {
 	qt_sql_cos_Double_notnull "select cos(kdbl) from fn_test_not_nullable order by kdbl"
 	sql "select current_user() from fn_test"
 	sql "select current_user() from fn_test_not_nullable"
+
+	qt_char "select char(68, 111, 114, 105, 115), char(68, 111, 114, 105, 115 using utf8);"
+	qt_convert "select convert(1 using gbk), convert(1, string);"
+
 }

@@ -24,7 +24,6 @@ import org.apache.doris.nereids.trees.expressions.typecoercion.ExpectsInputTypes
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.BooleanType;
 import org.apache.doris.nereids.types.DataType;
-import org.apache.doris.nereids.types.coercion.AbstractDataType;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
@@ -37,7 +36,7 @@ import java.util.Objects;
  */
 public class Not extends Expression implements UnaryExpression, ExpectsInputTypes, PropagateNullable {
 
-    public static final List<AbstractDataType> EXPECTS_INPUT_TYPES = ImmutableList.of(BooleanType.INSTANCE);
+    public static final List<DataType> EXPECTS_INPUT_TYPES = ImmutableList.of(BooleanType.INSTANCE);
 
     public Not(Expression child) {
         super(ImmutableList.of(child));
@@ -98,7 +97,7 @@ public class Not extends Expression implements UnaryExpression, ExpectsInputType
     }
 
     @Override
-    public List<AbstractDataType> expectedInputTypes() {
+    public List<DataType> expectedInputTypes() {
         return EXPECTS_INPUT_TYPES;
     }
 }

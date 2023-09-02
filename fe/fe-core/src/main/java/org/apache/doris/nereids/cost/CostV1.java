@@ -19,23 +19,19 @@ package org.apache.doris.nereids.cost;
 
 class CostV1 implements Cost {
     private static final CostV1 INFINITE = new CostV1(Double.POSITIVE_INFINITY, Double.POSITIVE_INFINITY,
-            Double.POSITIVE_INFINITY, Double.POSITIVE_INFINITY);
-    private static final CostV1 ZERO = new CostV1(0, 0, 0, 0);
+            Double.POSITIVE_INFINITY);
+    private static final CostV1 ZERO = new CostV1(0, 0, 0);
 
     private final double cpuCost;
     private final double memoryCost;
     private final double networkCost;
-    //penalty for
-    // 1. right deep tree
-    // 2. right XXX join
-    private final double penalty;
 
     private final double cost;
 
     /**
      * Constructor of CostEstimate.
      */
-    public CostV1(double cpuCost, double memoryCost, double networkCost, double penaltiy) {
+    public CostV1(double cpuCost, double memoryCost, double networkCost) {
         // TODO: fix stats
         cpuCost = Double.max(0, cpuCost);
         memoryCost = Double.max(0, memoryCost);
@@ -43,11 +39,10 @@ class CostV1 implements Cost {
         this.cpuCost = cpuCost;
         this.memoryCost = memoryCost;
         this.networkCost = networkCost;
-        this.penalty = penaltiy;
 
         CostWeight costWeight = CostWeight.get();
         this.cost = costWeight.cpuWeight * cpuCost + costWeight.memoryWeight * memoryCost
-                + costWeight.networkWeight * networkCost + costWeight.penaltyWeight * penalty;
+                + costWeight.networkWeight * networkCost;
     }
 
     public CostV1(double cost) {
@@ -55,7 +50,6 @@ class CostV1 implements Cost {
         this.cpuCost = 0;
         this.networkCost = 0;
         this.memoryCost = 0;
-        this.penalty = 0;
     }
 
     public static CostV1 infinite() {
@@ -78,28 +72,20 @@ class CostV1 implements Cost {
         return networkCost;
     }
 
-    public double getPenalty() {
-        return penalty;
-    }
-
     public double getValue() {
         return cost;
     }
 
-    public static CostV1 of(double cpuCost, double maxMemory, double networkCost, double rightDeepPenaltiy) {
-        return new CostV1(cpuCost, maxMemory, networkCost, rightDeepPenaltiy);
-    }
-
     public static CostV1 of(double cpuCost, double maxMemory, double networkCost) {
-        return new CostV1(cpuCost, maxMemory, networkCost, 0);
+        return new CostV1(cpuCost, maxMemory, networkCost);
     }
 
     public static CostV1 ofCpu(double cpuCost) {
-        return new CostV1(cpuCost, 0, 0, 0);
+        return new CostV1(cpuCost, 0, 0);
     }
 
     public static CostV1 ofMemory(double memoryCost) {
-        return new CostV1(0, memoryCost, 0, 0);
+        return new CostV1(0, memoryCost, 0);
     }
 
     @Override
@@ -107,7 +93,7 @@ class CostV1 implements Cost {
         StringBuilder sb = new StringBuilder();
         sb.append("[").append((long) cpuCost).append("/")
                 .append((long) memoryCost).append("/").append((long) networkCost)
-                .append("/").append((long) penalty).append("]");
+                .append("/").append("]");
         return sb.toString();
     }
 }

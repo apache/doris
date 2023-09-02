@@ -257,6 +257,43 @@
 8	chengdu	2345678
 9	xian	2345679
 
+-- !json_limit1 --
+1	beijing	2345671
+10	hefei	23456710
+11	\N	23456711
+12	hefei	\N
+2	shanghai	2345672
+3	guangzhou	2345673
+4	shenzhen	2345674
+5	hangzhou	2345675
+6	nanjing	2345676
+7	wuhan	2345677
+8	chengdu	2345678
+9	xian	2345679
+
+-- !json_limit2 --
+1	beijing	1454547
+10	hefei	2345676
+2	shanghai	1244264
+3	guangzhou	528369
+4	shenzhen	594201
+5	hangzhou	594201
+6	nanjing	2345672
+7	wuhan	2345673
+8	chengdu	2345674
+9	xian	2345675
+
+-- !json_limit3 --
+1	{"id":1,"city":"beijing","code":2345671}
+2	{"id":2,"city":"shanghai","code":2345672}
+3	{"id":3,"city":"hangzhou","code":2345673}
+4	{"id":4,"city":"shenzhen","code":2345674}
+5	{"id":5,"city":"guangzhou","code":2345675}
+
+-- !json_limit4 --
+1	{"id":1,"city":"beijing","code":2345671}
+2	{"id":2,"city":"shanghai","code":2345672}
+
 -- !json_root --
 1	beijing	2345671
 2	shanghai	2345672

@@ -30,6 +30,8 @@ namespace doris {
 
 class TabletSchemaCache {
 public:
+    ~TabletSchemaCache();
+
     static void create_global_schema_cache() {
         DCHECK(_s_instance == nullptr);
         static TabletSchemaCache instance;

@@ -8,7 +8,7 @@ PhysicalResultSink
 ----------PhysicalDistribute
 ------------hashAgg[LOCAL]
 --------------PhysicalProject
-----------------hashJoin[LEFT_SEMI_JOIN](item.i_manufact = i1.i_manufact)
+----------------hashJoin[INNER_JOIN](item.i_manufact = i1.i_manufact)
 ------------------PhysicalProject
 --------------------filter((i1.i_manufact_id >= 748)(i1.i_manufact_id <= 788))
 ----------------------PhysicalOlapScan[item]

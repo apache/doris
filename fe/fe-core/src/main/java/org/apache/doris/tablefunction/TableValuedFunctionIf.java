@@ -30,6 +30,7 @@ import java.util.Map;
 
 public abstract class TableValuedFunctionIf {
     private FunctionGenTable table = null;
+    public static final String TVF_TABLE_PREFIX = "_table_valued_function_";
 
     public FunctionGenTable getTable() throws AnalysisException {
         if (table == null) {
@@ -49,8 +50,8 @@ public abstract class TableValuedFunctionIf {
                 return new S3TableValuedFunction(params);
             case HdfsTableValuedFunction.NAME:
                 return new HdfsTableValuedFunction(params);
-            case StreamTableValuedFunction.NAME:
-                return new StreamTableValuedFunction(params);
+            case HttpStreamTableValuedFunction.NAME:
+                return new HttpStreamTableValuedFunction(params);
             case LocalTableValuedFunction.NAME:
                 return new LocalTableValuedFunction(params);
             case IcebergTableValuedFunction.NAME:

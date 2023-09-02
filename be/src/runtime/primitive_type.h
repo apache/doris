@@ -23,6 +23,7 @@
 #include <stdint.h>
 
 #include <string>
+#include <type_traits>
 
 #include "olap/decimal12.h"
 #include "runtime/define_primitive_type.h"
@@ -31,6 +32,7 @@
 #include "vec/columns/columns_number.h"
 #include "vec/core/types.h"
 #include "vec/runtime/vdatetime_value.h"
+#include "vec/utils/template_helpers.hpp"
 
 namespace doris {
 
@@ -89,6 +91,10 @@ constexpr bool is_string_type(PrimitiveType type) {
     return type == TYPE_CHAR || type == TYPE_VARCHAR || type == TYPE_STRING;
 }
 
+constexpr bool is_variant_string_type(PrimitiveType type) {
+    return type == TYPE_VARCHAR || type == TYPE_STRING;
+}
+
 constexpr bool is_float_or_double(PrimitiveType type) {
     return type == TYPE_FLOAT || type == TYPE_DOUBLE;
 }
@@ -96,11 +102,6 @@ constexpr bool is_float_or_double(PrimitiveType type) {
 constexpr bool is_int_or_bool(PrimitiveType type) {
     return type == TYPE_BOOLEAN || type == TYPE_TINYINT || type == TYPE_SMALLINT ||
            type == TYPE_INT || type == TYPE_BIGINT || type == TYPE_LARGEINT;
-}
-
-constexpr bool has_variable_type(PrimitiveType type) {
-    return type == TYPE_CHAR || type == TYPE_VARCHAR || type == TYPE_OBJECT ||
-           type == TYPE_QUANTILE_STATE || type == TYPE_STRING;
 }
 
 bool is_type_compatible(PrimitiveType lhs, PrimitiveType rhs);
@@ -113,7 +114,7 @@ TTypeDesc gen_type_desc(const TPrimitiveType::type val);
 TTypeDesc gen_type_desc(const TPrimitiveType::type val, const std::string& name);
 
 template <PrimitiveType type>
-constexpr PrimitiveType PredicateEvaluateType = is_string_type(type) ? TYPE_STRING : type;
+constexpr PrimitiveType PredicateEvaluateType = is_variant_string_type(type) ? TYPE_STRING : type;
 
 template <PrimitiveType type>
 struct PrimitiveTypeTraits;
@@ -190,17 +191,17 @@ struct PrimitiveTypeTraits<TYPE_DECIMALV2> {
 };
 template <>
 struct PrimitiveTypeTraits<TYPE_DECIMAL32> {
-    using CppType = int32_t;
+    using CppType = vectorized::Decimal32;
     using ColumnType = vectorized::ColumnDecimal<vectorized::Decimal32>;
 };
 template <>
 struct PrimitiveTypeTraits<TYPE_DECIMAL64> {
-    using CppType = int64_t;
+    using CppType = vectorized::Decimal64;
     using ColumnType = vectorized::ColumnDecimal<vectorized::Decimal64>;
 };
 template <>
 struct PrimitiveTypeTraits<TYPE_DECIMAL128I> {
-    using CppType = __int128_t;
+    using CppType = vectorized::Decimal128I;
     using ColumnType = vectorized::ColumnDecimal<vectorized::Decimal128I>;
 };
 template <>
@@ -268,39 +269,28 @@ struct PredicatePrimitiveTypeTraits<TYPE_DATETIMEV2> {
     using PredicateFieldType = uint64_t;
 };
 
-// used for VInPredicate. VInPredicate should use vectorized data type
-template <PrimitiveType type>
-struct VecPrimitiveTypeTraits {
-    using CppType = typename PrimitiveTypeTraits<type>::CppType;
-    using ColumnType = typename PrimitiveTypeTraits<type>::ColumnType;
+template <typename Traits>
+concept HaveCppType = requires() { sizeof(typename Traits::CppType); };
+
+template <PrimitiveNative type>
+struct PrimitiveTypeSizeReducer {
+    template <HaveCppType Traits>
+    static size_t get_size() {
+        return sizeof(typename Traits::CppType);
+    }
+    template <typename Traits>
+    static size_t get_size() {
+        return 0;
+    }
+
+    static void run(size_t& size) { size = get_size<PrimitiveTypeTraits<PrimitiveType(type)>>(); }
 };
 
-template <>
-struct VecPrimitiveTypeTraits<TYPE_DATE> {
-    using CppType = vectorized::VecDateTimeValue;
-    using ColumnType = vectorized::ColumnVector<vectorized::DateTime>;
-};
-
-template <>
-struct VecPrimitiveTypeTraits<TYPE_DATETIME> {
-    using CppType = vectorized::VecDateTimeValue;
-    using ColumnType = vectorized::ColumnVector<vectorized::DateTime>;
-};
-
-template <>
-struct VecPrimitiveTypeTraits<TYPE_DECIMAL32> {
-    using CppType = vectorized::Decimal32;
-    using ColumnType = vectorized::ColumnDecimal<vectorized::Decimal32>;
-};
-template <>
-struct VecPrimitiveTypeTraits<TYPE_DECIMAL64> {
-    using CppType = vectorized::Decimal64;
-    using ColumnType = vectorized::ColumnDecimal<vectorized::Decimal64>;
-};
-template <>
-struct VecPrimitiveTypeTraits<TYPE_DECIMAL128I> {
-    using CppType = vectorized::Decimal128I;
-    using ColumnType = vectorized::ColumnDecimal<vectorized::Decimal128I>;
-};
+inline size_t get_primitive_type_size(PrimitiveType t) {
+    size_t size = 0;
+    vectorized::constexpr_loop_match<PrimitiveNative, BEGIN_OF_PRIMITIVE_TYPE,
+                                     END_OF_PRIMITIVE_TYPE, PrimitiveTypeSizeReducer>::run(t, size);
+    return size;
+}
 
 } // namespace doris

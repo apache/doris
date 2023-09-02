@@ -225,14 +225,17 @@ function(TRY_TO_CHANGE_LINKER LINKER_COMMAND LINKER_NAME)
     endif()
 endfunction()
 
-# In terms of performance, mold> lld> gold> ld
-set(CUSTUM_LINKER_COMMAND "ld")
-TRY_TO_CHANGE_LINKER("mold" "mold")
-TRY_TO_CHANGE_LINKER("lld" "LLD")
-TRY_TO_CHANGE_LINKER("gold" "GNU gold")
-if (NOT CUSTUM_LINKER_COMMAND STREQUAL "ld")
-    set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -fuse-ld=${CUSTUM_LINKER_COMMAND}")
+if (NOT OS_MACOSX) # MACOSX's lld will core dump
+    # In terms of performance, mold> lld> gold> ld
+    set(CUSTUM_LINKER_COMMAND "ld")
+    TRY_TO_CHANGE_LINKER("mold" "mold")
+    TRY_TO_CHANGE_LINKER("lld" "LLD")
+    TRY_TO_CHANGE_LINKER("gold" "GNU gold")
+    if (NOT CUSTUM_LINKER_COMMAND STREQUAL "ld")
+        set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -fuse-ld=${CUSTUM_LINKER_COMMAND}")
+    endif()
 endif()
+
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_C_STANDARD 17)
@@ -462,6 +465,7 @@ set(DORIS_LINK_LIBS
     DorisGen
     Webserver
     Geo
+    GeoType
     Vec
     Pipeline
     ${WL_END_GROUP}
@@ -504,6 +508,32 @@ if (absl_FOUND)
         ${COMMON_THIRDPARTY}
         absl::flat_hash_set
         absl::str_format
+        absl::flags
+        absl::flags_commandlineflag
+        absl::flags_commandlineflag_internal
+        absl::flags_config
+        absl::flags_internal
+        absl::flags_marshalling
+        absl::flags_parse
+        absl::flags_private_handle_accessor
+        absl::flags_program_name
+        absl::flags_reflection
+        absl::flags_usage
+        absl::flags_usage_internal
+        absl::random_distributions
+        absl::random_internal_distribution_test_util
+        absl::random_internal_platform
+        absl::random_internal_pool_urbg
+        absl::random_internal_randen
+        absl::random_internal_randen_hwaes
+        absl::random_internal_randen_hwaes_impl
+        absl::random_internal_randen_slow
+        absl::random_internal_seed_material
+        absl::random_seed_gen_exception
+        absl::random_seed_sequences
+        absl::status
+        absl::statusor
+        absl::strerror
     )
 endif()
 

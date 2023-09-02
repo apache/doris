@@ -210,7 +210,7 @@ public class DynamicPartitionScheduler extends MasterDaemon {
         ArrayList<Long> partitionSizeArray = Lists.newArrayList();
         for (Partition partition : partitions) {
             if (partition.getVisibleVersion() >= 2) {
-                partitionSizeArray.add(partition.getDataSize());
+                partitionSizeArray.add(partition.getAllDataSize());
             }
         }
 
@@ -501,10 +501,11 @@ public class DynamicPartitionScheduler extends MasterDaemon {
             olapTable = (OlapTable) db.getTableNullable(tableId);
             // Only OlapTable has DynamicPartitionProperty
             if (olapTable == null
-                    || olapTable.isBeingSynced()
                     || !olapTable.dynamicPartitionExists()
                     || !olapTable.getTableProperty().getDynamicPartitionProperty().getEnable()) {
                 iterator.remove();
+                continue;
+            } else if (olapTable.isBeingSynced()) {
                 continue;
             }
             olapTable.readLock();

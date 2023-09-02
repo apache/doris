@@ -146,7 +146,9 @@ Status SegmentWriter::init(const std::vector<uint32_t>& col_ids, bool has_key) {
 
         // now we create zone map for key columns in AGG_KEYS or all column in UNIQUE_KEYS or DUP_KEYS
         // and not support zone map for array type and jsonb type.
-        opts.need_zone_map = column.is_key() || _tablet_schema->keys_type() != KeysType::AGG_KEYS;
+        opts.need_zone_map =
+                (column.is_key() || _tablet_schema->keys_type() != KeysType::AGG_KEYS) &&
+                column.type() != FieldType::OLAP_FIELD_TYPE_OBJECT;
         opts.need_bloom_filter = column.is_bf_column();
         auto* tablet_index = _tablet_schema->get_ngram_bf_index(column.unique_id());
         if (tablet_index) {
@@ -353,7 +355,7 @@ Status SegmentWriter::append_block_with_partial_content(const vectorized::Block*
         segment_start_pos = _column_writers[cid]->get_next_rowid();
         // olap data convertor alway start from id = 0
         auto converted_result = _olap_data_convertor->convert_column_data(cid);
-        if (converted_result.first != Status::OK()) {
+        if (!converted_result.first.ok()) {
             return converted_result.first;
         }
         if (cid < _num_key_columns) {
@@ -417,7 +419,7 @@ Status SegmentWriter::append_block_with_partial_content(const vectorized::Block*
         RowsetSharedPtr rowset;
         auto st = _tablet->lookup_row_key(key, have_input_seq_column, specified_rowsets, &loc,
                                           _mow_context->max_version, segment_caches, &rowset);
-        if (st.is<NOT_FOUND>()) {
+        if (st.is<KEY_NOT_FOUND>()) {
             if (_tablet_schema->is_strict_mode()) {
                 ++num_rows_filtered;
                 // delete the invalid newly inserted row
@@ -434,7 +436,7 @@ Status SegmentWriter::append_block_with_partial_content(const vectorized::Block*
             use_default_or_null_flag.emplace_back(true);
             continue;
         }
-        if (!st.ok() && !st.is<ALREADY_EXIST>()) {
+        if (!st.ok() && !st.is<KEY_ALREADY_EXISTS>()) {
             LOG(WARNING) << "failed to lookup row key, error: " << st;
             return st;
         }
@@ -452,7 +454,7 @@ Status SegmentWriter::append_block_with_partial_content(const vectorized::Block*
             _tablet->prepare_to_read(loc, segment_pos, &_rssid_to_rid);
         }
 
-        if (st.is<ALREADY_EXIST>()) {
+        if (st.is<KEY_ALREADY_EXISTS>()) {
             // although we need to mark delete current row, we still need to read missing columns
             // for this row, we need to ensure that each column is aligned
             _mow_context->delete_bitmap->add({_opts.rowset_ctx->rowset_id, _segment_id, 0},
@@ -464,7 +466,7 @@ Status SegmentWriter::append_block_with_partial_content(const vectorized::Block*
     CHECK(use_default_or_null_flag.size() == num_rows);
 
     if (config::enable_merge_on_write_correctness_check) {
-        _tablet->add_sentinel_mark_to_delete_bitmap(_mow_context->delete_bitmap,
+        _tablet->add_sentinel_mark_to_delete_bitmap(_mow_context->delete_bitmap.get(),
                                                     _mow_context->rowset_ids);
     }
 
@@ -484,7 +486,7 @@ Status SegmentWriter::append_block_with_partial_content(const vectorized::Block*
                                                                    cids_missing);
     for (auto cid : cids_missing) {
         auto converted_result = _olap_data_convertor->convert_column_data(cid);
-        if (converted_result.first != Status::OK()) {
+        if (!converted_result.first.ok()) {
             return converted_result.first;
         }
         if (_tablet_schema->has_sequence_col() && !have_input_seq_column &&
@@ -660,7 +662,7 @@ Status SegmentWriter::append_block(const vectorized::Block* block, size_t row_po
     for (size_t id = 0; id < _column_writers.size(); ++id) {
         // olap data convertor alway start from id = 0
         auto converted_result = _olap_data_convertor->convert_column_data(id);
-        if (converted_result.first != Status::OK()) {
+        if (!converted_result.first.ok()) {
             return converted_result.first;
         }
         auto cid = _column_ids[id];

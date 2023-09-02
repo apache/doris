@@ -78,7 +78,7 @@ public class BackendPartitionedSchemaScanNode extends SchemaScanNode {
     @Override
     public void init(Analyzer analyzer) throws UserException {
         super.init(analyzer);
-        computeColumnFilter();
+        computeColumnsFilter();
         computePartitionInfo();
     }
 

@@ -68,17 +68,20 @@
 #include "runtime/stream_load/stream_load_executor.h"
 #include "runtime/task_group/task_group_manager.h"
 #include "runtime/thread_context.h"
+#include "service/backend_options.h"
 #include "service/point_query_executor.h"
 #include "util/bfd_parser.h"
 #include "util/bit_util.h"
 #include "util/brpc_client_cache.h"
 #include "util/cpu_info.h"
+#include "util/disk_info.h"
 #include "util/doris_metrics.h"
 #include "util/mem_info.h"
 #include "util/metrics.h"
 #include "util/parse_util.h"
 #include "util/pretty_printer.h"
 #include "util/threadpool.h"
+#include "util/timezone_utils.h"
 #include "vec/exec/scan/scanner_scheduler.h"
 #include "vec/runtime/vdata_stream_mgr.h"
 
@@ -97,15 +100,39 @@ DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(send_batch_thread_pool_queue_size, MetricUnit
 DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(download_cache_thread_pool_thread_num, MetricUnit::NOUNIT);
 DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(download_cache_thread_pool_queue_size, MetricUnit::NOUNIT);
 
+static void init_doris_metrics(const std::vector<StorePath>& store_paths) {
+    bool init_system_metrics = config::enable_system_metrics;
+    std::set<std::string> disk_devices;
+    std::vector<std::string> network_interfaces;
+    std::vector<std::string> paths;
+    for (auto& store_path : store_paths) {
+        paths.emplace_back(store_path.path);
+    }
+    if (init_system_metrics) {
+        auto st = DiskInfo::get_disk_devices(paths, &disk_devices);
+        if (!st.ok()) {
+            LOG(WARNING) << "get disk devices failed, status=" << st;
+            return;
+        }
+        st = get_inet_interfaces(&network_interfaces, BackendOptions::is_bind_ipv6());
+        if (!st.ok()) {
+            LOG(WARNING) << "get inet interfaces failed, status=" << st;
+            return;
+        }
+    }
+    DorisMetrics::instance()->initialize(init_system_metrics, disk_devices, network_interfaces);
+}
+
 Status ExecEnv::init(ExecEnv* env, const std::vector<StorePath>& store_paths) {
     return env->_init(store_paths);
 }
 
 Status ExecEnv::_init(const std::vector<StorePath>& store_paths) {
     //Only init once before be destroyed
-    if (_is_init) {
+    if (ready()) {
         return Status::OK();
     }
+    init_doris_metrics(store_paths);
     _store_paths = store_paths;
 
     _external_scan_context_mgr = new ExternalScanContextMgr(this);
@@ -117,6 +144,9 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths) {
     _broker_client_cache = new BrokerServiceClientCache(config::max_client_cache_size_per_host);
 
     TimezoneUtils::load_timezone_names();
+
+    _global_zone_cache = std::make_unique<vectorized::ZoneList>();
+    TimezoneUtils::load_timezones_to_cache(*_global_zone_cache);
 
     ThreadPoolBuilder("SendBatchThreadPool")
             .set_min_threads(config::send_batch_thread_pool_thread_num)
@@ -186,7 +216,7 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths) {
     RETURN_IF_ERROR(_load_channel_mgr->init(MemInfo::mem_limit()));
     _heartbeat_flags = new HeartbeatFlags();
     _register_metrics();
-    _is_init = true;
+    _s_ready = true;
     return Status::OK();
 }
 
@@ -282,8 +312,11 @@ Status ExecEnv::_init_mem_env() {
     }
     // SegmentLoader caches segments in rowset granularity. So the size of
     // opened files will greater than segment_cache_capacity.
-    uint64_t segment_cache_capacity = fd_number * 2 / 5;
-    LOG(INFO) << "segment_cache_capacity = fd_number * 2 / 5, fd_number: " << fd_number
+    int64_t segment_cache_capacity = config::segment_cache_capacity;
+    if (segment_cache_capacity < 0 || segment_cache_capacity > fd_number * 2 / 5) {
+        segment_cache_capacity = fd_number * 2 / 5;
+    }
+    LOG(INFO) << "segment_cache_capacity <= fd_number * 2 / 5, fd_number: " << fd_number
               << " segment_cache_capacity: " << segment_cache_capacity;
     SegmentLoader::create_global_instance(segment_cache_capacity);
 
@@ -375,9 +408,11 @@ void ExecEnv::_deregister_metrics() {
 
 void ExecEnv::_destroy() {
     //Only destroy once after init
-    if (!_is_init) {
+    if (!ready()) {
         return;
     }
+    // Memory barrier to prevent other threads from accessing destructed resources
+    _s_ready = false;
     _deregister_metrics();
     SAFE_DELETE(_internal_client_cache);
     SAFE_DELETE(_function_client_cache);
@@ -418,8 +453,6 @@ void ExecEnv::_destroy() {
     _page_no_cache_mem_tracker.reset();
     _brpc_iobuf_block_memory_tracker.reset();
     InvertedIndexSearcherCache::reset_global_instance();
-
-    _is_init = false;
 }
 
 void ExecEnv::destroy(ExecEnv* env) {

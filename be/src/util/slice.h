@@ -80,6 +80,31 @@ public:
               data(const_cast<char*>(s)),
               size(strlen(s)) {}
 
+    Slice(const Slice& src) : data(src.data), size(src.size) {}
+
+    Slice& operator=(const Slice& src) {
+        if (this != &src) {
+            data = src.data;
+            size = src.size;
+        }
+        return *this;
+    }
+
+    Slice(Slice&& src) : data(src.data), size(src.size) {
+        src.data = nullptr;
+        src.size = 0;
+    }
+
+    Slice& operator=(Slice&& src) {
+        if (this != &src) {
+            data = src.data;
+            size = src.size;
+            src.data = nullptr;
+            src.size = 0;
+        }
+        return *this;
+    }
+
     /// @return A pointer to the beginning of the referenced data.
     const char* get_data() const { return data; }
 
@@ -119,6 +144,54 @@ public:
         size -= n;
     }
 
+    /// Drop the last "n" bytes from this slice.
+    ///
+    /// @pre n <= size
+    ///
+    /// @note Only the base and bounds of the slice are changed;
+    ///   the data is not modified.
+    ///
+    /// @param [in] n
+    ///   Number of bytes that should be dropped from the last.
+    void remove_suffix(size_t n) {
+        assert(n <= size);
+        size -= n;
+    }
+
+    /// Remove leading spaces.
+    ///
+    /// @pre n <= size
+    ///
+    /// @note Only the base and bounds of the slice are changed;
+    ///   the data is not modified.
+    ///
+    /// @param [in] n
+    ///   Number of bytes of space that should be dropped from the beginning.
+    void trim_prefix() {
+        int32_t begin = 0;
+        while (begin < size && data[begin] == ' ') {
+            data += 1;
+            size -= 1;
+        }
+    }
+
+    /// Remove quote char '"' or ''' which should exist as first and last char.
+    ///
+    /// @pre n <= size
+    ///
+    /// @note Only the base and bounds of the slice are changed;
+    ///   the data is not modified.
+    ///
+    /// @param [in] n
+    ///   Number of bytes of space that should be dropped from the beginning.
+    void trim_quote() {
+        int32_t begin = 0;
+        if (size > 2 && ((data[begin] == '"' && data[size - 1] == '"') ||
+                         (data[begin] == '\'' && data[size - 1] == '\''))) {
+            data += 1;
+            size -= 2;
+        }
+    }
     /// Truncate the slice to the given number of bytes.
     ///
     /// @pre n <= size

@@ -44,13 +44,13 @@ under the License.
       compression参数是可选项，可设置范围是[2048, 10000]，值越大，后续分位数近似计算的精度越高，内存消耗越大，计算耗时越长。 
       compression参数未指定或设置的值在[2048, 10000]范围外，以2048的默认值运行
 
-      QUANTILE_PERCENT(QUANTILE_STATE):
+      QUANTILE_PERCENT(QUANTILE_STATE, percent):
       此函数将分位数计算的中间结果变量（QUANTILE_STATE）转化为具体的分位数数值
 
     
 
 ### example
-    select QUANTILE_PERCENT(QUANTILE_UNION(v1)) from test_table group by k1, k2, k3;
+    select QUANTILE_PERCENT(QUANTILE_UNION(v1), 0.5) from test_table group by k1, k2, k3;
     
 
 ### notice
