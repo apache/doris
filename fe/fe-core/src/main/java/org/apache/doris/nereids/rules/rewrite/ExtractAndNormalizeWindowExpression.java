@@ -34,7 +34,6 @@ import com.google.common.collect.Sets;
 
 import java.util.List;
 import java.util.Set;
-import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
 /**
@@ -98,21 +97,16 @@ public class ExtractAndNormalizeWindowExpression extends OneRewriteRuleFactory i
                 if (expression.anyMatch(WindowExpression.class::isInstance)) {
                     Set<Slot> inputSlots = Sets.newHashSet(expression.getInputSlots());
                     Set<WindowExpression> collects = expression.collect(WindowExpression.class::isInstance);
-                    Set<Slot> windowInputSlots = collects.stream()
-                            .flatMap(win -> win.getInputSlots().stream())
-                            .collect(Collectors.toSet());
                     // substr(
                     //   ref_1.cp_type,
-                    //   max(
-                    //       cast(ref_1.`cp_catalog_page_number` as int)) over (...)
-                    //       ),
-                    //   1)
+                    //   sum(CASE WHEN ref_1.cp_type  = 0 THEN 3 ELSE 2 END) OVER (),
+                    //   1),
                     //
-                    //  in above case, ref_1.cp_type should be pushed down. ref_1.cp_type is in
-                    //  substr.inputSlots, but not in windowExpression.inputSlots
+                    //  in above case,
+                    //  ref_1.cp_type and CASE WHEN ref_1.cp_type = 0 THEN 3 ELSE 2 END
+                    //  should be pushed down.
                     //
                     //  inputSlots= {ref_1.cp_type}
-                    inputSlots.removeAll(windowInputSlots);
                     return Stream.concat(
                             collects.stream().flatMap(windowExpression ->
                                     windowExpression.getExpressionsInWindowSpec().stream()
@@ -121,7 +115,7 @@ public class ExtractAndNormalizeWindowExpression extends OneRewriteRuleFactory i
                                     .filter(expr -> !expr.isConstant())
                             ),
                             inputSlots.stream()
-                    );
+                    ).distinct();
                 }
                 return ImmutableList.of(expression).stream();
             })

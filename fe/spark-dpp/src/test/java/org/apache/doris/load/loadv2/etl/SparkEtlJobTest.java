@@ -31,14 +31,19 @@ import org.apache.doris.sparkdpp.EtlJobConfig.EtlTable;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import mockit.Expectations;
-import mockit.Injectable;
 import mockit.Mocked;
-import org.apache.spark.sql.Dataset;
-import org.apache.spark.sql.SparkSession;
+import org.apache.hadoop.fs.FSDataInputStream;
+import org.apache.hadoop.fs.FileSystem;
+import org.apache.hadoop.fs.Path;
+import org.apache.hadoop.fs.PositionedReadable;
+import org.apache.hadoop.fs.Seekable;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
 
+import java.io.ByteArrayInputStream;
+import java.io.EOFException;
+import java.io.IOException;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -92,20 +97,15 @@ public class SparkEtlJobTest {
     }
 
     @Test
-    public void testInitConfig(@Mocked SparkSession spark, @Injectable Dataset<String> ds) {
+    public void testInitConfig(@Mocked FileSystem fs) throws IOException {
         new Expectations() {
             {
-                SparkSession.builder().enableHiveSupport().getOrCreate();
-                result = spark;
-                spark.read().textFile(anyString);
-                result = ds;
-                ds.first();
-                result = etlJobConfig.configToJson();
+                fs.open(new Path("hdfs://127.0.0.1:10000/jobconfig.json"));
+                result = new FSDataInputStream(new SeekableByteArrayInputStream(etlJobConfig.configToJson().getBytes()));
             }
         };
 
         SparkEtlJob job = Deencapsulation.newInstance(SparkEtlJob.class, "hdfs://127.0.0.1:10000/jobconfig.json");
-        Deencapsulation.invoke(job, "initSparkEnvironment");
         Deencapsulation.invoke(job, "initConfig");
         EtlJobConfig parsedConfig = Deencapsulation.getField(job, "etlJobConfig");
         Assert.assertTrue(parsedConfig.tables.containsKey(tableId));
@@ -149,5 +149,46 @@ public class SparkEtlJobTest {
         Assert.assertTrue(tableToBitmapDictColumns.get(tableId).contains("v2"));
         // check remove v2 bitmap_dict func mapping from file group column mappings
         Assert.assertFalse(table.fileGroups.get(0).columnMappings.containsKey("v2"));
+    }
+
+    private static class SeekableByteArrayInputStream extends ByteArrayInputStream implements Seekable, PositionedReadable {
+        public SeekableByteArrayInputStream(byte[] buf) {
+            super(buf);
+        }
+
+        public void seek(long position) {
+            if (position < 0 || position >= buf.length) {
+                throw new IllegalArgumentException("pos = " + position + " length = " + buf.length);
+            }
+            this.pos = (int) position;
+        }
+
+        public long getPos() {
+            return this.pos;
+        }
+
+        @Override
+        public boolean seekToNewSource(long targetPos) throws IOException {
+            return false;
+        }
+
+        @Override
+        public int read(long position, byte[] buffer, int offset, int length) throws IOException {
+            this.seek(position);
+            return this.read(buffer, offset, length);
+        }
+
+        @Override
+        public void readFully(long position, byte[] buffer, int offset, int length) throws IOException {
+            if (position + length > buf.length) {
+                throw  new EOFException("End of file reached before reading fully.");
+            }
+            System.arraycopy(buf, (int) position, buffer, offset, length);
+        }
+
+        @Override
+        public void readFully(long position, byte[] buffer) throws IOException {
+            readFully(position, buffer, 0, buffer.length);
+        }
     }
 }

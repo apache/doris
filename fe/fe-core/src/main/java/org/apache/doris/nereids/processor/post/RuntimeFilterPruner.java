@@ -129,9 +129,9 @@ public class RuntimeFilterPruner extends PlanPostProcessor {
     }
 
     @Override
-    public PhysicalRelation visitPhysicalScan(PhysicalRelation scan, CascadesContext context) {
+    public PhysicalRelation visitPhysicalRelation(PhysicalRelation scan, CascadesContext context) {
         RuntimeFilterContext rfCtx = context.getRuntimeFilterContext();
-        List<Slot> slots = rfCtx.getTargetOnOlapScanNodeMap().get(scan.getId());
+        List<Slot> slots = rfCtx.getTargetOnOlapScanNodeMap().get(scan.getRelationId());
         if (slots != null) {
             for (Slot slot : slots) {
                 //if this scan node is the target of any effective RF, it is effective source
@@ -199,8 +199,7 @@ public class RuntimeFilterPruner extends PlanPostProcessor {
         if (probeColumnStat.isUnKnown || buildColumnStat.isUnKnown) {
             return true;
         }
-        return buildColumnStat.selectivity < 1
-                || probeColumnStat.notEnclosed(buildColumnStat)
+        return probeColumnStat.notEnclosed(buildColumnStat)
                 || buildColumnStat.ndv < probeColumnStat.ndv * 0.95;
     }
 }

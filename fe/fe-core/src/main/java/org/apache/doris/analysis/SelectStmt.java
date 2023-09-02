@@ -24,6 +24,7 @@ import org.apache.doris.analysis.CompoundPredicate.Operator;
 import org.apache.doris.catalog.AggregateFunction;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.DatabaseIf;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.FunctionSet;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.PrimitiveType;
@@ -44,6 +45,7 @@ import org.apache.doris.common.TreeNode;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.SqlUtils;
 import org.apache.doris.common.util.ToSqlContext;
+import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.rewrite.ExprRewriter;
 import org.apache.doris.rewrite.mvrewrite.MVSelectFailedException;
@@ -80,6 +82,7 @@ import java.util.stream.Collectors;
  */
 public class SelectStmt extends QueryStmt {
     private static final Logger LOG = LogManager.getLogger(SelectStmt.class);
+    public static final String DEFAULT_VALUE = "__DEFAULT_VALUE__";
     private UUID id = UUID.randomUUID();
 
     // ///////////////////////////////////////
@@ -391,6 +394,13 @@ public class SelectStmt extends QueryStmt {
                     View view = (View) table;
                     view.getQueryStmt().getTables(analyzer, expandView, tableMap, parentViewNameSet);
                 } else {
+                    // check auth
+                    if (!Env.getCurrentEnv().getAccessManager()
+                            .checkTblPriv(ConnectContext.get(), tblRef.getName(), PrivPredicate.SELECT)) {
+                        ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR, "SELECT",
+                                ConnectContext.get().getQualifiedUser(), ConnectContext.get().getRemoteIP(),
+                                dbName + "." + tableName);
+                    }
                     tableMap.put(table.getId(), table);
                 }
             }
@@ -575,7 +585,7 @@ public class SelectStmt extends QueryStmt {
             }
             for (Expr expr : valueList.getFirstRow()) {
                 if (expr instanceof DefaultValueExpr) {
-                    resultExprs.add(new IntLiteral(1));
+                    resultExprs.add(new StringLiteral(DEFAULT_VALUE));
                 } else {
                     resultExprs.add(rewriteQueryExprByMvColumnExpr(expr, analyzer));
                 }
@@ -722,7 +732,8 @@ public class SelectStmt extends QueryStmt {
         if (getAggInfo() != null
                 || getHavingPred() != null
                 || getWithClause() != null
-                || getAnalyticInfo() != null) {
+                || getAnalyticInfo() != null
+                || hasOutFileClause()) {
             return false;
         }
         // ignore short circuit query
@@ -756,6 +767,9 @@ public class SelectStmt extends QueryStmt {
         OlapTable olapTable = (OlapTable) tbl.getTable();
         if (!olapTable.isDupKeysOrMergeOnWrite()) {
             LOG.debug("only support duplicate key or MOW model");
+            return false;
+        }
+        if (!olapTable.getEnableLightSchemaChange() || !Strings.isNullOrEmpty(olapTable.getStoragePolicy())) {
             return false;
         }
         if (getOrderByElements() != null) {
@@ -1336,6 +1350,16 @@ public class SelectStmt extends QueryStmt {
                             "cannot combine '*' in select list with GROUP BY: " + item.toSql());
                 }
             }
+        }
+
+        // can't contain analytic exprs
+        ArrayList<Expr> aggExprsForChecking = Lists.newArrayList();
+        TreeNode.collect(resultExprs, Expr.isAggregatePredicate(), aggExprsForChecking);
+        ArrayList<Expr> analyticExprs = Lists.newArrayList();
+        TreeNode.collect(aggExprsForChecking, AnalyticExpr.class, analyticExprs);
+        if (!analyticExprs.isEmpty()) {
+            throw new AnalysisException(
+                "AGGREGATE clause must not contain analytic expressions");
         }
 
         // Collect the aggregate expressions from the SELECT, HAVING and ORDER BY clauses

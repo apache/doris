@@ -29,12 +29,12 @@ under the License.
 
 ## Usage
 
-1. Doris supports Snapshot Query on Copy-on-Write Hudi tables and Read Optimized Query / Snapshot on Merge-on-Read tables. In the future, it will support Incremental Query and Time Travel.
+1. The query types supported by the Hudi table are as follows, and the Incremental Query will be supported in the future.
 
 |  Table Type   | Supported Query types  |
 |  ----  | ----  |
-| Copy On Write  | Snapshot Query |
-| Merge On Read  | Snapshot Queries + Read Optimized Queries |
+| Copy On Write  | Snapshot Query + Time Travel |
+| Merge On Read  | Snapshot Queries + Read Optimized Queries + Time Travel |
 
 2. Doris supports Hive Metastore(Including catalogs compatible with Hive MetaStore, like [AWS Glue](./hive.md)/[Alibaba DLF](./dlf.md)) Catalogs.
 
@@ -82,3 +82,19 @@ Users can view the perfomace of Java SDK through [profile](../../admin-manual/ht
 2. `JavaScanTime`: Time to read data by Java SDK
 3. `FillBlockTime`: Time co convert Java column data into C++ column data
 4. `GetRecordReaderTime`: Time to create and initialize Hudi Record Reader
+
+## Time Travel
+
+Supports reading snapshots specified in Hudi table.
+
+Every write operation to the Hudi table will generate a new snapshot.
+
+By default, query requests will only read the latest version of the snapshot.
+
+You can use the `FOR TIME AS OF` statement, based on the time of the snapshot to read historical version data. Examples are as follows:
+
+`SELECT * FROM hudi_tbl FOR TIME AS OF "2022-10-07 17:20:37";`
+
+`SELECT * FROM hudi_tbl FOR TIME AS OF "20221007172037";`
+
+Hudi table does not support the `FOR VERSION AS OF` statement. Using this syntax to query the Hudi table will throw an error.

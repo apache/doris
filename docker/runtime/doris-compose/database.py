@@ -102,6 +102,7 @@ class DBManager(object):
     def decommission_be(self, be_endpoint):
         old_tablet_num = 0
         id = CLUSTER.Node.get_id_from_ip(be_endpoint[:be_endpoint.find(":")])
+        start_ts = time.time()
         if id not in self.be_states:
             self._load_be_states()
         if id in self.be_states:
@@ -132,8 +133,9 @@ class DBManager(object):
                 return
             LOG.info(
                     "Decommission be {} status: alive {}, decommissioned {}. " \
-                    "It is migrating its tablets, left {}/{} tablets."
-                .format(be_endpoint, be.alive, be.decommissioned, be.tablet_num, old_tablet_num))
+                    "It is migrating its tablets, left {}/{} tablets. Time elapse {} s."
+                .format(be_endpoint, be.alive, be.decommissioned, be.tablet_num, old_tablet_num,
+                        int(time.time() - start_ts)))
 
             time.sleep(5)
 
@@ -189,7 +191,7 @@ class DBManager(object):
     def _reset_conn(self):
         self.conn = pymysql.connect(user="root",
                                     host="127.0.0.1",
-                                    read_timeout = 10,
+                                    read_timeout=10,
                                     port=self.query_port)
 
 
@@ -234,6 +236,6 @@ def get_db_mgr(cluster_name, required_load_succ=True):
     except Exception as e:
         if required_load_succ:
             raise e
-        LOG.exception(e)
+        #LOG.exception(e)
 
     return db_mgr

@@ -17,6 +17,7 @@
 
 #pragma once
 
+#include "pipeline/exec/scan_operator.h"
 #include "runtime/descriptors.h"
 #include "scanner_context.h"
 
@@ -29,14 +30,23 @@ class PipScannerContext : public vectorized::ScannerContext {
 
 public:
     PipScannerContext(RuntimeState* state, vectorized::VScanNode* parent,
-                      const TupleDescriptor* input_tuple_desc,
                       const TupleDescriptor* output_tuple_desc,
                       const std::list<vectorized::VScannerSPtr>& scanners, int64_t limit,
                       int64_t max_bytes_in_blocks_queue, const std::vector<int>& col_distribute_ids,
                       const int num_parallel_instances)
-            : vectorized::ScannerContext(state, parent, input_tuple_desc, output_tuple_desc,
-                                         scanners, limit, max_bytes_in_blocks_queue,
-                                         num_parallel_instances),
+            : vectorized::ScannerContext(state, parent, output_tuple_desc, scanners, limit,
+                                         max_bytes_in_blocks_queue, num_parallel_instances),
+              _col_distribute_ids(col_distribute_ids),
+              _need_colocate_distribute(!_col_distribute_ids.empty()) {}
+
+    PipScannerContext(RuntimeState* state, ScanLocalStateBase* local_state,
+                      const TupleDescriptor* output_tuple_desc,
+                      const std::list<vectorized::VScannerSPtr>& scanners, int64_t limit,
+                      int64_t max_bytes_in_blocks_queue, const std::vector<int>& col_distribute_ids,
+                      const int num_parallel_instances)
+            : vectorized::ScannerContext(state, nullptr, output_tuple_desc, scanners, limit,
+                                         max_bytes_in_blocks_queue, num_parallel_instances,
+                                         local_state),
               _col_distribute_ids(col_distribute_ids),
               _need_colocate_distribute(!_col_distribute_ids.empty()) {}
 
@@ -45,10 +55,10 @@ public:
         {
             std::unique_lock l(_transfer_lock);
             if (state->is_cancelled()) {
-                _process_status = Status::Cancelled("cancelled");
+                set_status_on_error(Status::Cancelled("cancelled"), false);
             }
 
-            if (!_process_status.ok()) {
+            if (!status().ok()) {
                 return _process_status;
             }
         }

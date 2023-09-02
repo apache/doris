@@ -30,6 +30,7 @@ import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.io.Text;
+import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.thrift.TExprNode;
 import org.apache.doris.thrift.TExprNodeType;
 import org.apache.doris.thrift.TExprOpcode;
@@ -312,6 +313,8 @@ public class ArithmeticExpr extends Expr {
             return Type.DOUBLE;
         } else if (pt1 == PrimitiveType.DECIMALV2 || pt2 == PrimitiveType.DECIMALV2) {
             return pt1 == PrimitiveType.DECIMALV2 && pt2 == PrimitiveType.DECIMALV2
+                    || (ConnectContext.get() != null
+                    && ConnectContext.get().getSessionVariable().roundPreciseDecimalV2Value)
                     ? Type.MAX_DECIMALV2_TYPE : Type.DOUBLE;
         } else if (pt1 == PrimitiveType.DECIMAL32 || pt2 == PrimitiveType.DECIMAL32) {
             return pt1 == PrimitiveType.DECIMAL32 && pt2 == PrimitiveType.DECIMAL32 ? Type.DECIMAL32 : Type.DOUBLE;
@@ -507,10 +510,7 @@ public class ArithmeticExpr extends Expr {
                 } else if (op == Operator.DIVIDE && (t1TargetType.isDecimalV3())) {
                     int leftPrecision = t1Precision + t2Scale + Config.div_precision_increment;
                     int leftScale = t1Scale + t2Scale + Config.div_precision_increment;
-                    if (leftPrecision > ScalarType.MAX_DECIMAL128_PRECISION) {
-                        leftPrecision = ScalarType.MAX_DECIMAL128_PRECISION;
-                    }
-                    if (leftPrecision < leftScale) {
+                    if (leftPrecision < leftScale || leftPrecision > ScalarType.MAX_DECIMAL128_PRECISION) {
                         type = castBinaryOp(Type.DOUBLE);
                         break;
                     }

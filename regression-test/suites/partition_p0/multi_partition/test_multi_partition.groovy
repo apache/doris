@@ -47,6 +47,7 @@ suite("test_multi_partition") {
     List<List<Object>> result2  = sql "show partitions from multi_par"
     logger.info("${result2}")
     assertEquals(result2.size(), 30)
+    assertTrue(result2[1][1].startsWith("p_"))
     sql "drop table multi_par"
 
 
@@ -84,6 +85,7 @@ suite("test_multi_partition") {
     result2  = sql "show partitions from multi_par1"
     logger.info("${result2}")
     assertEquals(result2.size(), 55)
+    assertTrue(result2[1][1].startsWith("p_"))
     sql "drop table multi_par1"
 
 
@@ -118,6 +120,7 @@ suite("test_multi_partition") {
     result2  = sql "show partitions from multi_par2"
     logger.info("${result2}")
     assertEquals(result2.size(), 48)
+    assertTrue(result2[1][1].startsWith("p_"))
     sql "drop table multi_par2"
 
 
@@ -152,6 +155,7 @@ suite("test_multi_partition") {
     result2  = sql "show partitions from multi_par3"
     logger.info("${result2}")
     assertEquals(result2.size(), 48)
+    assertTrue(result2[1][1].startsWith("p_"))
     sql "drop table multi_par3"
 
 
@@ -185,6 +189,7 @@ suite("test_multi_partition") {
     result2  = sql "show partitions from multi_par4"
     logger.info("${result2}")
     assertEquals(result2.size(), 30)
+    assertTrue(result2[1][1].startsWith("p_"))
     sql "drop table multi_par4"
 
     sql "drop table if exists multi_par5"
@@ -218,6 +223,7 @@ suite("test_multi_partition") {
     result2  = sql "show partitions from multi_par5"
     logger.info("${result2}")
     assertEquals(result2.size(), 48)
+    assertTrue(result2[1][1].startsWith("p_"))
     sql "drop table multi_par5"
 
 
@@ -251,6 +257,7 @@ suite("test_multi_partition") {
     result2  = sql "show partitions from multi_par6"
     logger.info("${result2}")
     assertEquals(result2.size(), 30)
+    assertTrue(result2[1][1].startsWith("p_"))
     sql "drop table multi_par6"
 
 
@@ -284,6 +291,7 @@ suite("test_multi_partition") {
     result2  = sql "show partitions from multi_par7"
     logger.info("${result2}")
     assertEquals(result2.size(), 30)
+    assertTrue(result2[1][1].startsWith("p_"))
     sql "drop table multi_par7"
 
 
@@ -319,6 +327,7 @@ suite("test_multi_partition") {
     result2  = sql "show partitions from multi_par8"
     logger.info("${result2}")
     assertEquals(result2.size(), 16)
+    assertTrue(result2[1][1].startsWith("p_"))
     sql "drop table multi_par8"
 
 
@@ -352,6 +361,7 @@ suite("test_multi_partition") {
     result2  = sql "show partitions from multi_par9"
     logger.info("${result2}")
     assertEquals(result2.size(), 45)
+    assertTrue(result2[1][1].startsWith("p_"))
     sql "drop table multi_par9"
 
 
@@ -385,6 +395,7 @@ suite("test_multi_partition") {
     result2  = sql "show partitions from multi_par10"
     logger.info("${result2}")
     assertEquals(result2.size(), 1)
+    assertTrue(result2[0][1].startsWith("p_"))
     sql "drop table multi_par10"
 
 
@@ -451,6 +462,7 @@ suite("test_multi_partition") {
     result2  = sql "show partitions from multi_par12"
     logger.info("${result2}")
     assertEquals(result2.size(), 45)
+    assertTrue(result2[1][1].startsWith("p_"))
     sql "drop table multi_par12"
 
 }

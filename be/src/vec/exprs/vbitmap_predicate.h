@@ -49,18 +49,14 @@ public:
 
     ~VBitmapPredicate() override = default;
 
-    doris::Status execute(VExprContext* context, doris::vectorized::Block* block,
-                          int* result_column_id) override;
+    Status execute(VExprContext* context, Block* block, int* result_column_id) override;
 
-    doris::Status prepare(doris::RuntimeState* state, const doris::RowDescriptor& desc,
-                          VExprContext* context) override;
+    Status prepare(RuntimeState* state, const RowDescriptor& desc, VExprContext* context) override;
 
-    doris::Status open(doris::RuntimeState* state, VExprContext* context,
-                       FunctionContext::FunctionStateScope scope) override;
+    Status open(RuntimeState* state, VExprContext* context,
+                FunctionContext::FunctionStateScope scope) override;
 
     void close(VExprContext* context, FunctionContext::FunctionStateScope scope) override;
-
-    VExprSPtr clone() const override { return VBitmapPredicate::create_shared(*this); }
 
     const std::string& expr_name() const override;
 

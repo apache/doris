@@ -25,6 +25,7 @@ import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.OrderExpression;
+import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
 import org.apache.doris.nereids.trees.expressions.WindowExpression;
 import org.apache.doris.nereids.trees.expressions.WindowFrame;
 import org.apache.doris.nereids.trees.expressions.functions.window.Rank;
@@ -45,7 +46,6 @@ import org.apache.doris.nereids.util.MemoPatternMatchSupported;
 import org.apache.doris.nereids.util.MemoTestUtils;
 import org.apache.doris.nereids.util.PlanChecker;
 import org.apache.doris.nereids.util.PlanConstructor;
-import org.apache.doris.nereids.util.RelationUtil;
 import org.apache.doris.planner.OlapScanNode;
 import org.apache.doris.planner.PlanFragment;
 import org.apache.doris.qe.ConnectContext;
@@ -64,8 +64,8 @@ import java.util.function.Function;
 import java.util.stream.Collectors;
 
 class PushdownLimitTest extends TestWithFeService implements MemoPatternMatchSupported {
-    private final LogicalOlapScan scanScore = new LogicalOlapScan(RelationUtil.newRelationId(), PlanConstructor.score);
-    private Plan scanStudent = new LogicalOlapScan(RelationUtil.newRelationId(), PlanConstructor.student);
+    private final LogicalOlapScan scanScore = new LogicalOlapScan(StatementScopeIdGenerator.newRelationId(), PlanConstructor.score);
+    private Plan scanStudent = new LogicalOlapScan(StatementScopeIdGenerator.newRelationId(), PlanConstructor.student);
 
     @Override
     protected void runBeforeAll() throws Exception {
@@ -364,8 +364,8 @@ class PushdownLimitTest extends TestWithFeService implements MemoPatternMatchSup
         LogicalJoin<? extends Plan, ? extends Plan> join = new LogicalJoin<>(
                 joinType,
                 joinConditions,
-                new LogicalOlapScan(((LogicalOlapScan) scanScore).getId(), PlanConstructor.score),
-                new LogicalOlapScan(((LogicalOlapScan) scanStudent).getId(), PlanConstructor.student)
+                new LogicalOlapScan(((LogicalOlapScan) scanScore).getRelationId(), PlanConstructor.score),
+                new LogicalOlapScan(((LogicalOlapScan) scanStudent).getRelationId(), PlanConstructor.student)
         );
 
         if (hasProject) {

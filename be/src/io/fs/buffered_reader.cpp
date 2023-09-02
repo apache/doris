@@ -624,8 +624,11 @@ PrefetchBufferedReader::PrefetchBufferedReader(RuntimeProfile* profile, io::File
 }
 
 PrefetchBufferedReader::~PrefetchBufferedReader() {
-    close();
-    _closed = true;
+    /// set `_sync_profile` to nullptr to avoid updating counter after the runtime profile has been released.
+    std::for_each(_pre_buffers.begin(), _pre_buffers.end(),
+                  [](std::shared_ptr<PrefetchBuffer>& buffer) { buffer->_sync_profile = nullptr; });
+    /// Better not to call virtual functions in a destructor.
+    _close_internal();
 }
 
 Status PrefetchBufferedReader::read_at_impl(size_t offset, Slice result, size_t* bytes_read,
@@ -654,6 +657,10 @@ Status PrefetchBufferedReader::read_at_impl(size_t offset, Slice result, size_t*
 }
 
 Status PrefetchBufferedReader::close() {
+    return _close_internal();
+}
+
+Status PrefetchBufferedReader::_close_internal() {
     if (!_closed) {
         _closed = true;
         std::for_each(_pre_buffers.begin(), _pre_buffers.end(),
@@ -669,10 +676,14 @@ InMemoryFileReader::InMemoryFileReader(io::FileReaderSPtr reader) : _reader(std:
 }
 
 InMemoryFileReader::~InMemoryFileReader() {
-    close();
+    _close_internal();
 }
 
 Status InMemoryFileReader::close() {
+    return _close_internal();
+}
+
+Status InMemoryFileReader::_close_internal() {
     if (!_closed) {
         _closed = true;
         return _reader->close();
@@ -767,8 +778,12 @@ Status DelegateReader::create_file_reader(RuntimeProfile* profile,
     io::FileReaderSPtr reader;
     RETURN_IF_ERROR(FileFactory::create_file_reader(system_properties, file_description,
                                                     reader_options, file_system, &reader, profile));
-    if (reader->size() < IN_MEMORY_FILE_SIZE) {
-        *file_reader = std::make_shared<InMemoryFileReader>(reader);
+    if (reader->size() < config::in_memory_file_size) {
+        if (typeid_cast<io::S3FileReader*>(reader.get())) {
+            *file_reader = std::make_shared<InMemoryFileReader>(reader);
+        } else {
+            *file_reader = std::move(reader);
+        }
     } else if (access_mode == AccessMode::SEQUENTIAL) {
         bool is_thread_safe = false;
         if (typeid_cast<io::S3FileReader*>(reader.get())) {

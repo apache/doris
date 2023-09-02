@@ -33,8 +33,8 @@
 #include "gtest/gtest_pred_impl.h"
 #include "testutil/test_util.h"
 #include "util/hash_util.hpp"
-#include "util/priority_thread_pool.hpp"
 #include "util/random.h"
+#include "util/work_thread_pool.hpp"
 #include "vec/common/arena.h"
 
 namespace doris {

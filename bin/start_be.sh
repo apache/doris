@@ -78,12 +78,17 @@ if [[ "${MAX_FILE_COUNT}" -lt 65536 ]]; then
 fi
 
 # add java libs
-for f in "${DORIS_HOME}/lib/java_extensions"/*.jar; do
-    if [[ -z "${DORIS_CLASSPATH}" ]]; then
-        export DORIS_CLASSPATH="${f}"
-    else
-        export DORIS_CLASSPATH="${DORIS_CLASSPATH}:${f}"
-    fi
+preload_jars=("preload-extensions")
+preload_jars+=("java-udf")
+
+for preload_jar_dir in "${preload_jars[@]}"; do
+    for f in "${DORIS_HOME}/lib/java_extensions/${preload_jar_dir}"/*.jar; do
+        if [[ -z "${DORIS_CLASSPATH}" ]]; then
+            export DORIS_CLASSPATH="${f}"
+        else
+            export DORIS_CLASSPATH="${DORIS_CLASSPATH}:${f}"
+        fi
+    done
 done
 
 if [[ -d "${DORIS_HOME}/lib/hadoop_hdfs/" ]]; then
@@ -103,7 +108,7 @@ if [[ -d "${DORIS_HOME}/lib/hadoop_hdfs/" ]]; then
 fi
 
 if [[ -n "${HADOOP_CONF_DIR}" ]]; then
-    export DORIS_CLASSPATH="${HADOOP_CONF_DIR}:${DORIS_CLASSPATH}"
+    export DORIS_CLASSPATH="${DORIS_CLASSPATH}:${HADOOP_CONF_DIR}"
 fi
 
 # the CLASSPATH and LIBHDFS_OPTS is used for hadoop libhdfs
@@ -270,7 +275,7 @@ java_version="$(
 CUR_DATE=$(date +%Y%m%d-%H%M%S)
 LOG_PATH="-DlogPath=${DORIS_HOME}/log/jni.log"
 COMMON_OPTS="-Dsun.java.command=DorisBE -XX:-CriticalJNINatives"
-JDBC_OPTS="-DJDBC_MIN_POOL=1 -DJDBC_MAX_POOL=100 -DJDBC_MAX_IDEL_TIME=300000 -DJDBC_MAX_WAIT_TIME=5000"
+JDBC_OPTS="-DJDBC_MIN_POOL=1 -DJDBC_MAX_POOL=100 -DJDBC_MAX_IDLE_TIME=300000 -DJDBC_MAX_WAIT_TIME=5000"
 
 if [[ "${java_version}" -gt 8 ]]; then
     if [[ -z ${JAVA_OPTS_FOR_JDK_9} ]]; then
@@ -303,8 +308,17 @@ export LIBHDFS_OPTS="${final_java_opt}"
 #echo "LD_LIBRARY_PATH: ${LD_LIBRARY_PATH}"
 #echo "LIBHDFS_OPTS: ${LIBHDFS_OPTS}"
 
-# see https://github.com/apache/doris/blob/master/docs/zh-CN/community/developer-guide/debug-tool.md#jemalloc-heap-profile
-export JEMALLOC_CONF="percpu_arena:percpu,background_thread:true,metadata_thp:auto,muzzy_decay_ms:30000,dirty_decay_ms:30000,oversize_threshold:0,lg_tcache_max:16,prof_prefix:jeprof.out"
+if [[ -z ${JEMALLOC_CONF} ]]; then
+    JEMALLOC_CONF="percpu_arena:percpu,background_thread:true,metadata_thp:auto,muzzy_decay_ms:15000,dirty_decay_ms:15000,oversize_threshold:0,lg_tcache_max:20,prof:false,lg_prof_interval:32,lg_prof_sample:19,prof_gdump:false,prof_accum:false,prof_leak:false,prof_final:false"
+fi
+
+if [[ -z ${JEMALLOC_PROF_PRFIX} ]]; then
+    export JEMALLOC_CONF="${JEMALLOC_CONF},prof_prefix:"
+else
+    JEMALLOC_PROF_PRFIX="${DORIS_HOME}/log/${JEMALLOC_PROF_PRFIX}"
+    export JEMALLOC_CONF="${JEMALLOC_CONF},prof_prefix:${JEMALLOC_PROF_PRFIX}"
+fi
+
 export AWS_EC2_METADATA_DISABLED=true
 export AWS_MAX_ATTEMPTS=2
 

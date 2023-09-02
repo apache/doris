@@ -187,16 +187,28 @@ public:
         return result;
     }
 
-    /**
-     * Add value n_args from pointer vals
-     *
-     */
-    void addMany(size_t n_args, const uint32_t* vals) {
-        for (size_t lcv = 0; lcv < n_args; lcv++) {
-            roarings[0].add(vals[lcv]);
-            roarings[0].setCopyOnWrite(copyOnWrite);
+    template <typename T>
+    void addMany(size_t n_args, const T* vals) {
+        if constexpr (sizeof(T) == sizeof(uint32_t)) {
+            auto& roaring = roarings[0];
+            roaring.addMany(n_args, reinterpret_cast<const uint32_t*>(vals));
+            roaring.setCopyOnWrite(copyOnWrite);
+        } else if constexpr (sizeof(T) < sizeof(uint32_t)) {
+            auto& roaring = roarings[0];
+            std::vector<uint32_t> values(n_args);
+            for (size_t i = 0; i != n_args; ++i) {
+                values[i] = uint32_t(vals[i]);
+            }
+            roaring.addMany(n_args, values.data());
+            roaring.setCopyOnWrite(copyOnWrite);
+        } else {
+            for (size_t lcv = 0; lcv < n_args; lcv++) {
+                roarings[highBytes(vals[lcv])].add(lowBytes(vals[lcv]));
+                roarings[highBytes(vals[lcv])].setCopyOnWrite(copyOnWrite);
+            }
         }
     }
+
     void addMany(size_t n_args, const uint64_t* vals) {
         for (size_t lcv = 0; lcv < n_args; lcv++) {
             roarings[highBytes(vals[lcv])].add(lowBytes(vals[lcv]));
@@ -1164,33 +1176,80 @@ public:
 
     BitmapValue(const BitmapValue& other) {
         _type = other._type;
-        _sv = other._sv;
-        _bitmap = other._bitmap;
-        _set = other._set;
-        _is_shared = true;
-        // should also set other's state to shared, so that other bitmap value will
-        // create a new bitmap when it wants to modify it.
-        const_cast<BitmapValue&>(other)._is_shared = true;
+        switch (other._type) {
+        case EMPTY:
+            break;
+        case SINGLE:
+            _sv = other._sv;
+            break;
+        case BITMAP:
+            _bitmap = other._bitmap;
+            break;
+        case SET:
+            _set = other._set;
+            break;
+        }
+
+        if (other._type != EMPTY) {
+            _is_shared = true;
+            // should also set other's state to shared, so that other bitmap value will
+            // create a new bitmap when it wants to modify it.
+            const_cast<BitmapValue&>(other)._is_shared = true;
+        }
     }
 
     BitmapValue(BitmapValue&& other) {
         _type = other._type;
-        _sv = other._sv;
+        switch (other._type) {
+        case EMPTY:
+            break;
+        case SINGLE:
+            _sv = other._sv;
+            break;
+        case BITMAP:
+            _bitmap = std::move(other._bitmap);
+            other._bitmap = nullptr;
+            break;
+        case SET:
+            _set = std::move(other._set);
+            break;
+        }
         _is_shared = other._is_shared;
-        _bitmap = std::move(other._bitmap);
-        _set = std::move(other._set);
+        other._type = EMPTY;
+        other._is_shared = false;
     }
 
     BitmapValue& operator=(const BitmapValue& other) {
         _type = other._type;
-        _sv = other._sv;
-        _bitmap = other._bitmap;
-        _is_shared = true;
-        _set = other._set;
-        // should also set other's state to shared, so that other bitmap value will
-        // create a new bitmap when it wants to modify it.
-        const_cast<BitmapValue&>(other)._is_shared = true;
+        switch (other._type) {
+        case EMPTY:
+            break;
+        case SINGLE:
+            _sv = other._sv;
+            break;
+        case BITMAP:
+            _bitmap = other._bitmap;
+            break;
+        case SET:
+            _set = other._set;
+            break;
+        }
+
+        if (other._type != EMPTY) {
+            _is_shared = true;
+            // should also set other's state to shared, so that other bitmap value will
+            // create a new bitmap when it wants to modify it.
+            const_cast<BitmapValue&>(other)._is_shared = true;
+        }
         return *this;
+    }
+
+    static std::string empty_bitmap() {
+        static BitmapValue btmap;
+        std::string buf;
+        buf.resize(btmap.getSizeInBytes());
+        btmap.write_to((char*)buf.c_str());
+        return buf;
     }
 
     BitmapValue& operator=(BitmapValue&& other) {
@@ -1199,9 +1258,20 @@ public:
         }
 
         _type = other._type;
-        _sv = other._sv;
-        _bitmap = std::move(other._bitmap);
-        _set = std::move(other._set);
+        switch (other._type) {
+        case EMPTY:
+            break;
+        case SINGLE:
+            _sv = other._sv;
+            break;
+        case BITMAP:
+            _bitmap = std::move(other._bitmap);
+            other._bitmap = nullptr;
+            break;
+        case SET:
+            _set = std::move(other._set);
+            break;
+        }
         _is_shared = other._is_shared;
         return *this;
     }
@@ -1213,7 +1283,7 @@ public:
             return;
         }
 
-        if (bits.size() == 1 && !config::enable_set_in_bitmap_value) {
+        if (bits.size() == 1) {
             _type = SINGLE;
             _sv = bits[0];
             return;
@@ -1228,6 +1298,73 @@ public:
             for (auto v : bits) {
                 _set.insert(v);
             }
+        }
+    }
+
+    BitmapTypeCode::type get_type_code() const {
+        switch (_type) {
+        case EMPTY:
+            return BitmapTypeCode::EMPTY;
+        case SINGLE:
+            if (_sv <= std::numeric_limits<uint32_t>::max()) {
+                return BitmapTypeCode::SINGLE32;
+            } else {
+                return BitmapTypeCode::SINGLE64;
+            }
+        case SET:
+            return BitmapTypeCode::SET;
+        case BITMAP:
+            if (_bitmap->is32BitsEnough()) {
+                return BitmapTypeCode::BITMAP32;
+            } else {
+                return BitmapTypeCode::BITMAP64;
+            }
+        }
+    }
+
+    template <typename T>
+    void add_many(const T* values, const size_t count) {
+        switch (_type) {
+        case EMPTY:
+            if (count == 1) {
+                _sv = values[0];
+                _type = SINGLE;
+            } else if (config::enable_set_in_bitmap_value && count < SET_TYPE_THRESHOLD) {
+                for (size_t i = 0; i != count; ++i) {
+                    _set.insert(values[i]);
+                }
+                _type = SET;
+            } else {
+                _prepare_bitmap_for_write();
+                _bitmap->addMany(count, values);
+                _type = BITMAP;
+            }
+            break;
+        case SINGLE:
+            if (config::enable_set_in_bitmap_value && count < SET_TYPE_THRESHOLD) {
+                _set.insert(_sv);
+                for (size_t i = 0; i != count; ++i) {
+                    _set.insert(values[i]);
+                }
+                _type = SET;
+                _convert_to_bitmap_if_need();
+            } else {
+                _prepare_bitmap_for_write();
+                _bitmap->add(_sv);
+                _bitmap->addMany(count, values);
+                _type = BITMAP;
+            }
+            break;
+        case BITMAP:
+            _prepare_bitmap_for_write();
+            _bitmap->addMany(count, values);
+            break;
+        case SET:
+            for (size_t i = 0; i != count; ++i) {
+                _set.insert(values[i]);
+            }
+            _convert_to_bitmap_if_need();
+            break;
         }
     }
 

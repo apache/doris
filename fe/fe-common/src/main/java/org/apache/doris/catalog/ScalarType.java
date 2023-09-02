@@ -272,9 +272,9 @@ public class ScalarType extends Type {
                 return TIME;
             case "DECIMAL":
             case "DECIMALV2":
-                return (ScalarType) createDecimalType();
+                return createDecimalType();
             case "DECIMALV3":
-                return (ScalarType) createDecimalV3Type();
+                return createDecimalV3Type();
             case "LARGEINT":
                 return LARGEINT;
             default:
@@ -517,7 +517,9 @@ public class ScalarType extends Type {
     }
 
     public static ScalarType createVarcharType() {
-        return DEFAULT_VARCHAR;
+        // Because ScalarType is not an immutable class, it will call setLength() sometimes.
+        // So currently don't use DEFAULT_VARCHAR, will improve it in the future.
+        return new ScalarType(PrimitiveType.VARCHAR);
     }
 
     public static ScalarType createHllType() {
@@ -573,7 +575,7 @@ public class ScalarType extends Type {
                 break;
             case VARCHAR:
                 if (isWildcardVarchar()) {
-                    stringBuilder.append("varchar(*)");
+                    stringBuilder.append("varchar");
                 } else if (Strings.isNullOrEmpty(lenStr)) {
                     stringBuilder.append("varchar").append("(").append(len).append(")");
                 } else {
@@ -684,13 +686,15 @@ public class ScalarType extends Type {
             case DECIMAL64:
             case DECIMAL128:
             case DATETIMEV2: {
-                Preconditions.checkArgument(precision >= scale);
+                Preconditions.checkArgument(precision >= scale,
+                        String.format("given precision %d is out of scale bound %d", precision, scale));
                 scalarType.setScale(scale);
                 scalarType.setPrecision(precision);
                 break;
             }
             case TIMEV2: {
-                Preconditions.checkArgument(precision >= scale);
+                Preconditions.checkArgument(precision >= scale,
+                        String.format("given precision %d is out of scale bound %d", precision, scale));
                 scalarType.setScale(scale);
                 scalarType.setPrecision(precision);
                 break;

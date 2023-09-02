@@ -39,7 +39,7 @@ import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.Interval.TimeUnit;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
-import org.apache.doris.nereids.trees.plans.ObjectId;
+import org.apache.doris.nereids.trees.plans.RelationId;
 import org.apache.doris.nereids.types.DateTimeV2Type;
 import org.apache.doris.nereids.types.DoubleType;
 import org.apache.doris.nereids.types.IntegerType;
@@ -607,7 +607,7 @@ public class FoldConstantTest extends ExpressionRewriteTestHelper {
     public void testFoldTypeOfNullLiteral() {
         String actualExpression = "append_trailing_char_if_absent(cast(version() as varchar), cast(null as varchar))";
         ExpressionRewriteContext context = new ExpressionRewriteContext(
-                MemoTestUtils.createCascadesContext(new UnboundRelation(new ObjectId(1), ImmutableList.of("test_table"))));
+                MemoTestUtils.createCascadesContext(new UnboundRelation(new RelationId(1), ImmutableList.of("test_table"))));
         NereidsParser parser = new NereidsParser();
         Expression e1 = parser.parseExpression(actualExpression);
         e1 = new ExpressionNormalization().rewrite(FunctionBinder.INSTANCE.rewrite(e1, context), context);
@@ -616,7 +616,7 @@ public class FoldConstantTest extends ExpressionRewriteTestHelper {
 
     private void assertRewriteExpression(String actualExpression, String expectedExpression) {
         ExpressionRewriteContext context = new ExpressionRewriteContext(
-                MemoTestUtils.createCascadesContext(new UnboundRelation(new ObjectId(1), ImmutableList.of("test_table"))));
+                MemoTestUtils.createCascadesContext(new UnboundRelation(new RelationId(1), ImmutableList.of("test_table"))));
 
         NereidsParser parser = new NereidsParser();
         Expression e1 = parser.parseExpression(actualExpression);

@@ -19,12 +19,18 @@ package org.apache.doris.nereids.trees.expressions;
 
 import org.apache.doris.nereids.trees.expressions.shape.LeafExpression;
 
+import com.google.common.collect.ImmutableList;
+
 import java.util.List;
 
 /**
  * Abstract class for all slot in expression.
  */
 public abstract class Slot extends NamedExpression implements LeafExpression {
+
+    protected Slot() {
+        super(ImmutableList.of());
+    }
 
     @Override
     public Slot toSlot() {
@@ -35,11 +41,15 @@ public abstract class Slot extends NamedExpression implements LeafExpression {
         throw new RuntimeException("Do not implement");
     }
 
-    public Slot withQualifier(List<String> qualifiers) {
+    public Slot withQualifier(List<String> qualifier) {
         throw new RuntimeException("Do not implement");
     }
 
     public Slot withName(String name) {
+        throw new RuntimeException("Do not implement");
+    }
+
+    public Slot withExprId(ExprId exprId) {
         throw new RuntimeException("Do not implement");
     }
 }

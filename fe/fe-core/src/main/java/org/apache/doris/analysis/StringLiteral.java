@@ -199,9 +199,9 @@ public class StringLiteral extends LiteralExpr {
         return newLiteral;
     }
 
-    public boolean canConvertToDateV2(Type targetType) {
+    public boolean canConvertToDateType(Type targetType) {
         try {
-            Preconditions.checkArgument(targetType.isDateV2());
+            Preconditions.checkArgument(targetType.isDateType());
             new DateLiteral(value, targetType);
             return true;
         } catch (AnalysisException e) {
@@ -261,7 +261,7 @@ public class StringLiteral extends LiteralExpr {
         } else if (targetType.isDateType()) {
             // FE only support 'yyyy-MM-dd hh:mm:ss' && 'yyyy-MM-dd' format
             // so if FE unchecked cast fail, we also build CastExpr for BE
-            // BE support other format suck as 'yyyyMMdd'...
+            // BE support other format such as 'yyyyMMdd'...
             try {
                 return convertToDate(targetType);
             } catch (AnalysisException e) {

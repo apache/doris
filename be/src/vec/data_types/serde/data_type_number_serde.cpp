@@ -21,7 +21,9 @@
 
 #include <type_traits>
 
-#include "gutil/casts.h"
+#include "gutil/strings/numbers.h"
+#include "util/mysql_global.h"
+#include "vec/io/io_helper.h"
 
 namespace doris {
 namespace vectorized {
@@ -98,6 +100,78 @@ void DataTypeNumberSerDe<T>::write_column_to_arrow(const IColumn& column, const 
 }
 
 template <typename T>
+Status DataTypeNumberSerDe<T>::deserialize_one_cell_from_text(IColumn& column, Slice& slice,
+                                                              const FormatOptions& options) const {
+    auto& column_data = reinterpret_cast<ColumnType&>(column);
+    ReadBuffer rb(slice.data, slice.size);
+    if constexpr (std::is_same<T, UInt128>::value) {
+        // TODO: support for Uint128
+        return Status::InvalidArgument("uint128 is not support");
+    } else if constexpr (std::is_same_v<T, float> || std::is_same_v<T, double>) {
+        T val = 0;
+        if (!read_float_text_fast_impl(val, rb)) {
+            return Status::InvalidArgument("parse number fail, string: '{}'",
+                                           std::string(rb.position(), rb.count()).c_str());
+        }
+        column_data.insert_value(val);
+    } else if constexpr (std::is_same_v<T, uint8_t>) {
+        // Note: here we should handle the bool type
+        T val = 0;
+        if (!try_read_bool_text(val, rb)) {
+            return Status::InvalidArgument("parse boolean fail, string: '{}'",
+                                           std::string(rb.position(), rb.count()).c_str());
+        }
+        column_data.insert_value(val);
+    } else if constexpr (std::is_integral<T>::value) {
+        T val = 0;
+        if (!read_int_text_impl(val, rb)) {
+            return Status::InvalidArgument("parse number fail, string: '{}'",
+                                           std::string(rb.position(), rb.count()).c_str());
+        }
+        column_data.insert_value(val);
+    } else {
+        DCHECK(false);
+    }
+    return Status::OK();
+}
+
+template <typename T>
+void DataTypeNumberSerDe<T>::serialize_column_to_text(const IColumn& column, int start_idx,
+                                                      int end_idx, BufferWritable& bw,
+                                                      FormatOptions& options) const {
+    SERIALIZE_COLUMN_TO_TEXT()
+}
+
+template <typename T>
+void DataTypeNumberSerDe<T>::serialize_one_cell_to_text(const IColumn& column, int row_num,
+                                                        BufferWritable& bw,
+                                                        FormatOptions& options) const {
+    auto result = check_column_const_set_readability(column, row_num);
+    ColumnPtr ptr = result.first;
+    row_num = result.second;
+    auto data = assert_cast<const ColumnVector<T>&>(*ptr).get_element(row_num);
+    if constexpr (std::is_same<T, UInt128>::value) {
+        std::string hex = int128_to_string(data);
+        bw.write(hex.data(), hex.size());
+    } else if constexpr (std::is_same_v<T, float>) {
+        // fmt::format_to maybe get inaccurate results at float type, so we use gutil implement.
+        char buf[MAX_FLOAT_STR_LENGTH + 2];
+        int len = FloatToBuffer(data, MAX_FLOAT_STR_LENGTH + 2, buf);
+        bw.write(buf, len);
+    } else if constexpr (std::is_integral<T>::value || std::numeric_limits<T>::is_iec559) {
+        bw.write_number(data);
+    }
+}
+
+template <typename T>
+Status DataTypeNumberSerDe<T>::deserialize_column_from_text_vector(
+        IColumn& column, std::vector<Slice>& slices, int* num_deserialized,
+        const FormatOptions& options) const {
+    DESERIALIZE_COLUMN_FROM_TEXT_VECTOR()
+    return Status::OK();
+}
+
+template <typename T>
 void DataTypeNumberSerDe<T>::read_column_from_arrow(IColumn& column,
                                                     const arrow::Array* arrow_array, int start,
                                                     int end, const cctz::time_zone& ctz) const {
@@ -106,7 +180,7 @@ void DataTypeNumberSerDe<T>::read_column_from_arrow(IColumn& column,
 
     // now uint8 for bool
     if constexpr (std::is_same_v<T, UInt8>) {
-        auto concrete_array = down_cast<const arrow::BooleanArray*>(arrow_array);
+        auto concrete_array = dynamic_cast<const arrow::BooleanArray*>(arrow_array);
         for (size_t bool_i = 0; bool_i != static_cast<size_t>(concrete_array->length()); ++bool_i) {
             col_data.emplace_back(concrete_array->Value(bool_i));
         }

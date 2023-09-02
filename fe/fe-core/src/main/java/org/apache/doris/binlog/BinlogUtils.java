@@ -19,6 +19,7 @@ package org.apache.doris.binlog;
 
 import org.apache.doris.common.Pair;
 import org.apache.doris.thrift.TBinlog;
+import org.apache.doris.thrift.TBinlogType;
 import org.apache.doris.thrift.TStatus;
 import org.apache.doris.thrift.TStatusCode;
 
@@ -68,5 +69,25 @@ public class BinlogUtils {
         } else {
             return Pair.of(status, Long.valueOf(binlogs.tailSet(binlog).size()));
         }
+    }
+
+    public static TBinlog newDummyBinlog(long dbId, long tableId) {
+        TBinlog dummy = new TBinlog();
+        dummy.setCommitSeq(-1);
+        dummy.setTimestamp(-1);
+        dummy.setType(TBinlogType.DUMMY);
+        dummy.setDbId(dbId);
+        dummy.setBelong(tableId);
+        return dummy;
+    }
+
+    public static long getExpiredMs(long ttlSeconds) {
+        long currentSeconds = System.currentTimeMillis() / 1000;
+        if (currentSeconds < ttlSeconds) {
+            return Long.MIN_VALUE;
+        }
+
+        long expireSeconds = currentSeconds - ttlSeconds;
+        return expireSeconds * 1000;
     }
 }

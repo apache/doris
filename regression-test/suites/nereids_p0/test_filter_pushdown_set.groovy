@@ -19,4 +19,7 @@
      sql "SET enable_nereids_planner=true"
      sql "SET enable_fallback_to_original_planner=false"
      qt_select1 'select * from (select 1 as a, 2 as b union all select 3, 3) t where a = 1;'
+     sql "SET enable_nereids_planner=false"
+     qt_select2 'select * from (select 1 as a, 2 as b union all select 3, 3) t where a = 1;'
+     qt_select3 'select * from (select 1 as a, 2 as b union select 3, 3) t where a = 1;'
  }

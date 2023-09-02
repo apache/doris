@@ -34,7 +34,7 @@ under the License.
         <fe_ut_parallel>1</fe_ut_parallel>
         <antlr4.version>4.9.3</antlr4.version>
         <awssdk.version>2.17.257</awssdk.version>
-        <huaweiobs.version>3.1.1-hw-45</huaweiobs.version>
+        <huaweiobs.version>3.1.1-hw-46</huaweiobs.version>
         <tencentcos.version>3.3.5</tencentcos.version>
     </properties>
     <profiles>
@@ -448,12 +448,12 @@ under the License.
         <dependency>
             <groupId>net.java.dev.jna</groupId>
             <artifactId>jna</artifactId>
-            <version>5.5.0</version>
+            <version>5.13.0</version>
         </dependency>
         <dependency>
             <groupId>net.java.dev.jna</groupId>
             <artifactId>jna-platform</artifactId>
-            <version>5.5.0</version>
+            <version>5.13.0</version>
         </dependency>
         <dependency>
             <groupId>software.amazon.awssdk</groupId>
@@ -560,6 +560,24 @@ under the License.
             <groupId>org.apache.paimon</groupId>
             <artifactId>paimon-format</artifactId>
             <version>${paimon.version}</version>
+        </dependency>
+
+        <dependency>
+            <groupId>org.apache.paimon</groupId>
+            <artifactId>paimon-s3</artifactId>
+            <version>${paimon.version}</version>
+        </dependency>
+
+        <dependency>
+            <groupId>org.apache.paimon</groupId>
+            <artifactId>paimon-oss</artifactId>
+            <version>${paimon.version}</version>
+        </dependency>
+
+        <dependency>
+            <groupId>io.delta</groupId>
+            <artifactId>delta-standalone_2.12</artifactId>
+            <version>${delta.version}</version>
         </dependency>
 
         <dependency>
@@ -683,7 +701,11 @@ under the License.
             <groupId>com.esotericsoftware</groupId>
             <artifactId>kryo-shaded</artifactId>
         </dependency>
-
+        <dependency>
+            <groupId>org.quartz-scheduler</groupId>
+            <artifactId>quartz</artifactId>
+            <version>2.3.2</version>
+        </dependency>
     </dependencies>
     <repositories>
         <!-- for huawei obs sdk -->
@@ -808,7 +830,7 @@ under the License.
                     <reuseForks>false</reuseForks>
                     <useFile>false</useFile>
                     <argLine>
-                        -javaagent:${settings.localRepository}/org/jmockit/jmockit/${jmockit.version}/jmockit-${jmockit.version}.jar
+                        -Xmx512m -javaagent:${settings.localRepository}/org/jmockit/jmockit/${jmockit.version}/jmockit-${jmockit.version}.jar
                     </argLine>
                 </configuration>
             </plugin>

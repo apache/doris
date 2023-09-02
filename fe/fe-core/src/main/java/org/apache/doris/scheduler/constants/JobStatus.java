@@ -19,6 +19,7 @@ package org.apache.doris.scheduler.constants;
 
 public enum JobStatus {
 
+
     /**
      * When the task is not started, the initial state will be triggered.
      * The initial state can be started
@@ -35,4 +36,9 @@ public enum JobStatus {
      * The stop state cannot be resumed
      */
     STOPPED,
+
+    /**
+     * When the task is finished, the finished state will be triggered.
+     */
+    FINISHED
 }

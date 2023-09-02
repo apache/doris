@@ -32,7 +32,9 @@ DISTRIBUTED BY ... BUCKETS auto
 
 </version>
 
-Users often set inappropriate buckets, leading to various problems. For now, it only works for olap tables
+Users often set inappropriate buckets, leading to various problems. For now, it only works for olap tables  
+
+Node: This feature will be disabled when synchronized by CCR. If this table is copied by CCR, that is, PROPERTIES contains `is_being_synced = true`, it will be displayed as enabled in show create table, but will not actually take effect. When `is_being_synced` is set to `false`, these features will resume working, but the `is_being_synced` property is for CCR peripheral modules only and should not be manually set during CCR synchronization.  
 
 # Implementation
 

@@ -41,6 +41,8 @@ import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.InputStreamReader;
+import java.io.PrintWriter;
+import java.io.StringWriter;
 import java.net.URL;
 import java.net.URLConnection;
 import java.util.ArrayList;
@@ -548,6 +550,8 @@ public class Util {
             return TFileFormatType.FORMAT_CSV_LZO;
         } else if (lowerCasePath.endsWith(".deflate")) {
             return TFileFormatType.FORMAT_CSV_DEFLATE;
+        } else if (lowerCasePath.endsWith(".snappy")) {
+            return TFileFormatType.FORMAT_CSV_SNAPPYBLOCK;
         } else {
             return TFileFormatType.FORMAT_CSV_PLAIN;
         }
@@ -573,6 +577,8 @@ public class Util {
             return TFileCompressType.LZO;
         } else if (lowerCasePath.endsWith(".deflate")) {
             return TFileCompressType.DEFLATE;
+        } else if (lowerCasePath.endsWith(".snappy")) {
+            return TFileCompressType.SNAPPYBLOCK;
         } else {
             return TFileCompressType.PLAIN;
         }
@@ -597,6 +603,8 @@ public class Util {
                 || fileFormatType == TFileFormatType.FORMAT_CSV_DEFLATE
                 || fileFormatType == TFileFormatType.FORMAT_CSV_GZ
                 || fileFormatType == TFileFormatType.FORMAT_CSV_LZ4FRAME
+                || fileFormatType == TFileFormatType.FORMAT_CSV_LZ4BLOCK
+                || fileFormatType == TFileFormatType.FORMAT_CSV_SNAPPYBLOCK
                 || fileFormatType == TFileFormatType.FORMAT_CSV_LZO
                 || fileFormatType == TFileFormatType.FORMAT_CSV_LZOP
                 || fileFormatType == TFileFormatType.FORMAT_CSV_PLAIN;
@@ -615,5 +623,21 @@ public class Util {
             p = p.getCause();
         }
         return rootCause;
+    }
+
+    // Return the stack of the root cause
+    public static String getRootCauseStack(Throwable t) {
+        String rootStack = "unknown";
+        if (t == null) {
+            return rootStack;
+        }
+        Throwable p = t;
+        while (p.getCause() != null) {
+            p = p.getCause();
+        }
+        StringWriter sw = new StringWriter();
+        PrintWriter pw = new PrintWriter(sw);
+        p.printStackTrace(pw);
+        return sw.toString();
     }
 }

@@ -56,6 +56,7 @@
 #include "vec/columns/column_array.h"
 #include "vec/columns/column_complex.h"
 #include "vec/columns/column_decimal.h"
+#include "vec/columns/column_map.h"
 #include "vec/columns/column_nullable.h"
 #include "vec/columns/column_string.h"
 #include "vec/columns/column_vector.h"
@@ -76,6 +77,7 @@
 #include "vec/data_types/data_type_string.h"
 #include "vec/data_types/data_type_struct.h"
 #include "vec/data_types/data_type_time_v2.h"
+#include "vec/io/io_helper.h"
 #include "vec/runtime/vdatetime_value.h"
 #include "vec/utils/arrow_column_to_doris_column.h"
 
@@ -95,6 +97,7 @@ void serialize_and_deserialize_arrow_test() {
                 {"k4", FieldType::OLAP_FIELD_TYPE_BOOL, 4, TYPE_BOOLEAN, false},
                 {"k5", FieldType::OLAP_FIELD_TYPE_DECIMAL32, 5, TYPE_DECIMAL32, false},
                 {"k6", FieldType::OLAP_FIELD_TYPE_DECIMAL64, 6, TYPE_DECIMAL64, false},
+                {"k12", FieldType::OLAP_FIELD_TYPE_DATETIMEV2, 12, TYPE_DATETIMEV2, false},
         };
     } else {
         cols = {{"a", FieldType::OLAP_FIELD_TYPE_ARRAY, 6, TYPE_ARRAY, true},
@@ -178,10 +181,10 @@ void serialize_and_deserialize_arrow_test() {
                     }
                     Int32 val;
                     StringParser::ParseResult result = StringParser::PARSE_SUCCESS;
-                    i % 2 == 0 ? val = StringParser::string_to_decimal<__int128>(
+                    i % 2 == 0 ? val = StringParser::string_to_decimal<TYPE_DECIMAL32>(
                                          "1234567.56", 11, type_desc.precision, type_desc.scale,
                                          &result)
-                               : val = StringParser::string_to_decimal<__int128>(
+                               : val = StringParser::string_to_decimal<TYPE_DECIMAL32>(
                                          "-1234567.56", 12, type_desc.precision, type_desc.scale,
                                          &result);
                     EXPECT_TRUE(result == StringParser::PARSE_SUCCESS);
@@ -214,7 +217,7 @@ void serialize_and_deserialize_arrow_test() {
                     StringParser::ParseResult result = StringParser::PARSE_SUCCESS;
                     std::string decimal_string =
                             i % 2 == 0 ? "-123456789012.123456" : "123456789012.123456";
-                    val = StringParser::string_to_decimal<__int128>(
+                    val = StringParser::string_to_decimal<TYPE_DECIMAL64>(
                             decimal_string.c_str(), decimal_string.size(), type_desc.precision,
                             type_desc.scale, &result);
                     EXPECT_TRUE(result == StringParser::PARSE_SUCCESS);
@@ -327,6 +330,28 @@ void serialize_and_deserialize_arrow_test() {
                 block.insert(test_datetime);
             }
             break;
+        case TYPE_DATETIMEV2: // uint64
+            tslot.__set_slotType(type_desc.to_thrift());
+            {
+                // 2022-01-01 11:11:11.111
+                auto column_vector_datetimev2 =
+                        vectorized::ColumnVector<vectorized::UInt64>::create();
+                //                auto& datetimev2_data = column_vector_datetimev2->get_data();
+                DateV2Value<DateTimeV2ValueType> value;
+                string date_literal = "2022-01-01 11:11:11.111";
+                value.from_date_str(date_literal.c_str(), date_literal.size());
+                char to[64] = {};
+                std::cout << "value: " << value.to_string(to) << std::endl;
+                for (int i = 0; i < row_num; ++i) {
+                    column_vector_datetimev2->insert(value.to_date_int_val());
+                }
+                vectorized::DataTypePtr datetimev2_type(
+                        std::make_shared<vectorized::DataTypeDateTimeV2>());
+                vectorized::ColumnWithTypeAndName test_datetimev2(
+                        column_vector_datetimev2->get_ptr(), datetimev2_type, col_name);
+                block.insert(test_datetimev2);
+            }
+            break;
         case TYPE_ARRAY: // array
             type_desc.add_sub_type(TYPE_STRING, true);
             tslot.__set_slotType(type_desc.to_thrift());
@@ -356,7 +381,9 @@ void serialize_and_deserialize_arrow_test() {
             type_desc.add_sub_type(TYPE_STRING, true);
             tslot.__set_slotType(type_desc.to_thrift());
             {
-                DataTypePtr s = std::make_shared<DataTypeString>();
+                DataTypePtr s =
+                        std::make_shared<DataTypeNullable>(std::make_shared<DataTypeString>());
+                ;
                 DataTypePtr d =
                         std::make_shared<DataTypeNullable>(std::make_shared<DataTypeString>());
                 DataTypePtr m = std::make_shared<DataTypeMap>(s, d);
@@ -485,6 +512,11 @@ void serialize_and_deserialize_arrow_test() {
                 }
             }
             continue;
+        } else if (std::get<3>(t) == PrimitiveType::TYPE_DATETIMEV2) {
+            // now we only support read doris datetimev2 to arrow
+            block.erase(real_column_name);
+            new_block.erase(real_column_name);
+            continue;
         }
         arrow_column_to_doris_column(array, 0, column_with_type_and_name.column,
                                      column_with_type_and_name.type, block.rows(), "UTC");
@@ -501,6 +533,86 @@ TEST(DataTypeSerDeArrowTest, DataTypeScalaSerDeTest) {
 
 TEST(DataTypeSerDeArrowTest, DataTypeCollectionSerDeTest) {
     serialize_and_deserialize_arrow_test<false>();
+}
+
+TEST(DataTypeSerDeArrowTest, DataTypeMapNullKeySerDeTest) {
+    TupleDescriptor tuple_desc(PTupleDescriptor(), true);
+    TSlotDescriptor tslot;
+    std::string col_name = "map_null_key";
+    tslot.__set_colName(col_name);
+    TypeDescriptor type_desc(TYPE_MAP);
+    type_desc.add_sub_type(TYPE_STRING, true);
+    type_desc.add_sub_type(TYPE_INT, true);
+    tslot.__set_slotType(type_desc.to_thrift());
+    vectorized::Block block;
+    {
+        DataTypePtr s = std::make_shared<DataTypeNullable>(std::make_shared<DataTypeString>());
+        ;
+        DataTypePtr d = std::make_shared<DataTypeNullable>(std::make_shared<DataTypeInt32>());
+        DataTypePtr m = std::make_shared<DataTypeMap>(s, d);
+        Array k1, k2, v1, v2, k3, v3;
+        k1.push_back(Null());
+        k1.push_back("doris");
+        k1.push_back("clever amory");
+        v1.push_back(11);
+        v1.push_back(Null());
+        v1.push_back(30);
+        k2.push_back("hello amory");
+        k2.push_back("NULL");
+        k2.push_back("cute amory");
+        k2.push_back("doris");
+        v2.push_back(26);
+        v2.push_back(Null());
+        v2.push_back(6);
+        v2.push_back(7);
+        k3.push_back("test");
+        k3.push_back(Null());
+        v3.push_back(11);
+        v3.push_back(30);
+        Map m1, m2, m3;
+        m1.push_back(k1);
+        m1.push_back(v1);
+        m2.push_back(k2);
+        m2.push_back(v2);
+        m3.push_back(k3);
+        m3.push_back(v3);
+        MutableColumnPtr map_column = m->create_column();
+        map_column->reserve(3);
+        map_column->insert(m1);
+        map_column->insert(m2);
+        map_column->insert(m3);
+        vectorized::ColumnWithTypeAndName type_and_name(map_column->get_ptr(), m, col_name);
+        block.insert(type_and_name);
+    }
+
+    tslot.__set_col_unique_id(1);
+    SlotDescriptor* slot = new SlotDescriptor(tslot);
+    tuple_desc.add_slot(slot);
+    RowDescriptor row_desc(&tuple_desc, true);
+    // arrow schema
+    std::shared_ptr<arrow::Schema> _arrow_schema;
+    EXPECT_EQ(convert_to_arrow_schema(row_desc, &_arrow_schema), Status::OK());
+
+    // serialize
+    std::shared_ptr<arrow::RecordBatch> result;
+    std::cout << "block structure: " << block.dump_structure() << std::endl;
+    std::cout << "_arrow_schema: " << _arrow_schema->ToString(true) << std::endl;
+
+    convert_to_arrow_batch(block, _arrow_schema, arrow::default_memory_pool(), &result);
+    Block new_block = block.clone_empty();
+    EXPECT_TRUE(result != nullptr);
+    std::cout << "result: " << result->ToString() << std::endl;
+    // deserialize
+    auto* array = result->GetColumnByName(col_name).get();
+    auto& column_with_type_and_name = new_block.get_by_name(col_name);
+    arrow_column_to_doris_column(array, 0, column_with_type_and_name.column,
+                                 column_with_type_and_name.type, block.rows(), "UTC");
+    std::cout << block.dump_data() << std::endl;
+    std::cout << new_block.dump_data() << std::endl;
+    // new block row_index 0, 2 which row has key null will be filter
+    EXPECT_EQ(new_block.dump_one_line(0, 1), "{\"doris\":null, \"clever amory\":30}");
+    EXPECT_EQ(new_block.dump_one_line(2, 1), "{\"test\":11}");
+    EXPECT_EQ(block.dump_data(1, 1), new_block.dump_data(1, 1));
 }
 
 } // namespace doris::vectorized

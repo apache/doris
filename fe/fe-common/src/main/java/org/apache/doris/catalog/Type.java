@@ -38,6 +38,7 @@ import java.math.BigInteger;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -89,6 +90,7 @@ public abstract class Type {
     public static final ScalarType DEFAULT_DECIMALV3 = DEFAULT_DECIMAL32;
     public static final ScalarType DEFAULT_DATETIMEV2 = ScalarType.createDatetimeV2Type(0);
     public static final ScalarType DATETIMEV2 = DEFAULT_DATETIMEV2;
+    public static final ScalarType DATETIMEV2_WITH_MAX_SCALAR = ScalarType.createDatetimeV2Type(6);
     public static final ScalarType DEFAULT_TIMEV2 = ScalarType.createTimeV2Type(0);
     public static final ScalarType DECIMALV2 = DEFAULT_DECIMALV2;
     public static final ScalarType DECIMAL32 = DEFAULT_DECIMAL32;
@@ -258,6 +260,7 @@ public abstract class Type {
                     .put(PrimitiveType.DECIMAL64, Sets.newHashSet(BigDecimal.class))
                     .put(PrimitiveType.DECIMAL128, Sets.newHashSet(BigDecimal.class))
                     .put(PrimitiveType.ARRAY, Sets.newHashSet(ArrayList.class))
+                    .put(PrimitiveType.MAP, Sets.newHashSet(HashMap.class))
                     .build();
 
     public static ArrayList<ScalarType> getIntegerTypes() {
@@ -1956,9 +1959,10 @@ public abstract class Type {
             } else if (type2.isArrayType()) {
                 // For types array, we also need to check contains null for case like
                 // cast(array<not_null(int)> as array<int>)
-                if (((ArrayType) type2).getContainsNull() == ((ArrayType) type1).getContainsNull()) {
-                    return true;
+                if (!((ArrayType) type2).getContainsNull() == ((ArrayType) type1).getContainsNull()) {
+                    return false;
                 }
+                return matchExactType(((ArrayType) type2).getItemType(), ((ArrayType) type1).getItemType());
             } else {
                 return true;
             }

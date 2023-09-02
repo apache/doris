@@ -26,6 +26,7 @@
 
 #include "vec/aggregate_functions/aggregate_function.h"
 #include "vec/data_types/data_type_array.h"
+#include "vec/data_types/data_type_jsonb.h"
 #include "vec/data_types/data_type_nullable.h"
 #include "vec/data_types/data_type_number.h"
 #include "vec/data_types/data_type_string.h"
@@ -102,6 +103,8 @@ void register_function_fake(SimpleFunctionFactory& factory) {
     register_table_function_expand_outer_default<DataTypeInt64>(factory, "explode_json_array_int");
     register_table_function_expand_outer_default<DataTypeString>(factory,
                                                                  "explode_json_array_string");
+    register_table_function_expand_outer_default<DataTypeString>(factory,
+                                                                 "explode_json_array_json");
     register_table_function_expand_outer_default<DataTypeFloat64>(factory,
                                                                   "explode_json_array_double");
     register_table_function_expand_outer_default<DataTypeInt64>(factory, "explode_bitmap");

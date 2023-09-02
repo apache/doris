@@ -18,18 +18,34 @@
 package org.apache.doris.service;
 
 import org.apache.doris.common.Config;
+import org.apache.doris.common.io.DiskUtils;
 import org.apache.doris.qe.ConnectScheduler;
 import org.apache.doris.qe.MultiLoadMgr;
+
+import java.util.ArrayList;
+import java.util.List;
 
 // Execute environment, used to save other module, need to singleton
 public class ExecuteEnv {
     private static volatile ExecuteEnv INSTANCE;
     private MultiLoadMgr multiLoadMgr;
     private ConnectScheduler scheduler;
+    private long startupTime;
+    private long processUUID;
+
+    private List<FeDiskInfo> diskInfos;
 
     private ExecuteEnv() {
         multiLoadMgr = new MultiLoadMgr();
         scheduler = new ConnectScheduler(Config.qe_max_connection);
+        startupTime = System.currentTimeMillis();
+        processUUID = System.currentTimeMillis();
+        diskInfos = new ArrayList<FeDiskInfo>() {{
+                add(new FeDiskInfo("meta", Config.meta_dir, DiskUtils.df(Config.meta_dir)));
+                add(new FeDiskInfo("log", Config.sys_log_dir, DiskUtils.df(Config.sys_log_dir)));
+                add(new FeDiskInfo("audit-log", Config.audit_log_dir, DiskUtils.df(Config.audit_log_dir)));
+                add(new FeDiskInfo("temp", Config.tmp_dir, DiskUtils.df(Config.tmp_dir)));
+            }};
     }
 
     public static ExecuteEnv getInstance() {
@@ -49,5 +65,27 @@ public class ExecuteEnv {
 
     public MultiLoadMgr getMultiLoadMgr() {
         return multiLoadMgr;
+    }
+
+    public long getStartupTime() {
+        return startupTime;
+    }
+
+    public long getProcessUUID() {
+        return processUUID;
+    }
+
+    public List<FeDiskInfo> getDiskInfos() {
+        return this.diskInfos;
+    }
+
+    public List<FeDiskInfo> refreshAndGetDiskInfo(boolean refresh) {
+        for (FeDiskInfo disk : diskInfos) {
+            DiskUtils.Df df = DiskUtils.df(disk.getDir());
+            if (df != null) {
+                disk.setSpaceInfo(df);
+            }
+        }
+        return diskInfos;
     }
 }

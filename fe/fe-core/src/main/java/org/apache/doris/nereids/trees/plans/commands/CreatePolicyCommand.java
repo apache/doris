@@ -39,6 +39,7 @@ public class CreatePolicyCommand extends Command implements ForwardWithSync {
     private final List<String> nameParts;
     private final Optional<FilterType> filterType;
     private final UserIdentity user;
+    private final String roleName;
     private final Optional<Expression> wherePredicate;
     private final Map<String, String> properties;
 
@@ -46,7 +47,7 @@ public class CreatePolicyCommand extends Command implements ForwardWithSync {
      * ctor of this command.
      */
     public CreatePolicyCommand(PolicyTypeEnum policyType, String policyName, boolean ifNotExists,
-            List<String> nameParts, Optional<FilterType> filterType, UserIdentity user,
+            List<String> nameParts, Optional<FilterType> filterType, UserIdentity user, String roleName,
             Optional<Expression> wherePredicate, Map<String, String> properties) {
         super(PlanType.CREATE_POLICY_COMMAND);
         this.policyType = policyType;
@@ -55,6 +56,7 @@ public class CreatePolicyCommand extends Command implements ForwardWithSync {
         this.nameParts = nameParts;
         this.filterType = filterType;
         this.user = user;
+        this.roleName = roleName;
         this.wherePredicate = wherePredicate;
         this.properties = properties;
     }

@@ -34,6 +34,10 @@ Status FunctionMatchBase::execute_impl(FunctionContext* context, Block& block,
                    << ", match_query_str=" << match_query_str;
         InvertedIndexCtx* inverted_index_ctx = reinterpret_cast<InvertedIndexCtx*>(
                 context->get_function_state(FunctionContext::THREAD_LOCAL));
+        if (inverted_index_ctx == nullptr) {
+            inverted_index_ctx = reinterpret_cast<InvertedIndexCtx*>(
+                    context->get_function_state(FunctionContext::FRAGMENT_LOCAL));
+        }
 
         const ColumnPtr source_col =
                 block.get_by_position(arguments[0]).column->convert_to_full_column_if_const();
@@ -137,8 +141,11 @@ Status FunctionMatchAny::execute_match(const std::string& column_name,
                     column_name, match_query_str,
                     doris::segment_v2::InvertedIndexQueryType::MATCH_ANY_QUERY, inverted_index_ctx);
     if (query_tokens.empty()) {
-        return Status::Error<ErrorCode::INVERTED_INDEX_NO_TERMS>(
-                "invalid input query_str: {}, please check your query sql", match_query_str);
+        LOG(WARNING) << fmt::format(
+                "token parser result is empty for query, "
+                "please check your query: '{}' and index parser: '{}'",
+                match_query_str, inverted_index_parser_type_to_string(parser_type));
+        return Status::OK();
     }
 
     auto current_src_array_offset = 0;
@@ -177,8 +184,11 @@ Status FunctionMatchAll::execute_match(const std::string& column_name,
                     column_name, match_query_str,
                     doris::segment_v2::InvertedIndexQueryType::MATCH_ALL_QUERY, inverted_index_ctx);
     if (query_tokens.empty()) {
-        return Status::Error<ErrorCode::INVERTED_INDEX_NO_TERMS>(
-                "invalid input query_str: {}, please check your query sql", match_query_str);
+        LOG(WARNING) << fmt::format(
+                "token parser result is empty for query, "
+                "please check your query: '{}' and index parser: '{}'",
+                match_query_str, inverted_index_parser_type_to_string(parser_type));
+        return Status::OK();
     }
 
     auto current_src_array_offset = 0;
@@ -224,8 +234,11 @@ Status FunctionMatchPhrase::execute_match(const std::string& column_name,
                     doris::segment_v2::InvertedIndexQueryType::MATCH_PHRASE_QUERY,
                     inverted_index_ctx);
     if (query_tokens.empty()) {
-        return Status::Error<ErrorCode::INVERTED_INDEX_NO_TERMS>(
-                "invalid input query_str: {}, please check your query sql", match_query_str);
+        LOG(WARNING) << fmt::format(
+                "token parser result is empty for query, "
+                "please check your query: '{}' and index parser: '{}'",
+                match_query_str, inverted_index_parser_type_to_string(parser_type));
+        return Status::OK();
     }
 
     auto current_src_array_offset = 0;
@@ -236,21 +249,24 @@ Status FunctionMatchPhrase::execute_match(const std::string& column_name,
 
         // TODO: more efficient impl
         bool matched = false;
-        auto it = data_tokens.begin();
-        while (it != data_tokens.end()) {
+        auto data_it = data_tokens.begin();
+        while (data_it != data_tokens.end()) {
             // find position of first token
-            it = std::find(it, data_tokens.end(), query_tokens[0]);
-            if (it != data_tokens.end()) {
+            data_it = std::find(data_it, data_tokens.end(), query_tokens[0]);
+            if (data_it != data_tokens.end()) {
                 matched = true;
-                it++;
-                auto it_more = it;
+                auto data_it_next = ++data_it;
+                auto query_it = query_tokens.begin() + 1;
                 // compare query_tokens after the first to data_tokens one by one
-                for (size_t idx = 1; idx < query_tokens.size(); idx++) {
-                    if (it_more == data_tokens.end() || *it_more != query_tokens[idx]) {
+                while (query_it != query_tokens.end()) {
+                    if (data_it_next == data_tokens.end() || *data_it_next != *query_it) {
                         matched = false;
+                        break;
                     }
-                    it_more++;
+                    query_it++;
+                    data_it_next++;
                 }
+
                 if (matched) {
                     break;
                 }

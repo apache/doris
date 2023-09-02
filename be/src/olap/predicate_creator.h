@@ -96,8 +96,8 @@ private:
     static CppType convert(const TabletColumn& column, const std::string& condition) {
         StringParser::ParseResult result = StringParser::ParseResult::PARSE_SUCCESS;
         // return CppType value cast from int128_t
-        return StringParser::string_to_decimal<int128_t>(
-                condition.data(), condition.size(), column.precision(), column.frac(), &result);
+        return StringParser::string_to_decimal<Type>(condition.data(), condition.size(),
+                                                     column.precision(), column.frac(), &result);
     }
 };
 
@@ -265,16 +265,10 @@ ColumnPredicate* create_list_predicate(const TabletColumn& column, int index,
 }
 
 // This method is called in reader and in deletehandler.
-// When it is called by delete handler, then it should use the delete predicate's tablet schema
-// to parse the conditions.
-inline ColumnPredicate* parse_to_predicate(TabletSchemaSPtr tablet_schema,
+// The "column" parameter might represent a column resulting from the decomposition of a variant column.
+inline ColumnPredicate* parse_to_predicate(const TabletColumn& column, uint32_t index,
                                            const TCondition& condition, vectorized::Arena* arena,
                                            bool opposite = false) {
-    int32_t col_unique_id = condition.column_unique_id;
-    // TODO: not equal and not in predicate is not pushed down
-    const TabletColumn& column = tablet_schema->column_by_uid(col_unique_id);
-    uint32_t index = tablet_schema->field_index(col_unique_id);
-
     if (to_lower(condition.condition_op) == "is") {
         return new NullPredicate(index, to_lower(condition.condition_values[0]) == "null",
                                  opposite);

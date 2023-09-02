@@ -22,8 +22,8 @@ import org.apache.doris.catalog.FunctionGenTable;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.exceptions.UnboundException;
 import org.apache.doris.nereids.properties.PhysicalProperties;
+import org.apache.doris.nereids.trees.expressions.Properties;
 import org.apache.doris.nereids.trees.expressions.Slot;
-import org.apache.doris.nereids.trees.expressions.TVFProperties;
 import org.apache.doris.nereids.trees.expressions.functions.BoundFunction;
 import org.apache.doris.nereids.trees.expressions.functions.CustomSignature;
 import org.apache.doris.nereids.trees.expressions.shape.UnaryExpression;
@@ -41,7 +41,8 @@ import java.util.stream.Collectors;
 
 /** TableValuedFunction */
 public abstract class TableValuedFunction extends BoundFunction implements UnaryExpression, CustomSignature {
-    protected final Supplier<TableValuedFunctionIf> catalogFunctionCache = Suppliers.memoize(() -> toCatalogFunction());
+
+    protected final Supplier<TableValuedFunctionIf> catalogFunctionCache = Suppliers.memoize(this::toCatalogFunction);
     protected final Supplier<FunctionGenTable> tableCache = Suppliers.memoize(() -> {
         try {
             return catalogFunctionCache.get().getTable();
@@ -52,7 +53,7 @@ public abstract class TableValuedFunction extends BoundFunction implements Unary
         }
     });
 
-    public TableValuedFunction(String functionName, TVFProperties tvfProperties) {
+    public TableValuedFunction(String functionName, Properties tvfProperties) {
         super(functionName, tvfProperties);
     }
 
@@ -60,8 +61,8 @@ public abstract class TableValuedFunction extends BoundFunction implements Unary
 
     public abstract Statistics computeStats(List<Slot> slots);
 
-    public TVFProperties getTVFProperties() {
-        return (TVFProperties) child(0);
+    public Properties getTVFProperties() {
+        return (Properties) child(0);
     }
 
     public final String getTableName() {

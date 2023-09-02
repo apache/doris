@@ -119,6 +119,7 @@ CREATE CATALOG hive PROPERTIES (
     "type"="hms",
     "hive.metastore.uris" = "thrift://172.0.0.1:9083",
     "s3.endpoint" = "s3.us-east-1.amazonaws.com",
+    "s3.region" = "us-east-1",
     "s3.access_key" = "ak",
     "s3.secret_key" = "sk"
     "use_path_style" = "true"
@@ -231,6 +232,12 @@ For Hive/Iceberge/Hudi
 | `map<KeyType, ValueType>` | `map<KeyType, ValueType>` | 暂不支持嵌套，KeyType 和 ValueType 需要为基础类型 |
 | `struct<col1: Type1, col2: Type2, ...>` | `struct<col1: Type1, col2: Type2, ...>` | 暂不支持嵌套，Type1, Type2, ... 需要为基础类型 |
 | other | unsupported | |
+
+## Whether to truncate char or varchar columns according to the schema of the hive table
+
+If the variable `truncate_char_or_varchar_columns` is enabled, when the maximum length of the char or varchar column in the schema of the hive table is inconsistent with the schema in the underlying parquet or orc file, it will be truncated according to the maximum length of the hive table column.
+
+The variable default is false.
 
 ## Integrate with Apache Ranger
 

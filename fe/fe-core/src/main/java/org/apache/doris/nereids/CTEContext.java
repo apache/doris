@@ -43,14 +43,14 @@ public class CTEContext {
 
     /* build head CTEContext */
     public CTEContext() {
-        this(null, null, CTEId.DEFAULT);
+        this(CTEId.DEFAULT, null, null);
     }
 
     /**
      * CTEContext
      */
-    public CTEContext(@Nullable LogicalSubQueryAlias<Plan> parsedPlan,
-            @Nullable CTEContext previousCteContext, CTEId cteId) {
+    public CTEContext(CTEId cteId, @Nullable LogicalSubQueryAlias<Plan> parsedPlan,
+            @Nullable CTEContext previousCteContext) {
         if ((parsedPlan == null && previousCteContext != null) || (parsedPlan != null && previousCteContext == null)) {
             throw new AnalysisException("Only first CteContext can contains null cte plan or previousCteContext");
         }
@@ -78,7 +78,7 @@ public class CTEContext {
     /**
      * Get for CTE reuse.
      */
-    public Optional<LogicalPlan> getReuse(String cteName) {
+    public Optional<LogicalPlan> getAnalyzedCTEPlan(String cteName) {
         if (!findCTEContext(cteName).isPresent()) {
             return Optional.empty();
         }

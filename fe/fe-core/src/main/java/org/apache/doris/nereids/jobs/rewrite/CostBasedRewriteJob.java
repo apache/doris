@@ -24,6 +24,8 @@ import org.apache.doris.nereids.jobs.JobContext;
 import org.apache.doris.nereids.jobs.executor.Optimizer;
 import org.apache.doris.nereids.jobs.executor.Rewriter;
 import org.apache.doris.nereids.memo.GroupExpression;
+import org.apache.doris.nereids.trees.plans.logical.LogicalCTEAnchor;
+import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -48,37 +50,29 @@ public class CostBasedRewriteJob implements RewriteJob {
 
     @Override
     public void execute(JobContext jobContext) {
-        CascadesContext cascadesContext = jobContext.getCascadesContext();
-        CascadesContext skipCboRuleCtx = CascadesContext.newRewriteContext(
-                cascadesContext, cascadesContext.getRewritePlan(),
-                cascadesContext.getCurrentJobContext().getRequiredProperties());
-        CascadesContext applyCboRuleCtx = CascadesContext.newRewriteContext(
-                cascadesContext, cascadesContext.getRewritePlan(),
-                cascadesContext.getCurrentJobContext().getRequiredProperties());
+        CascadesContext currentCtx = jobContext.getCascadesContext();
+        CascadesContext skipCboRuleCtx = CascadesContext.newCurrentTreeContext(currentCtx);
+        CascadesContext applyCboRuleCtx = CascadesContext.newCurrentTreeContext(currentCtx);
         // execute cbo rule on one candidate
-        new Rewriter(applyCboRuleCtx, rewriteJobs).execute();
+        Rewriter.getCteChildrenRewriter(applyCboRuleCtx, rewriteJobs).execute();
         if (skipCboRuleCtx.getRewritePlan().deepEquals(applyCboRuleCtx.getRewritePlan())) {
             // this means rewrite do not do anything
             return;
         }
-        // Do rewrite on 2 candidates
-        new Rewriter(skipCboRuleCtx, jobContext.getRemainJobs()).execute();
-        new Rewriter(applyCboRuleCtx, jobContext.getRemainJobs()).execute();
-        // Do optimize on 2 candidates
-        new Optimizer(skipCboRuleCtx).execute();
-        new Optimizer(applyCboRuleCtx).execute();
-        Optional<Pair<Cost, GroupExpression>> skipCboRuleCost = skipCboRuleCtx.getMemo().getRoot()
-                .getLowestCostPlan(skipCboRuleCtx.getCurrentJobContext().getRequiredProperties());
-        Optional<Pair<Cost, GroupExpression>> appliedCboRuleCost = applyCboRuleCtx.getMemo().getRoot()
-                .getLowestCostPlan(applyCboRuleCtx.getCurrentJobContext().getRequiredProperties());
+
+        // compare two candidates
+        Optional<Pair<Cost, GroupExpression>> skipCboRuleCost = getCost(currentCtx, skipCboRuleCtx, jobContext);
+        Optional<Pair<Cost, GroupExpression>> appliedCboRuleCost = getCost(currentCtx, applyCboRuleCtx, jobContext);
         // If one of them optimize failed, just return
         if (!skipCboRuleCost.isPresent() || !appliedCboRuleCost.isPresent()) {
-            LOG.warn("Cbo rewrite execute failed");
+            LOG.warn("Cbo rewrite execute failed on sql: {}, jobs are {}, plan is {}.",
+                    currentCtx.getStatementContext().getOriginStatement().originStmt,
+                    rewriteJobs, currentCtx.getRewritePlan());
             return;
         }
         // If the candidate applied cbo rule is better, replace the original plan with it.
         if (appliedCboRuleCost.get().first.getValue() < skipCboRuleCost.get().first.getValue()) {
-            cascadesContext.setRewritePlan(applyCboRuleCtx.getRewritePlan());
+            currentCtx.setRewritePlan(applyCboRuleCtx.getRewritePlan());
         }
     }
 
@@ -86,5 +80,28 @@ public class CostBasedRewriteJob implements RewriteJob {
     public boolean isOnce() {
         // TODO: currently, we do not support execute it more than once.
         return true;
+    }
+
+    private Optional<Pair<Cost, GroupExpression>> getCost(CascadesContext currentCtx,
+            CascadesContext cboCtx, JobContext jobContext) {
+        // Do subtree rewrite
+        Rewriter.getCteChildrenRewriter(cboCtx, jobContext.getRemainJobs()).execute();
+        CascadesContext rootCtx = currentCtx.getRoot();
+        if (rootCtx.getRewritePlan() instanceof LogicalCTEAnchor) {
+            // set subtree rewrite cache
+            currentCtx.getStatementContext().getRewrittenCtePlan()
+                    .put(currentCtx.getCurrentTree().orElse(null), (LogicalPlan) cboCtx.getRewritePlan());
+            // Do Whole tree rewrite
+            CascadesContext rootCtxCopy = CascadesContext.newCurrentTreeContext(rootCtx);
+            Rewriter.getWholeTreeRewriterWithoutCostBasedJobs(rootCtxCopy).execute();
+            // Do optimize
+            new Optimizer(rootCtxCopy).execute();
+            return rootCtxCopy.getMemo().getRoot().getLowestCostPlan(
+                    rootCtxCopy.getCurrentJobContext().getRequiredProperties());
+        } else {
+            new Optimizer(cboCtx).execute();
+            return cboCtx.getMemo().getRoot().getLowestCostPlan(
+                    cboCtx.getCurrentJobContext().getRequiredProperties());
+        }
     }
 }
