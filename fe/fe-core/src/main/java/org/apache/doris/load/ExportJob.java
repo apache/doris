@@ -235,8 +235,8 @@ public class ExportJob implements Writable {
         exportTable.readLock();
         try {
             if (exportTable.getType().name().equalsIgnoreCase("VIEW")) {
-                LOG.info("Table Type unsupport export, ExportTable type : {}", exportTable.getType());
-                throw new UserException("Table Type unsupport export :" + exportTable.getType());
+                LOG.info("Table Type {} is not supported in export", exportTable.getType());
+                throw new UserException("Table Type is not supported in export: " + exportTable.getType());
             }		
             // generateQueryStmtOld
             generateQueryStmt();
