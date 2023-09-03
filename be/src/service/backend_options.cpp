@@ -71,7 +71,7 @@ bool BackendOptions::init() {
         } else if ((*addr_it).is_loopback()) {
             loopback = addr_it->get_host_address();
             _bind_ipv6 = addr_it->is_ipv6();
-        } else {
+        } else if (!addr_it->is_ipv6()) {
             _s_localhost = addr_it->get_host_address();
             _bind_ipv6 = addr_it->is_ipv6();
             break;
