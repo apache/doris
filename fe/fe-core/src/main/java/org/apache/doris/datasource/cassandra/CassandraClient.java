@@ -20,7 +20,6 @@ package org.apache.doris.datasource.cassandra;
 import com.datastax.oss.driver.api.core.ConsistencyLevel;
 import com.datastax.oss.driver.api.core.CqlSession;
 import com.datastax.oss.driver.api.core.CqlSessionBuilder;
-import com.datastax.oss.driver.api.core.cql.ColumnDefinitions;
 import com.datastax.oss.driver.api.core.cql.SimpleStatement;
 
 import java.net.InetSocketAddress;
