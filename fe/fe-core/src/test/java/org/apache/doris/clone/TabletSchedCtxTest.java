@@ -39,17 +39,17 @@ public class TabletSchedCtxTest {
         ReplicaAllocation replicaAlloc = ReplicaAllocation.DEFAULT_ALLOCATION;
         TabletSchedCtx ctx1 = new TabletSchedCtx(Type.REPAIR,
                 1, 2, 3, 4, 1000, replicaAlloc, System.currentTimeMillis());
-        ctx1.setOrigPriority(Priority.NORMAL);
+        ctx1.setPriority(Priority.NORMAL);
         ctx1.setLastVisitedTime(2);
 
         TabletSchedCtx ctx2 = new TabletSchedCtx(Type.REPAIR,
                 1, 2, 3, 4, 1001, replicaAlloc, System.currentTimeMillis());
-        ctx2.setOrigPriority(Priority.NORMAL);
+        ctx2.setPriority(Priority.NORMAL);
         ctx2.setLastVisitedTime(3);
 
         TabletSchedCtx ctx3 = new TabletSchedCtx(Type.REPAIR,
-                1, 2, 3, 4, 1001, replicaAlloc, System.currentTimeMillis());
-        ctx3.setOrigPriority(Priority.NORMAL);
+                1, 2, 3, 4, 1002, replicaAlloc, System.currentTimeMillis());
+        ctx3.setPriority(Priority.NORMAL);
         ctx3.setLastVisitedTime(1);
 
         pendingTablets.add(ctx1);
@@ -62,8 +62,8 @@ public class TabletSchedCtxTest {
 
         // priority is not equal, info2 is HIGH, should ranks ahead
         pendingTablets.clear();
-        ctx1.setOrigPriority(Priority.NORMAL);
-        ctx2.setOrigPriority(Priority.HIGH);
+        ctx1.setPriority(Priority.NORMAL);
+        ctx2.setPriority(Priority.HIGH);
         ctx1.setLastVisitedTime(2);
         ctx2.setLastVisitedTime(2);
         pendingTablets.add(ctx2);

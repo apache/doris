@@ -722,6 +722,16 @@ public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
         return false;
     }
 
+    public static void extractSlots(Expr root, Set<SlotId> slotIdSet) {
+        if (root instanceof SlotRef) {
+            slotIdSet.add(((SlotRef) root).getDesc().getId());
+            return;
+        }
+        for (Expr child : root.getChildren()) {
+            extractSlots(child, slotIdSet);
+        }
+    }
+
     /**
      * Returns an analyzed clone of 'this' with exprs substituted according to smap.
      * Removes implicit casts and analysis state while cloning/substituting exprs within
@@ -1835,7 +1845,7 @@ public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
      * Looks up in the catalog the builtin for 'name' and 'argTypes'.
      * Returns null if the function is not found.
      */
-    protected Function getBuiltinFunction(String name, Type[] argTypes, Function.CompareMode mode)
+    public Function getBuiltinFunction(String name, Type[] argTypes, Function.CompareMode mode)
             throws AnalysisException {
         FunctionName fnName = new FunctionName(name);
         Function searchDesc = new Function(fnName, Arrays.asList(getActualArgTypes(argTypes)), Type.INVALID, false,
@@ -2457,7 +2467,7 @@ public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
         }
     }
 
-    protected  Type getActualScalarType(Type originType) {
+    protected Type getActualScalarType(Type originType) {
         if (originType.getPrimitiveType() == PrimitiveType.DECIMAL32) {
             return Type.DECIMAL32;
         } else if (originType.getPrimitiveType() == PrimitiveType.DECIMAL64) {
@@ -2466,12 +2476,16 @@ public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
             return Type.DECIMAL128;
         } else if (originType.getPrimitiveType() == PrimitiveType.DATETIMEV2) {
             return Type.DATETIMEV2;
+        } else if (originType.getPrimitiveType() == PrimitiveType.DATEV2) {
+            return Type.DATEV2;
         } else if (originType.getPrimitiveType() == PrimitiveType.VARCHAR) {
             return Type.VARCHAR;
         } else if (originType.getPrimitiveType() == PrimitiveType.CHAR) {
             return Type.CHAR;
         } else if (originType.getPrimitiveType() == PrimitiveType.DECIMALV2) {
             return Type.MAX_DECIMALV2_TYPE;
+        } else if (originType.getPrimitiveType() == PrimitiveType.TIMEV2) {
+            return Type.TIMEV2;
         }
         return originType;
     }
@@ -2493,9 +2507,14 @@ public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
                 if (e instanceof FunctionCallExpr) {
                     FunctionCallExpr funcExpr = (FunctionCallExpr) e;
                     Function f = funcExpr.fn;
-                    if (f.getFunctionName().getFunction().equals("count")
-                            && funcExpr.children.stream().anyMatch(Expr::isConstant)) {
-                        return true;
+                    // Return true if count function include non-literal expr child.
+                    // In this case, agg output must be materialized whether outer query block required or not.
+                    if (f.getFunctionName().getFunction().equals("count")) {
+                        for (Expr expr : funcExpr.children) {
+                            if (expr.isConstant && !(expr instanceof LiteralExpr)) {
+                                return true;
+                            }
+                        }
                     }
                 }
                 return false;

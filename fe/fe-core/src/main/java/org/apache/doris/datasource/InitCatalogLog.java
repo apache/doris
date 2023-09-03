@@ -40,6 +40,7 @@ public class InitCatalogLog implements Writable {
         PAIMON,
         MAX_COMPUTE,
         HUDI,
+        DELTALAKE,
         TEST,
         UNKNOWN;
     }
@@ -64,6 +65,9 @@ public class InitCatalogLog implements Writable {
 
     @SerializedName(value = "type")
     private Type type;
+
+    @SerializedName(value = "lastUpdateTime")
+    private long lastUpdateTime;
 
     public InitCatalogLog() {
         refreshCount = 0;

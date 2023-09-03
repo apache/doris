@@ -19,18 +19,22 @@ package org.apache.doris.nereids.trees.expressions.literal;
 
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.AlwaysNotNullable;
+import org.apache.doris.nereids.trees.expressions.shape.LeafExpression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.DateType;
 
+import com.google.common.collect.ImmutableList;
+
 /**
  * Interval for timestamp calculation.
  */
-public class Interval extends Expression implements AlwaysNotNullable {
+public class Interval extends Expression implements LeafExpression, AlwaysNotNullable {
     private final Expression value;
     private final TimeUnit timeUnit;
 
     public Interval(Expression value, String desc) {
+        super(ImmutableList.of());
         this.value = value;
         this.timeUnit = TimeUnit.valueOf(desc.toUpperCase());
     }

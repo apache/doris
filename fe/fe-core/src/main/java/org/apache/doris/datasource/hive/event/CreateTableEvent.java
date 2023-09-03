@@ -35,6 +35,12 @@ import java.util.List;
 public class CreateTableEvent extends MetastoreTableEvent {
     private final Table hmsTbl;
 
+    // for test
+    public CreateTableEvent(long eventId, String catalogName, String dbName, String tblName) {
+        super(eventId, catalogName, dbName, tblName);
+        this.hmsTbl = null;
+    }
+
     private CreateTableEvent(NotificationEvent event, String catalogName) throws MetastoreNotificationException {
         super(event, catalogName);
         Preconditions.checkArgument(MetastoreEventType.CREATE_TABLE.equals(getEventType()));
@@ -53,6 +59,11 @@ public class CreateTableEvent extends MetastoreTableEvent {
 
     public static List<MetastoreEvent> getEvents(NotificationEvent event, String catalogName) {
         return Lists.newArrayList(new CreateTableEvent(event, catalogName));
+    }
+
+    @Override
+    protected boolean willCreateOrDropTable() {
+        return true;
     }
 
     @Override

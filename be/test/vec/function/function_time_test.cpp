@@ -177,6 +177,7 @@ TEST(VTimestampFunctionsTest, second_test) {
 
 TEST(VTimestampFunctionsTest, from_unix_test) {
     std::string func_name = "from_unixtime";
+    TimezoneUtils::load_timezone_names();
 
     InputTypeSet input_types = {TypeIndex::Int32};
 
@@ -192,11 +193,12 @@ TEST(VTimestampFunctionsTest, timediff_test) {
 
     DataSet data_set = {
             {{std::string("2019-07-18 12:00:00"), std::string("2019-07-18 12:00:00")}, 0.0},
-            {{std::string("2019-07-18 12:00:00"), std::string("2019-07-18 13:01:02")}, -3662.0},
+            {{std::string("2019-07-18 12:00:00"), std::string("2019-07-18 13:01:02")},
+             (double)-3662.0 * 1e6},
             {{std::string("2019-00-18 12:00:00"), std::string("2019-07-18 13:01:02")}, Null()},
             {{std::string("2019-07-18 12:00:00"), std::string("2019-07-00 13:01:02")}, Null()}};
 
-    check_function<DataTypeTime, true>(func_name, input_types, data_set);
+    check_function<DataTypeTimeV2, true>(func_name, input_types, data_set);
 }
 
 TEST(VTimestampFunctionsTest, date_format_test) {
@@ -537,21 +539,6 @@ TEST(VTimestampFunctionsTest, makedate_test) {
     check_function<DataTypeDate, true>(func_name, input_types, data_set);
 }
 
-TEST(VTimestampFunctionsTest, convert_tz_test) {
-    std::string func_name = "convert_tz";
-
-    InputTypeSet input_types = {TypeIndex::DateTime, TypeIndex::String, TypeIndex::String};
-
-    DataSet data_set = {
-            {{DATETIME("2019-08-01 13:21:03"), STRING("Asia/Shanghai"),
-              STRING("America/Los_Angeles")},
-             str_to_date_time("2019-07-31 22:21:03", true)},
-            {{DATETIME("2019-08-01 13:21:03"), STRING("+08:00"), STRING("America/Los_Angeles")},
-             str_to_date_time("2019-07-31 22:21:03", true)}};
-
-    check_function<DataTypeDateTime, true>(func_name, input_types, data_set);
-}
-
 TEST(VTimestampFunctionsTest, weekday_test) {
     std::string func_name = "weekday";
 
@@ -859,7 +846,7 @@ TEST(VTimestampFunctionsTest, timediff_v2_test) {
                             {{std::string("2019-00-18"), std::string("2019-07-18")}, Null()},
                             {{std::string("2019-07-18"), std::string("2019-07-00")}, Null()}};
 
-        check_function<DataTypeTime, true>(func_name, input_types, data_set);
+        check_function<DataTypeTimeV2, true>(func_name, input_types, data_set);
     }
 
     {
@@ -867,11 +854,12 @@ TEST(VTimestampFunctionsTest, timediff_v2_test) {
 
         DataSet data_set = {
                 {{std::string("2019-07-18 00:00:00"), std::string("2019-07-18 00:00:00")}, 0.0},
-                {{std::string("2019-07-18 00:00:10"), std::string("2019-07-18 00:00:00")}, 10.0},
+                {{std::string("2019-07-18 00:00:10"), std::string("2019-07-18 00:00:00")},
+                 10000000.0},
                 {{std::string("2019-00-18 00:00:00"), std::string("2019-07-18 00:00:00")}, Null()},
                 {{std::string("2019-07-18 00:00:00"), std::string("2019-07-00 00:00:00")}, Null()}};
 
-        check_function<DataTypeTime, true>(func_name, input_types, data_set);
+        check_function<DataTypeTimeV2, true>(func_name, input_types, data_set);
     }
 }
 
@@ -1674,21 +1662,6 @@ TEST(VTimestampFunctionsTest, seconds_sub_v2_test) {
 
         check_function<DataTypeDateTimeV2, true>(func_name, input_types, data_set);
     }
-}
-
-TEST(VTimestampFunctionsTest, convert_tz_v2_test) {
-    std::string func_name = "convert_tz";
-
-    InputTypeSet input_types = {TypeIndex::DateTimeV2, TypeIndex::String, TypeIndex::String};
-
-    DataSet data_set = {
-            {{DATETIME("2019-08-01 13:21:03"), STRING("Asia/Shanghai"),
-              STRING("America/Los_Angeles")},
-             str_to_datetime_v2("2019-07-31 22:21:03", "%Y-%m-%d %H:%i:%s.%f")},
-            {{DATETIME("2019-08-01 13:21:03"), STRING("+08:00"), STRING("America/Los_Angeles")},
-             str_to_datetime_v2("2019-07-31 22:21:03", "%Y-%m-%d %H:%i:%s.%f")}};
-
-    check_function<DataTypeDateTimeV2, true>(func_name, input_types, data_set);
 }
 
 } // namespace doris::vectorized

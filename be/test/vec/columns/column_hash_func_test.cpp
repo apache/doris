@@ -20,6 +20,8 @@
 #include <gtest/gtest-test-part.h>
 
 #include "gtest/gtest_pred_impl.h"
+#include "util/runtime_profile.h"
+#include "vec/columns/column_array.h"
 #include "vec/columns/column_const.h"
 #include "vec/core/field.h"
 #include "vec/data_types/data_type.h"
@@ -84,6 +86,83 @@ TEST(HashFuncTest, ArrayTypeTest) {
                 col_a->update_crcs_with_value(crc_hash_vals, PrimitiveType::TYPE_ARRAY));
         std::cout << crc_hashes[0] << std::endl;
     }
+}
+
+TEST(HashFuncTest, ArraySimpleBenchmarkTest) {
+    DataTypes dataTypes = create_scala_data_types();
+
+    DataTypePtr d = std::make_shared<DataTypeInt64>();
+    DataTypePtr array_ptr = std::make_shared<DataTypeArray>(d);
+    MutableColumnPtr array_mutable_col = array_ptr->create_column();
+
+    int r_num = 50;
+    for (int r = 0; r < r_num; ++r) {
+        Array a;
+        for (int i = 0; i < 10000; ++i) {
+            a.push_back(Int64(i));
+        }
+        array_mutable_col->insert(a);
+    }
+    std::vector<uint64_t> crc_hash_vals(r_num);
+    int64_t time_t = 0;
+    {
+        SCOPED_RAW_TIMER(&time_t);
+        EXPECT_NO_FATAL_FAILURE(array_mutable_col->update_crcs_with_value(
+                crc_hash_vals, PrimitiveType::TYPE_ARRAY));
+    }
+    std::cout << time_t << "ns" << std::endl;
+}
+
+TEST(HashFuncTest, ArrayNestedArrayTest) {
+    DataTypes dataTypes = create_scala_data_types();
+
+    DataTypePtr d = std::make_shared<DataTypeInt64>();
+    MutableColumnPtr scala_mutable_col = d->create_column();
+    DataTypePtr nested_array_ptr = std::make_shared<DataTypeArray>(d);
+    DataTypePtr array_ptr = std::make_shared<DataTypeArray>(nested_array_ptr);
+    MutableColumnPtr array_mutable_col = array_ptr->create_column();
+
+    Array a, a1, a2, a3, nested, nested1;
+    nested.push_back(Int64(1));
+    nested1.push_back(Int64(2));
+
+    // a: [[1], [2]]
+    a.push_back(nested);
+    a.push_back(nested1);
+    // a1: [[2], [1]]
+    a1.push_back(nested1);
+    a1.push_back(nested);
+
+    // a2: [[], [1]]
+    a2.push_back(Array());
+    a2.push_back(nested);
+    // a3: [[1], []]
+    a3.push_back(nested);
+    a3.push_back(Array());
+
+    array_mutable_col->insert(a);
+    array_mutable_col->insert(a1);
+    array_mutable_col->insert(a2);
+    array_mutable_col->insert(a3);
+
+    auto nested_col =
+            reinterpret_cast<vectorized::ColumnArray*>(array_mutable_col.get())->get_data_ptr();
+    EXPECT_EQ(nested_col->size(), 8);
+
+    std::vector<uint64_t> xx_hash_vals(4);
+    std::vector<uint64_t> crc_hash_vals(4);
+    auto* __restrict xx_hashes = xx_hash_vals.data();
+    auto* __restrict crc_hashes = crc_hash_vals.data();
+
+    // xxHash
+    EXPECT_NO_FATAL_FAILURE(array_mutable_col->update_hashes_with_value(xx_hashes));
+    EXPECT_TRUE(xx_hashes[0] != xx_hashes[1]);
+    EXPECT_TRUE(xx_hashes[2] != xx_hashes[3]);
+    // crcHash
+    EXPECT_NO_FATAL_FAILURE(
+            array_mutable_col->update_crcs_with_value(crc_hash_vals, PrimitiveType::TYPE_ARRAY));
+    EXPECT_TRUE(crc_hashes[0] != crc_hashes[1]);
+    EXPECT_TRUE(crc_hashes[2] != crc_hashes[3]);
 }
 
 TEST(HashFuncTest, ArrayCornerCaseTest) {

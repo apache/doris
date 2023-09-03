@@ -52,10 +52,6 @@ protected:
     ReaderType compaction_type() const override { return ReaderType::READER_BASE_COMPACTION; }
 
 private:
-    // check if all input rowsets are non overlapping among segments.
-    // a rowset with overlapping segments should be compacted by cumulative compaction first.
-    Status _check_rowset_overlapping(const vector<RowsetSharedPtr>& rowsets);
-
     // filter input rowset in some case:
     // 1. dup key without delete predicate
     void _filter_input_rowset();

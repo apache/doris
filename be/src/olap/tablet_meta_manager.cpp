@@ -20,6 +20,7 @@
 #include <fmt/format.h>
 #include <gen_cpp/olap_file.pb.h>
 #include <rocksdb/db.h>
+#include <rocksdb/write_batch.h>
 
 #include <boost/algorithm/string/trim.hpp>
 #include <fstream>
@@ -28,6 +29,7 @@
 #include <vector>
 
 #include "common/logging.h"
+#include "gutil/endian.h"
 #include "json2pb/json_to_pb.h"
 #include "json2pb/pb_to_json.h"
 #include "olap/data_dir.h"
@@ -44,19 +46,6 @@ struct DBOptions;
 struct ReadOptions;
 struct WriteOptions;
 } // namespace rocksdb
-
-using rocksdb::DB;
-using rocksdb::DBOptions;
-using rocksdb::ColumnFamilyDescriptor;
-using rocksdb::ColumnFamilyHandle;
-using rocksdb::ColumnFamilyOptions;
-using rocksdb::ReadOptions;
-using rocksdb::WriteOptions;
-using rocksdb::Slice;
-using rocksdb::Iterator;
-using rocksdb::Status;
-using rocksdb::kDefaultColumnFamilyName;
-
 namespace doris {
 using namespace ErrorCode;
 
@@ -72,9 +61,8 @@ Status TabletMetaManager::get_meta(DataDir* store, TTabletId tablet_id, TSchemaH
     std::string value;
     Status s = meta->get(META_COLUMN_FAMILY_INDEX, key, &value);
     if (s.is<META_KEY_NOT_FOUND>()) {
-        LOG(WARNING) << "tablet_id:" << tablet_id << ", schema_hash:" << schema_hash
-                     << " not found.";
-        return Status::Error<META_KEY_NOT_FOUND>();
+        return Status::Error<META_KEY_NOT_FOUND>("tablet_id:{}, schema_hash:{}, not found.",
+                                                 tablet_id, schema_hash);
     } else if (!s.ok()) {
         LOG(WARNING) << "load tablet_id:" << tablet_id << ", schema_hash:" << schema_hash
                      << " failed.";
@@ -143,8 +131,8 @@ Status TabletMetaManager::traverse_headers(
             LOG(WARNING) << "invalid tablet_meta key:" << key << ", split size:" << parts.size();
             return true;
         }
-        TTabletId tablet_id = std::stol(parts[1].c_str(), nullptr, 10);
-        TSchemaHash schema_hash = std::stol(parts[2].c_str(), nullptr, 10);
+        TTabletId tablet_id = std::stol(parts[1], nullptr, 10);
+        TSchemaHash schema_hash = std::stol(parts[2], nullptr, 10);
         return func(tablet_id, schema_hash, value);
     };
     Status status = meta->iterate(META_COLUMN_FAMILY_INDEX, header_prefix, traverse_header_func);
@@ -164,8 +152,7 @@ Status TabletMetaManager::load_json_meta(DataDir* store, const std::string& meta
     std::string error;
     bool ret = json2pb::JsonToProtoMessage(json_meta, &tablet_meta_pb, &error);
     if (!ret) {
-        LOG(ERROR) << "JSON to protobuf message failed: " << error;
-        return Status::Error<HEADER_LOAD_JSON_HEADER>();
+        return Status::Error<HEADER_LOAD_JSON_HEADER>("JSON to protobuf message failed: {}", error);
     }
 
     std::string meta_binary;
@@ -212,6 +199,94 @@ Status TabletMetaManager::traverse_pending_publish(
     Status status =
             meta->iterate(META_COLUMN_FAMILY_INDEX, PENDING_PUBLISH_INFO, traverse_header_func);
     return status;
+}
+
+std::string TabletMetaManager::encode_delete_bitmap_key(TTabletId tablet_id, int64_t version) {
+    std::string key;
+    key.reserve(20);
+    key.append(DELETE_BITMAP);
+    put_fixed64_le(&key, BigEndian::FromHost64(tablet_id));
+    put_fixed64_le(&key, BigEndian::FromHost64(version));
+    return key;
+}
+
+std::string TabletMetaManager::encode_delete_bitmap_key(TTabletId tablet_id) {
+    std::string key;
+    key.reserve(12);
+    key.append(DELETE_BITMAP);
+    put_fixed64_le(&key, BigEndian::FromHost64(tablet_id));
+    return key;
+}
+
+void TabletMetaManager::decode_delete_bitmap_key(const string& enc_key, TTabletId* tablet_id,
+                                                 int64_t* version) {
+    DCHECK_EQ(enc_key.size(), 20);
+    *tablet_id = BigEndian::ToHost64(UNALIGNED_LOAD64(enc_key.data() + 4));
+    *version = BigEndian::ToHost64(UNALIGNED_LOAD64(enc_key.data() + 12));
+}
+
+Status TabletMetaManager::save_delete_bitmap(DataDir* store, TTabletId tablet_id,
+                                             DeleteBitmapPtr delete_bimap, int64_t version) {
+    VLOG_NOTICE << "save delete bitmap, tablet_id:" << tablet_id << ", version: " << version;
+    if (delete_bimap->delete_bitmap.empty()) {
+        return Status::OK();
+    }
+    OlapMeta* meta = store->get_meta();
+    DeleteBitmapPB delete_bitmap_pb;
+    for (auto& [id, bitmap] : delete_bimap->delete_bitmap) {
+        auto& rowset_id = std::get<0>(id);
+        int64_t segment_id = std::get<1>(id);
+        delete_bitmap_pb.add_rowset_ids(rowset_id.to_string());
+        delete_bitmap_pb.add_segment_ids(segment_id);
+        std::string bitmap_data(bitmap.getSizeInBytes(), '\0');
+        bitmap.write(bitmap_data.data());
+        *(delete_bitmap_pb.add_segment_delete_bitmaps()) = std::move(bitmap_data);
+    }
+    std::string key = encode_delete_bitmap_key(tablet_id, version);
+    std::string val;
+    bool ok = delete_bitmap_pb.SerializeToString(&val);
+    if (!ok) {
+        auto msg = fmt::format("failed to serialize delete bitmap, tablet_id: {}, version: {}",
+                               tablet_id, version);
+        LOG(WARNING) << msg;
+        return Status::InternalError(msg);
+    }
+    return meta->put(META_COLUMN_FAMILY_INDEX, key, val);
+}
+
+Status TabletMetaManager::traverse_delete_bitmap(
+        OlapMeta* meta, std::function<bool(int64_t, int64_t, const std::string&)> const& func) {
+    auto traverse_header_func = [&func](const std::string& key, const std::string& value) -> bool {
+        TTabletId tablet_id;
+        int64_t version;
+        decode_delete_bitmap_key(key, &tablet_id, &version);
+        VLOG_NOTICE << "traverse delete bitmap, tablet_id: " << tablet_id
+                    << ", version: " << version;
+        return func(tablet_id, version, value);
+    };
+    return meta->iterate(META_COLUMN_FAMILY_INDEX, DELETE_BITMAP, traverse_header_func);
+}
+
+Status TabletMetaManager::remove_old_version_delete_bitmap(DataDir* store, TTabletId tablet_id,
+                                                           int64_t version) {
+    OlapMeta* meta = store->get_meta();
+    std::string begin_key = encode_delete_bitmap_key(tablet_id);
+    std::string end_key = encode_delete_bitmap_key(tablet_id, version);
+
+    std::vector<std::string> remove_keys;
+    auto get_remove_keys_func = [&](const std::string& key, const std::string& val) -> bool {
+        // include end_key
+        if (key > end_key) {
+            return false;
+        }
+        remove_keys.push_back(key);
+        return true;
+    };
+    LOG(INFO) << "remove old version delete bitmap, tablet_id: " << tablet_id
+              << " version: " << version << " removed keys size: " << remove_keys.size();
+    ;
+    RETURN_IF_ERROR(meta->iterate(META_COLUMN_FAMILY_INDEX, begin_key, get_remove_keys_func));
+    return meta->remove(META_COLUMN_FAMILY_INDEX, remove_keys);
 }
 
 } // namespace doris

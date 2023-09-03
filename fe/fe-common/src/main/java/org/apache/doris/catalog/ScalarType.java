@@ -143,6 +143,8 @@ public class ScalarType extends Type {
                 return createDecimalType(precision, scale);
             case DATETIMEV2:
                 return createDatetimeV2Type(scale);
+            case TIMEV2:
+                return createTimeV2Type(scale);
             default:
                 return createType(type);
         }
@@ -270,9 +272,9 @@ public class ScalarType extends Type {
                 return TIME;
             case "DECIMAL":
             case "DECIMALV2":
-                return (ScalarType) createDecimalType();
+                return createDecimalType();
             case "DECIMALV3":
-                return (ScalarType) createDecimalV3Type();
+                return createDecimalV3Type();
             case "LARGEINT":
                 return LARGEINT;
             default:
@@ -515,7 +517,9 @@ public class ScalarType extends Type {
     }
 
     public static ScalarType createVarcharType() {
-        return DEFAULT_VARCHAR;
+        // Because ScalarType is not an immutable class, it will call setLength() sometimes.
+        // So currently don't use DEFAULT_VARCHAR, will improve it in the future.
+        return new ScalarType(PrimitiveType.VARCHAR);
     }
 
     public static ScalarType createHllType() {
@@ -571,7 +575,7 @@ public class ScalarType extends Type {
                 break;
             case VARCHAR:
                 if (isWildcardVarchar()) {
-                    stringBuilder.append("varchar(*)");
+                    stringBuilder.append("varchar");
                 } else if (Strings.isNullOrEmpty(lenStr)) {
                     stringBuilder.append("varchar").append("(").append(len).append(")");
                 } else {
@@ -682,7 +686,15 @@ public class ScalarType extends Type {
             case DECIMAL64:
             case DECIMAL128:
             case DATETIMEV2: {
-                Preconditions.checkArgument(precision >= scale);
+                Preconditions.checkArgument(precision >= scale,
+                        String.format("given precision %d is out of scale bound %d", precision, scale));
+                scalarType.setScale(scale);
+                scalarType.setPrecision(precision);
+                break;
+            }
+            case TIMEV2: {
+                Preconditions.checkArgument(precision >= scale,
+                        String.format("given precision %d is out of scale bound %d", precision, scale));
                 scalarType.setScale(scale);
                 scalarType.setPrecision(precision);
                 break;
@@ -867,7 +879,10 @@ public class ScalarType extends Type {
             return false;
         }
         ScalarType other = (ScalarType) o;
-        if ((this.isDatetimeV2() && other.isDatetimeV2()) || (this.isTimeV2() && other.isTimeV2())) {
+        if ((this.isDatetimeV2() && other.isDatetimeV2())) {
+            return this.decimalScale() == other.decimalScale();
+        }
+        if (this.isTimeV2() && other.isTimeV2()) {
             return this.decimalScale() == other.decimalScale();
         }
         if (type.isDecimalV3Type() && other.isDecimalV3()) {

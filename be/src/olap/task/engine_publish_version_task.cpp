@@ -120,26 +120,25 @@ Status EnginePublishVersionTask::finish() {
             TabletInfo tablet_info = tablet_rs.first;
             RowsetSharedPtr rowset = tablet_rs.second;
             VLOG_CRITICAL << "begin to publish version on tablet. "
-                          << "tablet_id=" << tablet_info.tablet_id
-                          << ", schema_hash=" << tablet_info.schema_hash
-                          << ", version=" << version.first << ", transaction_id=" << transaction_id;
+                          << "tablet_id=" << tablet_info.tablet_id << ", version=" << version.first
+                          << ", transaction_id=" << transaction_id;
             // if rowset is null, it means this be received write task, but failed during write
             // and receive fe's publish version task
             // this be must return as an error tablet
             if (rowset == nullptr) {
-                LOG(WARNING) << "could not find related rowset for tablet " << tablet_info.tablet_id
-                             << " txn id " << transaction_id;
                 _error_tablet_ids->push_back(tablet_info.tablet_id);
-                res = Status::Error<PUSH_ROWSET_NOT_FOUND>();
+                res = Status::Error<PUSH_ROWSET_NOT_FOUND>(
+                        "could not find related rowset for tablet {}, txn id {}",
+                        tablet_info.tablet_id, transaction_id);
                 continue;
             }
             TabletSharedPtr tablet = StorageEngine::instance()->tablet_manager()->get_tablet(
                     tablet_info.tablet_id, tablet_info.tablet_uid);
             if (tablet == nullptr) {
-                LOG(WARNING) << "can't get tablet when publish version. tablet_id="
-                             << tablet_info.tablet_id << " schema_hash=" << tablet_info.schema_hash;
                 _error_tablet_ids->push_back(tablet_info.tablet_id);
-                res = Status::Error<PUSH_TABLE_NOT_EXIST>();
+                res = Status::Error<PUSH_TABLE_NOT_EXIST>(
+                        "can't get tablet when publish version. tablet_id={}",
+                        tablet_info.tablet_id);
                 continue;
             }
             // in uniq key model with merge-on-write, we should see all
@@ -158,7 +157,7 @@ Status EnginePublishVersionTask::finish() {
                 TabletState tablet_state;
                 {
                     std::shared_lock rdlock(tablet->get_header_lock());
-                    max_version = tablet->max_version();
+                    max_version = tablet->max_version_unlocked();
                     tablet_state = tablet->tablet_state();
                 }
                 if (tablet_state == TabletState::TABLET_RUNNING &&
@@ -171,7 +170,8 @@ Status EnginePublishVersionTask::finish() {
                         add_error_tablet_id(tablet_info.tablet_id);
                         _discontinuous_version_tablets->emplace_back(
                                 partition_id, tablet_info.tablet_id, version.first);
-                        res = Status::Error<PUBLISH_VERSION_NOT_CONTINUOUS>();
+                        res = Status::Error<PUBLISH_VERSION_NOT_CONTINUOUS>(
+                                "check_version_exist failed");
                         int64_t missed_version = max_version.second + 1;
                         int64_t missed_txn_id =
                                 StorageEngine::instance()->txn_manager()->get_txn_by_tablet_version(
@@ -261,7 +261,7 @@ void TabletPublishTxnTask::handle() {
     Defer defer {[&] { _rowset->finish_publish(); }};
     auto publish_status = StorageEngine::instance()->txn_manager()->publish_txn(
             _partition_id, _tablet, _transaction_id, _version, &_stats);
-    if (publish_status != Status::OK()) {
+    if (!publish_status.ok()) {
         LOG(WARNING) << "failed to publish version. rowset_id=" << _rowset->rowset_id()
                      << ", tablet_id=" << _tablet_info.tablet_id << ", txn_id=" << _transaction_id
                      << ", res=" << publish_status;
@@ -273,7 +273,7 @@ void TabletPublishTxnTask::handle() {
     int64_t t1 = MonotonicMicros();
     publish_status = _tablet->add_inc_rowset(_rowset);
     _stats.add_inc_rowset_us = MonotonicMicros() - t1;
-    if (publish_status != Status::OK() && !publish_status.is<PUSH_VERSION_ALREADY_EXIST>()) {
+    if (!publish_status.ok() && !publish_status.is<PUSH_VERSION_ALREADY_EXIST>()) {
         LOG(WARNING) << "fail to add visible rowset to tablet. rowset_id=" << _rowset->rowset_id()
                      << ", tablet_id=" << _tablet_info.tablet_id << ", txn_id=" << _transaction_id
                      << ", res=" << publish_status;
@@ -298,8 +298,7 @@ void AsyncTabletPublishTask::handle() {
     std::map<TabletInfo, RowsetSharedPtr> tablet_related_rs;
     StorageEngine::instance()->txn_manager()->get_txn_related_tablets(
             _transaction_id, _partition_id, &tablet_related_rs);
-    auto iter = tablet_related_rs.find(
-            TabletInfo(_tablet->tablet_id(), _tablet->schema_hash(), _tablet->tablet_uid()));
+    auto iter = tablet_related_rs.find(TabletInfo(_tablet->tablet_id(), _tablet->tablet_uid()));
     if (iter == tablet_related_rs.end()) {
         return;
     }
@@ -313,7 +312,7 @@ void AsyncTabletPublishTask::handle() {
     Version version(_version, _version);
     auto publish_status = StorageEngine::instance()->txn_manager()->publish_txn(
             _partition_id, _tablet, _transaction_id, version, &_stats);
-    if (publish_status != Status::OK()) {
+    if (!publish_status.ok()) {
         LOG(WARNING) << "failed to publish version. rowset_id=" << rowset->rowset_id()
                      << ", tablet_id=" << _tablet->tablet_id() << ", txn_id=" << _transaction_id
                      << ", res=" << publish_status;
@@ -324,7 +323,7 @@ void AsyncTabletPublishTask::handle() {
     int64_t t1 = MonotonicMicros();
     publish_status = _tablet->add_inc_rowset(rowset);
     _stats.add_inc_rowset_us = MonotonicMicros() - t1;
-    if (publish_status != Status::OK() && !publish_status.is<PUSH_VERSION_ALREADY_EXIST>()) {
+    if (!publish_status.ok() && !publish_status.is<PUSH_VERSION_ALREADY_EXIST>()) {
         LOG(WARNING) << "fail to add visible rowset to tablet. rowset_id=" << rowset->rowset_id()
                      << ", tablet_id=" << _tablet->tablet_id() << ", txn_id=" << _transaction_id
                      << ", res=" << publish_status;

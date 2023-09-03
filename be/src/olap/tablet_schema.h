@@ -248,7 +248,6 @@ public:
     bool store_row_column() const { return _store_row_column; }
     void set_skip_write_index_on_load(bool skip) { _skip_write_index_on_load = skip; }
     bool skip_write_index_on_load() const { return _skip_write_index_on_load; }
-    bool is_dynamic_schema() const { return _is_dynamic_schema; }
     int32_t delete_sign_idx() const { return _delete_sign_idx; }
     void set_delete_sign_idx(int32_t delete_sign_idx) { _delete_sign_idx = delete_sign_idx; }
     bool has_sequence_col() const { return _sequence_col_idx != -1; }
@@ -301,7 +300,7 @@ public:
             if (str.size() > 1) {
                 str += ", ";
             }
-            str += p.first;
+            str += p.first + "(" + std::to_string(_cols[p.second].unique_id()) + ")";
         }
         str += "]";
         return str;
@@ -313,9 +312,11 @@ public:
     bool is_partial_update() const { return _is_partial_update; }
     size_t partial_input_column_size() const { return _partial_update_input_columns.size(); }
     bool is_column_missing(size_t cid) const;
-    bool allow_key_not_exist_in_partial_update() const {
-        return _allow_key_not_exist_in_partial_update;
+    bool can_insert_new_rows_in_partial_update() const {
+        return _can_insert_new_rows_in_partial_update;
     }
+    void set_is_strict_mode(bool is_strict_mode) { _is_strict_mode = is_strict_mode; }
+    bool is_strict_mode() const { return _is_strict_mode; }
     std::vector<uint32_t> get_missing_cids() { return _missing_cids; }
     std::vector<uint32_t> get_update_cids() { return _update_cids; }
 
@@ -342,7 +343,6 @@ private:
     bool _has_bf_fpp = false;
     double _bf_fpp = 0;
     bool _is_in_memory = false;
-    bool _is_dynamic_schema = false;
     int32_t _delete_sign_idx = -1;
     int32_t _sequence_col_idx = -1;
     int32_t _version_col_idx = -1;
@@ -358,8 +358,10 @@ private:
     std::set<std::string> _partial_update_input_columns;
     std::vector<uint32_t> _missing_cids;
     std::vector<uint32_t> _update_cids;
-    // if key not exist in old rowset, use default value or null
-    bool _allow_key_not_exist_in_partial_update = true;
+    // if key not exist in old rowset, use default value or null value for the unmentioned cols
+    // to generate a new row, only available in non-strict mode
+    bool _can_insert_new_rows_in_partial_update = true;
+    bool _is_strict_mode = false;
 };
 
 bool operator==(const TabletSchema& a, const TabletSchema& b);

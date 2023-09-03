@@ -33,6 +33,7 @@
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "io/fs/s3_common.h"
 #include "util/doris_metrics.h"
+#include "util/s3_util.h"
 
 namespace doris {
 namespace io {
@@ -95,6 +96,7 @@ Status S3FileReader::read_at_impl(size_t offset, Slice result, size_t* bytes_rea
         return Status::InternalError("init s3 client error");
     }
     auto outcome = client->GetObject(request);
+    s3_bvar::s3_get_total << 1;
     if (!outcome.IsSuccess()) {
         return Status::IOError("failed to read from {}: {}", _path.native(),
                                outcome.GetError().GetMessage());

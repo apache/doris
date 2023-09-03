@@ -85,7 +85,7 @@ public:
         auto index_type = block.get_by_position(arguments[1]).type;
         size_t index;
         Status res = get_element_index(*struct_type, index_column, index_type, &index);
-        if (res == Status::OK()) {
+        if (res.ok()) {
             ColumnPtr res_column = struct_col->get_column_ptr(index);
             block.replace_by_position(result, res_column->clone_resized(res_column->size()));
             return res;

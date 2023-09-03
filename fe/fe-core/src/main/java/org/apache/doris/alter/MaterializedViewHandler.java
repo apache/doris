@@ -911,7 +911,8 @@ public class MaterializedViewHandler extends AlterHandler {
             EditLog editLog = Env.getCurrentEnv().getEditLog();
             long dbId = db.getId();
             long tableId = olapTable.getId();
-            editLog.logBatchDropRollup(new BatchDropInfo(dbId, tableId, indexIdSet));
+            String tableName = olapTable.getName();
+            editLog.logBatchDropRollup(new BatchDropInfo(dbId, tableId, tableName, indexIdSet));
             LOG.info("finished drop rollup index[{}] in table[{}]",
                     String.join("", rollupNameSet), olapTable.getName());
         } finally {
@@ -931,7 +932,8 @@ public class MaterializedViewHandler extends AlterHandler {
             long mvIndexId = dropMaterializedView(mvName, olapTable);
             // Step3: log drop mv operation
             EditLog editLog = Env.getCurrentEnv().getEditLog();
-            editLog.logDropRollup(new DropInfo(db.getId(), olapTable.getId(), mvIndexId, false, 0));
+            editLog.logDropRollup(
+                    new DropInfo(db.getId(), olapTable.getId(), olapTable.getName(), mvIndexId, false, 0));
             LOG.info("finished drop materialized view [{}] in table [{}]", mvName, olapTable.getName());
         } catch (MetaNotFoundException e) {
             if (dropMaterializedViewStmt.isIfExists()) {

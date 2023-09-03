@@ -1,6 +1,6 @@
 ---
 {
-    "title": "hdfs",
+    "title": "HDFS",
     "language": "en"
 }
 ---
@@ -69,7 +69,7 @@ Related parameters for accessing HDFS in HA mode:
 
 File format parameters:
 
-- `format`: (required) Currently support `csv/csv_with_names/csv_with_names_and_types/json/parquet/orc`
+- `format`: (required) Currently support `csv/csv_with_names/csv_with_names_and_types/json/parquet/orc/avro`
 - `column_separator`: (optional) default `,`.
 - `line_delimiter`: (optional) default `\n`.
 - `compress_type`: (optional) Currently support `UNKNOWN/PLAIN/GZ/LZO/BZ2/LZ4FRAME/DEFLATE`. Default value is `UNKNOWN`, it will automatically infer the type based on the suffix of `uri`.
@@ -87,6 +87,10 @@ File format parameters:
 
 - `trim_double_quotes`: Boolean type (optional), the default value is `false`. True means that the outermost double quotes of each field in the csv file are trimmed.
 - `skip_lines`: Integer type (optional), the default value is 0. It will skip some lines in the head of csv file. It will be disabled when the format is `csv_with_names` or `csv_with_names_and_types`.
+
+other kinds of parameters:
+
+- `path_partition_keys`: (optional) Specifies the column names carried in the file path. For example, if the file path is /path/to/city=beijing/date="2023-07-09", you should fill in `path_partition_keys="city,date"`. It will automatically read the corresponding column names and values from the path during load process.
 
 ### Examples
 

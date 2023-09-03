@@ -85,7 +85,7 @@ suite ("mv_ssb_q_2_1") {
 
     sql """INSERT INTO lineorder_flat (LO_ORDERDATE, LO_ORDERKEY, LO_LINENUMBER, LO_CUSTKEY, LO_PARTKEY, LO_SUPPKEY, LO_ORDERPRIORITY, LO_SHIPPRIORITY, LO_QUANTITY, LO_EXTENDEDPRICE, LO_ORDTOTALPRICE, LO_DISCOUNT, LO_REVENUE, LO_SUPPLYCOST, LO_TAX, LO_COMMITDATE, LO_SHIPMODE, C_NAME, C_ADDRESS, C_CITY, C_NATION, C_REGION, C_PHONE, C_MKTSEGMENT, S_NAME, S_ADDRESS, S_CITY, S_NATION, S_REGION, S_PHONE, P_NAME, P_MFGR, P_CATEGORY, P_BRAND, P_COLOR,P_TYPE,P_SIZE,P_CONTAINER) VALUES (19930101 , 1 , 1 , 1 , 1 , 1 , '1' , 1 , 1 , 1 , 1 , 100 , 1 , 1 , 1 , '2023-06-09' , 'shipmode' , 'name' , 'address' , 'city' , 'nation' , 'AMERICA' , 'phone' , 'mktsegment' , 'name' , 'address' , 'city' , 'nation' , 'AMERICA' ,'phone', 'name', 'MFGR#12', 'MFGR#12', 'brand', 'color', 'type', 4 ,'container');"""
 
-    createMV ("""create materialized view lineorder_mv as 
+    createMV ("""create materialized view lineorder_q_2_1 as 
                 SELECT
                     (LO_ORDERDATE DIV 10000) AS YEAR,
                     P_BRAND,
@@ -107,7 +107,7 @@ suite ("mv_ssb_q_2_1") {
             WHERE P_CATEGORY = 'MFGR#12' AND S_REGION = 'AMERICA'
             GROUP BY YEAR, P_BRAND
             ORDER BY YEAR, P_BRAND;""")
-        contains "(lineorder_mv)"
+        contains "(lineorder_q_2_1)"
     }
     qt_select_mv """SELECT
                     SUM(LO_REVENUE), (LO_ORDERDATE DIV 10000) AS YEAR,
@@ -117,7 +117,7 @@ suite ("mv_ssb_q_2_1") {
                 GROUP BY YEAR, P_BRAND
                 ORDER BY YEAR, P_BRAND;"""
 
-    sql""" drop materialized view lineorder_mv on lineorder_flat; """
+    sql""" drop materialized view lineorder_q_2_1 on lineorder_flat; """
 
     qt_select """SELECT
                     SUM(LO_REVENUE), (LO_ORDERDATE DIV 10000) AS YEAR,

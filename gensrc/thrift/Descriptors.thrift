@@ -39,6 +39,7 @@ struct TColumn {
     15: optional i32 gram_bf_size
     16: optional string aggregation
     17: optional bool result_is_nullable
+    18: optional bool is_auto_increment = false;
 }
 
 struct TSlotDescriptor {
@@ -57,6 +58,7 @@ struct TSlotDescriptor {
   // If set to false, then such slots will be ignored during
   // materialize them.Used to optmize to read less data and less memory usage
   13: optional bool need_materialize = true
+  14: optional bool is_auto_increment = false;
 }
 
 struct TTupleDescriptor {
@@ -115,7 +117,9 @@ enum TSchemaTableType {
     SCH_ROWSETS,
     SCH_BACKENDS,
     SCH_COLUMN_STATISTICS,
-    SCH_PARAMETERS;
+    SCH_PARAMETERS,
+    SCH_METADATA_NAME_IDS,
+    SCH_PROFILING;
 }
 
 enum THdfsCompression {
@@ -216,9 +220,10 @@ struct TOlapTableSchemaParam {
     4: required list<TSlotDescriptor> slot_descs
     5: required TTupleDescriptor tuple_desc
     6: required list<TOlapTableIndexSchema> indexes
-    7: optional bool is_dynamic_schema
+    7: optional bool is_dynamic_schema // deprecated
     8: optional bool is_partial_update
     9: optional list<string> partial_update_input_columns
+    10: optional bool is_strict_mode = false;
 }
 
 struct TTabletLocation {

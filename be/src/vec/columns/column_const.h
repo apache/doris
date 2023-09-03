@@ -24,6 +24,7 @@
 #include <stdint.h>
 #include <sys/types.h>
 
+#include <concepts>
 #include <cstddef>
 #include <functional>
 #include <initializer_list>
@@ -152,7 +153,8 @@ public:
         data->serialize_vec(keys, num_rows, max_row_byte_size);
     }
 
-    void update_xxHash_with_value(size_t n, uint64_t& hash) const override {
+    void update_xxHash_with_value(size_t start, size_t end, uint64_t& hash,
+                                  const uint8_t* __restrict null_data) const override {
         auto real_data = data->get_data_at(0);
         if (real_data.data == nullptr) {
             hash = HashUtil::xxHash64NullWithSeed(hash);
@@ -161,8 +163,9 @@ public:
         }
     }
 
-    void update_crc_with_value(size_t n, uint64_t& crc) const override {
-        get_data_column_ptr()->update_crc_with_value(n, crc);
+    void update_crc_with_value(size_t start, size_t end, uint64_t& hash,
+                               const uint8_t* __restrict null_data) const override {
+        get_data_column_ptr()->update_crc_with_value(start, end, hash, nullptr);
     }
 
     void serialize_vec_with_null_map(std::vector<StringRef>& keys, size_t num_rows,
@@ -189,8 +192,7 @@ public:
     size_t filter(const Filter& filter) override;
 
     ColumnPtr replicate(const Offsets& offsets) const override;
-    void replicate(const uint32_t* counts, size_t target_size, IColumn& column, size_t begin = 0,
-                   int count_sz = -1) const override;
+    void replicate(const uint32_t* indexs, size_t target_size, IColumn& column) const override;
     ColumnPtr permute(const Permutation& perm, size_t limit) const override;
     // ColumnPtr index(const IColumn & indexes, size_t limit) const override;
     void get_permutation(bool reverse, size_t limit, int nan_direction_hint,
@@ -278,7 +280,8 @@ std::pair<ColumnPtr, size_t> check_column_const_set_readability(const IColumn& c
 /*
  * @warning use this function sometimes cause performance problem in GCC.
 */
-template <typename T, std::enable_if_t<std::is_integral_v<T>, T> = 0>
+template <typename T>
+    requires std::is_integral_v<T>
 T index_check_const(T arg, bool constancy) noexcept {
     return constancy ? 0 : arg;
 }

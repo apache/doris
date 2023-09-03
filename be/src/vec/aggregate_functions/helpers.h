@@ -76,6 +76,17 @@ struct creator_without_type {
         }
         return AggregateFunctionPtr(result);
     }
+
+    /// AggregateFunctionTemplate will handle the nullable arguments, no need to use
+    /// AggregateFunctionNullVariadicInline/AggregateFunctionNullUnaryInline
+    template <typename AggregateFunctionTemplate, typename... TArgs>
+    static AggregateFunctionPtr create_ignore_nullable(const DataTypes& argument_types,
+                                                       const bool /*result_is_nullable*/,
+                                                       TArgs&&... args) {
+        IAggregateFunction* result(
+                new AggregateFunctionTemplate(std::forward<TArgs>(args)..., argument_types));
+        return AggregateFunctionPtr(result);
+    }
 };
 
 template <template <typename> class AggregateFunctionTemplate>

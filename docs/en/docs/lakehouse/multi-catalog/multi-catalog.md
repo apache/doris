@@ -1,6 +1,6 @@
 ---
 {
-    "title": "Overview",
+    "title": "Multi-Catalog Overview",
     "language": "en"
 }
 ---

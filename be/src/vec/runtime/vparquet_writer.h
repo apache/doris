@@ -26,12 +26,7 @@
 #include <parquet/types.h>
 #include <stdint.h>
 
-#include <memory>
-#include <vector>
-
-#include "common/status.h"
-#include "vec/core/block.h"
-#include "vec/exprs/vexpr_fwd.h"
+#include "vfile_writer_wrapper.h"
 
 namespace doris {
 namespace io {
@@ -86,30 +81,8 @@ public:
                               const TParquetVersion::type& parquet_version);
     static void build_schema_data_logical_type(
             std::shared_ptr<const parquet::LogicalType>& parquet_data_logical_type_ptr,
-            const TParquetDataLogicalType::type& column_data_logical_type);
-};
-
-class VFileWriterWrapper {
-public:
-    VFileWriterWrapper(const VExprContextSPtrs& output_vexpr_ctxs, bool output_object_data)
-            : _output_vexpr_ctxs(output_vexpr_ctxs),
-              _cur_written_rows(0),
-              _output_object_data(output_object_data) {}
-
-    virtual ~VFileWriterWrapper() = default;
-
-    virtual Status prepare() = 0;
-
-    virtual Status write(const Block& block) = 0;
-
-    virtual void close() = 0;
-
-    virtual int64_t written_len() = 0;
-
-protected:
-    const VExprContextSPtrs& _output_vexpr_ctxs;
-    int64_t _cur_written_rows;
-    bool _output_object_data;
+            const TParquetDataLogicalType::type& column_data_logical_type, int* primitive_length,
+            const TypeDescriptor& type_desc);
 };
 
 // a wrapper of parquet output stream
@@ -128,7 +101,7 @@ public:
 
     Status write(const Block& block) override;
 
-    void close() override;
+    Status close() override;
 
     int64_t written_len() override;
 

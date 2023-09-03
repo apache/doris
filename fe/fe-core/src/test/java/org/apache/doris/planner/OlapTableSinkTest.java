@@ -107,8 +107,8 @@ public class OlapTableSinkTest {
                 new DataProperty(DataProperty.DEFAULT_STORAGE_MEDIUM));
         dstTable.getPartitionInfo().setIsMutable(partition.getId(), true);
         OlapTableSink sink = new OlapTableSink(dstTable, tuple, Lists.newArrayList(2L), false);
-        sink.init(new TUniqueId(1, 2), 3, 4, 1000, 1, false);
-        sink.complete();
+        sink.init(new TUniqueId(1, 2), 3, 4, 1000, 1, false, false);
+        sink.complete(null);
         LOG.info("sink is {}", sink.toThrift());
         LOG.info("{}", sink.getExplainString("", TExplainLevel.NORMAL));
     }
@@ -144,9 +144,9 @@ public class OlapTableSinkTest {
         };
 
         OlapTableSink sink = new OlapTableSink(dstTable, tuple, Lists.newArrayList(p1.getId()), false);
-        sink.init(new TUniqueId(1, 2), 3, 4, 1000, 1, false);
+        sink.init(new TUniqueId(1, 2), 3, 4, 1000, 1, false, false);
         try {
-            sink.complete();
+            sink.complete(null);
         } catch (UserException e) {
             // CHECKSTYLE IGNORE THIS LINE
         }
@@ -169,8 +169,8 @@ public class OlapTableSinkTest {
         };
 
         OlapTableSink sink = new OlapTableSink(dstTable, tuple, Lists.newArrayList(unknownPartId), false);
-        sink.init(new TUniqueId(1, 2), 3, 4, 1000, 1, false);
-        sink.complete();
+        sink.init(new TUniqueId(1, 2), 3, 4, 1000, 1, false, false);
+        sink.complete(null);
         LOG.info("sink is {}", sink.toThrift());
         LOG.info("{}", sink.getExplainString("", TExplainLevel.NORMAL));
     }
@@ -206,9 +206,9 @@ public class OlapTableSinkTest {
         };
 
         OlapTableSink sink = new OlapTableSink(dstTable, tuple, Lists.newArrayList(p1.getId()), false);
-        sink.init(new TUniqueId(1, 2), 3, 4, 1000, 1, false);
+        sink.init(new TUniqueId(1, 2), 3, 4, 1000, 1, false, false);
         try {
-            sink.complete();
+            sink.complete(null);
         } catch (UserException e) {
             // CHECKSTYLE IGNORE THIS LINE
         }

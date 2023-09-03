@@ -66,7 +66,7 @@ public:
 
     // Create FileReader for stream load pipe
     static Status create_pipe_reader(const TUniqueId& load_id, io::FileReaderSPtr* file_reader,
-                                     const TUniqueId& fragment_instance_id);
+                                     RuntimeState* runtime_state);
 
     static Status create_hdfs_reader(const THdfsParams& hdfs_params, const io::FileDescription& fd,
                                      const io::FileReaderOptions& reader_options,

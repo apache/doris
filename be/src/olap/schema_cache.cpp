@@ -75,26 +75,4 @@ void SchemaCache::create_global_instance(size_t capacity) {
     _s_instance = &instance;
 }
 
-SchemaCache::SchemaCache(size_t capacity) {
-    _schema_cache =
-            std::unique_ptr<Cache>(new_lru_cache("SchemaCache", capacity, LRUCacheType::NUMBER));
-}
-
-Status SchemaCache::prune() {
-    const int64_t curtime = UnixMillis();
-    auto pred = [curtime](const void* value) -> bool {
-        CacheValue* cache_value = (CacheValue*)value;
-        return (cache_value->last_visit_time + config::schema_cache_sweep_time_sec * 1000) <
-               curtime;
-    };
-
-    MonotonicStopWatch watch;
-    watch.start();
-    // Prune cache in lazy mode to save cpu and minimize the time holding write lock
-    int64_t prune_num = _schema_cache->prune_if(pred, true);
-    LOG(INFO) << "prune " << prune_num
-              << " entries in SchemaCache cache. cost(ms): " << watch.elapsed_time() / 1000 / 1000;
-    return Status::OK();
-}
-
 } // namespace doris

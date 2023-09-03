@@ -17,9 +17,11 @@
 
 package org.apache.doris.regression.suite
 
+import com.google.common.collect.Maps
 import com.google.common.util.concurrent.Futures
 import com.google.common.util.concurrent.ListenableFuture
 import com.google.common.util.concurrent.MoreExecutors
+import com.google.gson.Gson
 import groovy.json.JsonSlurper
 import com.google.common.collect.ImmutableList
 import org.apache.doris.regression.action.BenchmarkAction
@@ -188,6 +190,23 @@ class Suite implements GroovyInterceptable {
     public <T> T connect(String user = context.config.jdbcUser, String password = context.config.jdbcPassword,
                          String url = context.config.jdbcUrl, Closure<T> actionSupplier) {
         return context.connect(user, password, url, actionSupplier)
+    }
+
+    String get_ccr_body(String table) {
+        Gson gson = new Gson()
+
+        Map<String, String> srcSpec = context.getSrcSpec()
+        srcSpec.put("table", table)
+
+        Map<String, String> destSpec = context.getDestSpec()
+        destSpec.put("table", table)
+
+        Map<String, Object> body = Maps.newHashMap()
+        body.put("name", context.suiteName + "_" + context.dbName + "_" + table)
+        body.put("src", srcSpec)
+        body.put("dest", destSpec)
+
+        return gson.toJson(body)
     }
 
     Syncer getSyncer() {

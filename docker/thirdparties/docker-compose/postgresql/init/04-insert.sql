@@ -2664,3 +2664,57 @@ VALUES
     '2023-06-16 12:34:56.123', 
     '2023-06-16 12:34:56.123+08'
 );
+
+INSERT INTO catalog_pg_test.json_test (type,value) VALUES
+(
+'json',
+'{
+    "stringKey": "stringValue",
+    "integerKey": 12345,
+    "floatKey": 123.45,
+    "booleanKey": true,
+    "nullKey": null,
+    "arrayKey": ["element1", 2, false, null, {"nestedKey": "nestedValue"}],
+    "objectKey": {
+        "nestedStringKey": "nestedStringValue",
+        "nestedIntegerKey": 67890
+    }
+}'),
+(
+'json2',
+NULL
+);
+
+INSERT INTO catalog_pg_test.jsonb_test (type,value) VALUES
+(
+'jsonb',
+'{
+    "stringKey": "stringValue",
+    "integerKey": 12345,
+    "floatKey": 123.45,
+    "booleanKey": true,
+    "nullKey": null,
+    "arrayKey": ["element1", 2, false, null, {"nestedKey": "nestedValue"}],
+    "objectKey": {
+        "nestedStringKey": "nestedStringValue",
+        "nestedIntegerKey": 67890
+    }
+}'),
+(
+'jsonb2',
+NULL
+);
+
+insert into catalog_pg_test.person_r(age, city) VALUES (1, 'GZ');
+insert into catalog_pg_test.person_r(age, city) VALUES (2, 'SZ');
+insert into catalog_pg_test.person_r(age, city) VALUES (21, 'SZ');
+insert into catalog_pg_test.person_r(age, city) VALUES (13, 'BJ');
+insert into catalog_pg_test.person_r(age, city) VALUES (43, 'SH');
+insert into catalog_pg_test.person_r(age, city) VALUES (28, 'HK');
+
+insert into catalog_pg_test.tb_test_alarm
+values('1','A','2020-09-02 00:00:00')
+     ,('2','A','2020-10-02 00:00:00')
+     ,('3','A','2020-11-02 00:00:00')
+     ,('4','A','2020-12-02 00:00:00')
+;

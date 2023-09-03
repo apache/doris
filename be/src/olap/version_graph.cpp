@@ -521,9 +521,8 @@ Status VersionGraph::delete_version_from_graph(const Version& version) {
 
     if (_vertex_index_map.find(start_vertex_value) == _vertex_index_map.end() ||
         _vertex_index_map.find(end_vertex_value) == _vertex_index_map.end()) {
-        LOG(WARNING) << "vertex for version does not exists. "
-                     << "version=" << version.first << "-" << version.second;
-        return Status::Error<HEADER_DELETE_VERSION>();
+        return Status::Error<HEADER_DELETE_VERSION>(
+                "vertex for version does not exists. version={}-{}", version.first, version.second);
     }
 
     int64_t start_vertex_index = _vertex_index_map[start_vertex_value];
@@ -567,9 +566,8 @@ void VersionGraph::_add_vertex_to_graph(int64_t vertex_value) {
 Status VersionGraph::capture_consistent_versions(const Version& spec_version,
                                                  std::vector<Version>* version_path) const {
     if (spec_version.first > spec_version.second) {
-        LOG(WARNING) << "invalid specified version. "
-                     << "spec_version=" << spec_version.first << "-" << spec_version.second;
-        return Status::Error<INVALID_ARGUMENT>();
+        return Status::Error<INVALID_ARGUMENT>("invalid specified version. spec_version={}-{}",
+                                               spec_version.first, spec_version.second);
     }
 
     int64_t cur_idx = -1;

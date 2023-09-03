@@ -49,6 +49,7 @@ enum DecimalRoundMode { HALF_UP = 1, HALF_EVEN = 2, CEILING = 3, FLOOR = 4, TRUN
 
 class DecimalV2Value {
 public:
+    using NativeType = __int128_t;
     friend DecimalV2Value operator+(const DecimalV2Value& v1, const DecimalV2Value& v2);
     friend DecimalV2Value operator-(const DecimalV2Value& v1, const DecimalV2Value& v2);
     friend DecimalV2Value operator*(const DecimalV2Value& v1, const DecimalV2Value& v2);
@@ -171,15 +172,7 @@ public:
 
     bool operator==(const DecimalV2Value& other) const { return _value == other.value(); }
 
-    bool operator!=(const DecimalV2Value& other) const { return _value != other.value(); }
-
-    bool operator<=(const DecimalV2Value& other) const { return _value <= other.value(); }
-
-    bool operator>=(const DecimalV2Value& other) const { return _value >= other.value(); }
-
-    bool operator<(const DecimalV2Value& other) const { return _value < other.value(); }
-
-    bool operator>(const DecimalV2Value& other) const { return _value > other.value(); }
+    auto operator<=>(const DecimalV2Value& other) const { return _value <=> other.value(); }
 
     // change to maximum value for given precision and scale
     // precision/scale - see decimal_bin_size() below

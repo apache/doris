@@ -227,9 +227,7 @@ public:
         use by date, datetime, basic type
     */
     void insert_many_fix_len_data(const char* data_ptr, size_t num) override {
-        if constexpr (!std::is_same_v<T, vectorized::Int64>) {
-            insert_many_in_copy_way(data_ptr, num);
-        } else if (IColumn::is_date) {
+        if (IColumn::is_date) {
             insert_date_column(data_ptr, num);
         } else if (IColumn::is_date_time) {
             insert_datetime_column(data_ptr, num);
@@ -274,21 +272,49 @@ public:
                                      const uint8_t* null_map,
                                      size_t max_row_byte_size) const override;
 
-    void update_xxHash_with_value(size_t n, uint64_t& hash) const override {
-        hash = HashUtil::xxHash64WithSeed(reinterpret_cast<const char*>(&data[n]), sizeof(T), hash);
+    void update_xxHash_with_value(size_t start, size_t end, uint64_t& hash,
+                                  const uint8_t* __restrict null_data) const override {
+        if (null_data) {
+            for (size_t i = start; i < end; i++) {
+                if (null_data[i] == 0) {
+                    hash = HashUtil::xxHash64WithSeed(reinterpret_cast<const char*>(&data[i]),
+                                                      sizeof(T), hash);
+                }
+            }
+        } else {
+            for (size_t i = start; i < end; i++) {
+                hash = HashUtil::xxHash64WithSeed(reinterpret_cast<const char*>(&data[i]),
+                                                  sizeof(T), hash);
+            }
+        }
     }
 
-    void update_crc_with_value(size_t n, uint64_t& crc) const override {
+    void ALWAYS_INLINE update_crc_with_value_without_null(size_t idx, uint64_t& hash) const {
         if constexpr (!std::is_same_v<T, Int64>) {
-            crc = HashUtil::zlib_crc_hash(&data[n], sizeof(T), crc);
+            hash = HashUtil::zlib_crc_hash(&data[idx], sizeof(T), hash);
         } else {
             if (this->is_date_type() || this->is_datetime_type()) {
                 char buf[64];
-                const VecDateTimeValue& date_val = (const VecDateTimeValue&)data[n];
+                const VecDateTimeValue& date_val = (const VecDateTimeValue&)data[idx];
                 auto len = date_val.to_buffer(buf);
-                crc = HashUtil::zlib_crc_hash(buf, len, crc);
+                hash = HashUtil::zlib_crc_hash(buf, len, hash);
             } else {
-                crc = HashUtil::zlib_crc_hash(&data[n], sizeof(T), crc);
+                hash = HashUtil::zlib_crc_hash(&data[idx], sizeof(T), hash);
+            }
+        }
+    }
+
+    void update_crc_with_value(size_t start, size_t end, uint64_t& hash,
+                               const uint8_t* __restrict null_data) const override {
+        if (null_data) {
+            for (size_t i = start; i < end; i++) {
+                if (null_data[i] == 0) {
+                    update_crc_with_value_without_null(i, hash);
+                }
+            }
+        } else {
+            for (size_t i = start; i < end; i++) {
+                update_crc_with_value_without_null(i, hash);
             }
         }
     }
@@ -397,8 +423,7 @@ public:
 
     ColumnPtr replicate(const IColumn::Offsets& offsets) const override;
 
-    void replicate(const uint32_t* counts, size_t target_size, IColumn& column, size_t begin = 0,
-                   int count_sz = -1) const override;
+    void replicate(const uint32_t* indexs, size_t target_size, IColumn& column) const override;
 
     void get_extremes(Field& min, Field& max) const override;
 

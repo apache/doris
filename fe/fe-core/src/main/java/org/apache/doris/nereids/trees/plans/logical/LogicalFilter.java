@@ -67,7 +67,7 @@ public class LogicalFilter<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_T
     }
 
     @Override
-    public List<Plan> extraPlans() {
+    public List<? extends Plan> extraPlans() {
         return conjuncts.stream().map(Expression::children).flatMap(Collection::stream).flatMap(m -> {
             if (m instanceof SubqueryExpr) {
                 return Stream.of(new LogicalSubQueryAlias<>(m.toSql(), ((SubqueryExpr) m).getQueryPlan()));

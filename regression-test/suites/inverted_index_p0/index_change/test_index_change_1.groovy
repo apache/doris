@@ -78,8 +78,6 @@ suite("test_index_change_1") {
     
     qt_select1 """ SELECT * FROM ${tableName} t ORDER BY user_id,date,city,age,sex; """
 
-    //TabletId,ReplicaId,BackendId,SchemaHash,Version,LstSuccessVersion,LstFailedVersion,LstFailedTime,LocalDataSize,RemoteDataSize,RowCount,State,LstConsistencyCheckTime,CheckVersion,VersionCount,QueryHits,PathHash,MetaUrl,CompactionStatus
-    String[][] tablets = sql """ show tablets from ${tableName}; """
     // create inverted index
     sql """ CREATE INDEX idx_user_id ON ${tableName}(`user_id`) USING INVERTED """
     sql """ CREATE INDEX idx_note ON ${tableName}(`note`) USING INVERTED PROPERTIES("parser"="english") """

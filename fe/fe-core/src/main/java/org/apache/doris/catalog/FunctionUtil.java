@@ -25,6 +25,10 @@ import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.io.Text;
+import org.apache.doris.nereids.trees.expressions.functions.udf.AliasUdf;
+import org.apache.doris.nereids.trees.expressions.functions.udf.JavaUdaf;
+import org.apache.doris.nereids.trees.expressions.functions.udf.JavaUdf;
+import org.apache.doris.nereids.types.DataType;
 
 import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableList;
@@ -35,10 +39,12 @@ import org.apache.logging.log4j.Logger;
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
 import java.util.concurrent.ConcurrentMap;
+import java.util.stream.Collectors;
 
 /**
  * function util.
@@ -175,7 +181,8 @@ public class FunctionUtil {
         }
     }
 
-    public static void readFields(DataInput in, ConcurrentMap<String, ImmutableList<Function>> name2Function)
+    public static void readFields(DataInput in, String dbName,
+            ConcurrentMap<String, ImmutableList<Function>> name2Function)
             throws IOException {
         int numEntries = in.readInt();
         for (int i = 0; i < numEntries; ++i) {
@@ -185,7 +192,11 @@ public class FunctionUtil {
             for (int j = 0; j < numFunctions; ++j) {
                 builder.add(Function.read(in));
             }
-            name2Function.put(name, builder.build());
+            ImmutableList<Function> functions = builder.build();
+            name2Function.put(name, functions);
+            for (Function f : functions) {
+                translateToNereids(dbName, f);
+            }
         }
     }
 
@@ -216,5 +227,34 @@ public class FunctionUtil {
             dbName = ClusterNamespace.getFullName(clusterName, dbName);
         }
         return dbName;
+    }
+
+    public static boolean translateToNereids(String dbName, Function function) {
+        try {
+            if (function instanceof AliasFunction) {
+                AliasUdf.translateToNereidsFunction(dbName, ((AliasFunction) function));
+            } else if (function instanceof ScalarFunction) {
+                JavaUdf.translateToNereidsFunction(dbName, ((ScalarFunction) function));
+            } else if (function instanceof AggregateFunction) {
+                JavaUdaf.translateToNereidsFunction(dbName, ((AggregateFunction) function));
+            }
+        } catch (Exception e) {
+            LOG.warn("Nereids create function {}:{} failed, caused by: {}", dbName == null ? "_global_" : dbName,
+                    function.getFunctionName().getFunction(), e);
+        }
+        return true;
+    }
+
+    public static boolean dropFromNereids(String dbName, FunctionSearchDesc function) {
+        try {
+            String fnName = function.getName().getFunction();
+            List<DataType> argTypes = Arrays.stream(function.getArgTypes()).map(DataType::fromCatalogType)
+                    .collect(Collectors.toList());
+            Env.getCurrentEnv().getFunctionRegistry().dropUdf(dbName, fnName, argTypes);
+        } catch (Exception e) {
+            LOG.warn("Nereids drop function {}:{} failed, caused by: {}", dbName == null ? "_global_" : dbName,
+                    function.getName(), e);
+        }
+        return false;
     }
 }

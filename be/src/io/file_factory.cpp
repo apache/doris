@@ -21,6 +21,7 @@
 #include <gen_cpp/PlanNodes_types.h>
 #include <gen_cpp/Types_types.h>
 
+#include <mutex>
 #include <utility>
 
 #include "common/config.h"
@@ -97,7 +98,7 @@ Status FileFactory::create_file_writer(TFileType::type type, ExecEnv* env,
     case TFileType::FILE_HDFS: {
         THdfsParams hdfs_params = parse_properties(properties);
         std::shared_ptr<io::HdfsFileSystem> fs;
-        RETURN_IF_ERROR(io::HdfsFileSystem::create(hdfs_params, "", nullptr, &fs));
+        RETURN_IF_ERROR(io::HdfsFileSystem::create(hdfs_params, hdfs_params.fs_name, nullptr, &fs));
         RETURN_IF_ERROR(fs->create_file(path, &file_writer));
         break;
     }
@@ -144,22 +145,43 @@ Status FileFactory::create_file_reader(const io::FileSystemProperties& system_pr
 
 // file scan node/stream load pipe
 Status FileFactory::create_pipe_reader(const TUniqueId& load_id, io::FileReaderSPtr* file_reader,
-                                       const TUniqueId& fragment_instance_id) {
+                                       RuntimeState* runtime_state) {
     auto stream_load_ctx = ExecEnv::GetInstance()->new_load_stream_mgr()->get(load_id);
     if (!stream_load_ctx) {
         return Status::InternalError("unknown stream load id: {}", UniqueId(load_id).to_string());
     }
-
-    *file_reader = stream_load_ctx->pipe;
-
-    if (file_reader->get() != nullptr) {
-        auto multi_table_pipe = std::dynamic_pointer_cast<io::MultiTablePipe>(*file_reader);
-        if (multi_table_pipe != nullptr) {
-            *file_reader = multi_table_pipe->getPipe(fragment_instance_id);
-            LOG(INFO) << "create pipe reader for fragment instance: " << fragment_instance_id
-                      << " pipe: " << (*file_reader).get();
-        }
+    if (stream_load_ctx->need_schema == true) {
+        auto pipe = std::make_shared<io::StreamLoadPipe>(
+                io::kMaxPipeBufferedBytes /* max_buffered_bytes */, 64 * 1024 /* min_chunk_size */,
+                stream_load_ctx->schema_buffer->pos /* total_length */);
+        stream_load_ctx->schema_buffer->flip();
+        pipe->append(stream_load_ctx->schema_buffer);
+        pipe->finish();
+        *file_reader = std::move(pipe);
+        stream_load_ctx->need_schema = false;
+    } else {
+        *file_reader = stream_load_ctx->pipe;
     }
+
+    if (file_reader->get() == nullptr) {
+        return Status::OK();
+    }
+
+    auto multi_table_pipe = std::dynamic_pointer_cast<io::MultiTablePipe>(*file_reader);
+    if (multi_table_pipe == nullptr || runtime_state == nullptr) {
+        return Status::OK();
+    }
+
+    TUniqueId pipe_id;
+    if (runtime_state->enable_pipeline_exec()) {
+        pipe_id = io::StreamLoadPipe::calculate_pipe_id(runtime_state->query_id(),
+                                                        runtime_state->fragment_id());
+    } else {
+        pipe_id = runtime_state->fragment_instance_id();
+    }
+    *file_reader = multi_table_pipe->getPipe(pipe_id);
+    LOG(INFO) << "create pipe reader for fragment instance: " << pipe_id
+              << " pipe: " << (*file_reader).get();
 
     return Status::OK();
 }
@@ -170,7 +192,7 @@ Status FileFactory::create_hdfs_reader(const THdfsParams& hdfs_params,
                                        std::shared_ptr<io::FileSystem>* hdfs_file_system,
                                        io::FileReaderSPtr* reader, RuntimeProfile* profile) {
     std::shared_ptr<io::HdfsFileSystem> fs;
-    RETURN_IF_ERROR(io::HdfsFileSystem::create(hdfs_params, "", profile, &fs));
+    RETURN_IF_ERROR(io::HdfsFileSystem::create(hdfs_params, fd.fs_name, profile, &fs));
     RETURN_IF_ERROR(fs->open_file(fd, reader_options, reader));
     *hdfs_file_system = std::move(fs);
     return Status::OK();

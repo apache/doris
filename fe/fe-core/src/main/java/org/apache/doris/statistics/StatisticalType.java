@@ -22,6 +22,7 @@ public enum StatisticalType {
     AGG_NODE,
     ANALYTIC_EVAL_NODE,
     ASSERT_NUM_ROWS_NODE,
+    CTE_SCAN_NODE,
     BROKER_SCAN_NODE,
     NESTED_LOOP_JOIN_NODE,
     EMPTY_SET_NODE,

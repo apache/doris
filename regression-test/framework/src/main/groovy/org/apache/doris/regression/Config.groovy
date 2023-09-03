@@ -45,6 +45,7 @@ class Config {
     public String feTargetThriftAddress
     public String feSyncerUser
     public String feSyncerPassword
+    public String syncerAddress
 
     public String feHttpAddress
     public String feHttpUser
@@ -84,6 +85,7 @@ class Config {
 
     public TNetworkAddress feSourceThriftNetworkAddress
     public TNetworkAddress feTargetThriftNetworkAddress
+    public TNetworkAddress syncerNetworkAddress
     public InetSocketAddress feHttpInetSocketAddress
     public InetSocketAddress metaServiceHttpInetSocketAddress
     public Integer parallel
@@ -96,7 +98,7 @@ class Config {
 
     Config(String defaultDb, String jdbcUrl, String jdbcUser, String jdbcPassword,
            String feSourceThriftAddress, String feTargetThriftAddress, String feSyncerUser, String feSyncerPassword,
-           String feHttpAddress, String feHttpUser, String feHttpPassword, String metaServiceHttpAddress,
+           String syncerPassword, String feHttpAddress, String feHttpUser, String feHttpPassword, String metaServiceHttpAddress,
            String suitePath, String dataPath, String realDataPath, String cacheDataPath, Boolean enableCacheData,
            String testGroups, String excludeGroups, String testSuites, String excludeSuites,
            String testDirectories, String excludeDirectories, String pluginPath, String sslCertificatePath) {
@@ -108,6 +110,7 @@ class Config {
         this.feTargetThriftAddress = feTargetThriftAddress
         this.feSyncerUser = feSyncerUser
         this.feSyncerPassword = feSyncerPassword
+        this.syncerAddress = syncerAddress
         this.feHttpAddress = feHttpAddress
         this.feHttpUser = feHttpUser
         this.feHttpPassword = feHttpPassword
@@ -208,6 +211,15 @@ class Config {
             throw new IllegalStateException("Can not parse fe thrift address: ${config.feTargetThriftAddress}", t)
         }
 
+        config.syncerAddress = cmd.getOptionValue(syncerAddressOpt, config.syncerAddress)
+        try {
+            String host = config.syncerAddress.split(":")[0]
+            int port = Integer.valueOf(config.syncerAddress.split(":")[1])
+            config.syncerNetworkAddress = new TNetworkAddress(host, port)
+        } catch (Throwable t) {
+            throw new IllegalStateException("Can not parse syncer address: ${config.syncerAddress}", t)
+        }
+
         config.feHttpAddress = cmd.getOptionValue(feHttpAddressOpt, config.feHttpAddress)
         try {
             Inet4Address host = Inet4Address.getByName(config.feHttpAddress.split(":")[0]) as Inet4Address
@@ -270,6 +282,7 @@ class Config {
             configToString(obj.feTargetThriftAddress),
             configToString(obj.feSyncerUser),
             configToString(obj.feSyncerPassword),
+            configToString(obj.syncerAddress),
             configToString(obj.feHttpAddress),
             configToString(obj.feHttpUser),
             configToString(obj.feHttpPassword),
@@ -352,6 +365,11 @@ class Config {
         if (config.feSyncerPassword == null) {
             config.feSyncerPassword = ""
             log.info("Set feSyncerPassword to empty because not specify.".toString())
+        }
+
+        if (config.syncerAddress == null) {
+            config.syncerAddress = "127.0.0.1:9190"
+            log.info("Set syncerAddress to '${config.syncerAddress}' because not specify.".toString())
         }
 
         if (config.feHttpUser == null) {

@@ -365,7 +365,7 @@ public class BrokerLoadJobTest {
         UUID uuid = UUID.randomUUID();
         TUniqueId loadId = new TUniqueId(uuid.getMostSignificantBits(), uuid.getLeastSignificantBits());
         Profile jobProfile = new Profile("test", false);
-        LoadLoadingTask task = new LoadLoadingTask(database, olapTable, brokerDesc, fileGroups, 100, 100, false, 100,
+        LoadLoadingTask task = new LoadLoadingTask(database, olapTable, brokerDesc, fileGroups, 100, 100, false, false, 100,
                 callback, "", 100, 1, 1, true, jobProfile, false, false, LoadTask.Priority.NORMAL);
         try {
             UserIdentity userInfo = new UserIdentity("root", "localhost");

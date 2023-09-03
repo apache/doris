@@ -117,6 +117,7 @@ public:
     Status filter_by_selector(const uint16_t* sel, size_t sel_size, IColumn* col_ptr) override;
     ColumnPtr permute(const Permutation& perm, size_t limit) const override;
     ColumnPtr replicate(const Offsets& offsets) const override;
+    void replicate(const uint32_t* indexs, size_t target_size, IColumn& column) const override;
     MutableColumns scatter(ColumnIndex num_columns, const Selector& selector) const override {
         return scatter_impl<ColumnMap>(num_columns, selector);
     }
@@ -167,8 +168,10 @@ public:
     size_t allocated_bytes() const override;
     void protect() override;
 
-    void update_xxHash_with_value(size_t n, uint64_t& hash) const override;
-    void update_crc_with_value(size_t n, uint64_t& crc) const override;
+    void update_xxHash_with_value(size_t start, size_t end, uint64_t& hash,
+                                  const uint8_t* __restrict null_data) const override;
+    void update_crc_with_value(size_t start, size_t end, uint64_t& hash,
+                               const uint8_t* __restrict null_data) const override;
 
     void update_hashes_with_value(std::vector<SipHash>& hashes,
                                   const uint8_t* __restrict null_data) const override;

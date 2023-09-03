@@ -53,7 +53,7 @@ SubFileCache::SubFileCache(const Path& cache_dir, int64_t alive_time_sec,
           _alive_time_sec(alive_time_sec),
           _remote_file_reader(remote_file_reader) {}
 
-SubFileCache::~SubFileCache() {}
+SubFileCache::~SubFileCache() = default;
 
 Status SubFileCache::read_at_impl(size_t offset, Slice result, size_t* bytes_read,
                                   const IOContext* io_ctx) {
@@ -106,9 +106,8 @@ Status SubFileCache::read_at_impl(size_t offset, Slice result, size_t* bytes_rea
              iter != need_cache_offsets.cend(); ++iter) {
             size_t offset_begin = *iter;
             if (_cache_file_readers.find(*iter) == _cache_file_readers.end()) {
-                LOG(ERROR) << "Local cache file reader can't be found: " << offset_begin << ", "
-                           << offset_begin;
-                return Status::Error<OS_ERROR>();
+                return Status::Error<OS_ERROR>("Local cache file reader can't be found: {}",
+                                               offset_begin);
             }
             if (offset_begin < offset) {
                 offset_begin = offset;
@@ -125,10 +124,9 @@ Status SubFileCache::read_at_impl(size_t offset, Slice result, size_t* bytes_rea
                     fmt::format("Read local cache file failed: {}",
                                 _cache_file_readers[*iter]->path().native()));
             if (sub_bytes_read != read_slice.size) {
-                LOG(ERROR) << "read local cache file failed: "
-                           << _cache_file_readers[*iter]->path().native()
-                           << ", bytes read: " << sub_bytes_read << " vs req size: " << req_size;
-                return Status::Error<OS_ERROR>();
+                return Status::Error<OS_ERROR>(
+                        "read local cache file failed: {} , bytes read: {} vs req size: {}",
+                        _cache_file_readers[*iter]->path().native(), sub_bytes_read, req_size);
             }
             *bytes_read += sub_bytes_read;
             _last_match_times[*iter] = time(nullptr);

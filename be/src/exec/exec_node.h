@@ -134,6 +134,8 @@ public:
 
     bool can_read() const { return _can_read; }
 
+    [[nodiscard]] virtual bool can_terminate_early() { return false; }
+
     // Sink Data to ExecNode to do some stock work, both need impl with method: get_result
     // `eos` means source is exhausted, exec node should do some finalize work
     // Eg: Aggregation, Sort
@@ -195,12 +197,6 @@ public:
     void collect_scan_nodes(std::vector<ExecNode*>* nodes);
 
     virtual void prepare_for_next() {}
-
-    // When the agg node is the scan node direct parent,
-    // we directly return agg object from scan node to agg node,
-    // and don't serialize the agg object.
-    // This improve is cautious, we ensure the correctness firstly.
-    void try_do_aggregate_serde_improve();
 
     // Returns a string representation in DFS order of the plan rooted at this.
     std::string debug_string() const;
@@ -283,9 +279,10 @@ protected:
 
     RuntimeProfile::Counter* _rows_returned_counter;
     RuntimeProfile::Counter* _rows_returned_rate;
-    // Account for peak memory used by this node
     RuntimeProfile::Counter* _memory_used_counter;
     RuntimeProfile::Counter* _projection_timer;
+    // Account for peak memory used by this node
+    RuntimeProfile::Counter* _peak_memory_usage_counter;
 
     //
     OpentelemetrySpan _span;

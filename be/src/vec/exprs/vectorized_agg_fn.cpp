@@ -231,7 +231,7 @@ void AggFnEvaluator::destroy(AggregateDataPtr place) {
 }
 
 Status AggFnEvaluator::execute_single_add(Block* block, AggregateDataPtr place, Arena* arena) {
-    RETURN_IF_ERROR(_calc_argment_columns(block));
+    RETURN_IF_ERROR(_calc_argument_columns(block));
     SCOPED_TIMER(_exec_timer);
     _function->add_batch_single_place(block->rows(), place, _agg_columns.data(), arena);
     return Status::OK();
@@ -239,7 +239,7 @@ Status AggFnEvaluator::execute_single_add(Block* block, AggregateDataPtr place, 
 
 Status AggFnEvaluator::execute_batch_add(Block* block, size_t offset, AggregateDataPtr* places,
                                          Arena* arena, bool agg_many) {
-    RETURN_IF_ERROR(_calc_argment_columns(block));
+    RETURN_IF_ERROR(_calc_argument_columns(block));
     SCOPED_TIMER(_exec_timer);
     _function->add_batch(block->rows(), places, offset, _agg_columns.data(), arena, agg_many);
     return Status::OK();
@@ -247,7 +247,7 @@ Status AggFnEvaluator::execute_batch_add(Block* block, size_t offset, AggregateD
 
 Status AggFnEvaluator::execute_batch_add_selected(Block* block, size_t offset,
                                                   AggregateDataPtr* places, Arena* arena) {
-    RETURN_IF_ERROR(_calc_argment_columns(block));
+    RETURN_IF_ERROR(_calc_argument_columns(block));
     SCOPED_TIMER(_exec_timer);
     _function->add_batch_selected(block->rows(), places, offset, _agg_columns.data(), arena);
     return Status::OK();
@@ -255,7 +255,7 @@ Status AggFnEvaluator::execute_batch_add_selected(Block* block, size_t offset,
 
 Status AggFnEvaluator::streaming_agg_serialize(Block* block, BufferWritable& buf,
                                                const size_t num_rows, Arena* arena) {
-    RETURN_IF_ERROR(_calc_argment_columns(block));
+    RETURN_IF_ERROR(_calc_argument_columns(block));
     SCOPED_TIMER(_exec_timer);
     _function->streaming_agg_serialize(_agg_columns.data(), buf, num_rows, arena);
     return Status::OK();
@@ -263,7 +263,7 @@ Status AggFnEvaluator::streaming_agg_serialize(Block* block, BufferWritable& buf
 
 Status AggFnEvaluator::streaming_agg_serialize_to_column(Block* block, MutableColumnPtr& dst,
                                                          const size_t num_rows, Arena* arena) {
-    RETURN_IF_ERROR(_calc_argment_columns(block));
+    RETURN_IF_ERROR(_calc_argument_columns(block));
     SCOPED_TIMER(_exec_timer);
     _function->streaming_agg_serialize_to_column(_agg_columns.data(), dst, num_rows, arena);
     return Status::OK();
@@ -302,7 +302,7 @@ std::string AggFnEvaluator::debug_string() const {
     return out.str();
 }
 
-Status AggFnEvaluator::_calc_argment_columns(Block* block) {
+Status AggFnEvaluator::_calc_argument_columns(Block* block) {
     SCOPED_TIMER(_expr_timer);
     _agg_columns.resize(_input_exprs_ctxs.size());
     int column_ids[_input_exprs_ctxs.size()];
@@ -316,6 +316,29 @@ Status AggFnEvaluator::_calc_argment_columns(Block* block) {
         _agg_columns[i] = block->get_by_position(column_ids[i]).column.get();
     }
     return Status::OK();
+}
+
+AggFnEvaluator* AggFnEvaluator::clone(RuntimeState* state, ObjectPool* pool) {
+    return pool->add(AggFnEvaluator::create_unique(*this, state).release());
+}
+
+AggFnEvaluator::AggFnEvaluator(AggFnEvaluator& evaluator, RuntimeState* state)
+        : _fn(evaluator._fn),
+          _is_merge(evaluator._is_merge),
+          _argument_types_with_sort(evaluator._argument_types_with_sort),
+          _real_argument_types(evaluator._real_argument_types),
+          _return_type(evaluator._return_type),
+          _intermediate_slot_desc(evaluator._intermediate_slot_desc),
+          _output_slot_desc(evaluator._output_slot_desc),
+          _sort_description(evaluator._sort_description),
+          _data_type(evaluator._data_type),
+          _function(evaluator._function),
+          _expr_name(evaluator._expr_name),
+          _agg_columns(evaluator._agg_columns) {
+    _input_exprs_ctxs.resize(evaluator._input_exprs_ctxs.size());
+    for (size_t i = 0; i < _input_exprs_ctxs.size(); i++) {
+        WARN_IF_ERROR(evaluator._input_exprs_ctxs[i]->clone(state, _input_exprs_ctxs[i]), "");
+    }
 }
 
 } // namespace doris::vectorized

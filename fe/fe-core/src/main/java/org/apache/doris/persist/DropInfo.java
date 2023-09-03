@@ -34,6 +34,8 @@ public class DropInfo implements Writable {
     private long dbId;
     @SerializedName(value = "tableId")
     private long tableId;
+    @SerializedName(value = "tableName")
+    private String tableName; // not used in equals and hashCode
     @SerializedName(value = "indexId")
     private long indexId;
     @SerializedName(value = "forceDrop")
@@ -44,9 +46,10 @@ public class DropInfo implements Writable {
     public DropInfo() {
     }
 
-    public DropInfo(long dbId, long tableId, long indexId, boolean forceDrop, long recycleTime) {
+    public DropInfo(long dbId, long tableId, String tableName, long indexId, boolean forceDrop, long recycleTime) {
         this.dbId = dbId;
         this.tableId = tableId;
+        this.tableName = tableName;
         this.indexId = indexId;
         this.forceDrop = forceDrop;
         this.recycleTime = recycleTime;
@@ -58,6 +61,10 @@ public class DropInfo implements Writable {
 
     public long getTableId() {
         return this.tableId;
+    }
+
+    public String getTableName() {
+        return this.tableName;
     }
 
     public long getIndexId() {
@@ -113,5 +120,9 @@ public class DropInfo implements Writable {
 
         return (dbId == info.dbId) && (tableId == info.tableId) && (indexId == info.indexId)
                 && (forceDrop == info.forceDrop) && (recycleTime == info.recycleTime);
+    }
+
+    public String toJson() {
+        return GsonUtils.GSON.toJson(this);
     }
 }

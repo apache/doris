@@ -82,13 +82,11 @@ public:
         return _proto_schema;
     }
 
-    bool is_dynamic_schema() const { return _is_dynamic_schema; }
-
     bool is_partial_update() const { return _is_partial_update; }
     std::set<std::string> partial_update_input_columns() const {
         return _partial_update_input_columns;
     }
-
+    bool is_strict_mode() const { return _is_strict_mode; }
     std::string debug_string() const;
 
 private:
@@ -100,9 +98,9 @@ private:
     mutable POlapTableSchemaParam* _proto_schema = nullptr;
     std::vector<OlapTableIndexSchema*> _indexes;
     mutable ObjectPool _obj_pool;
-    bool _is_dynamic_schema = false;
     bool _is_partial_update = false;
     std::set<std::string> _partial_update_input_columns;
+    bool _is_strict_mode = false;
 };
 
 using OlapTableIndexTablets = TOlapTableIndexTablets;

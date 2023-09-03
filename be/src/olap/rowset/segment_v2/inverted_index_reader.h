@@ -125,7 +125,8 @@ public:
     Status try_query(OlapReaderStatistics* stats, const std::string& column_name,
                      const void* query_value, InvertedIndexQueryType query_type,
                      uint32_t* count) override {
-        return Status::Error<ErrorCode::NOT_IMPLEMENTED_ERROR>();
+        return Status::Error<ErrorCode::NOT_IMPLEMENTED_ERROR>(
+                "FullTextIndexReader not support try_query");
     }
 
     InvertedIndexReaderType type() override;
@@ -148,7 +149,8 @@ public:
     Status try_query(OlapReaderStatistics* stats, const std::string& column_name,
                      const void* query_value, InvertedIndexQueryType query_type,
                      uint32_t* count) override {
-        return Status::Error<ErrorCode::NOT_IMPLEMENTED_ERROR>();
+        return Status::Error<ErrorCode::NOT_IMPLEMENTED_ERROR>(
+                "StringTypeInvertedIndexReader not support try_query");
     }
     InvertedIndexReaderType type() override;
 };
@@ -168,7 +170,7 @@ public:
 public:
     InvertedIndexVisitor(roaring::Roaring* hits, InvertedIndexQueryType query_type,
                          bool only_count = false);
-    virtual ~InvertedIndexVisitor() = default;
+    ~InvertedIndexVisitor() override = default;
 
     void set_reader(lucene::util::bkd::bkd_reader* r) { _reader = r; }
     lucene::util::bkd::bkd_reader* get_reader() { return _reader; }

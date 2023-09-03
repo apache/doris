@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.properties;
 
 import org.apache.doris.nereids.PlanContext;
+import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.DistributionSpecHash.ShuffleType;
 import org.apache.doris.nereids.trees.expressions.Alias;
@@ -34,6 +35,7 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalAssertNumRows;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalCTEAnchor;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalCTEConsumer;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalCTEProducer;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalDeferMaterializeOlapScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalDistribute;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalEmptyRelation;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalEsScan;
@@ -46,12 +48,12 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalJdbcScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalLimit;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalNestedLoopJoin;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalOlapScan;
-import org.apache.doris.nereids.trees.plans.physical.PhysicalOlapTableSink;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalOneRowRelation;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalPartitionTopN;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalProject;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalRepeat;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalSetOperation;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalSink;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalTVFRelation;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalUnion;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalWindow;
@@ -91,19 +93,18 @@ public class ChildOutputPropertyDeriver extends PlanVisitor<PhysicalProperties, 
         return groupExpression.getPlan().accept(this, new PlanContext(groupExpression));
     }
 
+    @Override
+    public PhysicalProperties visit(Plan plan, PlanContext context) {
+        return PhysicalProperties.ANY;
+    }
+
     /* ********************************************************************************************
      * sink Node, in lexicographical order
      * ******************************************************************************************** */
 
     @Override
-    public PhysicalProperties visitPhysicalOlapTableSink(PhysicalOlapTableSink<? extends Plan> olapTableSink,
-            PlanContext context) {
+    public PhysicalProperties visitPhysicalSink(PhysicalSink<? extends Plan> physicalSink, PlanContext context) {
         return PhysicalProperties.GATHER;
-    }
-
-    @Override
-    public PhysicalProperties visit(Plan plan, PlanContext context) {
-        return PhysicalProperties.ANY;
     }
 
     /* ********************************************************************************************
@@ -140,6 +141,12 @@ public class ChildOutputPropertyDeriver extends PlanVisitor<PhysicalProperties, 
     @Override
     public PhysicalProperties visitPhysicalOlapScan(PhysicalOlapScan olapScan, PlanContext context) {
         return new PhysicalProperties(olapScan.getDistributionSpec());
+    }
+
+    @Override
+    public PhysicalProperties visitPhysicalDeferMaterializeOlapScan(
+            PhysicalDeferMaterializeOlapScan deferMaterializeOlapScan, PlanContext context) {
+        return visitPhysicalOlapScan(deferMaterializeOlapScan.getPhysicalOlapScan(), context);
     }
 
     @Override
@@ -233,18 +240,32 @@ public class ChildOutputPropertyDeriver extends PlanVisitor<PhysicalProperties, 
             DistributionSpecHash leftHashSpec = (DistributionSpecHash) leftOutputProperty.getDistributionSpec();
             DistributionSpecHash rightHashSpec = (DistributionSpecHash) rightOutputProperty.getDistributionSpec();
 
-            // colocate join
-            if (leftHashSpec.getShuffleType() == ShuffleType.NATURAL
-                    && rightHashSpec.getShuffleType() == ShuffleType.NATURAL) {
-                if (JoinUtils.couldColocateJoin(leftHashSpec, rightHashSpec)) {
-                    return new PhysicalProperties(DistributionSpecHash.merge(leftHashSpec, rightHashSpec));
-                }
+            switch (hashJoin.getJoinType()) {
+                case INNER_JOIN:
+                case CROSS_JOIN:
+                    return new PhysicalProperties(DistributionSpecHash.merge(
+                            leftHashSpec, rightHashSpec, leftHashSpec.getShuffleType()));
+                case LEFT_SEMI_JOIN:
+                case LEFT_ANTI_JOIN:
+                case NULL_AWARE_LEFT_ANTI_JOIN:
+                case LEFT_OUTER_JOIN:
+                    return new PhysicalProperties(leftHashSpec);
+                case RIGHT_SEMI_JOIN:
+                case RIGHT_ANTI_JOIN:
+                case RIGHT_OUTER_JOIN:
+                    if (JoinUtils.couldColocateJoin(leftHashSpec, rightHashSpec)) {
+                        return new PhysicalProperties(rightHashSpec);
+                    } else {
+                        // retain left shuffle type, since coordinator use left most node to schedule fragment
+                        // forbid colocate join, since right table already shuffle
+                        return new PhysicalProperties(rightHashSpec.withShuffleTypeAndForbidColocateJoin(
+                                leftHashSpec.getShuffleType()));
+                    }
+                case FULL_OUTER_JOIN:
+                    return PhysicalProperties.ANY;
+                default:
+                    throw new AnalysisException("unknown join type " + hashJoin.getJoinType());
             }
-
-            // shuffle, if left child is natural mean current join is bucket shuffle join
-            // and remain natural for colocate join on upper join.
-            return new PhysicalProperties(DistributionSpecHash.merge(
-                    leftHashSpec, rightHashSpec, leftHashSpec.getShuffleType()));
         }
 
         throw new RuntimeException("Could not derive hash join's output properties. join: " + hashJoin);

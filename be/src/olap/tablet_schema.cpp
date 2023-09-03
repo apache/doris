@@ -710,7 +710,6 @@ void TabletSchema::init_from_pb(const TabletSchemaPB& schema) {
     _enable_single_replica_compaction = schema.enable_single_replica_compaction();
     _store_row_column = schema.store_row_column();
     _skip_write_index_on_load = schema.skip_write_index_on_load();
-    _is_dynamic_schema = schema.is_dynamic_schema();
     _delete_sign_idx = schema.delete_sign_idx();
     _sequence_col_idx = schema.sequence_col_idx();
     _version_col_idx = schema.version_col_idx();
@@ -727,8 +726,8 @@ void TabletSchema::init_from_pb(const TabletSchemaPB& schema) {
             if (_partial_update_input_columns.count(_cols[i].name()) == 0) {
                 _missing_cids.emplace_back(i);
                 auto tablet_column = column(i);
-                if (!tablet_column.has_default_value()) {
-                    _allow_key_not_exist_in_partial_update = false;
+                if (!tablet_column.has_default_value() && !tablet_column.is_nullable()) {
+                    _can_insert_new_rows_in_partial_update = false;
                 }
             } else {
                 _update_cids.emplace_back(i);
@@ -871,7 +870,6 @@ void TabletSchema::to_schema_pb(TabletSchemaPB* tablet_schema_pb) const {
     tablet_schema_pb->set_sort_col_num(_sort_col_num);
     tablet_schema_pb->set_schema_version(_schema_version);
     tablet_schema_pb->set_compression_type(_compression_type);
-    tablet_schema_pb->set_is_dynamic_schema(_is_dynamic_schema);
     tablet_schema_pb->set_version_col_idx(_version_col_idx);
     tablet_schema_pb->set_is_partial_update(_is_partial_update);
     for (auto& col : _partial_update_input_columns) {
@@ -1081,8 +1079,8 @@ void TabletSchema::set_partial_update_info(bool is_partial_update,
         if (_partial_update_input_columns.count(_cols[i].name()) == 0) {
             _missing_cids.emplace_back(i);
             auto tablet_column = column(i);
-            if (!tablet_column.has_default_value()) {
-                _allow_key_not_exist_in_partial_update = false;
+            if (!tablet_column.has_default_value() && !tablet_column.is_nullable()) {
+                _can_insert_new_rows_in_partial_update = false;
             }
         } else {
             _update_cids.emplace_back(i);

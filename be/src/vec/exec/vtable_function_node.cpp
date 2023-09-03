@@ -29,10 +29,13 @@
 #include <string>
 #include <utility>
 
+#include "vec/columns/column.h"
+#include "vec/core/block.h"
 #include "vec/exprs/table_function/table_function.h"
 #include "vec/exprs/table_function/table_function_factory.h"
 #include "vec/exprs/vexpr.h"
 #include "vec/exprs/vexpr_context.h"
+#include "vec/utils/util.hpp"
 
 namespace doris {
 class ObjectPool;
@@ -153,18 +156,9 @@ Status VTableFunctionNode::get_next(RuntimeState* state, Block* block, bool* eos
 
 Status VTableFunctionNode::_get_expanded_block(RuntimeState* state, Block* output_block,
                                                bool* eos) {
-    size_t column_size = _output_slots.size();
-    bool mem_reuse = output_block->mem_reuse();
-
-    std::vector<MutableColumnPtr> columns(column_size);
-    for (size_t i = 0; i < column_size; i++) {
-        if (mem_reuse) {
-            columns[i] = std::move(*output_block->get_by_position(i).column).mutate();
-        } else {
-            columns[i] = _output_slots[i]->get_empty_mutable_column();
-        }
-    }
-
+    MutableBlock m_block =
+            VectorizedUtils::build_mutable_mem_reuse_block(output_block, _output_slots);
+    MutableColumns& columns = m_block.mutable_columns();
     for (int i = 0; i < _fn_num; i++) {
         if (columns[i + _child_slots.size()]->is_nullable()) {
             _fns[i]->set_nullable();
@@ -220,19 +214,6 @@ Status VTableFunctionNode::_get_expanded_block(RuntimeState* state, Block* outpu
     size_t row_size = columns[_child_slots.size()]->size();
     for (auto index : _useless_slot_indexs) {
         columns[index]->insert_many_defaults(row_size - columns[index]->size());
-    }
-
-    if (!columns.empty() && !columns[0]->empty()) {
-        auto n_columns = 0;
-        if (!mem_reuse) {
-            for (const auto slot_desc : _output_slots) {
-                output_block->insert(ColumnWithTypeAndName(std::move(columns[n_columns++]),
-                                                           slot_desc->get_data_type_ptr(),
-                                                           slot_desc->col_name()));
-            }
-        } else {
-            columns.clear();
-        }
     }
 
     // 3. eval conjuncts

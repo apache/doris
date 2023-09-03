@@ -154,16 +154,16 @@ public class S3TvfLoadStmt extends NativeInsertStmt {
 
         final String format = Optional.ofNullable(dataDescription.getFileFormat()).orElse(DEFAULT_FORMAT);
         params.put(ExternalFileTableValuedFunction.FORMAT, format);
+
         if (isCsvFormat(format)) {
-            final Separator separator = dataDescription.getColumnSeparatorObj();
-            if (separator != null) {
-                try {
-                    separator.analyze();
-                } catch (AnalysisException e) {
-                    throw new DdlException("failed to create s3 tvf ref", e);
-                }
-                params.put(ExternalFileTableValuedFunction.COLUMN_SEPARATOR, dataDescription.getColumnSeparator());
-            }
+            parseSeparator(dataDescription.getColumnSeparatorObj(), params);
+            parseSeparator(dataDescription.getLineDelimiterObj(), params);
+        }
+
+        List<String> columnsFromPath = dataDescription.getColumnsFromPath();
+        if (columnsFromPath != null) {
+            params.put(ExternalFileTableValuedFunction.PATH_PARTITION_KEYS,
+                    String.join(",", columnsFromPath));
         }
 
         Preconditions.checkState(!brokerDesc.isMultiLoadBroker(), "do not support multi broker load currently");
@@ -179,6 +179,18 @@ public class S3TvfLoadStmt extends NativeInsertStmt {
         } catch (AnalysisException e) {
             throw new DdlException("failed to create s3 tvf ref", e);
         }
+    }
+
+    private static void parseSeparator(Separator separator, Map<String, String> tvfParams) throws DdlException {
+        if (separator == null) {
+            return;
+        }
+        try {
+            separator.analyze();
+        } catch (AnalysisException e) {
+            throw new DdlException(String.format("failed to parse separator:%s", separator), e);
+        }
+        tvfParams.put(ExternalFileTableValuedFunction.COLUMN_SEPARATOR, separator.getSeparator());
     }
 
     private static boolean isCsvFormat(String format) {
@@ -403,7 +415,9 @@ public class S3TvfLoadStmt extends NativeInsertStmt {
         // rewrite where predicate and order by elements
         final SelectStmt selectStmt = (SelectStmt) getQueryStmt();
         rewriteSlotRefInExpr(selectStmt.getWhereClause());
-        selectStmt.getOrderByElements().forEach(orderByElement -> rewriteSlotRefInExpr(orderByElement.getExpr()));
+        if (selectStmt.getOrderByElements() != null) {
+            selectStmt.getOrderByElements().forEach(orderByElement -> rewriteSlotRefInExpr(orderByElement.getExpr()));
+        }
     }
 
     private void rewriteSlotRefInExpr(Expr expr) {

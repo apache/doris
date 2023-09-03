@@ -38,7 +38,7 @@ public class RewriteAliasFunctionRule implements ExprRewriteRule {
             if (fn instanceof AliasFunction) {
                 Expr originFn = ((AliasFunction) fn).getOriginFunction();
                 if (originFn instanceof FunctionCallExpr) {
-                    return ((FunctionCallExpr) expr).rewriteExpr();
+                    return ((FunctionCallExpr) expr).rewriteExpr(analyzer);
                 } else if (originFn instanceof CastExpr) {
                     return ((CastExpr) originFn).rewriteExpr(((AliasFunction) fn).getParameters(),
                             ((FunctionCallExpr) expr).getParams().exprs());

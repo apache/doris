@@ -45,7 +45,7 @@ grammar:
 
 ```sql
 CREATE FILE "file_name" [IN database]
-        [properties]
+PROPERTIES("key"="value", ...)
 ````
 
 illustrate:

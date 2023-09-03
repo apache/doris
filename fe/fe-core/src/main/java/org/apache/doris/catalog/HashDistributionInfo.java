@@ -138,7 +138,7 @@ public class HashDistributionInfo extends DistributionInfo {
     }
 
     @Override
-    public String toSql() {
+    public String toSql(boolean forSync) {
         StringBuilder builder = new StringBuilder();
         builder.append("DISTRIBUTED BY HASH(");
 
@@ -149,7 +149,7 @@ public class HashDistributionInfo extends DistributionInfo {
         String colList = Joiner.on(", ").join(colNames);
         builder.append(colList);
 
-        if (autoBucket) {
+        if (autoBucket && !forSync) {
             builder.append(") BUCKETS AUTO");
         } else {
             builder.append(") BUCKETS ").append(bucketNum);

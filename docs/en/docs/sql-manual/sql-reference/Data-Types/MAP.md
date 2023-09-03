@@ -40,6 +40,11 @@ MAP
 
 A Map of K, V items, it cannot be used as a key column. Now MAP can only used in Duplicate and Unique Model Tables.
 
+Need to manually enable the support, it is disabled by default.
+```
+admin set frontend config("enable_map_type" = "true");
+```
+
 K,V could be any of:
 
 ```

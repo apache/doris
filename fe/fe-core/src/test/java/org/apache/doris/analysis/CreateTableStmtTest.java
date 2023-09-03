@@ -111,7 +111,7 @@ public class CreateTableStmtTest {
         stmt.analyze(analyzer);
         Assert.assertEquals("testCluster:db1", stmt.getDbName());
         Assert.assertEquals("table1", stmt.getTableName());
-        Assert.assertNull(stmt.getProperties());
+        Assert.assertTrue(stmt.getProperties() == null || stmt.getProperties().isEmpty());
     }
 
     @Test
@@ -121,7 +121,7 @@ public class CreateTableStmtTest {
         stmt.analyze(analyzer);
         Assert.assertEquals("testCluster:db1", stmt.getDbName());
         Assert.assertEquals("table1", stmt.getTableName());
-        Assert.assertNull(stmt.getProperties());
+        Assert.assertTrue(stmt.getProperties() == null || stmt.getProperties().isEmpty());
         Assert.assertTrue(stmt.toSql().contains("DISTRIBUTED BY RANDOM\nBUCKETS 6"));
     }
 
@@ -216,7 +216,7 @@ public class CreateTableStmtTest {
                 new HashDistributionDesc(10, Lists.newArrayList("col3")), properties, null, "");
         expectedEx.expect(AnalysisException.class);
         expectedEx.expectMessage("table property 'enable_duplicate_without_keys_by_default' only can "
-                                                + "set 'true' when create olap table by default.");
+                + "set 'true' when create olap table by default.");
         stmt1.analyze(analyzer);
 
         CreateTableStmt stmt2 = new CreateTableStmt(false, false, tblName, cols, "olap",
@@ -242,7 +242,7 @@ public class CreateTableStmtTest {
         stmt.analyze(analyzer);
         Assert.assertEquals("testCluster:db1", stmt.getDbName());
         Assert.assertEquals("table1", stmt.getTableName());
-        Assert.assertNull(stmt.getProperties());
+        Assert.assertTrue(stmt.getProperties() == null || stmt.getProperties().isEmpty());
         Assert.assertTrue(stmt.toSql()
                 .contains("rollup( `index1` (`col1`, `col2`) FROM `table1`, `index2` (`col2`, `col3`) FROM `table1`)"));
     }
@@ -256,7 +256,7 @@ public class CreateTableStmtTest {
         Assert.assertEquals("testDb", stmt.getDbName());
         Assert.assertEquals("table1", stmt.getTableName());
         Assert.assertNull(stmt.getPartitionDesc());
-        Assert.assertNull(stmt.getProperties());
+        Assert.assertTrue(stmt.getProperties() == null || stmt.getProperties().isEmpty());
     }
 
     @Test(expected = AnalysisException.class)
@@ -314,7 +314,7 @@ public class CreateTableStmtTest {
         CreateTableStmt stmt = new CreateTableStmt(false, false, tblNameNoDb, cols, "olap",
                 new KeysDesc(KeysType.AGG_KEYS, colsName), null, new RandomDistributionDesc(10), null, null, "");
         expectedEx.expect(AnalysisException.class);
-        expectedEx.expectMessage("Key column can not set bitmap or hll type:col3");
+        expectedEx.expectMessage("Key column can not set complex type:col3");
         stmt.analyze(analyzer);
 
         cols.remove(bitmap);
@@ -324,26 +324,17 @@ public class CreateTableStmtTest {
         stmt = new CreateTableStmt(false, false, tblNameNoDb, cols, "olap", new KeysDesc(KeysType.AGG_KEYS, colsName),
                 null, new RandomDistributionDesc(10), null, null, "");
         expectedEx.expect(AnalysisException.class);
-        expectedEx.expectMessage("Key column can not set bitmap or hll type:col3");
+        expectedEx.expectMessage("Key column can not set complex type:col3");
         stmt.analyze(analyzer);
     }
 
     @Test
-    public void testBmpHllNoAggTab() throws Exception {
-        ColumnDef bitmap = new ColumnDef("col3", new TypeDef(ScalarType.createType(PrimitiveType.BITMAP)));
-        cols.add(bitmap);
-        CreateTableStmt stmt = new CreateTableStmt(false, false, tblNameNoDb, cols, "olap",
-                new KeysDesc(KeysType.DUP_KEYS, colsName), null, new RandomDistributionDesc(10), null, null, "");
-        expectedEx.expect(AnalysisException.class);
-        expectedEx.expectMessage(
-                "Aggregate type `col3` bitmap NONE NOT NULL COMMENT \"\" is not compatible with primitive type bitmap");
-        stmt.analyze(analyzer);
-
-        cols.remove(bitmap);
+    public void testHllNoAggTab() throws Exception {
         ColumnDef hll = new ColumnDef("col3", new TypeDef(ScalarType.createType(PrimitiveType.HLL)));
         cols.add(hll);
-        stmt = new CreateTableStmt(false, false, tblNameNoDb, cols, "olap", new KeysDesc(KeysType.DUP_KEYS, colsName),
-                null, new RandomDistributionDesc(10), null, null, "");
+        CreateTableStmt stmt = new CreateTableStmt(false, false, tblNameNoDb, cols, "olap",
+                        new KeysDesc(KeysType.DUP_KEYS, colsName), null, new RandomDistributionDesc(10),
+                                        null, null, "");
         expectedEx.expect(AnalysisException.class);
         expectedEx.expectMessage(
                 "Aggregate type `col3` hll NONE NOT NULL COMMENT \"\" is not compatible with primitive type hll");
@@ -442,5 +433,69 @@ public class CreateTableStmtTest {
         ExceptionChecker.expectThrowsWithMsg(AnalysisException.class,
                 "String Type should not be used in key column[string_col].", () -> col.analyze(true));
         col.analyze(false);
+    }
+
+    @Test
+    public void testToSql() {
+        List<ColumnDef> columnDefs = new ArrayList<>();
+        columnDefs.add(new ColumnDef("a", TypeDef.create(PrimitiveType.BIGINT), false));
+        columnDefs.add(new ColumnDef("b", TypeDef.create(PrimitiveType.INT), false));
+        String engineName = "olap";
+        ArrayList<String> aggKeys = Lists.newArrayList("a");
+        KeysDesc keysDesc = new KeysDesc(KeysType.AGG_KEYS, aggKeys);
+        Map<String, String> properties = new HashMap<String, String>() {
+            {
+                put("replication_num", String.valueOf(Math.max(1,
+                        Config.min_replication_num_per_tablet)));
+            }
+        };
+        TableName tableName = new TableName("internal", "demo", "testTosql1");
+        CreateTableStmt createTableStmt = new CreateTableStmt(true, false,
+                tableName, columnDefs, engineName, keysDesc, null, null,
+                properties, null, "", null);
+
+        String createTableSql = "CREATE TABLE IF NOT EXISTS `demo`.`testTosql1` (\n"
+                + "  `a` bigint(20) NOT NULL COMMENT \"\",\n"
+                + "  `b` int(11) NOT NULL COMMENT \"\"\n"
+                + ") ENGINE = olap\n"
+                + "AGGREGATE KEY(`a`)\n"
+                + "PROPERTIES (\"replication_num\"  =  \"1\")";
+
+        Assert.assertEquals(createTableStmt.toSql(), createTableSql);
+
+
+        columnDefs.add(new ColumnDef("c", TypeDef.create(PrimitiveType.STRING), true));
+        columnDefs.add(new ColumnDef("d", TypeDef.create(PrimitiveType.DOUBLE), true));
+        columnDefs.add(new ColumnDef("e", TypeDef.create(PrimitiveType.DECIMAL128), false));
+        columnDefs.add(new ColumnDef("f", TypeDef.create(PrimitiveType.DATE), false));
+        columnDefs.add(new ColumnDef("g", TypeDef.create(PrimitiveType.SMALLINT), false));
+        columnDefs.add(new ColumnDef("h", TypeDef.create(PrimitiveType.BOOLEAN), false));
+
+        aggKeys = Lists.newArrayList("a", "d", "f");
+        keysDesc = new KeysDesc(KeysType.DUP_KEYS, aggKeys);
+        properties = new HashMap<String, String>() {
+            {
+                put("replication_num", String.valueOf(Math.max(10,
+                        Config.min_replication_num_per_tablet)));
+            }
+        };
+        tableName = new TableName("internal", "demo", "testTosql2");
+        createTableStmt = new CreateTableStmt(false, false,
+                tableName, columnDefs, engineName, keysDesc, null, null,
+                properties, null, "", null);
+        createTableSql = "CREATE TABLE `demo`.`testTosql2` (\n"
+                + "  `a` bigint(20) NOT NULL COMMENT \"\",\n"
+                + "  `b` int(11) NOT NULL COMMENT \"\",\n"
+                + "  `c` text NULL COMMENT \"\",\n"
+                + "  `d` double NULL COMMENT \"\",\n"
+                + "  `e` decimalv3(38, 0) NOT NULL COMMENT \"\",\n"
+                + "  `f` date NOT NULL COMMENT \"\",\n"
+                + "  `g` smallint(6) NOT NULL COMMENT \"\",\n"
+                + "  `h` boolean NOT NULL COMMENT \"\"\n"
+                + ") ENGINE = olap\n"
+                + "DUPLICATE KEY(`a`, `d`, `f`)\n"
+                + "PROPERTIES (\"replication_num\"  =  \"10\")";
+        Assert.assertEquals(createTableStmt.toSql(), createTableSql);
+
     }
 }

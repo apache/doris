@@ -131,7 +131,7 @@ Status RowIDFetcher::_merge_rpc_results(const PMultiGetRequest& request,
     vectorized::DataTypeSerDeSPtrs serdes;
     std::unordered_map<uint32_t, uint32_t> col_uid_to_idx;
     auto merge_function = [&](const PMultiGetResponse& resp) {
-        Status st(resp.status());
+        Status st(Status::create(resp.status()));
         if (!st.ok()) {
             LOG(WARNING) << "Failed to fetch " << st.to_string();
             return st;
@@ -159,7 +159,8 @@ Status RowIDFetcher::_merge_rpc_results(const PMultiGetRequest& request,
             return Status::OK();
         }
         // Merge partial blocks
-        vectorized::Block partial_block(resp.block());
+        vectorized::Block partial_block;
+        RETURN_IF_ERROR(partial_block.deserialize(resp.block()));
         if (partial_block.is_empty_column()) {
             return Status::OK();
         }

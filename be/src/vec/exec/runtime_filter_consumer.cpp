@@ -34,6 +34,15 @@ Status RuntimeFilterConsumer::init(RuntimeState* state) {
     return Status::OK();
 }
 
+void RuntimeFilterConsumer::_init_profile(RuntimeProfile* profile) {
+    std::stringstream ss;
+    for (auto& rf_ctx : _runtime_filter_ctxs) {
+        rf_ctx.runtime_filter->init_profile(profile);
+        ss << rf_ctx.runtime_filter->get_name() << ", ";
+    }
+    profile->add_info_string("RuntimeFilters: ", ss.str());
+}
+
 Status RuntimeFilterConsumer::_register_runtime_filter() {
     int filter_size = _runtime_filter_descs.size();
     _runtime_filter_ctxs.reserve(filter_size);
@@ -86,7 +95,7 @@ Status RuntimeFilterConsumer::_acquire_runtime_filter() {
             ready = runtime_filter->await();
         }
         if (ready && !_runtime_filter_ctxs[i].apply_mark) {
-            RETURN_IF_ERROR(runtime_filter->get_push_expr_ctxs(&vexprs));
+            RETURN_IF_ERROR(runtime_filter->get_push_expr_ctxs(_probe_ctxs, vexprs, false));
             _runtime_filter_ctxs[i].apply_mark = true;
         } else if (runtime_filter->current_state() == RuntimeFilterState::NOT_READY &&
                    !_runtime_filter_ctxs[i].apply_mark) {
@@ -142,8 +151,8 @@ Status RuntimeFilterConsumer::try_append_late_arrival_runtime_filter(int* arrive
             ++current_arrived_rf_num;
             continue;
         } else if (_runtime_filter_ctxs[i].runtime_filter->is_ready()) {
-            RETURN_IF_ERROR(_runtime_filter_ctxs[i].runtime_filter->get_prepared_exprs(
-                    &exprs, _row_descriptor_ref, _state));
+            RETURN_IF_ERROR(_runtime_filter_ctxs[i].runtime_filter->get_push_expr_ctxs(
+                    _probe_ctxs, exprs, true));
             ++current_arrived_rf_num;
             _runtime_filter_ctxs[i].apply_mark = true;
         }

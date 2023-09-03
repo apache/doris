@@ -17,13 +17,18 @@
 
 package org.apache.doris.planner.external;
 
+import org.apache.doris.analysis.FunctionCallExpr;
 import org.apache.doris.analysis.SlotDescriptor;
 import org.apache.doris.analysis.TupleDescriptor;
+import org.apache.doris.catalog.ArrayType;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.HiveMetaStoreClientHelper;
 import org.apache.doris.catalog.ListPartitionItem;
+import org.apache.doris.catalog.MapType;
 import org.apache.doris.catalog.PartitionItem;
+import org.apache.doris.catalog.StructField;
+import org.apache.doris.catalog.StructType;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.catalog.external.HMSExternalTable;
@@ -38,6 +43,7 @@ import org.apache.doris.datasource.hive.HiveMetaStoreCache.FileCacheValue;
 import org.apache.doris.datasource.hive.HivePartition;
 import org.apache.doris.datasource.hive.HiveTransaction;
 import org.apache.doris.datasource.hive.HiveVersionUtil;
+import org.apache.doris.nereids.trees.plans.logical.LogicalFileScan.SelectedPartitions;
 import org.apache.doris.planner.ListPartitionPrunerV2;
 import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.planner.external.HiveSplit.HiveSplitCreator;
@@ -45,12 +51,15 @@ import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.spi.Split;
 import org.apache.doris.statistics.StatisticalType;
 import org.apache.doris.thrift.TFileAttributes;
+import org.apache.doris.thrift.TFileCompressType;
 import org.apache.doris.thrift.TFileFormatType;
 import org.apache.doris.thrift.TFileTextScanRangeParams;
 import org.apache.doris.thrift.TFileType;
 
+import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
+import lombok.Setter;
 import org.apache.hadoop.hive.common.ValidWriteIdList;
 import org.apache.hadoop.hive.metastore.api.FieldSchema;
 import org.apache.logging.log4j.LogManager;
@@ -67,10 +76,21 @@ public class HiveScanNode extends FileQueryScanNode {
 
     public static final String PROP_FIELD_DELIMITER = "field.delim";
     public static final String DEFAULT_FIELD_DELIMITER = "\1"; // "\x01"
+    public static final String PROP_LINE_DELIMITER = "line.delim";
     public static final String DEFAULT_LINE_DELIMITER = "\n";
+
+    public static final String PROP_COLLECTION_DELIMITER_HIVE2 = "colelction.delim";
+    public static final String PROP_COLLECTION_DELIMITER_HIVE3 = "collection.delim";
+    public static final String DEFAULT_COLLECTION_DELIMITER = "\2";
+
+    public static final String PROP_MAP_KV_DELIMITER = "mapkey.delim";
+    public static final String DEFAULT_MAP_KV_DELIMITER = "\003";
 
     protected final HMSExternalTable hmsTable;
     private HiveTransaction hiveTransaction = null;
+
+    @Setter
+    private SelectedPartitions selectedPartitions = null;
 
     /**
      * * External file scan node for Query Hive table
@@ -98,14 +118,49 @@ public class HiveScanNode extends FileQueryScanNode {
         String inputFormat = hmsTable.getRemoteTable().getSd().getInputFormat();
         if (inputFormat.contains("TextInputFormat")) {
             for (SlotDescriptor slot : desc.getSlots()) {
-                if (!slot.getType().isScalarType()) {
+                if (slot.getType().isScalarType()) {
+                    continue;
+                }
+                boolean supported = true;
+
+                // support Array<primitive_type> and array<array<...>>
+                if (slot.getType().isArrayType()) {
+                    ArrayType arraySubType = (ArrayType) slot.getType();
+                    while (true) {
+                        if (arraySubType.getItemType().isArrayType()) {
+                            arraySubType = (ArrayType) arraySubType.getItemType();
+                            continue;
+                        }
+                        if (!arraySubType.getItemType().isScalarType()) {
+                            supported = false;
+                        }
+                        break;
+                    }
+                } else if (slot.getType().isMapType()) { //support map<primitive_type,primitive_type>
+                    if (!((MapType) slot.getType()).getValueType().isScalarType()) {
+                        supported = false;
+                    }
+                } else if (slot.getType().isStructType()) { //support Struct< primitive_type,primitive_type ... >
+                    StructType structSubType = (StructType) slot.getType();
+                    structSubType.getColumnSize();
+                    for (StructField f : structSubType.getFields()) {
+                        if (!f.getType().isScalarType()) {
+                            supported = false;
+                        }
+                    }
+                }
+
+                if (supported == false) {
                     throw new UserException("For column `" + slot.getColumn().getName()
-                            + "`, The column types ARRAY/MAP/STRUCT are not supported yet"
-                            + " for text input format of Hive. ");
+                            + "`, The column types are not supported yet"
+                            + " for text input format of Hive.\n"
+                            + "For complex type ,now Support :\n"
+                            + "\t1. array< primitive_type > and array< array< ... > >\n"
+                            + "\t2. map< primitive_type , primitive_type >\n"
+                            + "\t3. Struct< primitive_type , primitive_type ... >\n");
                 }
             }
         }
-
         if (hmsTable.isHiveTransactionalTable()) {
             this.hiveTransaction = new HiveTransaction(DebugUtil.printId(ConnectContext.get().queryId()),
                     ConnectContext.get().getQualifiedUser(), hmsTable, hmsTable.isFullAcidTable());
@@ -114,48 +169,70 @@ public class HiveScanNode extends FileQueryScanNode {
     }
 
     protected List<HivePartition> getPartitions() throws AnalysisException {
+        List<HivePartition> resPartitions = Lists.newArrayList();
         long start = System.currentTimeMillis();
         HiveMetaStoreCache cache = Env.getCurrentEnv().getExtMetaCacheMgr()
                 .getMetaStoreCache((HMSExternalCatalog) hmsTable.getCatalog());
-        // 1. get ListPartitionItems from cache
-        HiveMetaStoreCache.HivePartitionValues hivePartitionValues = null;
         List<Type> partitionColumnTypes = hmsTable.getPartitionColumnTypes();
         if (!partitionColumnTypes.isEmpty()) {
-            hivePartitionValues = cache.getPartitionValues(hmsTable.getDbName(), hmsTable.getName(),
-                    partitionColumnTypes);
-        }
-        if (hivePartitionValues != null) {
-            // 2. prune partitions by expr
-            Map<Long, PartitionItem> idToPartitionItem = hivePartitionValues.getIdToPartitionItem();
-            this.totalPartitionNum = idToPartitionItem.size();
-            ListPartitionPrunerV2 pruner = new ListPartitionPrunerV2(idToPartitionItem,
-                    hmsTable.getPartitionColumns(), columnNameToRange,
-                    hivePartitionValues.getUidToPartitionRange(),
-                    hivePartitionValues.getRangeToId(),
-                    hivePartitionValues.getSingleColumnRangeMap(),
-                    true);
-            Collection<Long> filteredPartitionIds = pruner.prune();
-            this.readPartitionNum = filteredPartitionIds.size();
-            LOG.debug("hive partition fetch and prune for table {}.{} cost: {} ms",
-                    hmsTable.getDbName(), hmsTable.getName(), (System.currentTimeMillis() - start));
-
-            // 3. get partitions from cache
-            List<List<String>> partitionValuesList = Lists.newArrayListWithCapacity(filteredPartitionIds.size());
-            for (Long id : filteredPartitionIds) {
-                ListPartitionItem listPartitionItem = (ListPartitionItem) idToPartitionItem.get(id);
-                partitionValuesList.add(listPartitionItem.getItems().get(0).getPartitionValuesAsStringList());
+            // partitioned table
+            boolean isPartitionPruned = selectedPartitions == null ? false : selectedPartitions.isPartitionPruned;
+            Collection<PartitionItem> partitionItems;
+            if (!isPartitionPruned) {
+                // partitionItems is null means that the partition is not pruned by Nereids,
+                // so need to prune partitions here by legacy ListPartitionPrunerV2.
+                HiveMetaStoreCache.HivePartitionValues hivePartitionValues = cache.getPartitionValues(
+                        hmsTable.getDbName(), hmsTable.getName(), partitionColumnTypes);
+                Map<Long, PartitionItem> idToPartitionItem = hivePartitionValues.getIdToPartitionItem();
+                this.totalPartitionNum = idToPartitionItem.size();
+                if (!conjuncts.isEmpty()) {
+                    ListPartitionPrunerV2 pruner = new ListPartitionPrunerV2(idToPartitionItem,
+                            hmsTable.getPartitionColumns(), columnNameToRange,
+                            hivePartitionValues.getUidToPartitionRange(),
+                            hivePartitionValues.getRangeToId(),
+                            hivePartitionValues.getSingleColumnRangeMap(),
+                            true);
+                    Collection<Long> filteredPartitionIds = pruner.prune();
+                    LOG.debug("hive partition fetch and prune for table {}.{} cost: {} ms",
+                            hmsTable.getDbName(), hmsTable.getName(), (System.currentTimeMillis() - start));
+                    partitionItems = Lists.newArrayListWithCapacity(filteredPartitionIds.size());
+                    for (Long id : filteredPartitionIds) {
+                        partitionItems.add(idToPartitionItem.get(id));
+                    }
+                } else {
+                    partitionItems = idToPartitionItem.values();
+                }
+            } else {
+                // partitions has benn pruned by Nereids, in PruneFileScanPartition,
+                // so just use the selected partitions.
+                this.totalPartitionNum = selectedPartitions.totalPartitionNum;
+                partitionItems = selectedPartitions.selectedPartitions.values();
             }
-            return cache.getAllPartitions(hmsTable.getDbName(), hmsTable.getName(), partitionValuesList);
+            Preconditions.checkNotNull(partitionItems);
+            this.readPartitionNum = partitionItems.size();
+
+            // get partitions from cache
+            List<List<String>> partitionValuesList = Lists.newArrayListWithCapacity(partitionItems.size());
+            for (PartitionItem item : partitionItems) {
+                partitionValuesList.add(
+                        ((ListPartitionItem) item).getItems().get(0).getPartitionValuesAsStringListForHive());
+            }
+            resPartitions = cache.getAllPartitionsWithCache(hmsTable.getDbName(), hmsTable.getName(),
+                    partitionValuesList);
         } else {
-            // unpartitioned table, create a dummy partition to save location and inputformat,
+            // non partitioned table, create a dummy partition to save location and inputformat,
             // so that we can unify the interface.
             HivePartition dummyPartition = new HivePartition(hmsTable.getDbName(), hmsTable.getName(), true,
                     hmsTable.getRemoteTable().getSd().getInputFormat(),
                     hmsTable.getRemoteTable().getSd().getLocation(), null);
             this.totalPartitionNum = 1;
             this.readPartitionNum = 1;
-            return Lists.newArrayList(dummyPartition);
+            resPartitions.add(dummyPartition);
         }
+        if (ConnectContext.get().getExecutor() != null) {
+            ConnectContext.get().getExecutor().getSummaryProfile().setGetPartitionsFinishTime();
+        }
+        return resPartitions;
     }
 
     @Override
@@ -184,7 +261,10 @@ public class HiveScanNode extends FileQueryScanNode {
         if (hiveTransaction != null) {
             fileCaches = getFileSplitByTransaction(cache, partitions);
         } else {
-            fileCaches = cache.getFilesByPartitions(partitions, useSelfSplitter);
+            fileCaches = cache.getFilesByPartitionsWithCache(partitions, useSelfSplitter);
+        }
+        if (ConnectContext.get().getExecutor() != null) {
+            ConnectContext.get().getExecutor().getSummaryProfile().setGetPartitionFilesFinishTime();
         }
         for (HiveMetaStoreCache.FileCacheValue fileCacheValue : fileCaches) {
             // This if branch is to support old splitter, will remove later.
@@ -213,7 +293,7 @@ public class HiveScanNode extends FileQueryScanNode {
         }
         ValidWriteIdList validWriteIds = hiveTransaction.getValidWriteIds(
                 ((HMSExternalCatalog) hmsTable.getCatalog()).getClient());
-        return cache.getFilesByTransaction(partitions, validWriteIds, hiveTransaction.isFullAcid());
+        return cache.getFilesByTransaction(partitions, validWriteIds, hiveTransaction.isFullAcid(), hmsTable.getId());
     }
 
     @Override
@@ -256,15 +336,25 @@ public class HiveScanNode extends FileQueryScanNode {
 
     @Override
     protected Map<String, String> getLocationProperties() throws UserException  {
-        return hmsTable.getCatalogProperties();
+        return hmsTable.getHadoopProperties();
     }
 
     @Override
     protected TFileAttributes getFileAttributes() throws UserException {
         TFileTextScanRangeParams textParams = new TFileTextScanRangeParams();
-        textParams.setColumnSeparator(hmsTable.getRemoteTable().getSd().getSerdeInfo().getParameters()
-                .getOrDefault(PROP_FIELD_DELIMITER, DEFAULT_FIELD_DELIMITER));
-        textParams.setLineDelimiter(DEFAULT_LINE_DELIMITER);
+        java.util.Map<String, String> delimiter = hmsTable.getRemoteTable().getSd().getSerdeInfo().getParameters();
+        textParams.setColumnSeparator(delimiter.getOrDefault(PROP_FIELD_DELIMITER, DEFAULT_FIELD_DELIMITER));
+        textParams.setLineDelimiter(delimiter.getOrDefault(PROP_LINE_DELIMITER, DEFAULT_LINE_DELIMITER));
+        textParams.setMapkvDelimiter(delimiter.getOrDefault(PROP_MAP_KV_DELIMITER, DEFAULT_MAP_KV_DELIMITER));
+
+        //  textParams.collection_delimiter field is map, array and struct delimiter;
+        if (delimiter.get(PROP_COLLECTION_DELIMITER_HIVE2) != null) {
+            textParams.setCollectionDelimiter(delimiter.get(PROP_COLLECTION_DELIMITER_HIVE2));
+        } else if (delimiter.get(PROP_COLLECTION_DELIMITER_HIVE3) != null) {
+            textParams.setCollectionDelimiter(delimiter.get(PROP_COLLECTION_DELIMITER_HIVE3));
+        } else {
+            textParams.setCollectionDelimiter(DEFAULT_COLLECTION_DELIMITER);
+        }
         TFileAttributes fileAttributes = new TFileAttributes();
         fileAttributes.setTextParams(textParams);
         fileAttributes.setHeaderType("");
@@ -286,5 +376,30 @@ public class HiveScanNode extends FileQueryScanNode {
             }
         }
         params.setSlotNameToSchemaPos(columnNameToPosition);
+    }
+
+    @Override
+    public boolean pushDownAggNoGrouping(FunctionCallExpr aggExpr) {
+
+        String aggFunctionName = aggExpr.getFnName().getFunction();
+        if (aggFunctionName.equalsIgnoreCase("COUNT")) {
+            return true;
+        }
+        return false;
+    }
+
+    @Override
+    public boolean pushDownAggNoGroupingCheckCol(FunctionCallExpr aggExpr, Column col) {
+        return !col.isAllowNull();
+    }
+
+    @Override
+    protected TFileCompressType getFileCompressType(FileSplit fileSplit) throws UserException {
+        TFileCompressType compressType = super.getFileCompressType(fileSplit);
+        // hadoop use lz4 blocked codec
+        if (compressType == TFileCompressType.LZ4FRAME) {
+            compressType = TFileCompressType.LZ4BLOCK;
+        }
+        return compressType;
     }
 }

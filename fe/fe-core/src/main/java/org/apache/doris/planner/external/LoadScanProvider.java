@@ -52,6 +52,7 @@ import com.google.common.collect.Maps;
 
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 
 public class LoadScanProvider {
 
@@ -108,6 +109,8 @@ public class LoadScanProvider {
         TFileTextScanRangeParams textParams = new TFileTextScanRangeParams();
         textParams.setColumnSeparator(fileGroup.getColumnSeparator());
         textParams.setLineDelimiter(fileGroup.getLineDelimiter());
+        textParams.setEnclose(fileGroup.getEnclose());
+        textParams.setEscape(fileGroup.getEscape());
         fileAttributes.setTextParams(textParams);
         fileAttributes.setStripOuterArray(fileGroup.isStripOuterArray());
         fileAttributes.setJsonpaths(fileGroup.getJsonPaths());
@@ -181,11 +184,24 @@ public class LoadScanProvider {
         TableIf targetTable = getTargetTable();
         if (targetTable instanceof OlapTable && ((OlapTable) targetTable).hasSequenceCol()) {
             String sequenceCol = ((OlapTable) targetTable).getSequenceMapCol();
-            if (sequenceCol == null) {
+            if (sequenceCol != null) {
+                String finalSequenceCol = sequenceCol;
+                Optional<ImportColumnDesc> foundCol = columnDescs.descs.stream()
+                        .filter(c -> c.getColumnName().equalsIgnoreCase(finalSequenceCol)).findAny();
+                // if `columnDescs.descs` is empty, that means it's not a partial update load, and user not specify
+                // column name.
+                if (foundCol.isPresent() || shouldAddSequenceColumn(columnDescs)) {
+                    columnDescs.descs.add(new ImportColumnDesc(Column.SEQUENCE_COL,
+                            new SlotRef(null, sequenceCol)));
+                } else if (!fileGroupInfo.isPartialUpdate()) {
+                    throw new UserException("Table " + targetTable.getName()
+                            + " has sequence column, need to specify the sequence column");
+                }
+            } else {
                 sequenceCol = context.fileGroup.getSequenceCol();
+                columnDescs.descs.add(new ImportColumnDesc(Column.SEQUENCE_COL,
+                        new SlotRef(null, sequenceCol)));
             }
-            columnDescs.descs.add(new ImportColumnDesc(Column.SEQUENCE_COL,
-                    new SlotRef(null, sequenceCol)));
         }
         List<Integer> srcSlotIds = Lists.newArrayList();
         Load.initColumns(fileGroupInfo.getTargetTable(), columnDescs, context.fileGroup.getColumnToHadoopFunction(),
@@ -208,6 +224,17 @@ public class LoadScanProvider {
             slotInfo.setIsFileSlot(i < numColumnsFromFile);
             context.params.addToRequiredSlots(slotInfo);
         }
+    }
+
+    /**
+     * if not set sequence column and column size is null or only have deleted sign ,return true
+     */
+    private boolean shouldAddSequenceColumn(LoadTaskInfo.ImportColumnDescs columnDescs) {
+        if (columnDescs.descs.isEmpty()) {
+            return true;
+        }
+        return columnDescs.descs.size() == 1 && columnDescs.descs.get(0).getColumnName()
+                .equalsIgnoreCase(Column.DELETE_SIGN);
     }
 
     private TFileFormatType formatType(String fileFormat, String path) throws UserException {

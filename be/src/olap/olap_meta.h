@@ -17,6 +17,8 @@
 
 #pragma once
 
+#include <rocksdb/iterator.h>
+
 #include <functional>
 #include <memory>
 #include <string>
@@ -27,6 +29,7 @@
 namespace rocksdb {
 class ColumnFamilyHandle;
 class DB;
+class WriteBatch;
 } // namespace rocksdb
 
 namespace doris {
@@ -41,7 +44,6 @@ public:
                 : key(key_arg), value(value_arg) {}
     };
 
-public:
     OlapMeta(const std::string& root_path);
     ~OlapMeta();
 
@@ -53,6 +55,7 @@ public:
 
     Status put(const int column_family_index, const std::string& key, const std::string& value);
     Status put(const int column_family_index, const std::vector<BatchEntry>& entries);
+    Status put(rocksdb::WriteBatch* batch);
 
     Status remove(const int column_family_index, const std::string& key);
     Status remove(const int column_family_index, const std::vector<std::string>& keys);
@@ -60,9 +63,20 @@ public:
     Status iterate(const int column_family_index, const std::string& prefix,
                    std::function<bool(const std::string&, const std::string&)> const& func);
 
-    std::string get_root_path() const { return _root_path; }
+    Status iterate(const int column_family_index, const std::string& seek_key,
+                   const std::string& prefix,
+                   std::function<bool(const std::string&, const std::string&)> const& func);
+
+    [[nodiscard]] std::string get_root_path() const { return _root_path; }
+
+    rocksdb::ColumnFamilyHandle* get_handle(const int column_family_index) {
+        return _handles[column_family_index].get();
+    }
 
 private:
+    Status get_iterator(const int column_family_index, const std::string& seek_key,
+                        const std::string& prefix, rocksdb::Iterator*);
+
     std::string _root_path;
     // keep order of _db && _handles, we need destroy _handles before _db
     std::unique_ptr<rocksdb::DB, std::function<void(rocksdb::DB*)>> _db;

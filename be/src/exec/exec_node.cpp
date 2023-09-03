@@ -44,6 +44,7 @@
 #include "util/uid_util.h"
 #include "vec/columns/column_nullable.h"
 #include "vec/core/block.h"
+#include "vec/exec/distinct_vaggregation_node.h"
 #include "vec/exec/join/vhash_join_node.h"
 #include "vec/exec/join/vnested_loop_join_node.h"
 #include "vec/exec/scan/new_es_scan_node.h"
@@ -89,6 +90,7 @@ ExecNode::ExecNode(ObjectPool* pool, const TPlanNode& tnode, const DescriptorTbl
           _rows_returned_counter(nullptr),
           _rows_returned_rate(nullptr),
           _memory_used_counter(nullptr),
+          _peak_memory_usage_counter(nullptr),
           _is_closed(false),
           _ref(0) {
     if (tnode.__isset.output_tuple_id) {
@@ -133,8 +135,10 @@ Status ExecNode::prepare(RuntimeState* state) {
             std::bind<int64_t>(&RuntimeProfile::units_per_second, _rows_returned_counter,
                                runtime_profile()->total_time_counter()),
             "");
-    _mem_tracker = std::make_unique<MemTracker>("ExecNode:" + _runtime_profile->name(),
-                                                _runtime_profile.get(), nullptr, "PeakMemoryUsage");
+    _memory_used_counter = ADD_LABEL_COUNTER(runtime_profile(), "MemoryUsage");
+    _peak_memory_usage_counter = _runtime_profile->AddHighWaterMarkCounter(
+            "PeakMemoryUsage", TUnit::BYTES, "MemoryUsage");
+    _mem_tracker = std::make_unique<MemTracker>("ExecNode:" + _runtime_profile->name());
 
     for (auto& conjunct : _conjuncts) {
         RETURN_IF_ERROR(conjunct->prepare(state, intermediate_row_desc()));
@@ -202,6 +206,9 @@ Status ExecNode::close(RuntimeState* state) {
         if (result.ok() && !st.ok()) {
             result = st;
         }
+    }
+    if (_peak_memory_usage_counter) {
+        _peak_memory_usage_counter->set(_mem_tracker->peak_consumption());
     }
     release_resource(state);
     return result;
@@ -371,7 +378,11 @@ Status ExecNode::create_node(RuntimeState* state, ObjectPool* pool, const TPlanN
         return Status::OK();
 
     case TPlanNodeType::AGGREGATION_NODE:
-        *node = pool->add(new vectorized::AggregationNode(pool, tnode, descs));
+        if (tnode.agg_node.aggregate_functions.empty() && state->enable_pipeline_exec()) {
+            *node = pool->add(new vectorized::DistinctAggregationNode(pool, tnode, descs));
+        } else {
+            *node = pool->add(new vectorized::AggregationNode(pool, tnode, descs));
+        }
         return Status::OK();
 
     case TPlanNodeType::HASH_JOIN_NODE:
@@ -493,38 +504,8 @@ void ExecNode::collect_scan_nodes(vector<ExecNode*>* nodes) {
     collect_nodes(TPlanNodeType::DATA_GEN_SCAN_NODE, nodes);
     collect_nodes(TPlanNodeType::FILE_SCAN_NODE, nodes);
     collect_nodes(TPlanNodeType::META_SCAN_NODE, nodes);
-}
-
-void ExecNode::try_do_aggregate_serde_improve() {
-    std::vector<ExecNode*> agg_node;
-    collect_nodes(TPlanNodeType::AGGREGATION_NODE, &agg_node);
-    if (agg_node.size() != 1) {
-        return;
-    }
-
-    if (agg_node[0]->_children.size() != 1) {
-        return;
-    }
-
-    if (agg_node[0]->_children[0]->type() != TPlanNodeType::OLAP_SCAN_NODE) {
-        return;
-    }
-
-    // TODO(cmy): should be removed when NewOlapScanNode is ready
-    ExecNode* child0 = agg_node[0]->_children[0];
-    if (typeid(*child0) == typeid(vectorized::NewOlapScanNode) ||
-        typeid(*child0) == typeid(vectorized::NewFileScanNode) ||
-        typeid(*child0) == typeid(vectorized::NewOdbcScanNode) ||
-        typeid(*child0) == typeid(vectorized::NewEsScanNode) ||
-        typeid(*child0) == typeid(vectorized::NewJdbcScanNode) ||
-        typeid(*child0) == typeid(vectorized::VMetaScanNode)) {
-        vectorized::VScanNode* scan_node =
-                static_cast<vectorized::VScanNode*>(agg_node[0]->_children[0]);
-        scan_node->set_no_agg_finalize();
-    } else {
-        ScanNode* scan_node = static_cast<ScanNode*>(agg_node[0]->_children[0]);
-        scan_node->set_no_agg_finalize();
-    }
+    collect_nodes(TPlanNodeType::JDBC_SCAN_NODE, nodes);
+    collect_nodes(TPlanNodeType::ODBC_SCAN_NODE, nodes);
 }
 
 void ExecNode::init_runtime_profile(const std::string& name) {
@@ -560,11 +541,8 @@ std::string ExecNode::get_name() {
 Status ExecNode::do_projections(vectorized::Block* origin_block, vectorized::Block* output_block) {
     SCOPED_TIMER(_projection_timer);
     using namespace vectorized;
-    auto is_mem_reuse = output_block->mem_reuse();
     MutableBlock mutable_block =
-            is_mem_reuse ? MutableBlock(output_block)
-                         : MutableBlock(VectorizedUtils::create_empty_columnswithtypename(
-                                   *_output_row_descriptor));
+            VectorizedUtils::build_mutable_mem_reuse_block(output_block, *_output_row_descriptor);
     auto rows = origin_block->rows();
 
     if (rows != 0) {
@@ -584,9 +562,7 @@ Status ExecNode::do_projections(vectorized::Block* origin_block, vectorized::Blo
                 mutable_columns[i]->insert_range_from(*column_ptr, 0, rows);
             }
         }
-
-        if (!is_mem_reuse) output_block->swap(mutable_block.to_block());
-        DCHECK(output_block->rows() == rows);
+        DCHECK(mutable_block.rows() == rows);
     }
 
     return Status::OK();
@@ -604,6 +580,7 @@ Status ExecNode::get_next_after_projects(
         if (UNLIKELY(!status.ok())) return status;
         return do_projections(&_origin_block, block);
     }
+    _peak_memory_usage_counter->set(_mem_tracker->peak_consumption());
     return func(state, block, eos);
 }
 

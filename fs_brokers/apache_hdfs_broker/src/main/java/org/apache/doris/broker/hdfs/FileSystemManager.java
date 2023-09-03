@@ -77,6 +77,12 @@ public class FileSystemManager {
     private static final String AFS_SCHEME = "afs";
     private static final String GFS_SCHEME = "gfs";
 
+    private static final String GCS_SCHEME = "gs";
+    
+    private static final String FS_PREFIX = "fs.";
+    
+    private static final String GCS_PROJECT_ID_KEY = "fs.gs.project.id";
+
     private static final String USER_NAME_KEY = "username";
     private static final String PASSWORD_KEY = "password";
     private static final String AUTHENTICATION_SIMPLE = "simple";
@@ -224,6 +230,8 @@ public class FileSystemManager {
             brokerFileSystem = getJuiceFileSystem(path, properties);
         } else if (scheme.equals(GFS_SCHEME)) {
             brokerFileSystem = getGooseFSFileSystem(path, properties);
+        } else if (scheme.equals(GCS_SCHEME)) {
+            brokerFileSystem = getGCSFileSystem(path, properties);
         } else {
             throw new BrokerException(TBrokerOperationStatusCode.INVALID_INPUT_FILE_PATH,
                 "invalid path. scheme is not supported");
@@ -475,6 +483,44 @@ public class FileSystemManager {
         }
     }
 
+    /**
+     *  get GCS file system
+     * @param path gcs path
+     * @param properties See {@link <a href="https://github.com/GoogleCloudDataproc/hadoop-connectors/blob/branch-2.2.x/gcs/CONFIGURATION.md)">...</a>}
+     *                   in broker load scenario, the properties should contains fs.gs.project.id
+     * @return GcsBrokerFileSystem
+     */
+    public BrokerFileSystem getGCSFileSystem(String path, Map<String, String> properties) {
+        WildcardURI pathUri = new WildcardURI(path);
+        String projectId = properties.get(GCS_PROJECT_ID_KEY);
+        if (Strings.isNullOrEmpty(projectId)) {
+            throw new BrokerException(TBrokerOperationStatusCode.INVALID_ARGUMENT,
+                    "missed fs.gs.project.id configuration");
+        }
+        FileSystemIdentity fileSystemIdentity = new FileSystemIdentity(projectId, null);
+        BrokerFileSystem fileSystem = updateCachedFileSystem(fileSystemIdentity, properties);
+        fileSystem.getLock().lock();
+        try {
+            if (fileSystem.getDFSFileSystem() == null) {
+                logger.info("create file system for new path " + path);
+                // create a new filesystem
+                Configuration conf = new Configuration();
+                properties.forEach((k, v) -> {
+                    if (Strings.isNullOrEmpty(v) && k.startsWith(FS_PREFIX)) {
+                        conf.set(k, v);
+                    }
+                });
+                FileSystem gcsFileSystem = FileSystem.get(pathUri.getUri(), conf);
+                fileSystem.setFileSystem(gcsFileSystem);
+            }
+            return fileSystem;
+        } catch (Exception e) {
+            logger.error("errors while connect to " + path, e);
+            throw new BrokerException(TBrokerOperationStatusCode.NOT_AUTHORIZED, e);
+        } finally {
+            fileSystem.getLock().unlock();
+        }
+    }
 
     /**
      * file system handle is cached, the identity is endpoint + bucket + accessKey_secretKey
@@ -1158,27 +1204,32 @@ public class FileSystemManager {
             // Avoid using the ByteBuffer based read for Hadoop because some FSDataInputStream
             // implementations are not ByteBufferReadable,
             // See https://issues.apache.org/jira/browse/HADOOP-14603
-            byte[] buf;
-            if (length > readBufferSize) {
-                buf = new byte[readBufferSize];
-            } else {
-                buf = new byte[(int) length];
+            int hasRead = 0;
+            byte[] buf = new byte[(int)length];
+            while (hasRead < length) {
+                int bufSize = Math.min((int) length - hasRead, readBufferSize);
+                try {
+                    int readLength = fsDataInputStream.read(buf, hasRead, bufSize);
+                    if (readLength < 0) {
+                        throw new BrokerException(TBrokerOperationStatusCode.END_OF_FILE,
+                                "end of file reached");
+                    }
+                    if (logger.isDebugEnabled()) {
+                        logger.debug("read buffer from input stream, buffer size:" + buf.length + ", read length:"
+                                + readLength);
+                    }
+                    hasRead += readLength;
+                } catch (IOException e) {
+                    logger.error("errors while read data from stream", e);
+                    throw new BrokerException(TBrokerOperationStatusCode.TARGET_STORAGE_SERVICE_ERROR,
+                            e, "errors while read data from stream");
+                }
             }
-            try {
-                int readLength = readBytesFully(fsDataInputStream, buf);
-                if (readLength < 0) {
-                    throw new BrokerException(TBrokerOperationStatusCode.END_OF_FILE,
-                            "end of file reached");
-                }
-                if (logger.isDebugEnabled()) {
-                    logger.debug("read buffer from input stream, buffer size:" + buf.length + ", read length:" + readLength);
-                }
-                return ByteBuffer.wrap(buf, 0, readLength);
-            } catch (IOException e) {
-                logger.error("errors while read data from stream", e);
+            if (hasRead != length) {
                 throw new BrokerException(TBrokerOperationStatusCode.TARGET_STORAGE_SERVICE_ERROR,
-                        e, "errors while write data to output stream");
+                        String.format("errors while read data from stream: hasRead(%d) != length(%d)", hasRead, length));
             }
+            return ByteBuffer.wrap(buf, 0, hasRead);
         }
     }
 
@@ -1233,16 +1284,24 @@ public class FileSystemManager {
                         "errors while get file pos from output stream");
             }
             if (currentStreamOffset != offset) {
-                throw new BrokerException(TBrokerOperationStatusCode.INVALID_INPUT_OFFSET,
+                // it's ok, it means that last pwrite succeed finally
+                if (currentStreamOffset == offset + data.length) {
+                    logger.warn("invalid offset, but current outputstream offset is "
+                        + currentStreamOffset + ", data length is " + data.length + ", the sum is equal to request offset "
+                        + offset + ", so just skip it");
+                } else {
+                    throw new BrokerException(TBrokerOperationStatusCode.INVALID_INPUT_OFFSET,
                         "current outputstream offset is {} not equal to request {}",
                         currentStreamOffset, offset);
-            }
-            try {
-                fsDataOutputStream.write(data);
-            } catch (IOException e) {
-                logger.error("errors while write data to output stream", e);
-                throw new BrokerException(TBrokerOperationStatusCode.TARGET_STORAGE_SERVICE_ERROR,
+                }
+            } else {
+                try {
+                    fsDataOutputStream.write(data);
+                } catch (IOException e) {
+                    logger.error("errors while write data to output stream", e);
+                    throw new BrokerException(TBrokerOperationStatusCode.TARGET_STORAGE_SERVICE_ERROR,
                         e, "errors while write data to output stream");
+                }
             }
         }
     }
@@ -1269,19 +1328,6 @@ public class FileSystemManager {
 
     private static TBrokerFD parseUUIDToFD(UUID uuid) {
         return new TBrokerFD(uuid.getMostSignificantBits(), uuid.getLeastSignificantBits());
-    }
-
-    private int readBytesFully(FSDataInputStream is, byte[] dest) throws IOException {
-        int readLength = 0;
-        while (readLength < dest.length) {
-            int availableReadLength = dest.length - readLength;
-            int n = is.read(dest, readLength, availableReadLength);
-            if (n <= 0) {
-                break;
-            }
-            readLength += n;
-        }
-        return readLength;
     }
 
     /**

@@ -81,8 +81,6 @@ public:
     VExpr() = default;
     virtual ~VExpr() = default;
 
-    virtual VExprSPtr clone() const = 0;
-
     virtual const std::string& expr_name() const = 0;
 
     /// Initializes this expr instance for execution. This does not include initializing
@@ -103,8 +101,7 @@ public:
     virtual Status open(RuntimeState* state, VExprContext* context,
                         FunctionContext::FunctionStateScope scope);
 
-    virtual Status execute(VExprContext* context, vectorized::Block* block,
-                           int* result_column_id) = 0;
+    virtual Status execute(VExprContext* context, Block* block, int* result_column_id) = 0;
 
     /// Subclasses overriding this function should call VExpr::Close().
     //
@@ -145,7 +142,7 @@ public:
 
     static Status create_expr(const TExprNode& expr_node, VExprSPtr& expr);
 
-    static Status create_tree_from_thrift(const std::vector<doris::TExprNode>& nodes, int* node_idx,
+    static Status create_tree_from_thrift(const std::vector<TExprNode>& nodes, int* node_idx,
                                           VExprSPtr& root_expr, VExprContextSPtr& ctx);
     virtual const VExprSPtrs& children() const { return _children; }
     void set_children(const VExprSPtrs& children) { _children = children; }
@@ -174,7 +171,7 @@ public:
     int fn_context_index() const { return _fn_context_index; }
 
     static const VExprSPtr expr_without_cast(const VExprSPtr& expr) {
-        if (expr->node_type() == doris::TExprNodeType::CAST_EXPR) {
+        if (expr->node_type() == TExprNodeType::CAST_EXPR) {
             return expr_without_cast(expr->_children[0]);
         }
         return expr;

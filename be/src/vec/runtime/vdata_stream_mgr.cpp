@@ -120,8 +120,9 @@ Status VDataStreamMgr::transmit_block(const PTransmitDataParams* request,
 
     bool eos = request->eos();
     if (request->has_block()) {
-        recvr->add_block(request->block(), request->sender_id(), request->be_number(),
-                         request->packet_seq(), eos ? nullptr : done);
+        RETURN_IF_ERROR(recvr->add_block(request->block(), request->sender_id(),
+                                         request->be_number(), request->packet_seq(),
+                                         eos ? nullptr : done));
     }
 
     if (eos) {
