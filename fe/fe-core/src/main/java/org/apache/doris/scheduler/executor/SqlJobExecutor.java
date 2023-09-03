@@ -35,6 +35,7 @@ import java.util.UUID;
 
 /**
  * we use this executor to execute sql job
+ *
  * @param <QueryState> the state of sql job, we can record the state of sql job
  */
 @Slf4j
@@ -50,7 +51,7 @@ public class SqlJobExecutor<QueryState> implements JobExecutor {
     }
 
     @Override
-    public QueryState execute(Job job) throws JobException {
+    public String execute(Job job) throws JobException {
         ConnectContext ctx = new ConnectContext();
         ctx.setEnv(Env.getCurrentEnv());
         ctx.setCluster(ClusterNamespace.getClusterNameFromFullName(job.getDbName()));
@@ -66,12 +67,22 @@ public class SqlJobExecutor<QueryState> implements JobExecutor {
         try {
             StmtExecutor executor = new StmtExecutor(ctx, sql);
             executor.execute(queryId);
-            log.debug("execute sql job success, sql: {}, state is: {}", sql, ctx.getState());
-            return (QueryState) ctx.getState();
+            return convertExecuteResult(ctx, taskIdString);
         } catch (Exception e) {
-            log.warn("execute sql job failed, sql: {}, error: {}", sql, e);
             throw new JobException("execute sql job failed, sql: " + sql + ", error: " + e.getMessage());
         }
 
+    }
+
+    private String convertExecuteResult(ConnectContext ctx, String queryId) throws JobException {
+        if (null == ctx.getState()) {
+            throw new JobException("execute sql job failed, sql: " + sql + ", error:  response state is null");
+        }
+        if (null != ctx.getState().getErrorCode()) {
+            throw new JobException("error code: " + ctx.getState().getErrorCode() + ", error msg: "
+                    + ctx.getState().getErrorMessage());
+        }
+        return "queryId:" + queryId + ",affectedRows : " + ctx.getState().getAffectedRows() + ", warningRows: "
+                + ctx.getState().getWarningRows() + ",infoMsg" + ctx.getState().getInfoMessage();
     }
 }

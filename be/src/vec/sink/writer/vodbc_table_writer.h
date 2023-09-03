@@ -1,4 +1,3 @@
-
 // Licensed to the Apache Software Foundation (ASF) under one
 // or more contributor license agreements.  See the NOTICE file
 // distributed with this work for additional information
@@ -50,6 +49,8 @@ public:
     Status close() override { return ODBCConnector::close(); }
 
     bool in_transaction() override { return TableConnector::_is_in_transaction; }
+
+    Status commit_trans() override { return ODBCConnector::finish_trans(); }
 };
 } // namespace vectorized
 } // namespace doris

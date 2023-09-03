@@ -156,18 +156,20 @@ public class AnalyzeWhereSubqueryTest extends TestWithFeService implements MemoP
                 .matchesNotCheck(
                         logicalApply(
                                 any(),
-                                logicalAggregate(
-                                        logicalFilter()
-                                ).when(FieldChecker.check("outputExpressions", ImmutableList.of(
-                                        new Alias(new ExprId(7),
-                                                (new Sum(
-                                                        new SlotReference(new ExprId(4), "k3",
-                                                                BigIntType.INSTANCE, true,
-                                                                ImmutableList.of(
-                                                                        "default_cluster:test",
-                                                                        "t7")))).withAlwaysNullable(
-                                                                                true),
-                                                "sum(k3)"))))
+                                logicalProject(
+                                    logicalAggregate(
+                                            logicalProject()
+                                    ).when(FieldChecker.check("outputExpressions", ImmutableList.of(
+                                            new Alias(new ExprId(7),
+                                                    (new Sum(
+                                                            new SlotReference(new ExprId(4), "k3",
+                                                                    BigIntType.INSTANCE, true,
+                                                                    ImmutableList.of(
+                                                                            "default_cluster:test",
+                                                                            "t7")))).withAlwaysNullable(
+                                                                                    true),
+                                                    "sum(k3)"))))
+                                )
                         ).when(FieldChecker.check("correlationSlot", ImmutableList.of(
                                 new SlotReference(new ExprId(1), "k2", BigIntType.INSTANCE, true,
                                         ImmutableList.of("default_cluster:test", "t6"))
@@ -383,28 +385,32 @@ public class AnalyzeWhereSubqueryTest extends TestWithFeService implements MemoP
                                 logicalProject(
                                     logicalApply(
                                         any(),
-                                        logicalAggregate(
-                                            logicalSubQueryAlias(
+                                        logicalProject(
+                                            logicalAggregate(
                                                 logicalProject(
-                                                    logicalFilter()
-                                                ).when(p -> p.getProjects().equals(ImmutableList.of(
-                                                    new Alias(new ExprId(7), new SlotReference(new ExprId(5), "v1", BigIntType.INSTANCE,
-                                                            true,
-                                                            ImmutableList.of("default_cluster:test", "t7")), "aa")
-                                                )))
-                                            )
-                                            .when(a -> a.getAlias().equals("t2"))
-                                            .when(a -> a.getOutput().equals(ImmutableList.of(
-                                                    new SlotReference(new ExprId(7), "aa", BigIntType.INSTANCE,
-                                                            true, ImmutableList.of("t2"))
+                                                    logicalSubQueryAlias(
+                                                        logicalProject(
+                                                            logicalFilter()
+                                                        ).when(p -> p.getProjects().equals(ImmutableList.of(
+                                                            new Alias(new ExprId(7), new SlotReference(new ExprId(5), "v1", BigIntType.INSTANCE,
+                                                                    true,
+                                                                    ImmutableList.of("default_cluster:test", "t7")), "aa")
+                                                        )))
+                                                    )
+                                                    .when(a -> a.getAlias().equals("t2"))
+                                                    .when(a -> a.getOutput().equals(ImmutableList.of(
+                                                            new SlotReference(new ExprId(7), "aa", BigIntType.INSTANCE,
+                                                                    true, ImmutableList.of("t2"))
+                                                    )))
+                                                )
+                                            ).when(agg -> agg.getOutputExpressions().equals(ImmutableList.of(
+                                                new Alias(new ExprId(8),
+                                                        (new Max(new SlotReference(new ExprId(7), "aa", BigIntType.INSTANCE,
+                                                                true,
+                                                                ImmutableList.of("t2")))).withAlwaysNullable(true), "max(aa)")
                                             )))
-                                        ).when(agg -> agg.getOutputExpressions().equals(ImmutableList.of(
-                                            new Alias(new ExprId(8),
-                                                    (new Max(new SlotReference(new ExprId(7), "aa", BigIntType.INSTANCE,
-                                                            true,
-                                                            ImmutableList.of("t2")))).withAlwaysNullable(true), "max(aa)")
-                                        )))
-                                        .when(agg -> agg.getGroupByExpressions().equals(ImmutableList.of()))
+                                            .when(agg -> agg.getGroupByExpressions().equals(ImmutableList.of()))
+                                        )
                                     )
                                     .when(apply -> apply.getCorrelationSlot().equals(ImmutableList.of(
                                             new SlotReference(new ExprId(1), "k2", BigIntType.INSTANCE, true,

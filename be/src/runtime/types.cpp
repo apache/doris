@@ -40,7 +40,7 @@ TypeDescriptor::TypeDescriptor(const std::vector<TTypeNode>& types, int* idx)
     switch (node.type) {
     case TTypeNodeType::SCALAR: {
         DCHECK(node.__isset.scalar_type);
-        const TScalarType scalar_type = node.scalar_type;
+        const TScalarType& scalar_type = node.scalar_type;
         type = thrift_to_type(scalar_type.type);
         if (type == TYPE_CHAR || type == TYPE_VARCHAR || type == TYPE_HLL) {
             DCHECK(scalar_type.__isset.len);

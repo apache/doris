@@ -51,7 +51,9 @@ BRpcService::BRpcService(ExecEnv* exec_env) : _exec_env(exec_env), _server(new b
                     : std::max((int64_t)1073741824, (MemInfo::mem_limit() / 1024) * 20);
 }
 
-BRpcService::~BRpcService() = default;
+BRpcService::~BRpcService() {
+    join();
+}
 
 Status BRpcService::start(int port, int num_threads) {
     // Add service

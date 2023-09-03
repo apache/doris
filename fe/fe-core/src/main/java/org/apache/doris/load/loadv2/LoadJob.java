@@ -430,6 +430,7 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
         jobProperties.put(LoadStmt.EXEC_MEM_LIMIT, 2 * 1024 * 1024 * 1024L);
         jobProperties.put(LoadStmt.MAX_FILTER_RATIO_PROPERTY, 0.0);
         jobProperties.put(LoadStmt.STRICT_MODE, false);
+        jobProperties.put(LoadStmt.PARTIAL_COLUMNS, false);
         jobProperties.put(LoadStmt.TIMEZONE, TimeUtils.DEFAULT_TIME_ZONE);
         jobProperties.put(LoadStmt.LOAD_PARALLELISM, Config.default_load_parallelism);
         jobProperties.put(LoadStmt.SEND_BATCH_PARALLELISM, 1);
@@ -661,7 +662,7 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
 
         // clean the loadingStatus
         loadingStatus.setState(TEtlState.CANCELLED);
-
+        loadingStatus.setFailMsg(failMsg.getMsg());
         // get load ids of all loading tasks, we will cancel their coordinator process later
         List<TUniqueId> loadIds = Lists.newArrayList();
         for (LoadTask loadTask : idToTasks.values()) {
@@ -1215,6 +1216,10 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
 
     protected boolean isStrictMode() {
         return (boolean) jobProperties.get(LoadStmt.STRICT_MODE);
+    }
+
+    protected boolean isPartialUpdate() {
+        return (boolean) jobProperties.get(LoadStmt.PARTIAL_COLUMNS);
     }
 
     protected String getTimeZone() {

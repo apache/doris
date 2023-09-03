@@ -23,6 +23,7 @@ import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.statistics.AnalysisInfo;
 import org.apache.doris.statistics.BaseAnalysisTask;
 import org.apache.doris.statistics.ColumnStatistic;
+import org.apache.doris.statistics.TableStats;
 import org.apache.doris.thrift.TTableDescriptor;
 
 import com.google.common.collect.Lists;
@@ -135,6 +136,10 @@ public interface TableIf {
     DatabaseIf getDatabase();
 
     Optional<ColumnStatistic> getColumnStatistic(String colName);
+
+    boolean needReAnalyzeTable(TableStats tblStats);
+
+    Set<String> findReAnalyzeNeededPartitions(TableStats tableStats);
 
     void write(DataOutput out) throws IOException;
 

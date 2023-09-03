@@ -649,7 +649,8 @@ terminal String
     KW_PREPARE,
     KW_EXECUTE,
     KW_LINES,
-    KW_IGNORE;
+    KW_IGNORE,
+    KW_CONVERT_LSC;
 
 terminal COMMA, COLON, DOT, DOTDOTDOT, AT, STAR, LPAREN, RPAREN, SEMICOLON, LBRACKET, RBRACKET, LBRACE, RBRACE, DIVIDE, MOD, ADD, SUBTRACT, PLACEHOLDER, ARROW;
 terminal BITAND, BITOR, BITXOR, BITNOT;
@@ -2680,7 +2681,7 @@ create_job_stmt ::=
      :}
      ;       
 resume_job_stmt ::=
-    KW_RESUME KW_JOB job_label:jobLabel
+    KW_RESUME KW_JOB  KW_FOR job_label:jobLabel
     {:
         RESULT = new ResumeJobStmt(jobLabel);
     :}
@@ -4255,6 +4256,10 @@ show_param ::=
     | KW_BUILD KW_INDEX opt_db:db opt_wild_where order_by_clause:orderByClause limit_clause:limitClause
     {:
         RESULT = new ShowBuildIndexStmt(db, parser.where, orderByClause, limitClause);
+    :}
+    | KW_CONVERT_LSC KW_FROM opt_db:db
+    {:
+        RESULT = new ShowConvertLSCStmt(db);
     :}
     ;
 
@@ -6873,8 +6878,14 @@ timestamp_arithmetic_expr ::=
       // This function should not fully qualified
       throw new Exception("interval should not be qualified by database name");
     }
-
-    RESULT = new TimestampArithmeticExpr(functionName.getFunction(), l.get(0), v, u);
+    //eg: date_floor("0001-01-01 00:00:18",interval 5 second) convert to
+    //second_floor("0001-01-01 00:00:18", 5, "0001-01-01 00:00:00");
+    if ("date_floor".equalsIgnoreCase(functionName.getFunction()) || 
+        "date_ceil".equalsIgnoreCase(functionName.getFunction())) {
+      RESULT = FunctionCallExpr.functionWithIntervalConvert(functionName.getFunction().toLowerCase(), l.get(0), v, u); 
+    } else {
+      RESULT = new TimestampArithmeticExpr(functionName.getFunction(), l.get(0), v, u);
+    }
   :}
   | function_name:functionName LPAREN time_unit:u COMMA expr:e1 COMMA expr:e2 RPAREN
   {:

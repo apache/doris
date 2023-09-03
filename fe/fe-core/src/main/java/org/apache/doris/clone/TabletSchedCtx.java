@@ -925,6 +925,8 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
                     committedVersion, /* use committed version as last failed version */
                     -1 /* last success version */);
 
+            LOG.info("create clone task to make new replica, tabletId={}, replicaId={}", tabletId,
+                    cloneReplica.getId());
             // addReplica() method will add this replica to tablet inverted index too.
             tablet.addReplica(cloneReplica);
             replicaId = cloneReplica.getId();
@@ -950,6 +952,7 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
                 replicaId, schemaHash, Lists.newArrayList(tSrcBe), storageMedium,
                 visibleVersion, (int) (taskTimeoutMs / 1000));
         cloneTask.setPathHash(srcPathHash, destPathHash);
+        LOG.info("create clone task to repair replica, tabletId={}, replicaId={}", tabletId, replicaId);
 
         this.state = State.RUNNING;
         return cloneTask;
@@ -1191,8 +1194,16 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
     @Override
     public String toString() {
         StringBuilder sb = new StringBuilder();
-        sb.append("tablet id: ").append(tabletId).append(", status: ").append(tabletStatus.name());
-        sb.append(", state: ").append(state.name()).append(", type: ").append(type.name());
+        sb.append("tablet id: ").append(tabletId);
+        if (tabletStatus != null) {
+            sb.append(", status: ").append(tabletStatus.name());
+        }
+        if (state != null) {
+            sb.append(", state: ").append(state.name());
+        }
+        if (type != null) {
+            sb.append(", type: ").append(type.name());
+        }
         if (type == Type.BALANCE && balanceType != null) {
             sb.append(", balance: ").append(balanceType.name());
         }

@@ -21,9 +21,7 @@ import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
-import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.BinaryOperator;
-import org.apache.doris.nereids.trees.expressions.CaseWhen;
 import org.apache.doris.nereids.trees.expressions.Exists;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.InSubquery;
@@ -47,7 +45,6 @@ import com.google.common.collect.ImmutableSet;
 
 import java.util.Collection;
 import java.util.LinkedHashMap;
-import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -68,8 +65,8 @@ public class SubqueryToApply implements AnalysisRuleFactory {
                 logicalFilter().thenApply(ctx -> {
                     LogicalFilter<Plan> filter = ctx.root;
 
-                    ImmutableList<Set> subqueryExprsList = filter.getConjuncts().stream()
-                            .map(e -> (Set) e.collect(SubqueryExpr.class::isInstance))
+                    ImmutableList<Set<SubqueryExpr>> subqueryExprsList = filter.getConjuncts().stream()
+                            .map(e -> (Set<SubqueryExpr>) e.collect(SubqueryExpr.class::isInstance))
                             .collect(ImmutableList.toImmutableList());
                     if (subqueryExprsList.stream()
                             .flatMap(Collection::stream).noneMatch(SubqueryExpr.class::isInstance)) {
@@ -104,8 +101,7 @@ public class SubqueryToApply implements AnalysisRuleFactory {
                         tmpPlan = applyPlan;
                         newConjuncts.add(conjunct);
                     }
-                    Set<Expression> conjuncts = new LinkedHashSet<>();
-                    conjuncts.addAll(newConjuncts.build());
+                    Set<Expression> conjuncts = ImmutableSet.copyOf(newConjuncts.build());
                     Plan newFilter = new LogicalFilter<>(conjuncts, applyPlan);
                     if (conjuncts.stream().flatMap(c -> c.children().stream())
                             .anyMatch(MarkJoinSlotReference.class::isInstance)) {
@@ -116,36 +112,44 @@ public class SubqueryToApply implements AnalysisRuleFactory {
                     return new LogicalFilter<>(conjuncts, applyPlan);
                 })
             ),
-            RuleType.PROJECT_SUBQUERY_TO_APPLY.build(
-               logicalProject().thenApply(ctx -> {
-                   LogicalProject<Plan> project = ctx.root;
-                   Set<SubqueryExpr> subqueryExprs = new LinkedHashSet<>();
-                   project.getProjects().stream()
-                           .filter(Alias.class::isInstance)
-                           .map(Alias.class::cast)
-                           .filter(alias -> alias.child() instanceof CaseWhen)
-                           .forEach(alias -> alias.child().children().stream()
-                                   .forEach(e ->
-                                       subqueryExprs.addAll(e.collect(SubqueryExpr.class::isInstance))));
-                   if (subqueryExprs.isEmpty()) {
-                       return project;
-                   }
+            RuleType.PROJECT_SUBQUERY_TO_APPLY.build(logicalProject().thenApply(ctx -> {
+                LogicalProject<Plan> project = ctx.root;
+                ImmutableList<Set<SubqueryExpr>> subqueryExprsList = project.getProjects().stream()
+                        .map(e -> (Set<SubqueryExpr>) e.collect(SubqueryExpr.class::isInstance))
+                        .collect(ImmutableList.toImmutableList());
+                if (subqueryExprsList.stream().flatMap(Collection::stream).count() == 0) {
+                    return project;
+                }
+                List<NamedExpression> oldProjects = ImmutableList.copyOf(project.getProjects());
+                ImmutableList.Builder<NamedExpression> newProjects = new ImmutableList.Builder<>();
+                LogicalPlan childPlan = (LogicalPlan) project.child();
+                LogicalPlan applyPlan;
+                for (int i = 0; i < subqueryExprsList.size(); ++i) {
+                    Set<SubqueryExpr> subqueryExprs = subqueryExprsList.get(i);
+                    if (subqueryExprs.isEmpty()) {
+                        newProjects.add(oldProjects.get(i));
+                        continue;
+                    }
 
-                   SubqueryContext context = new SubqueryContext(subqueryExprs);
-                   return new LogicalProject(project.getProjects().stream()
-                           .map(p -> p.withChildren(
-                               new ReplaceSubquery(ctx.statementContext, true)
-                                   .replace(p, context)))
-                           .collect(ImmutableList.toImmutableList()),
-                           subqueryToApply(
-                               subqueryExprs.stream().collect(ImmutableList.toImmutableList()),
-                               (LogicalPlan) project.child(),
-                               context.getSubqueryToMarkJoinSlot(),
-                               ctx.cascadesContext,
-                               Optional.empty(), true
-                           ));
-               })
-            )
+                    // first step: Replace the subquery in logcialProject's project list
+                    // second step: Replace subquery with LogicalApply
+                    ReplaceSubquery replaceSubquery =
+                            new ReplaceSubquery(ctx.statementContext, true);
+                    SubqueryContext context = new SubqueryContext(subqueryExprs);
+                    Expression newProject =
+                            replaceSubquery.replace(oldProjects.get(i), context);
+
+                    applyPlan = subqueryToApply(
+                            subqueryExprs.stream().collect(ImmutableList.toImmutableList()),
+                            childPlan, context.getSubqueryToMarkJoinSlot(),
+                            ctx.cascadesContext,
+                            Optional.of(newProject), true);
+                    childPlan = applyPlan;
+                    newProjects.add((NamedExpression) newProject);
+                }
+
+                return project.withProjectsAndChild(newProjects.build(), childPlan);
+            }))
         );
     }
 
@@ -249,28 +253,30 @@ public class SubqueryToApply implements AnalysisRuleFactory {
             // The result set when NULL is specified in the subquery and still evaluates to TRUE by using EXISTS
             // When the number of rows returned is empty, agg will return null, so if there is more agg,
             // it will always consider the returned result to be true
+            boolean needCreateMarkJoinSlot = isMarkJoin || isProject;
             MarkJoinSlotReference markJoinSlotReference = null;
-            if (exists.getQueryPlan().anyMatch(Aggregate.class::isInstance) && isMarkJoin) {
+            if (exists.getQueryPlan().anyMatch(Aggregate.class::isInstance) && needCreateMarkJoinSlot) {
                 markJoinSlotReference =
                         new MarkJoinSlotReference(statementContext.generateColumnName(), true);
-            } else if (isMarkJoin) {
+            } else if (needCreateMarkJoinSlot) {
                 markJoinSlotReference =
                         new MarkJoinSlotReference(statementContext.generateColumnName());
             }
-            if (isMarkJoin) {
+            if (needCreateMarkJoinSlot) {
                 context.setSubqueryToMarkJoinSlot(exists, Optional.of(markJoinSlotReference));
             }
-            return isMarkJoin ? markJoinSlotReference : BooleanLiteral.TRUE;
+            return needCreateMarkJoinSlot ? markJoinSlotReference : BooleanLiteral.TRUE;
         }
 
         @Override
         public Expression visitInSubquery(InSubquery in, SubqueryContext context) {
             MarkJoinSlotReference markJoinSlotReference =
                     new MarkJoinSlotReference(statementContext.generateColumnName());
-            if (isMarkJoin) {
+            boolean needCreateMarkJoinSlot = isMarkJoin || isProject;
+            if (needCreateMarkJoinSlot) {
                 context.setSubqueryToMarkJoinSlot(in, Optional.of(markJoinSlotReference));
             }
-            return isMarkJoin ? markJoinSlotReference : BooleanLiteral.TRUE;
+            return needCreateMarkJoinSlot ? markJoinSlotReference : BooleanLiteral.TRUE;
         }
 
         @Override

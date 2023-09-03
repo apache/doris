@@ -419,7 +419,7 @@ FE 的配置参数 `async_loading_load_task_pool_size` 用于限制同时运行�
 
 - 导入报错：`LOAD_RUN_FAIL; msg:Invalid Column Name:xxx`
 
-  如果是PARQUET或者ORC格式的数据,需要再文件头的列名与doris表中的列名一致，如 :
+  如果是PARQUET或者ORC格式的数据，则文件头的列名需要与doris表中的列名保持一致，如:
 
   ```text
   (tmp_c1,tmp_c2)
