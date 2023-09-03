@@ -26,19 +26,22 @@ import com.datastax.oss.driver.internal.core.type.DefaultMapType;
 import com.datastax.oss.driver.internal.core.type.DefaultSetType;
 import com.datastax.oss.protocol.internal.ProtocolConstants;
 import com.google.common.collect.Lists;
+
 import org.apache.doris.catalog.*;
 import org.apache.doris.datasource.cassandra.CassandraExternalCatalog;
 import org.apache.doris.thrift.TCassandraTable;
 import org.apache.doris.thrift.TTableDescriptor;
 import org.apache.doris.thrift.TTableType;
+
 import org.apache.paimon.types.DecimalType;
 
 import java.util.List;
 import java.util.Map;
 
-public class CassandraExternalTable extends ExternalTable{
+public class CassandraExternalTable extends ExternalTable {
 
     private TableMetadata table;
+
     public CassandraExternalTable(long id, String name, String dbName, CassandraExternalCatalog catalog) {
         super(id, name, catalog, dbName, TableType.CASSANDRA_EXTERNAL_TABLE);
     }
@@ -57,14 +60,15 @@ public class CassandraExternalTable extends ExternalTable{
         Map<CqlIdentifier, ColumnMetadata> columns = table.getColumns();
         List<Column> result = Lists.newArrayListWithCapacity(columns.size());
         columns.forEach((cqlIdentifier, columnMetadata) -> {
-            result.add(new Column(columnMetadata.getName().asInternal(), cassandraTypeToDorisType(columnMetadata.getType())));
+            result.add(new Column(columnMetadata.getName().asInternal(),
+                    cassandraTypeToDorisType(columnMetadata.getType())));
         });
 
         return result;
 
     }
 
-    private Type cassandraTypeToDorisType(DataType dataType){
+    private Type cassandraTypeToDorisType(DataType dataType) {
         switch (dataType.getProtocolCode()) {
             case ProtocolConstants.DataType.BOOLEAN:
                 return Type.BOOLEAN;
@@ -100,7 +104,7 @@ public class CassandraExternalTable extends ExternalTable{
             case ProtocolConstants.DataType.MAP:
                 DefaultMapType mapType = (DefaultMapType) dataType;
                 return new MapType(cassandraTypeToDorisType(mapType.getKeyType()),
-                    cassandraTypeToDorisType(mapType.getKeyType()));
+                        cassandraTypeToDorisType(mapType.getKeyType()));
             case ProtocolConstants.DataType.LIST:
                 DefaultListType listType = (DefaultListType) dataType;
                 Type listInnerType = cassandraTypeToDorisType(listType.getElementType());
@@ -128,7 +132,7 @@ public class CassandraExternalTable extends ExternalTable{
         tCassandraTable.setPassword(((CassandraExternalCatalog) catalog).getPassword());
         tCassandraTable.setDatacenter(((CassandraExternalCatalog) catalog).getDatacenter());
         TTableDescriptor tTableDescriptor = new TTableDescriptor(getId(), TTableType.CASSANDRA_TABLE,
-            schema.size(), 0, getName(), dbName);
+                schema.size(), 0, getName(), dbName);
         tTableDescriptor.setCassandraTable(tCassandraTable);
         return tTableDescriptor;
 
@@ -138,6 +142,5 @@ public class CassandraExternalTable extends ExternalTable{
     public String getMysqlType() {
         return "BASE TABLE";
     }
-
 
 }

@@ -513,7 +513,7 @@ public class GsonUtils {
 
         @Override
         public AtomicBoolean deserialize(JsonElement jsonElement, Type type,
-                                         JsonDeserializationContext jsonDeserializationContext)
+                JsonDeserializationContext jsonDeserializationContext)
                 throws JsonParseException {
             JsonObject jsonObject = jsonElement.getAsJsonObject();
             boolean value = jsonObject.get("boolean").getAsBoolean();
@@ -522,7 +522,7 @@ public class GsonUtils {
 
         @Override
         public JsonElement serialize(AtomicBoolean atomicBoolean, Type type,
-                                     JsonSerializationContext jsonSerializationContext) {
+                JsonSerializationContext jsonSerializationContext) {
             JsonObject jsonObject = new JsonObject();
             jsonObject.addProperty("boolean", atomicBoolean.get());
             return jsonObject;
@@ -532,7 +532,7 @@ public class GsonUtils {
     public static final class ImmutableMapDeserializer implements JsonDeserializer<ImmutableMap<?, ?>> {
         @Override
         public ImmutableMap<?, ?> deserialize(final JsonElement json, final Type type,
-                                              final JsonDeserializationContext context) throws JsonParseException {
+                final JsonDeserializationContext context) throws JsonParseException {
             final Type type2 = TypeUtils.parameterize(Map.class, ((ParameterizedType) type).getActualTypeArguments());
             final Map<?, ?> map = context.deserialize(json, type2);
             return ImmutableMap.copyOf(map);

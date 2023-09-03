@@ -20,28 +20,31 @@ package org.apache.doris.planner.external;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.external.CassandraExternalTable;
-import org.apache.doris.catalog.external.MaxComputeExternalTable;
 import org.apache.doris.common.UserException;
-import org.apache.doris.datasource.MaxComputeExternalCatalog;
-import org.apache.doris.datasource.cassandra.CassandraExternalCatalog;
 import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.spi.Split;
 import org.apache.doris.statistics.StatisticalType;
 import org.apache.doris.thrift.TFileFormatType;
 import org.apache.doris.thrift.TFileType;
+
 import org.apache.hadoop.fs.Path;
 
-import java.util.*;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
 
 public class CassandraScanNode extends FileQueryScanNode {
 
     private final CassandraExternalTable table;
+
     public CassandraScanNode(PlanNodeId id, TupleDescriptor desc, boolean needCheckColumnPriv) {
         this(id, desc, "CassandraScanNode", StatisticalType.CASSANDRA_SCAN_NODE, needCheckColumnPriv);
     }
 
     public CassandraScanNode(PlanNodeId id, TupleDescriptor desc, String planNodeName,
-                              StatisticalType statisticalType, boolean needCheckColumnPriv) {
+            StatisticalType statisticalType, boolean needCheckColumnPriv) {
         super(id, desc, planNodeName, statisticalType, needCheckColumnPriv);
         table = (CassandraExternalTable) desc.getTable();
     }
@@ -82,6 +85,5 @@ public class CassandraScanNode extends FileQueryScanNode {
         result.add(new FileSplit(new Path("/"), 0, -1, -1, 0L, new String[0], Collections.emptyList()));
         return result;
     }
-
 
 }

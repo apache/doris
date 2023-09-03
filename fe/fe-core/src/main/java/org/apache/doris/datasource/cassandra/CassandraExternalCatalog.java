@@ -17,14 +17,15 @@
 
 package org.apache.doris.datasource.cassandra;
 
-import com.datastax.oss.driver.api.core.CqlSession;
-import com.datastax.oss.driver.api.core.metadata.schema.TableMetadata;
-import com.google.gson.annotations.SerializedName;
 import org.apache.doris.datasource.CatalogProperty;
 import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.datasource.InitCatalogLog;
 import org.apache.doris.datasource.SessionContext;
 import org.apache.doris.datasource.property.constants.CassandraProperties;
+
+import com.datastax.oss.driver.api.core.CqlSession;
+import com.datastax.oss.driver.api.core.metadata.schema.TableMetadata;
+import com.google.gson.annotations.SerializedName;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -45,17 +46,20 @@ public class CassandraExternalCatalog extends ExternalCatalog {
     @SerializedName(value = "datacenter")
     private String datacenter;
 
-    public CassandraExternalCatalog(long catalogId, String name, String resource, Map<String, String> props, String comment) {
+    public CassandraExternalCatalog(long catalogId, String name, String resource, Map<String, String> props,
+            String comment) {
         super(catalogId, name, InitCatalogLog.Type.CASSANDRA, comment);
         catalogProperty = new CatalogProperty(resource, props);
     }
 
     protected List<String> listDatabaseNames() {
         List<String> databaseNames = new ArrayList<>();
-        try (CqlSession session = CassandraClient.getCqlSessionBuilder(contactPoints, userName, password, datacenter).build()) {
-            session.getMetadata().getKeyspaces().forEach((cqlIdentifier, keyspaceMetadata) -> databaseNames.add(keyspaceMetadata.getName().asInternal()));
+        try (CqlSession session = CassandraClient.getCqlSessionBuilder(contactPoints, userName, password, datacenter)
+                .build()) {
+            session.getMetadata().getKeyspaces().forEach(
+                    (cqlIdentifier, keyspaceMetadata) -> databaseNames.add(keyspaceMetadata.getName().asInternal()));
         }
-            return databaseNames;
+        return databaseNames;
     }
 
     @Override
@@ -65,7 +69,8 @@ public class CassandraExternalCatalog extends ExternalCatalog {
 
         try (CqlSession session = CqlSession.builder().build()) {
 
-            session.getMetadata().getKeyspace(keyspaceName).ifPresent(keyspaceMetadata -> keyspaceMetadata.getTables().forEach((cqlIdentifier, tableMetadata) -> tableNames.add(tableMetadata.getName().asInternal())));
+            session.getMetadata().getKeyspace(keyspaceName).ifPresent(keyspaceMetadata -> keyspaceMetadata.getTables()
+                    .forEach((cqlIdentifier, tableMetadata) -> tableNames.add(tableMetadata.getName().asInternal())));
 
             return tableNames;
         }
@@ -76,7 +81,9 @@ public class CassandraExternalCatalog extends ExternalCatalog {
 
         AtomicBoolean tableExists = new AtomicBoolean(false);
         try (CqlSession session = CqlSession.builder().build()) {
-            session.getMetadata().getKeyspace(keyspaceName).flatMap(keyspaceMetadata -> keyspaceMetadata.getTable(tableName)).ifPresent(tableMetadata -> tableExists.set(true));
+            session.getMetadata().getKeyspace(keyspaceName)
+                    .flatMap(keyspaceMetadata -> keyspaceMetadata.getTable(tableName))
+                    .ifPresent(tableMetadata -> tableExists.set(true));
             return tableExists.get();
         }
     }
@@ -92,8 +99,9 @@ public class CassandraExternalCatalog extends ExternalCatalog {
 
     public TableMetadata getTable(String keyspaceName, String tableName) {
         try (CqlSession session = CqlSession.builder().build()) {
-            return session.getMetadata().getKeyspace(keyspaceName).flatMap(keyspaceMetadata -> keyspaceMetadata.getTable(tableName))
-                .orElseThrow(() -> new RuntimeException("Table not found"));
+            return session.getMetadata().getKeyspace(keyspaceName)
+                    .flatMap(keyspaceMetadata -> keyspaceMetadata.getTable(tableName))
+                    .orElseThrow(() -> new RuntimeException("Table not found"));
         }
     }
 

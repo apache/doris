@@ -29,10 +29,10 @@ import java.util.stream.Collectors;
 
 public class CassandraClient {
     public static CqlSessionBuilder getCqlSessionBuilder(
-        String nodeAddress,
-        String username,
-        String password,
-        String dataCenter) {
+            String nodeAddress,
+            String username,
+            String password,
+            String dataCenter) {
 
         List<InetSocketAddress> inetSocketAddresses = Arrays.stream(nodeAddress.split(",")).map(address -> {
             String[] split = address.split(":", 2);
@@ -40,13 +40,13 @@ public class CassandraClient {
         }).collect(Collectors.toList());
 
         return CqlSession.builder()
-            .addContactPoints(inetSocketAddresses)
-            .withLocalDatacenter(dataCenter)
-            .withAuthCredentials(username, password);
+                .addContactPoints(inetSocketAddresses)
+                .withLocalDatacenter(dataCenter)
+                .withAuthCredentials(username, password);
     }
 
     public static SimpleStatement createSimpleStatement(
-        String cql, ConsistencyLevel consistencyLevel) {
+            String cql, ConsistencyLevel consistencyLevel) {
         return SimpleStatement.builder(cql).setConsistencyLevel(consistencyLevel).build();
     }
 }

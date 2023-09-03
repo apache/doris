@@ -21,7 +21,7 @@ import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.datasource.InitDatabaseLog;
 import org.apache.doris.datasource.cassandra.CassandraExternalCatalog;
 
-public class CassandraExternalDatabase extends ExternalDatabase<CassandraExternalTable>{
+public class CassandraExternalDatabase extends ExternalDatabase<CassandraExternalTable> {
     public CassandraExternalDatabase(ExternalCatalog extCatalog, long id, String name) {
         super(extCatalog, id, name, InitDatabaseLog.Type.CASSANDRA);
     }
