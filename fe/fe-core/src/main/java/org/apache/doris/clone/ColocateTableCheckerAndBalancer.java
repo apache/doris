@@ -335,17 +335,8 @@ public class ColocateTableCheckerAndBalancer extends MasterDaemon {
      *      Otherwise, mark the group as stable
      */
     protected void runAfterCatalogReady() {
-        Set<GroupId> groupIds = Sets.newHashSet(Env.getCurrentEnv().getColocateTableIndex().getAllGroupIds());
-
-        // balance only inside each group, excluded balance between all groups
-        Set<GroupId> changeGroups = relocateAndBalanceGroup(groupIds, false);
-
-        if (!Config.disable_colocate_balance_between_groups
-                && !changeGroups.isEmpty()) {
-            // balance both inside each group and between all groups
-            relocateAndBalanceGroup(changeGroups, true);
-        }
-        matchGroup();
+        relocateAndBalanceGroups();
+        matchGroups();
     }
 
     /*
@@ -386,6 +377,19 @@ public class ColocateTableCheckerAndBalancer extends MasterDaemon {
      * +-+  +-+  +-+  +-+
      *  A    B    C    D
      */
+    private void relocateAndBalanceGroups() {
+        Set<GroupId> groupIds = Sets.newHashSet(Env.getCurrentEnv().getColocateTableIndex().getAllGroupIds());
+
+        // balance only inside each group, excluded balance between all groups
+        Set<GroupId> changeGroups = relocateAndBalanceGroup(groupIds, false);
+
+        if (!Config.disable_colocate_balance_between_groups
+                && !changeGroups.isEmpty()) {
+            // balance both inside each group and between all groups
+            relocateAndBalanceGroup(changeGroups, true);
+        }
+    }
+
     private Set<GroupId> relocateAndBalanceGroup(Set<GroupId> groupIds, boolean balanceBetweenGroups) {
         Set<GroupId> changeGroups = Sets.newHashSet();
         if (Config.disable_colocate_balance) {
@@ -464,7 +468,7 @@ public class ColocateTableCheckerAndBalancer extends MasterDaemon {
      * replicas, and mark that group as unstable.
      * If every replicas match the backends in group, mark that group as stable.
      */
-    private void matchGroup() {
+    private void matchGroups() {
         long start = System.currentTimeMillis();
         CheckerCounter counter = new CheckerCounter();
 
