@@ -336,8 +336,8 @@ public class IndexChangeJob implements Writable {
         jobState = JobState.CANCELLED;
         this.errMsg = errMsg;
         this.finishedTimeMs = System.currentTimeMillis();
-        LOG.info("cancel index job {}, err: {}", jobId, errMsg);
         Env.getCurrentEnv().getEditLog().logIndexChangeJob(this);
+        LOG.info("cancel index job {}, err: {}", jobId, errMsg);
         return true;
     }
 
@@ -358,8 +358,7 @@ public class IndexChangeJob implements Writable {
                     replayRunningJob(replayedIndexChangeJob);
                     break;
                 case CANCELLED:
-                    // TODO:
-                    // replayCancelled(replayedIndexChangeJob);
+                    replayCancelled(replayedIndexChangeJob);
                     break;
                 default:
                     break;
@@ -381,6 +380,18 @@ public class IndexChangeJob implements Writable {
         this.jobState = JobState.FINISHED;
         this.finishedTimeMs = replayedJob.finishedTimeMs;
         LOG.info("replay finished inverted index job: {} table id: {}", jobId, tableId);
+    }
+
+    /**
+     * Replay job in CANCELLED state.
+     */
+    private void replayCancelled(IndexChangeJob replayedJob) {
+        cancelInternal();
+
+        this.jobState = JobState.CANCELLED;
+        this.errMsg = replayedJob.errMsg;
+        this.finishedTimeMs = replayedJob.finishedTimeMs;
+        LOG.info("cancel index job {}, err: {}", jobId, errMsg);
     }
 
     public static IndexChangeJob read(DataInput in) throws IOException {

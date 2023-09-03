@@ -2388,12 +2388,7 @@ public class SchemaChangeHandler extends AlterHandler {
 
         List<IndexChangeJob> jobList = new ArrayList<>();
 
-        OlapTable olapTable;
-        try {
-            olapTable = (OlapTable) db.getTableOrMetaException(tableName, Table.TableType.OLAP);
-        } catch (MetaNotFoundException e) {
-            throw new DdlException(e.getMessage());
-        }
+        OlapTable olapTable = db.getTableOrDdlException(tableName, Table.TableType.OLAP);
         olapTable.writeLock();
         try {
             // if (olapTable.getState() != OlapTableState.SCHEMA_CHANGE
@@ -2430,7 +2425,7 @@ public class SchemaChangeHandler extends AlterHandler {
                 long jobId = job.getJobId();
                 LOG.debug("cancel build index job {} on table {}", jobId, tableName);
                 if (!job.cancel("user cancelled")) {
-                    LOG.info("cancel build index job {} on table {} failed", jobId, tableName);
+                    LOG.warn("cancel build index job {} on table {} failed", jobId, tableName);
                     throw new DdlException("Job can not be cancelled. State: " + job.getJobState());
                 } else {
                     LOG.info("cancel build index job {} on table {} success", jobId, tableName);
