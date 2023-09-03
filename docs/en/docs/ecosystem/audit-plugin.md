@@ -54,6 +54,10 @@ The audit log plug-in framework is enabled by default in Doris and is controlled
     * plugin.properties: plugin properties file.
     * plugin.conf: plugin configuration file.
 
+You can place this file on an http download server or copy(or unzip) it to the specified directory of all FEs. Here we use the latter.  
+The installation of this plugin can be found in [INSTALL](../sql-manual/sql-reference/Database-Administration-Statements/INSTALL-PLUGIN.md)  
+After executing install, the AuditLoader directory will be automatically generated.
+
 3. Modify plugin.conf
 
    The following configurations are available for modification:

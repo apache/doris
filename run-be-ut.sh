@@ -233,7 +233,7 @@ rm -rf "${CONF_DIR}"
 mkdir "${CONF_DIR}"
 cp "${DORIS_HOME}/conf/be.conf" "${CONF_DIR}"/
 
-export TERM='xterm'
+export TERM="xterm"
 export UDF_RUNTIME_DIR="${DORIS_TEST_BINARY_DIR}/lib/udf-runtime"
 export LOG_DIR="${DORIS_TEST_BINARY_DIR}/log"
 while read -r variable; do

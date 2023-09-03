@@ -798,6 +798,9 @@ public class Alter {
         // get value from properties here
         // 1. replica allocation
         ReplicaAllocation replicaAlloc = PropertyAnalyzer.analyzeReplicaAllocation(properties, "");
+        if (!replicaAlloc.isNotSet()) {
+            olapTable.checkChangeReplicaAllocation();
+        }
         Env.getCurrentSystemInfo().checkReplicaAllocation(replicaAlloc);
         // 2. in memory
         boolean newInMemory = PropertyAnalyzer.analyzeBooleanProp(properties,
