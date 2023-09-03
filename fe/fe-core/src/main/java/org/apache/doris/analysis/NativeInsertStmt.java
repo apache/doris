@@ -42,7 +42,7 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.ExternalCatalog;
-import org.apache.doris.datasource.JdbcExternalCatalog;
+import org.apache.doris.datasource.jdbc.JdbcExternalCatalog;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.planner.DataPartition;
 import org.apache.doris.planner.DataSink;
@@ -913,6 +913,11 @@ public class NativeInsertStmt extends InsertStmt {
         dataSink = null;
         dataPartition = null;
         targetColumns.clear();
+    }
+
+    protected void resetPrepare() {
+        label = null;
+        isTransactionBegin = false;
     }
 
     @Override

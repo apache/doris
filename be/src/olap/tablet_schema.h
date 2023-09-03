@@ -248,7 +248,6 @@ public:
     bool store_row_column() const { return _store_row_column; }
     void set_skip_write_index_on_load(bool skip) { _skip_write_index_on_load = skip; }
     bool skip_write_index_on_load() const { return _skip_write_index_on_load; }
-    bool is_dynamic_schema() const { return _is_dynamic_schema; }
     int32_t delete_sign_idx() const { return _delete_sign_idx; }
     void set_delete_sign_idx(int32_t delete_sign_idx) { _delete_sign_idx = delete_sign_idx; }
     bool has_sequence_col() const { return _sequence_col_idx != -1; }
@@ -301,7 +300,7 @@ public:
             if (str.size() > 1) {
                 str += ", ";
             }
-            str += p.first;
+            str += p.first + "(" + std::to_string(_cols[p.second].unique_id()) + ")";
         }
         str += "]";
         return str;
@@ -344,7 +343,6 @@ private:
     bool _has_bf_fpp = false;
     double _bf_fpp = 0;
     bool _is_in_memory = false;
-    bool _is_dynamic_schema = false;
     int32_t _delete_sign_idx = -1;
     int32_t _sequence_col_idx = -1;
     int32_t _version_col_idx = -1;

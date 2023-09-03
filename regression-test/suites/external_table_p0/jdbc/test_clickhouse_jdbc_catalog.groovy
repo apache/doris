@@ -27,7 +27,7 @@ suite("test_clickhouse_jdbc_catalog", "p0,external,clickhouse,external_docker,ex
         String bucket = getS3BucketName()
         String driver_url = "https://${bucket}.${s3_endpoint}/regression/jdbc_driver/clickhouse-jdbc-0.4.2-all.jar"
 
-        String inDorisTable = "doris_in_tb";
+        String inDorisTable = "test_clickhouse_jdbc_doris_in_tb";
 
         sql """create database if not exists ${internal_db_name}; """
 
@@ -41,10 +41,10 @@ suite("test_clickhouse_jdbc_catalog", "p0,external,clickhouse,external_docker,ex
                     "driver_url" = "${driver_url}",
                     "driver_class" = "com.clickhouse.jdbc.ClickHouseDriver"
         );"""
-
-        sql  """ drop table if exists ${inDorisTable} """
+        sql """use ${internal_db_name}"""
+        sql  """ drop table if exists ${internal_db_name}.${inDorisTable} """
         sql  """
-              CREATE TABLE ${inDorisTable} (
+              CREATE TABLE ${internal_db_name}.${inDorisTable} (
                 `id` INT NULL COMMENT "主键id",
                 `name` string NULL COMMENT "名字",
                 `age` INT NULL COMMENT "年龄"
@@ -64,6 +64,10 @@ suite("test_clickhouse_jdbc_catalog", "p0,external,clickhouse,external_docker,ex
         order_qt_filter  """ select k1,k2 from type where 1 = 1 order by 1 ; """
         order_qt_filter2  """ select k1,k2 from type where 1 = 1 and  k1 = true order by 1 ; """
         order_qt_filter3  """ select k1,k2 from type where k1 = true order by 1 ; """
+        sql "set jdbc_clickhouse_query_final = true;"
+        order_qt_final1 """select * from final_test"""
+        sql "set jdbc_clickhouse_query_final = false;"
+        order_qt_final2 """select * from final_test"""
 
         sql """ drop catalog if exists ${catalog_name} """
     }

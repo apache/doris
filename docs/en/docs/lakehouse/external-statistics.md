@@ -191,6 +191,11 @@ DROP ANALYZE JOB [JOB_ID]
 Show statistics includes show table statistics (number of rows) and column statistics. Please refer to View statistics in [Internal Table Statistics](../query-acceleration/statistics.md)
 
 #### Table statistics
+```
+SHOW TABLE [cached] stats TABLE_NAME;
+```
+
+View row count of the given table. If the cached parameter is specified, the row count of the specified table that has been loaded into the cache is displayed.
 
 ```
 mysql> SHOW TABLE STATS hive.tpch100.orders;
@@ -203,7 +208,7 @@ mysql> SHOW TABLE STATS hive.tpch100.orders;
 
 #### Column statistics
 ```
-SHOW COLUMN [cached] stats hive.tpch100.orders;
+SHOW COLUMN [cached] stats TABLE_NAME;
 ```
 
 View the column statistics of a table. If the cached parameter is specified, the column information of the specified table that has been loaded into the cache is displayed.

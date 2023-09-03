@@ -39,9 +39,9 @@ import org.apache.doris.nereids.trees.expressions.BoundStar;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
+import org.apache.doris.nereids.trees.expressions.Properties;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
-import org.apache.doris.nereids.trees.expressions.TVFProperties;
 import org.apache.doris.nereids.trees.expressions.functions.BoundFunction;
 import org.apache.doris.nereids.trees.expressions.functions.Function;
 import org.apache.doris.nereids.trees.expressions.functions.FunctionBuilder;
@@ -76,6 +76,7 @@ import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
 
@@ -83,7 +84,6 @@ import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.HashSet;
-import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -149,7 +149,7 @@ public class BindExpression implements AnalysisRuleFactory {
                     Set<Expression> boundConjuncts = filter.getConjuncts().stream()
                             .map(expr -> bindSlot(expr, filter.children(), ctx.cascadesContext))
                             .map(expr -> bindFunction(expr, ctx.cascadesContext))
-                            .collect(Collectors.toCollection(LinkedHashSet::new));
+                            .collect(ImmutableSet.toImmutableSet());
                     return new LogicalFilter<>(boundConjuncts, filter.child());
                 })
             ),
@@ -613,9 +613,12 @@ public class BindExpression implements AnalysisRuleFactory {
 
     private <E extends Expression> List<E> bindSlot(
             List<E> exprList, List<Plan> inputs, CascadesContext cascadesContext) {
-        return exprList.stream()
-            .map(expr -> bindSlot(expr, inputs, cascadesContext))
-            .collect(Collectors.toList());
+        List<E> slots = new ArrayList<>(exprList.size());
+        for (E expr : exprList) {
+            E result = bindSlot(expr, inputs, cascadesContext);
+            slots.add(result);
+        }
+        return slots;
     }
 
     private <E extends Expression> E bindSlot(E expr, Plan input, CascadesContext cascadesContext) {
@@ -641,9 +644,10 @@ public class BindExpression implements AnalysisRuleFactory {
 
     private <E extends Expression> E bindSlot(E expr, List<Plan> inputs, CascadesContext cascadesContext,
             boolean enableExactMatch, boolean bindSlotInOuterScope) {
-        List<Slot> boundedSlots = inputs.stream()
-                .flatMap(input -> input.getOutput().stream())
-                .collect(Collectors.toList());
+        List<Slot> boundedSlots = new ArrayList<>();
+        for (Plan input : inputs) {
+            boundedSlots.addAll(input.getOutput());
+        }
         return (E) new SlotBinder(toScope(cascadesContext, boundedSlots), cascadesContext,
                 enableExactMatch, bindSlotInOuterScope).bind(expr);
     }
@@ -693,7 +697,7 @@ public class BindExpression implements AnalysisRuleFactory {
         FunctionRegistry functionRegistry = env.getFunctionRegistry();
 
         String functionName = unboundTVFRelation.getFunctionName();
-        TVFProperties arguments = unboundTVFRelation.getProperties();
+        Properties arguments = unboundTVFRelation.getProperties();
         FunctionBuilder functionBuilder = functionRegistry.findFunctionBuilder(functionName, arguments);
         BoundFunction function = functionBuilder.build(functionName, arguments);
         if (!(function instanceof TableValuedFunction)) {

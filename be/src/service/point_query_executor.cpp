@@ -287,7 +287,7 @@ Status PointQueryExecutor::_lookup_row_key() {
         st = (_tablet->lookup_row_key(_row_read_ctxs[i]._primary_key, true, specified_rowsets,
                                       &location, INT32_MAX /*rethink?*/, segment_caches,
                                       rowset_ptr.get()));
-        if (st.is_not_found()) {
+        if (st.is<ErrorCode::KEY_NOT_FOUND>()) {
             continue;
         }
         RETURN_IF_ERROR(st);

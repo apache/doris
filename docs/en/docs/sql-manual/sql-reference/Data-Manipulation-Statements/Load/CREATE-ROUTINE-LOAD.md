@@ -159,7 +159,7 @@ FROM data_source [data_source_properties]
 
      These three parameters represent:
 
-     1. The maximum execution time of each subtask, in seconds. The range is 5 to 60. Default is 10.
+     1. The maximum execution time of each subtask, in seconds. The range is 1 to 60. Default is 10.
      2. The maximum number of lines read by each subtask. Must be greater than or equal to 200000. The default is 200000.
      3. The maximum number of bytes read by each subtask. The unit is bytes and the range is 100MB to 1GB. The default is 100MB.
 
@@ -249,6 +249,9 @@ FROM data_source [data_source_properties]
   11. `load_to_single_tablet`
       Boolean type, True means that one task can only load data to one tablet in the corresponding partition at a time. The default value is false. This parameter can only be set when loading data into the OLAP table with random partition.
 
+  12. `partial_columns`
+      Boolean type, True means that use partial column update, the default value is false, this parameter is only allowed to be set when the table model is Unique and Merge on Write is used. Multi-table does not support this parameter.
+  
 - `FROM data_source [data_source_properties]`
 
   The type of data source. Currently supports:
@@ -579,7 +582,7 @@ Assuming that we need to import data from Kafka into tables "test1" and "test2" 
    (
        "kafka_broker_list" = "broker1:9092,broker2:9092",
        "kafka_topic" = "my_topic",
-       "kafka_default_offset" = "2021-05-21 10:00:00"
+       "kafka_default_offsets" = "2021-05-21 10:00:00"
    );
    ````
 
@@ -597,11 +600,11 @@ There are three relevant parameters:
 
 - `kafka_partitions`: Specify a list of partitions to be consumed, such as "0, 1, 2, 3".
 - `kafka_offsets`: Specify the starting offset of each partition, which must correspond to the number of `kafka_partitions` list. For example: "1000, 1000, 2000, 2000"
-- `property.kafka_default_offset`: Specifies the default starting offset of the partition.
+- `property.kafka_default_offsets`: Specifies the default starting offset of the partition.
 
 When creating an import job, these three parameters can have the following combinations:
 
-| Composition | `kafka_partitions` | `kafka_offsets` | `property.kafka_default_offset` | Behavior                                                     |
+| Composition | `kafka_partitions` | `kafka_offsets` | `property.kafka_default_offsets` | Behavior                                                     |
 | ----------- | ------------------ | --------------- | ------------------------------- | ------------------------------------------------------------ |
 | 1           | No                 | No              | No                              | The system will automatically find all partitions corresponding to the topic and start consumption from OFFSET_END |
 | 2           | No                 | No              | Yes                             | The system will automatically find all partitions corresponding to the topic and start consumption from the location specified by default offset |

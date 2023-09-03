@@ -79,7 +79,6 @@ EasyJson TabletsInfoAction::get_tablets_info(string tablet_num_to_return) {
     for (TabletInfo tablet_info : tablets_info) {
         EasyJson tablet = tablets.PushBack(EasyJson::kObject);
         tablet["tablet_id"] = tablet_info.tablet_id;
-        tablet["schema_hash"] = tablet_info.schema_hash;
     }
     tablets_info_ej["count"] = tablets_info.size();
     return tablets_info_ej;

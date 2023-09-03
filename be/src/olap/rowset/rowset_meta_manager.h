@@ -35,6 +35,9 @@ class RowsetMetaPB;
 } // namespace doris
 
 namespace doris {
+namespace {
+const std::string ROWSET_PREFIX = "rst_";
+} // namespace
 
 // Helper class for managing rowset meta of one root path.
 class RowsetMetaManager {

@@ -44,6 +44,8 @@ public class JobTask implements Writable {
     private Long endTimeMs;
     @SerializedName("successful")
     private Boolean isSuccessful;
+    @SerializedName("executeResult")
+    private String executeResult;
     @SerializedName("errorMsg")
     private String errorMsg;
 
@@ -63,6 +65,11 @@ public class JobTask implements Writable {
             row.add("RUNNING");
         } else {
             row.add(isSuccessful ? "SUCCESS" : "FAILED");
+        }
+        if (null == executeResult) {
+            row.add("null");
+        } else {
+            row.add(executeResult);
         }
         if (null == errorMsg) {
             row.add("null");

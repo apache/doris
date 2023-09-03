@@ -76,7 +76,7 @@ public class ConnectContext {
     protected volatile long stmtId;
     protected volatile long forwardedStmtId;
 
-    // set for stream load with sql
+    // set for http_stream
     protected volatile TUniqueId loadId;
     protected volatile long backendId;
     protected volatile LoadTaskInfo streamLoadInfo;
@@ -171,6 +171,8 @@ public class ConnectContext {
     private StatsErrorEstimator statsErrorEstimator;
 
     private Map<String, String> resultAttachedInfo;
+
+    private String workloadGroupName = "";
 
     public void setUserQueryTimeout(int queryTimeout) {
         if (queryTimeout > 0) {
@@ -755,8 +757,11 @@ public class ConnectContext {
     public class ThreadInfo {
         public boolean isFull;
 
-        public List<String> toRow(long nowMs) {
+        public List<String> toRow(long nowMs, boolean showFe) {
             List<String> row = Lists.newArrayList();
+            if (showFe) {
+                row.add(Env.getCurrentEnv().getSelfNode().getHost());
+            }
             row.add("" + connectionId);
             row.add(ClusterNamespace.getNameFromFullName(qualifiedUser));
             row.add(getMysqlChannel().getRemoteHostPortString());
@@ -806,5 +811,14 @@ public class ConnectContext {
     public void setStatsErrorEstimator(StatsErrorEstimator statsErrorEstimator) {
         this.statsErrorEstimator = statsErrorEstimator;
     }
+
+    public void setWorkloadGroupName(String workloadGroupName) {
+        this.workloadGroupName = workloadGroupName;
+    }
+
+    public String getWorkloadGroupName() {
+        return this.workloadGroupName;
+    }
+
 }
 

@@ -79,7 +79,7 @@ public:
     NewJsonReader(RuntimeState* state, RuntimeProfile* profile, ScannerCounter* counter,
                   const TFileScanRangeParams& params, const TFileRangeDesc& range,
                   const std::vector<SlotDescriptor*>& file_slot_descs, bool* scanner_eof,
-                  io::IOContext* io_ctx, bool is_dynamic_schema = false);
+                  io::IOContext* io_ctx);
 
     NewJsonReader(RuntimeProfile* profile, const TFileScanRangeParams& params,
                   const TFileRangeDesc& range, const std::vector<SlotDescriptor*>& file_slot_descs,
@@ -109,12 +109,6 @@ private:
     Status _vhandle_simple_json(RuntimeState* /*state*/, Block& block,
                                 const std::vector<SlotDescriptor*>& slot_descs, bool* is_empty_row,
                                 bool* eof);
-
-    Status _parse_dynamic_json(RuntimeState* state, bool* is_empty_row, bool* eof, Block& block,
-                               const std::vector<SlotDescriptor*>& slot_descs);
-    Status _vhandle_dynamic_json(RuntimeState* /*state*/, Block& block,
-                                 const std::vector<SlotDescriptor*>& slot_descs, bool* is_empty_row,
-                                 bool* eof);
 
     Status _vhandle_flat_array_complex_json(RuntimeState* /*state*/, Block& block,
                                             const std::vector<SlotDescriptor*>& slot_descs,
@@ -242,8 +236,6 @@ private:
     RuntimeProfile::Counter* _read_timer;
     RuntimeProfile::Counter* _file_read_timer;
 
-    bool _is_dynamic_schema = false;
-
     // ======SIMD JSON======
     // name mapping
     /// Hash table match `field name -> position in the block`. NOTE You can use perfect hash map.
@@ -256,6 +248,7 @@ private:
     // simdjson
     static constexpr size_t _init_buffer_size = 1024 * 1024 * 8;
     size_t _padded_size = _init_buffer_size + simdjson::SIMDJSON_PADDING;
+    size_t _original_doc_size = 0;
     std::string _simdjson_ondemand_padding_buffer;
     std::string _simdjson_ondemand_unscape_padding_buffer;
     // char _simdjson_ondemand_padding_buffer[_padded_size];
@@ -269,7 +262,6 @@ private:
     std::unique_ptr<simdjson::ondemand::parser> _ondemand_json_parser = nullptr;
     // column to default value string map
     std::unordered_map<std::string, std::string> _col_default_value_map;
-    int32_t _cur_parsed_variant_rows = 0;
 };
 
 } // namespace vectorized

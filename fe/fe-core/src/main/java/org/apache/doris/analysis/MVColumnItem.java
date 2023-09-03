@@ -92,6 +92,7 @@ public class MVColumnItem {
 
         this.type = defineExpr.getType();
         if (this.type instanceof ScalarType && this.type.isStringType()) {
+            this.type = new ScalarType(type.getPrimitiveType());
             ((ScalarType) this.type).setMaxLength();
         }
 

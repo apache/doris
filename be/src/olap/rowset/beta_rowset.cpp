@@ -175,6 +175,8 @@ Status BetaRowset::remove() {
     VLOG_NOTICE << "begin to remove files in rowset " << unique_id()
                 << ", version:" << start_version() << "-" << end_version()
                 << ", tabletid:" << _rowset_meta->tablet_id();
+    // If the rowset was removed, it need to remove the fds in segment cache directly
+    SegmentLoader::instance()->erase_segments(SegmentCache::CacheKey(rowset_id()));
     auto fs = _rowset_meta->fs();
     if (!fs) {
         return Status::Error<INIT_FAILED>("get fs failed");

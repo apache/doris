@@ -233,7 +233,7 @@ suite("test_delete") {
         PROPERTIES (
             "replication_num" = "1",
             "enable_unique_key_merge_on_write" = "true"
-        ); 
+        );
     '''
     
     sql 'insert into test1 values("a", "a"), ("bb", "bb"), ("ccc", "ccc")'

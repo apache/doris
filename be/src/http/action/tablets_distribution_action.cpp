@@ -116,9 +116,6 @@ EasyJson TabletsDistributionAction::get_tablets_distribution_group_by_partition(
                     tablet["tablet_id"] =
                             tablets_info_on_disk[partition_iter->first][disk_iter->first][i]
                                     .tablet_id;
-                    tablet["schema_hash"] =
-                            tablets_info_on_disk[partition_iter->first][disk_iter->first][i]
-                                    .schema_hash;
                     tablet["tablet_size"] =
                             tablets_info_on_disk[partition_iter->first][disk_iter->first][i]
                                     .tablet_size;
