@@ -45,7 +45,6 @@
 #include <unordered_set>
 #include <utility>
 
-#include "agent/task_worker_pool.h"
 #include "common/config.h"
 #include "common/logging.h"
 #include "gutil/strings/substitute.h"
@@ -715,6 +714,7 @@ Status StorageEngine::start_trash_sweep(double* usage, bool ignore_guard) {
     for (auto data_dir : get_stores()) {
         data_dir->perform_remote_rowset_gc();
         data_dir->perform_remote_tablet_gc();
+        data_dir->update_trash_capacity();
     }
 
     return res;
@@ -1143,6 +1143,15 @@ void StorageEngine::notify_listeners() {
     std::lock_guard<std::mutex> l(_report_mtx);
     for (auto& listener : _report_listeners) {
         listener->notify_thread();
+    }
+}
+
+void StorageEngine::notify_listener(TaskWorkerPool::TaskWorkerType task_worker_type) {
+    std::lock_guard<std::mutex> l(_report_mtx);
+    for (auto& listener : _report_listeners) {
+        if (listener->task_worker_type() == task_worker_type) {
+            listener->notify_thread();
+        }
     }
 }
 
