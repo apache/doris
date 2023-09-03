@@ -17,6 +17,16 @@
 
 package org.apache.doris.catalog.external;
 
+import org.apache.doris.catalog.ArrayType;
+import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.MapType;
+import org.apache.doris.catalog.ScalarType;
+import org.apache.doris.catalog.Type;
+import org.apache.doris.datasource.cassandra.CassandraExternalCatalog;
+import org.apache.doris.thrift.TCassandraTable;
+import org.apache.doris.thrift.TTableDescriptor;
+import org.apache.doris.thrift.TTableType;
+
 import com.datastax.oss.driver.api.core.CqlIdentifier;
 import com.datastax.oss.driver.api.core.metadata.schema.ColumnMetadata;
 import com.datastax.oss.driver.api.core.metadata.schema.TableMetadata;
@@ -26,13 +36,6 @@ import com.datastax.oss.driver.internal.core.type.DefaultMapType;
 import com.datastax.oss.driver.internal.core.type.DefaultSetType;
 import com.datastax.oss.protocol.internal.ProtocolConstants;
 import com.google.common.collect.Lists;
-
-import org.apache.doris.catalog.*;
-import org.apache.doris.datasource.cassandra.CassandraExternalCatalog;
-import org.apache.doris.thrift.TCassandraTable;
-import org.apache.doris.thrift.TTableDescriptor;
-import org.apache.doris.thrift.TTableType;
-
 import org.apache.paimon.types.DecimalType;
 
 import java.util.List;
@@ -131,8 +134,8 @@ public class CassandraExternalTable extends ExternalTable {
         tCassandraTable.setUsername(((CassandraExternalCatalog) catalog).getUserName());
         tCassandraTable.setPassword(((CassandraExternalCatalog) catalog).getPassword());
         tCassandraTable.setDatacenter(((CassandraExternalCatalog) catalog).getDatacenter());
-        TTableDescriptor tTableDescriptor = new TTableDescriptor(getId(), TTableType.CASSANDRA_TABLE,
-                schema.size(), 0, getName(), dbName);
+        TTableDescriptor tTableDescriptor = new TTableDescriptor(getId(), TTableType.CASSANDRA_TABLE, schema.size(), 0,
+                getName(), dbName);
         tTableDescriptor.setCassandraTable(tCassandraTable);
         return tTableDescriptor;
 

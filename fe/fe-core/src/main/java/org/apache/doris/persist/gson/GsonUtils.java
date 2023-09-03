@@ -153,8 +153,7 @@ public class GsonUtils {
 
     // runtime adapter for class "Type"
     private static RuntimeTypeAdapterFactory<org.apache.doris.catalog.Type> columnTypeAdapterFactory
-            = RuntimeTypeAdapterFactory
-            .of(org.apache.doris.catalog.Type.class, "clazz")
+            = RuntimeTypeAdapterFactory.of(org.apache.doris.catalog.Type.class, "clazz")
             // TODO: register other sub type after Doris support more types.
             .registerSubtype(ScalarType.class, ScalarType.class.getSimpleName())
             .registerSubtype(ArrayType.class, ArrayType.class.getSimpleName())
@@ -164,15 +163,13 @@ public class GsonUtils {
 
     // runtime adapter for class "DistributionInfo"
     private static RuntimeTypeAdapterFactory<DistributionInfo> distributionInfoTypeAdapterFactory
-            = RuntimeTypeAdapterFactory
-            .of(DistributionInfo.class, "clazz")
+            = RuntimeTypeAdapterFactory.of(DistributionInfo.class, "clazz")
             .registerSubtype(HashDistributionInfo.class, HashDistributionInfo.class.getSimpleName())
             .registerSubtype(RandomDistributionInfo.class, RandomDistributionInfo.class.getSimpleName());
 
     // runtime adapter for class "Resource"
-    private static RuntimeTypeAdapterFactory<Resource> resourceTypeAdapterFactory = RuntimeTypeAdapterFactory
-            .of(Resource.class, "clazz")
-            .registerSubtype(SparkResource.class, SparkResource.class.getSimpleName())
+    private static RuntimeTypeAdapterFactory<Resource> resourceTypeAdapterFactory = RuntimeTypeAdapterFactory.of(
+                    Resource.class, "clazz").registerSubtype(SparkResource.class, SparkResource.class.getSimpleName())
             .registerSubtype(OdbcCatalogResource.class, OdbcCatalogResource.class.getSimpleName())
             .registerSubtype(S3Resource.class, S3Resource.class.getSimpleName())
             .registerSubtype(JdbcResource.class, JdbcResource.class.getSimpleName())
@@ -181,15 +178,13 @@ public class GsonUtils {
             .registerSubtype(EsResource.class, EsResource.class.getSimpleName());
 
     // runtime adapter for class "AlterJobV2"
-    private static RuntimeTypeAdapterFactory<AlterJobV2> alterJobV2TypeAdapterFactory = RuntimeTypeAdapterFactory
-            .of(AlterJobV2.class, "clazz")
-            .registerSubtype(RollupJobV2.class, RollupJobV2.class.getSimpleName())
+    private static RuntimeTypeAdapterFactory<AlterJobV2> alterJobV2TypeAdapterFactory = RuntimeTypeAdapterFactory.of(
+                    AlterJobV2.class, "clazz").registerSubtype(RollupJobV2.class, RollupJobV2.class.getSimpleName())
             .registerSubtype(SchemaChangeJobV2.class, SchemaChangeJobV2.class.getSimpleName());
 
     // runtime adapter for class "SyncJob"
-    private static RuntimeTypeAdapterFactory<SyncJob> syncJobTypeAdapterFactory = RuntimeTypeAdapterFactory
-            .of(SyncJob.class, "clazz")
-            .registerSubtype(CanalSyncJob.class, CanalSyncJob.class.getSimpleName());
+    private static RuntimeTypeAdapterFactory<SyncJob> syncJobTypeAdapterFactory = RuntimeTypeAdapterFactory.of(
+            SyncJob.class, "clazz").registerSubtype(CanalSyncJob.class, CanalSyncJob.class.getSimpleName());
 
     // runtime adapter for class "LoadJobStateUpdateInfo"
     private static RuntimeTypeAdapterFactory<LoadJobStateUpdateInfo> loadJobStateUpdateInfoTypeAdapterFactory
@@ -202,8 +197,7 @@ public class GsonUtils {
             .registerSubtype(StoragePolicy.class, StoragePolicy.class.getSimpleName());
 
     private static RuntimeTypeAdapterFactory<CatalogIf> dsTypeAdapterFactory = RuntimeTypeAdapterFactory.of(
-                    CatalogIf.class, "clazz")
-            .registerSubtype(InternalCatalog.class, InternalCatalog.class.getSimpleName())
+                    CatalogIf.class, "clazz").registerSubtype(InternalCatalog.class, InternalCatalog.class.getSimpleName())
             .registerSubtype(HMSExternalCatalog.class, HMSExternalCatalog.class.getSimpleName())
             .registerSubtype(EsExternalCatalog.class, EsExternalCatalog.class.getSimpleName())
             .registerSubtype(JdbcExternalCatalog.class, JdbcExternalCatalog.class.getSimpleName())
@@ -219,18 +213,15 @@ public class GsonUtils {
             .registerSubtype(DeltaLakeExternalCatalog.class, DeltaLakeExternalCatalog.class.getSimpleName())
             .registerSubtype(CassandraExternalCatalog.class, CassandraExternalCatalog.class.getSimpleName());
     // routine load data source
-    private static RuntimeTypeAdapterFactory<AbstractDataSourceProperties> rdsTypeAdapterFactory =
-            RuntimeTypeAdapterFactory.of(
-                            AbstractDataSourceProperties.class, "clazz")
-                    .registerSubtype(KafkaDataSourceProperties.class, KafkaDataSourceProperties.class.getSimpleName());
-    private static RuntimeTypeAdapterFactory<JobExecutor> jobExecutorRuntimeTypeAdapterFactory =
-            RuntimeTypeAdapterFactory.of(
-                            JobExecutor.class, "clazz")
-                    .registerSubtype(SqlJobExecutor.class, SqlJobExecutor.class.getSimpleName());
+    private static RuntimeTypeAdapterFactory<AbstractDataSourceProperties> rdsTypeAdapterFactory
+            = RuntimeTypeAdapterFactory.of(AbstractDataSourceProperties.class, "clazz")
+            .registerSubtype(KafkaDataSourceProperties.class, KafkaDataSourceProperties.class.getSimpleName());
+    private static RuntimeTypeAdapterFactory<JobExecutor> jobExecutorRuntimeTypeAdapterFactory
+            = RuntimeTypeAdapterFactory.of(JobExecutor.class, "clazz")
+            .registerSubtype(SqlJobExecutor.class, SqlJobExecutor.class.getSimpleName());
 
     private static RuntimeTypeAdapterFactory<DatabaseIf> dbTypeAdapterFactory = RuntimeTypeAdapterFactory.of(
-                    DatabaseIf.class, "clazz")
-            .registerSubtype(ExternalDatabase.class, ExternalDatabase.class.getSimpleName())
+                    DatabaseIf.class, "clazz").registerSubtype(ExternalDatabase.class, ExternalDatabase.class.getSimpleName())
             .registerSubtype(EsExternalDatabase.class, EsExternalDatabase.class.getSimpleName())
             .registerSubtype(HMSExternalDatabase.class, HMSExternalDatabase.class.getSimpleName())
             .registerSubtype(JdbcExternalDatabase.class, JdbcExternalDatabase.class.getSimpleName())
@@ -282,34 +273,31 @@ public class GsonUtils {
             .registerTypeAdapterFactory(policyTypeAdapterFactory).registerTypeAdapterFactory(dsTypeAdapterFactory)
             .registerTypeAdapterFactory(dbTypeAdapterFactory).registerTypeAdapterFactory(tblTypeAdapterFactory)
             .registerTypeAdapterFactory(partitionInfoTypeAdapterFactory)
-            .registerTypeAdapterFactory(hbResponseTypeAdapterFactory)
-            .registerTypeAdapterFactory(rdsTypeAdapterFactory)
+            .registerTypeAdapterFactory(hbResponseTypeAdapterFactory).registerTypeAdapterFactory(rdsTypeAdapterFactory)
             .registerTypeAdapterFactory(jobExecutorRuntimeTypeAdapterFactory)
             .registerTypeAdapter(ImmutableMap.class, new ImmutableMapDeserializer())
             .registerTypeAdapter(AtomicBoolean.class, new AtomicBooleanAdapter())
             .registerTypeAdapter(PartitionKey.class, new PartitionKey.PartitionKeySerializer())
-            .registerTypeAdapter(Range.class, new RangeUtils.RangeSerializer()).setExclusionStrategies(
-                    new ExclusionStrategy() {
-                        @Override
-                        public boolean shouldSkipField(FieldAttributes f) {
-                            return false;
-                        }
+            .registerTypeAdapter(Range.class, new RangeUtils.RangeSerializer())
+            .setExclusionStrategies(new ExclusionStrategy() {
+                @Override
+                public boolean shouldSkipField(FieldAttributes f) {
+                    return false;
+                }
 
-                        @Override
-                        public boolean shouldSkipClass(Class<?> clazz) {
+                @Override
+                public boolean shouldSkipClass(Class<?> clazz) {
                             /* due to java.lang.IllegalArgumentException: com.lmax.disruptor.RingBuffer
                             <org.apache.doris.scheduler.disruptor.TimerTaskEvent> declares multiple
                             JSON fields named p1 */
-                            return clazz.getName().startsWith("com.lmax.disruptor.RingBuffer");
-                        }
-                    });
+                    return clazz.getName().startsWith("com.lmax.disruptor.RingBuffer");
+                }
+            });
 
     private static final GsonBuilder GSON_BUILDER_PRETTY_PRINTING = GSON_BUILDER.setPrettyPrinting();
-
+    public static final Gson GSON_PRETTY_PRINTING = GSON_BUILDER_PRETTY_PRINTING.create();
     // this instance is thread-safe.
     public static final Gson GSON = GSON_BUILDER.create();
-
-    public static final Gson GSON_PRETTY_PRINTING = GSON_BUILDER_PRETTY_PRINTING.create();
 
     /*
      * The exclusion strategy of GSON serialization.
@@ -513,8 +501,7 @@ public class GsonUtils {
 
         @Override
         public AtomicBoolean deserialize(JsonElement jsonElement, Type type,
-                JsonDeserializationContext jsonDeserializationContext)
-                throws JsonParseException {
+                JsonDeserializationContext jsonDeserializationContext) throws JsonParseException {
             JsonObject jsonObject = jsonElement.getAsJsonObject();
             boolean value = jsonObject.get("boolean").getAsBoolean();
             return new AtomicBoolean(value);
