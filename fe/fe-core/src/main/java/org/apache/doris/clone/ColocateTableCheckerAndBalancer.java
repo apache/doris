@@ -336,8 +336,13 @@ public class ColocateTableCheckerAndBalancer extends MasterDaemon {
      */
     protected void runAfterCatalogReady() {
         Set<GroupId> groupIds = Sets.newHashSet(Env.getCurrentEnv().getColocateTableIndex().getAllGroupIds());
+
+        // balance only inside each group, excluded balance between all groups
         Set<GroupId> changeGroups = relocateAndBalanceGroup(groupIds, false);
-        if (!Config.disable_colocate_balance_between_groups) {
+
+        if (!Config.disable_colocate_balance_between_groups
+                && !changeGroups.isEmpty()) {
+            // balance both inside each group and between all groups
             relocateAndBalanceGroup(changeGroups, true);
         }
         matchGroup();
