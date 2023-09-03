@@ -54,11 +54,10 @@ bool BackendOptions::init() {
         return false;
     }
 
-    std::string loopback;
     std::vector<InetAddress>::iterator addr_it = hosts.begin();
-    for (; addr_it != hosts.end(); ++addr_it) {
-        VLOG_CRITICAL << "check ip=" << addr_it->get_host_address();
-        if (!_s_priority_cidrs.empty()) {
+    if (!_s_priority_cidrs.empty()) {
+        for (; addr_it != hosts.end(); ++addr_it) {
+            VLOG_CRITICAL << "check ip=" << addr_it->get_host_address();
             // Whether to use IPV4 or IPV6, it's configured by CIDR format.
             // If both IPV4 and IPV6 are configured, the config order decides priority.
             if (is_in_prior_network(addr_it->get_host_address())) {
@@ -68,21 +67,30 @@ bool BackendOptions::init() {
             }
             LOG(INFO) << "skip ip not belonged to priority networks: "
                       << addr_it->get_host_address();
-        } else if ((*addr_it).is_loopback()) {
-            loopback = addr_it->get_host_address();
-            _bind_ipv6 = addr_it->is_ipv6();
-        } else if (!addr_it->is_ipv6()) {
-            _s_localhost = addr_it->get_host_address();
-            _bind_ipv6 = addr_it->is_ipv6();
-            break;
+        }
+        if (_s_localhost.empty()) {
+            LOG(FATAL) << "fail to find one valid address, exit.";
+            return false;
+        }
+    } else {
+        std::string loopback;
+        for (; addr_it != hosts.end(); ++addr_it) {
+            if ((*addr_it).is_loopback()) {
+                loopback = addr_it->get_host_address();
+                _bind_ipv6 = addr_it->is_ipv6();
+            } else if (!addr_it->is_ipv6()) {
+                _s_localhost = addr_it->get_host_address();
+                _bind_ipv6 = addr_it->is_ipv6();
+                break;
+            }
+        }
+        if (_s_localhost.empty()) {
+            LOG(INFO) << "fail to find one valid non-loopback address, use loopback address.";
+            _s_localhost = loopback;
         }
     }
     if (_bind_ipv6) {
         _service_bind_address = "[::0]";
-    }
-    if (_s_localhost.empty()) {
-        LOG(INFO) << "fail to find one valid non-loopback address, use loopback address.";
-        _s_localhost = loopback;
     }
     LOG(INFO) << "local host ip=" << _s_localhost;
     return true;
