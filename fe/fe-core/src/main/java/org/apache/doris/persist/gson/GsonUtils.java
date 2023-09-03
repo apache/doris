@@ -44,6 +44,8 @@ import org.apache.doris.catalog.SinglePartitionInfo;
 import org.apache.doris.catalog.SparkResource;
 import org.apache.doris.catalog.StructType;
 import org.apache.doris.catalog.TableIf;
+import org.apache.doris.catalog.external.CassandraExternalDatabase;
+import org.apache.doris.catalog.external.CassandraExternalTable;
 import org.apache.doris.catalog.external.DeltaLakeExternalDataBase;
 import org.apache.doris.catalog.external.DeltaLakeExternalTable;
 import org.apache.doris.catalog.external.EsExternalDatabase;
@@ -60,8 +62,6 @@ import org.apache.doris.catalog.external.MaxComputeExternalDatabase;
 import org.apache.doris.catalog.external.MaxComputeExternalTable;
 import org.apache.doris.catalog.external.PaimonExternalDatabase;
 import org.apache.doris.catalog.external.PaimonExternalTable;
-import org.apache.doris.catalog.external.CassandraExternalDatabase;
-import org.apache.doris.catalog.external.CassandraExternalTable;
 import org.apache.doris.common.util.RangeUtils;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.EsExternalCatalog;
@@ -197,7 +197,8 @@ public class GsonUtils {
             .registerSubtype(StoragePolicy.class, StoragePolicy.class.getSimpleName());
 
     private static RuntimeTypeAdapterFactory<CatalogIf> dsTypeAdapterFactory = RuntimeTypeAdapterFactory.of(
-                    CatalogIf.class, "clazz").registerSubtype(InternalCatalog.class, InternalCatalog.class.getSimpleName())
+                    CatalogIf.class, "clazz").registerSubtype(InternalCatalog.class,
+                    InternalCatalog.class.getSimpleName())
             .registerSubtype(HMSExternalCatalog.class, HMSExternalCatalog.class.getSimpleName())
             .registerSubtype(EsExternalCatalog.class, EsExternalCatalog.class.getSimpleName())
             .registerSubtype(JdbcExternalCatalog.class, JdbcExternalCatalog.class.getSimpleName())
@@ -220,8 +221,9 @@ public class GsonUtils {
             = RuntimeTypeAdapterFactory.of(JobExecutor.class, "clazz")
             .registerSubtype(SqlJobExecutor.class, SqlJobExecutor.class.getSimpleName());
 
-    private static RuntimeTypeAdapterFactory<DatabaseIf> dbTypeAdapterFactory = RuntimeTypeAdapterFactory.of(
-                    DatabaseIf.class, "clazz").registerSubtype(ExternalDatabase.class, ExternalDatabase.class.getSimpleName())
+    private static RuntimeTypeAdapterFactory<DatabaseIf> dbTypeAdapterFactory = RuntimeTypeAdapterFactory
+            .of(DatabaseIf.class, "clazz").registerSubtype(ExternalDatabase.class,
+                    ExternalDatabase.class.getSimpleName())
             .registerSubtype(EsExternalDatabase.class, EsExternalDatabase.class.getSimpleName())
             .registerSubtype(HMSExternalDatabase.class, HMSExternalDatabase.class.getSimpleName())
             .registerSubtype(JdbcExternalDatabase.class, JdbcExternalDatabase.class.getSimpleName())
@@ -287,7 +289,7 @@ public class GsonUtils {
 
                 @Override
                 public boolean shouldSkipClass(Class<?> clazz) {
-                            /* due to java.lang.IllegalArgumentException: com.lmax.disruptor.RingBuffer
+                    /* due to java.lang.IllegalArgumentException: com.lmax.disruptor.RingBuffer
                             <org.apache.doris.scheduler.disruptor.TimerTaskEvent> declares multiple
                             JSON fields named p1 */
                     return clazz.getName().startsWith("com.lmax.disruptor.RingBuffer");
