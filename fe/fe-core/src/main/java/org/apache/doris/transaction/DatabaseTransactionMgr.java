@@ -81,7 +81,6 @@ import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
-import java.util.function.Function;
 import java.util.stream.Collectors;
 
 /**
@@ -485,32 +484,9 @@ public class DatabaseTransactionMgr {
             }
             tabletToBackends.get(tabletId).add(tabletCommitInfos.get(i).getBackendId());
         }
-        List<String> tabletSuccReplicas = Lists.newArrayList();
-        List<String> tabletWriteFailedReplicas = Lists.newArrayList();
-        List<String> tabletVersionFailedReplicas = Lists.newArrayList();
-        Function<Replica, String> getReplicaInfo = replica -> {
-            StringBuilder strBuffer = new StringBuilder("[replicaId=");
-            strBuffer.append(replica.getId());
-            strBuffer.append(", backendId=");
-            strBuffer.append(replica.getBackendId());
-            strBuffer.append(", backendAlive=");
-            strBuffer.append(Env.getCurrentSystemInfo().checkBackendAlive(replica.getBackendId()));
-            strBuffer.append(", version=");
-            strBuffer.append(replica.getVersion());
-            if (replica.getLastFailedVersion() >= 0) {
-                strBuffer.append(", lastFailedVersion=");
-                strBuffer.append(replica.getLastFailedVersion());
-                strBuffer.append(", lastSuccessVersion=");
-                strBuffer.append(replica.getLastSuccessVersion());
-                strBuffer.append(", lastFailedTimestamp=");
-                strBuffer.append(replica.getLastFailedTimestamp());
-            }
-            strBuffer.append(", state=");
-            strBuffer.append(replica.getState().name());
-            strBuffer.append("]");
-
-            return strBuffer.toString();
-        };
+        List<Replica> tabletSuccReplicas = Lists.newArrayList();
+        List<Replica> tabletWriteFailedReplicas = Lists.newArrayList();
+        List<Replica> tabletVersionFailedReplicas = Lists.newArrayList();
 
         for (long tableId : tableToPartition.keySet()) {
             OlapTable table = (OlapTable) db.getTableOrMetaException(tableId);
@@ -558,15 +534,12 @@ public class DatabaseTransactionMgr {
                         tabletSuccReplicas.clear();
                         tabletWriteFailedReplicas.clear();
                         tabletVersionFailedReplicas.clear();
-                        int successReplicaNum = 0;
                         long tabletId = tablet.getId();
                         Set<Long> tabletBackends = tablet.getBackendIds();
                         totalInvolvedBackends.addAll(tabletBackends);
                         Set<Long> commitBackends = tabletToBackends.get(tabletId);
                         // save the error replica ids for current tablet
                         // this param is used for log
-                        Set<Long> errorBackendIdsForTablet = Sets.newHashSet();
-                        String errorReplicaInfo = new String();
                         for (long tabletBackend : tabletBackends) {
                             Replica replica = tabletInvertedIndex.getReplica(tabletId, tabletBackend);
                             if (replica == null) {
@@ -582,60 +555,59 @@ public class DatabaseTransactionMgr {
                                 // ignore it but not log it
                                 // for example, a replica is in clone state
                                 if (replica.getLastFailedVersion() < 0) {
-                                    ++successReplicaNum;
-                                    tabletSuccReplicas.add(getReplicaInfo.apply(replica));
+                                    tabletSuccReplicas.add(replica);
                                 } else {
-                                    errorReplicaInfo += " replica [" + replica.getId() + "], lastFailedVersion ["
-                                                        + replica.getLastFailedVersion() + "]";
-                                    tabletVersionFailedReplicas.add(getReplicaInfo.apply(replica));
+                                    tabletVersionFailedReplicas.add(replica);
                                 }
                             } else {
-                                tabletWriteFailedReplicas.add(getReplicaInfo.apply(replica));
-                                errorBackendIdsForTablet.add(tabletBackend);
+                                tabletWriteFailedReplicas.add(replica);
                                 errorReplicaIds.add(replica.getId());
-                                // not remove rollup task here, because the commit maybe failed
-                                // remove rollup task when commit successfully
-                                errorReplicaInfo += " replica [" + replica.getId() + "] commitBackends null or "
-                                                    + "tabletBackend [" + tabletBackend + "] does not "
-                                                    + "in commitBackends";
                             }
                         }
 
+                        int successReplicaNum = tabletSuccReplicas.size();
                         if (successReplicaNum < quorumReplicaNum) {
-                            LOG.warn("Failed to commit txn [{}]. "
-                                            + "Tablet [{}] success replica num is {} < quorum replica num {} "
-                                            + "while error backends {} error replica info {} commitBackends {}",
-                                    transactionState.getTransactionId(), tablet.getId(), successReplicaNum,
-                                    quorumReplicaNum, Joiner.on(",").join(errorBackendIdsForTablet),
-                                    errorReplicaInfo, commitBackends);
+                            String writeDetail = getTabletWriteDetail(tabletSuccReplicas, tabletWriteFailedReplicas,
+                                    tabletVersionFailedReplicas);
 
-                            String replicasDetailMsg = "";
-                            if (!tabletSuccReplicas.isEmpty()) {
-                                replicasDetailMsg += String.format("%s replicas final succ: { %s }; ",
-                                        tabletSuccReplicas.size(), Joiner.on(", ").join(tabletSuccReplicas));
-                            }
-                            if (!tabletWriteFailedReplicas.isEmpty()) {
-                                replicasDetailMsg += String.format("%s replicas write data failed: { %s }; ",
-                                        tabletWriteFailedReplicas.size(),
-                                        Joiner.on(", ").join(tabletWriteFailedReplicas));
-                            }
-                            if (!tabletVersionFailedReplicas.isEmpty()) {
-                                replicasDetailMsg += String.format("%s replicas write data succ but miss previous "
-                                                + "version: { %s }.",
-                                        tabletVersionFailedReplicas.size(),
-                                        Joiner.on(", ").join(tabletVersionFailedReplicas));
-                            }
+                            String errMsg = String.format("Failed to commit txn %s, cause tablet %s succ replica "
+                                    + "num %s < quorum replica num %s. table %s, partition %s, this tablet detail: %s",
+                                    transactionId, tablet.getId(), successReplicaNum, quorumReplicaNum, tableId,
+                                    partition.getId(), writeDetail);
+                            LOG.info(errMsg);
 
-                            throw new TabletQuorumFailedException(transactionId, String.format(
-                                        "Failed to commit txn %s, cause tablet %s succ replica num %s < quorum "
-                                                + " replica num %s. table %s, partition %s, this tablet detail: %s",
-                                        transactionId, tablet.getId(), successReplicaNum, quorumReplicaNum, tableId,
-                                        partition.getId(), replicasDetailMsg));
+                            throw new TabletQuorumFailedException(transactionId, errMsg);
                         }
                     }
                 }
             }
         }
+    }
+
+    private String getTabletWriteDetail(List<Replica> tabletSuccReplicas, List<Replica> tabletWriteFailedReplicas,
+            List<Replica> tabletVersionFailedReplicas) {
+        String writeDetail = "";
+        if (!tabletSuccReplicas.isEmpty()) {
+            writeDetail += String.format("%s replicas final succ: { %s }; ",
+                    tabletSuccReplicas.size(), Joiner.on(", ").join(
+                            tabletSuccReplicas.stream().map(replica -> replica.toStringSimple(true))
+                                    .collect(Collectors.toList())));
+        }
+        if (!tabletWriteFailedReplicas.isEmpty()) {
+            writeDetail += String.format("%s replicas write data failed: { %s }; ",
+                    tabletWriteFailedReplicas.size(), Joiner.on(", ").join(
+                            tabletWriteFailedReplicas.stream().map(replica -> replica.toStringSimple(true))
+                                    .collect(Collectors.toList())));
+        }
+        if (!tabletVersionFailedReplicas.isEmpty()) {
+            writeDetail += String.format("%s replicas write data succ but miss previous "
+                            + "version: { %s }.",
+                    tabletVersionFailedReplicas.size(), Joiner.on(",").join(
+                            tabletVersionFailedReplicas.stream().map(replica -> replica.toStringSimple(true))
+                                    .collect(Collectors.toList())));
+        }
+
+        return writeDetail;
     }
 
     /**
@@ -907,6 +879,18 @@ public class DatabaseTransactionMgr {
             errorReplicaIds.addAll(originalErrorReplicas);
         }
 
+        long now = System.currentTimeMillis();
+        long firstPublishOneSuccTime = transactionState.getFirstPublishOneSuccTime();
+        boolean allowPublishOneSucc = false;
+        if (Config.publish_wait_time_second > 0 && firstPublishOneSuccTime > 0
+                && now >= firstPublishOneSuccTime + Config.publish_wait_time_second * 1000L) {
+            allowPublishOneSucc = true;
+        }
+
+        List<Replica> tabletSuccReplicas = Lists.newArrayList();
+        List<Replica> tabletWriteFailedReplicas = Lists.newArrayList();
+        List<Replica> tabletVersionFailedReplicas = Lists.newArrayList();
+
         // case 1 If database is dropped, then we just throw MetaNotFoundException, because all related tables are
         // already force dropped, we just ignore the transaction with all tables been force dropped.
         // case 2 If at least one table lock successfully, which means that the transaction should be finished for
@@ -919,9 +903,10 @@ public class DatabaseTransactionMgr {
         List<Long> tableIdList = transactionState.getTableIdList();
         LOG.debug("finish transaction {} with tables {}", transactionId, tableIdList);
         List<? extends TableIf> tableList = db.getTablesOnIdOrderIfExist(tableIdList);
+        boolean hasError = false;
         tableList = MetaLockUtils.writeLockTablesIfExist(tableList);
         try {
-            boolean hasError = false;
+            boolean allTabletsLeastOneSucc = true;
             Iterator<TableCommitInfo> tableCommitInfoIterator
                     = transactionState.getIdToTableCommitInfos().values().iterator();
             while (tableCommitInfoIterator.hasNext()) {
@@ -985,31 +970,48 @@ public class DatabaseTransactionMgr {
                     // Here we only check number, the replica version will be updated in updateCatalogAfterVisible()
                     for (MaterializedIndex index : allIndices) {
                         for (Tablet tablet : index.getTablets()) {
-                            int healthReplicaNum = 0;
+                            tabletSuccReplicas.clear();
+                            tabletWriteFailedReplicas.clear();
+                            tabletVersionFailedReplicas.clear();
                             for (Replica replica : tablet.getReplicas()) {
                                 if (!errorReplicaIds.contains(replica.getId())) {
                                     if (replica.checkVersionCatchUp(partition.getVisibleVersion(), true)) {
-                                        ++healthReplicaNum;
+                                        tabletSuccReplicas.add(replica);
                                     } else {
-                                        LOG.info("publish version {} failed for transaction {} on tablet {},"
-                                                 + " on replica {} due to not catchup",
-                                                 partitionCommitInfo.getVersion(), transactionState, tablet,
-                                                 replica);
+                                        tabletVersionFailedReplicas.add(replica);
                                     }
                                 } else if (replica.getVersion() >= partitionCommitInfo.getVersion()) {
                                     // the replica's version is larger than or equal to current transaction
                                     // partition's version the replica is normal, then remove it from error replica ids
                                     // TODO(cmy): actually I have no idea why we need this check
+                                    tabletSuccReplicas.add(replica);
                                     errorReplicaIds.remove(replica.getId());
-                                    ++healthReplicaNum;
                                 } else {
-                                    LOG.info("publish version {} failed for transaction {} on tablet {},"
-                                             + " on replica {} due to version hole or error",
-                                             partitionCommitInfo.getVersion(), transactionState, tablet, replica);
+                                    tabletWriteFailedReplicas.add(replica);
                                 }
                             }
 
-                            if (transactionState.isPublishTimeout() && healthReplicaNum > 0) {
+                            int healthReplicaNum = tabletSuccReplicas.size();
+                            if (healthReplicaNum >= quorumReplicaNum) {
+                                if (!tabletWriteFailedReplicas.isEmpty() || !tabletVersionFailedReplicas.isEmpty()) {
+                                    String writeDetail = getTabletWriteDetail(tabletSuccReplicas,
+                                            tabletWriteFailedReplicas, tabletVersionFailedReplicas);
+                                    LOG.info("publish version quorum succ for transaction {} on tablet {} with version"
+                                            + " {}, and has failed replicas, quorum num {}. table {}, partition {},"
+                                            + " tablet detail: {}",
+                                            transactionState, tablet, partitionCommitInfo.getVersion(),
+                                            quorumReplicaNum, tableId, partitionId, writeDetail);
+                                }
+                                continue;
+                            }
+
+                            if (healthReplicaNum == 0) {
+                                allTabletsLeastOneSucc = false;
+                            }
+
+                            String writeDetail = getTabletWriteDetail(tabletSuccReplicas, tabletWriteFailedReplicas,
+                                    tabletVersionFailedReplicas);
+                            if (allowPublishOneSucc && healthReplicaNum > 0) {
                                 // We can not do any thing except retrying,
                                 // because publish task is assigned a version,
                                 // and doris does not permit discontinuous
@@ -1019,14 +1021,12 @@ public class DatabaseTransactionMgr {
                                 // that are being publised exists on a few replicas we should go
                                 // ahead, otherwise data may be lost and thre
                                 // publish task hangs forever.
-                                LOG.info("publish version timeout for transaction {} on tablet {},"
-                                                + " with {} replicas",
-                                        transactionState, tablet, healthReplicaNum, quorumReplicaNum);
-                            } else if (healthReplicaNum < quorumReplicaNum) {
-                                LOG.info("publish version {} failed for transaction {} on tablet {},"
-                                                + " with only {} replicas less than quorum {}",
-                                         partitionCommitInfo.getVersion(), transactionState, tablet, healthReplicaNum,
-                                         quorumReplicaNum);
+                                LOG.info("publish version timeout succ for transaction {} on tablet {} with version"
+                                        + " {}, and has failed replicas, quorum num {}. table {}, partition {},"
+                                        + " tablet detail: {}",
+                                        transactionState, tablet, partitionCommitInfo.getVersion(), quorumReplicaNum,
+                                        tableId, partitionId, writeDetail);
+                            } else {
                                 String errMsg = String.format("publish on tablet %d failed."
                                                 + " succeed replica num %d less than quorum %d."
                                                 + " table: %d, partition: %d, publish version: %d",
@@ -1034,13 +1034,26 @@ public class DatabaseTransactionMgr {
                                         partitionId, partition.getVisibleVersion() + 1);
                                 transactionState.setErrorMsg(errMsg);
                                 hasError = true;
+                                LOG.info("publish version failed for transaction {} on tablet {} with version"
+                                        + " {}, and has failed replicas, quorum num {}. table {}, partition {},"
+                                        + " tablet detail: {}",
+                                        transactionState, tablet, partitionCommitInfo.getVersion(), quorumReplicaNum,
+                                        tableId, partitionId, writeDetail);
                             }
                         }
                     }
                 }
             }
             if (hasError) {
-                return;
+                if (!allTabletsLeastOneSucc) {
+                    return;
+                }
+                if (firstPublishOneSuccTime <= 0) {
+                    transactionState.setFirstPublishOneSuccTime(System.currentTimeMillis());
+                }
+                if (!allowPublishOneSucc) {
+                    return;
+                }
             }
             boolean txnOperated = false;
             writeLock();
@@ -1073,7 +1086,7 @@ public class DatabaseTransactionMgr {
         // Otherwise, there is no way for stream load to query the result right after loading finished,
         // even if we call "sync" before querying.
         transactionState.countdownVisibleLatch();
-        LOG.info("finish transaction {} successfully", transactionState);
+        LOG.info("finish transaction {} successfully, is quorum succ {}", transactionState, !hasError);
     }
 
     protected void unprotectedPreCommitTransaction2PC(TransactionState transactionState, Set<Long> errorReplicaIds,
