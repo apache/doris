@@ -19,6 +19,7 @@ package org.apache.doris.datasource.cassandra;
 
 import com.datastax.oss.driver.api.core.CqlSession;
 import com.datastax.oss.driver.api.core.metadata.schema.TableMetadata;
+import com.google.gson.annotations.SerializedName;
 import org.apache.doris.datasource.CatalogProperty;
 import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.datasource.InitCatalogLog;
@@ -32,12 +33,16 @@ import java.util.concurrent.atomic.AtomicBoolean;
 
 public class CassandraExternalCatalog extends ExternalCatalog {
 
+    @SerializedName(value = "contactPoints")
     private String contactPoints;
 
+    @SerializedName(value = "userName")
     private String userName;
 
+    @SerializedName(value = "password")
     private String password;
 
+    @SerializedName(value = "datacenter")
     private String datacenter;
 
     public CassandraExternalCatalog(long catalogId, String name, String resource, Map<String, String> props, String comment) {
@@ -48,9 +53,7 @@ public class CassandraExternalCatalog extends ExternalCatalog {
     protected List<String> listDatabaseNames() {
         List<String> databaseNames = new ArrayList<>();
         try (CqlSession session = CassandraClient.getCqlSessionBuilder(contactPoints, userName, password, datacenter).build()) {
-            session.getMetadata().getKeyspaces().forEach((cqlIdentifier, keyspaceMetadata) -> {
-                databaseNames.add(keyspaceMetadata.getName().asInternal());
-            });
+            session.getMetadata().getKeyspaces().forEach((cqlIdentifier, keyspaceMetadata) -> databaseNames.add(keyspaceMetadata.getName().asInternal()));
         }
             return databaseNames;
     }
@@ -92,5 +95,25 @@ public class CassandraExternalCatalog extends ExternalCatalog {
             return session.getMetadata().getKeyspace(keyspaceName).flatMap(keyspaceMetadata -> keyspaceMetadata.getTable(tableName))
                 .orElseThrow(() -> new RuntimeException("Table not found"));
         }
+    }
+
+    public String getContactPoints() {
+        makeSureInitialized();
+        return contactPoints;
+    }
+
+    public String getUserName() {
+        makeSureInitialized();
+        return userName;
+    }
+
+    public String getPassword() {
+        makeSureInitialized();
+        return password;
+    }
+
+    public String getDatacenter() {
+        makeSureInitialized();
+        return datacenter;
     }
 }

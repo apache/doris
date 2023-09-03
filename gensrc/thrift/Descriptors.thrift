@@ -330,6 +330,8 @@ struct TCassandraTable {
   2:optional string username
   3:optional string password
   4:optional string datacenter
+  5:optional string keyspace
+  6:optional string table
 }
 
 // "Union" of all table types.

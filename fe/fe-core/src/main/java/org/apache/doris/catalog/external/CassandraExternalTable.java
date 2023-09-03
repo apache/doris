@@ -30,6 +30,7 @@ import org.apache.doris.catalog.*;
 import org.apache.doris.datasource.cassandra.CassandraExternalCatalog;
 import org.apache.doris.thrift.TCassandraTable;
 import org.apache.doris.thrift.TTableDescriptor;
+import org.apache.doris.thrift.TTableType;
 import org.apache.paimon.types.DecimalType;
 
 import java.util.List;
@@ -120,13 +121,15 @@ public class CassandraExternalTable extends ExternalTable{
     public TTableDescriptor toThrift() {
         List<Column> schema = getFullSchema();
         TCassandraTable tCassandraTable = new TCassandraTable();
-        tCassandraTable.x(((CassandraExternalCatalog) catalog).get);
-        // use mc project as dbName
-        tCassandraTable.setProject(dbName);
+        tCassandraTable.setContactPoints(((CassandraExternalCatalog) catalog).getContactPoints());
+        tCassandraTable.setKeyspace(dbName);
         tCassandraTable.setTable(name);
-        TTableDescriptor tTableDescriptor = new TTableDescriptor(getId(), TTableType.MAX_COMPUTE_TABLE,
+        tCassandraTable.setUsername(((CassandraExternalCatalog) catalog).getUserName());
+        tCassandraTable.setPassword(((CassandraExternalCatalog) catalog).getPassword());
+        tCassandraTable.setDatacenter(((CassandraExternalCatalog) catalog).getDatacenter());
+        TTableDescriptor tTableDescriptor = new TTableDescriptor(getId(), TTableType.CASSANDRA_TABLE,
             schema.size(), 0, getName(), dbName);
-        tTableDescriptor.setMcTable(tMcTable);
+        tTableDescriptor.setCassandraTable(tCassandraTable);
         return tTableDescriptor;
 
     }

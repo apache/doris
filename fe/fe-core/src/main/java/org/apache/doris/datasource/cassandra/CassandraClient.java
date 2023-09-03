@@ -50,16 +50,4 @@ public class CassandraClient {
         String cql, ConsistencyLevel consistencyLevel) {
         return SimpleStatement.builder(cql).setConsistencyLevel(consistencyLevel).build();
     }
-
-    public static ColumnDefinitions getTableSchema(CqlSession session, String table) {
-        try {
-            return session.execute(String.format("select * from %s limit 1", table))
-                .getColumnDefinitions();
-        } catch (Exception e) {
-            throw new CassandraConnectorException(
-                CommonErrorCode.TABLE_SCHEMA_GET_FAILED,
-                "Cannot get table schema from cassandra",
-                e);
-        }
-    }
 }
