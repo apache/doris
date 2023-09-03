@@ -17,6 +17,8 @@
 
 #include "service/arrow_flight/flight_sql_service.h"
 
+#include <arrow/status.h>
+
 #include "arrow/flight/sql/server.h"
 #include "service/arrow_flight/arrow_flight_batch_reader.h"
 #include "service/arrow_flight/flight_sql_info.h"

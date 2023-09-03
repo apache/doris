@@ -27,6 +27,8 @@
 #include <ostream>
 #include <utility>
 
+#include "arrow/record_batch.h"
+#include "arrow/type_fwd.h"
 #include "runtime/buffer_control_block.h"
 #include "util/doris_metrics.h"
 #include "util/metrics.h"

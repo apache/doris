@@ -17,6 +17,8 @@
 
 #pragma once
 
+#include <gen_cpp/Types_types.h>
+
 #include <memory>
 
 #include "arrow/record_batch.h"

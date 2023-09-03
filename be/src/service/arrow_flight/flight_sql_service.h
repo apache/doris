@@ -19,6 +19,7 @@
 
 #include "arrow/flight/sql/server.h"
 #include "arrow/result.h"
+#include "common/status.h"
 #include "service/arrow_flight/arrow_flight_batch_reader.h"
 
 namespace doris {

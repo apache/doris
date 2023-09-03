@@ -17,6 +17,7 @@
 
 #pragma once
 
+#include <arrow/type.h>
 #include <stddef.h>
 
 #include <memory>

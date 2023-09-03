@@ -29,6 +29,8 @@
 #include <utility>
 #include <vector>
 
+#include "arrow/record_batch.h"
+#include "arrow/type_fwd.h"
 #include "runtime/exec_env.h"
 #include "runtime/thread_context.h"
 #include "util/thrift_util.h"

@@ -32,6 +32,10 @@
 #include "util/countdown_latch.h"
 #include "util/hash_util.hpp"
 
+namespace arrow {
+class RecordBatch;
+} // namespace arrow
+
 namespace doris {
 
 class BufferControlBlock;

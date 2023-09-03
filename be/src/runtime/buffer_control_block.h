@@ -37,6 +37,10 @@ class Closure;
 }
 } // namespace google
 
+namespace arrow {
+class RecordBatch;
+} // namespace arrow
+
 namespace brpc {
 class Controller;
 }
