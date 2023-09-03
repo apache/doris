@@ -600,6 +600,7 @@ enum TTableType {
     JDBC_TABLE,
     TEST_EXTERNAL_TABLE,
     MAX_COMPUTE_TABLE,
+    CASSANDRA_TABLE,
 }
 
 enum TKeysType {

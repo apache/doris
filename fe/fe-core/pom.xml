@@ -706,6 +706,12 @@ under the License.
             <artifactId>quartz</artifactId>
             <version>2.3.2</version>
         </dependency>
+
+        <!-- For Apache Cassandra -->
+        <dependency>
+            <groupId>com.datastax.oss</groupId>
+            <artifactId>java-driver-core</artifactId>
+        </dependency>
     </dependencies>
     <repositories>
         <!-- for huawei obs sdk -->

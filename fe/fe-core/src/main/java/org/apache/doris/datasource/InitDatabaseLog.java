@@ -42,6 +42,7 @@ public class InitDatabaseLog implements Writable {
         PAIMON,
         DELTALAKE,
         TEST,
+        CASSANDRA,
         UNKNOWN;
     }
 

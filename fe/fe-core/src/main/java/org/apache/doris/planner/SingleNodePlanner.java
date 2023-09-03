@@ -67,6 +67,7 @@ import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.Reference;
 import org.apache.doris.common.UserException;
+import org.apache.doris.planner.external.CassandraScanNode;
 import org.apache.doris.planner.external.FileQueryScanNode;
 import org.apache.doris.planner.external.HiveScanNode;
 import org.apache.doris.planner.external.MaxComputeScanNode;
@@ -2042,6 +2043,10 @@ public class SingleNodePlanner {
                 break;
             case TEST_EXTERNAL_TABLE:
                 scanNode = new TestExternalTableScanNode(ctx.getNextNodeId(), tblRef.getDesc());
+                break;
+            case CASSANDRA_EXTERNAL_TABLE:
+                scanNode = new CassandraScanNode(ctx.getNextNodeId(), tblRef.getDesc(), "CassandraScanNode",
+                    StatisticalType.CASSANDRA_SCAN_NODE, true);
                 break;
             default:
                 throw new UserException("Not supported table type: " + tblRef.getTable().getType());

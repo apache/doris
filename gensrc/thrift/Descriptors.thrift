@@ -325,6 +325,13 @@ struct TMCTable {
   6: optional string public_access
 }
 
+struct TCassandraTable {
+  1:optional string contact_points
+  2:optional string username
+  3:optional string password
+  4:optional string datacenter
+}
+
 // "Union" of all table types.
 struct TTableDescriptor {
   1: required Types.TTableId id
@@ -348,6 +355,7 @@ struct TTableDescriptor {
   19: optional THudiTable hudiTable
   20: optional TJdbcTable jdbcTable
   21: optional TMCTable mcTable
+  22: optional TCassandraTable cassandraTable
 }
 
 struct TDescriptorTable {

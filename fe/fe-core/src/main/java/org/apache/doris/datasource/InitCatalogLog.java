@@ -42,6 +42,7 @@ public class InitCatalogLog implements Writable {
         HUDI,
         DELTALAKE,
         TEST,
+        CASSANDRA,
         UNKNOWN;
     }
 
