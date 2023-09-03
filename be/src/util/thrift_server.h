@@ -80,7 +80,7 @@ public:
                  int num_worker_threads = DEFAULT_WORKER_THREADS,
                  ServerType server_type = THREADED);
 
-    ~ThriftServer() {}
+    ~ThriftServer();
 
     int port() const { return _port; }
 

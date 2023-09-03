@@ -31,12 +31,16 @@ import org.apache.logging.log4j.Logger;
 public class SqlCache extends Cache {
     private static final Logger LOG = LogManager.getLogger(SqlCache.class);
 
+    private String originSql;
+
     public SqlCache(TUniqueId queryId, SelectStmt selectStmt) {
         super(queryId, selectStmt);
     }
 
-    public SqlCache(TUniqueId queryId) {
+    // For SetOperationStmt and Nereids
+    public SqlCache(TUniqueId queryId, String originSql) {
         super(queryId);
+        this.originSql = originSql;
     }
 
     public void setCacheInfo(CacheAnalyzer.CacheTable latestTable, String allViewExpandStmtListStr) {
@@ -45,11 +49,14 @@ public class SqlCache extends Cache {
     }
 
     public String getSqlWithViewStmt() {
-        if (selectStmt != null)  {
-            return selectStmt.toSql() + "|" + allViewExpandStmtListStr;
-        } else {
-            return allViewExpandStmtListStr;
-        }
+        String originSql = selectStmt != null ? selectStmt.toSql() : this.originSql;
+        String cacheKey = originSql + "|" + allViewExpandStmtListStr;
+        LOG.debug("Cache key: {}", cacheKey);
+        return cacheKey;
+    }
+
+    public long getSumOfPartitionNum() {
+        return latestTable.sumOfPartitionNum;
     }
 
     public InternalService.PFetchCacheResult getCacheData(Status status) {
@@ -58,7 +65,8 @@ public class SqlCache extends Cache {
                 .addParams(InternalService.PCacheParam.newBuilder()
                         .setPartitionKey(latestTable.latestPartitionId)
                         .setLastVersion(latestTable.latestVersion)
-                        .setLastVersionTime(latestTable.latestTime))
+                        .setLastVersionTime(latestTable.latestTime)
+                        .setPartitionNum(latestTable.sumOfPartitionNum))
                 .build();
 
         InternalService.PFetchCacheResult cacheResult = proxy.fetchCache(request, 10000, status);
@@ -91,7 +99,7 @@ public class SqlCache extends Cache {
 
         InternalService.PUpdateCacheRequest updateRequest =
                 rowBatchBuilder.buildSqlUpdateRequest(getSqlWithViewStmt(), latestTable.latestPartitionId,
-                        latestTable.latestVersion, latestTable.latestTime);
+                        latestTable.latestVersion, latestTable.latestTime, latestTable.sumOfPartitionNum);
         if (updateRequest.getValuesCount() > 0) {
             CacheBeProxy proxy = new CacheBeProxy();
             Status status = new Status();

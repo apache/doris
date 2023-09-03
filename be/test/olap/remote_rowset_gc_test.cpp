@@ -61,7 +61,7 @@
 namespace doris {
 class OlapMeta;
 
-static StorageEngine* k_engine = nullptr;
+static std::unique_ptr<StorageEngine> k_engine;
 
 static const std::string kTestDir = "./ut_dir/remote_rowset_gc_test";
 static constexpr int64_t kResourceId = 10000;
@@ -105,13 +105,7 @@ public:
         doris::StorageEngine::open(options, &k_engine);
     }
 
-    static void TearDownTestSuite() {
-        if (k_engine != nullptr) {
-            k_engine->stop();
-            delete k_engine;
-            k_engine = nullptr;
-        }
-    }
+    static void TearDownTestSuite() { k_engine.reset(); }
 };
 
 static void create_tablet_request_with_sequence_col(int64_t tablet_id, int32_t schema_hash,
@@ -173,9 +167,10 @@ static TDescriptorTable create_descriptor_tablet_with_sequence_col() {
 }
 
 TEST_F(RemoteRowsetGcTest, normal) {
+    RuntimeProfile profile("CreateTablet");
     TCreateTabletReq request;
     create_tablet_request_with_sequence_col(10005, 270068377, &request);
-    Status st = k_engine->create_tablet(request);
+    Status st = k_engine->create_tablet(request, &profile);
     ASSERT_EQ(Status::OK(), st);
 
     TDescriptorTable tdesc_tbl = create_descriptor_tablet_with_sequence_col();

@@ -26,6 +26,7 @@
 #include "vec/common/arena.h"
 #include "vec/common/assert_cast.h"
 #include "vec/common/pod_array.h"
+#include "vec/common/sip_hash.h"
 
 namespace doris::vectorized {
 
@@ -169,7 +170,7 @@ public:
     }
 
     void update_hash_with_value(size_t n, SipHash& hash) const override {
-        LOG(FATAL) << "update_hash_with_value not supported";
+        hash.update(reinterpret_cast<const char*>(_data.data() + n * _item_size), _item_size);
     }
 
     [[noreturn]] ColumnPtr filter(const IColumn::Filter& filt,
@@ -193,6 +194,10 @@ public:
     void get_permutation(bool reverse, size_t limit, int nan_direction_hint,
                          IColumn::Permutation& res) const override {
         LOG(FATAL) << "get_permutation not supported";
+    }
+
+    void replicate(const uint32_t* indexs, size_t target_size, IColumn& column) const override {
+        LOG(FATAL) << "not support";
     }
 
     TypeIndex get_data_type() const override { LOG(FATAL) << "get_data_type not supported"; }

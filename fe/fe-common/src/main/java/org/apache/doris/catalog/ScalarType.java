@@ -272,9 +272,9 @@ public class ScalarType extends Type {
                 return TIME;
             case "DECIMAL":
             case "DECIMALV2":
-                return (ScalarType) createDecimalType();
+                return createDecimalType();
             case "DECIMALV3":
-                return (ScalarType) createDecimalV3Type();
+                return createDecimalV3Type();
             case "LARGEINT":
                 return LARGEINT;
             default:
@@ -575,7 +575,7 @@ public class ScalarType extends Type {
                 break;
             case VARCHAR:
                 if (isWildcardVarchar()) {
-                    stringBuilder.append("varchar(*)");
+                    stringBuilder.append("varchar");
                 } else if (Strings.isNullOrEmpty(lenStr)) {
                     stringBuilder.append("varchar").append("(").append(len).append(")");
                 } else {

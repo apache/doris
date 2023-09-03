@@ -89,7 +89,7 @@ CREATE TABLE flink_doris_source (
      )
      WITH (
        'connector' = 'doris',
-       'fenodes' = 'FE_IP:8030',
+       'fenodes' = 'FE_IP:HTTP_PORT',
        'table.identifier' = 'database.table',
        'username' = 'root',
        'password' = 'password'
@@ -100,7 +100,7 @@ CREATE TABLE flink_doris_source (
 
 ```java
 DorisOptions.Builder builder = DorisOptions.builder()
-         .setFenodes("FE_IP:8030")
+         .setFenodes("FE_IP:HTTP_PORT")
          .setTableIdentifier("db.table")
          .setUsername("root")
          .setPassword("password");
@@ -131,7 +131,7 @@ CREATE TABLE flink_doris_sink (
      )
      WITH (
        'connector' = 'doris',
-       'fenodes' = 'FE_IP:8030',
+       'fenodes' = 'FE_IP:HTTP_PORT',
        'table.identifier' = 'db.table',
        'username' = 'root',
        'password' = 'password',
@@ -156,7 +156,7 @@ env.setRuntimeMode(RuntimeExecutionMode.BATCH);
 
 DorisSink.Builder<String> builder = DorisSink.builder();
 DorisOptions.Builder dorisBuilder = DorisOptions.builder();
-dorisBuilder.setFenodes("FE_IP:8030")
+dorisBuilder.setFenodes("FE_IP:HTTP_PORT")
          .setTableIdentifier("db.table")
          .setUsername("root")
          .setPassword("password");
@@ -190,7 +190,7 @@ env.setRuntimeMode(RuntimeExecutionMode.BATCH);
 //doris sink option
 DorisSink.Builder<RowData> builder = DorisSink.builder();
 DorisOptions.Builder dorisBuilder = DorisOptions.builder();
-dorisBuilder.setFenodes("FE_IP:8030")
+dorisBuilder.setFenodes("FE_IP:HTTP_PORT")
          .setTableIdentifier("db.table")
          .setUsername("root")
          .setPassword("password");
@@ -301,15 +301,16 @@ ON a.city = c.city
 
 ### General configuration items
 
-| Key                              | Default Value | Required | Comment                                                      |
-| -------------------------------- | ------------- | -------- | ------------------------------------------------------------ |
-| fenodes                          | --            | Y        | Doris FE http address, multiple addresses are supported, separated by commas |
-| table.identifier                 | --            | Y        | Doris table name, such as: db.tbl                            |
-| username                         | --            | Y        | username to access Doris                                     |
-| password                         | --            | Y        | Password to access Doris                                     |
-| doris.request.retries            | 3             | N        | Number of retries to send requests to Doris                  |
-| doris.request.connect.timeout.ms | 30000         | N        | Connection timeout for sending requests to Doris             |
-| doris.request.read.timeout.ms    | 30000         | N        | Read timeout for sending requests to Doris                   |
+| Key                              | Default Value | Required | Comment                                                                                                                                                 |
+|----------------------------------|---------------|----------|---------------------------------------------------------------------------------------------------------------------------------------------------------|
+| fenodes                          | --            | Y        | Doris FE http address, multiple addresses are supported, separated by commas                                                                            |
+| benodes                          | --            | N        | Doris BE http address, multiple addresses are supported, separated by commas. refer to [#187](https://github.com/apache/doris-flink-connector/pull/187) |
+| table.identifier                 | --            | Y        | Doris table name, such as: db.tbl                                                                                                                       |
+| username                         | --            | Y        | username to access Doris                                                                                                                                |
+| password                         | --            | Y        | Password to access Doris                                                                                                                                |
+| doris.request.retries            | 3             | N        | Number of retries to send requests to Doris                                                                                                             |
+| doris.request.connect.timeout.ms | 30000         | N        | Connection timeout for sending requests to Doris                                                                                                        |
+| doris.request.read.timeout.ms    | 30000         | N        | Read timeout for sending requests to Doris                                                                                                              |
 
 ### Source configuration item
 
@@ -413,10 +414,10 @@ insert into doris_sink select id,name from cdc_mysql_source;
 ### grammar
 
 ```shell
-<FLINK_HOME>/bin/flink run \
+<FLINK_HOME>bin/flink run \
      -c org.apache.doris.flink.tools.cdc.CdcTools \
      lib/flink-doris-connector-1.16-1.4.0-SNAPSHOT.jar\
-     <mysql-sync-database|oracle-sync-database> \
+     <mysql-sync-database|oracle-sync-database|postgres-sync-database|sqlserver-sync-database> \
      --database <doris-database-name> \
      [--job-name <flink-job-name>] \
      [--table-prefix <doris-table-prefix>] \
@@ -439,13 +440,15 @@ insert into doris_sink select id,name from cdc_mysql_source;
 - **--oracle-conf** Oracle CDCSource configuration, for example --oracle-conf hostname=127.0.0.1, you can view all configurations of Oracle-CDC in [here](https://ververica.github.io/flink-cdc-connectors/master/content/connectors/oracle-cdc.html), where hostname/username/password/database-name/schema-name is required.
 - **--sink-conf** All configurations of Doris Sink, you can view the complete configuration items in [here](https://doris.apache.org/zh-CN/docs/dev/ecosystem/flink-doris-connector/#%E9%80%9A%E7%94%A8%E9%85%8D%E7%BD%AE%E9%A1%B9).
 - **--table-conf** The configuration item of the Doris table, that is, the content contained in properties. For example --table-conf replication_num=1
+- **--ignore-default-value** Turn off the default for synchronizing mysql table structures. It is suitable for synchronizing mysql data to doris, the field has a default value, but the actual inserted data is null. refer to[#152](https://github.com/apache/doris-flink-connector/pull/152)
+- **--use-new-schema-change** The new schema change supports synchronous mysql multi-column changes and default values. refer to[#167](https://github.com/apache/doris-flink-connector/pull/167)
 
 >Note: When synchronizing, you need to add the corresponding Flink CDC dependencies in the $FLINK_HOME/lib directory, such as flink-sql-connector-mysql-cdc-${version}.jar, flink-sql-connector-oracle-cdc-${version}.jar
 
 ### MySQL synchronization example
 
 ```shell
-<FLINK_HOME>/bin/flink run \
+<FLINK_HOME>bin/flink run \
      -Dexecution.checkpointing.interval=10s\
      -Dparallelism.default=1\
      -c org.apache.doris.flink.tools.cdc.CdcTools\
@@ -468,7 +471,7 @@ insert into doris_sink select id,name from cdc_mysql_source;
 ### Oracle synchronization example
 
 ```shell
-<FLINK_HOME>/bin/flink run \
+<FLINK_HOME>bin/flink run \
       -Dexecution.checkpointing.interval=10s \
       -Dparallelism.default=1 \
       -c org.apache.doris.flink.tools.cdc.CdcTools \
@@ -488,6 +491,58 @@ insert into doris_sink select id,name from cdc_mysql_source;
       --sink-conf jdbc-url=jdbc:mysql://127.0.0.1:9030 \
       --sink-conf sink.label-prefix=label \
       --table-conf replication_num=1
+```
+
+### PostgreSQL synchronization example
+
+```shell
+<FLINK_HOME>/bin/flink run \
+     -Dexecution.checkpointing.interval=10s \
+     -Dparallelism.default=1\
+     -c org.apache.doris.flink.tools.cdc.CdcTools \
+     ./lib/flink-doris-connector-1.16-1.5.0-SNAPSHOT.jar \
+     postgres-sync-database \
+     --database db1\
+     --postgres-conf hostname=127.0.0.1 \
+     --postgres-conf port=5432 \
+     --postgres-conf username=postgres \
+     --postgres-conf password="123456" \
+     --postgres-conf database-name=postgres \
+     --postgres-conf schema-name=public \
+     --postgres-conf slot.name=test \
+     --postgres-conf decoding.plugin.name=pgoutput \
+     --including-tables "tbl1|tbl2" \
+     --sink-conf fenodes=127.0.0.1:8030 \
+     --sink-conf username=root \
+     --sink-conf password=\
+     --sink-conf jdbc-url=jdbc:mysql://127.0.0.1:9030 \
+     --sink-conf sink.label-prefix=label \
+     --table-conf replication_num=1
+```
+
+### SQLServer synchronization example
+
+```shell
+<FLINK_HOME>/bin/flink run \
+     -Dexecution.checkpointing.interval=10s \
+     -Dparallelism.default=1 \
+     -c org.apache.doris.flink.tools.cdc.CdcTools \
+     ./lib/flink-doris-connector-1.16-1.5.0-SNAPSHOT.jar \
+     sqlserver-sync-database \
+     --database db1\
+     --sqlserver-conf hostname=127.0.0.1 \
+     --sqlserver-conf port=1433 \
+     --sqlserver-conf username=sa \
+     --sqlserver-conf password="123456" \
+     --sqlserver-conf database-name=CDC_DB \
+     --sqlserver-conf schema-name=dbo \
+     --including-tables "tbl1|tbl2" \
+     --sink-conf fenodes=127.0.0.1:8030 \
+     --sink-conf username=root \
+     --sink-conf password=\
+     --sink-conf jdbc-url=jdbc:mysql://127.0.0.1:9030 \
+     --sink-conf sink.label-prefix=label \
+     --table-conf replication_num=1
 ```
 
 ## Use FlinkCDC to update Key column
@@ -617,3 +672,11 @@ When Flink imports data, if there is dirty data, such as field format, length, e
 
 11. **How should the source table and Doris table correspond?**
 When using Flink Connector to import data, pay attention to two aspects. The first is that the columns and types of the source table correspond to the columns and types in flink sql; the second is that the columns and types in flink sql must match those of the doris table For the correspondence between columns and types, please refer to the above "Doris & Flink Column Type Mapping" for details
+
+12. **TApplicationException: get_next failed: out of sequence response: expected 4 but got 3**
+
+This is due to concurrency bugs in the Thrift. It is recommended that you use the latest connector and compatible Flink version possible.
+
+13. **DorisRuntimeException: Fail to abort transaction 26153 with url http://192.168.0.1:8040/api/table_name/_stream_load_2pc**
+
+You can search for the log `abort transaction response` in TaskManager and determine whether it is a client issue or a server issue based on the HTTP return code.

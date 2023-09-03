@@ -34,6 +34,7 @@ import org.apache.doris.clone.TabletScheduler.PathSlot;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.Pair;
+import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.persist.ReplicaPersistInfo;
 import org.apache.doris.resource.Tag;
@@ -179,6 +180,8 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
     private long visibleVersion = -1;
     private long committedVersion = -1;
 
+    private long tabletSize = 0;
+
     private Replica srcReplica = null;
     private long srcPathHash = -1;
     // for disk balance to keep src path, and avoid take slot on selectAlternativeTablets
@@ -281,6 +284,10 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
         return failedSchedCounter;
     }
 
+    public void resetFailedSchedCounter() {
+        failedSchedCounter = 0;
+    }
+
     public void increaseFailedRunningCounter() {
         ++failedRunningCounter;
     }
@@ -301,7 +308,7 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
         } else {
             decommissionTime = -1;
             if (code == SubCode.WAITING_SLOT && type != Type.BALANCE) {
-                return failedSchedCounter > 30 * 1000 / TabletScheduler.SCHEDULE_INTERVAL_MS;
+                return failedSchedCounter > 30 * 1000 / FeConstants.tablet_schedule_interval_ms;
             } else {
                 return failedSchedCounter > 10;
             }
@@ -477,13 +484,13 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
 
     // database lock should be held.
     public long getTabletSize() {
-        long max = Long.MIN_VALUE;
-        for (Replica replica : tablet.getReplicas()) {
-            if (replica.getDataSize() > max) {
-                max = replica.getDataSize();
-            }
-        }
-        return max;
+        return tabletSize;
+    }
+
+    public void updateTabletSize() {
+        tabletSize = 0;
+        tablet.getReplicas().stream().forEach(
+                replica -> tabletSize = Math.max(tabletSize, replica.getDataSize()));
     }
 
     /*
@@ -905,6 +912,7 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
         // if this is a balance task, or this is a repair task with
         // REPLICA_MISSING/REPLICA_RELOCATING,
         // we create a new replica with state CLONE
+        long replicaId = 0;
         if (tabletStatus == TabletStatus.REPLICA_MISSING
                 || tabletStatus == TabletStatus.REPLICA_RELOCATING || type == Type.BALANCE
                 || tabletStatus == TabletStatus.COLOCATE_MISMATCH
@@ -917,14 +925,11 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
                     committedVersion, /* use committed version as last failed version */
                     -1 /* last success version */);
 
-            TBackend tSrcBe = new TBackend(srcBe.getHost(), srcBe.getBePort(), srcBe.getHttpPort());
-            cloneTask = new CloneTask(destBackendId, dbId, tblId, partitionId, indexId,
-                tabletId, cloneReplica.getId(), schemaHash, Lists.newArrayList(tSrcBe), storageMedium,
-                visibleVersion, (int) (taskTimeoutMs / 1000));
-            cloneTask.setPathHash(srcPathHash, destPathHash);
-
+            LOG.info("create clone task to make new replica, tabletId={}, replicaId={}", tabletId,
+                    cloneReplica.getId());
             // addReplica() method will add this replica to tablet inverted index too.
             tablet.addReplica(cloneReplica);
+            replicaId = cloneReplica.getId();
         } else if (tabletStatus == TabletStatus.VERSION_INCOMPLETE) {
             Preconditions.checkState(type == Type.REPAIR, type);
             // double check
@@ -937,16 +942,30 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
                 throw new SchedException(Status.SCHEDULE_FAILED, "dest replica's path hash is changed. "
                         + "current: " + replica.getPathHash() + ", scheduled: " + destPathHash);
             }
-
-            TBackend tSrcBe = new TBackend(srcBe.getHost(), srcBe.getBePort(), srcBe.getHttpPort());
-            cloneTask = new CloneTask(destBackendId, dbId, tblId, partitionId, indexId,
-                tabletId, replica.getId(), schemaHash, Lists.newArrayList(tSrcBe), storageMedium,
-                visibleVersion, (int) (taskTimeoutMs / 1000));
-            cloneTask.setPathHash(srcPathHash, destPathHash);
+            replicaId = replica.getId();
         }
+
+        TBackend tSrcBe = new TBackend(srcBe.getHost(), srcBe.getBePort(), srcBe.getHttpPort());
+        TBackend tDestBe = new TBackend(destBe.getHost(), destBe.getBePort(), destBe.getHttpPort());
+
+        cloneTask = new CloneTask(tDestBe, destBackendId, dbId, tblId, partitionId, indexId, tabletId,
+                replicaId, schemaHash, Lists.newArrayList(tSrcBe), storageMedium,
+                visibleVersion, (int) (taskTimeoutMs / 1000));
+        cloneTask.setPathHash(srcPathHash, destPathHash);
+        LOG.info("create clone task to repair replica, tabletId={}, replicaId={}", tabletId, replicaId);
 
         this.state = State.RUNNING;
         return cloneTask;
+    }
+
+    // for storage migration or cloning a new replica
+    public long getDestEstimatedCopingSize() {
+        if ((cloneTask != null && tabletStatus != TabletStatus.VERSION_INCOMPLETE)
+                || storageMediaMigrationTask != null) {
+            return Math.max(getTabletSize(), 10L);
+        } else {
+            return 0;
+        }
     }
 
     // timeout is between MIN_CLONE_TASK_TIMEOUT_MS and MAX_CLONE_TASK_TIMEOUT_MS
@@ -1131,6 +1150,8 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
         result.add(TimeUtils.longToTimeString(lastSchedTime));
         result.add(TimeUtils.longToTimeString(lastVisitedTime));
         result.add(TimeUtils.longToTimeString(finishedTime));
+        Pair<Double, String> tabletSizeDesc = DebugUtil.getByteUint(tabletSize);
+        result.add(DebugUtil.DECIMAL_FORMAT_SCALE_3.format(tabletSizeDesc.first) + " " + tabletSizeDesc.second);
         result.add(copyTimeMs > 0 ? String.valueOf(copySize / copyTimeMs / 1000.0) : FeConstants.null_string);
         result.add(String.valueOf(failedSchedCounter));
         result.add(String.valueOf(failedRunningCounter));
@@ -1162,8 +1183,9 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
             value += 5 * 1000L;
         }
 
+        // repair tasks always prior than balance
         if (type == Type.BALANCE) {
-            value += 30 * 60 * 1000L;
+            value += 10 * 24 * 3600L;
         }
 
         return value;
@@ -1172,14 +1194,29 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
     @Override
     public String toString() {
         StringBuilder sb = new StringBuilder();
-        sb.append("tablet id: ").append(tabletId).append(", status: ").append(tabletStatus.name());
-        sb.append(", state: ").append(state.name()).append(", type: ").append(type.name());
+        sb.append("tablet id: ").append(tabletId);
+        if (tabletStatus != null) {
+            sb.append(", status: ").append(tabletStatus.name());
+        }
+        if (state != null) {
+            sb.append(", state: ").append(state.name());
+        }
+        if (type != null) {
+            sb.append(", type: ").append(type.name());
+        }
+        if (type == Type.BALANCE && balanceType != null) {
+            sb.append(", balance: ").append(balanceType.name());
+        }
+        if (priority != null) {
+            sb.append(", priority: ").append(priority.name());
+        }
+        sb.append(", tablet size: ").append(tabletSize);
         if (srcReplica != null) {
-            sb.append(". from backend: ").append(srcReplica.getBackendId());
+            sb.append(", from backend: ").append(srcReplica.getBackendId());
             sb.append(", src path hash: ").append(srcPathHash);
         }
         if (destPathHash != -1) {
-            sb.append(". to backend: ").append(destBackendId);
+            sb.append(", to backend: ").append(destBackendId);
             sb.append(", dest path hash: ").append(destPathHash);
         }
         sb.append(", visible version: ").append(visibleVersion);

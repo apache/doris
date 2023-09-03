@@ -26,7 +26,6 @@ import org.apache.doris.statistics.AnalysisInfo.AnalysisMethod;
 import org.apache.doris.statistics.AnalysisInfo.AnalysisMode;
 import org.apache.doris.statistics.AnalysisInfo.AnalysisType;
 import org.apache.doris.statistics.AnalysisInfo.JobType;
-import org.apache.doris.statistics.util.InternalQueryResult.ResultRow;
 import org.apache.doris.statistics.util.StatisticsUtil;
 import org.apache.doris.utframe.TestWithFeService;
 
@@ -38,6 +37,7 @@ import mockit.Mocked;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
@@ -114,10 +114,16 @@ public class AnalysisJobTest extends TestWithFeService {
             public void syncLoadColStats(long tableId, long idxId, String colName) {
             }
         };
-        new Expectations() {
-            {
-                stmtExecutor.execute();
-                times = 2;
+        new MockUp<StmtExecutor>() {
+
+            @Mock
+            public void execute() throws Exception {
+
+            }
+
+            @Mock
+            public List<ResultRow> executeInternalQuery() {
+                return new ArrayList<>();
             }
         };
         HashMap<String, Set<String>> colToPartitions = Maps.newHashMap();
@@ -129,8 +135,15 @@ public class AnalysisJobTest extends TestWithFeService {
                 .setAnalysisMethod(AnalysisMethod.FULL)
                 .setAnalysisType(AnalysisType.FUNDAMENTALS)
                 .setColToPartitions(colToPartitions)
+                .setState(AnalysisState.RUNNING)
                 .build();
         new OlapAnalysisTask(analysisJobInfo).doExecute();
+        new Expectations() {
+            {
+                stmtExecutor.execute();
+                times = 1;
+            }
+        };
     }
 
 }

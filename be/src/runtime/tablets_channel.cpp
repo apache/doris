@@ -69,8 +69,6 @@ TabletsChannel::TabletsChannel(const TabletsChannelKey& key, const UniqueId& loa
 TabletsChannel::~TabletsChannel() {
     _s_tablet_writer_count -= _tablet_writers.size();
     for (auto& it : _tablet_writers) {
-        auto memtable_memory_limiter = ExecEnv::GetInstance()->memtable_memory_limiter();
-        memtable_memory_limiter->deregister_writer(it.second);
         delete it.second;
     }
     delete _schema;
@@ -438,9 +436,11 @@ Status TabletsChannel::add_batch(const PTabletWriterAddBlockRequest& request,
         }
     }
 
-    auto get_send_data = [&]() { return vectorized::Block(request.block()); };
-
-    auto send_data = get_send_data();
+    vectorized::Block send_data;
+    RETURN_IF_ERROR(send_data.deserialize(request.block()));
+    CHECK(send_data.rows() == request.tablet_ids_size())
+            << "block rows: " << send_data.rows()
+            << ", tablet_ids_size: " << request.tablet_ids_size();
 
     auto write_tablet_data = [&](uint32_t tablet_id,
                                  std::function<Status(DeltaWriter * writer)> write_func) {
@@ -497,4 +497,5 @@ bool TabletsChannel::_is_broken_tablet(int64_t tablet_id) {
     std::shared_lock<std::shared_mutex> rlock(_broken_tablets_lock);
     return _broken_tablets.find(tablet_id) != _broken_tablets.end();
 }
+
 } // namespace doris

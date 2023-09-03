@@ -43,7 +43,7 @@
                 {{ run_sql }}
             {% endcall %}
             {% do exchange_relation(target_relation, backup_relation, True) %}
-            {% set build_sql = "show frontends" %}
+            {% set build_sql = "select 'hello doris'" %}
         {#-- append data --#}
         {% else %}
             {% do to_drop.append(tmp_relation) %}
@@ -66,7 +66,7 @@
                 {{ run_sql }}
             {% endcall %}
             {% do exchange_relation(target_relation, backup_relation, True) %}
-            {% set build_sql = "show frontends" %}
+            {% set build_sql = "select 'hello doris'" %}
         {#-- append data --#}
         {% else %}
           {#-- check doris unique table  --#}

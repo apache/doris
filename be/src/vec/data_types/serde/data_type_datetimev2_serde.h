@@ -46,17 +46,25 @@ public:
     DataTypeDateTimeV2SerDe(int scale) : scale(scale) {};
 
     void serialize_one_cell_to_text(const IColumn& column, int row_num, BufferWritable& bw,
-                                    const FormatOptions& options) const override;
+                                    FormatOptions& options) const override;
 
-    Status deserialize_one_cell_from_text(IColumn& column, ReadBuffer& rb,
+    void serialize_column_to_text(const IColumn& column, int start_idx, int end_idx,
+                                  BufferWritable& bw, FormatOptions& options) const override;
+
+    Status deserialize_one_cell_from_text(IColumn& column, Slice& slice,
                                           const FormatOptions& options) const override;
+
+    Status deserialize_column_from_text_vector(IColumn& column, std::vector<Slice>& slices,
+                                               int* num_deserialized,
+                                               const FormatOptions& options) const override;
 
     void write_column_to_arrow(const IColumn& column, const NullMap* null_map,
                                arrow::ArrayBuilder* array_builder, int start,
                                int end) const override;
     void read_column_from_arrow(IColumn& column, const arrow::Array* arrow_array, int start,
                                 int end, const cctz::time_zone& ctz) const override {
-        LOG(FATAL) << "not support read arrow array to uint64 column";
+        throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
+                               "read_column_from_arrow with type " + column.get_name());
     }
 
     Status write_column_to_mysql(const IColumn& column, MysqlRowBuffer<true>& row_buffer,

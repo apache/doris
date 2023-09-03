@@ -36,6 +36,7 @@ under the License.
 - bool
 - int
 - bigint
+- largeint
 - double
 - string
 

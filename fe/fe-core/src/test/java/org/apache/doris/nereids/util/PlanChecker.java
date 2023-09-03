@@ -128,7 +128,7 @@ public class PlanChecker {
 
     public PlanChecker analyze(Plan plan) {
         this.cascadesContext = MemoTestUtils.createCascadesContext(connectContext, plan);
-        Set<String> originDisableRules = connectContext.getSessionVariable().getDisableNereidsRules();
+        Set<String> originDisableRules = connectContext.getSessionVariable().getDisableNereidsRuleNames();
         Set<String> disableRuleWithAuth = Sets.newHashSet(originDisableRules);
         disableRuleWithAuth.add(RuleType.RELATION_AUTHENTICATION.name());
         connectContext.getSessionVariable().setDisableNereidsRules(String.join(",", disableRuleWithAuth));

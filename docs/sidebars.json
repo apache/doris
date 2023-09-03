@@ -722,6 +722,7 @@
                                 "sql-manual/sql-functions/table-functions/explode-numbers-outer",
                                 "sql-manual/sql-functions/table-functions/s3",
                                 "sql-manual/sql-functions/table-functions/hdfs",
+                                "sql-manual/sql-functions/table-functions/local",
                                 "sql-manual/sql-functions/table-functions/iceberg-meta",
                                 "sql-manual/sql-functions/table-functions/backends",
                                 "sql-manual/sql-functions/table-functions/frontends",
@@ -811,6 +812,8 @@
                                 "sql-manual/sql-reference/Database-Administration-Statements/INSTALL-PLUGIN",
                                 "sql-manual/sql-reference/Database-Administration-Statements/UNINSTALL-PLUGIN",
                                 "sql-manual/sql-reference/Database-Administration-Statements/ADMIN-SET-REPLICA-STATUS",
+                                "sql-manual/sql-reference/Database-Administration-Statements/ADMIN-SET-PARTITION-VERSION",
+                                "sql-manual/sql-reference/Database-Administration-Statements/ADMIN-SET-TABLE-STATUS",
                                 "sql-manual/sql-reference/Database-Administration-Statements/ADMIN-SHOW-REPLICA-DISTRIBUTION",
                                 "sql-manual/sql-reference/Database-Administration-Statements/ADMIN-SHOW-REPLICA-STATUS",
                                 "sql-manual/sql-reference/Database-Administration-Statements/ADMIN-REPAIR-TABLE",
@@ -869,6 +872,7 @@
                                         "sql-manual/sql-reference/Data-Definition-Statements/Create/CREATE-TABLE-AS-SELECT",
                                         "sql-manual/sql-reference/Data-Definition-Statements/Create/CREATE-EXTERNAL-TABLE",
                                         "sql-manual/sql-reference/Data-Definition-Statements/Create/CREATE-INDEX",
+                                        "sql-manual/sql-reference/Data-Definition-Statements/Create/CREATE-JOB",
                                         "sql-manual/sql-reference/Data-Definition-Statements/Create/CREATE-VIEW",
                                         "sql-manual/sql-reference/Data-Definition-Statements/Create/CREATE-MATERIALIZED-VIEW",
                                         "sql-manual/sql-reference/Data-Definition-Statements/Create/CREATE-FUNCTION",
@@ -899,7 +903,10 @@
                                         "sql-manual/sql-reference/Data-Definition-Statements/Alter/ALTER-STORAGE-POLICY",
                                         "sql-manual/sql-reference/Data-Definition-Statements/Alter/ALTER-RESOURCE",
                                         "sql-manual/sql-reference/Data-Definition-Statements/Alter/ALTER-WORKLOAD-GROUP",
-                                        "sql-manual/sql-reference/Data-Definition-Statements/Alter/ALTER-SQL-BLOCK-RULE"
+                                        "sql-manual/sql-reference/Data-Definition-Statements/Alter/ALTER-SQL-BLOCK-RULE",
+                                        "sql-manual/sql-reference/Data-Definition-Statements/Alter/PAUSE-JOB",
+                                        "sql-manual/sql-reference/Data-Definition-Statements/Alter/RESUME-JOB",
+                                        "sql-manual/sql-reference/Data-Definition-Statements/Alter/STOP-JOB"
                                     ]
                                 },
                                 {
@@ -1011,6 +1018,8 @@
                                 "sql-manual/sql-reference/Show-Statements/SHOW-TYPECAST",
                                 "sql-manual/sql-reference/Show-Statements/SHOW-FILE",
                                 "sql-manual/sql-reference/Show-Statements/SHOW-GRANTS",
+                                "sql-manual/sql-reference/Show-Statements/SHOW-JOB",
+                                "sql-manual/sql-reference/Show-Statements/SHOW-JOB-TASK",
                                 "sql-manual/sql-reference/Show-Statements/SHOW-LAST-INSERT",
                                 "sql-manual/sql-reference/Show-Statements/SHOW-LOAD-PROFILE",
                                 "sql-manual/sql-reference/Show-Statements/SHOW-LOAD-WARNINGS",
@@ -1102,6 +1111,7 @@
                     "items": [
                         "admin-manual/data-admin/backup",
                         "admin-manual/data-admin/restore",
+                        "admin-manual/data-admin/data-recovery",
                         "admin-manual/data-admin/delete-recover"
                     ]
                 },
@@ -1278,8 +1288,7 @@
             "type": "category",
             "label": "Release notes",
             "items": [
-                "releasenotes/release-2.0-Beta",
-                "releasenotes/release-2.0-Alpha",
+                "releasenotes/release-2.0.0",
                 "releasenotes/release-1.2.6",
                 "releasenotes/release-1.2.5",
                 "releasenotes/release-1.2.4",

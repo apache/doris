@@ -158,6 +158,8 @@ set(GPERFTOOLS_HOME "${THIRDPARTY_DIR}/gperftools")
 
 include (cmake/thirdparty.cmake)
 
+find_program(THRIFT_COMPILER thrift ${CMAKE_SOURCE_DIR}/bin)
+
 option(BUILD_JAVA OFF)
 option(BUILD_CPP_TESTS OFF)
 option(STOP_BUILD_ON_WARNING OFF)
@@ -223,14 +225,17 @@ function(TRY_TO_CHANGE_LINKER LINKER_COMMAND LINKER_NAME)
     endif()
 endfunction()
 
-# In terms of performance, mold> lld> gold> ld
-set(CUSTUM_LINKER_COMMAND "ld")
-TRY_TO_CHANGE_LINKER("mold" "mold")
-TRY_TO_CHANGE_LINKER("lld" "LLD")
-TRY_TO_CHANGE_LINKER("gold" "GNU gold")
-if (NOT CUSTUM_LINKER_COMMAND STREQUAL "ld")
-    set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -fuse-ld=${CUSTUM_LINKER_COMMAND}")
+if (NOT OS_MACOSX) # MACOSX's lld will core dump
+    # In terms of performance, mold> lld> gold> ld
+    set(CUSTUM_LINKER_COMMAND "ld")
+    TRY_TO_CHANGE_LINKER("mold" "mold")
+    TRY_TO_CHANGE_LINKER("lld" "LLD")
+    TRY_TO_CHANGE_LINKER("gold" "GNU gold")
+    if (NOT CUSTUM_LINKER_COMMAND STREQUAL "ld")
+        set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -fuse-ld=${CUSTUM_LINKER_COMMAND}")
+    endif()
 endif()
+
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_C_STANDARD 17)
@@ -443,28 +448,6 @@ set(KRB5_LIBS
     gssapi_krb5
     k5crypto)
 
-set(AWS_LIBS
-    aws-sdk-s3
-    aws-sdk-core
-    aws-sdk-transfer
-    aws-checksums
-    aws-c-io
-    aws-c-event-stream
-    aws-c-common
-    aws-c-cal
-    aws-s2n
-    aws-c-s3
-    aws-c-auth
-    aws-crt-cpp
-    aws-c-compression
-    aws-c-http
-    aws-c-mqtt
-    aws-sdk-s3-crt)
-
-if (OS_MACOSX)
-    list(REMOVE_ITEM AWS_LIBS aws-s2n)
-endif()
-
 # Set Doris libraries
 set(DORIS_LINK_LIBS
     ${WL_START_GROUP}
@@ -482,6 +465,7 @@ set(DORIS_LINK_LIBS
     DorisGen
     Webserver
     Geo
+    GeoType
     Vec
     Pipeline
     ${WL_END_GROUP}
@@ -494,64 +478,8 @@ find_package(absl)
 # When adding new dependencies, If you don’t know if it can run on all platforms,
 # add it here first.
 set(COMMON_THIRDPARTY
-    backtrace
-    rocksdb
-    cyrus-sasl
-    libs2
-    snappy
     Boost::date_time
-    thrift
-    thriftnb
-    glog
-    re2
-    hyperscan
-    pprof
-    lz4
-    libevent
-    libevent_pthreads
-    idn
-    gsasl
-    curl
-    libz
-    libbz2
-    gflags
-    brpc
-    protobuf
-    openssl
-    crypto
-    leveldb
-    bitshuffle
-    roaring
-    fmt
-    jemalloc
-    jemalloc_arrow
-    brotlicommon
-    brotlidec
-    brotlienc
-    zstd
-    arrow
-    parquet
-    odbc
-    cctz
-    minizip
-    opentelemetry_common
-    opentelemetry_exporter_zipkin_trace
-    opentelemetry_resources
-    opentelemetry_version
-    opentelemetry_exporter_ostream_span
-    opentelemetry_trace
-    opentelemetry_http_client_curl
-    opentelemetry_exporter_otlp_http
-    opentelemetry_exporter_otlp_http_client
-    opentelemetry_otlp_recordable
-    opentelemetry_proto
-    ${AWS_LIBS}
-    # put this after lz4 to avoid using lz4 lib in librdkafka
-    librdkafka_cpp
-    librdkafka
-    xml2
-    lzma
-    simdjson
+    ${COMMON_THIRDPARTY}
 )
 
 if ((ARCH_AMD64 OR ARCH_AARCH64) AND OS_LINUX)
@@ -580,6 +508,32 @@ if (absl_FOUND)
         ${COMMON_THIRDPARTY}
         absl::flat_hash_set
         absl::str_format
+        absl::flags
+        absl::flags_commandlineflag
+        absl::flags_commandlineflag_internal
+        absl::flags_config
+        absl::flags_internal
+        absl::flags_marshalling
+        absl::flags_parse
+        absl::flags_private_handle_accessor
+        absl::flags_program_name
+        absl::flags_reflection
+        absl::flags_usage
+        absl::flags_usage_internal
+        absl::random_distributions
+        absl::random_internal_distribution_test_util
+        absl::random_internal_platform
+        absl::random_internal_pool_urbg
+        absl::random_internal_randen
+        absl::random_internal_randen_hwaes
+        absl::random_internal_randen_hwaes_impl
+        absl::random_internal_randen_slow
+        absl::random_internal_seed_material
+        absl::random_seed_gen_exception
+        absl::random_seed_sequences
+        absl::status
+        absl::statusor
+        absl::strerror
     )
 endif()
 

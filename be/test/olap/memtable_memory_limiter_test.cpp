@@ -83,38 +83,31 @@ protected:
         std::vector<StorePath> paths;
         paths.emplace_back(config::storage_root_path, -1);
 
-        _mgr = new MemTableMemoryLimiter();
         doris::EngineOptions options;
         options.store_paths = paths;
         Status s = doris::StorageEngine::open(options, &_engine);
         ExecEnv* exec_env = doris::ExecEnv::GetInstance();
-        exec_env->set_storage_engine(_engine);
         _engine->start_bg_threads();
+        exec_env->set_memtable_memory_limiter(new MemTableMemoryLimiter());
     }
 
     void TearDown() override {
-        if (_engine != nullptr) {
-            _engine->stop();
-            delete _engine;
-            _engine = nullptr;
-        }
-        if (_mgr != nullptr) {
-            delete _mgr;
-            _mgr = nullptr;
-        }
+        ExecEnv* exec_env = doris::ExecEnv::GetInstance();
+        exec_env->set_memtable_memory_limiter(nullptr);
         EXPECT_EQ(system("rm -rf ./data_test"), 0);
         io::global_local_filesystem()->delete_directory(std::string(getenv("DORIS_HOME")) + "/" +
                                                         UNUSED_PREFIX);
     }
 
-    StorageEngine* _engine = nullptr;
-    MemTableMemoryLimiter* _mgr = nullptr;
+    std::unique_ptr<StorageEngine> _engine;
 };
 
 TEST_F(MemTableMemoryLimiterTest, handle_memtable_flush_test) {
+    std::unique_ptr<RuntimeProfile> profile;
+    profile = std::make_unique<RuntimeProfile>("CreateTablet");
     TCreateTabletReq request;
     create_tablet_request(10000, 270068372, &request);
-    Status res = _engine->create_tablet(request);
+    Status res = _engine->create_tablet(request, profile.get());
     ASSERT_TRUE(res.ok());
 
     TDescriptorTable tdesc_tbl = create_descriptor_tablet();
@@ -138,10 +131,10 @@ TEST_F(MemTableMemoryLimiterTest, handle_memtable_flush_test) {
     write_req.is_high_priority = false;
     write_req.table_schema_param = &param;
     DeltaWriter* delta_writer = nullptr;
-    std::unique_ptr<RuntimeProfile> profile;
     profile = std::make_unique<RuntimeProfile>("MemTableMemoryLimiterTest");
     DeltaWriter::open(&write_req, &delta_writer, profile.get(), TUniqueId());
     ASSERT_NE(delta_writer, nullptr);
+    auto mem_limiter = ExecEnv::GetInstance()->memtable_memory_limiter();
 
     vectorized::Block block;
     for (const auto& slot_desc : tuple_desc->slots()) {
@@ -163,18 +156,9 @@ TEST_F(MemTableMemoryLimiterTest, handle_memtable_flush_test) {
         res = delta_writer->write(&block, {0});
         ASSERT_TRUE(res.ok());
     }
-    std::mutex lock;
-    _mgr->init(100);
-    {
-        std::lock_guard<std::mutex> l(lock);
-        _mgr->register_writer(delta_writer);
-    }
-    _mgr->handle_memtable_flush();
-    CHECK_EQ(0, delta_writer->active_memtable_mem_consumption());
-    {
-        std::lock_guard<std::mutex> l(lock);
-        _mgr->deregister_writer(delta_writer);
-    }
+    mem_limiter->init(100);
+    mem_limiter->handle_memtable_flush();
+    CHECK_EQ(0, mem_limiter->mem_usage());
 
     res = delta_writer->close();
     EXPECT_EQ(Status::OK(), res);

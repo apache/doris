@@ -29,7 +29,7 @@ namespace vectorized {
 
 class Block;
 class MutableBlock;
-class HashJoinNode;
+struct HashJoinProbeContext;
 
 using MutableColumnPtr = IColumn::MutablePtr;
 using MutableColumns = std::vector<MutableColumnPtr>;
@@ -39,7 +39,8 @@ using ConstNullMapPtr = const NullMap*;
 
 template <int JoinOpType>
 struct ProcessHashTableProbe {
-    ProcessHashTableProbe(HashJoinNode* join_node, int batch_size);
+    ProcessHashTableProbe(HashJoinProbeContext* join_context, int batch_size);
+    ~ProcessHashTableProbe() = default;
 
     // output build side result column
     template <bool have_other_join_conjunct = false>
@@ -82,7 +83,7 @@ struct ProcessHashTableProbe {
     Status process_data_in_hashtable(HashTableType& hash_table_ctx, MutableBlock& mutable_block,
                                      Block* output_block, bool* eos);
 
-    vectorized::HashJoinNode* _join_node;
+    vectorized::HashJoinProbeContext* _join_context;
     const int _batch_size;
     const std::vector<Block>& _build_blocks;
     std::unique_ptr<Arena> _arena;

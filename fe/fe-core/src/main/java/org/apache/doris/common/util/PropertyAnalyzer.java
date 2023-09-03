@@ -70,6 +70,8 @@ public class PropertyAnalyzer {
     public static final String PROPERTIES_VERSION_INFO = "version_info";
     // for restore
     public static final String PROPERTIES_SCHEMA_VERSION = "schema_version";
+    public static final String PROPERTIES_PARTITION_ID = "partition_id";
+    public static final String PROPERTIES_VISIBLE_VERSION = "visible_version";
 
     public static final String PROPERTIES_BF_COLUMNS = "bloom_filter_columns";
     public static final String PROPERTIES_BF_FPP = "bloom_filter_fpp";
@@ -98,7 +100,6 @@ public class PropertyAnalyzer {
     // _auto_bucket can only set in create table stmt rewrite bucket and can not be changed
     public static final String PROPERTIES_AUTO_BUCKET = "_auto_bucket";
     public static final String PROPERTIES_ESTIMATE_PARTITION_SIZE = "estimate_partition_size";
-    public static final String PROPERTIES_DYNAMIC_SCHEMA = "deprecated_dynamic_schema";
 
     public static final String PROPERTIES_TABLET_TYPE = "tablet_type";
 
@@ -426,6 +427,30 @@ public class PropertyAnalyzer {
         }
 
         return schemaVersion;
+    }
+
+    private static Long getPropertyLong(Map<String, String> properties, String propertyId) throws AnalysisException {
+        long id = -1;
+        if (properties != null && properties.containsKey(propertyId)) {
+            String propertyIdStr = properties.get(propertyId);
+            try {
+                id = Long.parseLong(propertyIdStr);
+            } catch (Exception e) {
+                throw new AnalysisException("Invalid property long id: " + propertyIdStr);
+            }
+
+            properties.remove(propertyId);
+        }
+
+        return id;
+    }
+
+    public static Long analyzePartitionId(Map<String, String> properties) throws AnalysisException {
+        return getPropertyLong(properties, PROPERTIES_PARTITION_ID);
+    }
+
+    public static Long analyzeVisibleVersion(Map<String, String> properties) throws AnalysisException {
+        return getPropertyLong(properties, PROPERTIES_VISIBLE_VERSION);
     }
 
     public static Set<String> analyzeBloomFilterColumns(Map<String, String> properties, List<Column> columns,

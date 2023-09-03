@@ -46,7 +46,7 @@ namespace doris::vectorized {
 
 MemoryScratchSink::MemoryScratchSink(const RowDescriptor& row_desc,
                                      const std::vector<TExpr>& t_output_expr)
-        : _row_desc(row_desc), _t_output_expr(t_output_expr) {
+        : DataSink(row_desc), _t_output_expr(t_output_expr) {
     _name = "VMemoryScratchSink";
 }
 
@@ -88,6 +88,10 @@ Status MemoryScratchSink::send(RuntimeState* state, Block* block, bool eos) {
 
 Status MemoryScratchSink::open(RuntimeState* state) {
     return VExpr::open(_output_vexpr_ctxs, state);
+}
+
+bool MemoryScratchSink::can_write() {
+    return _queue->size() < 10;
 }
 
 Status MemoryScratchSink::close(RuntimeState* state, Status exec_status) {

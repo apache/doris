@@ -26,17 +26,13 @@ import java.util.List;
 import java.util.concurrent.TimeUnit;
 
 public class StatisticConstants {
-    public static final String ANALYSIS_TBL_NAME = "table_statistics";
 
     public static final String STATISTIC_TBL_NAME = "column_statistics";
-
     public static final String HISTOGRAM_TBL_NAME = "histogram_statistics";
 
     public static final int MAX_NAME_LEN = 64;
 
     public static final int ID_LEN = 4096;
-
-    public static final int STATISTICS_CACHE_VALID_DURATION_IN_HOURS = 24 * 2;
 
     public static final int STATISTICS_CACHE_REFRESH_INTERVAL = 24 * 2;
 
@@ -77,6 +73,8 @@ public class StatisticConstants {
 
     public static final String DB_NAME = SystemInfoService.DEFAULT_CLUSTER + ":" + FeConstants.INTERNAL_DB_NAME;
 
+    public static final String FULL_QUALIFIED_STATS_TBL_NAME = FeConstants.INTERNAL_DB_NAME + "." + STATISTIC_TBL_NAME;
+
     public static final int STATISTIC_INTERNAL_TABLE_REPLICA_NUM = 3;
 
     public static final int RETRY_LOAD_QUEUE_SIZE = 1000;
@@ -84,6 +82,9 @@ public class StatisticConstants {
     public static final int RETRY_LOAD_THREAD_POOL_SIZE = 1;
 
     public static final int LOAD_RETRY_TIMES = 3;
+
+    // union more relation than 512 may cause StackOverFlowException in the future.
+    public static final int UNION_ALL_LIMIT = 512;
 
     static {
         STATISTICS_DB_BLACK_LIST.add(SystemInfoService.DEFAULT_CLUSTER

@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.rules.rewrite;
 
+import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.util.MemoPatternMatchSupported;
 import org.apache.doris.nereids.util.PlanChecker;
 import org.apache.doris.utframe.TestWithFeService;
@@ -604,5 +605,27 @@ public class InferPredicatesTest extends TestWithFeService implements MemoPatter
                     )
                 );
     }
-}
 
+    /**
+     * in this case, filter on relation s1 should not contain s1.id = 1.
+     */
+    @Test
+    public void innerJoinShouldNotInferUnderLeftJoinOnClausePredicates() {
+        String sql = "select * from student s1"
+                + " left join (select sid as id1, sid as id2, grade from score) s2 on s1.id = s2.id1 and s1.id = 1"
+                + " join (select sid as id1, sid as id2, grade from score) s3 on s1.id = s3.id1 where s1.id = 2";
+        PlanChecker.from(connectContext).analyze(sql).rewrite().printlnTree();
+        PlanChecker.from(connectContext)
+                .analyze(sql)
+                .rewrite()
+                .matches(
+                        logicalJoin(
+                                logicalFilter(
+                                        logicalOlapScan()
+                                ).when(filter -> filter.getConjuncts().size() == 1
+                                        && filter.getPredicate().toSql().contains("id = 2")),
+                                any()
+                        ).when(join -> join.getJoinType() == JoinType.LEFT_OUTER_JOIN)
+                );
+    }
+}
