@@ -903,9 +903,10 @@ public class DatabaseTransactionMgr {
         List<Long> tableIdList = transactionState.getTableIdList();
         LOG.debug("finish transaction {} with tables {}", transactionId, tableIdList);
         List<? extends TableIf> tableList = db.getTablesOnIdOrderIfExist(tableIdList);
-        boolean hasError = false;
         tableList = MetaLockUtils.writeLockTablesIfExist(tableList);
+        boolean isQuorumSucc = true;
         try {
+            boolean hasError = false;
             boolean allTabletsLeastOneSucc = true;
             Iterator<TableCommitInfo> tableCommitInfoIterator
                     = transactionState.getIdToTableCommitInfos().values().iterator();
@@ -1009,6 +1010,7 @@ public class DatabaseTransactionMgr {
                                 allTabletsLeastOneSucc = false;
                             }
 
+                            isQuorumSucc = false;
                             String writeDetail = getTabletWriteDetail(tabletSuccReplicas, tabletWriteFailedReplicas,
                                     tabletVersionFailedReplicas);
                             if (allowPublishOneSucc && healthReplicaNum > 0) {
@@ -1086,7 +1088,7 @@ public class DatabaseTransactionMgr {
         // Otherwise, there is no way for stream load to query the result right after loading finished,
         // even if we call "sync" before querying.
         transactionState.countdownVisibleLatch();
-        LOG.info("finish transaction {} successfully, is quorum succ {}", transactionState, !hasError);
+        LOG.info("finish transaction {} successfully, is quorum succ {}", transactionState, isQuorumSucc);
     }
 
     protected void unprotectedPreCommitTransaction2PC(TransactionState transactionState, Set<Long> errorReplicaIds,
