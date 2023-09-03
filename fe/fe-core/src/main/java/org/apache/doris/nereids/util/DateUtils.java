@@ -50,62 +50,53 @@ public class DateUtils {
                     case 'b': // %b Abbreviated month name (Jan..Dec)
                         builder.appendText(ChronoField.MONTH_OF_YEAR, TextStyle.SHORT);
                         break;
-                    case 'c': // %c Month, numeric (0..12)
-                        builder.appendValue(ChronoField.MONTH_OF_YEAR);
-                        break;
                     case 'd': // %d Day of the month, numeric (00..31)
-                        builder.appendValue(ChronoField.DAY_OF_MONTH, 2);
-                        break;
-                    case 'e': // %e Day of the month, numeric (0..31)
                         builder.appendValue(ChronoField.DAY_OF_MONTH);
                         break;
                     case 'H': // %H Hour (00..23)
-                        builder.appendValue(ChronoField.HOUR_OF_DAY, 2);
+                        builder.appendValue(ChronoField.HOUR_OF_DAY);
                         break;
                     case 'h': // %h Hour (01..12)
                     case 'I': // %I Hour (01..12)
-                        builder.appendValue(ChronoField.HOUR_OF_AMPM, 2);
-                        break;
-                    case 'i': // %i Minutes, numeric (00..59)
-                        builder.appendValue(ChronoField.MINUTE_OF_HOUR, 2);
-                        break;
-                    case 'j': // %j Day of year (001..366)
-                        builder.appendValue(ChronoField.DAY_OF_YEAR, 3);
-                        break;
-                    case 'k': // %k Hour (0..23)
-                        builder.appendValue(ChronoField.HOUR_OF_DAY);
-                        break;
-                    case 'l': // %l Hour (1..12)
                         builder.appendValue(ChronoField.HOUR_OF_AMPM);
                         break;
+                    case 'i': // %i Minutes, numeric (00..59)
+                        builder.appendValue(ChronoField.MINUTE_OF_HOUR);
+                        break;
+                    // If use it, please notice 001..366 / 1-366
+                    // case 'j': // %j Day of year (001..366)
+                    //     builder.appendValue(ChronoField.DAY_OF_YEAR, 3);
+                    //     break;
                     case 'M': // %M Month name (January..December)
                         builder.appendText(ChronoField.MONTH_OF_YEAR, TextStyle.FULL);
                         break;
                     case 'm': // %m Month, numeric (00..12)
-                        builder.appendValue(ChronoField.MONTH_OF_YEAR, 2);
+                        builder.appendValue(ChronoField.MONTH_OF_YEAR);
                         break;
                     case 'p': // %p AM or PM
                         builder.appendText(ChronoField.AMPM_OF_DAY);
                         break;
                     case 'r': // %r Time, 12-hour (hh:mm:ss followed by AM or PM)
-                        builder.appendValue(ChronoField.HOUR_OF_AMPM, 2)
-                                .appendPattern(":mm:ss ")
+                        builder.appendValue(ChronoField.HOUR_OF_AMPM)
+                                .appendValue(ChronoField.MINUTE_OF_HOUR)
+                                .appendValue(ChronoField.SECOND_OF_MINUTE)
                                 .appendText(ChronoField.AMPM_OF_DAY, TextStyle.FULL)
                                 .toFormatter();
                         break;
-                    case 'S': // %S Seconds (00..59)
-                    case 's': // %s Seconds (00..59)
-                        builder.appendValue(ChronoField.SECOND_OF_MINUTE, 2);
+                    case 'S': // %S Seconds (0..59)
+                    case 's': // %s Seconds (0..59)
+                        builder.appendValue(ChronoField.SECOND_OF_MINUTE);
                         break;
                     case 'T': // %T Time, 24-hour (HH:mm:ss)
                         builder.appendPattern("HH:mm:ss");
                         break;
-                    case 'V': // %V Week (01..53), where Sunday is the first day of the week; used with %X
-                        builder.appendValue(ChronoField.ALIGNED_WEEK_OF_YEAR, 2);
-                        break;
-                    case 'v': // %v Week (01..53), where Monday is the first day of the week; used with %x
-                        builder.appendValue(IsoFields.WEEK_OF_WEEK_BASED_YEAR, 2);
-                        break;
+                    // If use it, please notice 01..53 / 1-53
+                    // case 'V': // %V Week (01..53), where Sunday is the first day of the week; used with %X
+                    //     builder.appendValue(ChronoField.ALIGNED_WEEK_OF_YEAR, 2);
+                    //     break;
+                    // case 'v': // %v Week (01..53), where Monday is the first day of the week; used with %x
+                    //     builder.appendValue(IsoFields.WEEK_OF_WEEK_BASED_YEAR, 2);
+                    //     break;
                     case 'W': // %W Weekday name (Sunday..Saturday)
                         builder.appendText(ChronoField.DAY_OF_WEEK, TextStyle.FULL);
                         break;
@@ -121,9 +112,11 @@ public class DateUtils {
                     case 'y': // %y Year, numeric (two digits)
                         builder.appendValueReduced(ChronoField.YEAR, 2, 2, 1970);
                         break;
+                    case 'f': // %f Microseconds (0..999999)
+                        builder.appendValue(ChronoField.MICRO_OF_SECOND);
+                        break;
                     // TODO(Gabriel): support microseconds in date literal
                     case 'D': // %D Day of the month with English suffix (0th, 1st, 2nd, 3rd, …)
-                    case 'f': // %f Microseconds (000000..999999)
                     case 'U': // %U Week (00..53), where Sunday is the first day of the week
                     case 'u': // %u Week (00..53), where Monday is the first day of the week
                     case 'w': // %w Day of the week (0=Sunday..6=Saturday)

@@ -80,11 +80,8 @@ public class DateTimeLiteral extends DateLiteral {
             DATETIMEKEY_FORMATTER = DateUtils.formatBuilder("%Y%m%d%H%i%s")
                     .toFormatter().withResolverStyle(ResolverStyle.STRICT);
 
-            DATE_TIME_FORMATTER_TO_MICRO_SECOND = new DateTimeFormatterBuilder()
-                    .appendPattern("uuuu-MM-dd HH:mm:ss")
-                    .appendFraction(ChronoField.MICRO_OF_SECOND, 0, 6, true)
-                    .toFormatter()
-                    .withResolverStyle(ResolverStyle.STRICT);
+            DATE_TIME_FORMATTER_TO_MICRO_SECOND = DateUtils.formatBuilder("%Y-%m-%d %H:%i:%s.%f")
+                    .toFormatter().withResolverStyle(ResolverStyle.STRICT);
 
             formatterList = Lists.newArrayList(
                     DateUtils.formatBuilder("%Y%m%d").appendLiteral('T').appendPattern("HHmmss")
@@ -217,7 +214,7 @@ public class DateTimeLiteral extends DateLiteral {
                 if (s.contains(" ")) {
                     builder.appendLiteral(" ");
                 }
-                String[] timePart = s.contains(" ") ? s.split(" ")[1].split(":") : new String[]{};
+                String[] timePart = s.contains(" ") ? s.split(" ")[1].split(":") : new String[] {};
                 for (int i = 0; i < timePart.length; i++) {
                     switch (i) {
                         case 0:

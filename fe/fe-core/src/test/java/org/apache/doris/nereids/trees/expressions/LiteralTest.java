@@ -17,29 +17,183 @@
 
 package org.apache.doris.nereids.trees.expressions;
 
-import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
-import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
-import org.apache.doris.nereids.trees.expressions.literal.Literal;
-import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
-import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.DateLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.DateTimeV2Literal;
 
-import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
 class LiteralTest {
 
     @Test
-    public void testEqual() {
-        IntegerLiteral one = new IntegerLiteral(1);
-        IntegerLiteral anotherOne = new IntegerLiteral(1);
-        IntegerLiteral two = new IntegerLiteral(2);
-        Assertions.assertNotEquals(one, two);
-        Assertions.assertEquals(one, anotherOne);
-        StringLiteral str1 = new StringLiteral("hello");
-        Assertions.assertNotEquals(str1, one);
-        Assertions.assertTrue(Literal.of("world") instanceof StringLiteral);
-        Assertions.assertTrue(Literal.of(null) instanceof NullLiteral);
-        Assertions.assertTrue(Literal.of(1) instanceof IntegerLiteral);
-        Assertions.assertTrue(Literal.of(false) instanceof BooleanLiteral);
+    void testDate() {
+        new DateLiteral("2016-07-02");
+
+        new DateLiteral("2016-7-02");
+        new DateLiteral("2016-07-2");
+        new DateLiteral("2016-7-2");
+
+        new DateLiteral("2016-07-02");
+        new DateLiteral("2016-07-2");
+        new DateLiteral("2016-7-02");
+        new DateLiteral("2016-7-2");
+    }
+
+    @Test
+    void testDateTime() {
+        new DateLiteral("2016-07-02 01:01:00");
+
+        new DateLiteral("2016-7-02 01:01:00");
+        new DateLiteral("2016-07-2 01:01:00");
+        new DateLiteral("2016-7-2 01:01:00");
+
+        new DateLiteral("2016-07-02 1:01:00");
+        new DateLiteral("2016-07-02 01:1:00");
+        new DateLiteral("2016-07-02 01:01:0");
+        new DateLiteral("2016-07-02 1:1:00");
+        new DateLiteral("2016-07-02 1:01:0");
+        new DateLiteral("2016-07-02 10:1:0");
+        new DateLiteral("2016-07-02 1:1:0");
+
+        new DateLiteral("2016-7-2 1:1:0");
+        new DateLiteral("2016-7-02 1:01:0");
+        new DateLiteral("2016-07-2 1:1:0");
+        new DateLiteral("2016-7-02 01:01:0");
+        new DateLiteral("2016-7-2 01:1:0");
+    }
+
+    @Test
+    void testDateTimeHour() {
+        new DateTimeV2Literal("2016-07-02 01");
+        new DateTimeV2Literal("2016-07-02 1");
+
+        new DateTimeV2Literal("2016-7-02 1");
+        new DateTimeV2Literal("2016-7-02 01");
+
+        new DateTimeV2Literal("2016-07-2 1");
+        new DateTimeV2Literal("2016-07-2 01");
+
+        new DateTimeV2Literal("2016-7-2 1");
+        new DateTimeV2Literal("2016-7-2 01");
+    }
+
+    @Test
+    void testDateTimeHourMinute() {
+        new DateTimeV2Literal("2016-07-02 01:01");
+        new DateTimeV2Literal("2016-07-02 1:01");
+        new DateTimeV2Literal("2016-07-02 01:1");
+        new DateTimeV2Literal("2016-07-02 1:1");
+
+        new DateTimeV2Literal("2016-7-02 01:01");
+        new DateTimeV2Literal("2016-7-02 1:01");
+        new DateTimeV2Literal("2016-7-02 01:1");
+        new DateTimeV2Literal("2016-7-02 1:1");
+
+        new DateTimeV2Literal("2016-07-2 01:01");
+        new DateTimeV2Literal("2016-07-2 1:01");
+        new DateTimeV2Literal("2016-07-2 01:1");
+        new DateTimeV2Literal("2016-07-2 1:1");
+
+        new DateTimeV2Literal("2016-7-2 01:01");
+        new DateTimeV2Literal("2016-7-2 1:01");
+        new DateTimeV2Literal("2016-7-2 01:1");
+        new DateTimeV2Literal("2016-7-2 1:1");
+    }
+
+    @Test
+    void testDateTimeHourMinuteSecond() {
+        new DateTimeV2Literal("2016-07-02 01:01:01");
+        new DateTimeV2Literal("2016-07-02 1:01:01");
+        new DateTimeV2Literal("2016-07-02 01:1:01");
+        new DateTimeV2Literal("2016-07-02 1:1:01");
+        new DateTimeV2Literal("2016-07-02 01:01:1");
+        new DateTimeV2Literal("2016-07-02 1:01:1");
+        new DateTimeV2Literal("2016-07-02 01:1:1");
+        new DateTimeV2Literal("2016-07-02 1:1:1");
+
+        new DateTimeV2Literal("2016-7-02 01:01:01");
+        new DateTimeV2Literal("2016-7-02 1:01:01");
+        new DateTimeV2Literal("2016-7-02 01:1:01");
+        new DateTimeV2Literal("2016-7-02 1:1:01");
+        new DateTimeV2Literal("2016-7-02 01:01:1");
+        new DateTimeV2Literal("2016-7-02 1:01:1");
+        new DateTimeV2Literal("2016-7-02 01:1:1");
+        new DateTimeV2Literal("2016-7-02 1:1:1");
+
+        new DateTimeV2Literal("2016-07-2 01:01:01");
+        new DateTimeV2Literal("2016-07-2 1:01:01");
+        new DateTimeV2Literal("2016-07-2 01:1:01");
+        new DateTimeV2Literal("2016-07-2 1:1:01");
+        new DateTimeV2Literal("2016-07-2 01:01:1");
+        new DateTimeV2Literal("2016-07-2 1:01:1");
+        new DateTimeV2Literal("2016-07-2 01:1:1");
+        new DateTimeV2Literal("2016-07-2 1:1:1");
+
+        new DateTimeV2Literal("2016-7-2 01:01:01");
+        new DateTimeV2Literal("2016-7-2 1:01:01");
+        new DateTimeV2Literal("2016-7-2 01:1:01");
+        new DateTimeV2Literal("2016-7-2 1:1:01");
+        new DateTimeV2Literal("2016-7-2 01:01:1");
+        new DateTimeV2Literal("2016-7-2 1:01:1");
+        new DateTimeV2Literal("2016-7-2 01:1:1");
+        new DateTimeV2Literal("2016-7-2 1:1:1");
+    }
+
+    @Test
+    void testDateTimeHourMinuteSecondMicrosecond() {
+        new DateTimeV2Literal("2016-07-02 01:01:01.1");
+        new DateTimeV2Literal("2016-07-02 1:01:01.1");
+        new DateTimeV2Literal("2016-07-02 01:1:01.1");
+        new DateTimeV2Literal("2016-07-02 1:1:01.1");
+        new DateTimeV2Literal("2016-07-02 01:01:1.1");
+        new DateTimeV2Literal("2016-07-02 1:01:1.1");
+        new DateTimeV2Literal("2016-07-02 01:1:1.1");
+        new DateTimeV2Literal("2016-07-02 1:1:1.1");
+
+        new DateTimeV2Literal("2016-7-02 01:01:01.1");
+        new DateTimeV2Literal("2016-7-02 1:01:01.1");
+        new DateTimeV2Literal("2016-7-02 01:1:01.1");
+        new DateTimeV2Literal("2016-7-02 1:1:01.1");
+        new DateTimeV2Literal("2016-7-02 01:01:1.1");
+        new DateTimeV2Literal("2016-7-02 1:01:1.1");
+        new DateTimeV2Literal("2016-7-02 01:1:1.1");
+        new DateTimeV2Literal("2016-7-02 1:1:1.1");
+
+        new DateTimeV2Literal("2016-07-2 01:01:01.1");
+        new DateTimeV2Literal("2016-07-2 1:01:01.1");
+        new DateTimeV2Literal("2016-07-2 01:1:01.1");
+        new DateTimeV2Literal("2016-07-2 1:1:01.1");
+        new DateTimeV2Literal("2016-07-2 01:01:1.1");
+        new DateTimeV2Literal("2016-07-2 1:01:1.1");
+        new DateTimeV2Literal("2016-07-2 01:1:1.1");
+        new DateTimeV2Literal("2016-07-2 1:1:1.1");
+
+        new DateTimeV2Literal("2016-7-2 01:01:01.1");
+        new DateTimeV2Literal("2016-7-2 1:01:01.1");
+        new DateTimeV2Literal("2016-7-2 01:1:01.1");
+        new DateTimeV2Literal("2016-7-2 1:1:01.1");
+        new DateTimeV2Literal("2016-7-2 01:01:1.1");
+        new DateTimeV2Literal("2016-7-2 1:01:1.1");
+        new DateTimeV2Literal("2016-7-2 01:1:1.1");
+        new DateTimeV2Literal("2016-7-2 1:1:1.1");
+
+        // Testing with microsecond of length 2
+        new DateTimeV2Literal("2016-07-02 01:01:01.12");
+        new DateTimeV2Literal("2016-7-02 01:01:01.12");
+
+        // Testing with microsecond of length 3
+        new DateTimeV2Literal("2016-07-02 01:01:01.123");
+        new DateTimeV2Literal("2016-7-02 01:01:01.123");
+
+        // Testing with microsecond of length 4
+        new DateTimeV2Literal("2016-07-02 01:01:01.1234");
+        new DateTimeV2Literal("2016-7-02 01:01:01.1234");
+
+        // Testing with microsecond of length 5
+        new DateTimeV2Literal("2016-07-02 01:01:01.12345");
+        new DateTimeV2Literal("2016-7-02 01:01:01.12345");
+
+        // Testing with microsecond of length 6
+        new DateTimeV2Literal("2016-07-02 01:01:01.123456");
+        new DateTimeV2Literal("2016-7-02 01:01:01.123456");
     }
 }
