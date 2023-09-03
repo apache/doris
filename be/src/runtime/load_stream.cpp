@@ -381,62 +381,74 @@ Status LoadStream::_append_data(const PStreamHeader& header, butil::IOBuf* data)
 }
 
 int LoadStream::on_received_messages(StreamId id, butil::IOBuf* const messages[], size_t size) {
-    std::shared_ptr<SegmentStatistics> stat = nullptr;
     VLOG_DEBUG << "on_received_messages " << id << " " << size;
     for (size_t i = 0; i < size; ++i) {
-        // step 1: parse header
-        size_t hdr_len = 0;
-        messages[i]->cutn((void*)&hdr_len, sizeof(size_t));
-        butil::IOBuf hdr_buf;
-        PStreamHeader hdr;
-        messages[i]->cutn(&hdr_buf, hdr_len);
-        _parse_header(&hdr_buf, hdr);
+        while (messages[i]->size() > 0) {
+            // step 1: parse header
+            size_t hdr_len = 0;
+            messages[i]->cutn((void*)&hdr_len, sizeof(size_t));
+            butil::IOBuf hdr_buf;
+            PStreamHeader hdr;
+            messages[i]->cutn(&hdr_buf, hdr_len);
+            _parse_header(&hdr_buf, hdr);
 
-        VLOG_DEBUG << PStreamHeader_Opcode_Name(hdr.opcode()) << " from " << hdr.src_id()
-                   << " with tablet " << hdr.tablet_id();
+            // step 2: cut data
+            size_t data_len = 0;
+            messages[i]->cutn((void*)&data_len, sizeof(size_t));
+            butil::IOBuf data_buf;
+            PStreamHeader data;
+            messages[i]->cutn(&data_buf, data_len);
 
-        {
-            std::lock_guard lock_guard(_lock);
-            if (!_open_streams.contains(hdr.src_id())) {
-                std::vector<int64_t> success_tablet_ids;
-                std::vector<int64_t> failed_tablet_ids;
-                if (hdr.has_tablet_id()) {
-                    failed_tablet_ids.push_back(hdr.tablet_id());
-                }
-                Status st = Status::Error<ErrorCode::INVALID_ARGUMENT>(
-                        "no open stream from source {}", hdr.src_id());
-                _report_result(id, st, &success_tablet_ids, &failed_tablet_ids);
-                continue;
-            }
-        }
-
-        // step 2: dispatch
-        switch (hdr.opcode()) {
-        case PStreamHeader::ADD_SEGMENT: // ADD_SEGMENT will be dispatched inside TabletStream
-        case PStreamHeader::APPEND_DATA: {
-            auto st = _append_data(hdr, messages[i]);
-            if (!st.ok()) {
-                std::vector<int64_t> success_tablet_ids;
-                std::vector<int64_t> failed_tablet_ids;
-                failed_tablet_ids.push_back(hdr.tablet_id());
-                _report_result(id, st, &success_tablet_ids, &failed_tablet_ids);
-            }
-        } break;
-        case PStreamHeader::CLOSE_LOAD: {
-            std::vector<int64_t> success_tablet_ids;
-            std::vector<int64_t> failed_tablet_ids;
-            std::vector<PTabletID> tablets_to_commit(hdr.tablets_to_commit().begin(),
-                                                     hdr.tablets_to_commit().end());
-            auto st =
-                    close(hdr.src_id(), tablets_to_commit, &success_tablet_ids, &failed_tablet_ids);
-            _report_result(id, st, &success_tablet_ids, &failed_tablet_ids);
-        } break;
-        default:
-            LOG(WARNING) << "unexpected stream message " << hdr.opcode();
-            DCHECK(false);
+            // step 3: dispatch
+            _dispatch(id, hdr, &data_buf);
         }
     }
     return 0;
+}
+
+void LoadStream::_dispatch(StreamId id, const PStreamHeader& hdr, butil::IOBuf* data) {
+    VLOG_DEBUG << PStreamHeader_Opcode_Name(hdr.opcode()) << " from " << hdr.src_id()
+               << " with tablet " << hdr.tablet_id();
+
+    {
+        std::lock_guard lock_guard(_lock);
+        if (!_open_streams.contains(hdr.src_id())) {
+            std::vector<int64_t> success_tablet_ids;
+            std::vector<int64_t> failed_tablet_ids;
+            if (hdr.has_tablet_id()) {
+                failed_tablet_ids.push_back(hdr.tablet_id());
+            }
+            Status st = Status::Error<ErrorCode::INVALID_ARGUMENT>("no open stream from source {}",
+                                                                   hdr.src_id());
+            _report_result(id, st, &success_tablet_ids, &failed_tablet_ids);
+            return;
+        }
+    }
+
+    switch (hdr.opcode()) {
+    case PStreamHeader::ADD_SEGMENT: // ADD_SEGMENT will be dispatched inside TabletStream
+    case PStreamHeader::APPEND_DATA: {
+        auto st = _append_data(hdr, data);
+        if (!st.ok()) {
+            std::vector<int64_t> success_tablet_ids;
+            std::vector<int64_t> failed_tablet_ids;
+            failed_tablet_ids.push_back(hdr.tablet_id());
+            _report_result(id, st, &success_tablet_ids, &failed_tablet_ids);
+        }
+    } break;
+    case PStreamHeader::CLOSE_LOAD: {
+        std::vector<int64_t> success_tablet_ids;
+        std::vector<int64_t> failed_tablet_ids;
+        std::vector<PTabletID> tablets_to_commit(hdr.tablets_to_commit().begin(),
+                                                 hdr.tablets_to_commit().end());
+        auto st = close(hdr.src_id(), tablets_to_commit, &success_tablet_ids, &failed_tablet_ids);
+        _report_result(id, st, &success_tablet_ids, &failed_tablet_ids);
+        brpc::StreamClose(id);
+    } break;
+    default:
+        LOG(WARNING) << "unexpected stream message " << hdr.opcode();
+        DCHECK(false);
+    }
 }
 
 void LoadStream::on_idle_timeout(StreamId id) {

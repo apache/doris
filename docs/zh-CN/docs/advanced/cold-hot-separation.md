@@ -101,6 +101,7 @@ ALTER TABLE create_table_not_have_policy set ("storage_policy" = "test_policy");
 ```
 ALTER TABLE create_table_partition MODIFY PARTITION (*) SET("storage_policy"="test_policy");
 ```
+**注意**，如果用户在建表时给整张table和部分partition指定了不同的storage policy，partition设置的storage policy会被无视，整张表的所有partition都会使用table的policy. 如果您需要让某个partition的policy和别的不同，则可以使用上文中对一个已存在的partition，关联storage policy的方式修改.
 具体可以参考docs目录下[resource](../sql-manual/sql-reference/Data-Definition-Statements/Create/CREATE-RESOURCE.md)、 [policy](../sql-manual/sql-reference/Data-Definition-Statements/Create/CREATE-POLICY.md)、 [create table](../sql-manual/sql-reference/Data-Definition-Statements/Create/CREATE-TABLE.md)、 [alter table](../sql-manual/sql-reference/Data-Definition-Statements/Alter/ALTER-TABLE-COLUMN.md)等文档，里面有详细介绍
 
 ### 一些限制

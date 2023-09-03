@@ -240,7 +240,7 @@ public class MaterializedViewHandlerTest {
             Assert.assertTrue(newMVColumn.isKey());
             Assert.assertEquals(null, newMVColumn.getAggregationType());
             Assert.assertEquals(false, newMVColumn.isAggregationTypeImplicit());
-            Assert.assertEquals(Type.VARCHAR, newMVColumn.getType());
+            Assert.assertEquals(Type.VARCHAR.getPrimitiveType(), newMVColumn.getType().getPrimitiveType());
         } catch (Exception e) {
             e.printStackTrace();
             Assert.fail(e.getMessage());

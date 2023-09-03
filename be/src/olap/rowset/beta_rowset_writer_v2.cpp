@@ -54,11 +54,12 @@
 #include "util/time.h"
 #include "vec/common/schema_util.h" // LocalSchemaChangeRecorder
 #include "vec/core/block.h"
+#include "vec/sink/load_stream_stub.h"
 
 namespace doris {
 using namespace ErrorCode;
 
-BetaRowsetWriterV2::BetaRowsetWriterV2(const std::vector<brpc::StreamId>& streams)
+BetaRowsetWriterV2::BetaRowsetWriterV2(const std::vector<std::shared_ptr<LoadStreamStub>>& streams)
         : _next_segment_id(0),
           _num_segment(0),
           _num_rows_written(0),
@@ -78,33 +79,20 @@ Status BetaRowsetWriterV2::init(const RowsetWriterContext& rowset_writer_context
 
 Status BetaRowsetWriterV2::create_file_writer(uint32_t segment_id, io::FileWriterPtr& file_writer) {
     auto partition_id = _context.partition_id;
-    auto sender_id = _context.sender_id;
     auto index_id = _context.index_id;
     auto tablet_id = _context.tablet_id;
     auto load_id = _context.load_id;
 
-    auto stream_writer = std::make_unique<io::StreamSinkFileWriter>(sender_id, _streams);
+    auto stream_writer = std::make_unique<io::StreamSinkFileWriter>(_streams);
     stream_writer->init(load_id, partition_id, index_id, tablet_id, segment_id);
     file_writer = std::move(stream_writer);
     return Status::OK();
 }
 
 Status BetaRowsetWriterV2::add_segment(uint32_t segment_id, SegmentStatistics& segstat) {
-    butil::IOBuf buf;
-    PStreamHeader header;
-    header.set_src_id(_context.sender_id);
-    *header.mutable_load_id() = _context.load_id;
-    header.set_partition_id(_context.partition_id);
-    header.set_index_id(_context.index_id);
-    header.set_tablet_id(_context.tablet_id);
-    header.set_segment_id(segment_id);
-    header.set_opcode(doris::PStreamHeader::ADD_SEGMENT);
-    segstat.to_pb(header.mutable_segment_statistics());
-    size_t header_len = header.ByteSizeLong();
-    buf.append(reinterpret_cast<uint8_t*>(&header_len), sizeof(header_len));
-    buf.append(header.SerializeAsString());
     for (const auto& stream : _streams) {
-        io::StreamSinkFileWriter::send_with_retry(stream, buf);
+        RETURN_IF_ERROR(stream->add_segment(_context.partition_id, _context.index_id,
+                                            _context.tablet_id, segment_id, segstat));
     }
     return Status::OK();
 }

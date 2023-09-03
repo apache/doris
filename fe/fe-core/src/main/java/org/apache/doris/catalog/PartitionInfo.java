@@ -230,6 +230,13 @@ public class PartitionInfo implements Writable {
         idToDataProperty.put(partitionId, newDataProperty);
     }
 
+    public void refreshTableStoragePolicy(String storagePolicy) {
+        idToStoragePolicy.replaceAll((k, v) -> storagePolicy);
+        idToDataProperty.entrySet().forEach(entry -> {
+            entry.getValue().setStoragePolicy(storagePolicy);
+        });
+    }
+
     public String getStoragePolicy(long partitionId) {
         return idToStoragePolicy.getOrDefault(partitionId, "");
     }

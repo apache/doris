@@ -30,6 +30,10 @@ suite("test_hive_statistic", "p2,external,hive,external_remote,external_remote_h
             );
         """
         logger.info("catalog " + catalog_name + " created")
+
+        // Test analyze table without init.
+        sql """analyze table ${catalog_name}.tpch_1000_parquet.region with sync"""
+
         sql """switch ${catalog_name};"""
         logger.info("switched to catalog " + catalog_name)
         sql """use statistics;"""
@@ -243,6 +247,53 @@ suite("test_hive_statistic", "p2,external,hive,external_remote,external_remote_h
         sql """drop stats statistics"""
         result = sql """show column cached stats statistics"""
         assertTrue(result.size() == 0)
+
+        sql """use multi_catalog"""
+        sql """analyze table logs1_parquet (log_time) with sync"""
+        def ctlId
+        def dbId
+        def tblId
+        result = sql """show proc '/catalogs'"""
+
+        for (int i = 0; i < result.size(); i++) {
+            if (result[i][1] == catalog_name) {
+                ctlId = result[i][0]
+            }
+        }
+        result = sql """show proc '/catalogs/$ctlId'"""
+        for (int i = 0; i < result.size(); i++) {
+            if (result[i][1] == 'multi_catalog') {
+                dbId = result[i][0]
+            }
+        }
+        result = sql """show proc '/catalogs/$ctlId/$dbId'"""
+        for (int i = 0; i < result.size(); i++) {
+            if (result[i][1] == 'logs1_parquet') {
+                tblId = result[i][0]
+            }
+        }
+
+        result = sql """select * from internal.__internal_schema.column_statistics where id = '${tblId}--1-log_time'"""
+        assertTrue(result.size() == 1)
+        def id = result[0][0]
+        def catalog_id = result[0][1]
+        def db_id = result[0][2]
+        def tbl_id = result[0][3]
+        def idx_id = result[0][4]
+        def col_id = result[0][5]
+        def count = result[0][7]
+        def ndv = result[0][8]
+        def null_count = result[0][9]
+        def data_size_in_bytes = result[0][12]
+        def update_time = result[0][13]
+
+        sql """insert into internal.__internal_schema.column_statistics values ('$id', '$catalog_id', '$db_id', '$tbl_id', '$idx_id', '$col_id', NULL, $count, $ndv, $null_count, '', '', '$data_size_in_bytes', '$update_time')"""
+
+        result = sql """show column stats logs1_parquet (log_time)"""
+        assertTrue(result.size() == 1)
+        assertTrue(result[0][6] == "N/A")
+        assertTrue(result[0][7] == "N/A")
+        sql """drop catalog ${catalog_name}"""
     }
 }
 

@@ -131,6 +131,33 @@ DecimalV2Value OlapTableBlockConvertor::_get_decimalv2_min_or_max(const TypeDesc
     return value;
 }
 
+template <typename DecimalType, bool IsMin>
+DecimalType OlapTableBlockConvertor::_get_decimalv3_min_or_max(const TypeDescriptor& type) {
+    std::map<int, typename DecimalType::NativeType>* pmap;
+    if constexpr (std::is_same_v<DecimalType, vectorized::Decimal32>) {
+        pmap = IsMin ? &_min_decimal32_val : &_max_decimal32_val;
+    } else if constexpr (std::is_same_v<DecimalType, vectorized::Decimal64>) {
+        pmap = IsMin ? &_min_decimal64_val : &_max_decimal64_val;
+    } else {
+        pmap = IsMin ? &_min_decimal128_val : &_max_decimal128_val;
+    }
+
+    // found
+    auto iter = pmap->find(type.precision);
+    if (iter != pmap->end()) {
+        return iter->second;
+    }
+
+    typename DecimalType::NativeType value;
+    if constexpr (IsMin) {
+        value = vectorized::min_decimal_value<DecimalType>(type.precision);
+    } else {
+        value = vectorized::max_decimal_value<DecimalType>(type.precision);
+    }
+    pmap->emplace(type.precision, value);
+    return value;
+}
+
 Status OlapTableBlockConvertor::_validate_column(RuntimeState* state, const TypeDescriptor& type,
                                                  bool is_nullable, vectorized::ColumnPtr column,
                                                  size_t slot_index, bool* stop_processing,
@@ -269,8 +296,8 @@ Status OlapTableBlockConvertor::_validate_column(RuntimeState* state, const Type
 #define CHECK_VALIDATION_FOR_DECIMALV3(DecimalType)                                                \
     auto column_decimal = const_cast<vectorized::ColumnDecimal<DecimalType>*>(                     \
             assert_cast<const vectorized::ColumnDecimal<DecimalType>*>(real_column_ptr.get()));    \
-    const auto& max_decimal = type_limit<DecimalType>::max();                                      \
-    const auto& min_decimal = type_limit<DecimalType>::min();                                      \
+    const auto& max_decimal = _get_decimalv3_min_or_max<DecimalType, false>(type);                 \
+    const auto& min_decimal = _get_decimalv3_min_or_max<DecimalType, true>(type);                  \
     for (size_t j = 0; j < column->size(); ++j) {                                                  \
         auto row = rows ? (*rows)[j] : j;                                                          \
         if (row == last_invalid_row) {                                                             \

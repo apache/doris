@@ -126,6 +126,20 @@ cd $DORIS_HOME
 sh build.sh
 ```
 
+## 编译过程中可能会遇到高版本的 Node.js 导致的错误
+
+opensslErrorStack: ['error:03000086:digital envelope routines::initialization error']
+library: 'digital envelope routines'
+reason: 'unsupported'
+code: 'ERR_OSSL_EVP_UNSUPPORTED'
+以下命令解决问题。参考[https://stackoverflow.com/questions/74726224/opensslerrorstack-error03000086digital-envelope-routinesinitialization-e](https://stackoverflow.com/questions/74726224/opensslerrorstack-error03000086digital-envelope-routinesinitialization-e)
+
+```shell
+#指示Node.js使用旧版的OpenSSL提供程序
+export NODE_OPTIONS=--openssl-legacy-provider
+```
+
+
 ## 配置 Debug 环境
 
 ```shell

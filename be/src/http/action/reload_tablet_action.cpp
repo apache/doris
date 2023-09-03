@@ -94,7 +94,7 @@ void ReloadTabletAction::reload(const std::string& path, int64_t tablet_id, int3
     clone_req.__set_schema_hash(schema_hash);
 
     Status res = Status::OK();
-    res = _exec_env->storage_engine()->load_header(path, clone_req);
+    res = StorageEngine::instance()->load_header(path, clone_req);
     if (!res.ok()) {
         LOG(WARNING) << "load header failed. status: " << res << ", signature: " << tablet_id;
         std::string error_msg = std::string("load header failed");

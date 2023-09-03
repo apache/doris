@@ -306,6 +306,7 @@ public class StmtExecutor {
                 : context.getState().toString());
         builder.user(context.getQualifiedUser());
         builder.defaultDb(context.getDatabase());
+        builder.workloadGroup(context.getWorkloadGroupName());
         builder.sqlStatement(originStmt.originStmt);
         builder.isCached(isCached ? "Yes" : "No");
 
@@ -1356,6 +1357,8 @@ public class StmtExecutor {
         coord = new Coordinator(context, analyzer, planner, context.getStatsErrorEstimator());
         if (Config.enable_workload_group && context.sessionVariable.getEnablePipelineEngine()) {
             coord.setTWorkloadGroups(context.getEnv().getWorkloadGroupMgr().getWorkloadGroup(context));
+        } else {
+            context.setWorkloadGroupName("");
         }
         QeProcessorImpl.INSTANCE.registerQuery(context.queryId(),
                 new QeProcessorImpl.QueryInfo(context, originStmt.originStmt, coord));
@@ -2438,6 +2441,7 @@ public class StmtExecutor {
     }
 
     public List<ResultRow> executeInternalQuery() {
+        LOG.debug("INTERNAL QUERY: " + originStmt.toString());
         try {
             List<ResultRow> resultRows = new ArrayList<>();
             try {
