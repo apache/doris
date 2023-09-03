@@ -70,8 +70,6 @@ public class DateTimeLiteral extends DateLiteral {
 
     static {
         try {
-            DATE_TIME_FORMATTER = DateUtils.formatBuilder("%Y-%m-%d %H:%i:%s")
-                    .toFormatter().withResolverStyle(ResolverStyle.STRICT);
             DATE_TIME_FORMATTER_TO_HOUR = DateUtils.formatBuilder("%Y-%m-%d %H")
                     .toFormatter().withResolverStyle(ResolverStyle.STRICT);
             DATE_TIME_FORMATTER_TO_MINUTE = DateUtils.formatBuilder("%Y-%m-%d %H:%i")
