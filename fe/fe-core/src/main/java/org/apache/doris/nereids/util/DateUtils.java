@@ -115,7 +115,6 @@ public class DateUtils {
                     case 'f': // %f Microseconds (0..999999)
                         builder.appendValue(ChronoField.MICRO_OF_SECOND);
                         break;
-                    // TODO(Gabriel): support microseconds in date literal
                     case 'D': // %D Day of the month with English suffix (0th, 1st, 2nd, 3rd, …)
                     case 'U': // %U Week (00..53), where Sunday is the first day of the week
                     case 'u': // %u Week (00..53), where Monday is the first day of the week
