@@ -141,7 +141,8 @@ suite("test_count_on_index_httplogs", "p0") {
         load_httplogs_data.call(testTable_unique, 'test_httplogs_load_count_on_index', 'true', 'json', 'documents-1000.json')
 
         sql "sync"
-
+        sql """set experimental_enable_nereids_planner=true;"""
+        sql """set enable_fallback_to_original_planner=false;"""
         // case1: test duplicate table
         explain {
             sql("select COUNT() from ${testTable_dup} where request match 'GET'")
