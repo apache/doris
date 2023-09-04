@@ -51,6 +51,9 @@ suite("test_scalar_types_load_p2", "p2") {
         PROPERTIES("replication_num" = "1");
         """
 
+    sql """ ALTER TABLE ${testTable} DROP COLUMN c_bigint """
+    sql """ ALTER TABLE ${testTable}  ADD COLUMN c_bigint bigint AFTER c_int """
+
     // load data
     streamLoad {
         table testTable
