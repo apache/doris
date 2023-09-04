@@ -82,9 +82,7 @@ public:
         return _source->runtime_filters_are_ready_or_timeout();
     }
 
-    bool sink_can_write() override {
-        return _sink->can_write(_state);
-    }
+    bool sink_can_write() override { return _sink->can_write(_state); }
 
     Status finalize() override;
 
