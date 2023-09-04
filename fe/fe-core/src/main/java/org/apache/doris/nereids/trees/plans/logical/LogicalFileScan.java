@@ -121,6 +121,7 @@ public class LogicalFileScan extends LogicalCatalogRelation {
      * Mainly for hive table partition pruning.
      */
     public static class SelectedPartitions {
+        public static SelectedPartitions EMPTY = new SelectedPartitions(0, Maps.newHashMap(), false);
         /**
          * total partition number
          */
@@ -134,8 +135,6 @@ public class LogicalFileScan extends LogicalCatalogRelation {
          * false means the partition pruning is not processed.
          */
         public boolean isPartitionPruned;
-
-        public static SelectedPartitions EMPTY = new SelectedPartitions(0, Maps.newHashMap(), false);
 
         /**
          * Constructor for SelectedPartitions.
