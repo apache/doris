@@ -41,7 +41,6 @@ import org.apache.doris.task.AgentTaskExecutor;
 import org.apache.doris.task.AgentTaskQueue;
 import org.apache.doris.task.AlterInvertedIndexTask;
 import org.apache.doris.thrift.TColumn;
-import org.apache.doris.thrift.TTaskType;
 
 import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
@@ -322,29 +321,8 @@ public class IndexChangeJob implements Writable {
         LOG.info("inverted index job finished: {}", jobId);
     }
 
-    /**
-     * cancelImpl() can be called any time any place.
-     * We need to clean any possible residual of this job.
-     */
     protected boolean cancelImpl(String errMsg) {
-        if (jobState.isFinalState()) {
-            return false;
-        }
-
-        cancelInternal();
-
-        jobState = JobState.CANCELLED;
-        this.errMsg = errMsg;
-        this.finishedTimeMs = System.currentTimeMillis();
-        LOG.info("cancel index job {}, err: {}", jobId, errMsg);
-        Env.getCurrentEnv().getEditLog().logIndexChangeJob(this);
         return true;
-    }
-
-    private void cancelInternal() {
-        // clear tasks if has
-        AgentTaskQueue.removeBatchTask(invertedIndexBatchTask, TTaskType.ALTER_INVERTED_INDEX);
-        // TODO maybe delete already build index files
     }
 
     public void replay(IndexChangeJob replayedJob) {
