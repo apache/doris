@@ -762,7 +762,7 @@ Status OffsetColumnWriter::append_data(const uint8_t** ptr, size_t num_rows) {
 }
 
 Status OffsetColumnWriter::finish_current_page_with_next_data(const uint8_t* next_data_ptr) {
-    finish_current_page();
+    RETURN_IF_ERROR(finish_current_page());
     DataPageFooterPB* footer = get_data_pages().tail->footer.mutable_data_page_footer();
     auto offset = *(const uint64_t*)next_data_ptr;
     footer->set_next_array_item_ordinal(offset);
