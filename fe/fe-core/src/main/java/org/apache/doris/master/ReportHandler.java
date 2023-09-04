@@ -104,12 +104,16 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.BlockingQueue;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 import java.util.stream.Collectors;
 
 public class ReportHandler extends Daemon {
     private static final Logger LOG = LogManager.getLogger(ReportHandler.class);
 
     private BlockingQueue<ReportTask> reportQueue = Queues.newLinkedBlockingQueue();
+
+    private ExecutorService storagePolicyPartitionMapExecutor = Executors.newSingleThreadExecutor();
 
     private enum ReportType {
         UNKNOWN,
@@ -270,14 +274,15 @@ public class ReportHandler extends Daemon {
                             reportVersion, beId, backendReportVersion);
                 } else {
                     ReportHandler.tabletReport(beId, tablets, reportVersion);
-                    updateStoragrPolicyPartitionInfo(tablets);
+                    storagePolicyPartitionMapExecutor.submit(() -> {
+                        ReportHandler.updateStoragrPolicyPartitionInfo(tablets);
+                    });
                 }
             }
         }
     }
 
-    private static void updateStoragrPolicyPartitionInfo(Map<Long, TTablet> backendTablets) {
-        // We'd better do it in async way otherwise i'm worried about other report would be blocked
+    static void updateStoragrPolicyPartitionInfo(Map<Long, TTablet> backendTablets) {
         backendTablets.entrySet().stream().forEach(entry -> {
             entry.getValue().tablet_infos.forEach(tTabletInfo -> {
                 if (tTabletInfo.getStoragePolicyId() == 0) {
@@ -306,7 +311,7 @@ public class ReportHandler extends Daemon {
     }
 
     private static void handlePushStoragePolicy(long backendId, List<Policy> policyToPush,
-                                                List<Resource> resourceToPush, List<Long> policyToDrop) {
+            List<Resource> resourceToPush, List<Long> policyToDrop) {
         AgentBatchTask batchTask = new AgentBatchTask();
         PushStoragePolicyTask pushStoragePolicyTask = new PushStoragePolicyTask(backendId, policyToPush,
                 resourceToPush, policyToDrop);
@@ -315,8 +320,8 @@ public class ReportHandler extends Daemon {
     }
 
     private static void storagePolicyReport(long backendId,
-                                            List<TStoragePolicy> storagePoliciesInBe,
-                                            List<TStorageResource> storageResourcesInBe) {
+            List<TStoragePolicy> storagePoliciesInBe,
+            List<TStorageResource> storageResourcesInBe) {
         LOG.info("backend[{}] reports policies {}, report resources: {}",
                 backendId, storagePoliciesInBe, storageResourcesInBe);
         // do the diff. find out (intersection) / (be - meta) / (meta - be)
@@ -391,7 +396,7 @@ public class ReportHandler extends Daemon {
     }
 
     private static void diffResource(List<TStorageResource> storageResourcesInBe, List<Resource> resourcesInFe,
-                                   List<Resource> resourceToPush) {
+            List<Resource> resourceToPush) {
         // fe - be
         for (Resource resource : resourcesInFe) {
             if (resource.getId() <= 0) {
@@ -602,7 +607,7 @@ public class ReportHandler extends Daemon {
     }
 
     private static void sync(Map<Long, TTablet> backendTablets, ListMultimap<Long, Long> tabletSyncMap,
-                             long backendId, long backendReportVersion) {
+            long backendId, long backendReportVersion) {
         TabletInvertedIndex invertedIndex = Env.getCurrentInvertedIndex();
         for (Long dbId : tabletSyncMap.keySet()) {
             Database db = Env.getCurrentInternalCatalog().getDbNullable(dbId);
@@ -694,7 +699,7 @@ public class ReportHandler extends Daemon {
                             if (replica.getLastFailedVersion() < 0) {
                                 if (replica.setBad(false)) {
                                     LOG.info("sync replica {} of tablet {} in backend {} in db {}. "
-                                            + "replica change from bad to good.",
+                                                    + "replica change from bad to good.",
                                             replica, tabletId, backendId, dbId);
                                 }
 
@@ -728,7 +733,7 @@ public class ReportHandler extends Daemon {
     }
 
     private static void deleteFromMeta(ListMultimap<Long, Long> tabletDeleteFromMeta, long backendId,
-                                       long backendReportVersion) {
+            long backendReportVersion) {
         AgentBatchTask createReplicaBatchTask = new AgentBatchTask();
         TabletInvertedIndex invertedIndex = Env.getCurrentInvertedIndex();
         for (Long dbId : tabletDeleteFromMeta.keySet()) {
@@ -894,8 +899,8 @@ public class ReportHandler extends Daemon {
     }
 
     private static void deleteFromBackend(Map<Long, TTablet> backendTablets,
-                                          Set<Long> tabletFoundInMeta,
-                                          long backendId) {
+            Set<Long> tabletFoundInMeta,
+            long backendId) {
         int deleteFromBackendCounter = 0;
         int addToMetaCounter = 0;
         AgentBatchTask batchTask = new AgentBatchTask();
@@ -956,7 +961,7 @@ public class ReportHandler extends Daemon {
     }
 
     private static void handleMigration(ListMultimap<TStorageMedium, Long> tabletMetaMigrationMap,
-                                        long backendId) {
+            long backendId) {
         TabletInvertedIndex invertedIndex = Env.getCurrentInvertedIndex();
         SystemInfoService infoService = Env.getCurrentSystemInfo();
         Backend be = infoService.getBackend(backendId);
@@ -1005,7 +1010,7 @@ public class ReportHandler extends Daemon {
     }
 
     private static void handleRecoverTablet(ListMultimap<Long, Long> tabletRecoveryMap,
-                                            Map<Long, TTablet> backendTablets, long backendId) {
+            Map<Long, TTablet> backendTablets, long backendId) {
         // print a warn log here to indicate the exceptions on the backend
         LOG.warn("find {} tablets on backend {} which is bad or misses versions that need clone or force recovery",
                 tabletRecoveryMap.size(), backendId);
@@ -1217,7 +1222,7 @@ public class ReportHandler extends Daemon {
             boolean canAddForceRedundant = status.first == TabletStatus.FORCE_REDUNDANT
                     && infoService.checkBackendScheduleAvailable(backendId)
                     && tablet.getReplicas().stream().anyMatch(
-                            r -> !infoService.checkBackendScheduleAvailable(r.getBackendId()));
+                    r -> !infoService.checkBackendScheduleAvailable(r.getBackendId()));
 
             if (isColocateBackend
                     || canAddForceRedundant
@@ -1298,7 +1303,7 @@ public class ReportHandler extends Daemon {
                 Env.getCurrentEnv().getEditLog().logAddReplica(info);
 
                 LOG.info("add replica[{}-{}] to catalog. backend[{}], tablet status {}, tablet size {}, "
-                        + "is colocate backend {}",
+                                + "is colocate backend {}",
                         tabletId, replicaId, backendId, status.first.name(), tablet.getReplicas().size(),
                         isColocateBackend);
                 return true;
