@@ -28,6 +28,9 @@
 #include <pthread.h>
 #include <stdlib.h>
 // IWYU pragma: no_include <bits/chrono.h>
+#include <fmt/format.h>
+#include <fmt/ranges.h>
+
 #include <chrono> // IWYU pragma: keep
 #include <map>
 #include <ostream>
@@ -125,14 +128,12 @@ PipelineFragmentContext::PipelineFragmentContext(
           _exec_env(exec_env),
           _query_ctx(std::move(query_ctx)),
           _call_back(call_back),
-          _report_thread_active(false),
-          _report_status_cb(report_status_cb),
           _is_report_on_cancel(true),
+          _report_status_cb(report_status_cb),
           _group_commit(group_commit) {
     if (_query_ctx->get_task_group()) {
         _task_group_entity = _query_ctx->get_task_group()->task_entity();
     }
-    _report_thread_future = _report_thread_promise.get_future();
     _fragment_watcher.start();
 }
 
@@ -146,7 +147,6 @@ PipelineFragmentContext::~PipelineFragmentContext() {
     } else {
         _call_back(_runtime_state.get(), &st);
     }
-    DCHECK(!_report_thread_active);
 }
 
 void PipelineFragmentContext::cancel(const PPlanFragmentCancelReason& reason,
@@ -161,14 +161,14 @@ void PipelineFragmentContext::cancel(const PPlanFragmentCancelReason& reason,
     if (_query_ctx->cancel(true, msg, Status::Cancelled(msg))) {
         if (reason != PPlanFragmentCancelReason::LIMIT_REACH) {
             LOG(WARNING) << "PipelineFragmentContext "
-                         << PrintInstanceStandardInfo(_query_id, _fragment_id, _fragment_instance_id)
+                         << PrintInstanceStandardInfo(_query_id, _fragment_id,
+                                                      _fragment_instance_id)
                          << " is canceled, cancel message: " << msg;
 
         } else {
             _set_is_report_on_cancel(false);
         }
 
-        _runtime_state->set_is_cancelled(true, msg);
         _runtime_state->set_process_status(_query_ctx->exec_status());
         // Get pipe from new load stream manager and send cancel to it or the fragment may hang to wait read from pipe
         // For stream load the fragment's query_id == load id, it is set in FE.
@@ -326,7 +326,7 @@ Status PipelineFragmentContext::prepare(const doris::TPipelineFragmentParams& re
     _runtime_state->runtime_profile()->add_child(_root_plan->runtime_profile(), true, nullptr);
     _runtime_state->runtime_profile()->add_child(_runtime_profile.get(), true, nullptr);
 
-    _start_report_thread();
+    _init_next_report_time();
 
     _prepared = true;
     return Status::OK();
@@ -361,66 +361,34 @@ Status PipelineFragmentContext::_build_pipeline_tasks(
     return Status::OK();
 }
 
-void PipelineFragmentContext::_start_report_thread() {
+void PipelineFragmentContext::_init_next_report_time() {
     if (_is_report_success && config::status_report_interval > 0) {
-        std::unique_lock<std::mutex> l(_report_thread_lock);
-        _exec_env->send_report_thread_pool()->submit_func([this] {
-            Defer defer {[&]() { this->_report_thread_promise.set_value(true); }};
-            this->report_profile();
-        });
-        // make sure the thread started up, otherwise report_profile() might get into a race
-        // with stop_report_thread()
-        _report_thread_started_cv.wait(l);
+        std::vector<string> ins_ids;
+        instance_ids(ins_ids);
+        VLOG_FILE << "report_profile(): instance_id="
+                  << fmt::format("{}", fmt::join(ins_ids, ", "));
+        uint64_t report_fragment_offset =
+                (uint64_t)(rand() % config::status_report_interval) * NANOS_PER_SEC;
+        // We don't want to wait longer than it takes to run the entire fragment.
+        _next_report_time = MonotonicNanos() + report_fragment_offset;
     }
 }
 
-void PipelineFragmentContext::_stop_report_thread() {
-    if (!_report_thread_active) {
+void PipelineFragmentContext::trigger_report_if_necessary() {
+    if (_next_report_time == 0) {
         return;
     }
-
-    _report_thread_active = false;
-
-    _stop_report_thread_cv.notify_one();
-    // Wait infinitly to ensure that the report task is finished and the this variable
-    // is not used in report thread.
-    _report_thread_future.wait();
-}
-
-void PipelineFragmentContext::report_profile() {
-    SCOPED_ATTACH_TASK(_runtime_state.get());
-    VLOG_FILE << "report_profile(): instance_id=" << _runtime_state->fragment_instance_id();
-
-    _report_thread_active = true;
-
-    std::unique_lock<std::mutex> l(_report_thread_lock);
-    // tell Open() that we started
-    _report_thread_started_cv.notify_one();
-
-    // Jitter the reporting time of remote fragments by a random amount between
-    // 0 and the report_interval.  This way, the coordinator doesn't get all the
-    // updates at once so its better for contention as well as smoother progress
-    // reporting.
-    int report_fragment_offset = rand() % config::status_report_interval;
-    // We don't want to wait longer than it takes to run the entire fragment.
-    _stop_report_thread_cv.wait_for(l, std::chrono::seconds(report_fragment_offset));
-    while (_report_thread_active) {
-        if (config::status_report_interval > 0) {
-            // wait_for can return because the timeout occurred or the condition variable
-            // was signaled.  We can't rely on its return value to distinguish between the
-            // two cases (e.g. there is a race here where the wait timed out but before grabbing
-            // the lock, the condition variable was signaled).  Instead, we will use an external
-            // flag, _report_thread_active, to coordinate this.
-            _stop_report_thread_cv.wait_for(l,
-                                            std::chrono::seconds(config::status_report_interval));
-        } else {
-            LOG(WARNING) << "config::status_report_interval is equal to or less than zero, exiting "
-                            "reporting thread.";
-            break;
-        }
-
+    auto interval_s = config::status_report_interval;
+    if (interval_s <= 0) {
+        LOG(WARNING)
+                << "config::status_report_interval is equal to or less than zero, do not trigger "
+                   "report.";
+    }
+    auto now = MonotonicNanos();
+    if (now > _next_report_time) {
+        _next_report_time = now + (uint64_t)(interval_s)*NANOS_PER_SEC;
         if (VLOG_FILE_IS_ON) {
-            VLOG_FILE << "Reporting " << (!_report_thread_active ? "final " : " ")
+            VLOG_FILE << "Reporting "
                       << "profile for instance " << _runtime_state->fragment_instance_id();
             std::stringstream ss;
             _runtime_state->runtime_profile()->compute_time_in_profile();
@@ -431,15 +399,8 @@ void PipelineFragmentContext::report_profile() {
             }
             VLOG_FILE << ss.str();
         }
-
-        if (!_report_thread_active) {
-            break;
-        }
-
         send_report(false);
     }
-
-    VLOG_FILE << "exiting reporting thread: instance_id=" << _runtime_state->fragment_instance_id();
 }
 
 // TODO: use virtual function to do abstruct
@@ -846,7 +807,6 @@ Status PipelineFragmentContext::_create_sink(int sender_id, const TDataSink& thr
 void PipelineFragmentContext::_close_action() {
     _runtime_profile->total_time_counter()->update(_fragment_watcher.elapsed_time());
     send_report(true);
-    _stop_report_thread();
     // all submitted tasks done
     _exec_env->fragment_mgr()->remove_pipeline_context(shared_from_this());
 }
@@ -895,7 +855,8 @@ void PipelineFragmentContext::send_report(bool done) {
              _runtime_state.get(),
              std::bind(&PipelineFragmentContext::update_status, this, std::placeholders::_1),
              std::bind(&PipelineFragmentContext::cancel, this, std::placeholders::_1,
-                       std::placeholders::_2)});
+                       std::placeholders::_2)},
+            shared_from_this());
 }
 
 } // namespace doris::pipeline

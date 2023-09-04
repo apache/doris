@@ -48,6 +48,8 @@ namespace doris {
 namespace pipeline {
 class PipelineFragmentContext;
 class PipelineXFragmentContext;
+struct ReportTask;
+class PipelineContextReportExecutor;
 } // namespace pipeline
 class QueryContext;
 class ExecEnv;
@@ -99,6 +101,8 @@ public:
                                   const PPlanFragmentCancelReason& reason,
                                   const std::unique_lock<std::mutex>& state_lock,
                                   const std::string& msg = "");
+    Status trigger_pipeline_context_report(const ReportStatusRequest&,
+                                           std::shared_ptr<pipeline::PipelineFragmentContext>&&);
 
     // Pipeline version, cancel a fragment instance.
     void cancel_instance(const TUniqueId& instance_id, const PPlanFragmentCancelReason& reason,
@@ -203,6 +207,7 @@ private:
     UIntGauge* timeout_canceled_fragment_count = nullptr;
 
     RuntimeFilterMergeController _runtimefilter_controller;
+    std::unique_ptr<pipeline::PipelineContextReportExecutor> _pipeline_ctx_report_executor;
 };
 
 } // namespace doris

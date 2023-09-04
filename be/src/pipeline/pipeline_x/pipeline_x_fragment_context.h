@@ -60,7 +60,6 @@ public:
     // Note: this does not take a const RuntimeProfile&, because it might need to call
     // functions like PrettyPrint() or to_thrift(), neither of which is const
     // because they take locks.
-    using report_status_callback = std::function<void(const ReportStatusRequest)>;
     PipelineXFragmentContext(const TUniqueId& query_id, const int fragment_id,
                              std::shared_ptr<QueryContext> query_ctx, ExecEnv* exec_env,
                              const std::function<void(RuntimeState*, Status*)>& call_back,
@@ -73,6 +72,13 @@ public:
         ins_ids.resize(_runtime_states.size());
         for (size_t i = 0; i < _runtime_states.size(); i++) {
             ins_ids[i] = _runtime_states[i]->fragment_instance_id();
+        }
+    }
+
+    void instance_ids(std::vector<string>& ins_ids) const override {
+        ins_ids.resize(_runtime_states.size());
+        for (size_t i = 0; i < _runtime_states.size(); i++) {
+            ins_ids[i] = print_id(_runtime_states[i]->fragment_instance_id());
         }
     }
 
@@ -95,8 +101,6 @@ public:
                 const std::string& msg = "") override;
 
     void send_report(bool) override;
-
-    void report_profile() override;
 
     RuntimeState* get_runtime_state(UniqueId fragment_instance_id) override {
         std::lock_guard<std::mutex> l(_state_map_lock);

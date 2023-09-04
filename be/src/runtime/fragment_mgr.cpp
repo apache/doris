@@ -59,6 +59,7 @@
 #include "gutil/strings/substitute.h"
 #include "io/fs/stream_load_pipe.h"
 #include "opentelemetry/trace/scope.h"
+#include "pipeline/pipeline_context_report_executor.h"
 #include "pipeline/pipeline_fragment_context.h"
 #include "runtime/client_cache.h"
 #include "runtime/descriptors.h"
@@ -137,6 +138,8 @@ FragmentMgr::FragmentMgr(ExecEnv* exec_env)
     REGISTER_HOOK_METRIC(fragment_thread_pool_queue_size,
                          [this]() { return _thread_pool->get_queue_size(); });
     CHECK(s.ok()) << s.to_string();
+
+    _pipeline_ctx_report_executor = std::make_unique<pipeline::PipelineContextReportExecutor>();
 }
 
 FragmentMgr::~FragmentMgr() = default;
@@ -162,6 +165,7 @@ void FragmentMgr::stop() {
         }
         _pipeline_map.clear();
     }
+    _pipeline_ctx_report_executor->close();
 }
 
 std::string FragmentMgr::to_http_path(const std::string& file_name) {
@@ -170,6 +174,13 @@ std::string FragmentMgr::to_http_path(const std::string& file_name) {
         << "/api/_download_load?"
         << "token=" << _exec_env->token() << "&file=" << file_name;
     return url.str();
+}
+
+Status FragmentMgr::trigger_pipeline_context_report(
+        const ReportStatusRequest& req, std::shared_ptr<pipeline::PipelineFragmentContext>&& ctx) {
+    return _pipeline_ctx_report_executor->submit_report_task(
+            {req.fragment_instance_id, [this, req]() { coordinator_callback(req); }, ctx},
+            !req.done);
 }
 
 // There can only be one of these callbacks in-flight at any moment, because
@@ -775,8 +786,8 @@ Status FragmentMgr::exec_plan_fragment(const TPipelineFragmentParams& params,
         std::shared_ptr<pipeline::PipelineFragmentContext> context =
                 std::make_shared<pipeline::PipelineXFragmentContext>(
                         query_ctx->query_id(), params.fragment_id, query_ctx, _exec_env, cb,
-                        std::bind<void>(std::mem_fn(&FragmentMgr::coordinator_callback), this,
-                                        std::placeholders::_1),
+                        std::bind<void>(std::mem_fn(&FragmentMgr::trigger_pipeline_context_report),
+                                        this, std::placeholders::_1, std::placeholders::_2),
                         params.group_commit);
         {
             SCOPED_RAW_TIMER(&duration_ns);
@@ -853,8 +864,9 @@ Status FragmentMgr::exec_plan_fragment(const TPipelineFragmentParams& params,
                     std::make_shared<pipeline::PipelineFragmentContext>(
                             query_ctx->query_id(), fragment_instance_id, params.fragment_id,
                             local_params.backend_num, query_ctx, _exec_env, cb,
-                            std::bind<void>(std::mem_fn(&FragmentMgr::coordinator_callback), this,
-                                            std::placeholders::_1));
+                            std::bind<void>(
+                                    std::mem_fn(&FragmentMgr::trigger_pipeline_context_report),
+                                    this, std::placeholders::_1, std::placeholders::_2));
             {
                 SCOPED_RAW_TIMER(&duration_ns);
                 auto prepare_st = context->prepare(params, i);

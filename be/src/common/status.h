@@ -375,7 +375,7 @@ public:
             status._err_msg->_msg = fmt::format(msg, std::forward<Args>(args)...);
         }
 #ifdef ENABLE_STACKTRACE
-        if constexpr (stacktrace && capture_stacktrace(code) && code != 0) {
+        if constexpr (stacktrace && capture_stacktrace(code)) {
             status._err_msg->_stack = get_stack_trace();
             LOG(WARNING) << "meet error status: " << status; // may print too many stacks.
         }

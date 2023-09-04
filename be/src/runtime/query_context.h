@@ -42,7 +42,7 @@
 namespace doris {
 struct ReportStatusRequest {
     bool is_pipeline_x;
-    const Status& status;
+    const Status status;
     std::vector<RuntimeState*> runtime_states;
     RuntimeProfile* profile;
     RuntimeProfile* load_channel_profile;
