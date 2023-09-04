@@ -23,6 +23,7 @@
 #include <algorithm>
 #include <vector>
 
+#include "common/status.h"
 #include "gutil/port.h"
 #include "gutil/strings/substitute.h"
 #include "util/coding.h"
@@ -161,8 +162,8 @@ Status BinaryPrefixPageDecoder::seek_to_position_in_page(size_t pos) {
     size_t restart_point_index = pos / _restart_point_internal;
     RETURN_IF_ERROR(_seek_to_restart_point(restart_point_index));
     while (_cur_pos < pos) {
-        _cur_pos++;
         RETURN_IF_ERROR(_read_next_value());
+        _cur_pos++;
     }
     return Status::OK();
 }
@@ -199,8 +200,8 @@ Status BinaryPrefixPageDecoder::seek_at_or_after_value(const void* value, bool* 
             *exact_match = cmp == 0;
             return Status::OK();
         }
-        _cur_pos++;
         RETURN_IF_ERROR(_read_next_value());
+        _cur_pos++;
     }
 }
 
@@ -212,10 +213,16 @@ Status BinaryPrefixPageDecoder::next_batch(size_t* n, vectorized::MutableColumnP
     }
     size_t max_fetch = std::min(*n, static_cast<size_t>(_num_values - _cur_pos));
 
+    dst->insert_data((char*)(_current_value.data()), _current_value.size());
     // read and copy values
-    for (size_t i = 0; i < max_fetch; ++i) {
+    for (size_t i = 0; i < max_fetch - 1; ++i) {
+        RETURN_IF_ERROR(_read_next_value());
+        _cur_pos++;
         dst->insert_data((char*)(_current_value.data()), _current_value.size());
-        _read_next_value();
+    }
+
+    if (_cur_pos < _num_values - 1) {
+        RETURN_IF_ERROR(_read_next_value());
         _cur_pos++;
     }
 
