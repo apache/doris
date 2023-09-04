@@ -14,11 +14,17 @@
 -- KIND, either express or implied.  See the License for the
 -- specific language governing permissions and limitations
 -- under the License.
---Q2.1
-SELECT
-    SUM(LO_REVENUE), (LO_ORDERDATE DIV 10000) AS YEAR,
-    P_BRAND
-FROM lineorder_flat
-WHERE P_CATEGORY = 'MFGR#12' AND S_REGION = 'AMERICA'
-GROUP BY YEAR, P_BRAND
-ORDER BY YEAR, P_BRAND;
+
+SELECT /*+SET_VAR(experimental_enable_pipeline_x_engine=true, runtime_filter_mode=OFF) */ c_city, s_city, d_year, SUM(lo_revenue)
+AS  REVENUE
+FROM customer, lineorder, supplier, date
+WHERE lo_custkey = c_custkey
+AND lo_suppkey = s_suppkey
+AND lo_orderdate = d_datekey
+AND  (c_city='UNITED KI1'
+OR c_city='UNITED KI5')
+AND (s_city='UNITED KI1'
+OR s_city='UNITED KI5')
+AND d_yearmonth = 'Dec1997'
+GROUP BY c_city, s_city, d_year
+ORDER BY d_year ASC,  REVENUE DESC;
