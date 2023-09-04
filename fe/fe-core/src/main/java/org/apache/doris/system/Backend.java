@@ -133,7 +133,7 @@ public class Backend implements Writable {
     // And once it back to alive, reset this counter.
     // No need to persist, because only master FE handle heartbeat.
     private int heartbeatFailureCounter = 0;
-    
+
     // Not need serialize this field. If fe restart the state is reset to false. Maybe fe will
     // send some queries to this BE, it is not an important problem.
     private AtomicBoolean isShutDown = new AtomicBoolean(false);
@@ -662,7 +662,7 @@ public class Backend implements Writable {
                 isChanged = true;
                 this.brpcPort = hbResponse.getBrpcPort();
             }
-            
+
             if (this.isShutDown.get() != hbResponse.isShutDown()) {
                 isChanged = true;
                 LOG.info("{} shutdown state is changed", this.toString());
