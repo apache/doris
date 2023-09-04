@@ -165,6 +165,68 @@ public class CreateTableInfo {
         }
 
         boolean isEnableMergeOnWrite = false;
+        boolean enableDuplicateWithoutKeysByDefault = false;
+        if (properties != null) {
+            try {
+                enableDuplicateWithoutKeysByDefault =
+                        PropertyAnalyzer.analyzeEnableDuplicateWithoutKeysByDefault(Maps.newHashMap(properties));
+            } catch (Exception e) {
+                throw new AnalysisException(e.getMessage(), e.getCause());
+            }
+        }
+
+        if (keys.isEmpty()) {
+            boolean hasAggColumn = false;
+            for (ColumnDefinition column : columns) {
+                if (column.getAggType() != null) {
+                    hasAggColumn = true;
+                    break;
+                }
+            }
+            keys = Lists.newArrayList();
+            if (hasAggColumn) {
+                for (ColumnDefinition column : columns) {
+                    keys.add(column.getName());
+                    if (column.getAggType() != null) {
+                        break;
+                    }
+                }
+            } else {
+                int keyLength = 0;
+                for (ColumnDefinition column : columns) {
+                    DataType type = column.getType();
+                    Type catalogType = column.getType().toCatalogDataType();
+                    keyLength += catalogType.getIndexSize();
+                    if (keys.size() >= FeConstants.shortkey_max_column_count
+                            || keyLength > FeConstants.shortkey_maxsize_bytes) {
+                        if (keys.size() == 0 && type.isStringLikeType()) {
+                            keys.add(column.getName());
+                        }
+                        break;
+                    }
+                    if (type.isFloatLikeType() || type.isStringType() || type.isJsonType()
+                            || catalogType.isComplexType()) {
+                        break;
+                    }
+                    keys.add(column.getName());
+                    if (type.isVarcharType()) {
+                        break;
+                    }
+                }
+                keysType = KeysType.DUP_KEYS;
+            }
+            // The OLAP table must have at least one short key,
+            // and the float and double should not be short key,
+            // so the float and double could not be the first column in OLAP table.
+            if (keys.isEmpty()) {
+                throw new AnalysisException("The olap table first column could not be float, double, string"
+                        + " or array, struct, map, please use decimal or varchar instead.");
+            }
+        } else if (enableDuplicateWithoutKeysByDefault) {
+            throw new AnalysisException("table property 'enable_duplicate_without_keys_by_default' only can"
+                    + " set 'true' when create olap table by default.");
+        }
+
         if (keysType.equals(KeysType.UNIQUE_KEYS) && properties != null) {
             try {
                 isEnableMergeOnWrite = PropertyAnalyzer.analyzeUniqueKeyMergeOnWrite(Maps.newHashMap(properties));
@@ -244,67 +306,6 @@ public class CreateTableInfo {
 
         // analyze distribution descriptor
         distribution.validate(columnMap, keysType);
-
-        boolean enableDuplicateWithoutKeysByDefault = false;
-        if (properties != null) {
-            try {
-                enableDuplicateWithoutKeysByDefault =
-                        PropertyAnalyzer.analyzeEnableDuplicateWithoutKeysByDefault(Maps.newHashMap(properties));
-            } catch (Exception e) {
-                throw new AnalysisException(e.getMessage(), e.getCause());
-            }
-        }
-        if (keys.isEmpty()) {
-            boolean hasAggColumn = false;
-            for (ColumnDefinition column : columns) {
-                if (column.getAggType() != null) {
-                    hasAggColumn = true;
-                    break;
-                }
-            }
-            keys = Lists.newArrayList();
-            if (hasAggColumn) {
-                for (ColumnDefinition column : columns) {
-                    keys.add(column.getName());
-                    if (column.getAggType() != null) {
-                        break;
-                    }
-                }
-            } else {
-                int keyLength = 0;
-                for (ColumnDefinition column : columns) {
-                    DataType type = column.getType();
-                    Type catalogType = column.getType().toCatalogDataType();
-                    keyLength += catalogType.getIndexSize();
-                    if (keys.size() >= FeConstants.shortkey_max_column_count
-                            || keyLength > FeConstants.shortkey_maxsize_bytes) {
-                        if (keys.size() == 0 && type.isStringLikeType()) {
-                            keys.add(column.getName());
-                        }
-                        break;
-                    }
-                    if (type.isFloatLikeType() || type.isStringType() || type.isJsonType()
-                            || catalogType.isComplexType()) {
-                        break;
-                    }
-                    keys.add(column.getName());
-                    if (type.isVarcharType()) {
-                        break;
-                    }
-                }
-                keysType = KeysType.DUP_KEYS;
-            }
-            // The OLAP table must have at least one short key,
-            // and the float and double should not be short key,
-            // so the float and double could not be the first column in OLAP table.
-            if (keys.isEmpty()) {
-                throw new AnalysisException("The olap table first column could not be float, double, string"
-                        + " or array, struct, map, please use decimal or varchar instead.");
-            }
-        } else if (enableDuplicateWithoutKeysByDefault) {
-            throw new AnalysisException("table property 'enable_duplicate_without_keys_by_default' only can"
-                    + " set 'true' when create olap table by default.");
-        }
 
         final boolean finalEnableMergeOnWrite = isEnableMergeOnWrite;
         Set<String> keysSet = Sets.newHashSet(keys);
