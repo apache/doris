@@ -176,6 +176,10 @@ struct WriteCooldownMetaExecutors {
     };
     // Each executor is a mpsc to ensure uploads of the same tablet meta are not concurrent
     // FIXME(AlexYue): Use mpsc instead of `ThreadPool` with 1 thread
+    // We use PriorityThreadPool since it would call status inside it's `shutdown` function.
+    // Consider one situation where the StackTraceCache's singleton is detructed before
+    // this WriteCooldownMetaExecutors's singleton, then invoking the status would also call
+    // StackTraceCache which would then result in heap use after free like #23834
     std::vector<std::unique_ptr<PriorityThreadPool>> _executors;
     std::unordered_set<int64_t> _pending_tablets;
     std::mutex _latch;
