@@ -221,7 +221,7 @@ Status ColumnWriter::create(const ColumnWriterOptions& opts, const TabletColumn*
             length_column.set_index_length(-1); // no short key index
             std::unique_ptr<Field> bigint_field(FieldFactory::create(length_column));
             auto* length_writer =
-                    new ScalarColumnWriter(length_options, std::move(bigint_field), file_writer);
+                    new OffsetColumnWriter(length_options, std::move(bigint_field), file_writer);
 
             // if nullable, create null writer
             ScalarColumnWriter* null_writer = nullptr;
@@ -314,7 +314,7 @@ Status ColumnWriter::create(const ColumnWriterOptions& opts, const TabletColumn*
             length_column.set_index_length(-1); // no short key index
             std::unique_ptr<Field> bigint_field(FieldFactory::create(length_column));
             auto* length_writer =
-                    new ScalarColumnWriter(length_options, std::move(bigint_field), file_writer);
+                    new OffsetColumnWriter(length_options, std::move(bigint_field), file_writer);
 
             // create null writer
             if (opts.meta->is_nullable()) {
@@ -530,12 +530,7 @@ Status ScalarColumnWriter::append_data(const uint8_t** ptr, size_t num_rows) {
         remaining -= num_written;
 
         if (_page_builder->is_page_full()) {
-            // get next data for next array_item_rowid
-            if (remaining == 0) {
-                RETURN_IF_ERROR(finish_current_page());
-            } else {
-                RETURN_IF_ERROR(finish_current_page(*ptr));
-            }
+            RETURN_IF_ERROR(finish_current_page());
         }
     }
     return Status::OK();
@@ -734,66 +729,45 @@ Status ScalarColumnWriter::finish_current_page() {
     return Status::OK();
 }
 
-Status ScalarColumnWriter::finish_current_page(const uint8_t* next_data_ptr) {
-    if (_next_rowid == _first_rowid) {
-        return Status::OK();
-    }
-    if (_opts.need_zone_map) {
-        if (_next_rowid - _first_rowid < config::zone_map_row_num_threshold) {
-            _zone_map_index_builder->reset_page_zone_map();
+////////////////////////////////////////////////////////////////////////////////
+
+////////////////////////////////////////////////////////////////////////////////
+// offset column writer
+////////////////////////////////////////////////////////////////////////////////
+
+OffsetColumnWriter::OffsetColumnWriter(const ColumnWriterOptions& opts,
+                                       std::unique_ptr<Field> field, io::FileWriter* file_writer)
+        : ScalarColumnWriter(opts, std::move(field), file_writer) {}
+
+OffsetColumnWriter::~OffsetColumnWriter() = default;
+
+Status OffsetColumnWriter::append_data(const uint8_t** ptr, size_t num_rows) {
+    size_t remaining = num_rows;
+    while (remaining > 0) {
+        size_t num_written = remaining;
+        RETURN_IF_ERROR(append_data_in_current_page(ptr, &num_written));
+
+        remaining -= num_written;
+
+        if (_page_builder->is_page_full()) {
+            // get next data for next array_item_rowid
+            if (remaining == 0) {
+                RETURN_IF_ERROR(finish_current_page());
+            } else {
+                RETURN_IF_ERROR(finish_current_page_with_next_data(*ptr));
+            }
         }
-        RETURN_IF_ERROR(_zone_map_index_builder->flush());
     }
-
-    if (_opts.need_bloom_filter) {
-        RETURN_IF_ERROR(_bloom_filter_index_builder->flush());
-    }
-
-    // build data page body : encoded values + [nullmap]
-    std::vector<Slice> body;
-    OwnedSlice encoded_values = _page_builder->finish();
-    _page_builder->reset();
-    body.push_back(encoded_values.slice());
-
-    OwnedSlice nullmap;
-    if (_null_bitmap_builder != nullptr) {
-        if (is_nullable() && _null_bitmap_builder->has_null()) {
-            nullmap = _null_bitmap_builder->finish();
-            body.push_back(nullmap.slice());
-        }
-        _null_bitmap_builder->reset();
-    }
-
-    // prepare data page footer
-    std::unique_ptr<Page> page(new Page());
-    page->footer.set_type(DATA_PAGE);
-    page->footer.set_uncompressed_size(Slice::compute_total_size(body));
-    auto data_page_footer = page->footer.mutable_data_page_footer();
-    data_page_footer->set_first_ordinal(_first_rowid);
-    data_page_footer->set_num_values(_next_rowid - _first_rowid);
-    data_page_footer->set_nullmap_size(nullmap.slice().size);
-    if (_new_page_callback != nullptr) {
-        _new_page_callback->put_extra_info_in_page(data_page_footer, next_data_ptr);
-    }
-    // trying to compress page body
-    OwnedSlice compressed_body;
-    RETURN_IF_ERROR(PageIO::compress_page_body(_compress_codec, _opts.compression_min_space_saving,
-                                               body, &compressed_body));
-    if (compressed_body.slice().empty()) {
-        // page body is uncompressed
-        page->data.emplace_back(std::move(encoded_values));
-        page->data.emplace_back(std::move(nullmap));
-    } else {
-        // page body is compressed
-        page->data.emplace_back(std::move(compressed_body));
-    }
-
-    _push_back_page(page.release());
-    _first_rowid = _next_rowid;
     return Status::OK();
 }
 
-////////////////////////////////////////////////////////////////////////////////
+Status OffsetColumnWriter::finish_current_page_with_next_data(const uint8_t* next_data_ptr) {
+    finish_current_page();
+    DataPageFooterPB* footer = get_data_pages().tail->footer.mutable_data_page_footer();
+    auto offset = *(const uint64_t*)next_data_ptr;
+    footer->set_next_array_item_ordinal(offset);
+    return Status::OK();
+}
 
 StructColumnWriter::StructColumnWriter(
         const ColumnWriterOptions& opts, std::unique_ptr<Field> field,
@@ -917,7 +891,7 @@ Status StructColumnWriter::finish_current_page() {
 ////////////////////////////////////////////////////////////////////////////////
 
 ArrayColumnWriter::ArrayColumnWriter(const ColumnWriterOptions& opts, std::unique_ptr<Field> field,
-                                     ScalarColumnWriter* offset_writer,
+                                     OffsetColumnWriter* offset_writer,
                                      ScalarColumnWriter* null_writer,
                                      std::unique_ptr<ColumnWriter> item_writer)
         : ColumnWriter(std::move(field), opts.meta->is_nullable()),
@@ -951,13 +925,6 @@ Status ArrayColumnWriter::init() {
 
 Status ArrayColumnWriter::put_extra_info_in_page(DataPageFooterPB* footer) {
     footer->set_next_array_item_ordinal(_item_writer->get_next_rowid());
-    return Status::OK();
-}
-
-Status ArrayColumnWriter::put_extra_info_in_page(DataPageFooterPB* footer,
-                                                 const uint8_t* next_data_ptr) {
-    auto offset = *(const uint64_t*)next_data_ptr;
-    footer->set_next_array_item_ordinal(offset);
     return Status::OK();
 }
 
@@ -1079,7 +1046,7 @@ Status ArrayColumnWriter::finish_current_page() {
 
 /// ============================= MapColumnWriter =====================////
 MapColumnWriter::MapColumnWriter(const ColumnWriterOptions& opts, std::unique_ptr<Field> field,
-                                 ScalarColumnWriter* null_writer, ScalarColumnWriter* offset_writer,
+                                 ScalarColumnWriter* null_writer, OffsetColumnWriter* offset_writer,
                                  std::vector<std::unique_ptr<ColumnWriter>>& kv_writers)
         : ColumnWriter(std::move(field), opts.meta->is_nullable()), _opts(opts) {
     CHECK_EQ(kv_writers.size(), 2);
@@ -1212,13 +1179,6 @@ Status MapColumnWriter::finish_current_page() {
 // write this value for column reader to read according offsets
 Status MapColumnWriter::put_extra_info_in_page(DataPageFooterPB* footer) {
     footer->set_next_array_item_ordinal(_kv_writers[0]->get_next_rowid());
-    return Status::OK();
-}
-
-Status MapColumnWriter::put_extra_info_in_page(DataPageFooterPB* footer,
-                                               const uint8_t* next_data_ptr) {
-    auto offset = *(const uint64_t*)next_data_ptr;
-    footer->set_next_array_item_ordinal(offset);
     return Status::OK();
 }
 
