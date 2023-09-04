@@ -159,10 +159,6 @@ Status OperatorXBase::get_next_after_projects(RuntimeState* state, vectorized::B
     return get_block(state, block, source_state);
 }
 
-void OperatorXBase::release_block_memory(vectorized::Block& block) {
-    block.clear_column_data(_child_x->row_desc().num_materialized_slots());
-}
-
 bool PipelineXLocalStateBase::reached_limit() const {
     return _parent->_limit != -1 && _num_rows_returned >= _parent->_limit;
 }
@@ -229,11 +225,12 @@ Status StreamingOperatorX<LocalStateType>::get_block(RuntimeState* state, vector
 template <typename LocalStateType>
 Status StatefulOperatorX<LocalStateType>::get_block(RuntimeState* state, vectorized::Block* block,
                                                     SourceState& source_state) {
-    auto& local_state = state->get_local_state(id())->cast<LocalStateType>();
+    auto& local_state = state->get_local_state(OperatorX<LocalStateType>::id())
+                                ->template cast<LocalStateType>();
     if (need_more_input_data(state)) {
         local_state._child_block->clear_column_data();
-        RETURN_IF_ERROR(_child_x->get_next_after_projects(state, local_state._child_block.get(),
-                                                          local_state._child_source_state));
+        RETURN_IF_ERROR(OperatorX<LocalStateType>::_child_x->get_next_after_projects(
+                state, local_state._child_block.get(), local_state._child_source_state));
         source_state = local_state._child_source_state;
         if (local_state._child_block->rows() == 0 &&
             local_state._child_source_state != SourceState::FINISHED) {

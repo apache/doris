@@ -55,8 +55,13 @@ public:
 
     Status init(RuntimeState* state, LocalStateInfo& info) override;
 
+    Status get_repeated_block(vectorized::Block* child_block, int repeat_id_idx,
+                              vectorized::Block* output_block);
+
 private:
     friend class RepeatOperatorX;
+    template <typename LocalStateType>
+    friend class StatefulOperatorX;
     std::unique_ptr<vectorized::Block> _child_block;
     SourceState _child_source_state;
     bool _child_eos;
@@ -81,8 +86,6 @@ public:
 
 private:
     friend class RepeatLocalState;
-    Status get_repeated_block(vectorized::Block* child_block, int repeat_id_idx,
-                              vectorized::Block* output_block);
 
     // Slot id set used to indicate those slots need to set to null.
     std::vector<std::set<SlotId>> _slot_id_set_list;

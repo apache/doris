@@ -36,6 +36,8 @@ public:
     virtual void add_tuple_is_null_column(vectorized::Block* block) = 0;
 
 protected:
+    template <typename LocalStateType>
+    friend class StatefulOperatorX;
     JoinProbeLocalState(RuntimeState* state, OperatorXBase* parent)
             : Base(state, parent),
               _child_block(vectorized::Block::create_unique()),

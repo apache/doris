@@ -305,7 +305,7 @@ bool HashJoinProbeOperatorX::need_more_input_data(RuntimeState* state) const {
 Status HashJoinProbeOperatorX::_do_evaluate(vectorized::Block& block,
                                             vectorized::VExprContextSPtrs& exprs,
                                             RuntimeProfile::Counter& expr_call_timer,
-                                            std::vector<int>& res_col_ids) {
+                                            std::vector<int>& res_col_ids) const {
     for (size_t i = 0; i < exprs.size(); ++i) {
         int result_col_id = -1;
         // execute build column

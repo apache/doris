@@ -105,17 +105,18 @@ bool RepeatOperatorX::need_more_input_data(RuntimeState* state) const {
     return !local_state._child_block->rows() && !local_state._child_eos;
 }
 
-Status RepeatOperatorX::get_repeated_block(vectorized::Block* child_block, int repeat_id_idx,
-                                           vectorized::Block* output_block) {
+Status RepeatLocalState::get_repeated_block(vectorized::Block* child_block, int repeat_id_idx,
+                                            vectorized::Block* output_block) {
+    auto& p = _parent->cast<RepeatOperatorX>();
     DCHECK(child_block != nullptr);
     DCHECK_EQ(output_block->rows(), 0);
 
     size_t child_column_size = child_block->columns();
-    size_t column_size = _output_slots.size();
+    size_t column_size = p._output_slots.size();
     DCHECK_LT(child_column_size, column_size);
-    vectorized::MutableBlock m_block =
-            vectorized::VectorizedUtils::build_mutable_mem_reuse_block(output_block, _output_slots);
-    vectorized::MutableColumns& columns = m_block.mutable_columns();
+    auto m_block = vectorized::VectorizedUtils::build_mutable_mem_reuse_block(output_block,
+                                                                              p._output_slots);
+    auto& columns = m_block.mutable_columns();
     /* Fill all slots according to child, for example:select tc1,tc2,sum(tc3) from t1 group by grouping sets((tc1),(tc2));
      * insert into t1 values(1,2,1),(1,3,1),(2,1,1),(3,1,1);
      * slot_id_set_list=[[0],[1]],repeat_id_idx=0,
@@ -126,14 +127,14 @@ Status RepeatOperatorX::get_repeated_block(vectorized::Block* child_block, int r
     for (size_t i = 0; i < child_column_size; i++) {
         const vectorized::ColumnWithTypeAndName& src_column = child_block->get_by_position(i);
 
-        std::set<SlotId>& repeat_ids = _slot_id_set_list[repeat_id_idx];
+        std::set<SlotId>& repeat_ids = p._slot_id_set_list[repeat_id_idx];
         bool is_repeat_slot =
-                _all_slot_ids.find(_output_slots[cur_col]->id()) != _all_slot_ids.end();
-        bool is_set_null_slot = repeat_ids.find(_output_slots[cur_col]->id()) == repeat_ids.end();
+                p._all_slot_ids.find(p._output_slots[cur_col]->id()) != p._all_slot_ids.end();
+        bool is_set_null_slot = repeat_ids.find(p._output_slots[cur_col]->id()) == repeat_ids.end();
         const auto row_size = src_column.column->size();
 
         if (is_repeat_slot) {
-            DCHECK(_output_slots[cur_col]->is_nullable());
+            DCHECK(p._output_slots[cur_col]->is_nullable());
             auto* nullable_column =
                     reinterpret_cast<vectorized::ColumnNullable*>(columns[cur_col].get());
             auto& null_map = nullable_column->get_null_map_data();
@@ -160,14 +161,14 @@ Status RepeatOperatorX::get_repeated_block(vectorized::Block* child_block, int r
     }
 
     // Fill grouping ID to block
-    for (auto slot_idx = 0; slot_idx < _grouping_list.size(); slot_idx++) {
-        DCHECK_LT(slot_idx, _output_tuple_desc->slots().size());
-        const SlotDescriptor* _virtual_slot_desc = _output_tuple_desc->slots()[cur_col];
-        DCHECK_EQ(_virtual_slot_desc->type().type, _output_slots[cur_col]->type().type);
-        DCHECK_EQ(_virtual_slot_desc->col_name(), _output_slots[cur_col]->col_name());
-        int64_t val = _grouping_list[slot_idx][repeat_id_idx];
+    for (auto slot_idx = 0; slot_idx < p._grouping_list.size(); slot_idx++) {
+        DCHECK_LT(slot_idx, p._output_tuple_desc->slots().size());
+        const SlotDescriptor* _virtual_slot_desc = p._output_tuple_desc->slots()[cur_col];
+        DCHECK_EQ(_virtual_slot_desc->type().type, p._output_slots[cur_col]->type().type);
+        DCHECK_EQ(_virtual_slot_desc->col_name(), p._output_slots[cur_col]->col_name());
+        int64_t val = p._grouping_list[slot_idx][repeat_id_idx];
         auto* column_ptr = columns[cur_col].get();
-        DCHECK(!_output_slots[cur_col]->is_nullable());
+        DCHECK(!p._output_slots[cur_col]->is_nullable());
 
         auto* col = assert_cast<vectorized::ColumnVector<vectorized::Int64>*>(column_ptr);
         for (size_t i = 0; i < child_block->rows(); ++i) {
@@ -223,15 +224,15 @@ Status RepeatOperatorX::pull(doris::RuntimeState* state, vectorized::Block* outp
     DCHECK(output_block->rows() == 0);
 
     if (_intermediate_block && _intermediate_block->rows() > 0) {
-        RETURN_IF_ERROR(
-                get_repeated_block(_intermediate_block.get(), _repeat_id_idx, output_block));
+        RETURN_IF_ERROR(local_state.get_repeated_block(_intermediate_block.get(), _repeat_id_idx,
+                                                       output_block));
 
         _repeat_id_idx++;
 
         int size = _repeat_id_list.size();
         if (_repeat_id_idx >= size) {
             _intermediate_block->clear();
-            release_block_memory(_child_block);
+            _child_block.clear_column_data(_child_x->row_desc().num_materialized_slots());
             _repeat_id_idx = 0;
         }
     }

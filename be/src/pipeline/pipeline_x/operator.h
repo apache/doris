@@ -228,11 +228,6 @@ public:
                           vectorized::Block* output_block) const;
 
 protected:
-    /// Release all memory of block which got from child. The block
-    // 1. clear mem of valid column get from child, make sure child can reuse the mem
-    // 2. delete and release the column which create by function all and other reason
-    void release_block_memory(vectorized::Block& block);
-
     template <typename Dependency>
     friend class PipelineXLocalState;
     friend class PipelineXLocalStateBase;

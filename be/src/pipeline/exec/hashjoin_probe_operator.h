@@ -120,7 +120,8 @@ public:
 
 private:
     Status _do_evaluate(vectorized::Block& block, vectorized::VExprContextSPtrs& exprs,
-                        RuntimeProfile::Counter& expr_call_timer, std::vector<int>& res_col_ids);
+                        RuntimeProfile::Counter& expr_call_timer,
+                        std::vector<int>& res_col_ids) const;
     friend class HashJoinProbeLocalState;
     friend struct vectorized::HashJoinProbeContext;
 
