@@ -69,9 +69,6 @@ public:
     // file result writer always return statistic result in one row
     int64_t get_written_rows() const override { return 1; }
 
-    std::string gen_types();
-    Status write_csv_header();
-
     void set_header_info(const std::string& header_type, const std::string& header) {
         _header_type = header_type;
         _header = header;
@@ -80,11 +77,7 @@ public:
 private:
     Status _init(RuntimeState* state, RuntimeProfile*);
     Status _write_file(const Block& block);
-    Status _write_csv_file(const Block& block);
 
-    // if buffer exceed the limit, write the data buffered in _plain_text_outstream via file_writer
-    // if eos, write the data even if buffer is not full.
-    Status _flush_plain_text_outstream(bool eos);
     void _init_profile(RuntimeProfile*);
 
     Status _create_file_writer(const std::string& file_name);
@@ -106,8 +99,6 @@ private:
     // delete the dir of file_path
     Status _delete_dir();
 
-    static const std::string NULL_IN_CSV;
-
     RuntimeState* _state; // not owned, set when init
     const ResultFileOptions* _file_opts;
     TStorageBackendType::type _storage_type;
@@ -123,7 +114,6 @@ private:
     // For example: bitmap_to_string() may return large volume of data.
     // And the speed is relative low, in my test, is about 6.5MB/s.
     std::stringstream _plain_text_outstream;
-    static const size_t OUTSTREAM_BUFFER_SIZE_BYTES;
 
     // current written bytes, used for split data
     int64_t _current_written_bytes = 0;
@@ -148,13 +138,11 @@ private:
     Block* _output_block = nullptr;
     // set to true if the final statistic result is sent
     bool _is_result_sent = false;
-    bool _header_sent = false;
     RowDescriptor _output_row_descriptor;
-    // parquet/orc file writer
-    std::unique_ptr<VFileWriterWrapper> _vfile_writer;
+    // convert block to parquet/orc/csv fomrat
+    std::unique_ptr<VFileFormatTransformer> _vfile_writer;
 
     std::string_view _header_type;
     std::string_view _header;
-    std::unique_ptr<VFileResultWriter> _writer;
 };
 } // namespace doris::vectorized
