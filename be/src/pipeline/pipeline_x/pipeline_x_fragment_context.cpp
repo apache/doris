@@ -54,6 +54,7 @@
 #include "pipeline/exec/nested_loop_join_build_operator.h"
 #include "pipeline/exec/nested_loop_join_probe_operator.h"
 #include "pipeline/exec/olap_scan_operator.h"
+#include "pipeline/exec/repeat_operator.h"
 #include "pipeline/exec/result_sink_operator.h"
 #include "pipeline/exec/scan_operator.h"
 #include "pipeline/exec/sort_sink_operator.h"
@@ -620,6 +621,11 @@ Status PipelineXFragmentContext::_create_operator(ObjectPool* pool, const TPlanN
         sink.reset(new AnalyticSinkOperatorX(pool, tnode, descs));
         RETURN_IF_ERROR(cur_pipe->set_sink(sink));
         RETURN_IF_ERROR(cur_pipe->sink_x()->init(tnode, _runtime_state.get()));
+        break;
+    }
+    case TPlanNodeType::REPEAT_NODE: {
+        op.reset(new RepeatOperatorX(pool, tnode, descs));
+        RETURN_IF_ERROR(cur_pipe->add_operator(op));
         break;
     }
     default:
