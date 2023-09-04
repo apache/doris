@@ -67,10 +67,10 @@ public class CreateTableCommand extends Command implements ForwardWithSync {
 
     @Override
     public void run(ConnectContext ctx, StmtExecutor executor) throws Exception {
-        ctx.getSessionVariable().enableFallbackToOriginalPlannerOnce();
-        if (true) {
-            throw new UnsupportedOperationException("Developing, please use original planner");
-        }
+        // ctx.getSessionVariable().enableFallbackToOriginalPlannerOnce();
+        // if (false) {
+        //     throw new UnsupportedOperationException("Developing, please use original planner");
+        // }
         if (!ctasQuery.isPresent()) {
             createTableInfo.validate(ctx);
             CreateTableStmt createTableStmt = createTableInfo.translateToCatalogStyle();
