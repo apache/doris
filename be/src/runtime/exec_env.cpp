@@ -149,6 +149,7 @@ void ExecEnv::wait_for_all_tasks_done() {
                       << wait_seconds_passed << " seconds passed, has to exist now";
             break;
         }
+        LOG(INFO) << "There are still " << num_queries << " queries running, waiting...";
         sleep(1);
         ++wait_seconds_passed;
     }
