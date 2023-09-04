@@ -225,7 +225,7 @@ public:
 
     /// Only use in vectorized exec engine try to do projections to trans _row_desc -> _output_row_desc
     Status do_projections(RuntimeState* state, vectorized::Block* origin_block,
-                          vectorized::Block* output_block);
+                          vectorized::Block* output_block) const;
 
 protected:
     template <typename Dependency>
