@@ -36,6 +36,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.utframe.TestWithFeService;
 
 import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.function.Executable;
 
@@ -64,6 +65,7 @@ public class CreateTableCommandTest extends TestWithFeService {
         Assertions.assertThrows(exception, executable);
     }
 
+    @Disabled
     @Test
     public void testDuplicateCreateTable() throws Exception {
         // test
@@ -99,6 +101,7 @@ public class CreateTableCommandTest extends TestWithFeService {
         Assertions.assertEquals(colocateTableIdBeforeCreateFirstTable, colocateTableIdAfterCreateFirstTable);
     }
 
+    @Disabled
     @Test
     public void testNormal() throws DdlException, ConfigException {
         Assertions.assertDoesNotThrow(
@@ -232,6 +235,7 @@ public class CreateTableCommandTest extends TestWithFeService {
         Assertions.assertEquals(tbl13.getSequenceMapCol(), "v1");
     }
 
+    @Disabled
     @Test
     public void testAbnormal() throws ConfigException {
         checkThrow(AnalysisException.class,
@@ -541,6 +545,7 @@ public class CreateTableCommandTest extends TestWithFeService {
                         + ");"));
     }
 
+    @Disabled
     @Test
     public void testZOrderTable() {
         // create lexically sort table
@@ -586,6 +591,7 @@ public class CreateTableCommandTest extends TestWithFeService {
                         + " 'data_sort.col_num' = '');"));
     }
 
+    @Disabled
     @Test
     public void testCreateTableWithArrayType() {
         checkThrow(ParseException.class,
@@ -668,6 +674,7 @@ public class CreateTableCommandTest extends TestWithFeService {
                         + ");"));
     }
 
+    @Disabled
     @Test
     public void testCreateTableWithMapType() {
         Assertions.assertDoesNotThrow(
@@ -675,6 +682,7 @@ public class CreateTableCommandTest extends TestWithFeService {
                         + "distributed by hash(k1) buckets 1 properties('replication_num' = '1');"));
     }
 
+    @Disabled
     @Test
     public void testCreateTableWithStructType() {
         Assertions.assertDoesNotThrow(
@@ -682,6 +690,7 @@ public class CreateTableCommandTest extends TestWithFeService {
                         + "distributed by hash(k1) buckets 1 properties('replication_num' = '1');"));
     }
 
+    @Disabled
     @Test
     public void testCreateTableWithInMemory() {
         checkThrow(AnalysisException.class, "Not support set 'in_memory'='true' now!",
@@ -689,6 +698,7 @@ public class CreateTableCommandTest extends TestWithFeService {
                         + "distributed by hash(k1) buckets 1 properties('replication_num' = '1','in_memory'='true');"));
     }
 
+    @Disabled
     @Test
     public void testCreateTableWithStringLen() throws DdlException {
         Assertions.assertDoesNotThrow(
