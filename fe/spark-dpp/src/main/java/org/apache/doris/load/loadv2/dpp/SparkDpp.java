@@ -190,7 +190,7 @@ public final class SparkDpp implements java.io.Serializable {
             EtlJobConfig.EtlIndex indexMeta, SparkRDDAggregator[] sparkRDDAggregators) {
         // TODO(wb) should deal largeint as BigInteger instead of string when using biginteger as key,
         // data type may affect sorting logic
-        StructType dstSchema = DppUtils.createDstTableSchema(indexMeta.columns, false, true);
+        StructType dstSchema = DppUtils.convertDorisColumnsToSparkColumns(indexMeta.columns, false, true);
         ExpressionEncoder encoder = RowEncoder.apply(dstSchema);
 
         resultRDD.repartitionAndSortWithinPartitions(new BucketPartitioner(bucketKeyMap), new BucketComparator())
@@ -1060,14 +1060,14 @@ public final class SparkDpp implements java.io.Serializable {
                         EtlJobConfig.EtlColumn column = baseIndex.columns.get(i);
                         if (column.columnName.equals(key)) {
                             partitionKeyIndex.add(keyAndPartitionColumnNames.indexOf(key));
-                            partitionKeySchema.add(DppUtils.getClassFromColumn(column));
+                            partitionKeySchema.add(DppUtils.getJavaClassFromColumn(column));
                             break;
                         }
                     }
                 }
                 List<DorisRangePartitioner.PartitionRangeKey> partitionRangeKeys
                         = createPartitionRangeKeys(partitionInfo, partitionKeySchema);
-                StructType dstTableSchema = DppUtils.createDstTableSchema(baseIndex.columns, false, false);
+                StructType dstTableSchema = DppUtils.convertDorisColumnsToSparkColumns(baseIndex.columns, false, false);
                 dstTableSchema = DppUtils.replaceBinaryColsInSchema(binaryBitmapColumnSet, dstTableSchema);
                 RollupTreeBuilder rollupTreeParser = new MinimumCoverageRollupTreeBuilder();
                 RollupTreeNode rootNode = rollupTreeParser.build(etlTable);

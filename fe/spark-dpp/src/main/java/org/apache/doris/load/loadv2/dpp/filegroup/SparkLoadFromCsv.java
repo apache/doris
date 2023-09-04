@@ -1,3 +1,20 @@
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
+//
+//   http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied.  See the License for the
+// specific language governing permissions and limitations
+// under the License.
+
 package org.apache.doris.load.loadv2.dpp.filegroup;
 
 import org.apache.doris.common.SparkDppException;
@@ -53,7 +70,7 @@ public class SparkLoadFromCsv extends SparkLoadFromFile {
             }
         }
         // for getting schema to check source data
-        Map<String, Integer> dstColumnNameToIndex = new HashMap<String, Integer>();
+        Map<String, Integer> dstColumnNameToIndex = new HashMap<>();
         for (int i = 0; i < baseIndex.columns.size(); i++) {
             dstColumnNameToIndex.put(baseIndex.columns.get(i).columnName, i);
         }
@@ -149,8 +166,7 @@ public class SparkLoadFromCsv extends SparkLoadFromFile {
             StructField field = DataTypes.createStructField(srcColumn, DataTypes.StringType, true);
             fields.add(field);
         }
-        StructType srcSchema = DataTypes.createStructType(fields);
-        return srcSchema;
+        return DataTypes.createStructType(fields);
     }
 
     // This method is to keep the splitting consistent with broker load / mini load
@@ -160,9 +176,11 @@ public class SparkLoadFromCsv extends SparkLoadFromFile {
         }
         int index = 0;
         int lastIndex = 0;
-        // line-begin char and line-end char are considered to be 'delimeter'
+        // line-begin char and line-end char are considered to be 'delimiter'
         List<String> values = new ArrayList<>();
         for (int i = 0; i < line.length(); i++, index++) {
+            // TODO wuwenchi xxxx 如果字符串里面携带了分隔符怎么办？
+            // 例如 分割符是 ',',字符串是 12,"abc","def,xyz"
             if (line.charAt(index) == sep) {
                 values.add(line.substring(lastIndex, index));
                 lastIndex = index + 1;

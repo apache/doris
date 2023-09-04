@@ -68,53 +68,53 @@ public class DppUtilsTest {
         try {
             EtlJobConfig.EtlColumn column = new EtlJobConfig.EtlColumn();
             column.columnType = "CHAR";
-            Class charResult = dppUtils.getClassFromColumn(column);
+            Class charResult = dppUtils.getJavaClassFromColumn(column);
             Assert.assertEquals(String.class, charResult);
 
             column.columnType = "HLL";
-            Class hllResult = dppUtils.getClassFromColumn(column);
+            Class hllResult = dppUtils.getJavaClassFromColumn(column);
             Assert.assertEquals(String.class, hllResult);
 
             column.columnType = "OBJECT";
-            Class objectResult = dppUtils.getClassFromColumn(column);
+            Class objectResult = dppUtils.getJavaClassFromColumn(column);
             Assert.assertEquals(String.class, objectResult);
 
             column.columnType = "BOOLEAN";
-            Class booleanResult = dppUtils.getClassFromColumn(column);
+            Class booleanResult = dppUtils.getJavaClassFromColumn(column);
             Assert.assertEquals(Boolean.class, booleanResult);
 
             column.columnType = "TINYINT";
-            Class tinyResult = dppUtils.getClassFromColumn(column);
+            Class tinyResult = dppUtils.getJavaClassFromColumn(column);
             Assert.assertEquals(Short.class, tinyResult);
 
             column.columnType = "SMALLINT";
-            Class smallResult = dppUtils.getClassFromColumn(column);
+            Class smallResult = dppUtils.getJavaClassFromColumn(column);
             Assert.assertEquals(Short.class, smallResult);
 
             column.columnType = "INT";
-            Class integerResult = dppUtils.getClassFromColumn(column);
+            Class integerResult = dppUtils.getJavaClassFromColumn(column);
             Assert.assertEquals(Integer.class, integerResult);
 
             column.columnType = "DATETIME";
-            Class datetimeResult = dppUtils.getClassFromColumn(column);
+            Class datetimeResult = dppUtils.getJavaClassFromColumn(column);
             Assert.assertEquals(java.sql.Timestamp.class, datetimeResult);
 
             column.columnType = "FLOAT";
-            Class floatResult = dppUtils.getClassFromColumn(column);
+            Class floatResult = dppUtils.getJavaClassFromColumn(column);
             Assert.assertEquals(Float.class, floatResult);
 
             column.columnType = "DOUBLE";
-            Class doubleResult = dppUtils.getClassFromColumn(column);
+            Class doubleResult = dppUtils.getJavaClassFromColumn(column);
             Assert.assertEquals(Double.class, doubleResult);
 
             column.columnType = "DATE";
-            Class dateResult = dppUtils.getClassFromColumn(column);
+            Class dateResult = dppUtils.getJavaClassFromColumn(column);
             Assert.assertEquals(Date.class, dateResult);
 
             column.columnType = "DECIMALV2";
             column.precision = 10;
             column.scale = 2;
-            Class decimalResult = dppUtils.getClassFromColumn(column);
+            Class decimalResult = dppUtils.getJavaClassFromColumn(column);
             Assert.assertEquals(BigDecimal.valueOf(10, 2).getClass(), decimalResult);
         } catch (Exception e) {
             Assert.assertFalse(false);
@@ -203,12 +203,12 @@ public class DppUtilsTest {
         columns.add(column2);
 
         try {
-            StructType schema = dppUtils.createDstTableSchema(columns, false, false);
+            StructType schema = dppUtils.convertDorisColumnsToSparkColumns(columns, false, false);
             Assert.assertEquals(2, schema.fieldNames().length);
             Assert.assertEquals("column1", schema.fieldNames()[0]);
             Assert.assertEquals("column2", schema.fieldNames()[1]);
 
-            StructType schema2 = dppUtils.createDstTableSchema(columns, true, false);
+            StructType schema2 = dppUtils.convertDorisColumnsToSparkColumns(columns, true, false);
             Assert.assertEquals(3, schema2.fieldNames().length);
             Assert.assertEquals("__bucketId__", schema2.fieldNames()[0]);
             Assert.assertEquals("column1", schema2.fieldNames()[1]);

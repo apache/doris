@@ -41,7 +41,7 @@ import java.util.List;
 //  index3
 // Now, if there are more than one indexes meet the column coverage requirement,
 // have the same column size(eg: index2 vs index5), child rollup is preferred
-// builded from the front index(eg: index3 is the child of index2). This can be
+// built from the front index(eg: index3 is the child of index2). This can be
 // further optimized based on the row number of the index.
 public class MinimumCoverageRollupTreeBuilder implements RollupTreeBuilder {
     public RollupTreeNode build(EtlJobConfig.EtlTable tableMeta) {

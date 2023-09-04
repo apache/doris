@@ -1,38 +1,40 @@
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
+//
+//   http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied.  See the License for the
+// specific language governing permissions and limitations
+// under the License.
+
 package org.apache.doris.load.loadv2.dpp.filegroup;
 
 import org.apache.doris.common.SparkDppException;
-import org.apache.doris.load.loadv2.dpp.ColumnParser;
-import org.apache.doris.load.loadv2.dpp.DppUtils;
 import org.apache.doris.load.loadv2.etl.SparkLoadConf;
 import org.apache.doris.load.loadv2.etl.SparkLoadSparkEnv;
-import org.apache.doris.sparkdpp.EtlJobConfig;
 import org.apache.doris.sparkdpp.EtlJobConfig.EtlFileGroup;
 import org.apache.doris.sparkdpp.EtlJobConfig.EtlIndex;
 
 import com.google.common.base.Strings;
-import org.apache.commons.collections.CollectionUtils;
 import org.apache.hadoop.fs.FileStatus;
 import org.apache.hadoop.fs.FileSystem;
 import org.apache.hadoop.fs.Path;
-import org.apache.spark.api.java.JavaRDD;
 import org.apache.spark.sql.Dataset;
 import org.apache.spark.sql.Row;
-import org.apache.spark.sql.RowFactory;
-import org.apache.spark.sql.SparkSession;
-import org.apache.spark.sql.functions;
-import org.apache.spark.sql.types.DataTypes;
-import org.apache.spark.sql.types.StructField;
 import org.apache.spark.sql.types.StructType;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
-import java.nio.charset.StandardCharsets;
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.HashMap;
 import java.util.List;
-import java.util.Map;
 
 public abstract class SparkLoadFromFile extends SparkLoadFileGroup {
 
@@ -48,7 +50,7 @@ public abstract class SparkLoadFromFile extends SparkLoadFileGroup {
         this.filePaths = fileGroup.filePaths;
     }
 
-    abstract public Dataset<Row> loadDataFromFile(String fileUrl) throws SparkDppException;
+    abstract Dataset<Row> loadDataFromFile(String fileUrl) throws SparkDppException;
 
     @Override
     public Dataset<Row> loadDataFromFileGroup() throws Exception {
@@ -102,5 +104,4 @@ public abstract class SparkLoadFromFile extends SparkLoadFileGroup {
             throw e;
         }
     }
-
 }

@@ -72,7 +72,7 @@ public class DppUtils {
         return null;
     }
 
-    public static Class getClassFromColumn(EtlJobConfig.EtlColumn column) throws SparkDppException {
+    public static Class getJavaClassFromColumn(EtlJobConfig.EtlColumn column) throws SparkDppException {
         switch (column.columnType) {
             case "BOOLEAN":
                 return Boolean.class;
@@ -230,7 +230,7 @@ public class DppUtils {
         return ret;
     }
 
-    public static StructType createDstTableSchema(List<EtlJobConfig.EtlColumn> columns,
+    public static StructType convertDorisColumnsToSparkColumns(List<EtlJobConfig.EtlColumn> columns,
             boolean addBucketIdColumn, boolean regardDistinctColumnAsBinary) {
         List<StructField> fields = new ArrayList<>();
         if (addBucketIdColumn) {

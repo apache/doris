@@ -575,7 +575,7 @@ class BucketComparator implements Comparator<List<Object>>, Serializable {
             if (key1 instanceof Comparable && key2 instanceof Comparable) {
                 cmp = ((Comparable) key1).compareTo(key2);
             } else {
-                throw new RuntimeException(String.format("uncomparable column type %s", key1.getClass().toString()));
+                throw new RuntimeException(String.format("incomparable column type %s", key1.getClass().toString()));
             }
             if (cmp != 0) {
                 return cmp;
