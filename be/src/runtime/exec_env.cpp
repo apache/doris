@@ -23,6 +23,7 @@
 #include <utility>
 
 #include "common/config.h"
+#include "runtime/fragment_mgr.h"
 #include "runtime/frontend_info.h"
 #include "time.h"
 #include "util/debug_util.h"
