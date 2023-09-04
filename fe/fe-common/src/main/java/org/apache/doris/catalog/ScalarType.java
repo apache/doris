@@ -696,7 +696,7 @@ public class ScalarType extends Type {
             case HLL:
             case STRING:
             case JSONB:
-            case GEOMETRY:{
+            case GEOMETRY: {
                 scalarType.setLen(getLength());
                 break;
             }
