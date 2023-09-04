@@ -472,7 +472,8 @@ Status SegmentIterator::_get_row_ranges_from_conditions(RowRanges* condition_row
         auto query_ctx = _opts.runtime_state->get_query_ctx();
         runtime_predicate = query_ctx->get_runtime_predicate().get_predictate();
         if (runtime_predicate) {
-            int32_t unique_id = _opts.tablet_schema->column(runtime_predicate->column_id()).unique_id();
+            int32_t unique_id =
+                    _opts.tablet_schema->column(runtime_predicate->column_id()).unique_id();
             AndBlockColumnPredicate and_predicate;
             auto single_predicate = new SingleColumnBlockPredicate(runtime_predicate.get());
             and_predicate.add_column_predicate(single_predicate);
