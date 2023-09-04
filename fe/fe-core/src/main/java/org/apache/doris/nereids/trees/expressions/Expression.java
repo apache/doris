@@ -221,5 +221,4 @@ public abstract class Expression extends AbstractTreeNode<Expression> implements
     public String shapeInfo() {
         return toSql();
     }
-
 }
