@@ -159,6 +159,11 @@ private:
     // This is input params
     ExecEnv* _exec_env;
 
+    // The lock should only be used to protect the structures in fragment manager. Has to be
+    // used in a very small scope because it may dead lock. For example, if the _lock is used
+    // in prepare stage, the call path is  prepare --> expr prepare --> may call allocator
+    // when allocate failed, allocator may call query_is_cancelled, query is callced will also
+    // call _lock, so that there is dead lock.
     std::mutex _lock;
 
     std::condition_variable _cv;
