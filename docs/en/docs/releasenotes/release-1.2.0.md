@@ -399,7 +399,7 @@ When creating a table, set `"light_schema_change"="true"` in properties.
 - In `SHOW CREATE TABLE`, the content of comment is changed from double quotes to single quotes (#10327)
 
 - Support ordinary users to obtain query profile through http command. (#14016)
-Documentation: https://doris.apache.org//docs/dev/admin-manual/http-actions/fe/manager/query-profile-action
+Documentation: https://doris.apache.org/zh-CN/docs/dev/admin-manual/http-actions/fe/query-profile-action
 
 - Optimized the way to specify the sequence column, you can directly specify the column name. (#13872)
 Documentation: https://doris.apache.org//docs/dev/data-operate/update-delete/sequence-column-manual

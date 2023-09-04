@@ -48,7 +48,7 @@ In order to ensure the maintainability of the code structure and reduce the addi
 
 For normal upgrade operations, you can perform rolling upgrades according to the cluster upgrade documentation on the official website.
 
-[https://doris.apache.org//docs/admin-manual/cluster-management/upgrade](https://doris.apache.org//docs/admin-manual/cluster-management/upgrade)
+[https://doris.apache.org/zh-CN/docs/dev/admin-manual/cluster-management/upgrade](https://doris.apache.org/zh-CN/docs/dev/admin-manual/cluster-management/upgrade)
 
 ## Features
 

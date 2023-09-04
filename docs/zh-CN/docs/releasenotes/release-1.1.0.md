@@ -49,7 +49,7 @@ Apache Doris 早期版本的存储格式为 Segment V1，在 0.12 版本中我�
 
 正常升级操作请按照官网上的集群升级文档进行滚动升级即可。
 
-[https://doris.apache.org/zh-CN/docs/admin-manual/cluster-management/upgrade](https://doris.apache.org/zh-CN/docs/admin-manual/cluster-management/upgrade)
+[https://doris.apache.org/zh-CN/docs/dev/admin-manual/cluster-management/upgrade](https://doris.apache.org/zh-CN/docs/dev/admin-manual/cluster-management/upgrade)
 
 ## 重要功能
 
