@@ -136,7 +136,7 @@ public:
 
     bool is_group_commit() { return _group_commit; }
 
-private:
+protected:
     Status _create_sink(int sender_id, const TDataSink& t_data_sink, RuntimeState* state);
     Status _build_pipelines(ExecNode*, PipelinePtr);
     virtual Status _build_pipeline_tasks(const doris::TPipelineFragmentParams& request);
