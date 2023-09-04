@@ -36,13 +36,6 @@ If input string is invalid, return NULL.
 ### example
 
 ```
-mysql> select bitmap_to_string(bitmap_empty());
-+----------------------------------+
-| bitmap_to_string(bitmap_empty()) |
-+----------------------------------+
-|                                  |
-+----------------------------------+
-
 mysql> select bitmap_to_string(bitmap_from_string("0, 1, 2"));
 +-------------------------------------------------+
 | bitmap_to_string(bitmap_from_string('0, 1, 2')) |
