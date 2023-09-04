@@ -592,6 +592,22 @@ int main(int argc, char** argv) {
         sleep(3);
     }
 
+    // For graceful shutdown, need to wait for all running queries to stop
+    int32_t wait_seconds_passed = 0;
+    while (true) {
+        int num_queries = exec_env->fragment_mgr()->running_query_num();
+        if (num_queries < 1) {
+            break;
+        }
+        if (wait_seconds_passed > config::grace_shutdown_wait_seconds) {
+            LOG(INFO) << "There are still " << num_queries << " queries running, but "
+                      << wait_seconds_passed << " seconds passed, has to exist now";
+            break;
+        }
+        sleep(1);
+        ++wait_seconds_passed;
+    }
+
     return 0;
 }
 

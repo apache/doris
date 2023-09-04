@@ -1084,6 +1084,8 @@ DEFINE_Int32(partition_topn_partition_threshold, "1024");
 
 DEFINE_Int32(fe_expire_duration_seconds, "60");
 
+DECLARE_Int32(grace_shutdown_wait_seconds, "120");
+
 #ifdef BE_TEST
 // test s3
 DEFINE_String(test_s3_resource, "resource");

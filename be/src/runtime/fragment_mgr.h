@@ -144,6 +144,11 @@ public:
 
     ThreadPool* get_thread_pool() { return _thread_pool.get(); }
 
+    int32_t running_query_num() {
+        std::unique_lock<std::mutex> ctx_lock(_lock);
+        return _query_ctx_map.size();
+    }
+
 private:
     void cancel_unlocked_impl(const TUniqueId& id, const PPlanFragmentCancelReason& reason,
                               const std::unique_lock<std::mutex>& state_lock, bool is_pipeline,
