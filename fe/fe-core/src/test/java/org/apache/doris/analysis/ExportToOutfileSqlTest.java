@@ -817,9 +817,9 @@ public class ExportToOutfileSqlTest extends TestWithFeService {
                     "convertPropertyKeyToLowercase", Map.class);
             convertPropertyKeyToLowercase.setAccessible(true);
 
-            Method checkAllParameter = exportCommand.getClass().getDeclaredMethod("checkAllParameter",
+            Method checkAllParameters = exportCommand.getClass().getDeclaredMethod("checkAllParameters",
                     ConnectContext.class, TableName.class, Map.class);
-            checkAllParameter.setAccessible(true);
+            checkAllParameters.setAccessible(true);
 
             Method generateExportJob = exportCommand.getClass().getDeclaredMethod("generateExportJob",
                     ConnectContext.class, Map.class, TableName.class);
@@ -828,7 +828,7 @@ public class ExportToOutfileSqlTest extends TestWithFeService {
             TableName tblName = (TableName) getTableName.invoke(exportCommand, connectContext);
             Map<String, String> lowercaseProperties = (Map<String, String>) convertPropertyKeyToLowercase.invoke(
                     exportCommand, exportCommand.getFileProperties());
-            checkAllParameter.invoke(exportCommand, connectContext, tblName, lowercaseProperties);
+            checkAllParameters.invoke(exportCommand, connectContext, tblName, lowercaseProperties);
 
             ExportJob job = (ExportJob) generateExportJob.invoke(exportCommand, connectContext, lowercaseProperties,
                     tblName);
