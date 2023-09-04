@@ -120,6 +120,8 @@ Status BinaryPrefixPageDecoder::_read_next_value() {
     uint32_t non_shared_len;
     auto data_ptr = _decode_value_lengths(_next_ptr, &shared_len, &non_shared_len);
     if (data_ptr == nullptr) {
+        LOG(WARNING) << fmt::format("Failed to decode value at position {}", _cur_pos);
+        CHECK(false);
         return Status::Corruption("Failed to decode value at position {}", _cur_pos);
     }
     _current_value.resize(shared_len);
@@ -215,6 +217,9 @@ Status BinaryPrefixPageDecoder::next_batch(size_t* n, vectorized::MutableColumnP
     // read and copy values
     for (size_t i = 0; i < max_fetch; ++i) {
         dst->insert_data((char*)(_current_value.data()), _current_value.size());
+        if (_next_ptr == _footer_start) {
+            break;
+        }
         RETURN_IF_ERROR(_read_next_value());
         _cur_pos++;
     }
