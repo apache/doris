@@ -263,8 +263,8 @@ public class HeartbeatMgr extends MasterDaemon {
                         nodeRole = tBackendInfo.getBeNodeRole();
                     }
                     boolean isShutDown = false;
-                    if (tBackendInfo.isSetIsShutDown()) {
-                        isShutDown = tBackendInfo.getIsShutDown();
+                    if (tBackendInfo.isSetIsShutdown()) {
+                        isShutDown = tBackendInfo.isIsShutdown();
                     }
                     return new BackendHbResponse(backendId, bePort, httpPort, brpcPort,
                             System.currentTimeMillis(), beStartTime, version, nodeRole, isShutDown);
