@@ -24,6 +24,7 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.analyzer.UnboundOlapTableSink;
+import org.apache.doris.nereids.annotation.Developing;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
@@ -51,6 +52,7 @@ import java.util.stream.Collectors;
 /**
  * create table command
  */
+@Developing
 public class CreateTableCommand extends Command implements ForwardWithSync {
     public static final Logger LOG = LogManager.getLogger(CreateTableCommand.class);
 
@@ -65,6 +67,10 @@ public class CreateTableCommand extends Command implements ForwardWithSync {
 
     @Override
     public void run(ConnectContext ctx, StmtExecutor executor) throws Exception {
+        ctx.getSessionVariable().enableFallbackToOriginalPlannerOnce();
+        if (true) {
+            throw new UnsupportedOperationException("Developing, please use original planner");
+        }
         if (!ctasQuery.isPresent()) {
             createTableInfo.validate(ctx);
             CreateTableStmt createTableStmt = createTableInfo.translateToCatalogStyle();
