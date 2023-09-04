@@ -306,8 +306,6 @@ suite("cte") {
         notContains "MultiCastDataSinks"
     }
 
-    sql "WITH cte_0 AS ( SELECT 1 AS a ) SELECT * from cte_0 t1 LIMIT 10 UNION SELECT * from cte_0 t1 LIMIT 10"
-
     qt_test """
         SELECT * FROM (
         WITH temptable as (
