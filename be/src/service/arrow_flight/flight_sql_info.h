@@ -14,47 +14,20 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
+// This file is copied from
+// https://github.com/apache/arrow/blob/main/cpp/src/arrow/flight/sql/example/sqlite_sql_info.h
+// and modified by Doris
 
 #pragma once
 
-#include <stdint.h>
-
-#include <string>
-
-#include "common/status.h"
+#include "arrow/flight/sql/types.h"
 
 namespace doris {
+namespace flight {
 
-namespace vectorized {
-class Block;
-}
-class RuntimeState;
+/// \brief Gets the mapping from SQL info ids to SqlInfoResult instances.
+/// \return the cache.
+arrow::flight::sql::SqlInfoResultMap GetSqlInfoResultMap();
 
-// abstract class of the result writer
-class ResultWriter {
-public:
-    ResultWriter() = default;
-    virtual ~ResultWriter() = default;
-
-    virtual Status init(RuntimeState* state) = 0;
-
-    virtual Status close() = 0;
-
-    [[nodiscard]] virtual int64_t get_written_rows() const { return _written_rows; }
-
-    [[nodiscard]] bool output_object_data() const { return _output_object_data; }
-
-    virtual Status append_block(vectorized::Block& block) = 0;
-
-    virtual bool can_sink() { return true; }
-
-    void set_output_object_data(bool output_object_data) {
-        _output_object_data = output_object_data;
-    }
-
-protected:
-    int64_t _written_rows = 0; // number of rows written
-    bool _output_object_data = false;
-};
-
+} // namespace flight
 } // namespace doris
