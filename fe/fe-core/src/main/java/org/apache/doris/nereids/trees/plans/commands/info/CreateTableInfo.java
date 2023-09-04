@@ -186,10 +186,10 @@ public class CreateTableInfo {
             keys = Lists.newArrayList();
             if (hasAggColumn) {
                 for (ColumnDefinition column : columns) {
-                    keys.add(column.getName());
                     if (column.getAggType() != null) {
                         break;
                     }
+                    keys.add(column.getName());
                 }
                 keysType = KeysType.AGG_KEYS;
             } else {
