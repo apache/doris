@@ -517,4 +517,29 @@ public:
                         SourceState& source_state) = 0;
 };
 
+/**
+ * StatefulOperatorX indicates the operators with some states inside.
+ *
+ * Specifically, we called an operator stateful if an operator can determine its output by itself.
+ * For example, hash join probe operator is a typical StatefulOperator. When it gets a block from probe side, it will hold this block inside (e.g. _child_block).
+ * If there are still remain rows in probe block, we can get output block by calling `get_block` without any data from its child.
+ * In a nutshell, it is a one-to-many relation between input blocks and output blocks for StatefulOperator.
+ */
+template <typename LocalStateType>
+class StatefulOperatorX : public OperatorX<LocalStateType> {
+public:
+    StatefulOperatorX(ObjectPool* pool, const TPlanNode& tnode, const DescriptorTbl& descs)
+            : OperatorX<LocalStateType>(pool, tnode, descs) {}
+    virtual ~StatefulOperatorX() = default;
+
+    [[nodiscard]] Status get_block(RuntimeState* state, vectorized::Block* block,
+                                   SourceState& source_state) override;
+
+    [[nodiscard]] virtual Status pull(RuntimeState* state, vectorized::Block* block,
+                                      SourceState& source_state) const = 0;
+    [[nodiscard]] virtual Status push(RuntimeState* state, vectorized::Block* input_block,
+                                      SourceState source_state) const = 0;
+    [[nodiscard]] virtual bool need_more_input_data(RuntimeState* state) const = 0;
+};
+
 } // namespace doris::pipeline

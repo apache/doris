@@ -62,9 +62,9 @@ protected:
 };
 
 template <typename LocalStateType>
-class JoinProbeOperatorX : public OperatorX<LocalStateType> {
+class JoinProbeOperatorX : public StatefulOperatorX<LocalStateType> {
 public:
-    using Base = OperatorX<LocalStateType>;
+    using Base = StatefulOperatorX<LocalStateType>;
     JoinProbeOperatorX(ObjectPool* pool, const TPlanNode& tnode, const DescriptorTbl& descs);
     virtual Status init(const TPlanNode& tnode, RuntimeState* state) override;
 

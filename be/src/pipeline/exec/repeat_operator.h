@@ -64,25 +64,26 @@ private:
     std::unique_ptr<vectorized::Block> _intermediate_block {};
     vectorized::VExprContextSPtrs _expr_ctxs;
 };
-class RepeatOperatorX final : public OperatorX<RepeatLocalState> {
+class RepeatOperatorX final : public StatefulOperatorX<RepeatLocalState> {
 public:
-    using Base = OperatorX<RepeatLocalState>;
+    using Base = StatefulOperatorX<RepeatLocalState>;
     RepeatOperatorX(ObjectPool* pool, const TPlanNode& tnode, const DescriptorTbl& descs);
-    Status get_block(RuntimeState* state, vectorized::Block* block,
-                     SourceState& source_state) override;
     Status init(const TPlanNode& tnode, RuntimeState* state) override;
 
     Status prepare(RuntimeState* state) override;
     Status open(RuntimeState* state) override;
 
+    bool need_more_input_data(RuntimeState* state) const override;
+    Status pull(RuntimeState* state, vectorized::Block* output_block,
+                SourceState& source_state) const override;
+    Status push(RuntimeState* state, vectorized::Block* input_block,
+                SourceState source_state) const override;
+
 private:
     friend class RepeatLocalState;
     Status get_repeated_block(vectorized::Block* child_block, int repeat_id_idx,
                               vectorized::Block* output_block);
-    bool need_more_input_data(RuntimeState* state) const;
 
-    Status pull(RuntimeState* state, vectorized::Block* output_block, SourceState& source_state);
-    Status push(RuntimeState* state, vectorized::Block* input_block, SourceState& source_state);
     // Slot id set used to indicate those slots need to set to null.
     std::vector<std::set<SlotId>> _slot_id_set_list;
     // all slot id
