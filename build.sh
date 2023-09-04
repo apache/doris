@@ -283,9 +283,9 @@ update_submodule() {
     set -e
     if [[ "${exit_code}" -ne 0 ]]; then
         # try to get submodule's current commit
-        local submodule_commit=$(git ls-tree HEAD ${submodule_path} | awk '{print $3}')
+        submodule_commit=$(git ls-tree HEAD "${submodule_path}" | awk '{print $3}')
 
-        local commit_specific_url=$(echo "${archive_url}" | sed "s/refs\/heads/${submodule_commit}/")
+        commit_specific_url=$(echo "${archive_url}" | sed "s/refs\/heads/${submodule_commit}/")
         echo "Update ${submodule_name} submodule failed, start to download and extract ${commit_specific_url}"
 
         mkdir -p "${DORIS_HOME}/${submodule_path}"
