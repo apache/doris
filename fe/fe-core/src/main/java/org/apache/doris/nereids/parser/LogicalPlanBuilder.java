@@ -1762,7 +1762,9 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             throw new AnalysisException("nameParts in create table should be 1 or 2");
         }
         KeysType keysType = null;
-        if (ctx.AGGREGATE() != null) {
+        if (ctx.DUPLICATE() != null) {
+            keysType = KeysType.DUP_KEYS;
+        } else if (ctx.AGGREGATE() != null) {
             keysType = KeysType.AGG_KEYS;
         } else if (ctx.UNIQUE() != null) {
             keysType = KeysType.UNIQUE_KEYS;
