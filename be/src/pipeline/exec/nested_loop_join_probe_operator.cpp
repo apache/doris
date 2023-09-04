@@ -509,34 +509,6 @@ Status NestedLoopJoinProbeOperatorX::push(doris::RuntimeState* state, vectorized
     return Status::OK();
 }
 
-Status NestedLoopJoinProbeOperatorX::get_block(RuntimeState* state, vectorized::Block* block,
-                                               SourceState& source_state) {
-    auto& local_state = state->get_local_state(id())->cast<NestedLoopJoinProbeLocalState>();
-    if (need_more_input_data(state)) {
-        local_state._child_block->clear_column_data();
-        RETURN_IF_ERROR(_child_x->get_next_after_projects(state, local_state._child_block.get(),
-                                                          local_state._child_source_state));
-        source_state = local_state._child_source_state;
-        if (local_state._child_block->rows() == 0 &&
-            local_state._child_source_state != SourceState::FINISHED) {
-            return Status::OK();
-        }
-        RETURN_IF_ERROR(
-                push(state, local_state._child_block.get(), local_state._child_source_state));
-    }
-
-    if (!need_more_input_data(state)) {
-        RETURN_IF_ERROR(pull(state, block, source_state));
-        if (source_state != SourceState::FINISHED && !need_more_input_data(state)) {
-            source_state = SourceState::MORE_DATA;
-        } else if (source_state != SourceState::FINISHED &&
-                   source_state == SourceState::MORE_DATA) {
-            source_state = local_state._child_source_state;
-        }
-    }
-    return Status::OK();
-}
-
 Status NestedLoopJoinProbeOperatorX::pull(RuntimeState* state, vectorized::Block* block,
                                           SourceState& source_state) const {
     auto& local_state = state->get_local_state(id())->cast<NestedLoopJoinProbeLocalState>();
