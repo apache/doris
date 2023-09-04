@@ -444,7 +444,7 @@ public class Config extends ConfigBase {
             "Waiting time for one transaction changing to \"at least one replica success\", in seconds."
             + "If time exceeds this, and for each tablet it has at least one replica publish successful, "
             + "then the load task will be successful." })
-    public static int publish_wait_time_second = 600;
+    public static int publish_wait_time_second = 300;
 
     @ConfField(mutable = true, masterOnly = true, description = {"提交事务的最大超时时间，单位是秒。"
             + "该参数仅用于事务型 insert 操作中。",

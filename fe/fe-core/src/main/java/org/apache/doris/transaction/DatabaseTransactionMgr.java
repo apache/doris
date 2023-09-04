@@ -94,6 +94,12 @@ import java.util.stream.Collectors;
 
 public class DatabaseTransactionMgr {
 
+    private enum PublishResult {
+        FAILED,
+        TIMEOUT_SUCC,  // each tablet has least one replica succ, and timeout
+        QUORUM_SUCC,   // each tablet has least quorum replicas succ
+    }
+
     private static final Logger LOG = LogManager.getLogger(DatabaseTransactionMgr.class);
     // the max number of txn that can be remove per round.
     // set it to avoid holding lock too long when removing too many txns per round.
@@ -904,9 +910,8 @@ public class DatabaseTransactionMgr {
         LOG.debug("finish transaction {} with tables {}", transactionId, tableIdList);
         List<? extends TableIf> tableList = db.getTablesOnIdOrderIfExist(tableIdList);
         tableList = MetaLockUtils.writeLockTablesIfExist(tableList);
-        boolean isQuorumSucc = true;
+        PublishResult publishResult = PublishResult.QUORUM_SUCC;
         try {
-            boolean hasError = false;
             boolean allTabletsLeastOneSucc = true;
             Iterator<TableCommitInfo> tableCommitInfoIterator
                     = transactionState.getIdToTableCommitInfos().values().iterator();
@@ -1010,10 +1015,12 @@ public class DatabaseTransactionMgr {
                                 allTabletsLeastOneSucc = false;
                             }
 
-                            isQuorumSucc = false;
                             String writeDetail = getTabletWriteDetail(tabletSuccReplicas, tabletWriteFailedReplicas,
                                     tabletVersionFailedReplicas);
                             if (allowPublishOneSucc && healthReplicaNum > 0) {
+                                if (publishResult == PublishResult.QUORUM_SUCC) {
+                                    publishResult = PublishResult.TIMEOUT_SUCC;
+                                }
                                 // We can not do any thing except retrying,
                                 // because publish task is assigned a version,
                                 // and doris does not permit discontinuous
@@ -1029,13 +1036,13 @@ public class DatabaseTransactionMgr {
                                         transactionState, tablet, partitionCommitInfo.getVersion(), quorumReplicaNum,
                                         tableId, partitionId, writeDetail);
                             } else {
+                                publishResult = PublishResult.FAILED;
                                 String errMsg = String.format("publish on tablet %d failed."
                                                 + " succeed replica num %d less than quorum %d."
                                                 + " table: %d, partition: %d, publish version: %d",
                                         tablet.getId(), healthReplicaNum, quorumReplicaNum, tableId,
                                         partitionId, partition.getVisibleVersion() + 1);
                                 transactionState.setErrorMsg(errMsg);
-                                hasError = true;
                                 LOG.info("publish version failed for transaction {} on tablet {} with version"
                                         + " {}, and has failed replicas, quorum num {}. table {}, partition {},"
                                         + " tablet detail: {}",
@@ -1046,16 +1053,11 @@ public class DatabaseTransactionMgr {
                     }
                 }
             }
-            if (hasError) {
-                if (!allTabletsLeastOneSucc) {
-                    return;
-                }
-                if (firstPublishOneSuccTime <= 0) {
-                    transactionState.setFirstPublishOneSuccTime(System.currentTimeMillis());
-                }
-                if (!allowPublishOneSucc) {
-                    return;
-                }
+            if (allTabletsLeastOneSucc && firstPublishOneSuccTime <= 0) {
+                transactionState.setFirstPublishOneSuccTime(now);
+            }
+            if (publishResult == PublishResult.FAILED) {
+                return;
             }
             boolean txnOperated = false;
             writeLock();
@@ -1088,7 +1090,7 @@ public class DatabaseTransactionMgr {
         // Otherwise, there is no way for stream load to query the result right after loading finished,
         // even if we call "sync" before querying.
         transactionState.countdownVisibleLatch();
-        LOG.info("finish transaction {} successfully, is quorum succ {}", transactionState, isQuorumSucc);
+        LOG.info("finish transaction {} successfully, publish result: {}", transactionState, publishResult.name());
     }
 
     protected void unprotectedPreCommitTransaction2PC(TransactionState transactionState, Set<Long> errorReplicaIds,
