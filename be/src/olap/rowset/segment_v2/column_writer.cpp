@@ -756,6 +756,7 @@ Status OffsetColumnWriter::append_data(const uint8_t** ptr, size_t num_rows) {
     while (remaining > 0) {
         size_t num_written = remaining;
         RETURN_IF_ERROR(append_data_in_current_page(ptr, &num_written));
+        // _next_offset after append_data_in_current_page is the offset of next data, which will used in finish_current_page() to set next_array_item_ordinal
         _next_offset = *(const uint64_t*)(*ptr);
         remaining -= num_written;
 

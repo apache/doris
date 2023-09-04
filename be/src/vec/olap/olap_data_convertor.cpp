@@ -943,6 +943,7 @@ Status OlapBlockDataConvertor::OlapColumnDataConvertorArray::convert_to_olap(
     auto elem_size = end_offset - start_offset;
 
     _offsets.clear();
+    // we need all offsets, so reserve num_rows + 1 to make sure last offset can be got in offset column, instead of according to nested item column
     _offsets.reserve(_num_rows + 1);
     for (int i = 0; i <= _num_rows; ++i) {
         _offsets.push_back(column_array->offset_at(i + _row_pos) - start_offset + _base_offset);
@@ -1011,6 +1012,7 @@ Status OlapBlockDataConvertor::OlapColumnDataConvertorMap::convert_to_olap(
     auto elem_size = end_offset - start_offset;
 
     _offsets.clear();
+    // we need all offsets, so reserve num_rows + 1 to make sure last offset can be got in offset column, instead of according to nested item column
     _offsets.reserve(_num_rows + 1);
     for (int i = 0; i <= _num_rows; ++i) {
         _offsets.push_back(column_map->offset_at(i + _row_pos) - start_offset + _base_offset);
