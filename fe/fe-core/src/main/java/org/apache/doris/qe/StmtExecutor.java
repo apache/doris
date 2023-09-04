@@ -887,6 +887,10 @@ public class StmtExecutor {
                     context.getForwardedStmtId());
         }
 
+        if (parsedStmt == null) {
+            parseByLegacy();
+        }
+
         boolean preparedStmtReanalyzed = false;
         PrepareStmtContext preparedStmtCtx = null;
         if (parsedStmt instanceof ExecuteStmt) {
