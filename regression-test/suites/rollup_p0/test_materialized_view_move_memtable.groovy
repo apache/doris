@@ -17,8 +17,6 @@
 
 suite("test_materialized_view_move_memtable", "rollup") {
 
-    // because nereids cannot support rollup correctly forbid it temporary
-    sql """set enable_nereids_planner=false"""
     sql """set enable_memtable_on_sink_node=true"""
 
     def tbName1 = "test_materialized_view_mm"
