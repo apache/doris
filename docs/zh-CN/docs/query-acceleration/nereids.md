@@ -66,7 +66,7 @@ SET enable_nereids_planner=true;
 SET enable_fallback_to_original_planner=true;
 ```
 
-为了能够充分利用新优化器的CBO能力，强烈建议对关注性能查询所以来的表，执行analyze语句，以收集列统计信息
+为了能够充分利用新优化器的CBO能力，强烈建议, 对关注性能查询的表，执行analyze语句，以收集列统计信息
 
 ## 已知问题和暂不支持的功能
 
