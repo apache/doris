@@ -623,6 +623,8 @@ Status VNodeChannel::add_block(vectorized::Block* block, const Payload* payload,
             std::lock_guard<std::mutex> l(_pending_batches_lock);
             // To simplify the add_row logic, postpone adding block into req until the time of sending req
             _pending_batches_bytes += _cur_mutable_block->allocated_bytes();
+            _cur_add_block_request.set_eos(
+                    false); // for multi-add, only when marking close we set it eos.
             _pending_blocks.emplace(std::move(_cur_mutable_block), _cur_add_block_request);
             _pending_batches_num++;
             VLOG_DEBUG << "VOlapTableSink:" << _parent << " VNodeChannel:" << this
