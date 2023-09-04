@@ -145,6 +145,7 @@ setQuantifier
 queryPrimary
     : querySpecification                                                   #queryPrimaryDefault
     | LEFT_PAREN query RIGHT_PAREN                                         #subquery
+    | inlineTable                                                          #valuesTable
     ;
 
 querySpecification
@@ -300,6 +301,7 @@ relationPrimary
     | tvfName=identifier LEFT_PAREN
       (properties=propertyItemList)?
       RIGHT_PAREN tableAlias                                       #tableValuedFunction
+    | inlineTable                                                  #inlineTableDefault
     ;
 
 propertyClause
@@ -395,6 +397,11 @@ aggTypeDef
 
 tabletList
     : TABLET LEFT_PAREN tabletIdList+=INTEGER_VALUE (COMMA tabletIdList+=INTEGER_VALUE)*  RIGHT_PAREN
+    ;
+    
+
+inlineTable
+    : VALUES expression (COMMA expression)* tableAlias
     ;
 
 // -----------------Expression-----------------
@@ -524,7 +531,7 @@ primaryExpression
     | identifier                                                                               #columnReference
     | base=primaryExpression DOT fieldName=identifier                                          #dereference
     | LEFT_PAREN expression RIGHT_PAREN                                                        #parenthesizedExpression
-    | LEFT_PAREN expression (COMMA expression)+ RIGHT_PAREN                                    #rowConstructor
+    | LEFT_PAREN namedExpression (COMMA namedExpression)+ RIGHT_PAREN                                    #rowConstructor
     | KEY (dbName=identifier DOT)? keyName=identifier                                          #encryptKey
     | EXTRACT LEFT_PAREN field=identifier FROM (DATE | TIMESTAMP)?
       source=valueExpression RIGHT_PAREN                                                       #extract
