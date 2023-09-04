@@ -416,7 +416,6 @@ Status TabletsChannel::_open_all_writers(const PTabletWriterOpenRequest& request
 
     int tablet_cnt = 0;
     for (auto& tablet : request.tablets()) {
-        LOG(WARNING) << "deal tablet " << tablet.tablet_id();
         if (_tablet_writers.find(tablet.tablet_id()) != _tablet_writers.end()) {
             continue;
         }
@@ -424,7 +423,6 @@ Status TabletsChannel::_open_all_writers(const PTabletWriterOpenRequest& request
         WriteRequest wrequest;
         wrequest.index_id = request.index_id();
         wrequest.tablet_id = tablet.tablet_id();
-        LOG(WARNING) << "open writers of " << tablet.tablet_id();
         wrequest.schema_hash = schema_hash;
         wrequest.txn_id = _txn_id;
         wrequest.partition_id = tablet.partition_id();
