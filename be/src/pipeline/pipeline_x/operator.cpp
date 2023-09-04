@@ -282,4 +282,8 @@ DECLARE_OPERATOR_X(AssertNumRowsLocalState)
 
 template class StreamingOperatorX<AssertNumRowsLocalState>;
 
+template class StatefulOperatorX<HashJoinProbeLocalState>;
+template class StatefulOperatorX<RepeatLocalState>;
+template class StatefulOperatorX<NestedLoopJoinProbeLocalState>;
+
 } // namespace doris::pipeline
