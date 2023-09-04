@@ -68,8 +68,12 @@ public class EliminateOuterJoin extends OneRewriteRuleFactory {
             Set<Expression> conjuncts = new HashSet<>();
             join.getHashJoinConjuncts().forEach(expression -> {
                 EqualTo equalTo = (EqualTo) expression;
-                JoinUtils.addIsNotNullIfNullableToCollection(equalTo.left(), conjuncts);
-                JoinUtils.addIsNotNullIfNullableToCollection(equalTo.right(), conjuncts);
+                if (canFilterLeftNull) {
+                    JoinUtils.addIsNotNullIfNullableToCollection(equalTo.left(), conjuncts);
+                }
+                if (canFilterRightNull) {
+                    JoinUtils.addIsNotNullIfNullableToCollection(equalTo.right(), conjuncts);
+                }
             });
             JoinUtils.JoinSlotCoverageChecker checker = new JoinUtils.JoinSlotCoverageChecker(
                     join.left().getOutput(),
@@ -77,8 +81,12 @@ public class EliminateOuterJoin extends OneRewriteRuleFactory {
             join.getOtherJoinConjuncts().stream().filter(EqualTo.class::isInstance).forEach(expr -> {
                 EqualTo equalTo = (EqualTo) expr;
                 if (checker.isHashJoinCondition(equalTo)) {
-                    JoinUtils.addIsNotNullIfNullableToCollection(equalTo.left(), conjuncts);
-                    JoinUtils.addIsNotNullIfNullableToCollection(equalTo.right(), conjuncts);
+                    if (canFilterLeftNull) {
+                        JoinUtils.addIsNotNullIfNullableToCollection(equalTo.left(), conjuncts);
+                    }
+                    if (canFilterRightNull) {
+                        JoinUtils.addIsNotNullIfNullableToCollection(equalTo.right(), conjuncts);
+                    }
                 }
             });
             conjuncts.addAll(filter.getConjuncts());
