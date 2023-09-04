@@ -96,9 +96,6 @@ DECLARE_Int32(be_port);
 // port for brpc
 DECLARE_Int32(brpc_port);
 
-// port for arrow flight
-DECLARE_Int32(arrow_flight_port);
-
 // the number of bthreads for brpc, the default value is set to -1,
 // which means the number of bthreads is #cpu-cores
 DECLARE_Int32(brpc_num_threads);

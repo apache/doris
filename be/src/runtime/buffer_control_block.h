@@ -37,10 +37,6 @@ class Closure;
 }
 } // namespace google
 
-namespace arrow {
-class RecordBatch;
-} // namespace arrow
-
 namespace brpc {
 class Controller;
 }
@@ -71,13 +67,10 @@ public:
     virtual ~BufferControlBlock();
 
     Status init();
-    // Only one fragment is written, so can_sink returns true, then the sink must be executed
-    virtual bool can_sink();
+    virtual bool can_sink(); // 只有一个fragment写入，因此can_sink返回true，则一定可以执行sink
     Status add_batch(std::unique_ptr<TFetchDataResult>& result);
-    Status add_arrow_batch(std::shared_ptr<arrow::RecordBatch>& result);
 
     void get_batch(GetResultBatchCtx* ctx);
-    Status get_arrow_batch(std::shared_ptr<arrow::RecordBatch>* result);
 
     // close buffer block, set _status to exec_status and set _is_close to true;
     // called because data has been read or error happened.
@@ -85,7 +78,7 @@ public:
     // this is called by RPC, called from coordinator
     Status cancel();
 
-    [[nodiscard]] const TUniqueId& fragment_id() const { return _fragment_id; }
+    const TUniqueId& fragment_id() const { return _fragment_id; }
 
     void set_query_statistics(std::shared_ptr<QueryStatistics> statistics) {
         _query_statistics = statistics;
@@ -108,13 +101,10 @@ public:
     }
 
 protected:
-    virtual bool _get_batch_queue_empty() {
-        return _fe_result_batch_queue.empty() && _arrow_flight_batch_queue.empty();
-    }
+    virtual bool _get_batch_queue_empty() { return _batch_queue.empty(); }
     virtual void _update_batch_queue_empty() {}
 
-    using FeResultQueue = std::list<std::unique_ptr<TFetchDataResult>>;
-    using ArrowFlightResultQueue = std::list<std::shared_ptr<arrow::RecordBatch>>;
+    using ResultQueue = std::list<std::unique_ptr<TFetchDataResult>>;
 
     // result's query id
     TUniqueId _fragment_id;
@@ -126,9 +116,7 @@ protected:
     int64_t _packet_num;
 
     // blocking queue for batch
-    FeResultQueue _fe_result_batch_queue;
-    ArrowFlightResultQueue _arrow_flight_batch_queue;
-
+    ResultQueue _batch_queue;
     // protects all subsequent data in this block
     std::mutex _lock;
     // signal arrival of new batch or the eos/cancelled condition
@@ -155,9 +143,7 @@ public:
 
 private:
     bool _get_batch_queue_empty() override { return _batch_queue_empty; }
-    void _update_batch_queue_empty() override {
-        _batch_queue_empty = _fe_result_batch_queue.empty() && _arrow_flight_batch_queue.empty();
-    }
+    void _update_batch_queue_empty() override { _batch_queue_empty = _batch_queue.empty(); }
 
     std::atomic_bool _batch_queue_empty = false;
 };
