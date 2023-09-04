@@ -48,7 +48,7 @@ public:
 
 class HashJoinProbeOperatorX;
 class HashJoinProbeLocalState final
-        : public JoinProbeLocalState<JoinDependency, HashJoinProbeLocalState> {
+        : public JoinProbeLocalState<HashJoinDependency, HashJoinProbeLocalState> {
 public:
     using Parent = HashJoinProbeOperatorX;
     ENABLE_FACTORY_CREATOR(HashJoinProbeLocalState);
@@ -59,7 +59,7 @@ public:
     Status close(RuntimeState* state) override;
 
     void prepare_for_next();
-    void add_tuple_is_null_column(vectorized::Block* block);
+    void add_tuple_is_null_column(vectorized::Block* block) override;
     void init_for_probe(RuntimeState* state);
 
     HashJoinProbeOperatorX* join_probe() { return (HashJoinProbeOperatorX*)_parent; }
@@ -69,9 +69,6 @@ private:
     bool _need_probe_null_map(vectorized::Block& block, const std::vector<int>& res_col_ids);
     friend class HashJoinProbeOperatorX;
     friend struct vectorized::HashJoinProbeContext;
-
-    std::unique_ptr<vectorized::Block> _child_block;
-    SourceState _child_source_state;
 
     int _probe_index = -1;
     bool _probe_eos = false;

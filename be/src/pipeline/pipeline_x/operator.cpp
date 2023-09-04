@@ -25,6 +25,8 @@
 #include "pipeline/exec/exchange_source_operator.h"
 #include "pipeline/exec/hashjoin_build_sink.h"
 #include "pipeline/exec/hashjoin_probe_operator.h"
+#include "pipeline/exec/nested_loop_join_build_operator.h"
+#include "pipeline/exec/nested_loop_join_probe_operator.h"
 #include "pipeline/exec/olap_scan_operator.h"
 #include "pipeline/exec/result_sink_operator.h"
 #include "pipeline/exec/sort_sink_operator.h"
@@ -218,6 +220,7 @@ DECLARE_OPERATOR_X(SortSinkLocalState)
 DECLARE_OPERATOR_X(BlockingAggSinkLocalState)
 DECLARE_OPERATOR_X(StreamingAggSinkLocalState)
 DECLARE_OPERATOR_X(ExchangeSinkLocalState)
+DECLARE_OPERATOR_X(NestedLoopJoinBuildSinkLocalState)
 
 #undef DECLARE_OPERATOR_X
 
@@ -228,6 +231,7 @@ DECLARE_OPERATOR_X(AnalyticLocalState)
 DECLARE_OPERATOR_X(SortLocalState)
 DECLARE_OPERATOR_X(AggLocalState)
 DECLARE_OPERATOR_X(ExchangeLocalState)
+DECLARE_OPERATOR_X(NestedLoopJoinProbeLocalState)
 
 #undef DECLARE_OPERATOR_X
 
