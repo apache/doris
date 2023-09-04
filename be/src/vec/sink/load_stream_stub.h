@@ -183,6 +183,8 @@ protected:
     bthread::Mutex _mutex;
     bthread::ConditionVariable _close_cv;
 
+    std::atomic<int> _num_open;
+
     std::mutex _buffer_mutex;
     std::mutex _send_mutex;
     butil::IOBuf _buffer;

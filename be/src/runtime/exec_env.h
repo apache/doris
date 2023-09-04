@@ -49,6 +49,9 @@ class TaskScheduler;
 namespace taskgroup {
 class TaskGroupManager;
 }
+namespace stream_load {
+class LoadStreamStubPool;
+}
 class BfdParser;
 class BrokerMgr;
 template <class T>
@@ -189,6 +192,7 @@ public:
         _memtable_memory_limiter.reset(limiter);
     }
 #endif
+    stream_load::LoadStreamStubPool* load_stream_stub_pool() { return _load_stream_stub_pool.get(); }
     vectorized::ZoneList& global_zone_cache() { return *_global_zone_cache; }
     std::shared_mutex& zone_cache_rw_lock() { return _zone_cache_rw_lock; }
 
@@ -282,6 +286,7 @@ private:
     // To save meta info of external file, such as parquet footer.
     FileMetaCache* _file_meta_cache = nullptr;
     std::unique_ptr<MemTableMemoryLimiter> _memtable_memory_limiter;
+    std::unique_ptr<stream_load::LoadStreamStubPool> _load_stream_stub_pool;
 
     std::unique_ptr<vectorized::ZoneList> _global_zone_cache;
     std::shared_mutex _zone_cache_rw_lock;

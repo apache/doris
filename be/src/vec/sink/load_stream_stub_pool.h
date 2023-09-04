@@ -74,14 +74,13 @@ using Streams = std::vector<std::shared_ptr<LoadStreamStub>>;
 
 class LoadStreamStubPool {
 public:
-    LoadStreamStubPool(int64_t src_id);
+    LoadStreamStubPool();
 
     ~LoadStreamStubPool();
 
-    std::shared_ptr<Streams> get_or_create(PUniqueId load_id, int64_t dst_id);
+    std::shared_ptr<Streams> get_or_create(PUniqueId load_id, int64_t src_id, int64_t dst_id);
 
 private:
-    int64_t _src_id;
     std::mutex _mutex;
     std::unordered_map<UniqueId, std::unique_ptr<LoadStreamStub>> _template_stub;
     std::unordered_map<std::pair<UniqueId, int64_t>, std::weak_ptr<Streams>> _pool;

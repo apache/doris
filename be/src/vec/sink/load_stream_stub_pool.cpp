@@ -17,10 +17,6 @@
 
 #include "vec/sink/load_stream_stub_pool.h"
 
-#include <mutex>
-#include <string>
-#include <unordered_map>
-
 #include "vec/sink/load_stream_stub.h"
 
 namespace doris {
@@ -28,11 +24,11 @@ class TExpr;
 
 namespace stream_load {
 
-LoadStreamStubPool::LoadStreamStubPool(int64_t src_id) : _src_id(src_id) {}
+LoadStreamStubPool::LoadStreamStubPool() = default;
 
 LoadStreamStubPool::~LoadStreamStubPool() = default;
-
-std::shared_ptr<Streams> LoadStreamStubPool::get_or_create(PUniqueId load_id, int64_t dst_id) {
+std::shared_ptr<Streams> LoadStreamStubPool::get_or_create(PUniqueId load_id, int64_t src_id,
+                                                           int64_t dst_id) {
     auto key = std::make_pair(UniqueId(load_id), dst_id);
     std::lock_guard<std::mutex> lock(_mutex);
     std::shared_ptr<Streams> streams = _pool[key].lock();
@@ -41,7 +37,7 @@ std::shared_ptr<Streams> LoadStreamStubPool::get_or_create(PUniqueId load_id, in
     }
     int32_t num_streams = std::max(1, config::num_streams_per_sink);
     streams = std::make_shared<Streams>();
-    auto [it, _] = _template_stub.emplace(load_id, new LoadStreamStub {load_id, _src_id});
+    auto [it, _] = _template_stub.emplace(load_id, new LoadStreamStub {load_id, src_id});
     for (int32_t i = 0; i < num_streams; i++) {
         // copy construct, internal tablet schema map will be shared among all stubs
         streams->emplace_back(new LoadStreamStub {*it->second});

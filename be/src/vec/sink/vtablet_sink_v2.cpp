@@ -156,19 +156,19 @@ Status VOlapTableSinkV2::open(RuntimeState* state) {
 
     _delta_writer_for_tablet = std::make_shared<DeltaWriterForTablet>();
     _build_tablet_node_mapping();
-    LoadStreamStubPool pool {state->backend_id()};
-    RETURN_IF_ERROR(_open_streams(&pool, state));
+    RETURN_IF_ERROR(_open_streams(state->backend_id()));
 
     return Status::OK();
 }
 
-Status VOlapTableSinkV2::_open_streams(LoadStreamStubPool* pool, RuntimeState* state) {
-    for (auto& [node_id, _] : _tablets_for_node) {
-        auto node_info = _nodes_info->find_node(node_id);
+Status VOlapTableSinkV2::_open_streams(int64_t src_id) {
+    for (auto& [dst_id, _] : _tablets_for_node) {
+        auto node_info = _nodes_info->find_node(dst_id);
         if (node_info == nullptr) {
-            return Status::InternalError("Unknown node {} in tablet location", node_id);
+            return Status::InternalError("Unknown node {} in tablet location", dst_id);
         }
-        auto streams = pool->get_or_create(_load_id, node_id);
+        auto streams = ExecEnv::GetInstance()->load_stream_stub_pool()->get_or_create(
+                _load_id, src_id, dst_id);
         // get tablet schema from each backend only in the 1st stream
         for (auto& stream : *streams | std::ranges::views::take(1)) {
             const std::vector<PTabletID>& tablets_for_schema = _indexes_from_node[node_info->id];
@@ -182,7 +182,7 @@ Status VOlapTableSinkV2::_open_streams(LoadStreamStubPool* pool, RuntimeState* s
                                          *node_info, _txn_id, *_schema, {},
                                          _state->enable_profile()));
         }
-        _streams_for_node[node_id] = streams;
+        _streams_for_node[dst_id] = streams;
     }
     return Status::OK();
 }
