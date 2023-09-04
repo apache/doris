@@ -123,6 +123,16 @@ public:
         return data_types;
     }
 
+    static std::vector<std::string> get_column_names(const RowDescriptor& row_desc) {
+        std::vector<std::string> column_names;
+        for (const auto& tuple_desc : row_desc.tuple_descriptors()) {
+            for (const auto& slot_desc : tuple_desc->slots()) {
+                column_names.push_back(slot_desc->col_name());
+            }
+        }
+        return column_names;
+    }
+
     static bool all_arguments_are_constant(const Block& block, const ColumnNumbers& args) {
         for (const auto& arg : args) {
             if (!is_column_const(*block.get_by_position(arg).column)) {
