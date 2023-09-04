@@ -27,6 +27,7 @@ import org.apache.doris.nereids.properties.DistributionSpecReplicated;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.IsNull;
 import org.apache.doris.nereids.trees.expressions.Not;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.BitmapContains;
@@ -41,6 +42,7 @@ import org.apache.doris.qe.ConnectContext;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 
+import java.util.Collection;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
@@ -60,18 +62,32 @@ public class JoinUtils {
         return !(join.getJoinType().isRightJoin() || join.getJoinType().isFullOuterJoin());
     }
 
-    private static final class JoinSlotCoverageChecker {
+    /**
+     * for a given expr, if expr is nullable, add 'expr is not null' in to container.
+     * this is used to eliminate outer join.
+     * for example: (A left join B on A.a=B.b) join C on B.x=C.x
+     * inner join condition B.x=C.x implies that 'B.x is not null' can be used to filter B,
+     * with 'B.x is not null' predicate, we could eliminate outer join, and the join transformed to
+     * (A join B on A.a=B.b) join C on B.x=C.x
+     */
+    public static void addIsNotNullIfNullableToCollection(Expression expr, Collection<Expression> container) {
+        if (expr.nullable()) {
+            Not not = new Not(new IsNull(expr));
+            not.isGeneratedIsNotNull = true;
+            container.add(not);
+        }
+    }
+
+    /**
+     * util class
+     */
+    public static final class JoinSlotCoverageChecker {
         Set<ExprId> leftExprIds;
         Set<ExprId> rightExprIds;
 
-        JoinSlotCoverageChecker(List<Slot> left, List<Slot> right) {
+        public JoinSlotCoverageChecker(List<Slot> left, List<Slot> right) {
             leftExprIds = left.stream().map(Slot::getExprId).collect(Collectors.toSet());
             rightExprIds = right.stream().map(Slot::getExprId).collect(Collectors.toSet());
-        }
-
-        JoinSlotCoverageChecker(Set<ExprId> left, Set<ExprId> right) {
-            leftExprIds = left;
-            rightExprIds = right;
         }
 
         /**
@@ -96,7 +112,7 @@ public class JoinUtils {
          * @param equalTo a conjunct in on clause condition
          * @return true if the equal can be used as hash join condition
          */
-        boolean isHashJoinCondition(EqualTo equalTo) {
+        public boolean isHashJoinCondition(EqualTo equalTo) {
             Set<Slot> equalLeft = equalTo.left().collect(Slot.class::isInstance);
             if (equalLeft.isEmpty()) {
                 return false;
