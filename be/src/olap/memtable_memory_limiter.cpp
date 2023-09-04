@@ -131,7 +131,7 @@ void MemTableMemoryLimiter::handle_memtable_flush() {
                         "tablet_id={}, err={}",
                         writer->tablet_id(), st.to_string());
                 LOG(WARNING) << err_msg;
-                writer->cancel_with_status(st);
+                static_cast<void>(writer->cancel_with_status(st));
             }
             mem_consumption_in_picked_writer += mem_size;
             if (mem_consumption_in_picked_writer > mem_to_flushed) {
@@ -192,7 +192,7 @@ void MemTableMemoryLimiter::handle_memtable_flush() {
                     "tablet_id={}, err={}",
                     writer->tablet_id(), st.to_string());
             LOG(WARNING) << err_msg;
-            writer->cancel_with_status(st);
+            static_cast<void>(writer->cancel_with_status(st));
         }
     }
 

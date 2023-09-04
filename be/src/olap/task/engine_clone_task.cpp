@@ -151,7 +151,7 @@ Status EngineCloneTask::_do_clone() {
         if (missed_versions.empty()) {
             LOG(INFO) << "missed version size = 0, skip clone and return success. tablet_id="
                       << _clone_req.tablet_id << " replica_id=" << _clone_req.replica_id;
-            _set_tablet_info(is_new_tablet);
+            RETURN_IF_ERROR(_set_tablet_info(is_new_tablet));
             return Status::OK();
         }
 
@@ -215,7 +215,7 @@ Status EngineCloneTask::_do_clone() {
         // clone success, delete .hdr file because tablet meta is stored in rocksdb
         string header_path =
                 TabletMeta::construct_header_file_path(tablet_dir, _clone_req.tablet_id);
-        io::global_local_filesystem()->delete_file(header_path);
+        RETURN_IF_ERROR(io::global_local_filesystem()->delete_file(header_path));
     }
     return _set_tablet_info(is_new_tablet);
 }
@@ -587,7 +587,7 @@ Status EngineCloneTask::_finish_clone(Tablet* tablet, const std::string& clone_d
             for (auto& file : linked_success_files) {
                 paths.emplace_back(file);
             }
-            io::global_local_filesystem()->batch_delete(paths);
+            static_cast<void>(io::global_local_filesystem()->batch_delete(paths));
         }
     }};
     /// Traverse all downloaded clone files in CLONE dir.

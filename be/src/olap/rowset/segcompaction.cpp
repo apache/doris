@@ -143,7 +143,7 @@ Status SegcompactionWorker::_delete_original_segments(uint32_t begin, uint32_t e
                         fs->delete_file(idx_path),
                         strings::Substitute("Failed to delete file=$0", idx_path));
                 // Erase the origin index file cache
-                InvertedIndexSearcherCache::instance()->erase(idx_path);
+                static_cast<void>(InvertedIndexSearcherCache::instance()->erase(idx_path));
             }
         }
     }
@@ -229,7 +229,7 @@ Status SegcompactionWorker::_do_compact_segments(SegCompactionCandidatesSharedPt
         std::vector<uint32_t> column_ids = column_groups[i];
 
         writer->clear();
-        writer->init(column_ids, is_key);
+        RETURN_IF_ERROR(writer->init(column_ids, is_key));
         auto schema = std::make_shared<Schema>(ctx.tablet_schema->columns(), column_ids);
         OlapReaderStatistics reader_stats;
         std::unique_ptr<vectorized::VerticalBlockReader> reader;
@@ -246,11 +246,11 @@ Status SegcompactionWorker::_do_compact_segments(SegCompactionCandidatesSharedPt
                 key_bounds));
         total_index_size += index_size;
         if (is_key) {
-            row_sources_buf.flush();
+            RETURN_IF_ERROR(row_sources_buf.flush());
             key_merger_stats = merger_stats;
             key_reader_stats = reader_stats;
         }
-        row_sources_buf.seek_to_begin();
+        RETURN_IF_ERROR(row_sources_buf.seek_to_begin());
     }
 
     /* check row num after merge/aggregation */
@@ -265,7 +265,7 @@ Status SegcompactionWorker::_do_compact_segments(SegCompactionCandidatesSharedPt
             _writer->flush_segment_writer_for_segcompaction(&writer, total_index_size, key_bounds));
 
     if (_file_writer != nullptr) {
-        _file_writer->close();
+        RETURN_IF_ERROR(_file_writer->close());
     }
 
     RETURN_IF_ERROR(_delete_original_segments(begin, end));

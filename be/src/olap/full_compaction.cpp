@@ -156,8 +156,8 @@ Status FullCompaction::_full_compaction_update_delete_bitmap(const RowsetSharedP
     int64_t max_version = _tablet->max_version().second;
     DCHECK(max_version >= rowset->version().second);
     if (max_version > rowset->version().second) {
-        _tablet->capture_consistent_rowsets({rowset->version().second + 1, max_version},
-                                            &tmp_rowsets);
+        RETURN_IF_ERROR(_tablet->capture_consistent_rowsets(
+                {rowset->version().second + 1, max_version}, &tmp_rowsets));
     }
 
     for (const auto& it : tmp_rowsets) {

@@ -83,7 +83,7 @@ DeltaWriter::~DeltaWriter() {
     }
 
     // cancel and wait all memtables in flush queue to be finished
-    _memtable_writer->cancel();
+    static_cast<void>(_memtable_writer->cancel());
 
     if (_rowset_builder.tablet() != nullptr) {
         const FlushStatistic& stat = _memtable_writer->get_flush_token_stats();

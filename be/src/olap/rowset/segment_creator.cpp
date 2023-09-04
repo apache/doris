@@ -179,7 +179,7 @@ int64_t SegmentFlusher::Writer::max_row_to_add(size_t row_avg_size_in_bytes) {
 }
 
 Status SegmentCreator::init(const RowsetWriterContext& rowset_writer_context) {
-    _segment_flusher.init(rowset_writer_context);
+    static_cast<void>(_segment_flusher.init(rowset_writer_context));
     return Status::OK();
 }
 

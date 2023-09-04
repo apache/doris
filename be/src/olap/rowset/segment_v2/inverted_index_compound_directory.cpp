@@ -551,7 +551,7 @@ bool DorisCompoundDirectory::fileExists(const char* name) const {
     char fl[CL_MAX_DIR];
     priv_getFN(fl, name);
     bool exists = false;
-    fs->exists(fl, &exists);
+    static_cast<void>(fs->exists(fl, &exists));
     return exists;
 }
 
@@ -586,9 +586,9 @@ DorisCompoundDirectory* DorisCompoundDirectory::getDirectory(
     const char* file = _file;
 
     bool exists = false;
-    _fs->exists(file, &exists);
+    static_cast<void>(_fs->exists(file, &exists));
     if (!exists) {
-        _fs->create_directory(file);
+        static_cast<void>(_fs->create_directory(file));
     }
 
     dir = _CLNEW DorisCompoundDirectory();
@@ -680,7 +680,7 @@ void DorisCompoundDirectory::renameFile(const char* from, const char* to) {
     priv_getFN(nu, to);
 
     bool exists = false;
-    fs->exists(nu, &exists);
+    static_cast<void>(fs->exists(nu, &exists));
     if (exists) {
         if (!fs->delete_directory(nu).ok()) {
             char* err = _CL_NEWARRAY(char, 16 + strlen(to) + 1); //16: len of "couldn't delete "
@@ -716,7 +716,7 @@ lucene::store::IndexOutput* DorisCompoundDirectory::createOutput(const char* nam
             strcat(tmp, name);
             _CLTHROWA(CL_ERR_IO, tmp);
         }
-        fs->exists(fl, &exists);
+        static_cast<void>(fs->exists(fl, &exists));
         assert(!exists);
     }
     auto ret = _CLNEW FSIndexOutput();

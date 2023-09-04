@@ -137,8 +137,8 @@ Status RowsetBuilder::init() {
         _tablet->exceed_version_limit(config::max_tablet_version_num - 100) &&
         !MemInfo::is_exceed_soft_mem_limit(GB_EXCHANGE_BYTE)) {
         //trigger compaction
-        StorageEngine::instance()->submit_compaction_task(
-                _tablet, CompactionType::CUMULATIVE_COMPACTION, true);
+        static_cast<void>(StorageEngine::instance()->submit_compaction_task(
+                _tablet, CompactionType::CUMULATIVE_COMPACTION, true));
         if (_tablet->version_count() > config::max_tablet_version_num) {
             return Status::Error<TOO_MANY_VERSION>(
                     "failed to init rowset builder. version count: {}, exceed limit: {}, tablet: "
