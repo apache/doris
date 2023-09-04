@@ -731,6 +731,8 @@ public class ColocateTableCheckerAndBalancer extends MasterDaemon {
 
         boolean isChanged = false;
         int times = 0;
+        List<RootPathLoadStatistic> resultPaths = Lists.newArrayList();
+
         OUT:
         while (true) {
             // update backends and hosts at each round
@@ -840,6 +842,12 @@ public class ColocateTableCheckerAndBalancer extends MasterDaemon {
                     continue;
                 }
 
+                BackendLoadStatistic beStat = statistic.getBackendLoadStatistic(destBeId);
+                if (beStat == null) {
+                    LOG.warn("not found backend {} statistic", destBeId);
+                    continue;
+                }
+
                 int targetSeqIndex = -1;
                 long minDataSizeDiff = Long.MAX_VALUE;
                 for (int seqIndex : seqIndexes) {
@@ -856,6 +864,15 @@ public class ColocateTableCheckerAndBalancer extends MasterDaemon {
                     Preconditions.checkState(backendsSet.contains(srcBeId), srcBeId);
                     long bucketDataSize =
                             globalColocateStatistic.getBucketTotalReplicaDataSize(groupId, bucketIndex);
+
+                    resultPaths.clear();
+                    BalanceStatus st = beStat.isFit(bucketDataSize, null, resultPaths, true);
+                    if (!st.ok()) {
+                        LOG.debug("backend {} is unable to fit in group {}, tablet order idx {}, data size {}",
+                                destBeId, groupId, bucketIndex, bucketDataSize);
+                        continue;
+                    }
+
                     long newSrcBeTotalReplicaDataSize = globalColocateStatistic.getBackendTotalReplicaDataSize(srcBeId)
                             - bucketDataSize;
                     long newDestBeTotalReplicaDataSize =
