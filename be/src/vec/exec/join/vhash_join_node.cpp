@@ -566,7 +566,6 @@ Status HashJoinNode::pull(doris::RuntimeState* state, vectorized::Block* output_
         *eos = true;
         return Status::OK();
     }
-
     //TODO: this short circuit maybe could refactor, no need to check at here.
     if (_short_circuit_for_probe_and_additional_data) {
         // when build table rows is 0 and not have other_join_conjunct and join type is one of LEFT_OUTER_JOIN/FULL_OUTER_JOIN/LEFT_ANTI_JOIN
