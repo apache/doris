@@ -15,6 +15,11 @@
 // specific language governing permissions and limitations
 // under the License.
 
+#include <arrow/flight/client.h>
+#include <arrow/flight/sql/client.h>
+#include <arrow/scalar.h>
+#include <arrow/status.h>
+#include <arrow/table.h>
 #include <butil/macros.h>
 // IWYU pragma: no_include <bthread/errno.h>
 #include <errno.h> // IWYU pragma: keep
@@ -60,6 +65,7 @@
 #include "olap/storage_engine.h"
 #include "runtime/exec_env.h"
 #include "runtime/user_function_cache.h"
+#include "service/arrow_flight/flight_sql_service.h"
 #include "service/backend_options.h"
 #include "service/backend_service.h"
 #include "service/brpc_service.h"
@@ -581,6 +587,17 @@ int main(int argc, char** argv) {
     status = heartbeat_thrift_server->start();
     if (!status.ok()) {
         LOG(ERROR) << "Doris BE HeartBeat Service did not start correctly, exiting: " << status;
+        doris::shutdown_logging();
+        exit(1);
+    }
+
+    // 5. arrow flight service
+    std::shared_ptr<doris::flight::FlightSqlServer> flight_server =
+            std::move(doris::flight::FlightSqlServer::create()).ValueOrDie();
+    status = flight_server->init(doris::config::arrow_flight_port);
+    if (!status.ok()) {
+        LOG(ERROR) << "Arrow Flight Service did not start correctly, exiting, "
+                   << status.to_string();
         doris::shutdown_logging();
         exit(1);
     }
