@@ -1170,6 +1170,9 @@ DECLARE_mInt32(tablet_schema_cache_recycle_interval);
 // Use `LOG(FATAL)` to replace `throw` when true
 DECLARE_mBool(exit_on_exception);
 
+// cgroup
+DECLARE_String(doris_cgroup_cpu_path);
+
 #ifdef BE_TEST
 // test s3
 DECLARE_String(test_s3_resource);

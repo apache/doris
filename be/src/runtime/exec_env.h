@@ -266,6 +266,8 @@ public:
         return _inverted_index_query_cache;
     }
 
+    CgroupCpuCtl* get_cgroup_cpu_ctl() { return _cgroup_cpu_ctl.get(); }
+
 private:
     ExecEnv();
 
@@ -369,6 +371,8 @@ private:
     CacheManager* _cache_manager = nullptr;
     segment_v2::InvertedIndexSearcherCache* _inverted_index_searcher_cache = nullptr;
     segment_v2::InvertedIndexQueryCache* _inverted_index_query_cache = nullptr;
+
+    std::unique_ptr<CgroupCpuCtl> _cgroup_cpu_ctl = nullptr;
 };
 
 template <>
