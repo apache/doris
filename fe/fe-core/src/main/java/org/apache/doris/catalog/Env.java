@@ -1771,7 +1771,7 @@ public class Env {
                     + ", which is higher than FE current version " + FeMetaVersion.VERSION_CURRENT
                     + ". Please upgrade your cluster to the latest version first.");
         }
-        
+
         long newChecksum = checksum ^ journalVersion;
         MetaContext.get().setMetaVersion(journalVersion);
 
