@@ -255,7 +255,6 @@ private:
     }
 
     Status _write_data_page(Page* page);
-    PageHead get_data_pages() { return _pages; }
 
 private:
     io::FileWriter* _file_writer = nullptr;
@@ -278,18 +277,24 @@ private:
     FlushPageCallback* _new_page_callback = nullptr;
 };
 
-class OffsetColumnWriter final : public ScalarColumnWriter {
+// offsetColumnWriter is used column which has offset column, like array, map.
+//  column type is only uint64 and should response for whole column value [start, end], end will set
+//  in footer.next_array_item_ordinal which in finish_cur_page() callback put_extra_info_in_page()
+class OffsetColumnWriter final : public ScalarColumnWriter, FlushPageCallback {
 public:
     OffsetColumnWriter(const ColumnWriterOptions& opts, std::unique_ptr<Field> field,
                        io::FileWriter* file_writer);
 
     ~OffsetColumnWriter() override;
 
-    // this method is used for pass next data when current page is full and next data need in extra
-    // info
-    Status finish_current_page_with_next_data(const uint8_t* next_data_ptr);
+    Status init() override;
 
     Status append_data(const uint8_t** ptr, size_t num_rows) override;
+
+private:
+    Status put_extra_info_in_page(DataPageFooterPB* footer) override;
+
+    uint64_t _next_offset;
 };
 
 class StructColumnWriter final : public ColumnWriter {
@@ -344,7 +349,7 @@ private:
     ColumnWriterOptions _opts;
 };
 
-class ArrayColumnWriter final : public ColumnWriter, public FlushPageCallback {
+class ArrayColumnWriter final : public ColumnWriter {
 public:
     explicit ArrayColumnWriter(const ColumnWriterOptions& opts, std::unique_ptr<Field> field,
                                OffsetColumnWriter* offset_writer, ScalarColumnWriter* null_writer,
@@ -389,8 +394,6 @@ public:
     ordinal_t get_next_rowid() const override { return _offset_writer->get_next_rowid(); }
 
 private:
-    Status put_extra_info_in_page(DataPageFooterPB* header) override;
-
     Status write_null_column(size_t num_rows, bool is_null); // 写入num_rows个null标记
     bool has_empty_items() const { return _item_writer->get_next_rowid() == 0; }
 
@@ -402,7 +405,7 @@ private:
     ColumnWriterOptions _opts;
 };
 
-class MapColumnWriter final : public ColumnWriter, public FlushPageCallback {
+class MapColumnWriter final : public ColumnWriter {
 public:
     explicit MapColumnWriter(const ColumnWriterOptions& opts, std::unique_ptr<Field> field,
                              ScalarColumnWriter* null_writer, OffsetColumnWriter* offsets_writer,
@@ -449,7 +452,6 @@ public:
     ordinal_t get_next_rowid() const override { return _offsets_writer->get_next_rowid(); }
 
 private:
-    Status put_extra_info_in_page(DataPageFooterPB* header) override;
     std::vector<std::unique_ptr<ColumnWriter>> _kv_writers;
     // we need null writer to make sure a row is null or not
     std::unique_ptr<ScalarColumnWriter> _null_writer;
