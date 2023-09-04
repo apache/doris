@@ -41,6 +41,8 @@ public:
     RepeatOperator(OperatorBuilderBase* operator_builder, ExecNode* repeat_node);
 
     Status prepare(RuntimeState* state) override;
+
+    Status close(RuntimeState* state) override;
 };
 class RepeatOperatorX;
 

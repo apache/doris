@@ -38,6 +38,11 @@ Status RepeatOperator::prepare(doris::RuntimeState* state) {
     return StatefulOperator::prepare(state);
 }
 
+Status RepeatOperator::close(doris::RuntimeState* state) {
+    _child_block.release();
+    return StatefulOperator::close(state);
+}
+
 RepeatLocalState::RepeatLocalState(RuntimeState* state, OperatorXBase* parent)
         : Base(state, parent),
           _child_block(vectorized::Block::create_unique()),
@@ -90,6 +95,7 @@ Status RepeatOperatorX::open(RuntimeState* state) {
     SCOPED_TIMER(_runtime_profile->total_time_counter());
     RETURN_IF_ERROR(OperatorXBase::open(state));
     RETURN_IF_ERROR(vectorized::VExpr::open(_expr_ctxs, state));
+    RETURN_IF_ERROR(_child_x->open(state));
     return Status::OK();
 }
 
