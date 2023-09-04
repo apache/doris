@@ -813,6 +813,7 @@ nonterminal ArrayList<String> opt_common_hints;
 nonterminal String optional_on_ident;
 nonterminal String opt_job_starts;
 nonterminal String opt_job_ends;
+nonterminal ColocateGroupName colocate_group_name;
 
 nonterminal LoadTask.MergeType opt_merge_type, opt_with_merge_type;
 
@@ -1348,7 +1349,7 @@ alter_stmt ::=
     {:
         RESULT = new AlterResourceStmt(resourceName, properties);
     :}
-    | KW_ALTER KW_COLOCATE KW_GROUP ident_or_text:colocateGroupName KW_SET LPAREN key_value_map:properties RPAREN
+    | KW_ALTER KW_COLOCATE KW_GROUP colocate_group_name:colocateGroupName KW_SET LPAREN key_value_map:properties RPAREN
     {:
         RESULT = new AlterColocateGroupStmt(colocateGroupName, properties);
     :}
@@ -5645,6 +5646,17 @@ table_name ::=
     {: RESULT = new TableName(null, db, tbl); :}
     | ident:ctl DOT ident:db DOT ident:tbl
     {: RESULT = new TableName(ctl, db, tbl); :}
+    ;
+
+colocate_group_name ::=
+    ident:group
+    {:
+        RESULT = new ColocateGroupName(null, group);
+    :}
+    | ident:db DOT ident:group
+    {:
+        RESULT = new ColocateGroupName(db, group);
+    :}
     ;
 
 encryptkey_name ::=

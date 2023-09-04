@@ -689,7 +689,11 @@ public class ColocateTableIndex implements Writable {
                     }
                 }
                 info.add(dbName);
-                info.add(entry.getKey());
+                String groupName = entry.getKey();
+                if (!GroupId.isGlobalGroupName(groupName)) {
+                    groupName = groupName.substring(groupName.indexOf(".") + 1);
+                }
+                info.add(groupName);
                 info.add(Joiner.on(", ").join(group2Tables.get(groupId)));
                 ColocateGroupSchema groupSchema = group2Schema.get(groupId);
                 info.add(String.valueOf(groupSchema.getBucketsNum()));
@@ -817,10 +821,17 @@ public class ColocateTableIndex implements Writable {
         writeLock();
         try {
             Map<String, String> properties = stmt.getProperties();
-            String fullGroupName = stmt.getColocateGroupName();
+            String dbName = stmt.getColocateGroupName().getDb();
+            String groupName = stmt.getColocateGroupName().getGroup();
+            long dbId = 0;
+            if (!GroupId.isGlobalGroupName(groupName)) {
+                Database db = (Database) Env.getCurrentInternalCatalog().getDbOrMetaException(dbName);
+                dbId = db.getId();
+            }
+            String fullGroupName = GroupId.getFullGroupName(dbId, groupName);
             ColocateGroupSchema groupSchema = getGroupSchema(fullGroupName);
             if (groupSchema == null) {
-                throw new DdlException("Not found colocate group [" + fullGroupName + "]");
+                throw new DdlException("Not found colocate group " + stmt.getColocateGroupName().toSql());
             }
 
             GroupId groupId = groupSchema.getGroupId();

@@ -33,7 +33,7 @@ import java.util.Map;
  */
 public class ColocationGroupProcDir implements ProcDirInterface {
     public static final ImmutableList<String> TITLE_NAMES = new ImmutableList.Builder<String>()
-            .add("GroupId").add("Database").add("FullGroupName").add("TableIds")
+            .add("GroupId").add("Database").add("GroupName").add("TableIds")
             .add("BucketsNum").add("ReplicaAllocation").add("DistCols").add("IsStable")
             .add("ErrorMsg").build();
 

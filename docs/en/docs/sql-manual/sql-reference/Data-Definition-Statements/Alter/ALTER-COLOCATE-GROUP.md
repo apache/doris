@@ -39,7 +39,7 @@ This statement is used to modify the colocation group.
 Syntax:
 
 ```sql
-ALTER COLOCATE GROUP "full_group_name"
+ALTER COLOCATE GROUP [database.]group
 SET (
     property_list
 );
@@ -47,14 +47,9 @@ SET (
 
 NOTE:
 
-1. `full_group_name` is the full name of the colocation group, which can be divided into two cases:
- - If the group is global, that is, its name starts with `__global__`, then `full_group_name` is equal to `group_name`;
- - If the group is not global, that is, its name does not start with `__global__`, then it belongs to a certain Database, `full_group_name` is equal to `dbId` + `_` + `group_name`
- 
-2. `full_group_name` can also be viewed through the command `show proc '/proc/colocation_group'`;
-	
+1. If the colocate group is global, that is, its name starts with `__global__`, then it does not belong to any database;	
 
-3. property_list is a colocation group attribute, currently only supports modifying `replication_num` and `replication_allocation`. After modifying these two attributes of the colocation group, at the same time, change the attribute `default.replication_allocation`, the attribute `dynamic.replication_allocation` of the table of the group, and the `replication_allocation` of the existing partition to be the same as it.
+2. property_list is a colocation group attribute, currently only supports modifying `replication_num` and `replication_allocation`. After modifying these two attributes of the colocation group, at the same time, change the attribute `default.replication_allocation`, the attribute `dynamic.replication_allocation` of the table of the group, and the `replication_allocation` of the existing partition to be the same as it.
 
 ### Example
 
@@ -72,9 +67,9 @@ NOTE:
 2. Modify the number of copies of a non-global group
 
   ```sql
-     # Set "colocate_with" = "bar" when creating the table, and the dbId of the Database where the table is located is 10231
+     # Set "colocate_with" = "bar" when creating the table, and the Database is "example_db"
      
-     ALTER COLOCATE GROUP 10231_bar
+     ALTER COLOCATE GROUP example_db.bar
      SET (
          "replication_num"="1"
      );

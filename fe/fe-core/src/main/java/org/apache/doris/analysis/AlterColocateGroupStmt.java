@@ -26,18 +26,20 @@ import org.apache.doris.common.util.PrintableMap;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 
+import com.google.common.base.Strings;
+
 import java.util.Map;
 
 public class AlterColocateGroupStmt extends DdlStmt {
-    private final String colocateGroupName;
+    private final ColocateGroupName colocateGroupName;
     private final Map<String, String> properties;
 
-    public AlterColocateGroupStmt(String colocateGroupName, Map<String, String> properties) {
+    public AlterColocateGroupStmt(ColocateGroupName colocateGroupName, Map<String, String> properties) {
         this.colocateGroupName = colocateGroupName;
         this.properties = properties;
     }
 
-    public String getColocateGroupName() {
+    public ColocateGroupName getColocateGroupName() {
         return colocateGroupName;
     }
 
@@ -48,10 +50,20 @@ public class AlterColocateGroupStmt extends DdlStmt {
     @Override
     public void analyze(Analyzer analyzer) throws UserException {
         super.analyze(analyzer);
+        colocateGroupName.analyze(analyzer);
 
-        if (!Env.getCurrentEnv().getAccessManager().checkGlobalPriv(
-                    ConnectContext.get(), PrivPredicate.ADMIN)) {
-            ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "ADMIN");
+        String dbName = colocateGroupName.getDb();
+        if (Strings.isNullOrEmpty(dbName)) {
+            if (!Env.getCurrentEnv().getAccessManager().checkGlobalPriv(
+                        ConnectContext.get(), PrivPredicate.ADMIN)) {
+                ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "ADMIN");
+            }
+        } else {
+            if (!Env.getCurrentEnv().getAccessManager().checkDbPriv(
+                        ConnectContext.get(), dbName, PrivPredicate.ADMIN)) {
+                ErrorReport.reportAnalysisException(ErrorCode.ERR_DBACCESS_DENIED_ERROR,
+                        ConnectContext.get().getQualifiedUser(), dbName);
+            }
         }
 
         if (properties == null || properties.isEmpty()) {
@@ -62,7 +74,7 @@ public class AlterColocateGroupStmt extends DdlStmt {
     @Override
     public String toSql() {
         StringBuilder sb = new StringBuilder();
-        sb.append("ALTER COLOCATE GROUP '").append(colocateGroupName).append("' ");
+        sb.append("ALTER COLOCATE GROUP ").append(colocateGroupName.toSql()).append(" ");
         sb.append("PROPERTIES(").append(new PrintableMap<>(properties, " = ", true, false)).append(")");
         return sb.toString();
     }

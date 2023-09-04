@@ -1277,13 +1277,14 @@ public class AlterTest {
         newReplicaAlloc.put(Tag.create(Tag.TYPE_LOCATION, "group_b"), (short) 1);
 
         for (int i = 0; i < 3; i++) {
-            String groupName = GroupId.getFullGroupName(db.getId(), "mod_group_" + i);
-            String sql = "alter colocate group " + groupName
+            String groupName = "mod_group_" + i;
+            String sql = "alter colocate group test." + groupName
                     + " set ( 'replication_allocation' = '" + newReplicaAlloc.toCreateStmt() + "')";
+            String fullGroupName = GroupId.getFullGroupName(db.getId(), groupName);
             AlterColocateGroupStmt stmt = (AlterColocateGroupStmt) UtFrameUtils.parseAndAnalyzeStmt(sql, connectContext);
             DdlExecutor.execute(env, stmt);
 
-            ColocateGroupSchema groupSchema = env.getColocateTableIndex().getGroupSchema(groupName);
+            ColocateGroupSchema groupSchema = env.getColocateTableIndex().getGroupSchema(fullGroupName);
             Assert.assertNotNull(groupSchema);
             Assert.assertEquals(newReplicaAlloc, groupSchema.getReplicaAlloc());
 
@@ -1310,14 +1311,14 @@ public class AlterTest {
             Thread.sleep(1000); // sleep to wait dynamic partition scheduler run
             boolean allStable = true;
             for (int i = 0; i < 3; i++) {
-                String groupName = GroupId.getFullGroupName(db.getId(), "mod_group_" + i);
-                ColocateGroupSchema groupSchema = env.getColocateTableIndex().getGroupSchema(groupName);
+                String fullGroupName = GroupId.getFullGroupName(db.getId(), "mod_group_" + i);
+                ColocateGroupSchema groupSchema = env.getColocateTableIndex().getGroupSchema(fullGroupName);
                 Assert.assertNotNull(groupSchema);
 
                 if (env.getColocateTableIndex().isGroupUnstable(groupSchema.getGroupId())) {
                     allStable = false;
                     if (k >= 120) {
-                        Assert.assertTrue(groupName + " is unstable" , false);
+                        Assert.assertTrue(fullGroupName + " is unstable" , false);
                     }
                     continue;
                 }

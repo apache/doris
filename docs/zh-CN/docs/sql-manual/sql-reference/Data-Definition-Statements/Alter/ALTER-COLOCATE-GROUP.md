@@ -39,7 +39,7 @@ ALTER COLOCATE GROUP
 语法：
 
 ```sql
-ALTER COLOCATE GROUP  "full_group_name"
+ALTER COLOCATE GROUP  [database.]group
 SET (
     property_list
 );
@@ -47,14 +47,11 @@ SET (
 
 注意：
 
-1. `full_group_name`是colocation group名称全称，其分为两种情况：
-	-  如果group是全局的，即它的名称是以`__global__` 开头的，那么`full_group_name`即等于`group_name`；
-	-  如果group不是全局的，即它的名称不是以`__global__ `开头的，那么它是属于某个Database的，`full_group_name ` 等于 `dbId` + `_` + `group_name`。
-	
-2. `full_group_name` 也可以通过命令 `show proc '/proc/colocation_group'` 来查看。
-	
+1. 如果colocate group是全局的，即它的名称是以 `__global__` 开头的，那它不属于任何一个Database；
 
-3. property_list 是colocation group属性，目前只支持修改`replication_num` 和 `replication_allocation`。修改colocation group的这两个属性修改之后，同时把该group的表的属性`default.replication_allocation` 、属性`dynamic.replication_allocation `、以及已有分区的`replication_allocation`改成跟它一样。
+2. property_list 是colocation group属性，目前只支持修改`replication_num` 和 `replication_allocation`。
+    修改colocation group的这两个属性修改之后，同时把该group的表的属性`default.replication_allocation` 、
+    属性`dynamic.replication_allocation `、以及已有分区的`replication_allocation`改成跟它一样。
 
 
 
@@ -74,9 +71,9 @@ SET (
 2. 修改一个非全局group的副本数
 
  ```sql
-    # 建表时设置 "colocate_with" = "bar"，且表所在Database的dbId为10231
+    # 建表时设置 "colocate_with" = "bar"，且表属于Database example_db
     
-    ALTER COLOCATE GROUP 10231_bar
+    ALTER COLOCATE GROUP example_db.bar
     SET (
         "replication_num"="1"
     );
