@@ -331,14 +331,9 @@ struct StackTraceRefTriple {
     size_t size;
 };
 
-struct StackTraceTriple {
-    StackTrace::FramePointers pointers;
-    size_t offset;
-    size_t size;
-};
-
 template <class T>
-concept MaybeRef = std::is_same_v<T, StackTraceTriple> || std::is_same_v<T, StackTraceRefTriple>;
+concept MaybeRef =
+        std::is_same_v<T, StackTrace::StackTraceTriple> || std::is_same_v<T, StackTraceRefTriple>;
 
 constexpr bool operator<(const MaybeRef auto& left, const MaybeRef auto& right) {
     return std::tuple {left.pointers, left.size, left.offset} <
@@ -429,13 +424,6 @@ void StackTrace::toStringEveryLine(std::function<void(std::string_view)> callbac
     toStringEveryLineImpl("FULL_WITH_INLINE", {frame_pointers, offset, size}, std::move(callback));
 }
 
-using StackTraceCache = std::map<StackTraceTriple, std::string, std::less<>>;
-
-static StackTraceCache& cacheInstance() {
-    static StackTraceCache cache;
-    return cache;
-}
-
 static std::mutex stacktrace_cache_mutex;
 
 std::string toStringCached(const StackTrace::FramePointers& pointers, size_t offset, size_t size) {
@@ -444,7 +432,7 @@ std::string toStringCached(const StackTrace::FramePointers& pointers, size_t off
     /// Note that this cache can grow unconditionally, but practically it should be small.
     std::lock_guard lock {stacktrace_cache_mutex};
 
-    StackTraceCache& cache = cacheInstance();
+    StackTrace::StackTraceCache& cache = StackTrace::cacheInstance();
     const StackTraceRefTriple key {pointers, offset, size};
 
     if (auto it = cache.find(key); it != cache.end()) {
@@ -454,7 +442,8 @@ std::string toStringCached(const StackTrace::FramePointers& pointers, size_t off
         toStringEveryLineImpl(doris::config::dwarf_location_info_mode, key,
                               [&](std::string_view str) { out << str << '\n'; });
 
-        return cache.emplace(StackTraceTriple {pointers, offset, size}, out.str()).first->second;
+        return cache.emplace(StackTrace::StackTraceTriple {pointers, offset, size}, out.str())
+                .first->second;
     }
 }
 
@@ -476,5 +465,5 @@ std::string StackTrace::toString(void** frame_pointers_raw, size_t offset, size_
 
 void StackTrace::dropCache() {
     std::lock_guard lock {stacktrace_cache_mutex};
-    cacheInstance().clear();
+    StackTrace::cacheInstance().clear();
 }

@@ -34,6 +34,7 @@
 #include <tuple>
 #include <vector>
 
+#include "common/stack_trace.h"
 #include "olap/tablet_schema_cache.h"
 #include "olap/utils.h"
 #include "runtime/memory/mem_tracker_limiter.h"
@@ -301,6 +302,7 @@ struct Checker {
 int main(int argc, char** argv) {
     doris::signal::InstallFailureSignalHandler();
     doris::init_signals();
+    StackTrace::cacheInstance(); // At the beginning, other static destructors may use.
 
     // check if print version or help
     if (argc > 1) {
