@@ -248,7 +248,8 @@ public class MockedBackendFactory {
                     DiskInfo diskInfo = null;
                     for (DiskInfo tmpDiskInfo : backendInFe.getDisks().values()) {
                         diskInfo = tmpDiskInfo;
-                        if (diskInfo.getPathHash() == pathHash || pathHash <= 0) {
+                        if (diskInfo.getPathHash() == pathHash
+                                || pathHash == -1L || pathHash == 0) {
                             break;
                         }
                     }
