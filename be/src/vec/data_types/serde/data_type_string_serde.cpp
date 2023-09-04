@@ -67,6 +67,8 @@ Status DataTypeStringSerDe::deserialize_one_cell_from_text(IColumn& column, Slic
 Status DataTypeStringSerDe::write_column_to_pb(const IColumn& column, PValues& result, int start,
                                                int end) const {
     result.mutable_bytes_value()->Reserve(end - start);
+    auto ptype = result.mutable_type();
+    ptype->set_id(PGenericType::STRING);
     for (size_t row_num = start; row_num < end; ++row_num) {
         StringRef data = column.get_data_at(row_num);
         result.add_string_value(data.to_string());
