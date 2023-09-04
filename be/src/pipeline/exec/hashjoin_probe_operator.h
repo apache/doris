@@ -90,7 +90,8 @@ private:
     vectorized::ColumnUInt8::MutablePtr _null_map_column;
     // for cases when a probe row matches more than batch size build rows.
     bool _is_any_probe_match_row_output = false;
-    std::unique_ptr<vectorized::HashTableCtxVariants> _process_hashtable_ctx_variants = nullptr;
+    std::unique_ptr<vectorized::HashTableCtxVariants> _process_hashtable_ctx_variants =
+            std::make_unique<vectorized::HashTableCtxVariants>();
 
     RuntimeProfile::Counter* _probe_expr_call_timer;
     RuntimeProfile::Counter* _probe_next_timer;
