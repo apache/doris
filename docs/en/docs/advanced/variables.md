@@ -646,7 +646,7 @@ Translated with www.DeepL.com/Translator (free version)
 
     <version since="dev"></version>
 
-    If set to true, for query requests, the actual result set will no longer be returned, but only the number of rows. The default is false.
+    If set to true, for query requests, the actual result set will no longer be returned, but only the number of rows, while for load and insert, the data is discarded by sink node, no writing happens. The default is false.
 
     This parameter can be used to avoid the time-consuming result set transmission when testing a large number of data sets, and focus on the time-consuming underlying query execution.
 

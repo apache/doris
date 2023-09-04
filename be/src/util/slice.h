@@ -80,6 +80,31 @@ public:
               data(const_cast<char*>(s)),
               size(strlen(s)) {}
 
+    Slice(const Slice& src) : data(src.data), size(src.size) {}
+
+    Slice& operator=(const Slice& src) {
+        if (this != &src) {
+            data = src.data;
+            size = src.size;
+        }
+        return *this;
+    }
+
+    Slice(Slice&& src) : data(src.data), size(src.size) {
+        src.data = nullptr;
+        src.size = 0;
+    }
+
+    Slice& operator=(Slice&& src) {
+        if (this != &src) {
+            data = src.data;
+            size = src.size;
+            src.data = nullptr;
+            src.size = 0;
+        }
+        return *this;
+    }
+
     /// @return A pointer to the beginning of the referenced data.
     const char* get_data() const { return data; }
 

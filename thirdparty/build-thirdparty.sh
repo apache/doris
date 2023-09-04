@@ -579,7 +579,7 @@ build_zlib() {
     CFLAGS="-O3 -fPIC" \
         CPPFLAGS="-I${TP_INCLUDE_DIR}" \
         LDFLAGS="-L${TP_LIB_DIR}" \
-        ./configure --prefix="${TP_INSTALL_DIR}" --static
+        ./configure --prefix="${TP_INSTALL_DIR}"
 
     make -j "${PARALLEL}"
     make install

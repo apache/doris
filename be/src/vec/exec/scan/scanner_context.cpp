@@ -145,6 +145,10 @@ Status ScannerContext::init() {
     return Status::OK();
 }
 
+std::string ScannerContext::parent_name() {
+    return _parent ? _parent->get_name() : _local_state->get_name();
+}
+
 vectorized::BlockUPtr ScannerContext::get_free_block(bool* has_free_block,
                                                      bool get_block_not_empty) {
     vectorized::BlockUPtr block;

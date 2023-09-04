@@ -46,8 +46,9 @@ public class BackendsProcDir implements ProcDirInterface {
     public static final ImmutableList<String> TITLE_NAMES = new ImmutableList.Builder<String>().add("BackendId")
             .add("Host").add("HeartbeatPort").add("BePort").add("HttpPort").add("BrpcPort").add("LastStartTime")
             .add("LastHeartbeat").add("Alive").add("SystemDecommissioned").add("TabletNum").add("DataUsedCapacity")
-            .add("AvailCapacity").add("TotalCapacity").add("UsedPct").add("MaxDiskUsedPct").add("RemoteUsedCapacity")
-            .add("Tag").add("ErrMsg").add("Version").add("Status").add("HeartbeatFailureCounter").add("NodeRole")
+            .add("TrashUsedCapcacity").add("AvailCapacity").add("TotalCapacity").add("UsedPct").add("MaxDiskUsedPct")
+            .add("RemoteUsedCapacity").add("Tag").add("ErrMsg").add("Version").add("Status")
+            .add("HeartbeatFailureCounter").add("NodeRole")
             .build();
 
     public static final int HOSTNAME_INDEX = 3;
@@ -117,6 +118,11 @@ public class BackendsProcDir implements ProcDirInterface {
             long dataUsedB = backend.getDataUsedCapacityB();
             Pair<Double, String> usedCapacity = DebugUtil.getByteUint(dataUsedB);
             backendInfo.add(DebugUtil.DECIMAL_FORMAT_SCALE_3.format(usedCapacity.first) + " " + usedCapacity.second);
+            // trash used
+            long trashUsedB = backend.getTrashUsedCapacityB();
+            Pair<Double, String> trashUsedCapacity = DebugUtil.getByteUint(trashUsedB);
+            backendInfo.add(DebugUtil.DECIMAL_FORMAT_SCALE_3.format(
+                        trashUsedCapacity.first) + " " + trashUsedCapacity.second);
             // available
             long availB = backend.getAvailableCapacityB();
             Pair<Double, String> availCapacity = DebugUtil.getByteUint(availB);

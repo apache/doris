@@ -1071,6 +1071,9 @@ DECLARE_Bool(enable_shrink_memory);
 DECLARE_mInt32(schema_cache_capacity);
 DECLARE_mInt32(schema_cache_sweep_time_sec);
 
+// max number of segment cache
+DECLARE_mInt32(segment_cache_capacity);
+
 // enable binlog
 DECLARE_Bool(enable_feature_binlog);
 

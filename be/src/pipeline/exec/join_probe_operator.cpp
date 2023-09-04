@@ -18,6 +18,7 @@
 #include "join_probe_operator.h"
 
 #include "pipeline/exec/hashjoin_probe_operator.h"
+#include "pipeline/exec/nested_loop_join_probe_operator.h"
 #include "pipeline/exec/operator.h"
 
 namespace doris::pipeline {
@@ -25,9 +26,8 @@ namespace doris::pipeline {
 template <typename DependencyType, typename Derived>
 Status JoinProbeLocalState<DependencyType, Derived>::init(RuntimeState* state,
                                                           LocalStateInfo& info) {
-    RETURN_IF_ERROR(PipelineXLocalState<DependencyType>::init(state, info));
-    auto& p =
-            PipelineXLocalState<DependencyType>::_parent->template cast<typename Derived::Parent>();
+    RETURN_IF_ERROR(Base::init(state, info));
+    auto& p = Base::_parent->template cast<typename Derived::Parent>();
     // only use in outer join as the bool column to mark for function of `tuple_is_null`
     if (p._is_outer_join) {
         _tuple_is_null_left_flag_column = vectorized::ColumnUInt8::create();
@@ -38,8 +38,7 @@ Status JoinProbeLocalState<DependencyType, Derived>::init(RuntimeState* state,
         RETURN_IF_ERROR(p._output_expr_ctxs[i]->clone(state, _output_expr_ctxs[i]));
     }
 
-    _probe_phase_profile =
-            PipelineXLocalState<DependencyType>::profile()->create_child("ProbePhase", true, true);
+    _probe_phase_profile = Base::profile()->create_child("ProbePhase", true, true);
     _probe_timer = ADD_TIMER(_probe_phase_profile, "ProbeTime");
     _join_filter_timer = ADD_CHILD_TIMER(_probe_phase_profile, "JoinFilterTimer", "ProbeTime");
     _build_output_block_timer =
@@ -51,17 +50,16 @@ Status JoinProbeLocalState<DependencyType, Derived>::init(RuntimeState* state,
 
 template <typename DependencyType, typename Derived>
 Status JoinProbeLocalState<DependencyType, Derived>::close(RuntimeState* state) {
-    if (PipelineXLocalState<DependencyType>::_closed) {
+    if (Base::_closed) {
         return Status::OK();
     }
     _join_block.clear();
-    return PipelineXLocalState<DependencyType>::close(state);
+    return Base::close(state);
 }
 
 template <typename DependencyType, typename Derived>
 void JoinProbeLocalState<DependencyType, Derived>::_construct_mutable_join_block() {
-    auto& p =
-            PipelineXLocalState<DependencyType>::_parent->template cast<typename Derived::Parent>();
+    auto& p = Base::_parent->template cast<typename Derived::Parent>();
     const auto& mutable_block_desc = p._intermediate_row_desc;
     for (const auto tuple_desc : mutable_block_desc->tuple_descriptors()) {
         for (const auto slot_desc : tuple_desc->slots()) {
@@ -79,8 +77,7 @@ void JoinProbeLocalState<DependencyType, Derived>::_construct_mutable_join_block
 template <typename DependencyType, typename Derived>
 Status JoinProbeLocalState<DependencyType, Derived>::_build_output_block(
         vectorized::Block* origin_block, vectorized::Block* output_block, bool keep_origin) {
-    auto& p =
-            PipelineXLocalState<DependencyType>::_parent->template cast<typename Derived::Parent>();
+    auto& p = Base::_parent->template cast<typename Derived::Parent>();
     SCOPED_TIMER(_build_output_block_timer);
     auto is_mem_reuse = output_block->mem_reuse();
     vectorized::MutableBlock mutable_block =
@@ -119,7 +116,7 @@ Status JoinProbeLocalState<DependencyType, Derived>::_build_output_block(
             }
         } else {
             DCHECK(mutable_columns.size() == p.row_desc().num_materialized_slots());
-            SCOPED_TIMER(PipelineXLocalState<DependencyType>::_projection_timer);
+            SCOPED_TIMER(Base::_projection_timer);
             for (int i = 0; i < mutable_columns.size(); ++i) {
                 auto result_column_id = -1;
                 RETURN_IF_ERROR(_output_expr_ctxs[i]->execute(origin_block, &result_column_id));
@@ -151,8 +148,7 @@ Status JoinProbeLocalState<DependencyType, Derived>::_build_output_block(
 
 template <typename DependencyType, typename Derived>
 void JoinProbeLocalState<DependencyType, Derived>::_reset_tuple_is_null_column() {
-    if (PipelineXLocalState<DependencyType>::_parent->template cast<typename Derived::Parent>()
-                ._is_outer_join) {
+    if (Base::_parent->template cast<typename Derived::Parent>()._is_outer_join) {
         reinterpret_cast<vectorized::ColumnUInt8&>(*_tuple_is_null_left_flag_column).clear();
         reinterpret_cast<vectorized::ColumnUInt8&>(*_tuple_is_null_right_flag_column).clear();
     }
@@ -161,7 +157,7 @@ void JoinProbeLocalState<DependencyType, Derived>::_reset_tuple_is_null_column()
 template <typename LocalStateType>
 JoinProbeOperatorX<LocalStateType>::JoinProbeOperatorX(ObjectPool* pool, const TPlanNode& tnode,
                                                        const DescriptorTbl& descs)
-        : OperatorX<LocalStateType>(pool, tnode, descs),
+        : Base(pool, tnode, descs),
           _join_op(tnode.__isset.hash_join_node ? tnode.hash_join_node.join_op
                                                 : (tnode.__isset.nested_loop_join_node
                                                            ? tnode.nested_loop_join_node.join_op
@@ -210,7 +206,7 @@ JoinProbeOperatorX<LocalStateType>::JoinProbeOperatorX(ObjectPool* pool, const T
 
 template <typename LocalStateType>
 Status JoinProbeOperatorX<LocalStateType>::init(const TPlanNode& tnode, RuntimeState* state) {
-    RETURN_IF_ERROR(OperatorX<LocalStateType>::init(tnode, state));
+    RETURN_IF_ERROR(Base::init(tnode, state));
     if (tnode.__isset.hash_join_node || tnode.__isset.nested_loop_join_node) {
         const auto& output_exprs = tnode.__isset.hash_join_node
                                            ? tnode.hash_join_node.srcExprList
@@ -227,11 +223,14 @@ Status JoinProbeOperatorX<LocalStateType>::init(const TPlanNode& tnode, RuntimeS
 
 template <typename LocalStateType>
 Status JoinProbeOperatorX<LocalStateType>::open(doris::RuntimeState* state) {
-    RETURN_IF_ERROR(OperatorX<LocalStateType>::open(state));
+    RETURN_IF_ERROR(Base::open(state));
     return vectorized::VExpr::open(_output_expr_ctxs, state);
 }
 
-template class JoinProbeLocalState<JoinDependency, HashJoinProbeLocalState>;
+template class JoinProbeLocalState<HashJoinDependency, HashJoinProbeLocalState>;
 template class JoinProbeOperatorX<HashJoinProbeLocalState>;
+
+template class JoinProbeLocalState<NestedLoopJoinDependency, NestedLoopJoinProbeLocalState>;
+template class JoinProbeOperatorX<NestedLoopJoinProbeLocalState>;
 
 } // namespace doris::pipeline

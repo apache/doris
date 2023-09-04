@@ -234,10 +234,18 @@ suite("test_ctas") {
         
         String desc = sql 'desc c'
         assertTrue(desc.contains('Yes'))
+        sql '''create table test_date_v2 
+        properties (
+                "replication_num"="1"
+        ) as select to_date('20250829');
+        '''
+        desc = sql 'desc test_date_v2'
+        assertTrue(desc.contains('Yes'))
     } finally {
         sql 'drop table a'
         sql 'drop table b'
         sql 'drop table c'
+        sql 'drop table test_date_v2'
     }
 }
 
