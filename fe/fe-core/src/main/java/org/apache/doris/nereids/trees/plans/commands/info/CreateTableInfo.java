@@ -60,7 +60,7 @@ public class CreateTableInfo {
     private final List<IndexDefinition> indexes;
     private final List<String> ctasColumns;
     private final String engineName;
-    private final KeysType keysType;
+    private KeysType keysType;
     private List<String> keys;
     private final String comment;
     private final String partitionType;
@@ -255,26 +255,44 @@ public class CreateTableInfo {
             }
         }
         if (keys.isEmpty()) {
-            keys = Lists.newArrayList();
-            int keyLength = 0;
+            boolean hasAggColumn = false;
             for (ColumnDefinition column : columns) {
-                DataType type = column.getType();
-                Type catalogType = column.getType().toCatalogDataType();
-                keyLength += catalogType.getIndexSize();
-                if (keys.size() >= FeConstants.shortkey_max_column_count
-                        || keyLength > FeConstants.shortkey_maxsize_bytes) {
-                    if (keys.size() == 0 && type.isStringLikeType()) {
-                        keys.add(column.getName());
+                if (column.getAggType() != null) {
+                    hasAggColumn = true;
+                    break;
+                }
+            }
+            keys = Lists.newArrayList();
+            if (hasAggColumn) {
+                for (ColumnDefinition column : columns) {
+                    keys.add(column.getName());
+                    if (column.getAggType() != null) {
+                        break;
                     }
-                    break;
                 }
-                if (type.isFloatLikeType() || type.isStringType() || type.isJsonType() || catalogType.isComplexType()) {
-                    break;
+            } else {
+                int keyLength = 0;
+                for (ColumnDefinition column : columns) {
+                    DataType type = column.getType();
+                    Type catalogType = column.getType().toCatalogDataType();
+                    keyLength += catalogType.getIndexSize();
+                    if (keys.size() >= FeConstants.shortkey_max_column_count
+                            || keyLength > FeConstants.shortkey_maxsize_bytes) {
+                        if (keys.size() == 0 && type.isStringLikeType()) {
+                            keys.add(column.getName());
+                        }
+                        break;
+                    }
+                    if (type.isFloatLikeType() || type.isStringType() || type.isJsonType()
+                            || catalogType.isComplexType()) {
+                        break;
+                    }
+                    keys.add(column.getName());
+                    if (type.isVarcharType()) {
+                        break;
+                    }
                 }
-                keys.add(column.getName());
-                if (type.isVarcharType()) {
-                    break;
-                }
+                keysType = KeysType.DUP_KEYS;
             }
             // The OLAP table must have at least one short key,
             // and the float and double should not be short key,
