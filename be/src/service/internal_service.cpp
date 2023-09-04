@@ -391,7 +391,7 @@ void PInternalServiceImpl::open_stream_sink(google::protobuf::RpcController* con
         // TODO : set idle timeout
         // stream_options.idle_timeout_ms =
 
-        StreamId streamid;
+        StreamId streamid = {};
         if (brpc::StreamAccept(&streamid, *cntl, &stream_options) != 0) {
             st = Status::Cancelled("Fail to accept stream {}", streamid);
             st.to_protobuf(response->mutable_status());
@@ -1107,7 +1107,7 @@ void PInternalServiceImpl::transmit_block(google::protobuf::RpcController* contr
     }
 
     FifoThreadPool& pool = request->has_block() ? _heavy_work_pool : _light_work_pool;
-    bool ret = pool.offer([this, controller, request, response, done]() {
+    bool ret = pool.try_offer([this, controller, request, response, done]() {
         _transmit_block(controller, request, response, done, Status::OK());
     });
     if (!ret) {
