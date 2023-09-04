@@ -28,6 +28,7 @@
 #include "pipeline/exec/nested_loop_join_build_operator.h"
 #include "pipeline/exec/nested_loop_join_probe_operator.h"
 #include "pipeline/exec/olap_scan_operator.h"
+#include "pipeline/exec/repeat_operator.h"
 #include "pipeline/exec/result_sink_operator.h"
 #include "pipeline/exec/sort_sink_operator.h"
 #include "pipeline/exec/sort_source_operator.h"
@@ -157,6 +158,10 @@ Status OperatorXBase::get_next_after_projects(RuntimeState* state, vectorized::B
     return get_block(state, block, source_state);
 }
 
+void OperatorXBase::release_block_memory(vectorized::Block& block) {
+    block.clear_column_data(_child_x->row_desc().num_materialized_slots());
+}
+
 bool PipelineXLocalStateBase::reached_limit() const {
     return _parent->_limit != -1 && _num_rows_returned >= _parent->_limit;
 }
@@ -231,6 +236,7 @@ DECLARE_OPERATOR_X(AnalyticLocalState)
 DECLARE_OPERATOR_X(SortLocalState)
 DECLARE_OPERATOR_X(AggLocalState)
 DECLARE_OPERATOR_X(ExchangeLocalState)
+DECLARE_OPERATOR_X(RepeatLocalState)
 DECLARE_OPERATOR_X(NestedLoopJoinProbeLocalState)
 
 #undef DECLARE_OPERATOR_X
