@@ -206,7 +206,7 @@ public interface DatabaseIf<T extends TableIf> {
         T table = getTableOrDdlException(tableName);
         if (table.getType() != tableType) {
             throw new DdlException(
-                    "table type is not " + tableType + ", tableId=" + tableId + ", type=" + table.getType());
+                    "table type is not " + tableType + ", tableName=" + tableName + ", type=" + table.getType());
         }
         return table;
     }

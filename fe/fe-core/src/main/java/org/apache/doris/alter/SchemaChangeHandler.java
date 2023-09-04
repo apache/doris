@@ -2388,14 +2388,9 @@ public class SchemaChangeHandler extends AlterHandler {
 
         List<IndexChangeJob> jobList = new ArrayList<>();
 
-        OlapTable olapTable = db.getTableOrDdlException(tableName, Table.TableType.OLAP);
+        Table olapTable = db.getTableOrDdlException(tableName, Table.TableType.OLAP);
         olapTable.writeLock();
         try {
-            // if (olapTable.getState() != OlapTableState.SCHEMA_CHANGE
-            //         && olapTable.getState() != OlapTableState.WAITING_STABLE) {
-            //     throw new DdlException("Table[" + tableName + "] is not under SCHEMA_CHANGE.");
-            // }
-
             // find from index change jobs first
             if (cancelAlterTableStmt.getAlterJobIdList() != null
                     && cancelAlterTableStmt.getAlterJobIdList().size() > 0) {
