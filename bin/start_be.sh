@@ -107,6 +107,13 @@ if [[ -d "${DORIS_HOME}/lib/hadoop_hdfs/" ]]; then
     done
 fi
 
+# add custome_libs to CLASSPATH
+if [[ -d "${DORIS_HOME}/custom_lib" ]]; then
+    for f in "${DORIS_HOME}/custom_lib"/*.jar; do
+        DORIS_CLASSPATH="${DORIS_CLASSPATH}:${f}"
+    done
+fi
+
 if [[ -n "${HADOOP_CONF_DIR}" ]]; then
     export DORIS_CLASSPATH="${DORIS_CLASSPATH}:${HADOOP_CONF_DIR}"
 fi
