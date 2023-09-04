@@ -48,6 +48,7 @@ public class ColumnDefinition {
     private final Optional<Expression> defaultValue;
     private final String comment;
     private final boolean isVisible;
+    private boolean aggTypeImplicit = false;
 
     public ColumnDefinition(String name, DataType type, boolean isKey, AggregateType aggType, boolean isNullable,
             Optional<Expression> defaultValue, String comment) {
@@ -112,12 +113,17 @@ public class ColumnDefinition {
                 throw new AnalysisException("should set aggregation type to non-key column when in aggregate key");
             }
         }
+        if (!isKey && keysType.equals(KeysType.UNIQUE_KEYS)) {
+            aggTypeImplicit = true;
+        }
     }
 
     public Column translateToCatalogStyle() {
-        return new Column(name, type.toCatalogDataType(), isKey, aggType, isNullable,
+        Column column = new Column(name, type.toCatalogDataType(), isKey, aggType, isNullable,
                 false, defaultValue.map(ExpressionTrait::toSql).orElse(null), comment, isVisible,
                 null, Column.COLUMN_UNIQUE_ID_INIT_VALUE, defaultValue.map(ExpressionTrait::toSql).orElse(null));
+        column.setAggregationTypeImplicit(aggTypeImplicit);
+        return column;
     }
 
     // hidden column

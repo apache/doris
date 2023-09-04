@@ -212,13 +212,6 @@ public class CreateTableInfo {
                 columns.add(ColumnDefinition.newVersionColumnDefinition(AggregateType.REPLACE));
             }
         }
-        if (Config.enable_hidden_version_column_by_default && keysType.equals(KeysType.UNIQUE_KEYS)) {
-            if (isEnableMergeOnWrite) {
-                columns.add(ColumnDefinition.newVersionColumnDefinition(AggregateType.NONE));
-            } else {
-                columns.add(ColumnDefinition.newVersionColumnDefinition(AggregateType.REPLACE));
-            }
-        }
 
         // analyze partitions
         Map<String, ColumnDefinition> columnMap = columns.stream()
