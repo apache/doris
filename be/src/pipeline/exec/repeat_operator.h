@@ -54,7 +54,6 @@ public:
     RepeatLocalState(RuntimeState* state, OperatorXBase* parent);
 
     Status init(RuntimeState* state, LocalStateInfo& info) override;
-    Status close(RuntimeState* state) override;
 
 private:
     friend class RepeatOperatorX;

@@ -60,13 +60,6 @@ Status RepeatLocalState::init(RuntimeState* state, LocalStateInfo& info) {
     return Status::OK();
 }
 
-Status RepeatLocalState::close(RuntimeState* state) {
-    if (_closed) {
-        return Status::OK();
-    }
-    return Base::close(state);
-}
-
 Status RepeatOperatorX::init(const TPlanNode& tnode, RuntimeState* state) {
     RETURN_IF_ERROR(OperatorXBase::init(tnode, state));
     RETURN_IF_ERROR(vectorized::VExpr::create_expr_trees(tnode.repeat_node.exprs, _expr_ctxs));
@@ -95,7 +88,6 @@ Status RepeatOperatorX::open(RuntimeState* state) {
     SCOPED_TIMER(_runtime_profile->total_time_counter());
     RETURN_IF_ERROR(OperatorXBase::open(state));
     RETURN_IF_ERROR(vectorized::VExpr::open(_expr_ctxs, state));
-    RETURN_IF_ERROR(_child_x->open(state));
     return Status::OK();
 }
 
@@ -117,8 +109,8 @@ Status RepeatOperatorX::get_block(RuntimeState* state, vectorized::Block* block,
     auto& local_state = state->get_local_state(id())->cast<RepeatLocalState>();
     if (need_more_input_data(state)) {
         local_state._child_block->clear_column_data();
-        RETURN_IF_ERROR(_child_x->get_block(state, local_state._child_block.get(),
-                                            local_state._child_source_state));
+        RETURN_IF_ERROR(_child_x->get_next_after_projects(state, local_state._child_block.get(),
+                                                          local_state._child_source_state));
         source_state = local_state._child_source_state;
         if (local_state._child_block->rows() == 0 &&
             local_state._child_source_state != SourceState::FINISHED) {
