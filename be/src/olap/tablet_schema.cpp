@@ -503,16 +503,15 @@ vectorized::AggregateFunctionPtr TabletColumn::get_aggregate_function_union(
 }
 
 vectorized::AggregateFunctionPtr TabletColumn::get_aggregate_function(std::string suffix) const {
-    std::string origin_name = TabletColumn::get_string_by_aggregation_type(_aggregation);
     auto type = vectorized::DataTypeFactory::instance().create_data_type(*this);
+    if (type && type->get_type_as_primitive_type() == PrimitiveType::TYPE_AGG_STATE) {
+        return get_aggregate_function_union(type);
+    }
 
+    std::string origin_name = TabletColumn::get_string_by_aggregation_type(_aggregation);
     std::string agg_name = origin_name + suffix;
     std::transform(agg_name.begin(), agg_name.end(), agg_name.begin(),
                    [](unsigned char c) { return std::tolower(c); });
-
-    if (type->get_type_as_primitive_type() == PrimitiveType::TYPE_AGG_STATE) {
-        return get_aggregate_function_union(type);
-    }
 
     auto function = vectorized::AggregateFunctionSimpleFactory::instance().get(agg_name, {type},
                                                                                type->is_nullable());
