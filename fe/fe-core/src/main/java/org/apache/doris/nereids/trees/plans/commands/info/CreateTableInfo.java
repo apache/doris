@@ -191,6 +191,7 @@ public class CreateTableInfo {
                         break;
                     }
                 }
+                keysType = KeysType.AGG_KEYS;
             } else {
                 int keyLength = 0;
                 for (ColumnDefinition column : columns) {
