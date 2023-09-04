@@ -63,15 +63,9 @@
 #include "vec/olap/vgeneric_iterators.h"
 
 namespace doris {
-namespace io {
-class FileCacheManager;
-class FileReaderOptions;
-} // namespace io
 
 namespace segment_v2 {
 class InvertedIndexIterator;
-
-using io::FileCacheManager;
 
 Status Segment::open(io::FileSystemSPtr fs, const std::string& path, uint32_t segment_id,
                      RowsetId rowset_id, TabletSchemaSPtr tablet_schema,

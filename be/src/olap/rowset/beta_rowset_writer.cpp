@@ -33,7 +33,6 @@
 #include "common/logging.h"
 #include "gutil/strings/substitute.h"
 #include "io/fs/file_reader.h"
-#include "io/fs/file_reader_options.h"
 #include "io/fs/file_system.h"
 #include "io/fs/file_writer.h"
 #include "olap/olap_define.h"
@@ -170,9 +169,10 @@ Status BetaRowsetWriter::_load_noncompacted_segment(segment_v2::SegmentSharedPtr
                 "BetaRowsetWriter::_load_noncompacted_segment _rowset_meta->fs get failed");
     }
     auto path = BetaRowset::segment_file_path(_context.rowset_dir, _context.rowset_id, segment_id);
-    auto type = config::enable_file_cache ? config::file_cache_type : "";
-    io::FileReaderOptions reader_options(io::cache_type_from_string(type),
-                                         io::SegmentCachePathPolicy());
+    io::FileReaderOptions reader_options {
+            .cache_type = config::enable_file_cache ? io::FileCachePolicy::FILE_BLOCK_CACHE
+                                                    : io::FileCachePolicy::NO_CACHE,
+            .is_doris_table = true};
     auto s = segment_v2::Segment::open(fs, path, segment_id, rowset_id(), _context.tablet_schema,
                                        reader_options, &segment);
     if (!s.ok()) {

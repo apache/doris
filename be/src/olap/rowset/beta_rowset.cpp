@@ -29,8 +29,7 @@
 #include "common/config.h"
 #include "common/logging.h"
 #include "common/status.h"
-#include "io/cache/file_cache_manager.h"
-#include "io/fs/file_reader_options.h"
+#include "io/fs/file_reader.h"
 #include "io/fs/file_system.h"
 #include "io/fs/local_file_system.h"
 #include "io/fs/path.h"
@@ -46,8 +45,6 @@
 
 namespace doris {
 using namespace ErrorCode;
-
-using io::FileCacheManager;
 
 std::string BetaRowset::segment_file_path(int segment_id) {
 #ifdef BE_TEST
@@ -155,14 +152,14 @@ Status BetaRowset::load_segment(int64_t seg_id, segment_v2::SegmentSharedPtr* se
     }
     DCHECK(seg_id >= 0);
     auto seg_path = segment_file_path(seg_id);
-    io::SegmentCachePathPolicy cache_policy;
-    cache_policy.set_cache_path(segment_cache_path(seg_id));
-    auto type = config::enable_file_cache ? config::file_cache_type : "";
-    io::FileReaderOptions reader_options(io::cache_type_from_string(type), cache_policy);
+    io::FileReaderOptions reader_options {
+            .cache_type = config::enable_file_cache ? io::FileCachePolicy::FILE_BLOCK_CACHE
+                                                    : io::FileCachePolicy::NO_CACHE,
+            .is_doris_table = true};
     auto s = segment_v2::Segment::open(fs, seg_path, seg_id, rowset_id(), _schema, reader_options,
-                                       segment);
+                                       &segment);
     if (!s.ok()) {
-        LOG(WARNING) << "failed to open segment. " << seg_path << " under rowset " << unique_id()
+        LOG(WARNING) << "failed to open segment. " << seg_path << " under rowset " << rowset_id()
                      << " : " << s.to_string();
         return s;
     }
@@ -210,10 +207,6 @@ Status BetaRowset::remove() {
                     segment_v2::InvertedIndexSearcherCache::instance()->erase(inverted_index_file);
                 }
             }
-        }
-        if (fs->type() != io::FileSystemType::LOCAL) {
-            auto cache_path = segment_cache_path(i);
-            FileCacheManager::instance()->remove_file_cache(cache_path);
         }
     }
     if (!success) {
@@ -397,10 +390,10 @@ bool BetaRowset::check_current_rowset_segment() {
     for (int seg_id = 0; seg_id < num_segments(); ++seg_id) {
         auto seg_path = segment_file_path(seg_id);
         std::shared_ptr<segment_v2::Segment> segment;
-        io::SegmentCachePathPolicy cache_policy;
-        cache_policy.set_cache_path(segment_cache_path(seg_id));
-        auto type = config::enable_file_cache ? config::file_cache_type : "";
-        io::FileReaderOptions reader_options(io::cache_type_from_string(type), cache_policy);
+        io::FileReaderOptions reader_options {
+                .cache_type = config::enable_file_cache ? io::FileCachePolicy::FILE_BLOCK_CACHE
+                                                        : io::FileCachePolicy::NO_CACHE,
+                .is_doris_table = true};
         auto s = segment_v2::Segment::open(fs, seg_path, seg_id, rowset_id(), _schema,
                                            reader_options, &segment);
         if (!s.ok()) {
