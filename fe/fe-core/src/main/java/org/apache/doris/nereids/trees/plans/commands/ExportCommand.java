@@ -130,14 +130,14 @@ public class ExportCommand extends Command implements ForwardWithSync {
         Map<String, String> lowercaseProperties = convertPropertyKeyToLowercase(fileProperties);
 
         // check phases
-        checkAllParameter(ctx, tblName, lowercaseProperties);
+        checkAllParameters(ctx, tblName, lowercaseProperties);
 
         ExportJob exportJob = generateExportJob(ctx, lowercaseProperties, tblName);
         // register job
         ctx.getEnv().getExportMgr().addExportJobAndRegisterTask(exportJob);
     }
 
-    private void checkAllParameter(ConnectContext ctx, TableName tblName, Map<String, String> lowercaseProperties)
+    private void checkAllParameters(ConnectContext ctx, TableName tblName, Map<String, String> lowercaseProperties)
             throws UserException {
         checkPartitions(ctx.getEnv(), tblName);
         checkBrokerDesc(ctx);
