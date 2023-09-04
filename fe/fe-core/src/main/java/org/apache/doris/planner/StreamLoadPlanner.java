@@ -212,6 +212,9 @@ public class StreamLoadPlanner {
             }
         }
 
+        scanTupleDesc.setTable(destTable);
+        analyzer.registerTupleDescriptor(scanTupleDesc);
+        taskInfo.getWhereExpr().analyze(analyzer);
         // create scan node
         FileLoadScanNode fileScanNode = new FileLoadScanNode(new PlanNodeId(0), scanTupleDesc);
         // 1. create file group
