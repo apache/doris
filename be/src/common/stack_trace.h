@@ -60,19 +60,6 @@ public:
     using FramePointers = std::array<void*, capacity>;
     using Frames = std::array<Frame, capacity>;
 
-    struct StackTraceTriple {
-        StackTrace::FramePointers pointers;
-        size_t offset;
-        size_t size;
-    };
-
-    using StackTraceCache = std::map<StackTraceTriple, std::string, std::less<>>;
-
-    static StackTraceCache& cacheInstance() {
-        static StackTraceCache cache;
-        return cache;
-    }
-
     /// Tries to capture stack trace
     inline StackTrace() { tryCapture(); }
 
