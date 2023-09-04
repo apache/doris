@@ -362,8 +362,8 @@ Status OlapBlockDataConvertor::OlapColumnDataConvertorQuantileState::convert_to_
         column_quantile_state = assert_cast<const vectorized::ColumnQuantileState*>(
                 nullable_column->get_nested_column_ptr().get());
     } else {
-        column_quantile_state = assert_cast<const vectorized::ColumnQuantileState*>(
-                _typed_column.column.get());
+        column_quantile_state =
+                assert_cast<const vectorized::ColumnQuantileState*>(_typed_column.column.get());
     }
 
     assert(column_quantile_state);

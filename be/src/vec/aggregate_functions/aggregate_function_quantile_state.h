@@ -104,9 +104,8 @@ public:
     String get_name() const override { return Op::name; }
 
     AggregateFunctionQuantileStateOp(const DataTypes& argument_types_)
-            : IAggregateFunctionDataHelper<
-                      AggregateFunctionQuantileStateData<Op>,
-                      AggregateFunctionQuantileStateOp<arg_is_nullable, Op>>(
+            : IAggregateFunctionDataHelper<AggregateFunctionQuantileStateData<Op>,
+                                           AggregateFunctionQuantileStateOp<arg_is_nullable, Op>>(
                       argument_types_) {}
 
     DataTypePtr get_return_type() const override {
@@ -131,8 +130,7 @@ public:
     void merge(AggregateDataPtr __restrict place, ConstAggregateDataPtr rhs,
                Arena*) const override {
         this->data(place).merge(
-                const_cast<AggregateFunctionQuantileStateData<Op>&>(this->data(rhs))
-                        .get());
+                const_cast<AggregateFunctionQuantileStateData<Op>&>(this->data(rhs)).get());
     }
 
     void serialize(ConstAggregateDataPtr __restrict place, BufferWritable& buf) const override {
@@ -147,8 +145,7 @@ public:
     void insert_result_into(ConstAggregateDataPtr __restrict place, IColumn& to) const override {
         auto& column = assert_cast<ColVecResult&>(to);
         column.get_data().push_back(
-                const_cast<AggregateFunctionQuantileStateData<Op>&>(this->data(place))
-                        .get());
+                const_cast<AggregateFunctionQuantileStateData<Op>&>(this->data(place)).get());
     }
 
     void reset(AggregateDataPtr __restrict place) const override { this->data(place).reset(); }
