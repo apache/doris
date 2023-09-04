@@ -105,6 +105,9 @@ WITH BROKER broker_name
 
     Specifies the file type, CSV, PARQUET and ORC formats are supported. Default is CSV.
 
+  - `COMPRESS_TYPE AS`
+    Specifies the file compress type, GZ/LZO/BZ2/LZ4FRAME/DEFLATE/LZOP
+
   - `column list`
 
     Used to specify the column order in the original file. For a detailed introduction to this part, please refer to the [Column Mapping, Conversion and Filtering](../../../../data-operate/import/import-scenes/load-data-convert.md) document.

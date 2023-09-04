@@ -235,6 +235,7 @@ import org.apache.doris.qe.SqlModeHelper;
         keywordMap.put("for", new Integer(SqlParserSymbols.KW_FOR));
         keywordMap.put("force", new Integer(SqlParserSymbols.KW_FORCE));
         keywordMap.put("format", new Integer(SqlParserSymbols.KW_FORMAT));
+        keywordMap.put("compress_type", new Integer(SqlParserSymbols.KW_COMPRESS_TYPE));
         keywordMap.put("free", new Integer(SqlParserSymbols.KW_FREE));
         keywordMap.put("from", new Integer(SqlParserSymbols.KW_FROM));
         keywordMap.put("frontend", new Integer(SqlParserSymbols.KW_FRONTEND));

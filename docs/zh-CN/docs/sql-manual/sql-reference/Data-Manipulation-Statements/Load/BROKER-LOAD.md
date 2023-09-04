@@ -105,6 +105,9 @@ WITH BROKER broker_name
 
     指定文件类型，支持 CSV、PARQUET 和 ORC 格式。默认为 CSV。
 
+  - `COMPRESS_TYPE AS`
+    指定文件压缩类型, 支持GZ/LZO/BZ2/LZ4FRAME/DEFLATE/LZOP。
+
   - `column list`
 
     用于指定原始文件中的列顺序。关于这部分详细介绍，可以参阅 [列的映射，转换与过滤](../../../../data-operate/import/import-scenes/load-data-convert.md) 文档。

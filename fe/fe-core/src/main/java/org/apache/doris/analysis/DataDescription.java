@@ -188,7 +188,7 @@ public class DataDescription implements InsertStmt.DataDesc {
             String sequenceColName,
             Map<String, String> properties) {
         this(tableName, partitionNames, filePaths, columns, columnSeparator, null,
-                fileFormat, columnsFromPath, isNegative, columnMappingList, fileFilterExpr, whereExpr,
+                fileFormat, null, columnsFromPath, isNegative, columnMappingList, fileFilterExpr, whereExpr,
                 mergeType, deleteCondition, sequenceColName, properties);
     }
 
@@ -199,6 +199,7 @@ public class DataDescription implements InsertStmt.DataDesc {
                            Separator columnSeparator,
                            Separator lineDelimiter,
                            String fileFormat,
+                           String compressType,
                            List<String> columnsFromPath,
                            boolean isNegative,
                            List<Expr> columnMappingList,
@@ -215,6 +216,7 @@ public class DataDescription implements InsertStmt.DataDesc {
         this.columnSeparator = columnSeparator;
         this.lineDelimiter = lineDelimiter;
         this.fileFormat = fileFormat;
+        this.compressType = Util.getFileCompressType(compressType);
         this.columnsFromPath = columnsFromPath;
         this.isNegative = isNegative;
         this.columnMappingList = columnMappingList;
