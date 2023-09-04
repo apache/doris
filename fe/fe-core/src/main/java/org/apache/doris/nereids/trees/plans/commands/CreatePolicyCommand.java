@@ -18,11 +18,14 @@
 package org.apache.doris.nereids.trees.plans.commands;
 
 import org.apache.doris.analysis.UserIdentity;
+import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.policy.FilterType;
 import org.apache.doris.policy.PolicyTypeEnum;
+import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.StmtExecutor;
 
 import java.util.List;
 import java.util.Map;
@@ -73,4 +76,10 @@ public class CreatePolicyCommand extends Command implements ForwardWithSync {
     public <R, C> R accept(PlanVisitor<R, C> visitor, C context) {
         return visitor.visitCreatePolicyCommand(this, context);
     }
+
+    @Override
+    public void run(ConnectContext ctx, StmtExecutor executor) throws Exception {
+        throw new AnalysisException("Not support create policy command in Nereids now");
+    }
 }
+
