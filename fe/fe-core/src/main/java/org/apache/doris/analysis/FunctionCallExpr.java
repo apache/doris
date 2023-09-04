@@ -1550,6 +1550,10 @@ public class FunctionCallExpr extends Expr {
             fn.setReturnType(new ArrayType(getChild(0).type));
         }
 
+        if (fnName.getFunction().equalsIgnoreCase("map_agg")) {
+            fn.setReturnType(new MapType(getChild(0).type, getChild(1).type));
+        }
+
         if (fnName.getFunction().equalsIgnoreCase("group_uniq_array")
                 || fnName.getFunction().equalsIgnoreCase("group_array")) {
             fn.setReturnType(new ArrayType(getChild(0).type));

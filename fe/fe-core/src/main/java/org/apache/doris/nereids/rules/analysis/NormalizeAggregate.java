@@ -39,6 +39,7 @@ import com.google.common.collect.ImmutableList.Builder;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
+import com.google.common.collect.Sets;
 
 import java.util.List;
 import java.util.Map;
@@ -119,7 +120,7 @@ public class NormalizeAggregate extends OneRewriteRuleFactory implements Normali
             // agg(output: sum(alias(a + 1)[#1])[#2], group_by: alias(a + 1)[#1])
             // +-- project((a[#0] + 1)[#1])
             List<AggregateFunction> normalizedAggFuncs = groupByToSlotContext.normalizeToUseSlotRef(aggFuncs);
-            List<NamedExpression> bottomProjects = Lists.newArrayList(bottomGroupByProjects);
+            Set<NamedExpression> bottomProjects = Sets.newHashSet(bottomGroupByProjects);
             // TODO: if we have distinct agg, we must push down its children,
             //   because need use it to generate distribution enforce
             // step 1: split agg functions into 2 parts: distinct and not distinct
@@ -148,7 +149,7 @@ public class NormalizeAggregate extends OneRewriteRuleFactory implements Normali
                             if (aliasCache.containsKey(child)) {
                                 alias = aliasCache.get(child);
                             } else {
-                                alias = new Alias(child, child.toSql());
+                                alias = new Alias(child);
                                 aliasCache.put(child, alias);
                             }
                             bottomProjects.add(alias);

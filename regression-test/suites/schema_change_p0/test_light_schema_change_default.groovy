@@ -15,28 +15,23 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.scheduler.constants;
+suite ("test_lsc_default") {
+    def table = "test_lsc_default"
+    sql "DROP TABLE IF EXISTS ${table}"
 
-import lombok.Getter;
-
-/**
- * System scheduler event job
- * They will start when scheduler starts,don't use this job in other place,it just for system inner scheduler
- */
-public enum SystemJob {
-
-    /**
-     * System cycle scheduler event job, it will start cycle scheduler
-     */
-    SYSTEM_SCHEDULER_JOB("system_scheduler_event_job", 1L);
-
-    @Getter
-    private final String description;
-    @Getter
-    private final Long id;
-
-    SystemJob(String description, Long id) {
-        this.description = description;
-        this.id = id;
-    }
+    sql """CREATE TABLE IF NOT EXISTS `${table}` (
+        `siteid` int(11) NULL COMMENT "",
+        `citycode` int(11) NULL COMMENT "",
+        `userid` int(11) NULL COMMENT "",
+        `pv` int(11) NULL COMMENT ""
+        ) ENGINE=OLAP
+        DUPLICATE KEY(`siteid`)
+        COMMENT "OLAP"
+        DISTRIBUTED BY HASH(`siteid`) BUCKETS 1
+        PROPERTIES (
+        "replication_allocation" = "tag.location.default: 1"
+        );"""
+    
+    def result = sql "show create table ${table};"
+    assertTrue(result[0][1].contains("\"light_schema_change\" = \"true\""))
 }

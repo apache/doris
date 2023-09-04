@@ -114,7 +114,7 @@ public class CreateFunctionTest {
 
         queryStr = "select db1.id_masking(k1) from db1.tbl1";
         Assert.assertTrue(
-                dorisAssert.query(queryStr).explainQuery().contains("concat(left(k1, 3), '****', right(k1, 4))"));
+                dorisAssert.query(queryStr).explainQuery().contains("concat(left(CAST(CAST(k1 AS BIGINT) AS VARCHAR(*)), 3), '****', right(CAST(CAST(k1 AS BIGINT) AS VARCHAR(*)), 4))"));
 
         // create alias function with cast
         // cast any type to decimal with specific precision and scale
@@ -148,8 +148,8 @@ public class CreateFunctionTest {
         }
 
         // cast any type to varchar with fixed length
-        createFuncStr = "create alias function db1.varchar(all, int) with parameter(text, length) as "
-                + "cast(text as varchar(length));";
+        createFuncStr = "create alias function db1.varchar(all) with parameter(text) as "
+                + "cast(text as varchar(*));";
         createFunctionStmt = (CreateFunctionStmt) UtFrameUtils.parseAndAnalyzeStmt(createFuncStr, ctx);
         Env.getCurrentEnv().createFunction(createFunctionStmt);
 
@@ -172,7 +172,7 @@ public class CreateFunctionTest {
         Assert.assertTrue(constExprLists.get(0).get(0) instanceof StringLiteral);
 
         queryStr = "select db1.varchar(k1, 4) from db1.tbl1;";
-        Assert.assertTrue(dorisAssert.query(queryStr).explainQuery().contains("CAST(`k1` AS CHARACTER)"));
+        Assert.assertTrue(dorisAssert.query(queryStr).explainQuery().contains("CAST(`k1` AS VARCHAR(*))"));
 
         // cast any type to char with fixed length
         createFuncStr = "create alias function db1.to_char(all, int) with parameter(text, length) as "
@@ -199,7 +199,7 @@ public class CreateFunctionTest {
         Assert.assertTrue(constExprLists.get(0).get(0) instanceof StringLiteral);
 
         queryStr = "select db1.to_char(k1, 4) from db1.tbl1;";
-        Assert.assertTrue(dorisAssert.query(queryStr).explainQuery().contains("CAST(`k1` AS CHARACTER)"));
+        Assert.assertTrue(dorisAssert.query(queryStr).explainQuery().contains("CAST(`k1` AS CHAR(*))"));
     }
 
     @Test
@@ -235,7 +235,7 @@ public class CreateFunctionTest {
 
         queryStr = "select id_masking(k1) from db2.tbl1";
         Assert.assertTrue(
-                dorisAssert.query(queryStr).explainQuery().contains("concat(left(k1, 3), '****', right(k1, 4))"));
+                dorisAssert.query(queryStr).explainQuery().contains("concat(left(CAST(CAST(k1 AS BIGINT) AS VARCHAR(*)), 3), '****', right(CAST(CAST(k1 AS BIGINT) AS VARCHAR(*)), 4))"));
 
         // 4. create alias function with cast
         // cast any type to decimal with specific precision and scale
@@ -270,7 +270,7 @@ public class CreateFunctionTest {
         testFunctionQuery(ctx, queryStr, true);
 
         queryStr = "select varchar(k1, 4) from db2.tbl1;";
-        Assert.assertTrue(dorisAssert.query(queryStr).explainQuery().contains("CAST(`k1` AS CHARACTER)"));
+        Assert.assertTrue(dorisAssert.query(queryStr).explainQuery().contains("CAST(`k1` AS VARCHAR(*))"));
 
         // 6. cast any type to char with fixed length
         createFuncStr = "create global alias function db2.to_char(all, int) with parameter(text, length) as "
@@ -285,7 +285,7 @@ public class CreateFunctionTest {
         testFunctionQuery(ctx, queryStr, true);
 
         queryStr = "select to_char(k1, 4) from db2.tbl1;";
-        Assert.assertTrue(dorisAssert.query(queryStr).explainQuery().contains("CAST(`k1` AS CHARACTER)"));
+        Assert.assertTrue(dorisAssert.query(queryStr).explainQuery().contains("CAST(`k1` AS CHAR(*))"));
     }
 
     private void testFunctionQuery(ConnectContext ctx, String queryStr, Boolean isStringLiteral) throws Exception {

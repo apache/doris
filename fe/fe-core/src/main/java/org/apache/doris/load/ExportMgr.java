@@ -443,7 +443,7 @@ public class ExportMgr extends MasterDaemon {
         infoMap.put("db", job.getTableName().getDb());
         infoMap.put("tbl", job.getTableName().getTbl());
         if (job.getWhereExpr() != null) {
-            infoMap.put("where expr", job.getWhereExpr().toMySql());
+            infoMap.put("where expr", job.getWhereExpr().toSql());
         }
         infoMap.put("partitions", partitions);
         infoMap.put("broker", job.getBrokerDesc().getName());

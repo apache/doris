@@ -199,6 +199,9 @@ public class MetadataGenerator {
             // data used
             trow.addToColumnValue(new TCell().setLongVal(backend.getDataUsedCapacityB()));
 
+            // trash used
+            trow.addToColumnValue(new TCell().setLongVal(backend.getTrashUsedCapacityB()));
+
             // available
             long availB = backend.getAvailableCapacityB();
             trow.addToColumnValue(new TCell().setLongVal(availB));

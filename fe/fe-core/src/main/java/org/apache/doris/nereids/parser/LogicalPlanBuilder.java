@@ -99,6 +99,7 @@ import org.apache.doris.nereids.DorisParser.PropertyValueContext;
 import org.apache.doris.nereids.DorisParser.QualifiedNameContext;
 import org.apache.doris.nereids.DorisParser.QueryContext;
 import org.apache.doris.nereids.DorisParser.QueryOrganizationContext;
+import org.apache.doris.nereids.DorisParser.QueryTermContext;
 import org.apache.doris.nereids.DorisParser.RegularQuerySpecificationContext;
 import org.apache.doris.nereids.DorisParser.RelationContext;
 import org.apache.doris.nereids.DorisParser.SelectClauseContext;
@@ -599,32 +600,73 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     @Override
     public LogicalPlan visitSetOperation(SetOperationContext ctx) {
         return ParserUtils.withOrigin(ctx, () -> {
-            LogicalPlan leftQuery = plan(ctx.left);
-            LogicalPlan rightQuery = plan(ctx.right);
-            Qualifier qualifier;
-            if (ctx.setQuantifier() == null || ctx.setQuantifier().DISTINCT() != null) {
-                qualifier = Qualifier.DISTINCT;
-            } else {
-                qualifier = Qualifier.ALL;
-            }
 
-            List<Plan> newChildren = new ImmutableList.Builder<Plan>()
-                    .add(leftQuery)
-                    .add(rightQuery)
-                    .build();
-
-            LogicalPlan plan;
             if (ctx.UNION() != null) {
-                plan = new LogicalUnion(qualifier, newChildren);
-            } else if (ctx.EXCEPT() != null) {
-                plan = new LogicalExcept(qualifier, newChildren);
-            } else if (ctx.INTERSECT() != null) {
-                plan = new LogicalIntersect(qualifier, newChildren);
+                Qualifier qualifier = getQualifier(ctx);
+                List<QueryTermContext> contexts = Lists.newArrayList(ctx.right);
+                QueryTermContext current = ctx.left;
+                while (true) {
+                    if (current instanceof SetOperationContext
+                            && getQualifier((SetOperationContext) current) == qualifier
+                            && ((SetOperationContext) current).UNION() != null) {
+                        contexts.add(((SetOperationContext) current).right);
+                        current = ((SetOperationContext) current).left;
+                    } else {
+                        contexts.add(current);
+                        break;
+                    }
+                }
+                Collections.reverse(contexts);
+                List<LogicalPlan> logicalPlans = contexts.stream().map(this::plan).collect(Collectors.toList());
+                return reduceToLogicalPlanTree(0, logicalPlans.size() - 1, logicalPlans, qualifier);
             } else {
-                throw new ParseException("not support", ctx);
+                LogicalPlan leftQuery = plan(ctx.left);
+                LogicalPlan rightQuery = plan(ctx.right);
+                Qualifier qualifier = getQualifier(ctx);
+
+                List<Plan> newChildren = ImmutableList.of(leftQuery, rightQuery);
+                LogicalPlan plan;
+                if (ctx.UNION() != null) {
+                    plan = new LogicalUnion(qualifier, newChildren);
+                } else if (ctx.EXCEPT() != null) {
+                    plan = new LogicalExcept(qualifier, newChildren);
+                } else if (ctx.INTERSECT() != null) {
+                    plan = new LogicalIntersect(qualifier, newChildren);
+                } else {
+                    throw new ParseException("not support", ctx);
+                }
+                return plan;
             }
-            return plan;
         });
+    }
+
+    private Qualifier getQualifier(SetOperationContext ctx) {
+        if (ctx.setQuantifier() == null || ctx.setQuantifier().DISTINCT() != null) {
+            return Qualifier.DISTINCT;
+        } else {
+            return Qualifier.ALL;
+        }
+    }
+
+    private LogicalPlan logicalPlanCombiner(LogicalPlan left, LogicalPlan right, Qualifier qualifier) {
+        return new LogicalUnion(qualifier, ImmutableList.of(left, right));
+    }
+
+    private LogicalPlan reduceToLogicalPlanTree(int low, int high,
+            List<LogicalPlan> logicalPlans, Qualifier qualifier) {
+        switch (high - low) {
+            case 0:
+                return logicalPlans.get(low);
+            case 1:
+                return logicalPlanCombiner(logicalPlans.get(low), logicalPlans.get(high), qualifier);
+            default:
+                int mid = low + (high - low) / 2;
+                return logicalPlanCombiner(
+                        reduceToLogicalPlanTree(low, mid, logicalPlans, qualifier),
+                        reduceToLogicalPlanTree(mid + 1, high, logicalPlans, qualifier),
+                        qualifier
+                );
+        }
     }
 
     @Override

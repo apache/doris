@@ -19,11 +19,13 @@ package org.apache.doris.statistics;
 
 import org.apache.doris.nereids.stats.StatsMathUtil;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.Slot;
 
 import java.text.DecimalFormat;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Map.Entry;
+import java.util.Set;
 
 public class Statistics {
     private static final int K_BYTES = 1024;
@@ -129,6 +131,12 @@ public class Statistics {
     public Statistics addColumnStats(Expression expression, ColumnStatistic columnStatistic) {
         expressionToColumnStats.put(expression, columnStatistic);
         return this;
+    }
+
+    public boolean isInputSlotsUnknown(Set<Slot> inputs) {
+        return inputs.stream()
+                .allMatch(s -> expressionToColumnStats.containsKey(s)
+                        && expressionToColumnStats.get(s).isUnKnown);
     }
 
     public Statistics merge(Statistics statistics) {

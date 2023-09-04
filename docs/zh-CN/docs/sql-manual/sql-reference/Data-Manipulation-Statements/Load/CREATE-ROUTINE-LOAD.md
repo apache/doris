@@ -583,7 +583,7 @@ FROM data_source [data_source_properties]
    (
        "kafka_broker_list" = "broker1:9092,broker2:9092",
        "kafka_topic" = "my_topic",
-       "kafka_default_offset" = "2021-05-21 10:00:00"
+       "kafka_default_offsets" = "2021-05-21 10:00:00"
    );
    ```
 
@@ -601,11 +601,11 @@ Doris 支持指定 Partition 和 Offset 开始消费，还支持了指定时间�
 
 - `kafka_partitions`：指定待消费的 partition 列表，如："0, 1, 2, 3"。
 - `kafka_offsets`：指定每个分区的起始offset，必须和 `kafka_partitions` 列表个数对应。如："1000, 1000, 2000, 2000"
-- `property.kafka_default_offset`：指定分区默认的起始offset。
+- `property.kafka_default_offsets：指定分区默认的起始offset。
 
 在创建导入作业时，这三个参数可以有以下组合：
 
-| 组合 | `kafka_partitions` | `kafka_offsets` | `property.kafka_default_offset` | 行为                                                         |
+| 组合 | `kafka_partitions` | `kafka_offsets` | `property.kafka_default_offsets` | 行为                                                         |
 | ---- | ------------------ | --------------- | ------------------------------- | ------------------------------------------------------------ |
 | 1    | No                 | No              | No                              | 系统会自动查找topic对应的所有分区并从 OFFSET_END 开始消费    |
 | 2    | No                 | No              | Yes                             | 系统会自动查找topic对应的所有分区并从 default offset 指定的位置开始消费 |
