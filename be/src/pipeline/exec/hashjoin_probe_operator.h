@@ -111,18 +111,17 @@ public:
     Status open(RuntimeState* state) override;
     bool can_read(RuntimeState* state) override;
 
-    Status get_block(RuntimeState* state, vectorized::Block* block,
-                     SourceState& source_state) override;
-
-    Status push(RuntimeState* state, vectorized::Block* input_block, SourceState source_state);
+    Status push(RuntimeState* state, vectorized::Block* input_block,
+                SourceState source_state) const override;
     Status pull(doris::RuntimeState* state, vectorized::Block* output_block,
-                SourceState& source_state);
+                SourceState& source_state) const override;
 
-    bool need_more_input_data(RuntimeState* state) const;
+    bool need_more_input_data(RuntimeState* state) const override;
 
 private:
     Status _do_evaluate(vectorized::Block& block, vectorized::VExprContextSPtrs& exprs,
-                        RuntimeProfile::Counter& expr_call_timer, std::vector<int>& res_col_ids);
+                        RuntimeProfile::Counter& expr_call_timer,
+                        std::vector<int>& res_col_ids) const;
     friend class HashJoinProbeLocalState;
     friend struct vectorized::HashJoinProbeContext;
 

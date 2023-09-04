@@ -21,6 +21,7 @@
 #include "pipeline/exec/aggregation_source_operator.h"
 #include "pipeline/exec/analytic_sink_operator.h"
 #include "pipeline/exec/analytic_source_operator.h"
+#include "pipeline/exec/assert_num_rows_operator.h"
 #include "pipeline/exec/exchange_sink_operator.h"
 #include "pipeline/exec/exchange_source_operator.h"
 #include "pipeline/exec/hashjoin_build_sink.h"
@@ -158,10 +159,6 @@ Status OperatorXBase::get_next_after_projects(RuntimeState* state, vectorized::B
     return get_block(state, block, source_state);
 }
 
-void OperatorXBase::release_block_memory(vectorized::Block& block) {
-    block.clear_column_data(_child_x->row_desc().num_materialized_slots());
-}
-
 bool PipelineXLocalStateBase::reached_limit() const {
     return _parent->_limit != -1 && _num_rows_returned >= _parent->_limit;
 }
@@ -217,6 +214,44 @@ Status OperatorX<LocalStateType>::setup_local_state(RuntimeState* state, LocalSt
     return local_state->init(state, info);
 }
 
+template <typename LocalStateType>
+Status StreamingOperatorX<LocalStateType>::get_block(RuntimeState* state, vectorized::Block* block,
+                                                     SourceState& source_state) {
+    RETURN_IF_ERROR(OperatorX<LocalStateType>::_child_x->get_next_after_projects(state, block,
+                                                                                 source_state));
+    return pull(state, block, source_state);
+}
+
+template <typename LocalStateType>
+Status StatefulOperatorX<LocalStateType>::get_block(RuntimeState* state, vectorized::Block* block,
+                                                    SourceState& source_state) {
+    auto& local_state = state->get_local_state(OperatorX<LocalStateType>::id())
+                                ->template cast<LocalStateType>();
+    if (need_more_input_data(state)) {
+        local_state._child_block->clear_column_data();
+        RETURN_IF_ERROR(OperatorX<LocalStateType>::_child_x->get_next_after_projects(
+                state, local_state._child_block.get(), local_state._child_source_state));
+        source_state = local_state._child_source_state;
+        if (local_state._child_block->rows() == 0 &&
+            local_state._child_source_state != SourceState::FINISHED) {
+            return Status::OK();
+        }
+        RETURN_IF_ERROR(
+                push(state, local_state._child_block.get(), local_state._child_source_state));
+    }
+
+    if (!need_more_input_data(state)) {
+        RETURN_IF_ERROR(pull(state, block, source_state));
+        if (source_state != SourceState::FINISHED && !need_more_input_data(state)) {
+            source_state = SourceState::MORE_DATA;
+        } else if (source_state != SourceState::FINISHED &&
+                   source_state == SourceState::MORE_DATA) {
+            source_state = local_state._child_source_state;
+        }
+    }
+    return Status::OK();
+}
+
 #define DECLARE_OPERATOR_X(LOCAL_STATE) template class DataSinkOperatorX<LOCAL_STATE>;
 DECLARE_OPERATOR_X(HashJoinBuildSinkLocalState)
 DECLARE_OPERATOR_X(ResultSinkLocalState)
@@ -238,7 +273,14 @@ DECLARE_OPERATOR_X(AggLocalState)
 DECLARE_OPERATOR_X(ExchangeLocalState)
 DECLARE_OPERATOR_X(RepeatLocalState)
 DECLARE_OPERATOR_X(NestedLoopJoinProbeLocalState)
+DECLARE_OPERATOR_X(AssertNumRowsLocalState)
 
 #undef DECLARE_OPERATOR_X
+
+template class StreamingOperatorX<AssertNumRowsLocalState>;
+
+template class StatefulOperatorX<HashJoinProbeLocalState>;
+template class StatefulOperatorX<RepeatLocalState>;
+template class StatefulOperatorX<NestedLoopJoinProbeLocalState>;
 
 } // namespace doris::pipeline
