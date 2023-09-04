@@ -510,17 +510,18 @@ vectorized::AggregateFunctionPtr TabletColumn::get_aggregate_function(std::strin
     std::transform(agg_name.begin(), agg_name.end(), agg_name.begin(),
                    [](unsigned char c) { return std::tolower(c); });
 
+    if (type->get_type_as_primitive_type() == PrimitiveType::TYPE_AGG_STATE) {
+        return get_aggregate_function_union(type);
+    }
+
     auto function = vectorized::AggregateFunctionSimpleFactory::instance().get(agg_name, {type},
                                                                                type->is_nullable());
     if (function) {
         return function;
     }
-    if (type->get_type_as_primitive_type() != PrimitiveType::TYPE_AGG_STATE) {
-        LOG(WARNING) << "get column aggregate function failed, aggregation_name=" << origin_name
-                     << ", column_type=" << type->get_name();
-        return nullptr;
-    }
-    return get_aggregate_function_union(type);
+    LOG(WARNING) << "get column aggregate function failed, aggregation_name=" << origin_name
+                 << ", column_type=" << type->get_name();
+    return nullptr;
 }
 
 void TabletIndex::init_from_thrift(const TOlapTableIndex& index,

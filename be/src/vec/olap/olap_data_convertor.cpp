@@ -355,22 +355,22 @@ Status OlapBlockDataConvertor::OlapColumnDataConvertorBitMap::convert_to_olap() 
 Status OlapBlockDataConvertor::OlapColumnDataConvertorQuantileState::convert_to_olap() {
     assert(_typed_column.column);
 
-    const vectorized::ColumnQuantileStateDouble* column_quantile_state = nullptr;
+    const vectorized::ColumnQuantileState* column_quantile_state = nullptr;
     if (_nullmap) {
         auto nullable_column =
                 assert_cast<const vectorized::ColumnNullable*>(_typed_column.column.get());
-        column_quantile_state = assert_cast<const vectorized::ColumnQuantileStateDouble*>(
+        column_quantile_state = assert_cast<const vectorized::ColumnQuantileState*>(
                 nullable_column->get_nested_column_ptr().get());
     } else {
-        column_quantile_state = assert_cast<const vectorized::ColumnQuantileStateDouble*>(
+        column_quantile_state = assert_cast<const vectorized::ColumnQuantileState*>(
                 _typed_column.column.get());
     }
 
     assert(column_quantile_state);
-    QuantileStateDouble* quantile_state =
-            const_cast<QuantileStateDouble*>(column_quantile_state->get_data().data() + _row_pos);
-    QuantileStateDouble* quantile_state_cur = quantile_state;
-    QuantileStateDouble* quantile_state_end = quantile_state_cur + _num_rows;
+    QuantileState* quantile_state =
+            const_cast<QuantileState*>(column_quantile_state->get_data().data() + _row_pos);
+    QuantileState* quantile_state_cur = quantile_state;
+    QuantileState* quantile_state_end = quantile_state_cur + _num_rows;
 
     size_t total_size = 0;
     if (_nullmap) {
