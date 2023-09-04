@@ -158,6 +158,14 @@ zhang san	grade 5	zhang yi	chen san	buy dancing book	10	2017-10-01T00:00	tall:12
 22222222
 
 -- !sql --
+zhang san	grade 5	zhang yi	chen san	10
+zhang san yi	grade 5	zhang yi	chen san	11
+
+-- !sql --
+zhang san	grade 5	zhang yi	chen san	10
+zhang san yi	grade 5	zhang yi	chen san	11
+
+-- !sql --
 zhang san	grade 5	zhang yi	chen san	buy dancing book	10	2017-10-01T00:00	tall:120cm, weight: 35kg, hobbies: sing, dancing	Like cultural and recreational activities	Class activists
 
 -- !sql --
@@ -314,4 +322,12 @@ zhang san	grade 5	zhang yi	chen san	buy dancing book	10	2017-10-01T00:00	tall:12
 
 -- !sql --
 22222222
+
+-- !sql --
+zhang san	grade 5	zhang yi	chen san	10
+zhang san yi	grade 5	zhang yi	chen san	11
+
+-- !sql --
+zhang san	grade 5	zhang yi	chen san	10
+zhang san yi	grade 5	zhang yi	chen san	11
 
