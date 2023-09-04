@@ -56,7 +56,6 @@ import org.apache.doris.nereids.glue.LogicalPlanAdapter;
 import org.apache.doris.nereids.minidump.MinidumpUtils;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.stats.StatsErrorEstimator;
-import org.apache.doris.nereids.trees.plans.commands.CreatePolicyCommand;
 import org.apache.doris.plugin.AuditEvent.EventType;
 import org.apache.doris.proto.Data;
 import org.apache.doris.qe.QueryState.MysqlStateType;
@@ -386,14 +385,6 @@ public class ConnectProcessor {
         if (mysqlCommand == MysqlCommand.COM_QUERY && ctx.getSessionVariable().isEnableNereidsPlanner()) {
             try {
                 stmts = new NereidsParser().parseSQL(originStmt);
-                for (StatementBase stmt : stmts) {
-                    LogicalPlanAdapter logicalPlanAdapter = (LogicalPlanAdapter) stmt;
-                    // TODO: remove this after we could process CreatePolicyCommand
-                    if (logicalPlanAdapter.getLogicalPlan() instanceof CreatePolicyCommand) {
-                        stmts = null;
-                        break;
-                    }
-                }
             } catch (Exception e) {
                 // TODO: We should catch all exception here until we support all query syntax.
                 LOG.debug("Nereids parse sql failed. Reason: {}. Statement: \"{}\".",
@@ -846,4 +837,5 @@ public class ConnectProcessor {
         }
     }
 }
+
 
