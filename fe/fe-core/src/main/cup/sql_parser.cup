@@ -1272,6 +1272,10 @@ clean_stmt ::=
     {:
         RESULT = new CleanQueryStatsStmt(tbl, CleanQueryStatsStmt.Scope.TABLE);
     :}
+    | KW_CLEAN KW_TRASH KW_STATS
+    {:
+        RESULT = new CleanTrashStatsStmt();
+    :}
     ;
 
 // plugin statement

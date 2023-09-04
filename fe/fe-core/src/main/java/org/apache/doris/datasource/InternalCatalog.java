@@ -3133,7 +3133,8 @@ public class InternalCatalog implements CatalogIf<Database> {
         return newChecksum;
     }
 
-    public ConcurrentHashMap<Long, Database> getIdToDb() {
+    @Override
+    public ConcurrentHashMap<Long, DatabaseIf> getIdToDb() {
         return new ConcurrentHashMap<>(idToDb);
     }
 

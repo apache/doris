@@ -53,6 +53,7 @@ import org.apache.doris.analysis.CancelLoadStmt;
 import org.apache.doris.analysis.CleanLabelStmt;
 import org.apache.doris.analysis.CleanProfileStmt;
 import org.apache.doris.analysis.CleanQueryStatsStmt;
+import org.apache.doris.analysis.CleanTrashStatsStmt;
 import org.apache.doris.analysis.CreateCatalogStmt;
 import org.apache.doris.analysis.CreateDataSyncJobStmt;
 import org.apache.doris.analysis.CreateDbStmt;
@@ -375,6 +376,8 @@ public class DdlExecutor {
         } else if (ddlStmt instanceof DropAnalyzeJobStmt) {
             DropAnalyzeJobStmt analyzeJobStmt = (DropAnalyzeJobStmt) ddlStmt;
             Env.getCurrentEnv().getAnalysisManager().dropAnalyzeJob(analyzeJobStmt);
+        } else if (ddlStmt instanceof CleanTrashStatsStmt) {
+            Env.getCurrentEnv().getStatisticsCleaner().clear();
         } else {
             LOG.warn("Unkown statement " + ddlStmt.getClass());
             throw new DdlException("Unknown statement.");
