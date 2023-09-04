@@ -849,7 +849,7 @@ void FragmentMgr::_set_scan_concurrency(const Param& params, QueryContext* query
 
 void FragmentMgr::cancel_query(const TUniqueId& query_id, const PPlanFragmentCancelReason& reason,
                                const std::string& msg) {
-    std::unique_lock<std::mutex> state_lock;
+    std::unique_lock<std::mutex> state_lock(_lock);
     return cancel_query_unlocked(query_id, reason, state_lock, msg);
 }
 
