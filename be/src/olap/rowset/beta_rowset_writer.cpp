@@ -83,7 +83,7 @@ BetaRowsetWriter::~BetaRowsetWriter() {
     if (!_already_built) {        // abnormal exit, remove all files generated
         _segment_creator.close(); // ensure all files are closed
         auto fs = _rowset_meta->fs();
-        if (!fs) {
+        if (fs->type() != io::FileSystemType::LOCAL) { // Remote fs will delete them asynchronously
             return;
         }
         for (int i = _segment_start_id; i < _segment_creator.next_segment_id(); ++i) {
@@ -163,6 +163,7 @@ Status BetaRowsetWriter::_generate_delete_bitmap(int32_t segment_id) {
 
 Status BetaRowsetWriter::_load_noncompacted_segment(segment_v2::SegmentSharedPtr& segment,
                                                     int32_t segment_id) {
+    DCHECK(_rowset_meta->is_local());
     auto fs = _rowset_meta->fs();
     if (!fs) {
         return Status::Error<INIT_FAILED>(
@@ -282,7 +283,6 @@ Status BetaRowsetWriter::_rename_compacted_segment_plain(uint64_t seg_id) {
         return Status::OK();
     }
 
-    int ret;
     auto src_seg_path =
             BetaRowset::segment_file_path(_context.rowset_dir, _context.rowset_id, seg_id);
     auto dst_seg_path = BetaRowset::segment_file_path(_context.rowset_dir, _context.rowset_id,
@@ -298,7 +298,7 @@ Status BetaRowsetWriter::_rename_compacted_segment_plain(uint64_t seg_id) {
         _segid_statistics_map.emplace(_num_segcompacted, org);
         _clear_statistics_for_deleting_segments_unsafe(seg_id, seg_id);
     }
-    ret = rename(src_seg_path.c_str(), dst_seg_path.c_str());
+    int ret = rename(src_seg_path.c_str(), dst_seg_path.c_str());
     if (ret) {
         return Status::Error<ROWSET_RENAME_FILE_FAILED>(
                 "failed to rename {} to {}. ret:{}, errno:{}", src_seg_path, dst_seg_path, ret,
