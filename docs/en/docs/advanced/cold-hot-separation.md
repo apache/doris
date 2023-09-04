@@ -58,7 +58,7 @@ In addition, fe configuration needs to be added: `enable_storage_policy=true`
 
 Note: This property will not be synchronized by CCR. If this table is copied by CCR, that is, PROPERTIES contains `is_being_synced = true`, this property will be erased in this table.
 
-For example:
+This is an instance that how to create S3 RESOURCE：
 
 ```
 CREATE RESOURCE "remote_s3"
@@ -93,6 +93,36 @@ DISTRIBUTED BY HASH (k1) BUCKETS 3
 PROPERTIES(
     "storage_policy" = "test_policy"
 );
+```
+and how to create HDFS RESOURCE：
+```
+CREATE RESOURCE "remote_hdfs" PROPERTIES (
+        "type"="hdfs",
+        "fs.defaultFS"="127.0.0.1:8120",
+        "hadoop.username"="hive",
+        "hadoop.password"="hive",
+        "dfs.nameservices" = "my_ha",
+        "dfs.ha.namenodes.my_ha" = "my_namenode1, my_namenode2",
+        "dfs.namenode.rpc-address.my_ha.my_namenode1" = "127.0.0.1:10000",
+        "dfs.namenode.rpc-address.my_ha.my_namenode2" = "127.0.0.1:10000",
+        "dfs.client.failover.proxy.provider" = "org.apache.hadoop.hdfs.server.namenode.ha.ConfiguredFailoverProxyProvider"
+    );
+
+    CREATE STORAGE POLICY test_policy PROPERTIES (
+        "storage_resource" = "remote_hdfs",
+        "cooldown_ttl" = "300"
+    )
+
+    CREATE TABLE IF NOT EXISTS create_table_use_created_policy (
+    k1 BIGINT,
+    k2 LARGEINT,
+    v1 VARCHAR(2048)
+    )
+    UNIQUE KEY(k1)
+    DISTRIBUTED BY HASH (k1) BUCKETS 3
+    PROPERTIES(
+    "storage_policy" = "test_policy"
+    );
 ```
 Or for an existing table, associate the storage policy
 ```
