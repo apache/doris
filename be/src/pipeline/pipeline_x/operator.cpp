@@ -112,7 +112,7 @@ void PipelineXLocalStateBase::clear_origin_block() {
 }
 
 Status OperatorXBase::do_projections(RuntimeState* state, vectorized::Block* origin_block,
-                                     vectorized::Block* output_block) {
+                                     vectorized::Block* output_block) const {
     auto local_state = state->get_local_state(id());
     SCOPED_TIMER(local_state->_projection_timer);
     using namespace vectorized;
