@@ -83,7 +83,7 @@ public:
     RuntimeState* state() { return _state; }
     vectorized::VExprContextSPtrs& conjuncts() { return _conjuncts; }
     vectorized::VExprContextSPtrs& projections() { return _projections; }
-    int64_t num_rows_returned() const { return _num_rows_returned; }
+    [[nodiscard]] int64_t num_rows_returned() const { return _num_rows_returned; }
     void add_num_rows_returned(int64_t delta) { _num_rows_returned += delta; }
     void set_num_rows_returned(int64_t value) { _num_rows_returned = value; }
 
@@ -498,6 +498,23 @@ public:
 protected:
     DependencyType* _dependency;
     typename DependencyType::SharedState* _shared_state;
+};
+
+/**
+ * StreamingOperatorX indicates operators which always processes block in streaming way (one-in-one-out).
+ */
+template <typename LocalStateType>
+class StreamingOperatorX : public OperatorX<LocalStateType> {
+public:
+    StreamingOperatorX(ObjectPool* pool, const TPlanNode& tnode, const DescriptorTbl& descs)
+            : OperatorX<LocalStateType>(pool, tnode, descs) {}
+    virtual ~StreamingOperatorX() = default;
+
+    Status get_block(RuntimeState* state, vectorized::Block* block,
+                     SourceState& source_state) override;
+
+    virtual Status pull(RuntimeState* state, vectorized::Block* block,
+                        SourceState& source_state) = 0;
 };
 
 } // namespace doris::pipeline

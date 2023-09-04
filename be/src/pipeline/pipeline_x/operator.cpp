@@ -21,6 +21,7 @@
 #include "pipeline/exec/aggregation_source_operator.h"
 #include "pipeline/exec/analytic_sink_operator.h"
 #include "pipeline/exec/analytic_source_operator.h"
+#include "pipeline/exec/assert_num_rows_operator.h"
 #include "pipeline/exec/exchange_sink_operator.h"
 #include "pipeline/exec/exchange_source_operator.h"
 #include "pipeline/exec/hashjoin_build_sink.h"
@@ -217,6 +218,14 @@ Status OperatorX<LocalStateType>::setup_local_state(RuntimeState* state, LocalSt
     return local_state->init(state, info);
 }
 
+template <typename LocalStateType>
+Status StreamingOperatorX<LocalStateType>::get_block(RuntimeState* state, vectorized::Block* block,
+                                                     SourceState& source_state) {
+    RETURN_IF_ERROR(OperatorX<LocalStateType>::_child_x->get_next_after_projects(state, block,
+                                                                                 source_state));
+    return pull(state, block, source_state);
+}
+
 #define DECLARE_OPERATOR_X(LOCAL_STATE) template class DataSinkOperatorX<LOCAL_STATE>;
 DECLARE_OPERATOR_X(HashJoinBuildSinkLocalState)
 DECLARE_OPERATOR_X(ResultSinkLocalState)
@@ -238,7 +247,10 @@ DECLARE_OPERATOR_X(AggLocalState)
 DECLARE_OPERATOR_X(ExchangeLocalState)
 DECLARE_OPERATOR_X(RepeatLocalState)
 DECLARE_OPERATOR_X(NestedLoopJoinProbeLocalState)
+DECLARE_OPERATOR_X(AssertNumRowsLocalState)
 
 #undef DECLARE_OPERATOR_X
+
+template class StreamingOperatorX<AssertNumRowsLocalState>;
 
 } // namespace doris::pipeline
