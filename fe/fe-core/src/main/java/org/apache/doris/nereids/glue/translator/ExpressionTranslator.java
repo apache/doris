@@ -415,7 +415,7 @@ public class ExpressionTranslator extends DefaultExpressionVisitor<Expr, PlanTra
             column.setColumnId(columnId);
             column.setNullable(true);
             column.setType(((ArrayType) expr.getType()).getItemType());
-            context.addExprIdColumnRef(arrayItemReference.getExprId(), column);
+            context.addExprIdColumnRefPair(arrayItemReference.getExprId(), column);
             columnId += 1;
         }
 

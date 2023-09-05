@@ -47,6 +47,7 @@ import org.apache.doris.nereids.trees.expressions.functions.Function;
 import org.apache.doris.nereids.trees.expressions.functions.FunctionBuilder;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
 import org.apache.doris.nereids.trees.expressions.functions.generator.TableGeneratingFunction;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Lambda;
 import org.apache.doris.nereids.trees.expressions.functions.table.TableValuedFunction;
 import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionRewriter;
 import org.apache.doris.nereids.trees.plans.JoinType;
@@ -753,6 +754,9 @@ public class BindExpression implements AnalysisRuleFactory {
     }
 
     private <E extends Expression> E checkBound(E expression, Plan plan) {
+        if (expression instanceof Lambda) {
+            return expression;
+        }
         expression.foreachUp(e -> {
             if (e instanceof UnboundSlot) {
                 UnboundSlot unboundSlot = (UnboundSlot) e;

@@ -79,7 +79,9 @@ public class PlanTranslatorContext {
     private final Map<SlotId, ExprId> slotIdToExprId = Maps.newHashMap();
 
     /**
-     * index from Nereids' slot to legacy slot.
+     * For each lambda argument (ArrayItemReference),
+     * we create a ColumnRef representing it and
+     * then translate it based on the ExprId of the ArrayItemReference.
      */
     private final Map<ExprId, ColumnRefExpr> exprIdToColumnRef = Maps.newHashMap();
 
@@ -193,7 +195,7 @@ public class PlanTranslatorContext {
         slotIdToExprId.put(slotRef.getDesc().getId(), exprId);
     }
 
-    public void addExprIdColumnRef(ExprId exprId, ColumnRefExpr columnRefExpr) {
+    public void addExprIdColumnRefPair(ExprId exprId, ColumnRefExpr columnRefExpr) {
         exprIdToColumnRef.put(exprId, columnRefExpr);
     }
 
