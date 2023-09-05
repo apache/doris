@@ -176,7 +176,7 @@ suite("test_hive_parquet", "p0,external,hive,external_docker,external_docker_hiv
             q19()
             q20()
 
-            qt_explain_physical_plan """explain physical plan select l_partkey from partition_table
+            sql """explain physical plan select l_partkey from partition_table
                 where (nation != 'cn' or city !='beijing') and (l_quantity > 28 or l_extendedprice > 30000)
                 order by l_partkey limit 10;"""
 

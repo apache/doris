@@ -10133,13 +10133,3 @@ rus	moscow	996
 us	chicago	1995
 us	washington	1999
 
--- !explain_physical_plan --
-cost = 13380.2646484375
-PhysicalResultSink[316] ( outputExprs=[l_partkey#1] )
-+--PhysicalTopN[315]@3 ( limit=10, offset=0, orderKeys=[l_partkey#1 asc null first], phase=MERGE_SORT, enableRuntimeFilter=false )
-   +--PhysicalDistribute[314]@ ( distributionSpec=DistributionSpecGather, stats=10 )
-      +--PhysicalTopN[313]@5 ( limit=10, offset=0, orderKeys=[l_partkey#1 asc null first], phase=LOCAL_SORT, enableRuntimeFilter=false )
-         +--PhysicalProject[312]@2 ( projects=[l_partkey#1], stats=3,478.5 )
-            +--PhysicalFilter[311]@1 ( predicates=(((l_quantity#4 > 28.00) OR (l_extendedprice#5 > 30000.00)) AND (( not (nation#16 = 'cn')) OR ( not (city#17 = 'beijing')))), stats=3,478.5 )
-               +--PhysicalFileScan ( qualified=hive_test_parquet.default_cluster:default.partition_table.partition_table, output=[l_orderkey#0, l_partkey#1, l_suppkey#2, l_linenumber#3, l_quantity#4, l_extendedprice#5, l_discount#6, l_tax#7, l_returnflag#8, l_linestatus#9, l_shipdate#10, l_commitdate#11, l_receiptdate#12, l_shipinstruct#13, l_shipmode#14, l_comment#15, nation#16, city#17], stats=4,638, conjuncts=[], selected partitions num=unknown )
-
