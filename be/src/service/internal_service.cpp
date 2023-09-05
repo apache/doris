@@ -822,11 +822,12 @@ void PInternalServiceImpl::fetch_remote_tablet_schema(google::protobuf::RpcContr
                 }
                 tablet_schemas.push_back(tablet->tablet_schema());
             }
-
-            // merge all
-            TabletSchemaSPtr merged_schema = merge_schema(tablet_schemas);
-            merged_schema->to_schema_pb(response->mutable_merged_schema());
-            VLOG_DEBUG << "dump schema:" << merged_schema->dump_structure();
+            if (!tablet_schemas.empty()) {
+                // merge all
+                TabletSchemaSPtr merged_schema = merge_schema(tablet_schemas);
+                merged_schema->to_schema_pb(response->mutable_merged_schema());
+                VLOG_DEBUG << "dump schema:" << merged_schema->dump_structure();
+            }
         }
         st.to_protobuf(response->mutable_status());
     });
