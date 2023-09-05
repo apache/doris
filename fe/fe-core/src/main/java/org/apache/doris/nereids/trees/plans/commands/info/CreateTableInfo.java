@@ -337,14 +337,14 @@ public class CreateTableInfo {
      * check partitions types.
      */
     public boolean checkPartitionsTypes() {
-        if (partitionType.equals("RANGE")) {
+        if (partitionType.equalsIgnoreCase("RANGE")) {
             if (partitions.stream().allMatch(p -> p instanceof StepPartition)) {
                 return true;
             }
             return partitions.stream().allMatch(p -> (p instanceof LessThanPartition)
                     || (p instanceof FixedRangePartition));
         }
-        return partitionType.equals("LIST") && partitions.stream().allMatch(p -> p instanceof InPartition);
+        return partitionType.equalsIgnoreCase("LIST") && partitions.stream().allMatch(p -> p instanceof InPartition);
     }
 
     /**

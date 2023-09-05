@@ -45,7 +45,7 @@ statement
         ((LEFT_PAREN columnDefs indexDefs? RIGHT_PAREN) | (ctasCols=identifierList)?)
         (ENGINE EQ engine=identifier)?
         ((AGGREGATE | UNIQUE | DUPLICATE) KEY keys=identifierList)?
-        (COMMENT constant)?
+        (COMMENT STRING_LITERAL)?
         (PARTITION BY (RANGE | LIST) partitionKeys=identifierList LEFT_PAREN partitions=partitionsDef RIGHT_PAREN)?
         DISTRIBUTED BY (HASH hashKeys=identifierList | RANDOM) BUCKETS (number | AUTO)?
         (ROLLUP LEFT_PAREN rollupDefs RIGHT_PAREN)?
@@ -337,7 +337,7 @@ columnDef
     : colName=identifier type=dataType
         KEY? (aggType=aggTypeDef)? ((NOT NULL) | NULL)?
         (DEFAULT (defaultValue=constant | CURRENT_TIMESTAMP))?
-        (COMMENT comment=constant)?
+        (COMMENT comment=STRING_LITERAL)?
     ;
     
 indexDefs
@@ -345,7 +345,7 @@ indexDefs
     ;
     
 indexDef
-    : INDEX indexName=identifier cols=identifierList (USING BITMAP)? (comment=constant)?
+    : INDEX indexName=identifier cols=identifierList (USING BITMAP)? (comment=STRING_LITERAL)?
     ;
     
 partitionsDef
@@ -390,7 +390,7 @@ rollupDef
     ;
 
 aggTypeDef
-    : MAX | MIN | SUM | REPLACE | REPLACE_IF_NOT_NULL | HLL_UNION | BITMAP_UNION
+    : MAX | MIN | SUM | REPLACE | REPLACE_IF_NOT_NULL | HLL_UNION | BITMAP_UNION | QUANTILE_UNION
     ;
 
 tabletList
