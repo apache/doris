@@ -47,7 +47,7 @@ public:
 class HashJoinBuildSinkOperatorX;
 
 class HashJoinBuildSinkLocalState final
-        : public JoinBuildSinkLocalState<JoinDependency, HashJoinBuildSinkLocalState> {
+        : public JoinBuildSinkLocalState<HashJoinDependency, HashJoinBuildSinkLocalState> {
 public:
     ENABLE_FACTORY_CREATOR(HashJoinBuildSinkLocalState);
     using Parent = HashJoinBuildSinkOperatorX;
@@ -124,7 +124,7 @@ public:
                 SourceState source_state) override;
     Status close(RuntimeState* state) override;
 
-    virtual bool can_write(RuntimeState* state) override { return true; }
+    bool can_write(RuntimeState* state) override { return true; }
 
 private:
     friend class HashJoinBuildSinkLocalState;

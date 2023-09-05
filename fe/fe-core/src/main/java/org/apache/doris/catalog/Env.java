@@ -224,9 +224,10 @@ import org.apache.doris.scheduler.registry.TimerJobRegister;
 import org.apache.doris.service.ExecuteEnv;
 import org.apache.doris.service.FrontendOptions;
 import org.apache.doris.statistics.AnalysisManager;
-import org.apache.doris.statistics.StatisticsAutoAnalyzer;
+import org.apache.doris.statistics.StatisticsAutoCollector;
 import org.apache.doris.statistics.StatisticsCache;
 import org.apache.doris.statistics.StatisticsCleaner;
+import org.apache.doris.statistics.StatisticsPeriodCollector;
 import org.apache.doris.statistics.query.QueryStats;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.Frontend;
@@ -346,6 +347,8 @@ public class Env {
     private Daemon replayer;
     private Daemon timePrinter;
     private Daemon listener;
+
+    private ColumnIdFlushDaemon columnIdFlusher;
 
     private boolean isFirstTimeStartUp = false;
     private boolean isElectable;
@@ -474,7 +477,9 @@ public class Env {
      */
     private final LoadManagerAdapter loadManagerAdapter;
 
-    private StatisticsAutoAnalyzer statisticsAutoAnalyzer;
+    private StatisticsAutoCollector statisticsAutoCollector;
+
+    private StatisticsPeriodCollector statisticsPeriodCollector;
 
     private HiveTransactionMgr hiveTransactionMgr;
 
@@ -699,7 +704,8 @@ public class Env {
         this.extMetaCacheMgr = new ExternalMetaCacheMgr();
         this.analysisManager = new AnalysisManager();
         this.statisticsCleaner = new StatisticsCleaner();
-        this.statisticsAutoAnalyzer = new StatisticsAutoAnalyzer();
+        this.statisticsAutoCollector = new StatisticsAutoCollector();
+        this.statisticsPeriodCollector = new StatisticsPeriodCollector();
         this.globalFunctionMgr = new GlobalFunctionMgr();
         this.workloadGroupMgr = new WorkloadGroupMgr();
         this.queryStats = new QueryStats();
@@ -707,6 +713,7 @@ public class Env {
         this.hiveTransactionMgr = new HiveTransactionMgr();
         this.binlogManager = new BinlogManager();
         this.binlogGcer = new BinlogGcer();
+        this.columnIdFlusher = new ColumnIdFlushDaemon();
     }
 
     public static void destroyCheckpoint() {
@@ -945,8 +952,11 @@ public class Env {
         if (statisticsCleaner != null) {
             statisticsCleaner.start();
         }
-        if (statisticsAutoAnalyzer != null) {
-            statisticsAutoAnalyzer.start();
+        if (statisticsAutoCollector != null) {
+            statisticsAutoCollector.start();
+        }
+        if (statisticsPeriodCollector != null) {
+            statisticsPeriodCollector.start();
         }
     }
 
@@ -1546,6 +1556,7 @@ public class Env {
 
         // binlog gcer
         binlogGcer.start();
+        columnIdFlusher.start();
     }
 
     // start threads that should running on all FE
@@ -4487,6 +4498,9 @@ public class Env {
     public void modifyTableDynamicPartition(Database db, OlapTable table, Map<String, String> properties)
             throws UserException {
         convertDynamicPartitionReplicaNumToReplicaAllocation(properties);
+        if (properties.containsKey(DynamicPartitionProperty.REPLICATION_ALLOCATION)) {
+            table.checkChangeReplicaAllocation();
+        }
         Map<String, String> logProperties = new HashMap<>(properties);
         TableProperty tableProperty = table.getTableProperty();
         if (tableProperty == null) {
@@ -4546,6 +4560,7 @@ public class Env {
         }
 
         ReplicaAllocation replicaAlloc = PropertyAnalyzer.analyzeReplicaAllocation(properties, "");
+        table.checkChangeReplicaAllocation();
         Env.getCurrentSystemInfo().checkReplicaAllocation(replicaAlloc);
         Preconditions.checkState(!replicaAlloc.isNotSet());
         boolean isInMemory = partitionInfo.getIsInMemory(partition.getId());
@@ -4575,8 +4590,10 @@ public class Env {
      * @param properties
      */
     // The caller need to hold the table write lock
-    public void modifyTableDefaultReplicaAllocation(Database db, OlapTable table, Map<String, String> properties) {
+    public void modifyTableDefaultReplicaAllocation(Database db, OlapTable table,
+            Map<String, String> properties) throws UserException {
         Preconditions.checkArgument(table.isWriteLockHeldByCurrentThread());
+        table.checkChangeReplicaAllocation();
         table.setReplicaAllocation(properties);
         ModifyTablePropertyOperationLog info =
                 new ModifyTablePropertyOperationLog(db.getId(), table.getId(), table.getName(),
@@ -5194,8 +5211,9 @@ public class Env {
         olapTable.replaceTempPartitions(partitionNames, tempPartitionNames, isStrictRange, useTempPartitionName);
 
         // write log
-        ReplacePartitionOperationLog info = new ReplacePartitionOperationLog(db.getId(), olapTable.getId(),
-                partitionNames, tempPartitionNames, isStrictRange, useTempPartitionName);
+        ReplacePartitionOperationLog info =
+                new ReplacePartitionOperationLog(db.getId(), db.getFullName(), olapTable.getId(), olapTable.getName(),
+                        partitionNames, tempPartitionNames, isStrictRange, useTempPartitionName);
         editLog.logReplaceTempPartition(info);
         LOG.info("finished to replace partitions {} with temp partitions {} from table: {}", clause.getPartitionNames(),
                 clause.getTempPartitionNames(), olapTable.getName());
@@ -5567,10 +5585,6 @@ public class Env {
         return loadManagerAdapter;
     }
 
-    public StatisticsAutoAnalyzer getStatisticsAutoAnalyzer() {
-        return statisticsAutoAnalyzer;
-    }
-
     public QueryStats getQueryStats() {
         return queryStats;
     }
@@ -5582,5 +5596,9 @@ public class Env {
 
     public void replayAutoIncrementIdUpdateLog(AutoIncrementIdUpdateLog log) throws Exception {
         getInternalCatalog().replayAutoIncrementIdUpdateLog(log);
+    }
+
+    public ColumnIdFlushDaemon getColumnIdFlusher() {
+        return columnIdFlusher;
     }
 }

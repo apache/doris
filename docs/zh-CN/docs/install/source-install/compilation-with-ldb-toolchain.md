@@ -125,6 +125,11 @@ $ USE_AVX2=0 sh build.sh
 
 若支持则直接执行 `sh build.sh` 即可
 
+如需编译Debug版本的BE，增加 BUILD_TYPE=Debug
+```
+$ BUILD_TYPE=Debug sh build.sh
+```
+
 该脚本会先编译第三方库，之后再编译 Doris 组件（FE、BE）。编译产出在 `output/` 目录下。
 
 ## 预编译三方库

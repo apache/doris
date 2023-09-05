@@ -649,7 +649,8 @@ terminal String
     KW_PREPARE,
     KW_EXECUTE,
     KW_LINES,
-    KW_IGNORE;
+    KW_IGNORE,
+    KW_CONVERT_LSC;
 
 terminal COMMA, COLON, DOT, DOTDOTDOT, AT, STAR, LPAREN, RPAREN, SEMICOLON, LBRACKET, RBRACKET, LBRACE, RBRACE, DIVIDE, MOD, ADD, SUBTRACT, PLACEHOLDER, ARROW;
 terminal BITAND, BITOR, BITXOR, BITNOT;
@@ -4256,6 +4257,10 @@ show_param ::=
     {:
         RESULT = new ShowBuildIndexStmt(db, parser.where, orderByClause, limitClause);
     :}
+    | KW_CONVERT_LSC KW_FROM opt_db:db
+    {:
+        RESULT = new ShowConvertLSCStmt(db);
+    :}
     ;
 
 opt_tmp ::=
@@ -6395,7 +6400,7 @@ cast_expr ::=
   KW_CAST LPAREN expr:e KW_AS type_def:targetType RPAREN
   {:
     CastExpr castExpr = new CastExpr(targetType, e);
-    if (targetType.getType().getLength() != -1
+    if (targetType.getType().getRawLength() != -1
         && (targetType.getType().getPrimitiveType() == PrimitiveType.VARCHAR
         || targetType.getType().getPrimitiveType() == PrimitiveType.CHAR)) {
         // transfer cast(xx as char(N)/varchar(N)) to substr(cast(xx as char), 1, N)

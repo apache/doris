@@ -1137,7 +1137,8 @@ public class OlapTable extends Table {
     }
 
     @Override
-    public Set<String> findReAnalyzeNeededPartitions(TableStats tableStats) {
+    public Set<String> findReAnalyzeNeededPartitions() {
+        TableStats tableStats = Env.getCurrentEnv().getAnalysisManager().findTableStatsStatus(getId());
         if (tableStats == null) {
             return getPartitionNames().stream().map(this::getPartition)
                 .filter(Partition::hasData).map(Partition::getName).collect(Collectors.toSet());
@@ -1759,6 +1760,12 @@ public class OlapTable extends Table {
         // ignore storage policy
         if (!PropertyAnalyzer.analyzeStoragePolicy(properties).isEmpty()) {
             properties.remove(PropertyAnalyzer.PROPERTIES_STORAGE_POLICY);
+        }
+    }
+
+    public void checkChangeReplicaAllocation() throws DdlException {
+        if (isColocateTable()) {
+            throw new DdlException("Cannot change replication allocation of colocate table.");
         }
     }
 
