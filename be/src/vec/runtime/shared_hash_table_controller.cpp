@@ -38,12 +38,17 @@ bool SharedHashTableController::should_build_hash_table(const TUniqueId& fragmen
                                                         int my_node_id) {
     std::lock_guard<std::mutex> lock(_mutex);
     auto it = _builder_fragment_ids.find(my_node_id);
-    DCHECK(_pipeline_engine_enabled && it != _builder_fragment_ids.cend());
-    if (it != _builder_fragment_ids.cend()) {
-        return it->second == fragment_instance_id;
+    if (_pipeline_engine_enabled) {
+        if (it != _builder_fragment_ids.cend()) {
+            return it->second == fragment_instance_id;
+        }
+        return false;
     }
-    throw Exception(ErrorCode::INTERNAL_ERROR,
-                    "Shared hash table for node {} has not been initialized!", my_node_id);
+
+    if (it == _builder_fragment_ids.cend()) {
+        _builder_fragment_ids.insert({my_node_id, fragment_instance_id});
+        return true;
+    }
     return false;
 }
 
