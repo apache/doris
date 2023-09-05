@@ -23,6 +23,7 @@
 #include <utility>
 
 #include "common/config.h"
+#include "runtime/fragment_mgr.h"
 #include "runtime/frontend_info.h"
 #include "time.h"
 #include "util/debug_util.h"
@@ -133,6 +134,25 @@ std::map<TNetworkAddress, FrontendInfo> ExecEnv::get_running_frontends() {
     }
 
     return res;
+}
+
+void ExecEnv::wait_for_all_tasks_done() {
+    // For graceful shutdown, need to wait for all running queries to stop
+    int32_t wait_seconds_passed = 0;
+    while (true) {
+        int num_queries = _fragment_mgr->running_query_num();
+        if (num_queries < 1) {
+            break;
+        }
+        if (wait_seconds_passed > doris::config::grace_shutdown_wait_seconds) {
+            LOG(INFO) << "There are still " << num_queries << " queries running, but "
+                      << wait_seconds_passed << " seconds passed, has to exist now";
+            break;
+        }
+        LOG(INFO) << "There are still " << num_queries << " queries running, waiting...";
+        sleep(1);
+        ++wait_seconds_passed;
+    }
 }
 
 } // namespace doris

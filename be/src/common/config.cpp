@@ -60,6 +60,8 @@ DEFINE_Int32(be_port, "9060");
 // port for brpc
 DEFINE_Int32(brpc_port, "8060");
 
+DEFINE_Int32(arrow_flight_port, "-1");
+
 // the number of bthreads for brpc, the default value is set to -1,
 // which means the number of bthreads is #cpu-cores
 DEFINE_Int32(brpc_num_threads, "256");
@@ -1083,6 +1085,8 @@ DEFINE_mString(user_files_secure_path, "${DORIS_HOME}");
 DEFINE_Int32(partition_topn_partition_threshold, "1024");
 
 DEFINE_Int32(fe_expire_duration_seconds, "60");
+
+DEFINE_Int32(grace_shutdown_wait_seconds, "120");
 
 #ifdef BE_TEST
 // test s3

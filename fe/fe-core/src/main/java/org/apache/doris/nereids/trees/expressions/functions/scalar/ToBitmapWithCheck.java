@@ -25,6 +25,8 @@ import org.apache.doris.nereids.trees.expressions.shape.UnaryExpression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.BigIntType;
 import org.apache.doris.nereids.types.BitmapType;
+import org.apache.doris.nereids.types.StringType;
+import org.apache.doris.nereids.types.VarcharType;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
@@ -38,8 +40,9 @@ public class ToBitmapWithCheck extends ScalarFunction
         implements UnaryExpression, ExplicitlyCastableSignature, AlwaysNotNullable {
 
     public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
-            FunctionSignature.ret(BitmapType.INSTANCE).args(BigIntType.INSTANCE)
-    );
+            FunctionSignature.ret(BitmapType.INSTANCE).args(BigIntType.INSTANCE),
+            FunctionSignature.ret(BitmapType.INSTANCE).args(VarcharType.SYSTEM_DEFAULT),
+            FunctionSignature.ret(BitmapType.INSTANCE).args(StringType.INSTANCE));
 
     /**
      * constructor with 1 argument.

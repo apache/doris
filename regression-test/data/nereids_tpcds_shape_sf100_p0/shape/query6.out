@@ -9,7 +9,7 @@ PhysicalResultSink
 ------------PhysicalDistribute
 --------------hashAgg[LOCAL]
 ----------------PhysicalProject
-------------------hashJoin[INNER_JOIN](j.i_category = i.i_category)(cast(i_current_price as DECIMALV3(38, 5)) > (1.2 * avg(i_current_price)))
+------------------hashJoin[INNER_JOIN](j.i_category = i.i_category)(cast(i_current_price as DECIMALV3(38, 5)) > (1.2 * avg(cast(i_current_price as DECIMALV3(9, 4)))))
 --------------------PhysicalProject
 ----------------------hashJoin[INNER_JOIN](s.ss_item_sk = i.i_item_sk)
 ------------------------PhysicalDistribute
