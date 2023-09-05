@@ -121,6 +121,7 @@ Status BinaryPrefixPageDecoder::_read_next_value() {
     uint32_t non_shared_len;
     auto data_ptr = _decode_value_lengths(_next_ptr, &shared_len, &non_shared_len);
     if (data_ptr == nullptr) {
+        DCHECK(false) << "[BinaryPrefixPageDecoder::_read_next_value] corruption!";
         return Status::Corruption("Failed to decode value at position {}", _cur_pos);
     }
     _current_value.resize(shared_len);
