@@ -208,26 +208,12 @@ public class BrokerFileGroup implements Writable {
 
         // column
         columnSeparator = dataDescription.getColumnSeparator();
-        if (columnSeparator == null) {
-            columnSeparator = "\t";
-        }
         lineDelimiter = dataDescription.getLineDelimiter();
-        if (lineDelimiter == null) {
-            lineDelimiter = "\n";
-        }
         enclose = dataDescription.getEnclose();
         escape = dataDescription.getEscape();
 
         fileFormat = dataDescription.getFileFormat();
-        if (fileFormat != null) {
-            if (!fileFormat.equalsIgnoreCase("parquet") && !fileFormat.equalsIgnoreCase(FeConstants.csv)
-                    && !fileFormat.equalsIgnoreCase("orc")
-                    && !fileFormat.equalsIgnoreCase("json")
-                    && !fileFormat.equalsIgnoreCase(FeConstants.csv_with_names)
-                    && !fileFormat.equalsIgnoreCase(FeConstants.csv_with_names_and_types)) {
-                throw new DdlException("File Format Type " + fileFormat + " is invalid.");
-            }
-        }
+
         compressType = dataDescription.getCompressType();
         isNegative = dataDescription.isNegative();
 

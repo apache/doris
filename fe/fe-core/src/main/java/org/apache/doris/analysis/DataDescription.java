@@ -25,10 +25,7 @@ import org.apache.doris.catalog.FunctionSet;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.cluster.ClusterNamespace;
-import org.apache.doris.common.AnalysisException;
-import org.apache.doris.common.ErrorCode;
-import org.apache.doris.common.ErrorReport;
-import org.apache.doris.common.Pair;
+import org.apache.doris.common.*;
 import org.apache.doris.common.util.SqlParserUtils;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.load.loadv2.LoadTask;
@@ -599,7 +596,7 @@ public class DataDescription implements InsertStmt.DataDesc {
 
     public String getColumnSeparator() {
         if (columnSeparator == null) {
-            return null;
+            return "\t";
         }
         return columnSeparator.getSeparator();
     }
@@ -622,7 +619,7 @@ public class DataDescription implements InsertStmt.DataDesc {
 
     public String getLineDelimiter() {
         if (lineDelimiter == null) {
-            return null;
+            return "\n";
         }
         return lineDelimiter.getSeparator();
     }
@@ -1052,6 +1049,13 @@ public class DataDescription implements InsertStmt.DataDesc {
         if (isAnalyzed) {
             return;
         }
+        checkLoadPriv(fullDbName);
+        checkMergeType();
+        analyzeWithoutCheckPriv(fullDbName);
+        isAnalyzed = true;
+    }
+
+    private void checkMergeType() throws AnalysisException {
         if (mergeType != LoadTask.MergeType.MERGE && deleteCondition != null) {
             throw new AnalysisException("not support DELETE ON clause when merge type is not MERGE.");
         }
@@ -1061,24 +1065,32 @@ public class DataDescription implements InsertStmt.DataDesc {
         if (mergeType != LoadTask.MergeType.APPEND && isNegative) {
             throw new AnalysisException("not support MERGE or DELETE with NEGATIVE.");
         }
-        checkLoadPriv(fullDbName);
-        analyzeWithoutCheckPriv(fullDbName);
-        if (isNegative && mergeType != LoadTask.MergeType.APPEND) {
-            throw new AnalysisException("Negative is only used when merge type is append.");
-        }
-        isAnalyzed = true;
     }
 
     public void analyzeWithoutCheckPriv(String fullDbName) throws AnalysisException {
+        analyzeFilePaths();
+
+        analyzeLoadAttributes();
+
+        analyzeColumns();
+        analyzeMultiLoadColumns();
+        analyzeSequenceCol(fullDbName);
+
+        if (properties != null) {
+            analyzeProperties();
+        }
+    }
+
+    private void analyzeFilePaths() throws AnalysisException {
         if (!isLoadFromTable()) {
             if (filePaths == null || filePaths.isEmpty()) {
                 throw new AnalysisException("No file path in load statement.");
             }
-            for (int i = 0; i < filePaths.size(); ++i) {
-                filePaths.set(i, filePaths.get(i).trim());
-            }
+            filePaths.replaceAll(String::trim);
         }
+    }
 
+    private void analyzeLoadAttributes() throws AnalysisException {
         if (columnSeparator != null) {
             columnSeparator.analyze();
         }
@@ -1091,12 +1103,19 @@ public class DataDescription implements InsertStmt.DataDesc {
             partitionNames.analyze(null);
         }
 
-        analyzeColumns();
-        analyzeMultiLoadColumns();
-        analyzeSequenceCol(fullDbName);
-
-        if (properties != null) {
-            analyzeProperties();
+        // file format
+        // note(tsy): for historical reason, file format here must be string type rather than TFileFormatType
+        if (fileFormat != null) {
+            if (!fileFormat.equalsIgnoreCase("parquet")
+                && !fileFormat.equalsIgnoreCase(FeConstants.csv)
+                && !fileFormat.equalsIgnoreCase("orc")
+                && !fileFormat.equalsIgnoreCase("json")
+                && !fileFormat.equalsIgnoreCase(FeConstants.csv_with_names)
+                && !fileFormat.equalsIgnoreCase(FeConstants.csv_with_names_and_types)) {
+                throw new AnalysisException("File Format Type " + fileFormat + " is invalid.");
+            }
+        } else {
+            fileFormat = "unknown";
         }
     }
 

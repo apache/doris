@@ -239,26 +239,13 @@ public class LoadScanProvider {
 
     private TFileFormatType formatType(String fileFormat, String path) throws UserException {
         if (fileFormat != null) {
-            String lowerFileFormat = fileFormat.toLowerCase();
-            if (lowerFileFormat.equals("parquet")) {
-                return TFileFormatType.FORMAT_PARQUET;
-            } else if (lowerFileFormat.equals("orc")) {
-                return TFileFormatType.FORMAT_ORC;
-            } else if (lowerFileFormat.equals("json")) {
-                return TFileFormatType.FORMAT_JSON;
-                // csv/csv_with_name/csv_with_names_and_types treat as csv format
-            } else if (lowerFileFormat.equals(FeConstants.csv) || lowerFileFormat.equals(FeConstants.csv_with_names)
-                    || lowerFileFormat.equals(FeConstants.csv_with_names_and_types)
-                    // TODO: Add TEXTFILE to TFileFormatType to Support hive text file format.
-                    || lowerFileFormat.equals(FeConstants.text)) {
-                return TFileFormatType.FORMAT_CSV_PLAIN;
-            } else {
+            TFileFormatType formatType = Util.getFileFormatTypeFromName(fileFormat);
+            if (formatType == TFileFormatType.FORMAT_UNKNOWN) {
                 throw new UserException("Not supported file format: " + fileFormat);
             }
-        } else {
-            // get file format by the suffix of file
-            return Util.getFileFormatType(path);
         }
+        // get file format by the file path
+        return Util.getFileFormatTypeFromPath(path);
     }
 
     public TableIf getTargetTable() {
