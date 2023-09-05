@@ -87,7 +87,7 @@ bool VOlapTablePartKeyComparator::operator()(const BlockRowWithIndicator lhs,
             }
         }
     } else { // use transformed column to compare
-        CHECK(_slot_locs.size() == _param_locs.size())
+        DCHECK(_slot_locs.size() == _param_locs.size())
                 << _slot_locs.size() << ' ' << _param_locs.size();
 
         //TODO: use template to accelerate this for older compiler.
@@ -394,8 +394,7 @@ bool VOlapTablePartitionParam::_part_contains(VOlapTablePartition* part,
     // start_key.second == -1 means only single partition
     VOlapTablePartKeyComparator comparator(_partition_slot_locs, _transformed_slot_locs);
     return part->start_key.second == -1 ||
-           !comparator(key,
-                       std::tuple {part->start_key.first, part->start_key.second, false});
+           !comparator(key, std::tuple {part->start_key.first, part->start_key.second, false});
 }
 
 uint32_t VOlapTablePartitionParam::find_tablet(BlockRow* block_row,
