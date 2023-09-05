@@ -323,7 +323,7 @@ void get_least_supertype(const DataTypes& types, DataTypePtr* type) {
         if (have_string || have_fixed_string) {
             bool all_strings = type_ids.size() == (have_string + have_fixed_string);
             if (!all_strings) {
-                LOG(INFO)
+                VLOG_DEBUG
                         << get_exception_message_prefix(types)
                         << " because some of them are String/FixedString and some of them are not";
                 return throw_or_return<on_error>(types, doris::ErrorCode::INVALID_ARGUMENT,
