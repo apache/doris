@@ -45,3 +45,8 @@ where table_schema = '{{ relation.schema }}'
 {% macro doris__get_table_columns_and_constraints() -%}
   {{ return(table_columns_and_constraints()) }}
 {%- endmacro %}
+
+{% macro doris__get_view_columns_comment() -%}
+  {{ return(table_columns_and_constraints()) }}
+{%- endmacro %}
+
