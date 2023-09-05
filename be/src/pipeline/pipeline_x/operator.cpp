@@ -242,11 +242,13 @@ Status StatefulOperatorX<LocalStateType>::get_block(RuntimeState* state, vectori
     }
 
     if (!need_more_input_data(state)) {
-        RETURN_IF_ERROR(pull(state, block, source_state));
-        if (source_state != SourceState::FINISHED && !need_more_input_data(state)) {
+        SourceState new_state = SourceState::DEPEND_ON_SOURCE;
+        RETURN_IF_ERROR(pull(state, block, new_state));
+        if (new_state == SourceState::FINISHED) {
+            source_state = SourceState::FINISHED;
+        } else if (!need_more_input_data(state)) {
             source_state = SourceState::MORE_DATA;
-        } else if (source_state != SourceState::FINISHED &&
-                   source_state == SourceState::MORE_DATA) {
+        } else if (source_state == SourceState::MORE_DATA) {
             source_state = local_state._child_source_state;
         }
     }
