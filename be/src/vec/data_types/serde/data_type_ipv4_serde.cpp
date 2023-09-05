@@ -27,31 +27,6 @@
 namespace doris {
 namespace vectorized {
 
-void DataTypeIPv4SerDe::write_column_to_arrow(const IColumn& column, const NullMap* null_map,
-                                                arrow::ArrayBuilder* array_builder, int start,
-                                                int end) const {
-    auto& col_data = static_cast<const ColumnVector<IPv4>&>(column).get_data();
-    auto& string_builder = assert_cast<arrow::StringBuilder&>(*array_builder);
-    for (size_t i = start; i < end; ++i) {
-        IPv4Value ipv4_val(col_data[i]);
-        auto ipv4_str = ipv4_val.to_string();
-        if (null_map && (*null_map)[i]) {
-            checkArrowStatus(string_builder.AppendNull(), column.get_name(),
-                             array_builder->type()->name());
-        } else {
-            checkArrowStatus(string_builder.Append(ipv4_str.c_str(), ipv4_str.length()), column.get_name(),
-                             array_builder->type()->name());
-        }
-    }
-}
-
-void DataTypeIPv4SerDe::read_column_from_arrow(IColumn& column, const arrow::Array* arrow_array,
-                                                 int start, int end,
-                                                 const cctz::time_zone& ctz) const {
-    std::cout << "column : " << column.get_name() << " data" << getTypeName(column.get_data_type())
-              << " array " << arrow_array->type_id() << std::endl;
-}
-
 template <bool is_binary_format>
 Status DataTypeIPv4SerDe::_write_column_to_mysql(const IColumn& column,
                                                    MysqlRowBuffer<is_binary_format>& result,

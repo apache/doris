@@ -42,12 +42,7 @@ class JsonbOutStream;
 namespace vectorized {
 class Arena;
 
-class DataTypeIPv6SerDe : public DataTypeNumberSerDe<UInt128> {
-    void write_column_to_arrow(const IColumn& column, const NullMap* null_bytemap,
-                               arrow::ArrayBuilder* array_builder, int start,
-                               int end) const override;
-    void read_column_from_arrow(IColumn& column, const arrow::Array* arrow_array, int start,
-                                int end, const cctz::time_zone& ctz) const override;
+class DataTypeIPv6SerDe : public DataTypeNumberSerDe<IPv6> {
     Status write_column_to_mysql(const IColumn& column, MysqlRowBuffer<true>& row_buffer,
                                  int row_idx, bool col_const) const override;
     Status write_column_to_mysql(const IColumn& column, MysqlRowBuffer<false>& row_buffer,

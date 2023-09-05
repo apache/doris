@@ -940,6 +940,10 @@ struct Field::EnumToType<Field::Types::Int64> {
     using Type = Int64;
 };
 template <>
+struct Field::EnumToType<Field::Types::UInt128> {
+    using Type = UInt128;
+};
+template <>
 struct Field::EnumToType<Field::Types::Int128> {
     using Type = Int128;
 };
