@@ -29,7 +29,7 @@
 #include "orc/Type.hh"
 #include "orc/Writer.hh"
 #include "vec/core/block.h"
-#include "vec/runtime/vparquet_writer.h"
+#include "vec/runtime/vparquet_transformer.h"
 
 namespace doris {
 namespace io {
@@ -72,15 +72,14 @@ private:
 };
 
 // a wrapper of parquet output stream
-class VOrcWriterWrapper final : public VFileWriterWrapper {
+class VOrcTransformer final : public VFileFormatTransformer {
 public:
-    VOrcWriterWrapper(doris::io::FileWriter* file_writer,
-                      const VExprContextSPtrs& output_vexpr_ctxs, const std::string& schema,
-                      bool output_object_data);
+    VOrcTransformer(doris::io::FileWriter* file_writer, const VExprContextSPtrs& output_vexpr_ctxs,
+                    const std::string& schema, bool output_object_data);
 
-    ~VOrcWriterWrapper() = default;
+    ~VOrcTransformer() = default;
 
-    Status prepare() override;
+    Status open() override;
 
     Status write(const Block& block) override;
 

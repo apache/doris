@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "vec/runtime/vorc_writer.h"
+#include "vec/runtime/vorc_transformer.h"
 
 #include <glog/logging.h>
 #include <stdlib.h>
@@ -85,15 +85,15 @@ void VOrcOutputStream::set_written_len(int64_t written_len) {
     _written_len = written_len;
 }
 
-VOrcWriterWrapper::VOrcWriterWrapper(doris::io::FileWriter* file_writer,
-                                     const VExprContextSPtrs& output_vexpr_ctxs,
-                                     const std::string& schema, bool output_object_data)
-        : VFileWriterWrapper(output_vexpr_ctxs, output_object_data),
+VOrcTransformer::VOrcTransformer(doris::io::FileWriter* file_writer,
+                                 const VExprContextSPtrs& output_vexpr_ctxs,
+                                 const std::string& schema, bool output_object_data)
+        : VFileFormatTransformer(output_vexpr_ctxs, output_object_data),
           _file_writer(file_writer),
           _write_options(new orc::WriterOptions()),
           _schema_str(schema) {}
 
-Status VOrcWriterWrapper::prepare() {
+Status VOrcTransformer::open() {
     try {
         _schema = orc::Type::buildTypeFromString(_schema_str);
     } catch (const std::exception& e) {
@@ -108,15 +108,15 @@ Status VOrcWriterWrapper::prepare() {
     return Status::OK();
 }
 
-std::unique_ptr<orc::ColumnVectorBatch> VOrcWriterWrapper::_create_row_batch(size_t sz) {
+std::unique_ptr<orc::ColumnVectorBatch> VOrcTransformer::_create_row_batch(size_t sz) {
     return _writer->createRowBatch(sz);
 }
 
-int64_t VOrcWriterWrapper::written_len() {
+int64_t VOrcTransformer::written_len() {
     return _output_stream->getLength();
 }
 
-Status VOrcWriterWrapper::close() {
+Status VOrcTransformer::close() {
     if (_writer != nullptr) {
         try {
             _writer->close();
@@ -398,7 +398,7 @@ Status VOrcWriterWrapper::close() {
 
 #define SET_NUM_ELEMENTS cur_batch->numElements = sz;
 
-Status VOrcWriterWrapper::write(const Block& block) {
+Status VOrcTransformer::write(const Block& block) {
     if (block.rows() == 0) {
         return Status::OK();
     }
