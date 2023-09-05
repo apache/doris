@@ -341,10 +341,12 @@ Status VOlapTableSinkV2::_write_memtable(std::shared_ptr<vectorized::Block> bloc
 Status VOlapTableSinkV2::_cancel(Status status) {
     LOG(INFO) << "canceled olap table sink. load_id=" << print_id(_load_id)
               << ", txn_id=" << _txn_id << ", due to error: " << status;
-    std::for_each(std::begin(*_delta_writer_for_tablet), std::end(*_delta_writer_for_tablet),
-                    [&status](auto&& entry) { entry.second->cancel_with_status(status); });
-    ExecEnv::GetInstance()->delta_writer_v2_pool()->reset(_load_id);
-    _delta_writer_for_tablet.reset();
+    if (_delta_writer_for_tablet) {
+        _delta_writer_for_tablet->for_each(
+                [&status](auto& entry) { entry.second->cancel_with_status(status); });
+        ExecEnv::GetInstance()->delta_writer_v2_pool()->reset(_load_id);
+        _delta_writer_for_tablet.reset();
+    }
     return Status::OK();
 }
 
@@ -371,12 +373,12 @@ Status VOlapTableSinkV2::close(RuntimeState* state, Status exec_status) {
             SCOPED_TIMER(_close_writer_timer);
             // close all delta writers
             if (ExecEnv::GetInstance()->delta_writer_v2_pool()->remove(_load_id)) {
-                std::for_each(std::begin(*_delta_writer_for_tablet),
-                              std::end(*_delta_writer_for_tablet),
-                              [](auto&& entry) { entry.second->close(); });
-                std::for_each(std::begin(*_delta_writer_for_tablet),
-                              std::end(*_delta_writer_for_tablet),
-                              [](auto&& entry) { entry.second->close_wait(); });
+                _delta_writer_for_tablet->for_each([](auto& entry){
+                    entry.second->close();
+                });
+                _delta_writer_for_tablet->for_each([](auto& entry){
+                    entry.second->close_wait();
+                });
             }
             _delta_writer_for_tablet.reset();
         }
