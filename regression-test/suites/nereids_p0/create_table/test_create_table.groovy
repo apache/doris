@@ -18,7 +18,7 @@
 // this suite is for creating table with timestamp datatype in defferent 
 // case. For example: 'year' and 'Year' datatype should also be valid in definition
 
-suite("nereids_create_time_range_table") {
+suite("nereids_create_table") {
     sql 'set enable_nereids_planner=true'
     sql 'set enable_fallback_to_original_planner=false'
     
