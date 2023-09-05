@@ -612,6 +612,9 @@ int main(int argc, char** argv) {
         sleep(3);
     }
 
+    // For graceful shutdown, need to wait for all running queries to stop
+    exec_env->wait_for_all_tasks_done();
+
     return 0;
 }
 
