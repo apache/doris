@@ -388,9 +388,13 @@ public class ExportJob implements Writable {
         }
 
         outfileSqlPerParallel.stream().forEach(outfileSqlList -> {
-            List<StatementBase> logicalPlanAdapterList = outfileSqlList.stream().map(sql ->
-                    new NereidsParser().parseSQL(sql).get(0)).collect(Collectors.toList());
-            selectStmtListPerParallel.add(logicalPlanAdapterList);
+            List<StatementBase> logicalPlanAdapters = Lists.newArrayList();
+            outfileSqlList.stream().forEach(sql -> {
+                StatementBase statementBase = (new NereidsParser().parseSQL(sql)).get(0);
+                statementBase.setOrigStmt(new OriginStatement(sql, 0));
+                logicalPlanAdapters.add(statementBase);
+            });
+            selectStmtListPerParallel.add(logicalPlanAdapters);
         });
     }
 
