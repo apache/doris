@@ -46,6 +46,7 @@ import org.apache.doris.nereids.DorisParser.ComplexColTypeContext;
 import org.apache.doris.nereids.DorisParser.ComplexColTypeListContext;
 import org.apache.doris.nereids.DorisParser.ComplexDataTypeContext;
 import org.apache.doris.nereids.DorisParser.ConstantContext;
+import org.apache.doris.nereids.DorisParser.CreateMTMVContext;
 import org.apache.doris.nereids.DorisParser.CreateRowPolicyContext;
 import org.apache.doris.nereids.DorisParser.CteContext;
 import org.apache.doris.nereids.DorisParser.DateCeilContext;
@@ -380,6 +381,12 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             return withExplain(sink, ctx.explain());
         }
         return new InsertIntoTableCommand(sink, Optional.ofNullable(labelName));
+    }
+
+    @Override
+    public LogicalPlan visitCreateMTMV(CreateMTMVContext ctx) {
+        LogicalPlan logicalPlan = visitQuery(ctx.query());
+        return null;
     }
 
     @Override

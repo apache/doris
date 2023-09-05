@@ -59,11 +59,30 @@ statement
         TO filePath=constant
         (propertyClause)?
         (withRemoteStorageSystem)?                                     #export
+    | CREATE MATERIALIZED VIEW (IF NOT EXISTS)? mvName=multipartIdentifier
+        BUILD (IMMEDIATE | DEFERRED)
+        mvRefreshInfo
+//        mvKeys?
+//        distribution?
+        (properties=propertyItemList)?
+        AS query                                                        #createMTMV
     ;
 
 
 
 // -----------------Command accessories-----------------
+mvRefreshInfo
+    : REFRESH refreshMethod refreshTrigger
+    ;
+
+refreshTrigger
+    : ON MANUAL
+    | ON SCHEDULE EVERY INTEGER_VALUE datetimeUnit? (STARTS STRING_LITERAL)?
+    ;
+
+refreshMethod
+    : COMPLETE
+    ;
 
 identifierOrText
     : errorCapturingIdentifier
