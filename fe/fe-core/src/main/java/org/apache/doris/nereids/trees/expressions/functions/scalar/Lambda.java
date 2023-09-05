@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.trees.expressions.functions.scalar;
 
+import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.ArrayItemReference;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
@@ -24,7 +25,6 @@ import org.apache.doris.nereids.types.ArrayType;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.LambdaType;
 
-import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableList.Builder;
 
@@ -38,24 +38,24 @@ import java.util.stream.Collectors;
  * After bind, x -> x : arguments("x") -> children: Expression(x) ArrayItemReference(x)
  */
 public class Lambda extends Expression {
-    final List<String> argumentNames;
+
+    private final List<String> argumentNames;
 
     /**
      * constructor
      */
     public Lambda(List<String> argumentNames, Expression lambdaFunction) {
-        super(lambdaFunction);
-        this.argumentNames = argumentNames;
+        this(argumentNames, ImmutableList.of(lambdaFunction));
     }
 
     public Lambda(List<String> argumentNames, Expression lambdaFunction, List<ArrayItemReference> arguments) {
-        super(ImmutableList.<Expression>builder().add(lambdaFunction).addAll(arguments).build());
-        this.argumentNames = argumentNames;
+        this(argumentNames, ImmutableList.<Expression>builder().add(lambdaFunction).addAll(arguments).build());
     }
 
     public Lambda(List<String> argumentNames, List<Expression> children) {
         super(children);
-        this.argumentNames = argumentNames;
+        this.argumentNames = ImmutableList.copyOf(Objects.requireNonNull(
+                argumentNames, "argumentNames should not null"));
     }
 
     /**
@@ -65,10 +65,16 @@ public class Lambda extends Expression {
      */
     public ImmutableList<ArrayItemReference> makeArguments(List<Expression> arrays) {
         Builder<ArrayItemReference> builder = new ImmutableList.Builder<>();
+        if (arrays.size() != argumentNames.size()) {
+            throw new AnalysisException(String.format("lambda %s arguments' size is not equal parameters' size",
+                    toSql()));
+        }
         for (int i = 0; i < arrays.size(); i++) {
             Expression array = arrays.get(i);
+            if (!(array.getDataType() instanceof ArrayType)) {
+                throw new AnalysisException(String.format("lambda argument must be array but is %s", array));
+            }
             String name = argumentNames.get(i);
-            Preconditions.checkArgument(array.getDataType() instanceof ArrayType, "lambda must receive array");
             builder.add(new ArrayItemReference(name, array));
         }
         return builder.build();
@@ -122,8 +128,8 @@ public class Lambda extends Expression {
     @Override
     public String toSql() {
         StringBuilder builder = new StringBuilder();
-        builder.append(String.format("%s -> %s", argumentNames,
-                getLambdaFunction().toSql()));
+        String argStr = argumentNames.stream().collect(Collectors.joining(", ", "(", ")"));
+        builder.append(String.format("%s -> %s", argStr, getLambdaFunction().toString()));
         for (int i = 1; i < getArguments().size(); i++) {
             builder.append(", ").append(getArgument(i).toSql());
         }
@@ -133,8 +139,8 @@ public class Lambda extends Expression {
     @Override
     public String toString() {
         StringBuilder builder = new StringBuilder();
-        builder.append(String.format("%s -> %s", argumentNames,
-                getLambdaFunction().toString()));
+        String argStr = argumentNames.stream().collect(Collectors.joining(", ", "(", ")"));
+        builder.append(String.format("%s -> %s", argStr, getLambdaFunction().toString()));
         for (int i = 1; i < getArguments().size(); i++) {
             builder.append(", ").append(getArgument(i).toString());
         }

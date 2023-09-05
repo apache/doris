@@ -111,7 +111,7 @@ public class FunctionBinder extends AbstractExpressionRewriteRule {
 
         Lambda lambdaClosure = lambda.withLambdaFunctionArguments(lambdaFunction, arrayItemReferences);
 
-        // We don't add the ArrayExpression in array map at all
+        // We don't add the ArrayExpression in high order function at all
         return unboundFunction.withChildren(ImmutableList.<Expression>builder()
                 .add(lambdaClosure)
                 .build());

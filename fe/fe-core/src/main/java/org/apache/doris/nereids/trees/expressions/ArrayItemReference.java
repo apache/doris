@@ -33,8 +33,9 @@ import java.util.Objects;
  * it is item from array, which used in lambda function
  */
 public class ArrayItemReference extends NamedExpression implements ExpectsInputTypes {
-    protected final String name;
+
     protected final ExprId exprId;
+    protected final String name;
 
     /** ArrayItemReference */
     public ArrayItemReference(String name, Expression arrayExpression) {
@@ -44,9 +45,9 @@ public class ArrayItemReference extends NamedExpression implements ExpectsInputT
     public ArrayItemReference(ExprId exprId, String name, Expression arrayExpression) {
         super(ImmutableList.of(arrayExpression));
         Preconditions.checkArgument(arrayExpression.getDataType() instanceof ArrayType,
-                "ArrayItemReference' child must return array");
-        this.name = name;
+                String.format("ArrayItemReference' child %s must return array", child(0)));
         this.exprId = exprId;
+        this.name = name;
     }
 
     public Expression getArrayExpression() {
@@ -90,9 +91,7 @@ public class ArrayItemReference extends NamedExpression implements ExpectsInputT
 
     @Override
     public String toSql() {
-        String str = getName() + "#" + getExprId();
-        str += " of " + child(0).toSql();
-        return str;
+        return child(0).toSql();
     }
 
     @Override
@@ -116,12 +115,12 @@ public class ArrayItemReference extends NamedExpression implements ExpectsInputT
             return false;
         }
         ArrayItemReference that = (ArrayItemReference) o;
-        return Objects.equals(child(0), that.child(0));
+        return exprId.equals(that.exprId);
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(children, getExprId());
+        return Objects.hash(exprId);
     }
 
     @Override

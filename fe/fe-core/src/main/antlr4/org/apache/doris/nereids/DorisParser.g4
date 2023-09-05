@@ -412,11 +412,11 @@ expression
     ;
 
 lambdaExpression
-    : LEFT_PAREN?
-        arguments=identifierSeq
-      RIGHT_PAREN?
+    : args+=errorCapturingIdentifier ARROW body=booleanExpression
+    | LEFT_PAREN
+        args+=errorCapturingIdentifier (COMMA args+=errorCapturingIdentifier)+
+      RIGHT_PAREN
         ARROW body=booleanExpression
-
     ;
 
 booleanExpression
