@@ -138,28 +138,33 @@ Status BetaRowset::load_segments(std::vector<segment_v2::SegmentSharedPtr>* segm
 
 Status BetaRowset::load_segments(int64_t seg_id_begin, int64_t seg_id_end,
                                  std::vector<segment_v2::SegmentSharedPtr>* segments) {
+    int64_t seg_id = seg_id_begin;
+    while (seg_id < seg_id_end) {
+        std::shared_ptr<segment_v2::Segment> segment;
+        RETURN_IF_ERROR(load_segment(seg_id, &segment));
+        segments->push_back(std::move(segment));
+        seg_id++;
+    }
+    return Status::OK();
+}
+
+Status BetaRowset::load_segment(int64_t seg_id, segment_v2::SegmentSharedPtr* segment) {
     auto fs = _rowset_meta->fs();
     if (!fs || _schema == nullptr) {
         return Status::Error<INIT_FAILED>("get fs failed");
     }
-    int64_t seg_id = seg_id_begin;
-    while (seg_id < seg_id_end) {
-        DCHECK(seg_id >= 0);
-        auto seg_path = segment_file_path(seg_id);
-        std::shared_ptr<segment_v2::Segment> segment;
-        io::SegmentCachePathPolicy cache_policy;
-        cache_policy.set_cache_path(segment_cache_path(seg_id));
-        auto type = config::enable_file_cache ? config::file_cache_type : "";
-        io::FileReaderOptions reader_options(io::cache_type_from_string(type), cache_policy);
-        auto s = segment_v2::Segment::open(fs, seg_path, seg_id, rowset_id(), _schema,
-                                           reader_options, &segment);
-        if (!s.ok()) {
-            LOG(WARNING) << "failed to open segment. " << seg_path << " under rowset "
-                         << unique_id() << " : " << s.to_string();
-            return s;
-        }
-        segments->push_back(std::move(segment));
-        seg_id++;
+    DCHECK(seg_id >= 0);
+    auto seg_path = segment_file_path(seg_id);
+    io::SegmentCachePathPolicy cache_policy;
+    cache_policy.set_cache_path(segment_cache_path(seg_id));
+    auto type = config::enable_file_cache ? config::file_cache_type : "";
+    io::FileReaderOptions reader_options(io::cache_type_from_string(type), cache_policy);
+    auto s = segment_v2::Segment::open(fs, seg_path, seg_id, rowset_id(), _schema, reader_options,
+                                       segment);
+    if (!s.ok()) {
+        LOG(WARNING) << "failed to open segment. " << seg_path << " under rowset " << unique_id()
+                     << " : " << s.to_string();
+        return s;
     }
     return Status::OK();
 }
@@ -176,7 +181,8 @@ Status BetaRowset::remove() {
                 << ", version:" << start_version() << "-" << end_version()
                 << ", tabletid:" << _rowset_meta->tablet_id();
     // If the rowset was removed, it need to remove the fds in segment cache directly
-    SegmentLoader::instance()->erase_segments(SegmentCache::CacheKey(rowset_id()));
+    SegmentLoader::instance()->erase_segments(_rowset_meta->rowset_id(),
+                                              _rowset_meta->num_segments());
     auto fs = _rowset_meta->fs();
     if (!fs) {
         return Status::Error<INIT_FAILED>("get fs failed");
