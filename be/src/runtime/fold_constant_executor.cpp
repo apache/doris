@@ -250,6 +250,13 @@ string FoldConstantExecutor::_get_result(void* src, size_t size, PrimitiveType s
             return str;
         }
     }
+    case TYPE_DATETIMEV2: {
+        auto date_value = reinterpret_cast<
+                doris::vectorized::DateV2Value<doris::vectorized::DateTimeV2ValueType>*>(src);
+        char str[MAX_DTVALUE_STR_LEN];
+        date_value->to_string(str);
+        return str;
+    }
     case TYPE_DECIMALV2: {
         return reinterpret_cast<DecimalV2Value*>(src)->to_string();
     }
