@@ -183,8 +183,36 @@ suite("test_alter_table_column") {
             }
         }
     }
+
+    sql "DROP TABLE IF EXISTS baseall"
+    sql """
+        CREATE TABLE IF NOT EXISTS `baseall` (
+            `k0` boolean null comment "",
+            `k1` tinyint(4) null comment "",
+            `k2` smallint(6) null comment "",
+            `k3` int(11) null comment "",
+            `k4` bigint(20) null comment "",
+            `k5` decimal(9, 3) null comment "",
+            `k6` char(5) null comment "",
+            `k10` date null comment "",
+            `k11` datetime null comment "",
+            `k7` varchar(20) null comment "",
+            `k8` double max null comment "",
+            `k9` float sum null comment "",
+            `k12` string replace null comment "",
+            `k13` largeint(40) replace null comment ""
+        ) engine=olap
+        DISTRIBUTED BY HASH(`k1`) BUCKETS 5 properties("replication_num" = "1")
+        """
+
+    streamLoad {
+        table "baseall"
+        set 'column_separator', ','
+        file "baseall.txt"
+    }
+    sql "sync"
+
     def tbName3 = "p_test"
-    sql "use test_query_db"
     sql "DROP TABLE IF EXISTS ${tbName3};"
     sql """
             CREATE TABLE IF NOT EXISTS ${tbName3} (
