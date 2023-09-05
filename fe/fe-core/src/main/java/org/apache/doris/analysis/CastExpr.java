@@ -204,11 +204,20 @@ public class CastExpr extends Expr {
 
     @Override
     public String toSqlImpl() {
-        if (needToMysql) {
+        boolean isVerbose = ConnectContext.get() != null
+                && ConnectContext.get().getExecutor() != null
+                && ConnectContext.get().getExecutor().getParsedStmt() != null
+                && ConnectContext.get().getExecutor().getParsedStmt().getExplainOptions() != null
+                && ConnectContext.get().getExecutor().getParsedStmt().getExplainOptions().isVerbose();
+        if (isImplicit && !isVerbose) {
             return getChild(0).toSql();
         }
         if (isAnalyzed) {
-            return "CAST(" + getChild(0).toSql() + " AS " + type.toString() + ")";
+            if (type.isStringType()) {
+                return "CAST(" + getChild(0).toSql() + " AS " + "CHARACTER" + ")";
+            } else {
+                return "CAST(" + getChild(0).toSql() + " AS " + type.toString() + ")";
+            }
         } else {
             return "CAST(" + getChild(0).toSql() + " AS " + targetTypeDef.toSql() + ")";
         }
@@ -225,7 +234,11 @@ public class CastExpr extends Expr {
             return getChild(0).toDigest();
         }
         if (isAnalyzed) {
-            return "CAST(" + getChild(0).toDigest() + " AS " + type.toString() + ")";
+            if (type.isStringType()) {
+                return "CAST(" + getChild(0).toDigest() + " AS " + "CHARACTER" + ")";
+            } else {
+                return "CAST(" + getChild(0).toDigest() + " AS " + type.toString() + ")";
+            }
         } else {
             return "CAST(" + getChild(0).toDigest() + " AS " + targetTypeDef.toString() + ")";
         }

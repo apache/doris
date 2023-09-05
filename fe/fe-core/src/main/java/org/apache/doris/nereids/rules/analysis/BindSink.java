@@ -114,7 +114,7 @@ public class BindSink implements AnalysisRuleFactory {
 
                                     NamedExpression slot = boundExpression instanceof NamedExpression
                                             ? ((NamedExpression) boundExpression)
-                                            : new Alias(boundExpression);
+                                            : new Alias(boundExpression, boundExpression.toSql());
 
                                     columnToOutput.put(column.getName(), slot);
                                 } else if (columnToChildOutput.containsKey(column)) {
@@ -153,7 +153,7 @@ public class BindSink implements AnalysisRuleFactory {
                                 if (castExpr instanceof NamedExpression) {
                                     castExprs.add(((NamedExpression) castExpr));
                                 } else {
-                                    castExprs.add(new Alias(castExpr));
+                                    castExprs.add(new Alias(castExpr, castExpr.toSql()));
                                 }
                             }
                             if (!castExprs.equals(fullOutputExprs)) {

@@ -6301,7 +6301,7 @@ cast_expr ::=
   KW_CAST LPAREN expr:e KW_AS type_def:targetType RPAREN
   {:
     CastExpr castExpr = new CastExpr(targetType, e);
-    if (targetType.getType().getRawLength() != -1
+    if (targetType.getType().getLength() != -1
         && (targetType.getType().getPrimitiveType() == PrimitiveType.VARCHAR
         || targetType.getType().getPrimitiveType() == PrimitiveType.CHAR)) {
         // transfer cast(xx as char(N)/varchar(N)) to substr(cast(xx as char), 1, N)

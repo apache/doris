@@ -112,7 +112,7 @@ public class UpdateCommand extends Command implements ForwardWithSync, Explainab
                 Expression expr = colNameToExpression.get(column.getName());
                 selectItems.add(expr instanceof UnboundSlot
                         ? ((NamedExpression) expr)
-                        : new Alias(expr));
+                        : new Alias(expr, expr.toSql()));
             } else {
                 selectItems.add(new UnboundSlot(tableName, column.getName()));
             }

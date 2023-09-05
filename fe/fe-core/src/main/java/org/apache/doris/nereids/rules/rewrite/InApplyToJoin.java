@@ -76,7 +76,7 @@ public class InApplyToJoin extends OneRewriteRuleFactory {
                 List<Expression> groupExpressions = ImmutableList.of();
                 Expression bitmapCol = apply.right().getOutput().get(0);
                 BitmapUnion union = new BitmapUnion(bitmapCol);
-                Alias alias = new Alias(union);
+                Alias alias = new Alias(union, union.toSql());
                 List<NamedExpression> outputExpressions = Lists.newArrayList(alias);
 
                 LogicalAggregate agg = new LogicalAggregate(groupExpressions, outputExpressions, apply.right());

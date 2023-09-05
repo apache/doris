@@ -14,12 +14,12 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
-suite("test_materialized_view_hll_with_light_sc", "rollup") {
+suite("hll", "rollup") {
 
-    // because nereids cannot support rollup correctly forbid it temporary
-    sql """set enable_nereids_planner=false"""
+    sql """set enable_nereids_planner=true"""
+    sql "SET enable_fallback_to_original_planner=false"
     
-    def tbName1 = "test_materialized_view_hll_with_light_sc"
+    def tbName1 = "test_materialized_view_hll1"
 
     def getJobState = { tableName ->
         def jobStateResult = sql """  SHOW ALTER TABLE MATERIALIZED VIEW WHERE TableName='${tableName}' ORDER BY CreateTime DESC LIMIT 1; """
@@ -34,10 +34,10 @@ suite("test_materialized_view_hll_with_light_sc", "rollup") {
                 sale_date date, 
                 sale_amt bigint
             ) 
-            DISTRIBUTED BY HASH(record_id) properties("replication_num" = "1", "light_schema_change" = "true");
+            DISTRIBUTED BY HASH(record_id) properties("replication_num" = "1");
         """
 
-    sql "CREATE materialized VIEW amt_count1 AS SELECT store_id, hll_union(hll_hash(sale_amt)) FROM ${tbName1} GROUP BY store_id;"
+    sql "CREATE materialized VIEW amt_count AS SELECT store_id, hll_union(hll_hash(sale_amt)) FROM ${tbName1} GROUP BY store_id;"
     max_try_secs = 60
     while (max_try_secs--) {
         String res = getJobState(tbName1)
@@ -61,7 +61,7 @@ suite("test_materialized_view_hll_with_light_sc", "rollup") {
 
     explain {
         sql("SELECT store_id, hll_union_agg(hll_hash(sale_amt)) FROM ${tbName1} GROUP BY store_id;")
-        contains "(amt_count1)"
+        contains "(amt_count)"
     }
 
     sql "DROP TABLE ${tbName1} FORCE;"

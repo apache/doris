@@ -51,32 +51,25 @@ public class MVColumnItem {
 
     public MVColumnItem(String name, Type type, AggregateType aggregateType, boolean isAggregationTypeImplicit,
             Expr defineExpr, String baseColumnName) {
-        this(name, type, aggregateType, isAggregationTypeImplicit, defineExpr);
+        this(name, type, aggregateType, isAggregationTypeImplicit, defineExpr, baseColumnName, null);
     }
 
-    public MVColumnItem(Type type, AggregateType aggregateType, Expr defineExpr, String baseColumnName) {
+    public MVColumnItem(Type type, AggregateType aggregateType,
+            Expr defineExpr, String baseColumnName) {
         this(CreateMaterializedViewStmt.mvColumnBuilder(aggregateType, baseColumnName), type, aggregateType, false,
-                defineExpr);
+                defineExpr, baseColumnName, null);
     }
 
     public MVColumnItem(String name, Type type, AggregateType aggregateType, boolean isAggregationTypeImplicit,
-            Expr defineExpr) {
+            Expr defineExpr, String baseColumnName, String baseTableName) {
         this.name = name;
         this.type = type;
         this.aggregationType = aggregateType;
         this.isAggregationTypeImplicit = isAggregationTypeImplicit;
         this.defineExpr = defineExpr;
         baseColumnNames = new HashSet<>();
-
-        Map<Long, Set<String>> tableIdToColumnNames = defineExpr.getTableIdToColumnNames();
-        if (defineExpr instanceof SlotRef) {
-            baseColumnNames = new HashSet<>();
-            baseColumnNames.add(this.name);
-        } else if (tableIdToColumnNames.size() == 1) {
-            for (Map.Entry<Long, Set<String>> entry : tableIdToColumnNames.entrySet()) {
-                baseColumnNames = entry.getValue();
-            }
-        }
+        baseColumnNames.add(baseColumnName);
+        this.baseTableName = baseTableName;
     }
 
     public MVColumnItem(String name, Type type) {
@@ -104,6 +97,7 @@ public class MVColumnItem {
         }
 
         Map<Long, Set<String>> tableIdToColumnNames = defineExpr.getTableIdToColumnNames();
+
         if (defineExpr instanceof SlotRef) {
             baseColumnNames = new HashSet<>();
             baseColumnNames.add(this.name);

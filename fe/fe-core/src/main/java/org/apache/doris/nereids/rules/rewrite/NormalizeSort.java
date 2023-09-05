@@ -48,7 +48,7 @@ public class NormalizeSort extends OneRewriteRuleFactory {
                             .map(orderKey -> {
                                 Expression expr = orderKey.getExpr();
                                 if (!(expr instanceof Slot)) {
-                                    Alias alias = new Alias(expr);
+                                    Alias alias = new Alias(expr, expr.toSql());
                                     newProjects.add(alias);
                                     expr = alias.toSlot();
                                 }

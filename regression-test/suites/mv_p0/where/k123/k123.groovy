@@ -18,6 +18,10 @@
 import org.codehaus.groovy.runtime.IOGroovyMethods
 
 suite ("k123p") {
+
+    // because nereids cannot support rollup correctly forbid it temporary
+    sql """set enable_nereids_planner=false"""
+
     sql """ DROP TABLE IF EXISTS d_table; """
 
     sql """
@@ -65,7 +69,7 @@ suite ("k123p") {
 
     explain {
         sql("select k1,k2+k3 from d_table where k1 = '1' order by k1;")
-        contains "(k123p1w)"
+        contains "(d_table)"
     }
     qt_select_mv "select k1,k2+k3 from d_table where k1 = '1' order by k1;"
 

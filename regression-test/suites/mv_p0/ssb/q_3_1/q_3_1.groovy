@@ -19,7 +19,7 @@ import org.codehaus.groovy.runtime.IOGroovyMethods
 
 suite ("mv_ssb_q_3_1") {
 
-    sql """set enable_nereids_planner=true"""
+    sql """set enable_nereids_planner=false"""
 
     sql """ DROP TABLE IF EXISTS lineorder_flat; """
 

@@ -10,7 +10,7 @@ bigint_key	BIGINT	No	true	\N	BLOOM_FILTER
 char_50_key	CHAR(50)	No	true	\N	BLOOM_FILTER
 character_key	VARCHAR(500)	No	true	\N	BLOOM_FILTER
 char_key	CHAR(1)	No	true	\N	BLOOM_FILTER
-character_most_key	VARCHAR(*)	No	true	\N	BLOOM_FILTER
+character_most_key	VARCHAR(65533)	No	true	\N	BLOOM_FILTER
 decimal_key	DECIMAL(20, 6)	No	true	\N	BLOOM_FILTER
 decimal_most_key	DECIMAL(27, 9)	No	true	\N	BLOOM_FILTER
 decimal32_key	DECIMAL(5, 1)	No	true	\N	BLOOM_FILTER
@@ -29,7 +29,7 @@ bigint_value	BIGINT	No	false	\N	SUM
 char_50_value	CHAR(50)	No	false	\N	REPLACE
 character_value	VARCHAR(500)	No	false	\N	REPLACE
 char_value	CHAR(1)	No	false	\N	REPLACE
-character_most_value	VARCHAR(*)	No	false	\N	REPLACE
+character_most_value	VARCHAR(65533)	No	false	\N	REPLACE
 decimal_value	DECIMAL(20, 6)	No	false	\N	SUM
 decimal_most_value	DECIMAL(27, 9)	No	false	\N	SUM
 decimal32_value	DECIMAL(5, 1)	No	false	\N	SUM
