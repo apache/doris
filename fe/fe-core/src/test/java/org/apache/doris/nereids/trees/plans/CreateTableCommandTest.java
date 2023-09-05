@@ -588,13 +588,13 @@ public class CreateTableCommandTest extends TestWithFeService {
 
     @Test
     public void testCreateTableWithArrayType() {
-        checkThrow(ParseException.class,
+        Assertions.assertDoesNotThrow(
                 () -> createTable("create table test.table1(k1 INT, k2 Array<int>) duplicate key (k1) "
                         + "distributed by hash(k1) buckets 1 properties('replication_num' = '1');"));
-        checkThrow(ParseException.class,
+        Assertions.assertDoesNotThrow(
                 () -> createTable("create table test.table2(k1 INT, k2 Array<Array<int>>) duplicate key (k1) "
                         + "distributed by hash(k1) buckets 1 properties('replication_num' = '1');"));
-        checkThrow(ParseException.class,
+        Assertions.assertDoesNotThrow(
                 () -> createTable("CREATE TABLE test.table3 (\n"
                         + "  `k1` INT(11) NULL COMMENT \"\",\n"
                         + "  `k2` ARRAY<ARRAY<SMALLINT>> NULL COMMENT \"\",\n"
@@ -611,7 +611,7 @@ public class CreateTableCommandTest extends TestWithFeService {
                         + "PROPERTIES (\n"
                         + "\"replication_allocation\" = \"tag.location.default: 1\"\n"
                         + ");"));
-        checkThrow(ParseException.class,
+        Assertions.assertDoesNotThrow(
                 () -> createTable("CREATE TABLE test.table4 (\n"
                         + "  `k1` INT(11) NULL COMMENT \"\",\n"
                         + "  `k2` ARRAY<ARRAY<ARRAY<ARRAY<ARRAY<ARRAY<ARRAY<ARRAY<ARRAY<ARRAY<DECIMAL(20, 6)>>>>>>>>>> NULL COMMENT \"\"\n"
@@ -622,14 +622,14 @@ public class CreateTableCommandTest extends TestWithFeService {
                         + "\"replication_allocation\" = \"tag.location.default: 1\"\n"
                         + ");"));
 
-        checkThrow(ParseException.class,
+        Assertions.assertDoesNotThrow(
                 () -> createTable("create table test.table5(\n"
                         + "\tk1 int,\n"
                         + "\tv1 array<int>\n"
                         + ") distributed by hash(k1) buckets 1\n"
                         + "properties(\"replication_num\" = \"1\");"));
 
-        checkThrow(ParseException.class,
+        Assertions.assertDoesNotThrow(
                 () -> createTable("create table test.test_array( \n"
                         + "task_insert_time BIGINT NOT NULL DEFAULT \"0\" COMMENT \"\" , \n"
                         + "task_project ARRAY<VARCHAR(64)>  DEFAULT NULL COMMENT \"\" ,\n"
@@ -648,7 +648,7 @@ public class CreateTableCommandTest extends TestWithFeService {
                         + "    \"light_schema_change\" = \"true\"    \n"
                         + ");"));
 
-        checkThrow(ParseException.class,
+        checkThrow(AnalysisException.class, "Complex type column can't be partition column: ARRAY<VARCHAR(64)>",
                 () -> createTable("create table test.test_array2( \n"
                         + "task_insert_time BIGINT NOT NULL DEFAULT \"0\" COMMENT \"\" , \n"
                         + "task_project ARRAY<VARCHAR(64)>  DEFAULT NULL COMMENT \"\" ,\n"
