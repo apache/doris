@@ -49,6 +49,7 @@ enum DecimalRoundMode { HALF_UP = 1, HALF_EVEN = 2, CEILING = 3, FLOOR = 4, TRUN
 
 class DecimalV2Value {
 public:
+    using NativeType = __int128_t;
     friend DecimalV2Value operator+(const DecimalV2Value& v1, const DecimalV2Value& v2);
     friend DecimalV2Value operator-(const DecimalV2Value& v1, const DecimalV2Value& v2);
     friend DecimalV2Value operator*(const DecimalV2Value& v1, const DecimalV2Value& v2);

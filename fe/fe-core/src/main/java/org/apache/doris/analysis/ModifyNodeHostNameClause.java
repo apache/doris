@@ -65,7 +65,7 @@ public class ModifyNodeHostNameClause extends AlterClause {
                 // will throw UnknownHostException
                 InetAddress.getByName(newHost);
             } else {
-                throw new AnalysisException("Invalid hostname: " + newHost);
+                throw new AnalysisException("   Invalid hostname: " + newHost);
             }
         } catch (UnknownHostException e) {
             throw new AnalysisException("Unknown hostname:  " + e.getMessage());

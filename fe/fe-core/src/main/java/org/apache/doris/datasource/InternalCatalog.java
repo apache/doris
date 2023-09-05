@@ -80,6 +80,8 @@ import org.apache.doris.catalog.MaterializedIndex.IndexState;
 import org.apache.doris.catalog.MaterializedIndexMeta;
 import org.apache.doris.catalog.MaterializedView;
 import org.apache.doris.catalog.MetaIdGenerator.IdGeneratorBuffer;
+import org.apache.doris.catalog.MysqlCompatibleDatabase;
+import org.apache.doris.catalog.MysqlDb;
 import org.apache.doris.catalog.MysqlTable;
 import org.apache.doris.catalog.OdbcTable;
 import org.apache.doris.catalog.OlapTable;
@@ -186,7 +188,6 @@ import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
-import java.util.Map.Entry;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
@@ -215,12 +216,17 @@ public class InternalCatalog implements CatalogIf<Database> {
     private IcebergTableCreationRecordMgr icebergTableCreationRecordMgr = new IcebergTableCreationRecordMgr();
 
     public InternalCatalog() {
-        // create info schema db
-        final InfoSchemaDb db = new InfoSchemaDb(SystemInfoService.DEFAULT_CLUSTER);
-        db.setClusterName(SystemInfoService.DEFAULT_CLUSTER);
-        // do not call unprotectedCreateDb, because it will cause loop recursive when initializing Env singleton
-        idToDb.put(db.getId(), db);
-        fullNameToDb.put(db.getFullName(), db);
+        // create internal databases
+        List<MysqlCompatibleDatabase> mysqlCompatibleDatabases = new ArrayList<>();
+        mysqlCompatibleDatabases.add(new InfoSchemaDb(SystemInfoService.DEFAULT_CLUSTER));
+        mysqlCompatibleDatabases.add(new MysqlDb(SystemInfoService.DEFAULT_CLUSTER));
+        MysqlCompatibleDatabase.COUNT = 2;
+
+        for (MysqlCompatibleDatabase idb : mysqlCompatibleDatabases) {
+            // do not call unprotectedCreateDb, because it will cause loop recursive when initializing Env singleton
+            idToDb.put(idb.getId(), idb);
+            fullNameToDb.put(idb.getFullName(), idb);
+        }
     }
 
     @Override
@@ -250,6 +256,9 @@ public class InternalCatalog implements CatalogIf<Database> {
     @Nullable
     @Override
     public Database getDbNullable(String dbName) {
+        if (StringUtils.isEmpty(dbName)) {
+            return null;
+        }
         if (fullNameToDb.containsKey(dbName)) {
             return fullNameToDb.get(dbName);
         } else {
@@ -851,6 +860,10 @@ public class InternalCatalog implements CatalogIf<Database> {
 
         // check database
         Database db = (Database) getDbOrDdlException(dbName);
+        if (db.isMysqlCompatibleDatabase()) {
+            throw new DdlException("Drop table from this database is not allowed.");
+        }
+
         db.writeLockOrDdlException();
         try {
             Table table = db.getTableNullable(tableName);
@@ -1067,9 +1080,9 @@ public class InternalCatalog implements CatalogIf<Database> {
         String tableName = stmt.getTableName();
 
         // check if db exists
-        Database db = (Database) getDbOrDdlException(dbName);
-        // InfoSchemaDb can not create table
-        if (db instanceof InfoSchemaDb) {
+        Database db = getDbOrDdlException(dbName);
+        // InfoSchemaDb and MysqlDb can not create table manually
+        if (db.isMysqlCompatibleDatabase()) {
             ErrorReport.reportDdlException(ErrorCode.ERR_CANT_CREATE_TABLE, tableName,
                     ErrorCode.ERR_CANT_CREATE_TABLE.getCode(), "not supported create table in this database");
         }
@@ -1451,10 +1464,6 @@ public class InternalCatalog implements CatalogIf<Database> {
                 properties.put(PropertyAnalyzer.PROPERTIES_TIME_SERIES_COMPACTION_TIME_THRESHOLD_SECONDS,
                                                 olapTable.getTimeSeriesCompactionTimeThresholdSeconds().toString());
             }
-            if (!properties.containsKey(PropertyAnalyzer.PROPERTIES_DYNAMIC_SCHEMA)) {
-                properties.put(PropertyAnalyzer.PROPERTIES_DYNAMIC_SCHEMA,
-                        olapTable.isDynamicSchema().toString());
-            }
             if (!properties.containsKey(PropertyAnalyzer.PROPERTIES_STORAGE_POLICY)) {
                 properties.put(PropertyAnalyzer.PROPERTIES_STORAGE_POLICY, olapTable.getStoragePolicy());
             }
@@ -1551,7 +1560,7 @@ public class InternalCatalog implements CatalogIf<Database> {
                     olapTable.getTimeSeriesCompactionGoalSizeMbytes(),
                     olapTable.getTimeSeriesCompactionFileCountThreshold(),
                     olapTable.getTimeSeriesCompactionTimeThresholdSeconds(),
-                    olapTable.storeRowColumn(), olapTable.isDynamicSchema(),
+                    olapTable.storeRowColumn(),
                     binlogConfig, dataProperty.isStorageMediumSpecified());
 
             // check again
@@ -1781,7 +1790,7 @@ public class InternalCatalog implements CatalogIf<Database> {
             boolean enableSingleReplicaCompaction, boolean skipWriteIndexOnLoad,
             String compactionPolicy, Long timeSeriesCompactionGoalSizeMbytes,
             Long timeSeriesCompactionFileCountThreshold, Long timeSeriesCompactionTimeThresholdSeconds,
-            boolean storeRowColumn, boolean isDynamicSchema, BinlogConfig binlogConfig,
+            boolean storeRowColumn, BinlogConfig binlogConfig,
             boolean isStorageMediumSpecified) throws DdlException {
         // create base index first.
         Preconditions.checkArgument(baseIndexId != -1);
@@ -1847,7 +1856,7 @@ public class InternalCatalog implements CatalogIf<Database> {
                             disableAutoCompaction, enableSingleReplicaCompaction, skipWriteIndexOnLoad,
                             compactionPolicy, timeSeriesCompactionGoalSizeMbytes,
                             timeSeriesCompactionFileCountThreshold, timeSeriesCompactionTimeThresholdSeconds,
-                            storeRowColumn, isDynamicSchema, binlogConfig);
+                            storeRowColumn, binlogConfig);
 
                     task.setStorageFormat(storageFormat);
                     batchTask.addTask(task);
@@ -2203,11 +2212,6 @@ public class InternalCatalog implements CatalogIf<Database> {
                 PropertyAnalyzer.PROPERTIES_SKIP_WRITE_INDEX_ON_LOAD, false);
         olapTable.setSkipWriteIndexOnLoad(skipWriteIndexOnLoad);
 
-        // set dynamic schema
-        boolean isDynamicSchema = PropertyAnalyzer.analyzeBooleanProp(properties,
-                PropertyAnalyzer.PROPERTIES_DYNAMIC_SCHEMA, false);
-        olapTable.setIsDynamicSchema(isDynamicSchema);
-
         boolean isMutable = PropertyAnalyzer.analyzeBooleanProp(properties, PropertyAnalyzer.PROPERTIES_MUTABLE, true);
 
         // set storage policy
@@ -2416,7 +2420,7 @@ public class InternalCatalog implements CatalogIf<Database> {
                         olapTable.getCompactionPolicy(), olapTable.getTimeSeriesCompactionGoalSizeMbytes(),
                         olapTable.getTimeSeriesCompactionFileCountThreshold(),
                         olapTable.getTimeSeriesCompactionTimeThresholdSeconds(),
-                        storeRowColumn, isDynamicSchema, binlogConfigForTask,
+                        storeRowColumn, binlogConfigForTask,
                         partitionInfo.getDataProperty(partitionId).isStorageMediumSpecified());
                 olapTable.addPartition(partition);
             } else if (partitionInfo.getType() == PartitionType.RANGE
@@ -2486,7 +2490,7 @@ public class InternalCatalog implements CatalogIf<Database> {
                             olapTable.getCompactionPolicy(), olapTable.getTimeSeriesCompactionGoalSizeMbytes(),
                             olapTable.getTimeSeriesCompactionFileCountThreshold(),
                             olapTable.getTimeSeriesCompactionTimeThresholdSeconds(),
-                            storeRowColumn, isDynamicSchema, binlogConfigForTask,
+                            storeRowColumn, binlogConfigForTask,
                             dataProperty.isStorageMediumSpecified());
                     olapTable.addPartition(partition);
                 }
@@ -2913,7 +2917,7 @@ public class InternalCatalog implements CatalogIf<Database> {
                         olapTable.getCompactionPolicy(), olapTable.getTimeSeriesCompactionGoalSizeMbytes(),
                         olapTable.getTimeSeriesCompactionFileCountThreshold(),
                         olapTable.getTimeSeriesCompactionTimeThresholdSeconds(),
-                        olapTable.storeRowColumn(), olapTable.isDynamicSchema(), binlogConfig,
+                        olapTable.storeRowColumn(), binlogConfig,
                         copiedTbl.getPartitionInfo().getDataProperty(oldPartitionId).isStorageMediumSpecified());
                 newPartitions.add(newPartition);
             }
@@ -3074,15 +3078,20 @@ public class InternalCatalog implements CatalogIf<Database> {
     }
 
     public long saveDb(CountingDataOutputStream dos, long checksum) throws IOException {
-        // 1 is for information_schema db, which does not need to be persisted.
-        int dbCount = idToDb.size() - 1;
+        // 2 is for information_schema db & mysql db, which does not need to be persisted.
+        // And internal database could not be dropped, so we assert dbCount >= 0
+        int dbCount = idToDb.size() - MysqlCompatibleDatabase.COUNT;
+        if (dbCount < 0) {
+            throw new IOException("Invalid database count");
+        }
+
         checksum ^= dbCount;
         dos.writeInt(dbCount);
+
         for (Map.Entry<Long, Database> entry : idToDb.entrySet()) {
             Database db = entry.getValue();
-            String dbName = db.getFullName();
-            // Don't write information_schema db meta
-            if (!InfoSchemaDb.isInfoSchemaDb(dbName)) {
+            // Don't write internal database meta.
+            if (!db.isMysqlCompatibleDatabase()) {
                 checksum ^= entry.getKey();
                 db.write(dos);
             }
@@ -3100,6 +3109,8 @@ public class InternalCatalog implements CatalogIf<Database> {
             idToDb.put(db.getId(), db);
             fullNameToDb.put(db.getFullName(), db);
             Env.getCurrentGlobalTransactionMgr().addDatabaseTransactionMgr(db.getId());
+
+            db.analyze();
         }
         // ATTN: this should be done after load Db, and before loadAlterJob
         recreateTabletInvertIndex();

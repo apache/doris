@@ -47,6 +47,7 @@ namespace segment_v2 {
 class BitmapIndexIterator;
 } // namespace segment_v2
 
+template <PrimitiveType T>
 class LikeColumnPredicate : public ColumnPredicate {
 public:
     LikeColumnPredicate(bool opposite, uint32_t column_id, doris::FunctionContext* fn_ctx,

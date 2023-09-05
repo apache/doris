@@ -49,6 +49,7 @@ using strings::Substitute;
 Status PageIO::compress_page_body(BlockCompressionCodec* codec, double min_space_saving,
                                   const std::vector<Slice>& body, OwnedSlice* compressed_body) {
     size_t uncompressed_size = Slice::compute_total_size(body);
+
     if (codec != nullptr && !codec->exceed_max_compress_len(uncompressed_size)) {
         faststring buf;
         RETURN_IF_ERROR_OR_CATCH_EXCEPTION(codec->compress(body, uncompressed_size, &buf));
@@ -115,13 +116,17 @@ Status PageIO::read_and_decompress_page(const PageReadOptions& opts, PageHandle*
                                         Slice* body, PageFooterPB* footer) {
     opts.sanity_check();
     opts.stats->total_pages_num++;
+    Status st = Status::Error(ErrorCode::INTERNAL_ERROR,"in page_io now, opts.use_page_cache:{}", opts.use_page_cache);
 
+    LOG(INFO) << st;
     auto cache = StoragePageCache::instance();
     PageCacheHandle cache_handle;
     StoragePageCache::CacheKey cache_key(opts.file_reader->path().native(),
                                          opts.file_reader->size(), opts.page_pointer.offset);
     if (opts.use_page_cache && cache->is_cache_available(opts.type) &&
         cache->lookup(cache_key, &cache_handle, opts.type)) {
+        Status st =   Status::Error(ErrorCode::INTERNAL_ERROR,", opts.use_page_cache is true");
+        LOG(INFO) << st;
         // we find page in cache, use it
         *handle = PageHandle(std::move(cache_handle));
         opts.stats->cached_pages_num++;

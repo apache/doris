@@ -92,13 +92,6 @@ struct DefaultHash<T> {
 };
 
 template <>
-struct DefaultHash<doris::vectorized::Int128I> {
-    size_t operator()(doris::vectorized::Int128I key) const {
-        return default_hash64<doris::vectorized::Int128I>(key);
-    }
-};
-
-template <>
 struct DefaultHash<doris::StringRef> : public doris::StringRefHash {};
 
 template <typename T>
@@ -170,47 +163,17 @@ struct HashCRC32<doris::vectorized::UInt256> {
     }
 };
 
-/// It is reasonable to use for UInt8, UInt16 with sufficient hash table size.
-struct TrivialHash {
-    template <typename T>
-    size_t operator()(T key) const {
-        return key;
+template <>
+struct HashCRC32<doris::vectorized::UInt136> {
+    size_t operator()(const doris::vectorized::UInt136& x) const {
+#if defined(__SSE4_2__) || defined(__aarch64__)
+        doris::vectorized::UInt64 crc = -1ULL;
+        crc = _mm_crc32_u8(crc, x.a);
+        crc = _mm_crc32_u64(crc, x.b);
+        crc = _mm_crc32_u64(crc, x.c);
+        return crc;
+#else
+        return Hash128to64({Hash128to64({x.a, x.b}), x.c});
+#endif
     }
-};
-
-/** A relatively good non-cryptographic hash function from UInt64 to UInt32.
-  * But worse (both in quality and speed) than just cutting int_hash64.
-  * Taken from here: http://www.concentric.net/~ttwang/tech/inthash.htm
-  *
-  * Slightly changed compared to the function by link: shifts to the right are accidentally replaced by a cyclic shift to the right.
-  * This change did not affect the smhasher test results.
-  *
-  * It is recommended to use different salt for different tasks.
-  * That was the case that in the database values were sorted by hash (for low-quality pseudo-random spread),
-  *  and in another place, in the aggregate function, the same hash was used in the hash table,
-  *  as a result, this aggregate function was monstrously slowed due to collisions.
-  *
-  * NOTE Salting is far from perfect, because it commutes with first steps of calculation.
-  *
-  * NOTE As mentioned, this function is slower than int_hash64.
-  * But occasionally, it is faster, when written in a loop and loop is vectorized.
-  */
-template <doris::vectorized::UInt64 salt>
-inline doris::vectorized::UInt32 int_hash32(doris::vectorized::UInt64 key) {
-    key ^= salt;
-
-    key = (~key) + (key << 18);
-    key = key ^ ((key >> 31) | (key << 33));
-    key = key * 21;
-    key = key ^ ((key >> 11) | (key << 53));
-    key = key + (key << 6);
-    key = key ^ ((key >> 22) | (key << 42));
-
-    return key;
-}
-
-/// For containers.
-template <typename T, doris::vectorized::UInt64 salt = 0>
-struct IntHash32 {
-    size_t operator()(const T& key) const { return int_hash32<salt>(key); }
 };

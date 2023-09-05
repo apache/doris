@@ -31,7 +31,9 @@
 #include "exec/schema_scanner/schema_columns_scanner.h"
 #include "exec/schema_scanner/schema_dummy_scanner.h"
 #include "exec/schema_scanner/schema_files_scanner.h"
+#include "exec/schema_scanner/schema_metadata_name_ids_scanner.h"
 #include "exec/schema_scanner/schema_partitions_scanner.h"
+#include "exec/schema_scanner/schema_profiling_scanner.h"
 #include "exec/schema_scanner/schema_rowsets_scanner.h"
 #include "exec/schema_scanner/schema_schema_privileges_scanner.h"
 #include "exec/schema_scanner/schema_schemata_scanner.h"
@@ -144,6 +146,10 @@ std::unique_ptr<SchemaScanner> SchemaScanner::create(TSchemaTableType::type type
         return SchemaPartitionsScanner::create_unique();
     case TSchemaTableType::SCH_ROWSETS:
         return SchemaRowsetsScanner::create_unique();
+    case TSchemaTableType::SCH_METADATA_NAME_IDS:
+        return SchemaMetadataNameIdsScanner::create_unique();
+    case TSchemaTableType::SCH_PROFILING:
+        return SchemaProfilingScanner::create_unique();
     default:
         return SchemaDummyScanner::create_unique();
         break;

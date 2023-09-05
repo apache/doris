@@ -18,6 +18,7 @@
 #pragma once
 
 #include "common/object_pool.h"
+#include "exprs/runtime_filter.h"
 #include "runtime/decimalv2_value.h"
 #include "runtime/define_primitive_type.h"
 #include "runtime/primitive_type.h"
@@ -174,7 +175,7 @@ private:
 };
 
 // TODO Maybe change void* parameter to template parameter better.
-class HybridSetBase {
+class HybridSetBase : public FilterFuncBase {
 public:
     HybridSetBase() = default;
     virtual ~HybridSetBase() = default;
@@ -225,9 +226,6 @@ public:
         LOG(FATAL) << "HybridSetBase not support find_batch_nullable_negative";
     }
 
-    void set_filter_id(int filter_id) { _filter_id = filter_id; }
-    int get_filter_id() const { return _filter_id; }
-    int _filter_id = -1;
     class IteratorBase {
     public:
         IteratorBase() = default;
@@ -261,8 +259,8 @@ bool check_hybrid_set(const HybridSetBase* column) {
 }
 
 template <PrimitiveType T,
-          typename _ContainerType = DynamicContainer<typename VecPrimitiveTypeTraits<T>::CppType>,
-          typename _ColumnType = typename VecPrimitiveTypeTraits<T>::ColumnType>
+          typename _ContainerType = DynamicContainer<typename PrimitiveTypeTraits<T>::CppType>,
+          typename _ColumnType = typename PrimitiveTypeTraits<T>::ColumnType>
 class HybridSet : public HybridSetBase {
 public:
     using ContainerType = _ContainerType;

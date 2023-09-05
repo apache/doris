@@ -138,7 +138,6 @@ import org.apache.doris.catalog.Tablet;
 import org.apache.doris.catalog.TabletInvertedIndex;
 import org.apache.doris.catalog.TabletMeta;
 import org.apache.doris.catalog.View;
-import org.apache.doris.catalog.external.ExternalTable;
 import org.apache.doris.catalog.external.HMSExternalTable;
 import org.apache.doris.clone.DynamicPartitionScheduler;
 import org.apache.doris.cluster.ClusterNamespace;
@@ -181,11 +180,12 @@ import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.HMSExternalCatalog;
 import org.apache.doris.external.iceberg.IcebergTableCreationRecord;
 import org.apache.doris.load.DeleteHandler;
-import org.apache.doris.load.ExportJob;
+import org.apache.doris.load.ExportJobState;
 import org.apache.doris.load.ExportMgr;
 import org.apache.doris.load.Load;
 import org.apache.doris.load.LoadJob;
 import org.apache.doris.load.LoadJob.JobState;
+import org.apache.doris.load.loadv2.LoadManager;
 import org.apache.doris.load.routineload.RoutineLoadJob;
 import org.apache.doris.mtmv.MTMVJobManager;
 import org.apache.doris.mtmv.metadata.MTMVJob;
@@ -198,7 +198,7 @@ import org.apache.doris.statistics.AnalysisInfo;
 import org.apache.doris.statistics.ColumnStatistic;
 import org.apache.doris.statistics.Histogram;
 import org.apache.doris.statistics.StatisticsRepository;
-import org.apache.doris.statistics.TableStatistic;
+import org.apache.doris.statistics.TableStats;
 import org.apache.doris.statistics.query.QueryStatsUtil;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.Diagnoser;
@@ -241,7 +241,6 @@ import java.util.Comparator;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Objects;
-import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Predicate;
@@ -871,7 +870,8 @@ public class ShowExecutor {
 
                 // check tbl privs
                 if (!Env.getCurrentEnv().getAccessManager()
-                        .checkTblPriv(ConnectContext.get(), db.getFullName(), table.getName(), PrivPredicate.SHOW)) {
+                        .checkTblPriv(ConnectContext.get(), showStmt.getCatalog(),
+                                db.getFullName(), table.getName(), PrivPredicate.SHOW)) {
                     continue;
                 }
                 List<String> row = Lists.newArrayList();
@@ -1300,6 +1300,11 @@ public class ShowExecutor {
         }
 
         Database db = env.getInternalCatalog().getDbOrAnalysisException(showWarningsStmt.getDbName());
+        ShowResultSet showResultSet = handleShowLoadWarningV2(showWarningsStmt, db);
+        if (showResultSet != null) {
+            resultSet = showResultSet;
+            return;
+        }
 
         long dbId = db.getId();
         Load load = env.getLoadInstance();
@@ -1307,7 +1312,6 @@ public class ShowExecutor {
         LoadJob job = null;
         String label = null;
         if (showWarningsStmt.isFindByLabel()) {
-            label = showWarningsStmt.getLabel();
             jobId = load.getLatestJobIdByLabel(dbId, showWarningsStmt.getLabel());
             job = load.getLoadJob(jobId);
             if (job == null) {
@@ -1350,6 +1354,40 @@ public class ShowExecutor {
         }
 
         resultSet = new ShowResultSet(showWarningsStmt.getMetaData(), rows);
+    }
+
+    private ShowResultSet handleShowLoadWarningV2(ShowLoadWarningsStmt showWarningsStmt, Database db)
+            throws AnalysisException {
+        LoadManager loadManager = Env.getCurrentEnv().getLoadManager();
+        if (showWarningsStmt.isFindByLabel()) {
+            List<List<Comparable>> loadJobInfosByDb = loadManager.getLoadJobInfosByDb(db.getId(),
+                    showWarningsStmt.getLabel(),
+                    true, null);
+            if (CollectionUtils.isEmpty(loadJobInfosByDb)) {
+                return null;
+            }
+            List<List<String>> infoList = Lists.newArrayListWithCapacity(loadJobInfosByDb.size());
+            for (List<Comparable> comparables : loadJobInfosByDb) {
+                List<String> singleInfo = comparables.stream().map(Object::toString).collect(Collectors.toList());
+                infoList.add(singleInfo);
+            }
+            return new ShowResultSet(showWarningsStmt.getMetaData(), infoList);
+        }
+        org.apache.doris.load.loadv2.LoadJob loadJob = loadManager.getLoadJob(showWarningsStmt.getJobId());
+        if (loadJob == null) {
+            return null;
+        }
+        List<String> singleInfo;
+        try {
+            singleInfo = loadJob
+                    .getShowInfo()
+                    .stream()
+                    .map(Objects::toString)
+                    .collect(Collectors.toList());
+        } catch (DdlException e) {
+            throw new AnalysisException(e.getMessage());
+        }
+        return new ShowResultSet(showWarningsStmt.getMetaData(), Lists.newArrayList(Collections.singleton(singleInfo)));
     }
 
     private void handleShowLoadWarningsFromURL(ShowLoadWarningsStmt showWarningsStmt, URL url)
@@ -1921,8 +1959,8 @@ public class ShowExecutor {
 
         ExportMgr exportMgr = env.getExportMgr();
 
-        Set<ExportJob.JobState> states = null;
-        ExportJob.JobState state = showExportStmt.getJobState();
+        Set<ExportJobState> states = null;
+        ExportJobState state = showExportStmt.getJobState();
         if (state != null) {
             states = Sets.newHashSet(state);
         }
@@ -2412,29 +2450,16 @@ public class ShowExecutor {
     private void handleShowTableStats() {
         ShowTableStatsStmt showTableStatsStmt = (ShowTableStatsStmt) stmt;
         TableIf tableIf = showTableStatsStmt.getTable();
-        long partitionId = showTableStatsStmt.getPartitionId();
-        boolean showCache = showTableStatsStmt.isCached();
-        try {
-            if (tableIf instanceof ExternalTable && showCache) {
-                Optional<TableStatistic> tableStatistics = Env.getCurrentEnv().getStatisticsCache().getTableStatistics(
-                        tableIf.getDatabase().getCatalog().getId(),
-                        tableIf.getDatabase().getId(),
-                        tableIf.getId());
-                if (tableStatistics.isPresent()) {
-                    resultSet = showTableStatsStmt.constructResultSet(tableStatistics.get());
-                } else {
-                    resultSet = showTableStatsStmt.constructResultSet(TableStatistic.UNKNOWN);
-                }
-            } else if (partitionId > 0) {
-                TableStatistic partStats = StatisticsRepository.fetchTableLevelOfPartStats(partitionId);
-                resultSet = showTableStatsStmt.constructResultSet(partStats);
-            } else {
-                TableStatistic tableStats = StatisticsRepository.fetchTableLevelStats(tableIf.getId());
-                resultSet = showTableStatsStmt.constructResultSet(tableStats);
-            }
-        } catch (DdlException e) {
-            LOG.warn("Table statistics do not exist: {}", tableIf.getName());
-            resultSet = showTableStatsStmt.constructResultSet(TableStatistic.UNKNOWN);
+        TableStats tableStats = Env.getCurrentEnv().getAnalysisManager().findTableStatsStatus(tableIf.getId());
+        /*
+           HMSExternalTable table will fetch row count from HMS
+           or estimate with file size and schema if it's not analyzed.
+           tableStats == null means it's not analyzed, in this case show the estimated row count.
+         */
+        if (tableStats == null && tableIf instanceof HMSExternalTable) {
+            resultSet = showTableStatsStmt.constructResultSet(tableIf.estimatedRowCount());
+        } else {
+            resultSet = showTableStatsStmt.constructResultSet(tableStats);
         }
     }
 
@@ -2645,7 +2670,12 @@ public class ShowExecutor {
                     LocalDateTime.ofInstant(Instant.ofEpochMilli(analysisInfo.lastExecTimeInMs),
                             ZoneId.systemDefault())));
             row.add(analysisInfo.state.toString());
-            row.add(Env.getCurrentEnv().getAnalysisManager().getJobProgress(analysisInfo.jobId));
+            try {
+                row.add(Env.getCurrentEnv().getAnalysisManager().getJobProgress(analysisInfo.jobId));
+            } catch (Exception e) {
+                row.add("N/A");
+                LOG.warn("Failed to get progress for job: {}", analysisInfo, e);
+            }
             row.add(analysisInfo.scheduleType.toString());
             resultRows.add(row);
         }

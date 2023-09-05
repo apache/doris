@@ -174,7 +174,7 @@ void DeltaLengthByteArrayDecoder::_decode_lengths() {
     // decode all the lengths. all the lengths are buffered in buffered_length_.
     int ret;
     Status st = _len_decoder.decode(_buffered_length.data(), num_length, &ret);
-    if (st != Status::OK()) {
+    if (!st.ok()) {
         LOG(FATAL) << "Fail to decode delta length, status: " << st;
     }
     DCHECK_EQ(ret, num_length);

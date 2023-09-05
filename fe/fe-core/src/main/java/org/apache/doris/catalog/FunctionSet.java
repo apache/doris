@@ -1035,9 +1035,18 @@ public class FunctionSet<T> {
             }
 
             if (!Type.JSONB.equals(t)) {
-                for (Type valueType : Type.getTrivialTypes()) {
-                    addBuiltin(AggregateFunction.createBuiltin(MAP_AGG, Lists.newArrayList(t, valueType), new MapType(t, valueType),
+                for (Type valueType : Type.getMapSubTypes()) {
+                    addBuiltin(AggregateFunction.createBuiltin(MAP_AGG, Lists.newArrayList(t, valueType),
+                            new MapType(t, valueType),
                             Type.VARCHAR,
+                            "", "", "", "", "", null, "",
+                            true, true, false, true));
+                }
+
+                for (Type v : Type.getArraySubTypes()) {
+                    addBuiltin(AggregateFunction.createBuiltin(MAP_AGG, Lists.newArrayList(t, new ArrayType(v)),
+                            new MapType(t, new ArrayType(v)),
+                            new MapType(t, new ArrayType(v)),
                             "", "", "", "", "", null, "",
                             true, true, false, true));
                 }
@@ -1429,6 +1438,10 @@ public class FunctionSet<T> {
                 false, true, false, true));
         addBuiltin(AggregateFunction.createBuiltin("avg",
                 Lists.<Type>newArrayList(Type.BIGINT), Type.DOUBLE, Type.BIGINT,
+                "", "", "", "", "", "", "",
+                false, true, false, true));
+        addBuiltin(AggregateFunction.createBuiltin("avg",
+                Lists.<Type>newArrayList(Type.LARGEINT), Type.DOUBLE, Type.LARGEINT,
                 "", "", "", "", "", "", "",
                 false, true, false, true));
         addBuiltin(AggregateFunction.createBuiltin("avg",

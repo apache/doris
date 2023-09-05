@@ -29,8 +29,8 @@ import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.properties.RequireProperties;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
+import org.apache.doris.nereids.rules.analysis.NormalizeAggregate;
 import org.apache.doris.nereids.rules.expression.rules.FoldConstantRuleOnFE;
-import org.apache.doris.nereids.rules.rewrite.NormalizeAggregate;
 import org.apache.doris.nereids.trees.expressions.AggregateExpression;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.Cast;
@@ -118,7 +118,7 @@ public class AggregateStrategies implements ImplementationRuleFactory {
                     return storageLayerAggregate(agg, project, olapScan, ctx.cascadesContext);
                 })
             ),
-            RuleType.STORAGE_LAYER_AGGREGATE_WITH_PROJECT.build(
+            RuleType.STORAGE_LAYER_AGGREGATE_WITH_PROJECT_FOR_FILE_SCAN.build(
                 logicalAggregate(
                     logicalProject(
                         logicalFileScan()
