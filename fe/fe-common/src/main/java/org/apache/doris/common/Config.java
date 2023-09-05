@@ -1627,7 +1627,7 @@ public class Config extends ConfigBase {
      * condition，try to set this timeout longer.
      */
     @ConfField(mutable = true)
-    public static long remote_fragment_exec_timeout_ms = 30000; // 30s sec
+    public static long remote_fragment_exec_timeout_ms = 30000; // 30 sec
 
     /**
      * Max data version of backends serialize block.
