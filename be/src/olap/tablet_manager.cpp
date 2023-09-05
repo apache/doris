@@ -1334,7 +1334,7 @@ std::set<int64_t> TabletManager::check_all_tablet_segment(bool repair) {
             int64_t tablet_id = tablet->tablet_id();
             bad_tablets.insert(tablet_id);
             if (repair) {
-                shard_bad_tablets[tablet_id & _tablets_shards_mask].push_back(tablet_id);
+                repair_shard_bad_tablets[tablet_id & _tablets_shards_mask].push_back(tablet_id);
             }
         }
     };
