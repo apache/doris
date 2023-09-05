@@ -51,14 +51,7 @@ PipelineTask::PipelineTask(PipelinePtr& pipeline, uint32_t index, RuntimeState* 
           _operators(pipeline->_operators),
           _source(_operators.front()),
           _root(_operators.back()),
-          _sink(sink),
-          _prepared(false),
-          _opened(false),
-          _state(state),
-          _cur_state(PipelineTaskState::NOT_READY),
-          _data_state(SourceState::DEPEND_ON_SOURCE),
-          _fragment_context(fragment_context),
-          _parent_profile(parent_profile) {
+          _sink(sink) {
     _pipeline_task_watcher.start();
 }
 
