@@ -115,9 +115,7 @@ enum TSchemaTableType {
     SCH_ROWSETS,
     SCH_BACKENDS,
     SCH_COLUMN_STATISTICS,
-    SCH_PARAMETERS,
-    SCH_METADATA_NAME_IDS,
-    SCH_PROFILING;
+    SCH_PARAMETERS;
 }
 
 enum THdfsCompression {
