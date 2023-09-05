@@ -1506,7 +1506,7 @@ load tablets from header failed, failed tablets size: xxx, path=xxx
 
 #### `enable_query_memory_overcommit`
 
-* 描述: 如果为true，则当内存未超过 exec_mem_limit 时，查询内存将不受限制；当进程内存超过 exec_mem_limit 且大于 2GB 时，查询会被取消。如果为false，则在使用的内存超过 exec_mem_limit 时取消查询。
+* 描述: 如果为true，则查询支持内存超发(overcommit)，旨在允许查询设置更灵活的内存限制，内存充足时即使查询内存超过exec_mem_limit上限也不会被 Cancel。如果为false，则在使用的内存超过 exec_mem_limit 时取消查询。
 * 默认值: true
 
 #### `user_files_secure_path`
