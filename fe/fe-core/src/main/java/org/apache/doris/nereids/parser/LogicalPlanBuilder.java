@@ -1852,7 +1852,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                         e.getCause());
             }
         }
-        String comment = ctx.comment != null ? ((Literal) visit(ctx.comment)).getStringValue() : "";
+        String comment = ctx.comment != null ? ctx.comment.getText() : "";
         return new ColumnDefinition(colName, colType, isKey, aggType, !isNotNull, defaultValue, comment);
     }
 
@@ -1866,7 +1866,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         String indexName = ctx.indexName.getText();
         List<String> indexCols = visitIdentifierList(ctx.cols);
         boolean isUseBitmap = ctx.USING() != null;
-        String comment = ((Literal) visit(ctx.comment)).getStringValue();
+        String comment = ctx.comment.getText();
         return new IndexDefinition(indexName, indexCols, isUseBitmap, comment);
     }
 

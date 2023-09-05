@@ -17,7 +17,9 @@
 
 package org.apache.doris.nereids.trees.plans.commands.info;
 
+import org.apache.doris.analysis.AddRollupClause;
 import org.apache.doris.analysis.AllPartitionDesc;
+import org.apache.doris.analysis.AlterClause;
 import org.apache.doris.analysis.CreateTableStmt;
 import org.apache.doris.analysis.KeysDesc;
 import org.apache.doris.analysis.ListPartitionDesc;
@@ -371,6 +373,12 @@ public class CreateTableInfo {
                 throw new AnalysisException(e.getMessage(), e.getCause());
             }
         }
+        List<AlterClause> addRollups = Lists.newArrayList();
+        if (rollups != null) {
+            addRollups.addAll(rollups.stream()
+                    .map(r -> new AddRollupClause(r.getName(), r.getCols(), null, null, null))
+                    .collect(Collectors.toList()));
+        }
         return new CreateTableStmt(ifNotExists, false,
                 new TableName(Env.getCurrentEnv().getCurrentCatalog().getName(), dbName, tableName),
                 catalogColumns,
@@ -382,7 +390,7 @@ public class CreateTableInfo {
                 Maps.newHashMap(properties),
                 null,
                 comment,
-                ImmutableList.of(),
+                addRollups,
                 null);
     }
 }

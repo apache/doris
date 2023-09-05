@@ -35,4 +35,12 @@ public class RollupDefinition {
 
     public void validate() {
     }
+
+    public String getName() {
+        return name;
+    }
+
+    public List<String> getCols() {
+        return cols;
+    }
 }
