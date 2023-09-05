@@ -15,7 +15,7 @@
 -- specific language governing permissions and limitations
 -- under the License.
 
-select
+select /*+SET_VAR(enable_nereids_planner=true,enable_pipeline_engine=true) */
     l_shipmode,
     sum(case
         when o_orderpriority = '1-URGENT'

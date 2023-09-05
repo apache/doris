@@ -47,6 +47,7 @@ OPTS=$(getopt \
 eval set -- "$OPTS"
 HELP=0
 
+
 if [ $# == 0 ]; then
   usage
 fi
@@ -84,15 +85,27 @@ check_prerequest() {
 
 check_prerequest "mysql --version" "mysql"
 
-source $CURDIR/conf/doris-cluster.conf
+source $CURDIR/../conf/cluster.conf
+echo "SUITE: $SUITE"
 echo "FE_HOST: $FE_HOST"
 echo "FE_QUERY_PORT: $FE_QUERY_PORT"
 echo "USER: $USER"
-echo "PASSWORD: $PASSWORD"
-echo "DB: $DB"
 
-mysql -h$FE_HOST -u$USER -P$FE_QUERY_PORT -e "CREATE DATABASE IF NOT EXISTS $DB"
-mysql -h$FE_HOST -u$USER -P$FE_QUERY_PORT -D$DB <$CURDIR/sql/create-clickbench-table.sql
-mysql -h$FE_HOST -u$USER -P$FE_QUERY_PORT -D$DB -e "show create table hits;"
+clt=""
+exec_clt=""
+if [ -z "${PASSWORD}" ];then
+    clt="mysql -h${FE_HOST} -u${USER} -P${FE_QUERY_PORT} -D${DB} "
+    exec_clt="mysql -vvv -h$FE_HOST -u$USER -P$FE_QUERY_PORT -D$DB "
+else
+    clt="mysql -h${FE_HOST} -u${USER} -p${PASSWORD} -P${FE_QUERY_PORT} -D${DB} "
+    exec_clt="mysql -vvv -h$FE_HOST -u$USER -p${PASSWORD} -P$FE_QUERY_PORT -D$DB "
+fi
+
+echo "step:  create database and table"
+
+$clt -e "DROP DATABASE IF EXISTS $DB FORCE"
+$clt -e "CREATE DATABASE IF NOT EXISTS $DB"
+$clt < $CURDIR/../ddl/create-clickbench-table.sql
+$clt -e "show create table hits;"
 
 echo "DONE."

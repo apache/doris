@@ -17,7 +17,7 @@
 
 -- Modified
 
-select
+select /*+SET_VAR(enable_nereids_planner=true,enable_pipeline_engine=true) */
     sum(l_extendedprice) / 7.0 as avg_yearly
 from
     lineitem,
