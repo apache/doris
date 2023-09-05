@@ -192,5 +192,13 @@ suite("test_alter_user", "account") {
     result2 = connect(user = 'test_auth_user4', password = '12345', url = context.config.jdbcUrl) {
         sql 'select 1'
     }
+
+    // 9. test user default database privileges
+    sql """drop user test_auth_user4"""
+    sql """create user test_auth_user4 identified by '12345'"""
+    result1 = connect(user = 'test_auth_user4', password = '12345', url = context.config.jdbcUrl) {
+        sql 'use information_schema'
+        sql 'use mysql'
+    }
 }
 

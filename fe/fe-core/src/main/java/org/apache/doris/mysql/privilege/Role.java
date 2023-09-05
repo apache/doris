@@ -45,6 +45,7 @@ import org.apache.logging.log4j.Logger;
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
+import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
 import java.util.Objects;
@@ -138,17 +139,19 @@ public class Role implements Writable, GsonPostProcessable {
         grantPrivs(workloadGroupPattern, privs.copy());
     }
 
-    public Role(String roleName, TablePattern tablePattern, PrivBitSet tablePrivs,
+    public Role(String roleName, List<TablePattern> tablePatterns, PrivBitSet tablePrivs,
             WorkloadGroupPattern workloadGroupPattern, PrivBitSet workloadGroupPrivs) {
         this.roleName = roleName;
-        this.tblPatternToPrivs.put(tablePattern, tablePrivs);
         this.workloadGroupPatternToPrivs.put(workloadGroupPattern, workloadGroupPrivs);
-        //for init admin role,will not generate exception
-        try {
-            grantPrivs(tablePattern, tablePrivs.copy());
-            grantPrivs(workloadGroupPattern, workloadGroupPrivs.copy());
-        } catch (DdlException e) {
-            LOG.warn("grant failed,", e);
+        for (TablePattern tablePattern : tablePatterns) {
+            this.tblPatternToPrivs.put(tablePattern, tablePrivs);
+            //for init admin role,will not generate exception
+            try {
+                grantPrivs(tablePattern, tablePrivs.copy());
+                grantPrivs(workloadGroupPattern, workloadGroupPrivs.copy());
+            } catch (DdlException e) {
+                LOG.warn("grant failed,", e);
+            }
         }
     }
 
