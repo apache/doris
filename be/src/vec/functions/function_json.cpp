@@ -765,6 +765,10 @@ public:
 struct FunctionJsonQuoteImpl {
     static constexpr auto name = "json_quote";
 
+    static DataTypes get_variadic_argument_types() {
+        return {std::make_shared<DataTypeString>()};
+    }
+
     static void execute(const std::vector<const ColumnString*>& data_columns,
                         ColumnString& result_column, size_t input_rows_count) {
         rapidjson::Document document;
@@ -788,6 +792,10 @@ struct FunctionJsonQuoteImpl {
 
 struct FunctionJsonExtractImpl {
     static constexpr auto name = "json_extract";
+
+    static DataTypes get_variadic_argument_types() {
+        return {std::make_shared<DataTypeString>()};
+    }
 
     static rapidjson::Value parse_json(const ColumnString* json_col, const ColumnString* path_col,
                                        rapidjson::Document::AllocatorType& allocator,
@@ -852,6 +860,10 @@ public:
 
     DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
         return std::make_shared<DataTypeString>();
+    }
+
+    DataTypes get_variadic_argument_types_impl() const override {
+        return Impl::get_variadic_argument_types();
     }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,

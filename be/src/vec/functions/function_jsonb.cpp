@@ -352,6 +352,9 @@ public:
     DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
         return make_nullable(std::make_shared<typename Impl::ReturnType>());
     }
+    DataTypes get_variadic_argument_types_impl() const override {
+        return Impl::get_variadic_argument_types();
+    }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         size_t result, size_t input_rows_count) override {
@@ -360,6 +363,9 @@ public:
 
         ColumnPtr jsonb_data_column;
         bool jsonb_data_const = false;
+
+        auto res = Impl::ColumnType::create();
+
         // prepare jsonb data column
         std::tie(jsonb_data_column, jsonb_data_const) =
                 unpack_if_const(block.get_by_position(arguments[0]).column);
@@ -376,11 +382,19 @@ public:
             std::tie(path_column, is_const) =
                     unpack_if_const(block.get_by_position(arguments[i + 1]).column);
             path_const[i] = is_const;
+            //If json path is null, return null directly.
+            auto& roffsets = assert_cast<const ColumnString*>(path_column.get())->get_offsets();
+            size_t r_off = roffsets[index_check_const(i, is_const) - 1];
+            size_t r_size = roffsets[index_check_const(i, is_const)] - r_off;
+            if(r_size == 0){
+                block.get_by_position(result).column =
+                        ColumnNullable::create(std::move(res), std::move(null_map));
+                return Status::OK();
+            }
+
             check_set_nullable(path_column, null_map, path_const[i]);
             jsonb_path_columns.push_back(assert_cast<const ColumnString*>(path_column.get()));
         }
-
-        auto res = Impl::ColumnType::create();
 
         bool is_invalid_json_path = false;
 
@@ -952,51 +966,73 @@ struct JsonbTypeType {
 struct JsonbExists : public JsonbExtractImpl<JsonbTypeExists> {
     static constexpr auto name = "json_exists_path";
     static constexpr auto alias = "jsonb_exists_path";
+
+    static DataTypes get_variadic_argument_types() { return {}; }
 };
 
 struct JsonbExtractIsnull : public JsonbExtractImpl<JsonbTypeNull> {
     static constexpr auto name = "json_extract_isnull";
     static constexpr auto alias = "jsonb_extract_isnull";
+
+    static DataTypes get_variadic_argument_types() { return {}; }
 };
 
 struct JsonbExtractBool : public JsonbExtractImpl<JsonbTypeBool> {
     static constexpr auto name = "json_extract_bool";
     static constexpr auto alias = "jsonb_extract_bool";
+
+    static DataTypes get_variadic_argument_types() { return {}; }
 };
 
 struct JsonbExtractInt : public JsonbExtractImpl<JsonbTypeInt> {
     static constexpr auto name = "json_extract_int";
     static constexpr auto alias = "jsonb_extract_int";
+
+    static DataTypes get_variadic_argument_types() { return {}; }
 };
 
 struct JsonbExtractBigInt : public JsonbExtractImpl<JsonbTypeInt64> {
     static constexpr auto name = "json_extract_bigint";
     static constexpr auto alias = "jsonb_extract_bigint";
+
+    static DataTypes get_variadic_argument_types() { return {}; }
 };
 
 struct JsonbExtractLargeInt : public JsonbExtractImpl<JsonbTypeInt128> {
     static constexpr auto name = "json_extract_largeint";
     static constexpr auto alias = "jsonb_extract_largeint";
+
+    static DataTypes get_variadic_argument_types() { return {}; }
 };
 
 struct JsonbExtractDouble : public JsonbExtractImpl<JsonbTypeDouble> {
     static constexpr auto name = "json_extract_double";
     static constexpr auto alias = "jsonb_extract_double";
+
+    static DataTypes get_variadic_argument_types() { return {}; }
 };
 
 struct JsonbExtractString : public JsonbExtractStringImpl<JsonbTypeString> {
     static constexpr auto name = "json_extract_string";
     static constexpr auto alias = "jsonb_extract_string";
+
+    static DataTypes get_variadic_argument_types() { return {}; }
 };
 
 struct JsonbExtractJsonb : public JsonbExtractStringImpl<JsonbTypeJson> {
-    static constexpr auto name = "jsonb_extract";
+    static constexpr auto name = "json_extract";
     static constexpr auto alias = "jsonb_extract";
+
+    static DataTypes get_variadic_argument_types() {
+        return {std::make_shared<DataTypeJsonb>()};
+    }
 };
 
 struct JsonbType : public JsonbExtractStringImpl<JsonbTypeType> {
     static constexpr auto name = "json_type";
     static constexpr auto alias = "jsonb_type";
+
+    static DataTypes get_variadic_argument_types() { return {}; }
 };
 
 using FunctionJsonbExists = FunctionJsonbExtract<JsonbExists>;
@@ -1066,7 +1102,7 @@ void register_function_jsonb(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionJsonbExtractString>();
     factory.register_alias(FunctionJsonbExtractString::name, FunctionJsonbExtractString::alias);
     factory.register_function<FunctionJsonbExtractJsonb>();
-    // factory.register_alias(FunctionJsonbExtractJsonb::name, FunctionJsonbExtractJsonb::alias);
+    factory.register_alias(FunctionJsonbExtractJsonb::name, FunctionJsonbExtractJsonb::alias);
 }
 
 } // namespace doris::vectorized

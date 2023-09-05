@@ -1750,6 +1750,8 @@ visible_functions = {
         [['json_type'], 'STRING', ['JSONB', 'STRING'], 'ALWAYS_NULLABLE'],
         [['json_type'], 'STRING', ['JSONB', 'STRING'], 'ALWAYS_NULLABLE'],
 
+        [['json_extract'], 'JSONB', ['JSONB', 'VARCHAR', '...'], 'DEPEND_ON_ARGUMENT'],
+        [['json_extract'], 'JSONB', ['JSONB', 'STRING', '...'], 'DEPEND_ON_ARGUMENT'],
         [['json_extract_isnull'], 'BOOLEAN', ['JSONB', 'VARCHAR'], 'ALWAYS_NULLABLE'],
         [['json_extract_isnull'], 'BOOLEAN', ['JSONB', 'STRING'], 'ALWAYS_NULLABLE'],
         [['json_extract_bool'], 'BOOLEAN', ['JSONB', 'VARCHAR'], 'ALWAYS_NULLABLE'],
@@ -2082,7 +2084,9 @@ null_result_with_one_null_param_functions = [
     'ST_GeometryFromText',
     'ST_LineFromText',
     'ST_Polygon',
-    'ST_Contains'
+    'ST_Contains',
+    'json_extract',
+    'jsonb_extract'
 ]
 
 invisible_functions = [
