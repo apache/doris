@@ -27,8 +27,8 @@ import org.apache.doris.nereids.rules.analysis.BindExpression;
 import org.apache.doris.nereids.rules.analysis.BindRelation;
 import org.apache.doris.nereids.rules.analysis.BindRelation.CustomTableResolver;
 import org.apache.doris.nereids.rules.analysis.BindSink;
+import org.apache.doris.nereids.rules.analysis.CheckAfterBind;
 import org.apache.doris.nereids.rules.analysis.CheckAnalysis;
-import org.apache.doris.nereids.rules.analysis.CheckBound;
 import org.apache.doris.nereids.rules.analysis.CheckPolicy;
 import org.apache.doris.nereids.rules.analysis.EliminateGroupByConstant;
 import org.apache.doris.nereids.rules.analysis.FillUpMissingSlots;
@@ -93,7 +93,7 @@ public class Analyzer extends AbstractBatchJobExecutor {
                 new BindExpression()
             ),
             topDown(new BindSink()),
-            bottomUp(new CheckBound()),
+            bottomUp(new CheckAfterBind()),
             bottomUp(
                 new ProjectToGlobalAggregate(),
                 // this rule check's the logicalProject node's isDistinct property
