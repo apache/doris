@@ -216,7 +216,7 @@ Status BinaryPrefixPageDecoder::next_batch(size_t* n, vectorized::MutableColumnP
 
     dst->insert_data((char*)(_current_value.data()), _current_value.size());
     // read and copy values
-    for (size_t i = 0; i < max_fetch - 1; ++i) {
+    for (size_t i = 1; i < max_fetch; ++i) {
         RETURN_IF_ERROR(_read_next_value());
         _cur_pos++;
         dst->insert_data((char*)(_current_value.data()), _current_value.size());
