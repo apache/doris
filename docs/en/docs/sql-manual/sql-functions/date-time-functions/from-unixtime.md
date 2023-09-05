@@ -63,6 +63,17 @@ mysql> select from_unixtime(1196440219, '%Y-%m-%d %H:%i:%s');
 +--------------------------------------------------+
 ```
 
+For timestamps that exceed the range, you can use the "from_second" function.
+`DATETIME FROM_SECOND(BIGINT unix_timestamp)`
+```
+mysql> select from_second(21474836470);
++--------------------------+
+| from_second(21474836470) |
++--------------------------+
+| 2650-07-06 16:21:10      |
++--------------------------+
+```
+
 ### keywords
 
     FROM_UNIXTIME,FROM,UNIXTIME

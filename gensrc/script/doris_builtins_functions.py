@@ -874,6 +874,7 @@ visible_functions = {
         [['from_unixtime'], 'VARCHAR', ['INT', 'STRING'], 'ALWAYS_NULLABLE'],
         [['from_microsecond'], 'DATETIMEV2', ['BIGINT'], 'ALWAYS_NULLABLE'],
         [['from_millisecond'], 'DATETIMEV2', ['BIGINT'], 'ALWAYS_NULLABLE'],
+        [['from_second'], 'DATETIMEV2', ['BIGINT'], 'ALWAYS_NULLABLE'],
         [['now', 'current_timestamp', 'localtime', 'localtimestamp'], 'DATETIME', [], 'DEPEND_ON_ARGUMENT'],
         [['now', 'current_timestamp', 'localtime', 'localtimestamp'], 'DATETIMEV2', ['INT'], 'DEPEND_ON_ARGUMENT'],
         [['curtime', 'current_time'], 'TIME', [], 'ALWAYS_NOT_NULLABLE'],

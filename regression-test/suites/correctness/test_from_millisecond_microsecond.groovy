@@ -58,15 +58,28 @@ suite("test_from_millisecond_microsecond") {
         from millimicro order by id;
     """ 
 
+    qt_select3 """
+        select 
+        FROM_UNIXTIME(2147483647),from_second(2147483647),
+        FROM_UNIXTIME(2147483647 + 1),from_second(2147483647 + 1),
+        FROM_UNIXTIME(21474836470),from_second(21474836470);
+    """ 
 
     sql """
         set enable_nereids_planner=true,enable_fold_constant_by_be = false,forbid_unknown_col_stats = false
     """
    
-    qt_select3 """
+    qt_select4 """
         select from_millisecond(t) as t1 from millimicro order by id;
     """
-    qt_select4 """
+    qt_select5 """
         select from_microsecond(t) as t1 from millimicro order by id;
     """
+
+    qt_select6 """
+        select 
+        FROM_UNIXTIME(2147483647),from_second(2147483647),
+        FROM_UNIXTIME(2147483647 + 1),from_second(2147483647 + 1),
+        FROM_UNIXTIME(21474836470),from_second(21474836470);
+    """ 
 }

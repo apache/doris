@@ -1112,6 +1112,10 @@ struct MilliSec {
     static constexpr auto name = "from_millisecond";
     static constexpr Int64 ratio = 1000;
 };
+struct Sec {
+    static constexpr auto name = "from_second";
+    static constexpr Int64 ratio = 1;
+};
 template <typename impl>
 struct TimestampToDateTime : IFunction {
     using ReturnType = DataTypeDateTimeV2;

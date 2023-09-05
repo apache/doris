@@ -1628,6 +1628,11 @@ public class FunctionCallExpr extends Expr {
             fn.setReturnType(ret);
         }
 
+        if (fn.getFunctionName().getFunction().equals("from_second")) {
+            Type ret = ScalarType.createDatetimeV2Type(0);
+            fn.setReturnType(ret);
+        }
+
         if (fnName.getFunction().equalsIgnoreCase("map")) {
             if ((children.size() & 1) == 1) {
                 throw new AnalysisException("map can't be odd parameters, need even parameters: "

@@ -75,6 +75,17 @@ mysql> select from_unixtime(1196440219, '%Y-%m-%d %H:%i:%s');
 +--------------------------------------------------+
 ```
 
+对于超过范围的时间戳，可以采用from_second函数
+`DATETIME FROM_SECOND(BIGINT unix_timestamp)`
+```
+mysql> select from_second(21474836470);
++--------------------------+
+| from_second(21474836470) |
++--------------------------+
+| 2650-07-06 16:21:10      |
++--------------------------+
+```
+
 ### keywords
 
     FROM_UNIXTIME,FROM,UNIXTIME
