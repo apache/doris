@@ -54,6 +54,7 @@
 #include "util/uid_util.h"
 #include "vec/core/block.h"
 #include "vec/exprs/vexpr.h"
+#include "vec/sink/delta_writer_v2_pool.h"
 #include "vec/sink/load_stream_stub.h"
 #include "vec/sink/load_stream_stub_pool.h"
 #include "vec/sink/vtablet_block_convertor.h"
@@ -154,7 +155,8 @@ Status VOlapTableSinkV2::open(RuntimeState* state) {
     SCOPED_TIMER(_open_timer);
     SCOPED_CONSUME_MEM_TRACKER(_mem_tracker.get());
 
-    _delta_writer_for_tablet = std::make_shared<DeltaWriterForTablet>();
+    _delta_writer_for_tablet =
+            ExecEnv::GetInstance()->delta_writer_v2_pool()->get_or_create(_load_id);
     _build_tablet_node_mapping();
     RETURN_IF_ERROR(_open_streams(state->backend_id()));
 
@@ -305,53 +307,43 @@ Status VOlapTableSinkV2::send(RuntimeState* state, vectorized::Block* input_bloc
 Status VOlapTableSinkV2::_write_memtable(std::shared_ptr<vectorized::Block> block,
                                          int64_t tablet_id, const Rows& rows,
                                          const Streams& streams) {
-    DeltaWriterV2* delta_writer = nullptr;
-    {
-        auto it = _delta_writer_for_tablet->find(tablet_id);
-        if (it == _delta_writer_for_tablet->end()) {
-            VLOG_DEBUG << "Creating DeltaWriterV2 for Tablet(tablet id: " << tablet_id
-                       << ", index id: " << rows.index_id << ")";
-            WriteRequest req;
-            req.partition_id = rows.partition_id;
-            req.index_id = rows.index_id;
-            req.tablet_id = tablet_id;
-            req.txn_id = _txn_id;
-            req.load_id = _load_id;
-            req.tuple_desc = _output_tuple_desc;
-            req.is_high_priority = _is_high_priority;
-            req.table_schema_param = _schema.get();
-            for (auto& index : _schema->indexes()) {
-                if (index->index_id == rows.index_id) {
-                    req.slots = &index->slots;
-                    req.schema_hash = index->schema_hash;
-                    break;
+    _delta_writer_for_tablet->lazy_emplace(
+            tablet_id, [&](const TabletToDeltaWriterV2Map::constructor& ctor) {
+                WriteRequest req;
+                req.partition_id = rows.partition_id;
+                req.index_id = rows.index_id;
+                req.tablet_id = tablet_id;
+                req.txn_id = _txn_id;
+                req.load_id = _load_id;
+                req.tuple_desc = _output_tuple_desc;
+                req.is_high_priority = _is_high_priority;
+                req.table_schema_param = _schema.get();
+                for (auto& index : _schema->indexes()) {
+                    if (index->index_id == rows.index_id) {
+                        req.slots = &index->slots;
+                        req.schema_hash = index->schema_hash;
+                        break;
+                    }
                 }
-            }
-            DeltaWriterV2::open(&req, streams, &delta_writer, _profile);
-            _delta_writer_for_tablet->emplace(tablet_id, delta_writer);
-        } else {
-            VLOG_DEBUG << "Reusing DeltaWriterV2 for Tablet(tablet id: " << tablet_id
-                       << ", index id: " << rows.index_id << ")";
-            delta_writer = it->second.get();
-        }
-    }
+                DeltaWriterV2* delta_writer = nullptr;
+                DeltaWriterV2::open(&req, streams, &delta_writer, _profile);
+                ctor(tablet_id, delta_writer);
+            });
     {
         SCOPED_TIMER(_wait_mem_limit_timer);
         ExecEnv::GetInstance()->memtable_memory_limiter()->handle_memtable_flush();
     }
     SCOPED_TIMER(_write_memtable_timer);
-    auto st = delta_writer->write(block.get(), rows.row_idxes, false);
+    auto st = _delta_writer_for_tablet->at(tablet_id)->write(block.get(), rows.row_idxes, false);
     return st;
 }
 
 Status VOlapTableSinkV2::_cancel(Status status) {
     LOG(INFO) << "canceled olap table sink. load_id=" << print_id(_load_id)
               << ", txn_id=" << _txn_id << ", due to error: " << status;
-
-    if (_delta_writer_for_tablet.use_count() == 1) {
-        std::for_each(std::begin(*_delta_writer_for_tablet), std::end(*_delta_writer_for_tablet),
-                      [&status](auto&& entry) { entry.second->cancel_with_status(status); });
-    }
+    std::for_each(std::begin(*_delta_writer_for_tablet), std::end(*_delta_writer_for_tablet),
+                    [&status](auto&& entry) { entry.second->cancel_with_status(status); });
+    ExecEnv::GetInstance()->delta_writer_v2_pool()->reset(_load_id);
     _delta_writer_for_tablet.reset();
     return Status::OK();
 }
@@ -378,7 +370,7 @@ Status VOlapTableSinkV2::close(RuntimeState* state, Status exec_status) {
         {
             SCOPED_TIMER(_close_writer_timer);
             // close all delta writers
-            if (_delta_writer_for_tablet.use_count() == 1) {
+            if (ExecEnv::GetInstance()->delta_writer_v2_pool()->remove(_load_id)) {
                 std::for_each(std::begin(*_delta_writer_for_tablet),
                               std::end(*_delta_writer_for_tablet),
                               [](auto&& entry) { entry.second->close(); });

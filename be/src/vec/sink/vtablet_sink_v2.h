@@ -63,6 +63,7 @@
 #include "vec/core/block.h"
 #include "vec/data_types/data_type.h"
 #include "vec/exprs/vexpr_fwd.h"
+#include "vec/sink/delta_writer_v2_pool.h"
 
 namespace doris {
 class DeltaWriterV2;
@@ -80,9 +81,7 @@ namespace stream_load {
 class OlapTableBlockConvertor;
 class OlapTabletFinder;
 class VOlapTableSinkV2;
-class LoadStreamStubPool;
 
-using DeltaWriterForTablet = std::unordered_map<int64_t, std::unique_ptr<DeltaWriterV2>>;
 using Streams = std::vector<std::shared_ptr<LoadStreamStub>>;
 using NodeIdForStream = std::unordered_map<brpc::StreamId, int64_t>;
 using NodePartitionTabletMapping =
@@ -214,7 +213,7 @@ private:
 
     std::unordered_map<int64_t, std::shared_ptr<Streams>> _streams_for_node;
     size_t _stream_index = 0;
-    std::shared_ptr<DeltaWriterForTablet> _delta_writer_for_tablet;
+    std::shared_ptr<TabletToDeltaWriterV2Map> _delta_writer_for_tablet;
 
     std::atomic<int> _pending_streams {0};
 

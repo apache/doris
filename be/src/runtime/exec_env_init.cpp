@@ -85,6 +85,7 @@
 #include "util/timezone_utils.h"
 #include "vec/exec/scan/scanner_scheduler.h"
 #include "vec/runtime/vdata_stream_mgr.h"
+#include "vec/sink/delta_writer_v2_pool.h"
 #include "vec/sink/load_stream_stub_pool.h"
 
 #if !defined(__SANITIZE_ADDRESS__) && !defined(ADDRESS_SANITIZER) && !defined(LEAK_SANITIZER) && \
@@ -200,6 +201,7 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths) {
     _file_meta_cache = new FileMetaCache(config::max_external_file_meta_cache_num);
     _memtable_memory_limiter = std::make_unique<MemTableMemoryLimiter>();
     _load_stream_stub_pool = std::make_unique<stream_load::LoadStreamStubPool>();
+    _delta_writer_v2_pool = std::make_unique<stream_load::DeltaWriterV2Pool>();
 
     _backend_client_cache->init_metrics("backend");
     _frontend_client_cache->init_metrics("frontend");
@@ -449,6 +451,7 @@ void ExecEnv::_destroy() {
 
     _new_load_stream_mgr.reset();
     _load_stream_stub_pool.reset();
+    _delta_writer_v2_pool.reset();
     _memtable_memory_limiter.reset(nullptr);
     _send_batch_thread_pool.reset(nullptr);
     _buffered_reader_prefetch_thread_pool.reset(nullptr);
