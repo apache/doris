@@ -108,7 +108,12 @@ if [[ -e "${DORIS_HOME}/bin/palo_env.sh" ]]; then
 fi
 
 if [[ -z "${JAVA_HOME}" ]]; then
-    JAVA="$(command -v java)"
+    if ! command -v java &> /dev/null; then
+        JAVA=""
+    else
+        JAVA="$(command -v java)"
+    fi
+    #JAVA="$(command -v java)"
 else
     JAVA="${JAVA_HOME}/bin/java"
 fi
