@@ -154,6 +154,7 @@ private:
     // Tracks the total memory consumed by current load job on this BE
     std::unique_ptr<MemTracker> _mem_tracker;
 
+    SpinLock _profile_serialize_lock;
     std::unique_ptr<RuntimeProfile> _profile;
     RuntimeProfile* _self_profile;
     RuntimeProfile::Counter* _add_batch_number_counter = nullptr;
