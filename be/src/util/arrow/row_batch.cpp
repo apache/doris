@@ -77,6 +77,7 @@ Status convert_to_arrow_type(const TypeDescriptor& type, std::shared_ptr<arrow::
     case TYPE_DATETIMEV2:
     case TYPE_STRING:
     case TYPE_JSONB:
+    case TYPE_OBJECT:
         *result = arrow::utf8();
         break;
     case TYPE_DECIMALV2:
