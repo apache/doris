@@ -27,13 +27,9 @@ import java.util.List;
  * Abstract class for all slot in expression.
  */
 public abstract class Slot extends NamedExpression implements LeafExpression {
+
     protected Slot() {
         super(ImmutableList.of());
-    }
-
-    // This is used in ArrayItemReference whose child is Array Expression
-    protected Slot(Expression child) {
-        super(ImmutableList.of(child));
     }
 
     @Override
