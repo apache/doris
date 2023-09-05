@@ -192,7 +192,7 @@ CsvReader::CsvReader(RuntimeState* state, RuntimeProfile* profile, ScannerCounte
         _text_serde_type = this->_params.text_serde_type;
     }
 }
-//
+
 CsvReader::CsvReader(RuntimeProfile* profile, const TFileScanRangeParams& params,
                      const TFileRangeDesc& range,
                      const std::vector<SlotDescriptor*>& file_slot_descs, io::IOContext* io_ctx)
@@ -609,17 +609,34 @@ Status CsvReader::_fill_dest_columns(const Slice& line, Block* block,
         // col idx is out of range, fill with null.
         const Slice& value =
                 col_idx < _split_values.size() ? _split_values[col_idx] : _s_null_slice;
-        // For load task, we always read "string" from file.
         Slice slice {value.data, value.size};
-        switch (_text_serde_type) {
-        case TTextSerdeType::JSON_TEXT_SERDE:
-            _serdes[i]->deserialize_one_cell_from_json(*columns[i], slice, _options);
-            break;
-        case TTextSerdeType::HIVE_TEXT_SERDE:
-            _serdes[i]->deserialize_one_cell_from_hive_text(*columns[i], slice, _options);
-            break;
-        default:
-            break;
+
+        if (!_is_load) {
+            IColumn* col_ptr = const_cast<IColumn*>(
+                    block->get_by_position(_file_slot_idx_map[i]).column.get());
+
+            switch (_text_serde_type) {
+            case TTextSerdeType::JSON_TEXT_SERDE:
+                _serdes[i]->deserialize_one_cell_from_json(*col_ptr, slice, _options);
+                break;
+            case TTextSerdeType::HIVE_TEXT_SERDE:
+                _serdes[i]->deserialize_one_cell_from_hive_text(*col_ptr, slice, _options);
+                break;
+            default:
+                break;
+            }
+        } else {
+            // For load task, we always read "string" from file.
+            switch (_text_serde_type) {
+            case TTextSerdeType::JSON_TEXT_SERDE:
+                _serdes[i]->deserialize_one_cell_from_json(*columns[i], slice, _options);
+                break;
+            case TTextSerdeType::HIVE_TEXT_SERDE:
+                _serdes[i]->deserialize_one_cell_from_hive_text(*columns[i], slice, _options);
+                break;
+            default:
+                break;
+            }
         }
     }
     ++(*rows);

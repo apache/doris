@@ -89,7 +89,7 @@ import java.util.stream.Collectors;
  */
 public abstract class ExternalFileTableValuedFunction extends TableValuedFunctionIf {
     public static final Logger LOG = LogManager.getLogger(ExternalFileTableValuedFunction.class);
-    protected static final String DEFAULT_COLUMN_SEPARATOR = ",";
+    protected static String DEFAULT_COLUMN_SEPARATOR = ",";
     protected static final String DEFAULT_LINE_DELIMITER = "\n";
     public static final String FORMAT = "format";
     public static final String COLUMN_SEPARATOR = "column_separator";
@@ -206,6 +206,7 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
                 break;
             case "hive_text":
                 this.fileFormatType = TFileFormatType.FORMAT_CSV_PLAIN;
+                this.DEFAULT_COLUMN_SEPARATOR = "\001";
                 this.textSerdeType = TTextSerdeType.HIVE_TEXT_SERDE;
                 break;
             case "csv_with_names":
