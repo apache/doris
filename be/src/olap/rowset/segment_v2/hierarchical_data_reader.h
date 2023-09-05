@@ -76,13 +76,12 @@ public:
 
     Status add_stream(const SubcolumnColumnReaders::Node* node);
 
-    void set_root(std::shared_ptr<StreamReader> root) { _root_reader = root; }
+    void set_root(std::unique_ptr<StreamReader>&& root) { _root_reader = std::move(root); }
 
 private:
     SubstreamReaderTree _substream_reader;
     const TabletColumn& _col;
-    // may shared among different column iterators
-    std::shared_ptr<StreamReader> _root_reader;
+    std::unique_ptr<StreamReader> _root_reader;
     size_t _rows_read = 0;
 
     template <typename NodeFunction>
@@ -162,6 +161,7 @@ private:
             node.data.column->clear();
             return Status::OK();
         });
+        _root_reader->column->clear();
         return Status::OK();
     }
 };
@@ -170,8 +170,8 @@ private:
 // encodes sparse columns that are not materialized
 class ExtractReader : public ColumnIterator {
 public:
-    ExtractReader(const TabletColumn& col, std::shared_ptr<StreamReader> root_reader)
-            : _col(col), _root_reader(root_reader) {}
+    ExtractReader(const TabletColumn& col, std::unique_ptr<StreamReader>&& root_reader)
+            : _col(col), _root_reader(std::move(root_reader)) {}
 
     Status init(const ColumnIteratorOptions& opts) override;
 
@@ -191,7 +191,7 @@ private:
 
     const TabletColumn& _col;
     // may shared among different column iterators
-    std::shared_ptr<StreamReader> _root_reader;
+    std::unique_ptr<StreamReader> _root_reader;
     size_t _rows_read = 0;
 };
 

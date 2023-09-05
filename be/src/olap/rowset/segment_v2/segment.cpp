@@ -399,13 +399,6 @@ Status Segment::new_iterator_with_path(const TabletColumn& tablet_column,
     // init root node shared reader
     vectorized::PathInData root_path({tablet_column.path_info().get_parts()[0]});
     auto root = _sub_column_tree.find_leaf(root_path);
-    if (root && opt->_shared_stream_reader == nullptr) {
-        ColumnIterator* it;
-        RETURN_IF_ERROR(root->data.reader->new_iterator(&it));
-        opt->_shared_stream_reader = std::make_shared<StreamReader>(
-                root->data.file_column_type->create_column(), std::unique_ptr<ColumnIterator>(it),
-                root->data.file_column_type);
-    }
     // Init iterators with extra path info.
     // TODO If this segment does not contain any data correspond to the relatate path,
     // then we could optimize to generate a default iterator
@@ -436,7 +429,11 @@ Status Segment::new_iterator_with_path(const TabletColumn& tablet_column,
         // Eg. {"a" : "b" : {"c" : 1}}, access the `a.b` path and merge with root path so that
         // we could make sure the data could be fully merged, since some column may not be extracted but remains in root
         // like {"a" : "b" : {"e" : 1.1}} in jsonb format
-        stream_iter->set_root(opt->_shared_stream_reader);
+        ColumnIterator* it;
+        RETURN_IF_ERROR(root->data.reader->new_iterator(&it));
+        stream_iter->set_root(std::make_unique<StreamReader>(
+                root->data.file_column_type->create_column(), std::unique_ptr<ColumnIterator>(it),
+                root->data.file_column_type));
         iter->reset(stream_iter);
     } else {
         // If file only exist column `v.a` and `v` but target path is `v.b`, read only read and parse root column
@@ -445,7 +442,13 @@ Status Segment::new_iterator_with_path(const TabletColumn& tablet_column,
             RETURN_IF_ERROR(new_default_iterator(tablet_column, iter));
             return Status::OK();
         }
-        auto stream_iter = new ExtractReader(tablet_column, opt->_shared_stream_reader);
+        ColumnIterator* it;
+        RETURN_IF_ERROR(root->data.reader->new_iterator(&it));
+        auto stream_iter = new ExtractReader(
+                tablet_column,
+                std::make_unique<StreamReader>(root->data.file_column_type->create_column(),
+                                               std::unique_ptr<ColumnIterator>(it),
+                                               root->data.file_column_type));
         iter->reset(stream_iter);
     }
     return Status::OK();
