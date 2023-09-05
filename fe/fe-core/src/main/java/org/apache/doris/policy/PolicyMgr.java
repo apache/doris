@@ -256,7 +256,8 @@ public class PolicyMgr implements Writable {
         readLock();
         try {
             Set<Policy> policies = getPoliciesByType(checkedPolicy.getType());
-            return policies.stream().filter(p -> p.equals(checkedPolicy)).findAny().orElse(null);
+            return policies.stream().filter(p -> p.getPolicyName().equals(checkedPolicy.getPolicyName()))
+                    .findAny().orElse(null);
         } finally {
             readUnlock();
         }

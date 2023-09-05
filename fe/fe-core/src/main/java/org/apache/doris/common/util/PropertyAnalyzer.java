@@ -265,7 +265,7 @@ public class PropertyAnalyzer {
             // changing the policy to a different policy with different resource is disabled.
             // As for the case where the resource is the same, modifying the cooldown time is allowed,
             // as this will not affect the already cooled data, but only the new data after modifying the policy.
-            if (null != oldStoragePolicy && !oldStoragePolicy.equals(newStoragePolicy)) {
+            if (!Strings.isNullOrEmpty(oldStoragePolicy) && !oldStoragePolicy.equals(newStoragePolicy)) {
                 // check remote storage policy
                 StoragePolicy oldPolicy = StoragePolicy.ofCheck(oldStoragePolicy);
                 Policy p = Env.getCurrentEnv().getPolicyMgr().getPolicy(oldPolicy);
