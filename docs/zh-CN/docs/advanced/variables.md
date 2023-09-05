@@ -111,7 +111,7 @@ SELECT /*+ SET_VAR(query_timeout = 1, enable_partition_cache=true) */ sleep(3);
 
 - `auto_increment_increment`
 
-  用于兼容 MySQL 客户端。无实际作用。
+  用于兼容 MySQL 客户端。无实际作用。虽然 Doris 已经有了 [AUTO_INCREMENT](../sql-manual/sql-reference/Data-Definition-Statements/Create/CREATE-TABLE#column_definition_list) 功能，但这个参数并不会对 AUTO_INCREMENT 的行为产生影响。auto_increment_offset 也是如此。
 
 - `autocommit`
 

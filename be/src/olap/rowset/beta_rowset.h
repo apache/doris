@@ -92,6 +92,8 @@ public:
     Status load_segments(int64_t seg_id_begin, int64_t seg_id_end,
                          std::vector<segment_v2::SegmentSharedPtr>* segments);
 
+    Status load_segment(int64_t seg_id, segment_v2::SegmentSharedPtr* segment);
+
     Status get_segments_size(std::vector<size_t>* segments_size);
 
     [[nodiscard]] virtual Status add_to_binlog() override;
