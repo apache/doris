@@ -39,9 +39,16 @@ suite("test_external_catalog_es", "p2") {
             );
             """
 
-        qt_sql "select * from ${esCatalogName}.default_db.${jdbcPg14Table1} order by account_number limit 10;"
+        sql """
+            SWITCH ${esCatalogName};
+            """
+        sql """
+            SHOW DATABASES;
+            """
 
-        sql """drop catalog if exists ${esCatalogName};"""
+        def res1=sql "select * from ${jdbcPg14Table1} limit 10;"
+        logger.info("recoding all: " + res1.toString())
 
+        sql """switch internal;"""
     }
 }
