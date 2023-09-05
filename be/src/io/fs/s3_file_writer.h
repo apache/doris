@@ -42,11 +42,11 @@ class S3Client;
 namespace doris {
 namespace io {
 struct S3FileBuffer;
+class S3FileSystem;
 
 class S3FileWriter final : public FileWriter {
 public:
-    S3FileWriter(Path path, std::shared_ptr<Aws::S3::S3Client> client, const S3Conf& s3_conf,
-                 FileSystemSPtr fs);
+    S3FileWriter(std::string key, std::shared_ptr<S3FileSystem> fs, const FileWriterOptions* opts);
     ~S3FileWriter() override;
 
     Status close() override;

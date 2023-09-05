@@ -46,6 +46,7 @@
 #include "common/status.h"
 #include "io/fs/file_writer.h"
 #include "io/fs/path.h"
+#include "io/fs/s3_file_system.h"
 #include "io/fs/s3_file_write_bufferpool.h"
 #include "util/defer_op.h"
 #include "util/doris_metrics.h"
@@ -78,13 +79,12 @@ bvar::Adder<uint64_t> s3_bytes_written_total("s3_file_writer", "bytes_written");
 bvar::Adder<uint64_t> s3_file_created_total("s3_file_writer", "file_created");
 bvar::Adder<uint64_t> s3_file_being_written("s3_file_writer", "file_being_written");
 
-S3FileWriter::S3FileWriter(Path path, std::shared_ptr<S3Client> client, const S3Conf& s3_conf,
-                           FileSystemSPtr fs)
-        : FileWriter(Path(s3_conf.endpoint) / s3_conf.bucket / path, std::move(fs)),
-          _bucket(s3_conf.bucket),
-          _key(std::move(path)),
-          _upload_cost_ms(std::make_unique<int64_t>()),
-          _client(std::move(client)) {
+S3FileWriter::S3FileWriter(std::string key, std::shared_ptr<S3FileSystem> fs,
+                           const FileWriterOptions* opts)
+        : FileWriter(fmt::format("s3://{}/{}", fs->s3_conf().bucket, key), fs),
+          _bucket(fs->s3_conf().bucket),
+          _key(std::move(key)),
+          _client(fs->get_client()) {
     s3_file_writer_total << 1;
     s3_file_being_written << 1;
 
