@@ -708,7 +708,6 @@ nonReserved
     | ARRAY
     | AT
     | AUTHORS
-    | AVG
     | BACKENDS
     | BACKUP
     | BEGIN
