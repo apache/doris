@@ -77,6 +77,7 @@ import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
 
+import java.util.ArrayList;
 import java.util.Collection;
 import java.util.HashMap;
 import java.util.List;
@@ -99,14 +100,31 @@ public class AggregateStrategies implements ImplementationRuleFactory {
         PatternDescriptor<LogicalAggregate<GroupPlan>> basePattern = logicalAggregate();
 
         return ImmutableList.of(
+            RuleType.COUNT_ON_INDEX_WITHOUT_PROJECT.build(
+                logicalAggregate(
+                    logicalFilter(
+                        logicalOlapScan().when(this::isDupOrMowKeyTable)
+                    ).when(filter -> containsMatchExpression(filter.getConjuncts())))
+                    .when(agg -> enablePushDownCountOnIndex())
+                    .when(agg -> agg.getGroupByExpressions().size() == 0)
+                    .when(agg -> {
+                        Set<AggregateFunction> funcs = agg.getAggregateFunctions();
+                        return !funcs.isEmpty() && funcs.stream()
+                                .allMatch(f -> f instanceof Count && !f.isDistinct());
+                    })
+                    .thenApply(ctx -> {
+                        LogicalAggregate<LogicalFilter<LogicalOlapScan>> agg = ctx.root;
+                        LogicalFilter<LogicalOlapScan> filter = agg.child();
+                        LogicalOlapScan olapScan = filter.child();
+                        return pushdownCountOnIndex(agg, null, filter, olapScan, ctx.cascadesContext);
+                    })
+            ),
             RuleType.COUNT_ON_INDEX.build(
                 logicalAggregate(
                     logicalProject(
                         logicalFilter(
                             logicalOlapScan().when(this::isDupOrMowKeyTable)
-                        ).when(filter -> containsMatchExpression(filter.getExpressions())
-                                && filter.getExpressions().size() == 1)
-                    ))
+                        ).when(filter -> containsMatchExpression(filter.getConjuncts()))))
                     .when(agg -> enablePushDownCountOnIndex())
                     .when(agg -> agg.getGroupByExpressions().size() == 0)
                     .when(agg -> {
@@ -212,8 +230,16 @@ public class AggregateStrategies implements ImplementationRuleFactory {
         );
     }
 
-    private boolean containsMatchExpression(List<Expression> expressions) {
-        return expressions.stream().allMatch(expr -> expr instanceof Match);
+    private boolean containsMatchExpression(Set<Expression> expressions) {
+        List<Expression> exprs = new ArrayList<>();
+        expressions.forEach(conjunct -> {
+            conjunct.getInputSlots().forEach(slot -> {
+                if (!slot.getName().equalsIgnoreCase(Column.DELETE_SIGN)) {
+                    exprs.add(conjunct);
+                }
+            });
+        });
+        return exprs.stream().allMatch(expr -> expr instanceof Match);
     }
 
     private boolean enablePushDownCountOnIndex() {
@@ -252,7 +278,7 @@ public class AggregateStrategies implements ImplementationRuleFactory {
      */
     private LogicalAggregate<? extends Plan> pushdownCountOnIndex(
             LogicalAggregate<? extends Plan> agg,
-            LogicalProject<? extends Plan> project,
+            @Nullable LogicalProject<? extends Plan> project,
             LogicalFilter<? extends Plan> filter,
             LogicalOlapScan olapScan,
             CascadesContext cascadesContext) {
@@ -261,13 +287,21 @@ public class AggregateStrategies implements ImplementationRuleFactory {
                 .build()
                 .transform(olapScan, cascadesContext)
                 .get(0);
-        return agg.withChildren(ImmutableList.of(
-                project.withChildren(ImmutableList.of(
-                        filter.withChildren(ImmutableList.of(
-                                new PhysicalStorageLayerAggregate(
-                                        physicalOlapScan,
-                                        PushDownAggOp.COUNT_ON_MATCH)))))
-        ));
+        if (project != null) {
+            return agg.withChildren(ImmutableList.of(
+                    project.withChildren(ImmutableList.of(
+                            filter.withChildren(ImmutableList.of(
+                                    new PhysicalStorageLayerAggregate(
+                                            physicalOlapScan,
+                                            PushDownAggOp.COUNT_ON_MATCH)))))
+            ));
+        } else {
+            return agg.withChildren(ImmutableList.of(
+                            filter.withChildren(ImmutableList.of(
+                                    new PhysicalStorageLayerAggregate(
+                                            physicalOlapScan,
+                                            PushDownAggOp.COUNT_ON_MATCH)))));
+        }
     }
 
     /**
