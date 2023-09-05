@@ -155,9 +155,6 @@ public class ExpressionEstimation extends ExpressionVisitor<ColumnStatistic, Sta
     }
 
     private ColumnStatistic castMinMax(ColumnStatistic colStats, DataType targetType) {
-        if (colStats == null) {
-            return null;
-        }
         if (colStats.minExpr instanceof StringLiteral && targetType.isDateLikeType()) {
             ColumnStatisticBuilder builder = new ColumnStatisticBuilder(colStats);
             if (colStats.minExpr != null && colStats.maxExpr != null) {

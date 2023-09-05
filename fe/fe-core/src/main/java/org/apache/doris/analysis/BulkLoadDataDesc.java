@@ -17,21 +17,13 @@
 
 package org.apache.doris.analysis;
 
-import org.apache.doris.catalog.Column;
-import org.apache.doris.catalog.DatabaseIf;
-import org.apache.doris.catalog.Env;
-import org.apache.doris.catalog.Table;
 import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.AnalysisException;
-import org.apache.doris.common.util.PrintableMap;
 import org.apache.doris.load.loadv2.LoadTask;
 import org.apache.doris.nereids.trees.expressions.Expression;
-import org.apache.doris.system.SystemInfoService;
-import org.apache.doris.tablefunction.HdfsTableValuedFunction;
-import org.apache.doris.tablefunction.S3TableValuedFunction;
 
 import com.google.common.base.Joiner;
-import com.google.common.base.VerifyException;
+import com.google.common.base.Strings;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -73,6 +65,7 @@ public class BulkLoadDataDesc {
     private static final Logger LOG = LogManager.getLogger(BulkLoadDataDesc.class);
     public static final String EXPECT_MERGE_DELETE_ON = "not support DELETE ON clause when merge type is not MERGE.";
     public static final String EXPECT_DELETE_ON = "Excepted DELETE ON clause when merge type is MERGE.";
+    private final List<String> nameParts;
     private final String tableName;
     private final String dbName;
     private final List<String> partitionNames;
@@ -110,6 +103,7 @@ public class BulkLoadDataDesc {
                             Expression deleteCondition,
                             String sequenceColName,
                             Map<String, String> dataProperties) {
+        this.nameParts = Objects.requireNonNull(fullTableName, "nameParts should not null");
         this.dbName = Objects.requireNonNull(fullTableName.get(1), "dbName should not null");
         this.tableName = Objects.requireNonNull(fullTableName.get(2), "tableName should not null");
         this.partitionNames = Objects.requireNonNull(partitionNames, "partitionNames should not null");
@@ -177,6 +171,10 @@ public class BulkLoadDataDesc {
         }
     }
 
+    public List<String> getNameParts() {
+        return nameParts;
+    }
+
     public String getDbName() {
         return dbName;
     }
@@ -201,6 +199,38 @@ public class BulkLoadDataDesc {
         return columnsFromPath;
     }
 
+    public List<Expression> getColumnMappingList() {
+        return columnMappingList;
+    }
+
+    public Expression getPrecedingFilterExpr() {
+        return precedingFilterExpr;
+    }
+
+    public Expression getWhereExpr() {
+        return whereExpr;
+    }
+
+    public List<String> getFileFieldNames() {
+        return fileFieldNames;
+    }
+
+    public String getSequenceCol() {
+        return sequenceCol;
+    }
+
+    public boolean hasSequenceCol() {
+        return !Strings.isNullOrEmpty(sequenceCol);
+    }
+
+    public Expression getDeleteCondition() {
+        return deleteCondition;
+    }
+
+    public LoadTask.MergeType getMergeType() {
+        return mergeType;
+    }
+
     public Map<String, String> getProperties() {
         return dataProperties;
     }
@@ -216,133 +246,6 @@ public class BulkLoadDataDesc {
             lowerCaseColumns.add(i, column.toLowerCase());
         }
         return lowerCaseColumns;
-    }
-
-    public String toInsertSql(BulkStorageDesc.StorageType storageType, Map<String, String> properties) {
-        StringBuilder sb = new StringBuilder();
-        sb.append("INSERT INTO ");
-        sb.append("`").append(dbName).append("`");
-        sb.append(".");
-        sb.append("`").append(tableName).append("`");
-        sb.append("(");
-
-        List<String> targetColumns = getTargetColumnsFromTable(dbName, tableName);
-        verifyLoadColumns(fileFieldNames, targetColumns);
-
-        List<String> mappingExpressions = new ArrayList<>();
-        if (!columnMappingList.isEmpty()) {
-            for (Expression mappingExpr : columnMappingList) {
-                String targetColumn = mappingExpr.child(0).toSql();
-                if (targetColumns.contains(targetColumn)) {
-                    mappingExpressions.add(mappingExpr.child(1).toSql());
-                }
-                // check key is in target columns
-            }
-        }
-        // create target columns for olap sink table
-        appendColumnFromPathColumns(targetColumns);
-        appendVirtualColumnForDeleteAndSeq(targetColumns);
-        Joiner.on(", ").appendTo(sb, targetColumns);
-        sb.append(")");
-
-        // create src columns from data input file
-        sb.append(" SELECT ");
-        List<String> mappingSrcColumns = setMappingExpressionsToSrc(fileFieldNames, mappingExpressions);
-        appendColumnValuesFromPathColumns(mappingSrcColumns);
-        appendDeleteOnConditions(mappingSrcColumns);
-        Joiner.on(", ").appendTo(sb, mappingSrcColumns);
-        sb.append(" FROM ");
-
-        // create tvf clause
-        if (BulkStorageDesc.StorageType.S3 == storageType) {
-            appendS3TvfTable(sb, properties);
-        } else if (BulkStorageDesc.StorageType.HDFS == storageType) {
-            appendHdfsTvfTable(sb, properties);
-        } else {
-            throw new UnsupportedOperationException("Unsupported storage type " + storageType + " for nereids load. ");
-        }
-        Expression rewrittenWhere = rewriteByColumnMappingSet(whereExpr);
-        String rewrittenWhereClause = rewriteByPrecedingFilter(rewrittenWhere, precedingFilterExpr);
-        sb.append(" WHERE ").append(rewrittenWhereClause);
-        return sb.toString();
-    }
-
-    private void appendHdfsTvfTable(StringBuilder sb, Map<String, String> properties) {
-        sb.append(HdfsTableValuedFunction.NAME);
-        sb.append("( ");
-        PrintableMap<String, String> printableMap = new PrintableMap<>(properties, "=", true, false, ",");
-        sb.append(printableMap);
-        sb.append(")");
-    }
-
-    private static void appendS3TvfTable(StringBuilder sb, Map<String, String> properties) {
-        sb.append(S3TableValuedFunction.NAME);
-        sb.append("( ");
-        PrintableMap<String, String> printableMap = new PrintableMap<>(properties, "=", true, false, ",");
-        sb.append(printableMap);
-        sb.append(")");
-    }
-
-    private void verifyLoadColumns(List<String> fileFieldNames, List<String> targetColumns) {
-        if (targetColumns.size() > fileFieldNames.size()) {
-            throw new VerifyException("Sink columns size is less than source columns size.");
-        }
-    }
-
-    private String rewriteByPrecedingFilter(Expression whereExpr, Expression precedingFilterExpr) {
-        return whereExpr.toSql();
-    }
-
-    private Expression rewriteByColumnMappingSet(Expression whereExpr) {
-        return whereExpr;
-    }
-
-    private void appendDeleteOnConditions(List<String> mappingTargetColumns) {
-        if (mergeType != LoadTask.MergeType.MERGE && deleteCondition != null) {
-            throw new IllegalArgumentException(EXPECT_MERGE_DELETE_ON);
-        }
-        if (mergeType == LoadTask.MergeType.MERGE && deleteCondition == null) {
-            throw new IllegalArgumentException(EXPECT_DELETE_ON);
-        }
-    }
-
-    private void appendColumnValuesFromPathColumns(List<String> mappingTargetColumns) {
-    }
-
-    private List<String> setMappingExpressionsToSrc(List<String> fileFieldNames, List<String> mappingExpressions) {
-        if (mappingExpressions.isEmpty()) {
-            return fileFieldNames;
-        }
-        // process set clause
-        List<String> mappedColumns = new ArrayList<>();
-        for (String fileField : fileFieldNames) {
-            // TODO: replace source column when it is in mapping expressions.
-            mappedColumns.add(fileField);
-        }
-        return mappedColumns;
-    }
-
-    private void appendVirtualColumnForDeleteAndSeq(List<String> mappingSrcColumns) {}
-
-    private void appendColumnFromPathColumns(List<String> mappingSrcColumns) {
-        mappingSrcColumns.addAll(columnsFromPath);
-    }
-
-    private List<String> getTargetColumnsFromTable(String dbName, String tableName) {
-        List<String> columnNames = new ArrayList<>();
-        String fullDbName = ClusterNamespace.getFullName(SystemInfoService.DEFAULT_CLUSTER, dbName);
-        try {
-            DatabaseIf<?> databaseIf = Env.getCurrentEnv().getInternalCatalog().getDbNullable(fullDbName);
-            Table targetTable = (Table) databaseIf.getTableOrAnalysisException(tableName);
-            List<Column> columns = targetTable.getColumns();
-            columns.stream()
-                    .filter(c -> !c.isVersionColumn())
-                    .filter(c -> !c.isDeleteSignColumn())
-                    .forEach(e -> columnNames.add(e.getName()));
-        } catch (AnalysisException e) {
-            throw new RuntimeException(e);
-        }
-        return columnNames;
     }
 
     @Override
