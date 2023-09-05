@@ -25,6 +25,7 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.ExpressionTrait;
 import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.TinyIntLiteral;
+import org.apache.doris.nereids.types.ArrayType;
 import org.apache.doris.nereids.types.BigIntType;
 import org.apache.doris.nereids.types.CharType;
 import org.apache.doris.nereids.types.DataType;
@@ -95,6 +96,17 @@ public class ColumnDefinition {
                 type = new CharType(1);
             } else if (type instanceof VarcharType && ((VarcharType) type).getLen() == -1) {
                 type = new VarcharType(VarcharType.MAX_VARCHAR_LENGTH);
+            }
+        }
+        if (type.isArrayType()) {
+            int depth = 0;
+            DataType curType = type;
+            while (curType.isArrayType()) {
+                curType = ((ArrayType) curType).getItemType();
+                depth++;
+            }
+            if (depth > 9) {
+                throw new AnalysisException("Type exceeds the maximum nesting depth of 9");
             }
         }
         if (keysSet.contains(name)) {

@@ -611,7 +611,7 @@ public class CreateTableCommandTest extends TestWithFeService {
                         + "PROPERTIES (\n"
                         + "\"replication_allocation\" = \"tag.location.default: 1\"\n"
                         + ");"));
-        Assertions.assertDoesNotThrow(
+        checkThrow(AnalysisException.class, "Type exceeds the maximum nesting depth of 9",
                 () -> createTable("CREATE TABLE test.table4 (\n"
                         + "  `k1` INT(11) NULL COMMENT \"\",\n"
                         + "  `k2` ARRAY<ARRAY<ARRAY<ARRAY<ARRAY<ARRAY<ARRAY<ARRAY<ARRAY<ARRAY<DECIMAL(20, 6)>>>>>>>>>> NULL COMMENT \"\"\n"
