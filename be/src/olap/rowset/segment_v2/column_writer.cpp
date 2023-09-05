@@ -739,7 +739,7 @@ OffsetColumnWriter::OffsetColumnWriter(const ColumnWriterOptions& opts,
                                        std::unique_ptr<Field> field, io::FileWriter* file_writer)
         : ScalarColumnWriter(opts, std::move(field), file_writer) {
     // now we only explain data in offset column as uint64
-    DCHECK(field->type() == FieldType::OLAP_FIELD_TYPE_UNSIGNED_BIGINT);
+    DCHECK(get_field()->type() == FieldType::OLAP_FIELD_TYPE_UNSIGNED_BIGINT);
 }
 
 OffsetColumnWriter::~OffsetColumnWriter() = default;
