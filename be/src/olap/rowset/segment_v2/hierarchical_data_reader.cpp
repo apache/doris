@@ -164,6 +164,7 @@ Status ExtractReader::extract_to(vectorized::MutableColumnPtr& dst) {
     }
 #ifndef NDEBUG
     assert_cast<vectorized::ColumnObject&>(*dst).check_consistency();
+    _root_reader->column->clear();
 #endif
     return Status::OK();
 }
