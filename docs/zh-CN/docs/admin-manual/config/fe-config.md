@@ -613,7 +613,7 @@ FE向BE的BackendService发送rpc请求时的超时时间，单位：毫秒。
 
 #### `remote_fragment_exec_timeout_ms`
 
-默认值：5000  （ms）
+默认值：30000  （ms）
 
 是否可以动态配置：true
 
