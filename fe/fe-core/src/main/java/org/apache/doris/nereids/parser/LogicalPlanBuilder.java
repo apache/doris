@@ -302,6 +302,7 @@ import org.apache.doris.qe.SqlModeHelper;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.ImmutableMap.Builder;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import org.antlr.v4.runtime.ParserRuleContext;
@@ -427,13 +428,13 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     @Override
     public LogicalPlan visitExport(ExportContext ctx) {
         List<String> tableName = visitMultipartIdentifier(ctx.tableName);
-        List<String> partitions = ctx.partition == null ? null : visitIdentifierList(ctx.partition);
+        List<String> partitions = ctx.partition == null ? ImmutableList.of() : visitIdentifierList(ctx.partition);
 
         // handle path string
         String tmpPath = ctx.filePath.getText();
         String path = escapeBackSlash(tmpPath.substring(1, tmpPath.length() - 1));
 
-        String whereSql = null;
+        String whereSql = "";
         if (ctx.whereClause() != null) {
             WhereClauseContext whereClauseContext = ctx.whereClause();
             int startIndex = whereClauseContext.start.getStartIndex();
@@ -443,16 +444,15 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             whereSql = whereClauseContext.start.getInputStream().getText(interval);
         }
 
-        Map<String, String> filePropertiesMap = Maps.newHashMap();
+        Map<String, String> filePropertiesMap = ImmutableMap.of();
         if (ctx.propertyClause() != null) {
             filePropertiesMap = visitPropertyClause(ctx.propertyClause());
         }
 
-        BrokerDesc brokerDesc = null;
+        Optional<BrokerDesc> brokerDesc = Optional.empty();
         if (ctx.withRemoteStorageSystem() != null) {
-            brokerDesc = visitWithRemoteStorageSystem(ctx.withRemoteStorageSystem());
+            brokerDesc = Optional.ofNullable(visitWithRemoteStorageSystem(ctx.withRemoteStorageSystem()));
         }
-
         return new ExportCommand(tableName, partitions, whereSql, path, filePropertiesMap, brokerDesc);
     }
 
@@ -463,13 +463,13 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
 
     @Override
     public Map<String, String> visitPropertyItemList(PropertyItemListContext ctx) {
-        Map<String, String> propertiesMap = Maps.newHashMap();
+        Builder<String, String> propertiesMap = ImmutableMap.builder();
         for (PropertyItemContext argument : ctx.properties) {
             String key = parsePropertyKey(argument.key);
             String value = parsePropertyValue(argument.value);
             propertiesMap.put(key, value);
         }
-        return propertiesMap;
+        return propertiesMap.build();
     }
 
     @Override

@@ -1342,6 +1342,7 @@ public class StmtExecutor {
         }
 
         sendResult(isOutfileQuery, false, queryStmt, channel, null, null);
+        LOG.info("--ftw: over");
     }
 
     private void sendResult(boolean isOutfileQuery, boolean isSendFields, Queriable queryStmt, MysqlChannel channel,
@@ -1353,6 +1354,7 @@ public class StmtExecutor {
         //          Query OK, 10 rows affected (0.01 sec)
         //
         // 2. If this is a query, send the result expr fields first, and send result data back to client.
+        LOG.info("--ftw: begin send result");
         RowBatch batch;
         coord = new Coordinator(context, analyzer, planner, context.getStatsErrorEstimator());
         if (Config.enable_workload_group && context.sessionVariable.getEnablePipelineEngine()) {
@@ -1392,6 +1394,7 @@ public class StmtExecutor {
                 // register the fetch result time.
                 profile.getSummaryProfile().setTempStartTime();
                 batch = coord.getNext();
+                LOG.info("--ftw: get Next");
                 profile.getSummaryProfile().freshFetchResultConsumeTime();
 
                 // for outfile query, there will be only one empty batch send back with eos flag
@@ -1405,26 +1408,33 @@ public class StmtExecutor {
                     // For some language driver, getting error packet after fields packet
                     // will be recognized as a success result
                     // so We need to send fields after first batch arrived
+                    LOG.info("--ftw: judge");
                     if (!isSendFields) {
+                        LOG.info("--ftw: !isSendFields");
                         if (!isOutfileQuery) {
+                            LOG.info("--ftw: !isOutfileQuery send fiedl");
                             sendFields(queryStmt.getColLabels(), exprToType(queryStmt.getResultExprs()));
                         } else {
+                            LOG.info("--ftw: isOutfileQuery send field");
                             sendFields(OutFileClause.RESULT_COL_NAMES, OutFileClause.RESULT_COL_TYPES);
                         }
                         isSendFields = true;
                     }
                     for (ByteBuffer row : batch.getBatch().getRows()) {
                         channel.sendOnePacket(row);
+                        LOG.info("--ftw: channel send packet, row = " + row);
                     }
                     profile.getSummaryProfile().freshWriteResultConsumeTime();
                     context.updateReturnRows(batch.getBatch().getRows().size());
                     context.setResultAttachedInfo(batch.getBatch().getAttachedInfos());
                 }
                 if (batch.isEos()) {
+                    LOG.info("--ftw: isEos");
                     break;
                 }
             }
             if (cacheAnalyzer != null) {
+                LOG.info("--ftw: cacheAnalyzer");
                 if (cacheResult != null && cacheAnalyzer.getHitRange() == Cache.HitRange.Right) {
                     isSendFields =
                             sendCachedValues(channel, cacheResult.getValuesList(), (Queriable) queryStmt, isSendFields,
@@ -1434,6 +1444,7 @@ public class StmtExecutor {
                 cacheAnalyzer.updateCache();
             }
             if (!isSendFields) {
+                LOG.info("--ftw: !isSendFields 2");
                 if (!isOutfileQuery) {
                     if (ConnectContext.get() != null && ConnectContext.get().getSessionVariable().dryRunQuery) {
                         // Return a one row one column result set, with the real result number
@@ -1451,9 +1462,11 @@ public class StmtExecutor {
                 }
             }
 
+            LOG.info("--ftw: statisticsForAuditLog");
             statisticsForAuditLog = batch.getQueryStatistics() == null ? null : batch.getQueryStatistics().toBuilder();
             context.getState().setEof();
             profile.getSummaryProfile().setQueryFetchResultFinishTime();
+            LOG.info("--ftw: profile");
         } catch (Exception e) {
             // notify all be cancel runing fragment
             // in some case may block all fragment handle threads
@@ -1463,7 +1476,9 @@ public class StmtExecutor {
             fetchResultSpan.recordException(e);
             throw e;
         } finally {
+            LOG.info("--ftw: end begin");
             fetchResultSpan.end();
+            LOG.info("--ftw: end");
             if (coord.getInstanceTotalNum() > 1 && LOG.isDebugEnabled()) {
                 try {
                     LOG.debug("Finish to execute fragment. user: {}, db: {}, sql: {}, fragment instance num: {}",
@@ -1474,6 +1489,7 @@ public class StmtExecutor {
                     LOG.warn("Fail to print fragment concurrency for Query.", e);
                 }
             }
+            LOG.info("--ftw: last");
         }
     }
 

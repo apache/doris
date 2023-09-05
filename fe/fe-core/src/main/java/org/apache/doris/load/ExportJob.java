@@ -52,7 +52,7 @@ import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.SqlParserUtils;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.datasource.InternalCatalog;
-import org.apache.doris.nereids.util.ParseSqlUtils;
+import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.qe.OriginStatement;
 import org.apache.doris.qe.SessionVariable;
@@ -158,7 +158,7 @@ public class ExportJob implements Writable {
 
     private String whereSql;
 
-    private Integer parallelism;
+    private int parallelism;
 
     public Map<String, Long> getPartitionToVersion() {
         return partitionToVersion;
@@ -389,7 +389,7 @@ public class ExportJob implements Writable {
 
         outfileSqlPerParallel.stream().forEach(outfileSqlList -> {
             List<StatementBase> logicalPlanAdapterList = outfileSqlList.stream().map(sql ->
-                    ParseSqlUtils.parseSingleStringSql(sql)).collect(Collectors.toList());
+                    new NereidsParser().parseSQL(sql).get(0)).collect(Collectors.toList());
             selectStmtListPerParallel.add(logicalPlanAdapterList);
         });
     }
@@ -462,7 +462,7 @@ public class ExportJob implements Writable {
 
     private StringBuilder generateWhereSql() {
         StringBuilder sb = new StringBuilder();
-        if (whereSql != null) {
+        if (!whereSql.isEmpty()) {
             sb.append(" ").append(whereSql);
         }
         return sb;
@@ -533,8 +533,8 @@ public class ExportJob implements Writable {
         try {
             final Collection<Partition> partitions = new ArrayList<Partition>();
             // get partitions
-            // user specifies partitions, already checked in ExportStmt
-            if (this.partitionNames != null) {
+            // user specifies partitions, already checked in ExportCommand
+            if (!this.partitionNames.isEmpty()) {
                 this.partitionNames.forEach(partitionName -> partitions.add(table.getPartition(partitionName)));
             } else {
                 if (table.getPartitions().size() > Config.maximum_number_of_export_partitions) {

@@ -23,9 +23,9 @@ import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.UserException;
 import org.apache.doris.load.ExportJob;
 import org.apache.doris.nereids.glue.LogicalPlanAdapter;
+import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.trees.plans.commands.ExportCommand;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
-import org.apache.doris.nereids.util.ParseSqlUtils;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.utframe.TestWithFeService;
 
@@ -801,8 +801,8 @@ public class ExportToOutfileSqlTest extends TestWithFeService {
     }
 
     private LogicalPlan parseSql(String exportSql) {
-        LogicalPlanAdapter logicalPlanAdapter = ParseSqlUtils.parseSingleStringSql(exportSql);
-        return logicalPlanAdapter.getLogicalPlan();
+        StatementBase statementBase = new NereidsParser().parseSQL(exportSql).get(0);
+        return ((LogicalPlanAdapter) statementBase).getLogicalPlan();
     }
 
     // need open EnableNereidsPlanner
@@ -813,10 +813,6 @@ public class ExportToOutfileSqlTest extends TestWithFeService {
             Method getTableName = exportCommand.getClass().getDeclaredMethod("getTableName", ConnectContext.class);
             getTableName.setAccessible(true);
 
-            Method convertPropertyKeyToLowercase = exportCommand.getClass().getDeclaredMethod(
-                    "convertPropertyKeyToLowercase", Map.class);
-            convertPropertyKeyToLowercase.setAccessible(true);
-
             Method checkAllParameters = exportCommand.getClass().getDeclaredMethod("checkAllParameters",
                     ConnectContext.class, TableName.class, Map.class);
             checkAllParameters.setAccessible(true);
@@ -826,12 +822,10 @@ public class ExportToOutfileSqlTest extends TestWithFeService {
             generateExportJob.setAccessible(true);
 
             TableName tblName = (TableName) getTableName.invoke(exportCommand, connectContext);
-            Map<String, String> lowercaseProperties = (Map<String, String>) convertPropertyKeyToLowercase.invoke(
-                    exportCommand, exportCommand.getFileProperties());
-            checkAllParameters.invoke(exportCommand, connectContext, tblName, lowercaseProperties);
+            checkAllParameters.invoke(exportCommand, connectContext, tblName, exportCommand.getFileProperties());
 
-            ExportJob job = (ExportJob) generateExportJob.invoke(exportCommand, connectContext, lowercaseProperties,
-                    tblName);
+            ExportJob job = (ExportJob) generateExportJob.invoke(
+                    exportCommand, connectContext, exportCommand.getFileProperties(), tblName);
             outfileSqlPerParallel = job.getOutfileSqlPerParallel();
         } catch (NoSuchMethodException e) {
             throw new UserException(e);
