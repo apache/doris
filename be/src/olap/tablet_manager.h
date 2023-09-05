@@ -81,6 +81,7 @@ public:
     std::vector<TabletSharedPtr> get_all_tablet(
             std::function<bool(Tablet*)>&& filter = filter_used_tablets);
 
+    // Handler not hold the shard lock.
     void for_each_tablet(std::function<void(const TabletSharedPtr&)>&& handler,
                          std::function<bool(Tablet*)>&& filter = filter_used_tablets);
 
