@@ -24,11 +24,11 @@ import org.apache.doris.nereids.properties.UnboundLogicalProperties;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
-import org.apache.doris.nereids.trees.plans.ObjectId;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
+import org.apache.doris.nereids.trees.plans.RelationId;
 import org.apache.doris.nereids.trees.plans.algebra.OneRowRelation;
-import org.apache.doris.nereids.trees.plans.logical.LogicalLeaf;
+import org.apache.doris.nereids.trees.plans.logical.LogicalRelation;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.nereids.util.Utils;
 
@@ -36,35 +36,28 @@ import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 
 import java.util.List;
-import java.util.Objects;
 import java.util.Optional;
 
 /**
  * A relation that contains only one row consist of some constant expressions.
  * e.g. select 100, 'value'
  */
-public class UnboundOneRowRelation extends LogicalLeaf implements Unbound, OneRowRelation {
+public class UnboundOneRowRelation extends LogicalRelation implements Unbound, OneRowRelation {
 
-    private final ObjectId id;
     private final List<NamedExpression> projects;
 
-    public UnboundOneRowRelation(ObjectId id, List<NamedExpression> projects) {
-        this(id, projects, Optional.empty(), Optional.empty());
+    public UnboundOneRowRelation(RelationId relationId, List<NamedExpression> projects) {
+        this(relationId, projects, Optional.empty(), Optional.empty());
     }
 
-    private UnboundOneRowRelation(ObjectId id,
+    private UnboundOneRowRelation(RelationId id,
                                   List<NamedExpression> projects,
                                   Optional<GroupExpression> groupExpression,
             Optional<LogicalProperties> logicalProperties) {
-        super(PlanType.LOGICAL_UNBOUND_ONE_ROW_RELATION, groupExpression, logicalProperties);
+        super(id, PlanType.LOGICAL_UNBOUND_ONE_ROW_RELATION, groupExpression, logicalProperties);
         Preconditions.checkArgument(projects.stream().noneMatch(p -> p.containsType(Slot.class)),
                 "OneRowRelation can not contains any slot");
-        this.id = id;
         this.projects = ImmutableList.copyOf(projects);
-    }
-
-    public ObjectId getId() {
-        return id;
     }
 
     @Override
@@ -84,13 +77,14 @@ public class UnboundOneRowRelation extends LogicalLeaf implements Unbound, OneRo
 
     @Override
     public Plan withGroupExpression(Optional<GroupExpression> groupExpression) {
-        return new UnboundOneRowRelation(id, projects, groupExpression, Optional.of(logicalPropertiesSupplier.get()));
+        return new UnboundOneRowRelation(relationId, projects,
+                groupExpression, Optional.of(logicalPropertiesSupplier.get()));
     }
 
     @Override
     public Plan withGroupExprLogicalPropChildren(Optional<GroupExpression> groupExpression,
             Optional<LogicalProperties> logicalProperties, List<Plan> children) {
-        return new UnboundOneRowRelation(id, projects, groupExpression, logicalProperties);
+        return new UnboundOneRowRelation(relationId, projects, groupExpression, logicalProperties);
     }
 
     @Override
@@ -106,28 +100,8 @@ public class UnboundOneRowRelation extends LogicalLeaf implements Unbound, OneRo
     @Override
     public String toString() {
         return Utils.toSqlString("UnboundOneRowRelation",
-                "relationId", id,
+                "relationId", relationId,
                 "projects", projects
         );
-    }
-
-    @Override
-    public boolean equals(Object o) {
-        if (this == o) {
-            return true;
-        }
-        if (o == null || getClass() != o.getClass()) {
-            return false;
-        }
-        if (!super.equals(o)) {
-            return false;
-        }
-        UnboundOneRowRelation that = (UnboundOneRowRelation) o;
-        return Objects.equals(id, that.id) && Objects.equals(projects, that.projects);
-    }
-
-    @Override
-    public int hashCode() {
-        return Objects.hash(id, projects);
     }
 }

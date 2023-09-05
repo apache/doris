@@ -25,6 +25,10 @@ suite("test_outfile_expr") {
     sql 'set enable_nereids_planner=true'
     sql 'set enable_fallback_to_original_planner=false'
 
+    def outFile = "/tmp"
+    def urlHost = ""
+    def csvFiles = ""
+
     StringBuilder strBuilder = new StringBuilder()
     strBuilder.append("curl --location-trusted -u " + context.config.jdbcUser + ":" + context.config.jdbcPassword)
     strBuilder.append(" http://" + context.config.feHttpAddress + "/rest/v1/config/fe")
@@ -97,9 +101,16 @@ suite("test_outfile_expr") {
         } else {
             throw new IllegalStateException("""${outFilePath} already exists! """)
         }
-        sql """
-            SELECT user_id+1, age+sex, repeat(char_col, 10) FROM ${tableName} t ORDER BY user_id INTO OUTFILE "file://${outFilePath}/";
+        def result = sql """
+            SELECT user_id+1, age+sex, repeat(char_col, 10) FROM ${tableName} t ORDER BY user_id INTO OUTFILE "file://${outFile}/";
         """
+
+        url = result[0][3]
+        urlHost = url.substring(8, url.indexOf("${outFile}"))
+        def filePrifix = url.split("${outFile}")[1]
+        csvFiles = "${outFile}${filePrifix}*.csv"
+        scpFiles ("root", urlHost, csvFiles, outFilePath)
+        
         File[] files = path.listFiles()
         assert files.length == 1
         List<String> outLines = Files.readAllLines(Paths.get(files[0].getAbsolutePath()), StandardCharsets.UTF_8);
@@ -130,6 +141,9 @@ suite("test_outfile_expr") {
             }
             path.delete();
         }
+
+        cmd = "rm -rf ${csvFiles}"
+        sshExec ("root", urlHost, cmd)
     }
 
 }

@@ -23,6 +23,7 @@
 
 // IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
 #include "common/compiler_util.h" // IWYU pragma: keep
+#include "common/exception.h"
 #include "common/object_pool.h"
 #include "runtime/runtime_state.h"
 #include "runtime/thread_context.h"
@@ -55,7 +56,7 @@ VExprContext::~VExprContext() {
     close();
 }
 
-doris::Status VExprContext::execute(doris::vectorized::Block* block, int* result_column_id) {
+Status VExprContext::execute(vectorized::Block* block, int* result_column_id) {
     Status st;
     RETURN_IF_CATCH_EXCEPTION({
         st = _root->execute(this, block, result_column_id);
@@ -64,13 +65,14 @@ doris::Status VExprContext::execute(doris::vectorized::Block* block, int* result
     return st;
 }
 
-doris::Status VExprContext::prepare(doris::RuntimeState* state,
-                                    const doris::RowDescriptor& row_desc) {
+Status VExprContext::prepare(RuntimeState* state, const RowDescriptor& row_desc) {
     _prepared = true;
-    return _root->prepare(state, row_desc, this);
+    Status st;
+    RETURN_IF_CATCH_EXCEPTION({ st = _root->prepare(state, row_desc, this); });
+    return st;
 }
 
-doris::Status VExprContext::open(doris::RuntimeState* state) {
+Status VExprContext::open(RuntimeState* state) {
     DCHECK(_prepared);
     if (_opened) {
         return Status::OK();
@@ -80,7 +82,9 @@ doris::Status VExprContext::open(doris::RuntimeState* state) {
     // original's fragment state and only need to have thread-local state initialized.
     FunctionContext::FunctionStateScope scope =
             _is_clone ? FunctionContext::THREAD_LOCAL : FunctionContext::FRAGMENT_LOCAL;
-    return _root->open(state, this, scope);
+    Status st;
+    RETURN_IF_CATCH_EXCEPTION({ st = _root->open(state, this, scope); });
+    return st;
 }
 
 void VExprContext::close() {
@@ -93,7 +97,7 @@ void VExprContext::close() {
     _root->close(this, scope);
 }
 
-doris::Status VExprContext::clone(RuntimeState* state, VExprContextSPtr& new_ctx) {
+Status VExprContext::clone(RuntimeState* state, VExprContextSPtr& new_ctx) {
     DCHECK(_prepared) << "expr context not prepared";
     DCHECK(_opened);
     DCHECK(new_ctx.get() == nullptr);
@@ -116,9 +120,8 @@ void VExprContext::clone_fn_contexts(VExprContext* other) {
     }
 }
 
-int VExprContext::register_function_context(RuntimeState* state,
-                                            const doris::TypeDescriptor& return_type,
-                                            const std::vector<doris::TypeDescriptor>& arg_types) {
+int VExprContext::register_function_context(RuntimeState* state, const TypeDescriptor& return_type,
+                                            const std::vector<TypeDescriptor>& arg_types) {
     _fn_contexts.push_back(FunctionContext::create_context(state, return_type, arg_types));
     _fn_contexts.back()->set_check_overflow_for_decimal(state->check_overflow_for_decimal());
     return _fn_contexts.size() - 1;

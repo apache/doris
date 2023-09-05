@@ -65,6 +65,7 @@ WITH BROKER broker_name
   INTO TABLE `table_name`
   [PARTITION (p1, p2, ...)]
   [COLUMNS TERMINATED BY "column_separator"]
+  [LINES TERMINATED BY "line_delimiter"]
   [FORMAT AS "file_type"]
   [(column_list)]
   [COLUMNS FROM PATH AS (c1, c2, ...)]
@@ -95,6 +96,10 @@ WITH BROKER broker_name
   - `COLUMNS TERMINATED BY`
 
     指定列分隔符。仅在 CSV 格式下有效。仅能指定单字节分隔符。
+
+  - `LINES TERMINATED BY`
+
+    指定行分隔符。仅在 CSV 格式下有效。仅能指定单字节分隔符。
 
   - `FORMAT AS`
 
@@ -170,6 +175,10 @@ WITH BROKER broker_name
 
       是否对数据进行严格限制。默认为 false。
 
+    - `partial_columns`
+
+      布尔类型，为 true 表示使用部分列更新，默认值为 false，该参数只允许在表模型为 Unique 且采用 Merge on Write 时设置。
+
     - `timezone`
 
       指定某些受时区影响的函数的时区，如 `strftime/alignment_timestamp/from_unixtime` 等等，具体请查阅 [时区](../../../../advanced/time-zone.md) 文档。如果不指定，则使用 "Asia/Shanghai" 时区
@@ -214,7 +223,7 @@ WITH BROKER broker_name
 
    导入文件 `file.txt`，按逗号分隔，导入到表 `my_table`。
 
-2. 从 HDFS 导入数据，使用通配符匹配两批两批文件。分别导入到两个表中。
+2. 从 HDFS 导入数据，使用通配符匹配两批文件。分别导入到两个表中。
 
    ```sql
    LOAD LABEL example_db.label2
@@ -416,7 +425,7 @@ WITH BROKER broker_name
    )
    ```
 
-   `my_table` 必须是 Unqiue Key 模型表，并且指定了 Sequcence Col。数据会按照源数据中 `source_sequence` 列的值来保证顺序性。
+   `my_table` 必须是 Unique Key 模型表，并且指定了 Sequcence Col。数据会按照源数据中 `source_sequence` 列的值来保证顺序性。
 
 10. 从 HDFS 导入一批数据，指定文件格式为 `json` 并指定 `json_root`、`jsonpaths`
 

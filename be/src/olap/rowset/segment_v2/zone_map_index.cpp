@@ -145,8 +145,17 @@ Status TypedZoneMapIndexWriter<Type>::finish(io::FileWriter* file_writer,
     return writer.finish(meta->mutable_page_zone_maps());
 }
 
-Status ZoneMapIndexReader::load(bool use_page_cache, bool kept_in_memory) {
-    IndexedColumnReader reader(_file_reader, _index_meta->page_zone_maps());
+Status ZoneMapIndexReader::load(bool use_page_cache, bool kept_in_memory,
+                                const ZoneMapIndexPB* index_meta) {
+    // TODO yyq: implement a new once flag to avoid status construct.
+    return _load_once.call([this, use_page_cache, kept_in_memory, index_meta] {
+        return _load(use_page_cache, kept_in_memory, index_meta);
+    });
+}
+
+Status ZoneMapIndexReader::_load(bool use_page_cache, bool kept_in_memory,
+                                 const ZoneMapIndexPB* index_meta) {
+    IndexedColumnReader reader(_file_reader, index_meta->page_zone_maps());
     RETURN_IF_ERROR(reader.load(use_page_cache, kept_in_memory));
     IndexedColumnIterator iter(&reader);
 

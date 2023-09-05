@@ -24,7 +24,7 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# Doris output plugin
+# Doris Output Plugin
 
 This plugin is used to output data to Doris for logstash, use the HTTP protocol to interact with the Doris FE Http interface, and import data through Doris's stream load.
 

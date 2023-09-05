@@ -45,6 +45,7 @@ public class TablesProcDir implements ProcDirInterface {
     public static final ImmutableList<String> TITLE_NAMES = new ImmutableList.Builder<String>()
             .add("TableId").add("TableName").add("IndexNum").add("PartitionColumnName")
             .add("PartitionNum").add("State").add("Type").add("LastConsistencyCheckTime").add("ReplicaCount")
+            .add("LastUpdateTime")
             .build();
 
     private DatabaseIf db;
@@ -128,8 +129,7 @@ public class TablesProcDir implements ProcDirInterface {
                     tableInfo.add(FeConstants.null_string);
                     tableInfo.add(replicaCount);
                 }
-
-
+                tableInfo.add(TimeUtils.longToTimeString(table.getLastUpdateTime()));
                 tableInfos.add(tableInfo);
             } finally {
                 table.readUnlock();

@@ -88,10 +88,8 @@ struct constexpr_loop_match {
             if (start == target) {
                 Reducer<start>::run(std::forward<TArgs>(args)...);
             } else {
-                if constexpr (start < std::numeric_limits<LoopType>::max()) {
-                    constexpr_loop_match<LoopType, start + 1, end, Reducer>::run(
-                            target, std::forward<TArgs>(args)...);
-                }
+                constexpr_loop_match<LoopType, start + 1, end, Reducer>::run(
+                        target, std::forward<TArgs>(args)...);
             }
         }
     }
@@ -100,55 +98,6 @@ struct constexpr_loop_match {
 template <int start, int end, template <int> typename Reducer>
 using constexpr_int_match = constexpr_loop_match<int, start, end, Reducer>;
 
-template <template <bool> typename Reducer>
-using constexpr_bool_match = constexpr_loop_match<bool, false, true, Reducer>;
-
-// we can't use variadic-parameters, because it will reject alias-templates.
-// https://stackoverflow.com/questions/30707011/pack-expansion-for-alias-template
-template <typename LoopType, LoopType start, LoopType end,
-          template <LoopType, LoopType> typename Reducer,
-          template <template <LoopType> typename> typename InnerMatch>
-struct constexpr_2_loop_match {
-    template <LoopType matched>
-    using InnerReducer = Reducer<start, matched>;
-
-    template <typename... TArgs>
-    static void run(LoopType target, TArgs&&... args) {
-        if constexpr (start <= end) {
-            if (start == target) {
-                InnerMatch<InnerReducer>::run(std::forward<TArgs>(args)...);
-            } else {
-                if constexpr (start < std::numeric_limits<LoopType>::max()) {
-                    constexpr_2_loop_match<LoopType, start + 1, end, Reducer, InnerMatch>::run(
-                            target, std::forward<TArgs>(args)...);
-                }
-            }
-        }
-    }
-};
-
-template <typename LoopType, LoopType start, LoopType end,
-          template <LoopType, LoopType, LoopType> typename Reducer,
-          template <template <LoopType, LoopType> typename> typename InnerMatch>
-struct constexpr_3_loop_match {
-    template <LoopType matched, LoopType matched_next>
-    using InnerReducer = Reducer<start, matched, matched_next>;
-
-    template <typename... TArgs>
-    static void run(LoopType target, TArgs&&... args) {
-        if constexpr (start <= end) {
-            if (start == target) {
-                InnerMatch<InnerReducer>::run(std::forward<TArgs>(args)...);
-            } else {
-                if constexpr (start < std::numeric_limits<LoopType>::max()) {
-                    constexpr_3_loop_match<LoopType, start + 1, end, Reducer, InnerMatch>::run(
-                            target, std::forward<TArgs>(args)...);
-                }
-            }
-        }
-    }
-};
-
 std::variant<std::false_type, std::true_type> inline make_bool_variant(bool condition) {
     if (condition) {
         return std::true_type {};
@@ -156,5 +105,13 @@ std::variant<std::false_type, std::true_type> inline make_bool_variant(bool cond
         return std::false_type {};
     }
 }
+
+template <typename... Callables>
+struct Overload : Callables... {
+    using Callables::operator()...;
+};
+
+template <typename... Callables>
+Overload(Callables&&... callables) -> Overload<Callables...>;
 
 } // namespace  doris::vectorized

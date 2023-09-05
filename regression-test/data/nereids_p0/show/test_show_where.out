@@ -17,3 +17,47 @@ ex_tb1
 ex_tb0
 ex_tb1
 
+-- !select --
+show_test_do_not_modify
+
+-- !select --
+ex_tb0
+ex_tb1
+ex_tb2
+
+-- !select --
+ex_tb0
+
+-- !select --
+ex_tb0
+ex_tb1
+ex_tb2
+
+-- !select --
+ex_tb0
+ex_tb1
+
+-- !select --
+ex_tb0
+ex_tb1
+ex_tb2
+
+-- !select --
+doris_test
+
+-- !select --
+ex_tb0
+ex_tb1
+
+-- !select --
+ex_tb1
+
+-- !select --
+ex_tb0
+ex_tb1
+
+-- !select --
+ex_tb0
+ex_tb1
+ex_tb2
+

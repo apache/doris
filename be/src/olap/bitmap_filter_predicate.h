@@ -101,6 +101,7 @@ private:
     SpecificFilter* _specific_filter; // owned by _filter
 
     int get_filter_id() const override { return _filter->get_filter_id(); }
+    bool is_filter() const override { return true; }
 };
 
 template <PrimitiveType T>

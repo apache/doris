@@ -392,7 +392,7 @@ public:
             Status st = Impl::vector_vector_v2(
                     context, ldata, loffsets, jsonb_data_const, jsonb_path_columns, path_const,
                     res_data, res_offsets, null_map->get_data(), is_invalid_json_path);
-            if (st != Status::OK()) {
+            if (!st.ok()) {
                 return st;
             }
         } else {
@@ -436,10 +436,7 @@ private:
                                               ColumnString::Offsets& res_offsets, NullMap& null_map,
                                               const std::unique_ptr<JsonbWriter>& writer,
                                               std::unique_ptr<JsonbToJson>& formater,
-                                              const char* l_raw, int l_size, const char* r_raw,
-                                              int r_size, bool& is_invalid_json_path) {
-        String path(r_raw, r_size);
-
+                                              const char* l_raw, int l_size, JsonbPath& path) {
         if (null_map[i]) {
             StringOP::push_null_string(i, res_data, res_offsets, null_map);
             return;
@@ -453,9 +450,9 @@ private:
         }
 
         // value is NOT necessary to be deleted since JsonbValue will not allocate memory
-        JsonbValue* value = doc->getValue()->findPath(r_raw, r_size, is_invalid_json_path, nullptr);
+        JsonbValue* value = doc->getValue()->findValue(path, nullptr);
 
-        if (UNLIKELY(!value) || is_invalid_json_path) {
+        if (UNLIKELY(!value)) {
             StringOP::push_null_string(i, res_data, res_offsets, null_map);
             return;
         }
@@ -520,6 +517,48 @@ public:
         auto writer = std::make_unique<JsonbWriter>();
         std::unique_ptr<JsonbToJson> formater;
 
+        // reuseable json path list, espacially for const path
+        std::vector<JsonbPath> json_path_list;
+        json_path_list.resize(rdata_columns.size());
+
+        // lambda function to parse json path for row i and path pi
+        auto parse_json_path = [&](size_t i, size_t pi) -> Status {
+            const ColumnString* path_col = rdata_columns[pi];
+            const ColumnString::Chars& rdata = path_col->get_chars();
+            const ColumnString::Offsets& roffsets = path_col->get_offsets();
+            size_t r_off = roffsets[index_check_const(i, path_const[pi]) - 1];
+            size_t r_size = roffsets[index_check_const(i, path_const[pi])] - r_off;
+            const char* r_raw = reinterpret_cast<const char*>(&rdata[r_off]);
+
+            JsonbPath path;
+            if (!path.seek(r_raw, r_size)) {
+                return Status::InvalidArgument(
+                        "Json path error: {} for value: {}",
+                        JsonbErrMsg::getErrMsg(JsonbErrType::E_INVALID_JSON_PATH),
+                        std::string_view(reinterpret_cast<const char*>(rdata.data()),
+                                         rdata.size()));
+            }
+
+            // if not valid json path , should return error message to user
+            if (is_invalid_json_path) {
+                return Status::InvalidArgument(
+                        "Json path error: {} for value: {}",
+                        JsonbErrMsg::getErrMsg(JsonbErrType::E_INVALID_JSON_PATH),
+                        std::string_view(reinterpret_cast<const char*>(rdata.data()),
+                                         rdata.size()));
+            }
+
+            json_path_list[pi] = std::move(path);
+
+            return Status::OK();
+        };
+
+        for (size_t pi = 0; pi < rdata_columns.size(); pi++) {
+            if (path_const[pi]) {
+                RETURN_IF_ERROR(parse_json_path(0, pi));
+            }
+        }
+
         for (size_t i = 0; i < input_rows_count; ++i) {
             if (null_map[i]) {
                 StringOP::push_null_string(i, res_data, res_offsets, null_map);
@@ -529,41 +568,31 @@ public:
             size_t l_size = loffsets[index_check_const(i, json_data_const)] - l_off;
             const char* l_raw = reinterpret_cast<const char*>(&ldata[l_off]);
             if (rdata_columns.size() == 1) { // just return origin value
-                const ColumnString* path_col = rdata_columns[0];
-                const ColumnString::Chars& rdata = path_col->get_chars();
-                const ColumnString::Offsets& roffsets = path_col->get_offsets();
-                size_t r_off = roffsets[index_check_const(i, path_const[0]) - 1];
-                size_t r_size = roffsets[index_check_const(i, path_const[0])] - r_off;
-                const char* r_raw = reinterpret_cast<const char*>(&rdata[r_off]);
+                if (!path_const[0]) {
+                    RETURN_IF_ERROR(parse_json_path(i, 0));
+                }
                 inner_loop_impl(i, res_data, res_offsets, null_map, writer, formater, l_raw, l_size,
-                                r_raw, r_size, is_invalid_json_path);
+                                json_path_list[0]);
             } else { // will make array string to user
                 writer->reset();
                 writer->writeStartArray();
+
+                // doc is NOT necessary to be deleted since JsonbDocument will not allocate memory
+                JsonbDocument* doc = JsonbDocument::createDocument(l_raw, l_size);
+
                 for (size_t pi = 0; pi < rdata_columns.size(); ++pi) {
-                    const ColumnString* path_col = rdata_columns[pi];
-                    const ColumnString::Chars& rdata = path_col->get_chars();
-                    const ColumnString::Offsets& roffsets = path_col->get_offsets();
-                    size_t r_off = roffsets[index_check_const(i, path_const[pi]) - 1];
-                    size_t r_size = roffsets[index_check_const(i, path_const[pi])] - r_off;
-                    const char* r_raw = reinterpret_cast<const char*>(&rdata[r_off]);
-                    // doc is NOT necessary to be deleted since JsonbDocument will not allocate memory
-                    JsonbDocument* doc = JsonbDocument::createDocument(l_raw, l_size);
                     if (UNLIKELY(!doc || !doc->getValue())) {
                         writer->writeNull();
                         continue;
                     }
-                    // value is NOT necessary to be deleted since JsonbValue will not allocate memory
-                    JsonbValue* value =
-                            doc->getValue()->findPath(r_raw, r_size, is_invalid_json_path, nullptr);
-                    // if not valid json path , should return error message to user
-                    if (is_invalid_json_path) {
-                        return Status::InvalidArgument(
-                                "Json path error: {} for value: {}",
-                                JsonbErrMsg::getErrMsg(JsonbErrType::E_INVALID_JSON_PATH),
-                                std::string_view(reinterpret_cast<const char*>(rdata.data()),
-                                                 rdata.size()));
+
+                    if (!path_const[pi]) {
+                        RETURN_IF_ERROR(parse_json_path(i, pi));
                     }
+
+                    // value is NOT necessary to be deleted since JsonbValue will not allocate memory
+                    JsonbValue* value = doc->getValue()->findValue(json_path_list[pi], nullptr);
+
                     if (UNLIKELY(!value)) {
                         writer->writeNull();
                     } else {
@@ -602,8 +631,15 @@ public:
             int r_size = roffsets[i] - roffsets[i - 1];
             const char* r_raw = reinterpret_cast<const char*>(&rdata[roffsets[i - 1]]);
 
+            JsonbPath path;
+            if (!path.seek(r_raw, r_size)) {
+                is_invalid_json_path = true;
+                StringOP::push_null_string(i, res_data, res_offsets, null_map);
+                return;
+            }
+
             inner_loop_impl(i, res_data, res_offsets, null_map, writer, formater, l_raw, l_size,
-                            r_raw, r_size, is_invalid_json_path);
+                            path);
         } //for
     }     //function
     static void vector_scalar(FunctionContext* context, const ColumnString::Chars& ldata,
@@ -620,12 +656,18 @@ public:
 
         std::unique_ptr<JsonbToJson> formater;
 
+        JsonbPath path;
+        if (!path.seek(rdata.data, rdata.size)) {
+            is_invalid_json_path = true;
+            return;
+        }
+
         for (size_t i = 0; i < input_rows_count; ++i) {
             int l_size = loffsets[i] - loffsets[i - 1];
             const char* l_raw = reinterpret_cast<const char*>(&ldata[loffsets[i - 1]]);
 
             inner_loop_impl(i, res_data, res_offsets, null_map, writer, formater, l_raw, l_size,
-                            rdata.data, rdata.size, is_invalid_json_path);
+                            path);
         } //for
     }     //function
     static void scalar_vector(FunctionContext* context, const StringRef& ldata,
@@ -647,8 +689,15 @@ public:
             int r_size = roffsets[i] - roffsets[i - 1];
             const char* r_raw = reinterpret_cast<const char*>(&rdata[roffsets[i - 1]]);
 
+            JsonbPath path;
+            if (!path.seek(r_raw, r_size)) {
+                is_invalid_json_path = true;
+                StringOP::push_null_string(i, res_data, res_offsets, null_map);
+                return;
+            }
+
             inner_loop_impl(i, res_data, res_offsets, null_map, writer, formater, ldata.data,
-                            ldata.size, r_raw, r_size, is_invalid_json_path);
+                            ldata.size, path);
         } //for
     }     //function
 };
@@ -663,8 +712,7 @@ struct JsonbExtractImpl {
 private:
     static ALWAYS_INLINE void inner_loop_impl(size_t i, Container& res, NullMap& null_map,
                                               const char* l_raw_str, int l_str_size,
-                                              const char* r_raw_str, int r_str_size,
-                                              bool& is_invalid_json_path) {
+                                              JsonbPath& path) {
         if (null_map[i]) {
             res[i] = 0;
             return;
@@ -679,10 +727,9 @@ private:
         }
 
         // value is NOT necessary to be deleted since JsonbValue will not allocate memory
-        JsonbValue* value =
-                doc->getValue()->findPath(r_raw_str, r_str_size, is_invalid_json_path, nullptr);
+        JsonbValue* value = doc->getValue()->findValue(path, nullptr);
 
-        if (UNLIKELY(!value) || is_invalid_json_path) {
+        if (UNLIKELY(!value)) {
             if constexpr (!only_check_exists) {
                 null_map[i] = 1;
             }
@@ -720,7 +767,15 @@ private:
             }
         } else if constexpr (std::is_same_v<int64_t, typename ValueType::T>) {
             if (value->isInt8() || value->isInt16() || value->isInt32() || value->isInt64()) {
-                res[i] = ((const JsonbIntVal*)value)->val();
+                res[i] = (int64_t)((const JsonbIntVal*)value)->val();
+            } else {
+                null_map[i] = 1;
+                res[i] = 0;
+            }
+        } else if constexpr (std::is_same_v<int128_t, typename ValueType::T>) {
+            if (value->isInt8() || value->isInt16() || value->isInt32() || value->isInt64() ||
+                value->isInt128()) {
+                res[i] = (int128_t)((const JsonbIntVal*)value)->val();
             } else {
                 null_map[i] = 1;
                 res[i] = 0;
@@ -761,8 +816,14 @@ public:
             const char* r_raw_str = reinterpret_cast<const char*>(&rdata[roffsets[i - 1]]);
             int r_str_size = roffsets[i] - roffsets[i - 1];
 
-            inner_loop_impl(i, res, null_map, l_raw_str, l_str_size, r_raw_str, r_str_size,
-                            is_invalid_json_path);
+            JsonbPath path;
+            if (!path.seek(r_raw_str, r_str_size)) {
+                is_invalid_json_path = true;
+                res[i] = 0;
+                return;
+            }
+
+            inner_loop_impl(i, res, null_map, l_raw_str, l_str_size, path);
         } //for
     }     //function
     static void scalar_vector(FunctionContext* context, const StringRef& ldata,
@@ -780,8 +841,14 @@ public:
             const char* r_raw_str = reinterpret_cast<const char*>(&rdata[roffsets[i - 1]]);
             int r_str_size = roffsets[i] - roffsets[i - 1];
 
-            inner_loop_impl(i, res, null_map, ldata.data, ldata.size, r_raw_str, r_str_size,
-                            is_invalid_json_path);
+            JsonbPath path;
+            if (!path.seek(r_raw_str, r_str_size)) {
+                is_invalid_json_path = true;
+                res[i] = 0;
+                return;
+            }
+
+            inner_loop_impl(i, res, null_map, ldata.data, ldata.size, path);
         } //for
     }     //function
     static void vector_scalar(FunctionContext* context, const ColumnString::Chars& ldata,
@@ -789,6 +856,12 @@ public:
                               Container& res, NullMap& null_map, bool& is_invalid_json_path) {
         size_t size = loffsets.size();
         res.resize(size);
+
+        JsonbPath path;
+        if (!path.seek(rdata.data, rdata.size)) {
+            is_invalid_json_path = true;
+            return;
+        }
 
         for (size_t i = 0; i < loffsets.size(); i++) {
             if constexpr (only_check_exists) {
@@ -798,8 +871,7 @@ public:
             const char* l_raw_str = reinterpret_cast<const char*>(&ldata[loffsets[i - 1]]);
             int l_str_size = loffsets[i] - loffsets[i - 1];
 
-            inner_loop_impl(i, res, null_map, l_raw_str, l_str_size, rdata.data, rdata.size,
-                            is_invalid_json_path);
+            inner_loop_impl(i, res, null_map, l_raw_str, l_str_size, path);
         } //for
     }     //function
 };
@@ -835,6 +907,13 @@ struct JsonbTypeInt {
 struct JsonbTypeInt64 {
     using T = int64_t;
     using ReturnType = DataTypeInt64;
+    using ColumnType = ColumnVector<T>;
+    static const bool only_check_exists = false;
+};
+
+struct JsonbTypeInt128 {
+    using T = int128_t;
+    using ReturnType = DataTypeInt128;
     using ColumnType = ColumnVector<T>;
     static const bool only_check_exists = false;
 };
@@ -895,6 +974,11 @@ struct JsonbExtractBigInt : public JsonbExtractImpl<JsonbTypeInt64> {
     static constexpr auto alias = "jsonb_extract_bigint";
 };
 
+struct JsonbExtractLargeInt : public JsonbExtractImpl<JsonbTypeInt128> {
+    static constexpr auto name = "json_extract_largeint";
+    static constexpr auto alias = "jsonb_extract_largeint";
+};
+
 struct JsonbExtractDouble : public JsonbExtractImpl<JsonbTypeDouble> {
     static constexpr auto name = "json_extract_double";
     static constexpr auto alias = "jsonb_extract_double";
@@ -922,6 +1006,7 @@ using FunctionJsonbExtractIsnull = FunctionJsonbExtract<JsonbExtractIsnull>;
 using FunctionJsonbExtractBool = FunctionJsonbExtract<JsonbExtractBool>;
 using FunctionJsonbExtractInt = FunctionJsonbExtract<JsonbExtractInt>;
 using FunctionJsonbExtractBigInt = FunctionJsonbExtract<JsonbExtractBigInt>;
+using FunctionJsonbExtractLargeInt = FunctionJsonbExtract<JsonbExtractLargeInt>;
 using FunctionJsonbExtractDouble = FunctionJsonbExtract<JsonbExtractDouble>;
 using FunctionJsonbExtractString = FunctionJsonbExtract<JsonbExtractString>;
 using FunctionJsonbExtractJsonb = FunctionJsonbExtract<JsonbExtractJsonb>;
@@ -974,6 +1059,8 @@ void register_function_jsonb(SimpleFunctionFactory& factory) {
     factory.register_alias(FunctionJsonbExtractInt::name, FunctionJsonbExtractInt::alias);
     factory.register_function<FunctionJsonbExtractBigInt>();
     factory.register_alias(FunctionJsonbExtractBigInt::name, FunctionJsonbExtractBigInt::alias);
+    factory.register_function<FunctionJsonbExtractLargeInt>();
+    factory.register_alias(FunctionJsonbExtractLargeInt::name, FunctionJsonbExtractLargeInt::alias);
     factory.register_function<FunctionJsonbExtractDouble>();
     factory.register_alias(FunctionJsonbExtractDouble::name, FunctionJsonbExtractDouble::alias);
     factory.register_function<FunctionJsonbExtractString>();

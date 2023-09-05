@@ -41,6 +41,7 @@ import java.io.IOException;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
+import java.util.stream.Collectors;
 
 @Setter
 public class JdbcTable extends Table {
@@ -102,7 +103,10 @@ public class JdbcTable extends Table {
 
         sb.append(databaseProperName(TABLE_TYPE_MAP.get(getTableTypeName()), getExternalTableName()));
         sb.append("(");
-        sb.append(String.join(",", insertCols));
+        List<String> transformedInsertCols = insertCols.stream()
+                .map(col -> databaseProperName(TABLE_TYPE_MAP.get(getTableTypeName()), col))
+                .collect(Collectors.toList());
+        sb.append(String.join(",", transformedInsertCols));
         sb.append(")");
         sb.append(" VALUES (");
         for (int i = 0; i < insertCols.size(); ++i) {
@@ -312,7 +316,8 @@ public class JdbcTable extends Table {
 
         String urlType = jdbcUrl.split(":")[1];
         if (!jdbcTypeName.equalsIgnoreCase(urlType)) {
-            if (!(jdbcTypeName.equalsIgnoreCase("oceanbase_oracle") && urlType.equalsIgnoreCase("oceanbase"))) {
+            if (!(jdbcTypeName.equalsIgnoreCase("oceanbase_oracle") && urlType.equalsIgnoreCase("oceanbase"))
+                    && !(jdbcTypeName.equalsIgnoreCase("sap_hana") && urlType.equalsIgnoreCase("sap"))) {
                 throw new DdlException("property " + TABLE_TYPE + " must be same with resource url");
             }
         }

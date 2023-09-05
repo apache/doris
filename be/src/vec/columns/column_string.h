@@ -106,6 +106,8 @@ private:
               chars(src.chars.begin(), src.chars.end()) {}
 
 public:
+    void sanity_check() const;
+
     const char* get_family_name() const override { return "String"; }
 
     size_t size() const override { return offsets.size(); }
@@ -506,8 +508,7 @@ public:
 
     ColumnPtr replicate(const Offsets& replicate_offsets) const override;
 
-    void replicate(const uint32_t* counts, size_t target_size, IColumn& column, size_t begin = 0,
-                   int count_sz = -1) const override;
+    void replicate(const uint32_t* indexs, size_t target_size, IColumn& column) const override;
 
     MutableColumns scatter(ColumnIndex num_columns, const Selector& selector) const override {
         return scatter_impl<ColumnString>(num_columns, selector);

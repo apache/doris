@@ -30,13 +30,12 @@ public:
     //this is different of slotref is using slot_id find a column_id
     //slotref: need to find the equal id in tuple, then return column_id, the plan of FE is very important
     //columnref: is columnid = slotid, not used to find, so you should know this column placed in block
-    VColumnRef(const doris::TExprNode& node)
+    VColumnRef(const TExprNode& node)
             : VExpr(node),
               _column_id(node.column_ref.column_id),
               _column_name(node.column_ref.column_name) {}
 
-    doris::Status prepare(doris::RuntimeState* state, const doris::RowDescriptor& desc,
-                          VExprContext* context) override {
+    Status prepare(RuntimeState* state, const RowDescriptor& desc, VExprContext* context) override {
         RETURN_IF_ERROR_OR_PREPARED(VExpr::prepare(state, desc, context));
         DCHECK_EQ(_children.size(), 0);
         if (_column_id < 0) {
@@ -47,13 +46,10 @@ public:
         return Status::OK();
     }
 
-    doris::Status execute(VExprContext* context, doris::vectorized::Block* block,
-                          int* result_column_id) override {
+    Status execute(VExprContext* context, Block* block, int* result_column_id) override {
         *result_column_id = _column_id;
         return Status::OK();
     }
-
-    VExprSPtr clone() const override { return VColumnRef::create_shared(*this); }
 
     bool is_constant() const override { return false; }
 

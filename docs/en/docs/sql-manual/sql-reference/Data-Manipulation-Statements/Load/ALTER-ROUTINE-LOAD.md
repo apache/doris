@@ -69,6 +69,7 @@ FROM data_source
    10. `timezone`
    11. `num_as_string`
    12. `fuzzy_parse`
+   13. `partial_columns`
 
 
 4. `data_source`

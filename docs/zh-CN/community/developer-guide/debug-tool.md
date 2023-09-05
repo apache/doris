@@ -223,21 +223,39 @@ Total: 1296.4 MB
 
 ##### JEMALLOC
 
-###### 1. runtime heap dump by http
-在`start_be.sh` 中`JEMALLOC_CONF` 增加 `,prof:true,lg_prof_sample:10` 并重启BE，然后使用jemalloc heap dump http接口，在对应的BE机器上生成heap dump文件。
-
-heap dump文件所在目录可以在 ``be.conf`` 中通过``jeprofile_dir``变量进行配置，默认为``${DORIS_HOME}/log``
+###### 1. realtime heap dump
+将 `be.conf` 中 `JEMALLOC_CONF` 的 `prof:false` 修改为 `prof:true` 并重启BE，然后使用jemalloc heap dump http接口，在对应的BE机器上生成heap dump文件。
 
 ```shell
 curl http://be_host:be_webport/jeheap/dump
 ```
 
-`prof`: 打开后jemalloc将根据当前内存使用情况生成heap dump文件，heap profile采样存在少量性能损耗，性能测试时可关闭。
-`lg_prof_sample`: heap profile采样间隔，默认值19，即默认采样间隔为512K(2^19 B)，这会导致heap profile记录的内存通常只有10%，`lg_prof_sample:10`可以减少采样间隔到1K (2^10 B), 更频繁的采样会使heap profile接近真实内存，但这会带来更大的性能损耗。
+heap dump文件所在目录可以在 ``be.conf`` 中通过``jeprofile_dir``变量进行配置，默认为``${DORIS_HOME}/log``
 
-详细参数说明参考 https://linux.die.net/man/3/jemalloc。
+默认采样间隔为 512K，这通常只会有 10% 的内存被heap dump记录，对性能的影响通常小于 10%，可以修改 `be.conf` 中 `JEMALLOC_CONF` 的 `lg_prof_sample`，默认为 `19` (2^19 B = 512K)，减小 `lg_prof_sample` 可以更频繁的采样使 heap profile 接近真实内存，但这会带来更大的性能损耗。
 
-##### 2. jemalloc heap dump profiling
+如果你在做性能测试，保持 `prof:false` 来避免 heap dump 的性能损耗。
+
+###### 2. regular heap dump
+同样要将 `be.conf` 中 `JEMALLOC_CONF` 的 `prof:false` 修改为 `prof:true`，同时将 `be.conf` 中 `JEMALLOC_PROF_PRFIX` 修改为任意值并重启BE。
+
+heap dump文件所在目录默认为 `${DORIS_HOME}/log`, 文件名前缀是 `JEMALLOC_PROF_PRFIX`。
+
+1. 内存累计申请一定值时dump:
+
+   默认内存累计申请 4GB 生成一次dump，可以修改 `be.conf` 中 `JEMALLOC_CONF` 的 `lg_prof_interval` 调整dump间隔，默认值 `32` (2^32 B = 4GB)。
+2. 内存每次达到新高时dump:
+
+   将 `be.conf` 中 `JEMALLOC_CONF` 的 `prof_gdump` 修改为 `true` 并重启BE。
+3. 程序退出时dump, 并检测内存泄漏:
+
+   将 `be.conf` 中 `JEMALLOC_CONF` 的 `prof_leak` 和 `prof_final` 修改为 `true` 并重启BE。
+4. dump内存累计值(growth)，而不是实时值:
+
+   将 `be.conf` 中 `JEMALLOC_CONF` 的 `prof_accum` 修改为 `true` 并重启BE。
+   使用 `jeprof --alloc_space` 展示 heap dump 累计值。
+
+##### 3. heap dump profiling
 
 1.  单个heap dump文件生成纯文本分析结果
 ```shell
@@ -266,19 +284,6 @@ curl http://be_host:be_webport/jeheap/dump
    ```shell
    jeprof --pdf lib/doris_be --base=heap_dump_file_1 heap_dump_file_2 > result.pdf
    ```
-
-###### 3. heap dump by JEMALLOC_CONF
-也可通过更改`start_be.sh` 中`JEMALLOC_CONF` 变量后重新启动 BE 来进行定期 heap dump
-
-1. 每1MB dump一次:
-
-   `JEMALLOC_CONF`变量中新增两个变量设置`prof:true,lg_prof_interval:20`  其中`prof:true`是打开profiling，`lg_prof_interval:20`中表示每1MB(2^20)生成一次dump 
-2. 每次达到新高时dump:
-   
-   `JEMALLOC_CONF`变量中新增两个变量设置`prof:true,prof_gdump:true` 其中`prof:true`是打开profiling，`prof_gdump:true` 代表内存使用达到新高时生成dump
-3. 程序退出时内存泄漏dump:
-   
-   `JEMALLOC_CONF`变量中新增三个变量设置`prof_leak:true,lg_prof_sample:0,prof_final:true`
 
 #### LSAN
 

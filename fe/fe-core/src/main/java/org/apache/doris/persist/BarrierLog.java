@@ -19,16 +19,65 @@ package org.apache.doris.persist;
 
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
+import org.apache.doris.persist.gson.GsonUtils;
 
+import com.google.gson.annotations.SerializedName;
+
+import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
 
 public class BarrierLog implements Writable {
+    @SerializedName(value = "dbId")
+    long dbId = 0L;
+    @SerializedName(value = "dbName")
+    String dbName;
+    @SerializedName(value = "tableId")
+    long tableId = 0L;
+    @SerializedName(value = "tableName")
+    String tableName;
+
     public BarrierLog() {
+    }
+
+    public BarrierLog(long dbId, String dbName, long tableId, String tableName) {
+        this.dbId = dbId;
+        this.dbName = dbName;
+        this.tableId = tableId;
+        this.tableName = tableName;
+    }
+
+    public long getDbId() {
+        return dbId;
+    }
+
+    public String getDbName() {
+        return dbName;
+    }
+
+    public long getTableId() {
+        return tableId;
+    }
+
+    public String getTableName() {
+        return tableName;
     }
 
     @Override
     public void write(DataOutput out) throws IOException {
         Text.writeString(out, "");
+    }
+
+    public static BarrierLog read(DataInput in) throws IOException {
+        return GsonUtils.GSON.fromJson(Text.readString(in), BarrierLog.class);
+    }
+
+    public String toJson() {
+        return GsonUtils.GSON.toJson(this);
+    }
+
+    @Override
+    public String toString() {
+        return toJson();
     }
 }

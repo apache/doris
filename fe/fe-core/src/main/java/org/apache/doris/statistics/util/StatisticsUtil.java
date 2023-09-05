@@ -29,18 +29,22 @@ import org.apache.doris.analysis.StatementBase;
 import org.apache.doris.analysis.StringLiteral;
 import org.apache.doris.analysis.TableName;
 import org.apache.doris.analysis.UserIdentity;
+import org.apache.doris.catalog.ArrayType;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
-import org.apache.doris.catalog.HiveMetaStoreClientHelper;
 import org.apache.doris.catalog.ListPartitionItem;
+import org.apache.doris.catalog.MapType;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.PartitionItem;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.ScalarType;
+import org.apache.doris.catalog.StructType;
 import org.apache.doris.catalog.TableIf;
+import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.catalog.Type;
+import org.apache.doris.catalog.VariantType;
 import org.apache.doris.catalog.external.HMSExternalTable;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
@@ -58,12 +62,12 @@ import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.QueryState;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.qe.StmtExecutor;
-import org.apache.doris.statistics.AnalysisInfo;
 import org.apache.doris.statistics.ColumnStatistic;
 import org.apache.doris.statistics.ColumnStatisticBuilder;
 import org.apache.doris.statistics.Histogram;
+import org.apache.doris.statistics.ResultRow;
 import org.apache.doris.statistics.StatisticConstants;
-import org.apache.doris.statistics.util.InternalQueryResult.ResultRow;
+import org.apache.doris.system.Frontend;
 import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.thrift.TUniqueId;
 
@@ -80,8 +84,8 @@ import org.apache.iceberg.TableScan;
 import org.apache.iceberg.types.Types;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
-import org.apache.thrift.TException;
 
+import java.net.InetSocketAddress;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -101,7 +105,6 @@ public class StatisticsUtil {
     private static final Logger LOG = LogManager.getLogger(StatisticsUtil.class);
 
     private static final String ID_DELIMITER = "-";
-    private static final String VALUES_DELIMITER = ",";
 
     private static final String TOTAL_SIZE = "totalSize";
     private static final String NUM_ROWS = "numRows";
@@ -121,6 +124,9 @@ public class StatisticsUtil {
     }
 
     public static List<ResultRow> execStatisticQuery(String sql) {
+        if (!FeConstants.enableInternalSchemaDb) {
+            return Collections.emptyList();
+        }
         try (AutoCloseConnectContext r = StatisticsUtil.buildConnectContext()) {
             StmtExecutor stmtExecutor = new StmtExecutor(r.connectContext, sql);
             r.connectContext.setExecutor(stmtExecutor);
@@ -136,16 +142,6 @@ public class StatisticsUtil {
             stmtExecutor.execute();
             return r.connectContext.getState();
         }
-    }
-
-    public static List<AnalysisInfo> deserializeToAnalysisJob(List<ResultRow> resultBatches)
-            throws TException {
-        if (CollectionUtils.isEmpty(resultBatches)) {
-            return Collections.emptyList();
-        }
-        return resultBatches.stream()
-                .map(AnalysisInfo::fromResultRow)
-                .collect(Collectors.toList());
     }
 
     public static ColumnStatistic deserializeToColumnStatistics(List<ResultRow> resultBatches)
@@ -165,12 +161,16 @@ public class StatisticsUtil {
         ConnectContext connectContext = new ConnectContext();
         SessionVariable sessionVariable = connectContext.getSessionVariable();
         sessionVariable.internalSession = true;
-        sessionVariable.setMaxExecMemByte(StatisticConstants.STATISTICS_MAX_MEM_PER_QUERY_IN_BYTES);
+        sessionVariable.setMaxExecMemByte(Config.statistics_sql_mem_limit_in_bytes);
+        sessionVariable.cpuResourceLimit = Config.cpu_resource_limit_per_analyze_task;
         sessionVariable.setEnableInsertStrict(true);
-        sessionVariable.parallelExecInstanceNum = StatisticConstants.STATISTIC_PARALLEL_EXEC_INSTANCE_NUM;
-        sessionVariable.parallelPipelineTaskNum = StatisticConstants.STATISTIC_PARALLEL_EXEC_INSTANCE_NUM;
+        sessionVariable.parallelExecInstanceNum = Config.statistics_sql_parallel_exec_instance_num;
+        sessionVariable.parallelPipelineTaskNum = Config.statistics_sql_parallel_exec_instance_num;
         sessionVariable.setEnableNereidsPlanner(false);
         sessionVariable.enableProfile = false;
+        sessionVariable.queryTimeoutS = Config.analyze_task_timeout_in_hours * 60 * 60;
+        sessionVariable.insertTimeoutS = Config.analyze_task_timeout_in_hours * 60 * 60;
+        sessionVariable.enableFileCache = false;
         connectContext.setEnv(Env.getCurrentEnv());
         connectContext.setDatabase(FeConstants.INTERNAL_DB_NAME);
         connectContext.setQualifiedUser(UserIdentity.ROOT.getQualifiedUser());
@@ -212,7 +212,7 @@ public class StatisticsUtil {
             case DOUBLE:
                 return new FloatLiteral(columnValue);
             case DECIMALV2:
-                //no need to check precision and scale, since V2 is fixed point
+                // no need to check precision and scale, since V2 is fixed point
                 return new DecimalLiteral(columnValue);
             case DECIMAL32:
             case DECIMAL64:
@@ -471,9 +471,9 @@ public class StatisticsUtil {
      * when update_rows < row_count, the health degree is 100 (1 - update_rows row_count).
      *
      * @param updatedRows The number of rows updated by the table
-     * @return Health, the value range is [0, 100], the larger the value,
      * @param totalRows The current number of rows in the table
-     * the healthier the statistics of the table
+     *         the healthier the statistics of the table
+     * @return Health, the value range is [0, 100], the larger the value,
      */
     public static int getTableHealth(long totalRows, long updatedRows) {
         if (updatedRows >= totalRows) {
@@ -487,10 +487,12 @@ public class StatisticsUtil {
     /**
      * Estimate hive table row count.
      * First get it from remote table parameters. If not found, estimate it : totalSize/estimatedRowSize
+     *
      * @param table Hive HMSExternalTable to estimate row count.
+     * @param isInit Flag to indicate if this is called during init. To avoid recursively get schema.
      * @return estimated row count
      */
-    public static long getHiveRowCount(HMSExternalTable table) {
+    public static long getHiveRowCount(HMSExternalTable table, boolean isInit) {
         Map<String, String> parameters = table.getRemoteTable().getParameters();
         if (parameters == null) {
             return -1;
@@ -499,7 +501,7 @@ public class StatisticsUtil {
         if (parameters.containsKey(NUM_ROWS)) {
             return Long.parseLong(parameters.get(NUM_ROWS));
         }
-        if (!parameters.containsKey(TOTAL_SIZE)) {
+        if (!parameters.containsKey(TOTAL_SIZE) || isInit) {
             return -1;
         }
         // Table parameters doesn't contain row count but contain total size. Estimate row count : totalSize/rowSize
@@ -517,13 +519,17 @@ public class StatisticsUtil {
     /**
      * Estimate iceberg table row count.
      * Get the row count by adding all task file recordCount.
+     *
      * @param table Iceberg HMSExternalTable to estimate row count.
      * @return estimated row count
      */
     public static long getIcebergRowCount(HMSExternalTable table) {
         long rowCount = 0;
         try {
-            Table icebergTable = HiveMetaStoreClientHelper.getIcebergTable(table);
+            Table icebergTable = Env.getCurrentEnv()
+                    .getExtMetaCacheMgr()
+                    .getIcebergMetadataCache()
+                    .getIcebergTable(table);
             TableScan tableScan = icebergTable.newScan().includeColumnStats();
             for (FileScanTask task : tableScan.planFiles()) {
                 rowCount += task.file().recordCount();
@@ -537,10 +543,14 @@ public class StatisticsUtil {
 
     /**
      * Estimate hive table row count : totalFileSize/estimatedRowSize
+     *
      * @param table Hive HMSExternalTable to estimate row count.
      * @return estimated row count
      */
     public static long getRowCountFromFileList(HMSExternalTable table) {
+        if (table.isView()) {
+            return 0;
+        }
         HiveMetaStoreCache cache = Env.getCurrentEnv().getExtMetaCacheMgr()
                 .getMetaStoreCache((HMSExternalCatalog) table.getCatalog());
         List<Type> partitionColumnTypes = table.getPartitionColumnTypes();
@@ -550,6 +560,9 @@ public class StatisticsUtil {
         int totalPartitionSize = 1;
         // Get table partitions from cache.
         if (!partitionColumnTypes.isEmpty()) {
+            // It is ok to get partition values from cache,
+            // no need to worry that this call will invalid or refresh the cache.
+            // because it has enough space to keep partition info of all tables in cache.
             partitionValues = cache.getPartitionValues(table.getDbName(), table.getName(), partitionColumnTypes);
         }
         if (partitionValues != null) {
@@ -570,14 +583,17 @@ public class StatisticsUtil {
             for (PartitionItem item : partitionItems) {
                 partitionValuesList.add(((ListPartitionItem) item).getItems().get(0).getPartitionValuesAsStringList());
             }
-            hivePartitions = cache.getAllPartitions(table.getDbName(), table.getName(), partitionValuesList);
+            // get partitions without cache, so that it will not invalid the cache when executing
+            // non query request such as `show table status`
+            hivePartitions = cache.getAllPartitionsWithoutCache(table.getDbName(), table.getName(),
+                    partitionValuesList);
         } else {
             hivePartitions.add(new HivePartition(table.getDbName(), table.getName(), true,
                     table.getRemoteTable().getSd().getInputFormat(),
                     table.getRemoteTable().getSd().getLocation(), null));
         }
         // Get files for all partitions.
-        List<HiveMetaStoreCache.FileCacheValue> filesByPartitions = cache.getFilesByPartitions(
+        List<HiveMetaStoreCache.FileCacheValue> filesByPartitions = cache.getFilesByPartitionsWithoutCache(
                 hivePartitions, true);
         long totalSize = 0;
         // Calculate the total file size.
@@ -602,6 +618,7 @@ public class StatisticsUtil {
 
     /**
      * Get Iceberg column statistics.
+     *
      * @param colName
      * @param table Iceberg table.
      * @return Optional Column statistic for the given column.
@@ -626,7 +643,7 @@ public class StatisticsUtil {
     }
 
     private static void processDataFile(DataFile dataFile, PartitionSpec partitionSpec,
-                                        String colName, ColumnStatisticBuilder columnStatisticBuilder) {
+            String colName, ColumnStatisticBuilder columnStatisticBuilder) {
         int colId = -1;
         for (Types.NestedField column : partitionSpec.schema().columns()) {
             if (column.name().equals(colName)) {
@@ -643,5 +660,50 @@ public class StatisticsUtil {
         columnStatisticBuilder.setCount(columnStatisticBuilder.getCount() + dataFile.recordCount());
         columnStatisticBuilder.setNumNulls(columnStatisticBuilder.getNumNulls()
                 + dataFile.nullValueCounts().get(colId));
+    }
+
+    public static boolean isUnsupportedType(Type type) {
+        if (ColumnStatistic.UNSUPPORTED_TYPE.contains(type)) {
+            return true;
+        }
+        return type instanceof ArrayType
+                || type instanceof StructType
+                || type instanceof MapType
+                || type instanceof VariantType;
+    }
+
+    public static void sleep(long millis) {
+        try {
+            Thread.sleep(millis);
+        } catch (InterruptedException ignore) {
+            // IGNORE
+        }
+    }
+
+    public static String quote(String str) {
+        return "'" + str + "'";
+    }
+
+    public static boolean isMaster(Frontend frontend) {
+        InetSocketAddress socketAddress = new InetSocketAddress(frontend.getHost(), frontend.getEditLogPort());
+        return Env.getCurrentEnv().getHaProtocol().getLeader().equals(socketAddress);
+    }
+
+    public static String escapeSQL(String str) {
+        if (str == null) {
+            return null;
+        }
+        return org.apache.commons.lang3.StringUtils.replace(str, "'", "''");
+    }
+
+    public static boolean isExternalTable(String catalogName, String dbName, String tblName) {
+        TableIf table;
+        try {
+            table = StatisticsUtil.findTable(catalogName, dbName, tblName);
+        } catch (Throwable e) {
+            LOG.warn(e.getMessage());
+            return false;
+        }
+        return table.getType().equals(TableType.HMS_EXTERNAL_TABLE);
     }
 }

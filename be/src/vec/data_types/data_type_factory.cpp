@@ -154,8 +154,6 @@ DataTypePtr DataTypeFactory::create_data_type(const TypeDescriptor& col_desc, bo
         nested = std::make_shared<vectorized::DataTypeDateTime>();
         break;
     case TYPE_TIME:
-        nested = std::make_shared<vectorized::DataTypeTime>();
-        break;
     case TYPE_TIMEV2:
         nested = std::make_shared<vectorized::DataTypeTimeV2>(col_desc.scale);
         break;
@@ -293,9 +291,6 @@ DataTypePtr DataTypeFactory::create_data_type(const TypeIndex& type_index, bool 
     case TypeIndex::DateV2:
         nested = std::make_shared<vectorized::DataTypeDateV2>();
         break;
-    case TypeIndex::Time:
-        nested = std::make_shared<DataTypeTime>();
-        break;
     case TypeIndex::DateTimeV2:
         nested = std::make_shared<DataTypeDateTimeV2>();
         break;
@@ -332,6 +327,7 @@ DataTypePtr DataTypeFactory::create_data_type(const TypeIndex& type_index, bool 
         nested = std::make_shared<vectorized::DataTypeQuantileStateDouble>();
         break;
     case TypeIndex::TimeV2:
+    case TypeIndex::Time:
         nested = std::make_shared<vectorized::DataTypeTimeV2>();
         break;
     default:
@@ -544,10 +540,7 @@ DataTypePtr DataTypeFactory::create_data_type(const PColumnMeta& pcolumn) {
         nested = std::make_shared<DataTypeQuantileStateDouble>();
         break;
     }
-    case PGenericType::TIME: {
-        nested = std::make_shared<DataTypeTime>();
-        break;
-    }
+    case PGenericType::TIME:
     case PGenericType::TIMEV2: {
         nested = std::make_shared<DataTypeTimeV2>(pcolumn.decimal_param().scale());
         break;

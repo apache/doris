@@ -22,7 +22,7 @@ suite("nereids_insert_duplicate") {
     sql 'set enable_nereids_planner=true'
     sql 'set enable_fallback_to_original_planner=false'
     sql 'set enable_nereids_dml=true'
-    sql 'set parallel_fragment_exec_instance_num=13'
+    sql 'set enable_strict_consistency_dml=true'
 
     sql '''insert into dup_t_type_cast
             select id, ktint, ksint, kint, kbint, kdtv2, kdtm, kdbl from src'''
@@ -87,4 +87,14 @@ suite("nereids_insert_duplicate") {
             select id, ktint, ksint, kint, kbint, kdtv2, kdtm, kdbl from src where id < 4 and id is not null'''
     sql 'sync'
     qt_43 'select * from dup_light_sc_not_null_t_type_cast order by id, kint'
+
+    sql 'set delete_without_partition=true'
+    sql '''delete from dup_t_type_cast where id is not null'''
+    sql '''delete from dup_t_type_cast where id is null'''
+    sql '''delete from dup_light_sc_t_type_cast where id is not null'''
+    sql '''delete from dup_light_sc_t_type_cast where id is null'''
+    sql '''delete from dup_not_null_t_type_cast where id is not null'''
+    sql '''delete from dup_not_null_t_type_cast where id is null'''
+    sql '''delete from dup_light_sc_not_null_t_type_cast where id is not null'''
+    sql '''delete from dup_light_sc_not_null_t_type_cast where id is null'''
 }

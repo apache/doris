@@ -40,11 +40,11 @@ public class CollectFilterAboveConsumer extends OneRewriteRuleFactory {
             for (Expression expr : exprs) {
                 Expression rewrittenExpr = expr.rewriteUp(e -> {
                     if (e instanceof Slot) {
-                        return cteConsumer.findProducerSlot((Slot) e);
+                        return cteConsumer.getProducerSlot((Slot) e);
                     }
                     return e;
                 });
-                ctx.cascadesContext.putConsumerIdToFilter(cteConsumer.getConsumerId(), rewrittenExpr);
+                ctx.cascadesContext.putConsumerIdToFilter(cteConsumer.getRelationId(), rewrittenExpr);
             }
             return ctx.root;
         }).toRule(RuleType.COLLECT_FILTER_ON_CONSUMER);

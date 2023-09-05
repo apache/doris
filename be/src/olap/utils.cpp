@@ -413,7 +413,7 @@ Status gen_timestamp_string(std::string* out_string) {
     if (localtime_r(&now, &local_tm) == nullptr) {
         return Status::Error<OS_ERROR>("fail to localtime_r time. time={}", now);
     }
-    char time_suffix[16] = {0}; // Example: 20150706111404, 长度是15个字符
+    char time_suffix[16] = {0}; // Example: 20150706111404's length is 15
     if (strftime(time_suffix, sizeof(time_suffix), "%Y%m%d%H%M%S", &local_tm) == 0) {
         return Status::Error<OS_ERROR>("fail to strftime time. time={}", now);
     }
@@ -473,8 +473,8 @@ Status read_write_test_file(const std::string& test_file_path) {
     size_t bytes_read = 0;
     RETURN_IF_ERROR(file_reader->read_at(0, {read_buff.get(), TEST_FILE_BUF_SIZE}, &bytes_read));
     if (memcmp(write_buff.get(), read_buff.get(), TEST_FILE_BUF_SIZE) != 0) {
-        return Status::Error<TEST_FILE_ERROR>(
-                "the test file write_buf and read_buf not equal, file_name={}.", test_file_path);
+        return Status::IOError("the test file write_buf and read_buf not equal, file_name={}.",
+                               test_file_path);
     }
     // delete file
     return io::global_local_filesystem()->delete_file(test_file_path);

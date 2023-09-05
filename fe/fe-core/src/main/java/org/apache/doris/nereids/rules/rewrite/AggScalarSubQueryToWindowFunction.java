@@ -32,6 +32,7 @@ import org.apache.doris.nereids.trees.expressions.functions.window.SupportWindow
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionVisitor;
 import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.algebra.CatalogRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalApply;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
@@ -155,9 +156,7 @@ public class AggScalarSubQueryToWindowFunction extends DefaultPlanRewriter<JobCo
         return apply.isScalar()
                 && !apply.isMarkJoin()
                 && apply.right() instanceof LogicalAggregate
-                && apply.isCorrelated()
-                && apply.getSubCorrespondingConjunct().isPresent()
-                && apply.getSubCorrespondingConjunct().get() instanceof ComparisonPredicate;
+                && apply.isCorrelated();
     }
 
     /**
@@ -248,11 +247,11 @@ public class AggScalarSubQueryToWindowFunction extends DefaultPlanRewriter<JobCo
      * 3. the remaining table in step 2 should be correlated table for inner plan
      */
     private boolean checkRelation(List<Expression> correlatedSlots) {
-        List<LogicalRelation> outerTables = outerPlans.stream().filter(LogicalRelation.class::isInstance)
-                .map(LogicalRelation.class::cast)
+        List<CatalogRelation> outerTables = outerPlans.stream().filter(CatalogRelation.class::isInstance)
+                .map(CatalogRelation.class::cast)
                 .collect(Collectors.toList());
-        List<LogicalRelation> innerTables = innerPlans.stream().filter(LogicalRelation.class::isInstance)
-                .map(LogicalRelation.class::cast)
+        List<CatalogRelation> innerTables = innerPlans.stream().filter(CatalogRelation.class::isInstance)
+                .map(CatalogRelation.class::cast)
                 .collect(Collectors.toList());
 
         List<Long> outerIds = outerTables.stream().map(node -> node.getTable().getId()).collect(Collectors.toList());
@@ -273,15 +272,16 @@ public class AggScalarSubQueryToWindowFunction extends DefaultPlanRewriter<JobCo
 
         Set<ExprId> correlatedRelationOutput = outerTables.stream()
                 .filter(node -> outerIds.contains(node.getTable().getId()))
+                .map(LogicalRelation.class::cast)
                 .map(LogicalRelation::getOutputExprIdSet).flatMap(Collection::stream).collect(Collectors.toSet());
         return ExpressionUtils.collect(correlatedSlots, NamedExpression.class::isInstance).stream()
                 .map(NamedExpression.class::cast)
                 .allMatch(e -> correlatedRelationOutput.contains(e.getExprId()));
     }
 
-    private void createSlotMapping(List<LogicalRelation> outerTables, List<LogicalRelation> innerTables) {
-        for (LogicalRelation outerTable : outerTables) {
-            for (LogicalRelation innerTable : innerTables) {
+    private void createSlotMapping(List<CatalogRelation> outerTables, List<CatalogRelation> innerTables) {
+        for (CatalogRelation outerTable : outerTables) {
+            for (CatalogRelation innerTable : innerTables) {
                 if (innerTable.getTable().getId() == outerTable.getTable().getId()) {
                     for (Slot innerSlot : innerTable.getOutput()) {
                         for (Slot outerSlot : outerTable.getOutput()) {
@@ -324,7 +324,17 @@ public class AggScalarSubQueryToWindowFunction extends DefaultPlanRewriter<JobCo
         // it's a simple case, but we may meet some complex cases in ut.
         // TODO: support compound predicate and multi apply node.
 
-        Expression windowFilterConjunct = apply.getSubCorrespondingConjunct().get();
+        Map<Boolean, Set<Expression>> conjuncts = filter.getConjuncts().stream()
+                .collect(Collectors.groupingBy(conjunct -> Sets
+                        .intersection(conjunct.getInputSlotExprIds(), agg.getOutputExprIdSet())
+                        .isEmpty(), Collectors.toSet()));
+        Set<Expression> correlatedConjuncts = conjuncts.get(false);
+        if (correlatedConjuncts.isEmpty() || correlatedConjuncts.size() > 1
+                || !(correlatedConjuncts.iterator().next() instanceof ComparisonPredicate)) {
+            //TODO: only support simple comparison predicate now
+            return filter;
+        }
+        Expression windowFilterConjunct = correlatedConjuncts.iterator().next();
         windowFilterConjunct = PlanUtils.maybeCommuteComparisonPredicate(
                 (ComparisonPredicate) windowFilterConjunct, apply.left());
 
@@ -336,7 +346,7 @@ public class AggScalarSubQueryToWindowFunction extends DefaultPlanRewriter<JobCo
 
         WindowExpression windowFunction = createWindowFunction(apply.getCorrelationSlot(),
                 (AggregateFunction) ExpressionUtils.replace(function, innerOuterSlotMap));
-        NamedExpression windowFunctionAlias = new Alias(windowFunction, windowFunction.toSql());
+        NamedExpression windowFunctionAlias = new Alias(windowFunction);
 
         // build filter conjunct, get the alias of the agg output and extract its child.
         // then replace the agg to window function, then build conjunct
@@ -347,13 +357,10 @@ public class AggScalarSubQueryToWindowFunction extends DefaultPlanRewriter<JobCo
         aggOutExpr = ExpressionUtils.replace(aggOutExpr, ImmutableMap
                 .of(functions.get(0), windowFunctionAlias.toSlot()));
 
-        // we change the child contains the original agg output to agg output expr.
-        // for comparison predicate, it is always the child(1), since we ensure the window agg slot is in child(0)
-        // for in predicate, we should extract the options and find the corresponding child.
-        windowFilterConjunct = windowFilterConjunct
-                .withChildren(windowFilterConjunct.child(0), aggOutExpr);
+        windowFilterConjunct = ExpressionUtils.replace(windowFilterConjunct,
+                ImmutableMap.of(aggOut.toSlot(), aggOutExpr));
 
-        LogicalFilter<Plan> newFilter = (LogicalFilter<Plan>) filter.withChildren(apply.left());
+        LogicalFilter<Plan> newFilter = filter.withConjunctsAndChild(conjuncts.get(true), apply.left());
         LogicalWindow<Plan> newWindow = new LogicalWindow<>(ImmutableList.of(windowFunctionAlias), newFilter);
         LogicalFilter<Plan> windowFilter = new LogicalFilter<>(ImmutableSet.of(windowFilterConjunct), newWindow);
         return windowFilter;

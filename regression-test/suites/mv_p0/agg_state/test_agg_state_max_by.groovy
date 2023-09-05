@@ -58,7 +58,6 @@ suite ("test_agg_state_max_by") {
     sql "insert into d_table(k4,k2) values('d',4);"
     sql "set enable_nereids_dml = true"
     sql "insert into d_table(k4,k2) values('d',4);"
-    sql "insert into d_table select 1,-4,-4,'d';"
 
     explain {
         sql("select k1,max_by(k2+k3,abs(k3)) from d_table group by k1 order by 1,2;")

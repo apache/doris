@@ -36,6 +36,7 @@ public:
     static void set_localhost(const std::string& host);
     static bool is_bind_ipv6();
     static const char* get_service_bind_address();
+    static const char* get_service_bind_address_without_bracket();
 
 private:
     static bool analyze_priority_cidrs();

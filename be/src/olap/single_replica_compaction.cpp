@@ -164,6 +164,8 @@ Status SingleReplicaCompaction::_do_single_replica_compaction_impl() {
         _tablet->set_last_cumu_compaction_success_time(UnixMillis());
     } else if (compaction_type() == ReaderType::READER_BASE_COMPACTION) {
         _tablet->set_last_base_compaction_success_time(UnixMillis());
+    } else if (compaction_type() == ReaderType::READER_FULL_COMPACTION) {
+        _tablet->set_last_full_compaction_success_time(UnixMillis());
     }
 
     int64_t current_max_version;
@@ -198,6 +200,12 @@ Status SingleReplicaCompaction::_get_rowset_verisons_from_peer(
     std::shared_ptr<PBackendService_Stub> stub =
             ExecEnv::GetInstance()->brpc_internal_client_cache()->get_client(addr.host,
                                                                              addr.brpc_port);
+    if (stub == nullptr) {
+        LOG(WARNING) << "get rowset versions from peer: get rpc stub failed, host = " << addr.host
+                     << " port = " << addr.brpc_port;
+        return Status::Cancelled("get rpc stub failed");
+    }
+
     brpc::Controller cntl;
     stub->get_tablet_rowset_versions(&cntl, &request, &response, nullptr);
     if (cntl.Failed()) {
@@ -341,7 +349,7 @@ Status SingleReplicaCompaction::_fetch_rowset(const TReplicaInfo& addr, const st
         // change all rowset ids because they maybe its id same with local rowset
         auto olap_st = SnapshotManager::instance()->convert_rowset_ids(
                 local_path, _tablet->tablet_id(), _tablet->replica_id(), _tablet->schema_hash());
-        if (olap_st != Status::OK()) {
+        if (!olap_st.ok()) {
             LOG(WARNING) << "fail to convert rowset ids, path=" << local_path
                          << ", tablet_id=" << _tablet->tablet_id() << ", error=" << olap_st;
             status = Status::InternalError("Failed to convert rowset ids");

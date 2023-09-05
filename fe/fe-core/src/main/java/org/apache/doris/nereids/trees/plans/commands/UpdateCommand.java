@@ -71,17 +71,19 @@ public class UpdateCommand extends Command implements ForwardWithSync, Explainab
     private final @Nullable String tableAlias;
     private final LogicalPlan logicalQuery;
     private OlapTable targetTable;
+    private final Optional<LogicalPlan> cte;
 
     /**
      * constructor
      */
     public UpdateCommand(List<String> nameParts, @Nullable String tableAlias, List<EqualTo> assignments,
-            LogicalPlan logicalQuery) {
+            LogicalPlan logicalQuery, Optional<LogicalPlan> cte) {
         super(PlanType.UPDATE_COMMAND);
         this.nameParts = Utils.copyRequiredList(nameParts);
         this.assignments = Utils.copyRequiredList(assignments);
         this.tableAlias = tableAlias;
         this.logicalQuery = Objects.requireNonNull(logicalQuery, "logicalQuery is required in update command");
+        this.cte = cte;
     }
 
     @Override
@@ -110,13 +112,16 @@ public class UpdateCommand extends Command implements ForwardWithSync, Explainab
                 Expression expr = colNameToExpression.get(column.getName());
                 selectItems.add(expr instanceof UnboundSlot
                         ? ((NamedExpression) expr)
-                        : new Alias(expr, expr.toSql()));
+                        : new Alias(expr));
             } else {
                 selectItems.add(new UnboundSlot(tableName, column.getName()));
             }
         }
 
         logicalQuery = new LogicalProject<>(selectItems, logicalQuery);
+        if (cte.isPresent()) {
+            logicalQuery = ((LogicalPlan) cte.get().withChildren(logicalQuery));
+        }
 
         // make UnboundTableSink
         return new UnboundOlapTableSink<>(nameParts, ImmutableList.of(), ImmutableList.of(),

@@ -177,7 +177,7 @@ The corresponding type of FE can be deleted by the `ALTER SYSTEM DROP FOLLOWER/O
 
 FE may fail to start bdbje and synchronize between FEs for some reasons. Phenomena include the inability to write metadata, the absence of MASTER, and so on. At this point, we need to manually restore the FE. The general principle of manual recovery of FE is to start a new MASTER through metadata in the current `meta_dir`, and then add other FEs one by one. Please follow the following steps strictly:
 
-1. First, stop all FE processes and all business access. Make sure that during metadata recovery, external access will not lead to other unexpected problems.
+1. First, **stop all FE processes and all business access**. Make sure that during metadata recovery, external access will not lead to other unexpected problems.(if not, this may cause split-brain problem)
 
 2. Identify which FE node's metadata is up-to-date:
 
@@ -297,7 +297,7 @@ First, you need to add configuration in fe.conf: `enable_bdbje_debug_mode=true`,
 
 At this time, FE will enter the debug mode, only start the http server and MySQL server, and open the BDBJE instance, but will not load any metadata and other subsequent startup processes.
 
-This is, we can view the data stored in BDBJE by visiting the web page of FE, or after connecting to Doris through the MySQL client, through `show proc /bdbje;`.
+This is, we can view the data stored in BDBJE by visiting the web page of FE, or after connecting to Doris through the MySQL client, through `show proc "/bdbje";`.
 
 ```
 mysql> show proc "/bdbje";

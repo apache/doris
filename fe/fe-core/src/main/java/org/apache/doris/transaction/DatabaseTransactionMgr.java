@@ -24,6 +24,7 @@ import org.apache.doris.catalog.MaterializedIndex;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.PartitionInfo;
+import org.apache.doris.catalog.PartitionType;
 import org.apache.doris.catalog.Replica;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.TableIf;
@@ -80,6 +81,7 @@ import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
+import java.util.function.Function;
 import java.util.stream.Collectors;
 
 /**
@@ -353,13 +355,6 @@ public class DatabaseTransactionMgr {
             }
 
             return tid;
-        } catch (DuplicatedRequestException e) {
-            throw e;
-        } catch (Exception e) {
-            if (MetricRepo.isInit) {
-                MetricRepo.COUNTER_TXN_REJECT.increase(1L);
-            }
-            throw e;
         } finally {
             writeUnlock();
         }
@@ -433,6 +428,7 @@ public class DatabaseTransactionMgr {
                                    Set<Long> errorReplicaIds, Map<Long, Set<Long>> tableToPartition,
                                    Set<Long> totalInvolvedBackends) throws UserException {
 
+        long transactionId = transactionState.getTransactionId();
         Database db = env.getInternalCatalog().getDbOrMetaException(dbId);
 
         // update transaction state extra if exists
@@ -489,6 +485,33 @@ public class DatabaseTransactionMgr {
             }
             tabletToBackends.get(tabletId).add(tabletCommitInfos.get(i).getBackendId());
         }
+        List<String> tabletSuccReplicas = Lists.newArrayList();
+        List<String> tabletWriteFailedReplicas = Lists.newArrayList();
+        List<String> tabletVersionFailedReplicas = Lists.newArrayList();
+        Function<Replica, String> getReplicaInfo = replica -> {
+            StringBuilder strBuffer = new StringBuilder("[replicaId=");
+            strBuffer.append(replica.getId());
+            strBuffer.append(", backendId=");
+            strBuffer.append(replica.getBackendId());
+            strBuffer.append(", backendAlive=");
+            strBuffer.append(Env.getCurrentSystemInfo().checkBackendAlive(replica.getBackendId()));
+            strBuffer.append(", version=");
+            strBuffer.append(replica.getVersion());
+            if (replica.getLastFailedVersion() >= 0) {
+                strBuffer.append(", lastFailedVersion=");
+                strBuffer.append(replica.getLastFailedVersion());
+                strBuffer.append(", lastSuccessVersion=");
+                strBuffer.append(replica.getLastSuccessVersion());
+                strBuffer.append(", lastFailedTimestamp=");
+                strBuffer.append(replica.getLastFailedTimestamp());
+            }
+            strBuffer.append(", state=");
+            strBuffer.append(replica.getState().name());
+            strBuffer.append("]");
+
+            return strBuffer.toString();
+        };
+
         for (long tableId : tableToPartition.keySet()) {
             OlapTable table = (OlapTable) db.getTableOrMetaException(tableId);
             for (Partition partition : table.getAllPartitions()) {
@@ -532,6 +555,9 @@ public class DatabaseTransactionMgr {
                         .getReplicaAllocation(partition.getId()).getTotalReplicaNum() / 2 + 1;
                 for (MaterializedIndex index : allIndices) {
                     for (Tablet tablet : index.getTablets()) {
+                        tabletSuccReplicas.clear();
+                        tabletWriteFailedReplicas.clear();
+                        tabletVersionFailedReplicas.clear();
                         int successReplicaNum = 0;
                         long tabletId = tablet.getId();
                         Set<Long> tabletBackends = tablet.getBackendIds();
@@ -557,11 +583,14 @@ public class DatabaseTransactionMgr {
                                 // for example, a replica is in clone state
                                 if (replica.getLastFailedVersion() < 0) {
                                     ++successReplicaNum;
+                                    tabletSuccReplicas.add(getReplicaInfo.apply(replica));
                                 } else {
                                     errorReplicaInfo += " replica [" + replica.getId() + "], lastFailedVersion ["
                                                         + replica.getLastFailedVersion() + "]";
+                                    tabletVersionFailedReplicas.add(getReplicaInfo.apply(replica));
                                 }
                             } else {
+                                tabletWriteFailedReplicas.add(getReplicaInfo.apply(replica));
                                 errorBackendIdsForTablet.add(tabletBackend);
                                 errorReplicaIds.add(replica.getId());
                                 // not remove rollup task here, because the commit maybe failed
@@ -579,9 +608,29 @@ public class DatabaseTransactionMgr {
                                     transactionState.getTransactionId(), tablet.getId(), successReplicaNum,
                                     quorumReplicaNum, Joiner.on(",").join(errorBackendIdsForTablet),
                                     errorReplicaInfo, commitBackends);
-                            throw new TabletQuorumFailedException(transactionState.getTransactionId(), tablet.getId(),
-                                    successReplicaNum, quorumReplicaNum,
-                                    errorBackendIdsForTablet);
+
+                            String replicasDetailMsg = "";
+                            if (!tabletSuccReplicas.isEmpty()) {
+                                replicasDetailMsg += String.format("%s replicas final succ: { %s }; ",
+                                        tabletSuccReplicas.size(), Joiner.on(", ").join(tabletSuccReplicas));
+                            }
+                            if (!tabletWriteFailedReplicas.isEmpty()) {
+                                replicasDetailMsg += String.format("%s replicas write data failed: { %s }; ",
+                                        tabletWriteFailedReplicas.size(),
+                                        Joiner.on(", ").join(tabletWriteFailedReplicas));
+                            }
+                            if (!tabletVersionFailedReplicas.isEmpty()) {
+                                replicasDetailMsg += String.format("%s replicas write data succ but miss previous "
+                                                + "version: { %s }.",
+                                        tabletVersionFailedReplicas.size(),
+                                        Joiner.on(", ").join(tabletVersionFailedReplicas));
+                            }
+
+                            throw new TabletQuorumFailedException(transactionId, String.format(
+                                        "Failed to commit txn %s, cause tablet %s succ replica num %s < quorum "
+                                                + " replica num %s. table %s, partition %s, this tablet detail: %s",
+                                        transactionId, tablet.getId(), successReplicaNum, quorumReplicaNum, tableId,
+                                        partition.getId(), replicasDetailMsg));
                         }
                     }
                 }
@@ -1027,8 +1076,15 @@ public class DatabaseTransactionMgr {
         transactionState.setErrorReplicas(errorReplicaIds);
         for (long tableId : tableToPartition.keySet()) {
             TableCommitInfo tableCommitInfo = new TableCommitInfo(tableId);
+            OlapTable table = (OlapTable) db.getTableNullable(tableId);
+            PartitionInfo tblPartitionInfo = table.getPartitionInfo();
             for (long partitionId : tableToPartition.get(tableId)) {
-                PartitionCommitInfo partitionCommitInfo = new PartitionCommitInfo(partitionId, -1, -1);
+                String partitionRange = "";
+                if (tblPartitionInfo.getType() == PartitionType.RANGE
+                        || tblPartitionInfo.getType() == PartitionType.LIST) {
+                    partitionRange = tblPartitionInfo.getItem(partitionId).getItems().toString();
+                }
+                PartitionCommitInfo partitionCommitInfo = new PartitionCommitInfo(partitionId, partitionRange, -1, -1);
                 tableCommitInfo.addPartitionCommitInfo(partitionCommitInfo);
             }
             transactionState.putIdToTableCommitInfo(tableId, tableCommitInfo);
@@ -1060,10 +1116,16 @@ public class DatabaseTransactionMgr {
         transactionState.setErrorReplicas(errorReplicaIds);
         for (long tableId : tableToPartition.keySet()) {
             TableCommitInfo tableCommitInfo = new TableCommitInfo(tableId);
+            OlapTable table = (OlapTable) db.getTableNullable(tableId);
+            PartitionInfo tblPartitionInfo = table.getPartitionInfo();
             for (long partitionId : tableToPartition.get(tableId)) {
-                OlapTable table = (OlapTable) db.getTableNullable(tableId);
                 Partition partition = table.getPartition(partitionId);
-                PartitionCommitInfo partitionCommitInfo = new PartitionCommitInfo(partitionId,
+                String partitionRange = "";
+                if (tblPartitionInfo.getType() == PartitionType.RANGE
+                        || tblPartitionInfo.getType() == PartitionType.LIST) {
+                    partitionRange = tblPartitionInfo.getItem(partitionId).getItems().toString();
+                }
+                PartitionCommitInfo partitionCommitInfo = new PartitionCommitInfo(partitionId, partitionRange,
                         partition.getNextVersion(),
                         System.currentTimeMillis() /* use as partition visible time */);
                 tableCommitInfo.addPartitionCommitInfo(partitionCommitInfo);
@@ -1688,6 +1750,35 @@ public class DatabaseTransactionMgr {
                             entry.getKey(), dbId, endTransactionId);
                     return false;
                 }
+            }
+        } finally {
+            readUnlock();
+        }
+        return true;
+    }
+
+    public boolean isPreviousTransactionsFinished(long endTransactionId, long tableId, long partitionId) {
+        readLock();
+        try {
+            for (Map.Entry<Long, TransactionState> entry : idToRunningTransactionState.entrySet()) {
+                TransactionState transactionState = entry.getValue();
+                if (entry.getKey() > endTransactionId
+                        || transactionState.getTransactionStatus().isFinalStatus()
+                        || transactionState.getDbId() != dbId
+                        || !transactionState.getTableIdList().contains(tableId)) {
+                    continue;
+                }
+
+                if (transactionState.getTransactionStatus() == TransactionStatus.COMMITTED) {
+                    TableCommitInfo tableCommitInfo = transactionState.getTableCommitInfo(tableId);
+                    // txn not contains this partition
+                    if (tableCommitInfo != null
+                            && tableCommitInfo.getIdToPartitionCommitInfo().get(partitionId) == null) {
+                        continue;
+                    }
+                }
+
+                return false;
             }
         } finally {
             readUnlock();

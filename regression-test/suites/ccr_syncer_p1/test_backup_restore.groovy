@@ -33,10 +33,10 @@ suite("test_backup_restore") {
            UNIQUE KEY(`test`, `id`)
            DISTRIBUTED BY HASH(id) BUCKETS 1 
            PROPERTIES ( 
-               "replication_allocation" = "tag.location.default: 1"
+               "replication_allocation" = "tag.location.default: 1",
+               "binlog.enable" = "true"
            )
         """
-    sql """ALTER TABLE ${tableName} set ("binlog.enable" = "true")"""
 
     logger.info("=== Test 1: Common backup and restore ===")
     test_num = 1
@@ -58,11 +58,10 @@ suite("test_backup_restore") {
         Thread.sleep(3000)
     }
     assertTrue(syncer.getSnapshot("${snapshotName}", "${tableName}"))
-    sql "DROP TABLE IF EXISTS ${tableName}"
-    assertTrue(syncer.restoreSnapshot())
+    assertTrue(syncer.restoreSnapshot(true))
     while (syncer.checkRestoreFinish() == false) {
         Thread.sleep(3000)
     }
-    res = sql "SELECT * FROM ${tableName}"
+    res = target_sql "SELECT * FROM ${tableName}"
     assertTrue(res.size() == insert_num)
 }

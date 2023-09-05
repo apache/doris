@@ -105,6 +105,7 @@ public class OperationType {
     public static final short OP_BACKEND_TABLETS_INFO = 46;
     public static final short OP_SET_REPLICA_STATUS = 47;
     public static final short OP_BACKEND_REPLICAS_INFO = 48;
+    public static final short OP_SET_PARTITION_VERSION = 49;
 
     public static final short OP_ADD_BACKEND = 50;
     public static final short OP_DROP_BACKEND = 51;
@@ -215,11 +216,18 @@ public class OperationType {
 
     // set table replication_num config 266
     public static final short OP_MODIFY_REPLICATION_NUM = 266;
-    // set table in memory
+    // set table in memory (confusion)
+    // The actual opcode now represents
+    // modify table properties: inMemory, StoragePolicy, IsBeingSynced, CompactionPolicy,
+    // TimeSeriesCompactionFileCountThreshold, SeriesCompactionTimeThresholdSeconds,
+    // SkipWriteIndexOnLoad, EnableSingleReplicaCompaction.
     public static final short OP_MODIFY_IN_MEMORY = 267;
 
     // set table default distribution bucket num
     public static final short OP_MODIFY_DISTRIBUTION_BUCKET_NUM = 268;
+
+    // set table status
+    public static final short OP_SET_TABLE_STATUS = 269;
 
     // plugin 270~275
     public static final short OP_INSTALL_PLUGIN = 270;
@@ -310,6 +318,20 @@ public class OperationType {
 
     public static final short OP_BARRIER = 436;
 
+    // change an auto increment id for a column
+    public static final short OP_UPDATE_AUTO_INCREMENT_ID = 437;
+
+    // scheduler job
+    public static final short OP_CREATE_SCHEDULER_JOB = 450;
+
+    public static final short OP_UPDATE_SCHEDULER_JOB = 451;
+
+    public static final short OP_DELETE_SCHEDULER_JOB = 452;
+
+    public static final short OP_CREATE_SCHEDULER_TASK = 453;
+    public static final short OP_DELETE_SCHEDULER_TASK = 454;
+
+    public static final short OP_UPDATE_TABLE_STATS = 455;
 
     /**
      * Get opcode name by op code.

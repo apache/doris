@@ -19,8 +19,6 @@ package org.apache.doris.nereids.trees.expressions.literal;
 
 import org.apache.doris.analysis.LiteralExpr;
 import org.apache.doris.nereids.exceptions.AnalysisException;
-import org.apache.doris.nereids.trees.expressions.Expression;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.Array;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.ArrayType;
 import org.apache.doris.nereids.types.DataType;
@@ -32,6 +30,7 @@ import java.util.stream.Collectors;
 
 /** ArrayLiteral */
 public class ArrayLiteral extends Literal {
+
     private final List<Literal> items;
 
     public ArrayLiteral(List<Literal> items) {
@@ -53,7 +52,7 @@ public class ArrayLiteral extends Literal {
                     .map(Literal::toLegacyLiteral)
                     .toArray(LiteralExpr[]::new);
             try {
-                return new org.apache.doris.analysis.ArrayLiteral(itemExprs);
+                return new org.apache.doris.analysis.ArrayLiteral(getDataType().toCatalogDataType(), itemExprs);
             } catch (Throwable t) {
                 throw new AnalysisException(t.getMessage(), t);
             }
@@ -61,26 +60,9 @@ public class ArrayLiteral extends Literal {
     }
 
     @Override
-    protected Expression uncheckedCastTo(DataType targetType) {
-        if (targetType instanceof ArrayType) {
-            return new Array(items.stream().toArray(Expression[]::new)).castTo(targetType);
-        }
-        return super.uncheckedCastTo(targetType);
-    }
-
-    @Override
-    public Expression checkedCastTo(DataType targetType) {
-        if (targetType instanceof ArrayType) {
-            return new Array(
-                    items.stream().toArray(Expression[]::new)).checkedCastTo(targetType);
-        }
-        return super.checkedCastTo(targetType);
-    }
-
-    @Override
     public String toString() {
         String items = this.items.stream()
-                .map(item -> item.toString())
+                .map(Literal::toString)
                 .collect(Collectors.joining(", "));
         return "array(" + items + ")";
     }
@@ -102,6 +84,6 @@ public class ArrayLiteral extends Literal {
         if (items.isEmpty()) {
             return ArrayType.SYSTEM_DEFAULT;
         }
-        return new Array(items.toArray(new Expression[0])).getDataType();
+        return ArrayType.of(items.get(0).dataType);
     }
 }

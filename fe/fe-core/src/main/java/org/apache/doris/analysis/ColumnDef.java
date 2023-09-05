@@ -338,13 +338,14 @@ public class ColumnDef {
         }
 
         // disable Bitmap Hll type in keys, values without aggregate function.
-        if (type.isBitmapType() || type.isHllType()) {
+        if (type.isBitmapType() || type.isHllType() || type.isQuantileStateType()) {
             if (isKey) {
-                throw new AnalysisException("Key column can not set bitmap or hll type:" + name);
+                throw new AnalysisException("Key column can not set complex type:" + name);
             }
             if (aggregateType == null) {
-                throw new AnalysisException("Bitmap and hll type have to use aggregate function" + name);
+                throw new AnalysisException("complex type have to use aggregate function: " + name);
             }
+            isAllowNull = false;
         }
 
         // A column is a key column if and only if isKey is true.

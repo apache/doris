@@ -86,11 +86,11 @@
 #define SCOPED_TRACK_MEMORY_TO_UNKNOWN() (void)0
 #endif
 
-#define SKIP_MEMORY_CHECK(...)                  \
-    do {                                        \
-        doris::skip_memory_check++;             \
-        DEFER({ doris::skip_memory_check--; }); \
-        __VA_ARGS__;                            \
+#define SKIP_MEMORY_CHECK(...)                                    \
+    do {                                                          \
+        doris::thread_context()->skip_memory_check++;             \
+        DEFER({ doris::thread_context()->skip_memory_check--; }); \
+        __VA_ARGS__;                                              \
     } while (0)
 
 namespace doris {
@@ -99,7 +99,6 @@ class ThreadContext;
 class MemTracker;
 class RuntimeState;
 
-extern bool k_doris_exit;
 extern bthread_key_t btls_key;
 
 // Using gcc11 compiles thread_local variable on lower versions of GLIBC will report an error,
@@ -137,7 +136,6 @@ public:
 };
 
 inline thread_local ThreadContextPtr thread_context_ptr;
-inline thread_local int skip_memory_check = 0;
 
 // To avoid performance problems caused by frequently calling `bthread_getspecific` to obtain bthread TLS
 // in tcmalloc hook, cache the key and value of bthread TLS in pthread TLS.
@@ -156,7 +154,7 @@ class ThreadContext {
 public:
     ThreadContext() {
         thread_mem_tracker_mgr.reset(new ThreadMemTrackerMgr());
-        if (ExecEnv::GetInstance()->initialized()) thread_mem_tracker_mgr->init();
+        if (ExecEnv::ready()) thread_mem_tracker_mgr->init();
     }
 
     ~ThreadContext() { thread_context_ptr.init = false; }
@@ -201,7 +199,13 @@ public:
         return thread_mem_tracker_mgr->limiter_mem_tracker_raw();
     }
 
+    void consume_memory(const int64_t size) const {
+        thread_mem_tracker_mgr->consume(size, large_memory_check);
+    }
+
     int switch_bthread_local_count = 0;
+    int skip_memory_check = 0;
+    bool large_memory_check = true;
 
 private:
     TUniqueId _task_id;
@@ -231,7 +235,7 @@ public:
                 // The brpc server should respond as quickly as possible.
                 bthread_context->thread_mem_tracker_mgr->disable_wait_gc();
                 // set the data so that next time bthread_getspecific in the thread returns the data.
-                CHECK((0 == bthread_setspecific(btls_key, bthread_context)) || doris::k_doris_exit);
+                CHECK(0 == bthread_setspecific(btls_key, bthread_context) || k_doris_exit);
                 thread_context_ptr.init = true;
             }
             bthread_id = bthread_self();
@@ -364,10 +368,8 @@ private:
 // Basic macros for mem tracker, usually do not need to be modified and used.
 #ifdef USE_MEM_TRACKER
 // For the memory that cannot be counted by mem hook, manually count it into the mem tracker, such as mmap.
-#define CONSUME_THREAD_MEM_TRACKER(size) \
-    doris::thread_context()->thread_mem_tracker_mgr->consume(size)
-#define RELEASE_THREAD_MEM_TRACKER(size) \
-    doris::thread_context()->thread_mem_tracker_mgr->consume(-size)
+#define CONSUME_THREAD_MEM_TRACKER(size) doris::thread_context()->consume_memory(size)
+#define RELEASE_THREAD_MEM_TRACKER(size) doris::thread_context()->consume_memory(-size)
 
 // used to fix the tracking accuracy of caches.
 #define THREAD_MEM_TRACKER_TRANSFER_TO(size, tracker)                                        \
@@ -385,16 +387,16 @@ private:
 #define CONSUME_MEM_TRACKER(size)                                                                  \
     do {                                                                                           \
         if (doris::thread_context_ptr.init) {                                                      \
-            doris::thread_context()->thread_mem_tracker_mgr->consume(size);                        \
-        } else if (doris::ExecEnv::GetInstance()->initialized()) {                                 \
+            doris::thread_context()->consume_memory(size);                                         \
+        } else if (doris::ExecEnv::ready()) {                                                      \
             doris::ExecEnv::GetInstance()->orphan_mem_tracker_raw()->consume_no_update_peak(size); \
         }                                                                                          \
     } while (0)
 #define RELEASE_MEM_TRACKER(size)                                                            \
     do {                                                                                     \
         if (doris::thread_context_ptr.init) {                                                \
-            doris::thread_context()->thread_mem_tracker_mgr->consume(-size);                 \
-        } else if (doris::ExecEnv::GetInstance()->initialized()) {                           \
+            doris::thread_context()->consume_memory(-size);                                  \
+        } else if (doris::ExecEnv::ready()) {                                                \
             doris::ExecEnv::GetInstance()->orphan_mem_tracker_raw()->consume_no_update_peak( \
                     -size);                                                                  \
         }                                                                                    \

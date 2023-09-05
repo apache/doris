@@ -51,6 +51,8 @@ message PTypeNode {
     repeated PStructField struct_fields = 3;
     // only used for complex types, such as array, map and etc.
     optional bool contains_null = 4;
+    // update for map/struct type
+    repeated bool contains_nulls = 5;
 };
 
 // A flattened representation of a tree of column types obtained by depth-first

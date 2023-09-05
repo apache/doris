@@ -30,6 +30,7 @@ import org.apache.doris.nereids.util.Utils;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.Lists;
 
 import java.util.List;
 import java.util.Objects;
@@ -79,8 +80,16 @@ public class LogicalGenerate<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD
         return generators;
     }
 
+    /**
+     * update generators
+     */
     public LogicalGenerate<Plan> withGenerators(List<Function> generators) {
-        return new LogicalGenerate<>(generators, generatorOutput,
+        Preconditions.checkArgument(generators.size() == generatorOutput.size());
+        List<Slot> newGeneratorOutput = Lists.newArrayList();
+        for (int i = 0; i < generators.size(); i++) {
+            newGeneratorOutput.add(generatorOutput.get(i).withNullable(generators.get(i).nullable()));
+        }
+        return new LogicalGenerate<>(generators, newGeneratorOutput,
                 Optional.empty(), Optional.of(getLogicalProperties()), child());
     }
 
@@ -121,9 +130,6 @@ public class LogicalGenerate<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD
         if (o == null || getClass() != o.getClass()) {
             return false;
         }
-        if (!super.equals(o)) {
-            return false;
-        }
         LogicalGenerate<?> that = (LogicalGenerate<?>) o;
         return generators.equals(that.generators)
                 && generatorOutput.equals(that.generatorOutput);
@@ -131,6 +137,6 @@ public class LogicalGenerate<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD
 
     @Override
     public int hashCode() {
-        return Objects.hash(super.hashCode(), generators, generatorOutput);
+        return Objects.hash(generators, generatorOutput);
     }
 }

@@ -80,7 +80,7 @@ public class NereidsParserTest extends ParserTestBase {
     @Test
     public void testPostProcessor() {
         parsePlan("select `AD``D` from t1 where a = 1")
-                .matchesFromRoot(
+                .matches(
                         logicalProject().when(p -> "AD`D".equals(p.getProjects().get(0).getName()))
                 );
     }
@@ -90,17 +90,17 @@ public class NereidsParserTest extends ParserTestBase {
         NereidsParser nereidsParser = new NereidsParser();
         LogicalPlan logicalPlan;
         String cteSql1 = "with t1 as (select s_suppkey from supplier where s_suppkey < 10) select * from t1";
-        logicalPlan = nereidsParser.parseSingle(cteSql1);
+        logicalPlan = (LogicalPlan) nereidsParser.parseSingle(cteSql1).child(0);
         Assertions.assertEquals(PlanType.LOGICAL_CTE, logicalPlan.getType());
         Assertions.assertEquals(((LogicalCTE<?>) logicalPlan).getAliasQueries().size(), 1);
 
         String cteSql2 = "with t1 as (select s_suppkey from supplier), t2 as (select s_suppkey from t1) select * from t2";
-        logicalPlan = nereidsParser.parseSingle(cteSql2);
+        logicalPlan = (LogicalPlan) nereidsParser.parseSingle(cteSql2).child(0);
         Assertions.assertEquals(PlanType.LOGICAL_CTE, logicalPlan.getType());
         Assertions.assertEquals(((LogicalCTE<?>) logicalPlan).getAliasQueries().size(), 2);
 
-        String cteSql3 = "with t1 (key, name) as (select s_suppkey, s_name from supplier) select * from t1";
-        logicalPlan = nereidsParser.parseSingle(cteSql3);
+        String cteSql3 = "with t1 (keyy, name) as (select s_suppkey, s_name from supplier) select * from t1";
+        logicalPlan = (LogicalPlan) nereidsParser.parseSingle(cteSql3).child(0);
         Assertions.assertEquals(PlanType.LOGICAL_CTE, logicalPlan.getType());
         Assertions.assertEquals(((LogicalCTE<?>) logicalPlan).getAliasQueries().size(), 1);
         Optional<List<String>> columnAliases = ((LogicalCTE<?>) logicalPlan).getAliasQueries().get(0).getColumnAliases();
@@ -112,12 +112,12 @@ public class NereidsParserTest extends ParserTestBase {
         NereidsParser nereidsParser = new NereidsParser();
         LogicalPlan logicalPlan;
         String windowSql1 = "select k1, rank() over(partition by k1 order by k1) as ranking from t1";
-        logicalPlan = nereidsParser.parseSingle(windowSql1);
+        logicalPlan = (LogicalPlan) nereidsParser.parseSingle(windowSql1).child(0);
         Assertions.assertEquals(PlanType.LOGICAL_PROJECT, logicalPlan.getType());
         Assertions.assertEquals(((LogicalProject<?>) logicalPlan).getProjects().size(), 2);
 
         String windowSql2 = "select k1, sum(k2), rank() over(partition by k1 order by k1) as ranking from t1 group by k1";
-        logicalPlan = nereidsParser.parseSingle(windowSql2);
+        logicalPlan = (LogicalPlan) nereidsParser.parseSingle(windowSql2).child(0);
         Assertions.assertEquals(PlanType.LOGICAL_AGGREGATE, logicalPlan.getType());
         Assertions.assertEquals(((LogicalAggregate<?>) logicalPlan).getOutputExpressions().size(), 3);
 
@@ -135,7 +135,7 @@ public class NereidsParserTest extends ParserTestBase {
         ExplainCommand explainCommand = (ExplainCommand) logicalPlan;
         ExplainLevel explainLevel = explainCommand.getLevel();
         Assertions.assertEquals(ExplainLevel.NORMAL, explainLevel);
-        logicalPlan = explainCommand.getLogicalPlan();
+        logicalPlan = (LogicalPlan) explainCommand.getLogicalPlan().child(0);
         LogicalProject<Plan> logicalProject = (LogicalProject) logicalPlan;
         Assertions.assertEquals("AD`D", logicalProject.getProjects().get(0).getName());
     }
@@ -168,7 +168,7 @@ public class NereidsParserTest extends ParserTestBase {
         Assertions.assertEquals(2, statementBases.size());
         Assertions.assertTrue(statementBases.get(0) instanceof LogicalPlanAdapter);
         Assertions.assertTrue(statementBases.get(1) instanceof LogicalPlanAdapter);
-        LogicalPlan logicalPlan0 = ((LogicalPlanAdapter) statementBases.get(0)).getLogicalPlan();
+        LogicalPlan logicalPlan0 = (LogicalPlan) ((LogicalPlanAdapter) statementBases.get(0)).getLogicalPlan().child(0);
         LogicalPlan logicalPlan1 = ((LogicalPlanAdapter) statementBases.get(1)).getLogicalPlan();
         Assertions.assertTrue(logicalPlan0 instanceof LogicalProject);
         Assertions.assertTrue(logicalPlan1 instanceof ExplainCommand);
@@ -181,57 +181,57 @@ public class NereidsParserTest extends ParserTestBase {
         LogicalJoin logicalJoin;
 
         String innerJoin1 = "SELECT t1.a FROM t1 INNER JOIN t2 ON t1.id = t2.id;";
-        logicalPlan = nereidsParser.parseSingle(innerJoin1);
+        logicalPlan = (LogicalPlan) nereidsParser.parseSingle(innerJoin1).child(0);
         logicalJoin = (LogicalJoin) logicalPlan.child(0);
         Assertions.assertEquals(JoinType.INNER_JOIN, logicalJoin.getJoinType());
 
         String innerJoin2 = "SELECT t1.a FROM t1 JOIN t2 ON t1.id = t2.id;";
-        logicalPlan = nereidsParser.parseSingle(innerJoin2);
+        logicalPlan = (LogicalPlan) nereidsParser.parseSingle(innerJoin2).child(0);
         logicalJoin = (LogicalJoin) logicalPlan.child(0);
         Assertions.assertEquals(JoinType.INNER_JOIN, logicalJoin.getJoinType());
 
         String leftJoin1 = "SELECT t1.a FROM t1 LEFT JOIN t2 ON t1.id = t2.id;";
-        logicalPlan = nereidsParser.parseSingle(leftJoin1);
+        logicalPlan = (LogicalPlan) nereidsParser.parseSingle(leftJoin1).child(0);
         logicalJoin = (LogicalJoin) logicalPlan.child(0);
         Assertions.assertEquals(JoinType.LEFT_OUTER_JOIN, logicalJoin.getJoinType());
 
         String leftJoin2 = "SELECT t1.a FROM t1 LEFT OUTER JOIN t2 ON t1.id = t2.id;";
-        logicalPlan = nereidsParser.parseSingle(leftJoin2);
+        logicalPlan = (LogicalPlan) nereidsParser.parseSingle(leftJoin2).child(0);
         logicalJoin = (LogicalJoin) logicalPlan.child(0);
         Assertions.assertEquals(JoinType.LEFT_OUTER_JOIN, logicalJoin.getJoinType());
 
         String rightJoin1 = "SELECT t1.a FROM t1 RIGHT JOIN t2 ON t1.id = t2.id;";
-        logicalPlan = nereidsParser.parseSingle(rightJoin1);
+        logicalPlan = (LogicalPlan) nereidsParser.parseSingle(rightJoin1).child(0);
         logicalJoin = (LogicalJoin) logicalPlan.child(0);
         Assertions.assertEquals(JoinType.RIGHT_OUTER_JOIN, logicalJoin.getJoinType());
 
         String rightJoin2 = "SELECT t1.a FROM t1 RIGHT OUTER JOIN t2 ON t1.id = t2.id;";
-        logicalPlan = nereidsParser.parseSingle(rightJoin2);
+        logicalPlan = (LogicalPlan) nereidsParser.parseSingle(rightJoin2).child(0);
         logicalJoin = (LogicalJoin) logicalPlan.child(0);
         Assertions.assertEquals(JoinType.RIGHT_OUTER_JOIN, logicalJoin.getJoinType());
 
         String leftSemiJoin = "SELECT t1.a FROM t1 LEFT SEMI JOIN t2 ON t1.id = t2.id;";
-        logicalPlan = nereidsParser.parseSingle(leftSemiJoin);
+        logicalPlan = (LogicalPlan) nereidsParser.parseSingle(leftSemiJoin).child(0);
         logicalJoin = (LogicalJoin) logicalPlan.child(0);
         Assertions.assertEquals(JoinType.LEFT_SEMI_JOIN, logicalJoin.getJoinType());
 
         String rightSemiJoin = "SELECT t2.a FROM t1 RIGHT SEMI JOIN t2 ON t1.id = t2.id;";
-        logicalPlan = nereidsParser.parseSingle(rightSemiJoin);
+        logicalPlan = (LogicalPlan) nereidsParser.parseSingle(rightSemiJoin).child(0);
         logicalJoin = (LogicalJoin) logicalPlan.child(0);
         Assertions.assertEquals(JoinType.RIGHT_SEMI_JOIN, logicalJoin.getJoinType());
 
         String leftAntiJoin = "SELECT t1.a FROM t1 LEFT ANTI JOIN t2 ON t1.id = t2.id;";
-        logicalPlan = nereidsParser.parseSingle(leftAntiJoin);
+        logicalPlan = (LogicalPlan) nereidsParser.parseSingle(leftAntiJoin).child(0);
         logicalJoin = (LogicalJoin) logicalPlan.child(0);
         Assertions.assertEquals(JoinType.LEFT_ANTI_JOIN, logicalJoin.getJoinType());
 
         String righAntiJoin = "SELECT t2.a FROM t1 RIGHT ANTI JOIN t2 ON t1.id = t2.id;";
-        logicalPlan = nereidsParser.parseSingle(righAntiJoin);
+        logicalPlan = (LogicalPlan) nereidsParser.parseSingle(righAntiJoin).child(0);
         logicalJoin = (LogicalJoin) logicalPlan.child(0);
         Assertions.assertEquals(JoinType.RIGHT_ANTI_JOIN, logicalJoin.getJoinType());
 
         String crossJoin = "SELECT t1.a FROM t1 CROSS JOIN t2;";
-        logicalPlan = nereidsParser.parseSingle(crossJoin);
+        logicalPlan = (LogicalPlan) nereidsParser.parseSingle(crossJoin).child(0);
         logicalJoin = (LogicalJoin) logicalPlan.child(0);
         Assertions.assertEquals(JoinType.CROSS_JOIN, logicalJoin.getJoinType());
     }
@@ -252,7 +252,7 @@ public class NereidsParserTest extends ParserTestBase {
     public void testParseDecimal() {
         String f1 = "SELECT col1 * 0.267081789095306 FROM t";
         NereidsParser nereidsParser = new NereidsParser();
-        LogicalPlan logicalPlan = nereidsParser.parseSingle(f1);
+        LogicalPlan logicalPlan = (LogicalPlan) nereidsParser.parseSingle(f1).child(0);
         long doubleCount = logicalPlan
                 .getExpressions()
                 .stream()
@@ -290,43 +290,43 @@ public class NereidsParserTest extends ParserTestBase {
     @Test
     public void testJoinHint() {
         // no hint
-        parsePlan("select * from t1 join t2 on t1.key=t2.key")
+        parsePlan("select * from t1 join t2 on t1.keyy=t2.keyy")
                 .matches(logicalJoin().when(j -> j.getHint() == JoinHint.NONE));
 
         // valid hint
-        parsePlan("select * from t1 join [shuffle] t2 on t1.key=t2.key")
+        parsePlan("select * from t1 join [shuffle] t2 on t1.keyy=t2.keyy")
                 .matches(logicalJoin().when(j -> j.getHint() == JoinHint.SHUFFLE_RIGHT));
 
-        parsePlan("select * from t1 join [  shuffle ] t2 on t1.key=t2.key")
+        parsePlan("select * from t1 join [  shuffle ] t2 on t1.keyy=t2.keyy")
                 .matches(logicalJoin().when(j -> j.getHint() == JoinHint.SHUFFLE_RIGHT));
 
-        parsePlan("select * from t1 join [broadcast] t2 on t1.key=t2.key")
+        parsePlan("select * from t1 join [broadcast] t2 on t1.keyy=t2.keyy")
                 .matches(logicalJoin().when(j -> j.getHint() == JoinHint.BROADCAST_RIGHT));
 
-        parsePlan("select * from t1 join /*+ broadcast   */ t2 on t1.key=t2.key")
+        parsePlan("select * from t1 join /*+ broadcast   */ t2 on t1.keyy=t2.keyy")
                 .matches(logicalJoin().when(j -> j.getHint() == JoinHint.BROADCAST_RIGHT));
 
         // invalid hint position
-        parsePlan("select * from [shuffle] t1 join t2 on t1.key=t2.key")
+        parsePlan("select * from [shuffle] t1 join t2 on t1.keyy=t2.keyy")
                 .assertThrowsExactly(ParseException.class);
 
-        parsePlan("select * from /*+ shuffle */ t1 join t2 on t1.key=t2.key")
+        parsePlan("select * from /*+ shuffle */ t1 join t2 on t1.keyy=t2.keyy")
                 .assertThrowsExactly(ParseException.class);
 
         // invalid hint content
-        parsePlan("select * from t1 join [bucket] t2 on t1.key=t2.key")
+        parsePlan("select * from t1 join [bucket] t2 on t1.keyy=t2.keyy")
                 .assertThrowsExactly(ParseException.class)
                 .assertMessageContains("Invalid join hint: bucket(line 1, pos 22)\n"
                         + "\n"
                         + "== SQL ==\n"
-                        + "select * from t1 join [bucket] t2 on t1.key=t2.key\n"
+                        + "select * from t1 join [bucket] t2 on t1.keyy=t2.keyy\n"
                         + "----------------------^^^");
 
         // invalid multiple hints
-        parsePlan("select * from t1 join /*+ shuffle , broadcast */ t2 on t1.key=t2.key")
+        parsePlan("select * from t1 join /*+ shuffle , broadcast */ t2 on t1.keyy=t2.keyy")
                 .assertThrowsExactly(ParseException.class);
 
-        parsePlan("select * from t1 join [shuffle,broadcast] t2 on t1.key=t2.key")
+        parsePlan("select * from t1 join [shuffle,broadcast] t2 on t1.keyy=t2.keyy")
                 .assertThrowsExactly(ParseException.class);
     }
 
@@ -334,7 +334,7 @@ public class NereidsParserTest extends ParserTestBase {
     public void testParseCast() {
         String sql = "SELECT CAST(1 AS DECIMAL(20, 6)) FROM t";
         NereidsParser nereidsParser = new NereidsParser();
-        LogicalPlan logicalPlan = nereidsParser.parseSingle(sql);
+        LogicalPlan logicalPlan = (LogicalPlan) nereidsParser.parseSingle(sql).child(0);
         Cast cast = (Cast) logicalPlan.getExpressions().get(0).child(0);
         if (Config.enable_decimal_conversion) {
             DecimalV3Type decimalV3Type = (DecimalV3Type) cast.getDataType();
@@ -345,5 +345,24 @@ public class NereidsParserTest extends ParserTestBase {
             Assertions.assertEquals(20, decimalV2Type.getPrecision());
             Assertions.assertEquals(6, decimalV2Type.getScale());
         }
+    }
+
+    @Test
+
+    void testParseExprDepthWidth() {
+        String sql = "SELECT 1+2 = 3 from t";
+        NereidsParser nereidsParser = new NereidsParser();
+        LogicalPlan logicalPlan = (LogicalPlan) nereidsParser.parseSingle(sql).child(0);
+        System.out.println(logicalPlan);
+        // alias (1 + 2 = 3)
+        Assertions.assertEquals(4, logicalPlan.getExpressions().get(0).getDepth());
+        Assertions.assertEquals(3, logicalPlan.getExpressions().get(0).getWidth());
+    }
+
+    @Test
+    public void testParseCollate() {
+        String sql = "SELECT * FROM t1 WHERE col COLLATE utf8 = 'test'";
+        NereidsParser nereidsParser = new NereidsParser();
+        nereidsParser.parseSingle(sql);
     }
 }

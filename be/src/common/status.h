@@ -57,6 +57,7 @@ TStatusError(ABORTED);
 TStatusError(DATA_QUALITY_ERROR);
 TStatusError(LABEL_ALREADY_EXISTS);
 TStatusError(NOT_AUTHORIZED);
+TStatusError(HTTP_ERROR);
 #undef TStatusError
 // BE internal errors
 E(OS_ERROR, -100);
@@ -72,7 +73,6 @@ E(COMPRESS_ERROR, -111);
 E(DECOMPRESS_ERROR, -112);
 E(UNKNOWN_COMPRESSION_TYPE, -113);
 E(MMAP_ERROR, -114);
-E(READ_UNENOUGH, -116);
 E(CANNOT_CREATE_DIR, -117);
 E(UB_NETWORK_ERROR, -118);
 E(FILE_FORMAT_ERROR, -119);
@@ -95,8 +95,6 @@ E(VERSION_NOT_EXIST, -214);
 E(TABLE_NOT_FOUND, -215);
 E(TRY_LOCK_FAILED, -216);
 E(OUT_OF_BOUND, -218);
-E(FILE_DATA_ERROR, -220);
-E(TEST_FILE_ERROR, -221);
 E(INVALID_ROOT_PATH, -222);
 E(NO_AVAILABLE_ROOT_PATH, -223);
 E(CHECK_LINES_ERROR, -224);
@@ -229,6 +227,8 @@ E(CUMULATIVE_INVALID_NEED_MERGED_VERSIONS, -2004);
 E(CUMULATIVE_ERROR_DELETE_ACTION, -2005);
 E(CUMULATIVE_MISS_VERSION, -2006);
 E(CUMULATIVE_CLONE_OCCURRED, -2007);
+E(FULL_NO_SUITABLE_VERSION, -2008);
+E(FULL_MISS_VERSION, -2009);
 E(META_INVALID_ARGUMENT, -3000);
 E(META_OPEN_DB_ERROR, -3001);
 E(META_KEY_NOT_FOUND, -3002);
@@ -268,12 +268,14 @@ E(INVERTED_INDEX_NO_TERMS, -6005);
 E(INVERTED_INDEX_RENAME_FILE_FAILED, -6006);
 E(INVERTED_INDEX_EVALUATE_SKIPPED, -6007);
 E(INVERTED_INDEX_BUILD_WAITTING, -6008);
+E(KEY_NOT_FOUND, -6009);
+E(KEY_ALREADY_EXISTS, -6010);
 #undef E
 } // namespace ErrorCode
 
 // clang-format off
 // whether to capture stacktrace
-inline bool capture_stacktrace(int code) {
+constexpr bool capture_stacktrace(int code) {
     return code != ErrorCode::OK
         && code != ErrorCode::END_OF_FILE
         && code != ErrorCode::MEM_LIMIT_EXCEEDED
@@ -285,6 +287,7 @@ inline bool capture_stacktrace(int code) {
         && code != ErrorCode::PUSH_TRANSACTION_ALREADY_EXIST
         && code != ErrorCode::BE_NO_SUITABLE_VERSION
         && code != ErrorCode::CUMULATIVE_NO_SUITABLE_VERSION
+        && code != ErrorCode::FULL_NO_SUITABLE_VERSION
         && code != ErrorCode::PUBLISH_VERSION_NOT_CONTINUOUS
         && code != ErrorCode::ROWSET_RENAME_FILE_FAILED
         && code != ErrorCode::SEGCOMPACTION_INIT_READER
@@ -304,13 +307,17 @@ inline bool capture_stacktrace(int code) {
         && code != ErrorCode::TRANSACTION_NOT_EXIST
         && code != ErrorCode::TRANSACTION_ALREADY_VISIBLE
         && code != ErrorCode::TOO_MANY_TRANSACTIONS
-        && code != ErrorCode::TRANSACTION_ALREADY_COMMITTED;
+        && code != ErrorCode::TRANSACTION_ALREADY_COMMITTED
+        && code != ErrorCode::KEY_NOT_FOUND
+        && code != ErrorCode::KEY_ALREADY_EXISTS
+        && code != ErrorCode::CANCELLED
+        && code != ErrorCode::UNINITIALIZED;
 }
 // clang-format on
 
 class Status {
 public:
-    Status() : _code(ErrorCode::OK) {}
+    Status() : _code(ErrorCode::OK), _err_msg(nullptr) {}
 
     // copy c'tor makes copy of error detail so Status can be returned by value
     Status(const Status& rhs) { *this = rhs; }
@@ -328,7 +335,13 @@ public:
     }
 
     // move assign
-    Status& operator=(Status&& rhs) noexcept = default;
+    Status& operator=(Status&& rhs) noexcept {
+        _code = rhs._code;
+        if (rhs._err_msg) {
+            _err_msg = std::move(rhs._err_msg);
+        }
+        return *this;
+    }
 
     Status static create(const TStatus& status) {
         return Error<true>(status.status_code,
@@ -342,7 +355,21 @@ public:
 
     template <int code, bool stacktrace = true, typename... Args>
     Status static Error(std::string_view msg, Args&&... args) {
-        return Error<stacktrace>(code, msg, std::forward<Args>(args)...);
+        Status status;
+        status._code = code;
+        status._err_msg = std::make_unique<ErrMsg>();
+        if constexpr (sizeof...(args) == 0) {
+            status._err_msg->_msg = msg;
+        } else {
+            status._err_msg->_msg = fmt::format(msg, std::forward<Args>(args)...);
+        }
+#ifdef ENABLE_STACKTRACE
+        if constexpr (stacktrace && capture_stacktrace(code)) {
+            status._err_msg->_stack = get_stack_trace();
+            LOG(WARNING) << "meet error status: " << status; // may print too many stacks.
+        }
+#endif
+        return status;
     }
 
     template <bool stacktrace = true, typename... Args>
@@ -358,7 +385,7 @@ public:
 #ifdef ENABLE_STACKTRACE
         if (stacktrace && capture_stacktrace(code)) {
             status._err_msg->_stack = get_stack_trace();
-            LOG(WARNING) << "meet error status: " << status;
+            LOG(WARNING) << "meet error status: " << status; // may print too many stacks.
         }
 #endif
         return status;
@@ -366,10 +393,10 @@ public:
 
     static Status OK() { return Status(); }
 
-#define ERROR_CTOR(name, code)                                                  \
-    template <typename... Args>                                                 \
-    static Status name(std::string_view msg, Args&&... args) {                  \
-        return Error<ErrorCode::code, false>(msg, std::forward<Args>(args)...); \
+#define ERROR_CTOR(name, code)                                                 \
+    template <typename... Args>                                                \
+    static Status name(std::string_view msg, Args&&... args) {                 \
+        return Error<ErrorCode::code, true>(msg, std::forward<Args>(args)...); \
     }
 
     ERROR_CTOR(PublishTimeout, PUBLISH_TIMEOUT)
@@ -397,6 +424,7 @@ public:
     ERROR_CTOR(Aborted, ABORTED)
     ERROR_CTOR(DataQualityError, DATA_QUALITY_ERROR)
     ERROR_CTOR(NotAuthorized, NOT_AUTHORIZED)
+    ERROR_CTOR(HttpError, HTTP_ERROR)
 #undef ERROR_CTOR
 
     template <int code>
@@ -407,17 +435,6 @@ public:
     void set_code(int code) { _code = code; }
 
     bool ok() const { return _code == ErrorCode::OK; }
-
-    bool is_io_error() const {
-        return ErrorCode::IO_ERROR == _code || ErrorCode::READ_UNENOUGH == _code ||
-               ErrorCode::CHECKSUM_ERROR == _code || ErrorCode::FILE_DATA_ERROR == _code ||
-               ErrorCode::TEST_FILE_ERROR == _code;
-    }
-
-    bool is_invalid_argument() const { return ErrorCode::INVALID_ARGUMENT == _code; }
-
-    bool is_not_found() const { return _code == ErrorCode::NOT_FOUND; }
-    bool is_not_authorized() const { return code() == TStatusCode::NOT_AUTHORIZED; }
 
     // Convert into TStatus. Call this if 'status_container' contains an optional
     // TStatus field named 'status'. This also sets __isset.status.
@@ -460,12 +477,12 @@ public:
     // if(!status) or if (status) will use this operator
     operator bool() const { return this->ok(); }
 
-    // Used like if (res == Status::OK())
+    // Used like if ASSERT_EQ(res, Status::OK())
     // if the state is ok, then both code and precise code is not initialized properly, so that should check ok state
     // ignore error messages during comparison
     bool operator==(const Status& st) const { return _code == st._code; }
 
-    // Used like if (res != Status::OK())
+    // Used like if ASSERT_NE(res, Status::OK())
     bool operator!=(const Status& st) const { return _code != st._code; }
 
     friend std::ostream& operator<<(std::ostream& ostr, const Status& status);

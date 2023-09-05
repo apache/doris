@@ -105,7 +105,7 @@ public class SystemInfoService {
         }
 
         public String getIdent() {
-            return host;
+            return host + "_" + port;
         }
 
         @Override
@@ -528,11 +528,14 @@ public class SystemInfoService {
      *
      * @param replicaAlloc
      * @param storageMedium
+     * @param isStorageMediumSpecified
+     * @param isOnlyForCheck set true if only used for check available backend
      * @return return the selected backend ids group by tag.
      * @throws DdlException
      */
     public Map<Tag, List<Long>> selectBackendIdsForReplicaCreation(
-            ReplicaAllocation replicaAlloc, TStorageMedium storageMedium)
+            ReplicaAllocation replicaAlloc, TStorageMedium storageMedium, boolean isStorageMediumSpecified,
+            boolean isOnlyForCheck)
             throws DdlException {
         Map<Long, Backend> copiedBackends = Maps.newHashMap(idToBackendRef);
         Map<Tag, List<Long>> chosenBackendIds = Maps.newHashMap();
@@ -557,6 +560,14 @@ public class SystemInfoService {
 
                 BeSelectionPolicy policy = builder.build();
                 List<Long> beIds = selectBackendIdsByPolicy(policy, entry.getValue());
+                // first time empty, retry with different storage medium
+                // if only for check, no need to retry different storage medium to get backend
+                if (beIds.isEmpty() && storageMedium != null && !isStorageMediumSpecified && !isOnlyForCheck) {
+                    storageMedium = (storageMedium == TStorageMedium.HDD) ? TStorageMedium.SSD : TStorageMedium.HDD;
+                    policy = builder.setStorageMedium(storageMedium).build();
+                    beIds = selectBackendIdsByPolicy(policy, entry.getValue());
+                }
+                // after retry different storage medium, it's still empty
                 if (beIds.isEmpty()) {
                     LOG.error("failed backend(s) for policy:" + policy);
                     String errorReplication = "replication tag: " + entry.getKey()
@@ -707,11 +718,6 @@ public class SystemInfoService {
             throw new AnalysisException("Invalid host port: " + hostPort);
         }
 
-        String[] pair = hostPort.split(":");
-        if (pair.length != 2) {
-            throw new AnalysisException("Invalid host port: " + hostPort);
-        }
-
         HostInfo hostInfo = NetUtils.resolveHostInfoFromHostPort(hostPort);
 
         String host = hostInfo.getHost();
@@ -848,7 +854,8 @@ public class SystemInfoService {
                 DiskInfo diskInfo = pathHashToDiskInfo.get(pathHash);
                 if (diskInfo != null && diskInfo.exceedLimit(floodStage)) {
                     return new Status(TStatusCode.CANCELLED,
-                            "disk " + pathHash + " on backend " + beId + " exceed limit usage");
+                            "disk " + diskInfo.getRootPath() + " on backend "
+                                    + beId + " exceed limit usage, path hash: " + pathHash);
                 }
             }
         }
@@ -972,5 +979,9 @@ public class SystemInfoService {
             }
         }
         return minPipelineExecutorSize;
+    }
+
+    public long aliveBECount() {
+        return idToBackendRef.values().stream().filter(Backend::isAlive).count();
     }
 }

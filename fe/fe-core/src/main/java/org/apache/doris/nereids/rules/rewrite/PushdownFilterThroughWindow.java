@@ -31,6 +31,7 @@ import org.apache.doris.nereids.trees.expressions.WindowExpression;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLikeLiteral;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalEmptyRelation;
+import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPartitionTopN;
 import org.apache.doris.nereids.trees.plans.logical.LogicalWindow;
 
@@ -77,7 +78,8 @@ public class PushdownFilterThroughWindow extends OneRewriteRuleFactory {
 
     @Override
     public Rule build() {
-        return logicalFilter(logicalWindow()).then(filter -> {
+        return logicalFilter(logicalWindow()).thenApply(ctx -> {
+            LogicalFilter<LogicalWindow<Plan>> filter = ctx.root;
             LogicalWindow<Plan> window = filter.child();
 
             // We have already done such optimization rule, so just ignore it.
@@ -117,7 +119,7 @@ public class PushdownFilterThroughWindow extends OneRewriteRuleFactory {
                     limitVal--;
                 }
                 if (limitVal < 0) {
-                    return new LogicalEmptyRelation(filter.getOutput());
+                    return new LogicalEmptyRelation(ctx.statementContext.getNextRelationId(), filter.getOutput());
                 }
                 if (hasPartitionLimit) {
                     partitionLimit = Math.min(partitionLimit, limitVal);
