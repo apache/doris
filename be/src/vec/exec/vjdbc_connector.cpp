@@ -207,7 +207,10 @@ Status JdbcConnector::query() {
         SCOPED_RAW_TIMER(&_jdbc_statistic._execte_read_timer);
         jint colunm_count =
                 env->CallNonvirtualIntMethod(_executor_obj, _executor_clazz, _executor_read_id);
-        RETURN_IF_ERROR(JniUtil::GetJniExceptionMsg(env));
+        if (auto status = JniUtil::GetJniExceptionMsg(env); !status) {
+            return Status::InternalError("GetJniExceptionMsg meet error, query={}, msg={}",
+                                         _conn_param.query_string, status.to_string());
+        }
         if (colunm_count != materialize_num) {
             return Status::InternalError("input and output column num not equal of jdbc query.");
         }

@@ -17,6 +17,7 @@
 
 package org.apache.doris.statistics;
 
+import org.apache.doris.catalog.Env;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.ThreadPoolManager;
 import org.apache.doris.common.ThreadPoolManager.BlockedPolicy;
@@ -42,16 +43,23 @@ public class AnalysisTaskExecutor extends Thread {
                     Comparator.comparingLong(AnalysisTaskWrapper::getStartTime));
 
     public AnalysisTaskExecutor(int simultaneouslyRunningTaskNum) {
-        executors = ThreadPoolManager.newDaemonThreadPool(
-                simultaneouslyRunningTaskNum,
-                simultaneouslyRunningTaskNum, 0,
-                TimeUnit.DAYS, new LinkedBlockingQueue<>(),
-                new BlockedPolicy("Analysis Job Executor", Integer.MAX_VALUE),
-                "Analysis Job Executor", true);
+        if (!Env.isCheckpointThread()) {
+            executors = ThreadPoolManager.newDaemonThreadPool(
+                    simultaneouslyRunningTaskNum,
+                    simultaneouslyRunningTaskNum, 0,
+                    TimeUnit.DAYS, new LinkedBlockingQueue<>(),
+                    new BlockedPolicy("Analysis Job Executor", Integer.MAX_VALUE),
+                    "Analysis Job Executor", true);
+        } else {
+            executors = null;
+        }
     }
 
     @Override
     public void run() {
+        if (Env.isCheckpointThread()) {
+            return;
+        }
         cancelExpiredTask();
     }
 
