@@ -263,4 +263,30 @@ public class LambdaFunctionCallExpr extends FunctionCallExpr {
             msg.node_type = TExprNodeType.LAMBDA_FUNCTION_CALL_EXPR;
         }
     }
+
+    @Override
+    public String toSqlImpl() {
+        StringBuilder sb = new StringBuilder();
+        sb.append(getFnName().getFunction());
+        sb.append("(");
+        int childSize = children.size();
+        Expr lastExpr = getChild(childSize - 1);
+        boolean lastIsLambdaExpr = (lastExpr instanceof LambdaFunctionExpr);
+        if (lastIsLambdaExpr) {
+            sb.append(lastExpr.toSql());
+            sb.append(", ");
+        }
+        for (int i = 0; i < childSize - 1; ++i) {
+            sb.append(getChild(i).toSql());
+            if (i != childSize - 2) {
+                sb.append(", ");
+            }
+        }
+        if (lastIsLambdaExpr == false) {
+            sb.append(", ");
+            sb.append(lastExpr.toSql());
+        }
+        sb.append(")");
+        return sb.toString();
+    }
 }
