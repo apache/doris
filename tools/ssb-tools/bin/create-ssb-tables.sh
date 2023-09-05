@@ -35,7 +35,7 @@ SSB_FLAT_DDL="${CURDIR}/../ddl/create-ssb-flat-table.sql"
 usage() {
     echo "
 This script is used to create SSB tables, 
-will use mysql client to connect Doris server which is specified in conf/doris-cluster.conf file.
+will use mysql client to connect Doris server which is specified in conf/cluster.conf file.
 Usage: $0 
   "
     exit 1
@@ -86,20 +86,30 @@ check_prerequest() {
 
 check_prerequest "mysql --version" "mysql"
 
-source "${CURDIR}/../conf/doris-cluster.conf"
+source "${CURDIR}/../conf/cluster.conf"
 export MYSQL_PWD="${PASSWORD}"
+
+clt=""
+exec_clt=""
+if [ -z "${PASSWORD}" ];then
+    clt="mysql -h${FE_HOST} -u${USER} -P${FE_QUERY_PORT} -D${DB} "
+    exec_clt="mysql -vvv -h$FE_HOST -u$USER -P$FE_QUERY_PORT -D$DB "
+else
+    clt="mysql -h${FE_HOST} -u${USER} -p${PASSWORD} -P${FE_QUERY_PORT} -D${DB} "
+    exec_clt="mysql -vvv -h$FE_HOST -u$USER -p${PASSWORD} -P$FE_QUERY_PORT -D$DB "
+fi
 
 echo "FE_HOST: ${FE_HOST}"
 echo "FE_QUERY_PORT: ${FE_QUERY_PORT}"
 echo "USER: ${USER}"
 echo "DB: ${DB}"
 
-mysql -h"${FE_HOST}" -u"${USER}" -P"${FE_QUERY_PORT}" -e "CREATE DATABASE IF NOT EXISTS ${DB}"
+$clt -e "CREATE DATABASE IF NOT EXISTS ${DB}"
 
 echo "Run DDL from ${SSB_DDL}"
-mysql -h"${FE_HOST}" -u"${USER}" -P"${FE_QUERY_PORT}" -D"${DB}" <"${SSB_DDL}"
+$clt < "${SSB_DDL}"
 
 echo "Run DDL from ${SSB_FLAT_DDL}"
-mysql -h"${FE_HOST}" -u"${USER}" -P"${FE_QUERY_PORT}" -D"${DB}" <"${SSB_FLAT_DDL}"
+$clt < "${SSB_FLAT_DDL}"
 
 echo "ssb tables has been created"

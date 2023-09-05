@@ -29,7 +29,7 @@ ROOT=$(
 )
 
 CURDIR=${ROOT}
-QUERIES_FILE=$CURDIR/sql/queries.sql
+QUERIES_FILE=$CURDIR/../queries/queries.sql
 
 usage() {
   echo "
@@ -87,7 +87,7 @@ check_prerequest() {
 check_prerequest "mysql --version" "mysql"
 check_prerequest "perl --version" "perl"
 
-source $CURDIR/conf/doris-cluster.conf
+source $CURDIR/../conf/cluster.conf
 export MYSQL_PWD=$PASSWORD
 
 echo "FE_HOST: $FE_HOST"
@@ -96,25 +96,38 @@ echo "USER: $USER"
 echo "PASSWORD: $PASSWORD"
 echo "DB: $DB"
 
+clt=""
+exec_clt=""
+if [ -z "${PASSWORD}" ];then
+    clt="mysql -h${FE_HOST} -u${USER} -P${FE_QUERY_PORT} -D${DB} "
+    exec_clt="mysql -vvv -h$FE_HOST -u$USER -P$FE_QUERY_PORT -D$DB "
+else
+    clt="mysql -h${FE_HOST} -u${USER} -p${PASSWORD} -P${FE_QUERY_PORT} -D${DB} "
+    exec_clt="mysql -vvv -h$FE_HOST -u$USER -p${PASSWORD} -P$FE_QUERY_PORT -D$DB "
+fi
+
 pre_set() {
   echo $@
-  mysql -h$FE_HOST -u$USER -P$FE_QUERY_PORT -D$DB -e "$@"
+  $clt -e "$@"
 }
 
+echo '============================================'
 pre_set "set global parallel_fragment_exec_instance_num=8;"
 pre_set "set global exec_mem_limit=32G;"
-pre_set "set global query_timeout=900;"
-
 echo '============================================'
 pre_set "show variables"
 echo '============================================'
 pre_set "analyze table hits with sync;"
+echo '============================================'
 
 TRIES=3
 QUERY_NUM=1
-touch result.csv
-truncate -s0 result.csv
 
+echo "step:  execute queries"
+
+touch $CURDIR/../clickbench_query_result.csv
+truncate -s0 $CURDIR/../clickbench_query_result.csv
+total_time=0
 cat ${QUERIES_FILE} | while read query; do
   if [[ ! $query == SELECT* ]]; then
     continue
@@ -122,14 +135,29 @@ cat ${QUERIES_FILE} | while read query; do
   sync
   echo 3 | sudo tee /proc/sys/vm/drop_caches >/dev/null
 
-  echo -n "query${QUERY_NUM}: " | tee -a result.csv
-  for i in $(seq 1 $TRIES); do
-    RES=$(mysql -vvv -h$FE_HOST -u$USER -P$FE_QUERY_PORT -D$DB -e "${query}" | perl -nle 'print $1 if /\((\d+\.\d+)+ sec\)/' || :)
+  $exec_clt -e "${query}" >/dev/null 2>&1
 
-    echo -n "${RES}" | tee -a result.csv
-    [[ "$i" != $TRIES ]] && echo -n "," | tee -a result.csv
+  echo -n "q_${QUERY_NUM}.sql:" | tee -a $CURDIR/../clickbench_query_result.csv
+  runtime=0.0000
+  for i in $(seq 1 $TRIES); do
+     res=$($exec_clt -e "${query}" | perl -nle 'print $1 if /\((\d+\.\d+)+ sec\)/' || :)
+     sum=0.0000
+     while IFS= read -r number; do
+       sum=$(echo "$sum + $number" | bc)
+     done <<< "$res"
+     if [ $i -eq 1 ];then
+        runtime=$(echo "scale=6;0.0000+$sum" | bc)
+     else
+        if [ $( echo "$runtime > $sum" | bc ) -eq 1 ];then
+            runtime=$(echo "scale=6;0.0000+$sum" | bc)
+        fi
+     fi
   done
-  echo "" | tee -a result.csv
+
+  echo -n "${runtime}" | tee -a $CURDIR/../clickbench_query_result.csv
+  echo "" | tee -a $CURDIR/../clickbench_query_result.csv
 
   QUERY_NUM=$((QUERY_NUM + 1))
+  total_time=$(echo "scale=6;$total_time+$runtime" | bc)
 done
+echo "total time: ${total_time} seconds"
