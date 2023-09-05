@@ -507,7 +507,6 @@ Status OlapTableBlockConvertor::_fill_auto_inc_cols(vectorized::Block* block, si
     } else {
         return Status::OK();
     }
-
     block->get_by_position(idx).column = std::move(dst_column);
     block->get_by_position(idx).type =
             vectorized::DataTypeFactory::instance().create_data_type(slot->type(), false);
