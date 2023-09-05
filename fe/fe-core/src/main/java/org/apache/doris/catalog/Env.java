@@ -5601,4 +5601,8 @@ public class Env {
     public ColumnIdFlushDaemon getColumnIdFlusher() {
         return columnIdFlusher;
     }
+
+    public StatisticsAutoCollector getStatisticsAutoCollector() {
+        return statisticsAutoCollector;
+    }
 }
