@@ -224,9 +224,10 @@ import org.apache.doris.scheduler.registry.TimerJobRegister;
 import org.apache.doris.service.ExecuteEnv;
 import org.apache.doris.service.FrontendOptions;
 import org.apache.doris.statistics.AnalysisManager;
-import org.apache.doris.statistics.StatisticsAutoAnalyzer;
+import org.apache.doris.statistics.StatisticsAutoCollector;
 import org.apache.doris.statistics.StatisticsCache;
 import org.apache.doris.statistics.StatisticsCleaner;
+import org.apache.doris.statistics.StatisticsPeriodCollector;
 import org.apache.doris.statistics.query.QueryStats;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.Frontend;
@@ -346,6 +347,8 @@ public class Env {
     private Daemon replayer;
     private Daemon timePrinter;
     private Daemon listener;
+
+    private ColumnIdFlushDaemon columnIdFlusher;
 
     private boolean isFirstTimeStartUp = false;
     private boolean isElectable;
@@ -474,7 +477,9 @@ public class Env {
      */
     private final LoadManagerAdapter loadManagerAdapter;
 
-    private StatisticsAutoAnalyzer statisticsAutoAnalyzer;
+    private StatisticsAutoCollector statisticsAutoCollector;
+
+    private StatisticsPeriodCollector statisticsPeriodCollector;
 
     private HiveTransactionMgr hiveTransactionMgr;
 
@@ -699,7 +704,8 @@ public class Env {
         this.extMetaCacheMgr = new ExternalMetaCacheMgr();
         this.analysisManager = new AnalysisManager();
         this.statisticsCleaner = new StatisticsCleaner();
-        this.statisticsAutoAnalyzer = new StatisticsAutoAnalyzer();
+        this.statisticsAutoCollector = new StatisticsAutoCollector();
+        this.statisticsPeriodCollector = new StatisticsPeriodCollector();
         this.globalFunctionMgr = new GlobalFunctionMgr();
         this.workloadGroupMgr = new WorkloadGroupMgr();
         this.queryStats = new QueryStats();
@@ -707,6 +713,7 @@ public class Env {
         this.hiveTransactionMgr = new HiveTransactionMgr();
         this.binlogManager = new BinlogManager();
         this.binlogGcer = new BinlogGcer();
+        this.columnIdFlusher = new ColumnIdFlushDaemon();
     }
 
     public static void destroyCheckpoint() {
@@ -945,8 +952,11 @@ public class Env {
         if (statisticsCleaner != null) {
             statisticsCleaner.start();
         }
-        if (statisticsAutoAnalyzer != null) {
-            statisticsAutoAnalyzer.start();
+        if (statisticsAutoCollector != null) {
+            statisticsAutoCollector.start();
+        }
+        if (statisticsPeriodCollector != null) {
+            statisticsPeriodCollector.start();
         }
     }
 
@@ -1546,6 +1556,7 @@ public class Env {
 
         // binlog gcer
         binlogGcer.start();
+        columnIdFlusher.start();
     }
 
     // start threads that should running on all FE
@@ -5574,10 +5585,6 @@ public class Env {
         return loadManagerAdapter;
     }
 
-    public StatisticsAutoAnalyzer getStatisticsAutoAnalyzer() {
-        return statisticsAutoAnalyzer;
-    }
-
     public QueryStats getQueryStats() {
         return queryStats;
     }
@@ -5589,5 +5596,9 @@ public class Env {
 
     public void replayAutoIncrementIdUpdateLog(AutoIncrementIdUpdateLog log) throws Exception {
         getInternalCatalog().replayAutoIncrementIdUpdateLog(log);
+    }
+
+    public ColumnIdFlushDaemon getColumnIdFlusher() {
+        return columnIdFlusher;
     }
 }

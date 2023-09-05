@@ -81,6 +81,8 @@ public:
 
     virtual TPushAggOp::type get_push_down_agg_type() = 0;
 
+    [[nodiscard]] std::string get_name() { return _parent->get_name(); }
+
 protected:
     friend class vectorized::ScannerContext;
     friend class vectorized::VScanner;

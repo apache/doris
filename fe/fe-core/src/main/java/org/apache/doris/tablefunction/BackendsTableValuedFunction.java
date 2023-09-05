@@ -51,6 +51,7 @@ public class BackendsTableValuedFunction extends MetadataTableValuedFunction {
             new Column("SystemDecommissioned", ScalarType.createType(PrimitiveType.BOOLEAN)),
             new Column("TabletNum", ScalarType.createType(PrimitiveType.BIGINT)),
             new Column("DataUsedCapacity", ScalarType.createType(PrimitiveType.BIGINT)),
+            new Column("TrashUsedCapacity", ScalarType.createType(PrimitiveType.BIGINT)),
             new Column("AvailCapacity", ScalarType.createType(PrimitiveType.BIGINT)),
             new Column("TotalCapacity", ScalarType.createType(PrimitiveType.BIGINT)),
             new Column("UsedPct", ScalarType.createType(PrimitiveType.DOUBLE)),

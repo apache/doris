@@ -36,7 +36,7 @@ suite("test_external_catalog_es", "p2,external,es,external_remote,external_remot
                     "elasticsearch.hosts"="http://${extEsHost}:${extEsPort}",
                     "elasticsearch.nodes_discovery"="false",
                     "elasticsearch.username"="${extEsUser}",
-                    "elasticsearch.username"="${extEsPassword}"
+                    "elasticsearch.password"="${extEsPassword}"
             );
             """
 
@@ -50,10 +50,6 @@ suite("test_external_catalog_es", "p2,external,es,external_remote,external_remot
         def res1=sql "select * from ${jdbcPg14Table1} limit 10;"
         logger.info("recoding all: " + res1.toString())
 
-        sql """drop table if exists ${jdbcPg14Table1};"""
-        sql """drop database if exists ${jdbcPg14Database1};"""
-
         sql """switch internal;"""
-
     }
 }

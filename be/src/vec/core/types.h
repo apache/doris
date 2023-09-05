@@ -502,8 +502,6 @@ struct Decimal {
 };
 
 struct Decimal128I : public Decimal<Int128> {
-    using NativeType = Int128;
-
     Decimal128I() = default;
 
 #define DECLARE_NUMERIC_CTOR(TYPE) \

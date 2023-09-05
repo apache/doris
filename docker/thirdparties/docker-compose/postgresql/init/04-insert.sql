@@ -2704,3 +2704,17 @@ INSERT INTO catalog_pg_test.jsonb_test (type,value) VALUES
 'jsonb2',
 NULL
 );
+
+insert into catalog_pg_test.person_r(age, city) VALUES (1, 'GZ');
+insert into catalog_pg_test.person_r(age, city) VALUES (2, 'SZ');
+insert into catalog_pg_test.person_r(age, city) VALUES (21, 'SZ');
+insert into catalog_pg_test.person_r(age, city) VALUES (13, 'BJ');
+insert into catalog_pg_test.person_r(age, city) VALUES (43, 'SH');
+insert into catalog_pg_test.person_r(age, city) VALUES (28, 'HK');
+
+insert into catalog_pg_test.tb_test_alarm
+values('1','A','2020-09-02 00:00:00')
+     ,('2','A','2020-10-02 00:00:00')
+     ,('3','A','2020-11-02 00:00:00')
+     ,('4','A','2020-12-02 00:00:00')
+;

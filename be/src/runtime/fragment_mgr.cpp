@@ -617,7 +617,13 @@ Status FragmentMgr::exec_plan_fragment(const TExecPlanFragmentParams& params,
                                    params.query_options.enable_pipeline_engine;
     RETURN_IF_ERROR(
             _get_query_ctx(params, params.params.query_id, pipeline_engine_enabled, query_ctx));
-    query_ctx->fragment_ids.push_back(fragment_instance_id);
+    {
+        // Need lock here, because it will modify fragment ids and std::vector may resize and reallocate
+        // memory, but query_is_canncelled will traverse the vector, it will core.
+        // query_is_cancelled is called in allocator, we has to avoid dead lock.
+        std::lock_guard<std::mutex> lock(_lock);
+        query_ctx->fragment_ids.push_back(fragment_instance_id);
+    }
 
     auto fragment_executor = std::make_shared<PlanFragmentExecutor>(
             _exec_env, query_ctx, params.params.fragment_instance_id, -1, params.backend_num,
@@ -688,6 +694,7 @@ Status FragmentMgr::exec_plan_fragment(const TPipelineFragmentParams& params,
     const bool enable_pipeline_x = params.query_options.__isset.enable_pipeline_x_engine &&
                                    params.query_options.enable_pipeline_x_engine;
     if (enable_pipeline_x) {
+        _setup_shared_hashtable_for_broadcast_join(params, query_ctx.get());
         int64_t duration_ns = 0;
         std::shared_ptr<pipeline::PipelineFragmentContext> context =
                 std::make_shared<pipeline::PipelineXFragmentContext>(
@@ -727,8 +734,6 @@ Status FragmentMgr::exec_plan_fragment(const TPipelineFragmentParams& params,
                 !params.need_wait_execution_trigger) {
                 query_ctx->set_ready_to_execute_only();
             }
-            _setup_shared_hashtable_for_broadcast_join(params, params.local_params[i],
-                                                       query_ctx.get());
         }
         {
             std::lock_guard<std::mutex> lock(_lock);
@@ -849,7 +854,7 @@ void FragmentMgr::_set_scan_concurrency(const Param& params, QueryContext* query
 
 void FragmentMgr::cancel_query(const TUniqueId& query_id, const PPlanFragmentCancelReason& reason,
                                const std::string& msg) {
-    std::unique_lock<std::mutex> state_lock;
+    std::unique_lock<std::mutex> state_lock(_lock);
     return cancel_query_unlocked(query_id, reason, state_lock, msg);
 }
 
@@ -1317,8 +1322,7 @@ void FragmentMgr::_setup_shared_hashtable_for_broadcast_join(const TExecPlanFrag
 
         if (params.build_hash_table_for_broadcast_join) {
             query_ctx->get_shared_hash_table_controller()->set_builder_and_consumers(
-                    params.params.fragment_instance_id, params.instances_sharing_hash_table,
-                    node.node_id);
+                    params.params.fragment_instance_id, node.node_id);
         }
     }
 }
@@ -1344,8 +1348,34 @@ void FragmentMgr::_setup_shared_hashtable_for_broadcast_join(
 
         if (local_params.build_hash_table_for_broadcast_join) {
             query_ctx->get_shared_hash_table_controller()->set_builder_and_consumers(
-                    local_params.fragment_instance_id, params.instances_sharing_hash_table,
-                    node.node_id);
+                    local_params.fragment_instance_id, node.node_id);
+        }
+    }
+}
+
+void FragmentMgr::_setup_shared_hashtable_for_broadcast_join(const TPipelineFragmentParams& params,
+                                                             QueryContext* query_ctx) {
+    if (!params.query_options.__isset.enable_share_hash_table_for_broadcast_join ||
+        !params.query_options.enable_share_hash_table_for_broadcast_join) {
+        return;
+    }
+
+    if (!params.__isset.fragment || !params.fragment.__isset.plan ||
+        params.fragment.plan.nodes.empty()) {
+        return;
+    }
+    for (auto& node : params.fragment.plan.nodes) {
+        if (node.node_type != TPlanNodeType::HASH_JOIN_NODE ||
+            !node.hash_join_node.__isset.is_broadcast_join ||
+            !node.hash_join_node.is_broadcast_join) {
+            continue;
+        }
+
+        for (auto& local_param : params.local_params) {
+            if (local_param.build_hash_table_for_broadcast_join) {
+                query_ctx->get_shared_hash_table_controller()->set_builder_and_consumers(
+                        local_param.fragment_instance_id, node.node_id);
+            }
         }
     }
 }
