@@ -640,10 +640,6 @@ Status StorageEngine::start_trash_sweep(double* usage, bool ignore_guard) {
         return res;
     }
 
-    if (_need_clean_trash.exchange(false, std::memory_order_relaxed)) {
-        ignore_guard = true;
-    }
-
     LOG(INFO) << "start trash and snapshot sweep. is_clean=" << ignore_guard;
 
     const int32_t snapshot_expire = config::snapshot_expire_time_sec;
