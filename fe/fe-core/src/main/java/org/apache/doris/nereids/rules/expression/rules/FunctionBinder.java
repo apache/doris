@@ -115,6 +115,12 @@ public class FunctionBinder extends AbstractExpressionRewriteRule {
         }
     }
 
+    @Override
+    public Expression visitBoundFunction(BoundFunction boundFunction, ExpressionRewriteContext context) {
+        boundFunction = (BoundFunction) super.visitBoundFunction(boundFunction, context);
+        return TypeCoercionUtils.processBoundFunction(boundFunction);
+    }
+
     /**
      * gets the method for calculating the time.
      * e.g. YEARS_ADD、YEARS_SUB、DAYS_ADD 、DAYS_SUB
