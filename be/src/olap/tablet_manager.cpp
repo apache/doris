@@ -554,8 +554,8 @@ Status TabletManager::_drop_tablet_unlocked(TTabletId tablet_id, TReplicaId repl
         static auto recycle_segment_cache = [](const auto& rowset_map) {
             for (auto& [_, rowset] : rowset_map) {
                 // If the tablet was deleted, it need to remove all rowsets fds directly
-                SegmentLoader::instance()->erase_segments(
-                        SegmentCache::CacheKey(rowset->rowset_id()));
+                SegmentLoader::instance()->erase_segments(rowset->rowset_id(),
+                                                          rowset->num_segments());
             }
         };
         recycle_segment_cache(to_drop_tablet->rowset_map());

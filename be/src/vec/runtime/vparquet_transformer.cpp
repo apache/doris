@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "vec/runtime/vparquet_writer.h"
+#include "vec/runtime/vparquet_transformer.h"
 
 #include <arrow/io/type_fwd.h>
 #include <glog/logging.h>
@@ -278,14 +278,14 @@ void ParquetBuildHelper::build_version(parquet::WriterProperties::Builder& build
     }
 }
 
-VParquetWriterWrapper::VParquetWriterWrapper(doris::io::FileWriter* file_writer,
-                                             const VExprContextSPtrs& output_vexpr_ctxs,
-                                             const std::vector<TParquetSchema>& parquet_schemas,
-                                             const TParquetCompressionType::type& compression_type,
-                                             const bool& parquet_disable_dictionary,
-                                             const TParquetVersion::type& parquet_version,
-                                             bool output_object_data)
-        : VFileWriterWrapper(output_vexpr_ctxs, output_object_data),
+VParquetTransformer::VParquetTransformer(doris::io::FileWriter* file_writer,
+                                         const VExprContextSPtrs& output_vexpr_ctxs,
+                                         const std::vector<TParquetSchema>& parquet_schemas,
+                                         const TParquetCompressionType::type& compression_type,
+                                         const bool& parquet_disable_dictionary,
+                                         const TParquetVersion::type& parquet_version,
+                                         bool output_object_data)
+        : VFileFormatTransformer(output_vexpr_ctxs, output_object_data),
           _rg_writer(nullptr),
           _parquet_schemas(parquet_schemas),
           _compression_type(compression_type),
@@ -294,7 +294,7 @@ VParquetWriterWrapper::VParquetWriterWrapper(doris::io::FileWriter* file_writer,
     _outstream = std::shared_ptr<ParquetOutputStream>(new ParquetOutputStream(file_writer));
 }
 
-Status VParquetWriterWrapper::parse_properties() {
+Status VParquetTransformer::parse_properties() {
     try {
         parquet::WriterProperties::Builder builder;
         ParquetBuildHelper::build_compression_type(builder, _compression_type);
@@ -311,7 +311,7 @@ Status VParquetWriterWrapper::parse_properties() {
     return Status::OK();
 }
 
-Status VParquetWriterWrapper::parse_schema() {
+Status VParquetTransformer::parse_schema() {
     parquet::schema::NodeVector fields;
     parquet::Repetition::type parquet_repetition_type;
     parquet::Type::type parquet_physical_type;
@@ -394,7 +394,7 @@ Status VParquetWriterWrapper::parse_schema() {
         RETURN_WRONG_TYPE                                                                        \
     }
 
-Status VParquetWriterWrapper::write(const Block& block) {
+Status VParquetTransformer::write(const Block& block) {
     if (block.rows() == 0) {
         return Status::OK();
     }
@@ -906,7 +906,7 @@ Status VParquetWriterWrapper::write(const Block& block) {
     return Status::OK();
 }
 
-Status VParquetWriterWrapper::prepare() {
+Status VParquetTransformer::open() {
     RETURN_IF_ERROR(parse_properties());
     RETURN_IF_ERROR(parse_schema());
     try {
@@ -921,7 +921,7 @@ Status VParquetWriterWrapper::prepare() {
     return Status::OK();
 }
 
-parquet::RowGroupWriter* VParquetWriterWrapper::get_rg_writer() {
+parquet::RowGroupWriter* VParquetTransformer::get_rg_writer() {
     if (_rg_writer == nullptr) {
         _rg_writer = _writer->AppendBufferedRowGroup();
     }
@@ -933,11 +933,11 @@ parquet::RowGroupWriter* VParquetWriterWrapper::get_rg_writer() {
     return _rg_writer;
 }
 
-int64_t VParquetWriterWrapper::written_len() {
+int64_t VParquetTransformer::written_len() {
     return _outstream->get_written_len();
 }
 
-Status VParquetWriterWrapper::close() {
+Status VParquetTransformer::close() {
     try {
         if (_rg_writer != nullptr) {
             _rg_writer->Close();
