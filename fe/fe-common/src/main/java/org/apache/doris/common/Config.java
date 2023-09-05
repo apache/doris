@@ -2104,6 +2104,9 @@ public class Config extends ConfigBase {
     public static int full_auto_analyze_simultaneously_running_task_num = 1;
 
     @ConfField
+    public static final int period_analyze_simultaneously_running_task_num = 1;
+
+    @ConfField
     public static int cpu_resource_limit_per_analyze_task = 1;
 
     @ConfField(mutable = true, description = {

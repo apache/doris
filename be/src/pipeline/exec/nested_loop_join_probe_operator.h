@@ -103,8 +103,8 @@ private:
         }
         if constexpr (SetProbeSideFlag) {
             int end = filter.size();
-            for (int i = _left_block_pos == _left_block.rows() ? _left_block_pos - 1
-                                                               : _left_block_pos;
+            for (int i = _left_block_pos == _child_block->rows() ? _left_block_pos - 1
+                                                                 : _left_block_pos;
                  i >= _left_block_start_pos; i--) {
                 int offset = 0;
                 if (!_probe_offset_stack.empty()) {
@@ -193,10 +193,6 @@ private:
     // Visited flags for current row in probe side.
     std::vector<int8_t> _cur_probe_row_visited_flags;
     size_t _current_build_pos = 0;
-    // _left_block must be cleared before calling get_next().  The child node
-    // does not initialize all tuple ptrs in the row, only the ones that it
-    // is responsible for.
-    vectorized::Block _left_block;
     vectorized::MutableColumns _dst_columns;
     std::stack<uint16_t> _build_offset_stack;
     std::stack<uint16_t> _probe_offset_stack;
@@ -214,12 +210,10 @@ public:
     Status open(RuntimeState* state) override;
     bool can_read(RuntimeState* state) override;
 
-    Status get_block(RuntimeState* state, vectorized::Block* block,
-                     SourceState& source_state) override;
-
-    Status push(RuntimeState* state, vectorized::Block* input_block, SourceState source_state);
+    Status push(RuntimeState* state, vectorized::Block* input_block,
+                SourceState source_state) const override;
     Status pull(doris::RuntimeState* state, vectorized::Block* output_block,
-                SourceState& source_state);
+                SourceState& source_state) const override;
     const RowDescriptor& intermediate_row_desc() const override {
         return _old_version_flag ? _row_descriptor : *_intermediate_row_desc;
     }
@@ -230,7 +224,7 @@ public:
                        : *_output_row_desc;
     }
 
-    bool need_more_input_data(RuntimeState* state) const;
+    bool need_more_input_data(RuntimeState* state) const override;
 
 private:
     friend class NestedLoopJoinProbeLocalState;
