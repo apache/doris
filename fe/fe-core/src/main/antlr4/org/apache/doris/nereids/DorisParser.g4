@@ -708,6 +708,7 @@ nonReserved
     | ARRAY
     | AT
     | AUTHORS
+    | AVG
     | BACKENDS
     | BACKUP
     | BEGIN
@@ -825,12 +826,6 @@ nonReserved
     | JOBS
     | JSON
     | JSONB
-    | INSERT
-    | INTERVAL
-    | INTO
-    | IS
-    | KEY
-    | KEYS
     | LABEL
     | LAST
     | LDAP
