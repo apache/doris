@@ -1575,9 +1575,6 @@ Status SegmentIterator::_read_columns(const std::vector<ColumnId>& column_ids,
 void SegmentIterator::_init_current_block(
         vectorized::Block* block, std::vector<vectorized::MutableColumnPtr>& current_columns) {
     block->clear_column_data(_schema->num_column_ids());
-    if (_opts._shared_stream_reader) {
-        _opts._shared_stream_reader->column->clear();
-    }
     for (size_t i = 0; i < _schema->num_column_ids(); i++) {
         auto cid = _schema->column_id(i);
         auto column_desc = _schema->column(cid);
