@@ -67,7 +67,7 @@ public:
     Status close() override;
 
     bool source_can_read() override {
-        if (_dry_run) {
+        if (_pipeline->_always_can_read) {
             return true;
         }
         for (auto& op : _operators) {
@@ -82,7 +82,9 @@ public:
         return _source->runtime_filters_are_ready_or_timeout();
     }
 
-    bool sink_can_write() override { return _sink->can_write(_state); }
+    bool sink_can_write() override {
+        return _sink->can_write(_state) || _pipeline->_always_can_write;
+    }
 
     Status finalize() override;
 
@@ -130,6 +132,5 @@ private:
 
     std::shared_ptr<BufferControlBlock> _sender;
     std::shared_ptr<vectorized::VDataStreamRecvr> _recvr;
-    bool _dry_run = false;
 };
 } // namespace doris::pipeline

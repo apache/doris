@@ -122,22 +122,9 @@ public:
 
     Status sink(RuntimeState* state, vectorized::Block* in_block,
                 SourceState source_state) override;
+    Status close(RuntimeState* state) override;
 
-    bool can_write(RuntimeState* state) override {
-        if (state->get_sink_local_state(id())
-                    ->cast<HashJoinBuildSinkLocalState>()
-                    ._should_build_hash_table) {
-            return true;
-        }
-        return _shared_hash_table_context && _shared_hash_table_context->signaled;
-    }
-
-    bool should_dry_run(RuntimeState* state) override {
-        auto tmp = _is_broadcast_join && !state->get_sink_local_state(id())
-                                                  ->cast<HashJoinBuildSinkLocalState>()
-                                                  ._should_build_hash_table;
-        return tmp;
-    }
+    bool can_write(RuntimeState* state) override { return true; }
 
 private:
     friend class HashJoinBuildSinkLocalState;
