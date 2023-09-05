@@ -27,6 +27,7 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Resource;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeConstants;
+import org.apache.doris.datasource.cassandra.CassandraExternalCatalog;
 import org.apache.doris.datasource.deltalake.DeltaLakeExternalCatalog;
 import org.apache.doris.datasource.iceberg.IcebergExternalCatalogFactory;
 import org.apache.doris.datasource.jdbc.JdbcExternalCatalog;
@@ -133,6 +134,9 @@ public class CatalogFactory {
                 break;
             case "deltalake":
                 catalog = new DeltaLakeExternalCatalog(catalogId, name, resource, props, comment);
+                break;
+            case "cassandra":
+                catalog = new CassandraExternalCatalog(catalogId, name, resource, props, comment);
                 break;
             case "test":
                 if (!FeConstants.runningUnitTest) {
