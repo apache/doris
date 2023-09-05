@@ -1149,6 +1149,11 @@ DECLARE_Int32(partition_topn_partition_threshold);
 // as an abnormal fe, this will cause be to cancel this fe's related query.
 DECLARE_Int32(fe_expire_duration_seconds);
 
+// If use stop_be.sh --grace, then BE has to wait all running queries to stop to avoiding running query failure
+// , but if the waiting time exceed the limit, then be will exit directly.
+// During this period, FE will not send any queries to BE and waiting for all running queries to stop.
+DECLARE_Int32(grace_shutdown_wait_seconds);
+
 #ifdef BE_TEST
 // test s3
 DECLARE_String(test_s3_resource);

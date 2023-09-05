@@ -19,7 +19,10 @@ package org.apache.doris.common.util;
 
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.PrimitiveType;
-import org.apache.doris.common.*;
+import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.Config;
+import org.apache.doris.common.FeConstants;
+import org.apache.doris.common.FeNameFormat;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.thrift.TFileCompressType;
@@ -43,7 +46,13 @@ import java.io.PrintWriter;
 import java.io.StringWriter;
 import java.net.URL;
 import java.net.URLConnection;
-import java.util.*;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Objects;
+import java.util.Random;
 import java.util.function.LongUnaryOperator;
 import java.util.function.Predicate;
 
@@ -550,9 +559,9 @@ public class Util {
             return TFileFormatType.FORMAT_JSON;
             // csv/csv_with_name/csv_with_names_and_types treat as csv format
         } else if (lowerFileFormat.equals(FeConstants.csv) || lowerFileFormat.equals(FeConstants.csv_with_names)
-            || lowerFileFormat.equals(FeConstants.csv_with_names_and_types)
-            // TODO: Add TEXTFILE to TFileFormatType to Support hive text file format.
-            || lowerFileFormat.equals(FeConstants.text)) {
+                || lowerFileFormat.equals(FeConstants.csv_with_names_and_types)
+                // TODO: Add TEXTFILE to TFileFormatType to Support hive text file format.
+                || lowerFileFormat.equals(FeConstants.text)) {
             return TFileFormatType.FORMAT_CSV_PLAIN;
         } else {
             return TFileFormatType.FORMAT_UNKNOWN;

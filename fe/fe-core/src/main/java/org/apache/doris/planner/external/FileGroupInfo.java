@@ -24,7 +24,6 @@ import org.apache.doris.catalog.FsBroker;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
-import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.BrokerUtil;
 import org.apache.doris.common.util.Util;
@@ -207,7 +206,9 @@ public class FileGroupInfo {
             // header_type
             TFileFormatType formatType = formatType(context.fileGroup.getFileFormat(), fileStatus.path);
             context.params.setFormatType(formatType);
-            context.params.setCompressType(Util.getOrInferCompressType(context.fileGroup.getCompressType(), fileStatus.path));
+            context.params.setCompressType(
+                    Util.getOrInferCompressType(context.fileGroup.getCompressType(), fileStatus.path)
+            );
             List<String> columnsFromPath = BrokerUtil.parseColumnsFromPath(fileStatus.path,
                     context.fileGroup.getColumnNamesFromPath());
             // Assign scan range locations only for broker load.

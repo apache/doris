@@ -25,7 +25,11 @@ import org.apache.doris.catalog.FunctionSet;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.cluster.ClusterNamespace;
-import org.apache.doris.common.*;
+import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.ErrorCode;
+import org.apache.doris.common.ErrorReport;
+import org.apache.doris.common.FeConstants;
+import org.apache.doris.common.Pair;
 import org.apache.doris.common.util.SqlParserUtils;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.load.loadv2.LoadTask;
@@ -170,20 +174,20 @@ public class DataDescription implements InsertStmt.DataDesc {
     }
 
     public DataDescription(String tableName,
-            PartitionNames partitionNames,
-            List<String> filePaths,
-            List<String> columns,
-            Separator columnSeparator,
-            String fileFormat,
-            List<String> columnsFromPath,
-            boolean isNegative,
-            List<Expr> columnMappingList,
-            Expr fileFilterExpr,
-            Expr whereExpr,
-            LoadTask.MergeType mergeType,
-            Expr deleteCondition,
-            String sequenceColName,
-            Map<String, String> properties) {
+                           PartitionNames partitionNames,
+                           List<String> filePaths,
+                           List<String> columns,
+                           Separator columnSeparator,
+                           String fileFormat,
+                           List<String> columnsFromPath,
+                           boolean isNegative,
+                           List<Expr> columnMappingList,
+                           Expr fileFilterExpr,
+                           Expr whereExpr,
+                           LoadTask.MergeType mergeType,
+                           Expr deleteCondition,
+                           String sequenceColName,
+                           Map<String, String> properties) {
         this(tableName, partitionNames, filePaths, columns, columnSeparator, null,
                 fileFormat, null, columnsFromPath, isNegative, columnMappingList, fileFilterExpr, whereExpr,
                 mergeType, deleteCondition, sequenceColName, properties);
@@ -361,8 +365,8 @@ public class DataDescription implements InsertStmt.DataDesc {
     }
 
     public static void validateMappingFunction(String functionName, List<String> args,
-            Map<String, String> columnNameMap,
-            Column mappingColumn, boolean isHadoopLoad) throws AnalysisException {
+                                               Map<String, String> columnNameMap,
+                                               Column mappingColumn, boolean isHadoopLoad) throws AnalysisException {
         if (functionName.equalsIgnoreCase("alignment_timestamp")) {
             validateAlignmentTimestamp(args, columnNameMap);
         } else if (functionName.equalsIgnoreCase("strftime")) {
@@ -1107,15 +1111,13 @@ public class DataDescription implements InsertStmt.DataDesc {
         // note(tsy): for historical reason, file format here must be string type rather than TFileFormatType
         if (fileFormat != null) {
             if (!fileFormat.equalsIgnoreCase("parquet")
-                && !fileFormat.equalsIgnoreCase(FeConstants.csv)
-                && !fileFormat.equalsIgnoreCase("orc")
-                && !fileFormat.equalsIgnoreCase("json")
-                && !fileFormat.equalsIgnoreCase(FeConstants.csv_with_names)
-                && !fileFormat.equalsIgnoreCase(FeConstants.csv_with_names_and_types)) {
+                    && !fileFormat.equalsIgnoreCase(FeConstants.csv)
+                    && !fileFormat.equalsIgnoreCase("orc")
+                    && !fileFormat.equalsIgnoreCase("json")
+                    && !fileFormat.equalsIgnoreCase(FeConstants.csv_with_names)
+                    && !fileFormat.equalsIgnoreCase(FeConstants.csv_with_names_and_types)) {
                 throw new AnalysisException("File Format Type " + fileFormat + " is invalid.");
             }
-        } else {
-            fileFormat = "unknown";
         }
     }
 
