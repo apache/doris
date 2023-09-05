@@ -351,7 +351,7 @@ Only the case of a single BE is discussed here. If the user cluster has multiple
      
      For example, for a 100G file, the number of BEs in the cluster is 10
      max_broker_concurrency = 10
-     # >= the amount of data processed by a single BE of the current import task
+     # >= 10G = 100G / 10
      max_bytes_per_broker_scanner = 1069547520
      ````
 
