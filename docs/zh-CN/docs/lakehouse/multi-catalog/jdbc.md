@@ -399,8 +399,9 @@ CREATE CATALOG jdbc_doris PROPERTIES (
 | VARCHAR    | VARCHAR                |                                                      |
 | STRING     | STRING                 |                                                      |
 | TEXT       | STRING                 |                                                      |
-| HLL        | HLL                    | 查询HLL需要设置`return_object_data_as_binary=true`   |
+| HLL        | HLL                    | 查询HLL需要设置`return_object_data_as_binary=true`     |
 | Array      | Array                  | Array内部类型适配逻辑参考上述类型，不支持嵌套复杂类型        |
+| BITMAP     | BITMAP                 | 查询BITMAP需要设置`return_object_data_as_binary=true`  |
 | Other      | UNSUPPORTED            |                                                      |
 
 ### Clickhouse
@@ -786,6 +787,8 @@ DROP CATALOG <catalog_name>;
 12. 读取 Oracle 出现 `Non supported character set (add orai18n.jar in your classpath): ZHS16GBK` 异常
     
     下载 [orai18n.jar](https://www.oracle.com/database/technologies/appdev/jdbc-downloads.html) 并放到 Doris FE 的 lib 目录以及 BE 的 lib/java_extensions 目录 (Doris 2.0 之前的版本需放到 BE 的 lib 目录下) 下即可。
+
+    从 2.0.2 版本起，可以将这个文件放置在BE的 `custom_lib/` 目录下（如不存在，手动创建即可），以防止升级集群时因为 lib 目录被替换而导致文件丢失。
 
 13. 通过jdbc catalog 读取Clickhouse数据出现`NoClassDefFoundError: net/jpountz/lz4/LZ4Factory` 错误信息
     

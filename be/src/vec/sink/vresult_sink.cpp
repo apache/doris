@@ -37,7 +37,9 @@
 #include "util/telemetry/telemetry.h"
 #include "vec/exprs/vexpr.h"
 #include "vec/exprs/vexpr_context.h"
+#include "vec/sink/varrow_flight_result_writer.h"
 #include "vec/sink/vmysql_result_writer.h"
+#include "vec/sink/writer/vfile_result_writer.h"
 
 namespace doris {
 class QueryStatistics;
@@ -96,6 +98,12 @@ Status VResultSink::prepare(RuntimeState* state) {
         _writer.reset(new (std::nothrow)
                               VMysqlResultWriter(_sender.get(), _output_vexpr_ctxs, _profile));
         break;
+    case TResultSinkType::ARROW_FLIGHT_PROTOCAL:
+        state->exec_env()->result_mgr()->register_row_descriptor(state->fragment_instance_id(),
+                                                                 _row_desc);
+        _writer.reset(new (std::nothrow) VArrowFlightResultWriter(_sender.get(), _output_vexpr_ctxs,
+                                                                  _profile, _row_desc));
+        break;
     default:
         return Status::InternalError("Unknown result sink type");
     }
@@ -124,6 +132,7 @@ Status VResultSink::second_phase_fetch_data(RuntimeState* state, Block* final_bl
 
 Status VResultSink::send(RuntimeState* state, Block* block, bool eos) {
     if (_fetch_option.use_two_phase_fetch && block->rows() > 0) {
+        DCHECK(_sink_type == TResultSinkType::MYSQL_PROTOCAL);
         RETURN_IF_ERROR(second_phase_fetch_data(state, block));
     }
     RETURN_IF_ERROR(_writer->append_block(*block));
@@ -153,7 +162,9 @@ Status VResultSink::close(RuntimeState* state, Status exec_status) {
 
     // close sender, this is normal path end
     if (_sender) {
-        if (_writer) _sender->update_num_written_rows(_writer->get_written_rows());
+        if (_writer) {
+            _sender->update_num_written_rows(_writer->get_written_rows());
+        }
         _sender->update_max_peak_memory_bytes();
         _sender->close(final_status);
     }

@@ -97,7 +97,19 @@ struct RuntimeFilterParams {
     bool bitmap_filter_not_in;
     bool build_bf_exactly;
 };
+struct FilterFuncBase {
+public:
+    void set_filter_id(int filter_id) {
+        if (_filter_id == -1) {
+            _filter_id = filter_id;
+        }
+    }
 
+    [[nodiscard]] int get_filter_id() const { return _filter_id; }
+
+private:
+    int _filter_id = -1;
+};
 struct UpdateRuntimeFilterParams {
     UpdateRuntimeFilterParams(const PPublishFilterRequest* req,
                               butil::IOBufAsZeroCopyInputStream* data_stream, ObjectPool* obj_pool)

@@ -18,6 +18,7 @@
 package org.apache.doris.scheduler.job;
 
 import org.apache.doris.catalog.Env;
+import org.apache.doris.common.DdlException;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.TimeUtils;
@@ -129,6 +130,14 @@ public class Job implements Writable {
     @SerializedName("errMsg")
     private String errMsg;
 
+    /**
+     * if we want to start the job immediately, we can set this flag to true.
+     * The default value is false.
+     * when we set this flag to true, the start time will be set to current time.
+     * we don't need to serialize this field.
+     */
+    private boolean immediatelyStart = false;
+
     public boolean isRunning() {
         return jobStatus == JobStatus.RUNNING;
     }
@@ -187,21 +196,29 @@ public class Job implements Writable {
         this.jobStatus = JobStatus.STOPPED;
     }
 
-    public boolean checkJobParam() {
+    public void checkJobParam() throws DdlException {
         if (startTimeMs != 0L && startTimeMs < System.currentTimeMillis()) {
-            return false;
+            throw new DdlException("startTimeMs must be greater than current time");
+        }
+        if (immediatelyStart && startTimeMs != 0L) {
+            throw new DdlException("immediately start and startTimeMs can't be set at the same time");
+        }
+        if (immediatelyStart) {
+            startTimeMs = System.currentTimeMillis();
         }
         if (endTimeMs != 0L && endTimeMs < System.currentTimeMillis()) {
-            return false;
+            throw new DdlException("endTimeMs must be greater than current time");
         }
 
         if (isCycleJob && (intervalMs == null || intervalMs <= 0L)) {
-            return false;
+            throw new DdlException("cycle job must set intervalMs");
         }
         if (null == jobCategory) {
-            return false;
+            throw new DdlException("jobCategory must be set");
         }
-        return null != executor;
+        if (null == executor) {
+            throw new DdlException("Job executor must be set");
+        }
     }
 
 

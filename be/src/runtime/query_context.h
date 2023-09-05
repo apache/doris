@@ -217,6 +217,8 @@ public:
         return _query_options.be_exec_version;
     }
 
+    [[nodiscard]] int64_t get_fe_process_uuid() const { return _query_options.fe_process_uuid; }
+
     RuntimeFilterMgr* runtime_filter_mgr() { return _runtime_filter_mgr.get(); }
 
     TUniqueId query_id() const { return _query_id; }

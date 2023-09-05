@@ -89,9 +89,19 @@ PROPERTIES (["key"="value"][,...])
 
 示例：
 ```sql
-CREATE FUNCTION rpc_add(INT, INT) RETURNS INT PROPERTIES (
-  "SYMBOL"="add_int",
-  "OBJECT_FILE"="127.0.0.1:9090",
+CREATE FUNCTION rpc_add_two(INT,INT) RETURNS INT PROPERTIES (
+  "SYMBOL"="add_int_two",
+  "OBJECT_FILE"="127.0.0.1:9114",
+  "TYPE"="RPC"
+);
+CREATE FUNCTION rpc_add_one(INT) RETURNS INT PROPERTIES (
+  "SYMBOL"="add_int_one",
+  "OBJECT_FILE"="127.0.0.1:9114",
+  "TYPE"="RPC"
+);
+CREATE FUNCTION rpc_add_string(varchar(30)) RETURNS varchar(30) PROPERTIES (
+  "SYMBOL"="add_string",
+  "OBJECT_FILE"="127.0.0.1:9114",
   "TYPE"="RPC"
 );
 ```
@@ -108,3 +118,37 @@ UDF 的使用与普通的函数方式一致，唯一的区别在于，内置函�
 
 ## 示例
 在`samples/doris-demo/` 目录中提供和 cpp/java/python 语言的rpc server 实现示例。具体使用方法见每个目录下的`README.md`
+例如rpc_add_string
+```
+mysql >select rpc_add_string('doris');
++-------------------------+
+| rpc_add_string('doris') |
++-------------------------+
+| doris_rpc_test          |
++-------------------------+
+```
+日志会显示
+
+```
+INFO: fnCall request=function_name: "add_string"
+args {
+  type {
+    id: STRING
+  }
+  has_null: false
+  string_value: "doris"
+}
+INFO: fnCall res=result {
+  type {
+    id: STRING
+  }
+  has_null: false
+  string_value: "doris_rpc_test"
+}
+status {
+  status_code: 0
+}
+```
+
+
+

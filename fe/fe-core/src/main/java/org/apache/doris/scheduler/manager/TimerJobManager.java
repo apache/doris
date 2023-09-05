@@ -53,10 +53,12 @@ public class TimerJobManager implements Closeable, Writable {
 
     private long lastBatchSchedulerTimestamp;
 
+    private static final long BATCH_SCHEDULER_INTERVAL_SECONDS = 600;
+
     /**
-     * batch scheduler interval time
+     * batch scheduler interval ms time
      */
-    private static final long BATCH_SCHEDULER_INTERVAL_MILLI_SECONDS = 10 * 60 * 1000L;
+    private static final long BATCH_SCHEDULER_INTERVAL_MILLI_SECONDS = BATCH_SCHEDULER_INTERVAL_SECONDS * 1000L;
 
     private boolean isClosed = false;
 
@@ -88,9 +90,7 @@ public class TimerJobManager implements Closeable, Writable {
     }
 
     public Long registerJob(Job job) throws DdlException {
-        if (!job.checkJobParam()) {
-            throw new DdlException("Job param is invalid, please check time param");
-        }
+        job.checkJobParam();
         checkIsJobNameUsed(job.getDbName(), job.getJobName(), job.getJobCategory());
         jobMap.putIfAbsent(job.getJobId(), job);
         initAndSchedulerJob(job);
@@ -144,9 +144,9 @@ public class TimerJobManager implements Closeable, Writable {
         Long nextExecuteTimeMs = findFistExecuteTime(currentTimeMs, job.getStartTimeMs(),
                 job.getIntervalMs(), job.isCycleJob());
         job.setNextExecuteTimeMs(nextExecuteTimeMs);
-        if (job.getNextExecuteTimeMs() < BATCH_SCHEDULER_INTERVAL_MILLI_SECONDS + lastBatchSchedulerTimestamp) {
+        if (job.getNextExecuteTimeMs() < lastBatchSchedulerTimestamp) {
             List<Long> executeTimestamp = findTasksBetweenTime(job,
-                    BATCH_SCHEDULER_INTERVAL_MILLI_SECONDS + lastBatchSchedulerTimestamp,
+                    lastBatchSchedulerTimestamp,
                     job.getNextExecuteTimeMs());
             if (!executeTimestamp.isEmpty()) {
                 for (Long timestamp : executeTimestamp) {
@@ -300,11 +300,6 @@ public class TimerJobManager implements Closeable, Writable {
         List<Long> jobExecuteTimes = new ArrayList<>();
         if (!job.isCycleJob() && (nextExecuteTime < endTimeEndWindow)) {
             jobExecuteTimes.add(nextExecuteTime);
-            if (job.isStreamingJob()) {
-                job.setJobStatus(JobStatus.RUNNING);
-            } else {
-                job.setJobStatus(JobStatus.WAITING_FINISH);
-            }
             return jobExecuteTimes;
         }
         while (endTimeEndWindow >= nextExecuteTime) {
@@ -323,18 +318,18 @@ public class TimerJobManager implements Closeable, Writable {
     private void executeJobIdsWithinLastTenMinutesWindow() {
         // if the task executes for more than 10 minutes, it will be delay, so,
         // set lastBatchSchedulerTimestamp to current time
-        if (lastBatchSchedulerTimestamp + BATCH_SCHEDULER_INTERVAL_MILLI_SECONDS < System.currentTimeMillis()) {
+        if (lastBatchSchedulerTimestamp < System.currentTimeMillis()) {
             this.lastBatchSchedulerTimestamp = System.currentTimeMillis();
         }
+        this.lastBatchSchedulerTimestamp += BATCH_SCHEDULER_INTERVAL_MILLI_SECONDS;
         if (jobMap.isEmpty()) {
-            this.lastBatchSchedulerTimestamp += BATCH_SCHEDULER_INTERVAL_MILLI_SECONDS;
             return;
         }
         jobMap.forEach((k, v) -> {
             if (v.isRunning() && (v.getNextExecuteTimeMs()
-                    + v.getIntervalMs() < lastBatchSchedulerTimestamp + BATCH_SCHEDULER_INTERVAL_MILLI_SECONDS)) {
+                    + v.getIntervalMs() < lastBatchSchedulerTimestamp)) {
                 List<Long> executeTimes = findTasksBetweenTime(
-                        v, lastBatchSchedulerTimestamp + BATCH_SCHEDULER_INTERVAL_MILLI_SECONDS,
+                        v, lastBatchSchedulerTimestamp,
                         v.getNextExecuteTimeMs());
                 if (!executeTimes.isEmpty()) {
                     for (Long executeTime : executeTimes) {
@@ -343,7 +338,6 @@ public class TimerJobManager implements Closeable, Writable {
                 }
             }
         });
-        this.lastBatchSchedulerTimestamp += BATCH_SCHEDULER_INTERVAL_MILLI_SECONDS;
     }
 
     /**
@@ -351,10 +345,7 @@ public class TimerJobManager implements Closeable, Writable {
      * Jobs will be re-registered after the task is completed
      */
     private void cycleSystemSchedulerTasks() {
-        dorisTimer.newTimeout(timeout -> {
-            batchSchedulerTasks();
-            cycleSystemSchedulerTasks();
-        }, BATCH_SCHEDULER_INTERVAL_MILLI_SECONDS, TimeUnit.MILLISECONDS);
+        dorisTimer.newTimeout(timeout -> batchSchedulerTasks(), BATCH_SCHEDULER_INTERVAL_SECONDS, TimeUnit.SECONDS);
     }
 
     /**

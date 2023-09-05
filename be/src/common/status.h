@@ -309,7 +309,9 @@ constexpr bool capture_stacktrace(int code) {
         && code != ErrorCode::TOO_MANY_TRANSACTIONS
         && code != ErrorCode::TRANSACTION_ALREADY_COMMITTED
         && code != ErrorCode::KEY_NOT_FOUND
-        && code != ErrorCode::KEY_ALREADY_EXISTS;
+        && code != ErrorCode::KEY_ALREADY_EXISTS
+        && code != ErrorCode::CANCELLED
+        && code != ErrorCode::UNINITIALIZED;
 }
 // clang-format on
 

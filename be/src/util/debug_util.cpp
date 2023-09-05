@@ -17,6 +17,7 @@
 
 #include "util/debug_util.h"
 
+#include <gen_cpp/HeartbeatService_types.h>
 #include <gen_cpp/PlanNodes_types.h>
 #include <stdint.h>
 
@@ -26,6 +27,7 @@
 #include <utility>
 
 #include "common/version_internal.h"
+#include "util/uid_util.h"
 
 namespace doris {
 
@@ -98,6 +100,37 @@ std::string hexdump(const char* buf, int len) {
     for (int i = 0; i < len; ++i) {
         ss << std::setfill('0') << std::setw(2) << ((uint16_t)buf[i] & 0xff);
     }
+    return ss.str();
+}
+
+std::string PrintThriftNetworkAddress(const TNetworkAddress& add) {
+    std::stringstream ss;
+    add.printTo(ss);
+    return ss.str();
+}
+
+std::string PrintFrontendInfos(const std::vector<TFrontendInfo>& fe_infos) {
+    std::stringstream ss;
+    const size_t count = fe_infos.size();
+
+    for (int i = 0; i < count; ++i) {
+        fe_infos[i].printTo(ss);
+        ss << ' ';
+    }
+
+    return ss.str();
+}
+
+std::string PrintFrontendInfo(const TFrontendInfo& fe_info) {
+    std::stringstream ss;
+    fe_info.printTo(ss);
+
+    return ss.str();
+}
+
+std::string PrintInstanceStandardInfo(const TUniqueId& qid, const int fid, const TUniqueId& iid) {
+    std::stringstream ss;
+    ss << print_id(iid) << '|' << fid << '|' << print_id(qid);
     return ss.str();
 }
 

@@ -59,25 +59,29 @@ class SegmentCache : public LRUCachePolicy {
 public:
     // The cache key or segment lru cache
     struct CacheKey {
-        CacheKey(RowsetId rowset_id_) : rowset_id(rowset_id_) {}
+        CacheKey(RowsetId rowset_id_, int64_t segment_id_)
+                : rowset_id(rowset_id_), segment_id(segment_id_) {}
         RowsetId rowset_id;
+        int64_t segment_id;
 
         // Encode to a flat binary which can be used as LRUCache's key
-        [[nodiscard]] std::string encode() const { return rowset_id.to_string(); }
+        [[nodiscard]] std::string encode() const {
+            return rowset_id.to_string() + std::to_string(segment_id);
+        }
     };
 
     // The cache value of segment lru cache.
     // Holding all opened segments of a rowset.
     struct CacheValue : public LRUCacheValueBase {
-        std::vector<segment_v2::SegmentSharedPtr> segments;
+        segment_v2::SegmentSharedPtr segment;
     };
 
     SegmentCache(size_t capacity)
-            : LRUCachePolicy("SegmentCache", capacity, LRUCacheType::NUMBER,
+            : LRUCachePolicy(CachePolicy::CacheType::SEGMENT_CACHE, capacity, LRUCacheType::NUMBER,
                              config::tablet_rowset_stale_sweep_time_sec) {}
 
-    // Lookup the given rowset in the cache.
-    // If the rowset is found, the cache entry will be written into handle.
+    // Lookup the given segment in the cache.
+    // If the segment is found, the cache entry will be written into handle.
     // Return true if entry is found, otherwise return false.
     bool lookup(const SegmentCache::CacheKey& key, SegmentCacheHandle* handle);
 
@@ -111,7 +115,9 @@ public:
     Status load_segments(const BetaRowsetSharedPtr& rowset, SegmentCacheHandle* cache_handle,
                          bool use_cache = false);
 
-    void erase_segments(const SegmentCache::CacheKey& key);
+    void erase_segment(const SegmentCache::CacheKey& key);
+
+    void erase_segments(const RowsetId& rowset_id, int64_t num_segments);
 
 private:
     SegmentLoader();
@@ -128,50 +134,30 @@ private:
 class SegmentCacheHandle {
 public:
     SegmentCacheHandle() = default;
+    ~SegmentCacheHandle() = default;
 
-    ~SegmentCacheHandle() {
-        if (_handle != nullptr) {
-            CHECK(_cache != nullptr);
-            CHECK(_segments.empty()) << _segments.size();
-            CHECK(!_owned);
-            // last_visit_time is set when release.
-            // because it only be needed when pruning.
-            ((SegmentCache::CacheValue*)_cache->value(_handle))->last_visit_time = UnixMillis();
-            _cache->release(_handle);
-        }
+    void push_segment(Cache* cache, Cache::Handle* handle) {
+        segments.push_back(((SegmentCache::CacheValue*)cache->value(handle))->segment);
+        ((SegmentCache::CacheValue*)cache->value(handle))->last_visit_time = UnixMillis();
+        cache->release(handle);
     }
+
+    void push_segment(segment_v2::SegmentSharedPtr segment) {
+        segments.push_back(std::move(segment));
+    }
+
+    std::vector<segment_v2::SegmentSharedPtr>& get_segments() { return segments; }
 
     [[nodiscard]] bool is_inited() const { return _init; }
 
-    void init(std::vector<segment_v2::SegmentSharedPtr> segments) {
+    void set_inited() {
         DCHECK(!_init);
-        _owned = true;
-        _segments = std::move(segments);
         _init = true;
-    }
-
-    void init(Cache* cache, Cache::Handle* handle) {
-        DCHECK(!_init);
-        _owned = false;
-        _cache = cache;
-        _handle = handle;
-        _init = true;
-    }
-
-    std::vector<segment_v2::SegmentSharedPtr>& get_segments() {
-        if (_owned) {
-            return _segments;
-        } else {
-            return ((SegmentCache::CacheValue*)_cache->value(_handle))->segments;
-        }
     }
 
 private:
+    std::vector<segment_v2::SegmentSharedPtr> segments;
     bool _init {false};
-    bool _owned {false};
-    std::vector<segment_v2::SegmentSharedPtr> _segments;
-    Cache* _cache = nullptr;
-    Cache::Handle* _handle = nullptr;
 
     // Don't allow copy and assign
     DISALLOW_COPY_AND_ASSIGN(SegmentCacheHandle);

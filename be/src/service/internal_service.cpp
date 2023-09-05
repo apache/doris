@@ -559,10 +559,11 @@ void PInternalServiceImpl::cancel_plan_fragment(google::protobuf::RpcController*
         if (request->has_cancel_reason()) {
             LOG(INFO) << "cancel fragment, fragment_instance_id=" << print_id(tid)
                       << ", reason: " << PPlanFragmentCancelReason_Name(request->cancel_reason());
-            _exec_env->fragment_mgr()->cancel(tid, request->cancel_reason());
+            _exec_env->fragment_mgr()->cancel_instance(tid, request->cancel_reason());
         } else {
             LOG(INFO) << "cancel fragment, fragment_instance_id=" << print_id(tid);
-            _exec_env->fragment_mgr()->cancel(tid);
+            _exec_env->fragment_mgr()->cancel_instance(tid,
+                                                       PPlanFragmentCancelReason::INTERNAL_ERROR);
         }
         // TODO: the logic seems useless, cancel only return Status::OK. remove it
         st.to_protobuf(result->mutable_status());
@@ -1728,7 +1729,7 @@ void PInternalServiceImpl::get_tablet_rowset_versions(google::protobuf::RpcContr
                                                       google::protobuf::Closure* done) {
     brpc::ClosureGuard closure_guard(done);
     VLOG_DEBUG << "receive get tablet versions request: " << request->DebugString();
-    ExecEnv::GetInstance()->storage_engine()->get_tablet_rowset_versions(request, response);
+    StorageEngine::instance()->get_tablet_rowset_versions(request, response);
 }
 
 void PInternalServiceImpl::glob(google::protobuf::RpcController* controller,

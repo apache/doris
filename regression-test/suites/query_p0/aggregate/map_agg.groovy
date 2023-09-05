@@ -127,7 +127,39 @@ suite("map_agg") {
              (5, 1, "V5_1"),
              (5, 9223372036854775807, "V5_2"),
              (5, 22000000000, "V5_3");
-     """
+    """
+
+    sql "DROP TABLE IF EXISTS `test_map_agg_decimal`;"
+    sql """
+         CREATE TABLE `test_map_agg_decimal` (
+             `id` int(11) NOT NULL,
+             `label_name` string NOT NULL,
+             `value_field` decimal(15,4)
+         ) ENGINE=OLAP
+         DUPLICATE KEY(`id`)
+         COMMENT 'OLAP'
+         DISTRIBUTED BY HASH(`id`) BUCKETS 2
+         PROPERTIES (
+         "replication_allocation" = "tag.location.default: 1",
+         "storage_format" = "V2",
+         "light_schema_change" = "true",
+         "disable_auto_compaction" = "false",
+         "enable_single_replica_compaction" = "false"
+         );
+    """
+
+    sql """
+        insert into `test_map_agg_decimal` values
+          (1, "k1", 1.2345),
+          (1, "k2", 2.4567),
+          (1, "k3", 5.9876),
+          (2, "k1", 2.4567),
+          (2, "k2", 3.33),
+          (2, "k3", 4.55),
+          (3, "k1", 188.998),
+          (3, "k2", 998.996),
+          (3, "k3", 1024.1024)
+    """
 
     qt_sql1 """
         WITH `labels` as (
@@ -155,7 +187,7 @@ suite("map_agg") {
         ORDER BY `id`;
      """
 
-    qt_sql2 """
+    qt_sql3 """
         WITH `labels` as (
             SELECT `id`, map_agg(`label_name`, `value_field`) m FROM test_map_agg_numeric_key GROUP BY `id`
         )
@@ -168,11 +200,25 @@ suite("map_agg") {
         ORDER BY `id`;
     """
 
-    qt_sql3 """
+    qt_sql4 """
         select map_agg(k, v) from (select 'key' as k, array('ab', 'efg', null) v) a;
     """
 
-     sql "DROP TABLE `test_map_agg`"
-     sql "DROP TABLE `test_map_agg_nullable`"
-     sql "DROP TABLE `test_map_agg_numeric_key`"
+    qt_sql5 """
+        WITH `labels` as (
+            SELECT `id`, map_agg(`label_name`, `value_field`) m FROM test_map_agg_decimal GROUP BY `id`
+        )
+        SELECT
+            id,
+            m["k1"] LA,
+            m["k2"] LB,
+            m["k3"] LC
+        FROM `labels`
+        ORDER BY `id`;
+    """
+
+    sql "DROP TABLE IF EXISTS `test_map_agg`"
+    sql "DROP TABLE IF EXISTS `test_map_agg_nullable`"
+    sql "DROP TABLE IF EXISTS `test_map_agg_numeric_key`"
+    sql "DROP TABLE IF EXISTS `test_map_agg_decimal`"
  }

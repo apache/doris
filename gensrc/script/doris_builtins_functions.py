@@ -890,9 +890,11 @@ visible_functions = {
         [['to_monday'], 'DATE', ['DATE'], 'ALWAYS_NULLABLE'],
         [['to_days'], 'INT', ['DATE'], 'ALWAYS_NULLABLE'],
 
-        [['date_trunc'], 'DATETIME', ['DATETIME', 'VARCHAR'], 'ALWAYS_NULLABLE'],
 
+        [['date_floor'], 'DATETIMEV2', ['DATETIMEV2', 'INT'], 'ALWAYS_NULLABLE'],
+        [['date_ceil'], 'DATETIMEV2', ['DATETIMEV2', 'INT'], 'ALWAYS_NULLABLE'],
         [['date_trunc'], 'DATETIMEV2', ['DATETIMEV2', 'VARCHAR'], 'ALWAYS_NULLABLE'],
+        [['date_trunc'], 'DATETIME', ['DATETIME', 'VARCHAR'], 'ALWAYS_NULLABLE'],
 
         [['year'], 'SMALLINT', ['DATETIME'], 'ALWAYS_NULLABLE'],
         [['month'], 'TINYINT', ['DATETIME'], 'ALWAYS_NULLABLE'],
@@ -1794,12 +1796,12 @@ visible_functions = {
 
     #bitmap function
     "Bitmap": [
-        [['to_bitmap'], 'BITMAP', ['VARCHAR'], 'ALWAYS_NOT_NULLABLE'],
-        [['to_bitmap_with_check'], 'BITMAP', ['VARCHAR'], 'ALWAYS_NOT_NULLABLE'],
-        [['to_bitmap'], 'BITMAP', ['STRING'], 'ALWAYS_NOT_NULLABLE'],
-        [['to_bitmap_with_check'], 'BITMAP', ['STRING'], 'ALWAYS_NOT_NULLABLE'],
         [['to_bitmap'], 'BITMAP', ['BIGINT'], 'ALWAYS_NOT_NULLABLE'],
+        [['to_bitmap'], 'BITMAP', ['VARCHAR'], 'ALWAYS_NOT_NULLABLE'],
+        [['to_bitmap'], 'BITMAP', ['STRING'], 'ALWAYS_NOT_NULLABLE'],
         [['to_bitmap_with_check'], 'BITMAP', ['BIGINT'], 'ALWAYS_NOT_NULLABLE'],
+        [['to_bitmap_with_check'], 'BITMAP', ['STRING'], 'ALWAYS_NOT_NULLABLE'],
+        [['to_bitmap_with_check'], 'BITMAP', ['VARCHAR'], 'ALWAYS_NOT_NULLABLE'],
         [['bitmap_hash'], 'BITMAP', ['VARCHAR'], 'ALWAYS_NOT_NULLABLE'],
         [['bitmap_hash64'], 'BITMAP', ['VARCHAR'], 'ALWAYS_NOT_NULLABLE'],
         [['bitmap_hash'], 'BITMAP', ['STRING'], 'ALWAYS_NOT_NULLABLE'],
@@ -1820,6 +1822,9 @@ visible_functions = {
         [['bitmap_to_string'], 'STRING', ['BITMAP'], ''],
         [['bitmap_from_string'], 'BITMAP', ['VARCHAR'], 'ALWAYS_NULLABLE'],
         [['bitmap_from_string'], 'BITMAP', ['STRING'], 'ALWAYS_NULLABLE'],
+        [['bitmap_to_base64'], 'STRING', ['BITMAP'], ''],
+        [['bitmap_from_base64'], 'BITMAP', ['VARCHAR'], 'ALWAYS_NULLABLE'],
+        [['bitmap_from_base64'], 'BITMAP', ['STRING'], 'ALWAYS_NULLABLE'],
         [['bitmap_from_array'], 'BITMAP', ['ARRAY_TINYINT'], 'ALWAYS_NULLABLE'],
         [['bitmap_from_array'], 'BITMAP', ['ARRAY_SMALLINT'], 'ALWAYS_NULLABLE'],
         [['bitmap_from_array'], 'BITMAP', ['ARRAY_INT'], 'ALWAYS_NULLABLE'],
