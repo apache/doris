@@ -30,7 +30,7 @@ import org.apache.doris.nereids.util.PlanChecker;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
-public class ArrayContainsToArrayOverlapTest extends ExpressionRewriteTestHelper {
+class ArrayContainsToArrayOverlapTest extends ExpressionRewriteTestHelper {
 
     @Test
     void testOr() {
@@ -78,5 +78,22 @@ public class ArrayContainsToArrayOverlapTest extends ExpressionRewriteTestHelper
         Assertions.assertTrue(expression.child(0).child(0) instanceof ArraysOverlap);
         Assertions.assertTrue(expression.child(0).child(1) instanceof EqualTo);
         Assertions.assertTrue(expression.child(1) instanceof And);
+    }
+
+    @Test
+    void testAndOverlap() {
+        String sql = "select array_contains([1], 0)  "
+                + "or (array_contains([1], 1) "
+                + "and (array_contains([1], 2) "
+                + "or array_contains([1], 3) "
+                + "or array_contains([1], 4)));";
+        Plan plan = PlanChecker.from(MemoTestUtils.createConnectContext())
+                .analyze(sql)
+                .rewrite()
+                .getPlan();
+        Expression expression = plan.child(0).getExpressions().get(0).child(0);
+        Assertions.assertEquals("(array_contains(array(1), 0) OR "
+                        + "(array_contains(array(1), 1) AND arrays_overlap(array(1), array(2, 3, 4))))",
+                expression.toSql());
     }
 }

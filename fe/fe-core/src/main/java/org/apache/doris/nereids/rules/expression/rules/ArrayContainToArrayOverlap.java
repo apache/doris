@@ -59,10 +59,12 @@ public class ArrayContainToArrayOverlap extends DefaultExpressionRewriter<Expres
     @Override
     public Expression visitOr(Or or, ExpressionRewriteContext ctx) {
         List<Expression> disjuncts = ExpressionUtils.extractDisjunction(or);
-        List<Expression> contains = disjuncts.stream()
-                .filter(this::isValidArrayContains)
-                .collect(Collectors.toList());
+        Map<Boolean, List<Expression>> containFuncAndOtherFunc = disjuncts.stream()
+                .collect(Collectors.partitioningBy(this::isValidArrayContains));
         Map<Expression, Set<Literal>> containLiteralSet = new HashMap<>();
+        List<Expression> contains = containFuncAndOtherFunc.get(true);
+        List<Expression> others = containFuncAndOtherFunc.get(false);
+
         contains.forEach(containFunc ->
                 containLiteralSet.computeIfAbsent(containFunc.child(0), k -> new HashSet<>())
                             .add((Literal) containFunc.child(1)));
@@ -76,8 +78,11 @@ public class ArrayContainToArrayOverlap extends DefaultExpressionRewriter<Expres
             }
         });
 
-        disjuncts.stream()
+        contains.stream()
                 .filter(e -> !canCovertToArrayOverlap(e, containLiteralSet))
+                .forEach(newDisjunctsBuilder::add);
+        others.stream()
+                .map(e -> e.accept(this, null))
                 .forEach(newDisjunctsBuilder::add);
         return ExpressionUtils.or(newDisjunctsBuilder.build());
     }
