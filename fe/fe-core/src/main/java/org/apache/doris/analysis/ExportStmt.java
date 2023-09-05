@@ -41,6 +41,7 @@ import org.apache.doris.qe.VariableMgr;
 import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Splitter;
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Maps;
 import lombok.Getter;
@@ -84,7 +85,6 @@ public class ExportStmt extends StatementBase {
     private TableName tblName;
     private List<String> partitionStringNames;
     private Expr whereExpr;
-    private String whereSql;
     private String path;
     private BrokerDesc brokerDesc;
     private Map<String, String> properties = Maps.newHashMap();
@@ -151,6 +151,8 @@ public class ExportStmt extends StatementBase {
                 throw new AnalysisException("Do not support exporting temporary partitions");
             }
             partitionStringNames = optionalPartitionNames.get().getPartitionNames();
+        } else {
+            partitionStringNames = ImmutableList.of();
         }
 
         // check auth
@@ -208,7 +210,7 @@ public class ExportStmt extends StatementBase {
 
         // set where expr
         exportJob.setWhereExpr(this.whereExpr);
-        exportJob.setWhereSql(this.whereSql);
+        exportJob.setWhereSql("");
 
         // set path
         exportJob.setExportPath(this.path);
@@ -242,7 +244,7 @@ public class ExportStmt extends StatementBase {
 
     // check partitions specified by user are belonged to the table.
     private void checkPartitions(Env env) throws AnalysisException {
-        if (partitionStringNames == null) {
+        if (partitionStringNames.isEmpty()) {
             return;
         }
 
