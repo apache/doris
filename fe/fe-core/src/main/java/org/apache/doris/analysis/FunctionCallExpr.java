@@ -560,7 +560,14 @@ public class FunctionCallExpr extends Expr {
                 }
             }
             sb.append(" using ");
-            sb.append(children.get(0).toSql().replace("'", "")).append(")");
+            String encodeType = children.get(0).toSql();
+            if (encodeType.charAt(0) == '\'') {
+                encodeType = encodeType.substring(1, encodeType.length());
+            }
+            if (encodeType.charAt(encodeType.length() - 1) == '\'') {
+                encodeType = encodeType.substring(0, encodeType.length() - 1);
+            }
+            sb.append(encodeType).append(")");
             return sb.toString();
         }
 
