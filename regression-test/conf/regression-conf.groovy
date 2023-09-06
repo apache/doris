@@ -73,8 +73,8 @@ brokerName = "broker_name"
 
 // broker load test config
 enableBrokerLoad=true
-ak="AKIDAE2aqpY0B7oFPIvHMBj01lFSO3RYOxFH"
-sk="nJYWDepkQqzrWv3uWsxlJ0ScV7SXLs88"
+ak=""
+sk=""
 
 // jdbc connector test config
 // To enable jdbc test, you need first start mysql/pg container.
