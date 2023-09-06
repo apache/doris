@@ -89,6 +89,7 @@ import org.apache.doris.nereids.rules.rewrite.PushdownFilterThroughSort;
 import org.apache.doris.nereids.rules.rewrite.PushdownFilterThroughWindow;
 import org.apache.doris.nereids.rules.rewrite.PushdownJoinOtherCondition;
 import org.apache.doris.nereids.rules.rewrite.PushdownProjectThroughLimit;
+import org.apache.doris.nereids.rules.rewrite.TransformOuterJoinToAntiJoin;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableList.Builder;
@@ -131,6 +132,7 @@ public class RuleSet {
             new PushdownFilterThroughWindow(),
             new PushdownProjectThroughLimit(),
             new EliminateOuterJoin(),
+            new TransformOuterJoinToAntiJoin(),
             new MergeProjects(),
             new MergeFilters(),
             new MergeGenerates(),
