@@ -95,6 +95,8 @@ message PTabletWriterOpenRequest {
     optional int64 backend_id = 13 [default = -1];
     optional bool enable_profile = 14 [default = false];
     optional bool is_incremental = 15 [default = false];
+    optional int64 txn_expiration = 16; // Absolute time
+    optional bool write_file_cache = 17;
 };
 
 message PTabletWriterOpenResult {

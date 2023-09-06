@@ -169,6 +169,7 @@ Status RowsetBuilder::init() {
     context.tablet = _tablet;
     context.write_type = DataWriteType::TYPE_DIRECT;
     context.mow_context = mow_context;
+    context.write_file_cache = _req.write_file_cache;
     std::unique_ptr<RowsetWriter> rowset_writer;
     RETURN_IF_ERROR(_tablet->create_rowset_writer(context, &rowset_writer));
     _rowset_writer = std::move(rowset_writer);

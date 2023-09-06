@@ -42,6 +42,19 @@ class EncodingInfo;
 class PageHandle;
 
 struct PageReadOptions {
+    // whether to verify page checksum
+    bool verify_checksum = true;
+    // whether to use page cache in read path
+    bool use_page_cache = false;
+    // if true, use DURABLE CachePriority in page cache
+    // currently used for in memory olap table
+    bool kept_in_memory = false;
+    // index_page should not be pre-decoded
+    bool pre_decode = true;
+    // for page cache allocation
+    // page types are divided into DATA_PAGE & INDEX_PAGE
+    // INDEX_PAGE including index_page, dict_page and short_key_page
+    PageTypePB type;
     // block to read page
     io::FileReader* file_reader = nullptr;
     // location of the page
@@ -50,24 +63,10 @@ struct PageReadOptions {
     BlockCompressionCodec* codec = nullptr;
     // used to collect IO metrics
     OlapReaderStatistics* stats = nullptr;
-    // whether to verify page checksum
-    bool verify_checksum = true;
-    // whether to use page cache in read path
-    bool use_page_cache = false;
-    // if true, use DURABLE CachePriority in page cache
-    // currently used for in memory olap table
-    bool kept_in_memory = false;
-    // for page cache allocation
-    // page types are divided into DATA_PAGE & INDEX_PAGE
-    // INDEX_PAGE including index_page, dict_page and short_key_page
-    PageTypePB type;
 
     const EncodingInfo* encoding_info = nullptr;
 
-    // index_page should not be pre-decoded
-    bool pre_decode = true;
-
-    io::IOContext io_ctx;
+    const io::IOContext& io_ctx;
 
     void sanity_check() const {
         CHECK_NOTNULL(file_reader);
