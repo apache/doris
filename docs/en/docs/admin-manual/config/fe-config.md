@@ -2752,3 +2752,10 @@ Default: 4
 
 This variable indicates the number of digits by which to increase the scale of the result of
 division operations performed with the `/` operator.
+
+#### `enable_convert_light_weight_schema_change`
+
+Default：true
+
+Temporary configuration option. After it is enabled, a background thread will be started to automatically modify all olap tables to light schema change. The modification results can be viewed through the command `show convert_light_schema_change [from db]`, and the conversion results of all non-light schema change tables will be displayed.
+
