@@ -273,12 +273,10 @@ TEST(function_bitmap_test, function_bitmap_from_base64) {
     }
 
     {
-        std::string base64("AjowAAABAAAAAAADABAAAAAAAAEAAgADAA==");
+        std::string base64("CgIAAAAAAAAAAAAAAAEAAAAAAAAA");
         BitmapValue bitmap;
         bitmap.add(0);
         bitmap.add(1);
-        bitmap.add(2);
-        bitmap.add(3);
         DataSet data_set = {{{base64}, bitmap}};
         check_function<DataTypeBitMap, true>(func_name, input_types, data_set);
     }

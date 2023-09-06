@@ -1173,10 +1173,6 @@ inline Roaring64MapSetBitForwardIterator Roaring64Map::end() const {
 class BitmapValueIterator;
 class BitmapValue {
 public:
-    enum BitmapSerializeVersion {
-        VERSION0 = 0,
-        VERSION1,
-    };
     template <typename T>
     using SetContainer = phmap::flat_hash_set<T>;
 
@@ -2288,6 +2284,7 @@ public:
 
             if (!config::enable_set_in_bitmap_value || size > SET_TYPE_THRESHOLD) {
                 _type = BITMAP;
+                _prepare_bitmap_for_write();
 
                 for (int i = 0; i < size; ++i) {
                     uint64_t key {};
