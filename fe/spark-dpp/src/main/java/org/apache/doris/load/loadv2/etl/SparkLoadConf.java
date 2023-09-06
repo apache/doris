@@ -28,7 +28,6 @@ import com.google.common.collect.Sets;
 import com.google.common.io.CharStreams;
 import org.apache.hadoop.fs.FileSystem;
 import org.apache.hadoop.fs.Path;
-import org.apache.spark.sql.SparkSession;
 import org.apache.spark.sql.functions;
 import org.apache.spark.util.SerializableConfiguration;
 import org.slf4j.Logger;
@@ -56,21 +55,18 @@ public class SparkLoadConf implements Serializable {
     private final Map<Long, Set<String>> tableToBitmapDictColumns = Maps.newHashMap();
     private final Map<Long, Set<String>> tableToBinaryBitmapColumns = Maps.newHashMap();
 
-    private final SparkSession spark;
-
     SparkLoadCommand command;
     SerializableConfiguration hadoopConf;
 
-    private SparkLoadConf(SparkLoadCommand command, SparkLoadSparkEnv sparkEnv) {
+    private SparkLoadConf(SparkLoadCommand command, SerializableConfiguration hadoopConf) {
         this.command = command;
-        this.hadoopConf = sparkEnv.getSerializableConfigurationHadoopConf();
-        this.spark = sparkEnv.getSpark();
+        this.hadoopConf = hadoopConf;
     }
 
-    public static SparkLoadConf build(SparkLoadCommand command, SparkLoadSparkEnv sparkEnv)
+    public static SparkLoadConf build(SparkLoadCommand command, SerializableConfiguration hadoopConf)
             throws IOException, SparkDppException {
 
-        SparkLoadConf sparkLoadConf = new SparkLoadConf(command, sparkEnv);
+        SparkLoadConf sparkLoadConf = new SparkLoadConf(command, hadoopConf);
 
         sparkLoadConf.getEtlJobConfigFromFile();
         sparkLoadConf.checkConfig();

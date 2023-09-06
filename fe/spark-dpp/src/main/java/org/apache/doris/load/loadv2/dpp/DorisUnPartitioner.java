@@ -15,15 +15,15 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.load.loadv2.etl;
+package org.apache.doris.load.loadv2.dpp;
 
-/**
- * SparkEtlJob is responsible for global dict building, data partition, data sort and data aggregation.
- * 1. init job config
- * 2. check if job has bitmap_dict function columns
- * 3. build global dict if step 2 is true
- * 4. dpp (data partition, data sort and data aggregation)
- */
-public class SparkLoadJob {
+public class DorisUnPartitioner extends DorisPartitioner {
 
+    public int numPartitions() {
+        return 1;
+    }
+
+    public int getPartition(Object var1) {
+        return 0;
+    }
 }

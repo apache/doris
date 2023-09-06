@@ -18,7 +18,6 @@
 package org.apache.doris.load.loadv2.dpp;
 
 import org.apache.doris.common.SparkDppException;
-import org.apache.doris.load.loadv2.dpp.DorisRangePartitioner.PartitionRangeKey;
 import org.apache.doris.load.loadv2.dpp.filegroup.SparkLoadFileGroup;
 import org.apache.doris.load.loadv2.dpp.filegroup.SparkLoadFileGroupFactory;
 import org.apache.doris.load.loadv2.etl.SparkLoadConf;
@@ -65,7 +64,6 @@ import scala.Tuple2;
 
 import java.io.IOException;
 import java.math.BigDecimal;
-import java.math.BigInteger;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -76,6 +74,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Queue;
 import java.util.Set;
+
 // This class is a Spark-based data preprocessing program,
 // which will make use of the distributed compute framework of spark to
 // do ETL job/sort/preaggregate jobs in spark job
@@ -91,17 +90,15 @@ import java.util.Set;
 public final class SparkLoadJobV2 implements java.io.Serializable {
     private static final Logger LOG = LoggerFactory.getLogger(SparkLoadJobV2.class);
 
-    private static final String NULL_FLAG = "\\N";
     private static final String DPP_RESULT_FILE = "dpp_result.json";
-    private static final String BITMAP_TYPE = "bitmap";
 
     private SparkSession spark = null;
     private SparkLoadSparkEnv loadSparkEnv;
     private EtlJobConfig etlJobConfig = null;
 
-    private Map<String, Integer> bucketKeyMap = new HashMap<>();
+    private final Map<String, Integer> bucketKeyMap = new HashMap<>();
 
-    private DppResult dppResult = new DppResult();
+    private final DppResult dppResult = new DppResult();
     Map<Long, Set<String>> tableToBitmapDictColumns;
     Map<Long, Set<String>> tableToBinaryBitmapColumns;
 
@@ -176,7 +173,8 @@ public final class SparkLoadJobV2 implements java.io.Serializable {
         StructType dstSchema = DppUtils.convertDorisColumnsToSparkColumns(indexMeta.columns, false, true);
         ExpressionEncoder<Row> encoder = RowEncoder.apply(dstSchema);
 
-        resultRDD.repartitionAndSortWithinPartitions(new BucketPartitioner(bucketKeyMap), new BucketComparator())
+        DorisPartitioner partitioner = DorisPartitionFactory.create(bucketKeyMap);
+        resultRDD.repartitionAndSortWithinPartitions(partitioner, partitioner)
                 .foreachPartition((VoidFunction<Iterator<Tuple2<List<Object>, Object[]>>>) t -> {
                     // write the data to dst file
                     Configuration conf = new Configuration(loadSparkEnv.getHadoopConf());
@@ -246,11 +244,7 @@ public final class SparkLoadJobV2 implements java.io.Serializable {
                             }
                             lastBucketKey = curBucketKey;
                         }
-                        // TODO wuwenchi xxxx toRow 不兼容，3.2 版本没这个方法了
-                        // https://blog.csdn.net/yyoc97/article/details/109273555
-                        // 这里只是为了一个分区写一个文件。
-                        // 那么可以先把分区的rdd转换成组装好的columnObjects
-                        // 然后然后通过RDD转成dataframe，collect后写入parquet
+
                         InternalRow internalRow = encoder.toRow(rowWithoutBucketKey);
                         parquetWriter.write(internalRow);
                     }
@@ -413,13 +407,14 @@ public final class SparkLoadJobV2 implements java.io.Serializable {
      * 2 validate data
      * 3 fill tuple with partition column
      */
-    private JavaPairRDD<List<Object>, Object[]> fillTupleWithPartitionColumn(Dataset<Row> dataframe,
-            EtlJobConfig.EtlPartitionInfo partitionInfo, List<Integer> partitionKeyIndex,
-            List<PartitionRangeKey> partitionRangeKeys,
+    private JavaPairRDD<List<Object>, Object[]> fillTupleWithPartitionColumn(
+            Dataset<Row> dataframe,
+            EtlJobConfig.EtlPartitionInfo partitionInfo,
+            Partitioner partitioner,
             List<String> keyAndPartitionColumnNames, List<String> valueColumnNames, StructType dstTableSchema,
             EtlJobConfig.EtlIndex baseIndex, List<Long> validPartitionIds) throws SparkDppException {
-        List<String> distributeColumns = partitionInfo.distributionColumnRefs;
-        Partitioner partitioner = new DorisRangePartitioner(partitionInfo, partitionKeyIndex, partitionRangeKeys);
+
+        // generate valid partition index
         Set<Integer> validPartitionIndex = new HashSet<>();
         if (validPartitionIds == null) {
             for (int i = 0; i < partitionInfo.partitions.size(); ++i) {
@@ -438,7 +433,7 @@ public final class SparkLoadJobV2 implements java.io.Serializable {
             parsers.put(column.columnName, ColumnParser.create(column));
         }
 
-        // use PairFlatMapFunction instead of PairMapFunction because the there will be
+        // use PairFlatMapFunction instead of PairMapFunction because there will be
         // 0 or 1 output row for 1 input row
         JavaPairRDD<List<Object>, Object[]> resultPairRDD = dataframe.toJavaRDD().flatMapToPair(
                 (PairFlatMapFunction<Row, List<Object>, Object[]>) row -> {
@@ -475,12 +470,13 @@ public final class SparkLoadJobV2 implements java.io.Serializable {
                     DppColumns key = new DppColumns(keyAndPartitionColumns);
                     int pid = partitioner.getPartition(key);
                     if (!validPartitionIndex.contains(pid)) {
-                        LOG.warn("invalid partition for row:" + row + ", pid:" + pid);
+                        LOG.error("invalid partition for row:" + row + ", pid:" + pid);
                         loadSparkEnv.addAbnormalRowAcc();
                         loadSparkEnv.addInvalidRows(row.toString());
                     } else {
                         // TODO(wb) support lagreint for hash
-                        long hashValue = DppUtils.getHashValue(row, distributeColumns, dstTableSchema);
+                        long hashValue = DppUtils.getHashValue(
+                                row, partitionInfo.distributionColumnRefs, dstTableSchema);
                         int bucketId = (int) ((hashValue & 0xffffffff) % partitionInfo.partitions.get(pid).bucketNum);
                         long partitionId = partitionInfo.partitions.get(pid).partitionId;
                         // bucketKey is partitionId_bucketId
@@ -509,112 +505,18 @@ public final class SparkLoadJobV2 implements java.io.Serializable {
         return resultPairRDD;
     }
 
-    // partition keys will be parsed into double from json
-    // so need to convert it to partition columns' type
-    private Object convertPartitionKey(Object srcValue, Class dstClass) throws SparkDppException {
-        if (dstClass.equals(Float.class) || dstClass.equals(Double.class)) {
-            return null;
-        }
-        if (srcValue instanceof Double) {
-            if (dstClass.equals(Short.class)) {
-                return ((Double) srcValue).shortValue();
-            } else if (dstClass.equals(Integer.class)) {
-                return ((Double) srcValue).intValue();
-            } else if (dstClass.equals(Long.class)) {
-                return ((Double) srcValue).longValue();
-            } else if (dstClass.equals(BigInteger.class)) {
-                // TODO(wb) gson will cast origin value to double by default
-                // when the partition column is largeint, this will cause error data
-                // need fix it thoroughly
-                return new BigInteger(srcValue.toString());
-            } else if (dstClass.equals(java.sql.Date.class) || dstClass.equals(java.util.Date.class)) {
-                double srcValueDouble = (double) srcValue;
-                return convertToJavaDate((int) srcValueDouble);
-            } else if (dstClass.equals(java.sql.Timestamp.class)) {
-                double srcValueDouble = (double) srcValue;
-                return convertToJavaDatetime((long) srcValueDouble);
-            } else {
-                // dst type is string
-                return srcValue.toString();
-            }
-        } else {
-            LOG.error("unsupported partition key:" + srcValue);
-            throw new SparkDppException("unsupported partition key:" + srcValue);
-        }
-    }
-
-    private java.sql.Timestamp convertToJavaDatetime(long src) {
-        String dateTimeStr = Long.valueOf(src).toString();
-        if (dateTimeStr.length() != 14) {
-            throw new RuntimeException("invalid input date format for SparkDpp");
-        }
-
-        String year = dateTimeStr.substring(0, 4);
-        String month = dateTimeStr.substring(4, 6);
-        String day = dateTimeStr.substring(6, 8);
-        String hour = dateTimeStr.substring(8, 10);
-        String min = dateTimeStr.substring(10, 12);
-        String sec = dateTimeStr.substring(12, 14);
-
-        return java.sql.Timestamp.valueOf(String.format("%s-%s-%s %s:%s:%s", year, month, day, hour, min, sec));
-    }
-
-    private java.sql.Date convertToJavaDate(int originDate) {
-        int day = originDate & 0x1f;
-        originDate >>= 5;
-        int month = originDate & 0x0f;
-        originDate >>= 4;
-        int year = originDate;
-        return java.sql.Date.valueOf(String.format("%04d-%02d-%02d", year, month, day));
-    }
-
-    private List<DorisRangePartitioner.PartitionRangeKey> createPartitionRangeKeys(
-            EtlJobConfig.EtlPartitionInfo partitionInfo, List<Class> partitionKeySchema) throws SparkDppException {
-        List<DorisRangePartitioner.PartitionRangeKey> partitionRangeKeys = new ArrayList<>();
-
-        for (EtlJobConfig.EtlPartition partition : partitionInfo.partitions) {
-            DorisRangePartitioner.PartitionRangeKey partitionRangeKey = new DorisRangePartitioner.PartitionRangeKey();
-            List<Object> startKeyColumns = new ArrayList<>();
-
-            for (int i = 0; i < partition.startKeys.size(); i++) {
-                Object value = partition.startKeys.get(i);
-                startKeyColumns.add(convertPartitionKey(value, partitionKeySchema.get(i)));
-            }
-            partitionRangeKey.startKeys = new DppColumns(startKeyColumns);
-
-            if (!partition.isMaxPartition) {
-                partitionRangeKey.isMaxPartition = false;
-                List<Object> endKeyColumns = new ArrayList<>();
-                for (int i = 0; i < partition.endKeys.size(); i++) {
-                    Object value = partition.endKeys.get(i);
-                    endKeyColumns.add(convertPartitionKey(value, partitionKeySchema.get(i)));
-                }
-                partitionRangeKey.endKeys = new DppColumns(endKeyColumns);
-            } else {
-                partitionRangeKey.isMaxPartition = true;
-            }
-
-            partitionRangeKeys.add(partitionRangeKey);
-        }
-        return partitionRangeKeys;
-    }
-
     private void process() throws Exception {
 
         prepareForHiveTable();
 
         for (Map.Entry<Long, EtlJobConfig.EtlTable> entry : etlJobConfig.tables.entrySet()) {
+
             Long tableId = entry.getKey();
             EtlJobConfig.EtlTable etlTable = entry.getValue();
 
             // get the base index meta
-            EtlJobConfig.EtlIndex baseIndex = null;
-            for (EtlJobConfig.EtlIndex indexMeta : etlTable.indexes) {
-                if (indexMeta.isBaseIndex) {
-                    baseIndex = indexMeta;
-                    break;
-                }
-            }
+            EtlJobConfig.EtlIndex baseIndex = getEtlIndex(etlTable);
+            SparkDppException.checkArgument(baseIndex != null, "should have a base index for: " + tableId);
 
             // get key and partition column names and value column names separately
             List<String> keyAndPartitionColumnNames = new ArrayList<>();
@@ -630,29 +532,16 @@ public final class SparkLoadJobV2 implements java.io.Serializable {
                 }
             }
 
-            EtlJobConfig.EtlPartitionInfo partitionInfo = etlTable.partitionInfo;
-            List<Integer> partitionKeyIndex = new ArrayList<>();
-            List<Class> partitionKeySchema = new ArrayList<>();
-            for (String key : partitionInfo.partitionColumnRefs) {
-                for (int i = 0; i < baseIndex.columns.size(); ++i) {
-                    EtlJobConfig.EtlColumn column = baseIndex.columns.get(i);
-                    if (column.columnName.equals(key)) {
-                        partitionKeyIndex.add(keyAndPartitionColumnNames.indexOf(key));
-                        partitionKeySchema.add(DppUtils.getJavaClassFromColumn(column));
-                        break;
-                    }
-                }
-            }
-
-            List<PartitionRangeKey> partitionRangeKeys = createPartitionRangeKeys(partitionInfo, partitionKeySchema);
+            // get spark struct
             StructType dstTableSchema = DppUtils.convertDorisColumnsToSparkColumns(baseIndex.columns, false, false);
-
             Set<String> binaryBitmapColumnSet = tableToBinaryBitmapColumns.getOrDefault(tableId, new HashSet<>());
             dstTableSchema = DppUtils.replaceBinaryColsInSchema(binaryBitmapColumnSet, dstTableSchema);
 
+            // solve fileGroups, read all data from source for this table
             JavaPairRDD<List<Object>, Object[]> tablePairRDD = null;
             for (EtlJobConfig.EtlFileGroup fileGroup : etlTable.fileGroups) {
 
+                // load data
                 SparkLoadFileGroup sparkLoadFileGroup = SparkLoadFileGroupFactory.get(loadSparkEnv, sparkLoadConf,
                         baseIndex, fileGroup, dstTableSchema, tableId);
                 Dataset<Row> fileGroupDataframe = sparkLoadFileGroup.loadDataFromGroup();
@@ -662,12 +551,16 @@ public final class SparkLoadJobV2 implements java.io.Serializable {
                     continue;
                 }
 
+                // get partitioner
+                Partitioner partitioner = DorisPartitionFactory.create(etlTable.partitionInfo, baseIndex.columns,
+                        keyAndPartitionColumnNames);
                 JavaPairRDD<List<Object>, Object[]> ret = fillTupleWithPartitionColumn(
                         fileGroupDataframe,
-                        partitionInfo, partitionKeyIndex,
-                        partitionRangeKeys,
+                        etlTable.partitionInfo,
+                        partitioner,
                         keyAndPartitionColumnNames, valueColumnNames,
                         dstTableSchema, baseIndex, fileGroup.partitions);
+
                 if (tablePairRDD == null) {
                     tablePairRDD = ret;
                 } else {
@@ -675,12 +568,23 @@ public final class SparkLoadJobV2 implements java.io.Serializable {
                 }
             }
 
+            // generate rollup table tree
             RollupTreeBuilder rollupTreeParser = new MinimumCoverageRollupTreeBuilder();
             RollupTreeNode rootNode = rollupTreeParser.build(etlTable);
+
             LOG.info("Start to process rollup tree:" + rootNode);
             processRollupTree(rootNode, tablePairRDD, tableId, baseIndex);
         }
-        LOG.info("invalid rows contents:" + loadSparkEnv.getInvalidRowsValue());
+        LOG.error("invalid rows contents:" + loadSparkEnv.getInvalidRowsValue());
+    }
+
+    private EtlJobConfig.EtlIndex getEtlIndex(EtlJobConfig.EtlTable etlTable) {
+        for (EtlJobConfig.EtlIndex indexMeta : etlTable.indexes) {
+            if (indexMeta.isBaseIndex) {
+                return indexMeta;
+            }
+        }
+        return null;
     }
 
     private void writeDppResult() throws Exception {
@@ -703,7 +607,7 @@ public final class SparkLoadJobV2 implements java.io.Serializable {
         outputStream.close();
     }
 
-    private void prepareForHiveTable() {
+    private void prepareForHiveTable() throws SparkDppException {
         if (!sparkLoadConf.getHiveSourceTables().isEmpty()) {
             // only one table
             long tableId = -1;
@@ -715,6 +619,7 @@ public final class SparkLoadJobV2 implements java.io.Serializable {
             }
 
             // init hive configs like metastore service
+            SparkDppException.checkArgument(table != null, "can't get the hive table");
             EtlFileGroup fileGroup = table.fileGroups.get(0);
             setSparkConfForHive(fileGroup.hiveTableProperties);
             fileGroup.dppHiveDbTableName = fileGroup.hiveDbTableName;

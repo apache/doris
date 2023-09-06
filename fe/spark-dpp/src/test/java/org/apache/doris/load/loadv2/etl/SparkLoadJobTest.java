@@ -37,6 +37,8 @@ import org.apache.hadoop.fs.FileSystem;
 import org.apache.hadoop.fs.Path;
 import org.apache.hadoop.fs.PositionedReadable;
 import org.apache.hadoop.fs.Seekable;
+import org.apache.hadoop.hdfs.HdfsConfiguration;
+import org.apache.spark.util.SerializableConfiguration;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
@@ -105,8 +107,10 @@ public class SparkLoadJobTest {
             }
         };
 
-        SparkLoadJob job = Deencapsulation.newInstance(SparkLoadJob.class, "hdfs://127.0.0.1:10000/jobconfig.json");
-        Deencapsulation.invoke(job, "initConfig");
+        SparkLoadCommand parse = SparkLoadCommand.parse(new String[]{"-c", "hdfs://127.0.0.1:10000/jobconfig.json"});
+        SparkLoadConf job = Deencapsulation.newInstance(SparkLoadConf.class, parse,
+                new SerializableConfiguration(new HdfsConfiguration()));
+        Deencapsulation.invoke(job, "getEtlJobConfigFromFile");
         EtlJobConfig parsedConfig = Deencapsulation.getField(job, "etlJobConfig");
         Assert.assertTrue(parsedConfig.tables.containsKey(tableId));
         EtlTable table = parsedConfig.tables.get(tableId);
@@ -114,11 +118,17 @@ public class SparkLoadJobTest {
         Assert.assertEquals(2, table.partitionInfo.partitions.size());
         Assert.assertEquals(false, parsedConfig.properties.strictMode);
         Assert.assertEquals("label0", parsedConfig.label);
+
+        Map<Long, Set<String>> tableToBitmapDictColumns = Deencapsulation.getField(job, "tableToBitmapDictColumns");
+        // check bitmap dict columns empty
+        Assert.assertTrue(tableToBitmapDictColumns.isEmpty());
     }
 
     @Test
     public void testCheckConfigWithoutBitmapDictColumns() {
-        SparkLoadJob job = Deencapsulation.newInstance(SparkLoadJob.class, "hdfs://127.0.0.1:10000/jobconfig.json");
+        SparkLoadCommand parse = SparkLoadCommand.parse(new String[]{"-c", "hdfs://127.0.0.1:10000/jobconfig.json"});
+        SparkLoadConf job = Deencapsulation.newInstance(SparkLoadConf.class, parse,
+                new SerializableConfiguration(new HdfsConfiguration()));
         Deencapsulation.setField(job, "etlJobConfig", etlJobConfig);
         Deencapsulation.invoke(job, "checkConfig");
         Map<Long, Set<String>> tableToBitmapDictColumns = Deencapsulation.getField(job, "tableToBitmapDictColumns");
@@ -128,7 +138,9 @@ public class SparkLoadJobTest {
 
     @Test
     public void testCheckConfigWithBitmapDictColumns() {
-        SparkLoadJob job = Deencapsulation.newInstance(SparkLoadJob.class, "hdfs://127.0.0.1:10000/jobconfig.json");
+        SparkLoadCommand parse = SparkLoadCommand.parse(new String[]{"-c", "hdfs://127.0.0.1:10000/jobconfig.json"});
+        SparkLoadConf job = Deencapsulation.newInstance(SparkLoadConf.class, parse,
+                new SerializableConfiguration(new HdfsConfiguration()));
         EtlTable table = etlJobConfig.tables.get(tableId);
         table.indexes.get(0).columns.add(
                 new EtlColumn("v2", "BITMAP", false, false, "BITMAP_UNION", "0", 0, 0, 0)

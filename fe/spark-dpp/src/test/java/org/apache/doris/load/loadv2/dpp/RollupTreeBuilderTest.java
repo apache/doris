@@ -18,6 +18,7 @@
 package org.apache.doris.load.loadv2.dpp;
 
 import org.apache.doris.sparkdpp.EtlJobConfig;
+import org.apache.doris.sparkdpp.EtlJobConfig.EtlColumn;
 
 import org.junit.Assert;
 import org.junit.Test;
@@ -25,7 +26,7 @@ import org.junit.Test;
 import java.util.ArrayList;
 import java.util.List;
 
-public class MinimumCoverageRollupTreeBuilderTest {
+public class RollupTreeBuilderTest {
 
     @Test
     public void testBuild() {
@@ -49,7 +50,7 @@ public class MinimumCoverageRollupTreeBuilderTest {
                 true, false,
                 "SUM", "",
                 0, 0, 0);
-        List<EtlJobConfig.EtlColumn> baseColumns = new ArrayList<>();
+        List<EtlColumn> baseColumns = new ArrayList<>();
         baseColumns.add(column1);
         baseColumns.add(column2);
         baseColumns.add(column3);

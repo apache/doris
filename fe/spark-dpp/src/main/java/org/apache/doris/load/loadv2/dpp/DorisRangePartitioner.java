@@ -17,15 +17,21 @@
 
 package org.apache.doris.load.loadv2.dpp;
 
+import org.apache.doris.common.SparkDppException;
 import org.apache.doris.sparkdpp.EtlJobConfig;
+import org.apache.doris.sparkdpp.EtlJobConfig.EtlColumn;
 
-import org.apache.spark.Partitioner;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.io.Serializable;
+import java.util.ArrayList;
 import java.util.List;
 
-public class DorisRangePartitioner extends Partitioner {
-    private static final String UNPARTITIONED_TYPE = "UNPARTITIONED";
+public class DorisRangePartitioner extends DorisPartitioner {
+
+    private static final Logger LOG = LoggerFactory.getLogger(SparkLoadJobV2.class);
+
     private EtlJobConfig.EtlPartitionInfo partitionInfo;
     private List<PartitionRangeKey> partitionRangeKeys;
     List<Integer> partitionKeyIndexes;
@@ -36,6 +42,59 @@ public class DorisRangePartitioner extends Partitioner {
         this.partitionInfo = partitionInfo;
         this.partitionKeyIndexes = partitionKeyIndexes;
         this.partitionRangeKeys = partitionRangeKeys;
+    }
+
+    public static DorisRangePartitioner build(
+            EtlJobConfig.EtlPartitionInfo partitionInfo,
+            List<EtlColumn> columns,
+            List<String> keyAndPartitionColumnNames) throws SparkDppException {
+
+        List<Integer> partitionKeyIndex = new ArrayList<>();
+        List<Class> partitionKeySchema = new ArrayList<>();
+        for (String key : partitionInfo.partitionColumnRefs) {
+            for (EtlColumn column : columns) {
+                if (column.columnName.equals(key)) {
+                    partitionKeyIndex.add(keyAndPartitionColumnNames.indexOf(key));
+                    partitionKeySchema.add(DppUtils.getJavaClassFromColumn(column));
+                    break;
+                }
+            }
+        }
+
+        List<PartitionRangeKey> partitionRangeKeys = createPartitionRangeKeys(partitionInfo, partitionKeySchema);
+        return new DorisRangePartitioner(partitionInfo, partitionKeyIndex, partitionRangeKeys);
+    }
+
+
+    public static List<PartitionRangeKey> createPartitionRangeKeys(
+            EtlJobConfig.EtlPartitionInfo partitionInfo, List<Class> partitionKeySchema) throws SparkDppException {
+        List<PartitionRangeKey> partitionRangeKeys = new ArrayList<>();
+
+        for (EtlJobConfig.EtlPartition partition : partitionInfo.partitions) {
+            PartitionRangeKey partitionRangeKey = new DorisRangePartitioner.PartitionRangeKey();
+            List<Object> startKeyColumns = new ArrayList<>();
+
+            for (int i = 0; i < partition.startKeys.size(); i++) {
+                Object value = partition.startKeys.get(i);
+                startKeyColumns.add(convertPartitionKey(value, partitionKeySchema.get(i)));
+            }
+            partitionRangeKey.startKeys = new DppColumns(startKeyColumns);
+
+            if (!partition.isMaxPartition) {
+                partitionRangeKey.isMaxPartition = false;
+                List<Object> endKeyColumns = new ArrayList<>();
+                for (int i = 0; i < partition.endKeys.size(); i++) {
+                    Object value = partition.endKeys.get(i);
+                    endKeyColumns.add(convertPartitionKey(value, partitionKeySchema.get(i)));
+                }
+                partitionRangeKey.endKeys = new DppColumns(endKeyColumns);
+            } else {
+                partitionRangeKey.isMaxPartition = true;
+            }
+
+            partitionRangeKeys.add(partitionRangeKey);
+        }
+        return partitionRangeKeys;
     }
 
     public int numPartitions() {

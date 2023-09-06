@@ -26,7 +26,6 @@ import org.apache.commons.lang3.StringUtils;
 import org.apache.commons.lang3.tuple.Pair;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
-import org.apache.spark.Partitioner;
 import org.apache.spark.api.java.function.Function2;
 import org.apache.spark.api.java.function.PairFunction;
 import scala.Tuple2;
@@ -40,9 +39,7 @@ import java.io.Serializable;
 import java.math.BigDecimal;
 import java.math.BigInteger;
 import java.util.ArrayList;
-import java.util.Comparator;
 import java.util.List;
-import java.util.Map;
 
 // contains all class about spark aggregate
 
@@ -556,52 +553,3 @@ class BigDecimalSumAggregator extends SparkRDDAggregator<BigDecimal> {
     }
 }
 
-
-class BucketComparator implements Comparator<List<Object>>, Serializable {
-
-    @Override
-    public int compare(List<Object> keyArray1, List<Object> keyArray2) {
-        int cmp = 0;
-
-        for (int i = 0; i < keyArray1.size(); i++) {
-            Object key1 = keyArray1.get(i);
-            Object key2 = keyArray2.get(i);
-            if (key1 == key2) {
-                continue;
-            }
-            if (key1 == null || key2 == null) {
-                return key1 == null ? -1 : 1;
-            }
-            if (key1 instanceof Comparable && key2 instanceof Comparable) {
-                cmp = ((Comparable) key1).compareTo(key2);
-            } else {
-                throw new RuntimeException(String.format("incomparable column type %s", key1.getClass().toString()));
-            }
-            if (cmp != 0) {
-                return cmp;
-            }
-        }
-
-        return cmp;
-    }
-}
-
-class BucketPartitioner extends Partitioner {
-
-    private Map<String, Integer> bucketKeyMap;
-
-    public BucketPartitioner(Map<String, Integer> bucketKeyMap) {
-        this.bucketKeyMap = bucketKeyMap;
-    }
-
-    @Override
-    public int numPartitions() {
-        return bucketKeyMap.size();
-    }
-
-    @Override
-    public int getPartition(Object key) {
-        List<Object> rddKey = (List<Object>) key;
-        return bucketKeyMap.get(String.valueOf(rddKey.get(0)));
-    }
-}

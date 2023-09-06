@@ -179,8 +179,6 @@ public class SparkLoadFromCsv extends SparkLoadFromFile {
         // line-begin char and line-end char are considered to be 'delimiter'
         List<String> values = new ArrayList<>();
         for (int i = 0; i < line.length(); i++, index++) {
-            // TODO wuwenchi xxxx 如果字符串里面携带了分隔符怎么办？
-            // 例如 分割符是 ',',字符串是 12,"abc","def,xyz"
             if (line.charAt(index) == sep) {
                 values.add(line.substring(lastIndex, index));
                 lastIndex = index + 1;

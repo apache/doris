@@ -36,7 +36,8 @@ public class SparkLoad {
 
         try {
             // parse config
-            SparkLoadConf sparkLoadConf = SparkLoadConf.build(command, sparkEnv);
+            SparkLoadConf sparkLoadConf = SparkLoadConf.build(
+                    command, sparkEnv.getSerializableConfigurationHadoopConf());
 
             // execute job
             new SparkLoadJobV2(sparkEnv, sparkLoadConf).doDpp();

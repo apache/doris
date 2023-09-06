@@ -29,7 +29,7 @@ public class SparkDppTest {
 
     @Test
     public void testValidateData() {
-        SparkDpp sparkDpp = new SparkDpp();
+        SparkLoadJobV2 sparkDpp = new SparkLoadJobV2();
 
         // decimal
         EtlJobConfig.EtlColumn etlColumn = new EtlJobConfig.EtlColumn();
