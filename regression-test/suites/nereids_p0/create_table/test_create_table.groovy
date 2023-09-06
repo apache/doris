@@ -21,36 +21,28 @@
 suite("nereids_create_table") {
     sql 'set enable_nereids_planner=true'
     sql 'set enable_fallback_to_original_planner=false'
+    sql 'set enable_nereids_dml=true'
     
-    def testTable = "test_time_range_table"
+    sql 'drop database if exists nereids_create_table_p0'
+    sql 'create database if not exists nereids_create_table_p0'
+    sql 'use nereids_create_table_p0'
 
-    sql "DROP TABLE IF EXISTS ${testTable}"
+    def str = new File("""${context.file.parent}/table.sql""").text
+    for (String table in str.split(';')) {
+        sql table
+        sleep(100)
+    }
 
-        // multi-line sql
-    def result1 = sql """
-        create table ${testTable} (
-		`actorid` varchar(128),
-		`gameid` varchar(128),
-		`eventtime` datetimev2(3)
-	)
-	engine=olap
-	duplicate key(actorid, gameid, eventtime)
-	partition by range(eventtime)(
-		from ("2000-01-01") to ("2021-01-01") interval 1 year,
-		from ("2021-01-01") to ("2022-01-01") interval 1 MONth,
-		from ("2022-01-01") to ("2023-01-01") interval 1 WEEK,
-		from ("2023-01-01") TO ("2023-02-01") interval 1 DAY
-	)
-	distributed by hash(actorid) buckets 1
-	properties(
-		"replication_num"="1",
-		"light_schema_change"="true",
-		"compression"="zstd"
-	);
-		"""
-
-    // DDL/DML return 1 row and 1 column, the only value is update row count
-    assertTrue(result1.size() == 1)
-    assertTrue(result1[0].size() == 1)
-    assertTrue(result1[0][0] == 0, "Create table should update 0 rows")
+    str = new File("""${context.file.parent}/data.sql""").text
+    for (String table in str.split(';')) {
+        sql table
+        sleep(100)
+    }
+    sql 'sync'
+    def tables = ['test_all_types', 'test_agg_key', 'test_uni_key', 'test_uni_key_mow', 'test_not_null',
+                             'test_random', 'test_random_auto', 'test_less_than_partition', 'test_range_partition',
+                             'test_step_partition', 'test_date_step_partition', 'test_list_partition', 'test_rollup']
+    for (String t in tables) {
+        sql "select * from ${t} order by id"
+    }
 }
