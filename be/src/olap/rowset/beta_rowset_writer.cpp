@@ -335,7 +335,7 @@ bool BetaRowsetWriter::_check_and_set_is_doing_segcompaction() {
 
 Status BetaRowsetWriter::_segcompaction_if_necessary() {
     Status status = Status::OK();
-    if (!config::enable_segcompaction || _context.tablet_schema->is_dynamic_schema() ||
+    if (!config::enable_segcompaction || !_context.enable_segcompaction ||
         !_check_and_set_is_doing_segcompaction()) {
         return status;
     }
