@@ -153,7 +153,6 @@ case class HoodieTableInformation(sparkSession: SparkSession,
                                   metaClient: HoodieTableMetaClient,
                                   timeline: HoodieTimeline,
                                   tableConfig: HoodieTableConfig,
-                                  tableAvroSchema: Schema,
                                   internalSchemaOpt: Option[InternalSchema])
 
 /**
@@ -215,7 +214,22 @@ abstract class BaseSplitReader(val split: HoodieSplit) {
    * required to fetch table's Avro and Internal schemas
    */
   protected lazy val (tableAvroSchema: Schema, internalSchemaOpt: Option[InternalSchema]) = {
-    (tableInformation.tableAvroSchema, tableInformation.internalSchemaOpt)
+    val schemaResolver = new TableSchemaResolver(tableInformation.metaClient)
+    val (name, namespace) = AvroConversionUtils.getAvroRecordNameAndNamespace(tableName)
+    val avroSchema: Schema = tableInformation.internalSchemaOpt.map { is =>
+      AvroInternalSchemaConverter.convert(is, namespace + "." + name)
+    } orElse {
+      specifiedQueryTimestamp.map(schemaResolver.getTableAvroSchema)
+    } orElse {
+      split.schemaSpec.map(s => convertToAvroSchema(s, tableName))
+    } getOrElse {
+      Try(schemaResolver.getTableAvroSchema) match {
+        case Success(schema) => schema
+        case Failure(e) =>
+          throw new HoodieSchemaException("Failed to fetch schema from the table", e)
+      }
+    }
+    (avroSchema, tableInformation.internalSchemaOpt)
   }
 
   protected lazy val tableStructSchema: StructType = convertAvroSchemaToStructType(tableAvroSchema)
@@ -649,27 +663,11 @@ object BaseSplitReader {
               None
           }
         }
-        val tableName = metaClient.getTableConfig.getTableName
-        val (name, namespace) = AvroConversionUtils.getAvroRecordNameAndNamespace(tableName)
-        val avroSchema: Schema = internalSchemaOpt.map { is =>
-          AvroInternalSchemaConverter.convert(is, namespace + "." + name)
-        } orElse {
-          specifiedQueryTimestamp.map(schemaResolver.getTableAvroSchema)
-        } orElse {
-          split.schemaSpec.map(s => convertToAvroSchema(s, tableName))
-        } getOrElse {
-          Try(schemaResolver.getTableAvroSchema) match {
-            case Success(schema) => schema
-            case Failure(e) =>
-              throw new HoodieSchemaException("Failed to fetch schema from the table", e)
-          }
-        }
 
         HoodieTableInformation(sparkSession,
           metaClient,
           timeline,
           metaClient.getTableConfig,
-          avroSchema,
           internalSchemaOpt)
       }
     }

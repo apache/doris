@@ -86,18 +86,18 @@ public:
 };
 
 // a wrapper of parquet output stream
-class VParquetWriterWrapper final : public VFileWriterWrapper {
+class VParquetTransformer final : public VFileFormatTransformer {
 public:
-    VParquetWriterWrapper(doris::io::FileWriter* file_writer,
-                          const VExprContextSPtrs& output_vexpr_ctxs,
-                          const std::vector<TParquetSchema>& parquet_schemas,
-                          const TParquetCompressionType::type& compression_type,
-                          const bool& parquet_disable_dictionary,
-                          const TParquetVersion::type& parquet_version, bool output_object_data);
+    VParquetTransformer(doris::io::FileWriter* file_writer,
+                        const VExprContextSPtrs& output_vexpr_ctxs,
+                        const std::vector<TParquetSchema>& parquet_schemas,
+                        const TParquetCompressionType::type& compression_type,
+                        const bool& parquet_disable_dictionary,
+                        const TParquetVersion::type& parquet_version, bool output_object_data);
 
-    ~VParquetWriterWrapper() = default;
+    ~VParquetTransformer() = default;
 
-    Status prepare() override;
+    Status open() override;
 
     Status write(const Block& block) override;
 

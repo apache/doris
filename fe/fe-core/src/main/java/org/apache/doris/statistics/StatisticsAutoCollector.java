@@ -24,8 +24,6 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.View;
 import org.apache.doris.common.Config;
-import org.apache.doris.common.DdlException;
-import org.apache.doris.common.util.MasterDaemon;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.statistics.AnalysisInfo.JobType;
@@ -41,43 +39,27 @@ import java.time.format.DateTimeFormatter;
 import java.time.format.DateTimeParseException;
 import java.util.ArrayList;
 import java.util.Collection;
-import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 
-public class StatisticsAutoAnalyzer extends MasterDaemon {
+public class StatisticsAutoCollector extends StatisticsCollector {
 
-    private static final Logger LOG = LogManager.getLogger(StatisticsAutoAnalyzer.class);
+    private static final Logger LOG = LogManager.getLogger(StatisticsAutoCollector.class);
 
-    private final AnalysisTaskExecutor analysisTaskExecutor;
-
-    public StatisticsAutoAnalyzer() {
+    public StatisticsAutoCollector() {
         super("Automatic Analyzer",
-                TimeUnit.MINUTES.toMillis(Config.auto_check_statistics_in_minutes) / 2);
-        analysisTaskExecutor = new AnalysisTaskExecutor(Config.full_auto_analyze_simultaneously_running_task_num);
-        analysisTaskExecutor.start();
+                TimeUnit.MINUTES.toMillis(Config.auto_check_statistics_in_minutes) / 2,
+                new AnalysisTaskExecutor(Config.full_auto_analyze_simultaneously_running_task_num));
     }
 
     @Override
-    protected void runAfterCatalogReady() {
-        if (!Env.getCurrentEnv().isMaster()) {
-            return;
-        }
-        if (!StatisticsUtil.statsTblAvailable()) {
-            return;
-        }
-        analyzePeriodically();
+    protected void collect() {
         if (!checkAnalyzeTime(LocalTime.now(TimeUtils.getTimeZone().toZoneId()))) {
             return;
         }
-
-        if (!analysisTaskExecutor.idle()) {
-            return;
-        }
-
         if (Config.enable_full_auto_analyze) {
             analyzeAll();
         }
@@ -95,18 +77,22 @@ public class StatisticsAutoAnalyzer extends MasterDaemon {
                 if (StatisticConstants.STATISTICS_DB_BLACK_LIST.contains(databaseIf.getFullName())) {
                     continue;
                 }
-                List<AnalysisInfo> analysisInfos = constructAnalysisInfo(databaseIf);
-                for (AnalysisInfo analysisInfo : analysisInfos) {
-                    analysisInfo = getReAnalyzeRequiredPart(analysisInfo);
-                    if (analysisInfo == null) {
-                        continue;
-                    }
-                    try {
-                        createSystemAnalysisJob(analysisInfo);
-                    } catch (Exception e) {
-                        LOG.warn("Failed to create analysis job", e);
-                    }
-                }
+                analyzeDb(databaseIf);
+            }
+        }
+    }
+
+    public void analyzeDb(DatabaseIf<TableIf> databaseIf) {
+        List<AnalysisInfo> analysisInfos = constructAnalysisInfo(databaseIf);
+        for (AnalysisInfo analysisInfo : analysisInfos) {
+            analysisInfo = getReAnalyzeRequiredPart(analysisInfo);
+            if (analysisInfo == null) {
+                continue;
+            }
+            try {
+                createSystemAnalysisJob(analysisInfo);
+            } catch (Exception e) {
+                LOG.warn("Failed to create analysis job", e);
             }
         }
     }
@@ -141,29 +127,18 @@ public class StatisticsAutoAnalyzer extends MasterDaemon {
         return analysisInfos;
     }
 
-    private void analyzePeriodically() {
-        try {
-            AnalysisManager analysisManager = Env.getCurrentEnv().getAnalysisManager();
-            List<AnalysisInfo> jobInfos = analysisManager.findPeriodicJobs();
-            for (AnalysisInfo jobInfo : jobInfos) {
-                createSystemAnalysisJob(jobInfo);
-            }
-        } catch (Exception e) {
-            LOG.warn("Failed to periodically analyze the statistics." + e);
-        }
-    }
-
     @VisibleForTesting
     protected AnalysisInfo getReAnalyzeRequiredPart(AnalysisInfo jobInfo) {
         TableIf table = StatisticsUtil
                 .findTable(jobInfo.catalogName, jobInfo.dbName, jobInfo.tblName);
-        TableStats tblStats = Env.getCurrentEnv().getAnalysisManager().findTableStatsStatus(table.getId());
+        AnalysisManager analysisManager = Env.getServingEnv().getAnalysisManager();
+        TableStats tblStats = analysisManager.findTableStatsStatus(table.getId());
 
         if (!(tblStats == null || table.needReAnalyzeTable(tblStats))) {
             return null;
         }
 
-        Set<String> needRunPartitions = table.findReAnalyzeNeededPartitions(tblStats);
+        Set<String> needRunPartitions = table.findReAnalyzeNeededPartitions();
 
         if (needRunPartitions.isEmpty()) {
             return null;
@@ -173,7 +148,7 @@ public class StatisticsAutoAnalyzer extends MasterDaemon {
     }
 
     @VisibleForTesting
-    public AnalysisInfo getAnalysisJobInfo(AnalysisInfo jobInfo, TableIf table,
+    protected AnalysisInfo getAnalysisJobInfo(AnalysisInfo jobInfo, TableIf table,
             Set<String> needRunPartitions) {
         Map<String, Set<String>> newColToPartitions = Maps.newHashMap();
         Map<String, Set<String>> colToPartitions = jobInfo.colToPartitions;
@@ -208,25 +183,5 @@ public class StatisticsAutoAnalyzer extends MasterDaemon {
             LOG.warn("Parse analyze start/end time format fail", e);
             return true;
         }
-    }
-
-
-    // Analysis job created by the system
-    @VisibleForTesting
-    protected void createSystemAnalysisJob(AnalysisInfo jobInfo)
-            throws DdlException {
-        if (jobInfo.colToPartitions.isEmpty()) {
-            // No statistics need to be collected or updated
-            return;
-        }
-
-        Map<Long, BaseAnalysisTask> analysisTaskInfos = new HashMap<>();
-        AnalysisManager analysisManager = Env.getCurrentEnv().getAnalysisManager();
-        analysisManager.createTaskForEachColumns(jobInfo, analysisTaskInfos, false);
-        if (StatisticsUtil.isExternalTable(jobInfo.catalogName, jobInfo.dbName, jobInfo.tblName)) {
-            analysisManager.createTableLevelTaskForExternalTable(jobInfo, analysisTaskInfos, false);
-        }
-        Env.getCurrentEnv().getAnalysisManager().registerSysJob(jobInfo, analysisTaskInfos);
-        analysisTaskInfos.values().forEach(analysisTaskExecutor::submitTask);
     }
 }

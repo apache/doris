@@ -15,25 +15,35 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "io/fs/file_reader_options.h"
+#pragma once
+
+#include "arrow/flight/sql/server.h"
+#include "arrow/result.h"
+#include "common/status.h"
+#include "service/arrow_flight/arrow_flight_batch_reader.h"
 
 namespace doris {
-namespace io {
+namespace flight {
 
-FileReaderOptions FileReaderOptions::DEFAULT =
-        FileReaderOptions(FileCachePolicy::NO_CACHE, NoCachePathPolicy());
+class FlightSqlServer : public arrow::flight::sql::FlightSqlServerBase {
+public:
+    ~FlightSqlServer() override;
 
-FileCachePolicy cache_type_from_string(const std::string& type) {
-    if (type == "sub_file_cache") {
-        return FileCachePolicy::SUB_FILE_CACHE;
-    } else if (type == "whole_file_cache") {
-        return FileCachePolicy::WHOLE_FILE_CACHE;
-    } else if (type == "file_block_cache") {
-        return FileCachePolicy::FILE_BLOCK_CACHE;
-    } else {
-        return FileCachePolicy::NO_CACHE;
-    }
-}
+    static arrow::Result<std::shared_ptr<FlightSqlServer>> create();
 
-} // namespace io
+    arrow::Result<std::unique_ptr<arrow::flight::FlightDataStream>> DoGetStatement(
+            const arrow::flight::ServerCallContext& context,
+            const arrow::flight::sql::StatementQueryTicket& command) override;
+
+    Status init(int port);
+    Status join();
+
+private:
+    class Impl;
+    std::shared_ptr<Impl> impl_;
+
+    explicit FlightSqlServer(std::shared_ptr<Impl> impl);
+};
+
+} // namespace flight
 } // namespace doris

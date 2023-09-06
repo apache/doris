@@ -168,6 +168,7 @@ public class MasterOpExecutor {
         params.setStmtIdx(originStmt.idx);
         params.setUser(ctx.getQualifiedUser());
         params.setDefaultCatalog(ctx.getDefaultCatalog());
+        params.setDefaultDatabase(ctx.getDatabase());
         params.setDb(ctx.getDatabase());
         params.setUserIp(ctx.getRemoteIP());
         params.setStmtId(ctx.getStmtId());

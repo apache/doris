@@ -32,7 +32,6 @@
 
 namespace doris {
 namespace io {
-class FileReaderOptions;
 
 class LocalFileSystem final : public FileSystem {
 public:

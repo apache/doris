@@ -45,8 +45,10 @@
 #include "pipeline/exec/aggregation_source_operator.h"
 #include "pipeline/exec/analytic_sink_operator.h"
 #include "pipeline/exec/analytic_source_operator.h"
+#include "pipeline/exec/assert_num_rows_operator.h"
 #include "pipeline/exec/data_queue.h"
 #include "pipeline/exec/datagen_operator.h"
+#include "pipeline/exec/empty_set_operator.h"
 #include "pipeline/exec/exchange_sink_operator.h"
 #include "pipeline/exec/exchange_source_operator.h"
 #include "pipeline/exec/hashjoin_build_sink.h"
@@ -625,6 +627,16 @@ Status PipelineXFragmentContext::_create_operator(ObjectPool* pool, const TPlanN
     }
     case TPlanNodeType::REPEAT_NODE: {
         op.reset(new RepeatOperatorX(pool, tnode, descs));
+        RETURN_IF_ERROR(cur_pipe->add_operator(op));
+        break;
+    }
+    case TPlanNodeType::ASSERT_NUM_ROWS_NODE: {
+        op.reset(new AssertNumRowsOperatorX(pool, tnode, descs));
+        RETURN_IF_ERROR(cur_pipe->add_operator(op));
+        break;
+    }
+    case TPlanNodeType::EMPTY_SET_NODE: {
+        op.reset(new EmptySetSourceOperatorX(pool, tnode, descs));
         RETURN_IF_ERROR(cur_pipe->add_operator(op));
         break;
     }
