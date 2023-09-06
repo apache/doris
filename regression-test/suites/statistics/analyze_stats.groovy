@@ -878,13 +878,13 @@ PARTITION `p599` VALUES IN (599)
         SHOW COLUMN CACHED STATS test_600_partition_table_analyze(id);
     """
 
-    def expected_id_col_stats = { r, expected_value, idx ->
+    def expected_col_stats = { r, expected_value, idx ->
         return (int) Double.parseDouble(r[0][idx]) == expected_value
     }
 
-    assert expected_id_col_stats(id_col_stats, 600, 1)
-    assert expected_id_col_stats(id_col_stats, 599, 7)
-    assert expected_id_col_stats(id_col_stats, 0, 6)
+    assert expected_col_stats(id_col_stats, 600, 1)
+    assert expected_col_stats(id_col_stats, 599, 7)
+    assert expected_col_stats(id_col_stats, 0, 6)
 
     sql """DROP TABLE IF EXISTS increment_analyze_test"""
     sql """
@@ -911,5 +911,52 @@ PARTITION `p599` VALUES IN (599)
     def inc_res = sql """
         SHOW COLUMN CACHED STATS increment_analyze_test(id)
     """
-    expected_id_col_stats(inc_res, 6, 1)
+
+    expected_col_stats(inc_res, 6, 1)
+
+    sql """
+        DROP TABLE regression_test_statistics.increment_analyze_test;
+    """
+
+    sql """
+        CREATE TABLE a_partitioned_table_for_analyze_test (
+            id BIGINT,
+            val BIGINT,
+            str VARCHAR(114)
+        ) DUPLICATE KEY(`id`)
+        PARTITION BY RANGE(`id`)
+        (
+            PARTITION `p1` VALUES LESS THAN ('5'),
+            PARTITION `p2` VALUES LESS THAN ('10'),
+            PARTITION `p3` VALUES LESS THAN ('15')
+        )
+        DISTRIBUTED BY HASH(`id`) BUCKETS 3
+        PROPERTIES (
+        "replication_num"="1"
+        );
+    """
+
+    sql """
+        INSERT INTO a_partitioned_table_for_analyze_test VALUES(1, 5, 11),(6,1,5),(11,8,5);
+    """
+
+    sql """
+        ANALYZE TABLE a_partitioned_table_for_analyze_test(id) WITH SYNC
+    """
+
+    sql """
+        ANALYZE TABLE a_partitioned_table_for_analyze_test(val) WITH SYNC
+    """
+
+    def col_val_res = sql """
+        SHOW COLUMN CACHED STATS a_partitioned_table_for_analyze_test(val)
+    """
+
+    expected_col_stats(col_val_res, 3, 1)
+
+    def col_id_res = sql """
+        SHOW COLUMN CACHED STATS a_partitioned_table_for_analyze_test(id)
+    """
+    expected_col_stats(col_id_res, 3, 1)
+
 }
