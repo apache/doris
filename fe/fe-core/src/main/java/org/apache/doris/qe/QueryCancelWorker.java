@@ -22,9 +22,6 @@ import org.apache.doris.proto.Types;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.SystemInfoService;
 
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
-
 import java.util.List;
 
 public class QueryCancelWorker extends MasterDaemon {
@@ -40,6 +37,8 @@ public class QueryCancelWorker extends MasterDaemon {
 
         for (Coordinator co : QeProcessorImpl.INSTANCE.getAllCoordinators()) {
             if (co.shouldCancel(allBackends)) {
+                // TODO(zhiqiang): We need more clear cancel message, so that user can figure out what happened
+                //  by searching log.
                 co.cancel(Types.PPlanFragmentCancelReason.INTERNAL_ERROR);
             }
         }

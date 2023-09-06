@@ -41,6 +41,7 @@ public class BackendHbResponse extends HeartbeatResponse implements Writable {
     private String nodeRole = Tag.VALUE_MIX;
     // We need to broadcast be start time to all frontends,
     // it will be used to check if query on this backend should be canceled.
+
     @SerializedName(value = "beStartTime")
     private long beStartTime = 0;
     private String host;
@@ -113,8 +114,6 @@ public class BackendHbResponse extends HeartbeatResponse implements Writable {
     public boolean isShutDown() {
         return isShutDown;
     }
-
-    public long getBeProcessEpoch() { return beStartTime; }
 
     @Override
     protected void readFields(DataInput in) throws IOException {
