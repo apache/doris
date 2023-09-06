@@ -17,6 +17,8 @@
 
 package org.apache.doris.common;
 
+import java.util.concurrent.TimeUnit;
+
 public class Config extends ConfigBase {
 
     @ConfField(description = {"用户自定义配置文件的路径，用于存放 fe_custom.conf。该文件中的配置会覆盖 fe.conf 中的配置",
@@ -1509,8 +1511,12 @@ public class Config extends ConfigBase {
     /*
      * the system automatically checks the time interval for statistics
      */
-    @ConfField(mutable = true, masterOnly = true)
-    public static int auto_check_statistics_in_minutes = 1;
+    @ConfField(mutable = true, masterOnly = true, description = {
+            "该参数控制自动收集作业检查库表统计信息健康度并触发自动收集的时间间隔",
+            "This parameter controls the time interval for automatic collection jobs to check the health of table"
+                    + "statistics and trigger automatic collection"
+    })
+    public static int auto_check_statistics_in_minutes = 10;
 
     /**
      * If this configuration is enabled, you should also specify the trace_export_url.
@@ -2157,4 +2163,25 @@ public class Config extends ConfigBase {
             "是否禁止LocalDeployManager删除节点",
             "Whether to disable LocalDeployManager drop node"})
     public static boolean disable_local_deploy_manager_drop_node = true;
+
+    @ConfField(mutable = true, description = {
+            "开启 file cache 后，一致性哈希算法中，每个节点的虚拟节点数。"
+                    + "该值越大，哈希算法的分布越均匀，但是会增加内存开销。",
+            "When file cache is enabled, the number of virtual nodes of each node in the consistent hash algorithm. "
+                    + "The larger the value, the more uniform the distribution of the hash algorithm, "
+                    + "but it will increase the memory overhead."})
+    public static int virtual_node_number = 2048;
+
+    @ConfField(description = {"控制对大表的自动ANALYZE的最小时间间隔",
+            "Control the minimum time interval for automatic ANALYZE on large tables"})
+    public static long huge_table_auto_analyze_interval_in_millis = TimeUnit.HOURS.toMillis(12);
+
+    @ConfField(description = {"定义大表的大小下届", "Define the size of the large table"})
+    public static long huge_table_lower_bound_size_in_bytes = 5L * 1024 * 1024 * 1024;
+
+    @ConfField(description = {"定义大表的采样行数", "Define the number of sampling rows for large tables"})
+    public static int huge_table_default_sample_rows = 20_0000;
+
+    @ConfField(description = {"是否开启大表自动sample", "Whether to enable automatic sampling of large tables"})
+    public static boolean enable_auto_sample = false;
 }

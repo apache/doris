@@ -244,5 +244,10 @@ public interface TableIf {
     default long getLastUpdateTime() {
         return -1L;
     }
+
+    default long getDataSize() {
+        // TODO: Each tableIf should impl it by itself.
+        return 0;
+    }
 }
 

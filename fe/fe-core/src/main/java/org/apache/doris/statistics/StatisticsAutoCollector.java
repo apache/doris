@@ -26,6 +26,7 @@ import org.apache.doris.catalog.View;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.datasource.CatalogIf;
+import org.apache.doris.statistics.AnalysisInfo.AnalysisMethod;
 import org.apache.doris.statistics.AnalysisInfo.JobType;
 import org.apache.doris.statistics.util.StatisticsUtil;
 
@@ -51,7 +52,7 @@ public class StatisticsAutoCollector extends StatisticsCollector {
 
     public StatisticsAutoCollector() {
         super("Automatic Analyzer",
-                TimeUnit.MINUTES.toMillis(Config.auto_check_statistics_in_minutes) / 2,
+                TimeUnit.MINUTES.toMillis(Config.auto_check_statistics_in_minutes),
                 new AnalysisTaskExecutor(Config.full_auto_analyze_simultaneously_running_task_num));
     }
 
@@ -97,34 +98,51 @@ public class StatisticsAutoCollector extends StatisticsCollector {
         }
     }
 
-    public List<AnalysisInfo> constructAnalysisInfo(DatabaseIf<? extends TableIf> db) {
+    protected List<AnalysisInfo> constructAnalysisInfo(DatabaseIf<? extends TableIf> db) {
         List<AnalysisInfo> analysisInfos = new ArrayList<>();
         for (TableIf table : db.getTables()) {
-            if (table instanceof View) {
+            if (table instanceof View || skip(table)) {
                 continue;
             }
-            TableName tableName = new TableName(db.getCatalog().getName(), db.getFullName(),
-                    table.getName());
-            AnalysisInfo jobInfo = new AnalysisInfoBuilder()
-                    .setJobId(Env.getCurrentEnv().getNextId())
-                    .setCatalogName(db.getCatalog().getName())
-                    .setDbName(db.getFullName())
-                    .setTblName(tableName.getTbl())
-                    .setColName(
-                            table.getBaseSchema().stream().filter(c -> !StatisticsUtil.isUnsupportedType(c.getType()))
-                                    .map(
-                                            Column::getName).collect(Collectors.joining(","))
-                    )
-                    .setAnalysisType(AnalysisInfo.AnalysisType.FUNDAMENTALS)
-                    .setAnalysisMode(AnalysisInfo.AnalysisMode.INCREMENTAL)
-                    .setAnalysisMethod(AnalysisInfo.AnalysisMethod.FULL)
-                    .setScheduleType(AnalysisInfo.ScheduleType.ONCE)
-                    .setState(AnalysisState.PENDING)
-                    .setTaskIds(new ArrayList<>())
-                    .setJobType(JobType.SYSTEM).build();
-            analysisInfos.add(jobInfo);
+            createAnalyzeJobForTbl(db, analysisInfos, table);
         }
         return analysisInfos;
+    }
+
+    // return true if skip auto analyze this time.
+    protected boolean skip(TableIf table) {
+        if (table.getDataSize() < Config.huge_table_lower_bound_size_in_bytes) {
+            return false;
+        }
+        TableStats tableStats = Env.getCurrentEnv().getAnalysisManager().findTableStatsStatus(table.getId());
+        return System.currentTimeMillis() - tableStats.updatedTime < Config.huge_table_auto_analyze_interval_in_millis;
+    }
+
+    protected void createAnalyzeJobForTbl(DatabaseIf<? extends TableIf> db,
+            List<AnalysisInfo> analysisInfos, TableIf table) {
+        AnalysisMethod analysisMethod = null;
+        TableName tableName = new TableName(db.getCatalog().getName(), db.getFullName(),
+                table.getName());
+        AnalysisInfo jobInfo = new AnalysisInfoBuilder()
+                .setJobId(Env.getCurrentEnv().getNextId())
+                .setCatalogName(db.getCatalog().getName())
+                .setDbName(db.getFullName())
+                .setTblName(tableName.getTbl())
+                .setColName(
+                        table.getBaseSchema().stream().filter(c -> !StatisticsUtil.isUnsupportedType(c.getType()))
+                                .map(
+                                        Column::getName).collect(Collectors.joining(","))
+                )
+                .setAnalysisType(AnalysisInfo.AnalysisType.FUNDAMENTALS)
+                .setAnalysisMode(AnalysisInfo.AnalysisMode.INCREMENTAL)
+                .setAnalysisMethod(analysisMethod)
+                .setSamplePercent(Config.huge_table_default_sample_rows)
+                .setScheduleType(AnalysisInfo.ScheduleType.ONCE)
+                .setState(AnalysisState.PENDING)
+                .setTaskIds(new ArrayList<>())
+                .setLastExecTimeInMs(System.currentTimeMillis())
+                .setJobType(JobType.SYSTEM).build();
+        analysisInfos.add(jobInfo);
     }
 
     @VisibleForTesting
