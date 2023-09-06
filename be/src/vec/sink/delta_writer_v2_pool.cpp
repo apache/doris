@@ -36,7 +36,12 @@ std::shared_ptr<TabletToDeltaWriterV2Map> DeltaWriterV2Pool::get_or_create(PUniq
     if (writer) {
         return writer;
     }
-    writer = std::make_shared<TabletToDeltaWriterV2Map>();
+    auto deleter = [this, key](TabletToDeltaWriterV2Map* map) {
+        std::lock_guard<std::mutex> lock(_mutex);
+        _pool.erase(key);
+        delete map;
+    };
+    writer = std::shared_ptr<TabletToDeltaWriterV2Map>(new TabletToDeltaWriterV2Map(), deleter);
     _pool[key] = writer;
     return writer;
 }
