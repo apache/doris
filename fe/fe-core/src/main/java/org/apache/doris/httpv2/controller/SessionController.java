@@ -58,14 +58,17 @@ public class SessionController extends RestBaseController {
     private static final Logger LOG = LogManager.getLogger(SessionController.class);
 
     static {
+        SESSION_TABLE_HEADER.add("CurrentConnected");
         SESSION_TABLE_HEADER.add("Id");
         SESSION_TABLE_HEADER.add("User");
         SESSION_TABLE_HEADER.add("Host");
-        SESSION_TABLE_HEADER.add("Cluster");
+        SESSION_TABLE_HEADER.add("LoginTime");
+        SESSION_TABLE_HEADER.add("Catalog");
         SESSION_TABLE_HEADER.add("Db");
         SESSION_TABLE_HEADER.add("Command");
         SESSION_TABLE_HEADER.add("Time");
         SESSION_TABLE_HEADER.add("State");
+        SESSION_TABLE_HEADER.add("QueryId");
         SESSION_TABLE_HEADER.add("Info");
         ALL_SESSION_TABLE_HEADER.addAll(SESSION_TABLE_HEADER);
     }
@@ -111,7 +114,7 @@ public class SessionController extends RestBaseController {
                 .listConnection("root", false);
         long nowMs = System.currentTimeMillis();
         return threadInfos.stream()
-                .map(info -> info.toRow(nowMs, showFe))
+                .map(info -> info.toRow(-1, nowMs, showFe))
                 .map(row -> {
                     Map<String, String> record = new HashMap<>();
                     for (int i = 0; i < row.size(); i++) {
