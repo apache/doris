@@ -107,6 +107,8 @@ if [[ -e "${DORIS_HOME}/bin/palo_env.sh" ]]; then
     source "${DORIS_HOME}/bin/palo_env.sh"
 fi
 
+#Due to the machine not being configured with Java home, in this case, when FE cannot start, it is necessary to prompt an error message indicating that it has not yet been configured with Java home.
+
 if [[ -z "${JAVA_HOME}" ]]; then
     if ! command -v java &>/dev/null; then
         JAVA=""
