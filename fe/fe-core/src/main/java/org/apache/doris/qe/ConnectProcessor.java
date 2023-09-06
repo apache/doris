@@ -748,6 +748,9 @@ public class ConnectProcessor {
             if (request.isSetDefaultCatalog()) {
                 ctx.getEnv().changeCatalog(ctx, request.getDefaultCatalog());
             }
+            if (request.isSetDefaultDatabase() && !request.getDefaultDatabase().isEmpty()) {
+                ctx.getEnv().changeDb(ctx, request.getDefaultDatabase());
+            }
             TUniqueId queryId; // This query id will be set in ctx
             if (request.isSetQueryId()) {
                 queryId = request.getQueryId();
