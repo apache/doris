@@ -2020,8 +2020,10 @@ private:
                             .insert_many_defaults(input_rows_count);
                 }
             }
-            CHECK_EQ(col_to->size(), input_rows_count);
-            CHECK_EQ(col_to->size(), block.rows());
+            if (col_to->size() != input_rows_count) {
+                return Status::InternalError("Unmatched row count {}, expected {}", col_to->size(),
+                                             input_rows_count);
+            }
 
             block.replace_by_position(result, std::move(col_to));
             return Status::OK();
