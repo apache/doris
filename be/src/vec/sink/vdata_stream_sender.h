@@ -263,7 +263,10 @@ private:
             LOG(WARNING) << err;
             return Status::RpcError(err);
         }
-        return Status::OK();
+        // If the rpc package send to receiver, but the receiver offer to the queue failed, then should
+        // return the error status, so that the query could be canceled by BE and send the error status
+        // to FE, then FE could send cancel to other BEs.
+        return Status::create(_closure->result.status());
     }
 
 private:
