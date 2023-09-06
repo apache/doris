@@ -115,7 +115,7 @@ const uint8_t* BinaryPrefixPageDecoder::_decode_value_lengths(const uint8_t* ptr
 
 Status BinaryPrefixPageDecoder::_read_next_value() {
     if (_cur_pos >= _num_values) {
-        return Status::NotFound("no more value to read");
+        return Status::EndOfFile("no more value to read");
     }
     uint32_t shared_len;
     uint32_t non_shared_len;
@@ -214,17 +214,14 @@ Status BinaryPrefixPageDecoder::next_batch(size_t* n, vectorized::MutableColumnP
     }
     size_t max_fetch = std::min(*n, static_cast<size_t>(_num_values - _cur_pos));
 
-    dst->insert_data((char*)(_current_value.data()), _current_value.size());
     // read and copy values
-    for (size_t i = 1; i < max_fetch; ++i) {
-        _cur_pos++;
-        RETURN_IF_ERROR(_read_next_value());
+    for (size_t i = 0; i < max_fetch; ++i) {
         dst->insert_data((char*)(_current_value.data()), _current_value.size());
-    }
-
-    _cur_pos++;
-    if (_cur_pos < _num_values) {
-        RETURN_IF_ERROR(_read_next_value());
+        _cur_pos++;
+        // reach the end of the page, should not read the next value
+        if (_cur_pos < _num_values) {
+            RETURN_IF_ERROR(_read_next_value());
+        }
     }
 
     *n = max_fetch;
