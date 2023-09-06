@@ -65,6 +65,8 @@ class HashJoinBuildSinkLocalState;
 
 namespace vectorized {
 
+constexpr size_t CHECK_FRECUENCY = 65536;
+
 struct UInt128;
 struct UInt256;
 template <int JoinOpType>
@@ -77,7 +79,7 @@ struct RuntimeFilterContext {
     std::vector<TRuntimeFilterDesc>& _runtime_filter_descs;
     std::shared_ptr<VRuntimeFilterSlots>& _runtime_filter_slots;
     VExprContextSPtrs& _build_expr_ctxs;
-    size_t& _build_bf_cardinality;
+    size_t& _build_rf_cardinality;
     std::unordered_map<const Block*, std::vector<int>>& _inserted_rows;
     RuntimeProfile::Counter* _push_down_timer;
     RuntimeProfile::Counter* _push_compute_timer;
@@ -97,10 +99,10 @@ struct HashJoinBuildContext {
     HashJoinBuildContext(HashJoinNode* join_node);
     HashJoinBuildContext(pipeline::HashJoinBuildSinkLocalState* local_state);
 
-    void add_hash_buckets_info(const std::string& info) {
+    void add_hash_buckets_info(const std::string& info) const {
         _profile->add_info_string("HashTableBuckets", info);
     }
-    void add_hash_buckets_filled_info(const std::string& info) {
+    void add_hash_buckets_filled_info(const std::string& info) const {
         _profile->add_info_string("HashTableFilledBuckets", info);
     }
     RuntimeProfile::Counter* _hash_table_memory_usage;
@@ -119,14 +121,10 @@ struct HashJoinBuildContext {
     std::vector<TRuntimeFilterDesc>& _runtime_filter_descs;
     std::unordered_map<const Block*, std::vector<int>>& _inserted_rows;
     std::shared_ptr<Arena>& _arena;
-    size_t& _build_bf_cardinality;
+    size_t& _build_rf_cardinality;
 };
 
 using ProfileCounter = RuntimeProfile::Counter;
-
-// TODO: Best prefetch step is decided by machine. We should also provide a
-//  SQL hint to allow users to tune by hand.
-static constexpr int PREFETCH_STEP = 64;
 
 template <class HashTableContext>
 struct ProcessHashTableBuild {
@@ -209,7 +207,7 @@ struct ProcessHashTableBuild {
             }
 
             for (size_t k = 0; k < _rows; ++k) {
-                if (k % 65536 == 0) {
+                if (k % CHECK_FRECUENCY == 0) {
                     RETURN_IF_CANCELLED(_state);
                 }
                 if constexpr (ignore_null) {
@@ -240,7 +238,7 @@ struct ProcessHashTableBuild {
         bool build_unique = _join_context->_build_unique;
 #define EMPLACE_IMPL(stmt)                                                                  \
     for (size_t k = 0; k < _rows; ++k) {                                                    \
-        if (k % 65536 == 0) {                                                               \
+        if (k % CHECK_FRECUENCY == 0) {                                                     \
             RETURN_IF_CANCELLED(_state);                                                    \
         }                                                                                   \
         if constexpr (ignore_null) {                                                        \
@@ -250,9 +248,10 @@ struct ProcessHashTableBuild {
         }                                                                                   \
         auto emplace_result = key_getter.emplace_key(hash_table_ctx.hash_table,             \
                                                      _build_side_hash_values[k], k, arena); \
-        if (k + PREFETCH_STEP < _rows) {                                                    \
+        if (k + HASH_MAP_PREFETCH_DIST < _rows) {                                           \
             key_getter.template prefetch_by_hash<false>(                                    \
-                    hash_table_ctx.hash_table, _build_side_hash_values[k + PREFETCH_STEP]); \
+                    hash_table_ctx.hash_table,                                              \
+                    _build_side_hash_values[k + HASH_MAP_PREFETCH_DIST]);                   \
         }                                                                                   \
         stmt;                                                                               \
     }
@@ -262,14 +261,12 @@ struct ProcessHashTableBuild {
                     if (emplace_result.is_inserted()) {
                         new (&emplace_result.get_mapped()) Mapped({k, _offset});
                         inserted_rows.push_back(k);
-                        _join_context->_build_bf_cardinality++;
                     } else { _skip_rows++; });
         } else if (has_runtime_filter && !build_unique) {
             EMPLACE_IMPL(
                     if (emplace_result.is_inserted()) {
                         new (&emplace_result.get_mapped()) Mapped({k, _offset});
                         inserted_rows.push_back(k);
-                        _join_context->_build_bf_cardinality++;
                     } else {
                         emplace_result.get_mapped().insert({k, _offset}, *(_join_context->_arena));
                         inserted_rows.push_back(k);
@@ -287,7 +284,7 @@ struct ProcessHashTableBuild {
                         emplace_result.get_mapped().insert({k, _offset}, *(_join_context->_arena));
                     });
         }
-#undef EMPLACE_IMPL
+        _join_context->_build_rf_cardinality += inserted_rows.size();
 
         _join_context->_build_arena_memory_usage->add(arena.size() - old_build_arena_memory);
 
@@ -719,7 +716,7 @@ private:
     std::unordered_map<const Block*, std::vector<int>> _inserted_rows;
 
     std::vector<IRuntimeFilter*> _runtime_filters;
-    size_t _build_bf_cardinality = 0;
+    size_t _build_rf_cardinality = 0;
     std::atomic_bool _probe_open_finish = false;
 
     std::unique_ptr<HashJoinProbeContext> _probe_context;

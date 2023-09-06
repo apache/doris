@@ -389,14 +389,14 @@ public:
     }
 
     template <typename KeyHolder>
-    void ALWAYS_INLINE prefetch(KeyHolder& key_holder) {
+    void ALWAYS_INLINE prefetch_by_key(KeyHolder& key_holder) {
         if (_is_partitioned) {
             const auto& key = key_holder_get_key(key_holder);
             const auto key_hash = hash(key);
             const auto sub_table_idx = get_sub_table_from_hash(key_hash);
-            level1_sub_tables[sub_table_idx].prefetch(key_holder);
+            level1_sub_tables[sub_table_idx].prefetch_by_key(key_holder);
         } else {
-            level0_sub_table.prefetch(key_holder);
+            level0_sub_table.prefetch_by_key(key_holder);
         }
     }
 
@@ -422,14 +422,14 @@ public:
     }
 
     template <bool READ, typename KeyHolder>
-    void ALWAYS_INLINE prefetch(KeyHolder& key_holder) {
+    void ALWAYS_INLINE prefetch_by_key(KeyHolder& key_holder) {
         if (_is_partitioned) {
             const auto& key = key_holder_get_key(key_holder);
             const auto key_hash = hash(key);
             const auto sub_table_idx = get_sub_table_from_hash(key_hash);
-            level1_sub_tables[sub_table_idx].template prefetch<READ>(key_holder);
+            level1_sub_tables[sub_table_idx].template prefetch_by_key<READ>(key_holder);
         } else {
-            level0_sub_table.template prefetch<READ>(key_holder);
+            level0_sub_table.template prefetch_by_key<READ>(key_holder);
         }
     }
 

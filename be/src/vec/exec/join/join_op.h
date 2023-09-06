@@ -98,7 +98,9 @@ public:
             : root(begin), first(true), batch(root->next), position(0) {}
 
     RowRefType& operator*() {
-        if (first) return *root;
+        if (first) {
+            return *root;
+        }
         return batch->row_refs[position];
     }
     RowRefType* operator->() { return &(**this); }
@@ -160,7 +162,7 @@ struct RowRefList : RowRef {
         next = next->insert(std::move(row_ref), pool);
     }
 
-    uint32_t get_row_count() { return row_count; }
+    uint32_t get_row_count() const { return row_count; }
 
 private:
     friend class ForwardIterator<RowRefList>;
@@ -175,7 +177,7 @@ struct RowRefListWithFlag : RowRef {
     RowRefListWithFlag() = default;
     RowRefListWithFlag(size_t row_num_, uint8_t block_offset_) : RowRef(row_num_, block_offset_) {}
 
-    ForwardIterator<RowRefListWithFlag> begin() {
+    ForwardIterator<RowRefListWithFlag> const begin() {
         return ForwardIterator<RowRefListWithFlag>(this);
     }
 
@@ -194,7 +196,7 @@ struct RowRefListWithFlag : RowRef {
         next = next->insert(std::move(row_ref), pool);
     }
 
-    uint32_t get_row_count() { return row_count; }
+    uint32_t get_row_count() const { return row_count; }
 
     bool visited = false;
 
@@ -212,7 +214,7 @@ struct RowRefListWithFlags : RowRefWithFlag {
     RowRefListWithFlags(size_t row_num_, uint8_t block_offset_)
             : RowRefWithFlag(row_num_, block_offset_) {}
 
-    ForwardIterator<RowRefListWithFlags> begin() {
+    ForwardIterator<RowRefListWithFlags> const begin() {
         return ForwardIterator<RowRefListWithFlags>(this);
     }
     static ForwardIterator<RowRefListWithFlags> end() {
@@ -230,7 +232,7 @@ struct RowRefListWithFlags : RowRefWithFlag {
         next = next->insert(std::move(row_ref), pool);
     }
 
-    uint32_t get_row_count() { return row_count; }
+    uint32_t get_row_count() const { return row_count; }
 
 private:
     friend class ForwardIterator<RowRefListWithFlags>;
