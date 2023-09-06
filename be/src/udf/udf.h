@@ -83,7 +83,17 @@ public:
         _string_as_jsonb_string = string_as_jsonb_string;
     }
 
+    void set_jsonb_string_as_string(bool jsonb_string_as_string) {
+        _jsonb_string_as_string = jsonb_string_as_string;
+    }
+
+    // Cast flag, when enable string_as_jsonb_string, string casting to jsonb will not parse string
+    // instead just insert a string literal
     bool string_as_jsonb_string() const { return _string_as_jsonb_string; }
+
+    // Cast flag, when enable jsonb_string_as_string, jsonb string casting to string will not parse string
+    // instead just insert a string literal
+    bool jsonb_string_as_string() const { return _jsonb_string_as_string; }
 
     // Sets an error for this UDF. If this is called, this will trigger the
     // query to fail.
@@ -166,6 +176,7 @@ private:
     bool _check_overflow_for_decimal = false;
 
     bool _string_as_jsonb_string = false;
+    bool _jsonb_string_as_string = false;
 
     std::string _string_result;
 };

@@ -28,6 +28,7 @@
 #include <stdint.h>
 
 #include <algorithm>
+#include <atomic>
 #include <boost/iterator/iterator_facade.hpp>
 #include <cmath>
 #include <cstdint>
@@ -683,6 +684,7 @@ struct ConvertImplGenericFromJsonb {
             ColumnUInt8::MutablePtr col_null_map_to = ColumnUInt8::create(size);
             ColumnUInt8::Container* vec_null_map_to = &col_null_map_to->get_data();
             const bool is_complex = is_complex_type(data_type_to);
+            const bool is_dst_string = is_string_or_fixed_string(data_type_to);
             for (size_t i = 0; i < size; ++i) {
                 const auto& val = col_from_string->get_data_at(i);
                 JsonbDocument* doc = JsonbDocument::createDocument(val.data, val.size);
@@ -706,6 +708,14 @@ struct ConvertImplGenericFromJsonb {
                     if (is_complex) {
                         (*vec_null_map_to)[i] = 1;
                     }
+                    continue;
+                }
+                // add string to string column
+                if (context->jsonb_string_as_string() && is_dst_string && value->isString()) {
+                    auto blob = static_cast<const JsonbBlobVal*>(value);
+                    assert_cast<ColumnString&>(*col_to).insert_data(blob->getBlob(),
+                                                                    blob->getBlobLen());
+                    (*vec_null_map_to)[i] = 0;
                     continue;
                 }
                 std::string json_str = JsonbToJson::jsonb_to_json_string(val.data, val.size);
@@ -1902,13 +1912,8 @@ private:
     }
 
     // check jsonb value type and get to_type value
-    WrapperType create_jsonb_wrapper(const DataTypeJsonb& from_type,
-                                     const DataTypePtr& to_type) const {
-        // Conversion from String through parsing.
-        if (check_and_get_data_type<DataTypeString>(to_type.get())) {
-            return &ConvertImplGenericToString::execute2;
-        }
-
+    WrapperType create_jsonb_wrapper(const DataTypeJsonb& from_type, const DataTypePtr& to_type,
+                                     bool jsonb_string_as_string) const {
         switch (to_type->get_type_id()) {
         case TypeIndex::UInt8:
             return &ConvertImplFromJsonb<TypeIndex::UInt8, ColumnUInt8>::execute;
@@ -1924,6 +1929,11 @@ private:
             return &ConvertImplFromJsonb<TypeIndex::Int128, ColumnInt128>::execute;
         case TypeIndex::Float64:
             return &ConvertImplFromJsonb<TypeIndex::Float64, ColumnFloat64>::execute;
+        case TypeIndex::String:
+            if (!jsonb_string_as_string) {
+                // Conversion from String through parsing.
+                return &ConvertImplGenericToString::execute2;
+            }
         default:
             return ConvertImplGenericFromJsonb::execute;
         }
@@ -1979,13 +1989,15 @@ private:
                 auto nested_from_type = variant.get_root_type();
                 DCHECK(nested_from_type->is_nullable());
                 DCHECK(!data_type_to->is_nullable());
+                auto new_context = context->clone();
+                new_context->set_jsonb_string_as_string(true);
                 // dst type nullable has been removed, so we should remove the inner nullable of root column
-                auto wrapper = fn->prepare_impl(context, remove_nullable(nested_from_type),
-                                                data_type_to, true);
+                auto wrapper = fn->prepare_impl(
+                        new_context.get(), remove_nullable(nested_from_type), data_type_to, true);
                 Block tmp_block {{remove_nullable(nested), remove_nullable(nested_from_type), ""}};
                 tmp_block.insert({nullptr, data_type_to, ""});
                 /// Perform the requested conversion.
-                Status st = wrapper(context, tmp_block, {0}, 1, input_rows_count);
+                Status st = wrapper(new_context.get(), tmp_block, {0}, 1, input_rows_count);
                 if (!st.ok()) {
                     // Fill with default values, which is null
                     col_to->assume_mutable()->insert_many_defaults(input_rows_count);
@@ -2280,7 +2292,8 @@ private:
             return create_variant_wrapper(static_cast<const DataTypeObject&>(*from_type), to_type);
         }
         if (from_type->get_type_id() == TypeIndex::JSONB) {
-            return create_jsonb_wrapper(static_cast<const DataTypeJsonb&>(*from_type), to_type);
+            return create_jsonb_wrapper(static_cast<const DataTypeJsonb&>(*from_type), to_type,
+                                        context->jsonb_string_as_string());
         }
         if (to_type->get_type_id() == TypeIndex::JSONB) {
             return create_jsonb_wrapper(from_type, static_cast<const DataTypeJsonb&>(*to_type),
