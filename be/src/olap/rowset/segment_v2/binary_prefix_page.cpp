@@ -222,8 +222,8 @@ Status BinaryPrefixPageDecoder::next_batch(size_t* n, vectorized::MutableColumnP
         dst->insert_data((char*)(_current_value.data()), _current_value.size());
     }
 
-    if (_cur_pos < _num_values - 1) {
-        _cur_pos++;
+    _cur_pos++;
+    if (_cur_pos < _num_values) {
         RETURN_IF_ERROR(_read_next_value());
     }
 
