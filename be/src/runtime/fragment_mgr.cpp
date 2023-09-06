@@ -694,6 +694,7 @@ Status FragmentMgr::exec_plan_fragment(const TPipelineFragmentParams& params,
     const bool enable_pipeline_x = params.query_options.__isset.enable_pipeline_x_engine &&
                                    params.query_options.enable_pipeline_x_engine;
     if (enable_pipeline_x) {
+        _setup_shared_hashtable_for_broadcast_join(params, query_ctx.get());
         int64_t duration_ns = 0;
         std::shared_ptr<pipeline::PipelineFragmentContext> context =
                 std::make_shared<pipeline::PipelineXFragmentContext>(
@@ -733,8 +734,6 @@ Status FragmentMgr::exec_plan_fragment(const TPipelineFragmentParams& params,
                 !params.need_wait_execution_trigger) {
                 query_ctx->set_ready_to_execute_only();
             }
-            _setup_shared_hashtable_for_broadcast_join(params, params.local_params[i],
-                                                       query_ctx.get());
         }
         {
             std::lock_guard<std::mutex> lock(_lock);
@@ -992,22 +991,33 @@ void FragmentMgr::cancel_worker() {
             }
 
             const auto& running_fes = ExecEnv::GetInstance()->get_running_frontends();
-            for (const auto& q : _query_ctx_map) {
-                auto itr = running_fes.find(q.second->coord_addr);
-                if (itr != running_fes.end()) {
-                    // We use conservative strategy.
-                    // 1. If same process uuid, do not cancel
-                    // 2. If fe has zero process uuid, do not cancel
-                    // 3. If query's process uuid is zero, do not cancel
-                    if (q.second->get_fe_process_uuid() == itr->second.info.process_uuid ||
-                        itr->second.info.process_uuid == 0 ||
-                        q.second->get_fe_process_uuid() == 0) {
+
+            // We use a very conservative cancel strategy.
+            // 0. If there are no running frontends, do not cancel any queries.
+            // 1. If query's process uuid is zero, do not cancel
+            // 2. If same process uuid, do not cancel
+            // 3. If fe has zero process uuid, do not cancel
+            if (running_fes.empty()) {
+                LOG_EVERY_N(WARNING, 10)
+                        << "Could not find any running frontends, maybe we are upgrading? "
+                        << "We will not cancel any running queries in this situation.";
+            } else {
+                for (const auto& q : _query_ctx_map) {
+                    if (q.second->get_fe_process_uuid() == 0) {
                         continue;
                     }
-                }
 
-                // Coorninator of this query has already dead.
-                queries_to_cancel.push_back(q.first);
+                    auto itr = running_fes.find(q.second->coord_addr);
+                    if (itr != running_fes.end()) {
+                        if (q.second->get_fe_process_uuid() == itr->second.info.process_uuid ||
+                            itr->second.info.process_uuid == 0) {
+                            continue;
+                        }
+                    }
+
+                    // Coorninator of this query has already dead.
+                    queries_to_cancel.push_back(q.first);
+                }
             }
         }
 
@@ -1323,8 +1333,7 @@ void FragmentMgr::_setup_shared_hashtable_for_broadcast_join(const TExecPlanFrag
 
         if (params.build_hash_table_for_broadcast_join) {
             query_ctx->get_shared_hash_table_controller()->set_builder_and_consumers(
-                    params.params.fragment_instance_id, params.instances_sharing_hash_table,
-                    node.node_id);
+                    params.params.fragment_instance_id, node.node_id);
         }
     }
 }
@@ -1350,8 +1359,34 @@ void FragmentMgr::_setup_shared_hashtable_for_broadcast_join(
 
         if (local_params.build_hash_table_for_broadcast_join) {
             query_ctx->get_shared_hash_table_controller()->set_builder_and_consumers(
-                    local_params.fragment_instance_id, params.instances_sharing_hash_table,
-                    node.node_id);
+                    local_params.fragment_instance_id, node.node_id);
+        }
+    }
+}
+
+void FragmentMgr::_setup_shared_hashtable_for_broadcast_join(const TPipelineFragmentParams& params,
+                                                             QueryContext* query_ctx) {
+    if (!params.query_options.__isset.enable_share_hash_table_for_broadcast_join ||
+        !params.query_options.enable_share_hash_table_for_broadcast_join) {
+        return;
+    }
+
+    if (!params.__isset.fragment || !params.fragment.__isset.plan ||
+        params.fragment.plan.nodes.empty()) {
+        return;
+    }
+    for (auto& node : params.fragment.plan.nodes) {
+        if (node.node_type != TPlanNodeType::HASH_JOIN_NODE ||
+            !node.hash_join_node.__isset.is_broadcast_join ||
+            !node.hash_join_node.is_broadcast_join) {
+            continue;
+        }
+
+        for (auto& local_param : params.local_params) {
+            if (local_param.build_hash_table_for_broadcast_join) {
+                query_ctx->get_shared_hash_table_controller()->set_builder_and_consumers(
+                        local_param.fragment_instance_id, node.node_id);
+            }
         }
     }
 }
