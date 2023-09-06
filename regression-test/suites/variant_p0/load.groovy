@@ -289,20 +289,20 @@ suite("regression_test_variant", "variant_type"){
         load_json_data.call(table_name, """${getS3Url() + '/load/logdata.json'}""")
         qt_sql_32 """ select v->"\$.json.parseFailed" from logdata where  v->"\$.json.parseFailed" != 'null' order by k limit 1;"""
         qt_sql_32_1 """select v:json.parseFailed from  logdata where cast(v:json.parseFailed as string) is not null and k = 162 limit 1;"""
-        // sql "truncate table ${table_name}"
+        sql "truncate table ${table_name}"
 
         // 0.95 default ratio    
         set_be_config.call("ratio_of_defaults_as_sparse_column", "0.95")
         load_json_data.call(table_name, """${getS3Url() + '/load/logdata.json'}""")
         qt_sql_33 """ select v->"\$.json.parseFailed" from logdata where  v->"\$.json.parseFailed" != 'null' order by k limit 1;"""
         qt_sql_33_1 """select v:json.parseFailed from  logdata where cast(v:json.parseFailed as string) is not null and k = 162 limit 1;"""
-        // sql "truncate table ${table_name}"
+        sql "truncate table ${table_name}"
 
         // always sparse column
         set_be_config.call("ratio_of_defaults_as_sparse_column", "0")
         load_json_data.call(table_name, """${getS3Url() + '/load/logdata.json'}""")
         qt_sql_34 """ select v->"\$.json.parseFailed" from logdata where  v->"\$.json.parseFailed" != 'null' order by k limit 1;"""
-        // sql "truncate table ${table_name}"
+        sql "truncate table ${table_name}"
         qt_sql_35 """select v->"\$.json.parseFailed"  from logdata where k = 162 and  v->"\$.json.parseFailed" != 'null';"""
         qt_sql_35_1 """select v:json.parseFailed from  logdata where cast(v:json.parseFailed as string) is not null and k = 162 limit 1;"""
 
@@ -310,6 +310,7 @@ suite("regression_test_variant", "variant_type"){
          // unique table
         set_be_config.call("ratio_of_defaults_as_sparse_column", "0.95")
         table_name = "github_events_unique"
+        sql """DROP TABLE IF EXISTS ${table_name}"""
         sql """
             CREATE TABLE IF NOT EXISTS ${table_name} (
                 k bigint,
@@ -317,7 +318,7 @@ suite("regression_test_variant", "variant_type"){
             )
             UNIQUE KEY(`k`)
             DISTRIBUTED BY HASH(k) BUCKETS 4 
-            properties("replication_num" = "1", "disable_auto_compaction" = "false");
+            properties("replication_num" = "1", "disable_auto_compaction" = "true");
         """
         load_json_data.call(table_name, """${getS3Url() + '/regression/gharchive.m/2015-01-01-0.json'}""")
         sql """insert into ${table_name} values (1, '{"a" : 1}'), (1, '{"a" : 1}')"""
@@ -332,6 +333,7 @@ suite("regression_test_variant", "variant_type"){
         sql """insert into ${table_name} values (6, '{"j" : 1}'), (1, '{"a" : 1}')"""
         sql """insert into ${table_name} values (6, '{"k" : 1}'), (1, '{"a" : 1}')"""
         sql "select * from ${table_name}"
+        qt_sql_36_1 "select v:a, v:b, v:c from ${table_name} order by k limit 10"
         sql "DELETE FROM ${table_name} WHERE k=1"
         sql "select * from ${table_name}"
         qt_sql_36 "select * from ${table_name} where k > 3 order by k desc limit 10"
