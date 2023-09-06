@@ -60,7 +60,7 @@ public:
     ScanLocalStateBase(RuntimeState* state, OperatorXBase* parent)
             : PipelineXLocalState<>(state, parent),
               vectorized::RuntimeFilterConsumer(parent->id(), parent->runtime_filter_descs(),
-                                                parent->row_descriptor(), parent->conjuncts()) {}
+                                                parent->row_descriptor(), _conjuncts) {}
     virtual ~ScanLocalStateBase() = default;
 
     virtual bool ready_to_read() = 0;
@@ -128,6 +128,7 @@ class ScanLocalState : public ScanLocalStateBase {
     virtual ~ScanLocalState() = default;
 
     Status init(RuntimeState* state, LocalStateInfo& info) override;
+    Status open(RuntimeState* state) override;
     Status close(RuntimeState* state) override;
 
     bool ready_to_read() override;
@@ -337,12 +338,14 @@ protected:
     RuntimeProfile::Counter* _acquire_runtime_filter_timer = nullptr;
 
     doris::Mutex _block_lock;
+
+    std::atomic<bool> _opened = false;
 };
 
 template <typename LocalStateType>
 class ScanOperatorX : public OperatorX<LocalStateType> {
 public:
-    //    bool runtime_filters_are_ready_or_timeout() override;
+    bool runtime_filters_are_ready_or_timeout(RuntimeState* state) const override;
 
     Status try_close(RuntimeState* state) override;
 

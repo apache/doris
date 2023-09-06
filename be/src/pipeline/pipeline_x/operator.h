@@ -63,6 +63,7 @@ public:
     }
 
     virtual Status init(RuntimeState* state, LocalStateInfo& info) = 0;
+    virtual Status open(RuntimeState* state) { return Status::OK(); }
     virtual Status close(RuntimeState* state) = 0;
 
     // If use projection, we should clear `_origin_block`.
@@ -174,6 +175,13 @@ public:
         LOG(FATAL) << "should not reach here!";
         return Status::OK();
     }
+
+    bool runtime_filters_are_ready_or_timeout() override {
+        LOG(FATAL) << "should not reach here!";
+        return true;
+    }
+
+    virtual bool runtime_filters_are_ready_or_timeout(RuntimeState* state) const { return true; }
 
     virtual Status close(RuntimeState* state) override;
 
@@ -302,6 +310,7 @@ public:
                 "PeakMemoryUsage", TUnit::BYTES, "MemoryUsage");
         return Status::OK();
     }
+
     virtual Status close(RuntimeState* state) override {
         if (_closed) {
             return Status::OK();
