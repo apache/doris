@@ -186,13 +186,13 @@ public class ExportToOutfileLogicalPlanTest extends TestWithFeService {
         // The only difference between them is the TABLET(). They are:
         List<Long> currentTablets1 = Arrays.asList(10010L, 10012L, 10014L, 10016L, 10018L, 10020L, 10022L, 10024L,
                 10026L, 10028L);
-        List<Long> currentTablets1_2 = Arrays.asList(10030L, 10032L, 10034L, 10036L);
+        List<Long> currentTablets12 = Arrays.asList(10030L, 10032L, 10034L, 10036L);
         List<Long> currentTablets2 = Arrays.asList(10038L, 10040L, 10042L, 10044L, 10046L, 10048L, 10050L, 10052L,
                 10054L, 10056L);
-        List<Long> currentTablets2_2 = Arrays.asList(10058L, 10060L, 10062L);
+        List<Long> currentTablets22 = Arrays.asList(10058L, 10060L, 10062L);
         List<Long> currentTablets3 = Arrays.asList(10064L, 10066L, 10068L, 10070L, 10072L, 10074L, 10076L, 10078L,
                 10080L, 10082L);
-        List<Long> currentTablets3_2 = Arrays.asList(10084L, 10086L, 10088L);
+        List<Long> currentTablets32 = Arrays.asList(10084L, 10086L, 10088L);
 
         // generate outfile
         List<List<StatementBase>> outfileSqlPerParallel = getOutfileSqlPerParallel(exportSql);
@@ -206,20 +206,20 @@ public class ExportToOutfileLogicalPlanTest extends TestWithFeService {
         LogicalPlan plan1 = ((LogicalPlanAdapter) outfileSqlPerParallel.get(0).get(0)).getLogicalPlan();
         checkPartitionsAndTablets(getUnboundRelation(plan1, false), Lists.newArrayList(), currentTablets1);
 
-        LogicalPlan plan1_2 = ((LogicalPlanAdapter) outfileSqlPerParallel.get(0).get(1)).getLogicalPlan();
-        checkPartitionsAndTablets(getUnboundRelation(plan1_2, false), Lists.newArrayList(), currentTablets1_2);
+        LogicalPlan plan12 = ((LogicalPlanAdapter) outfileSqlPerParallel.get(0).get(1)).getLogicalPlan();
+        checkPartitionsAndTablets(getUnboundRelation(plan12, false), Lists.newArrayList(), currentTablets12);
 
         LogicalPlan plan2 = ((LogicalPlanAdapter) outfileSqlPerParallel.get(1).get(0)).getLogicalPlan();
         checkPartitionsAndTablets(getUnboundRelation(plan2, false), Lists.newArrayList(), currentTablets2);
 
-        LogicalPlan plan2_2 = ((LogicalPlanAdapter) outfileSqlPerParallel.get(1).get(1)).getLogicalPlan();
-        checkPartitionsAndTablets(getUnboundRelation(plan2_2, false), Lists.newArrayList(), currentTablets2_2);
+        LogicalPlan plan22 = ((LogicalPlanAdapter) outfileSqlPerParallel.get(1).get(1)).getLogicalPlan();
+        checkPartitionsAndTablets(getUnboundRelation(plan22, false), Lists.newArrayList(), currentTablets22);
 
         LogicalPlan plan3 = ((LogicalPlanAdapter) outfileSqlPerParallel.get(2).get(0)).getLogicalPlan();
         checkPartitionsAndTablets(getUnboundRelation(plan3, false), Lists.newArrayList(), currentTablets3);
 
-        LogicalPlan plan3_2 = ((LogicalPlanAdapter) outfileSqlPerParallel.get(2).get(1)).getLogicalPlan();
-        checkPartitionsAndTablets(getUnboundRelation(plan3_2, false), Lists.newArrayList(), currentTablets3_2);
+        LogicalPlan plan32 = ((LogicalPlanAdapter) outfileSqlPerParallel.get(2).get(1)).getLogicalPlan();
+        checkPartitionsAndTablets(getUnboundRelation(plan32, false), Lists.newArrayList(), currentTablets32);
     }
 
     /**
