@@ -38,33 +38,47 @@ public class JobTask implements Writable {
     private Long jobId;
     @SerializedName("taskId")
     private Long taskId;
+    @SerializedName("createTimeMs")
+    private Long createTimeMs;
     @SerializedName("startTimeMs")
     private Long startTimeMs;
     @SerializedName("endTimeMs")
     private Long endTimeMs;
     @SerializedName("successful")
     private Boolean isSuccessful;
+
+    @SerializedName("executeSql")
+    private String executeSql;
     @SerializedName("executeResult")
     private String executeResult;
     @SerializedName("errorMsg")
     private String errorMsg;
 
-    public JobTask(Long jobId) {
+    public JobTask(Long jobId, Long taskId, Long createTimeMs) {
         //it's enough to use nanoTime to identify a task
-        this.taskId = System.nanoTime();
+        this.taskId = taskId;
         this.jobId = jobId;
+        this.createTimeMs = createTimeMs;
     }
 
     public List<String> getShowInfo() {
         List<String> row = Lists.newArrayList();
         row.add(String.valueOf(jobId));
         row.add(String.valueOf(taskId));
+        if (null != createTimeMs) {
+            row.add(TimeUtils.longToTimeString(createTimeMs));
+        }
         row.add(TimeUtils.longToTimeString(startTimeMs));
         row.add(null == endTimeMs ? "null" : TimeUtils.longToTimeString(endTimeMs));
         if (endTimeMs == null) {
             row.add("RUNNING");
         } else {
             row.add(isSuccessful ? "SUCCESS" : "FAILED");
+        }
+        if (null == executeSql) {
+            row.add("null");
+        } else {
+            row.add(executeSql);
         }
         if (null == executeResult) {
             row.add("null");
