@@ -67,7 +67,7 @@ suite("test_hive_statistic_clean", "p2,external,hive,external_remote,external_re
         assertTrue(result[0][6] == "1")
         assertTrue(result[0][7] == "7")
 
-        sql """clean trash stats"""
+        sql """drop expired stats"""
         result = sql """show column stats `statistics` (lo_quantity)"""
         assertTrue(result.size() == 1)
         assertTrue(result[0][0] == "lo_quantity")
@@ -111,7 +111,7 @@ suite("test_hive_statistic_clean", "p2,external,hive,external_remote,external_re
         }
 
         sql """drop catalog ${catalog_name}"""
-        sql """clean trash stats"""
+        sql """drop expired stats"""
         result = sql """select * from internal.__internal_schema.column_statistics where catalog_id=${ctlId}"""
         assertTrue(result.size() == 0)
 
