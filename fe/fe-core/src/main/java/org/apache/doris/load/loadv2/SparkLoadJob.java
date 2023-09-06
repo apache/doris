@@ -103,6 +103,7 @@ import java.io.File;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 
@@ -406,7 +407,9 @@ public class SparkLoadJob extends BulkLoadJob {
     private PushBrokerReaderParams getPushBrokerReaderParams(OlapTable table, long indexId) throws UserException {
         if (!indexToPushBrokerReaderParams.containsKey(indexId)) {
             PushBrokerReaderParams pushBrokerReaderParams = new PushBrokerReaderParams();
-            pushBrokerReaderParams.init(table.getSchemaByIndexId(indexId), brokerDesc);
+            List<Column> schemaByIndexId = table.getSchemaByIndexId(indexId);
+            schemaByIndexId.forEach(col -> col.setName(col.getName().toLowerCase(Locale.ROOT)));
+            pushBrokerReaderParams.init(schemaByIndexId, brokerDesc);
             indexToPushBrokerReaderParams.put(indexId, pushBrokerReaderParams);
         }
         return indexToPushBrokerReaderParams.get(indexId);
@@ -463,7 +466,9 @@ public class SparkLoadJob extends BulkLoadJob {
 
                             List<TColumn> columnsDesc = new ArrayList<TColumn>();
                             for (Column column : olapTable.getSchemaByIndexId(indexId)) {
-                                columnsDesc.add(column.toThrift());
+                                TColumn tColumn = column.toThrift();
+                                tColumn.setColumnName(tColumn.getColumnName().toLowerCase(Locale.ROOT));
+                                columnsDesc.add(tColumn);
                             }
 
                             int bucket = 0;
