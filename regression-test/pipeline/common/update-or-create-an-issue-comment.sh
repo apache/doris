@@ -16,6 +16,15 @@
 # specific language governing permissions and limitations
 # under the License.
 
+usage() {
+    echo -e "Usage:
+    bash $0 <OPTIONS> <PULL_NUMBER> <COMMENTS>
+    note: https://github.com/apache/doris/pull/13259, PULL_NUMBER is 13259
+    OPTIONS should be one of [create_issue_comment|update_or_create_issue_comment]
+    COMMENTS can be any string
+    " && return 1
+}
+
 create_issue_comment() {
     if [[ -z "$1" ]] || [[ -z "$2" ]]; then
         echo 'Usage: update_or_create_issue_comment <ISSUE_NUMBER> <COMMENT_BODY>' && return 1
@@ -94,3 +103,13 @@ update_or_create_issue_comment() {
         echo -e "\033[31m Create issue(${ISSUE_NUMBER}) comment FAIL... \033[0m" && return 1
     fi
 }
+
+if [[ -z "$1" ]]; then
+    usage  
+elif [[ "$1" == "update_or_create_issue_comment" ]]; then
+    update_or_create_issue_comment "$2" "$3"
+elif [[ "$1" == "create_issue_comment" ]];then
+    create_issue_comment "$2" "$3"
+else
+    usage
+fi
