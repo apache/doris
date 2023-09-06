@@ -407,9 +407,13 @@ public class SparkLoadJob extends BulkLoadJob {
     private PushBrokerReaderParams getPushBrokerReaderParams(OlapTable table, long indexId) throws UserException {
         if (!indexToPushBrokerReaderParams.containsKey(indexId)) {
             PushBrokerReaderParams pushBrokerReaderParams = new PushBrokerReaderParams();
-            List<Column> schemaByIndexId = table.getSchemaByIndexId(indexId);
-            schemaByIndexId.forEach(col -> col.setName(col.getName().toLowerCase(Locale.ROOT)));
-            pushBrokerReaderParams.init(schemaByIndexId, brokerDesc);
+            List<Column> columns = new ArrayList<>();
+            table.getSchemaByIndexId(indexId).forEach(col -> {
+                Column column = new Column(col);
+                column.setName(col.getName().toLowerCase(Locale.ROOT));
+                columns.add(column);
+            });
+            pushBrokerReaderParams.init(columns, brokerDesc);
             indexToPushBrokerReaderParams.put(indexId, pushBrokerReaderParams);
         }
         return indexToPushBrokerReaderParams.get(indexId);
