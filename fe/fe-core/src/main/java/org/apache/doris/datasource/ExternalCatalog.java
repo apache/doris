@@ -578,10 +578,4 @@ public abstract class ExternalCatalog
         }
         return ret;
     }
-
-    @Override
-    public Collection<DatabaseIf> getAllDbs() {
-        makeSureInitialized();
-        return new HashSet<>(idToDb.values());
-    }
 }
