@@ -155,7 +155,7 @@ default_cluster:regression_test_index_p0.test_bitmap_index_unique_mow_delete		vi
 2
 
 -- !sql --
-3
+2
 
 -- !sql --
 2
