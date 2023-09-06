@@ -360,7 +360,7 @@ public:
     // May throw execption
     void try_insert(const Field& field);
 
-    void try_insert_from(const IColumn& src, size_t n);
+    void insert_from(const IColumn& src, size_t n) override;
 
     void insert_range_from(const IColumn& src, size_t start, size_t length) override;
 
