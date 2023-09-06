@@ -262,7 +262,8 @@ public class Alter {
                         }
                     } else if (alterClause instanceof DropPartitionFromIndexClause) {
                         // do nothing
-                    } else if (alterClause instanceof AddPartitionClause || alterClause instanceof AddPartitionLikeClause) {
+                    } else if (alterClause instanceof AddPartitionClause
+                            || alterClause instanceof AddPartitionLikeClause) {
                         needProcessOutsideTableLock = true;
                     } else {
                         throw new DdlException("Invalid alter operation: " + alterClause.getOpType());
