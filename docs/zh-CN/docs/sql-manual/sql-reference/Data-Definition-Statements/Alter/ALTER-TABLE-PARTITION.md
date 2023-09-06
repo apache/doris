@@ -151,7 +151,16 @@ ALTER TABLE example_db.my_table
 DROP PARTITION p1;
 ```
 
-8. 增加一个指定上下界的分区
+8. 批量删除分区
+
+```sql
+ALTER TABLE example_db.my_table
+DROP PARTITION p1,
+DROP PARTITION p2,
+DROP PARTITION p3;
+```
+
+9. 增加一个指定上下界的分区
 
 ```sql
 ALTER TABLE example_db.my_table
