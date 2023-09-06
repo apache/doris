@@ -1794,10 +1794,11 @@ void PInternalServiceImpl::group_commit_insert(google::protobuf::RpcController* 
         }
         st = _exec_env->group_commit_mgr()->group_commit_insert(
                 table_id, plan, tdesc_tbl, tscan_range_params, request, response);
-        response->mutable_status()->set_status_code(st.code());
+        st.to_protobuf(response->mutable_status());
     });
     if (!ret) {
         offer_failed(response, done, _light_work_pool);
+        return;
     }
 };
 
