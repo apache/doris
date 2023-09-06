@@ -87,7 +87,7 @@ public class EnforceMissingPropertiesHelper {
         groupExpression.getOwnerGroup()
                 .replaceBestPlanProperty(
                         output, PhysicalProperties.ANY, groupExpression.getCostValueByProperties(output));
-        return enforceSortAndDistribution(output, request);
+        return enforceSortAndDistribution(PhysicalProperties.ANY, request);
     }
 
     private PhysicalProperties enforceGlobalSort(PhysicalProperties oldOutputProperty, PhysicalProperties required) {

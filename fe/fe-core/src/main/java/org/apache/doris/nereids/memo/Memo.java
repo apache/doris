@@ -779,23 +779,7 @@ public class Memo {
         StringBuilder builder = new StringBuilder();
         builder.append("root:").append(getRoot()).append("\n");
         for (Group group : groups.values()) {
-            builder.append("\n\n").append(group);
-            builder.append("  stats").append("\n");
-            builder.append(group.getStatistics().detail("    "));
-            builder.append("  lowest Plan(cost, properties, plan, childrenRequires)");
-            group.getAllProperties().forEach(
-                    prop -> {
-                        Optional<Pair<Cost, GroupExpression>> costAndGroupExpression = group.getLowestCostPlan(prop);
-                        if (costAndGroupExpression.isPresent()) {
-                            Cost cost = costAndGroupExpression.get().first;
-                            GroupExpression child = costAndGroupExpression.get().second;
-                            builder.append("\n\n    " + cost.getValue() + " " + prop)
-                                    .append("\n     ").append(child)
-                                    .append("\n     " + child.getInputPropertiesListOrEmpty(prop));
-                        }
-                    }
-            );
-            builder.append("\n");
+            builder.append("\n\n").append(group).append("\n");
         }
         return builder.toString();
     }
