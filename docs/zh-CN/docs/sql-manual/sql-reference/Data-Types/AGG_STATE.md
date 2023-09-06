@@ -85,6 +85,8 @@ under the License.
 
 如果想要在过程中只聚合agg_state而不获取实际结果，可以使用[union](../..//sql-functions/combinators/union.md)函数。
 
+更多的例子参见[datatype_p0/agg_state](https://github.com/apache/doris/tree/master/regression-test/suites/datatype_p0/agg_state)
+
 ### keywords
 
     AGG_STATE
