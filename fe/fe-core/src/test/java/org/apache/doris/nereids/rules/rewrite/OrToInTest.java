@@ -33,10 +33,10 @@ import org.junit.jupiter.api.Test;
 import java.util.List;
 import java.util.Set;
 
-public class OrToInTest extends ExpressionRewriteTestHelper {
+class OrToInTest extends ExpressionRewriteTestHelper {
 
     @Test
-    public void test1() {
+    void test1() {
         String expr = "col1 = 1 or col1 = 2 or col1 = 3 and (col2 = 4)";
         Expression expression = PARSER.parseExpression(expr);
         Expression rewritten = new OrToIn().rewrite(expression, new ExpressionRewriteContext(null));
@@ -59,7 +59,7 @@ public class OrToInTest extends ExpressionRewriteTestHelper {
     }
 
     @Test
-    public void test2() {
+    void test2() {
         String expr = "col1 = 1 and col1 = 3 and col2 = 3 or col2 = 4";
         Expression expression = PARSER.parseExpression(expr);
         Expression rewritten = new OrToIn().rewrite(expression, new ExpressionRewriteContext(null));
@@ -68,7 +68,7 @@ public class OrToInTest extends ExpressionRewriteTestHelper {
     }
 
     @Test
-    public void test3() {
+    void test3() {
         String expr = "(col1 = 1 or col1 = 2) and  (col2 = 3 or col2 = 4)";
         Expression expression = PARSER.parseExpression(expr);
         Expression rewritten = new OrToIn().rewrite(expression, new ExpressionRewriteContext(null));
@@ -88,6 +88,25 @@ public class OrToInTest extends ExpressionRewriteTestHelper {
             Literal literal = (Literal) op;
             Assertions.assertTrue(opVals2.contains(((Byte) literal.getValue()).intValue()));
         }
+    }
+
+    @Test
+    void test4() {
+        String expr = "case when col = 1 or col = 2 or col = 3 then 1"
+                + "         when col = 4 or col = 5 or col = 6 then 1 else 0 end";
+        Expression expression = PARSER.parseExpression(expr);
+        Expression rewritten = new OrToIn().rewrite(expression, new ExpressionRewriteContext(null));
+        Assertions.assertEquals("CASE WHEN col IN (1, 2, 3) THEN 1 WHEN col IN (4, 5, 6) THEN 1 ELSE 0 END",
+                rewritten.toSql());
+    }
+
+    @Test
+    void test5() {
+        String expr = "col = 1 or (col = 2 and (col = 3 or col = 4 or col = 5))";
+        Expression expression = PARSER.parseExpression(expr);
+        Expression rewritten = new OrToIn().rewrite(expression, new ExpressionRewriteContext(null));
+        Assertions.assertEquals("((col = 1) OR ((col = 2) AND col IN (3, 4, 5)))",
+                rewritten.toSql());
     }
 
 }
