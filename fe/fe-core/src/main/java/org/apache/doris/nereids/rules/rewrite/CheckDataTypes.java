@@ -95,8 +95,6 @@ public class CheckDataTypes implements CustomRewriter {
                 checkTypes(((MapType) dataType).getValueType());
             } else if (dataType instanceof StructType) {
                 ((StructType) dataType).getFields().forEach(f -> this.checkTypes(f.getDataType()));
-            } else if (UNSUPPORTED_TYPE.contains(dataType.getClass())) {
-                throw new AnalysisException(String.format("type %s is unsupported for Nereids", dataType));
             }
         }
     }

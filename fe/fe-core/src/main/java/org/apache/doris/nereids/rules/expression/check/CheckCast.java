@@ -69,6 +69,8 @@ public class CheckCast extends AbstractExpressionRewriteRule {
             return true;
         } else if (originalType instanceof CharacterType && targetType instanceof StructType) {
             return true;
+        } else if (originalType instanceof JsonType || targetType instanceof JsonType) {
+            return true;
         } else {
             return checkPrimitiveType(originalType, targetType);
         }
