@@ -7,66 +7,66 @@ insert into test_agg_key values
     (1, true, 2, 3, 4, 5, 6),
     (5, false, 3, 4, 5, 6, 7),
     (5, true, 3, 5, 7, 9, 11),
-    (13, true, 4, 5, 6, 7, 8);
+    (13, true, 4, 5, 6, 7, 8),
     (13, true, 8, 10, 12, 14, 16);
     
 insert into test_uni_key values
     (1, true, 2, 3, 4, 5, 6),
-    (null, null, 1, 2, 3, 4, 5);
+    (null, null, 1, 2, 3, 4, 5),
     (5, false, 3, 4, 5, 6, 7),
     (5, true, 3, 5, 7, 9, 11),
-    (13, true, 4, 5, 6, 7, 8);
+    (13, true, 4, 5, 6, 7, 8),
     (13, true, 8, 10, 12, 14, 16);
     
 insert into test_uni_key_mow values
     (1, true, 2, 3, 4, 5, 6),
-    (null, null, 1, 2, 3, 4, 5);
+    (null, null, 1, 2, 3, 4, 5),
     (5, false, 3, 4, 5, 6, 7),
     (5, true, 3, 5, 7, 9, 11),
-    (13, true, 4, 5, 6, 7, 8);
+    (13, true, 4, 5, 6, 7, 8),
     (13, true, 8, 10, 12, 14, 16);
     
-insert into values test_not_null values
+insert into test_not_null values
     (1, true, 2, 3, 4, 5, 6),
     (5, false, 3, 4, 5, 6, 7),
     (13, true, 4, 5, 6, 7, 8);
     
-insert into values test_random values
+insert into test_random values
     (1, true, 2, 3, 4, 5, 6),
     (5, false, 3, 4, 5, 6, 7),
     (13, true, 4, 5, 6, 7, 8);
     
-insert into values test_random_auto values
+insert into test_random_auto values
     (1, true, 2, 3, 4, 5, 6),
     (5, false, 3, 4, 5, 6, 7),
     (13, true, 4, 5, 6, 7, 8);
     
-insert into values test_less_than_partition values
+insert into test_less_than_partition values
     (1, true, 2, 3, 4, 5, 6),
     (5, false, 3, 4, 5, 6, 7),
     (13, true, 4, 5, 6, 7, 8);
   
-insert into values test_range_partition values
+insert into test_range_partition values
     (1, true, 2, 3, 4, 5, 6),
     (5, false, 3, 4, 5, 6, 7),
     (13, true, 4, 5, 6, 7, 8);
     
-insert into values test_step_partition values
+insert into test_step_partition values
     (1, true, 2, 3, 4, 5, 6),
     (5, false, 3, 4, 5, 6, 7),
     (13, true, 4, 5, 6, 7, 8);
     
-insert into values test_date_step_partition values
+insert into test_date_step_partition values
     ('2020-12-21', 1, 'a'),
     ('2021-12-21', 2, 'ab'),
     ('2022-12-21', 3, 'abc');
     
-insert into values test_list_partition values
+insert into test_list_partition values
     (1, true, 2, 3, 4, 5, 6),
     (5, false, 3, 4, 5, 6, 7),
     (13, true, 4, 5, 6, 7, 8);
     
-insert into values test_rollup values
+insert into test_rollup values
     (1, true, 2, 3, 4, 5, 6),
     (5, false, 3, 4, 5, 6, 7),
     (13, true, 4, 5, 6, 7, 8);

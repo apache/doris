@@ -19,21 +19,17 @@
 // case. For example: 'year' and 'Year' datatype should also be valid in definition
 
 suite("nereids_create_table") {
-    sql 'set enable_nereids_planner=true'
+    sql 'set enable_nereids_planner=false'
     sql 'set enable_fallback_to_original_planner=false'
     sql 'set enable_nereids_dml=true'
-    
-    sql 'drop database if exists nereids_create_table_p0'
-    sql 'create database if not exists nereids_create_table_p0'
-    sql 'use nereids_create_table_p0'
 
-    def str = new File("""${context.file.parent}/table.sql""").text
+    def str = new File("""${context.file.parent}/ddl/table.sql""").text
     for (String table in str.split(';')) {
         sql table
         sleep(100)
     }
 
-    str = new File("""${context.file.parent}/data.sql""").text
+    str = new File("""${context.file.parent}/ddl/data.sql""").text
     for (String table in str.split(';')) {
         sql table
         sleep(100)
@@ -43,6 +39,6 @@ suite("nereids_create_table") {
                              'test_random', 'test_random_auto', 'test_less_than_partition', 'test_range_partition',
                              'test_step_partition', 'test_date_step_partition', 'test_list_partition', 'test_rollup']
     for (String t in tables) {
-        sql "select * from ${t} order by id"
+        qt_sql "select * from ${t} order by id"
     }
 }
