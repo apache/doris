@@ -352,11 +352,8 @@ public:
         return _query_options.__isset.skip_delete_bitmap && _query_options.skip_delete_bitmap;
     }
 
-    
-    bool enable_page_cache() const {
-        return _query_options.enable_page_cache;
-    }
-    
+    bool enable_page_cache() const { return _query_options.enable_page_cache; }
+
     int partitioned_hash_join_rows_threshold() const {
         if (!_query_options.__isset.partitioned_hash_join_rows_threshold) {
             return 0;
