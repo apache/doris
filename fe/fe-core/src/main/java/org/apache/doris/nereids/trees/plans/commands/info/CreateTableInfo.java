@@ -17,7 +17,6 @@
 
 package org.apache.doris.nereids.trees.plans.commands.info;
 
-import org.apache.doris.analysis.AddRollupClause;
 import org.apache.doris.analysis.AllPartitionDesc;
 import org.apache.doris.analysis.AlterClause;
 import org.apache.doris.analysis.CreateTableStmt;
@@ -376,7 +375,7 @@ public class CreateTableInfo {
         List<AlterClause> addRollups = Lists.newArrayList();
         if (rollups != null) {
             addRollups.addAll(rollups.stream()
-                    .map(r -> new AddRollupClause(r.getName(), r.getCols(), null, null, null))
+                    .map(RollupDefinition::translateToCatalogStyle)
                     .collect(Collectors.toList()));
         }
         return new CreateTableStmt(ifNotExists, false,

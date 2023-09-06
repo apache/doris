@@ -1929,7 +1929,10 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     public RollupDefinition visitRollupDef(RollupDefContext ctx) {
         String rollupName = ctx.rollupName.getText();
         List<String> rollupCols = visitIdentifierList(ctx.rollupCols);
-        return new RollupDefinition(rollupName, rollupCols);
+        List<String> dupKeys = ctx.dupKeys == null ? ImmutableList.of() : visitIdentifierList(ctx.dupKeys);
+        Map<String, String> properties = ctx.properties == null ? Maps.newHashMap()
+                : visitPropertyClause(ctx.properties);
+        return new RollupDefinition(rollupName, rollupCols, dupKeys, properties);
     }
 
     /* ********************************************************************************************

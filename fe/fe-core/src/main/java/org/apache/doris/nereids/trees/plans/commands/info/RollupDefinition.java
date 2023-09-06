@@ -17,9 +17,13 @@
 
 package org.apache.doris.nereids.trees.plans.commands.info;
 
+import org.apache.doris.analysis.AddRollupClause;
 import org.apache.doris.nereids.util.Utils;
 
+import com.google.common.collect.Maps;
+
 import java.util.List;
+import java.util.Map;
 
 /**
  * rollup definition
@@ -27,13 +31,21 @@ import java.util.List;
 public class RollupDefinition {
     private final String name;
     private final List<String> cols;
+    private final List<String> dupKeys;
+    private final Map<String, String> properties;
 
-    public RollupDefinition(String name, List<String> cols) {
+    public RollupDefinition(String name, List<String> cols, List<String> dupKeys, Map<String, String> properties) {
         this.name = name;
         this.cols = Utils.copyRequiredList(cols);
+        this.dupKeys = Utils.copyRequiredList(dupKeys);
+        this.properties = Maps.newHashMap(properties);
     }
 
     public void validate() {
+    }
+
+    public AddRollupClause translateToCatalogStyle() {
+        return new AddRollupClause(name, cols, dupKeys, name, properties);
     }
 
     public String getName() {
