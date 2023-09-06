@@ -35,6 +35,7 @@ import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.catalog.View;
+import org.apache.doris.catalog.external.ExternalTable;
 import org.apache.doris.catalog.external.HMSExternalTable;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
@@ -578,7 +579,7 @@ public class AnalysisManager extends Daemon implements Writable {
             LOG.warn(e.getMessage());
             return;
         }
-        if (jobInfo.analysisType == AnalysisType.HISTOGRAM || table.getType() != TableType.HMS_EXTERNAL_TABLE) {
+        if (jobInfo.analysisType == AnalysisType.HISTOGRAM || !(table instanceof ExternalTable)) {
             return;
         }
         AnalysisInfoBuilder colTaskInfoBuilder = new AnalysisInfoBuilder(jobInfo);
