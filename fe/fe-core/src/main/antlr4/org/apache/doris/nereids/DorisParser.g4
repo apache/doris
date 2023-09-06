@@ -386,7 +386,7 @@ rollupDefs
     ;
     
 rollupDef
-    : rollupName=identifier rollupCols=identifierList
+    : rollupName=identifier rollupCols=identifierList (DUPLICATE KEY dupKeys=identifierList)? properties=propertyClause?
     ;
 
 aggTypeDef
