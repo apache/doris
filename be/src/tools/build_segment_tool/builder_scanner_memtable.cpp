@@ -1,3 +1,20 @@
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
+//
+//   http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied.  See the License for the
+// specific language governing permissions and limitations
+// under the License.
+
 #include "tools/build_segment_tool/builder_scanner_memtable.h"
 
 #include <gen_cpp/Exprs_types.h>
@@ -402,8 +419,15 @@ void BuilderScannerMemtable::doSegmentBuild(
         LOG(FATAL) << "delta_writer init fail:" << status.to_string();
     }
 
-    std::filesystem::path segment_path(
+    std::filesystem::path tablet_path(
             std::filesystem::path(_build_dir + "/output/" + std::to_string(_tablet->tablet_id())));
+   
+    if (!std::filesystem::is_directory(tablet_path) && !std::filesystem::create_directory(tablet_path)) {
+        LOG(FATAL) << "create segment path fail.";
+    }
+
+    std::filesystem::path segment_path(
+            std::filesystem::path(_build_dir + "/output/" + std::to_string(_tablet->tablet_id()) + "/" + std::to_string(_tablet->schema_hash())));
     std::filesystem::remove_all(segment_path);
     if (!std::filesystem::create_directory(segment_path)) {
         LOG(FATAL) << "create segment path fail.";

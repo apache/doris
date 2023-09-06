@@ -20,6 +20,7 @@ set(LIBRARY_OUTPUT_PATH "${BUILD_DIR}/src/tools/build_segment_tool")
 
 # where to put generated binaries
 set(EXECUTABLE_OUTPUT_PATH "${BUILD_DIR}/src/tools/build_segment_tool")
+add_compile_options(-DIS_SEGMENT_TOOL)
 
 add_executable(segment_builder
     segment_builder.cpp
