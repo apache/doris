@@ -2106,7 +2106,8 @@ Status Tablet::_cooldown_data() {
     new_rowset_meta->set_creation_time(time(nullptr));
     UniqueId cooldown_meta_id = UniqueId::gen_uid();
     RowsetSharedPtr new_rowset;
-    RowsetFactory::create_rowset(_schema, _tablet_path, new_rowset_meta, &new_rowset);
+    RowsetFactory::create_rowset(_schema, remote_tablet_path(tablet_id()), new_rowset_meta,
+                                 &new_rowset);
 
     {
         std::unique_lock meta_wlock(_meta_lock);
