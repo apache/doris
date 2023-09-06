@@ -434,14 +434,9 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         String tmpPath = ctx.filePath.getText();
         String path = escapeBackSlash(tmpPath.substring(1, tmpPath.length() - 1));
 
-        String whereSql = "";
+        Optional<Expression> expr = Optional.empty();
         if (ctx.whereClause() != null) {
-            WhereClauseContext whereClauseContext = ctx.whereClause();
-            int startIndex = whereClauseContext.start.getStartIndex();
-            int stopIndex = whereClauseContext.stop.getStopIndex();
-            org.antlr.v4.runtime.misc.Interval interval = new org.antlr.v4.runtime.misc.Interval(startIndex,
-                    stopIndex);
-            whereSql = whereClauseContext.start.getInputStream().getText(interval);
+            expr = Optional.of(getExpression(ctx.whereClause().booleanExpression()));
         }
 
         Map<String, String> filePropertiesMap = ImmutableMap.of();
@@ -453,7 +448,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         if (ctx.withRemoteStorageSystem() != null) {
             brokerDesc = Optional.ofNullable(visitWithRemoteStorageSystem(ctx.withRemoteStorageSystem()));
         }
-        return new ExportCommand(tableName, partitions, whereSql, path, filePropertiesMap, brokerDesc);
+        return new ExportCommand(tableName, partitions, expr, path, filePropertiesMap, brokerDesc);
     }
 
     @Override

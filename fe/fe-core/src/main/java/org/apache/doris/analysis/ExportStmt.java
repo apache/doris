@@ -192,7 +192,7 @@ public class ExportStmt extends StatementBase {
 
         // create job and analyze job
         setJob();
-        exportJob.generateOutfile();
+        exportJob.generateOutfileStatement();
     }
 
     private void setJob() throws UserException {
@@ -210,7 +210,6 @@ public class ExportStmt extends StatementBase {
 
         // set where expr
         exportJob.setWhereExpr(this.whereExpr);
-        exportJob.setWhereSql("");
 
         // set path
         exportJob.setExportPath(this.path);

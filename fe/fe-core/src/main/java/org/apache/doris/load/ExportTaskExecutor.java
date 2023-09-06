@@ -197,6 +197,6 @@ public class ExportTaskExecutor implements TransientTaskExecutor {
                 return optional;
             }
         }
-        return Optional.of(null);
+        return Optional.empty();
     }
 }

@@ -29,6 +29,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.utframe.TestWithFeService;
 
+import com.google.common.collect.Lists;
 import mockit.Mock;
 import mockit.MockUp;
 import org.junit.Assert;
@@ -36,7 +37,6 @@ import org.junit.jupiter.api.Test;
 
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
-import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 
@@ -106,15 +106,11 @@ public class ExportToOutfileSqlTest extends TestWithFeService {
                 + "\");";
 
         // generate outfile
-        List<List<String>> outfileSqlPerParallel = getOutfileSqlPerParallel(exportSql);
+        List<List<StatementBase>> outfileSqlPerParallel = getOutfileSqlPerParallel(exportSql);
 
         // check
         Assert.assertEquals(1, outfileSqlPerParallel.size());
         Assert.assertEquals(4, outfileSqlPerParallel.get(0).size());
-        Assert.assertEquals(outfileSql1, outfileSqlPerParallel.get(0).get(0));
-        Assert.assertEquals(outfileSql2, outfileSqlPerParallel.get(0).get(1));
-        Assert.assertEquals(outfileSql3, outfileSqlPerParallel.get(0).get(2));
-        Assert.assertEquals(outfileSql4, outfileSqlPerParallel.get(0).get(3));
     }
 
     /**
@@ -161,7 +157,7 @@ public class ExportToOutfileSqlTest extends TestWithFeService {
                 + "\");";
 
         // generate outfile
-        List<List<String>> outfileSqlPerParallel = getOutfileSqlPerParallel(exportSql);
+        List<List<StatementBase>> outfileSqlPerParallel = getOutfileSqlPerParallel(exportSql);
 
         // check
         Assert.assertEquals(4, outfileSqlPerParallel.size());
@@ -169,11 +165,6 @@ public class ExportToOutfileSqlTest extends TestWithFeService {
         Assert.assertEquals(1, outfileSqlPerParallel.get(1).size());
         Assert.assertEquals(1, outfileSqlPerParallel.get(2).size());
         Assert.assertEquals(1, outfileSqlPerParallel.get(3).size());
-
-        Assert.assertEquals(outfileSql1, outfileSqlPerParallel.get(0).get(0));
-        Assert.assertEquals(outfileSql2, outfileSqlPerParallel.get(1).get(0));
-        Assert.assertEquals(outfileSql3, outfileSqlPerParallel.get(2).get(0));
-        Assert.assertEquals(outfileSql4, outfileSqlPerParallel.get(3).get(0));
     }
 
     /**
@@ -220,7 +211,7 @@ public class ExportToOutfileSqlTest extends TestWithFeService {
                 + "\");";
 
         // generate outfile
-        List<List<String>> outfileSqlPerParallel = getOutfileSqlPerParallel(exportSql);
+        List<List<StatementBase>> outfileSqlPerParallel = getOutfileSqlPerParallel(exportSql);
 
         // check
         Assert.assertEquals(4, outfileSqlPerParallel.size());
@@ -228,11 +219,6 @@ public class ExportToOutfileSqlTest extends TestWithFeService {
         Assert.assertEquals(1, outfileSqlPerParallel.get(1).size());
         Assert.assertEquals(1, outfileSqlPerParallel.get(2).size());
         Assert.assertEquals(1, outfileSqlPerParallel.get(3).size());
-
-        Assert.assertEquals(outfileSql1, outfileSqlPerParallel.get(0).get(0));
-        Assert.assertEquals(outfileSql2, outfileSqlPerParallel.get(1).get(0));
-        Assert.assertEquals(outfileSql3, outfileSqlPerParallel.get(2).get(0));
-        Assert.assertEquals(outfileSql4, outfileSqlPerParallel.get(3).get(0));
     }
 
     /**
@@ -279,7 +265,7 @@ public class ExportToOutfileSqlTest extends TestWithFeService {
                 + "\");";
 
         // generate outfile
-        List<List<String>> outfileSqlPerParallel = getOutfileSqlPerParallel(exportSql);
+        List<List<StatementBase>> outfileSqlPerParallel = getOutfileSqlPerParallel(exportSql);
 
         // check
         Assert.assertEquals(4, outfileSqlPerParallel.size());
@@ -287,11 +273,6 @@ public class ExportToOutfileSqlTest extends TestWithFeService {
         Assert.assertEquals(1, outfileSqlPerParallel.get(1).size());
         Assert.assertEquals(1, outfileSqlPerParallel.get(2).size());
         Assert.assertEquals(1, outfileSqlPerParallel.get(3).size());
-
-        Assert.assertEquals(outfileSql1, outfileSqlPerParallel.get(0).get(0));
-        Assert.assertEquals(outfileSql2, outfileSqlPerParallel.get(1).get(0));
-        Assert.assertEquals(outfileSql3, outfileSqlPerParallel.get(2).get(0));
-        Assert.assertEquals(outfileSql4, outfileSqlPerParallel.get(3).get(0));
     }
 
     /**
@@ -371,7 +352,7 @@ public class ExportToOutfileSqlTest extends TestWithFeService {
 
 
         // generate outfile
-        List<List<String>> outfileSqlPerParallel = getOutfileSqlPerParallel(exportSql);
+        List<List<StatementBase>> outfileSqlPerParallel = getOutfileSqlPerParallel(exportSql);
 
         // check
         Assert.assertEquals(10, outfileSqlPerParallel.size());
@@ -379,17 +360,6 @@ public class ExportToOutfileSqlTest extends TestWithFeService {
             Assert.assertEquals(1, outfileSqlPerParallel.get(i).size());
 
         }
-
-        Assert.assertEquals(outfileSql1, outfileSqlPerParallel.get(0).get(0));
-        Assert.assertEquals(outfileSql2, outfileSqlPerParallel.get(1).get(0));
-        Assert.assertEquals(outfileSql3, outfileSqlPerParallel.get(2).get(0));
-        Assert.assertEquals(outfileSql4, outfileSqlPerParallel.get(3).get(0));
-        Assert.assertEquals(outfileSql5, outfileSqlPerParallel.get(4).get(0));
-        Assert.assertEquals(outfileSql6, outfileSqlPerParallel.get(5).get(0));
-        Assert.assertEquals(outfileSql7, outfileSqlPerParallel.get(6).get(0));
-        Assert.assertEquals(outfileSql8, outfileSqlPerParallel.get(7).get(0));
-        Assert.assertEquals(outfileSql9, outfileSqlPerParallel.get(8).get(0));
-        Assert.assertEquals(outfileSql10, outfileSqlPerParallel.get(9).get(0));
     }
 
 
@@ -443,20 +413,13 @@ public class ExportToOutfileSqlTest extends TestWithFeService {
                 + "\");";
 
         // generate outfile
-        List<List<String>> outfileSqlPerParallel = getOutfileSqlPerParallel(exportSql);
+        List<List<StatementBase>> outfileSqlPerParallel = getOutfileSqlPerParallel(exportSql);
 
         // check
         Assert.assertEquals(5, outfileSqlPerParallel.size());
         for (int i = 0; i < 5; ++i) {
             Assert.assertEquals(1, outfileSqlPerParallel.get(i).size());
         }
-
-
-        Assert.assertEquals(outfileSql1, outfileSqlPerParallel.get(0).get(0));
-        Assert.assertEquals(outfileSql2, outfileSqlPerParallel.get(1).get(0));
-        Assert.assertEquals(outfileSql3, outfileSqlPerParallel.get(2).get(0));
-        Assert.assertEquals(outfileSql4, outfileSqlPerParallel.get(3).get(0));
-        Assert.assertEquals(outfileSql5, outfileSqlPerParallel.get(4).get(0));
     }
 
     /**
@@ -513,20 +476,13 @@ public class ExportToOutfileSqlTest extends TestWithFeService {
                 + "\");";
 
         // generate outfile
-        List<List<String>> outfileSqlPerParallel = getOutfileSqlPerParallel(exportSql);
+        List<List<StatementBase>> outfileSqlPerParallel = getOutfileSqlPerParallel(exportSql);
 
         // check
         Assert.assertEquals(5, outfileSqlPerParallel.size());
         for (int i = 0; i < 5; ++i) {
             Assert.assertEquals(1, outfileSqlPerParallel.get(i).size());
         }
-
-
-        Assert.assertEquals(outfileSql1, outfileSqlPerParallel.get(0).get(0));
-        Assert.assertEquals(outfileSql2, outfileSqlPerParallel.get(1).get(0));
-        Assert.assertEquals(outfileSql3, outfileSqlPerParallel.get(2).get(0));
-        Assert.assertEquals(outfileSql4, outfileSqlPerParallel.get(3).get(0));
-        Assert.assertEquals(outfileSql5, outfileSqlPerParallel.get(4).get(0));
     }
 
     /**
@@ -568,15 +524,12 @@ public class ExportToOutfileSqlTest extends TestWithFeService {
                 + ");";
 
         // generate outfile
-        List<List<String>> outfileSqlPerParallel = getOutfileSqlPerParallel(exportSql);
+        List<List<StatementBase>> outfileSqlPerParallel = getOutfileSqlPerParallel(exportSql);
 
         // check
         Assert.assertEquals(2, outfileSqlPerParallel.size());
         Assert.assertEquals(1, outfileSqlPerParallel.get(0).size());
         Assert.assertEquals(1, outfileSqlPerParallel.get(1).size());
-
-        Assert.assertEquals(outfileSql1, outfileSqlPerParallel.get(0).get(0));
-        Assert.assertEquals(outfileSql2, outfileSqlPerParallel.get(1).get(0));
     }
 
     /**
@@ -647,15 +600,12 @@ public class ExportToOutfileSqlTest extends TestWithFeService {
                 + ");";
 
         // generate outfile
-        List<List<String>> outfileSqlPerParallel = getOutfileSqlPerParallel(exportSql);
+        List<List<StatementBase>> outfileSqlPerParallel = getOutfileSqlPerParallel(exportSql);
 
         // check
         Assert.assertEquals(2, outfileSqlPerParallel.size());
         Assert.assertEquals(1, outfileSqlPerParallel.get(0).size());
         Assert.assertEquals(1, outfileSqlPerParallel.get(1).size());
-
-        Assert.assertEquals(outfileSql1, outfileSqlPerParallel.get(0).get(0));
-        Assert.assertEquals(outfileSql2, outfileSqlPerParallel.get(1).get(0));
     }
 
     /**
@@ -725,15 +675,12 @@ public class ExportToOutfileSqlTest extends TestWithFeService {
                 + ");";
 
         // generate outfile
-        List<List<String>> outfileSqlPerParallel = getOutfileSqlPerParallel(exportSql);
+        List<List<StatementBase>> outfileSqlPerParallel = getOutfileSqlPerParallel(exportSql);
 
         // check
         Assert.assertEquals(2, outfileSqlPerParallel.size());
         Assert.assertEquals(1, outfileSqlPerParallel.get(0).size());
         Assert.assertEquals(1, outfileSqlPerParallel.get(1).size());
-
-        Assert.assertEquals(outfileSql1, outfileSqlPerParallel.get(0).get(0));
-        Assert.assertEquals(outfileSql2, outfileSqlPerParallel.get(1).get(0));
     }
 
     /**
@@ -789,15 +736,12 @@ public class ExportToOutfileSqlTest extends TestWithFeService {
                 + ");";
 
         // generate outfile
-        List<List<String>> outfileSqlPerParallel = getOutfileSqlPerParallel(exportSql);
+        List<List<StatementBase>> outfileSqlPerParallel = getOutfileSqlPerParallel(exportSql);
 
         // check
         Assert.assertEquals(2, outfileSqlPerParallel.size());
         Assert.assertEquals(1, outfileSqlPerParallel.get(0).size());
         Assert.assertEquals(1, outfileSqlPerParallel.get(1).size());
-
-        Assert.assertEquals(outfileSql1, outfileSqlPerParallel.get(0).get(0));
-        Assert.assertEquals(outfileSql2, outfileSqlPerParallel.get(1).get(0));
     }
 
     private LogicalPlan parseSql(String exportSql) {
@@ -806,9 +750,9 @@ public class ExportToOutfileSqlTest extends TestWithFeService {
     }
 
     // need open EnableNereidsPlanner
-    private List<List<String>> getOutfileSqlPerParallel(String exportSql) throws UserException {
+    private List<List<StatementBase>> getOutfileSqlPerParallel(String exportSql) throws UserException {
         ExportCommand exportCommand = (ExportCommand) parseSql(exportSql);
-        List<List<String>> outfileSqlPerParallel = new ArrayList<>();
+        List<List<StatementBase>> selectStmtListPerParallel = Lists.newArrayList();
         try {
             Method getTableName = exportCommand.getClass().getDeclaredMethod("getTableName", ConnectContext.class);
             getTableName.setAccessible(true);
@@ -826,7 +770,7 @@ public class ExportToOutfileSqlTest extends TestWithFeService {
 
             ExportJob job = (ExportJob) generateExportJob.invoke(
                     exportCommand, connectContext, exportCommand.getFileProperties(), tblName);
-            outfileSqlPerParallel = job.getOutfileSqlPerParallel();
+            selectStmtListPerParallel = job.getSelectStmtListPerParallel();
         } catch (NoSuchMethodException e) {
             throw new UserException(e);
         } catch (InvocationTargetException e) {
@@ -834,6 +778,6 @@ public class ExportToOutfileSqlTest extends TestWithFeService {
         } catch (IllegalAccessException e) {
             throw new UserException(e);
         }
-        return outfileSqlPerParallel;
+        return selectStmtListPerParallel;
     }
 }

@@ -38,6 +38,7 @@ import org.apache.doris.common.util.Util;
 import org.apache.doris.load.ExportJob;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.exceptions.AnalysisException;
+import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.nereids.util.RelationUtil;
@@ -88,7 +89,7 @@ public class ExportCommand extends Command implements ForwardWithSync {
             .build();
 
     private final List<String> nameParts;
-    private final String whereSql;
+    private final Optional<Expression> expr;
     private final String path;
     private final List<String> partitionsNames;
     private final Map<String, String> fileProperties;
@@ -97,17 +98,17 @@ public class ExportCommand extends Command implements ForwardWithSync {
     /**
      * constructor of ExportCommand
      */
-    public ExportCommand(List<String> nameParts, List<String> partitions, String whereSql, String path,
-            Map<String, String> fileProperties, Optional<BrokerDesc> brokerDesc) {
+    public ExportCommand(List<String> nameParts, List<String> partitions, Optional<Expression> expr,
+            String path, Map<String, String> fileProperties, Optional<BrokerDesc> brokerDesc) {
         super(PlanType.EXPORT_COMMAND);
         this.nameParts = ImmutableList.copyOf(Objects.requireNonNull(nameParts, "nameParts should not be null"));
         this.path = Objects.requireNonNull(path.trim(), "export path should not be null");
-        this.whereSql = Objects.requireNonNull(whereSql, "where sql should not be null");
         this.partitionsNames = ImmutableList.copyOf(
                 Objects.requireNonNull(partitions, "partitions should not be null"));
         this.fileProperties = ImmutableSortedMap.copyOf(
-                Objects.requireNonNull(fileProperties, "nameParts should not be null"),
+                Objects.requireNonNull(fileProperties, "fileProperties should not be null"),
                 String.CASE_INSENSITIVE_ORDER);
+        this.expr = expr;
         if (!brokerDesc.isPresent()) {
             this.brokerDesc = Optional.of(new BrokerDesc("local", StorageBackend.StorageType.LOCAL, null));
         } else {
@@ -145,7 +146,7 @@ public class ExportCommand extends Command implements ForwardWithSync {
         checkFileProperties(fileProperties, tblName);
     }
 
-    // convert property key to lowercase
+    // check property key
     private void checkPropertyKey(Map<String, String> properties) throws AnalysisException {
         for (String key : properties.keySet()) {
             if (!PROPERTIES_SET.contains(key.toLowerCase())) {
@@ -228,8 +229,8 @@ public class ExportCommand extends Command implements ForwardWithSync {
 
         // set partitions
         exportJob.setPartitionNames(this.partitionsNames);
-        // set where sql
-        exportJob.setWhereSql(this.whereSql);
+        // set where expression
+        exportJob.setWhereExpression(this.expr);
         // set path
         exportJob.setExportPath(this.path);
 
@@ -291,7 +292,7 @@ public class ExportCommand extends Command implements ForwardWithSync {
                 .getQueryTimeoutS());
 
         // exportJob generate outfile sql
-        exportJob.generateOutfile();
+        exportJob.generateOutfileLogicalPlans(this.nameParts);
         return exportJob;
     }
 
