@@ -477,6 +477,7 @@ std::string StackTrace::toString(void** frame_pointers_raw, size_t offset, size_
 void StackTrace::createCache() {
     std::lock_guard lock {stacktrace_cache_mutex};
     cacheInstance();
+    doris::SymbolIndex::instance();
 }
 
 void StackTrace::dropCache() {
