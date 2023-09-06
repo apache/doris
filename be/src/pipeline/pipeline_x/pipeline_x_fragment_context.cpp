@@ -59,6 +59,7 @@
 #include "pipeline/exec/repeat_operator.h"
 #include "pipeline/exec/result_sink_operator.h"
 #include "pipeline/exec/scan_operator.h"
+#include "pipeline/exec/select_operator.h"
 #include "pipeline/exec/sort_sink_operator.h"
 #include "pipeline/exec/sort_source_operator.h"
 #include "pipeline/exec/streaming_aggregation_sink_operator.h"
@@ -637,6 +638,11 @@ Status PipelineXFragmentContext::_create_operator(ObjectPool* pool, const TPlanN
     }
     case TPlanNodeType::EMPTY_SET_NODE: {
         op.reset(new EmptySetSourceOperatorX(pool, tnode, descs));
+        RETURN_IF_ERROR(cur_pipe->add_operator(op));
+        break;
+    }
+    case TPlanNodeType::SELECT_NODE: {
+        op.reset(new SelectOperatorX(pool, tnode, descs));
         RETURN_IF_ERROR(cur_pipe->add_operator(op));
         break;
     }
