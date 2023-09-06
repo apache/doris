@@ -780,6 +780,7 @@ nonReserved
     | NEXT
     | NGRAM_BF
     | NO
+    | NON_NULLABLE
     | NULLS
     | OF
     | OFFSET
