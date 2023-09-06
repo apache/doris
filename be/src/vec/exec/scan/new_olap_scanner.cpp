@@ -412,11 +412,7 @@ Status NewOlapScanner::_init_tablet_reader_params(
         }
     }
 
-    // if (!config::disable_storage_page_cache) {
-    //     _tablet_reader_params.use_page_cache = true;
-    // }
-
-     if(_state->enable_page_cache()) {
+       if(_state->enable_page_cache()) {
        _tablet_reader_params.use_page_cache = true;
      }
 
