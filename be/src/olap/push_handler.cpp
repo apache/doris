@@ -340,15 +340,14 @@ PushBrokerReader::PushBrokerReader(const Schema* schema, const TBrokerScanRange&
         // Later, this field is moved to TFileRangeDesc, but here we still only use _ranges[0]'s
         // file_type.
         // Because I don't know if other range has this field, so just keep it same as before.
-        file_range.file_type = _ranges[0].file_type;
-        file_range.load_id = _ranges[i].load_id;
-        file_range.path = _ranges[i].path;
-        file_range.start_offset = _ranges[i].start_offset;
-        file_range.__isset.size = true;
-        file_range.size = _ranges[i].size;
-        file_range.__isset.file_size = true;
-        file_range.file_size = _ranges[i].file_size;
-        file_range.columns_from_path = _ranges[i].columns_from_path;
+        file_range.__set_file_type(_ranges[0].file_type);
+        file_range.__set_load_id(_ranges[i].load_id);
+        file_range.__set_path(_ranges[i].path);
+        file_range.__set_start_offset(_ranges[i].start_offset);
+        file_range.__set_size(_ranges[i].size);
+        file_range.__set_file_size(_ranges[i].file_size);
+        file_range.__set_columns_from_path(_ranges[i].columns_from_path);
+
         _file_ranges.push_back(file_range);
     }
 }

@@ -1697,6 +1697,12 @@ public class OlapTable extends Table {
         }
     }
 
+    public void checkChangeReplicaAllocation() throws DdlException {
+        if (isColocateTable()) {
+            throw new DdlException("Cannot change replication allocation of colocate table.");
+        }
+    }
+
     public void setReplicationAllocation(ReplicaAllocation replicaAlloc) {
         getOrCreatTableProperty().setReplicaAlloc(replicaAlloc);
     }

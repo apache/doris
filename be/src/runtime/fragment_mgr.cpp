@@ -798,7 +798,13 @@ Status FragmentMgr::exec_plan_fragment(const TExecPlanFragmentParams& params,
                                    params.query_options.enable_pipeline_engine;
     RETURN_IF_ERROR(
             _get_query_ctx(params, params.params.query_id, pipeline_engine_enabled, query_ctx));
-    query_ctx->fragment_ids.push_back(fragment_instance_id);
+    {
+        // Need lock here, because it will modify fragment ids and std::vector may resize and reallocate
+        // memory, but query_is_canncelled will traverse the vector, it will core.
+        // query_is_cancelled is called in allocator, we has to avoid dead lock.
+        std::lock_guard<std::mutex> lock(_lock);
+        query_ctx->fragment_ids.push_back(fragment_instance_id);
+    }
 
     exec_state.reset(
             new FragmentExecState(query_ctx->query_id, params.params.fragment_instance_id,

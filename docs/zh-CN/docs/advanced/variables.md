@@ -633,7 +633,7 @@ try (Connection conn = DriverManager.getConnection("jdbc:mysql://127.0.0.1:9030/
 
     <version since="dev"></version>
 
-    如果设置为true，对于查询请求，将不再返回实际结果集，而仅返回行数。默认为 false。
+    如果设置为true，对于查询请求，将不再返回实际结果集，而仅返回行数。对于导入和insert，Sink 丢掉了数据，不会有实际的写发生。额默认为 false。
 
     该参数可以用于测试返回大量数据集时，规避结果集传输的耗时，重点关注底层查询执行的耗时。
 

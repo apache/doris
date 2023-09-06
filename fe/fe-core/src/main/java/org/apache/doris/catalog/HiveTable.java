@@ -106,6 +106,12 @@ public class HiveTable extends Table {
         }
         copiedProps.remove(HMSProperties.HIVE_METASTORE_URIS);
         hiveProperties.put(HMSProperties.HIVE_METASTORE_URIS, hiveMetaStoreUris);
+        // support multi hive version
+        String hiveVersion = copiedProps.get(HMSProperties.HIVE_VERSION);
+        if (!Strings.isNullOrEmpty(hiveVersion)) {
+            copiedProps.remove(HMSProperties.HIVE_VERSION);
+            hiveProperties.put(HMSProperties.HIVE_VERSION, hiveVersion);
+        }
 
         // check auth type
         String authType = copiedProps.get(HdfsResource.HADOOP_SECURITY_AUTHENTICATION);

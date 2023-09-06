@@ -313,7 +313,7 @@ DEFINE_Int32(storage_page_cache_shard_size, "256");
 // all storage page cache will be divided into data_page_cache and index_page_cache
 DEFINE_Int32(index_page_cache_percentage, "10");
 // whether to disable page cache feature in storage
-DEFINE_Bool(disable_storage_page_cache, "true");
+DEFINE_Bool(disable_storage_page_cache, "false");
 // whether to disable row cache feature in storage
 DEFINE_Bool(disable_storage_row_cache, "true");
 // whether to disable pk page cache feature in storage
@@ -1020,6 +1020,9 @@ DEFINE_mInt64(file_cache_max_file_reader_cache_size, "1000000");
 DEFINE_Bool(enable_shrink_memory, "false");
 DEFINE_mInt32(schema_cache_capacity, "1024");
 DEFINE_mInt32(schema_cache_sweep_time_sec, "100");
+
+// max number of segment cache, default -1 for backward compatibility fd_number*2/5
+DEFINE_mInt32(segment_cache_capacity, "-1");
 
 // enable feature binlog, default false
 DEFINE_Bool(enable_feature_binlog, "false");

@@ -445,9 +445,6 @@ Status TabletReader::_init_orderby_keys_param(const ReaderParams& read_params) {
             }
         }
         if (read_params.read_orderby_key_num_prefix_columns != _orderby_key_columns.size()) {
-            LOG(WARNING) << "read_orderby_key_num_prefix_columns != _orderby_key_columns.size "
-                         << read_params.read_orderby_key_num_prefix_columns << " vs. "
-                         << _orderby_key_columns.size();
             return Status::Error<ErrorCode::INTERNAL_ERROR>(
                     "read_orderby_key_num_prefix_columns != _orderby_key_columns.size, "
                     "read_params.read_orderby_key_num_prefix_columns={}, "

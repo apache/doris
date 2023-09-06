@@ -54,7 +54,8 @@ public class S3TableValuedFunction extends ExternalFileTableValuedFunction {
             ImmutableSet.of("access_key", "secret_key", "session_token", "region");
 
     private static final ImmutableSet<String> OPTIONAL_KEYS =
-            ImmutableSet.of(S3Properties.SESSION_TOKEN, PropertyConverter.USE_PATH_STYLE, S3Properties.REGION);
+            ImmutableSet.of(S3Properties.SESSION_TOKEN, PropertyConverter.USE_PATH_STYLE, S3Properties.REGION,
+                    PATH_PARTITION_KEYS);
 
     private static final ImmutableSet<String> PROPERTIES_SET = ImmutableSet.<String>builder()
             .add(S3_URI)

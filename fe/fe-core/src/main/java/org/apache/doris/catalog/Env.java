@@ -1717,6 +1717,12 @@ public class Env {
 
     public long loadHeaderCOR1(DataInputStream dis, long checksum) throws IOException {
         int journalVersion = dis.readInt();
+        if (journalVersion > FeMetaVersion.VERSION_CURRENT) {
+            throw new IOException("The meta version of image is " + journalVersion
+                    + ", which is higher than FE current version " + FeMetaVersion.VERSION_CURRENT
+                    + ". Please upgrade your cluster to the latest version first.");
+        }
+
         long newChecksum = checksum ^ journalVersion;
         MetaContext.get().setMetaVersion(journalVersion);
 
@@ -3928,7 +3934,8 @@ public class Env {
     public void cancelAlter(CancelAlterTableStmt stmt) throws DdlException {
         if (stmt.getAlterType() == AlterType.ROLLUP) {
             this.getMaterializedViewHandler().cancel(stmt);
-        } else if (stmt.getAlterType() == AlterType.COLUMN) {
+        } else if (stmt.getAlterType() == AlterType.COLUMN
+                       || stmt.getAlterType() == AlterType.INDEX) {
             this.getSchemaChangeHandler().cancel(stmt);
         } else {
             throw new DdlException("Cancel " + stmt.getAlterType() + " does not implement yet");
@@ -4399,6 +4406,9 @@ public class Env {
     public void modifyTableDynamicPartition(Database db, OlapTable table, Map<String, String> properties)
             throws UserException {
         convertDynamicPartitionReplicaNumToReplicaAllocation(properties);
+        if (properties.containsKey(DynamicPartitionProperty.REPLICATION_ALLOCATION)) {
+            table.checkChangeReplicaAllocation();
+        }
         Map<String, String> logProperties = new HashMap<>(properties);
         TableProperty tableProperty = table.getTableProperty();
         if (tableProperty == null) {
@@ -4458,6 +4468,7 @@ public class Env {
         }
 
         ReplicaAllocation replicaAlloc = PropertyAnalyzer.analyzeReplicaAllocation(properties, "");
+        table.checkChangeReplicaAllocation();
         Env.getCurrentSystemInfo().checkReplicaAllocation(replicaAlloc);
         Preconditions.checkState(!replicaAlloc.isNotSet());
         boolean isInMemory = partitionInfo.getIsInMemory(partition.getId());
@@ -4487,8 +4498,10 @@ public class Env {
      * @param properties
      */
     // The caller need to hold the table write lock
-    public void modifyTableDefaultReplicaAllocation(Database db, OlapTable table, Map<String, String> properties) {
+    public void modifyTableDefaultReplicaAllocation(Database db, OlapTable table,
+            Map<String, String> properties) throws UserException {
         Preconditions.checkArgument(table.isWriteLockHeldByCurrentThread());
+        table.checkChangeReplicaAllocation();
         table.setReplicaAllocation(properties);
         ModifyTablePropertyOperationLog info =
                 new ModifyTablePropertyOperationLog(db.getId(), table.getId(), table.getName(),
@@ -5106,8 +5119,9 @@ public class Env {
         olapTable.replaceTempPartitions(partitionNames, tempPartitionNames, isStrictRange, useTempPartitionName);
 
         // write log
-        ReplacePartitionOperationLog info = new ReplacePartitionOperationLog(db.getId(), olapTable.getId(),
-                partitionNames, tempPartitionNames, isStrictRange, useTempPartitionName);
+        ReplacePartitionOperationLog info =
+                new ReplacePartitionOperationLog(db.getId(), db.getFullName(), olapTable.getId(), olapTable.getName(),
+                        partitionNames, tempPartitionNames, isStrictRange, useTempPartitionName);
         editLog.logReplaceTempPartition(info);
         LOG.info("finished to replace partitions {} with temp partitions {} from table: {}", clause.getPartitionNames(),
                 clause.getTempPartitionNames(), olapTable.getName());

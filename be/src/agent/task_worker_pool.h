@@ -181,6 +181,8 @@ public:
     // notify the worker. currently for task/disk/tablet report thread
     void notify_thread();
 
+    TaskWorkerType task_worker_type() const { return _task_worker_type; }
+
 protected:
     bool _register_task_info(const TTaskType::type task_type, int64_t signature);
     void _remove_task_info(const TTaskType::type task_type, int64_t signature);
@@ -224,7 +226,6 @@ protected:
 
     // Reference to the ExecEnv::_master_info
     const TMasterInfo& _master_info;
-    TBackend _backend;
     std::unique_ptr<AgentUtils> _agent_utils;
     ExecEnv* _env;
 

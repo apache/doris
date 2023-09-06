@@ -1012,13 +1012,6 @@ BaseCompaction:546859:
   - Increasing this value can reduce the number of calls to read remote data, but it will increase memory overhead.
 * Default value: 16MB
 
-#### `segment_cache_capacity`
-
-* Type: int32
-* Description: The maximum number of Segments cached by Segment Cache.
-  - The default value is currently only an empirical value, and may need to be modified according to actual scenarios. Increasing this value can cache more segments and avoid some IO. Decreasing this value will reduce memory usage.
-* Default value: 1000000
-
 #### `file_cache_type`
 
 * Type: string
@@ -1180,6 +1173,11 @@ BaseCompaction:546859:
 * Type: int32
 * Description: Index page cache as a percentage of total storage page cache, value range is [0, 100]
 * Default value: 10
+
+#### `segment_cache_capacity`
+* Type: int32
+* Description: Max number of segment cache (the key is rowset id) entries. -1 is for backward compatibility as fd_number * 2/5.
+* Default value: -1
 
 #### `storage_strict_check_incompatible_old_format`
 

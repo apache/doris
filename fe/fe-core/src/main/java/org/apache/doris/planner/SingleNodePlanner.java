@@ -2196,7 +2196,7 @@ public class SingleNodePlanner {
 
     /**
      * Create a tree of PlanNodes for the given tblRef, which can be a BaseTableRef,
-     * CollectionTableRef or an InlineViewRef.
+     * TableValuedFunctionRef, CollectionTableRef or an InlineViewRef.
      * <p>
      * 'fastPartitionKeyScans' indicates whether to try to produce the slots with
      * metadata instead of table scans. Only applicable to BaseTableRef which is also

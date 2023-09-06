@@ -57,6 +57,7 @@ struct DataDirInfo {
     int64_t available = 0;     // available space, in bytes unit
     int64_t local_used_capacity = 0;
     int64_t remote_used_capacity = 0;
+    int64_t trash_used_capacity = 0;
     bool is_used = false;                                      // whether available mark
     TStorageMedium::type storage_medium = TStorageMedium::HDD; // Storage medium type: SSD|HDD
 };

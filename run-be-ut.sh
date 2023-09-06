@@ -233,7 +233,7 @@ rm -rf "${CONF_DIR}"
 mkdir "${CONF_DIR}"
 cp "${DORIS_HOME}/conf/be.conf" "${CONF_DIR}"/
 
-export TERM='xterm'
+export TERM="xterm"
 export UDF_RUNTIME_DIR="${DORIS_TEST_BINARY_DIR}/lib/udf-runtime"
 export LOG_DIR="${DORIS_TEST_BINARY_DIR}/log"
 while read -r variable; do
@@ -390,11 +390,15 @@ if [[ -f "${test}" ]]; then
         if [[ -d "${DORIS_TEST_BINARY_DIR}"/report ]]; then
             rm -rf "${DORIS_TEST_BINARY_DIR}"/report
         fi
-        "${LLVM_PROFDATA} merge -o ${profdata} ${profraw}"
-        "${LLVM_COV} show -output-dir=${DORIS_TEST_BINARY_DIR}/report -format=html \
+        cmd1="${LLVM_PROFDATA} merge -o ${profdata} ${profraw}"
+        echo "${cmd1}"
+        eval "${cmd1}"
+        cmd2="${LLVM_COV} show -output-dir=${DORIS_TEST_BINARY_DIR}/report -format=html \
             -ignore-filename-regex='(.*gensrc/.*)|(.*_test\.cpp$)|(.*be/test.*)|(.*apache-orc/.*)|(.*clucene/.*)' \
             -instr-profile=${profdata} \
             -object=${test}"
+        echo "${cmd2}"
+        eval "${cmd2}"
     else
         "${test}" --gtest_output="xml:${GTEST_OUTPUT_DIR}/${file_name}.xml" --gtest_print_time=true "${FILTER}"
     fi

@@ -654,7 +654,6 @@ Status BkdIndexReader::try_query(OlapReaderStatistics* stats, const std::string&
         }
         *count = r->estimate_point_count(visitor.get());
     } catch (const CLuceneError& e) {
-        LOG(WARNING) << "BKD Query CLuceneError Occurred, error msg: " << e.what();
         return Status::Error<ErrorCode::INVERTED_INDEX_CLUCENE_ERROR>(
                 "BKD Query CLuceneError Occurred, error msg: {}", e.what());
     }

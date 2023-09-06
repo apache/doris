@@ -159,6 +159,12 @@ public class S3TvfLoadStmt extends NativeInsertStmt {
             parseSeparator(dataDescription.getLineDelimiterObj(), params);
         }
 
+        List<String> columnsFromPath = dataDescription.getColumnsFromPath();
+        if (columnsFromPath != null) {
+            params.put(ExternalFileTableValuedFunction.PATH_PARTITION_KEYS,
+                    String.join(",", columnsFromPath));
+        }
+
         Preconditions.checkState(!brokerDesc.isMultiLoadBroker(), "do not support multi broker load currently");
         Preconditions.checkState(brokerDesc.getStorageType() == StorageType.S3, "only support S3 load");
 
