@@ -67,7 +67,8 @@ public class CassandraExternalCatalog extends ExternalCatalog {
 
         List<String> tableNames = new ArrayList<>();
 
-        try (CqlSession session = CqlSession.builder().build()) {
+        try (CqlSession session = CassandraClient.getCqlSessionBuilder(contactPoints, userName, password, datacenter)
+                .build()) {
 
             session.getMetadata().getKeyspace(keyspaceName).ifPresent(keyspaceMetadata -> keyspaceMetadata.getTables()
                     .forEach((cqlIdentifier, tableMetadata) -> tableNames.add(tableMetadata.getName().asInternal())));
@@ -80,7 +81,8 @@ public class CassandraExternalCatalog extends ExternalCatalog {
     public boolean tableExist(SessionContext ctx, String keyspaceName, String tableName) {
 
         AtomicBoolean tableExists = new AtomicBoolean(false);
-        try (CqlSession session = CqlSession.builder().build()) {
+        try (CqlSession session = CassandraClient.getCqlSessionBuilder(contactPoints, userName, password, datacenter)
+                .build()) {
             session.getMetadata().getKeyspace(keyspaceName)
                     .flatMap(keyspaceMetadata -> keyspaceMetadata.getTable(tableName))
                     .ifPresent(tableMetadata -> tableExists.set(true));
@@ -98,7 +100,8 @@ public class CassandraExternalCatalog extends ExternalCatalog {
     }
 
     public TableMetadata getTable(String keyspaceName, String tableName) {
-        try (CqlSession session = CqlSession.builder().build()) {
+        try (CqlSession session = CassandraClient.getCqlSessionBuilder(contactPoints, userName, password, datacenter)
+                .build()) {
             return session.getMetadata().getKeyspace(keyspaceName)
                     .flatMap(keyspaceMetadata -> keyspaceMetadata.getTable(tableName))
                     .orElseThrow(() -> new RuntimeException("Table not found"));

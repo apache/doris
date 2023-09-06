@@ -15,21 +15,12 @@
 # limitations under the License.
 #
 
-version: "2.1"
-
+version: '3'
 services:
-  doris--cassandra:
-    image: docker.io/bitnami/cassandra:4.1
+  cassandra:
+    image: cassandra:latest
+    container_name: cassandra
     restart: always
+    privileged: true
     ports:
-      - '7000:7000'
-      - '9042:9042'
-    volumes:
-      - 'cassandra_data:/bitnami'
-    environment:
-      - CASSANDRA_SEEDS=${CASSANDRA_SEEDS}
-      - CASSANDRA_PASSWORD_SEEDER=${CASSANDRA_PASSWORD_SEEDER}
-      - CASSANDRA_PASSWORD=${CASSANDRA_PASSWORD}
-volumes:
-  cassandra_data:
-    driver: local
+      - ${DOCKER_CASSANDRA_EXTERNAL_PORT}:9042
