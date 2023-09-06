@@ -30,14 +30,12 @@
 #include <vector>
 
 #include "common/status.h"
-#include "io/fs/file_reader_options.h"
 #include "io/fs/file_reader_writer_fwd.h"
 #include "io/fs/fs_utils.h"
 #include "io/fs/path.h"
 
 namespace doris {
 namespace io {
-class FileSystem;
 
 #ifndef FILESYSTEM_M
 #define FILESYSTEM_M(stmt)                    \
@@ -75,14 +73,9 @@ public:
     // The following are public interface.
     // And derived classes should implement all xxx_impl methods.
     Status create_file(const Path& file, FileWriterPtr* writer);
-    Status open_file(const Path& file, FileReaderSPtr* reader) {
-        FileDescription fd;
-        fd.path = file.native();
-        return open_file(fd, FileReaderOptions::DEFAULT, reader);
-    }
-    Status open_file(const FileDescription& fd, FileReaderSPtr* reader) {
-        return open_file(fd, FileReaderOptions::DEFAULT, reader);
-    }
+    // FIXME(plat1ko): Use `Status open_file(const Path&, FileReaderSPtr*, const FileReaderOptions*)`
+    Status open_file(const Path& file, FileReaderSPtr* reader);
+    Status open_file(const FileDescription& fd, FileReaderSPtr* reader);
     Status open_file(const FileDescription& fd, const FileReaderOptions& reader_options,
                      FileReaderSPtr* reader);
     Status create_directory(const Path& dir, bool failed_if_exists = false);
