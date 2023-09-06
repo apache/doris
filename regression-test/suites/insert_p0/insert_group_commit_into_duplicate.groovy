@@ -59,6 +59,10 @@ suite("insert_group_commit_into_duplicate") {
             `score` int(11) NULL default "-1"
         ) ENGINE=OLAP
         DUPLICATE KEY(`id`, `name`)
+        PARTITION BY RANGE(id)
+        (
+            FROM (1) TO (100) INTERVAL 10
+        )
         DISTRIBUTED BY HASH(`id`) BUCKETS 1
         PROPERTIES (
             "replication_num" = "1"
@@ -152,7 +156,7 @@ suite("insert_group_commit_into_duplicate") {
         // 7. insert into and add rollup
         sql """ insert into ${table}(name, id) values('c', 3);  """
         sql """ insert into ${table}(id) values(4);  """
-        sql """ insert into ${table} values (1, 'a', 10),(5, 'q', 50);  """
+        sql """ insert into ${table} values (1, 'a', 10),(5, 'q', 50),(101, 'a', 100);  """
         // sql """ alter table ${table} ADD ROLLUP r1(name, score); """
         sql """ insert into ${table}(id, name) values(2, 'b');  """
         sql """ insert into ${table}(id) select 6; """
