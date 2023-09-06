@@ -133,10 +133,10 @@ jobs:
           if [[ "${comment_message}" =~ "run" && "${comment_message}" =~ "beut" && ! "${comment_message}" =~ "Thanks for your contribution" && ${{ steps.filter.outputs.be_ut_about_changes == 'true' }} ]]; then
             trigger_pipelines="Doris_DorisBeUt_BeUt  ${trigger_pipelines}"
           fi
-          if [[ "${comment_message}" =~ "run" && "${comment_message}" =~ "compile" && ! "${comment_message}" =~ "Thanks for your contribution" ${{ steps.filter.outputs.regression_about_changes == 'true' }} ]]; then
+          if [[ "${comment_message}" =~ "run" && "${comment_message}" =~ "compile" && ! "${comment_message}" =~ "Thanks for your contribution" && ${{ steps.filter.outputs.regression_about_changes == 'true' }} ]]; then
             trigger_pipelines="Doris_DorisCompile_Compile  ${trigger_pipelines}"
           fi
-          if [[ "${comment_message}" =~ "run" && "${comment_message}" =~ "clickbench" && ! "${comment_message}" =~ "Thanks for your contribution" ${{ steps.filter.outputs.clickbench_about_changes == 'true' }} ]]; then
+          if [[ "${comment_message}" =~ "run" && "${comment_message}" =~ "clickbench" && ! "${comment_message}" =~ "Thanks for your contribution" && ${{ steps.filter.outputs.clickbench_about_changes == 'true' }} ]]; then
             trigger_pipelines="Doris_Performance_Clickbench_ClickbenchNew  ${trigger_pipelines}"
           fi
           if [[ "${comment_message}" =~ "run" && "${comment_message}" =~ "arm" && ! "${comment_message}" =~ "Thanks for your contribution" && ${{ steps.filter.outputs.regression_about_changes == 'true' }} ]]; then
