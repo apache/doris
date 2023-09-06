@@ -241,7 +241,6 @@ void HttpStreamAction::on_chunk_data(HttpRequest* req) {
             if (ctx->schema_buffer->pos + remove_bytes < config::stream_tvf_buffer_size) {
                 ctx->schema_buffer->put_bytes(bb->ptr, remove_bytes);
             } else {
-                ctx->need_schema = true;
                 ctx->is_read_schema = false;
                 ctx->status = _process_put(req, ctx);
             }
@@ -256,7 +255,6 @@ void HttpStreamAction::on_chunk_data(HttpRequest* req) {
     }
     // after all the data has been read and it has not reached 1M, it will execute here
     if (ctx->is_read_schema) {
-        ctx->need_schema = true;
         ctx->is_read_schema = false;
         ctx->status = _process_put(req, ctx);
     }
