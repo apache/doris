@@ -551,6 +551,26 @@ public class FunctionCallExpr extends Expr {
             sb.append("DISTINCT ");
         }
         int len = children.size();
+
+        if (fnName.getFunction().equalsIgnoreCase("char")) {
+            for (int i = 1; i < len; ++i) {
+                sb.append(children.get(i).toSql());
+                if (i < len - 1) {
+                    sb.append(", ");
+                }
+            }
+            sb.append(" using ");
+            String encodeType = children.get(0).toSql();
+            if (encodeType.charAt(0) == '\'') {
+                encodeType = encodeType.substring(1, encodeType.length());
+            }
+            if (encodeType.charAt(encodeType.length() - 1) == '\'') {
+                encodeType = encodeType.substring(0, encodeType.length() - 1);
+            }
+            sb.append(encodeType).append(")");
+            return sb.toString();
+        }
+
         // XXX_diff are used by nereids only
         if (fnName.getFunction().equalsIgnoreCase("years_diff") || fnName.getFunction().equalsIgnoreCase("months_diff")
                 || fnName.getFunction().equalsIgnoreCase("days_diff")
