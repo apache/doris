@@ -477,7 +477,9 @@ std::string StackTrace::toString(void** frame_pointers_raw, size_t offset, size_
 void StackTrace::createCache() {
     std::lock_guard lock {stacktrace_cache_mutex};
     cacheInstance();
+#if defined(__ELF__) && !defined(__FreeBSD__)
     doris::SymbolIndex::instance();
+#endif
 }
 
 void StackTrace::dropCache() {

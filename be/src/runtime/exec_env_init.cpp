@@ -453,6 +453,8 @@ void ExecEnv::_destroy() {
     _page_no_cache_mem_tracker.reset();
     _brpc_iobuf_block_memory_tracker.reset();
     InvertedIndexSearcherCache::reset_global_instance();
+
+    LOG(INFO) << "ExecEnv destroy end";
 }
 
 void ExecEnv::destroy(ExecEnv* env) {

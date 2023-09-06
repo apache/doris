@@ -178,6 +178,7 @@ void Daemon::tcmalloc_gc_thread() {
             last_ms = 0;
         }
     }
+    LOG(INFO) << "Daemon tcmalloc_gc_thread End";
 #endif
 }
 
@@ -213,6 +214,7 @@ void Daemon::memory_maintenance_thread() {
                             process_mem_log_str(); // print mem log when memory state by 256M
         }
     }
+    LOG(INFO) << "Daemon memory_maintenance_thread End";
 }
 
 void Daemon::memory_gc_thread() {
@@ -266,6 +268,7 @@ void Daemon::memory_gc_thread() {
             }
         }
     }
+    LOG(INFO) << "Daemon memory_gc_thread End";
 }
 
 void Daemon::memtable_memory_limiter_tracker_refresh_thread() {
@@ -275,6 +278,7 @@ void Daemon::memtable_memory_limiter_tracker_refresh_thread() {
             std::chrono::milliseconds(config::memtable_mem_tracker_refresh_interval_ms))) {
         doris::ExecEnv::GetInstance()->memtable_memory_limiter()->refresh_mem_tracker();
     }
+    LOG(INFO) << "Daemon memtable_memory_limiter_tracker_refresh_thread End";
 }
 
 /*
@@ -343,6 +347,7 @@ void Daemon::calculate_metrics_thread() {
                     StorageEngine::instance()->tablet_manager()->get_segment_nums());
         }
     } while (!_stop_background_threads_latch.wait_for(std::chrono::seconds(15)));
+    LOG(INFO) << "Daemon calculate_metrics_thread End";
 }
 
 // clean up stale spilled files
@@ -350,6 +355,7 @@ void Daemon::block_spill_gc_thread() {
     while (!_stop_background_threads_latch.wait_for(std::chrono::seconds(60))) {
         ExecEnv::GetInstance()->block_spill_mgr()->gc(200);
     }
+    LOG(INFO) << "Daemon block_spill_gc_thread End";
 }
 
 void Daemon::start() {
@@ -394,6 +400,7 @@ void Daemon::stop() {
             t->join();
         }
     }
+    LOG(INFO) << "Daemon stop End";
 }
 
 } // namespace doris
