@@ -115,11 +115,8 @@ Status PageIO::read_and_decompress_page(const PageReadOptions& opts, PageHandle*
                                         Slice* body, PageFooterPB* footer) {
     opts.sanity_check();
     opts.stats->total_pages_num++;
-    Status st = Status::Error(ErrorCode::INTERNAL_ERROR, "in page_io now, opts.use_page_cache:{}",
-                              opts.use_page_cache);
-
-    LOG(INFO) << st;
-
+  
+   
     auto cache = StoragePageCache::instance();
     PageCacheHandle cache_handle;
     StoragePageCache::CacheKey cache_key(opts.file_reader->path().native(),
