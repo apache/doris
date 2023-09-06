@@ -184,15 +184,32 @@ Status GroupCommitTable::get_first_block_load_queue(
 
 Status GroupCommitTable::_create_group_commit_load(
         int64_t table_id, std::shared_ptr<LoadBlockQueue>& load_block_queue) {
-    TRequestGroupCommitFragmentRequest request;
-    request.__set_db_id(_db_id);
-    request.__set_table_id(table_id);
-    TRequestGroupCommitFragmentResult result;
+    TStreamLoadPutRequest request;
+    std::stringstream ss;
+    ss << "insert into " << table_id << " select * from group_commit(\"table_id\"=\"" << table_id
+       << "\")";
+    request.__set_load_sql(ss.str());
+    UniqueId load_id = UniqueId::gen_uid();
+    TUniqueId tload_id;
+    tload_id.__set_hi(load_id.hi);
+    tload_id.__set_lo(load_id.lo);
+    request.__set_loadId(tload_id);
+    std::string label = "group_commit_" + load_id.to_string();
+    request.__set_label(label);
+    request.__set_token("group_commit"); // this is a fake, fe not check it now
+    request.__set_max_filter_ratio(1.0);
+    request.__set_strictMode(false);
+    if (_exec_env->master_info()->__isset.backend_id) {
+        request.__set_backend_id(_exec_env->master_info()->backend_id);
+    } else {
+        LOG(WARNING) << "_exec_env->master_info not set backend_id";
+    }
+    TStreamLoadPutResult result;
     TNetworkAddress master_addr = _exec_env->master_info()->network_address;
     RETURN_IF_ERROR(ThriftRpcHelper::rpc<FrontendServiceClient>(
             master_addr.hostname, master_addr.port,
             [&result, &request](FrontendServiceConnection& client) {
-                client->requestGroupCommitFragment(result, request);
+                client->streamLoadPut(result, request);
             },
             10000L));
     Status st = Status::create(result.status);
@@ -204,23 +221,19 @@ Status GroupCommitTable::_create_group_commit_load(
     auto is_pipeline = result.__isset.pipeline_params;
     auto& params = result.params;
     auto& pipeline_params = result.pipeline_params;
-    int64_t db_id;
-    std::string label;
     int64_t txn_id;
     TUniqueId instance_id;
     if (!is_pipeline) {
-        db_id = params.fragment.output_sink.olap_table_sink.db_id;
-        label = params.import_label;
+        DCHECK(params.fragment.output_sink.olap_table_sink.db_id == _db_id);
         txn_id = params.txn_conf.txn_id;
         instance_id = params.params.fragment_instance_id;
     } else {
-        db_id = pipeline_params.fragment.output_sink.olap_table_sink.db_id;
-        label = pipeline_params.import_label;
+        DCHECK(pipeline_params.fragment.output_sink.olap_table_sink.db_id == _db_id);
         txn_id = pipeline_params.txn_conf.txn_id;
         DCHECK(pipeline_params.local_params.size() == 1);
         instance_id = pipeline_params.local_params[0].fragment_instance_id;
     }
-    VLOG_DEBUG << "create plan fragment, db_id=" << db_id << ", table=" << table_id
+    VLOG_DEBUG << "create plan fragment, db_id=" << _db_id << ", table=" << table_id
                << ", schema version=" << schema_version << ", label=" << label
                << ", txn_id=" << txn_id << ", instance_id=" << print_id(instance_id)
                << ", is_pipeline=" << is_pipeline;
@@ -230,9 +243,9 @@ Status GroupCommitTable::_create_group_commit_load(
         std::unique_lock l(_lock);
         _load_block_queues.emplace(instance_id, load_block_queue);
     }
-    st = _exec_plan_fragment(db_id, table_id, label, txn_id, is_pipeline, params, pipeline_params);
+    st = _exec_plan_fragment(_db_id, table_id, label, txn_id, is_pipeline, params, pipeline_params);
     if (!st.ok()) {
-        _finish_group_commit_load(db_id, table_id, label, txn_id, instance_id, st, true, nullptr);
+        _finish_group_commit_load(_db_id, table_id, label, txn_id, instance_id, st, true, nullptr);
     }
     return st;
 }
@@ -251,24 +264,44 @@ Status GroupCommitTable::_finish_group_commit_load(int64_t db_id, int64_t table_
         }
         _load_block_queues.erase(instance_id);
     }
-    TFinishGroupCommitRequest request;
-    request.__set_db_id(db_id);
-    request.__set_table_id(table_id);
-    request.__set_txn_id(txn_id);
-    request.__set_status(status.to_thrift());
-    if (state) {
-        request.__set_commit_infos(state->tablet_commit_infos());
-    }
-    TFinishGroupCommitResult result;
-    // plan this load
-    TNetworkAddress master_addr = _exec_env->master_info()->network_address;
     Status st;
-    st = ThriftRpcHelper::rpc<FrontendServiceClient>(
-            master_addr.hostname, master_addr.port,
-            [&result, &request](FrontendServiceConnection& client) {
-                client->finishGroupCommit(result, request);
-            },
-            10000L);
+    Status result_status;
+    if (status.ok()) {
+        // commit txn
+        TLoadTxnCommitRequest request;
+        request.__set_auth_code(0); // this is a fake, fe not check it now
+        request.__set_db_id(db_id);
+        request.__set_table_id(table_id);
+        request.__set_txnId(txn_id);
+        if (state) {
+            request.__set_commitInfos(state->tablet_commit_infos());
+        }
+        TLoadTxnCommitResult result;
+        TNetworkAddress master_addr = _exec_env->master_info()->network_address;
+        st = ThriftRpcHelper::rpc<FrontendServiceClient>(
+                master_addr.hostname, master_addr.port,
+                [&request, &result](FrontendServiceConnection& client) {
+                    client->loadTxnCommit(result, request);
+                },
+                10000L);
+        result_status = Status::create(result.status);
+    } else {
+        // abort txn
+        TLoadTxnRollbackRequest request;
+        request.__set_auth_code(0); // this is a fake, fe not check it now
+        request.__set_db_id(db_id);
+        request.__set_txnId(txn_id);
+        request.__set_reason(status.to_string());
+        TLoadTxnRollbackResult result;
+        TNetworkAddress master_addr = _exec_env->master_info()->network_address;
+        st = ThriftRpcHelper::rpc<FrontendServiceClient>(
+                master_addr.hostname, master_addr.port,
+                [&request, &result](FrontendServiceConnection& client) {
+                    client->loadTxnRollback(result, request);
+                },
+                10000L);
+        result_status = Status::create(result.status);
+    }
     if (!st.ok()) {
         LOG(WARNING) << "request finish error, db_id=" << db_id << ", table_id=" << table_id
                      << ", label=" << label << ", txn_id=" << txn_id
@@ -277,7 +310,6 @@ Status GroupCommitTable::_finish_group_commit_load(int64_t db_id, int64_t table_
                      << ", request commit status=" << st.to_string();
         return st;
     }
-    st = Status::create(result.status);
     // TODO handle execute and commit error
     std::stringstream ss;
     ss << "finish group commit, db_id=" << db_id << ", table_id=" << table_id << ", label=" << label
@@ -287,7 +319,7 @@ Status GroupCommitTable::_finish_group_commit_load(int64_t db_id, int64_t table_
     } else {
         ss << ", execute status=" << status.to_string();
     }
-    ss << ", commit status=" << st.to_string();
+    ss << ", commit status=" << result_status.to_string();
     if (state && !(state->get_error_log_file_path().empty())) {
         ss << ", error_url=" << state->get_error_log_file_path();
     }

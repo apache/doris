@@ -36,7 +36,7 @@ public class GroupCommitScanNode extends FileScanNode {
 
     long tableId;
 
-    public GroupCommitScanNode(PlanNodeId id, TupleDescriptor desc, long dbId, long tableId, long txnId) {
+    public GroupCommitScanNode(PlanNodeId id, TupleDescriptor desc, long tableId) {
         super(id, desc, "GROUP_COMMIT_SCAN_NODE",
                 StatisticalType.GROUP_COMMIT_SCAN_NODE, false);
         this.tableId = tableId;
