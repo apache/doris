@@ -1116,30 +1116,23 @@ struct Sec {
     static constexpr auto name = "from_second";
     static constexpr Int64 ratio = 1;
 };
-template <typename impl>
+template <typename Impl>
 struct TimestampToDateTime : IFunction {
     using ReturnType = DataTypeDateTimeV2;
-    static constexpr auto name = impl::name;
-    static constexpr Int64 ratio_to_micro = (1000 * 1000) / impl::ratio;
+    static constexpr auto name = Impl::name;
+    static constexpr Int64 ratio_to_micro = (1000 * 1000) / Impl::ratio;
     String get_name() const override { return name; }
 
-    size_t get_number_of_arguments() const override { return 0; }
+    size_t get_number_of_arguments() const override { return 1; }
 
     DataTypePtr get_return_type_impl(const ColumnsWithTypeAndName& arguments) const override {
         return make_nullable(std::make_shared<ReturnType>());
     }
 
-    static FunctionPtr create() { return std::make_shared<TimestampToDateTime<impl>>(); }
-
-    bool is_variadic() const override { return true; }
+    static FunctionPtr create() { return std::make_shared<TimestampToDateTime<Impl>>(); }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         size_t result, size_t input_rows_count) override {
-        return execute(context, block, arguments, result, input_rows_count);
-    }
-
-    static Status execute(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                          size_t result, size_t input_rows_count) {
         const auto& arg_col = block.get_by_position(arguments[0]).column;
         const auto& column_data = assert_cast<const ColumnInt64&>(*arg_col);
         auto res_col = ColumnUInt64::create();
@@ -1152,8 +1145,8 @@ struct TimestampToDateTime : IFunction {
         for (int i = 0; i < input_rows_count; ++i) {
             Int64 value = column_data.get_element(i);
             auto& dt = reinterpret_cast<DateV2Value<DateTimeV2ValueType>&>(res_data[i]);
-            null_map[i] = !dt.from_unixtime(value / impl::ratio, time_zone);
-            dt.set_microsecond((value % impl::ratio) * ratio_to_micro);
+            null_map[i] = !dt.from_unixtime(value / Impl::ratio, time_zone);
+            dt.set_microsecond((value % Impl::ratio) * ratio_to_micro);
         }
         block.get_by_position(result).column =
                 ColumnNullable::create(std::move(res_col), std::move(null_vector));

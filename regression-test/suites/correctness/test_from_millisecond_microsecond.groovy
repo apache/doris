@@ -41,6 +41,9 @@ suite("test_from_millisecond_microsecond") {
     """
 
     sql """
+        insert into millimicro values(4,NULL);
+    """
+    sql """
         set enable_nereids_planner=false
     """
 
@@ -65,21 +68,64 @@ suite("test_from_millisecond_microsecond") {
         FROM_UNIXTIME(21474836470),from_second(21474836470);
     """ 
 
+    qt_select4 """
+        select 
+        t,
+        from_second(t), 
+        second_timestamp(from_second(t))
+        from millimicro order by id;
+    """ 
+    qt_select5 """
+        select 
+        t,
+        from_millisecond(t), 
+        millisecond_timestamp(from_millisecond(t))
+        from millimicro order by id;
+    """ 
+    qt_select6 """
+        select 
+        t,
+        from_microsecond(t), 
+        microsecond_timestamp(from_microsecond(t))
+        from millimicro order by id;
+    """ 
     sql """
         set enable_nereids_planner=true,enable_fold_constant_by_be = false,forbid_unknown_col_stats = false
     """
    
-    qt_select4 """
+    qt_select7 """
         select from_millisecond(t) as t1 from millimicro order by id;
     """
-    qt_select5 """
+    qt_select8 """
         select from_microsecond(t) as t1 from millimicro order by id;
     """
 
-    qt_select6 """
+    qt_select9 """
         select 
         FROM_UNIXTIME(2147483647),from_second(2147483647),
         FROM_UNIXTIME(2147483647 + 1),from_second(2147483647 + 1),
         FROM_UNIXTIME(21474836470),from_second(21474836470);
+    """ 
+
+    qt_select10 """
+        select 
+        t,
+        from_second(t), 
+        second_timestamp(from_second(t))
+        from millimicro order by id;
+    """ 
+    qt_select11 """
+        select 
+        t,
+        from_millisecond(t), 
+        millisecond_timestamp(from_millisecond(t))
+        from millimicro order by id;
+    """ 
+    qt_select12 """
+        select 
+        t,
+        from_microsecond(t), 
+        microsecond_timestamp(from_microsecond(t))
+        from millimicro order by id;
     """ 
 }
