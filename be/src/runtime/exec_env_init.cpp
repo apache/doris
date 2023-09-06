@@ -411,6 +411,7 @@ void ExecEnv::_destroy() {
     if (!ready()) {
         return;
     }
+    LOG(INFO) << "ExecEnv destroy start";
     // Memory barrier to prevent other threads from accessing destructed resources
     _s_ready = false;
     _deregister_metrics();
