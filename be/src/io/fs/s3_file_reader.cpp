@@ -23,6 +23,7 @@
 #include <aws/s3/S3Errors.h>
 #include <aws/s3/model/GetObjectRequest.h>
 #include <aws/s3/model/GetObjectResult.h>
+#include <bvar/reducer.h>
 #include <fmt/format.h>
 #include <glog/logging.h>
 
@@ -30,6 +31,7 @@
 #include <utility>
 
 // IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
+
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "io/fs/s3_common.h"
 #include "util/doris_metrics.h"

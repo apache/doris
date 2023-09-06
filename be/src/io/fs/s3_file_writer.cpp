@@ -36,6 +36,7 @@
 #include <aws/s3/model/PutObjectRequest.h>
 #include <aws/s3/model/UploadPartRequest.h>
 #include <aws/s3/model/UploadPartResult.h>
+#include <bvar/reducer.h>
 #include <fmt/core.h>
 #include <glog/logging.h>
 
