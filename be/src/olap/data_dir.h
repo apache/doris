@@ -133,13 +133,15 @@ public:
 
     void update_trash_capacity();
 
-    double get_used_percent() const;
-
     void update_local_data_size(int64_t size);
 
     void update_remote_data_size(int64_t size);
 
-    size_t tablet_size() const;
+    size_t disk_capacity() const;
+
+    size_t disk_available() const;
+
+    size_t tablet_num() const;
 
     void disks_compaction_score_increment(int64_t delta);
 

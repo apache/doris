@@ -442,21 +442,27 @@ std::vector<DataDir*> StorageEngine::get_stores_for_create_tablet(
         TStorageMedium::type storage_medium) {
     struct DirInfo {
         DataDir* data_dir;
-        int tablet_size;
-        int used_pct_level;
+
+        size_t disk_available;
+        //if disk_available is high, then available_level is small
+        int available_level;
+
+        int tablet_num;
 
         bool operator<(const DirInfo& other) {
-            if (used_pct_level != other.used_pct_level) {
-                return used_pct_level < other.used_pct_level;
+            if (available_level != other.available_level) {
+                return available_level < other.available_level;
             }
-            if (tablet_size != other.tablet_size) {
-                return tablet_size < other.tablet_size;
+            if (tablet_num != other.tablet_num) {
+                return tablet_num < other.tablet_num;
             }
             return data_dir->path_hash() < other.data_dir->path_hash();
         }
     };
+    std::map<size_t, int> available_levels;
     std::vector<DirInfo> dir_infos;
     int next_index = 0;
+    size_t max_disk_capacity = 0;
     {
         std::lock_guard<std::mutex> l(_store_lock);
         next_index = _store_next_index[storage_medium]++;
@@ -469,17 +475,41 @@ std::vector<DataDir*> StorageEngine::get_stores_for_create_tablet(
             if (data_dir->is_used()) {
                 if (_available_storage_medium_type_count == 1 ||
                     data_dir->storage_medium() == storage_medium) {
+                    size_t disk_available = data_dir->disk_available();
                     DirInfo dir_info;
                     dir_info.data_dir = data_dir;
-                    dir_info.tablet_size = data_dir->tablet_size();
-                    dir_info.used_pct_level =
-                            data_dir->get_used_percent() < config::storage_flood_stage_usage_percent
-                                    ? 0
-                                    : 1;
+                    dir_info.available_level = disk_available;
                     dir_infos.push_back(dir_info);
+                    available_levels[disk_available] = 0;
+                    size_t disk_capacity = data_dir->disk_capacity();
+                    if (max_disk_capacity < disk_capacity) {
+                        max_disk_capacity = disk_capacity;
+                    }
                 }
             }
         }
+    }
+
+    std::vector<DataDir*> stores;
+    if (dir_infos.empty()) {
+        return stores;
+    }
+
+    // if two disk available diff not exceeds 20% capacity, then they are the same available level.
+    size_t same_level_available_diff = std::max<size_t>(max_disk_capacity / 5, 1);
+    int level = 0;
+    size_t level_start_available = available_levels.rbegin()->first;
+    for (auto rit = available_levels.rbegin(); rit != available_levels.rend(); rit++) {
+        if (level_start_available - rit->first >= same_level_available_diff) {
+            level_start_available = rit->first;
+            level++;
+        }
+        rit->second = level;
+    }
+
+    for (auto& dir_info : dir_infos) {
+        dir_info.tablet_num = dir_info.data_dir->tablet_num();
+        dir_info.available_level = available_levels[dir_info.disk_available];
     }
 
     std::sort(dir_infos.begin(), dir_infos.end());
@@ -491,12 +521,11 @@ std::vector<DataDir*> StorageEngine::get_stores_for_create_tablet(
     // thread 1: (D1, D2, D3, D4, D5)
     // thread 2: (D2, D3, D1, D5, D4)
     // thread 3: (D3, D1, D2, D4, D5)
-    std::vector<DataDir*> stores;
     stores.reserve(dir_infos.size());
     for (size_t i = 0; i < dir_infos.size();) {
         size_t end = i + 1;
-        while (end < dir_infos.size() && dir_infos[i].tablet_size == dir_infos[end].tablet_size &&
-               dir_infos[i].used_pct_level == dir_infos[end].used_pct_level) {
+        while (end < dir_infos.size() && dir_infos[i].tablet_num == dir_infos[end].tablet_num &&
+               dir_infos[i].available_level == dir_infos[end].available_level) {
             end++;
         }
         // data dirs [i, end) have the same tablet size, round robin range [i, end)

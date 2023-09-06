@@ -849,12 +849,6 @@ void DataDir::update_trash_capacity() {
     LOG(INFO) << "path: " << _path << " trash capacity: " << _trash_used_bytes;
 }
 
-double DataDir::get_used_percent() const {
-    return _disk_capacity_bytes == 0
-                   ? 1.0
-                   : (_disk_capacity_bytes - _available_bytes) / (double)_disk_capacity_bytes;
-}
-
 void DataDir::update_local_data_size(int64_t size) {
     disks_local_used_capacity->set_value(size);
 }
@@ -863,7 +857,15 @@ void DataDir::update_remote_data_size(int64_t size) {
     disks_remote_used_capacity->set_value(size);
 }
 
-size_t DataDir::tablet_size() const {
+size_t DataDir::disk_capacity() const {
+    return _disk_capacity_bytes;
+}
+
+size_t DataDir::disk_available() const {
+    return _available_bytes;
+}
+
+size_t DataDir::tablet_num() const {
     std::lock_guard<std::mutex> l(_mutex);
     return _tablet_set.size();
 }
