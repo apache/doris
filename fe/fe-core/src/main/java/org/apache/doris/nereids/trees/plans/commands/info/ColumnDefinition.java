@@ -21,10 +21,6 @@ import org.apache.doris.catalog.AggregateType;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.nereids.exceptions.AnalysisException;
-import org.apache.doris.nereids.trees.expressions.Expression;
-import org.apache.doris.nereids.trees.expressions.functions.ExpressionTrait;
-import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
-import org.apache.doris.nereids.trees.expressions.literal.TinyIntLiteral;
 import org.apache.doris.nereids.types.ArrayType;
 import org.apache.doris.nereids.types.BigIntType;
 import org.apache.doris.nereids.types.CharType;
@@ -45,14 +41,14 @@ public class ColumnDefinition {
     private DataType type;
     private boolean isKey;
     private AggregateType aggType;
-    private final boolean isNullable;
-    private final Optional<Expression> defaultValue;
+    private boolean isNullable;
+    private final Optional<DefaultValue> defaultValue;
     private final String comment;
     private final boolean isVisible;
     private boolean aggTypeImplicit = false;
 
     public ColumnDefinition(String name, DataType type, boolean isKey, AggregateType aggType, boolean isNullable,
-            Optional<Expression> defaultValue, String comment) {
+            Optional<DefaultValue> defaultValue, String comment) {
         this(name, type, isKey, aggType, isNullable, defaultValue, comment, true);
     }
 
@@ -60,7 +56,7 @@ public class ColumnDefinition {
      * constructor
      */
     public ColumnDefinition(String name, DataType type, boolean isKey, AggregateType aggType, boolean isNullable,
-            Optional<Expression> defaultValue, String comment, boolean isVisible) {
+            Optional<DefaultValue> defaultValue, String comment, boolean isVisible) {
         this.name = name;
         this.type = type;
         this.isKey = isKey;
@@ -132,8 +128,8 @@ public class ColumnDefinition {
 
     public Column translateToCatalogStyle() {
         Column column = new Column(name, type.toCatalogDataType(), isKey, aggType, isNullable,
-                false, defaultValue.map(ExpressionTrait::toSql).orElse(null), comment, isVisible,
-                null, Column.COLUMN_UNIQUE_ID_INIT_VALUE, defaultValue.map(ExpressionTrait::toSql).orElse(null));
+                false, defaultValue.map(DefaultValue::getValue).orElse(null), comment, isVisible,
+                null, Column.COLUMN_UNIQUE_ID_INIT_VALUE, defaultValue.map(DefaultValue::getValue).orElse(null));
         column.setAggregationTypeImplicit(aggTypeImplicit);
         return column;
     }
@@ -141,12 +137,12 @@ public class ColumnDefinition {
     // hidden column
     public static ColumnDefinition newDeleteSignColumnDefinition() {
         return new ColumnDefinition(Column.DELETE_SIGN, TinyIntType.INSTANCE, false, null, false,
-                Optional.of(new TinyIntLiteral(((byte) 0))), "doris delete flag hidden column", false);
+                Optional.of(new DefaultValue(DefaultValue.ZERO)), "doris delete flag hidden column", false);
     }
 
     public static ColumnDefinition newDeleteSignColumnDefinition(AggregateType aggregateType) {
         return new ColumnDefinition(Column.DELETE_SIGN, TinyIntType.INSTANCE, false, aggregateType, false,
-                Optional.of(new TinyIntLiteral(((byte) 0))), "doris delete flag hidden column", false);
+                Optional.of(new DefaultValue(DefaultValue.ZERO)), "doris delete flag hidden column", false);
     }
 
     public static ColumnDefinition newSequenceColumnDefinition(DataType type) {
@@ -161,12 +157,12 @@ public class ColumnDefinition {
 
     public static ColumnDefinition newRowStoreColumnDefinition(AggregateType aggregateType) {
         return new ColumnDefinition(Column.ROW_STORE_COL, StringType.INSTANCE, false, aggregateType, false,
-                Optional.of(new StringLiteral("")), "doris row store hidden column", false);
+                Optional.of(DefaultValue.NULL_DEFAULT_VALUE), "doris row store hidden column", false);
     }
 
     public static ColumnDefinition newVersionColumnDefinition(AggregateType aggregateType) {
         return new ColumnDefinition(Column.VERSION_COL, BigIntType.INSTANCE, false, aggregateType, false,
-                Optional.of(new TinyIntLiteral(((byte) 0))), "doris version hidden column", false);
+                Optional.of(new DefaultValue(DefaultValue.ZERO)), "doris version hidden column", false);
     }
 
 }

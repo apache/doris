@@ -238,7 +238,6 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.MonthFloor;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MonthsAdd;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MonthsDiff;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MonthsSub;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.Now;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.SecondCeil;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.SecondFloor;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.SecondsAdd;
@@ -288,6 +287,7 @@ import org.apache.doris.nereids.trees.plans.commands.InsertIntoTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.UpdateCommand;
 import org.apache.doris.nereids.trees.plans.commands.info.ColumnDefinition;
 import org.apache.doris.nereids.trees.plans.commands.info.CreateTableInfo;
+import org.apache.doris.nereids.trees.plans.commands.info.DefaultValue;
 import org.apache.doris.nereids.trees.plans.commands.info.DistributionDescriptor;
 import org.apache.doris.nereids.trees.plans.commands.info.FixedRangePartition;
 import org.apache.doris.nereids.trees.plans.commands.info.InPartition;
@@ -1835,12 +1835,17 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         boolean isKey = ctx.KEY() != null;
         boolean isNotNull = ctx.NOT() != null;
         String aggTypeString = ctx.aggType != null ? ctx.aggType.getText() : null;
-        Optional<Expression> defaultValue = Optional.empty();
+        Optional<DefaultValue> defaultValue = Optional.empty();
         if (ctx.DEFAULT() != null) {
             if (ctx.defaultValue != null) {
-                defaultValue = Optional.of(((Literal) visit(ctx.defaultValue)));
+                defaultValue = Optional.of(new DefaultValue(((Literal) visit(ctx.defaultValue)).getStringValue()));
             } else if (ctx.CURRENT_TIMESTAMP() != null) {
-                defaultValue = Optional.of(new Now());
+                if (ctx.precision == null) {
+                    defaultValue = Optional.of(DefaultValue.CURRENT_TIMESTAMP_DEFAULT_VALUE);
+                } else {
+                    defaultValue = Optional.of(DefaultValue
+                            .currentTimeStampDefaultValueWithPrecision(Long.valueOf(ctx.precision.getText())));
+                }
             }
         }
         AggregateType aggType = null;

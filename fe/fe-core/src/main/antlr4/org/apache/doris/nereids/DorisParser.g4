@@ -336,7 +336,7 @@ columnDefs
 columnDef
     : colName=identifier type=dataType
         KEY? (aggType=aggTypeDef)? ((NOT NULL) | NULL)?
-        (DEFAULT (defaultValue=constant | CURRENT_TIMESTAMP))?
+        (DEFAULT (defaultValue=constant | CURRENT_TIMESTAMP (LEFT_PAREN precision=number RIGHT_PAREN)?))?
         (COMMENT comment=STRING_LITERAL)?
     ;
     
