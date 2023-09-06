@@ -600,7 +600,7 @@ public class DataDescription implements InsertStmt.DataDesc {
 
     public String getColumnSeparator() {
         if (columnSeparator == null) {
-            return "\t";
+            return null;
         }
         return columnSeparator.getSeparator();
     }
@@ -623,7 +623,7 @@ public class DataDescription implements InsertStmt.DataDesc {
 
     public String getLineDelimiter() {
         if (lineDelimiter == null) {
-            return "\n";
+            return null;
         }
         return lineDelimiter.getSeparator();
     }

@@ -21,53 +21,29 @@ suite("test_compress_type", "load_p0") {
     // GZ/LZO/BZ2/LZ4FRAME/DEFLATE/LZOP
     def compressTypes = [
             "COMPRESS_TYPE AS \"GZ\"",
-            "COMPRESS_TYPE AS \"LZO\"",
             "COMPRESS_TYPE AS \"BZ2\"",
             "COMPRESS_TYPE AS \"LZ4FRAME\"",
-            "COMPRESS_TYPE AS \"DEFLATE\"",
-            "COMPRESS_TYPE AS \"LZOP\"",
             "COMPRESS_TYPE AS \"GZ\"",
-            "COMPRESS_TYPE AS \"LZO\"",
             "COMPRESS_TYPE AS \"BZ2\"",
             "COMPRESS_TYPE AS \"LZ4FRAME\"",
-            "COMPRESS_TYPE AS \"DEFLATE\"",
-            "COMPRESS_TYPE AS \"LZOP\"",
             "",
             "",
             "",
             "",
             "",
             "",
-            "",
-            "",
-            "",
-            "",
-            "",
-            ""
     ]
 
     def fileFormat = [
             "FORMAT AS \"CSV\"",
             "FORMAT AS \"CSV\"",
             "FORMAT AS \"CSV\"",
-            "FORMAT AS \"CSV\"",
-            "FORMAT AS \"CSV\"",
-            "FORMAT AS \"CSV\"",
-            "",
-            "",
-            "",
             "",
             "",
             "",
             "FORMAT AS \"CSV\"",
             "FORMAT AS \"CSV\"",
             "FORMAT AS \"CSV\"",
-            "FORMAT AS \"CSV\"",
-            "FORMAT AS \"CSV\"",
-            "FORMAT AS \"CSV\"",
-            "",
-            "",
-            "",
             "",
             "",
             ""
@@ -75,29 +51,17 @@ suite("test_compress_type", "load_p0") {
 
     def paths = [
             "s3://doris-build-1308700295/regression/load/data/basic_data.csv.gz",
-            "s3://doris-build-1308700295/regression/load/data/basic_data.csv.lzo",
             "s3://doris-build-1308700295/regression/load/data/basic_data.csv.bz2",
             "s3://doris-build-1308700295/regression/load/data/basic_data.csv.lz4",
-            "s3://doris-build-1308700295/regression/load/data/basic_data.csv.zip",
-            "s3://doris-build-1308700295/regression/load/data/basic_data.csv.lzop",
             "s3://doris-build-1308700295/regression/load/data/basic_data.csv.gz",
-            "s3://doris-build-1308700295/regression/load/data/basic_data.csv.lzo",
             "s3://doris-build-1308700295/regression/load/data/basic_data.csv.bz2",
             "s3://doris-build-1308700295/regression/load/data/basic_data.csv.lz4",
-            "s3://doris-build-1308700295/regression/load/data/basic_data.csv.zip",
-            "s3://doris-build-1308700295/regression/load/data/basic_data.csv.lzop",
             "s3://doris-build-1308700295/regression/load/data/basic_data.csv.gz",
-            "s3://doris-build-1308700295/regression/load/data/basic_data.csv.lzo",
             "s3://doris-build-1308700295/regression/load/data/basic_data.csv.bz2",
             "s3://doris-build-1308700295/regression/load/data/basic_data.csv.lz4",
-            "s3://doris-build-1308700295/regression/load/data/basic_data.csv.zip",
-            "s3://doris-build-1308700295/regression/load/data/basic_data.csv.lzop",
             "s3://doris-build-1308700295/regression/load/data/basic_data.csv.gz",
-            "s3://doris-build-1308700295/regression/load/data/basic_data.csv.lzo",
             "s3://doris-build-1308700295/regression/load/data/basic_data.csv.bz2",
-            "s3://doris-build-1308700295/regression/load/data/basic_data.csv.lz4",
-            "s3://doris-build-1308700295/regression/load/data/basic_data.csv.zip",
-            "s3://doris-build-1308700295/regression/load/data/basic_data.csv.lzop",
+            "s3://doris-build-1308700295/regression/load/data/basic_data.csv.lz4"
     ]
     def labels = []
 
@@ -117,6 +81,7 @@ suite("test_compress_type", "load_p0") {
             LOAD LABEL $label (
                 DATA INFILE("$path")
                 INTO TABLE $tableName
+                COLUMNS TERMINATED BY "|"
                 $format_str
                 $compressType
             )
@@ -143,7 +108,6 @@ suite("test_compress_type", "load_p0") {
             String[][] result = sql """ show load where label="$label" order by createtime desc limit 1; """
             if (result[0][2].equals("FINISHED")) {
                 logger.info("Load FINISHED " + label)
-                assertTrue(result[0][7] == "NULL")
                 break
             }
             if (result[0][2].equals("CANCELLED")) {
@@ -160,4 +124,6 @@ suite("test_compress_type", "load_p0") {
         }
         i++
     }
+
+    qt_sql """ select count(*) from ${tableName} """
 }

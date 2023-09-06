@@ -207,7 +207,13 @@ public class BrokerFileGroup implements Writable {
 
         // column
         columnSeparator = dataDescription.getColumnSeparator();
+        if (columnSeparator == null) {
+            columnSeparator = "\t";
+        }
         lineDelimiter = dataDescription.getLineDelimiter();
+        if (lineDelimiter == null) {
+            lineDelimiter = "\n";
+        }
         enclose = dataDescription.getEnclose();
         escape = dataDescription.getEscape();
 
