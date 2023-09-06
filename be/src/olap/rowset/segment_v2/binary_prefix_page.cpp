@@ -163,8 +163,8 @@ Status BinaryPrefixPageDecoder::seek_to_position_in_page(size_t pos) {
     size_t restart_point_index = pos / _restart_point_internal;
     RETURN_IF_ERROR(_seek_to_restart_point(restart_point_index));
     while (_cur_pos < pos) {
-        RETURN_IF_ERROR(_read_next_value());
         _cur_pos++;
+        RETURN_IF_ERROR(_read_next_value());
     }
     return Status::OK();
 }
@@ -201,8 +201,8 @@ Status BinaryPrefixPageDecoder::seek_at_or_after_value(const void* value, bool* 
             *exact_match = cmp == 0;
             return Status::OK();
         }
-        RETURN_IF_ERROR(_read_next_value());
         _cur_pos++;
+        RETURN_IF_ERROR(_read_next_value());
     }
 }
 
@@ -217,14 +217,14 @@ Status BinaryPrefixPageDecoder::next_batch(size_t* n, vectorized::MutableColumnP
     dst->insert_data((char*)(_current_value.data()), _current_value.size());
     // read and copy values
     for (size_t i = 1; i < max_fetch; ++i) {
-        RETURN_IF_ERROR(_read_next_value());
         _cur_pos++;
+        RETURN_IF_ERROR(_read_next_value());
         dst->insert_data((char*)(_current_value.data()), _current_value.size());
     }
 
     if (_cur_pos < _num_values - 1) {
-        RETURN_IF_ERROR(_read_next_value());
         _cur_pos++;
+        RETURN_IF_ERROR(_read_next_value());
     }
 
     *n = max_fetch;
