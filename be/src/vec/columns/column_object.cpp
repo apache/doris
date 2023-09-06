@@ -641,7 +641,15 @@ void ColumnObject::for_each_subcolumn(ColumnCallback callback) {
     }
 }
 
-void ColumnObject::try_insert_from(const IColumn& src, size_t n) {
+void ColumnObject::insert_from(const IColumn& src, size_t n) {
+    const auto& src_v = assert_cast<const ColumnObject&>(src);
+    // optimize when src and this column are scalar variant, since try_insert is inefficiency
+    if (src_v.is_scalar_variant() && is_scalar_variant() &&
+        src_v.get_root_type()->equals(*get_root_type()) && src_v.is_finalized() && is_finalized()) {
+        assert_cast<ColumnNullable&>(*get_root()).insert_from(*src_v.get_root(), n);
+        ++num_rows;
+        return;
+    }
     return try_insert(src[n]);
 }
 
@@ -732,7 +740,7 @@ Status ColumnObject::try_insert_indices_from(const IColumn& src, const int* indi
         if (*x == -1) {
             ColumnObject::insert_default();
         } else {
-            ColumnObject::try_insert_from(src, *x);
+            ColumnObject::insert_from(src, *x);
         }
     }
     finalize();
