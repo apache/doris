@@ -178,7 +178,6 @@ void Daemon::tcmalloc_gc_thread() {
             last_ms = 0;
         }
     }
-    LOG(INFO) << "Daemon tcmalloc_gc_thread End";
 #endif
 }
 
@@ -186,7 +185,8 @@ void Daemon::memory_maintenance_thread() {
     int32_t interval_milliseconds = config::memory_maintenance_sleep_time_ms;
     int64_t last_print_proc_mem = PerfCounters::get_vm_rss();
     while (!_stop_background_threads_latch.wait_for(
-            std::chrono::milliseconds(interval_milliseconds))) {
+                   std::chrono::milliseconds(interval_milliseconds)) &&
+           !k_doris_exit) {
         // Refresh process memory metrics.
         doris::PerfCounters::refresh_proc_status();
         doris::MemInfo::refresh_proc_meminfo();
@@ -214,7 +214,6 @@ void Daemon::memory_maintenance_thread() {
                             process_mem_log_str(); // print mem log when memory state by 256M
         }
     }
-    LOG(INFO) << "Daemon memory_maintenance_thread End";
 }
 
 void Daemon::memory_gc_thread() {
@@ -223,7 +222,8 @@ void Daemon::memory_gc_thread() {
     int32_t memory_full_gc_sleep_time_ms = 0;
     int32_t memory_gc_sleep_time_ms = config::memory_gc_sleep_time_ms;
     while (!_stop_background_threads_latch.wait_for(
-            std::chrono::milliseconds(interval_milliseconds))) {
+                   std::chrono::milliseconds(interval_milliseconds)) &&
+           !k_doris_exit) {
         if (config::disable_memory_gc) {
             continue;
         }
@@ -268,17 +268,16 @@ void Daemon::memory_gc_thread() {
             }
         }
     }
-    LOG(INFO) << "Daemon memory_gc_thread End";
 }
 
 void Daemon::memtable_memory_limiter_tracker_refresh_thread() {
     // Refresh the memory statistics of the load channel tracker more frequently,
     // which helps to accurately control the memory of LoadChannelMgr.
     while (!_stop_background_threads_latch.wait_for(
-            std::chrono::milliseconds(config::memtable_mem_tracker_refresh_interval_ms))) {
+                   std::chrono::milliseconds(config::memtable_mem_tracker_refresh_interval_ms)) &&
+           !k_doris_exit) {
         doris::ExecEnv::GetInstance()->memtable_memory_limiter()->refresh_mem_tracker();
     }
-    LOG(INFO) << "Daemon memtable_memory_limiter_tracker_refresh_thread End";
 }
 
 /*
@@ -346,16 +345,14 @@ void Daemon::calculate_metrics_thread() {
             DorisMetrics::instance()->all_segments_num->set_value(
                     StorageEngine::instance()->tablet_manager()->get_segment_nums());
         }
-    } while (!_stop_background_threads_latch.wait_for(std::chrono::seconds(15)));
-    LOG(INFO) << "Daemon calculate_metrics_thread End";
+    } while (!_stop_background_threads_latch.wait_for(std::chrono::seconds(15)) && !k_doris_exit);
 }
 
 // clean up stale spilled files
 void Daemon::block_spill_gc_thread() {
-    while (!_stop_background_threads_latch.wait_for(std::chrono::seconds(60))) {
+    while (!_stop_background_threads_latch.wait_for(std::chrono::seconds(60)) && !k_doris_exit) {
         ExecEnv::GetInstance()->block_spill_mgr()->gc(200);
     }
-    LOG(INFO) << "Daemon block_spill_gc_thread End";
 }
 
 void Daemon::start() {
@@ -391,6 +388,7 @@ void Daemon::start() {
 }
 
 void Daemon::stop() {
+    LOG(INFO) << "Daemon Stop Start";
     if (_stop_background_threads_latch.count() == 0) {
         return;
     }
@@ -400,7 +398,7 @@ void Daemon::stop() {
             t->join();
         }
     }
-    LOG(INFO) << "Daemon stop End";
+    LOG(INFO) << "Daemon Stop End";
 }
 
 } // namespace doris

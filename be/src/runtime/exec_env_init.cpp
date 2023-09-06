@@ -411,7 +411,7 @@ void ExecEnv::_destroy() {
     if (!ready()) {
         return;
     }
-    LOG(INFO) << "ExecEnv destroy start";
+    LOG(INFO) << "ExecEnv Destroy Start";
     // Memory barrier to prevent other threads from accessing destructed resources
     _s_ready = false;
     _deregister_metrics();
@@ -455,7 +455,7 @@ void ExecEnv::_destroy() {
     _brpc_iobuf_block_memory_tracker.reset();
     InvertedIndexSearcherCache::reset_global_instance();
 
-    LOG(INFO) << "ExecEnv destroy end";
+    LOG(INFO) << "ExecEnv Destroy End";
 }
 
 void ExecEnv::destroy(ExecEnv* env) {
