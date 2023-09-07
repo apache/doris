@@ -93,7 +93,7 @@ private:
     }
     // process read
     template <typename ReadFunction>
-    Status process_read(ReadFunction&& read_func, vectorized::MutableColumnPtr& dst) {
+    Status process_read(ReadFunction&& read_func, vectorized::MutableColumnPtr& dst, size_t nrows) {
         // // Read all sub columns, and merge with root column
         // for (const SubstreamCache::Node* node : _attatched_nodes) {
         //     RETURN_IF_ERROR(node_func(node));
@@ -102,14 +102,10 @@ private:
         // TODO use _col
         (void)_col.name();
         auto& variant = assert_cast<vectorized::ColumnObject&>(*dst);
-        size_t old_size = dst->size();
-        size_t nrows = 0;
 
         // read data
-        // read shared root first if it is not read before
-        if (_rows_read >= _root_reader->rows_read) {
-            RETURN_IF_ERROR(read_func(*_root_reader, {}, _root_reader->type));
-        }
+        // read root first if it is not read before
+        RETURN_IF_ERROR(read_func(*_root_reader, {}, _root_reader->type));
 
         // read container columns
         RETURN_IF_ERROR(tranverse([&](SubstreamReaderTree::Node& node) {
@@ -125,18 +121,12 @@ private:
         if (_col.path_info().get_parts().size() == 1) {
             auto& root_var = assert_cast<vectorized::ColumnObject&>(*_root_reader->column);
             auto column = root_var.get_root();
-            if (nrows == 0) {
-                nrows = column->size() - old_size;
-            }
             auto type = root_var.get_root_type();
             container_variant.add_sub_column({}, std::move(column), type);
         }
 
         RETURN_IF_ERROR(tranverse([&](SubstreamReaderTree::Node& node) {
             vectorized::MutableColumnPtr column = node.data.column->get_ptr();
-            if (nrows == 0) {
-                nrows = column->size() - old_size;
-            }
             bool add = container_variant.add_sub_column(node.path.pop_front(), std::move(column),
                                                         node.data.type);
             if (!add) {
@@ -149,7 +139,7 @@ private:
         // TODO select v:b -> v.b / v.b.c but v.d maybe in v
 
         // copy container variant to dst variant, todo avoid copy
-        variant.insert_range_from(container_variant, old_size, nrows);
+        variant.insert_range_from(container_variant, 0, nrows);
         variant.set_num_rows(nrows);
         _rows_read += nrows;
         variant.finalize();
@@ -187,12 +177,11 @@ public:
     ordinal_t get_current_ordinal() const override;
 
 private:
-    Status extract_to(vectorized::MutableColumnPtr& dst);
+    Status extract_to(vectorized::MutableColumnPtr& dst, size_t nrows);
 
     const TabletColumn& _col;
     // may shared among different column iterators
     std::unique_ptr<StreamReader> _root_reader;
-    size_t _rows_read = 0;
 };
 
 } // namespace segment_v2

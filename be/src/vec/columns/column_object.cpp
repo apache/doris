@@ -293,7 +293,7 @@ void ColumnObject::Subcolumn::insert(Field field, FieldInfo info) {
     bool type_changed = false;
     if (value_dim != column_dim || info.num_dimensions >= 2) {
         // Deduce to JSONB
-        LOG(INFO) << fmt::format(
+        VLOG_DEBUG << fmt::format(
                 "Dimension of types mismatched between inserted value and column, "
                 "expected:{}, but meet:{} for type:{}",
                 column_dim, value_dim, least_common_type.get()->get_name());
