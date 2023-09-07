@@ -92,7 +92,6 @@ public enum RuleType {
     CHECK_AGGREGATE_ANALYSIS(RuleTypeClass.CHECK),
     CHECK_ANALYSIS(RuleTypeClass.CHECK),
     CHECK_OBJECT_TYPE_ANALYSIS(RuleTypeClass.CHECK),
-    CHECK_BOUND(RuleTypeClass.CHECK),
     CHECK_DATA_TYPES(RuleTypeClass.CHECK),
 
     // rewrite rules
