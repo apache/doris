@@ -32,6 +32,7 @@
 #include "pipeline/exec/olap_scan_operator.h"
 #include "pipeline/exec/repeat_operator.h"
 #include "pipeline/exec/result_sink_operator.h"
+#include "pipeline/exec/select_operator.h"
 #include "pipeline/exec/sort_sink_operator.h"
 #include "pipeline/exec/sort_source_operator.h"
 #include "pipeline/exec/streaming_aggregation_sink_operator.h"
@@ -242,11 +243,13 @@ Status StatefulOperatorX<LocalStateType>::get_block(RuntimeState* state, vectori
     }
 
     if (!need_more_input_data(state)) {
-        RETURN_IF_ERROR(pull(state, block, source_state));
-        if (source_state != SourceState::FINISHED && !need_more_input_data(state)) {
+        SourceState new_state = SourceState::DEPEND_ON_SOURCE;
+        RETURN_IF_ERROR(pull(state, block, new_state));
+        if (new_state == SourceState::FINISHED) {
+            source_state = SourceState::FINISHED;
+        } else if (!need_more_input_data(state)) {
             source_state = SourceState::MORE_DATA;
-        } else if (source_state != SourceState::FINISHED &&
-                   source_state == SourceState::MORE_DATA) {
+        } else if (source_state == SourceState::MORE_DATA) {
             source_state = local_state._child_source_state;
         }
     }
@@ -280,6 +283,7 @@ DECLARE_OPERATOR_X(EmptySetLocalState)
 #undef DECLARE_OPERATOR_X
 
 template class StreamingOperatorX<AssertNumRowsLocalState>;
+template class StreamingOperatorX<SelectLocalState>;
 
 template class StatefulOperatorX<HashJoinProbeLocalState>;
 template class StatefulOperatorX<RepeatLocalState>;

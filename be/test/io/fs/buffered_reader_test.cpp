@@ -270,6 +270,51 @@ TEST_F(BufferedReaderTest, test_miss) {
     EXPECT_EQ(45, bytes_read);
 }
 
+TEST_F(BufferedReaderTest, test_read_amplify) {
+    size_t kb = 1024;
+    io::FileReaderSPtr offset_reader = std::make_shared<MockOffsetFileReader>(2048 * kb); // 2MB
+    std::vector<io::PrefetchRange> random_access_ranges;
+    random_access_ranges.emplace_back(0, 1 * kb); // column0
+    // if read the follow slice, amplified_ratio = 1, but data size <= MIN_READ_SIZE
+    random_access_ranges.emplace_back(3 * kb, 4 * kb); // column1
+    // if read the follow slice, amplified_ratio = 1,
+    // but merge the next rand, amplified_ratio will be decreased
+    random_access_ranges.emplace_back(5 * kb, 6 * kb);  // column2
+    random_access_ranges.emplace_back(7 * kb, 12 * kb); // column3
+    // read the last range first, so we can't merge the last range when reading the former ranges,
+    // even if the amplified_ratio < 0.8
+    random_access_ranges.emplace_back(512 * kb, 2048 * kb); // column4
+
+    io::MergeRangeFileReader merge_reader(nullptr, offset_reader, random_access_ranges);
+    char data[2048 * kb]; // 2MB
+    Slice result(data, 2048 * kb);
+    size_t bytes_read = 0;
+
+    // read column4
+    result.size = 1024 * kb;
+    merge_reader.read_at(1024 * kb, result, &bytes_read, nullptr);
+    EXPECT_EQ(bytes_read, 1024 * kb);
+    EXPECT_EQ(merge_reader.statistics().request_bytes, 1024 * kb);
+    EXPECT_EQ(merge_reader.statistics().read_bytes, 1024 * kb);
+    // read column0
+    result.size = 1 * kb;
+    // will merge column 0 ~ 3
+    merge_reader.read_at(0, result, &bytes_read, nullptr);
+    EXPECT_EQ(bytes_read, 1 * kb);
+    EXPECT_EQ(merge_reader.statistics().read_bytes, 1024 * kb + 12 * kb);
+    // read column1
+    result.size = 1 * kb;
+    merge_reader.read_at(3 * kb, result, &bytes_read, nullptr);
+    // read column2
+    result.size = 1 * kb;
+    merge_reader.read_at(5 * kb, result, &bytes_read, nullptr);
+    // read column3
+    result.size = 5 * kb;
+    merge_reader.read_at(7 * kb, result, &bytes_read, nullptr);
+    EXPECT_EQ(merge_reader.statistics().request_bytes, 1024 * kb + 8 * kb);
+    EXPECT_EQ(merge_reader.statistics().read_bytes, 1024 * kb + 12 * kb);
+}
+
 TEST_F(BufferedReaderTest, test_merged_io) {
     io::FileReaderSPtr offset_reader =
             std::make_shared<MockOffsetFileReader>(128 * 1024 * 1024); // 128MB
