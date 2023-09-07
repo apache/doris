@@ -54,6 +54,7 @@ void register_function_array_pushback(SimpleFunctionFactory& factory);
 void register_function_array_first_or_last_index(SimpleFunctionFactory& factory);
 void register_function_array_cum_sum(SimpleFunctionFactory& factory);
 void register_function_array_count(SimpleFunctionFactory&);
+void register_function_array_filter_function(SimpleFunctionFactory&);
 
 void register_function_array(SimpleFunctionFactory& factory) {
     register_function_array_shuffle(factory);
@@ -88,6 +89,7 @@ void register_function_array(SimpleFunctionFactory& factory) {
     register_function_array_first_or_last_index(factory);
     register_function_array_cum_sum(factory);
     register_function_array_count(factory);
+    register_function_array_filter_function(factory);
 }
 
 } // namespace doris::vectorized

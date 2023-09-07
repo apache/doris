@@ -786,14 +786,7 @@ public class FunctionCallExpr extends Expr {
             }
             msg.setAggExpr(aggFnParams.createTAggregateExpr(isMergeAggFn));
         } else {
-            // array_filter(array, boolean) only implement as lambda function
-            // eg: SELECT array_filter(`array_d`, array_map(x -> (x >= 1), `array_d`))
-            // can't as a normal function for BE, need handle by lambda function call expr
-            if (fnName.getFunction().equalsIgnoreCase("array_filter")) {
-                msg.node_type = TExprNodeType.LAMBDA_FUNCTION_CALL_EXPR;
-            } else {
-                msg.node_type = TExprNodeType.FUNCTION_CALL;
-            }
+            msg.node_type = TExprNodeType.FUNCTION_CALL;
         }
     }
 
