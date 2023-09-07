@@ -126,6 +126,9 @@ public class ColumnDefinition {
         }
     }
 
+    /**
+     * translate to catalog create table stmt
+     */
     public Column translateToCatalogStyle() {
         Column column = new Column(name, type.toCatalogDataType(), isKey, aggType, isNullable,
                 false, defaultValue.map(DefaultValue::getValue).orElse(null), comment, isVisible,
