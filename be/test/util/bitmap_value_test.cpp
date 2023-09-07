@@ -266,9 +266,9 @@ TEST(BitmapValueTest, Roaring64Map) {
     }
     EXPECT_TRUE(r1.contains((uint64_t)14000000000000000500ull));
     EXPECT_EQ(1800, r1.cardinality());
-    size_t size_before = r1.getSizeInBytes();
+    size_t size_before = r1.getSizeInBytes(1);
     r1.runOptimize();
-    size_t size_after = r1.getSizeInBytes();
+    size_t size_after = r1.getSizeInBytes(1);
     EXPECT_LT(size_after, size_before);
 
     Roaring64Map r2 = Roaring64Map::bitmapOf(5, 1ull, 2ull, 234294967296ull, 195839473298ull,
@@ -311,9 +311,9 @@ TEST(BitmapValueTest, Roaring64Map) {
     EXPECT_EQ(1, i1_2.cardinality());
 
     // we can write a bitmap to a pointer and recover it later
-    uint32_t expectedsize = r1.getSizeInBytes();
+    uint32_t expectedsize = r1.getSizeInBytes(1);
     char* serializedbytes = new char[expectedsize];
-    r1.write(serializedbytes);
+    r1.write(serializedbytes, 1);
     Roaring64Map t = Roaring64Map::read(serializedbytes);
     EXPECT_TRUE(r1 == t);
     delete[] serializedbytes;
