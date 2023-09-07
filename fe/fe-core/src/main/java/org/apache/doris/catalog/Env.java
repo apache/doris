@@ -1773,6 +1773,12 @@ public class Env {
 
     public long loadHeaderCOR1(DataInputStream dis, long checksum) throws IOException {
         int journalVersion = dis.readInt();
+        if (journalVersion > FeMetaVersion.VERSION_CURRENT) {
+            throw new IOException("The meta version of image is " + journalVersion
+                    + ", which is higher than FE current version " + FeMetaVersion.VERSION_CURRENT
+                    + ". Please upgrade your cluster to the latest version first.");
+        }
+
         long newChecksum = checksum ^ journalVersion;
         MetaContext.get().setMetaVersion(journalVersion);
 
@@ -4027,7 +4033,8 @@ public class Env {
     public void cancelAlter(CancelAlterTableStmt stmt) throws DdlException {
         if (stmt.getAlterType() == AlterType.ROLLUP) {
             this.getMaterializedViewHandler().cancel(stmt);
-        } else if (stmt.getAlterType() == AlterType.COLUMN) {
+        } else if (stmt.getAlterType() == AlterType.COLUMN
+                       || stmt.getAlterType() == AlterType.INDEX) {
             this.getSchemaChangeHandler().cancel(stmt);
         } else {
             throw new DdlException("Cancel " + stmt.getAlterType() + " does not implement yet");
@@ -5600,5 +5607,9 @@ public class Env {
 
     public ColumnIdFlushDaemon getColumnIdFlusher() {
         return columnIdFlusher;
+    }
+
+    public StatisticsAutoCollector getStatisticsAutoCollector() {
+        return statisticsAutoCollector;
     }
 }

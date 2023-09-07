@@ -946,6 +946,10 @@ Status SegmentIterator::_apply_inverted_index_on_block_column_predicate(
 }
 
 bool SegmentIterator::_need_read_data(ColumnId cid) {
+    // for safety reason, only support DUP_KEYS
+    if (_opts.tablet_schema->keys_type() != KeysType::DUP_KEYS) {
+        return true;
+    }
     if (_output_columns.count(-1)) {
         // if _output_columns contains -1, it means that the light
         // weight schema change may not be enabled or other reasons

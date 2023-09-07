@@ -52,9 +52,9 @@ Status BlockSpillReader::open() {
 
     io::FileDescription file_description;
     file_description.path = file_path_;
-    io::FileReaderOptions reader_options = io::FileReaderOptions::DEFAULT;
     RETURN_IF_ERROR(FileFactory::create_file_reader(system_properties, file_description,
-                                                    reader_options, &file_system, &file_reader_));
+                                                    io::FileReaderOptions {}, &file_system,
+                                                    &file_reader_));
 
     size_t file_size = file_reader_->size();
 

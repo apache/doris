@@ -77,18 +77,22 @@ public class StatisticsAutoCollector extends StatisticsCollector {
                 if (StatisticConstants.STATISTICS_DB_BLACK_LIST.contains(databaseIf.getFullName())) {
                     continue;
                 }
-                List<AnalysisInfo> analysisInfos = constructAnalysisInfo(databaseIf);
-                for (AnalysisInfo analysisInfo : analysisInfos) {
-                    analysisInfo = getReAnalyzeRequiredPart(analysisInfo);
-                    if (analysisInfo == null) {
-                        continue;
-                    }
-                    try {
-                        createSystemAnalysisJob(analysisInfo);
-                    } catch (Exception e) {
-                        LOG.warn("Failed to create analysis job", e);
-                    }
-                }
+                analyzeDb(databaseIf);
+            }
+        }
+    }
+
+    public void analyzeDb(DatabaseIf<TableIf> databaseIf) {
+        List<AnalysisInfo> analysisInfos = constructAnalysisInfo(databaseIf);
+        for (AnalysisInfo analysisInfo : analysisInfos) {
+            analysisInfo = getReAnalyzeRequiredPart(analysisInfo);
+            if (analysisInfo == null) {
+                continue;
+            }
+            try {
+                createSystemAnalysisJob(analysisInfo);
+            } catch (Exception e) {
+                LOG.warn("Failed to create analysis job", e);
             }
         }
     }

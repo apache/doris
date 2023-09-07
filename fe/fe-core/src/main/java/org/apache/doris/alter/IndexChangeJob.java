@@ -41,6 +41,7 @@ import org.apache.doris.task.AgentTaskExecutor;
 import org.apache.doris.task.AgentTaskQueue;
 import org.apache.doris.task.AlterInvertedIndexTask;
 import org.apache.doris.thrift.TColumn;
+import org.apache.doris.thrift.TTaskType;
 
 import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
@@ -321,8 +322,29 @@ public class IndexChangeJob implements Writable {
         LOG.info("inverted index job finished: {}", jobId);
     }
 
+    /**
+     * cancelImpl() can be called any time any place.
+     * We need to clean any possible residual of this job.
+     */
     protected boolean cancelImpl(String errMsg) {
+        if (jobState.isFinalState()) {
+            return false;
+        }
+
+        cancelInternal();
+
+        jobState = JobState.CANCELLED;
+        this.errMsg = errMsg;
+        this.finishedTimeMs = System.currentTimeMillis();
+        Env.getCurrentEnv().getEditLog().logIndexChangeJob(this);
+        LOG.info("cancel index job {}, err: {}", jobId, errMsg);
         return true;
+    }
+
+    private void cancelInternal() {
+        // clear tasks if has
+        AgentTaskQueue.removeBatchTask(invertedIndexBatchTask, TTaskType.ALTER_INVERTED_INDEX);
+        // TODO maybe delete already build index files
     }
 
     public void replay(IndexChangeJob replayedJob) {
@@ -336,8 +358,7 @@ public class IndexChangeJob implements Writable {
                     replayRunningJob(replayedIndexChangeJob);
                     break;
                 case CANCELLED:
-                    // TODO:
-                    // replayCancelled(replayedIndexChangeJob);
+                    replayCancelled(replayedIndexChangeJob);
                     break;
                 default:
                     break;
@@ -359,6 +380,18 @@ public class IndexChangeJob implements Writable {
         this.jobState = JobState.FINISHED;
         this.finishedTimeMs = replayedJob.finishedTimeMs;
         LOG.info("replay finished inverted index job: {} table id: {}", jobId, tableId);
+    }
+
+    /**
+     * Replay job in CANCELLED state.
+     */
+    private void replayCancelled(IndexChangeJob replayedJob) {
+        cancelInternal();
+
+        this.jobState = JobState.CANCELLED;
+        this.errMsg = replayedJob.errMsg;
+        this.finishedTimeMs = replayedJob.finishedTimeMs;
+        LOG.info("cancel index job {}, err: {}", jobId, errMsg);
     }
 
     public static IndexChangeJob read(DataInput in) throws IOException {

@@ -160,7 +160,7 @@ Status ScanLocalState<Derived>::_normalize_conjuncts() {
     std::vector<SlotDescriptor*> slots = p._output_tuple_desc->slots();
 
     for (int slot_idx = 0; slot_idx < slots.size(); ++slot_idx) {
-        p._colname_to_slot_id[slots[slot_idx]->col_name()] = slots[slot_idx]->id();
+        _colname_to_slot_id[slots[slot_idx]->col_name()] = slots[slot_idx]->id();
 
         auto type = slots[slot_idx]->type().type;
         if (slots[slot_idx]->type().type == TYPE_ARRAY) {
