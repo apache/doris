@@ -410,8 +410,10 @@ Status RowsetMetaManager::remove(OlapMeta* meta, TabletUid tablet_uid, const Row
 }
 
 Status RowsetMetaManager::remove_binlog(OlapMeta* meta, const std::string& suffix) {
+    // Please do not remove std::vector<std::string>, more info refer to pr#23190
     return meta->remove(META_COLUMN_FAMILY_INDEX,
-                        {kBinlogMetaPrefix.data() + suffix, kBinlogDataPrefix.data() + suffix});
+                        std::vector<std::string> {kBinlogMetaPrefix.data() + suffix,
+                                                  kBinlogDataPrefix.data() + suffix});
 }
 
 Status RowsetMetaManager::ingest_binlog_metas(OlapMeta* meta, TabletUid tablet_uid,
