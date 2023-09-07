@@ -114,7 +114,6 @@ template <typename Derived>
 Status ScanLocalState<Derived>::init(RuntimeState* state, LocalStateInfo& info) {
     RETURN_IF_ERROR(PipelineXLocalState<>::init(state, info));
     RETURN_IF_ERROR(RuntimeFilterConsumer::init(state));
-    RuntimeFilterConsumer::_init_profile(_runtime_profile.get());
     auto& p = _parent->cast<typename Derived::Parent>();
     set_scan_ranges(info.scan_ranges);
     _common_expr_ctxs_push_down.resize(p._common_expr_ctxs_push_down.size());
