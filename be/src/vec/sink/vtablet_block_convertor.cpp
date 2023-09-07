@@ -462,7 +462,6 @@ Status OlapTableBlockConvertor::_fill_auto_inc_cols(vectorized::Block* block, si
     vectorized::ColumnInt64::Container& dst_values = dst_column->get_data();
 
     vectorized::ColumnPtr src_column_ptr = block->get_by_position(idx).column;
-    DCHECK(vectorized::is_column_const(*src_column_ptr) || src_column_ptr->is_nullable());
     if (const vectorized::ColumnConst* const_column =
                 check_and_get_column<vectorized::ColumnConst>(src_column_ptr)) {
         // for insert stmt like "insert into tbl1 select null,col1,col2,... from tbl2" or
@@ -487,11 +486,10 @@ Status OlapTableBlockConvertor::_fill_auto_inc_cols(vectorized::Block* block, si
             int64_t value = const_column->get_int(0);
             dst_values.resize_fill(rows, value);
         }
-    } else {
-        const auto& src_nullable_column =
-                assert_cast<const vectorized::ColumnNullable&>(*src_column_ptr);
-        auto src_nested_column_ptr = src_nullable_column.get_nested_column_ptr();
-        const auto& null_map_data = src_nullable_column.get_null_map_data();
+    } else if (const vectorized::ColumnNullable* src_nullable_column =
+                       check_and_get_column<vectorized::ColumnNullable>(src_column_ptr)) {
+        auto src_nested_column_ptr = src_nullable_column->get_nested_column_ptr();
+        const auto& null_map_data = src_nullable_column->get_null_map_data();
         dst_values.reserve(rows);
         for (size_t i = 0; i < rows; i++) {
             null_value_count += null_map_data[i];
@@ -506,6 +504,8 @@ Status OlapTableBlockConvertor::_fill_auto_inc_cols(vectorized::Block* block, si
             dst_values.emplace_back((null_map_data[i] != 0) ? _auto_inc_id_allocator.next_id()
                                                             : src_nested_column_ptr->get_int(i));
         }
+    } else {
+        return Status::OK();
     }
     block->get_by_position(idx).column = std::move(dst_column);
     block->get_by_position(idx).type =

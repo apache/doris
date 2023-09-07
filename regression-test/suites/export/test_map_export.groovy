@@ -95,7 +95,7 @@ suite("test_map_export", "export") {
         } else {
             throw new IllegalStateException("""${outFilePath} already exists! """)
         }
-        result = sql """
+        def result = sql """
                     SELECT * FROM ${testTable} ORDER BY id INTO OUTFILE "file://${outFile}/";
         """
         url = result[0][3]

@@ -32,6 +32,8 @@
 #include <utility>
 #include <variant>
 
+#include "pipeline/exec/nested_loop_join_build_operator.h"
+
 // IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/status.h"
@@ -64,35 +66,32 @@ class ObjectPool;
 
 namespace doris::vectorized {
 
-struct RuntimeFilterBuild {
-    RuntimeFilterBuild(VNestedLoopJoinNode* join_node) : _join_node(join_node) {}
-
-    Status operator()(RuntimeState* state) {
-        if (_join_node->_runtime_filter_descs.empty()) {
-            return Status::OK();
-        }
-        VRuntimeFilterSlotsCross runtime_filter_slots(_join_node->_runtime_filter_descs,
-                                                      _join_node->_filter_src_expr_ctxs);
-
-        RETURN_IF_ERROR(runtime_filter_slots.init(state));
-
-        if (!runtime_filter_slots.empty() && !_join_node->_build_blocks.empty()) {
-            SCOPED_TIMER(_join_node->_push_compute_timer);
-            for (auto& build_block : _join_node->_build_blocks) {
-                runtime_filter_slots.insert(&build_block);
-            }
-        }
-        {
-            SCOPED_TIMER(_join_node->_push_down_timer);
-            RETURN_IF_ERROR(runtime_filter_slots.publish());
-        }
-
+template <typename Parent>
+Status RuntimeFilterBuild<Parent>::operator()(RuntimeState* state) {
+    if (_parent->runtime_filter_descs().empty()) {
         return Status::OK();
     }
+    VRuntimeFilterSlotsCross runtime_filter_slots(_parent->runtime_filter_descs(),
+                                                  _parent->filter_src_expr_ctxs());
 
-private:
-    VNestedLoopJoinNode* _join_node;
-};
+    RETURN_IF_ERROR(runtime_filter_slots.init(state));
+
+    if (!runtime_filter_slots.empty() && !_parent->build_blocks().empty()) {
+        SCOPED_TIMER(_parent->push_compute_timer());
+        for (auto& build_block : _parent->build_blocks()) {
+            runtime_filter_slots.insert(&build_block);
+        }
+    }
+    {
+        SCOPED_TIMER(_parent->push_down_timer());
+        RETURN_IF_ERROR(runtime_filter_slots.publish());
+    }
+
+    return Status::OK();
+}
+
+template struct RuntimeFilterBuild<doris::pipeline::NestedLoopJoinBuildSinkLocalState>;
+template struct RuntimeFilterBuild<VNestedLoopJoinNode>;
 
 VNestedLoopJoinNode::VNestedLoopJoinNode(ObjectPool* pool, const TPlanNode& tnode,
                                          const DescriptorTbl& descs)
@@ -213,7 +212,7 @@ Status VNestedLoopJoinNode::sink(doris::RuntimeState* state, vectorized::Block* 
 
     if (eos) {
         COUNTER_UPDATE(_build_rows_counter, _build_rows);
-        RuntimeFilterBuild(this)(state);
+        RuntimeFilterBuild<VNestedLoopJoinNode>(this)(state);
 
         // optimize `in bitmap`, see https://github.com/apache/doris/issues/14338
         if (_is_output_left_side_only &&

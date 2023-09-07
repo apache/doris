@@ -29,8 +29,7 @@
 
 #include "common/factory_creator.h"
 #include "common/status.h"
-#include "io/fs/file_reader_options.h"
-#include "io/fs/file_reader_writer_fwd.h"
+#include "io/fs/file_reader.h"
 #include "io/fs/fs_utils.h"
 
 namespace doris {
@@ -47,7 +46,6 @@ class FileFactory {
 
 public:
     static io::FileReaderOptions get_reader_options(RuntimeState* state);
-    static io::FileReaderOptions NO_CACHE_READER_OPTIONS;
 
     /// Create FileWriter
     static Status create_file_writer(TFileType::type type, ExecEnv* env,

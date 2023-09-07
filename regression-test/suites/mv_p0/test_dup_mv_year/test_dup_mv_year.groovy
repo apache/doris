@@ -44,7 +44,7 @@ suite ("test_dup_mv_year") {
     }
     qt_select_mv "select k1,year(k2) from d_table order by k1;"
 
-    result = "null"
+    def result = "null"
     sql "create materialized view k13y as select k1,year(k3) from d_table;"
     while (!result.contains("FINISHED")){
         result = sql "SHOW ALTER TABLE MATERIALIZED VIEW WHERE TableName='d_table' ORDER BY CreateTime DESC LIMIT 1;"

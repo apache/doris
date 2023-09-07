@@ -29,7 +29,7 @@ public class RecomputeLogicalPropertiesProcessor extends PlanPostProcessor {
     @Override
     public Plan visit(Plan plan, CascadesContext ctx) {
         PhysicalPlan physicalPlan = (PhysicalPlan) visitChildren(this, plan, ctx);
-        physicalPlan.resetLogicalProperties();
+        physicalPlan = physicalPlan.resetLogicalProperties();
         physicalPlan.setMutableState(MutableState.KEY_GROUP, plan.getGroupIdAsString());
         return physicalPlan;
     }

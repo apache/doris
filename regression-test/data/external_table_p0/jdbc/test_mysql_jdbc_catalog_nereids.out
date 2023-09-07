@@ -20,7 +20,7 @@ PLAN FRAGMENT 1
 
   0:VJdbcScanNode
      TABLE: `doris_test`.`ex_tb0`
-     QUERY: SELECT `id` FROM `doris_test`.`ex_tb0` WHERE (`id`[#0] = 111)
+     QUERY: SELECT `id` FROM `doris_test`.`ex_tb0` WHERE (id = 111)
 
 -- !ex_tb0_where --
 111

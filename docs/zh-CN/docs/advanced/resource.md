@@ -127,7 +127,6 @@ PROPERTIES
 
 `driver`: 标示外部表使用的driver动态库，引用该resource的ODBC外表必填，旧的mysql外表选填。
 
-具体如何使用可以，可以参考[ODBC of Doris](../lakehouse/external-table/odbc.md)
 
 #### 示例
 

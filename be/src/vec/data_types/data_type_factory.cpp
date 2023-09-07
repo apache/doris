@@ -179,7 +179,7 @@ DataTypePtr DataTypeFactory::create_data_type(const TypeDescriptor& col_desc, bo
         nested = std::make_shared<vectorized::DataTypeDecimal<vectorized::Decimal128>>(27, 9);
         break;
     case TYPE_QUANTILE_STATE:
-        nested = std::make_shared<vectorized::DataTypeQuantileStateDouble>();
+        nested = std::make_shared<vectorized::DataTypeQuantileState>();
         break;
     case TYPE_DECIMAL32:
     case TYPE_DECIMAL64:
@@ -310,7 +310,7 @@ DataTypePtr DataTypeFactory::create_data_type(const TypeIndex& type_index, bool 
         nested = std::make_shared<vectorized::DataTypeHLL>();
         break;
     case TypeIndex::QuantileState:
-        nested = std::make_shared<vectorized::DataTypeQuantileStateDouble>();
+        nested = std::make_shared<vectorized::DataTypeQuantileState>();
         break;
     case TypeIndex::TimeV2:
     case TypeIndex::Time:
@@ -385,7 +385,7 @@ DataTypePtr DataTypeFactory::_create_primitive_data_type(const FieldType& type, 
         result = std::make_shared<vectorized::DataTypeDecimal<vectorized::Decimal128>>(27, 9);
         break;
     case FieldType::OLAP_FIELD_TYPE_QUANTILE_STATE:
-        result = std::make_shared<vectorized::DataTypeQuantileStateDouble>();
+        result = std::make_shared<vectorized::DataTypeQuantileState>();
         break;
     case FieldType::OLAP_FIELD_TYPE_DECIMAL32:
     case FieldType::OLAP_FIELD_TYPE_DECIMAL64:
@@ -511,7 +511,7 @@ DataTypePtr DataTypeFactory::create_data_type(const PColumnMeta& pcolumn) {
         break;
     }
     case PGenericType::QUANTILE_STATE: {
-        nested = std::make_shared<DataTypeQuantileStateDouble>();
+        nested = std::make_shared<DataTypeQuantileState>();
         break;
     }
     case PGenericType::TIME:

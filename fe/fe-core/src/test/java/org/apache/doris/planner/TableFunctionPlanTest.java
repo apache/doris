@@ -202,8 +202,8 @@ public class TableFunctionPlanTest {
     public void tableFunctionInWhere() throws Exception {
         String sql = "explain select /*+ SET_VAR(enable_nereids_planner=false) */ k1 from db1.tbl1 where explode_split(k2, \",\");";
         String explainString = UtFrameUtils.getSQLPlanOrErrorMsg(ctx, sql);
-        Assert.assertTrue(
-                explainString.contains("No matching function with signature: explode_split(varchar(1), varchar)."));
+        Assert.assertTrue(explainString,
+                explainString.contains("No matching function with signature: explode_split(varchar(1), varchar(*))."));
     }
 
     // test projection
@@ -311,13 +311,13 @@ public class TableFunctionPlanTest {
     public void invalidColumnInExplodeSplit() throws Exception {
         String sql = "explain select /*+ SET_VAR(enable_nereids_planner=false) */ a.k1 from db1.tbl1 a lateral view explode_split(tbl2.k1, \",\") tmp1 as e1";
         String explainString = UtFrameUtils.getSQLPlanOrErrorMsg(ctx, sql, true);
-        Assert.assertTrue(explainString.contains("The column k1 in lateral view must come from the origin table"));
+        Assert.assertTrue(explainString, explainString.contains("The column `tbl2`.`k1` in lateral view must come from the origin table `a`"));
         sql = "explain select /*+ SET_VAR(enable_nereids_planner=false) */ a.k1 from db1.tbl1 a lateral view explode_split(k100, \",\") tmp1 as e1";
         explainString = UtFrameUtils.getSQLPlanOrErrorMsg(ctx, sql, true);
-        Assert.assertTrue(explainString.contains("Unknown column 'k100'"));
+        Assert.assertTrue(explainString, explainString.contains("Unknown column 'k100'"));
         sql = "explain select /*+ SET_VAR(enable_nereids_planner=false) */ a.k1 from db1.tbl1 a lateral view explode_split(db2.tbl1.k2, \",\") tmp1 as e1";
         explainString = UtFrameUtils.getSQLPlanOrErrorMsg(ctx, sql, true);
-        Assert.assertTrue(explainString.contains("The column k2 in lateral view must come from the origin table"));
+        Assert.assertTrue(explainString, explainString.contains("The column `db2`.`tbl1`.`k2` in lateral view must come from the origin table"));
     }
 
     /*

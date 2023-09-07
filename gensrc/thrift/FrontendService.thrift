@@ -482,6 +482,7 @@ struct TMasterOpRequest {
     23: optional i32 clientNodePort
     24: optional bool syncJournalOnly // if set to true, this request means to do nothing but just sync max journal id of master
     25: optional string defaultCatalog
+    26: optional string defaultDatabase
 }
 
 struct TColumnDefinition {
@@ -1012,6 +1013,8 @@ enum TBinlogType {
   ALTER_DATABASE_PROPERTY = 8,
   MODIFY_TABLE_PROPERTY = 9,
   BARRIER = 10,
+  MODIFY_PARTITIONS = 11,
+  REPLACE_PARTITIONS = 12,
 }
 
 struct TBinlog {

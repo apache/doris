@@ -192,10 +192,6 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
         return totalColumnStatisticMap;
     }
 
-    public void setTotalColumnStatisticMap(Map<String, ColumnStatistic> totalColumnStatisticMap) {
-        this.totalColumnStatisticMap = totalColumnStatisticMap;
-    }
-
     /**
      * estimate stats
      */
@@ -226,23 +222,23 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
 
     private void estimate() {
         Plan plan = groupExpression.getPlan();
-        Statistics stats = plan.accept(this, null);
-        Statistics originStats = groupExpression.getOwnerGroup().getStatistics();
+        Statistics newStats = plan.accept(this, null);
+        Statistics oldStats = groupExpression.getOwnerGroup().getStatistics();
         /*
         in an ideal cost model, every group expression in a group are equivalent, but in fact the cost are different.
         we record the lowest expression cost as group cost to avoid missing this group.
         */
-        if (originStats == null || originStats.getRowCount() > stats.getRowCount()) {
-            groupExpression.getOwnerGroup().setStatistics(stats);
+        if (oldStats == null) {
+            groupExpression.getOwnerGroup().setStatistics(newStats);
         } else {
-            if (originStats.getRowCount() > stats.getRowCount()) {
-                stats.updateNdv(originStats);
-                groupExpression.getOwnerGroup().setStatistics(stats);
-            } else {
-                originStats.updateNdv(stats);
+            Statistics discardStats = newStats;
+            if (oldStats.getRowCount() > newStats.getRowCount()) {
+                groupExpression.getOwnerGroup().setStatistics(newStats);
+                discardStats = oldStats;
             }
+            groupExpression.getOwnerGroup().getStatistics().updateNdv(discardStats);
         }
-        groupExpression.setEstOutputRowCount(stats.getRowCount());
+        groupExpression.setEstOutputRowCount(newStats.getRowCount());
         groupExpression.setStatDerived(true);
     }
 

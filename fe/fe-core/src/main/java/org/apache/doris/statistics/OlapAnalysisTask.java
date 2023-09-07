@@ -74,6 +74,10 @@ public class OlapAnalysisTask extends BaseAnalysisTask {
     }
 
     public void doExecute() throws Exception {
+        Set<String> partitionNames = info.colToPartitions.get(info.colName);
+        if (partitionNames.isEmpty()) {
+            return;
+        }
         Map<String, String> params = new HashMap<>();
         params.put("internalDB", FeConstants.INTERNAL_DB_NAME);
         params.put("columnStatTbl", StatisticConstants.STATISTIC_TBL_NAME);
@@ -90,7 +94,7 @@ public class OlapAnalysisTask extends BaseAnalysisTask {
         List<String> partitionAnalysisSQLs = new ArrayList<>();
         try {
             tbl.readLock();
-            Set<String> partitionNames = info.colToPartitions.get(info.colName);
+
             for (String partitionName : partitionNames) {
                 Partition part = tbl.getPartition(partitionName);
                 if (part == null) {
