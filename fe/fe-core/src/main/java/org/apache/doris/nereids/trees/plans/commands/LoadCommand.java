@@ -123,7 +123,7 @@ public class LoadCommand extends Command implements ForwardWithSync, Explainable
         profile.getSummaryProfile().setQueryBeginTime();
         for (BulkLoadDataDesc dataDesc : sourceInfos) {
             ctx.getState().setNereids(true);
-            plans.add(new InsertIntoTableCommand(completeQueryPlan(ctx, dataDesc), Optional.of(labelName)));
+            plans.add(new InsertIntoTableCommand(completeQueryPlan(ctx, dataDesc), Optional.of(labelName), false));
         }
         profile.getSummaryProfile().setQueryPlanFinishTime();
         executeInsertStmtPlan(ctx, executor, plans);
