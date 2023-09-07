@@ -17,7 +17,6 @@
 
 package org.apache.doris.nereids.glue.translator;
 
-import com.google.common.collect.Sets;
 import org.apache.doris.analysis.DescriptorTable;
 import org.apache.doris.analysis.SlotDescriptor;
 import org.apache.doris.analysis.SlotId;
@@ -48,6 +47,7 @@ import org.apache.doris.thrift.TPushAggOp;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
+import com.google.common.collect.Sets;
 
 import java.util.IdentityHashMap;
 import java.util.List;
@@ -110,6 +110,9 @@ public class PlanTranslatorContext {
         translator = null;
     }
 
+    /**
+     * remember the unknown-stats column and its scan, used for forbid_unknown_col_stats check
+     */
     public void addUnknownStatsColumn(ScanNode scan, SlotId slotId) {
         Set<SlotId> slots = statsUnknownColumnsMap.get(scan);
         if (slots == null) {
