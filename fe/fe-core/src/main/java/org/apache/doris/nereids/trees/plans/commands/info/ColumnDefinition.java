@@ -137,12 +137,12 @@ public class ColumnDefinition {
     // hidden column
     public static ColumnDefinition newDeleteSignColumnDefinition() {
         return new ColumnDefinition(Column.DELETE_SIGN, TinyIntType.INSTANCE, false, null, false,
-                Optional.of(new DefaultValue(DefaultValue.ZERO)), "doris delete flag hidden column", false);
+                Optional.of(new DefaultValue(DefaultValue.ZERO_NUMBER)), "doris delete flag hidden column", false);
     }
 
     public static ColumnDefinition newDeleteSignColumnDefinition(AggregateType aggregateType) {
         return new ColumnDefinition(Column.DELETE_SIGN, TinyIntType.INSTANCE, false, aggregateType, false,
-                Optional.of(new DefaultValue(DefaultValue.ZERO)), "doris delete flag hidden column", false);
+                Optional.of(new DefaultValue(DefaultValue.ZERO_NUMBER)), "doris delete flag hidden column", false);
     }
 
     public static ColumnDefinition newSequenceColumnDefinition(DataType type) {
@@ -162,7 +162,7 @@ public class ColumnDefinition {
 
     public static ColumnDefinition newVersionColumnDefinition(AggregateType aggregateType) {
         return new ColumnDefinition(Column.VERSION_COL, BigIntType.INSTANCE, false, aggregateType, false,
-                Optional.of(new DefaultValue(DefaultValue.ZERO)), "doris version hidden column", false);
+                Optional.of(new DefaultValue(DefaultValue.ZERO_NUMBER)), "doris version hidden column", false);
     }
 
 }

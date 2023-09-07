@@ -34,6 +34,7 @@ public class DefaultValue {
     // default null
     public static DefaultValue NULL_DEFAULT_VALUE = new DefaultValue(null);
     public static String ZERO = new String(new byte[] {0});
+    public static String ZERO_NUMBER = "0";
     // default "value", "0" means empty hll
     public static DefaultValue HLL_EMPTY_DEFAULT_VALUE = new DefaultValue(ZERO);
     // default "value", "0" means empty bitmap
