@@ -1,0 +1,1 @@
+SELECT count(cast(payload:commits as string)) FROM github_events;
