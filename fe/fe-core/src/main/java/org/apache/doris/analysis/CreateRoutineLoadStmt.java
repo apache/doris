@@ -188,7 +188,7 @@ public class CreateRoutineLoadStmt extends DdlStmt {
 
     public static final Predicate<Long> DESIRED_CONCURRENT_NUMBER_PRED = (v) -> v > 0L;
     public static final Predicate<Long> MAX_ERROR_NUMBER_PRED = (v) -> v >= 0L;
-    public static final Predicate<Double> MAX_FILTER_RATIO_PRED = (v) -> v >= 0L && v <= 1;
+    public static final Predicate<Double> MAX_FILTER_RATIO_PRED = (v) -> v >= 0 && v <= 1;
     public static final Predicate<Long> MAX_BATCH_INTERVAL_PRED = (v) -> v >= 1 && v <= 60;
     public static final Predicate<Long> MAX_BATCH_ROWS_PRED = (v) -> v >= 200000;
     public static final Predicate<Long> MAX_BATCH_SIZE_PRED = (v) -> v >= 100 * 1024 * 1024 && v <= 1024 * 1024 * 1024;
