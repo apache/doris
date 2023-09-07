@@ -54,8 +54,9 @@ public:
 
     Status init(const TPlanNode& tnode, RuntimeState* state = nullptr) override;
     Status prepare(RuntimeState* state) override;
-    Status open(RuntimeState* state) override {
-        RETURN_IF_ERROR(alloc_resource(state));
+    Status open(RuntimeState* state) override { return alloc_resource(state); }
+    Status alloc_resource(RuntimeState* state) override {
+        RETURN_IF_ERROR(ExecNode::alloc_resource(state));
         RETURN_IF_ERROR(VExpr::open(_vfn_ctxs, state));
         return _children[0]->open(state);
     }
