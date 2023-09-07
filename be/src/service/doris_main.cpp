@@ -92,7 +92,9 @@ void __lsan_do_leak_check();
 namespace doris {
 
 void signal_handler(int signal) {
+    LOG(INFO) << "receive signal handler";
     if (signal == SIGINT || signal == SIGTERM) {
+        LOG(INFO) << "signal handler exit";
         k_doris_exit = true;
     }
 }
