@@ -25,10 +25,10 @@ suite("test_local_tvf_compression", "p2,external,tvf,external_remote,external_re
 
     def outFilePath="/compress"
 
-    // for (List<Object> backend : backends) {
-    //     def be_host = backend[1]
-    //     scpFiles ("root", be_host, dataFilePath, outFilePath, false);
-    // }
+    for (List<Object> backend : backends) {
+         def be_host = backend[1]
+         scpFiles ("root", be_host, dataFilePath, outFilePath, false);
+    }
 
     String filename = "test_tvf.csv"
 
