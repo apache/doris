@@ -27,7 +27,6 @@ import org.apache.doris.analysis.AdminRepairTableStmt;
 import org.apache.doris.analysis.AdminSetConfigStmt;
 import org.apache.doris.analysis.AdminSetReplicaStatusStmt;
 import org.apache.doris.analysis.AdminSetReplicaVersionStmt;
-import org.apache.doris.analysis.AdminSetTableStatusStmt;
 import org.apache.doris.analysis.AlterCatalogNameStmt;
 import org.apache.doris.analysis.AlterCatalogPropertyStmt;
 import org.apache.doris.analysis.AlterColumnStatsStmt;
@@ -258,8 +257,6 @@ public class DdlExecutor {
             env.setReplicaStatus((AdminSetReplicaStatusStmt) ddlStmt);
         } else if (ddlStmt instanceof AdminSetReplicaVersionStmt) {
             env.setReplicaVersion((AdminSetReplicaVersionStmt) ddlStmt);
-        } else if (ddlStmt instanceof AdminSetPartitionVersionStmt) {
-            env.setPartitionVersion((AdminSetPartitionVersionStmt) ddlStmt);
         } else if (ddlStmt instanceof CreateResourceStmt) {
             env.getResourceMgr().createResource((CreateResourceStmt) ddlStmt);
         } else if (ddlStmt instanceof DropResourceStmt) {
