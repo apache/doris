@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.glue.translator;
 
+import com.google.common.collect.Sets;
 import org.apache.doris.analysis.DescriptorTable;
 import org.apache.doris.analysis.SlotDescriptor;
 import org.apache.doris.analysis.SlotId;
@@ -52,6 +53,7 @@ import java.util.IdentityHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.stream.Collectors;
 import javax.annotation.Nullable;
 
@@ -97,6 +99,8 @@ public class PlanTranslatorContext {
 
     private final Map<RelationId, TPushAggOp> tablePushAggOp = Maps.newHashMap();
 
+    private final Map<ScanNode, Set<SlotId>> statsUnknownColumnsMap = Maps.newHashMap();
+
     public PlanTranslatorContext(CascadesContext ctx) {
         this.translator = new RuntimeFilterTranslator(ctx.getRuntimeFilterContext());
     }
@@ -104,6 +108,31 @@ public class PlanTranslatorContext {
     @VisibleForTesting
     public PlanTranslatorContext() {
         translator = null;
+    }
+
+    public void addUnknownStatsColumn(ScanNode scan, SlotId slotId) {
+        Set<SlotId> slots = statsUnknownColumnsMap.get(scan);
+        if (slots == null) {
+            statsUnknownColumnsMap.put(scan, Sets.newHashSet(slotId));
+        } else {
+            statsUnknownColumnsMap.get(scan).add(slotId);
+        }
+    }
+
+    public boolean isColumnStatsUnknown(ScanNode scan, SlotId slotId) {
+        Set<SlotId> unknownSlots = statsUnknownColumnsMap.get(scan);
+        if (unknownSlots == null) {
+            return false;
+        }
+        return unknownSlots.contains(slotId);
+    }
+
+    public void removeScanFromStatsUnknownColumnsMap(ScanNode scan) {
+        statsUnknownColumnsMap.remove(scan);
+    }
+
+    public Set<ScanNode> getScanNodeWithUnknownColumnStats() {
+        return statsUnknownColumnsMap.keySet();
     }
 
     public List<PlanFragment> getPlanFragments() {
