@@ -1071,6 +1071,8 @@ DEFINE_mString(user_files_secure_path, "${DORIS_HOME}");
 
 DEFINE_Int16(bitmap_serialize_version, "1");
 
+DEFINE_Int16(bitmap_serialize_version, "1");
+
 #ifdef BE_TEST
 // test s3
 DEFINE_String(test_s3_resource, "resource");
