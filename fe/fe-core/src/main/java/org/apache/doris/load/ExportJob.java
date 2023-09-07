@@ -42,7 +42,8 @@ import org.apache.doris.catalog.MaterializedIndex;
 import org.apache.doris.catalog.MaterializedIndex.IndexExtState;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
-import org.apache.doris.catalog.Table;
+import org.apache.doris.catalog.TableIf;
+import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.Pair;
@@ -199,7 +200,7 @@ public class ExportJob implements Writable {
 
     private List<String> exportColumns = Lists.newArrayList();
 
-    private Table exportTable;
+    private TableIf exportTable;
 
     // when set to true, means this job instance is created by replay thread(FE restarted or master changed)
     private boolean isReplayed = false;
@@ -242,17 +243,6 @@ public class ExportJob implements Writable {
         this.id = jobId;
     }
 
-    /**
-     * For an ExportJob:
-     * The ExportJob is divided into multiple 'ExportTaskExecutor'
-     * according to the 'parallelism' set by the user.
-     * The tablets which will be exported by this ExportJob are divided into 'parallelism' copies,
-     * and each ExportTaskExecutor is responsible for a list of tablets.
-     * The tablets responsible for an ExportTaskExecutor will be assigned to multiple OutfileStmt
-     * according to the 'TABLETS_NUM_PER_OUTFILE_IN_EXPORT'.
-     *
-     * @throws UserException
-     */
     public void generateOutfileStatement() throws UserException {
         exportTable.readLock();
         try {
@@ -264,39 +254,33 @@ public class ExportJob implements Writable {
         generateExportJobExecutor();
     }
 
-    public void generateOutfileLogicalPlans(List<String> nameParts)
+    /**
+     * For an ExportJob:
+     * The ExportJob is divided into multiple 'ExportTaskExecutor'
+     * according to the 'parallelism' set by the user.
+     * The tablets which will be exported by this ExportJob are divided into 'parallelism' copies,
+     * and each ExportTaskExecutor is responsible for a list of tablets.
+     * The tablets responsible for an ExportTaskExecutor will be assigned to multiple OutfileStmt
+     * according to the 'TABLETS_NUM_PER_OUTFILE_IN_EXPORT'.
+     *
+     * @throws UserException
+     */
+    public void generateOutfileLogicalPlans(List<String> qualifiedTableName)
             throws UserException {
+        String catalogType = Env.getCurrentEnv().getCatalogMgr().getCatalog(this.tableName.getCtl()).getType();
         exportTable.readLock();
         try {
-            // build source columns
-            List<NamedExpression> selectLists = Lists.newArrayList();
-            if (exportColumns.isEmpty()) {
-                selectLists.add(new UnboundStar(ImmutableList.of()));
-            } else {
-                this.exportColumns.stream().forEach(col -> {
-                    selectLists.add(new UnboundSlot(this.tableName.getTbl(), col));
-                });
-            }
-
-            // get all tablets
-            List<List<Long>> tabletsListPerParallel = splitTablets();
-
-            // Each Outfile clause responsible for MAXIMUM_TABLETS_OF_OUTFILE_IN_EXPORT tablets
-            for (List<Long> tabletsList : tabletsListPerParallel) {
-                List<StatementBase> logicalPlanAdapters = Lists.newArrayList();
-                for (int i = 0; i < tabletsList.size(); i += MAXIMUM_TABLETS_OF_OUTFILE_IN_EXPORT) {
-                    int end = i + MAXIMUM_TABLETS_OF_OUTFILE_IN_EXPORT < tabletsList.size()
-                            ? i + MAXIMUM_TABLETS_OF_OUTFILE_IN_EXPORT : tabletsList.size();
-                    List<Long> tabletIds = new ArrayList<>(tabletsList.subList(i, end));
-
-                    // generate LogicalPlan
-                    LogicalPlan plan = generateOneLogicalPlan(nameParts, tabletIds, selectLists);
-                    // generate  LogicalPlanAdapter
-                    StatementBase statementBase = generateLogicalPlanAdapter(plan);
-
-                    logicalPlanAdapters.add(statementBase);
+            if ("internal".equals(catalogType)) {
+                if (exportTable.getType() == TableType.VIEW) {
+                    // view table
+                    generateViewOrExternalTableOutfile(qualifiedTableName);
+                } else {
+                    // olap table
+                    generateOlapTableOutfile(qualifiedTableName);
                 }
-                selectStmtListPerParallel.add(logicalPlanAdapters);
+            } else {
+                // external table
+                generateViewOrExternalTableOutfile(qualifiedTableName);
             }
 
             // debug LOG output
@@ -315,11 +299,77 @@ public class ExportJob implements Writable {
         generateExportJobExecutor();
     }
 
-    private LogicalPlan generateOneLogicalPlan(List<String> nameParts, List<Long> tabletIds,
-            List<NamedExpression> selectLists) {
+    private void generateOlapTableOutfile(List<String> qualifiedTableName) throws UserException {
+        // build source columns
+        List<NamedExpression> selectLists = Lists.newArrayList();
+        if (exportColumns.isEmpty()) {
+            selectLists.add(new UnboundStar(ImmutableList.of()));
+        } else {
+            this.exportColumns.stream().forEach(col -> {
+                selectLists.add(new UnboundSlot(this.tableName.getTbl(), col));
+            });
+        }
+
+        // get all tablets
+        List<List<Long>> tabletsListPerParallel = splitTablets();
+
+        // Each Outfile clause responsible for MAXIMUM_TABLETS_OF_OUTFILE_IN_EXPORT tablets
+        for (List<Long> tabletsList : tabletsListPerParallel) {
+            List<StatementBase> logicalPlanAdapters = Lists.newArrayList();
+            for (int i = 0; i < tabletsList.size(); i += MAXIMUM_TABLETS_OF_OUTFILE_IN_EXPORT) {
+                int end = i + MAXIMUM_TABLETS_OF_OUTFILE_IN_EXPORT < tabletsList.size()
+                        ? i + MAXIMUM_TABLETS_OF_OUTFILE_IN_EXPORT : tabletsList.size();
+                List<Long> tabletIds = new ArrayList<>(tabletsList.subList(i, end));
+
+                // generate LogicalPlan
+                LogicalPlan plan = generateOneLogicalPlan(qualifiedTableName, tabletIds,
+                        this.partitionNames, selectLists);
+                // generate  LogicalPlanAdapter
+                StatementBase statementBase = generateLogicalPlanAdapter(plan);
+
+                logicalPlanAdapters.add(statementBase);
+            }
+            selectStmtListPerParallel.add(logicalPlanAdapters);
+        }
+    }
+
+    /**
+     * This method used to generate outfile sql for view table or external table.
+     * @throws UserException
+     */
+    private void generateViewOrExternalTableOutfile(List<String> qualifiedTableName) {
+        // Because there is no division of tablets in view and external table
+        // we set parallelism = 1;
+        this.parallelism = 1;
+        LOG.info("Because there is no division of tablets in view and external table, we set parallelism = 1");
+
+        // build source columns
+        List<NamedExpression> selectLists = Lists.newArrayList();
+        if (exportColumns.isEmpty()) {
+            selectLists.add(new UnboundStar(ImmutableList.of()));
+        } else {
+            this.exportColumns.stream().forEach(col -> {
+                selectLists.add(new UnboundSlot(this.tableName.getTbl(), col));
+            });
+        }
+
+        List<StatementBase> logicalPlanAdapters = Lists.newArrayList();
+
+        // generate LogicalPlan
+        LogicalPlan plan = generateOneLogicalPlan(qualifiedTableName, ImmutableList.of(),
+                ImmutableList.of(), selectLists);
+        // generate  LogicalPlanAdapter
+        StatementBase statementBase = generateLogicalPlanAdapter(plan);
+
+        logicalPlanAdapters.add(statementBase);
+        selectStmtListPerParallel.add(logicalPlanAdapters);
+    }
+
+    private LogicalPlan generateOneLogicalPlan(List<String> qualifiedTableName, List<Long> tabletIds,
+            List<String> partitions, List<NamedExpression> selectLists) {
         // UnboundRelation
-        LogicalPlan plan = new UnboundRelation(StatementScopeIdGenerator.newRelationId(), nameParts,
-                this.partitionNames, false, tabletIds, ImmutableList.of());
+        LogicalPlan plan = new UnboundRelation(StatementScopeIdGenerator.newRelationId(), qualifiedTableName,
+                partitions, false, tabletIds, ImmutableList.of());
         // LogicalCheckPolicy
         plan = new LogicalCheckPolicy<>(plan);
         // LogicalFilter
