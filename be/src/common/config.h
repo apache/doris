@@ -24,7 +24,7 @@
 #include <string>
 #include <utility>
 #include <vector>
-
+//waibibabo
 #define DECLARE_FIELD(FIELD_TYPE, FIELD_NAME) extern FIELD_TYPE FIELD_NAME
 
 #define DECLARE_Bool(name) DECLARE_FIELD(bool, name)
