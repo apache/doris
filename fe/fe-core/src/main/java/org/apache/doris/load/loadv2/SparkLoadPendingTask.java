@@ -538,7 +538,7 @@ public class SparkLoadPendingTask extends LoadTask {
         }
 
         String msg = "BITMAP column must use bitmap function, like " + columnName + "=to_bitmap(xxx) or "
-                + columnName + "=bitmap_hash() or " + columnName + "=bitmap_dict()";
+            + columnName + "=unhex_to_bitmap(xxx) or " + columnName + "=bitmap_hash() or " + columnName + "=bitmap_dict()";
         if (!(expr instanceof FunctionCallExpr)) {
             throw new LoadException(msg);
         }
