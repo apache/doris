@@ -46,9 +46,13 @@ namespace doris::vectorized {
 struct AggregateFunctionQuantileStateUnionOp {
     static constexpr auto name = "quantile_union";
 
-    static void add(QuantileState& res, const double& data, bool& is_first) { res.add_value(data); }
+    template <typename T>
+    static void add(QuantileState<T>& res, const T& data, bool& is_first) {
+        res.add_value(data);
+    }
 
-    static void add(QuantileState& res, const QuantileState& data, bool& is_first) {
+    template <typename T>
+    static void add(QuantileState<T>& res, const QuantileState<T>& data, bool& is_first) {
         if (UNLIKELY(is_first)) {
             res = data;
             is_first = false;
@@ -57,7 +61,8 @@ struct AggregateFunctionQuantileStateUnionOp {
         }
     }
 
-    static void merge(QuantileState& res, const QuantileState& data, bool& is_first) {
+    template <typename T>
+    static void merge(QuantileState<T>& res, const QuantileState<T>& data, bool& is_first) {
         if (UNLIKELY(is_first)) {
             res = data;
             is_first = false;
@@ -67,9 +72,9 @@ struct AggregateFunctionQuantileStateUnionOp {
     }
 };
 
-template <typename Op>
+template <typename Op, typename InternalType>
 struct AggregateFunctionQuantileStateData {
-    using DataType = QuantileState;
+    using DataType = QuantileState<InternalType>;
     DataType value;
     bool is_first = true;
 
@@ -81,35 +86,38 @@ struct AggregateFunctionQuantileStateData {
     void merge(const DataType& data) { Op::merge(value, data, is_first); }
 
     void write(BufferWritable& buf) const {
-        DataTypeQuantileState::serialize_as_stream(value, buf);
+        DataTypeQuantileState<InternalType>::serialize_as_stream(value, buf);
     }
 
-    void read(BufferReadable& buf) { DataTypeQuantileState::deserialize_as_stream(value, buf); }
+    void read(BufferReadable& buf) {
+        DataTypeQuantileState<InternalType>::deserialize_as_stream(value, buf);
+    }
 
     void reset() { is_first = true; }
 
     DataType& get() { return value; }
 };
 
-template <bool arg_is_nullable, typename Op>
+template <bool arg_is_nullable, typename Op, typename InternalType>
 class AggregateFunctionQuantileStateOp final
         : public IAggregateFunctionDataHelper<
-                  AggregateFunctionQuantileStateData<Op>,
-                  AggregateFunctionQuantileStateOp<arg_is_nullable, Op>> {
+                  AggregateFunctionQuantileStateData<Op, InternalType>,
+                  AggregateFunctionQuantileStateOp<arg_is_nullable, Op, InternalType>> {
 public:
-    using ResultDataType = QuantileState;
-    using ColVecType = ColumnQuantileState;
-    using ColVecResult = ColumnQuantileState;
+    using ResultDataType = QuantileState<InternalType>;
+    using ColVecType = ColumnQuantileState<InternalType>;
+    using ColVecResult = ColumnQuantileState<InternalType>;
 
     String get_name() const override { return Op::name; }
 
     AggregateFunctionQuantileStateOp(const DataTypes& argument_types_)
-            : IAggregateFunctionDataHelper<AggregateFunctionQuantileStateData<Op>,
-                                           AggregateFunctionQuantileStateOp<arg_is_nullable, Op>>(
+            : IAggregateFunctionDataHelper<
+                      AggregateFunctionQuantileStateData<Op, InternalType>,
+                      AggregateFunctionQuantileStateOp<arg_is_nullable, Op, InternalType>>(
                       argument_types_) {}
 
     DataTypePtr get_return_type() const override {
-        return std::make_shared<DataTypeQuantileState>();
+        return std::make_shared<DataTypeQuantileState<InternalType>>();
     }
 
     void add(AggregateDataPtr __restrict place, const IColumn** columns, size_t row_num,
@@ -130,7 +138,8 @@ public:
     void merge(AggregateDataPtr __restrict place, ConstAggregateDataPtr rhs,
                Arena*) const override {
         this->data(place).merge(
-                const_cast<AggregateFunctionQuantileStateData<Op>&>(this->data(rhs)).get());
+                const_cast<AggregateFunctionQuantileStateData<Op, InternalType>&>(this->data(rhs))
+                        .get());
     }
 
     void serialize(ConstAggregateDataPtr __restrict place, BufferWritable& buf) const override {
@@ -145,7 +154,8 @@ public:
     void insert_result_into(ConstAggregateDataPtr __restrict place, IColumn& to) const override {
         auto& column = assert_cast<ColVecResult&>(to);
         column.get_data().push_back(
-                const_cast<AggregateFunctionQuantileStateData<Op>&>(this->data(place)).get());
+                const_cast<AggregateFunctionQuantileStateData<Op, InternalType>&>(this->data(place))
+                        .get());
     }
 
     void reset(AggregateDataPtr __restrict place) const override { this->data(place).reset(); }

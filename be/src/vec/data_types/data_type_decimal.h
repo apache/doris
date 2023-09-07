@@ -155,7 +155,7 @@ public:
         if constexpr (std::is_same_v<TypeId<T>, TypeId<Decimal128I>>) {
             return TYPE_DECIMAL128I;
         }
-        return TYPE_DECIMALV2;
+        __builtin_unreachable();
     }
 
     TPrimitiveType::type get_type_as_tprimitive_type() const override {
