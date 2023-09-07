@@ -43,30 +43,29 @@ SHOW FRONTENDS DISKS;
 说明：
 1. Name 表示该 FE 节点在 bdbje 中的名称。
 2. Host 表示该 FE 节点的IP。
-3. EditLogPort 表示该 FE 节点的EditLog端口。
-4. DirType 表示要展示的目录类型，分别有四种类型：meta、log、audit-log、temp。
-5. Dir 表示要展示的目录类型的目录。
-6. FileSystem 表示要展示的目录类型所在的linux系统的文件系统。
-7. Capacity 文件系统的容量。
-8. Used 文件系统已用大小。
-9. Available 文件系统剩余容量。
-10.UseRate 文件系统使用容量占比。
-11.MountOn 文件系统挂在目录。
+3. DirType 表示要展示的目录类型，分别有四种类型：meta、log、audit-log、temp。
+4. Dir 表示要展示的目录类型的目录。
+5. FileSystem 表示要展示的目录类型所在的linux系统的文件系统。
+6. Capacity 文件系统的容量。
+7. Used 文件系统已用大小。
+8. Available 文件系统剩余容量。
+9.UseRate 文件系统使用容量占比。
+10.MountOn 文件系统挂在目录。
 
 ### Example
 `
 mysql> show frontends disks; 
 +-----------------------------------------+------------+-------------+-----------+-----------------------------+------------+----------+------+-----------+---------+---------+ 
-| Name                                    | Host       | EditLogPort | DirType   | Dir                         | Filesystem | Capacity | Used | Available | UseRate | MountOn | 
+| Name                                    | Host       | DirType   | Dir                         | Filesystem | Capacity | Used | Available | UseRate | MountOn | 
 +-----------------------------------------+------------+-------------+-----------+-----------------------------+------------+----------+------+-----------+---------+---------+
-| fe_6a06ffaa_8346_4381_b462_8e33209ca6ec | 172.1.1.1  | 9010        | meta      | E:\data\doris\fe/doris-meta |            | 0        | 0    | 8191P     | 0%      |         | 
-| fe_6a06ffaa_8346_4381_b462_8e33209ca6ec | 172.1.1.1  | 9010        | log       | E:\data\doris\fe/log        |            | 0        | 0    | 8191P     | 0%      |         | 
-| fe_6a06ffaa_8346_4381_b462_8e33209ca6ec | 172.1.1.1  | 9010        | audit-log | E:\data\doris\fe/log        |            | 0        | 0    | 8191P     | 0%      |         | 
-| fe_6a06ffaa_8346_4381_b462_8e33209ca6ec | 172.1.1.1  | 9010        | temp      | E:\data\doris\fe/temp_dir   |            | 0        | 0    | 8191P     | 0%      |         | 
-| fe_fe1d5bd9_d1e5_4ccc_9b03_ca79b95c9941 | 172.1.1.2  | 9010        | meta      | /data/doris/fe/doris-meta   | /dev/sdc5  | 366G     | 111G | 236G      | 33%     | /data   | 
-| fe_fe1d5bd9_d1e5_4ccc_9b03_ca79b95c9941 | 172.1.1.2  | 9010        | log       | /data/doris/fe/log          | /dev/sdc5  | 366G     | 111G | 236G      | 33%     | /data   | 
-| fe_fe1d5bd9_d1e5_4ccc_9b03_ca79b95c9941 | 172.1.1.2  | 9010        | audit-log | /data/doris/fe/log          | /dev/sdc5  | 366G     | 111G | 236G      | 33%     | /data   | 
-| fe_fe1d5bd9_d1e5_4ccc_9b03_ca79b95c9941 | 172.1.1.2  | 9010        | temp      | /data/doris/fe/temp_dir     | /dev/sdc5  | 366G     | 111G | 236G      | 33%     | /data   | 
+| fe_6a06ffaa_8346_4381_b462_8e33209ca6ec | 172.1.1.1  | meta      | E:\data\doris\fe/doris-meta |            | 0        | 0    | 8191P     | 0%      |         | 
+| fe_6a06ffaa_8346_4381_b462_8e33209ca6ec | 172.1.1.1  | log       | E:\data\doris\fe/log        |            | 0        | 0    | 8191P     | 0%      |         | 
+| fe_6a06ffaa_8346_4381_b462_8e33209ca6ec | 172.1.1.1  | audit-log | E:\data\doris\fe/log        |            | 0        | 0    | 8191P     | 0%      |         | 
+| fe_6a06ffaa_8346_4381_b462_8e33209ca6ec | 172.1.1.1  | temp      | E:\data\doris\fe/temp_dir   |            | 0        | 0    | 8191P     | 0%      |         | 
+| fe_fe1d5bd9_d1e5_4ccc_9b03_ca79b95c9941 | 172.1.1.2  | meta      | /data/doris/fe/doris-meta   | /dev/sdc5  | 366G     | 111G | 236G      | 33%     | /data   | 
+| fe_fe1d5bd9_d1e5_4ccc_9b03_ca79b95c9941 | 172.1.1.2  | log       | /data/doris/fe/log          | /dev/sdc5  | 366G     | 111G | 236G      | 33%     | /data   | 
+| fe_fe1d5bd9_d1e5_4ccc_9b03_ca79b95c9941 | 172.1.1.2  | audit-log | /data/doris/fe/log          | /dev/sdc5  | 366G     | 111G | 236G      | 33%     | /data   | 
+| fe_fe1d5bd9_d1e5_4ccc_9b03_ca79b95c9941 | 172.1.1.2  | temp      | /data/doris/fe/temp_dir     | /dev/sdc5  | 366G     | 111G | 236G      | 33%     | /data   | 
 +-----------------------------------------+------------+-------------+-----------+-----------------------------+------------+----------+------+-----------+---------+---------+ 
 8 rows in set (0.00 sec)
 `

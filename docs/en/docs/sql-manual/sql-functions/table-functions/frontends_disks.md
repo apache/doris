@@ -52,7 +52,6 @@ mysql> desc function frontends_disks();
 +-------------+------+------+-------+---------+-------+
 | Name        | TEXT | No   | false | NULL    | NONE  |
 | Host        | TEXT | No   | false | NULL    | NONE  |
-| EditLogPort | TEXT | No   | false | NULL    | NONE  |
 | DirType     | TEXT | No   | false | NULL    | NONE  |
 | Dir         | TEXT | No   | false | NULL    | NONE  |
 | Filesystem  | TEXT | No   | false | NULL    | NONE  |
@@ -75,7 +74,6 @@ mysql> select * from frontends_disk()\G
 *************************** 1. row ***************************
        Name: fe_fe1d5bd9_d1e5_4ccc_9b03_ca79b95c9941
        Host: 172.XX.XX.1
-EditLogPort: 9010
     DirType: log
         Dir: /data/doris/fe-github/log
  Filesystem: /dev/sdc5
