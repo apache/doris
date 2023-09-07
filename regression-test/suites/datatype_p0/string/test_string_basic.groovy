@@ -346,5 +346,7 @@ suite("test_string_basic") {
         test_string_cmp
     order by s1, s2, counts;
     """
+
+    qt_test "select cast('a' as char(*));"
 }
 

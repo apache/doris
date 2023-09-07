@@ -6311,6 +6311,8 @@ type ::=
   {: RESULT = ScalarType.createVarcharType(-1); :}
   | KW_VARCHAR
   {: RESULT = ScalarType.createVarcharType(-1); :}
+  | KW_CHAR LPAREN STAR RPAREN
+  {: RESULT = ScalarType.createCharType(-1); :}
   | KW_ARRAY LESSTHAN type:value_type GREATERTHAN
   {: RESULT = new ArrayType(value_type); :}
   | KW_MAP LESSTHAN type:key_type COMMA type:value_type GREATERTHAN
