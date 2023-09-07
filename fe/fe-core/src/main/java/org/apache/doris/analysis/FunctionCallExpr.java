@@ -1566,7 +1566,8 @@ public class FunctionCallExpr extends Expr {
         }
 
         if (fnName.getFunction().equalsIgnoreCase("collect_list")
-                || fnName.getFunction().equalsIgnoreCase("collect_set")) {
+                || fnName.getFunction().equalsIgnoreCase("collect_set")
+                || fnName.getFunction().equalsIgnoreCase("array_agg")) {
             fn.setReturnType(new ArrayType(getChild(0).type));
         }
 
