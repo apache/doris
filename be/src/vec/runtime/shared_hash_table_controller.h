@@ -67,8 +67,7 @@ using SharedHashTableContextPtr = std::shared_ptr<SharedHashTableContext>;
 class SharedHashTableController {
 public:
     /// set hash table builder's fragment instance id and consumers' fragment instance id
-    void set_builder_and_consumers(TUniqueId builder, const std::vector<TUniqueId>& consumers,
-                                   int node_id);
+    void set_builder_and_consumers(TUniqueId builder, int node_id);
     TUniqueId get_builder_fragment_instance_id(int my_node_id);
     SharedHashTableContextPtr get_context(int my_node_id);
     void signal(int my_node_id);
@@ -81,7 +80,6 @@ private:
     bool _pipeline_engine_enabled = false;
     std::mutex _mutex;
     std::condition_variable _cv;
-    std::map<int, std::vector<TUniqueId>> _ref_fragments;
     std::map<int /*node id*/, TUniqueId /*fragment instance id*/> _builder_fragment_ids;
     std::map<int /*node id*/, SharedHashTableContextPtr> _shared_contexts;
 };

@@ -112,7 +112,7 @@ Note that the comment must start with /*+ and can only follow the SELECT.
     
 * `auto_increment_increment`
 
-    Used for compatibility with MySQL clients. No practical effect.
+    Used for compatibility with MySQL clients. No practical effect. Although Doris already has [AUTO_INCREMENT](../sql-manual/sql-reference/Data-Definition-Statements/Create/CREATE-TABLE#column_definition_list) feature, but this parameter does not affect the behavior of 'AUTO_INCREMENT'. Same as auto_increment_offset.
     
 * `autocommit`
 

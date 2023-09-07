@@ -440,6 +440,8 @@ public:
 
     Status finalize(RuntimeState* state) override { return Status::OK(); }
 
+    virtual bool should_dry_run(RuntimeState* state) { return false; }
+
 protected:
     const int _id;
     std::string _name;

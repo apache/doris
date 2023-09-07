@@ -77,6 +77,11 @@ if [[ "${MAX_FILE_COUNT}" -lt 65536 ]]; then
     exit 1
 fi
 
+if [[ "$(swapon -s | wc -l)" -gt 1 ]]; then
+    echo "Please disable swap memory before installation."
+    exit 1
+fi
+
 # add java libs
 preload_jars=("preload-extensions")
 preload_jars+=("java-udf")
@@ -103,6 +108,13 @@ if [[ -d "${DORIS_HOME}/lib/hadoop_hdfs/" ]]; then
         DORIS_CLASSPATH="${DORIS_CLASSPATH}:${f}"
     done
     for f in "${DORIS_HOME}/lib/hadoop_hdfs/hdfs/lib"/*.jar; do
+        DORIS_CLASSPATH="${DORIS_CLASSPATH}:${f}"
+    done
+fi
+
+# add custome_libs to CLASSPATH
+if [[ -d "${DORIS_HOME}/custom_lib" ]]; then
+    for f in "${DORIS_HOME}/custom_lib"/*.jar; do
         DORIS_CLASSPATH="${DORIS_CLASSPATH}:${f}"
     done
 fi
@@ -292,11 +304,11 @@ fi
 if [[ "${MACHINE_OS}" == "Darwin" ]]; then
     max_fd_limit='-XX:-MaxFDLimit'
 
-    if ! echo "${final_java_opt}" | grep "${max_fd_limit/-/\-}" >/dev/null; then
+    if ! echo "${final_java_opt}" | grep "${max_fd_limit/-/\\-}" >/dev/null; then
         final_java_opt="${final_java_opt} ${max_fd_limit}"
     fi
 
-    if [[ -n "${JAVA_OPTS}" ]] && ! echo "${JAVA_OPTS}" | grep "${max_fd_limit/-/\-}" >/dev/null; then
+    if [[ -n "${JAVA_OPTS}" ]] && ! echo "${JAVA_OPTS}" | grep "${max_fd_limit/-/\\-}" >/dev/null; then
         JAVA_OPTS="${JAVA_OPTS} ${max_fd_limit}"
     fi
 fi

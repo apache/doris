@@ -141,16 +141,16 @@ inline void serialize_and_deserialize_pb_test() {
     // quantilestate
     {
         vectorized::DataTypePtr quantile_data_type(
-                std::make_shared<vectorized::DataTypeQuantileStateDouble>());
+                std::make_shared<vectorized::DataTypeQuantileState>());
         auto quantile_column = quantile_data_type->create_column();
-        std::vector<QuantileStateDouble>& container =
-                ((vectorized::ColumnQuantileStateDouble*)quantile_column.get())->get_data();
+        std::vector<QuantileState>& container =
+                ((vectorized::ColumnQuantileState*)quantile_column.get())->get_data();
         const long max_rand = 1000000L;
         double lower_bound = 0;
         double upper_bound = 100;
         srandom(time(nullptr));
         for (int i = 0; i < 1024; ++i) {
-            QuantileStateDouble q;
+            QuantileState q;
             double random_double =
                     lower_bound + (upper_bound - lower_bound) * (random() % max_rand) / max_rand;
             q.add_value(random_double);

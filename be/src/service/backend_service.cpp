@@ -564,6 +564,7 @@ void BackendService::ingest_binlog(TIngestBinlogResult& result,
             RETURN_IF_ERROR(client->head());
             return client->get_content_length(&segment_file_size);
         };
+
         status = HttpClient::execute_with_retry(max_retry, 1, get_segment_file_size_cb);
         if (!status.ok()) {
             LOG(WARNING) << "failed to get segment file size from " << get_segment_file_size_url
@@ -571,6 +572,7 @@ void BackendService::ingest_binlog(TIngestBinlogResult& result,
             status.to_thrift(&tstatus);
             return;
         }
+
         segment_file_sizes.push_back(segment_file_size);
         segment_file_urls.push_back(std::move(get_segment_file_size_url));
     }
@@ -596,9 +598,8 @@ void BackendService::ingest_binlog(TIngestBinlogResult& result,
             estimate_timeout = config::download_low_speed_time;
         }
 
-        std::string local_segment_path =
-                fmt::format("{}/{}_{}.dat", local_tablet->tablet_path(),
-                            rowset_meta->rowset_id().to_string(), segment_index);
+        auto local_segment_path = BetaRowset::segment_file_path(
+                local_tablet->tablet_path(), rowset_meta->rowset_id(), segment_index);
         LOG(INFO) << fmt::format("download segment file from {} to {}", get_segment_file_url,
                                  local_segment_path);
         auto get_segment_file_cb = [&get_segment_file_url, &local_segment_path, segment_file_size,

@@ -18,10 +18,12 @@
 package org.apache.doris.catalog;
 
 import org.apache.doris.analysis.AllPartitionDesc;
+import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.PartitionDesc;
 import org.apache.doris.analysis.PartitionKeyDesc;
 import org.apache.doris.analysis.RangePartitionDesc;
 import org.apache.doris.analysis.SinglePartitionDesc;
+import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.util.RangeUtils;
@@ -52,6 +54,14 @@ public class RangePartitionInfo extends PartitionInfo {
         super(PartitionType.RANGE);
         this.partitionColumns = partitionColumns;
         this.isMultiColumnPartition = partitionColumns.size() > 1;
+    }
+
+    public RangePartitionInfo(boolean isAutoCreatePartitions, ArrayList<Expr> exprs, List<Column> partitionColumns) {
+        super(PartitionType.RANGE, partitionColumns);
+        this.isAutoCreatePartitions = isAutoCreatePartitions;
+        if (exprs != null) {
+            this.partitionExprs.addAll(exprs);
+        }
     }
 
     @Override
@@ -252,16 +262,31 @@ public class RangePartitionInfo extends PartitionInfo {
     @Override
     public String toSql(OlapTable table, List<Long> partitionId) {
         StringBuilder sb = new StringBuilder();
-        sb.append("PARTITION BY RANGE(");
         int idx = 0;
-        for (Column column : partitionColumns) {
-            if (idx != 0) {
-                sb.append(", ");
+        if (enableAutomaticPartition()) {
+            sb.append("AUTO PARTITION BY RANGE ");
+            for (Expr e : partitionExprs) {
+                boolean isSlotRef = (e instanceof SlotRef);
+                if (isSlotRef) {
+                    sb.append("(");
+                }
+                sb.append(e.toSql());
+                if (isSlotRef) {
+                    sb.append(")");
+                }
             }
-            sb.append("`").append(column.getName()).append("`");
-            idx++;
+            sb.append("\n(");
+        } else {
+            sb.append("PARTITION BY RANGE(");
+            for (Column column : partitionColumns) {
+                if (idx != 0) {
+                    sb.append(", ");
+                }
+                sb.append("`").append(column.getName()).append("`");
+                idx++;
+            }
+            sb.append(")\n(");
         }
-        sb.append(")\n(");
 
         // sort range
         List<Map.Entry<Long, PartitionItem>> entries = new ArrayList<>(this.idToItem.entrySet());
@@ -325,6 +350,6 @@ public class RangePartitionInfo extends PartitionInfo {
 
             allPartitionDescs.add(new SinglePartitionDesc(false, partitionName, partitionKeyDesc, properties));
         }
-        return new RangePartitionDesc(partitionColumnNames, allPartitionDescs);
+        return new RangePartitionDesc(this.partitionExprs, partitionColumnNames, allPartitionDescs);
     }
 }

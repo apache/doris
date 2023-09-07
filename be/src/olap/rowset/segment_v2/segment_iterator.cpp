@@ -523,10 +523,18 @@ Status SegmentIterator::_apply_bitmap_index() {
     size_t input_rows = _row_bitmap.cardinality();
 
     std::vector<ColumnPredicate*> remaining_predicates;
+    auto is_like_predicate = [](ColumnPredicate* _pred) {
+        if (static_cast<LikeColumnPredicate<TYPE_CHAR>*>(_pred) != nullptr ||
+            static_cast<LikeColumnPredicate<TYPE_STRING>*>(_pred) != nullptr) {
+            return true;
+        }
 
+        return false;
+    };
     for (auto pred : _col_predicates) {
         auto cid = pred->column_id();
-        if (_bitmap_index_iterators[cid] == nullptr || pred->type() == PredicateType::BF) {
+        if (_bitmap_index_iterators[cid] == nullptr || pred->type() == PredicateType::BF ||
+            is_like_predicate(pred)) {
             // no bitmap index for this column
             remaining_predicates.push_back(pred);
         } else {
@@ -938,6 +946,10 @@ Status SegmentIterator::_apply_inverted_index_on_block_column_predicate(
 }
 
 bool SegmentIterator::_need_read_data(ColumnId cid) {
+    // for safety reason, only support DUP_KEYS
+    if (_opts.tablet_schema->keys_type() != KeysType::DUP_KEYS) {
+        return true;
+    }
     if (_output_columns.count(-1)) {
         // if _output_columns contains -1, it means that the light
         // weight schema change may not be enabled or other reasons
