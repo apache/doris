@@ -72,7 +72,7 @@ Status HierarchicalDataReader::next_batch(size_t* n, vectorized::MutableColumnPt
                 reader.rows_read += *n;
                 return Status::OK();
             },
-            dst);
+            dst, *n);
 }
 
 Status HierarchicalDataReader::read_by_rowids(const rowid_t* rowids, const size_t count,
@@ -87,7 +87,7 @@ Status HierarchicalDataReader::read_by_rowids(const rowid_t* rowids, const size_
                 reader.rows_read += count;
                 return Status::OK();
             },
-            dst);
+            dst, count);
 }
 
 Status HierarchicalDataReader::add_stream(const SubcolumnColumnReaders::Node* node) {
@@ -132,10 +132,9 @@ Status ExtractReader::seek_to_ordinal(ordinal_t ord) {
     return _root_reader->iterator->seek_to_ordinal(ord);
 }
 
-Status ExtractReader::extract_to(vectorized::MutableColumnPtr& dst) {
+Status ExtractReader::extract_to(vectorized::MutableColumnPtr& dst, size_t nrows) {
     DCHECK(_root_reader);
     DCHECK(_root_reader->inited);
-    size_t old_size = dst->size();
     vectorized::MutableColumnPtr extracted_column;
     const auto& root = assert_cast<const vectorized::ColumnObject&>(*_root_reader->column);
     // extract root value with path, we can't modify the original root column
@@ -155,39 +154,32 @@ Status ExtractReader::extract_to(vectorized::MutableColumnPtr& dst) {
                              std::make_shared<vectorized::ColumnObject::MostCommonType>()),
                      ""},
                     expected_type, &cast_column));
-            size_t length = cast_column->size() - old_size;
-            dst_var.get_root()->insert_range_from(*cast_column, old_size, length);
+            dst_var.get_root()->insert_range_from(*cast_column, 0, nrows);
             dst_var.set_num_rows(dst_var.get_root()->size());
         }
+        CHECK_EQ(dst_var.size(), nrows);
     } else {
         CHECK(false) << "Not implemented extract to type " << dst->get_name();
     }
 #ifndef NDEBUG
     assert_cast<vectorized::ColumnObject&>(*dst).check_consistency();
-    _root_reader->column->clear();
 #endif
     return Status::OK();
 }
 
 Status ExtractReader::next_batch(size_t* n, vectorized::MutableColumnPtr& dst, bool* has_null) {
-    if (_rows_read >= _root_reader->rows_read) {
-        RETURN_IF_ERROR(_root_reader->iterator->next_batch(n, _root_reader->column));
-        _root_reader->rows_read += *n;
-    }
-    RETURN_IF_ERROR(extract_to(dst));
-    _rows_read += *n;
+    _root_reader->column->clear();
+    RETURN_IF_ERROR(_root_reader->iterator->next_batch(n, _root_reader->column));
+    RETURN_IF_ERROR(extract_to(dst, *n));
     return Status::OK();
 }
 
 Status ExtractReader::read_by_rowids(const rowid_t* rowids, const size_t count,
                                      vectorized::MutableColumnPtr& dst) {
-    if (_rows_read >= _root_reader->rows_read) {
-        RETURN_IF_ERROR(
-                _root_reader->iterator->read_by_rowids(rowids, count, _root_reader->column));
-        _root_reader->rows_read += count;
-    }
-    RETURN_IF_ERROR(extract_to(dst));
-    _rows_read += count;
+    _root_reader->column->clear();
+    RETURN_IF_ERROR(
+            _root_reader->iterator->read_by_rowids(rowids, count, _root_reader->column));
+    RETURN_IF_ERROR(extract_to(dst, count));
     return Status::OK();
 }
 
