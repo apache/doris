@@ -36,6 +36,7 @@ import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.TreeMap;
 
 public class S3Properties extends BaseProperties {
 
@@ -110,13 +111,15 @@ public class S3Properties extends BaseProperties {
     }
 
     public static CloudCredentialWithEndpoint getEnvironmentCredentialWithEndpoint(Map<String, String> props) {
-        CloudCredential credential = getCloudCredential(props, Env.ACCESS_KEY, Env.SECRET_KEY,
+        Map<String, String> ignoreCaseSenseMap = new TreeMap<>(String.CASE_INSENSITIVE_ORDER);
+        ignoreCaseSenseMap.putAll(props);
+        CloudCredential credential = getCloudCredential(ignoreCaseSenseMap, Env.ACCESS_KEY, Env.SECRET_KEY,
                 Env.TOKEN);
-        if (!props.containsKey(Env.ENDPOINT)) {
+        if (!ignoreCaseSenseMap.containsKey(Env.ENDPOINT)) {
             throw new IllegalArgumentException("Missing 'AWS_ENDPOINT' property. ");
         }
-        String endpoint = props.get(Env.ENDPOINT);
-        String region = props.getOrDefault(Env.REGION, S3Properties.getRegionOfEndpoint(endpoint));
+        String endpoint = ignoreCaseSenseMap.get(Env.ENDPOINT);
+        String region = ignoreCaseSenseMap.getOrDefault(Env.REGION, S3Properties.getRegionOfEndpoint(endpoint));
         return new CloudCredentialWithEndpoint(endpoint, region, credential);
     }
 

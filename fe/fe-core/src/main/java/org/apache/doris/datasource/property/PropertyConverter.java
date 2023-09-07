@@ -87,11 +87,13 @@ public class PropertyConverter {
         } else if (props.containsKey(DLFProperties.ENDPOINT)
                 || props.containsKey(DataLakeConfig.CATALOG_ENDPOINT)) {
             metaProperties = convertToDLFProperties(props, DLFProperties.getCredential(props));
-        } else if (props.containsKey(S3Properties.Env.ENDPOINT)) {
+        } else if (props.containsKey(S3Properties.Env.ENDPOINT)
+                || props.containsKey(S3Properties.Env.ENDPOINT.toLowerCase())) {
             if (!hasS3Properties(props)) {
                 // checkout env in the end
                 // if meet AWS_XXX properties, convert to s3 properties
-                return convertToS3EnvProperties(props, S3Properties.getEnvironmentCredentialWithEndpoint(props), true);
+                return convertToS3EnvProperties(props,
+                        S3Properties.getEnvironmentCredentialWithEndpoint(props), true);
             }
         }
         metaProperties.putAll(props);
@@ -127,7 +129,8 @@ public class PropertyConverter {
             Map<String, String> s3Properties = convertToS3Properties(props, s3Credential);
             String s3CliEndpoint = props.get(S3Properties.ENDPOINT);
             return convertToCompatibleS3Properties(props, s3CliEndpoint, s3Credential, s3Properties);
-        } else if (props.containsKey(S3Properties.Env.ENDPOINT)) {
+        } else if (props.containsKey(S3Properties.Env.ENDPOINT)
+                || props.containsKey(S3Properties.Env.ENDPOINT.toLowerCase())) {
             // checkout env in the end
             // compatible with the s3,obs,oss,cos when they use aws client.
             CloudCredentialWithEndpoint envCredentials = S3Properties.getEnvironmentCredentialWithEndpoint(props);
