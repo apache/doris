@@ -83,7 +83,7 @@ public class CreateTableInfo {
         this.tableName = tableName;
         this.ctasColumns = null;
         this.columns = Utils.copyRequiredMutableList(columns);
-        this.indexes = Utils.copyRequiredList(indexes);
+        this.indexes = Utils.copyRequiredMutableList(indexes);
         this.engineName = engineName;
         this.keysType = keysType;
         this.keys = Utils.copyRequiredList(keys);
@@ -107,8 +107,8 @@ public class CreateTableInfo {
         this.dbName = dbName;
         this.tableName = tableName;
         this.ctasColumns = cols;
-        this.columns = ImmutableList.of();
-        this.indexes = ImmutableList.of();
+        this.columns = Lists.newArrayList();
+        this.indexes = Lists.newArrayList();
         this.engineName = engineName;
         this.keysType = keysType;
         this.keys = Utils.copyRequiredList(keys);
