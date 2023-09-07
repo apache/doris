@@ -199,6 +199,8 @@ public:
         this->_stream_load_executor = stream_load_executor;
     }
 
+    void wait_for_all_tasks_done();
+
     void update_frontends(const std::vector<TFrontendInfo>& new_infos);
     std::map<TNetworkAddress, FrontendInfo> get_frontends();
     std::map<TNetworkAddress, FrontendInfo> get_running_frontends();

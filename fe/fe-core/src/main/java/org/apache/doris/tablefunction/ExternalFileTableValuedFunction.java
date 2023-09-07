@@ -226,14 +226,10 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
                 throw new AnalysisException("format:" + formatString + " is not supported.");
         }
 
-        // TODO Support is needed in the future
-        if (getTFileType() == TFileType.FILE_STREAM && (formatString.equals("csv_with_names")
-                || formatString.equals("csv_with_names_and_types")
-                || formatString.equals("parquet")
+        if (getTFileType() == TFileType.FILE_STREAM && (formatString.equals("parquet")
                 || formatString.equals("avro")
                 || formatString.equals("orc"))) {
-            throw new AnalysisException("current http_stream does not yet support csv_with_names, "
-                    + "csv_with_names_and_types, parquet, avro and orc");
+            throw new AnalysisException("current http_stream does not yet support parquet, avro and orc");
         }
         columnSeparator = validParams.getOrDefault(COLUMN_SEPARATOR, DEFAULT_COLUMN_SEPARATOR);
         lineDelimiter = validParams.getOrDefault(LINE_DELIMITER, DEFAULT_LINE_DELIMITER);

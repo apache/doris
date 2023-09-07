@@ -583,12 +583,4 @@ Status HashJoinBuildSinkOperatorX::sink(RuntimeState* state, vectorized::Block* 
     return Status::OK();
 }
 
-Status HashJoinBuildSinkOperatorX::close(RuntimeState* state) {
-    if (!is_closed()) {
-        _shared_hash_table_context = nullptr;
-        _is_closed = true;
-    }
-    return JoinBuildSinkOperatorX<HashJoinBuildSinkLocalState>::close(state);
-}
-
 } // namespace doris::pipeline

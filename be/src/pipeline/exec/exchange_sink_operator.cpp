@@ -104,16 +104,21 @@ Status ExchangeSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& inf
 
     std::map<int64_t, int64_t> fragment_id_to_channel_index;
     for (int i = 0; i < p._dests.size(); ++i) {
+        // Select first dest as transfer chain.
+        bool is_transfer_chain = (i == 0);
         const auto& fragment_instance_id = p._dests[i].fragment_instance_id;
         if (fragment_id_to_channel_index.find(fragment_instance_id.lo) ==
             fragment_id_to_channel_index.end()) {
             channel_shared_ptrs.emplace_back(new vectorized::PipChannel<ExchangeSinkLocalState>(
                     this, p._row_desc, p._dests[i].brpc_server, fragment_instance_id,
-                    p._dest_node_id, false, p._send_query_statistics_with_every_batch));
+                    p._dest_node_id, is_transfer_chain, p._send_query_statistics_with_every_batch));
+            fragment_id_to_channel_index.emplace(fragment_instance_id.lo,
+                                                 channel_shared_ptrs.size() - 1);
+            channels.push_back(channel_shared_ptrs.back().get());
+        } else {
+            channel_shared_ptrs.emplace_back(
+                    channel_shared_ptrs[fragment_id_to_channel_index[fragment_instance_id.lo]]);
         }
-        fragment_id_to_channel_index.emplace(fragment_instance_id.lo,
-                                             channel_shared_ptrs.size() - 1);
-        channels.push_back(channel_shared_ptrs.back().get());
     }
 
     std::vector<std::string> instances;

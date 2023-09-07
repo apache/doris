@@ -311,7 +311,9 @@ constexpr bool capture_stacktrace(int code) {
         && code != ErrorCode::KEY_NOT_FOUND
         && code != ErrorCode::KEY_ALREADY_EXISTS
         && code != ErrorCode::CANCELLED
-        && code != ErrorCode::UNINITIALIZED;
+        && code != ErrorCode::UNINITIALIZED
+        && code != ErrorCode::PIP_WAIT_FOR_RF
+        && code != ErrorCode::PIP_WAIT_FOR_SC;
 }
 // clang-format on
 

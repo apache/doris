@@ -29,6 +29,7 @@ import org.apache.doris.analysis.TableName;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.View;
@@ -42,8 +43,10 @@ import org.apache.doris.common.ThreadPoolManager.BlockedPolicy;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.Daemon;
 import org.apache.doris.common.util.Util;
+import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.persist.AnalyzeDeletionLog;
+import org.apache.doris.persist.TableStatsDeletionLog;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ShowResultSet;
 import org.apache.doris.qe.ShowResultSetMetaData;
@@ -219,7 +222,7 @@ public class AnalysisManager extends Daemon implements Writable {
     }
 
     private void clear() {
-        clearMeta(analysisJobInfoMap, (a) ->
+        clearExpiredAnalysisInfo(analysisJobInfoMap, (a) ->
                         a.scheduleType.equals(ScheduleType.ONCE)
                                 && System.currentTimeMillis() - a.lastExecTimeInMs
                                 > TimeUnit.DAYS.toMillis(StatisticConstants.ANALYSIS_JOB_INFO_EXPIRATION_TIME_IN_DAYS),
@@ -227,7 +230,7 @@ public class AnalysisManager extends Daemon implements Writable {
                     Env.getCurrentEnv().getEditLog().logDeleteAnalysisJob(new AnalyzeDeletionLog(id));
                     return null;
                 });
-        clearMeta(analysisTaskInfoMap, (a) -> System.currentTimeMillis() - a.lastExecTimeInMs
+        clearExpiredAnalysisInfo(analysisTaskInfoMap, (a) -> System.currentTimeMillis() - a.lastExecTimeInMs
                         > TimeUnit.DAYS.toMillis(StatisticConstants.ANALYSIS_JOB_INFO_EXPIRATION_TIME_IN_DAYS),
                 (id) -> {
                     Env.getCurrentEnv().getEditLog().logDeleteAnalysisTask(new AnalyzeDeletionLog(id));
@@ -235,7 +238,7 @@ public class AnalysisManager extends Daemon implements Writable {
                 });
     }
 
-    private void clearMeta(Map<Long, AnalysisInfo> infoMap, Predicate<AnalysisInfo> isExpired,
+    private void clearExpiredAnalysisInfo(Map<Long, AnalysisInfo> infoMap, Predicate<AnalysisInfo> isExpired,
             Function<Long, Void> writeLog) {
         synchronized (infoMap) {
             List<Long> expired = new ArrayList<>();
@@ -265,6 +268,11 @@ public class AnalysisManager extends Daemon implements Writable {
 
     public void createAnalysisJobs(AnalyzeDBStmt analyzeDBStmt, boolean proxy) throws DdlException {
         DatabaseIf<TableIf> db = analyzeDBStmt.getDb();
+        // Using auto analyzer if user specifies.
+        if (analyzeDBStmt.getAnalyzeProperties().getProperties().containsKey("use.auto.analyzer")) {
+            Env.getCurrentEnv().getStatisticsAutoCollector().analyzeDb(db);
+            return;
+        }
         List<AnalysisInfo> analysisInfos = buildAnalysisInfosForDB(db, analyzeDBStmt.getAnalyzeProperties());
         if (!analyzeDBStmt.isSync()) {
             sendJobId(analysisInfos, proxy);
@@ -363,6 +371,9 @@ public class AnalysisManager extends Daemon implements Writable {
         ShowResultSetMetaData commonResultSetMetaData = new ShowResultSetMetaData(columns);
         List<List<String>> resultRows = new ArrayList<>();
         for (AnalysisInfo analysisInfo : analysisInfos) {
+            if (analysisInfo == null) {
+                continue;
+            }
             List<String> row = new ArrayList<>();
             row.add(analysisInfo.catalogName);
             row.add(analysisInfo.dbName);
@@ -442,23 +453,9 @@ public class AnalysisManager extends Daemon implements Writable {
             StatisticsRepository.dropStatistics(invalidPartIds);
         }
 
-        if (analysisMode == AnalysisMode.INCREMENTAL && analysisType == AnalysisType.FUNDAMENTALS) {
-            existColAndPartsForStats.values().forEach(partIds -> partIds.removeAll(invalidPartIds));
-            // In incremental collection mode, just collect the uncollected partition statistics
-            existColAndPartsForStats.forEach((columnName, partitionIds) -> {
-                Set<String> existPartitions = partitionIds.stream()
-                        .map(idToPartition::get)
-                        .collect(Collectors.toSet());
-                columnToPartitions.computeIfPresent(columnName, (colName, partNames) -> {
-                    partNames.removeAll(existPartitions);
-                    return partNames;
-                });
-            });
-            if (invalidPartIds.isEmpty()) {
-                // There is no invalid statistics, so there is no need to update table statistics,
-                // remove columns that do not require re-collection of statistics
-                columnToPartitions.entrySet().removeIf(entry -> entry.getValue().isEmpty());
-            }
+        if (analysisType == AnalysisType.FUNDAMENTALS) {
+            Set<String> reAnalyzeNeededPartitions = findReAnalyzeNeededPartitions(table);
+            columnToPartitions.replaceAll((k, v) -> reAnalyzeNeededPartitions);
         }
 
         return columnToPartitions;
@@ -692,6 +689,12 @@ public class AnalysisManager extends Daemon implements Writable {
         }
         Set<String> cols = dropStatsStmt.getColumnNames();
         long tblId = dropStatsStmt.getTblId();
+        TableStats tableStats = findTableStatsStatus(dropStatsStmt.getTblId());
+        if (tableStats == null) {
+            return;
+        }
+        tableStats.updatedTime = 0;
+        replayUpdateTableStatsStatus(tableStats);
         StatisticsRepository.dropStatistics(tblId, cols);
         for (String col : cols) {
             Env.getCurrentEnv().getStatisticsCache().invalidate(tblId, -1L, col);
@@ -950,5 +953,53 @@ public class AnalysisManager extends Daemon implements Writable {
         jobInfo.state = AnalysisState.RUNNING;
         systemJobInfoMap.put(jobInfo.jobId, jobInfo);
         analysisJobIdToTaskMap.put(jobInfo.jobId, taskInfos);
+    }
+
+    @VisibleForTesting
+    protected Set<String> findReAnalyzeNeededPartitions(TableIf table) {
+        TableStats tableStats = findTableStatsStatus(table.getId());
+        if (tableStats == null) {
+            return table.getPartitionNames().stream().map(table::getPartition)
+                    .filter(Partition::hasData).map(Partition::getName).collect(Collectors.toSet());
+        }
+        return table.getPartitionNames().stream()
+                .map(table::getPartition)
+                .filter(Partition::hasData)
+                .filter(partition ->
+                        partition.getVisibleVersionTime() >= tableStats.updatedTime).map(Partition::getName)
+                .collect(Collectors.toSet());
+    }
+
+    public void removeExternalTableStats(CatalogIf<DatabaseIf<TableIf>> catalogIf) {
+        if (FeConstants.runningUnitTest) {
+            return;
+        }
+        Set<Long> tblSet = catalogIf.getAllDbs().stream()
+                .map(DatabaseIf::getTables)
+                .flatMap(Collection::stream)
+                .map(t -> ((TableIf) t).getId())
+                .collect(Collectors.toSet());
+        List<Long> expiredTblIds = new ArrayList<>();
+        for (Map.Entry<Long, TableStats> entry : idToTblStatsStatus.entrySet()) {
+            if (tblSet.contains(entry.getKey())) {
+                expiredTblIds.add(entry.getKey());
+            }
+        }
+        for (Long tblId : expiredTblIds) {
+            removeTableStats(tblId);
+        }
+    }
+
+    public void removeTableStats(long tblId) {
+        if (!idToTblStatsStatus.containsKey(tblId)) {
+            return;
+        }
+        TableStatsDeletionLog log = new TableStatsDeletionLog(tblId);
+        Env.getCurrentEnv().getEditLog().logDeleteTableStats(log);
+        replayTableStatsDeletion(log);
+    }
+
+    public void replayTableStatsDeletion(TableStatsDeletionLog log) {
+        idToTblStatsStatus.remove(log.id);
     }
 }

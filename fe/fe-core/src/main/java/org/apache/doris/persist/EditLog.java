@@ -1069,6 +1069,10 @@ public class EditLog {
                     env.getAnalysisManager().replayUpdateTableStatsStatus((TableStats) journal.getData());
                     break;
                 }
+                case OperationType.OP_DELETE_TABLE_STATS: {
+                    env.getAnalysisManager().replayTableStatsDeletion((TableStatsDeletionLog) journal.getData());
+                    break;
+                }
                 default: {
                     IOException e = new IOException();
                     LOG.error("UNKNOWN Operation Type {}", opCode, e);
@@ -1881,5 +1885,9 @@ public class EditLog {
 
     public void logCreateTableStats(TableStats tableStats) {
         logEdit(OperationType.OP_UPDATE_TABLE_STATS, tableStats);
+    }
+
+    public void logDeleteTableStats(TableStatsDeletionLog log) {
+        logEdit(OperationType.OP_DELETE_ANALYSIS_JOB, log);
     }
 }

@@ -60,10 +60,13 @@ CREATE CATALOG `paimon_hdfs` PROPERTIES (
 
 #### S3
 
->Note that.
+> Note that.
 >
 > user need download [paimon-s3-0.4.0-incubating.jar](https://repo.maven.apache.org/maven2/org/apache/paimon/paimon-s3/0.4.0-incubating/paimon-s3-0.4.0-incubating.jar)
+>
 > Place it in directory ${DORIS_HOME}/be/lib/java_extensions/preload-extensions and restart be
+>
+> Starting from version 2.0.2, this file can be placed in BE's `custom_lib/` directory (if it does not exist, just create it manually) to prevent the file from being lost due to the replacement of the lib directory when upgrading the cluster.
 
 ```sql
 CREATE CATALOG `paimon_s3` PROPERTIES (

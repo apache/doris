@@ -321,6 +321,8 @@ public class OperationType {
 
     public static final short OP_UPDATE_TABLE_STATS = 455;
 
+    public static final short OP_DELETE_TABLE_STATS = 456;
+
     /**
      * Get opcode name by op code.
      **/

@@ -834,9 +834,6 @@ public class OlapTable extends Table {
             idToPartition.remove(partition.getId());
             nameToPartition.remove(partitionName);
 
-            Preconditions.checkState(partitionInfo.getType() == PartitionType.RANGE
-                    || partitionInfo.getType() == PartitionType.LIST);
-
             if (!isForceDrop) {
                 // recycle partition
                 if (partitionInfo.getType() == PartitionType.RANGE) {
@@ -936,10 +933,14 @@ public class OlapTable extends Table {
      *
      */
 
-    // get partition by name, not including temp partitions
+    // Priority is given to querying from the partition. If not found, query from the tempPartition
     @Override
     public Partition getPartition(String partitionName) {
-        return getPartition(partitionName, false);
+        Partition partition = getPartition(partitionName, false);
+        if (partition != null) {
+            return partition;
+        }
+        return getPartition(partitionName, true);
     }
 
     // get partition by name
@@ -951,7 +952,7 @@ public class OlapTable extends Table {
         }
     }
 
-    // get partition by id, including temp partitions
+    // Priority is given to querying from the partition. If not found, query from the tempPartition
     public Partition getPartition(long partitionId) {
         Partition partition = idToPartition.get(partitionId);
         if (partition == null) {
@@ -1137,7 +1138,8 @@ public class OlapTable extends Table {
     }
 
     @Override
-    public Set<String> findReAnalyzeNeededPartitions(TableStats tableStats) {
+    public Set<String> findReAnalyzeNeededPartitions() {
+        TableStats tableStats = Env.getCurrentEnv().getAnalysisManager().findTableStatsStatus(getId());
         if (tableStats == null) {
             return getPartitionNames().stream().map(this::getPartition)
                 .filter(Partition::hasData).map(Partition::getName).collect(Collectors.toSet());

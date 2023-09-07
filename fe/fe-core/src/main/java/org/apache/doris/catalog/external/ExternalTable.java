@@ -388,7 +388,7 @@ public class ExternalTable implements TableIf, Writable, GsonPostProcessable {
     }
 
     @Override
-    public Set<String> findReAnalyzeNeededPartitions(TableStats tableStats) {
+    public Set<String> findReAnalyzeNeededPartitions() {
         HashSet<String> partitions = Sets.newHashSet();
         // TODO: Find a way to collect external table partitions that need to be analyzed.
         partitions.add("Dummy Partition");

@@ -107,10 +107,6 @@ TaskWorkerPool::TaskWorkerPool(const TaskWorkerType task_worker_type, ExecEnv* e
           _thread_model(thread_model),
           _is_doing_work(false),
           _task_worker_type(task_worker_type) {
-    _backend.__set_host(BackendOptions::get_localhost());
-    _backend.__set_be_port(config::be_port);
-    _backend.__set_http_port(config::webserver_port);
-
     string task_worker_type_name = TYPE_STRING(task_worker_type);
     _name = strings::Substitute("TaskWorkerPool.$0", task_worker_type_name);
 
@@ -363,7 +359,7 @@ void TaskWorkerPool::_alter_inverted_index_worker_thread_callback() {
 
         // Return result to fe
         TFinishTaskRequest finish_task_request;
-        finish_task_request.__set_backend(_backend);
+        finish_task_request.__set_backend(BackendOptions::get_local_backend());
         finish_task_request.__set_task_type(agent_task_req.task_type);
         finish_task_request.__set_signature(agent_task_req.signature);
         std::vector<TTabletInfo> finish_tablet_infos;

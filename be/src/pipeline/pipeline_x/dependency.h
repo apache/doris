@@ -220,7 +220,8 @@ struct HashJoinSharedState : public JoinSharedState {
     vectorized::Sizes probe_key_sz;
     const std::vector<TupleDescriptor*> build_side_child_desc;
     size_t build_exprs_size = 0;
-    std::shared_ptr<std::vector<vectorized::Block>> build_blocks;
+    std::shared_ptr<std::vector<vectorized::Block>> build_blocks =
+            std::make_shared<std::vector<vectorized::Block>>();
 };
 
 class HashJoinDependency final : public Dependency {

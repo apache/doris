@@ -71,6 +71,8 @@ public class AnalysisInfo implements Writable {
     }
 
     public enum ScheduleType {
+        // Job created by AutoCollector is also `ONCE` type, this is because it runs once only and should be removed
+        // when its information is expired
         ONCE,
         PERIOD,
         AUTOMATIC
@@ -96,6 +98,7 @@ public class AnalysisInfo implements Writable {
     @SerializedName("tblName")
     public final String tblName;
 
+    // TODO: Map here is wired, List is enough
     @SerializedName("colToPartitions")
     public final Map<String, Set<String>> colToPartitions;
 
