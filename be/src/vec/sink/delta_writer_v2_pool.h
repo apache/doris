@@ -56,9 +56,35 @@ class DeltaWriterV2;
 
 namespace stream_load {
 
-using TabletToDeltaWriterV2Map = phmap::parallel_flat_hash_map<
-        int64_t, std::unique_ptr<DeltaWriterV2>, std::hash<int64_t>, std::equal_to<int64_t>,
-        std::allocator<phmap::Pair<const int64_t, std::unique_ptr<DeltaWriterV2>>>, 4, std::mutex>;
+class DeltaWriterV2Map {
+public:
+    DeltaWriterV2Map(UniqueId load_id);
+
+    ~DeltaWriterV2Map();
+
+    void grab() { ++_use_cnt; }
+
+    // get or create delta writer for the given tablet, memory is managed by DeltaWriterV2Map
+    DeltaWriterV2* get_or_create(int64_t tablet_id, std::function<DeltaWriterV2*()> creator);
+
+    // close all delta writers in this DeltaWriterV2Map if there is no other users
+    Status close();
+
+    // cancel all delta writers in this DeltaWriterV2Map
+    void cancel(Status status);
+
+    UniqueId unique_id() const { return _load_id; }
+
+private:
+    using TabletToDeltaWriterV2Map = phmap::parallel_flat_hash_map<
+            int64_t, std::unique_ptr<DeltaWriterV2>, std::hash<int64_t>, std::equal_to<int64_t>,
+            std::allocator<phmap::Pair<const int64_t, std::unique_ptr<DeltaWriterV2>>>, 4,
+            std::mutex>;
+
+    UniqueId _load_id;
+    TabletToDeltaWriterV2Map _map;
+    std::atomic<int> _use_cnt;
+};
 
 class DeltaWriterV2Pool {
 public:
@@ -66,17 +92,11 @@ public:
 
     ~DeltaWriterV2Pool();
 
-    std::shared_ptr<TabletToDeltaWriterV2Map> get_or_create(PUniqueId load_id);
-
-    // remove one instance, return true if is the last one
-    bool remove(PUniqueId load_id);
-
-    void reset(PUniqueId load_id);
+    std::shared_ptr<DeltaWriterV2Map> get_or_create(PUniqueId load_id);
 
 private:
     std::mutex _mutex;
-    std::unordered_map<UniqueId, int> _ref_cnt;
-    std::unordered_map<UniqueId, std::weak_ptr<TabletToDeltaWriterV2Map>> _pool;
+    std::unordered_map<UniqueId, std::weak_ptr<DeltaWriterV2Map>> _pool;
 };
 
 } // namespace stream_load

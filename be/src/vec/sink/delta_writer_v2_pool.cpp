@@ -24,43 +24,63 @@ class TExpr;
 
 namespace stream_load {
 
+DeltaWriterV2Map::DeltaWriterV2Map(UniqueId load_id) : _load_id(load_id), _use_cnt(1) {}
+
+DeltaWriterV2Map::~DeltaWriterV2Map() = default;
+
+DeltaWriterV2* DeltaWriterV2Map::get_or_create(int64_t tablet_id,
+                                               std::function<DeltaWriterV2*()> creator) {
+    _map.lazy_emplace(tablet_id, [&](const TabletToDeltaWriterV2Map::constructor& ctor) {
+        ctor(tablet_id, creator());
+    });
+    return _map.at(tablet_id).get();
+}
+
+Status DeltaWriterV2Map::close() {
+    if (--_use_cnt > 0) {
+        return Status::OK();
+    }
+    Status status = Status::OK();
+    _map.for_each([&status](auto& entry) {
+        if (status.ok()) {
+            status = entry.second->close();
+        }
+    });
+    if (!status.ok()) {
+        return status;
+    }
+    _map.for_each([&status](auto& entry) {
+        if (status.ok()) {
+            status = entry.second->close_wait();
+        }
+    });
+    return status;
+}
+
+void DeltaWriterV2Map::cancel(Status status) {
+    _map.for_each([&status](auto& entry) { entry.second->cancel_with_status(status); });
+}
+
 DeltaWriterV2Pool::DeltaWriterV2Pool() = default;
 
 DeltaWriterV2Pool::~DeltaWriterV2Pool() = default;
 
-std::shared_ptr<TabletToDeltaWriterV2Map> DeltaWriterV2Pool::get_or_create(PUniqueId load_id) {
-    UniqueId key {load_id};
+std::shared_ptr<DeltaWriterV2Map> DeltaWriterV2Pool::get_or_create(PUniqueId load_id) {
+    UniqueId id {load_id};
     std::lock_guard<std::mutex> lock(_mutex);
-    std::shared_ptr<TabletToDeltaWriterV2Map> writer = _pool[key].lock();
-    _ref_cnt[key]++;
-    if (writer) {
-        return writer;
+    std::shared_ptr<DeltaWriterV2Map> map = _pool[id].lock();
+    if (map) {
+        map->grab();
+        return map;
     }
-    auto deleter = [this, key](TabletToDeltaWriterV2Map* map) {
+    auto deleter = [this](DeltaWriterV2Map* m) {
         std::lock_guard<std::mutex> lock(_mutex);
-        _pool.erase(key);
-        delete map;
+        _pool.erase(m->unique_id());
+        delete m;
     };
-    writer = std::shared_ptr<TabletToDeltaWriterV2Map>(new TabletToDeltaWriterV2Map(), deleter);
-    _pool[key] = writer;
-    return writer;
-}
-
-bool DeltaWriterV2Pool::remove(PUniqueId load_id) {
-    UniqueId key {load_id};
-    std::lock_guard<std::mutex> lock(_mutex);
-    bool is_last = --_ref_cnt[key] == 0;
-    if (is_last) {
-        _pool.erase(key);
-    }
-    return is_last;
-}
-
-void DeltaWriterV2Pool::reset(PUniqueId load_id) {
-    UniqueId key {load_id};
-    std::lock_guard<std::mutex> lock(_mutex);
-    _ref_cnt[key] = 0;
-    _pool.erase(key);
+    map = std::shared_ptr<DeltaWriterV2Map>(new DeltaWriterV2Map(id), deleter);
+    _pool[id] = map;
+    return map;
 }
 
 } // namespace stream_load
