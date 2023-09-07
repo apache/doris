@@ -738,24 +738,16 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
 
     @Override
     public LogicalPlan visitInlineTable(InlineTableContext ctx) {
-        List<List<Expression>> exprs = ctx.expression().stream()
-                .map(e -> {
-                    Object o = visit(e);
-                    if (o instanceof Row) {
-                        return (((Row) o).children());
-                    } else if (o instanceof Expression) {
-                        return ImmutableList.of(((Expression) o));
-                    } else {
-                        throw new AnalysisException("invalid inline table");
-                    }
-                }).collect(Collectors.toList());
+        List<List<Expression>> exprsList = ctx.rowConstructor().stream()
+                .map(e -> visitRowConstructor(e).children())
+                .collect(Collectors.toList());
         LogicalPlan relation = new LogicalOneRowRelation(
                 StatementScopeIdGenerator.newRelationId(),
-                exprs.get(0).stream().map(e -> new Alias(e, e.toSql())).collect(Collectors.toList()));
-        for (List<Expression> exprList : exprs.subList(1, exprs.size())) {
+                exprsList.get(0).stream().map(e -> new Alias(e, e.toSql())).collect(Collectors.toList()));
+        for (int i = 1; i < exprsList.size(); i++) {
             relation = new LogicalUnion(Qualifier.ALL, ImmutableList.of(relation, new LogicalOneRowRelation(
                     StatementScopeIdGenerator.newRelationId(),
-                    exprList.stream().map(e -> new Alias(e, e.toSql())).collect(Collectors.toList()))));
+                    exprsList.get(i).stream().map(e -> new Alias(e, e.toSql())).collect(Collectors.toList()))));
         }
         return withTableAlias(relation, ctx.tableAlias());
     }
@@ -1705,7 +1697,8 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
 
     @Override
     public Expression visitRowConstructor(RowConstructorContext ctx) {
-        return new Row(ctx.namedExpression().stream().map(this::visitNamedExpression).collect(Collectors.toList()));
+        return new Row(ctx.namedExpression().stream()
+                .map(e -> ((NamedExpression) visitNamedExpression(e))).collect(Collectors.toList()));
     }
 
     @Override
@@ -2619,8 +2612,8 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     }
 
     private static class Row extends Expression {
-        public Row(List<Expression> children) {
-            super(children);
+        public Row(List<NamedExpression> children) {
+            super(children.stream().map(Expression.class::cast).collect(Collectors.toList()));
         }
 
         @Override

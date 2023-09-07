@@ -401,7 +401,7 @@ tabletList
     
 
 inlineTable
-    : VALUES expression (COMMA expression)* tableAlias
+    : VALUES rowConstructor (COMMA rowConstructor)* tableAlias
     ;
 
 // -----------------Expression-----------------
@@ -437,7 +437,9 @@ booleanExpression
     | left=booleanExpression operator=DOUBLEPIPES right=booleanExpression           #doublePipes
     ;
 
-
+rowConstructor
+    : LEFT_PAREN namedExpression (COMMA namedExpression)+ RIGHT_PAREN
+    ;
 
 predicate
     : NOT? kind=BETWEEN lower=valueExpression AND upper=valueExpression
@@ -531,7 +533,6 @@ primaryExpression
     | identifier                                                                               #columnReference
     | base=primaryExpression DOT fieldName=identifier                                          #dereference
     | LEFT_PAREN expression RIGHT_PAREN                                                        #parenthesizedExpression
-    | LEFT_PAREN namedExpression (COMMA namedExpression)+ RIGHT_PAREN                                    #rowConstructor
     | KEY (dbName=identifier DOT)? keyName=identifier                                          #encryptKey
     | EXTRACT LEFT_PAREN field=identifier FROM (DATE | TIMESTAMP)?
       source=valueExpression RIGHT_PAREN                                                       #extract
