@@ -23,18 +23,22 @@
 
 namespace doris::vectorized {
 
-using FunctionDateFormat = FunctionDateTimeStringToString<DateFormatImpl<VecDateTimeValue, Int64>>;
+using FunctionDateFormat = FunctionDateTimeStringToStringTwoArgs<DateFormatImpl<VecDateTimeValue, Int64>>;
 using FunctionDateFormatV2 =
-        FunctionDateTimeStringToString<DateFormatImpl<DateV2Value<DateV2ValueType>, UInt32>>;
+        FunctionDateTimeStringToStringTwoArgs<DateFormatImpl<DateV2Value<DateV2ValueType>, UInt32>>;
 using FunctionDateTimeV2DateFormat =
-        FunctionDateTimeStringToString<DateFormatImpl<DateV2Value<DateTimeV2ValueType>, UInt64>>;
-using FunctionFromUnixTime = FunctionDateTimeStringToString<FromUnixTimeImpl<VecDateTimeValue>>;
+        FunctionDateTimeStringToStringTwoArgs<DateFormatImpl<DateV2Value<DateTimeV2ValueType>, UInt64>>;
+using FunctionFromUnixTime = FunctionDateTimeStringToStringTwoArgs<FromUnixTimeImpl<VecDateTimeValue>>;
+using FunctionYearWeekFormat = FunctionDateTimeStringToStringFourArgs<YearWeekFormatImpl>;
+using FunctionYearWeekFormatDefault = FunctionDateTimeStringToStringOneArg<YearWeekFormatDefaultImpl>;
 
 void register_function_date_time_string_to_string(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionDateFormat>();
     factory.register_function<FunctionDateFormatV2>();
     factory.register_function<FunctionFromUnixTime>();
     factory.register_function<FunctionDateTimeV2DateFormat>();
+    factory.register_function<FunctionYearWeekFormat>();
+    factory.register_function<FunctionYearWeekFormatDefault>();
 }
 
 } // namespace doris::vectorized
