@@ -133,9 +133,9 @@ Status RuntimeFilterMgr::register_consumer_filter(const TRuntimeFilterDesc& desc
             }
         }
         IRuntimeFilter* filter;
-        RETURN_IF_ERROR(IRuntimeFilter::create(_query_ctx, &_query_ctx->obj_pool, &desc,
-                                               &options, RuntimeFilterRole::CONSUMER, node_id,
-                                               &filter, build_bf_exactly));
+        RETURN_IF_ERROR(IRuntimeFilter::create(_query_ctx, &_query_ctx->obj_pool, &desc, &options,
+                                               RuntimeFilterRole::CONSUMER, node_id, &filter,
+                                               build_bf_exactly));
         _consumer_map[key].emplace_back(node_id, filter);
     } else {
         DCHECK(_state != nullptr);
