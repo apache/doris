@@ -400,6 +400,7 @@ CREATE CATALOG jdbc_doris PROPERTIES (
 | TEXT       | STRING                 |                                                                                      |
 | HLL        | HLL                    | Query HLL needs to set `return_object_data_as_binary=true`                           |
 | Array      | Array                  | The internal type adaptation logic of Array refers to the above types, and nested complex types are not supported        |
+| BITMAP     | BITMAP                 | Query BITMAP needs to set `return_object_data_as_binary=true`                        |
 | Other      | UNSUPPORTED            |                                                                                      |
 
 ### Clickhouse
@@ -790,7 +791,9 @@ DROP CATALOG <catalog_name>;
 
 12. `Non supported character set (add orai18n.jar in your classpath): ZHS16GBK` exception occurs when reading Oracle
 
-    Download [orai18n.jar](https://www.oracle.com/database/technologies/appdev/jdbc-downloads.html) and put it in the lib directory of Doris FE and the lib/java_extensions directory of BE (Doris versions before 2.0 need to be placed in the lib directory of BE).
+    Download [orai18n.jar](https://www.oracle.com/database/technologies/appdev/jdbc-downloads.html) and put it in the lib directory of Doris FE and the `lib/java_extensions/` directory of BE (Doris versions before 2.0 need to be placed in the lib directory of BE).
+
+    Starting from version 2.0.2, this file can be placed in BE's `custom_lib/` directory (if it does not exist, just create it manually) to prevent the file from being lost due to the replacement of the lib directory when upgrading the cluster.
 
 13. `NoClassDefFoundError: net/jpountz/lz4/LZ4Factory` exception occurs when reading Clickhouse data via jdbc catalog.
 

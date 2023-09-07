@@ -99,6 +99,7 @@ import org.apache.doris.nereids.DorisParser.PropertyValueContext;
 import org.apache.doris.nereids.DorisParser.QualifiedNameContext;
 import org.apache.doris.nereids.DorisParser.QueryContext;
 import org.apache.doris.nereids.DorisParser.QueryOrganizationContext;
+import org.apache.doris.nereids.DorisParser.QueryTermContext;
 import org.apache.doris.nereids.DorisParser.RegularQuerySpecificationContext;
 import org.apache.doris.nereids.DorisParser.RelationContext;
 import org.apache.doris.nereids.DorisParser.SelectClauseContext;
@@ -365,6 +366,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
 
     @Override
     public LogicalPlan visitInsertIntoQuery(InsertIntoQueryContext ctx) {
+        boolean isOverwrite = ctx.INTO() == null;
         List<String> tableName = visitMultipartIdentifier(ctx.tableName);
         String labelName = ctx.labelName == null ? null : ctx.labelName.getText();
         List<String> colNames = ctx.cols == null ? ImmutableList.of() : visitIdentifierList(ctx.cols);
@@ -378,7 +380,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         if (ctx.explain() != null) {
             return withExplain(sink, ctx.explain());
         }
-        return new InsertIntoTableCommand(sink, Optional.ofNullable(labelName));
+        return new InsertIntoTableCommand(sink, Optional.ofNullable(labelName), isOverwrite);
     }
 
     @Override
@@ -599,32 +601,73 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     @Override
     public LogicalPlan visitSetOperation(SetOperationContext ctx) {
         return ParserUtils.withOrigin(ctx, () -> {
-            LogicalPlan leftQuery = plan(ctx.left);
-            LogicalPlan rightQuery = plan(ctx.right);
-            Qualifier qualifier;
-            if (ctx.setQuantifier() == null || ctx.setQuantifier().DISTINCT() != null) {
-                qualifier = Qualifier.DISTINCT;
-            } else {
-                qualifier = Qualifier.ALL;
-            }
 
-            List<Plan> newChildren = new ImmutableList.Builder<Plan>()
-                    .add(leftQuery)
-                    .add(rightQuery)
-                    .build();
-
-            LogicalPlan plan;
             if (ctx.UNION() != null) {
-                plan = new LogicalUnion(qualifier, newChildren);
-            } else if (ctx.EXCEPT() != null) {
-                plan = new LogicalExcept(qualifier, newChildren);
-            } else if (ctx.INTERSECT() != null) {
-                plan = new LogicalIntersect(qualifier, newChildren);
+                Qualifier qualifier = getQualifier(ctx);
+                List<QueryTermContext> contexts = Lists.newArrayList(ctx.right);
+                QueryTermContext current = ctx.left;
+                while (true) {
+                    if (current instanceof SetOperationContext
+                            && getQualifier((SetOperationContext) current) == qualifier
+                            && ((SetOperationContext) current).UNION() != null) {
+                        contexts.add(((SetOperationContext) current).right);
+                        current = ((SetOperationContext) current).left;
+                    } else {
+                        contexts.add(current);
+                        break;
+                    }
+                }
+                Collections.reverse(contexts);
+                List<LogicalPlan> logicalPlans = contexts.stream().map(this::plan).collect(Collectors.toList());
+                return reduceToLogicalPlanTree(0, logicalPlans.size() - 1, logicalPlans, qualifier);
             } else {
-                throw new ParseException("not support", ctx);
+                LogicalPlan leftQuery = plan(ctx.left);
+                LogicalPlan rightQuery = plan(ctx.right);
+                Qualifier qualifier = getQualifier(ctx);
+
+                List<Plan> newChildren = ImmutableList.of(leftQuery, rightQuery);
+                LogicalPlan plan;
+                if (ctx.UNION() != null) {
+                    plan = new LogicalUnion(qualifier, newChildren);
+                } else if (ctx.EXCEPT() != null) {
+                    plan = new LogicalExcept(qualifier, newChildren);
+                } else if (ctx.INTERSECT() != null) {
+                    plan = new LogicalIntersect(qualifier, newChildren);
+                } else {
+                    throw new ParseException("not support", ctx);
+                }
+                return plan;
             }
-            return plan;
         });
+    }
+
+    private Qualifier getQualifier(SetOperationContext ctx) {
+        if (ctx.setQuantifier() == null || ctx.setQuantifier().DISTINCT() != null) {
+            return Qualifier.DISTINCT;
+        } else {
+            return Qualifier.ALL;
+        }
+    }
+
+    private LogicalPlan logicalPlanCombiner(LogicalPlan left, LogicalPlan right, Qualifier qualifier) {
+        return new LogicalUnion(qualifier, ImmutableList.of(left, right));
+    }
+
+    private LogicalPlan reduceToLogicalPlanTree(int low, int high,
+            List<LogicalPlan> logicalPlans, Qualifier qualifier) {
+        switch (high - low) {
+            case 0:
+                return logicalPlans.get(low);
+            case 1:
+                return logicalPlanCombiner(logicalPlans.get(low), logicalPlans.get(high), qualifier);
+            default:
+                int mid = low + (high - low) / 2;
+                return logicalPlanCombiner(
+                        reduceToLogicalPlanTree(low, mid, logicalPlans, qualifier),
+                        reduceToLogicalPlanTree(mid + 1, high, logicalPlans, qualifier),
+                        qualifier
+                );
+        }
     }
 
     @Override
@@ -1784,10 +1827,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             Optional<AggClauseContext> aggClause,
             Optional<HavingClauseContext> havingClause) {
         return ParserUtils.withOrigin(ctx, () -> {
-            // TODO: add lateral views
-
             // from -> where -> group by -> having -> select
-
             LogicalPlan filter = withFilter(inputRelation, whereClause);
             SelectColumnClauseContext selectColumnCtx = selectClause.selectColumnClause();
             LogicalPlan aggregate = withAggregate(filter, selectColumnCtx, aggClause);
@@ -1796,7 +1836,6 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                 throw new ParseException("cannot combine SELECT DISTINCT with aggregate functions or GROUP BY",
                         selectClause);
             }
-            // TODO: replace and process having at this position
             if (!(aggregate instanceof Aggregate) && havingClause.isPresent()) {
                 // create a project node for pattern match of ProjectToGlobalAggregate rule
                 // then ProjectToGlobalAggregate rule can insert agg node as LogicalHaving node's child
@@ -1807,10 +1846,10 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                         throw new ParseException("only column name is supported in except clause", selectColumnCtx);
                     }
                     project = new LogicalProject<>(ImmutableList.of(new UnboundStar(ImmutableList.of())),
-                        expressions, aggregate, isDistinct);
+                        expressions, isDistinct, aggregate);
                 } else {
                     List<NamedExpression> projects = getNamedExpressions(selectColumnCtx.namedExpressionSeq());
-                    project = new LogicalProject<>(projects, ImmutableList.of(), aggregate, isDistinct);
+                    project = new LogicalProject<>(projects, ImmutableList.of(), isDistinct, aggregate);
                 }
                 return new LogicalHaving<>(ExpressionUtils.extractConjunctionToSet(
                         getExpression((havingClause.get().booleanExpression()))), project);
@@ -1969,7 +2008,6 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     private LogicalPlan withProjection(LogicalPlan input, SelectColumnClauseContext selectCtx,
                                        Optional<AggClauseContext> aggCtx, boolean isDistinct) {
         return ParserUtils.withOrigin(selectCtx, () -> {
-            // TODO: skip if havingClause exists
             if (aggCtx.isPresent()) {
                 return input;
             } else {
@@ -1979,10 +2017,10 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                         throw new ParseException("only column name is supported in except clause", selectCtx);
                     }
                     return new LogicalProject<>(ImmutableList.of(new UnboundStar(ImmutableList.of())),
-                            expressions, input, isDistinct);
+                            expressions, isDistinct, input);
                 } else {
                     List<NamedExpression> projects = getNamedExpressions(selectCtx.namedExpressionSeq());
-                    return new LogicalProject<>(projects, Collections.emptyList(), input, isDistinct);
+                    return new LogicalProject<>(projects, Collections.emptyList(), isDistinct, input);
                 }
             }
         });

@@ -297,7 +297,7 @@ First, you need to add configuration in fe.conf: `enable_bdbje_debug_mode=true`,
 
 At this time, FE will enter the debug mode, only start the http server and MySQL server, and open the BDBJE instance, but will not load any metadata and other subsequent startup processes.
 
-This is, we can view the data stored in BDBJE by visiting the web page of FE, or after connecting to Doris through the MySQL client, through `show proc /bdbje;`.
+This is, we can view the data stored in BDBJE by visiting the web page of FE, or after connecting to Doris through the MySQL client, through `show proc "/bdbje";`.
 
 ```
 mysql> show proc "/bdbje";

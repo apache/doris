@@ -346,7 +346,7 @@ public class AggScalarSubQueryToWindowFunction extends DefaultPlanRewriter<JobCo
 
         WindowExpression windowFunction = createWindowFunction(apply.getCorrelationSlot(),
                 (AggregateFunction) ExpressionUtils.replace(function, innerOuterSlotMap));
-        NamedExpression windowFunctionAlias = new Alias(windowFunction, windowFunction.toSql());
+        NamedExpression windowFunctionAlias = new Alias(windowFunction);
 
         // build filter conjunct, get the alias of the agg output and extract its child.
         // then replace the agg to window function, then build conjunct

@@ -33,11 +33,10 @@ namespace doris {
 
 class BitmapValue;
 class HyperLogLog;
+class QuantileState;
+
 struct decimal12_t;
 struct uint24_t;
-
-template <typename T>
-class QuantileState;
 
 namespace vectorized {
 
@@ -215,7 +214,7 @@ struct TypeName<HyperLogLog> {
 };
 
 template <>
-struct TypeName<QuantileState<double>> {
+struct TypeName<QuantileState> {
     static const char* get() { return "QuantileState"; }
 };
 
@@ -502,8 +501,6 @@ struct Decimal {
 };
 
 struct Decimal128I : public Decimal<Int128> {
-    using NativeType = Int128;
-
     Decimal128I() = default;
 
 #define DECLARE_NUMERIC_CTOR(TYPE) \
@@ -705,7 +702,7 @@ inline const char* getTypeName(TypeIndex idx) {
     case TypeIndex::Struct:
         return "Struct";
     case TypeIndex::QuantileState:
-        return TypeName<QuantileState<double>>::get();
+        return TypeName<QuantileState>::get();
     case TypeIndex::AggState:
         return "AggState";
     case TypeIndex::Time:

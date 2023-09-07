@@ -15,6 +15,11 @@
 // specific language governing permissions and limitations
 // under the License.
 
+#include <arrow/flight/client.h>
+#include <arrow/flight/sql/client.h>
+#include <arrow/scalar.h>
+#include <arrow/status.h>
+#include <arrow/table.h>
 #include <butil/macros.h>
 // IWYU pragma: no_include <bthread/errno.h>
 #include <errno.h> // IWYU pragma: keep
@@ -34,6 +39,7 @@
 #include <tuple>
 #include <vector>
 
+#include "common/stack_trace.h"
 #include "olap/tablet_schema_cache.h"
 #include "olap/utils.h"
 #include "runtime/memory/mem_tracker_limiter.h"
@@ -60,6 +66,7 @@
 #include "olap/storage_engine.h"
 #include "runtime/exec_env.h"
 #include "runtime/user_function_cache.h"
+#include "service/arrow_flight/flight_sql_service.h"
 #include "service/backend_options.h"
 #include "service/backend_service.h"
 #include "service/brpc_service.h"
@@ -301,6 +308,8 @@ struct Checker {
 int main(int argc, char** argv) {
     doris::signal::InstallFailureSignalHandler();
     doris::init_signals();
+    // create StackTraceCache Instance, at the beginning, other static destructors may use.
+    StackTrace::createCache();
 
     // check if print version or help
     if (argc > 1) {
@@ -585,12 +594,26 @@ int main(int argc, char** argv) {
         exit(1);
     }
 
+    // 5. arrow flight service
+    std::shared_ptr<doris::flight::FlightSqlServer> flight_server =
+            std::move(doris::flight::FlightSqlServer::create()).ValueOrDie();
+    status = flight_server->init(doris::config::arrow_flight_port);
+    if (!status.ok()) {
+        LOG(ERROR) << "Arrow Flight Service did not start correctly, exiting, "
+                   << status.to_string();
+        doris::shutdown_logging();
+        exit(1);
+    }
+
     while (!doris::k_doris_exit) {
 #if defined(LEAK_SANITIZER)
         __lsan_do_leak_check();
 #endif
         sleep(3);
     }
+
+    // For graceful shutdown, need to wait for all running queries to stop
+    exec_env->wait_for_all_tasks_done();
 
     return 0;
 }

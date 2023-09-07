@@ -27,6 +27,8 @@
 #include <ostream>
 #include <utility>
 
+#include "arrow/record_batch.h"
+#include "arrow/type_fwd.h"
 #include "runtime/buffer_control_block.h"
 #include "util/doris_metrics.h"
 #include "util/metrics.h"
@@ -104,17 +106,47 @@ std::shared_ptr<BufferControlBlock> ResultBufferMgr::find_control_block(const TU
     return std::shared_ptr<BufferControlBlock>();
 }
 
+void ResultBufferMgr::register_row_descriptor(const TUniqueId& query_id,
+                                              const RowDescriptor& row_desc) {
+    {
+        std::lock_guard<std::mutex> l(_lock);
+        _row_descriptor_map.insert(std::make_pair(query_id, row_desc));
+    }
+}
+
+RowDescriptor ResultBufferMgr::find_row_descriptor(const TUniqueId& query_id) {
+    std::lock_guard<std::mutex> l(_lock);
+    RowDescriptorMap::iterator iter = _row_descriptor_map.find(query_id);
+
+    if (_row_descriptor_map.end() != iter) {
+        return iter->second;
+    }
+
+    return RowDescriptor();
+}
+
 void ResultBufferMgr::fetch_data(const PUniqueId& finst_id, GetResultBatchCtx* ctx) {
     TUniqueId tid;
     tid.__set_hi(finst_id.hi());
     tid.__set_lo(finst_id.lo());
     std::shared_ptr<BufferControlBlock> cb = find_control_block(tid);
     if (cb == nullptr) {
-        LOG(WARNING) << "no result for this query, id=" << tid;
+        LOG(WARNING) << "no result for this query, id=" << print_id(tid);
         ctx->on_failure(Status::InternalError("no result for this query"));
         return;
     }
     cb->get_batch(ctx);
+}
+
+Status ResultBufferMgr::fetch_arrow_data(const TUniqueId& finst_id,
+                                         std::shared_ptr<arrow::RecordBatch>* result) {
+    std::shared_ptr<BufferControlBlock> cb = find_control_block(finst_id);
+    if (cb == nullptr) {
+        LOG(WARNING) << "no result for this query, id=" << print_id(finst_id);
+        return Status::InternalError("no result for this query");
+    }
+    RETURN_IF_ERROR(cb->get_arrow_batch(result));
+    return Status::OK();
 }
 
 Status ResultBufferMgr::cancel(const TUniqueId& query_id) {
@@ -124,6 +156,12 @@ Status ResultBufferMgr::cancel(const TUniqueId& query_id) {
     if (_buffer_map.end() != iter) {
         iter->second->cancel();
         _buffer_map.erase(iter);
+    }
+
+    RowDescriptorMap::iterator row_desc_iter = _row_descriptor_map.find(query_id);
+
+    if (_row_descriptor_map.end() != row_desc_iter) {
+        _row_descriptor_map.erase(row_desc_iter);
     }
 
     return Status::OK();

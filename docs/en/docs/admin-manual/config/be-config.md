@@ -1489,3 +1489,8 @@ Indicates how many tablets failed to load in the data directory. At the same tim
 
 * Description: The batch size for sending data by brpc streaming client
 * Default value: 262144
+
+#### `grace_shutdown_wait_seconds`
+
+* Description: In cloud native deployment scenario, BE will be add to cluster and remove from cluster very frequently. User's query will fail if there is a fragment is running on the shuting down BE. Users could use stop_be.sh --grace, then BE will wait all running queries to stop to avoiding running query failure, but if the waiting time exceed the limit, then be will exit directly. During this period, FE will not send any queries to BE and waiting for all running queries to stop.
+* Default value: 120
