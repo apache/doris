@@ -73,9 +73,6 @@ public class HdfsTableValuedFunction extends ExternalFileTableValuedFunction {
                 }
             }
         }
-        if (params.containsKey(PATH_PARTITION_KEYS)) {
-            fileParams.put(PATH_PARTITION_KEYS, params.get(PATH_PARTITION_KEYS));
-        }
 
         if (!locationProperties.containsKey(HDFS_URI)) {
             throw new AnalysisException(String.format("Configuration '%s' is required.", HDFS_URI));

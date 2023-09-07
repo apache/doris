@@ -122,6 +122,8 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
             .add(TRIM_DOUBLE_QUOTES)
             .add(SKIP_LINES)
             .add(CSV_SCHEMA)
+            .add(COMPRESS_TYPE)
+            .add(PATH_PARTITION_KEYS)
             .build();
 
     // Columns got from file and path(if has)
