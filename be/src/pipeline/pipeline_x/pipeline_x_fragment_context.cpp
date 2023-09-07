@@ -366,7 +366,8 @@ Status PipelineXFragmentContext::_build_pipeline_tasks(
         {
             std::lock_guard<std::mutex> l(_state_map_lock);
             _instance_id_to_runtime_state.insert(
-                    {UniqueId(_runtime_states[i]->fragment_instance_id()), _runtime_states[i].get()});
+                    {UniqueId(_runtime_states[i]->fragment_instance_id()),
+                     _runtime_states[i].get()});
         }
     }
     _build_side_pipelines.clear();
