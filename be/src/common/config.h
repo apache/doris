@@ -1150,6 +1150,9 @@ DECLARE_Int32(fe_expire_duration_seconds);
 // During this period, FE will not send any queries to BE and waiting for all running queries to stop.
 DECLARE_Int32(grace_shutdown_wait_seconds);
 
+// BitmapValue serialize version.
+DECLARE_Int16(bitmap_serialize_version);
+
 #ifdef BE_TEST
 // test s3
 DECLARE_String(test_s3_resource);

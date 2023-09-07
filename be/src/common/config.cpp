@@ -1082,6 +1082,8 @@ DEFINE_Int32(fe_expire_duration_seconds, "60");
 
 DEFINE_Int32(grace_shutdown_wait_seconds, "120");
 
+DEFINE_Int16(bitmap_serialize_version, "1");
+
 #ifdef BE_TEST
 // test s3
 DEFINE_String(test_s3_resource, "resource");
