@@ -84,6 +84,10 @@ public class UnboundOlapTableSink<CHILD_TYPE extends Plan> extends LogicalSink<C
         return partitions;
     }
 
+    public List<String> getHints() {
+        return hints;
+    }
+
     public boolean isPartialUpdate() {
         return isPartialUpdate;
     }
