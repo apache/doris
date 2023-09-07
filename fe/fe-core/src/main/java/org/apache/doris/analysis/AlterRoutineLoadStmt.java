@@ -54,6 +54,7 @@ public class AlterRoutineLoadStmt extends DdlStmt {
     private static final ImmutableSet<String> CONFIGURABLE_JOB_PROPERTIES_SET = new ImmutableSet.Builder<String>()
             .add(CreateRoutineLoadStmt.DESIRED_CONCURRENT_NUMBER_PROPERTY)
             .add(CreateRoutineLoadStmt.MAX_ERROR_NUMBER_PROPERTY)
+            .add(CreateRoutineLoadStmt.MAX_FILTER_RATIO_PROPERTY)
             .add(CreateRoutineLoadStmt.MAX_BATCH_INTERVAL_SEC_PROPERTY)
             .add(CreateRoutineLoadStmt.MAX_BATCH_ROWS_PROPERTY)
             .add(CreateRoutineLoadStmt.MAX_BATCH_SIZE_PROPERTY)
@@ -165,6 +166,15 @@ public class AlterRoutineLoadStmt extends DdlStmt {
                     CreateRoutineLoadStmt.MAX_ERROR_NUMBER_PROPERTY + " should >= 0");
             analyzedJobProperties.put(CreateRoutineLoadStmt.MAX_ERROR_NUMBER_PROPERTY,
                     String.valueOf(maxErrorNum));
+        }
+
+        if (jobProperties.containsKey(CreateRoutineLoadStmt.MAX_FILTER_RATIO_PROPERTY)) {
+            double maxFilterRatio = Util.getDoublePropertyOrDefault(
+                    jobProperties.get(CreateRoutineLoadStmt.MAX_FILTER_RATIO_PROPERTY),
+                    -1, CreateRoutineLoadStmt.MAX_FILTER_RATIO_PRED,
+                    CreateRoutineLoadStmt.MAX_FILTER_RATIO_PROPERTY + " should between 0 and 1");
+            analyzedJobProperties.put(CreateRoutineLoadStmt.MAX_FILTER_RATIO_PROPERTY,
+                    String.valueOf(maxFilterRatio));
         }
 
         if (jobProperties.containsKey(CreateRoutineLoadStmt.MAX_BATCH_INTERVAL_SEC_PROPERTY)) {
