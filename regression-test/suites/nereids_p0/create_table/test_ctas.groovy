@@ -20,12 +20,6 @@ suite("nereids_test_ctas") {
     sql 'set enable_fallback_to_original_planner=false'
     sql 'set enable_nereids_dml=true'
 
-    def dbname = "nereids_test_ctas"
-    sql """drop database if exists ${dbname}"""
-    sql """create database ${dbname}"""
-    sql """use ${dbname}"""
-    sql """clean label from ${dbname}"""
-
     sql """ DROP TABLE IF EXISTS test_ctas """
     sql """ DROP TABLE IF EXISTS test_ctas1 """
     sql """ DROP TABLE IF EXISTS test_ctas2 """
