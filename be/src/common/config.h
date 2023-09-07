@@ -88,7 +88,7 @@ DECLARE_String(custom_config_dir);
 // Dir of jdbc drivers
 DECLARE_String(jdbc_drivers_dir);
 
-// cluster id
+// cluster  id
 DECLARE_Int32(cluster_id);
 // port on which BackendService is exported
 DECLARE_Int32(be_port);
