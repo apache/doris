@@ -115,8 +115,7 @@ Status PageIO::read_and_decompress_page(const PageReadOptions& opts, PageHandle*
                                         Slice* body, PageFooterPB* footer) {
     opts.sanity_check();
     opts.stats->total_pages_num++;
-  
-   
+
     auto cache = StoragePageCache::instance();
     PageCacheHandle cache_handle;
     StoragePageCache::CacheKey cache_key(opts.file_reader->path().native(),
