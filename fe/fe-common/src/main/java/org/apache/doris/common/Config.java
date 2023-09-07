@@ -216,7 +216,7 @@ public class Config extends ConfigBase {
     public static String replica_ack_policy = "SIMPLE_MAJORITY"; // ALL, NONE, SIMPLE_MAJORITY
 
     @ConfField(description = {"BDBJE 主从节点间心跳超时时间，单位为秒。默认值为 30 秒，与 BDBJE 的默认值相同。"
-            + "如果网络不稳定，或者 Java GC 经常导致长时间的暂停，可以适当增大这个值，减少误报超时的概率",
+            + "如果网络不稳定，或者 Java GC 经常导致长时间的暂停，可以适当增大这个值，减少误报超时的概率.",
             "The heartbeat timeout of bdbje between master and follower, in seconds. "
                     + "The default is 30 seconds, which is same as default value in bdbje. "
                     + "If the network is experiencing transient problems, "
