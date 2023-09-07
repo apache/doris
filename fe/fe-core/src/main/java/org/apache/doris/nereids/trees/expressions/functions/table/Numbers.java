@@ -90,10 +90,11 @@ public class Numbers extends TableValuedFunction {
 
     @Override
     public PhysicalProperties getPhysicalProperties() {
-        String backendNum = getTVFProperties().getMap().getOrDefault(NumbersTableValuedFunction.BACKEND_NUM, "1");
-        if (backendNum.trim().equals("1")) {
-            return PhysicalProperties.GATHER;
-        }
+        // TODO: use gather after coordinator support plan gather scan
+        // String backendNum = getTVFProperties().getMap().getOrDefault(NumbersTableValuedFunction.BACKEND_NUM, "1");
+        // if (backendNum.trim().equals("1")) {
+        //     return PhysicalProperties.GATHER;
+        // }
         return PhysicalProperties.ANY;
     }
 
