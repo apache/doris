@@ -19,7 +19,7 @@
 // case. For example: 'year' and 'Year' datatype should also be valid in definition
 
 suite("nereids_create_table") {
-    sql 'set enable_nereids_planner=false'
+    sql 'set enable_nereids_planner=true'
     sql 'set enable_fallback_to_original_planner=false'
     sql 'set enable_nereids_dml=true'
 
