@@ -38,11 +38,11 @@ import java.util.stream.Collectors;
 public class StepPartition extends PartitionDefinition {
     private final List<Expression> fromExpression;
     private final List<Expression> toExpression;
-    private final Expression unit;
+    private final long unit;
     private final String unitString;
     private ReplicaAllocation replicaAllocation = ReplicaAllocation.DEFAULT_ALLOCATION;
 
-    public StepPartition(List<Expression> fromExpression, List<Expression> toExpression, Expression unit,
+    public StepPartition(List<Expression> fromExpression, List<Expression> toExpression, long unit,
             String unitString) {
         this.fromExpression = fromExpression;
         this.toExpression = toExpression;
@@ -71,11 +71,11 @@ public class StepPartition extends PartitionDefinition {
                 .collect(Collectors.toList());
         try {
             if (unitString == null) {
-                return new MultiPartitionDesc(PartitionKeyDesc.createMultiFixed(fromValues, toValues,
-                        ((long) ((Literal) unit).getDouble())), replicaAllocation, Maps.newHashMap());
+                return new MultiPartitionDesc(PartitionKeyDesc.createMultiFixed(fromValues, toValues, unit),
+                        replicaAllocation, Maps.newHashMap());
             }
-            return new MultiPartitionDesc(PartitionKeyDesc.createMultiFixed(fromValues, toValues,
-                    ((long) ((Literal) unit).getDouble()), unitString), replicaAllocation, Maps.newHashMap());
+            return new MultiPartitionDesc(PartitionKeyDesc.createMultiFixed(fromValues, toValues, unit, unitString),
+                    replicaAllocation, Maps.newHashMap());
         } catch (Exception e) {
             throw new AnalysisException(e.getMessage(), e.getCause());
         }

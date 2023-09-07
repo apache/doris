@@ -28,6 +28,12 @@ import java.util.Map;
  */
 public abstract class PartitionDefinition {
     protected List<DataType> partitionTypes;
+    protected Map<String, String> propreties;
+
+    public PartitionDefinition withProperties(Map<String, String> properties) {
+        this.propreties = properties;
+        return this;
+    }
 
     public abstract AllPartitionDesc translateToCatalogStyle();
 

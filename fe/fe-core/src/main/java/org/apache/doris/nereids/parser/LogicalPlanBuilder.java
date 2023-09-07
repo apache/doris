@@ -1771,7 +1771,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         }
         String engineName = ctx.engine != null ? ctx.engine.getText().toLowerCase() : "olap";
         DistributionDescriptor desc = new DistributionDescriptor(ctx.HASH() != null, ctx.AUTO() != null,
-                Integer.parseInt(ctx.number().getText()),
+                Integer.parseInt(ctx.INTEGER_VALUE().getText()),
                 ctx.HASH() != null ? visitIdentifierList(ctx.hashKeys) : null);
         Map<String, String> properties = ctx.propertyClause() != null
                 ? visitPropertyClause(ctx.propertyClause()) : null;
@@ -1877,7 +1877,9 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
 
     @Override
     public List<PartitionDefinition> visitPartitionsDef(PartitionsDefContext ctx) {
-        return ctx.partitions.stream().map(p -> ((PartitionDefinition) visit(p))).collect(Collectors.toList());
+        return ctx.partitions.stream()
+                .map(p -> ((PartitionDefinition) visit(p)).withProperties(visitPropertyClause(p.properties)))
+                .collect(Collectors.toList());
     }
 
     @Override
@@ -1903,7 +1905,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     public PartitionDefinition visitStepPartitionDef(StepPartitionDefContext ctx) {
         List<Expression> fromExpression = visitConstantSeq(ctx.from);
         List<Expression> toExpression = visitConstantSeq(ctx.to);
-        return new StepPartition(fromExpression, toExpression, ((Expression) visit(ctx.unitsAmount)),
+        return new StepPartition(fromExpression, toExpression, Long.parseLong(ctx.unitsAmount.getText()),
                 ctx.unit != null ? ctx.unit.getText() : null);
     }
 
@@ -1922,7 +1924,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
 
     @Override
     public List<Expression> visitConstantSeq(ConstantSeqContext ctx) {
-        return ctx.constant().stream().map(constant -> ((Literal) visit(constant))).collect(Collectors.toList());
+        return ctx.values.stream().map(v -> Literal.of(v.getText())).collect(Collectors.toList());
     }
 
     @Override
