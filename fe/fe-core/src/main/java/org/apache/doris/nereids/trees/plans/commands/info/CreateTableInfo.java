@@ -107,7 +107,7 @@ public class CreateTableInfo {
         this.dbName = dbName;
         this.tableName = tableName;
         this.ctasColumns = cols;
-        this.columns = Lists.newArrayList();
+        this.columns = null;
         this.indexes = Lists.newArrayList();
         this.engineName = engineName;
         this.keysType = keysType;
@@ -330,7 +330,7 @@ public class CreateTableInfo {
     }
 
     public void validateCreateTableAsSelect(List<ColumnDefinition> columns, ConnectContext ctx) {
-        this.columns = columns;
+        this.columns = Utils.copyRequiredMutableList(columns);
         validate(ctx);
     }
 
