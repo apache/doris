@@ -20,7 +20,6 @@ package org.apache.doris.datasource;
 
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
-import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
@@ -169,7 +168,8 @@ public interface CatalogIf<T extends DatabaseIf> {
     }
 
     // Return a copy of all db collection.
-    public Collection<DatabaseIf<? extends TableIf>> getAllDbs();
+    @SuppressWarnings({"rawtypes", "unchecked"})
+    public Collection<DatabaseIf> getAllDbs();
 
     public boolean enableAutoAnalyze();
 }

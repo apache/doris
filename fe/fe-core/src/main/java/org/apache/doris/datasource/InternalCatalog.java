@@ -919,7 +919,6 @@ public class InternalCatalog implements CatalogIf<Database> {
             Env.getCurrentEnv().getEditLog().logDropTable(info);
             Env.getCurrentEnv().getQueryStats().clear(Env.getCurrentEnv().getCurrentCatalog().getId(),
                     db.getId(), table.getId());
-            Env.getCurrentEnv().getAnalysisManager().removeTableStats(table.getId());
         } finally {
             db.writeUnlock();
         }
@@ -3139,7 +3138,7 @@ public class InternalCatalog implements CatalogIf<Database> {
     }
 
     @Override
-    public Collection<DatabaseIf<? extends TableIf>> getAllDbs() {
+    public Collection<DatabaseIf> getAllDbs() {
         return new HashSet<>(idToDb.values());
     }
 
