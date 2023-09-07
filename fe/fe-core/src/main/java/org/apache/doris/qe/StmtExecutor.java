@@ -1176,20 +1176,15 @@ public class StmtExecutor {
         if (killCtx == null) {
             ErrorReport.reportDdlException(ErrorCode.ERR_NO_SUCH_THREAD, id);
         }
-        if (context == killCtx) {
-            // Suicide
-            context.setKilled();
-        } else {
+        if (context != killCtx
+                && !killCtx.getQualifiedUser().equals(ConnectContext.get().getQualifiedUser())
+                && !Env.getCurrentEnv().getAccessManager().checkGlobalPriv(ConnectContext.get(),
+                PrivPredicate.ADMIN)) {
             // Check auth
             // Only user itself and user with admin priv can kill connection
-            if (!killCtx.getQualifiedUser().equals(ConnectContext.get().getQualifiedUser())
-                    && !Env.getCurrentEnv().getAccessManager().checkGlobalPriv(ConnectContext.get(),
-                    PrivPredicate.ADMIN)) {
-                ErrorReport.reportDdlException(ErrorCode.ERR_KILL_DENIED_ERROR, id);
-            }
-
-            killCtx.kill(killStmt.isConnectionKill());
+            ErrorReport.reportDdlException(ErrorCode.ERR_KILL_DENIED_ERROR, id);
         }
+        killCtx.kill(killStmt.isConnectionKill());
         context.getState().setOk();
     }
 
