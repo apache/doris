@@ -2228,7 +2228,7 @@ public class OlapTable extends Table {
         }
     }
 
-    @Override
+    // @Override
     public void analyze(Analyzer analyzer) {
         for (MaterializedIndexMeta meta : indexIdToMeta.values()) {
             try {
