@@ -127,10 +127,8 @@ Status DataTypeNullableSerDe::deserialize_one_cell_from_json(IColumn& column, Sl
     } else if (slice.size == 2 && slice[0] == '\\' && slice[1] == 'N') {
         null_column.insert_data(nullptr, 0);
         return Status::OK();
-    } else if (slice.size <= 0) {
-        null_column.insert_data(nullptr, 0);
-        return Status::OK();
     }
+
     auto st = nested_serde->deserialize_one_cell_from_json(null_column.get_nested_column(), slice,
                                                            options);
     if (!st.ok()) {

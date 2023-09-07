@@ -226,7 +226,7 @@ public class BrokerFileGroup implements Writable {
         }
         columnSeparator = dataDescription.getColumnSeparator();
         if (columnSeparator == null) {
-            if (fileFormat.equalsIgnoreCase("hive_text")) {
+            if (fileFormat != null && fileFormat.equalsIgnoreCase("hive_text")) {
                 columnSeparator = "\001";
             } else {
                 columnSeparator = "\t";

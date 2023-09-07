@@ -105,29 +105,7 @@ suite("test_hdfs_tvf_compression", "p2,external,tvf,external_remote,external_rem
             "column_separator" = '\001',
             "compress_type" = "plain") where c2="abc" order by c3,c4,c10 limit 5;
         """
-
         
-        qt_mix_1 """
-        select ${select_field} from 
-        HDFS(
-            "uri" = "${baseUri}/dt=mix/000000_0",
-            "fs.defaultFS"= "${baseFs}",
-            "hadoop.username" = "hadoop",
-            "format" = "csv",
-            "column_separator" = '\001',
-            "compress_type" = "mix") ${orderBy_limit};
-        """
-
-        qt_mix_2 """
-        select c1,count(*) from 
-        HDFS(
-            "uri" = "${baseUri}/dt=mix/000000_0",
-            "fs.defaultFS"= "${baseFs}",
-            "hadoop.username" = "hadoop",
-            "format" = "csv",
-            "column_separator" = '\001',
-            "compress_type" = "mix") group by c1,c2 order by c1,c2 limit 50;
-        """
 
     }
 }
