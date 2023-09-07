@@ -49,7 +49,7 @@ public class PhysicalJdbcScan extends PhysicalCatalogRelation {
     public PhysicalJdbcScan(RelationId id, TableIf table, List<String> qualifier,
             Optional<GroupExpression> groupExpression, LogicalProperties logicalProperties, Set<Expression> conjuncts) {
         this(id, table, qualifier, groupExpression, logicalProperties,
-                PhysicalProperties.STORAGE_ANY, null, conjuncts);
+                null, null, conjuncts);
     }
 
     /**
