@@ -136,8 +136,7 @@ import org.apache.doris.datasource.property.constants.HMSProperties;
 import org.apache.doris.external.elasticsearch.EsRepository;
 import org.apache.doris.external.iceberg.IcebergCatalogMgr;
 import org.apache.doris.external.iceberg.IcebergTableCreationRecordMgr;
-import org.apache.doris.mtmv.MTMVJobFactory;
-import org.apache.doris.mtmv.metadata.MTMVJob;
+import org.apache.doris.mtmv.MTMVJobManager;
 import org.apache.doris.persist.AlterDatabasePropertyInfo;
 import org.apache.doris.persist.AutoIncrementIdUpdateLog;
 import org.apache.doris.persist.ColocatePersistInfo;
@@ -947,10 +946,7 @@ public class InternalCatalog implements CatalogIf<Database> {
         }
 
         if (table instanceof MaterializedView) {
-            List<Long> dropIds = Env.getCurrentEnv().getMTMVJobManager().showJobs(db.getFullName(), table.getName())
-                    .stream().map(MTMVJob::getId).collect(Collectors.toList());
-            Env.getCurrentEnv().getMTMVJobManager().dropJobs(dropIds, isReplay);
-            LOG.info("Drop related {} mv job.", dropIds.size());
+            MTMVJobManager.dropMTMV((MaterializedView) table);
         }
         LOG.info("finished dropping table[{}] in db[{}]", table.getName(), db.getFullName());
         return true;
@@ -2549,12 +2545,8 @@ public class InternalCatalog implements CatalogIf<Database> {
             throw e;
         }
 
-        if (olapTable instanceof MaterializedView && MTMVJobFactory.isGenerateJob((MaterializedView) olapTable)) {
-            List<MTMVJob> jobs = MTMVJobFactory.buildJob((MaterializedView) olapTable, db.getFullName());
-            for (MTMVJob job : jobs) {
-                Env.getCurrentEnv().getMTMVJobManager().createJob(job, false);
-            }
-            LOG.info("Create related {} mv job.", jobs.size());
+        if (olapTable instanceof MaterializedView) {
+            MTMVJobManager.createMTMV((MaterializedView) olapTable);
         }
     }
 

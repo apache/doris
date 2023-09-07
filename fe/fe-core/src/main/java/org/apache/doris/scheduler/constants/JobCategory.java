@@ -25,6 +25,7 @@ import lombok.Getter;
 public enum JobCategory {
     COMMON(1, "common"),
     SQL(2, "sql"),
+    MTMV(3, "mtmv"),
     ;
 
     @Getter

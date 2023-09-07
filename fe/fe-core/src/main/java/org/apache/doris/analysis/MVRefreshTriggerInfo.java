@@ -18,8 +18,6 @@
 package org.apache.doris.analysis;
 
 import org.apache.doris.analysis.MVRefreshInfo.RefreshTrigger;
-import org.apache.doris.common.AnalysisException;
-import org.apache.doris.common.UserException;
 
 import com.google.gson.annotations.SerializedName;
 
@@ -27,7 +25,7 @@ public class MVRefreshTriggerInfo {
     @SerializedName("refreshTrigger")
     private RefreshTrigger refreshTrigger;
     @SerializedName("intervalTrigger")
-    private MVRefreshIntervalTriggerInfo intervalTrigger;
+    private MVRefreshSchedule intervalTrigger;
 
     // For deserialization
     public MVRefreshTriggerInfo() {}
@@ -36,42 +34,16 @@ public class MVRefreshTriggerInfo {
         this(trigger, null);
     }
 
-    public MVRefreshTriggerInfo(MVRefreshIntervalTriggerInfo trigger) {
-        this(RefreshTrigger.INTERVAL, trigger);
-    }
-
-    public MVRefreshTriggerInfo(RefreshTrigger refreshTrigger, MVRefreshIntervalTriggerInfo intervalTrigger) {
+    public MVRefreshTriggerInfo(RefreshTrigger refreshTrigger, MVRefreshSchedule intervalTrigger) {
         this.refreshTrigger = refreshTrigger;
         this.intervalTrigger = intervalTrigger;
     }
-
-    void analyze(Analyzer analyzer) throws UserException {
-        if (refreshTrigger == RefreshTrigger.INTERVAL && (intervalTrigger == null || (
-                intervalTrigger.getStartTime() == null && intervalTrigger.getInterval() < 0))) {
-            throw new AnalysisException("Start time or interval is required.");
-        } else if (refreshTrigger == null) {
-            throw new AnalysisException("refresh trigger is required.");
-        }
-    }
-
 
     public RefreshTrigger getRefreshTrigger() {
         return refreshTrigger;
     }
 
-    public MVRefreshIntervalTriggerInfo getIntervalTrigger() {
+    public MVRefreshSchedule getIntervalTrigger() {
         return intervalTrigger;
-    }
-
-    @Override
-    public String toString() {
-        StringBuilder sb = new StringBuilder();
-        if (refreshTrigger != RefreshTrigger.INTERVAL) {
-            sb.append(" ON ");
-            sb.append(refreshTrigger.toString());
-        } else {
-            sb.append(intervalTrigger.toString());
-        }
-        return sb.toString();
     }
 }

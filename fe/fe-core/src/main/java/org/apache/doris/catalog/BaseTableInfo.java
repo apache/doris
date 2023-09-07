@@ -15,16 +15,23 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.mtmv.metadata;
+package org.apache.doris.catalog;
 
 import com.google.gson.annotations.SerializedName;
+import lombok.Data;
 
-import java.util.List;
+@Data
+public class BaseTableInfo {
+    @SerializedName("tableId")
+    private long tableId;
+    @SerializedName("dbId")
+    private long dbId;
+    @SerializedName("ctlId")
+    private long ctlId;
 
-public class MTMVCheckpointData {
-    @SerializedName("jobs")
-    public List<MTMVJob> jobs;
-
-    @SerializedName("tasks")
-    public List<MTMVTask> tasks;
+    public BaseTableInfo(long tableId, long dbId, long ctlId) {
+        this.tableId = tableId;
+        this.dbId = dbId;
+        this.ctlId = ctlId;
+    }
 }

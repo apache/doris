@@ -17,48 +17,35 @@
 
 package org.apache.doris.catalog;
 
-import org.apache.doris.analysis.MVRefreshInfo;
 import org.apache.doris.analysis.MVRefreshInfo.BuildMode;
+import org.apache.doris.analysis.MVRefreshInfo.RefreshMethod;
+import org.apache.doris.analysis.MVRefreshTriggerInfo;
 import org.apache.doris.catalog.OlapTableFactory.MaterializedViewParams;
-import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.io.Text;
-import org.apache.doris.meta.MetaContext;
 import org.apache.doris.persist.gson.GsonUtils;
 
+import com.google.common.collect.Lists;
 import com.google.gson.annotations.SerializedName;
 
-import java.io.ByteArrayInputStream;
-import java.io.ByteArrayOutputStream;
 import java.io.DataInput;
-import java.io.DataInputStream;
 import java.io.DataOutput;
-import java.io.DataOutputStream;
 import java.io.IOException;
-import java.util.concurrent.TimeUnit;
-import java.util.concurrent.locks.ReentrantLock;
+import java.util.List;
 
 
 public class MaterializedView extends OlapTable {
     @SerializedName("buildMode")
     private BuildMode buildMode;
-    @SerializedName("refreshInfo")
-    private MVRefreshInfo refreshInfo;
-    @SerializedName("query")
-    private String query;
-
-    private final ReentrantLock mvTaskLock = new ReentrantLock(true);
-
-    public boolean tryLockMVTask() {
-        try {
-            return mvTaskLock.tryLock(5, TimeUnit.SECONDS);
-        } catch (InterruptedException e) {
-            return false;
-        }
-    }
-
-    public void unLockMVTask() {
-        this.mvTaskLock.unlock();
-    }
+    @SerializedName("refreshMethod")
+    private RefreshMethod refreshMethod;
+    @SerializedName("refreshTriggerInfo")
+    private MVRefreshTriggerInfo refreshTriggerInfo;
+    @SerializedName("querySql")
+    private String querySql;
+    @SerializedName("originSql")
+    private String originSql;
+    @SerializedName("baseTables")
+    private List<BaseTableInfo> baseTables = Lists.newArrayList();
 
     // For deserialization
     public MaterializedView() {
@@ -76,24 +63,42 @@ public class MaterializedView extends OlapTable {
         );
         type = TableType.MATERIALIZED_VIEW;
         buildMode = params.buildMode;
-        refreshInfo = params.mvRefreshInfo;
-        query = params.queryStmt.toSqlWithHint();
+        refreshMethod = params.refreshMethod;
+        querySql = params.querySql;
+        refreshTriggerInfo = params.refreshTriggerInfo;
+        originSql = params.originSql;
+        for (TableIf tableIf : params.baseTables) {
+            baseTables.add(transferTableIfToBaseTableInfo(tableIf));
+        }
+    }
+
+    private BaseTableInfo transferTableIfToBaseTableInfo(TableIf tableIf) {
+        DatabaseIf db = tableIf.getDatabase();
+        return new BaseTableInfo(tableIf.getId(), db.getId(), db.getCatalog().getId());
     }
 
     public BuildMode getBuildMode() {
         return buildMode;
     }
 
-    public MVRefreshInfo getRefreshInfo() {
-        return refreshInfo;
+    public RefreshMethod getRefreshMethod() {
+        return refreshMethod;
     }
 
-    public  void setRefreshInfo(MVRefreshInfo info) {
-        refreshInfo = info;
+    public MVRefreshTriggerInfo getRefreshTriggerInfo() {
+        return refreshTriggerInfo;
     }
 
-    public String getQuery() {
-        return query;
+    public String getQuerySql() {
+        return querySql;
+    }
+
+    public String getOriginSql() {
+        return originSql;
+    }
+
+    public List<BaseTableInfo> getBaseTables() {
+        return baseTables;
     }
 
     @Override
@@ -104,26 +109,8 @@ public class MaterializedView extends OlapTable {
 
     @Override
     public void readFields(DataInput in) throws IOException {
-        super.readFields(in);
-        MaterializedView materializedView = GsonUtils.GSON.fromJson(Text.readString(in), this.getClass());
-        refreshInfo = materializedView.refreshInfo;
-        query = materializedView.query;
-        buildMode = materializedView.buildMode;
+        //        super.readFields(in);
+        //        MaterializedView materializedView = GsonUtils.GSON.fromJson(Text.readString(in), this.getClass());
     }
 
-    public MaterializedView clone(String mvName) throws IOException {
-        MetaContext metaContext = new MetaContext();
-        metaContext.setMetaVersion(FeConstants.meta_version);
-        metaContext.setThreadLocalInfo();
-        try {
-            ByteArrayOutputStream out = new ByteArrayOutputStream(256);
-            MaterializedView cloned = new MaterializedView();
-            this.write(new DataOutputStream(out));
-            cloned.readFields(new DataInputStream(new ByteArrayInputStream(out.toByteArray())));
-            cloned.setName(mvName);
-            return cloned;
-        } finally {
-            MetaContext.remove();
-        }
-    }
 }

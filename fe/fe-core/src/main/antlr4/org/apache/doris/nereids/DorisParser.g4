@@ -60,8 +60,8 @@ statement
         (propertyClause)?
         (withRemoteStorageSystem)?                                     #export
     | CREATE MATERIALIZED VIEW (IF NOT EXISTS)? mvName=multipartIdentifier
-        BUILD (IMMEDIATE | DEFERRED)
-        mvRefreshInfo
+        buildMode
+        REFRESH refreshMethod refreshTrigger
 //        mvKeys?
 //        distribution?
         (properties=propertyItemList)?
@@ -71,13 +71,21 @@ statement
 
 
 // -----------------Command accessories-----------------
-mvRefreshInfo
-    : REFRESH refreshMethod refreshTrigger
+buildMode
+    : BUILD (IMMEDIATE | DEFERRED)
     ;
 
 refreshTrigger
     : ON MANUAL
-    | ON SCHEDULE EVERY INTEGER_VALUE datetimeUnit? (STARTS STRING_LITERAL)?
+    | ON SCHEDULE refreshSchedule
+    ;
+
+refreshSchedule
+    : EVERY INTEGER_VALUE mvRefreshUnit (STARTS STRING_LITERAL)?
+    ;
+
+mvRefreshUnit
+    : SECOND | MINUTE | HOUR | DAY
     ;
 
 refreshMethod

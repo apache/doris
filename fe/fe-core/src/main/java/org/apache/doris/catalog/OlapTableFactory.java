@@ -22,7 +22,8 @@ import org.apache.doris.analysis.CreateTableStmt;
 import org.apache.doris.analysis.DdlStmt;
 import org.apache.doris.analysis.MVRefreshInfo;
 import org.apache.doris.analysis.MVRefreshInfo.BuildMode;
-import org.apache.doris.analysis.QueryStmt;
+import org.apache.doris.analysis.MVRefreshInfo.RefreshMethod;
+import org.apache.doris.analysis.MVRefreshTriggerInfo;
 import org.apache.doris.catalog.TableIf.TableType;
 
 import com.google.common.base.Preconditions;
@@ -46,8 +47,11 @@ public class OlapTableFactory {
 
     public static class MaterializedViewParams extends BuildParams {
         public MVRefreshInfo.BuildMode buildMode;
-        public MVRefreshInfo mvRefreshInfo;
-        public QueryStmt queryStmt;
+        public RefreshMethod refreshMethod;
+        public MVRefreshTriggerInfo refreshTriggerInfo;
+        public String querySql;
+        public String originSql;
+        public List<TableIf> baseTables;
     }
 
     private BuildParams params;
@@ -129,11 +133,19 @@ public class OlapTableFactory {
         return this;
     }
 
-    public OlapTableFactory withQueryStmt(QueryStmt queryStmt) {
+    public OlapTableFactory withQuerySql(String querySql) {
         Preconditions.checkState(params instanceof MaterializedViewParams, "Invalid argument for "
                 + params.getClass().getSimpleName());
         MaterializedViewParams materializedViewParams = (MaterializedViewParams) params;
-        materializedViewParams.queryStmt = queryStmt;
+        materializedViewParams.querySql = querySql;
+        return this;
+    }
+
+    public OlapTableFactory withOriginSql(String originSql) {
+        Preconditions.checkState(params instanceof MaterializedViewParams, "Invalid argument for "
+                + params.getClass().getSimpleName());
+        MaterializedViewParams materializedViewParams = (MaterializedViewParams) params;
+        materializedViewParams.originSql = originSql;
         return this;
     }
 
@@ -143,11 +155,27 @@ public class OlapTableFactory {
         return this;
     }
 
-    public OlapTableFactory withRefreshInfo(MVRefreshInfo mvRefreshInfo) {
+    public OlapTableFactory withRefreshMethod(RefreshMethod refreshMethod) {
         Preconditions.checkState(params instanceof MaterializedViewParams, "Invalid argument for "
                 + params.getClass().getSimpleName());
         MaterializedViewParams materializedViewParams = (MaterializedViewParams) params;
-        materializedViewParams.mvRefreshInfo = mvRefreshInfo;
+        materializedViewParams.refreshMethod = refreshMethod;
+        return this;
+    }
+
+    public OlapTableFactory withMVRefreshTriggerInfo(MVRefreshTriggerInfo refreshTriggerInfo) {
+        Preconditions.checkState(params instanceof MaterializedViewParams, "Invalid argument for "
+                + params.getClass().getSimpleName());
+        MaterializedViewParams materializedViewParams = (MaterializedViewParams) params;
+        materializedViewParams.refreshTriggerInfo = refreshTriggerInfo;
+        return this;
+    }
+
+    public OlapTableFactory withBaseTables(List<TableIf> baseTables) {
+        Preconditions.checkState(params instanceof MaterializedViewParams, "Invalid argument for "
+                + params.getClass().getSimpleName());
+        MaterializedViewParams materializedViewParams = (MaterializedViewParams) params;
+        materializedViewParams.baseTables = baseTables;
         return this;
     }
 
@@ -159,8 +187,11 @@ public class OlapTableFactory {
         } else {
             CreateMultiTableMaterializedViewStmt createMVStmt = (CreateMultiTableMaterializedViewStmt) stmt;
             return withBuildMode(createMVStmt.getBuildMode())
-                    .withRefreshInfo(createMVStmt.getRefreshInfo())
-                    .withQueryStmt(createMVStmt.getQueryStmt());
+                    .withRefreshMethod(createMVStmt.getRefreshMethod())
+                    .withQuerySql(createMVStmt.getQuerySql())
+                    .withOriginSql(createMVStmt.getOriginSql())
+                    .withMVRefreshTriggerInfo(createMVStmt.getRefreshTriggerInfo())
+                    .withBaseTables(createMVStmt.getBaseTables());
         }
     }
 }

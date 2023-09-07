@@ -17,68 +17,10 @@
 
 package org.apache.doris.analysis;
 
-import org.apache.doris.common.UserException;
-
-import com.google.gson.annotations.SerializedName;
-
 public class MVRefreshInfo {
-    @SerializedName("neverRefresh")
-    private boolean neverRefresh;
-    @SerializedName("refreshMethod")
-    private RefreshMethod refreshMethod;
-    @SerializedName("triggerInfo")
-    private MVRefreshTriggerInfo triggerInfo;
-
-    // For deserialization
-    public MVRefreshInfo() {}
-
-    public MVRefreshInfo(boolean neverRefresh) {
-        this(neverRefresh, RefreshMethod.COMPLETE, null);
-    }
-
-    public MVRefreshInfo(RefreshMethod method, MVRefreshTriggerInfo trigger) {
-        this(trigger == null, method, trigger);
-    }
-
-    public MVRefreshInfo(boolean neverRefresh, RefreshMethod method, MVRefreshTriggerInfo trigger) {
-        this.neverRefresh = neverRefresh;
-        refreshMethod = method;
-        triggerInfo = trigger;
-    }
-
-    void analyze(Analyzer analyzer) throws UserException {
-        if (triggerInfo != null) {
-            triggerInfo.analyze(analyzer);
-        }
-    }
-
-    @Override
-    public String toString() {
-        StringBuilder sb = new StringBuilder();
-        if (neverRefresh) {
-            sb.append(" NEVER REFRESH ");
-        } else {
-            sb.append(" REFRESH ");
-            sb.append(refreshMethod.toString());
-            sb.append(triggerInfo.toString());
-        }
-        return sb.toString();
-    }
-
-    public boolean isNeverRefresh() {
-        return neverRefresh;
-    }
-
-    public RefreshMethod getRefreshMethod() {
-        return refreshMethod;
-    }
-
-    public MVRefreshTriggerInfo getTriggerInfo() {
-        return triggerInfo;
-    }
 
     public enum RefreshMethod {
-        COMPLETE, FAST, FORCE
+        COMPLETE
     }
 
     public enum BuildMode {
@@ -86,6 +28,10 @@ public class MVRefreshInfo {
     }
 
     public enum RefreshTrigger {
-        DEMAND, COMMIT, INTERVAL
+        MANUAL, SCHEDULE
+    }
+
+    public enum RefreshUnit {
+        SECOND, MINUTE, HOUR, DAY
     }
 }

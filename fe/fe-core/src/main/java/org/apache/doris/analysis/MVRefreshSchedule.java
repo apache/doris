@@ -15,39 +15,39 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.mtmv.metadata;
+package org.apache.doris.analysis;
 
-import org.apache.doris.common.io.Text;
-import org.apache.doris.common.io.Writable;
-import org.apache.doris.persist.gson.GsonUtils;
+import org.apache.doris.scheduler.common.IntervalUnit;
 
 import com.google.gson.annotations.SerializedName;
 
-import java.io.DataInput;
-import java.io.DataOutput;
-import java.io.IOException;
-import java.util.List;
+public class MVRefreshSchedule {
+    @SerializedName("startTime")
+    private String startTime;
+    @SerializedName("interval")
+    private long interval;
+    @SerializedName("timeUnit")
+    private IntervalUnit timeUnit;
 
-public class DropMTMVTask implements Writable {
-
-    @SerializedName("taskIds")
-    List<String> taskIds;
-
-    public DropMTMVTask(List<String> taskIdList) {
-        this.taskIds = taskIdList;
+    // For deserialization
+    public MVRefreshSchedule() {
     }
 
-    public List<String> getTaskIds() {
-        return taskIds;
+    public MVRefreshSchedule(String startTime, int interval, IntervalUnit timeUnit) {
+        this.startTime = startTime;
+        this.interval = interval;
+        this.timeUnit = timeUnit;
     }
 
-    public static DropMTMVTask read(DataInput in) throws IOException {
-        return GsonUtils.GSON.fromJson(Text.readString(in), DropMTMVTask.class);
+    public String getStartTime() {
+        return startTime;
     }
 
-    @Override
-    public void write(DataOutput out) throws IOException {
-        String json = GsonUtils.GSON.toJson(this);
-        Text.writeString(out, json);
+    public long getInterval() {
+        return interval;
+    }
+
+    public IntervalUnit getTimeUnit() {
+        return timeUnit;
     }
 }
