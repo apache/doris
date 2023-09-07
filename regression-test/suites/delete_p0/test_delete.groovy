@@ -250,4 +250,34 @@ suite("test_delete") {
         sql 'select * from test1 order by x'
         result([['a', 'a']])
     }
+
+    sql "drop table if exists dwd_pay"
+    sql """
+    CREATE TABLE `dwd_pay` (
+  `tenant_id` int(11) DEFAULT NULL COMMENT '租户ID',
+  `pay_time` datetime DEFAULT NULL COMMENT '付款时间',
+)  ENGINE=OLAP
+DUPLICATE KEY(`tenant_id`)
+COMMENT "付款明细"
+PARTITION BY RANGE(`pay_time` ) (
+PARTITION p202012 VALUES LESS THAN ('2021-01-01 00:00:00')
+)
+DISTRIBUTED BY HASH(`tenant_id`) BUCKETS auto
+PROPERTIES
+(
+    "dynamic_partition.enable" = "true",
+    "dynamic_partition.time_unit" = "MONTH",
+    "dynamic_partition.end" = "2",
+    "dynamic_partition.prefix" = "p",
+    "dynamic_partition.start_day_of_month" = "1",
+    "dynamic_partition.create_history_partition" = "true",
+    "dynamic_partition.history_partition_num" = "120",
+    "dynamic_partition.buckets"="1",
+    "estimate_partition_size" = "1G",
+    "storage_type" = "COLUMN",
+    "replication_num" = "1"
+);
+    """
+
+    sql "delete from dwd_pay partitions(p202310) where pay_time = '20231002';"
 }
