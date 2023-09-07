@@ -335,7 +335,8 @@ columnDefs
 columnDef
     : colName=identifier type=dataType
         KEY? (aggType=aggTypeDef)? ((NOT NULL) | NULL)?
-        (DEFAULT (defaultValue=constant | CURRENT_TIMESTAMP (LEFT_PAREN precision=number RIGHT_PAREN)?))?
+        (DEFAULT (nullValue=NULL | INTEGER_VALUE | stringValue=STRING_LITERAL
+            | CURRENT_TIMESTAMP (LEFT_PAREN precision=number RIGHT_PAREN)?))?
         (COMMENT comment=STRING_LITERAL)?
     ;
     
@@ -373,8 +374,11 @@ inPartitionDef
     ;
     
 constantSeq
-    : LEFT_PAREN values+=(INTEGER_VALUE | STRING_LITERAL | MAXVALUE)
-        (COMMA values+=(INTEGER_VALUE | STRING_LITERAL | MAXVALUE))* RIGHT_PAREN
+    : LEFT_PAREN values+=partitionValueDef (COMMA values+=partitionValueDef)* RIGHT_PAREN
+    ;
+    
+partitionValueDef
+    : INTEGER_VALUE | STRING_LITERAL | MAXVALUE
     ;
     
 rollupDefs

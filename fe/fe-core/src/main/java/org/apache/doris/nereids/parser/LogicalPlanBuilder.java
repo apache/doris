@@ -98,6 +98,7 @@ import org.apache.doris.nereids.DorisParser.NamedExpressionSeqContext;
 import org.apache.doris.nereids.DorisParser.NullLiteralContext;
 import org.apache.doris.nereids.DorisParser.OutFileClauseContext;
 import org.apache.doris.nereids.DorisParser.ParenthesizedExpressionContext;
+import org.apache.doris.nereids.DorisParser.PartitionValueDefContext;
 import org.apache.doris.nereids.DorisParser.PartitionsDefContext;
 import org.apache.doris.nereids.DorisParser.PlanTypeContext;
 import org.apache.doris.nereids.DorisParser.PredicateContext;
@@ -480,7 +481,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
 
     @Override
     public Map<String, String> visitPropertyClause(PropertyClauseContext ctx) {
-        return visitPropertyItemList(ctx.fileProperties);
+        return ctx == null ? null : visitPropertyItemList(ctx.fileProperties);
     }
 
     @Override
@@ -1837,8 +1838,12 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         String aggTypeString = ctx.aggType != null ? ctx.aggType.getText() : null;
         Optional<DefaultValue> defaultValue = Optional.empty();
         if (ctx.DEFAULT() != null) {
-            if (ctx.defaultValue != null) {
-                defaultValue = Optional.of(new DefaultValue(((Literal) visit(ctx.defaultValue)).getStringValue()));
+            if (ctx.INTEGER_VALUE() != null) {
+                defaultValue = Optional.of(new DefaultValue(ctx.INTEGER_VALUE().getText()));
+            } else if (ctx.stringValue != null) {
+                defaultValue = Optional.of(new DefaultValue(toStringValue(ctx.stringValue.getText())));
+            } else if (ctx.nullValue != null) {
+                defaultValue = Optional.of(DefaultValue.NULL_DEFAULT_VALUE);
             } else if (ctx.CURRENT_TIMESTAMP() != null) {
                 if (ctx.precision == null) {
                     defaultValue = Optional.of(DefaultValue.CURRENT_TIMESTAMP_DEFAULT_VALUE);
@@ -1924,7 +1929,21 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
 
     @Override
     public List<Expression> visitConstantSeq(ConstantSeqContext ctx) {
-        return ctx.values.stream().map(v -> Literal.of(v.getText())).collect(Collectors.toList());
+        return ctx.values.stream()
+                .map(v -> Literal.of(visitPartitionValueDef(v)))
+                .collect(Collectors.toList());
+    }
+
+    @Override
+    public String visitPartitionValueDef(PartitionValueDefContext ctx) {
+        if (ctx.INTEGER_VALUE() != null) {
+            return ctx.INTEGER_VALUE().getText();
+        } else if (ctx.STRING_LITERAL() != null) {
+            return toStringValue(ctx.STRING_LITERAL().getText());
+        } else if (ctx.MAXVALUE() != null) {
+            return ctx.MAXVALUE().getText();
+        }
+        throw new AnalysisException("Unsupported partition value: " + ctx.getText());
     }
 
     @Override
@@ -1940,6 +1959,10 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         Map<String, String> properties = ctx.properties == null ? Maps.newHashMap()
                 : visitPropertyClause(ctx.properties);
         return new RollupDefinition(rollupName, rollupCols, dupKeys, properties);
+    }
+
+    private String toStringValue(String literal) {
+        return literal.substring(1, literal.length() - 1);
     }
 
     /* ********************************************************************************************
