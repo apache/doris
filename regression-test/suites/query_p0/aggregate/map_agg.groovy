@@ -18,7 +18,7 @@
 suite("map_agg") {
     sql "DROP TABLE IF EXISTS `test_map_agg`;"
     sql """
-        CREATE TABLE `test_map_agg` (
+        CREATE TABLE IF NOT EXISTS `test_map_agg` (
             `id` int(11) NOT NULL,
             `label_name` varchar(32) NOT NULL,
             `value_field` string
@@ -56,7 +56,7 @@ suite("map_agg") {
 
     sql "DROP TABLE IF EXISTS test_map_agg_nullable;"
     sql """
-        CREATE TABLE `test_map_agg_nullable` (
+        CREATE TABLE IF NOT EXISTS `test_map_agg_nullable` (
              `id` int(11) NOT NULL,
              `label_name` varchar(32) NULL,
              `value_field` string
@@ -91,9 +91,9 @@ suite("map_agg") {
             (5, "LC", "V5_3");
      """
 
-    sql "DROP TABLE IF EXISTS `test_map_agg_string_key`;"
+    sql "DROP TABLE IF EXISTS `test_map_agg_numeric_key`;"
     sql """
-        CREATE TABLE `test_map_agg_numeric_key` (
+        CREATE TABLE IF NOT EXISTS `test_map_agg_numeric_key` (
             `id` int(11) NOT NULL,
             `label_name` bigint NOT NULL,
             `value_field` string
@@ -131,7 +131,7 @@ suite("map_agg") {
 
     sql "DROP TABLE IF EXISTS `test_map_agg_decimal`;"
     sql """
-         CREATE TABLE `test_map_agg_decimal` (
+         CREATE TABLE IF NOT EXISTS `test_map_agg_decimal` (
              `id` int(11) NOT NULL,
              `label_name` string NOT NULL,
              `value_field` decimal(15,4)
