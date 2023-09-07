@@ -236,7 +236,7 @@ public class Config extends ConfigBase {
                     + "If there are many ReplicaWriteException in FE WARN log, you can try to increase this value"})
     public static int bdbje_replica_ack_timeout_second = 10;
 
-    @ConfField(description = {"BDBJE 所需的空闲磁盘空间大小。如果空闲磁盘空间小于这个值，则BDBJE将无法写入。",
+    @ConfField(description = {"BDBJE 所需的空闲磁盘空间大小。如果空闲磁盘空间小于这个值，则 BDBJE 将无法写入。",
             "Amount of free disk space required by BDBJE. "
                     + "If the free disk space is less than this value, BDBJE will not be able to write."})
     public static int bdbje_reserved_disk_bytes = 1 * 1024 * 1024 * 1024; // 1G
