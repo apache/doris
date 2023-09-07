@@ -156,7 +156,11 @@ suite("insert_group_commit_into_duplicate") {
         // 7. insert into and add rollup
         sql """ insert into ${table}(name, id) values('c', 3);  """
         sql """ insert into ${table}(id) values(4);  """
-        sql """ insert into ${table} values (1, 'a', 10),(5, 'q', 50),(101, 'a', 100);  """
+        result = sql """ insert into ${table} values (1, 'a', 10),(5, 'q', 50),(101, 'a', 100);  """
+        logger.info("insert result: " + result)
+        assertEquals(1, result.size())
+        assertEquals(1, result[0].size())
+        assertEquals(2, result[0][0])
         // sql """ alter table ${table} ADD ROLLUP r1(name, score); """
         sql """ insert into ${table}(id, name) values(2, 'b');  """
         sql """ insert into ${table}(id) select 6; """
