@@ -1012,20 +1012,10 @@ void PInternalServiceImpl::transmit_block(google::protobuf::RpcController* contr
     int64_t receive_time = GetCurrentTimeNanos();
     response->set_receive_time(receive_time);
 
-    if (!request->has_block() && config::brpc_light_work_pool_threads == -1) {
-        // under high concurrency, thread pool will have a lot of lock contention.
-        _transmit_block(controller, request, response, done, Status::OK());
-        return;
-    }
-
-    FifoThreadPool& pool = request->has_block() ? _heavy_work_pool : _light_work_pool;
-    bool ret = pool.try_offer([this, controller, request, response, done]() {
-        _transmit_block(controller, request, response, done, Status::OK());
-    });
-    if (!ret) {
-        offer_failed(response, done, pool);
-        return;
-    }
+    // under high concurrency, thread pool will have a lot of lock contention.
+    // May offer failed to the thread pool, so that we should avoid using thread
+    // pool here.
+    _transmit_block(controller, request, response, done, Status::OK());
 }
 
 void PInternalServiceImpl::transmit_block_by_http(google::protobuf::RpcController* controller,
