@@ -78,9 +78,9 @@ public abstract class AbstractPhysicalPlan extends AbstractPlan implements Physi
      * Pushing down runtime filter into different plan node, such as olap scan node, cte sender node, etc.
      */
     public boolean pushDownRuntimeFilter(CascadesContext context, IdGenerator<RuntimeFilterId> generator,
-                                         AbstractPhysicalJoin builderNode,
-                                         Expression src, Expression probeExpr,
-                                         TRuntimeFilterType type, long buildSideNdv, int exprOrder) {
+            AbstractPhysicalJoin<?, ?> builderNode,
+            Expression src, Expression probeExpr,
+            TRuntimeFilterType type, long buildSideNdv, int exprOrder) {
         RuntimeFilterContext ctx = context.getRuntimeFilterContext();
         Map<NamedExpression, Pair<PhysicalRelation, Slot>> aliasTransferMap = ctx.getAliasTransferMap();
         // currently, we can ensure children in the two side are corresponding to the equal_to's.
