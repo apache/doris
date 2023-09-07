@@ -42,9 +42,9 @@ public class DefaultValue {
     // default "value", "[]" means empty array
     public static DefaultValue ARRAY_EMPTY_DEFAULT_VALUE = new DefaultValue("[]");
 
-    private String value;
+    private final String value;
     // used for column which defaultValue is an expression.
-    private DefaultValueExprDef defaultValueExprDef;
+    private final DefaultValueExprDef defaultValueExprDef;
 
     public DefaultValue(String value) {
         this.value = value;
@@ -126,5 +126,9 @@ public class DefaultValue {
                     .format(DateTimeFormatter.ofPattern(format));
         }
         return value;
+    }
+
+    public DefaultValueExprDef getDefaultValueExprDef() {
+        return defaultValueExprDef;
     }
 }
