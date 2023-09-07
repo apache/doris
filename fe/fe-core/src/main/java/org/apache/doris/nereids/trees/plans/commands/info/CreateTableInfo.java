@@ -351,7 +351,7 @@ public class CreateTableInfo {
     /**
      * translate to catalog create table stmt
      */
-    public CreateTableStmt translateToCatalogStyle() {
+    public CreateTableStmt translateToLegacyStmt() {
         List<Column> catalogColumns = columns.stream()
                 .map(ColumnDefinition::translateToCatalogStyle)
                 .collect(Collectors.toList());

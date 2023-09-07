@@ -40,18 +40,17 @@ statement
         AS type=(RESTRICTIVE | PERMISSIVE)
         TO (user=userIdentify | ROLE roleName=identifier)
         USING LEFT_PAREN booleanExpression RIGHT_PAREN                 #createRowPolicy
-    | explain? INSERT (INTO | OVERWRITE TABLE) tableName=multipartIdentifier
     | CREATE TABLE (IF NOT EXISTS)? name=multipartIdentifier
         ((LEFT_PAREN columnDefs indexDefs? RIGHT_PAREN) | (ctasCols=identifierList)?)
         (ENGINE EQ engine=identifier)?
         ((AGGREGATE | UNIQUE | DUPLICATE) KEY keys=identifierList)?
         (COMMENT STRING_LITERAL)?
         (PARTITION BY (RANGE | LIST) partitionKeys=identifierList LEFT_PAREN partitions=partitionsDef RIGHT_PAREN)?
-        DISTRIBUTED BY (HASH hashKeys=identifierList | RANDOM) BUCKETS (number | AUTO)?
+        DISTRIBUTED BY (HASH hashKeys=identifierList | RANDOM) BUCKETS (INTEGER_VALUE | AUTO)?
         (ROLLUP LEFT_PAREN rollupDefs RIGHT_PAREN)?
         propertyClause?
         (AS query)?                                                    #createTable
-    | explain? INSERT INTO tableName=multipartIdentifier
+    | explain? INSERT (INTO | OVERWRITE TABLE) tableName=multipartIdentifier
         (PARTITION partition=identifierList)?  // partition define
         (WITH LABEL labelName=identifier)? cols=identifierList?  // label and columns define
         (LEFT_BRACKET hints=identifierSeq RIGHT_BRACKET)?  // hint define
@@ -353,32 +352,29 @@ partitionsDef
     ;
     
 partitionDef
-    : lessThanPartitionDef
-    | fixedPartitionDef
-    | stepPartitionDef
-    | inPartitionDef
+    : (lessThanPartitionDef | fixedPartitionDef | stepPartitionDef | inPartitionDef) properties=propertyClause?
     ;
     
 lessThanPartitionDef
-    : PARTITION partitionName=identifier VALUES LESS THAN (MAXVALUE | constantSeq)
+    : PARTITION (IF NOT EXISTS)? partitionName=identifier VALUES LESS THAN (MAXVALUE | constantSeq)
     ;
     
 fixedPartitionDef
-    : PARTITION partitionName=identifier VALUES LEFT_BRACKET lower=constantSeq COMMA upper=constantSeq RIGHT_PAREN
+    : PARTITION (IF NOT EXISTS)? partitionName=identifier VALUES LEFT_BRACKET lower=constantSeq COMMA upper=constantSeq RIGHT_PAREN
     ;
 
 stepPartitionDef
-    : FROM from=constantSeq TO to=constantSeq
-        ((INTERVAL unitsAmount=valueExpression unit=datetimeUnit) | unitsAmount=valueExpression)
+    : FROM from=constantSeq TO to=constantSeq INTERVAL unitsAmount=INTEGER_VALUE unit=datetimeUnit?
     ;
 
 inPartitionDef
-    : PARTITION partitionName=identifier VALUES IN ((LEFT_PAREN constantSeqs+=constantSeq
+    : PARTITION (IF NOT EXISTS)? partitionName=identifier VALUES IN ((LEFT_PAREN constantSeqs+=constantSeq
         (COMMA constantSeqs+=constantSeq)* RIGHT_PAREN) | constants=constantSeq)
     ;
     
 constantSeq
-    : LEFT_PAREN values+=constant (COMMA values+=constant)* RIGHT_PAREN
+    : LEFT_PAREN values+=(INTEGER_VALUE | STRING_LITERAL | MAXVALUE)
+        (COMMA values+=(INTEGER_VALUE | STRING_LITERAL | MAXVALUE))* RIGHT_PAREN
     ;
     
 rollupDefs

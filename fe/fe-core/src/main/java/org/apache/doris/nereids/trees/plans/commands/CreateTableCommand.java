@@ -62,15 +62,15 @@ public class CreateTableCommand extends Command implements ForwardWithSync {
     public CreateTableCommand(Optional<LogicalPlan> ctasQuery, CreateTableInfo createTableInfo) {
         super(PlanType.CREATE_TABLE_COMMAND);
         this.ctasQuery = ctasQuery;
-        this.createTableInfo = Objects.requireNonNull(createTableInfo);
+        this.createTableInfo = Objects.requireNonNull(createTableInfo, "require CreateTableInfo object");
     }
 
     @Override
     public void run(ConnectContext ctx, StmtExecutor executor) throws Exception {
         if (!ctasQuery.isPresent()) {
             createTableInfo.validate(ctx);
-            CreateTableStmt createTableStmt = createTableInfo.translateToCatalogStyle();
-            LOG.info("Nereids start to execute the create table command, query id: {}, tableName: {}",
+            CreateTableStmt createTableStmt = createTableInfo.translateToLegacyStmt();
+            LOG.debug("Nereids start to execute the create table command, query id: {}, tableName: {}",
                     ctx.queryId(), createTableInfo.getTableName());
             try {
                 Env.getCurrentEnv().createTable(createTableStmt);
@@ -93,11 +93,11 @@ public class CreateTableCommand extends Command implements ForwardWithSync {
         }
         List<ColumnDefinition> columnsOfQuery = slots.stream()
                 .map(s -> new ColumnDefinition(s.getName(), s.getDataType(), s.nullable()))
-                .collect(Collectors.toList());
+                .collect(ImmutableList.toImmutableList());
         createTableInfo.validateCreateTableAsSelect(columnsOfQuery, ctx);
 
-        CreateTableStmt createTableStmt = createTableInfo.translateToCatalogStyle();
-        LOG.info("Nereids start to execute the ctas command, query id: {}, tableName: {}",
+        CreateTableStmt createTableStmt = createTableInfo.translateToLegacyStmt();
+        LOG.debug("Nereids start to execute the ctas command, query id: {}, tableName: {}",
                 ctx.queryId(), createTableInfo.getTableName());
         try {
             Env.getCurrentEnv().createTable(createTableStmt);
@@ -108,7 +108,7 @@ public class CreateTableCommand extends Command implements ForwardWithSync {
         query = new UnboundOlapTableSink<>(createTableInfo.getTableNameParts(), ImmutableList.of(), ImmutableList.of(),
                 ImmutableList.of(), query);
         try {
-            new InsertIntoTableCommand(query, Optional.empty()).run(ctx, executor);
+            new InsertIntoTableCommand(query, Optional.empty(), false).run(ctx, executor);
             if (ctx.getState().getStateType() == MysqlStateType.ERR) {
                 handleFallbackFailedCtas(ctx);
             }
