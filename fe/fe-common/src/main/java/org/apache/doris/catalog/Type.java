@@ -716,7 +716,10 @@ public abstract class Type {
     }
 
     public static boolean canCastTo(Type sourceType, Type targetType) {
-        if (sourceType.isScalarType() && targetType.isScalarType()) {
+        if (sourceType.isVariantType() && (targetType.isScalarType() || targetType.isArrayType())) {
+            // variant could cast to scalar types and array
+            return true;
+        } else if (sourceType.isScalarType() && targetType.isScalarType()) {
             return ScalarType.canCastTo((ScalarType) sourceType, (ScalarType) targetType);
         } else if (sourceType.isArrayType() && targetType.isArrayType()) {
             return ArrayType.canCastTo((ArrayType) sourceType, (ArrayType) targetType);
@@ -730,8 +733,6 @@ public abstract class Type {
             return true;
         } else if (sourceType.isStructType() && targetType.isStructType()) {
             return StructType.canCastTo((StructType) sourceType, (StructType) targetType);
-        } else if (sourceType.isVariantType() && targetType.isArrayType()) {
-            return true;
         }
         return sourceType.isNull() || sourceType.getPrimitiveType().isCharFamily();
     }
