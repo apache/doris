@@ -86,12 +86,7 @@ Status LoadChannel::open(const PTabletWriterOpenRequest& params) {
         }
     }
 
-    if (params.is_incremental()) {
-        // incremental open would ensure not to open tablet repeatedly
-        RETURN_IF_ERROR(channel->incremental_open(params));
-    } else {
-        RETURN_IF_ERROR(channel->open(params));
-    }
+    RETURN_IF_ERROR(channel->open(params));
 
     _opened = true;
     _last_updated_time.store(time(nullptr));
