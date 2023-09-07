@@ -77,6 +77,7 @@ protected:
     // load id -> load channel
     std::unordered_map<UniqueId, std::shared_ptr<LoadChannel>> _load_channels;
     Cache* _last_success_channel = nullptr;
+    std::mutex _cache_lock;
 
     MemTableMemoryLimiter* _memtable_memory_limiter = nullptr;
 

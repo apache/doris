@@ -397,6 +397,7 @@ Status VNodeChannel::init(RuntimeState* state) {
     // Initialize _cur_add_block_request
     if (!_cur_add_block_request.has_id()) {
         _cur_add_block_request.set_allocated_id(&_parent->_load_id);
+        LOG(WARNING) << "set load_id = " << _parent->_load_id;
     }
     _cur_add_block_request.set_index_id(_index_channel->_index_id);
     _cur_add_block_request.set_sender_id(_parent->_sender_id);
@@ -707,6 +708,8 @@ void VNodeChannel::try_send_pending_block(RuntimeState* state) {
 
     auto mutable_block = std::move(send_block.first);
     auto request = std::move(send_block.second); // doesn't need to be saved in heap
+    LOG(WARNING) << "got block and request to send: " << mutable_block->dump_data()
+                 << request.DebugString();
 
     // tablet_ids has already set when add row
     request.set_packet_seq(_next_packet_seq);

@@ -317,11 +317,6 @@ void ScannerScheduler::_schedule_scanners(ScannerContext* ctx) {
 
 void ScannerScheduler::_scanner_scan(ScannerScheduler* scheduler, ScannerContext* ctx,
                                      VScannerSPtr scanner) {
-    // debug case failure, to be removed
-    if (ctx->state()->enable_profile()) {
-        LOG(WARNING) << "debug case failure " << print_id(ctx->state()->query_id()) << " "
-                     << ctx->parent_name() << ": ScannerScheduler::_scanner_scan";
-    }
     SCOPED_ATTACH_TASK(scanner->runtime_state());
 #if !defined(USE_BTHREAD_SCANNER)
     Thread::set_self_name("_scanner_scan");
