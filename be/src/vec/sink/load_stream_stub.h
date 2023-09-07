@@ -175,7 +175,8 @@ protected:
     bthread::Mutex _mutex;
     bthread::ConditionVariable _close_cv;
 
-    bthread::Mutex _buffer_mutex;
+    std::mutex _buffer_mutex;
+    std::mutex _send_mutex;
     butil::IOBuf _buffer;
 
     PUniqueId _load_id;
