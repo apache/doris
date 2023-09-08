@@ -435,7 +435,7 @@ Status Compaction::do_compaction_impl(int64_t permits) {
 
         // create index_writer to compaction indexes
         auto& fs = _output_rowset->rowset_meta()->fs();
-        auto tablet_path = _output_rowset->tablet_path();
+        auto& tablet_path = _tablet->tablet_path();
 
         DCHECK(dest_index_files.size() > 0);
         // we choose the first destination segment name as the temporary index writer path

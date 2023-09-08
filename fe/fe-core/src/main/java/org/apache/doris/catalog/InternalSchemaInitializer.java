@@ -21,6 +21,7 @@ import org.apache.doris.analysis.ColumnDef;
 import org.apache.doris.analysis.CreateDbStmt;
 import org.apache.doris.analysis.CreateTableStmt;
 import org.apache.doris.analysis.DistributionDesc;
+import org.apache.doris.analysis.DropTableStmt;
 import org.apache.doris.analysis.HashDistributionDesc;
 import org.apache.doris.analysis.KeysDesc;
 import org.apache.doris.analysis.TableName;
@@ -43,12 +44,10 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
-import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
-import java.util.stream.Collectors;
 
 public class InternalSchemaInitializer extends Thread {
 
@@ -227,42 +226,25 @@ public class InternalSchemaInitializer extends Thread {
             return false;
         }
         Database db = optionalDatabase.get();
-        return db.getTable(StatisticConstants.STATISTIC_TBL_NAME).isPresent()
-                && db.getTable(StatisticConstants.HISTOGRAM_TBL_NAME).isPresent();
-    }
-
-    /**
-     * Compare whether the current internal table schema meets expectations,
-     * delete and rebuild if it does not meet the table schema.
-     * TODO remove this code after the table structure is stable
-     */
-    private boolean isTableChanged(TableName tableName, List<ColumnDef> columnDefs) {
-        try {
-            String catalogName = Env.getCurrentEnv().getInternalCatalog().getName();
-            String dbName = SystemInfoService.DEFAULT_CLUSTER + ":" + tableName.getDb();
-            TableIf table = StatisticsUtil.findTable(catalogName, dbName, tableName.getTbl());
-            List<Column> existColumns = table.getBaseSchema(false);
-            existColumns.sort(Comparator.comparing(Column::getName));
-            List<Column> columns = columnDefs.stream()
-                    .map(ColumnDef::toColumn)
-                    .sorted(Comparator.comparing(Column::getName))
-                    .collect(Collectors.toList());
-            if (columns.size() != existColumns.size()) {
-                return true;
-            }
-            for (int i = 0; i < columns.size(); i++) {
-                Column c1 = columns.get(i);
-                Column c2 = existColumns.get(i);
-                if (!c1.getName().equals(c2.getName())
-                        || c1.getDataType() != c2.getDataType()) {
-                    return true;
-                }
-            }
-            return false;
-        } catch (Throwable t) {
-            LOG.warn("Failed to check table schema", t);
+        Optional<Table> optionalStatsTbl = db.getTable(StatisticConstants.STATISTIC_TBL_NAME);
+        if (!optionalStatsTbl.isPresent()) {
             return false;
         }
+
+        Table statsTbl = optionalStatsTbl.get();
+        Optional<Column> optionalColumn =
+                statsTbl.fullSchema.stream().filter(c -> c.getName().equals("count")).findFirst();
+        if (!optionalColumn.isPresent() || !optionalColumn.get().isAllowNull()) {
+            try {
+                Env.getCurrentEnv().getInternalCatalog()
+                        .dropTable(new DropTableStmt(true, new TableName(null,
+                                StatisticConstants.DB_NAME, StatisticConstants.STATISTIC_TBL_NAME), true));
+            } catch (Exception e) {
+                LOG.warn("Failed to drop outdated table", e);
+            }
+            return false;
+        }
+        return db.getTable(StatisticConstants.HISTOGRAM_TBL_NAME).isPresent();
     }
 
 }

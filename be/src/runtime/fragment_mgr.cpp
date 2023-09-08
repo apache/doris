@@ -711,12 +711,11 @@ Status FragmentMgr::exec_plan_fragment(const TPipelineFragmentParams& params,
         }
         g_fragmentmgr_prepare_latency << (duration_ns / 1000);
 
-        //        std::shared_ptr<RuntimeFilterMergeControllerEntity> handler;
-        //        _runtimefilter_controller.add_entity(params, local_params, &handler,
-        //                                             context->get_runtime_state());
-        //        context->set_merge_controller_handler(handler);
-
         for (size_t i = 0; i < params.local_params.size(); i++) {
+            std::shared_ptr<RuntimeFilterMergeControllerEntity> handler;
+            _runtimefilter_controller.add_entity(params, params.local_params[i], &handler,
+                                                 context->get_runtime_state(UniqueId()));
+            context->set_merge_controller_handler(handler);
             const TUniqueId& fragment_instance_id = params.local_params[i].fragment_instance_id;
             {
                 std::lock_guard<std::mutex> lock(_lock);
@@ -792,7 +791,7 @@ Status FragmentMgr::exec_plan_fragment(const TPipelineFragmentParams& params,
 
             std::shared_ptr<RuntimeFilterMergeControllerEntity> handler;
             _runtimefilter_controller.add_entity(params, local_params, &handler,
-                                                 context->get_runtime_state());
+                                                 context->get_runtime_state(UniqueId()));
             context->set_merge_controller_handler(handler);
 
             {
@@ -991,22 +990,33 @@ void FragmentMgr::cancel_worker() {
             }
 
             const auto& running_fes = ExecEnv::GetInstance()->get_running_frontends();
-            for (const auto& q : _query_ctx_map) {
-                auto itr = running_fes.find(q.second->coord_addr);
-                if (itr != running_fes.end()) {
-                    // We use conservative strategy.
-                    // 1. If same process uuid, do not cancel
-                    // 2. If fe has zero process uuid, do not cancel
-                    // 3. If query's process uuid is zero, do not cancel
-                    if (q.second->get_fe_process_uuid() == itr->second.info.process_uuid ||
-                        itr->second.info.process_uuid == 0 ||
-                        q.second->get_fe_process_uuid() == 0) {
+
+            // We use a very conservative cancel strategy.
+            // 0. If there are no running frontends, do not cancel any queries.
+            // 1. If query's process uuid is zero, do not cancel
+            // 2. If same process uuid, do not cancel
+            // 3. If fe has zero process uuid, do not cancel
+            if (running_fes.empty()) {
+                LOG_EVERY_N(WARNING, 10)
+                        << "Could not find any running frontends, maybe we are upgrading? "
+                        << "We will not cancel any running queries in this situation.";
+            } else {
+                for (const auto& q : _query_ctx_map) {
+                    if (q.second->get_fe_process_uuid() == 0) {
                         continue;
                     }
-                }
 
-                // Coorninator of this query has already dead.
-                queries_to_cancel.push_back(q.first);
+                    auto itr = running_fes.find(q.second->coord_addr);
+                    if (itr != running_fes.end()) {
+                        if (q.second->get_fe_process_uuid() == itr->second.info.process_uuid ||
+                            itr->second.info.process_uuid == 0) {
+                            continue;
+                        }
+                    }
+
+                    // Coorninator of this query has already dead.
+                    queries_to_cancel.push_back(q.first);
+                }
             }
         }
 
@@ -1184,7 +1194,8 @@ Status FragmentMgr::apply_filter(const PPublishFilterRequest* request,
         pip_context = iter->second;
 
         DCHECK(pip_context != nullptr);
-        runtime_filter_mgr = pip_context->get_runtime_state()->runtime_filter_mgr();
+        runtime_filter_mgr =
+                pip_context->get_runtime_state(fragment_instance_id)->runtime_filter_mgr();
     } else {
         std::unique_lock<std::mutex> lock(_lock);
         auto iter = _fragment_map.find(tfragment_instance_id);
@@ -1226,8 +1237,9 @@ Status FragmentMgr::apply_filterv2(const PPublishFilterRequestV2* request,
             pip_context = iter->second;
 
             DCHECK(pip_context != nullptr);
-            runtime_filter_mgr =
-                    pip_context->get_runtime_state()->get_query_ctx()->runtime_filter_mgr();
+            runtime_filter_mgr = pip_context->get_runtime_state(fragment_instance_id)
+                                         ->get_query_ctx()
+                                         ->runtime_filter_mgr();
             pool = &pip_context->get_query_context()->obj_pool;
         } else {
             std::unique_lock<std::mutex> lock(_lock);

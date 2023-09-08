@@ -33,7 +33,6 @@
 #include "common/logging.h"
 #include "gutil/strings/substitute.h"
 #include "io/fs/file_reader.h"
-#include "io/fs/file_reader_options.h"
 #include "io/fs/file_system.h"
 #include "io/fs/file_writer.h"
 #include "olap/olap_define.h"
@@ -84,7 +83,7 @@ BetaRowsetWriter::~BetaRowsetWriter() {
     if (!_already_built) {        // abnormal exit, remove all files generated
         _segment_creator.close(); // ensure all files are closed
         auto fs = _rowset_meta->fs();
-        if (!fs) {
+        if (fs->type() != io::FileSystemType::LOCAL) { // Remote fs will delete them asynchronously
             return;
         }
         for (int i = _segment_start_id; i < _segment_creator.next_segment_id(); ++i) {
@@ -164,15 +163,17 @@ Status BetaRowsetWriter::_generate_delete_bitmap(int32_t segment_id) {
 
 Status BetaRowsetWriter::_load_noncompacted_segment(segment_v2::SegmentSharedPtr& segment,
                                                     int32_t segment_id) {
+    DCHECK(_rowset_meta->is_local());
     auto fs = _rowset_meta->fs();
     if (!fs) {
         return Status::Error<INIT_FAILED>(
                 "BetaRowsetWriter::_load_noncompacted_segment _rowset_meta->fs get failed");
     }
     auto path = BetaRowset::segment_file_path(_context.rowset_dir, _context.rowset_id, segment_id);
-    auto type = config::enable_file_cache ? config::file_cache_type : "";
-    io::FileReaderOptions reader_options(io::cache_type_from_string(type),
-                                         io::SegmentCachePathPolicy());
+    io::FileReaderOptions reader_options {
+            .cache_type = config::enable_file_cache ? io::FileCachePolicy::FILE_BLOCK_CACHE
+                                                    : io::FileCachePolicy::NO_CACHE,
+            .is_doris_table = true};
     auto s = segment_v2::Segment::open(fs, path, segment_id, rowset_id(), _context.tablet_schema,
                                        reader_options, &segment);
     if (!s.ok()) {
@@ -282,7 +283,6 @@ Status BetaRowsetWriter::_rename_compacted_segment_plain(uint64_t seg_id) {
         return Status::OK();
     }
 
-    int ret;
     auto src_seg_path =
             BetaRowset::segment_file_path(_context.rowset_dir, _context.rowset_id, seg_id);
     auto dst_seg_path = BetaRowset::segment_file_path(_context.rowset_dir, _context.rowset_id,
@@ -298,7 +298,7 @@ Status BetaRowsetWriter::_rename_compacted_segment_plain(uint64_t seg_id) {
         _segid_statistics_map.emplace(_num_segcompacted, org);
         _clear_statistics_for_deleting_segments_unsafe(seg_id, seg_id);
     }
-    ret = rename(src_seg_path.c_str(), dst_seg_path.c_str());
+    int ret = rename(src_seg_path.c_str(), dst_seg_path.c_str());
     if (ret) {
         return Status::Error<ROWSET_RENAME_FILE_FAILED>(
                 "failed to rename {} to {}. ret:{}, errno:{}", src_seg_path, dst_seg_path, ret,
@@ -354,7 +354,8 @@ bool BetaRowsetWriter::_check_and_set_is_doing_segcompaction() {
 
 Status BetaRowsetWriter::_segcompaction_if_necessary() {
     Status status = Status::OK();
-    if (!config::enable_segcompaction || !_check_and_set_is_doing_segcompaction()) {
+    if (!config::enable_segcompaction || !_context.enable_segcompaction ||
+        !_check_and_set_is_doing_segcompaction()) {
         return status;
     }
     if (_segcompaction_status.load() != OK) {

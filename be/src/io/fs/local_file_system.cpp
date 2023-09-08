@@ -44,7 +44,6 @@
 
 namespace doris {
 namespace io {
-class FileReaderOptions;
 
 std::shared_ptr<LocalFileSystem> LocalFileSystem::create(Path path, std::string id) {
     return std::shared_ptr<LocalFileSystem>(new LocalFileSystem(std::move(path), std::move(id)));
