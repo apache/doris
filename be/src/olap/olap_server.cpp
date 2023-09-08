@@ -296,6 +296,10 @@ void StorageEngine::_garbage_sweeper_thread_callback() {
 
         // start clean trash and update usage.
         Status res = start_trash_sweep(&usage);
+        if (res.ok() && _need_clean_trash.exchange(false, std::memory_order_relaxed)) {
+            res = start_trash_sweep(&usage, true);
+        }
+
         if (!res.ok()) {
             LOG(WARNING) << "one or more errors occur when sweep trash."
                          << "see previous message for detail. err code=" << res;
