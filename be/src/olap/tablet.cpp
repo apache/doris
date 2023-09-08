@@ -3745,8 +3745,8 @@ Status Tablet::check_delete_bitmap_correctness(DeleteBitmapPtr delete_bitmap, in
                                                std::vector<RowsetSharedPtr>* rowsets) {
     RowsetIdUnorderedSet missing_ids;
     for (const auto& rowsetid : rowset_ids) {
-        if (!delete_bitmap->delete_bitmap.contains(
-                    {rowsetid, DeleteBitmap::INVALID_SEGMENT_ID, 0})) {
+        if (!delete_bitmap->delete_bitmap.contains({rowsetid, DeleteBitmap::INVALID_SEGMENT_ID,
+                                                    DeleteBitmap::TEMP_VERSION_COMMON})) {
             missing_ids.insert(rowsetid);
         }
     }
