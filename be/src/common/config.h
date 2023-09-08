@@ -1153,6 +1153,9 @@ DECLARE_Int32(grace_shutdown_wait_seconds);
 // BitmapValue serialize version.
 DECLARE_Int16(bitmap_serialize_version);
 
+// This config can be set to limit thread number in group commit insert thread pool.
+DECLARE_mInt32(group_commit_insert_threads);
+
 #ifdef BE_TEST
 // test s3
 DECLARE_String(test_s3_resource);
