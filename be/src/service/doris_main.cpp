@@ -536,6 +536,10 @@ int main(int argc, char** argv) {
     std::shared_ptr<doris::flight::FlightSqlServer> flight_server =
             std::move(doris::flight::FlightSqlServer::create()).ValueOrDie();
     status = flight_server->init(doris::config::arrow_flight_port);
+
+    // 6. start daemon thread to do clean or gc jobs
+    Daemon daemon;
+    daemon.start();
     if (!status.ok()) {
         LOG(ERROR) << "Arrow Flight Service did not start correctly, exiting, "
                    << status.to_string();
@@ -549,9 +553,9 @@ int main(int argc, char** argv) {
 #endif
         sleep(3);
     }
-
     // For graceful shutdown, need to wait for all running queries to stop
     exec_env->wait_for_all_tasks_done();
+    daemon.stop();
     exec_env->destroy(doris::ExecEnv::GetInstance());
 
     return 0;

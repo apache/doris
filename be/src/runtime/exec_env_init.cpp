@@ -252,9 +252,6 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths) {
         return st;
     }
 
-    Daemon daemon;
-    daemon.start();
-
     return Status::OK();
 }
 
