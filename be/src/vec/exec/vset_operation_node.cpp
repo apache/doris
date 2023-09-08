@@ -16,6 +16,7 @@
 // under the License.
 
 #include "vec/exec/vset_operation_node.h"
+#include "vec/utils/template_helpers.hpp"
 
 #include <fmt/format.h>
 #include <gen_cpp/Exprs_types.h>
