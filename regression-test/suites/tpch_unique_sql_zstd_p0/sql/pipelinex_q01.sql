@@ -1,5 +1,5 @@
 -- tables: lineitem
-SELECT /*+SET_VAR(experimental_enable_pipeline_x_engine=true) */
+SELECT /*+SET_VAR(experimental_enable_pipeline_x_engine=true, runtime_filter_mode=OFF) */
   l_returnflag,
   l_linestatus,
   sum(l_quantity)                                       AS sum_qty,
