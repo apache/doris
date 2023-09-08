@@ -2640,7 +2640,7 @@ void Tablet::update_max_version_schema(const TabletSchemaSPtr& tablet_schema) {
 
 Status Tablet::_get_segment_column_iterator(
         const BetaRowsetSharedPtr& rowset, uint32_t segid, const TabletColumn& target_column,
-        std::unique_ptr<segment_v2::ColumnIterator>* column_iterator) {
+        std::unique_ptr<segment_v2::ColumnIterator>* column_iterator, OlapReaderStatistics* stats) {
     SegmentCacheHandle segment_cache;
     RETURN_IF_ERROR(SegmentLoader::instance()->load_segments(rowset, &segment_cache, true));
     // find segment
@@ -2654,9 +2654,8 @@ Status Tablet::_get_segment_column_iterator(
     segment_v2::SegmentSharedPtr segment = *it;
     RETURN_IF_ERROR(segment->new_column_iterator(target_column, column_iterator));
     segment_v2::ColumnIteratorOptions opt;
-    OlapReaderStatistics stats;
     opt.file_reader = segment->file_reader().get();
-    opt.stats = &stats;
+    opt.stats = stats;
     opt.use_page_cache = !config::disable_storage_page_cache;
     opt.io_ctx.reader_type = ReaderType::READER_QUERY;
     (*column_iterator)->init(opt);
@@ -2680,8 +2679,10 @@ Status Tablet::fetch_value_through_row_column(RowsetSharedPtr input_rowset, uint
     const TabletSchemaSPtr tablet_schema = rowset->tablet_schema();
     CHECK(tablet_schema->store_row_column());
     std::unique_ptr<segment_v2::ColumnIterator> column_iterator;
-    RETURN_IF_ERROR(_get_segment_column_iterator(
-            rowset, segid, tablet_schema->column(BeConsts::ROW_STORE_COL), &column_iterator));
+    OlapReaderStatistics stats;
+    RETURN_IF_ERROR(_get_segment_column_iterator(rowset, segid,
+                                                 tablet_schema->column(BeConsts::ROW_STORE_COL),
+                                                 &column_iterator, &stats));
     // get and parse tuple row
     vectorized::MutableColumnPtr column_ptr = vectorized::ColumnString::create();
     RETURN_IF_ERROR(column_iterator->read_by_rowids(rowids.data(), rowids.size(), column_ptr));
@@ -2716,7 +2717,9 @@ Status Tablet::fetch_value_by_rowids(RowsetSharedPtr input_rowset, uint32_t segi
     BetaRowsetSharedPtr rowset = std::static_pointer_cast<BetaRowset>(input_rowset);
     CHECK(rowset);
     std::unique_ptr<segment_v2::ColumnIterator> column_iterator;
-    RETURN_IF_ERROR(_get_segment_column_iterator(rowset, segid, tablet_column, &column_iterator));
+    OlapReaderStatistics stats;
+    RETURN_IF_ERROR(
+            _get_segment_column_iterator(rowset, segid, tablet_column, &column_iterator, &stats));
     RETURN_IF_ERROR(column_iterator->read_by_rowids(rowids.data(), rowids.size(), dst));
     return Status::OK();
 }
@@ -2740,7 +2743,7 @@ Status Tablet::lookup_row_data(const Slice& encoded_key, const RowLocation& row_
     std::unique_ptr<segment_v2::ColumnIterator> column_iterator;
     RETURN_IF_ERROR(_get_segment_column_iterator(rowset, row_location.segment_id,
                                                  tablet_schema->column(BeConsts::ROW_STORE_COL),
-                                                 &column_iterator));
+                                                 &column_iterator, &stats));
     // get and parse tuple row
     vectorized::MutableColumnPtr column_ptr = vectorized::ColumnString::create();
     std::vector<segment_v2::rowid_t> rowids {static_cast<segment_v2::rowid_t>(row_location.row_id)};
