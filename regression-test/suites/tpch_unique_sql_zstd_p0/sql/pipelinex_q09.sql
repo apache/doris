@@ -1,5 +1,5 @@
 -- tables: part,supplier,lineitem,partsupp,orders,nation
-SELECT /*+SET_VAR(experimental_enable_pipeline_x_engine=true) */
+SELECT /*+SET_VAR(experimental_enable_pipeline_x_engine=true, runtime_filter_mode=OFF) */
   nation,
   o_year,
   sum(amount) AS sum_profit
