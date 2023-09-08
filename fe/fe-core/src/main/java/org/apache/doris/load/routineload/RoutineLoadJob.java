@@ -797,7 +797,8 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
         this.jobStatistic.errorRowsAfterResumed = this.jobStatistic.currentErrorRows;
         if (this.jobStatistic.currentTotalRows > maxBatchRows * 10) {
             if (this.jobStatistic.currentErrorRows > maxErrorNum
-                    || ((double)this.jobStatistic.currentErrorRows / this.jobStatistic.currentTotalRows) > maxFilterRatio) {
+                    || ((double) this.jobStatistic.currentErrorRows
+                            / this.jobStatistic.currentTotalRows) > maxFilterRatio) {
                 LOG.info(new LogBuilder(LogKey.ROUTINE_LOAD_JOB, id)
                         .add("current_total_rows", this.jobStatistic.currentTotalRows)
                         .add("current_error_rows", this.jobStatistic.currentErrorRows)
@@ -830,7 +831,8 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
             this.jobStatistic.currentTotalRows = 0;
         } else if (this.jobStatistic.currentErrorRows > maxErrorNum
                 || (this.jobStatistic.currentTotalRows > 0
-                    && ((double)this.jobStatistic.currentErrorRows / this.jobStatistic.currentTotalRows) > maxFilterRatio)) {
+                    && ((double) this.jobStatistic.currentErrorRows
+                            / this.jobStatistic.currentTotalRows) > maxFilterRatio)) {
             LOG.info(new LogBuilder(LogKey.ROUTINE_LOAD_JOB, id)
                     .add("current_total_rows", this.jobStatistic.currentTotalRows)
                     .add("current_error_rows", this.jobStatistic.currentErrorRows)
