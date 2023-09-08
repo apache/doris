@@ -84,11 +84,11 @@ TEST_F(BackendOptionsTest, ipv4) {
     hosts.emplace_back(std::string("::1"), AF_INET6, true);
 
     std::vector<CIDR> cidrs;
-    BackendOptions::analyze_priority_cidrs("10.10.10.11", &cidrs);
+    BackendOptions::analyze_priority_cidrs("127.0.0.1", &cidrs);
     std::string localhost;
     bool bind_ipv6 = false;
     BackendOptions::analyze_localhost(localhost, bind_ipv6, &cidrs, &hosts);
-    EXPECT_STREQ("10.10.10.11", localhost.c_str());
+    EXPECT_STREQ("127.0.0.1", localhost.c_str());
 }
 
 TEST_F(BackendOptionsTest, ipv6) {
@@ -100,11 +100,11 @@ TEST_F(BackendOptionsTest, ipv6) {
     hosts.emplace_back(std::string("::1"), AF_INET6, true);
 
     std::vector<CIDR> cidrs;
-    BackendOptions::analyze_priority_cidrs("fe80::5054:ff:fec9:dee0", &cidrs);
+    BackendOptions::analyze_priority_cidrs("::1", &cidrs);
     std::string localhost;
     bool bind_ipv6 = false;
     BackendOptions::analyze_localhost(localhost, bind_ipv6, &cidrs, &hosts);
-    EXPECT_STREQ("fe80::5054:ff:fec9:dee0", localhost.c_str());
+    EXPECT_STREQ("::1", localhost.c_str());
 }
 
 } // namespace doris
