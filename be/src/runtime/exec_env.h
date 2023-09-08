@@ -52,7 +52,7 @@ class TaskGroupManager;
 namespace stream_load {
 class DeltaWriterV2Pool;
 class LoadStreamStubPool;
-}
+} // namespace stream_load
 class BfdParser;
 class BrokerMgr;
 template <class T>
@@ -193,7 +193,9 @@ public:
         _memtable_memory_limiter.reset(limiter);
     }
 #endif
-    stream_load::LoadStreamStubPool* load_stream_stub_pool() { return _load_stream_stub_pool.get(); }
+    stream_load::LoadStreamStubPool* load_stream_stub_pool() {
+        return _load_stream_stub_pool.get();
+    }
     stream_load::DeltaWriterV2Pool* delta_writer_v2_pool() { return _delta_writer_v2_pool.get(); }
     vectorized::ZoneList& global_zone_cache() { return *_global_zone_cache; }
     std::shared_mutex& zone_cache_rw_lock() { return _zone_cache_rw_lock; }
