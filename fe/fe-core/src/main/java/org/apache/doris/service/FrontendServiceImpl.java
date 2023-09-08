@@ -232,6 +232,9 @@ import java.util.stream.Collectors;
 // thrift protocol
 public class FrontendServiceImpl implements FrontendService.Iface {
     private static final Logger LOG = LogManager.getLogger(FrontendServiceImpl.class);
+
+    private static final String NOT_MASTER_ERR_MSG = "FE is not master";
+
     private MasterImpl masterImpl;
     private ExecuteEnv exeEnv;
     // key is txn id,value is index of plan fragment instance, it's used by multi table request plan
@@ -1185,6 +1188,14 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         TBeginTxnResult result = new TBeginTxnResult();
         TStatus status = new TStatus(TStatusCode.OK);
         result.setStatus(status);
+
+        if (!Env.getCurrentEnv().isMaster()) {
+            status.setStatusCode(TStatusCode.NOT_MASTER);
+            status.addToErrorMsgs(NOT_MASTER_ERR_MSG);
+            LOG.error("failed to get binlog: {}", NOT_MASTER_ERR_MSG);
+            return result;
+        }
+
         try {
             TBeginTxnResult tmpRes = beginTxnImpl(request, clientAddr);
             result.setTxnId(tmpRes.getTxnId()).setDbId(tmpRes.getDbId());
@@ -1532,6 +1543,14 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         TCommitTxnResult result = new TCommitTxnResult();
         TStatus status = new TStatus(TStatusCode.OK);
         result.setStatus(status);
+
+        if (!Env.getCurrentEnv().isMaster()) {
+            status.setStatusCode(TStatusCode.NOT_MASTER);
+            status.addToErrorMsgs(NOT_MASTER_ERR_MSG);
+            LOG.error("failed to get binlog: {}", NOT_MASTER_ERR_MSG);
+            return result;
+        }
+
         try {
             if (!commitTxnImpl(request)) {
                 // committed success but not visible
@@ -1705,6 +1724,14 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         TRollbackTxnResult result = new TRollbackTxnResult();
         TStatus status = new TStatus(TStatusCode.OK);
         result.setStatus(status);
+
+        if (!Env.getCurrentEnv().isMaster()) {
+            status.setStatusCode(TStatusCode.NOT_MASTER);
+            status.addToErrorMsgs(NOT_MASTER_ERR_MSG);
+            LOG.error("failed to get binlog: {}", NOT_MASTER_ERR_MSG);
+            return result;
+        }
+
         try {
             rollbackTxnImpl(request);
         } catch (UserException e) {
@@ -2680,6 +2707,14 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         TGetSnapshotResult result = new TGetSnapshotResult();
         TStatus status = new TStatus(TStatusCode.OK);
         result.setStatus(status);
+
+        if (!Env.getCurrentEnv().isMaster()) {
+            status.setStatusCode(TStatusCode.NOT_MASTER);
+            status.addToErrorMsgs(NOT_MASTER_ERR_MSG);
+            LOG.error("failed to get binlog: {}", NOT_MASTER_ERR_MSG);
+            return result;
+        }
+
         try {
             result = getSnapshotImpl(request, clientAddr);
         } catch (UserException e) {
@@ -2758,6 +2793,14 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         TRestoreSnapshotResult result = new TRestoreSnapshotResult();
         TStatus status = new TStatus(TStatusCode.OK);
         result.setStatus(status);
+
+        if (!Env.getCurrentEnv().isMaster()) {
+            status.setStatusCode(TStatusCode.NOT_MASTER);
+            status.addToErrorMsgs(NOT_MASTER_ERR_MSG);
+            LOG.error("failed to get binlog: {}", NOT_MASTER_ERR_MSG);
+            return result;
+        }
+
         try {
             result = restoreSnapshotImpl(request, clientAddr);
         } catch (UserException e) {
@@ -2858,6 +2901,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         TGetMasterTokenResult result = new TGetMasterTokenResult();
         TStatus status = new TStatus(TStatusCode.OK);
         result.setStatus(status);
+
         try {
             checkPassword(request.getCluster(), request.getUser(), request.getPassword(), clientAddr);
             result.setToken(Env.getCurrentEnv().getToken());
@@ -2882,6 +2926,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         TGetBinlogLagResult result = new TGetBinlogLagResult();
         TStatus status = new TStatus(TStatusCode.OK);
         result.setStatus(status);
+
         try {
             result = getBinlogLagImpl(request, clientAddr);
         } catch (UserException e) {

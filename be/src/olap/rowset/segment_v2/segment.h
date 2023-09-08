@@ -48,10 +48,6 @@ class StorageReadOptions;
 class MemTracker;
 class PrimaryKeyIndexReader;
 class RowwiseIterator;
-
-namespace io {
-class FileReaderOptions;
-} // namespace io
 struct RowLocation;
 
 namespace segment_v2 {

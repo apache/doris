@@ -133,21 +133,23 @@ public class BindExpression implements AnalysisRuleFactory {
                 logicalProject().thenApply(ctx -> {
                     LogicalProject<Plan> project = ctx.root;
                     List<NamedExpression> boundProjections =
-                            bindSlot(project.getProjects(), project.children(), ctx.cascadesContext);
-                    List<NamedExpression> boundExceptions = bindSlot(project.getExcepts(), project.children(),
-                            ctx.cascadesContext);
-                    boundProjections = flatBoundStar(boundProjections, boundExceptions);
+                            bindSlot(project.getProjects(), project.child(), ctx.cascadesContext);
+                    if (boundProjections.stream().anyMatch(BoundStar.class::isInstance)) {
+                        List<NamedExpression> boundExceptions = project.getExcepts().isEmpty() ? ImmutableList.of()
+                                : bindSlot(project.getExcepts(), project.child(), ctx.cascadesContext);
+                        boundProjections = flatBoundStar(boundProjections, boundExceptions);
+                    }
                     boundProjections = boundProjections.stream()
                             .map(expr -> bindFunction(expr, ctx.cascadesContext))
                             .collect(ImmutableList.toImmutableList());
-                    return new LogicalProject<>(boundProjections, project.child(), project.isDistinct());
+                    return new LogicalProject<>(boundProjections, project.isDistinct(), project.child());
                 })
             ),
             RuleType.BINDING_FILTER_SLOT.build(
                 logicalFilter().thenApply(ctx -> {
                     LogicalFilter<Plan> filter = ctx.root;
                     Set<Expression> boundConjuncts = filter.getConjuncts().stream()
-                            .map(expr -> bindSlot(expr, filter.children(), ctx.cascadesContext))
+                            .map(expr -> bindSlot(expr, filter.child(), ctx.cascadesContext))
                             .map(expr -> bindFunction(expr, ctx.cascadesContext))
                             .collect(ImmutableSet.toImmutableSet());
                     return new LogicalFilter<>(boundConjuncts, filter.child());
@@ -216,7 +218,7 @@ public class BindExpression implements AnalysisRuleFactory {
                 logicalAggregate().thenApply(ctx -> {
                     LogicalAggregate<Plan> agg = ctx.root;
                     List<NamedExpression> output = agg.getOutputExpressions().stream()
-                            .map(expr -> bindSlot(expr, agg.children(), ctx.cascadesContext))
+                            .map(expr -> bindSlot(expr, agg.child(), ctx.cascadesContext))
                             .map(expr -> bindFunction(expr, ctx.cascadesContext))
                             .collect(ImmutableList.toImmutableList());
 
@@ -348,7 +350,7 @@ public class BindExpression implements AnalysisRuleFactory {
                 logicalRepeat().thenApply(ctx -> {
                     LogicalRepeat<Plan> repeat = ctx.root;
                     List<NamedExpression> output = repeat.getOutputExpressions().stream()
-                            .map(expr -> bindSlot(expr, repeat.children(), ctx.cascadesContext))
+                            .map(expr -> bindSlot(expr, repeat.child(), ctx.cascadesContext))
                             .map(expr -> bindFunction(expr, ctx.cascadesContext))
                             .collect(ImmutableList.toImmutableList());
 
@@ -381,7 +383,7 @@ public class BindExpression implements AnalysisRuleFactory {
                     List<List<Expression>> groupingSets = replacedGroupingSets
                             .stream()
                             .map(groupingSet -> groupingSet.stream()
-                                    .map(expr -> bindSlot(expr, repeat.children(), ctx.cascadesContext))
+                                    .map(expr -> bindSlot(expr, repeat.child(), ctx.cascadesContext))
                                     .map(expr -> bindFunction(expr, ctx.cascadesContext))
                                     .collect(ImmutableList.toImmutableList()))
                             .collect(ImmutableList.toImmutableList());
@@ -449,7 +451,7 @@ public class BindExpression implements AnalysisRuleFactory {
                     Aggregate<Plan> childPlan = having.child();
                     Set<Expression> boundConjuncts = having.getConjuncts().stream()
                             .map(expr -> {
-                                expr = bindSlot(expr, childPlan.children(), ctx.cascadesContext, false);
+                                expr = bindSlot(expr, childPlan.child(), ctx.cascadesContext, false);
                                 return bindSlot(expr, childPlan, ctx.cascadesContext, false);
                             })
                             .map(expr -> bindFunction(expr, ctx.cascadesContext))
@@ -527,7 +529,7 @@ public class BindExpression implements AnalysisRuleFactory {
                 logicalGenerate().thenApply(ctx -> {
                     LogicalGenerate<Plan> generate = ctx.root;
                     List<Function> boundSlotGenerators
-                            = bindSlot(generate.getGenerators(), generate.children(), ctx.cascadesContext);
+                            = bindSlot(generate.getGenerators(), generate.child(), ctx.cascadesContext);
                     List<Function> boundFunctionGenerators = boundSlotGenerators.stream()
                             .map(f -> bindTableGeneratingFunction((UnboundFunction) f, ctx.cascadesContext))
                             .collect(Collectors.toList());
@@ -612,10 +614,10 @@ public class BindExpression implements AnalysisRuleFactory {
     }
 
     private <E extends Expression> List<E> bindSlot(
-            List<E> exprList, List<Plan> inputs, CascadesContext cascadesContext) {
+            List<E> exprList, Plan input, CascadesContext cascadesContext) {
         List<E> slots = new ArrayList<>(exprList.size());
         for (E expr : exprList) {
-            E result = bindSlot(expr, inputs, cascadesContext);
+            E result = bindSlot(expr, input, cascadesContext);
             slots.add(result);
         }
         return slots;

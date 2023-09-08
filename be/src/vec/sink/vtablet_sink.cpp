@@ -1297,6 +1297,10 @@ Status VOlapTableSink::send(RuntimeState* state, vectorized::Block* input_block,
     SCOPED_CONSUME_MEM_TRACKER(_mem_tracker.get());
     Status status = Status::OK();
 
+    if (state->query_options().dry_run_query) {
+        return status;
+    }
+
     auto rows = input_block->rows();
     auto bytes = input_block->bytes();
     if (UNLIKELY(rows == 0)) {

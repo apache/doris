@@ -197,34 +197,38 @@ private:
 };
 
 struct JoinSharedState {
-    // mark the join column whether support null eq
-    std::vector<bool> is_null_safe_eq_join;
-    // mark the build hash table whether it needs to store null value
-    std::vector<bool> store_null_in_hash_table;
     // For some join case, we can apply a short circuit strategy
     // 1. _short_circuit_for_null_in_probe_side = true
     // 2. build side rows is empty, Join op is: inner join/right outer join/left semi/right semi/right anti
     bool short_circuit_for_probe = false;
+    vectorized::JoinOpVariants join_op_variants;
+};
+
+struct HashJoinSharedState : public JoinSharedState {
+    // mark the join column whether support null eq
+    std::vector<bool> is_null_safe_eq_join;
+    // mark the build hash table whether it needs to store null value
+    std::vector<bool> store_null_in_hash_table;
     std::shared_ptr<vectorized::Arena> arena = std::make_shared<vectorized::Arena>();
 
     // maybe share hash table with other fragment instances
     std::shared_ptr<vectorized::HashTableVariants> hash_table_variants =
             std::make_shared<vectorized::HashTableVariants>();
-    vectorized::JoinOpVariants join_op_variants;
     // for full/right outer join
     vectorized::HashTableIteratorVariants outer_join_pull_visited_iter;
     vectorized::HashTableIteratorVariants probe_row_match_iter;
-    std::shared_ptr<std::vector<vectorized::Block>> build_blocks;
     vectorized::Sizes probe_key_sz;
     const std::vector<TupleDescriptor*> build_side_child_desc;
     size_t build_exprs_size = 0;
+    std::shared_ptr<std::vector<vectorized::Block>> build_blocks =
+            std::make_shared<std::vector<vectorized::Block>>();
 };
 
-class JoinDependency final : public Dependency {
+class HashJoinDependency final : public Dependency {
 public:
-    using SharedState = JoinSharedState;
-    JoinDependency(int id) : Dependency(id) {}
-    ~JoinDependency() override = default;
+    using SharedState = HashJoinSharedState;
+    HashJoinDependency(int id) : Dependency(id) {}
+    ~HashJoinDependency() override = default;
 
     void* shared_state() override { return (void*)&_join_state; }
 
@@ -240,7 +244,28 @@ public:
                                const std::vector<int>& res_col_ids);
 
 private:
-    JoinSharedState _join_state;
+    HashJoinSharedState _join_state;
+};
+
+struct NestedLoopJoinSharedState : public JoinSharedState {
+    // if true, left child has no more rows to process
+    bool left_side_eos = false;
+    // Visited flags for each row in build side.
+    vectorized::MutableColumns build_side_visited_flags;
+    // List of build blocks, constructed in prepare()
+    vectorized::Blocks build_blocks;
+};
+
+class NestedLoopJoinDependency final : public Dependency {
+public:
+    using SharedState = NestedLoopJoinSharedState;
+    NestedLoopJoinDependency(int id) : Dependency(id) {}
+    ~NestedLoopJoinDependency() override = default;
+
+    void* shared_state() override { return (void*)&_join_state; }
+
+private:
+    NestedLoopJoinSharedState _join_state;
 };
 
 } // namespace pipeline

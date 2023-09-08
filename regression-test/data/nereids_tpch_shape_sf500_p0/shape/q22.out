@@ -13,7 +13,7 @@ PhysicalResultSink
 --------------------PhysicalProject
 ----------------------PhysicalOlapScan[orders]
 ------------------PhysicalDistribute
---------------------NestedLoopJoin[INNER_JOIN](cast(c_acctbal as DECIMALV3(38, 4)) > avg(c_acctbal))
+--------------------NestedLoopJoin[INNER_JOIN](cast(c_acctbal as DECIMALV3(38, 4)) > avg(cast(c_acctbal as DECIMALV3(17, 4))))
 ----------------------PhysicalProject
 ------------------------filter(substring(c_phone, 1, 2) IN ('13', '31', '23', '29', '30', '18', '17'))
 --------------------------PhysicalOlapScan[customer]

@@ -40,6 +40,7 @@ import org.apache.doris.analysis.ShowCollationStmt;
 import org.apache.doris.analysis.ShowColumnHistStmt;
 import org.apache.doris.analysis.ShowColumnStatsStmt;
 import org.apache.doris.analysis.ShowColumnStmt;
+import org.apache.doris.analysis.ShowConvertLSCStmt;
 import org.apache.doris.analysis.ShowCreateCatalogStmt;
 import org.apache.doris.analysis.ShowCreateDbStmt;
 import org.apache.doris.analysis.ShowCreateFunctionStmt;
@@ -112,6 +113,7 @@ import org.apache.doris.backup.Repository;
 import org.apache.doris.backup.RestoreJob;
 import org.apache.doris.blockrule.SqlBlockRule;
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.ColumnIdFlushDaemon;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.DynamicPartitionProperty;
@@ -240,6 +242,7 @@ import java.util.Collections;
 import java.util.Comparator;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 import java.util.concurrent.TimeUnit;
@@ -434,6 +437,8 @@ public class ShowExecutor {
             handleShowJob();
         } else if (stmt instanceof ShowJobTaskStmt) {
             handleShowJobTask();
+        } else if (stmt instanceof ShowConvertLSCStmt) {
+            handleShowConvertLSC();
         } else {
             handleEmtpy();
         }
@@ -2879,6 +2884,44 @@ public class ShowExecutor {
             row.add(String.valueOf(analysisInfo.timeCostInMs));
             row.add(analysisInfo.state.toString());
             rows.add(row);
+        }
+        resultSet = new ShowResultSet(showStmt.getMetaData(), rows);
+    }
+
+
+    private void handleShowConvertLSC() {
+        ShowConvertLSCStmt showStmt = (ShowConvertLSCStmt) stmt;
+        ColumnIdFlushDaemon columnIdFlusher = Env.getCurrentEnv().getColumnIdFlusher();
+        columnIdFlusher.readLock();
+        List<List<String>> rows;
+        try {
+            Map<String, Map<String, ColumnIdFlushDaemon.FlushStatus>> resultCollector =
+                    columnIdFlusher.getResultCollector();
+            rows = new ArrayList<>();
+            String db = ((ShowConvertLSCStmt) stmt).getDbName();
+            if (db != null) {
+                Map<String, ColumnIdFlushDaemon.FlushStatus> tblNameToStatus = resultCollector.get(db);
+                if (tblNameToStatus != null) {
+                    tblNameToStatus.forEach((tblName, status) -> {
+                        List<String> row = new ArrayList<>();
+                        row.add(db);
+                        row.add(tblName);
+                        row.add(status.getMsg());
+                        rows.add(row);
+                    });
+                }
+            } else {
+                resultCollector.forEach((dbName, tblNameToStatus) ->
+                        tblNameToStatus.forEach((tblName, status) -> {
+                            List<String> row = new ArrayList<>();
+                            row.add(dbName);
+                            row.add(tblName);
+                            row.add(status.getMsg());
+                            rows.add(row);
+                        }));
+            }
+        } finally {
+            columnIdFlusher.readUnlock();
         }
         resultSet = new ShowResultSet(showStmt.getMetaData(), rows);
     }

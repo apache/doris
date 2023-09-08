@@ -84,6 +84,7 @@ public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
     public static final String AGG_MERGE_SUFFIX = "_merge";
 
     protected boolean disableTableName = false;
+    protected boolean needToMysql = false;
 
     // to be used where we can't come up with a better estimate
     public static final double DEFAULT_SELECTIVITY = 0.1;
@@ -956,6 +957,13 @@ public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
         }
     }
 
+    public void setNeedToMysql(boolean value) {
+        needToMysql = value;
+        for (Expr child : children) {
+            child.setNeedToMysql(value);
+        }
+    }
+
     public String toSqlWithoutTbl() {
         setDisableTableName(true);
         String result = toSql();
@@ -983,7 +991,10 @@ public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
     }
 
     public String toMySql() {
-        return toSql();
+        setNeedToMysql(true);
+        String result =  toSql();
+        setNeedToMysql(false);
+        return result;
     }
 
     /**

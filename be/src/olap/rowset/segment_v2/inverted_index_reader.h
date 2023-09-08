@@ -29,6 +29,7 @@
 #include "io/fs/file_system.h"
 #include "io/fs/path.h"
 #include "olap/inverted_index_parser.h"
+#include "olap/rowset/segment_v2/inverted_index_cache.h"
 #include "olap/rowset/segment_v2/inverted_index_compound_reader.h"
 #include "olap/rowset/segment_v2/inverted_index_query_type.h"
 #include "olap/tablet_schema.h"
@@ -192,6 +193,9 @@ public:
 class BkdIndexReader : public InvertedIndexReader {
     ENABLE_FACTORY_CREATOR(BkdIndexReader);
 
+private:
+    std::string _file_full_path;
+
 public:
     explicit BkdIndexReader(io::FileSystemSPtr fs, const std::string& path,
                             const TabletIndex* index_meta);
@@ -221,11 +225,16 @@ public:
                      uint32_t* count) override;
     Status bkd_query(OlapReaderStatistics* stats, const std::string& column_name,
                      const void* query_value, InvertedIndexQueryType query_type,
-                     std::shared_ptr<lucene::util::bkd::bkd_reader>& r,
+                     std::shared_ptr<lucene::util::bkd::bkd_reader> r,
                      InvertedIndexVisitor* visitor);
 
+    Status handle_cache(InvertedIndexQueryCache* cache,
+                        const InvertedIndexQueryCache::CacheKey& cache_key,
+                        InvertedIndexQueryCacheHandle* cache_handler, OlapReaderStatistics* stats,
+                        roaring::Roaring* bit_map);
+
     InvertedIndexReaderType type() override;
-    Status get_bkd_reader(std::shared_ptr<lucene::util::bkd::bkd_reader>& reader);
+    Status get_bkd_reader(std::shared_ptr<lucene::util::bkd::bkd_reader>* reader);
 
 private:
     const TypeInfo* _type_info {};

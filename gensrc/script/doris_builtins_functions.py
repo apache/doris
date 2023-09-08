@@ -1796,12 +1796,12 @@ visible_functions = {
 
     #bitmap function
     "Bitmap": [
-        [['to_bitmap'], 'BITMAP', ['VARCHAR'], 'ALWAYS_NOT_NULLABLE'],
-        [['to_bitmap_with_check'], 'BITMAP', ['VARCHAR'], 'ALWAYS_NOT_NULLABLE'],
-        [['to_bitmap'], 'BITMAP', ['STRING'], 'ALWAYS_NOT_NULLABLE'],
-        [['to_bitmap_with_check'], 'BITMAP', ['STRING'], 'ALWAYS_NOT_NULLABLE'],
         [['to_bitmap'], 'BITMAP', ['BIGINT'], 'ALWAYS_NOT_NULLABLE'],
+        [['to_bitmap'], 'BITMAP', ['VARCHAR'], 'ALWAYS_NOT_NULLABLE'],
+        [['to_bitmap'], 'BITMAP', ['STRING'], 'ALWAYS_NOT_NULLABLE'],
         [['to_bitmap_with_check'], 'BITMAP', ['BIGINT'], 'ALWAYS_NOT_NULLABLE'],
+        [['to_bitmap_with_check'], 'BITMAP', ['STRING'], 'ALWAYS_NOT_NULLABLE'],
+        [['to_bitmap_with_check'], 'BITMAP', ['VARCHAR'], 'ALWAYS_NOT_NULLABLE'],
         [['bitmap_hash'], 'BITMAP', ['VARCHAR'], 'ALWAYS_NOT_NULLABLE'],
         [['bitmap_hash64'], 'BITMAP', ['VARCHAR'], 'ALWAYS_NOT_NULLABLE'],
         [['bitmap_hash'], 'BITMAP', ['STRING'], 'ALWAYS_NOT_NULLABLE'],
@@ -1847,10 +1847,7 @@ visible_functions = {
 
     # quantile_function
     "quantile" : [
-        [['to_quantile_state'], 'QUANTILE_STATE', ['VARCHAR', 'FLOAT'], 'ALWAYS_NOT_NULLABLE'],
         [['to_quantile_state'], 'QUANTILE_STATE', ['DOUBLE', 'FLOAT'], 'ALWAYS_NOT_NULLABLE'],
-        [['to_quantile_state'], 'QUANTILE_STATE', ['FLOAT', 'FLOAT'], 'ALWAYS_NOT_NULLABLE'],
-        [['to_quantile_state'], 'QUANTILE_STATE', ['BIGINT', 'FLOAT'], 'ALWAYS_NOT_NULLABLE'],
         [['quantile_percent'], 'DOUBLE', ['QUANTILE_STATE', 'FLOAT'], 'ALWAYS_NOT_NULLABLE']
     ],
 

@@ -199,6 +199,8 @@ under the License.
 
     Search in the hadoop environment hadoop-lzo-*.jar, and put it under "${DORIS_HOME}/fe/lib/",then restart fe.
 
+    Starting from version 2.0.2, this file can be placed in BE's `custom_lib/` directory (if it does not exist, just create it manually) to prevent the file from being lost due to the replacement of the lib directory when upgrading the cluster.
+
 ## HDFS
 
 1. What to do with the`java.lang.VerifyError: xxx` error when accessing HDFS 3.x?
