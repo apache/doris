@@ -248,13 +248,17 @@ public:
 
         EngineOptions options;
         options.store_paths = paths;
-        doris::StorageEngine::open(options, &k_engine);
+        k_engine = std::make_unique<StorageEngine>(options);
+        auto st = k_engine->open();
+        EXPECT_TRUE(st.ok()) << st.to_string();
         ExecEnv* exec_env = doris::ExecEnv::GetInstance();
         exec_env->set_memtable_memory_limiter(new MemTableMemoryLimiter());
+        exec_env->set_storage_engine(k_engine.get());
     }
 
     static void TearDownTestSuite() {
         ExecEnv* exec_env = doris::ExecEnv::GetInstance();
+        exec_env->set_storage_engine(nullptr);
         exec_env->set_memtable_memory_limiter(nullptr);
         k_engine.reset();
     }

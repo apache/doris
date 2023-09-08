@@ -205,11 +205,6 @@ public:
     void set_memtable_memory_limiter(MemTableMemoryLimiter* limiter) {
         _memtable_memory_limiter.reset(limiter);
     }
-#endif
-    vectorized::ZoneList& global_zone_cache() { return *_global_zone_cache; }
-    std::shared_mutex& zone_cache_rw_lock() { return _zone_cache_rw_lock; }
-
-    // only for unit test
     void set_master_info(TMasterInfo* master_info) { this->_master_info = master_info; }
     void set_new_load_stream_mgr(std::shared_ptr<NewLoadStreamMgr> new_load_stream_mgr) {
         this->_new_load_stream_mgr = new_load_stream_mgr;
@@ -217,6 +212,16 @@ public:
     void set_stream_load_executor(std::shared_ptr<StreamLoadExecutor> stream_load_executor) {
         this->_stream_load_executor = stream_load_executor;
     }
+
+    void set_storage_engine(StorageEngine* se) { this->_storage_engine = se; }
+    void set_cache_manager(CacheManager* cm) { this->_cache_manager = cm; }
+    void set_tablet_schema_cache(TabletSchemaCache* c) { this->_tablet_schema_cache = c; }
+    void set_storage_page_cache(StoragePageCache* c) { this->_storage_page_cache = c; }
+    void set_segment_loader(SegmentLoader* sl) { this->_segment_loader = sl; }
+
+#endif
+    vectorized::ZoneList& global_zone_cache() { return *_global_zone_cache; }
+    std::shared_mutex& zone_cache_rw_lock() { return _zone_cache_rw_lock; }
 
     void wait_for_all_tasks_done();
 
