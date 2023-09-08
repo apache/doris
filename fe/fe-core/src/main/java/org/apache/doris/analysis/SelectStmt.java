@@ -256,7 +256,7 @@ public class SelectStmt extends QueryStmt {
             selectList = originSelectList;
         }
         if (whereClause != null) {
-            whereClause = originalWhereClause;
+            whereClause = originalWhereClause.clone();
         }
 
         for (TableRef tableRef : getTableRefs()) {
