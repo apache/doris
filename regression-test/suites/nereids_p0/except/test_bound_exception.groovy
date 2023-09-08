@@ -19,9 +19,6 @@ suite("test_bound_exception") {
     sql "SET enable_nereids_planner=true"
     sql "SET enable_fallback_to_original_planner=false"
     def tbName = "test_bound_exception"
-    def dbName = "test_bound_db"
-    sql "CREATE DATABASE IF NOT EXISTS ${dbName}"
-    sql "USE ${dbName}"
 
     sql """ DROP TABLE IF EXISTS ${tbName} """
     sql """
@@ -30,26 +27,26 @@ suite("test_bound_exception") {
     """
     test {
         sql "SELECT id FROM ${tbName} GROUP BY id ORDER BY id123"
-        exception "unbounded object id123 in SORT clause."
+        exception "Unknown column 'id123' in 'table list' in SORT clause"
     }
     test {
         sql "SELECT id123 FROM ${tbName} ORDER BY id"
-        exception "unbounded object id123 in PROJECT clause."
+        exception "Unknown column 'id123' in 'table list' in PROJECT clause"
     }
     test {
         sql "SELECT id123 FROM ${tbName} GROUP BY id ORDER BY id"
-        exception "unbounded object id123 in AGGREGATE clause."
+        exception "Unknown column 'id123' in 'table list' in AGGREGATE clause"
     }
     test {
         sql "SELECT id FROM ${tbName} GROUP BY id123 ORDER BY id"
-        exception "cannot bind GROUP BY KEY: id123"
+        exception "Unknown column 'id123' in 'table list' in AGGREGATE clause"
     }
     test {
         sql "SELECT id FROM ${tbName} WHERE id = (SELECT id from ${tbName} ORDER BY id123 LIMIT 1) ORDER BY id"
-        exception "unbounded object id123 in SORT clause."
+        exception "Unknown column 'id123' in 'table list' in SORT clause"
     }
     test {
         sql "SELECT id FROM ${tbName} WHERE id123 = 123 ORDER BY id"
-        exception "Invalid call to id123.getDataType() on unbound object"
+        exception "Unknown column 'id123' in 'table list' in FILTER clause"
     }
 }

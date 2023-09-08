@@ -173,7 +173,7 @@ Status PipelineXFragmentContext::prepare(const doris::TPipelineFragmentParams& r
     _runtime_state->set_query_mem_tracker(_query_ctx->query_mem_tracker);
     _runtime_state->set_tracer(std::move(tracer));
 
-    SCOPED_ATTACH_TASK(get_runtime_state());
+    SCOPED_ATTACH_TASK(_runtime_state.get());
     if (request.__isset.backend_id) {
         _runtime_state->set_backend_id(request.backend_id);
     }
@@ -361,6 +361,13 @@ Status PipelineXFragmentContext::_build_pipeline_tasks(
                             pipeline_id_to_task[dep]->get_downstream_dependency());
                 }
             }
+        }
+
+        {
+            std::lock_guard<std::mutex> l(_state_map_lock);
+            _instance_id_to_runtime_state.insert(
+                    {UniqueId(_runtime_states[i]->fragment_instance_id()),
+                     _runtime_states[i].get()});
         }
     }
     _build_side_pipelines.clear();
