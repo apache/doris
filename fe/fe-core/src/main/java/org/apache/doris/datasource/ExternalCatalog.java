@@ -21,7 +21,6 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Resource;
-import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.external.DeltaLakeExternalDataBase;
 import org.apache.doris.catalog.external.EsExternalDatabase;
 import org.apache.doris.catalog.external.ExternalDatabase;
@@ -64,6 +63,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
+import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * The abstract class for all types of external catalogs.
@@ -589,7 +589,7 @@ public abstract class ExternalCatalog
     }
 
     @Override
-    public Collection<DatabaseIf<? extends TableIf>> getAllDbs() {
+    public Collection<DatabaseIf> getAllDbs() {
         makeSureInitialized();
         return new HashSet<>(idToDb.values());
     }
@@ -605,5 +605,10 @@ public abstract class ExternalCatalog
             ret = true;
         }
         return ret;
+    }
+
+    @Override
+    public ConcurrentHashMap<Long, DatabaseIf> getIdToDb() {
+        return new ConcurrentHashMap<>(idToDb);
     }
 }

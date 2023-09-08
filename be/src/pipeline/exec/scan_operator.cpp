@@ -113,6 +113,7 @@ bool ScanLocalState<Derived>::should_run_serial() const {
 template <typename Derived>
 Status ScanLocalState<Derived>::init(RuntimeState* state, LocalStateInfo& info) {
     RETURN_IF_ERROR(PipelineXLocalState<>::init(state, info));
+    RETURN_IF_ERROR(RuntimeFilterConsumer::init(state));
     auto& p = _parent->cast<typename Derived::Parent>();
     set_scan_ranges(info.scan_ranges);
     _common_expr_ctxs_push_down.resize(p._common_expr_ctxs_push_down.size());
@@ -140,7 +141,14 @@ Status ScanLocalState<Derived>::init(RuntimeState* state, LocalStateInfo& info) 
 
     _open_timer = ADD_TIMER(_runtime_profile, "OpenTime");
     _alloc_resource_timer = ADD_TIMER(_runtime_profile, "AllocateResourceTime");
+    return Status::OK();
+}
 
+template <typename Derived>
+Status ScanLocalState<Derived>::open(RuntimeState* state) {
+    if (_opened) {
+        return Status::OK();
+    }
     RETURN_IF_ERROR(_acquire_runtime_filter());
     RETURN_IF_ERROR(_process_conjuncts());
 
@@ -150,6 +158,7 @@ Status ScanLocalState<Derived>::init(RuntimeState* state, LocalStateInfo& info) 
         RETURN_IF_ERROR(_scanner_ctx->init());
         RETURN_IF_ERROR(state->exec_env()->scanner_scheduler()->submit(_scanner_ctx.get()));
     }
+    _opened = true;
     return status;
 }
 
@@ -1239,17 +1248,21 @@ ScanOperatorX<LocalStateType>::ScanOperatorX(ObjectPool* pool, const TPlanNode& 
 template <typename LocalStateType>
 bool ScanOperatorX<LocalStateType>::can_read(RuntimeState* state) {
     auto& local_state = state->get_local_state(id())->template cast<LocalStateType>();
-    if (local_state._eos || local_state._scanner_ctx->done()) {
-        // _eos: need eos
-        // _scanner_ctx->done(): need finish
-        // _scanner_ctx->no_schedule(): should schedule _scanner_ctx
+    if (!local_state._opened) {
         return true;
     } else {
-        if (local_state._scanner_ctx->get_num_running_scanners() == 0 &&
-            local_state._scanner_ctx->has_enough_space_in_blocks_queue()) {
-            local_state._scanner_ctx->reschedule_scanner_ctx();
+        if (local_state._eos || local_state._scanner_ctx->done()) {
+            // _eos: need eos
+            // _scanner_ctx->done(): need finish
+            // _scanner_ctx->no_schedule(): should schedule _scanner_ctx
+            return true;
+        } else {
+            if (local_state._scanner_ctx->get_num_running_scanners() == 0 &&
+                local_state._scanner_ctx->has_enough_space_in_blocks_queue()) {
+                local_state._scanner_ctx->reschedule_scanner_ctx();
+            }
+            return local_state.ready_to_read(); // there are some blocks to process
         }
-        return local_state.ready_to_read(); // there are some blocks to process
     }
 }
 
@@ -1319,6 +1332,14 @@ Status ScanLocalState<Derived>::close(RuntimeState* state) {
         _scanner_ctx->clear_and_join(reinterpret_cast<ScanLocalStateBase*>(this), state);
     }
     return PipelineXLocalState<>::close(state);
+}
+
+template <typename LocalStateType>
+bool ScanOperatorX<LocalStateType>::runtime_filters_are_ready_or_timeout(
+        RuntimeState* state) const {
+    return state->get_local_state(id())
+            ->template cast<LocalStateType>()
+            .runtime_filters_are_ready_or_timeout();
 }
 
 template <typename LocalStateType>
