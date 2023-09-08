@@ -387,12 +387,6 @@ public class RuntimeProfile {
         src.childList = newChildList;
     }
 
-    // Will be used in the future.
-    // private static void removeNameExtra(RuntimeProfile src) {
-    // String[] parts = src.name.split("\\s+");
-    // src.name = parts[0];
-    // }
-
     private static void mergeProfileCounter(RuntimeProfile src, String counterName, LinkedList<RuntimeProfile> rhs) {
         Set<String> childCounterSet = src.childCounterMap.get(counterName);
         if (childCounterSet == null) {
@@ -409,24 +403,6 @@ public class RuntimeProfile {
 
         }
     }
-
-
-    // Will be used in the future.
-    // private static void removeInfoStr(RuntimeProfile src) {
-    //     src.infoStringsDisplayOrder.clear();
-    //     src.infoStrings.clear();
-    // }
-
-    // Will be used in the future.
-    // private static void removeMaxMinCounter(RuntimeProfile src, String counterName) {
-    //     String maxCounterName = MAX_TIME_PRE + counterName;
-    //     String minCounterName = MIN_TIME_PRE + counterName;
-    //     TreeSet<String> childCounterSet = src.childCounterMap.get(counterName);
-    //     if (childCounterSet != null) {
-    //         childCounterSet.remove(maxCounterName);
-    //         childCounterSet.remove(minCounterName);
-    //     }
-    // }
 
     private static void mergeProfileInfoStr(RuntimeProfile src, LinkedList<RuntimeProfile> rhs) {
         for (String key : src.infoStringsDisplayOrder) {
@@ -449,16 +425,6 @@ public class RuntimeProfile {
             childCounterSet.remove(childCounterName);
         }
     }
-
-    // Will be used in the future.
-    // private static void removeNotTimeCounter(Set<String> childCounterSet, String childCounterName, Counter counter) {
-    //     if (childCounterName.equals("NumScanners")) {
-    //         return;
-    //     }
-    //     if (!counter.isTimeType()) {
-    //         childCounterSet.remove(childCounterName);
-    //     }
-    // }
 
     private static void mergeCounter(RuntimeProfile src, String counterName, Counter counter,
             LinkedList<Counter> rhsCounter) {
