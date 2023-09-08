@@ -73,6 +73,7 @@ import org.apache.doris.nereids.rules.implementation.LogicalTVFRelationToPhysica
 import org.apache.doris.nereids.rules.implementation.LogicalTopNToPhysicalTopN;
 import org.apache.doris.nereids.rules.implementation.LogicalUnionToPhysicalUnion;
 import org.apache.doris.nereids.rules.implementation.LogicalWindowToPhysicalWindow;
+import org.apache.doris.nereids.rules.rewrite.ConvertOuterJoinToAntiJoin;
 import org.apache.doris.nereids.rules.rewrite.EliminateOuterJoin;
 import org.apache.doris.nereids.rules.rewrite.MergeFilters;
 import org.apache.doris.nereids.rules.rewrite.MergeGenerates;
@@ -89,7 +90,6 @@ import org.apache.doris.nereids.rules.rewrite.PushdownFilterThroughSort;
 import org.apache.doris.nereids.rules.rewrite.PushdownFilterThroughWindow;
 import org.apache.doris.nereids.rules.rewrite.PushdownJoinOtherCondition;
 import org.apache.doris.nereids.rules.rewrite.PushdownProjectThroughLimit;
-import org.apache.doris.nereids.rules.rewrite.TransformOuterJoinToAntiJoin;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableList.Builder;
@@ -132,7 +132,7 @@ public class RuleSet {
             new PushdownFilterThroughWindow(),
             new PushdownProjectThroughLimit(),
             new EliminateOuterJoin(),
-            new TransformOuterJoinToAntiJoin(),
+            new ConvertOuterJoinToAntiJoin(),
             new MergeProjects(),
             new MergeFilters(),
             new MergeGenerates(),
