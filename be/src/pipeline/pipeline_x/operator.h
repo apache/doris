@@ -444,9 +444,7 @@ public:
 
     virtual bool is_pending_finish(RuntimeState* state) const { return false; }
 
-    std::string debug_string() const override {
-        return "";
-    }
+    std::string debug_string() const override { return ""; }
 
     virtual std::string debug_string(int indentation_level) const;
 

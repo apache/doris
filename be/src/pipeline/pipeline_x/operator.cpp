@@ -225,7 +225,8 @@ void PipelineXLocalStateBase::reached_limit(vectorized::Block* block, SourceStat
 std::string DataSinkOperatorXBase::debug_string(int indentation_level) const {
     fmt::memory_buffer debug_string_buffer;
 
-    fmt::format_to(debug_string_buffer, "{}{}: id={}", std::string(indentation_level * 2, ' '), _name, _id);
+    fmt::format_to(debug_string_buffer, "{}{}: id={}", std::string(indentation_level * 2, ' '),
+                   _name, _id);
     return fmt::to_string(debug_string_buffer);
 }
 
@@ -355,11 +356,13 @@ template class PipelineXSinkLocalState<SortDependency>;
 template class PipelineXSinkLocalState<NestedLoopJoinDependency>;
 template class PipelineXSinkLocalState<AnalyticDependency>;
 template class PipelineXSinkLocalState<AggDependency>;
+template class PipelineXSinkLocalState<FakeDependency>;
 
 template class PipelineXLocalState<HashJoinDependency>;
 template class PipelineXLocalState<SortDependency>;
 template class PipelineXLocalState<NestedLoopJoinDependency>;
 template class PipelineXLocalState<AnalyticDependency>;
 template class PipelineXLocalState<AggDependency>;
+template class PipelineXLocalState<FakeDependency>;
 
 } // namespace doris::pipeline
