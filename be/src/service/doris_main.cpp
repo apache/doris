@@ -457,7 +457,6 @@ int main(int argc, char** argv) {
     doris::CpuInfo::init();
     doris::DiskInfo::init();
     doris::MemInfo::init();
-    doris::UserFunctionCache::instance()->init(doris::config::user_function_dir);
 
     LOG(INFO) << doris::CpuInfo::debug_string();
     LOG(INFO) << doris::DiskInfo::debug_string();

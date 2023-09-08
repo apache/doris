@@ -73,6 +73,7 @@
 #include "runtime/stream_load/stream_load_executor.h"
 #include "runtime/task_group/task_group_manager.h"
 #include "runtime/thread_context.h"
+#include "runtime/user_function_cache.h"
 #include "service/backend_options.h"
 #include "service/backend_service.h"
 #include "service/point_query_executor.h"
@@ -141,7 +142,8 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths) {
     }
     init_doris_metrics(store_paths);
     _store_paths = store_paths;
-
+    _user_function_cache = new UserFunctionCache();
+    _user_function_cache->init();
     _external_scan_context_mgr = new ExternalScanContextMgr(this);
     _vstream_mgr = new doris::vectorized::VDataStreamMgr();
     _result_mgr = new ResultBufferMgr();
@@ -540,6 +542,7 @@ void ExecEnv::_destroy() {
     SAFE_DELETE(_storage_engine);
 
     InvertedIndexSearcherCache::reset_global_instance();
+    SAFE_DELETE(_user_function_cache);
     SAFE_DELETE(_file_cache_factory);
 }
 

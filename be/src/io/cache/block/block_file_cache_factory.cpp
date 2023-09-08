@@ -38,7 +38,7 @@ class TUniqueId;
 
 namespace io {
 
-FileCacheFactory& FileCacheFactory::instance() {
+FileCacheFactory* FileCacheFactory::instance() {
     return ExecEnv::GetInstance()->file_cache_factory();
 }
 
