@@ -17,11 +17,11 @@
 
 #pragma once
 
+#include <common/multi_version.h>
 #include <gen_cpp/HeartbeatService_types.h>
 #include <stddef.h>
 
 #include <algorithm>
-#include <common/multi_version.h>
 #include <atomic>
 #include <map>
 #include <memory>
@@ -86,7 +86,8 @@ class FrontendServiceClient;
 class FileMetaCache;
 class GroupCommitMgr;
 class TabletSchemaCache;
- 
+class FileCacheFactory;
+
 inline bool k_doris_exit = false;
 
 // Execution environment for queries/plan fragments.
@@ -158,12 +159,14 @@ public:
     void init_download_cache_buf();
     void init_download_cache_required_components();
     Status init_pipeline_task_scheduler();
+    void init_file_cache_factory();
     char* get_download_cache_buf(ThreadPoolToken* token) {
         if (_download_cache_buf_map.find(token) == _download_cache_buf_map.end()) {
             return nullptr;
         }
         return _download_cache_buf_map[token].get();
     }
+    FileCacheFactory* file_cache_factory() { return _file_cache_factory; }
     FragmentMgr* fragment_mgr() { return _fragment_mgr; }
     ResultCache* result_cache() { return _result_cache; }
     TMasterInfo* master_info() { return _master_info; }
@@ -231,6 +234,7 @@ private:
     inline static std::atomic_bool _s_ready {false};
     std::vector<StorePath> _store_paths;
 
+    FileCacheFactory* _file_cache_factory;
     // Leave protected so that subclasses can override
     ExternalScanContextMgr* _external_scan_context_mgr = nullptr;
     doris::vectorized::VDataStreamMgr* _vstream_mgr = nullptr;

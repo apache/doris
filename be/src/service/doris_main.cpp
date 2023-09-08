@@ -447,50 +447,7 @@ int main(int argc, char** argv) {
     // Doris own signal handler must be register after jvm is init.
     // Or our own sig-handler for SIGINT & SIGTERM will not be chained ...
     // https://www.oracle.com/java/technologies/javase/signals.html
-    doris::init_signals();
-
-    // Load file cache before starting up daemon threads to make sure StorageEngine is read.
-    if (doris::config::enable_file_cache) {
-        doris::io::IFileCache::init();
-        std::unordered_set<std::string> cache_path_set;
-        std::vector<doris::CachePath> cache_paths;
-        olap_res = doris::parse_conf_cache_paths(doris::config::file_cache_path, cache_paths);
-        if (!olap_res) {
-            LOG(FATAL) << "parse config file cache path failed, path="
-                       << doris::config::file_cache_path;
-            exit(-1);
-        }
-
-        std::unique_ptr<doris::ThreadPool> file_cache_init_pool;
-        doris::ThreadPoolBuilder("FileCacheInitThreadPool")
-                .set_min_threads(cache_paths.size())
-                .set_max_threads(cache_paths.size())
-                .build(&file_cache_init_pool);
-
-        std::list<doris::Status> cache_status;
-        for (auto& cache_path : cache_paths) {
-            if (cache_path_set.find(cache_path.path) != cache_path_set.end()) {
-                LOG(WARNING) << fmt::format("cache path {} is duplicate", cache_path.path);
-                continue;
-            }
-
-            RETURN_IF_ERROR(file_cache_init_pool->submit_func(
-                    std::bind(&doris::io::FileCacheFactory::create_file_cache,
-                              &(doris::io::FileCacheFactory::instance()), cache_path.path,
-                              cache_path.init_settings(), &(cache_status.emplace_back()))));
-
-            cache_path_set.emplace(cache_path.path);
-        }
-
-        file_cache_init_pool->wait();
-        for (const auto& status : cache_status) {
-            if (!status.ok()) {
-                LOG(FATAL) << "failed to init file cache, err: " << status;
-                exit(-1);
-            }
-        }
-    }
-
+    doris::init_signals();   
     // ATTN: MUST init before `ExecEnv`, `StorageEngine` and other daemon services
     //
     //       Daemon ───┬──► StorageEngine ──► ExecEnv ──► Disk/Mem/CpuInfo

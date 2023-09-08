@@ -16,6 +16,7 @@
 // under the License.
 
 // IWYU pragma: no_include <bthread/errno.h>
+#include <common/multi_version.h>
 #include <errno.h> // IWYU pragma: keep
 #include <gen_cpp/HeartbeatService_types.h>
 #include <gen_cpp/Metrics_types.h>
@@ -23,7 +24,6 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/resource.h>
-#include <common/multi_version.h>
 
 #include <limits>
 #include <map>
@@ -137,7 +137,7 @@ Status ExecEnv::init(ExecEnv* env, const std::vector<StorePath>& store_paths) {
 Status ExecEnv::_init(const std::vector<StorePath>& store_paths) {
     //Only init once before be destroyed
     if (ready()) {
-        return Status::OK(); 
+        return Status::OK();
     }
     init_doris_metrics(store_paths);
     _store_paths = store_paths;
@@ -182,7 +182,7 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths) {
             .set_max_threads(std::numeric_limits<int>::max())
             .set_max_queue_size(config::fragment_pool_queue_size)
             .build(&_join_node_thread_pool);
-
+    init_file_cache_factory();
     RETURN_IF_ERROR(init_pipeline_task_scheduler());
     _task_group_manager = new taskgroup::TaskGroupManager();
     _scanner_scheduler = new doris::vectorized::ScannerScheduler();
@@ -275,6 +275,50 @@ Status ExecEnv::init_pipeline_task_scheduler() {
     RETURN_IF_ERROR(_pipeline_task_group_scheduler->start());
 
     return Status::OK();
+}
+
+void ExecEnv::init_file_cache_factory() {
+    // Load file cache before starting up daemon threads to make sure StorageEngine is read.
+    if (doris::config::enable_file_cache) {
+        _file_cache_factory = new FileCacheFactory();
+        doris::io::IFileCache::init();
+        std::unordered_set<std::string> cache_path_set;
+        std::vector<doris::CachePath> cache_paths;
+        olap_res = doris::parse_conf_cache_paths(doris::config::file_cache_path, cache_paths);
+        if (!olap_res) {
+            LOG(FATAL) << "parse config file cache path failed, path="
+                       << doris::config::file_cache_path;
+            exit(-1);
+        }
+
+        std::unique_ptr<doris::ThreadPool> file_cache_init_pool;
+        doris::ThreadPoolBuilder("FileCacheInitThreadPool")
+                .set_min_threads(cache_paths.size())
+                .set_max_threads(cache_paths.size())
+                .build(&file_cache_init_pool);
+
+        std::list<doris::Status> cache_status;
+        for (auto& cache_path : cache_paths) {
+            if (cache_path_set.find(cache_path.path) != cache_path_set.end()) {
+                LOG(WARNING) << fmt::format("cache path {} is duplicate", cache_path.path);
+                continue;
+            }
+
+            RETURN_IF_ERROR(file_cache_init_pool->submit_func(std::bind(
+                    &doris::io::FileCacheFactory::create_file_cache, _file_cache_factory,
+                    cache_path.path, cache_path.init_settings(), &(cache_status.emplace_back()))));
+
+            cache_path_set.emplace(cache_path.path);
+        }
+
+        file_cache_init_pool->wait();
+        for (const auto& status : cache_status) {
+            if (!status.ok()) {
+                LOG(FATAL) << "failed to init file cache, err: " << status;
+                exit(-1);
+            }
+        }
+    }
 }
 
 Status ExecEnv::_init_mem_env() {
@@ -496,6 +540,7 @@ void ExecEnv::_destroy() {
     SAFE_DELETE(_storage_engine);
 
     InvertedIndexSearcherCache::reset_global_instance();
+    SAFE_DELETE(_file_cache_factory);
 }
 
 void ExecEnv::destroy(ExecEnv* env) {
