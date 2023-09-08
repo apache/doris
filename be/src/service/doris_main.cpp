@@ -538,7 +538,7 @@ int main(int argc, char** argv) {
     status = flight_server->init(doris::config::arrow_flight_port);
 
     // 6. start daemon thread to do clean or gc jobs
-    Daemon daemon;
+    doris::Daemon daemon;
     daemon.start();
     if (!status.ok()) {
         LOG(ERROR) << "Arrow Flight Service did not start correctly, exiting, "
