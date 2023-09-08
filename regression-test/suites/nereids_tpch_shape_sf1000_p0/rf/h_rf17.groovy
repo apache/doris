@@ -71,6 +71,7 @@ where
 
     '''
     String plan = sql "${stmt}"
+    log.info(plan)
     def getRuntimeFilters = { plantree ->
         {
             def lst = []
