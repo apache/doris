@@ -65,6 +65,7 @@ Status RuntimeFilterMgr::init() {
 Status RuntimeFilterMgr::get_producer_filter(const int filter_id, IRuntimeFilter** target) {
     int32_t key = filter_id;
 
+    std::lock_guard<std::mutex> l(_lock);
     auto iter = _producer_map.find(key);
     if (iter == _producer_map.end()) {
         LOG(WARNING) << "unknown runtime filter: " << key << ", role: PRODUCER";
@@ -77,6 +78,7 @@ Status RuntimeFilterMgr::get_producer_filter(const int filter_id, IRuntimeFilter
 
 Status RuntimeFilterMgr::get_consume_filter(const int filter_id, const int node_id,
                                             IRuntimeFilter** consumer_filter) {
+    std::lock_guard<std::mutex> l(_lock);
     auto iter = _consumer_map.find(filter_id);
     if (iter == _consumer_map.cend()) {
         LOG(WARNING) << "unknown runtime filter: " << filter_id << ", role: consumer";
@@ -97,6 +99,7 @@ Status RuntimeFilterMgr::get_consume_filter(const int filter_id, const int node_
 Status RuntimeFilterMgr::get_consume_filters(const int filter_id,
                                              std::vector<IRuntimeFilter*>& consumer_filters) {
     int32_t key = filter_id;
+    std::lock_guard<std::mutex> l(_lock);
     auto iter = _consumer_map.find(key);
     if (iter == _consumer_map.end()) {
         LOG(WARNING) << "unknown runtime filter: " << key << ", role: consumer";
@@ -114,29 +117,26 @@ Status RuntimeFilterMgr::register_consumer_filter(const TRuntimeFilterDesc& desc
     SCOPED_CONSUME_MEM_TRACKER(_tracker.get());
     int32_t key = desc.filter_id;
 
+    std::lock_guard<std::mutex> l(_lock);
     auto iter = _consumer_map.find(key);
     if (desc.__isset.opt_remote_rf && desc.opt_remote_rf && desc.has_remote_targets &&
         desc.type == TRuntimeFilterType::BLOOM) {
         // if this runtime filter has remote target (e.g. need merge), we reuse the runtime filter between all instances
         DCHECK(_query_ctx != nullptr);
 
-        {
-            std::lock_guard<std::mutex> l(_lock);
-
-            iter = _consumer_map.find(key);
-            if (iter != _consumer_map.end()) {
-                for (auto holder : iter->second) {
-                    if (holder.node_id == node_id) {
-                        return Status::OK();
-                    }
+        iter = _consumer_map.find(key);
+        if (iter != _consumer_map.end()) {
+            for (auto holder : iter->second) {
+                if (holder.node_id == node_id) {
+                    return Status::OK();
                 }
             }
-            IRuntimeFilter* filter;
-            RETURN_IF_ERROR(IRuntimeFilter::create(_query_ctx, &_query_ctx->obj_pool, &desc,
-                                                   &options, RuntimeFilterRole::CONSUMER, node_id,
-                                                   &filter, build_bf_exactly));
-            _consumer_map[key].emplace_back(node_id, filter);
         }
+        IRuntimeFilter* filter;
+        RETURN_IF_ERROR(IRuntimeFilter::create(_query_ctx, &_query_ctx->obj_pool, &desc, &options,
+                                               RuntimeFilterRole::CONSUMER, node_id, &filter,
+                                               build_bf_exactly));
+        _consumer_map[key].emplace_back(node_id, filter);
     } else {
         DCHECK(_state != nullptr);
 
@@ -162,6 +162,7 @@ Status RuntimeFilterMgr::register_producer_filter(const TRuntimeFilterDesc& desc
                                                   bool build_bf_exactly) {
     SCOPED_CONSUME_MEM_TRACKER(_tracker.get());
     int32_t key = desc.filter_id;
+    std::lock_guard<std::mutex> l(_lock);
     auto iter = _producer_map.find(key);
 
     DCHECK(_state != nullptr);
@@ -257,48 +258,39 @@ Status RuntimeFilterMergeControllerEntity::init(UniqueId query_id, UniqueId frag
     _mem_tracker = std::make_shared<MemTracker>("RuntimeFilterMergeControllerEntity",
                                                 ExecEnv::GetInstance()->experimental_mem_tracker());
     SCOPED_CONSUME_MEM_TRACKER(_mem_tracker.get());
-    for (auto& filterid_to_desc : runtime_filter_params.rid_to_runtime_filter) {
-        int filter_id = filterid_to_desc.first;
-        const auto& target_iter = runtime_filter_params.rid_to_target_param.find(filter_id);
-        if (target_iter == runtime_filter_params.rid_to_target_param.end() &&
-            !runtime_filter_params.__isset.rid_to_target_paramv2) {
-            return Status::InternalError("runtime filter params meet error");
-        } else if (target_iter == runtime_filter_params.rid_to_target_param.end()) {
-            const auto& targetv2_iter = runtime_filter_params.rid_to_target_paramv2.find(filter_id);
-            if (targetv2_iter == runtime_filter_params.rid_to_target_paramv2.end()) {
-                return Status::InternalError("runtime filter params meet error");
-            }
-            const auto& build_iter =
-                    runtime_filter_params.runtime_filter_builder_num.find(filter_id);
-            if (build_iter == runtime_filter_params.runtime_filter_builder_num.end()) {
-                return Status::InternalError("runtime filter params meet error");
-            }
-            _init_with_desc(&filterid_to_desc.second, &query_options, &targetv2_iter->second,
-                            build_iter->second);
-        } else {
-            const auto& build_iter =
-                    runtime_filter_params.runtime_filter_builder_num.find(filter_id);
-            if (build_iter == runtime_filter_params.runtime_filter_builder_num.end()) {
-                return Status::InternalError("runtime filter params meet error");
-            }
-            _init_with_desc(&filterid_to_desc.second, &query_options, &target_iter->second,
-                            build_iter->second);
-        }
-    }
     if (runtime_filter_params.__isset.rid_to_runtime_filter) {
         for (auto& filterid_to_desc : runtime_filter_params.rid_to_runtime_filter) {
             int filter_id = filterid_to_desc.first;
             const auto& target_iter = runtime_filter_params.rid_to_target_param.find(filter_id);
-            if (target_iter == runtime_filter_params.rid_to_target_param.end()) {
+            if (target_iter == runtime_filter_params.rid_to_target_param.end() &&
+                !runtime_filter_params.__isset.rid_to_target_paramv2) {
+                // This runtime filter has to target info
                 return Status::InternalError("runtime filter params meet error");
+            } else if (target_iter == runtime_filter_params.rid_to_target_param.end()) {
+                const auto& targetv2_iter =
+                        runtime_filter_params.rid_to_target_paramv2.find(filter_id);
+                if (targetv2_iter == runtime_filter_params.rid_to_target_paramv2.end()) {
+                    // This runtime filter has to target info
+                    return Status::InternalError("runtime filter params meet error");
+                }
+                const auto& build_iter =
+                        runtime_filter_params.runtime_filter_builder_num.find(filter_id);
+                if (build_iter == runtime_filter_params.runtime_filter_builder_num.end()) {
+                    // This runtime filter has to builder info
+                    return Status::InternalError("runtime filter params meet error");
+                }
+
+                RETURN_IF_ERROR(_init_with_desc(&filterid_to_desc.second, &query_options,
+                                                &targetv2_iter->second, build_iter->second));
+            } else {
+                const auto& build_iter =
+                        runtime_filter_params.runtime_filter_builder_num.find(filter_id);
+                if (build_iter == runtime_filter_params.runtime_filter_builder_num.end()) {
+                    return Status::InternalError("runtime filter params meet error");
+                }
+                RETURN_IF_ERROR(_init_with_desc(&filterid_to_desc.second, &query_options,
+                                                &target_iter->second, build_iter->second));
             }
-            const auto& build_iter =
-                    runtime_filter_params.runtime_filter_builder_num.find(filter_id);
-            if (build_iter == runtime_filter_params.runtime_filter_builder_num.end()) {
-                return Status::InternalError("runtime filter params meet error");
-            }
-            _init_with_desc(&filterid_to_desc.second, &query_options, &target_iter->second,
-                            build_iter->second);
         }
     }
     return Status::OK();

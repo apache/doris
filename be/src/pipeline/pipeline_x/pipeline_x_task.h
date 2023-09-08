@@ -79,14 +79,12 @@ public:
     }
 
     bool runtime_filters_are_ready_or_timeout() override {
-        return _source->runtime_filters_are_ready_or_timeout();
+        return _source->runtime_filters_are_ready_or_timeout(_state);
     }
 
     bool sink_can_write() override { return _sink->can_write(_state); }
 
     Status finalize() override;
-
-    OperatorXPtr get_rootx() { return _root; }
 
     std::string debug_string() override;
 
@@ -131,5 +129,7 @@ private:
     std::shared_ptr<BufferControlBlock> _sender;
     std::shared_ptr<vectorized::VDataStreamRecvr> _recvr;
     bool _dry_run = false;
+    bool _init_local_state = false;
 };
+
 } // namespace doris::pipeline

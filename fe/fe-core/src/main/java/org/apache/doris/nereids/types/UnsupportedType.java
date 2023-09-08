@@ -15,28 +15,46 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.persist;
+package org.apache.doris.nereids.types;
 
-import org.apache.doris.common.io.Writable;
+import org.apache.doris.catalog.Type;
+import org.apache.doris.nereids.annotation.Developing;
 
-import java.io.DataInput;
-import java.io.DataOutput;
-import java.io.IOException;
+/**
+ * Unsupported type in Nereids.
+ */
+@Developing
+public class UnsupportedType extends DataType {
 
-public class TableStatsDeletionLog implements Writable {
+    public static final int WIDTH = -1;
 
-    public final long id;
+    public static final UnsupportedType INSTANCE = new UnsupportedType();
 
-    public TableStatsDeletionLog(long id) {
-        this.id = id;
+    private UnsupportedType() {
     }
 
     @Override
-    public void write(DataOutput out) throws IOException {
-        out.writeLong(id);
+    public Type toCatalogDataType() {
+        return Type.UNSUPPORTED;
     }
 
-    public static TableStatsDeletionLog read(DataInput dataInput) throws IOException {
-        return new TableStatsDeletionLog(dataInput.readLong());
+    @Override
+    public boolean acceptsType(DataType other) {
+        return other instanceof UnsupportedType;
+    }
+
+    @Override
+    public String simpleString() {
+        return "unsupported";
+    }
+
+    @Override
+    public int width() {
+        return WIDTH;
+    }
+
+    @Override
+    public String toSql() {
+        return "UNSUPPORTED";
     }
 }

@@ -318,6 +318,16 @@ public class InternalCatalog implements CatalogIf<Database> {
         return null;
     }
 
+    public Table getTableByTableId(Long tableId) {
+        for (Database db : fullNameToDb.values()) {
+            Table table = db.getTableNullable(tableId);
+            if (table != null) {
+                return table;
+            }
+        }
+        return null;
+    }
+
     // Use tryLock to avoid potential dead lock
     private boolean tryLock(boolean mustLock) {
         while (true) {
@@ -919,7 +929,6 @@ public class InternalCatalog implements CatalogIf<Database> {
             Env.getCurrentEnv().getEditLog().logDropTable(info);
             Env.getCurrentEnv().getQueryStats().clear(Env.getCurrentEnv().getCurrentCatalog().getId(),
                     db.getId(), table.getId());
-            Env.getCurrentEnv().getAnalysisManager().removeTableStats(table.getId());
         } finally {
             db.writeUnlock();
         }
@@ -3134,12 +3143,13 @@ public class InternalCatalog implements CatalogIf<Database> {
         return newChecksum;
     }
 
-    public ConcurrentHashMap<Long, Database> getIdToDb() {
+    @Override
+    public ConcurrentHashMap<Long, DatabaseIf> getIdToDb() {
         return new ConcurrentHashMap<>(idToDb);
     }
 
     @Override
-    public Collection<DatabaseIf<? extends TableIf>> getAllDbs() {
+    public Collection<DatabaseIf> getAllDbs() {
         return new HashSet<>(idToDb.values());
     }
 
