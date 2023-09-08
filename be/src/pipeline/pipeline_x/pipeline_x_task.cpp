@@ -162,7 +162,6 @@ Status PipelineXTask::execute(bool* eos) {
             return Status::OK();
         }
     }
-    LOG(WARNING) << "=====1 " << debug_string();
 
     set_begin_execute_time();
     while (!_fragment_context->is_canceled()) {
