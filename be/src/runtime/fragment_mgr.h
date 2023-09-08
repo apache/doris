@@ -93,15 +93,28 @@ public:
 
     Status start_query_execution(const PExecPlanFragmentStartRequest* request);
 
-    void cancel(const TUniqueId& fragment_id) {
-        cancel(fragment_id, PPlanFragmentCancelReason::INTERNAL_ERROR);
-    }
+    // This method can only be used to cancel a fragment of non-pipeline query.
+    void cancel_fragment(const TUniqueId& fragment_id, const PPlanFragmentCancelReason& reason,
+                         const std::string& msg = "");
+    void cancel_fragment_unlocked(const TUniqueId& instance_id,
+                                  const PPlanFragmentCancelReason& reason,
+                                  const std::unique_lock<std::mutex>& state_lock,
+                                  const std::string& msg = "");
 
-    void cancel(const TUniqueId& fragment_id, const PPlanFragmentCancelReason& reason,
-                const std::string& msg = "");
+    // Pipeline version, cancel a fragment instance.
+    void cancel_instance(const TUniqueId& instance_id, const PPlanFragmentCancelReason& reason,
+                         const std::string& msg = "");
+    void cancel_instance_unlocked(const TUniqueId& instance_id,
+                                  const PPlanFragmentCancelReason& reason,
+                                  const std::unique_lock<std::mutex>& state_lock,
+                                  const std::string& msg = "");
 
+    // Can be used in both version.
     void cancel_query(const TUniqueId& query_id, const PPlanFragmentCancelReason& reason,
                       const std::string& msg = "");
+    void cancel_query_unlocked(const TUniqueId& query_id, const PPlanFragmentCancelReason& reason,
+                               const std::unique_lock<std::mutex>& state_lock,
+                               const std::string& msg = "");
 
     bool query_is_canceled(const TUniqueId& query_id);
 
@@ -131,7 +144,16 @@ public:
 
     ThreadPool* get_thread_pool() { return _thread_pool.get(); }
 
+    int32_t running_query_num() {
+        std::unique_lock<std::mutex> ctx_lock(_lock);
+        return _query_ctx_map.size();
+    }
+
 private:
+    void cancel_unlocked_impl(const TUniqueId& id, const PPlanFragmentCancelReason& reason,
+                              const std::unique_lock<std::mutex>& state_lock, bool is_pipeline,
+                              const std::string& msg = "");
+
     void _exec_actual(std::shared_ptr<PlanFragmentExecutor> fragment_executor,
                       const FinishCallback& cb);
 
@@ -145,6 +167,9 @@ private:
                                                     const TPipelineInstanceParams& local_params,
                                                     QueryContext* query_ctx);
 
+    void _setup_shared_hashtable_for_broadcast_join(const TPipelineFragmentParams& params,
+                                                    QueryContext* query_ctx);
+
     template <typename Params>
     Status _get_query_ctx(const Params& params, TUniqueId query_id, bool pipeline,
                           std::shared_ptr<QueryContext>& query_ctx);
@@ -152,6 +177,11 @@ private:
     // This is input params
     ExecEnv* _exec_env;
 
+    // The lock should only be used to protect the structures in fragment manager. Has to be
+    // used in a very small scope because it may dead lock. For example, if the _lock is used
+    // in prepare stage, the call path is  prepare --> expr prepare --> may call allocator
+    // when allocate failed, allocator may call query_is_cancelled, query is callced will also
+    // call _lock, so that there is dead lock.
     std::mutex _lock;
 
     std::condition_variable _cv;

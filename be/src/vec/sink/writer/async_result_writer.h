@@ -54,7 +54,9 @@ public:
 
     virtual bool in_transaction() { return false; }
 
-    bool need_normal_close() { return _need_normal_close; }
+    virtual Status commit_trans() { return Status::OK(); }
+
+    bool need_normal_close() const { return _need_normal_close; }
 
     Status init(RuntimeState* state) override { return Status::OK(); }
 

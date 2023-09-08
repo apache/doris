@@ -47,7 +47,7 @@ ScannerContext::ScannerContext(doris::RuntimeState* state_, doris::vectorized::V
                                const doris::TupleDescriptor* output_tuple_desc,
                                const std::list<VScannerSPtr>& scanners_, int64_t limit_,
                                int64_t max_bytes_in_blocks_queue_, const int num_parallel_instances,
-                               pipeline::ScanLocalState* local_state)
+                               pipeline::ScanLocalStateBase* local_state)
         : _state(state_),
           _parent(parent),
           _local_state(local_state),
@@ -143,6 +143,10 @@ Status ScannerContext::init() {
     }
 
     return Status::OK();
+}
+
+std::string ScannerContext::parent_name() {
+    return _parent ? _parent->get_name() : _local_state->get_name();
 }
 
 vectorized::BlockUPtr ScannerContext::get_free_block(bool* has_free_block,
@@ -425,7 +429,8 @@ taskgroup::TaskGroup* ScannerContext::get_task_group() const {
     return _state->get_query_ctx()->get_task_group();
 }
 
-template void ScannerContext::clear_and_join(pipeline::ScanLocalState* parent, RuntimeState* state);
+template void ScannerContext::clear_and_join(pipeline::ScanLocalStateBase* parent,
+                                             RuntimeState* state);
 template void ScannerContext::clear_and_join(VScanNode* parent, RuntimeState* state);
 
 } // namespace doris::vectorized

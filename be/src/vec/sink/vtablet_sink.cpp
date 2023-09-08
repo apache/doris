@@ -730,7 +730,7 @@ Status VNodeChannel::none_of(std::initializer_list<bool> vars) {
         if (!vars_str.empty()) {
             vars_str.pop_back(); // 0/1/0/ -> 0/1/0
         }
-        st = Status::InternalError(vars_str);
+        st = Status::Uninitialized(vars_str);
     }
 
     return st;
@@ -1296,6 +1296,10 @@ Status VOlapTableSink::_single_partition_generate(RuntimeState* state, vectorize
 Status VOlapTableSink::send(RuntimeState* state, vectorized::Block* input_block, bool eos) {
     SCOPED_CONSUME_MEM_TRACKER(_mem_tracker.get());
     Status status = Status::OK();
+
+    if (state->query_options().dry_run_query) {
+        return status;
+    }
 
     auto rows = input_block->rows();
     auto bytes = input_block->bytes();

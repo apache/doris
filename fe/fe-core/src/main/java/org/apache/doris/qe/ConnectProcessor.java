@@ -56,7 +56,6 @@ import org.apache.doris.nereids.glue.LogicalPlanAdapter;
 import org.apache.doris.nereids.minidump.MinidumpUtils;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.stats.StatsErrorEstimator;
-import org.apache.doris.nereids.trees.plans.commands.CreatePolicyCommand;
 import org.apache.doris.plugin.AuditEvent.EventType;
 import org.apache.doris.proto.Data;
 import org.apache.doris.qe.QueryState.MysqlStateType;
@@ -301,6 +300,7 @@ public class ConnectProcessor {
                 .setStmtId(ctx.getStmtId())
                 .setQueryId(ctx.queryId() == null ? "NaN" : DebugUtil.printId(ctx.queryId()))
                 .setTraceId(spanContext.isValid() ? spanContext.getTraceId() : "")
+                .setWorkloadGroup(ctx.getWorkloadGroupName())
                 .setFuzzyVariables(!printFuzzyVariables ? "" : ctx.getSessionVariable().printFuzzyVariables());
 
         if (ctx.getState().isQuery()) {
@@ -386,14 +386,6 @@ public class ConnectProcessor {
         if (mysqlCommand == MysqlCommand.COM_QUERY && ctx.getSessionVariable().isEnableNereidsPlanner()) {
             try {
                 stmts = new NereidsParser().parseSQL(originStmt);
-                for (StatementBase stmt : stmts) {
-                    LogicalPlanAdapter logicalPlanAdapter = (LogicalPlanAdapter) stmt;
-                    // TODO: remove this after we could process CreatePolicyCommand
-                    if (logicalPlanAdapter.getLogicalPlan() instanceof CreatePolicyCommand) {
-                        stmts = null;
-                        break;
-                    }
-                }
             } catch (Exception e) {
                 // TODO: We should catch all exception here until we support all query syntax.
                 LOG.debug("Nereids parse sql failed. Reason: {}. Statement: \"{}\".",
@@ -756,6 +748,9 @@ public class ConnectProcessor {
             if (request.isSetDefaultCatalog()) {
                 ctx.getEnv().changeCatalog(ctx, request.getDefaultCatalog());
             }
+            if (request.isSetDefaultDatabase() && !request.getDefaultDatabase().isEmpty()) {
+                ctx.getEnv().changeDb(ctx, request.getDefaultDatabase());
+            }
             TUniqueId queryId; // This query id will be set in ctx
             if (request.isSetQueryId()) {
                 queryId = request.getQueryId();
@@ -846,4 +841,5 @@ public class ConnectProcessor {
         }
     }
 }
+
 

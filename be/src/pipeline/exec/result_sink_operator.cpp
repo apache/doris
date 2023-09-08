@@ -51,7 +51,7 @@ bool ResultSinkOperator::can_write() {
 }
 
 Status ResultSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& info) {
-    RETURN_IF_ERROR(PipelineXSinkLocalState::init(state, info));
+    RETURN_IF_ERROR(PipelineXSinkLocalState<>::init(state, info));
     auto& p = _parent->cast<ResultSinkOperatorX>();
     auto fragment_instance_id = state->fragment_instance_id();
     // create sender
@@ -111,12 +111,6 @@ Status ResultSinkOperatorX::open(RuntimeState* state) {
     return vectorized::VExpr::open(_output_vexpr_ctxs, state);
 }
 
-Status ResultSinkOperatorX::setup_local_state(RuntimeState* state, LocalSinkStateInfo& info) {
-    auto local_state = ResultSinkLocalState::create_shared(this, state);
-    state->emplace_sink_local_state(id(), local_state);
-    return local_state->init(state, info);
-}
-
 Status ResultSinkOperatorX::sink(RuntimeState* state, vectorized::Block* block,
                                  SourceState source_state) {
     auto& local_state = state->get_sink_local_state(id())->cast<ResultSinkLocalState>();
@@ -172,7 +166,7 @@ Status ResultSinkLocalState::close(RuntimeState* state) {
     state->exec_env()->result_mgr()->cancel_at_time(
             time(nullptr) + config::result_buffer_cancelled_interval_time,
             state->fragment_instance_id());
-    RETURN_IF_ERROR(PipelineXSinkLocalState::close(state));
+    RETURN_IF_ERROR(PipelineXSinkLocalState<>::close(state));
     return final_status;
 }
 

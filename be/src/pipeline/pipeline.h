@@ -26,7 +26,8 @@
 #include <vector>
 
 #include "common/status.h"
-#include "exec/operator.h"
+#include "pipeline/exec/operator.h"
+#include "pipeline/pipeline_x/operator.h"
 #include "util/runtime_profile.h"
 
 namespace doris {
@@ -103,7 +104,7 @@ public:
     Status set_sink(DataSinkOperatorXPtr& sink_operator);
 
     OperatorBuilderBase* sink() { return _sink.get(); }
-    DataSinkOperatorX* sink_x() { return _sink_x.get(); }
+    DataSinkOperatorXBase* sink_x() { return _sink_x.get(); }
     OperatorXs& operator_xs() { return operatorXs; }
     DataSinkOperatorXPtr sink_shared_pointer() { return _sink_x; }
 

@@ -30,12 +30,12 @@
 #include <string>
 
 #include "common/config.h"
+#include "vec/sink/async_writer_sink.h"
 #include "vec/sink/multi_cast_data_stream_sink.h"
 #include "vec/sink/vdata_stream_sender.h"
 #include "vec/sink/vmemory_scratch_sink.h"
 #include "vec/sink/vresult_file_sink.h"
 #include "vec/sink/vresult_sink.h"
-#include "vec/sink/vtable_sink.h"
 #include "vec/sink/vtablet_sink.h"
 #include "vec/sink/vtablet_sink_v2.h"
 
@@ -92,9 +92,7 @@ Status DataSink::create_data_sink(ObjectPool* pool, const TDataSink& thrift_sink
                     params.destinations, send_query_statistics_with_every_batch, output_exprs,
                     desc_tbl));
         } else {
-            sink->reset(new doris::vectorized::VResultFileSink(
-                    state, pool, row_desc, thrift_sink.result_file_sink,
-                    send_query_statistics_with_every_batch, output_exprs));
+            sink->reset(new doris::vectorized::VResultFileSink(row_desc, output_exprs));
         }
         break;
     }
@@ -112,7 +110,7 @@ Status DataSink::create_data_sink(ObjectPool* pool, const TDataSink& thrift_sink
             return Status::InternalError("Missing data buffer sink.");
         }
         vectorized::VMysqlTableSink* vmysql_tbl_sink =
-                new vectorized::VMysqlTableSink(pool, row_desc, output_exprs);
+                new vectorized::VMysqlTableSink(row_desc, output_exprs);
         sink->reset(vmysql_tbl_sink);
         break;
 #else
@@ -124,7 +122,7 @@ Status DataSink::create_data_sink(ObjectPool* pool, const TDataSink& thrift_sink
         if (!thrift_sink.__isset.odbc_table_sink) {
             return Status::InternalError("Missing data odbc sink.");
         }
-        sink->reset(new vectorized::VOdbcTableSink(pool, row_desc, output_exprs));
+        sink->reset(new vectorized::VOdbcTableSink(row_desc, output_exprs));
         break;
     }
 
@@ -133,7 +131,7 @@ Status DataSink::create_data_sink(ObjectPool* pool, const TDataSink& thrift_sink
             return Status::InternalError("Missing data jdbc sink.");
         }
         if (config::enable_java_support) {
-            sink->reset(new vectorized::VJdbcTableSink(pool, row_desc, output_exprs));
+            sink->reset(new vectorized::VJdbcTableSink(row_desc, output_exprs));
         } else {
             return Status::InternalError(
                     "Jdbc table sink is not enabled, you can change be config "
@@ -234,9 +232,7 @@ Status DataSink::create_data_sink(ObjectPool* pool, const TDataSink& thrift_sink
                     params.destinations, send_query_statistics_with_every_batch, output_exprs,
                     desc_tbl));
         } else {
-            sink->reset(new doris::vectorized::VResultFileSink(
-                    state, pool, row_desc, thrift_sink.result_file_sink,
-                    send_query_statistics_with_every_batch, output_exprs));
+            sink->reset(new doris::vectorized::VResultFileSink(row_desc, output_exprs));
         }
         break;
     }
@@ -254,7 +250,7 @@ Status DataSink::create_data_sink(ObjectPool* pool, const TDataSink& thrift_sink
             return Status::InternalError("Missing data buffer sink.");
         }
         vectorized::VMysqlTableSink* vmysql_tbl_sink =
-                new vectorized::VMysqlTableSink(pool, row_desc, output_exprs);
+                new vectorized::VMysqlTableSink(row_desc, output_exprs);
         sink->reset(vmysql_tbl_sink);
         break;
 #else
@@ -266,7 +262,7 @@ Status DataSink::create_data_sink(ObjectPool* pool, const TDataSink& thrift_sink
         if (!thrift_sink.__isset.odbc_table_sink) {
             return Status::InternalError("Missing data odbc sink.");
         }
-        sink->reset(new vectorized::VOdbcTableSink(pool, row_desc, output_exprs));
+        sink->reset(new vectorized::VOdbcTableSink(row_desc, output_exprs));
         break;
     }
 
@@ -275,7 +271,7 @@ Status DataSink::create_data_sink(ObjectPool* pool, const TDataSink& thrift_sink
             return Status::InternalError("Missing data jdbc sink.");
         }
         if (config::enable_java_support) {
-            sink->reset(new vectorized::VJdbcTableSink(pool, row_desc, output_exprs));
+            sink->reset(new vectorized::VJdbcTableSink(row_desc, output_exprs));
         } else {
             return Status::InternalError(
                     "Jdbc table sink is not enabled, you can change be config "

@@ -206,20 +206,48 @@ public class DateLiteral extends Literal {
         return day;
     }
 
-    public Expression plusDays(int days) {
+    public Expression plusDays(long days) {
         return fromJavaDateType(DateUtils.getTime(DATE_FORMATTER, getStringValue()).plusDays(days));
     }
 
-    public Expression plusMonths(int months) {
+    public Expression plusMonths(long months) {
         return fromJavaDateType(DateUtils.getTime(DATE_FORMATTER, getStringValue()).plusMonths(months));
     }
 
-    public Expression plusYears(int years) {
+    public Expression plusYears(long years) {
         return fromJavaDateType(DateUtils.getTime(DATE_FORMATTER, getStringValue()).plusYears(years));
     }
 
     public LocalDateTime toJavaDateType() {
         return LocalDateTime.of(((int) getYear()), ((int) getMonth()), ((int) getDay()), 0, 0, 0);
+    }
+
+    public long getTotalDays() {
+        return calculateDays(this.year, this.month, this.day);
+    }
+
+    // calculate the number of days from year 0000-00-00 to year-month-day
+    private long calculateDays(long year, long month, long day) {
+        long totalDays = 0;
+        long y = year;
+
+        if (year == 0 && month == 0) {
+            return 0;
+        }
+
+        /* Cast to int to be able to handle month == 0 */
+        totalDays = 365 * y + 31 * (month - 1) + day;
+        if (month <= 2) {
+            // No leap year
+            y--;
+        } else {
+            // This is great!!!
+            // 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12
+            // 0, 0, 3, 3, 4, 4, 5, 5, 5,  6,  7,  8
+            totalDays -= (month * 4 + 23) / 10;
+        }
+        // Every 400 year has 97 leap year, 100, 200, 300 are not leap year.
+        return totalDays + y / 4 - y / 100 + y / 400;
     }
 
     public static Expression fromJavaDateType(LocalDateTime dateTime) {

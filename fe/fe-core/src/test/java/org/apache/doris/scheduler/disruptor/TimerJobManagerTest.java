@@ -133,6 +133,18 @@ public class TimerJobManagerTest {
     }
 
     @Test
+    public void testCycleSchedulerWithImmediatelyStart(@Mocked Env env) throws DdlException {
+        setContext(env);
+        long startTimestamp = System.currentTimeMillis();
+        job.setImmediatelyStart(true);
+        timerJobManager.registerJob(job);
+        //consider the time of the first execution and give some buffer time
+        Awaitility.await().atMost(16, TimeUnit.SECONDS).until(() -> System.currentTimeMillis()
+                >= startTimestamp + 15000L);
+        Assertions.assertEquals(3, testExecuteCount.get());
+    }
+
+    @Test
     public void testOneTimeJob(@Mocked Env env) throws DdlException {
         setContext(env);
 

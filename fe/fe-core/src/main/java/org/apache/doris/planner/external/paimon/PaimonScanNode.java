@@ -69,7 +69,7 @@ public class PaimonScanNode extends FileQueryScanNode {
                     String.format("Querying external view '%s.%s' is not supported", table.getDbName(),
                             table.getName()));
         }
-        computeColumnFilter();
+        computeColumnsFilter();
         initBackendPolicy();
         source = new PaimonSource((PaimonExternalTable) table, desc, columnNameToRange);
         Preconditions.checkNotNull(source);

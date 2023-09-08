@@ -301,6 +301,7 @@ message PCacheParam {
     required int64 partition_key = 1;
     optional int64 last_version = 2;
     optional int64 last_version_time = 3;
+    optional int64 partition_num = 4;
 };
 
 message PCacheValue {

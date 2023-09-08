@@ -71,7 +71,6 @@ Result description:
          * PAUSED: Paused
          * STOPPED: end (manually triggered by the user)
          * FINISHED: Finished
-         * WAITING_FINISH: pending completion
 
 ### Example
 

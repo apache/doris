@@ -67,7 +67,7 @@ class OlapMeta;
 
 static const uint32_t MAX_PATH_LEN = 1024;
 
-static StorageEngine* k_engine = nullptr;
+static std::unique_ptr<StorageEngine> k_engine;
 
 static void set_up() {
     char buffer[MAX_PATH_LEN];
@@ -83,7 +83,6 @@ static void set_up() {
     EXPECT_TRUE(s.ok()) << s.to_string();
 
     ExecEnv* exec_env = doris::ExecEnv::GetInstance();
-    exec_env->set_storage_engine(k_engine);
     exec_env->set_memtable_memory_limiter(new MemTableMemoryLimiter());
     k_engine->start_bg_threads();
 }
@@ -91,11 +90,7 @@ static void set_up() {
 static void tear_down() {
     ExecEnv* exec_env = doris::ExecEnv::GetInstance();
     exec_env->set_memtable_memory_limiter(nullptr);
-    if (k_engine != nullptr) {
-        k_engine->stop();
-        delete k_engine;
-        k_engine = nullptr;
-    }
+    k_engine.reset();
     EXPECT_EQ(system("rm -rf ./data_test"), 0);
     io::global_local_filesystem()->delete_directory(std::string(getenv("DORIS_HOME")) + "/" +
                                                     UNUSED_PREFIX);

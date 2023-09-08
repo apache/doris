@@ -1490,7 +1490,6 @@ void IRuntimeFilter::init_profile(RuntimeProfile* parent_profile) {
 void IRuntimeFilter::update_runtime_filter_type_to_profile() {
     if (_profile != nullptr) {
         _profile->add_info_string("RealRuntimeFilterType", to_string(_wrapper->get_real_type()));
-        _wrapper->set_filter_id(_filter_id);
     }
 }
 
@@ -1845,7 +1844,7 @@ Status RuntimePredicateWrapper::get_push_exprs(std::list<vectorized::VExprContex
     vectorized::VExprContextSPtr probe_ctx;
     RETURN_IF_ERROR(vectorized::VExpr::create_expr_tree(probe_expr, probe_ctx));
     probe_ctxs.push_back(probe_ctx);
-
+    set_filter_id(_filter_id);
     DCHECK(probe_ctx->root()->type().type == _column_return_type ||
            (is_string_type(probe_ctx->root()->type().type) &&
             is_string_type(_column_return_type)) ||

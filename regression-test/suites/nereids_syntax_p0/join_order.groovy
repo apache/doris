@@ -115,4 +115,73 @@ suite("join_order") {
                     FROM outerjoin_B_order AS ref_1
                     INNER JOIN outerjoin_A_order AS ref_7
                         ON (true) order by ref_7.a2) AS subq_0 order by 1, 2;"""
+   
+    sql """drop table if exists test_table_t1;"""
+    sql """drop table if exists test_table_t2;"""
+    sql """drop table if exists test_table_t3;"""
+
+    sql """ create table test_table_t1
+                    (k1 bigint, k2 bigint)
+                    ENGINE=OLAP
+            DUPLICATE KEY(k1, k2)
+            COMMENT 'OLAP'
+            DISTRIBUTED BY HASH(k2) BUCKETS 1
+            PROPERTIES (
+            "replication_allocation" = "tag.location.default: 1",
+            "is_being_synced" = "false",
+            "storage_format" = "V2",
+            "light_schema_change" = "true",
+            "disable_auto_compaction" = "false",
+            "enable_single_replica_compaction" = "false"
+            );"""
+
+    sql """ create table test_table_t2
+                    (k1 int not null, k2 varchar(128), k3 bigint, v1 bigint, v2 bigint)
+                    ENGINE=OLAP
+            DUPLICATE KEY(k1, k2)
+            COMMENT 'OLAP'
+            DISTRIBUTED BY HASH(k2) BUCKETS 1
+            PROPERTIES (
+            "replication_allocation" = "tag.location.default: 1",
+            "is_being_synced" = "false",
+            "storage_format" = "V2",
+            "light_schema_change" = "true",
+            "disable_auto_compaction" = "false",
+            "enable_single_replica_compaction" = "false"
+            );"""
+
+    sql """ create table test_table_t3
+                    (k1 bigint, k2 bigint)
+                    ENGINE=OLAP
+            DUPLICATE KEY(k1, k2)
+            COMMENT 'OLAP'
+            DISTRIBUTED BY HASH(k2) BUCKETS 1
+            PROPERTIES (
+            "replication_allocation" = "tag.location.default: 1",
+            "is_being_synced" = "false",
+            "storage_format" = "V2",
+            "light_schema_change" = "true",
+            "disable_auto_compaction" = "false",
+            "enable_single_replica_compaction" = "false"
+            );"""
+
+    sql """insert into test_table_t1 values (1,null);"""
+    sql """insert into test_table_t2 values (1,'abc',2,3,4);"""
+    sql """insert into test_table_t3 values (1,null),(1,4), (1,2), (2,3), (2,4), (3,7), (3,9),(null,null);"""
+
+    qt_select1 """SELECT 
+                    count( 
+                    (SELECT max(`k1`)
+                    FROM test_table_t3) )
+                        OVER (partition by ref_560.`k2`
+                    ORDER BY  ref_560.`k1`) AS c3
+                    FROM test_table_t1 AS ref_559
+                    RIGHT JOIN test_table_t2 AS ref_560
+                        ON (ref_560.`k1` = ref_559.`k1` )
+                    WHERE ref_559.`k2` is null;
+                    """
+
+    sql """drop table if exists test_table_t1;"""
+    sql """drop table if exists test_table_t2;"""
+    sql """drop table if exists test_table_t3;"""
 }

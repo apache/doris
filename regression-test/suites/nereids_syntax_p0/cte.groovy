@@ -306,5 +306,23 @@ suite("cte") {
         notContains "MultiCastDataSinks"
     }
 
+    sql "WITH cte_0 AS ( SELECT 1 AS a ) SELECT * from cte_0 t1 LIMIT 10 UNION SELECT * from cte_0 t1 LIMIT 10"
+
+    qt_test """
+        SELECT * FROM (
+        WITH temptable as (
+        SELECT 1 Id, '2023-08-25 00:00:00' UpdateDateTime, 10 Value
+        UNION
+        SELECT 1 Id, '2023-08-25 01:00:00' UpdateDateTime, 20 Value
+        )
+        SELECT temptable.Id, temptable.UpdateDateTime, temptable.Value, rolling.RollingValue FROM temptable
+        LEFT JOIN (
+        SELECT Id, UpdateDateTime, SUM(Value) OVER (PARTITION BY CAST(UpdateDateTime AS DATE) ORDER BY UpdateDateTime) AS RollingValue
+        FROM temptable
+        GROUP BY Id, UpdateDateTime, Value
+        ) rolling ON temptable.Id = rolling.Id AND temptable.UpdateDateTime = rolling.UpdateDateTime
+        ) tab
+        WHERE Id IN (1, 2)
+    """
 }
 

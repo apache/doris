@@ -18,8 +18,6 @@
 package org.apache.doris.scheduler.disruptor;
 
 import org.apache.doris.catalog.Env;
-import org.apache.doris.scheduler.constants.JobStatus;
-import org.apache.doris.scheduler.constants.SystemJob;
 import org.apache.doris.scheduler.exception.JobException;
 import org.apache.doris.scheduler.executor.TransientTaskExecutor;
 import org.apache.doris.scheduler.job.Job;
@@ -71,10 +69,6 @@ public class TaskHandler implements WorkHandler<TaskEvent> {
      */
     @Override
     public void onEvent(TaskEvent event) {
-        if (checkIsSystemEvent(event)) {
-            onSystemEvent();
-            return;
-        }
         switch (event.getTaskType()) {
             case TimerJobTask:
                 onTimerJobTaskHandle(event);
@@ -97,14 +91,14 @@ public class TaskHandler implements WorkHandler<TaskEvent> {
         long jobId = taskEvent.getId();
         Job job = timerJobManager.getJob(jobId);
         if (job == null) {
-            log.info("Event job is null, eventJobId: {}", jobId);
+            log.info("job is null, jobId: {}", jobId);
             return;
         }
-        if (!job.isRunning() && !job.getJobStatus().equals(JobStatus.WAITING_FINISH)) {
-            log.info("Event job is not running, eventJobId: {}", jobId);
+        if (!job.isRunning()) {
+            log.info("job is not running, eventJobId: {}", jobId);
             return;
         }
-        log.debug("Event job is running, eventJobId: {}", jobId);
+        log.debug("job is running, eventJobId: {}", jobId);
         JobTask jobTask = new JobTask(jobId);
         try {
             jobTask.setStartTimeMs(System.currentTimeMillis());
@@ -145,27 +139,6 @@ public class TaskHandler implements WorkHandler<TaskEvent> {
         } catch (JobException e) {
             log.warn("Memory task execute failed, taskId: {}, msg : {}", taskId, e.getMessage());
         }
-    }
-
-    /**
-     * Handles a system event by scheduling batch scheduler tasks.
-     */
-    private void onSystemEvent() {
-        try {
-            timerJobManager.batchSchedulerTasks();
-        } catch (Exception e) {
-            log.error("System batch scheduler execute failed", e);
-        }
-    }
-
-    /**
-     * Checks whether the specified event task is a system event.
-     *
-     * @param event The event task to be checked.
-     * @return true if the event task is a system event, false otherwise.
-     */
-    private boolean checkIsSystemEvent(TaskEvent event) {
-        return Objects.equals(event.getId(), SystemJob.SYSTEM_SCHEDULER_JOB.getId());
     }
 
     private void updateJobStatusIfPastEndTime(Job job) {

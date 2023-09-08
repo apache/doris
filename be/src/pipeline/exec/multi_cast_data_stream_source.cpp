@@ -72,6 +72,12 @@ Status MultiCastDataStreamerSourceOperator::prepare(doris::RuntimeState* state) 
 }
 
 Status MultiCastDataStreamerSourceOperator::open(doris::RuntimeState* state) {
+    if (_t_data_stream_sink.__isset.output_exprs) {
+        RETURN_IF_ERROR(vectorized::VExpr::open(_output_expr_contexts, state));
+    }
+    if (_t_data_stream_sink.__isset.conjuncts) {
+        RETURN_IF_ERROR(vectorized::VExpr::open(_conjuncts, state));
+    }
     return _acquire_runtime_filter();
 }
 

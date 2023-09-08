@@ -73,9 +73,8 @@ OperatorPtr StreamingAggSourceOperatorBuilder::build_operator() {
 }
 
 StreamingAggSourceOperatorX::StreamingAggSourceOperatorX(ObjectPool* pool, const TPlanNode& tnode,
-                                                         const DescriptorTbl& descs,
-                                                         std::string op_name)
-        : AggSourceOperatorX(pool, tnode, descs, op_name) {}
+                                                         const DescriptorTbl& descs)
+        : AggSourceOperatorX(pool, tnode, descs) {}
 
 Status StreamingAggSourceOperatorX::get_block(RuntimeState* state, vectorized::Block* block,
                                               SourceState& source_state) {

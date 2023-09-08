@@ -119,8 +119,7 @@ public class FunctionBinder extends AbstractExpressionRewriteRule {
 
     @Override
     public Expression visitBoundFunction(BoundFunction boundFunction, ExpressionRewriteContext context) {
-        boundFunction = (BoundFunction) boundFunction.withChildren(boundFunction.children().stream()
-                .map(e -> e.accept(this, context)).collect(Collectors.toList()));
+        boundFunction = (BoundFunction) super.visitBoundFunction(boundFunction, context);
         return TypeCoercionUtils.processBoundFunction(boundFunction);
     }
 

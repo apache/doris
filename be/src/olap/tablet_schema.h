@@ -300,7 +300,7 @@ public:
             if (str.size() > 1) {
                 str += ", ";
             }
-            str += p.first;
+            str += p.first + "(" + std::to_string(_cols[p.second].unique_id()) + ")";
         }
         str += "]";
         return str;

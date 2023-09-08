@@ -118,6 +118,7 @@ public class WorkloadGroupMgr implements Writable, GsonPostProcessable {
                 throw new UserException("Workload group " + groupName + " does not exist");
             }
             workloadGroups.add(workloadGroup.toThrift());
+            context.setWorkloadGroupName(groupName);
         } finally {
             readUnlock();
         }

@@ -523,10 +523,18 @@ Status SegmentIterator::_apply_bitmap_index() {
     size_t input_rows = _row_bitmap.cardinality();
 
     std::vector<ColumnPredicate*> remaining_predicates;
+    auto is_like_predicate = [](ColumnPredicate* _pred) {
+        if (static_cast<LikeColumnPredicate<TYPE_CHAR>*>(_pred) != nullptr ||
+            static_cast<LikeColumnPredicate<TYPE_STRING>*>(_pred) != nullptr) {
+            return true;
+        }
 
+        return false;
+    };
     for (auto pred : _col_predicates) {
         auto cid = pred->column_id();
-        if (_bitmap_index_iterators[cid] == nullptr || pred->type() == PredicateType::BF) {
+        if (_bitmap_index_iterators[cid] == nullptr || pred->type() == PredicateType::BF ||
+            is_like_predicate(pred)) {
             // no bitmap index for this column
             remaining_predicates.push_back(pred);
         } else {
@@ -682,7 +690,8 @@ bool SegmentIterator::_check_apply_by_inverted_index(ColumnPredicate* pred, bool
     }
 
     // Function filter no apply inverted index
-    if (dynamic_cast<LikeColumnPredicate*>(pred)) {
+    if (dynamic_cast<LikeColumnPredicate<TYPE_CHAR>*>(pred) != nullptr ||
+        dynamic_cast<LikeColumnPredicate<TYPE_STRING>*>(pred) != nullptr) {
         return false;
     }
 
@@ -937,6 +946,10 @@ Status SegmentIterator::_apply_inverted_index_on_block_column_predicate(
 }
 
 bool SegmentIterator::_need_read_data(ColumnId cid) {
+    // for safety reason, only support DUP_KEYS
+    if (_opts.tablet_schema->keys_type() != KeysType::DUP_KEYS) {
+        return true;
+    }
     if (_output_columns.count(-1)) {
         // if _output_columns contains -1, it means that the light
         // weight schema change may not be enabled or other reasons
@@ -944,9 +957,19 @@ bool SegmentIterator::_need_read_data(ColumnId cid) {
         // occurring, return true here that column data needs to be read
         return true;
     }
+    // Check the following conditions:
+    // 1. If the column represented by the unique ID is an inverted index column (indicated by '_need_read_data_indices.count(unique_id) > 0 && !_need_read_data_indices[unique_id]')
+    //    and it's not marked for projection in '_output_columns'.
+    // 2. Or, if the column is an inverted index column and it's marked for projection in '_output_columns',
+    //    and the operation is a push down of the 'COUNT_ON_INDEX' aggregation function.
+    // If any of the above conditions are met, log a debug message indicating that there's no need to read data for the indexed column.
+    // Then, return false.
     int32_t unique_id = _opts.tablet_schema->column(cid).unique_id();
-    if (_need_read_data_indices.count(cid) > 0 && !_need_read_data_indices[cid] &&
-        _output_columns.count(unique_id) < 1) {
+    if ((_need_read_data_indices.count(cid) > 0 && !_need_read_data_indices[cid] &&
+         _output_columns.count(unique_id) < 1) ||
+        (_need_read_data_indices.count(cid) > 0 && !_need_read_data_indices[cid] &&
+         _output_columns.count(unique_id) == 1 &&
+         _opts.push_down_agg_type_opt == TPushAggOp::COUNT_ON_INDEX)) {
         VLOG_DEBUG << "SegmentIterator no need read data for column: "
                    << _opts.tablet_schema->column_by_uid(unique_id).name();
         return false;
@@ -1313,7 +1336,9 @@ Status SegmentIterator::_vec_init_lazy_materialization() {
             } else {
                 short_cir_pred_col_id_set.insert(cid);
                 _short_cir_eval_predicate.push_back(predicate);
-                _filter_info_id.push_back(predicate);
+                if (predicate->is_filter()) {
+                    _filter_info_id.push_back(predicate);
+                }
             }
         }
 

@@ -20,6 +20,7 @@
 #include <stdint.h>
 
 #include "operator.h"
+#include "pipeline/pipeline_x/operator.h"
 #include "vec/exec/vexchange_node.h"
 
 namespace doris {
@@ -50,7 +51,7 @@ public:
 };
 
 class ExchangeSourceOperatorX;
-class ExchangeLocalState : public PipelineXLocalState {
+class ExchangeLocalState : public PipelineXLocalState<> {
     ENABLE_FACTORY_CREATOR(ExchangeLocalState);
     ExchangeLocalState(RuntimeState* state, OperatorXBase* parent);
 
@@ -63,17 +64,16 @@ class ExchangeLocalState : public PipelineXLocalState {
     bool is_ready;
 };
 
-class ExchangeSourceOperatorX final : public OperatorXBase {
+class ExchangeSourceOperatorX final : public OperatorX<ExchangeLocalState> {
 public:
     ExchangeSourceOperatorX(ObjectPool* pool, const TPlanNode& tnode, const DescriptorTbl& descs,
-                            std::string op_name, int num_senders);
+                            int num_senders);
     bool can_read(RuntimeState* state) override;
     bool is_pending_finish(RuntimeState* state) const override;
 
     Status init(const TPlanNode& tnode, RuntimeState* state) override;
     Status prepare(RuntimeState* state) override;
     Status open(RuntimeState* state) override;
-    Status setup_local_state(RuntimeState* state, LocalStateInfo& info) override;
 
     Status get_block(RuntimeState* state, vectorized::Block* block,
                      SourceState& source_state) override;

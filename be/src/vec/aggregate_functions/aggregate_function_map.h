@@ -225,13 +225,14 @@ public:
                                            const size_t num_rows, Arena* arena) const override {
         auto& col = assert_cast<ColumnMap&>(*dst);
         for (size_t i = 0; i != num_rows; ++i) {
-            Map map(2);
-            columns[0]->get(i, map[0]);
-            if (map[0].is_null()) {
+            Field key, value;
+            columns[0]->get(i, key);
+            if (key.is_null()) {
                 continue;
             }
-            columns[1]->get(i, map[1]);
-            col.insert(map);
+
+            columns[1]->get(i, value);
+            col.insert(Map {Array {key}, Array {value}});
         }
     }
 

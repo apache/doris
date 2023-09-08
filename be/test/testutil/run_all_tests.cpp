@@ -28,6 +28,7 @@
 #include "olap/segment_loader.h"
 #include "olap/tablet_schema_cache.h"
 #include "runtime/exec_env.h"
+#include "runtime/memory/cache_manager.h"
 #include "runtime/memory/thread_mem_tracker_mgr.h"
 #include "runtime/thread_context.h"
 #include "service/backend_options.h"

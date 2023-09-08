@@ -135,9 +135,9 @@ static constexpr StreamingHtMinReductionEntry STREAMING_HT_MIN_REDUCTION[] = {
 static constexpr int STREAMING_HT_MIN_REDUCTION_SIZE =
         sizeof(STREAMING_HT_MIN_REDUCTION) / sizeof(STREAMING_HT_MIN_REDUCTION[0]);
 
-StreamingAggSinkLocalState::StreamingAggSinkLocalState(DataSinkOperatorX* parent,
+StreamingAggSinkLocalState::StreamingAggSinkLocalState(DataSinkOperatorXBase* parent,
                                                        RuntimeState* state)
-        : AggSinkLocalState(parent, state),
+        : AggSinkLocalState<StreamingAggSinkLocalState>(parent, state),
           _queue_byte_size_counter(nullptr),
           _queue_size_counter(nullptr),
           _streaming_agg_timer(nullptr) {}
@@ -379,12 +379,6 @@ Status StreamingAggSinkOperatorX::sink(RuntimeState* state, vectorized::Block* i
         local_state._shared_state->data_queue->set_finish();
     }
     return Status::OK();
-}
-
-Status StreamingAggSinkOperatorX::setup_local_state(RuntimeState* state, LocalSinkStateInfo& info) {
-    auto local_state = StreamingAggSinkLocalState::create_shared(this, state);
-    state->emplace_sink_local_state(id(), local_state);
-    return local_state->init(state, info);
 }
 
 Status StreamingAggSinkLocalState::close(RuntimeState* state) {
