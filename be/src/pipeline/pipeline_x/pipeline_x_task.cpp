@@ -111,6 +111,7 @@ Status PipelineXTask::_open() {
     }
     LocalSinkStateInfo info {_sender_id, _downstream_dependency.get(), _sender};
     RETURN_IF_ERROR(_sink->setup_local_state(_state, info));
+    _dry_run = _sink->should_dry_run(_state);
     RETURN_IF_ERROR(st);
     _opened = true;
     return Status::OK();
@@ -176,11 +177,14 @@ Status PipelineXTask::execute(bool* eos) {
         auto* block = _block.get();
 
         // Pull block from operator chain
-        {
+        if (!_dry_run) {
             SCOPED_TIMER(_get_block_timer);
             _get_block_counter->update(1);
             RETURN_IF_ERROR(_root->get_next_after_projects(_state, block, _data_state));
+        } else {
+            _data_state = SourceState::FINISHED;
         }
+
         *eos = _data_state == SourceState::FINISHED;
         if (_block->rows() != 0 || *eos) {
             SCOPED_TIMER(_sink_timer);

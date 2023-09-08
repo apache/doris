@@ -81,6 +81,8 @@ public:
 
     virtual TPushAggOp::type get_push_down_agg_type() = 0;
 
+    [[nodiscard]] std::string get_name() { return _parent->get_name(); }
+
 protected:
     friend class vectorized::ScannerContext;
     friend class vectorized::VScanner;
@@ -308,6 +310,7 @@ protected:
     // We use _colname_to_value_range to store a column and its conresponding value ranges.
     std::unordered_map<std::string, ColumnValueRangeType> _colname_to_value_range;
 
+    std::unordered_map<std::string, int> _colname_to_slot_id;
     /**
      * _colname_to_value_range only store the leaf of and in the conjunct expr tree,
      * we use _compound_value_ranges to store conresponding value ranges
@@ -391,7 +394,6 @@ protected:
     // If sort info is set, push limit to each scanner;
     int64_t _limit_per_scanner = -1;
 
-    std::unordered_map<std::string, int> _colname_to_slot_id;
     std::vector<int> _col_distribute_ids;
     std::vector<TRuntimeFilterDesc> _runtime_filter_descs;
 

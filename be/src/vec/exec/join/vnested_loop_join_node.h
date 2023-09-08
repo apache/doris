@@ -47,6 +47,15 @@ class VExprContext;
 
 namespace doris::vectorized {
 
+template <typename Parent>
+struct RuntimeFilterBuild {
+    RuntimeFilterBuild(Parent* parent) : _parent(parent) {}
+    Status operator()(RuntimeState* state);
+
+private:
+    Parent* _parent;
+};
+
 // Node for nested loop joins.
 class VNestedLoopJoinNode final : public VJoinNodeBase {
 public:
@@ -87,6 +96,12 @@ public:
     }
 
     Block* get_left_block() { return &_left_block; }
+
+    std::vector<TRuntimeFilterDesc>& runtime_filter_descs() { return _runtime_filter_descs; }
+    VExprContextSPtrs& filter_src_expr_ctxs() { return _filter_src_expr_ctxs; }
+    RuntimeProfile::Counter* push_compute_timer() { return _push_compute_timer; }
+    Blocks& build_blocks() { return _build_blocks; }
+    RuntimeProfile::Counter* push_down_timer() { return _push_down_timer; }
 
 private:
     template <typename JoinOpType, bool set_build_side_flag, bool set_probe_side_flag>
@@ -262,6 +277,7 @@ private:
     std::stack<uint16_t> _probe_offset_stack;
     VExprContextSPtrs _join_conjuncts;
 
+    template <typename Parent>
     friend struct RuntimeFilterBuild;
 };
 

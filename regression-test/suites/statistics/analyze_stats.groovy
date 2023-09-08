@@ -20,6 +20,14 @@ suite("test_analyze") {
     String tbl = "analyzetestlimited_duplicate_all"
 
     sql """
+        DROP DATABASE IF EXISTS `${db}`
+    """
+
+    sql """
+        CREATE DATABASE `${db}`
+    """
+
+    sql """
         DROP TABLE IF EXISTS `${tbl}`
     """
 
@@ -904,4 +912,8 @@ PARTITION `p599` VALUES IN (599)
         SHOW COLUMN CACHED STATS increment_analyze_test(id)
     """
     expected_id_col_stats(inc_res, 6, 1)
+
+    sql """
+        DROP TABLE regression_test_statistics.increment_analyze_test;
+    """
 }

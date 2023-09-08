@@ -49,10 +49,16 @@ public:
 
     template <class TARGET>
     TARGET& cast() {
+        DCHECK(dynamic_cast<TARGET*>(this))
+                << " Mismatch type! Current type is " << typeid(*this).name()
+                << " and expect type is" << typeid(TARGET).name();
         return reinterpret_cast<TARGET&>(*this);
     }
     template <class TARGET>
     const TARGET& cast() const {
+        DCHECK(dynamic_cast<TARGET*>(this))
+                << " Mismatch type! Current type is " << typeid(*this).name()
+                << " and expect type is" << typeid(TARGET).name();
         return reinterpret_cast<const TARGET&>(*this);
     }
 
@@ -77,7 +83,7 @@ public:
     RuntimeState* state() { return _state; }
     vectorized::VExprContextSPtrs& conjuncts() { return _conjuncts; }
     vectorized::VExprContextSPtrs& projections() { return _projections; }
-    int64_t num_rows_returned() const { return _num_rows_returned; }
+    [[nodiscard]] int64_t num_rows_returned() const { return _num_rows_returned; }
     void add_num_rows_returned(int64_t delta) { _num_rows_returned += delta; }
     void set_num_rows_returned(int64_t value) { _num_rows_returned = value; }
 
@@ -219,7 +225,7 @@ public:
 
     /// Only use in vectorized exec engine try to do projections to trans _row_desc -> _output_row_desc
     Status do_projections(RuntimeState* state, vectorized::Block* origin_block,
-                          vectorized::Block* output_block);
+                          vectorized::Block* output_block) const;
 
 protected:
     template <typename Dependency>
@@ -434,6 +440,8 @@ public:
 
     Status finalize(RuntimeState* state) override { return Status::OK(); }
 
+    virtual bool should_dry_run(RuntimeState* state) { return false; }
+
 protected:
     const int _id;
     std::string _name;
@@ -487,6 +495,48 @@ public:
 protected:
     DependencyType* _dependency;
     typename DependencyType::SharedState* _shared_state;
+};
+
+/**
+ * StreamingOperatorX indicates operators which always processes block in streaming way (one-in-one-out).
+ */
+template <typename LocalStateType>
+class StreamingOperatorX : public OperatorX<LocalStateType> {
+public:
+    StreamingOperatorX(ObjectPool* pool, const TPlanNode& tnode, const DescriptorTbl& descs)
+            : OperatorX<LocalStateType>(pool, tnode, descs) {}
+    virtual ~StreamingOperatorX() = default;
+
+    Status get_block(RuntimeState* state, vectorized::Block* block,
+                     SourceState& source_state) override;
+
+    virtual Status pull(RuntimeState* state, vectorized::Block* block,
+                        SourceState& source_state) = 0;
+};
+
+/**
+ * StatefulOperatorX indicates the operators with some states inside.
+ *
+ * Specifically, we called an operator stateful if an operator can determine its output by itself.
+ * For example, hash join probe operator is a typical StatefulOperator. When it gets a block from probe side, it will hold this block inside (e.g. _child_block).
+ * If there are still remain rows in probe block, we can get output block by calling `get_block` without any data from its child.
+ * In a nutshell, it is a one-to-many relation between input blocks and output blocks for StatefulOperator.
+ */
+template <typename LocalStateType>
+class StatefulOperatorX : public OperatorX<LocalStateType> {
+public:
+    StatefulOperatorX(ObjectPool* pool, const TPlanNode& tnode, const DescriptorTbl& descs)
+            : OperatorX<LocalStateType>(pool, tnode, descs) {}
+    virtual ~StatefulOperatorX() = default;
+
+    [[nodiscard]] Status get_block(RuntimeState* state, vectorized::Block* block,
+                                   SourceState& source_state) override;
+
+    [[nodiscard]] virtual Status pull(RuntimeState* state, vectorized::Block* block,
+                                      SourceState& source_state) const = 0;
+    [[nodiscard]] virtual Status push(RuntimeState* state, vectorized::Block* input_block,
+                                      SourceState source_state) const = 0;
+    [[nodiscard]] virtual bool need_more_input_data(RuntimeState* state) const = 0;
 };
 
 } // namespace doris::pipeline

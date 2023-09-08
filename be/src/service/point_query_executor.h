@@ -282,7 +282,7 @@ private:
 
     static void release_rowset(RowsetSharedPtr* r) {
         if (r && *r) {
-            VLOG_DEBUG << "release rowset " << (*r)->unique_id();
+            VLOG_DEBUG << "release rowset " << (*r)->rowset_id();
             (*r)->release();
         }
         delete r;
