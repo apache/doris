@@ -125,7 +125,8 @@ Status DataTypeArraySerDe::deserialize_one_cell_from_text(IColumn& column, Slice
             slices.back().remove_suffix(slice_size - idx);
             // we do not handle item in array is empty,just return error
             if (slices.back().empty()) {
-                return Status::InvalidArgument("here has item in Array is empty!");
+                return Status::InvalidArgument("here has item in Array({}) is empty!",
+                                               slice.to_string());
             }
             // add next total slice.(slice data will not change, so we can use slice directly)
             // skip delimiter
