@@ -62,7 +62,7 @@ public:
     // Get a shared cached schema from cache, schema_key is a subset of column unique ids
     template <typename SchemaType>
     SchemaType get_schema(const std::string& schema_key) {
-        if (!_s_instance || schema_key.empty()) {
+        if (!instance() || schema_key.empty()) {
             return {};
         }
         auto lru_handle = _cache->lookup(schema_key);
@@ -84,7 +84,7 @@ public:
     // Insert a shared Schema into cache, schema_key is full column unique ids
     template <typename SchemaType>
     void insert_schema(const std::string& key, SchemaType schema) {
-        if (!_s_instance || key.empty()) {
+        if (!instance() || key.empty()) {
             return;
         }
         CacheValue* value = new CacheValue;
