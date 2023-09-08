@@ -31,6 +31,7 @@
 #include "util/runtime_profile.h"
 #include "util/stopwatch.hpp"
 #include "vec/core/block.h"
+#include "vec/sink/vresult_sink.h"
 
 namespace doris {
 class QueryContext;
@@ -50,7 +51,9 @@ class PipelineXTask : public PipelineTask {
 public:
     PipelineXTask(PipelinePtr& pipeline, uint32_t index, RuntimeState* state,
                   PipelineFragmentContext* fragment_context, RuntimeProfile* parent_profile,
-                  const std::vector<TScanRangeParams>& scan_ranges, const int sender_id);
+                  const std::vector<TScanRangeParams>& scan_ranges, const int sender_id,
+                  std::shared_ptr<BufferControlBlock>& sender,
+                  std::shared_ptr<vectorized::VDataStreamRecvr>& recvr);
 
     Status prepare(RuntimeState* state) override;
 
@@ -64,14 +67,22 @@ public:
     Status close() override;
 
     bool source_can_read() override {
-        return _source->can_read(_state) || _ignore_blocking_source();
+        if (_dry_run) {
+            return true;
+        }
+        for (auto& op : _operators) {
+            if (!op->can_read(_state)) {
+                return false;
+            }
+        }
+        return true;
     }
 
     bool runtime_filters_are_ready_or_timeout() override {
-        return _source->runtime_filters_are_ready_or_timeout();
+        return _source->runtime_filters_are_ready_or_timeout(_state);
     }
 
-    bool sink_can_write() override { return _sink->can_write(_state) || _ignore_blocking_sink(); }
+    bool sink_can_write() override { return _sink->can_write(_state); }
 
     Status finalize() override;
 
@@ -102,17 +113,6 @@ public:
     }
 
 private:
-    [[nodiscard]] bool _ignore_blocking_sink() { return _root->can_terminate_early(_state); }
-
-    [[nodiscard]] bool _ignore_blocking_source() {
-        for (size_t i = 1; i < _operators.size(); i++) {
-            if (_operators[i]->can_terminate_early(_state)) {
-                return true;
-            }
-        }
-        return false;
-    }
-
     using DependencyMap = std::map<int, DependencySPtr>;
     Status _open() override;
 
@@ -127,5 +127,11 @@ private:
 
     DependencyMap _upstream_dependency;
     DependencySPtr _downstream_dependency;
+
+    std::shared_ptr<BufferControlBlock> _sender;
+    std::shared_ptr<vectorized::VDataStreamRecvr> _recvr;
+    bool _dry_run = false;
+    bool _init_local_state = false;
 };
+
 } // namespace doris::pipeline

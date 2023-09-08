@@ -226,6 +226,11 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
                 throw new AnalysisException("format:" + formatString + " is not supported.");
         }
 
+        if (getTFileType() == TFileType.FILE_STREAM && (formatString.equals("parquet")
+                || formatString.equals("avro")
+                || formatString.equals("orc"))) {
+            throw new AnalysisException("current http_stream does not yet support parquet, avro and orc");
+        }
         columnSeparator = validParams.getOrDefault(COLUMN_SEPARATOR, DEFAULT_COLUMN_SEPARATOR);
         lineDelimiter = validParams.getOrDefault(LINE_DELIMITER, DEFAULT_LINE_DELIMITER);
         jsonRoot = validParams.getOrDefault(JSON_ROOT, "");
@@ -405,6 +410,15 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
     }
 
     protected Backend getBackend() {
+        ConnectContext ctx = ConnectContext.get();
+        // For the http stream task, we should obtain the be for processing the task
+        long backendId = ctx.getBackendId();
+        if (getTFileType() == TFileType.FILE_STREAM) {
+            Backend be = Env.getCurrentSystemInfo().getIdToBackend().get(backendId);
+            if (be.isAlive()) {
+                return be;
+            }
+        }
         for (Backend be : Env.getCurrentSystemInfo().getIdToBackend().values()) {
             if (be.isAlive()) {
                 return be;
@@ -477,7 +491,13 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
         fileScanRangeParams.setProperties(locationProperties);
         fileScanRangeParams.setFileAttributes(getFileAttributes());
         ConnectContext ctx = ConnectContext.get();
-        fileScanRangeParams.setLoadId(ctx.getLoadId());
+        fileScanRangeParams.setLoadId(ctx.queryId());
+
+        if (getTFileType() == TFileType.FILE_STREAM) {
+            fileStatuses.add(new TBrokerFileStatus("", false, -1, true));
+            fileScanRangeParams.setFileType(getTFileType());
+        }
+
         if (getTFileType() == TFileType.FILE_HDFS) {
             THdfsParams tHdfsParams = HdfsResource.generateHdfsParam(locationProperties);
             String fsNmae = getLocationProperties().get(HdfsResource.HADOOP_FS_NAME);
@@ -500,6 +520,7 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
 
         // set TFileRangeDesc
         TFileRangeDesc fileRangeDesc = new TFileRangeDesc();
+        fileRangeDesc.setLoadId(ctx.queryId());
         fileRangeDesc.setFileType(getTFileType());
         fileRangeDesc.setCompressType(Util.getOrInferCompressType(compressionType, firstFile.getPath()));
         fileRangeDesc.setPath(firstFile.getPath());

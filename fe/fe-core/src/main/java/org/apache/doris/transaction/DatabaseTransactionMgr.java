@@ -355,13 +355,6 @@ public class DatabaseTransactionMgr {
             }
 
             return tid;
-        } catch (DuplicatedRequestException e) {
-            throw e;
-        } catch (Exception e) {
-            if (MetricRepo.isInit) {
-                MetricRepo.COUNTER_TXN_REJECT.increase(1L);
-            }
-            throw e;
         } finally {
             writeUnlock();
         }

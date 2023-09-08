@@ -107,7 +107,7 @@ public:
     }
 
 private:
-    // is false: ExecEnv::GetInstance()->initialized() = false when thread local is initialized
+    // is false: ExecEnv::ready() = false when thread local is initialized
     bool _init = false;
     // Cache untracked mem.
     int64_t _untracked_mem = 0;
@@ -162,7 +162,7 @@ inline void ThreadMemTrackerMgr::pop_consumer_tracker() {
 
 inline void ThreadMemTrackerMgr::consume(int64_t size, bool large_memory_check) {
     _untracked_mem += size;
-    if (!ExecEnv::GetInstance()->initialized()) {
+    if (!ExecEnv::ready()) {
         return;
     }
     // When some threads `0 < _untracked_mem < config::mem_tracker_consume_min_size_bytes`

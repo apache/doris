@@ -42,7 +42,7 @@ PhysicalCteAnchor ( cteId=CTEId#0 )
 ------PhysicalDistribute
 --------PhysicalTopN
 ----------PhysicalProject
-------------hashJoin[INNER_JOIN](t_s_firstyear.customer_id = t_w_secyear.customer_id)(CASE WHEN (year_total > 0.00) THEN (cast(year_total as DOUBLE) / cast(year_total as DOUBLE)) ELSE 0.0 END > CASE WHEN (year_total > 0.00) THEN (cast(year_total as DOUBLE) / cast(year_total as DOUBLE)) ELSE 0.0 END)
+------------hashJoin[INNER_JOIN](t_s_firstyear.customer_id = t_w_secyear.customer_id)(CASE WHEN (year_total > 0.00) THEN (cast(year_total as DOUBLE) / cast(year_total as DOUBLE)) ELSE 0 END > CASE WHEN (year_total > 0.00) THEN (cast(year_total as DOUBLE) / cast(year_total as DOUBLE)) ELSE 0 END)
 --------------hashJoin[INNER_JOIN](t_s_secyear.customer_id = t_s_firstyear.customer_id)
 ----------------hashJoin[INNER_JOIN](t_s_firstyear.customer_id = t_w_firstyear.customer_id)
 ------------------PhysicalDistribute

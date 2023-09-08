@@ -51,6 +51,7 @@ import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.spi.Split;
 import org.apache.doris.statistics.StatisticalType;
 import org.apache.doris.thrift.TFileAttributes;
+import org.apache.doris.thrift.TFileCompressType;
 import org.apache.doris.thrift.TFileFormatType;
 import org.apache.doris.thrift.TFileTextScanRangeParams;
 import org.apache.doris.thrift.TFileType;
@@ -184,18 +185,22 @@ public class HiveScanNode extends FileQueryScanNode {
                         hmsTable.getDbName(), hmsTable.getName(), partitionColumnTypes);
                 Map<Long, PartitionItem> idToPartitionItem = hivePartitionValues.getIdToPartitionItem();
                 this.totalPartitionNum = idToPartitionItem.size();
-                ListPartitionPrunerV2 pruner = new ListPartitionPrunerV2(idToPartitionItem,
-                        hmsTable.getPartitionColumns(), columnNameToRange,
-                        hivePartitionValues.getUidToPartitionRange(),
-                        hivePartitionValues.getRangeToId(),
-                        hivePartitionValues.getSingleColumnRangeMap(),
-                        true);
-                Collection<Long> filteredPartitionIds = pruner.prune();
-                LOG.debug("hive partition fetch and prune for table {}.{} cost: {} ms",
-                        hmsTable.getDbName(), hmsTable.getName(), (System.currentTimeMillis() - start));
-                partitionItems = Lists.newArrayListWithCapacity(filteredPartitionIds.size());
-                for (Long id : filteredPartitionIds) {
-                    partitionItems.add(idToPartitionItem.get(id));
+                if (!conjuncts.isEmpty()) {
+                    ListPartitionPrunerV2 pruner = new ListPartitionPrunerV2(idToPartitionItem,
+                            hmsTable.getPartitionColumns(), columnNameToRange,
+                            hivePartitionValues.getUidToPartitionRange(),
+                            hivePartitionValues.getRangeToId(),
+                            hivePartitionValues.getSingleColumnRangeMap(),
+                            true);
+                    Collection<Long> filteredPartitionIds = pruner.prune();
+                    LOG.debug("hive partition fetch and prune for table {}.{} cost: {} ms",
+                            hmsTable.getDbName(), hmsTable.getName(), (System.currentTimeMillis() - start));
+                    partitionItems = Lists.newArrayListWithCapacity(filteredPartitionIds.size());
+                    for (Long id : filteredPartitionIds) {
+                        partitionItems.add(idToPartitionItem.get(id));
+                    }
+                } else {
+                    partitionItems = idToPartitionItem.values();
                 }
             } else {
                 // partitions has benn pruned by Nereids, in PruneFileScanPartition,
@@ -209,7 +214,8 @@ public class HiveScanNode extends FileQueryScanNode {
             // get partitions from cache
             List<List<String>> partitionValuesList = Lists.newArrayListWithCapacity(partitionItems.size());
             for (PartitionItem item : partitionItems) {
-                partitionValuesList.add(((ListPartitionItem) item).getItems().get(0).getPartitionValuesAsStringList());
+                partitionValuesList.add(
+                        ((ListPartitionItem) item).getItems().get(0).getPartitionValuesAsStringListForHive());
             }
             resPartitions = cache.getAllPartitionsWithCache(hmsTable.getDbName(), hmsTable.getName(),
                     partitionValuesList);
@@ -330,7 +336,7 @@ public class HiveScanNode extends FileQueryScanNode {
 
     @Override
     protected Map<String, String> getLocationProperties() throws UserException  {
-        return hmsTable.getCatalogProperties();
+        return hmsTable.getHadoopProperties();
     }
 
     @Override
@@ -385,5 +391,15 @@ public class HiveScanNode extends FileQueryScanNode {
     @Override
     public boolean pushDownAggNoGroupingCheckCol(FunctionCallExpr aggExpr, Column col) {
         return !col.isAllowNull();
+    }
+
+    @Override
+    protected TFileCompressType getFileCompressType(FileSplit fileSplit) throws UserException {
+        TFileCompressType compressType = super.getFileCompressType(fileSplit);
+        // hadoop use lz4 blocked codec
+        if (compressType == TFileCompressType.LZ4FRAME) {
+            compressType = TFileCompressType.LZ4BLOCK;
+        }
+        return compressType;
     }
 }

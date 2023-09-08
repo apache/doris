@@ -52,9 +52,9 @@ Status BlockSpillReader::open() {
 
     io::FileDescription file_description;
     file_description.path = file_path_;
-    io::FileReaderOptions reader_options = io::FileReaderOptions::DEFAULT;
     RETURN_IF_ERROR(FileFactory::create_file_reader(system_properties, file_description,
-                                                    reader_options, &file_system, &file_reader_));
+                                                    io::FileReaderOptions {}, &file_system,
+                                                    &file_reader_));
 
     size_t file_size = file_reader_->size();
 
@@ -134,7 +134,8 @@ Status BlockSpillReader::read(Block* block, bool* eos) {
             if (!pb_block.ParseFromArray(result.data, result.size)) {
                 return Status::InternalError("Failed to read spilled block");
             }
-            new_block = Block::create_unique(pb_block);
+            new_block = Block::create_unique();
+            RETURN_IF_ERROR(new_block->deserialize(pb_block));
         }
         block->swap(*new_block);
     } else {

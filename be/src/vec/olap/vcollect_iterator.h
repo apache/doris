@@ -258,8 +258,8 @@ private:
     // Iterate from LevelIterators (maybe Level0Iterators or Level1Iterator or mixed)
     class Level1Iterator : public LevelIterator {
     public:
-        Level1Iterator(const std::list<LevelIterator*>& children, TabletReader* reader, bool merge,
-                       bool is_reverse, bool skip_same);
+        Level1Iterator(std::list<std::unique_ptr<LevelIterator>> children, TabletReader* reader,
+                       bool merge, bool is_reverse, bool skip_same);
 
         Status init(bool get_data_by_ref = false) override;
 
@@ -295,10 +295,10 @@ private:
 
         // Each LevelIterator corresponds to a rowset reader,
         // it will be cleared after '_heap' has been initialized when '_merge == true'.
-        std::list<LevelIterator*> _children;
+        std::list<std::unique_ptr<LevelIterator>> _children;
         // point to the Level0Iterator containing the next output row.
         // null when VCollectIterator hasn't been initialized or reaches EOF.
-        LevelIterator* _cur_child = nullptr;
+        std::unique_ptr<LevelIterator> _cur_child;
         TabletReader* _reader = nullptr;
 
         // when `_merge == true`, rowset reader returns ordered rows and VCollectIterator uses a priority queue to merge
@@ -321,7 +321,7 @@ private:
 
     // Each LevelIterator corresponds to a rowset reader,
     // it will be cleared after '_inner_iter' has been initialized.
-    std::list<LevelIterator*> _children;
+    std::list<std::unique_ptr<LevelIterator>> _children;
 
     bool _merge = true;
     // reverse the compare order

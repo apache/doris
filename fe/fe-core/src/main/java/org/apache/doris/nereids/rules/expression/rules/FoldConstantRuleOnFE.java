@@ -17,7 +17,10 @@
 
 package org.apache.doris.nereids.rules.expression.rules;
 
+import org.apache.doris.catalog.EncryptKey;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.cluster.ClusterNamespace;
+import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.rules.expression.AbstractExpressionRewriteRule;
 import org.apache.doris.nereids.rules.expression.ExpressionRewriteContext;
 import org.apache.doris.nereids.trees.expressions.AggregateExpression;
@@ -51,6 +54,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.CurrentCatalo
 import org.apache.doris.nereids.trees.expressions.functions.scalar.CurrentUser;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Database;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Date;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.EncryptKeyRef;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.If;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Password;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.User;
@@ -70,9 +74,11 @@ import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
 import org.apache.doris.nereids.types.BooleanType;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.util.ExpressionUtils;
+import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.GlobalVariable;
 
 import com.google.common.base.Preconditions;
+import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import org.apache.commons.codec.digest.DigestUtils;
 
@@ -109,6 +115,29 @@ public class FoldConstantRuleOnFE extends AbstractExpressionRewriteRule {
     @Override
     public Expression visitLiteral(Literal literal, ExpressionRewriteContext context) {
         return literal;
+    }
+
+    @Override
+    public Expression visitEncryptKeyRef(EncryptKeyRef encryptKeyRef, ExpressionRewriteContext context) {
+        String dbName = encryptKeyRef.getDbName();
+        ConnectContext connectContext = ConnectContext.get();
+        if (Strings.isNullOrEmpty(dbName)) {
+            dbName = connectContext.getDatabase();
+        }
+        if ("".equals(dbName)) {
+            throw new AnalysisException("DB " + dbName + "not found");
+        }
+        dbName = ClusterNamespace.getFullName(connectContext.getClusterName(), dbName);
+        org.apache.doris.catalog.Database database =
+                Env.getCurrentEnv().getInternalCatalog().getDbNullable(dbName);
+        if (database == null) {
+            throw new AnalysisException("DB " + dbName + "not found");
+        }
+        EncryptKey encryptKey = database.getEncryptKey(encryptKeyRef.getEncryptKeyName());
+        if (encryptKey == null) {
+            throw new AnalysisException("Can not found encryptKey" + encryptKeyRef.getEncryptKeyName());
+        }
+        return new StringLiteral(encryptKey.getKeyString());
     }
 
     @Override

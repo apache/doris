@@ -25,7 +25,7 @@ PhysicalResultSink
 ------------------------------------PhysicalOlapScan[date_dim]
 ----------------------------PhysicalDistribute
 ------------------------------PhysicalProject
---------------------------------filter(((cast(hd_buy_potential as VARCHAR(*)) = '501-1000') OR (cast(hd_buy_potential as VARCHAR(*)) = 'Unknown'))(household_demographics.hd_vehicle_count > 0)(CASE WHEN (hd_vehicle_count > 0) THEN (cast(hd_dep_count as DOUBLE) / cast(hd_vehicle_count as DOUBLE)) ELSE NULL END > 1.0))
+--------------------------------filter(((cast(hd_buy_potential as VARCHAR(*)) = '501-1000') OR (cast(hd_buy_potential as VARCHAR(*)) = 'Unknown'))(household_demographics.hd_vehicle_count > 0)(CASE WHEN (hd_vehicle_count > 0) THEN (cast(hd_dep_count as DOUBLE) / cast(hd_vehicle_count as DOUBLE)) ELSE NULL END > 1))
 ----------------------------------PhysicalOlapScan[household_demographics]
 --------------------------PhysicalDistribute
 ----------------------------PhysicalProject

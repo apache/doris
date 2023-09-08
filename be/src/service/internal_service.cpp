@@ -559,10 +559,11 @@ void PInternalServiceImpl::cancel_plan_fragment(google::protobuf::RpcController*
         if (request->has_cancel_reason()) {
             LOG(INFO) << "cancel fragment, fragment_instance_id=" << print_id(tid)
                       << ", reason: " << PPlanFragmentCancelReason_Name(request->cancel_reason());
-            _exec_env->fragment_mgr()->cancel(tid, request->cancel_reason());
+            _exec_env->fragment_mgr()->cancel_instance(tid, request->cancel_reason());
         } else {
             LOG(INFO) << "cancel fragment, fragment_instance_id=" << print_id(tid);
-            _exec_env->fragment_mgr()->cancel(tid);
+            _exec_env->fragment_mgr()->cancel_instance(tid,
+                                                       PPlanFragmentCancelReason::INTERNAL_ERROR);
         }
         // TODO: the logic seems useless, cancel only return Status::OK. remove it
         st.to_protobuf(result->mutable_status());
@@ -632,6 +633,8 @@ void PInternalServiceImpl::fetch_table_schema(google::protobuf::RpcController* c
         case TFileFormatType::FORMAT_CSV_GZ:
         case TFileFormatType::FORMAT_CSV_BZ2:
         case TFileFormatType::FORMAT_CSV_LZ4FRAME:
+        case TFileFormatType::FORMAT_CSV_LZ4BLOCK:
+        case TFileFormatType::FORMAT_CSV_SNAPPYBLOCK:
         case TFileFormatType::FORMAT_CSV_LZOP:
         case TFileFormatType::FORMAT_CSV_DEFLATE: {
             // file_slots is no use
@@ -751,7 +754,7 @@ void PInternalServiceImpl::_get_column_ids_by_tablet_ids(
     for (const auto& param : params) {
         int64_t index_id = param.indexid();
         auto tablet_ids = param.tablet_ids();
-        std::set<std::vector<int32_t>> filter_set;
+        std::set<std::set<int32_t>> filter_set;
         for (const int64_t tablet_id : tablet_ids) {
             TabletSharedPtr tablet = tablet_mgr->get_tablet(tablet_id);
             if (tablet == nullptr) {
@@ -764,9 +767,10 @@ void PInternalServiceImpl::_get_column_ids_by_tablet_ids(
             }
             // check schema consistency, column ids should be the same
             const auto& columns = tablet->tablet_schema()->columns();
-            std::vector<int32_t> column_ids(columns.size());
-            std::transform(columns.begin(), columns.end(), column_ids.begin(),
-                           [](const TabletColumn& c) { return c.unique_id(); });
+            std::set<int32_t> column_ids;
+            for (const auto& col : columns) {
+                column_ids.insert(col.unique_id());
+            }
             filter_set.insert(column_ids);
         }
         if (filter_set.size() > 1) {
@@ -1096,20 +1100,10 @@ void PInternalServiceImpl::transmit_block(google::protobuf::RpcController* contr
     int64_t receive_time = GetCurrentTimeNanos();
     response->set_receive_time(receive_time);
 
-    if (!request->has_block() && config::brpc_light_work_pool_threads == -1) {
-        // under high concurrency, thread pool will have a lot of lock contention.
-        _transmit_block(controller, request, response, done, Status::OK());
-        return;
-    }
-
-    FifoThreadPool& pool = request->has_block() ? _heavy_work_pool : _light_work_pool;
-    bool ret = pool.try_offer([this, controller, request, response, done]() {
-        _transmit_block(controller, request, response, done, Status::OK());
-    });
-    if (!ret) {
-        offer_failed(response, done, pool);
-        return;
-    }
+    // under high concurrency, thread pool will have a lot of lock contention.
+    // May offer failed to the thread pool, so that we should avoid using thread
+    // pool here.
+    _transmit_block(controller, request, response, done, Status::OK());
 }
 
 void PInternalServiceImpl::transmit_block_by_http(google::protobuf::RpcController* controller,
@@ -1448,8 +1442,8 @@ void PInternalServiceImpl::request_slave_tablet_pull_rowset(
         }
         Status commit_txn_status = StorageEngine::instance()->txn_manager()->commit_txn(
                 tablet->data_dir()->get_meta(), rowset_meta->partition_id(), rowset_meta->txn_id(),
-                rowset_meta->tablet_id(), rowset_meta->tablet_schema_hash(), tablet->tablet_uid(),
-                rowset_meta->load_id(), rowset, true);
+                rowset_meta->tablet_id(), tablet->tablet_uid(), rowset_meta->load_id(), rowset,
+                true);
         if (!commit_txn_status && !commit_txn_status.is<PUSH_TRANSACTION_ALREADY_EXIST>()) {
             LOG(WARNING) << "failed to add committed rowset for slave replica. rowset_id="
                          << rowset_meta->rowset_id() << ", tablet_id=" << rowset_meta->tablet_id()
@@ -1725,7 +1719,7 @@ void PInternalServiceImpl::get_tablet_rowset_versions(google::protobuf::RpcContr
                                                       google::protobuf::Closure* done) {
     brpc::ClosureGuard closure_guard(done);
     VLOG_DEBUG << "receive get tablet versions request: " << request->DebugString();
-    ExecEnv::GetInstance()->storage_engine()->get_tablet_rowset_versions(request, response);
+    StorageEngine::instance()->get_tablet_rowset_versions(request, response);
 }
 
 void PInternalServiceImpl::glob(google::protobuf::RpcController* controller,

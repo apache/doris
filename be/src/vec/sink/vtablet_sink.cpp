@@ -321,7 +321,7 @@ VNodeChannel::~VNodeChannel() {
     if (_open_closure != nullptr) {
         delete _open_closure;
     }
-    _cur_add_block_request.release_id();
+    static_cast<void>(_cur_add_block_request.release_id());
 }
 
 void VNodeChannel::clear_all_blocks() {
@@ -414,8 +414,8 @@ void VNodeChannel::open() {
     }
     _stub->tablet_writer_open(&_open_closure->cntl, &request, &_open_closure->result,
                               _open_closure);
-    request.release_id();
-    request.release_schema();
+    static_cast<void>(request.release_id());
+    static_cast<void>(request.release_schema());
 }
 
 Status VNodeChannel::open_wait() {
@@ -730,7 +730,7 @@ Status VNodeChannel::none_of(std::initializer_list<bool> vars) {
         if (!vars_str.empty()) {
             vars_str.pop_back(); // 0/1/0/ -> 0/1/0
         }
-        st = Status::InternalError(vars_str);
+        st = Status::Uninitialized(vars_str);
     }
 
     return st;
@@ -757,6 +757,8 @@ void VNodeChannel::try_send_block(RuntimeState* state) {
     // tablet_ids has already set when add row
     request.set_packet_seq(_next_packet_seq);
     auto block = mutable_block->to_block();
+    CHECK(block.rows() == request.tablet_ids_size())
+            << "block rows: " << block.rows() << ", tablet_ids_size: " << request.tablet_ids_size();
     if (block.rows() > 0) {
         SCOPED_ATOMIC_TIMER(&_serialize_batch_ns);
         size_t uncompressed_bytes = 0, compressed_bytes = 0;
@@ -897,7 +899,7 @@ void VNodeChannel::cancel(const std::string& cancel_msg) {
         closure->cntl.ignore_eovercrowded();
     }
     _stub->tablet_writer_cancel(&closure->cntl, &request, &closure->result, closure);
-    request.release_id();
+    static_cast<void>(request.release_id());
 }
 
 bool VNodeChannel::is_send_data_rpc_done() const {
@@ -1294,6 +1296,10 @@ Status VOlapTableSink::_single_partition_generate(RuntimeState* state, vectorize
 Status VOlapTableSink::send(RuntimeState* state, vectorized::Block* input_block, bool eos) {
     SCOPED_CONSUME_MEM_TRACKER(_mem_tracker.get());
     Status status = Status::OK();
+
+    if (state->query_options().dry_run_query) {
+        return status;
+    }
 
     auto rows = input_block->rows();
     auto bytes = input_block->bytes();

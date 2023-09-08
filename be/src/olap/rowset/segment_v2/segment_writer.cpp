@@ -419,7 +419,7 @@ Status SegmentWriter::append_block_with_partial_content(const vectorized::Block*
         RowsetSharedPtr rowset;
         auto st = _tablet->lookup_row_key(key, have_input_seq_column, specified_rowsets, &loc,
                                           _mow_context->max_version, segment_caches, &rowset);
-        if (st.is<NOT_FOUND>()) {
+        if (st.is<KEY_NOT_FOUND>()) {
             if (_tablet_schema->is_strict_mode()) {
                 ++num_rows_filtered;
                 // delete the invalid newly inserted row
@@ -436,7 +436,7 @@ Status SegmentWriter::append_block_with_partial_content(const vectorized::Block*
             use_default_or_null_flag.emplace_back(true);
             continue;
         }
-        if (!st.ok() && !st.is<ALREADY_EXIST>()) {
+        if (!st.ok() && !st.is<KEY_ALREADY_EXISTS>()) {
             LOG(WARNING) << "failed to lookup row key, error: " << st;
             return st;
         }
@@ -454,7 +454,7 @@ Status SegmentWriter::append_block_with_partial_content(const vectorized::Block*
             _tablet->prepare_to_read(loc, segment_pos, &_rssid_to_rid);
         }
 
-        if (st.is<ALREADY_EXIST>()) {
+        if (st.is<KEY_ALREADY_EXISTS>()) {
             // although we need to mark delete current row, we still need to read missing columns
             // for this row, we need to ensure that each column is aligned
             _mow_context->delete_bitmap->add({_opts.rowset_ctx->rowset_id, _segment_id, 0},

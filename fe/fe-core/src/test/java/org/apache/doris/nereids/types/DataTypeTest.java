@@ -23,6 +23,7 @@ import org.apache.doris.nereids.types.coercion.FractionalType;
 import org.apache.doris.nereids.types.coercion.IntegralType;
 import org.apache.doris.nereids.types.coercion.NumericType;
 
+import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
@@ -67,7 +68,6 @@ public class DataTypeTest {
     @Test
     void testConvertFromString() {
         // boolean
-        Assertions.assertEquals(BooleanType.INSTANCE, DataType.convertFromString("bool"));
         Assertions.assertEquals(BooleanType.INSTANCE, DataType.convertFromString("boolean"));
         // tinyint
         Assertions.assertEquals(TinyIntType.INSTANCE, DataType.convertFromString("tinyint"));
@@ -95,13 +95,11 @@ public class DataTypeTest {
         Assertions.assertEquals(StringType.INSTANCE, DataType.convertFromString("string"));
         // char
         Assertions.assertEquals(CharType.createCharType(10), DataType.convertFromString("char(10)"));
-        Assertions.assertEquals(CharType.createCharType(10), DataType.convertFromString("character(10)"));
-
+        Assertions.assertEquals(CharType.SYSTEM_DEFAULT, DataType.convertFromString("character"));
         // varchar
         Assertions.assertEquals(VarcharType.createVarcharType(10), DataType.convertFromString("varchar(10)"));
-        // null
-        Assertions.assertEquals(NullType.INSTANCE, DataType.convertFromString("null"));
-        Assertions.assertEquals(NullType.INSTANCE, DataType.convertFromString("null_type"));
+        Assertions.assertEquals(VarcharType.SYSTEM_DEFAULT, DataType.convertFromString("varchar(*)"));
+        Assertions.assertEquals(VarcharType.SYSTEM_DEFAULT, DataType.convertFromString("varchar"));
         // date
         Assertions.assertEquals(DateType.INSTANCE, DataType.convertFromString("date"));
         // datev2
@@ -124,6 +122,11 @@ public class DataTypeTest {
         Assertions.assertEquals(JsonType.INSTANCE, DataType.convertFromString("json"));
         // array
         Assertions.assertEquals(ArrayType.of(IntegerType.INSTANCE), DataType.convertFromString("array<int>"));
+        // map
+        Assertions.assertEquals(MapType.of(IntegerType.INSTANCE, IntegerType.INSTANCE), DataType.convertFromString("map<int, int>"));
+        // struct
+        Assertions.assertEquals(new StructType(ImmutableList.of(new StructField("a", IntegerType.INSTANCE, true, ""))), DataType.convertFromString("struct<a: int>"));
+
     }
 
     @Test

@@ -43,6 +43,8 @@ import org.apache.doris.nereids.trees.expressions.SubqueryExpr;
 import org.apache.doris.nereids.trees.expressions.Subtract;
 import org.apache.doris.nereids.trees.expressions.TimestampArithmetic;
 import org.apache.doris.nereids.trees.expressions.functions.BoundFunction;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Array;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.CreateMap;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonArray;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonObject;
 import org.apache.doris.nereids.trees.expressions.literal.BigIntLiteral;
@@ -58,6 +60,7 @@ import org.apache.doris.nereids.trees.expressions.literal.FloatLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.LargeIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
+import org.apache.doris.nereids.trees.expressions.literal.MapLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.SmallIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.StringLikeLiteral;
@@ -82,12 +85,15 @@ import org.apache.doris.nereids.types.MapType;
 import org.apache.doris.nereids.types.NullType;
 import org.apache.doris.nereids.types.SmallIntType;
 import org.apache.doris.nereids.types.StringType;
+import org.apache.doris.nereids.types.StructField;
 import org.apache.doris.nereids.types.StructType;
 import org.apache.doris.nereids.types.TimeType;
 import org.apache.doris.nereids.types.TimeV2Type;
 import org.apache.doris.nereids.types.TinyIntType;
 import org.apache.doris.nereids.types.VarcharType;
+import org.apache.doris.nereids.types.coercion.AnyDataType;
 import org.apache.doris.nereids.types.coercion.CharacterType;
+import org.apache.doris.nereids.types.coercion.FollowToAnyDataType;
 import org.apache.doris.nereids.types.coercion.FractionalType;
 import org.apache.doris.nereids.types.coercion.IntegralType;
 import org.apache.doris.nereids.types.coercion.NumericType;
@@ -150,7 +156,22 @@ public class TypeCoercionUtils {
             }
             return Optional.empty();
         } else if (input instanceof StructType && expected instanceof StructType) {
-            throw new AnalysisException("not support struct type now.");
+            List<StructField> inputFields = ((StructType) input).getFields();
+            List<StructField> expectedFields = ((StructType) expected).getFields();
+            if (inputFields.size() != expectedFields.size()) {
+                return Optional.empty();
+            }
+            List<StructField> newFields = Lists.newArrayList();
+            for (int i = 0; i < inputFields.size(); i++) {
+                Optional<DataType> newDataType = implicitCast(inputFields.get(i).getDataType(),
+                        expectedFields.get(i).getDataType());
+                if (newDataType.isPresent()) {
+                    newFields.add(inputFields.get(i).withDataType(newDataType.get()));
+                } else {
+                    return Optional.empty();
+                }
+            }
+            return Optional.of(new StructType(newFields));
         } else {
             return implicitCastPrimitive(input, expected);
         }
@@ -164,7 +185,9 @@ public class TypeCoercionUtils {
         // TODO: complete the cast logic like FunctionCallExpr.analyzeImpl
         boolean legacyCastCompatible = false;
         try {
-            legacyCastCompatible = !input.toCatalogDataType().matchesType(expected.toCatalogDataType());
+            if (!(expected instanceof AnyDataType) && !(expected instanceof FollowToAnyDataType)) {
+                legacyCastCompatible = !input.toCatalogDataType().matchesType(expected.toCatalogDataType());
+            }
         } catch (Throwable t) {
             // ignore.
         }
@@ -244,7 +267,7 @@ public class TypeCoercionUtils {
             return hasCharacterType(((MapType) dataType).getKeyType())
                     || hasCharacterType(((MapType) dataType).getValueType());
         } else if (dataType instanceof StructType) {
-            throw new AnalysisException("do not support struct type now");
+            return ((StructType) dataType).getFields().stream().anyMatch(f -> hasCharacterType(f.getDataType()));
         }
         return dataType instanceof CharacterType;
     }
@@ -290,7 +313,17 @@ public class TypeCoercionUtils {
             return matchesType(((MapType) input).getKeyType(), ((MapType) target).getKeyType())
                     && matchesType(((MapType) input).getValueType(), ((MapType) target).getValueType());
         } else if (input instanceof StructType && target instanceof StructType) {
-            throw new AnalysisException("do not support struct type now");
+            List<StructField> inputFields = ((StructType) input).getFields();
+            List<StructField> targetFields = ((StructType) target).getFields();
+            if (inputFields.size() != targetFields.size()) {
+                return false;
+            }
+            for (int i = 0; i < inputFields.size(); i++) {
+                if (!matchesType(inputFields.get(i).getDataType(), targetFields.get(i).getDataType())) {
+                    return false;
+                }
+            }
+            return true;
         } else {
             if (input instanceof NullType) {
                 return false;
@@ -496,9 +529,43 @@ public class TypeCoercionUtils {
         if (boundFunction instanceof JsonArray || boundFunction instanceof JsonObject) {
             boundFunction = TypeCoercionUtils.fillJsonTypeArgument(boundFunction, boundFunction instanceof JsonObject);
         }
+        if (boundFunction instanceof CreateMap) {
+            return processCreateMap((CreateMap) boundFunction);
+        }
 
         // type coercion
         return implicitCastInputTypes(boundFunction, boundFunction.expectedInputTypes());
+    }
+
+    private static Expression processCreateMap(CreateMap createMap) {
+        if (createMap.arity() == 0) {
+            return new MapLiteral();
+        }
+        List<Expression> keys = Lists.newArrayList();
+        List<Expression> values = Lists.newArrayList();
+        for (int i = 0; i < createMap.arity(); i++) {
+            if (i % 2 == 0) {
+                keys.add(createMap.child(i));
+            } else {
+                values.add(createMap.child(i));
+            }
+        }
+        // TODO: use the find common type to get key and value type after we redefine type coercion in Doris.
+        Array keyArray = new Array(keys.toArray(new Expression[0]));
+        Array valueArray = new Array(values.toArray(new Expression[0]));
+        keyArray = (Array) implicitCastInputTypes(keyArray, keyArray.expectedInputTypes());
+        valueArray = (Array) implicitCastInputTypes(valueArray, valueArray.expectedInputTypes());
+        DataType keyType = ((ArrayType) (keyArray.getDataType())).getItemType();
+        DataType valueType = ((ArrayType) (valueArray.getDataType())).getItemType();
+        ImmutableList.Builder<Expression> newChildren = ImmutableList.builder();
+        for (int i = 0; i < createMap.arity(); i++) {
+            if (i % 2 == 0) {
+                newChildren.add(castIfNotSameType(createMap.child(i), keyType));
+            } else {
+                newChildren.add(castIfNotSameType(createMap.child(i), valueType));
+            }
+        }
+        return createMap.withChildren(newChildren.build());
     }
 
     /**
@@ -957,7 +1024,22 @@ public class TypeCoercionUtils {
                 return Optional.of(MapType.of(keyType.get(), valueType.get()));
             }
         } else if (left instanceof StructType && right instanceof StructType) {
-            throw new AnalysisException("do not support struct type now");
+            List<StructField> leftFields = ((StructType) left).getFields();
+            List<StructField> rightFields = ((StructType) right).getFields();
+            if (leftFields.size() != rightFields.size()) {
+                return Optional.empty();
+            }
+            List<StructField> newFields = Lists.newArrayList();
+            for (int i = 0; i < leftFields.size(); i++) {
+                Optional<DataType> newDataType = findCommonComplexTypeForComparison(leftFields.get(i).getDataType(),
+                        rightFields.get(i).getDataType(), intStringToString);
+                if (newDataType.isPresent()) {
+                    newFields.add(leftFields.get(i).withDataType(newDataType.get()));
+                } else {
+                    return Optional.empty();
+                }
+            }
+            return Optional.of(new StructType(newFields));
         }
         return Optional.empty();
     }
@@ -1155,7 +1237,22 @@ public class TypeCoercionUtils {
                 return Optional.of(MapType.of(keyType.get(), valueType.get()));
             }
         } else if (left instanceof StructType && right instanceof StructType) {
-            throw new AnalysisException("do not support struct type now");
+            List<StructField> leftFields = ((StructType) left).getFields();
+            List<StructField> rightFields = ((StructType) right).getFields();
+            if (leftFields.size() != rightFields.size()) {
+                return Optional.empty();
+            }
+            List<StructField> newFields = Lists.newArrayList();
+            for (int i = 0; i < leftFields.size(); i++) {
+                Optional<DataType> newDataType = findCommonComplexTypeForCaseWhen(leftFields.get(i).getDataType(),
+                        rightFields.get(i).getDataType());
+                if (newDataType.isPresent()) {
+                    newFields.add(leftFields.get(i).withDataType(newDataType.get()));
+                } else {
+                    return Optional.empty();
+                }
+            }
+            return Optional.of(new StructType(newFields));
         }
         return Optional.empty();
     }

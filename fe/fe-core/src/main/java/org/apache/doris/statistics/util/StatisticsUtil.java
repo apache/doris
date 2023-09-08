@@ -42,9 +42,9 @@ import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.StructType;
 import org.apache.doris.catalog.TableIf;
-import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.catalog.VariantType;
+import org.apache.doris.catalog.external.ExternalTable;
 import org.apache.doris.catalog.external.HMSExternalTable;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
@@ -170,6 +170,7 @@ public class StatisticsUtil {
         sessionVariable.enableProfile = false;
         sessionVariable.queryTimeoutS = Config.analyze_task_timeout_in_hours * 60 * 60;
         sessionVariable.insertTimeoutS = Config.analyze_task_timeout_in_hours * 60 * 60;
+        sessionVariable.enableFileCache = false;
         connectContext.setEnv(Env.getCurrentEnv());
         connectContext.setDatabase(FeConstants.INTERNAL_DB_NAME);
         connectContext.setQualifiedUser(UserIdentity.ROOT.getQualifiedUser());
@@ -488,9 +489,10 @@ public class StatisticsUtil {
      * First get it from remote table parameters. If not found, estimate it : totalSize/estimatedRowSize
      *
      * @param table Hive HMSExternalTable to estimate row count.
+     * @param isInit Flag to indicate if this is called during init. To avoid recursively get schema.
      * @return estimated row count
      */
-    public static long getHiveRowCount(HMSExternalTable table) {
+    public static long getHiveRowCount(HMSExternalTable table, boolean isInit) {
         Map<String, String> parameters = table.getRemoteTable().getParameters();
         if (parameters == null) {
             return -1;
@@ -499,7 +501,7 @@ public class StatisticsUtil {
         if (parameters.containsKey(NUM_ROWS)) {
             return Long.parseLong(parameters.get(NUM_ROWS));
         }
-        if (!parameters.containsKey(TOTAL_SIZE)) {
+        if (!parameters.containsKey(TOTAL_SIZE) || isInit) {
             return -1;
         }
         // Table parameters doesn't contain row count but contain total size. Estimate row count : totalSize/rowSize
@@ -702,6 +704,6 @@ public class StatisticsUtil {
             LOG.warn(e.getMessage());
             return false;
         }
-        return table.getType().equals(TableType.HMS_EXTERNAL_TABLE);
+        return table instanceof ExternalTable;
     }
 }

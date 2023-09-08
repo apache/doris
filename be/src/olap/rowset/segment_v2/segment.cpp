@@ -63,15 +63,9 @@
 #include "vec/olap/vgeneric_iterators.h"
 
 namespace doris {
-namespace io {
-class FileCacheManager;
-class FileReaderOptions;
-} // namespace io
 
 namespace segment_v2 {
 class InvertedIndexIterator;
-
-using io::FileCacheManager;
 
 Status Segment::open(io::FileSystemSPtr fs, const std::string& path, uint32_t segment_id,
                      RowsetId rowset_id, TabletSchemaSPtr tablet_schema,
@@ -80,17 +74,7 @@ Status Segment::open(io::FileSystemSPtr fs, const std::string& path, uint32_t se
     io::FileReaderSPtr file_reader;
     io::FileDescription fd;
     fd.path = path;
-#ifndef BE_TEST
     RETURN_IF_ERROR(fs->open_file(fd, reader_options, &file_reader));
-#else
-    // be ut use local file reader instead of remote file reader while use remote cache
-    if (!config::file_cache_type.empty()) {
-        RETURN_IF_ERROR(io::global_local_filesystem()->open_file(fd, reader_options, &file_reader));
-    } else {
-        RETURN_IF_ERROR(fs->open_file(fd, reader_options, &file_reader));
-    }
-#endif
-
     std::shared_ptr<Segment> segment(new Segment(segment_id, rowset_id, tablet_schema));
     segment->_file_reader = std::move(file_reader);
     RETURN_IF_ERROR(segment->_open());
@@ -160,7 +144,8 @@ Status Segment::new_iterator(SchemaSPtr schema, const StorageReadOptions& read_o
 
     RETURN_IF_ERROR(load_index());
     if (read_options.delete_condition_predicates->num_of_column_predicate() == 0 &&
-        read_options.push_down_agg_type_opt != TPushAggOp::NONE) {
+        read_options.push_down_agg_type_opt != TPushAggOp::NONE &&
+        read_options.push_down_agg_type_opt != TPushAggOp::COUNT_ON_INDEX) {
         iter->reset(vectorized::new_vstatistics_iterator(this->shared_from_this(), *schema));
     } else {
         iter->reset(new SegmentIterator(this->shared_from_this(), schema));
@@ -367,14 +352,14 @@ Status Segment::lookup_row_key(const Slice& key, bool with_seq_col, RowLocation*
 
     DCHECK(_pk_index_reader != nullptr);
     if (!_pk_index_reader->check_present(key_without_seq)) {
-        return Status::NotFound("Can't find key in the segment");
+        return Status::Error<ErrorCode::KEY_NOT_FOUND>("Can't find key in the segment");
     }
     bool exact_match = false;
     std::unique_ptr<segment_v2::IndexedColumnIterator> index_iterator;
     RETURN_IF_ERROR(_pk_index_reader->new_iterator(&index_iterator));
     RETURN_IF_ERROR(index_iterator->seek_at_or_after(&key_without_seq, &exact_match));
     if (!has_seq_col && !exact_match) {
-        return Status::NotFound("Can't find key in the segment");
+        return Status::Error<ErrorCode::KEY_NOT_FOUND>("Can't find key in the segment");
     }
     row_location->row_id = index_iterator->get_current_ordinal();
     row_location->segment_id = _segment_id;
@@ -396,7 +381,7 @@ Status Segment::lookup_row_key(const Slice& key, bool with_seq_col, RowLocation*
 
         // compare key
         if (key_without_seq.compare(sought_key_without_seq) != 0) {
-            return Status::NotFound("Can't find key in the segment");
+            return Status::Error<ErrorCode::KEY_NOT_FOUND>("Can't find key in the segment");
         }
 
         if (!with_seq_col) {
@@ -409,7 +394,8 @@ Status Segment::lookup_row_key(const Slice& key, bool with_seq_col, RowLocation*
         Slice previous_sequence_id = Slice(
                 sought_key.get_data() + sought_key_without_seq.get_size() + 1, seq_col_length - 1);
         if (sequence_id.compare(previous_sequence_id) < 0) {
-            return Status::AlreadyExist("key with higher sequence id exists");
+            return Status::Error<ErrorCode::KEY_ALREADY_EXISTS>(
+                    "key with higher sequence id exists");
         }
     }
 

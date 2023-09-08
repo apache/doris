@@ -1875,6 +1875,12 @@ void VecDateTimeValue::create_from_date_v2(DateV2Value<T>& value, TimeType type)
     this->_neg = 0;
 }
 
+template <typename T>
+void VecDateTimeValue::create_from_date_v2(DateV2Value<T>&& value, TimeType type) {
+    DateV2Value<T> v = value;
+    create_from_date_v2(v, type);
+}
+
 std::ostream& operator<<(std::ostream& os, const VecDateTimeValue& value) {
     char buf[64];
     value.to_string(buf);
@@ -2668,19 +2674,36 @@ typename DateV2Value<T>::underlying_value DateV2Value<T>::to_date_int_val() cons
     return int_val_;
 }
 
-static std::array<DateV2Value<DateV2ValueType>, 25500> DATE_DAY_OFFSET_DICT;
+static std::array<DateV2Value<DateV2ValueType>, date_day_offset_dict::DICT_DAYS>
+        DATE_DAY_OFFSET_ITEMS;
+date_day_offset_dict date_day_offset_dict::instance = date_day_offset_dict();
 
-void init_date_day_offset_dict() {
+date_day_offset_dict& date_day_offset_dict::get() {
+    return instance;
+}
+
+date_day_offset_dict::date_day_offset_dict() {
     DateV2Value<DateV2ValueType> d;
     d.set_time(1969, 12, 31, 0, 0, 0, 0);
-    for (int i = 0; i < DATE_DAY_OFFSET_DICT.size(); ++i) {
-        DATE_DAY_OFFSET_DICT[i] = d;
+    for (int i = 0; i < DAY_AFTER_EPOCH; ++i) {
+        DATE_DAY_OFFSET_ITEMS[DAY_BEFORE_EPOCH + i] = d;
         d += 1;
+    }
+    d.set_time(1969, 12, 31, 0, 0, 0, 0);
+    for (int i = 0; i <= DAY_BEFORE_EPOCH; ++i) {
+        DATE_DAY_OFFSET_ITEMS[DAY_BEFORE_EPOCH - i] = d;
+        d -= 1;
     }
 }
 
-DateV2Value<DateV2ValueType>* get_date_day_offset_dict() {
-    return DATE_DAY_OFFSET_DICT.data();
+DateV2Value<DateV2ValueType> date_day_offset_dict::operator[](int day) {
+    int index = day + DAY_BEFORE_EPOCH;
+    if (LIKELY(index >= 0 && index < DICT_DAYS)) {
+        return DATE_DAY_OFFSET_ITEMS[index];
+    } else {
+        DateV2Value<DateV2ValueType> d = DATE_DAY_OFFSET_ITEMS[0];
+        return d += index;
+    }
 }
 
 template <typename T>
@@ -3634,8 +3657,12 @@ template std::size_t operator-(const DateV2Value<DateTimeV2ValueType>& v1,
 
 template void VecDateTimeValue::create_from_date_v2<DateV2ValueType>(
         DateV2Value<DateV2ValueType>& value, TimeType type);
+template void VecDateTimeValue::create_from_date_v2<DateV2ValueType>(
+        DateV2Value<DateV2ValueType>&& value, TimeType type);
 template void VecDateTimeValue::create_from_date_v2<DateTimeV2ValueType>(
         DateV2Value<DateTimeV2ValueType>& value, TimeType type);
+template void VecDateTimeValue::create_from_date_v2<DateTimeV2ValueType>(
+        DateV2Value<DateTimeV2ValueType>&& value, TimeType type);
 
 template int64_t VecDateTimeValue::second_diff<DateV2Value<DateV2ValueType>>(
         const DateV2Value<DateV2ValueType>& rhs) const;

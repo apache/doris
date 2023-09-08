@@ -75,6 +75,15 @@ struct PrefetchRange {
  */
 class MergeRangeFileReader : public io::FileReader {
 public:
+    struct Statistics {
+        int64_t copy_time = 0;
+        int64_t read_time = 0;
+        int64_t request_io = 0;
+        int64_t merged_io = 0;
+        int64_t request_bytes = 0;
+        int64_t read_bytes = 0;
+    };
+
     struct RangeCachedData {
         size_t start_offset;
         size_t end_offset;
@@ -190,20 +199,14 @@ public:
     // for test only
     const std::vector<int16>& box_reference() const { return _box_ref; }
 
+    // for test only
+    const Statistics& statistics() const { return _statistics; }
+
 protected:
     Status read_at_impl(size_t offset, Slice result, size_t* bytes_read,
                         const IOContext* io_ctx) override;
 
 private:
-    struct Statistics {
-        int64_t copy_time = 0;
-        int64_t read_time = 0;
-        int64_t request_io = 0;
-        int64_t merged_io = 0;
-        int64_t request_bytes = 0;
-        int64_t read_bytes = 0;
-    };
-
     RuntimeProfile::Counter* _copy_time;
     RuntimeProfile::Counter* _read_time;
     RuntimeProfile::Counter* _request_io;
@@ -238,15 +241,13 @@ private:
 
 /**
  * Create a file reader suitable for accessing scenarios:
- * 1. When file size < 8MB, create InMemoryFileReader file reader
+ * 1. When file size < config::in_memory_file_size, create InMemoryFileReader file reader
  * 2. When reading sequential file(csv/json), create PrefetchBufferedReader
  * 3. When reading random access file(parquet/orc), create normal file reader
  */
 class DelegateReader {
 public:
     enum AccessMode { SEQUENTIAL, RANDOM };
-
-    static constexpr size_t IN_MEMORY_FILE_SIZE = 8 * 1024 * 1024;
 
     static Status create_file_reader(
             RuntimeProfile* profile, const FileSystemProperties& system_properties,

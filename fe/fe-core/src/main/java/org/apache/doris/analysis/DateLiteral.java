@@ -1046,19 +1046,19 @@ public class DateLiteral extends LiteralExpr {
         return LocalDateTime.of(year, month, dayOfMonth, hour, minute, second, microSeconds * 1000);
     }
 
-    public DateLiteral plusYears(int year) throws AnalysisException {
+    public DateLiteral plusYears(long year) throws AnalysisException {
         return new DateLiteral(getTimeFormatter().plusYears(year), type);
     }
 
-    public DateLiteral plusMonths(int month) throws AnalysisException {
+    public DateLiteral plusMonths(long month) throws AnalysisException {
         return new DateLiteral(getTimeFormatter().plusMonths(month), type);
     }
 
-    public DateLiteral plusDays(int day) throws AnalysisException {
+    public DateLiteral plusDays(long day) throws AnalysisException {
         return new DateLiteral(getTimeFormatter().plusDays(day), type);
     }
 
-    public DateLiteral plusHours(int hour) throws AnalysisException {
+    public DateLiteral plusHours(long hour) throws AnalysisException {
         if (type.isDate()) {
             return new DateLiteral(getTimeFormatter().plusHours(hour), Type.DATETIME);
         }
@@ -1068,7 +1068,7 @@ public class DateLiteral extends LiteralExpr {
         return new DateLiteral(getTimeFormatter().plusHours(hour), type);
     }
 
-    public DateLiteral plusMinutes(int minute) {
+    public DateLiteral plusMinutes(long minute) {
         if (type.isDate()) {
             return new DateLiteral(getTimeFormatter().plusMinutes(minute), Type.DATETIME);
         }
@@ -1078,7 +1078,7 @@ public class DateLiteral extends LiteralExpr {
         return new DateLiteral(getTimeFormatter().plusMinutes(minute), type);
     }
 
-    public DateLiteral plusSeconds(int second) {
+    public DateLiteral plusSeconds(long second) {
         if (type.isDate()) {
             return new DateLiteral(getTimeFormatter().plusSeconds(second), Type.DATETIME);
         }
@@ -1534,6 +1534,10 @@ public class DateLiteral extends LiteralExpr {
         } catch (NumberFormatException e) {
             throw new InvalidFormatException(e.getMessage());
         }
+    }
+
+    public long daynr() {
+        return calcDaynr(this.year, this.month, this.day);
     }
 
     // calculate the number of days from year 0000-00-00 to year-month-day

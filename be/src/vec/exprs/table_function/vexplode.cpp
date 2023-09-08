@@ -36,7 +36,7 @@ VExplodeTableFunction::VExplodeTableFunction() {
     _fn_name = "vexplode";
 }
 
-Status VExplodeTableFunction::process_init(Block* block) {
+Status VExplodeTableFunction::process_init(Block* block, RuntimeState* state) {
     CHECK(_expr_context->root()->children().size() == 1)
             << "VExplodeTableFunction only support 1 child but has "
             << _expr_context->root()->children().size();

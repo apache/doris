@@ -221,6 +221,12 @@ private:
     // TODO(ftw): parse type
     Status _parse_col_types(size_t col_nums, std::vector<TypeDescriptor>* col_types);
 
+    // check the utf8 encoding of a line.
+    // return error status to stop processing.
+    // If return Status::OK but "success" is false, which means this is load request
+    // and the line is skipped as unqualified row, and the process should continue.
+    Status _validate_line(const Slice& line, bool* success);
+
     RuntimeState* _state;
     RuntimeProfile* _profile;
     ScannerCounter* _counter;

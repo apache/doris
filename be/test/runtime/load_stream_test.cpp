@@ -51,7 +51,7 @@ using namespace brpc;
 namespace doris {
 
 static const uint32_t MAX_PATH_LEN = 1024;
-StorageEngine* z_engine = nullptr;
+static std::unique_ptr<StorageEngine> k_engine;
 static const std::string zTestDir = "./data_test/data/load_stream_mgr_test";
 
 const int64_t NORMAL_TABLET_ID = 10000;
@@ -361,7 +361,7 @@ public:
                     cntl->SetFailed("Tablet not found");
                     status->set_status_code(TStatusCode::NOT_FOUND);
                     response->set_allocated_status(status.get());
-                    response->release_status();
+                    static_cast<void>(response->release_status());
                     return;
                 }
                 auto resp = response->add_tablet_schemas();
@@ -381,7 +381,7 @@ public:
                 cntl->SetFailed("Fail to accept stream");
                 status->set_status_code(TStatusCode::CANCELLED);
                 response->set_allocated_status(status.get());
-                response->release_status();
+                static_cast<void>(response->release_status());
                 return;
             }
 
@@ -389,7 +389,7 @@ public:
 
             status->set_status_code(TStatusCode::OK);
             response->set_allocated_status(status.get());
-            response->release_status();
+            static_cast<void>(response->release_status());
         }
 
     private:
@@ -526,6 +526,8 @@ public:
         size_t hdr_len = header.ByteSizeLong();
         append_buf.append((char*)&hdr_len, sizeof(size_t));
         append_buf.append(header.SerializeAsString());
+        size_t data_len = data.length();
+        append_buf.append((char*)&data_len, sizeof(size_t));
         append_buf.append(data);
         LOG(INFO) << "send " << header.DebugString() << data;
         client.send(&append_buf);
@@ -580,15 +582,14 @@ public:
 
         doris::EngineOptions options;
         options.store_paths = paths;
-        Status s = doris::StorageEngine::open(options, &z_engine);
+        Status s = doris::StorageEngine::open(options, &k_engine);
         EXPECT_TRUE(s.ok()) << s.to_string();
 
         _env = doris::ExecEnv::GetInstance();
-        _env->set_storage_engine(z_engine);
 
         EXPECT_TRUE(io::global_local_filesystem()->create_directory(zTestDir).ok());
 
-        z_engine->start_bg_threads();
+        k_engine->start_bg_threads();
 
         _load_stream_mgr = std::make_unique<LoadStreamMgr>(4, &_heavy_work_pool, &_light_work_pool);
         _stream_service = new StreamService(_load_stream_mgr.get());
@@ -604,17 +605,13 @@ public:
             TCreateTabletReq request;
             create_tablet_request(NORMAL_TABLET_ID + i, SCHEMA_HASH, &request);
             auto profile = std::make_unique<RuntimeProfile>("test");
-            Status res = z_engine->create_tablet(request, profile.get());
+            Status res = k_engine->create_tablet(request, profile.get());
             EXPECT_EQ(Status::OK(), res);
         }
     }
 
     void TearDown() override {
-        if (z_engine != nullptr) {
-            z_engine->stop();
-            delete z_engine;
-            z_engine = nullptr;
-        }
+        k_engine.reset();
         _server->Stop(1000);
         _load_stream_mgr.reset();
         CHECK_EQ(0, _server->Join());
@@ -622,17 +619,16 @@ public:
     }
 
     std::string read_data(int64_t txn_id, int64_t partition_id, int64_t tablet_id, uint32_t segid) {
-        auto tablet = z_engine->tablet_manager()->get_tablet(tablet_id);
+        auto tablet = k_engine->tablet_manager()->get_tablet(tablet_id);
         std::map<TabletInfo, RowsetSharedPtr> tablet_related_rs;
-        z_engine->txn_manager()->get_txn_related_tablets(txn_id, partition_id, &tablet_related_rs);
+        k_engine->txn_manager()->get_txn_related_tablets(txn_id, partition_id, &tablet_related_rs);
         LOG(INFO) << "get txn related tablet, txn_id=" << txn_id << ", tablet_id=" << tablet_id
                   << "partition_id=" << partition_id;
         for (auto& [tablet, rowset] : tablet_related_rs) {
             if (tablet.tablet_id != tablet_id || rowset == nullptr) {
                 continue;
             }
-            auto path =
-                    BetaRowset::segment_file_path(rowset->rowset_dir(), rowset->rowset_id(), segid);
+            auto path = static_cast<BetaRowset*>(rowset.get())->segment_file_path(segid);
             LOG(INFO) << "read data from " << path;
             std::ifstream inputFile(path, std::ios::binary);
             inputFile.seekg(0, std::ios::end);
@@ -679,9 +675,8 @@ TEST_F(LoadStreamMgrTest, one_client_abnormal_load) {
     EXPECT_EQ(g_response_stat.num, 2);
     EXPECT_EQ(g_response_stat.success_tablet_ids.size(), 1);
     EXPECT_EQ(g_response_stat.success_tablet_ids[0], NORMAL_TABLET_ID);
-    EXPECT_EQ(_load_stream_mgr->get_load_stream_num(), 1);
 
-    client.disconnect();
+    // server will close stream on CLOSE_LOAD
     wait_for_close();
     EXPECT_EQ(_load_stream_mgr->get_load_stream_num(), 0);
 }
@@ -708,12 +703,11 @@ TEST_F(LoadStreamMgrTest, one_client_abnormal_index) {
 
     close_load(client, 0);
     wait_for_ack(3);
-    EXPECT_EQ(_load_stream_mgr->get_load_stream_num(), 1);
     EXPECT_EQ(g_response_stat.num, 3);
     EXPECT_EQ(g_response_stat.success_tablet_ids.size(), 0);
     EXPECT_EQ(g_response_stat.failed_tablet_ids.size(), 1);
 
-    client.disconnect();
+    // server will close stream on CLOSE_LOAD
     wait_for_close();
     EXPECT_EQ(_load_stream_mgr->get_load_stream_num(), 0);
 }
@@ -743,7 +737,7 @@ TEST_F(LoadStreamMgrTest, one_client_abnormal_sender) {
     EXPECT_EQ(g_response_stat.success_tablet_ids.size(), 0);
     EXPECT_EQ(g_response_stat.failed_tablet_ids.size(), 1);
 
-    client.disconnect();
+    // server will close stream on CLOSE_LOAD
     wait_for_close();
     EXPECT_EQ(_load_stream_mgr->get_load_stream_num(), 0);
 }
@@ -773,12 +767,12 @@ TEST_F(LoadStreamMgrTest, one_client_abnormal_tablet) {
     EXPECT_EQ(g_response_stat.success_tablet_ids.size(), 0);
     EXPECT_EQ(g_response_stat.failed_tablet_ids.size(), 1);
 
-    client.disconnect();
+    // server will close stream on CLOSE_LOAD
     wait_for_close();
     EXPECT_EQ(_load_stream_mgr->get_load_stream_num(), 0);
 }
 
-TEST_F(LoadStreamMgrTest, one_client_one_index_one_tablet_signle_segment0_zero_bytes) {
+TEST_F(LoadStreamMgrTest, one_client_one_index_one_tablet_single_segment0_zero_bytes) {
     MockSinkClient client;
     auto st = client.connect_stream();
     EXPECT_TRUE(st.ok());
@@ -814,12 +808,12 @@ TEST_F(LoadStreamMgrTest, one_client_one_index_one_tablet_signle_segment0_zero_b
     EXPECT_EQ(g_response_stat.failed_tablet_ids.size(), 1);
     EXPECT_EQ(g_response_stat.failed_tablet_ids[0], NORMAL_TABLET_ID);
 
-    client.disconnect();
+    // server will close stream on CLOSE_LOAD
     wait_for_close();
     EXPECT_EQ(_load_stream_mgr->get_load_stream_num(), 0);
 }
 
-TEST_F(LoadStreamMgrTest, one_client_one_index_one_tablet_signle_segment0) {
+TEST_F(LoadStreamMgrTest, one_client_one_index_one_tablet_single_segment0) {
     MockSinkClient client;
     auto st = client.connect_stream();
     EXPECT_TRUE(st.ok());
@@ -860,12 +854,12 @@ TEST_F(LoadStreamMgrTest, one_client_one_index_one_tablet_signle_segment0) {
     auto written_data = read_data(NORMAL_TXN_ID, NORMAL_PARTITION_ID, NORMAL_TABLET_ID, 0);
     EXPECT_EQ(written_data, data + data);
 
-    client.disconnect();
+    // server will close stream on CLOSE_LOAD
     wait_for_close();
     EXPECT_EQ(_load_stream_mgr->get_load_stream_num(), 0);
 }
 
-TEST_F(LoadStreamMgrTest, one_client_one_index_one_tablet_signle_segment_without_eos) {
+TEST_F(LoadStreamMgrTest, one_client_one_index_one_tablet_single_segment_without_eos) {
     MockSinkClient client;
     auto st = client.connect_stream();
     EXPECT_TRUE(st.ok());
@@ -901,12 +895,12 @@ TEST_F(LoadStreamMgrTest, one_client_one_index_one_tablet_signle_segment_without
     EXPECT_EQ(g_response_stat.failed_tablet_ids.size(), 1);
     EXPECT_EQ(g_response_stat.failed_tablet_ids[0], NORMAL_TABLET_ID);
 
-    client.disconnect();
+    // server will close stream on CLOSE_LOAD
     wait_for_close();
     EXPECT_EQ(_load_stream_mgr->get_load_stream_num(), 0);
 }
 
-TEST_F(LoadStreamMgrTest, one_client_one_index_one_tablet_signle_segment1) {
+TEST_F(LoadStreamMgrTest, one_client_one_index_one_tablet_single_segment1) {
     MockSinkClient client;
     auto st = client.connect_stream();
     EXPECT_TRUE(st.ok());
@@ -944,7 +938,7 @@ TEST_F(LoadStreamMgrTest, one_client_one_index_one_tablet_signle_segment1) {
     EXPECT_EQ(g_response_stat.failed_tablet_ids.size(), 1);
     EXPECT_EQ(g_response_stat.failed_tablet_ids[0], NORMAL_TABLET_ID);
 
-    client.disconnect();
+    // server will close stream on CLOSE_LOAD
     wait_for_close();
     EXPECT_EQ(_load_stream_mgr->get_load_stream_num(), 0);
 }
@@ -997,7 +991,7 @@ TEST_F(LoadStreamMgrTest, one_client_one_index_one_tablet_two_segment) {
     written_data = read_data(NORMAL_TXN_ID, NORMAL_PARTITION_ID, NORMAL_TABLET_ID, 1);
     EXPECT_EQ(written_data, data2);
 
-    client.disconnect();
+    // server will close stream on CLOSE_LOAD
     wait_for_close();
     EXPECT_EQ(_load_stream_mgr->get_load_stream_num(), 0);
 }
@@ -1058,7 +1052,7 @@ TEST_F(LoadStreamMgrTest, one_client_one_index_three_tablet) {
     written_data = read_data(NORMAL_TXN_ID, NORMAL_PARTITION_ID, NORMAL_TABLET_ID + 2, 0);
     EXPECT_EQ(written_data, data2);
 
-    client.disconnect();
+    // server will close stream on CLOSE_LOAD
     wait_for_close();
     EXPECT_EQ(_load_stream_mgr->get_load_stream_num(), 0);
 }
@@ -1100,13 +1094,14 @@ TEST_F(LoadStreamMgrTest, two_client_one_index_one_tablet_three_segment) {
     // duplicated close
     close_load(clients[1], 1);
     wait_for_ack(2);
-    EXPECT_EQ(g_response_stat.num, 2);
+    // stream closed, no response will be sent
+    EXPECT_EQ(g_response_stat.num, 1);
     EXPECT_EQ(g_response_stat.success_tablet_ids.size(), 0);
     EXPECT_EQ(g_response_stat.failed_tablet_ids.size(), 0);
 
     close_load(clients[0], 0);
-    wait_for_ack(3);
-    EXPECT_EQ(g_response_stat.num, 3);
+    wait_for_ack(2);
+    EXPECT_EQ(g_response_stat.num, 2);
     EXPECT_EQ(g_response_stat.success_tablet_ids.size(), 1);
     EXPECT_EQ(g_response_stat.failed_tablet_ids.size(), 0);
     EXPECT_EQ(g_response_stat.success_tablet_ids[0], NORMAL_TABLET_ID);
@@ -1130,9 +1125,7 @@ TEST_F(LoadStreamMgrTest, two_client_one_index_one_tablet_three_segment) {
         EXPECT_EQ(written_data, segment_data[sender_id * 3 + i]);
     }
 
-    for (int i = 0; i < 2; i++) {
-        clients[i].disconnect();
-    }
+    // server will close stream on CLOSE_LOAD
     wait_for_close();
     EXPECT_EQ(_load_stream_mgr->get_load_stream_num(), 0);
 }

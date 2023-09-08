@@ -29,12 +29,10 @@ namespace doris::pipeline {
 OPERATOR_CODE_GENERATOR(SortSinkOperator, StreamingOperator)
 
 Status SortSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& info) {
+    RETURN_IF_ERROR(PipelineXSinkLocalState<SortDependency>::init(state, info));
     auto& p = _parent->cast<SortSinkOperatorX>();
-    _dependency = (SortDependency*)info.dependency;
-    _shared_state = (SortSharedState*)_dependency->shared_state();
 
     RETURN_IF_ERROR(p._vsort_exec_exprs.clone(state, _vsort_exec_exprs));
-    _profile = p._pool->add(new RuntimeProfile("SortSinkLocalState"));
     switch (p._algorithm) {
     case SortAlgorithm::HEAP_SORT: {
         _shared_state->sorter = vectorized::HeapSorter::create_unique(
@@ -83,11 +81,10 @@ SortSinkOperatorX::SortSinkOperatorX(ObjectPool* pool, const TPlanNode& tnode,
           _limit(tnode.limit),
           _use_topn_opt(tnode.sort_node.use_topn_opt),
           _row_descriptor(descs, tnode.row_tuples, tnode.nullable_tuples),
-          _use_two_phase_read(tnode.sort_node.sort_info.use_two_phase_read) {
-    _name = "SortSinkOperatorX";
-}
+          _use_two_phase_read(tnode.sort_node.sort_info.use_two_phase_read) {}
 
 Status SortSinkOperatorX::init(const TPlanNode& tnode, RuntimeState* state) {
+    RETURN_IF_ERROR(DataSinkOperatorX::init(tnode, state));
     RETURN_IF_ERROR(_vsort_exec_exprs.init(tnode.sort_node.sort_info, _pool));
     _is_asc_order = tnode.sort_node.sort_info.is_asc_order;
     _nulls_first = tnode.sort_node.sort_info.nulls_first;
@@ -142,12 +139,6 @@ Status SortSinkOperatorX::prepare(RuntimeState* state) {
 
 Status SortSinkOperatorX::open(RuntimeState* state) {
     return _vsort_exec_exprs.open(state);
-}
-
-Status SortSinkOperatorX::setup_local_state(RuntimeState* state, LocalSinkStateInfo& info) {
-    auto local_state = SortSinkLocalState::create_shared(this, state);
-    state->emplace_sink_local_state(id(), local_state);
-    return local_state->init(state, info);
 }
 
 Status SortSinkOperatorX::sink(doris::RuntimeState* state, vectorized::Block* in_block,

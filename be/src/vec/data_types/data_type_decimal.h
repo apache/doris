@@ -89,11 +89,6 @@ constexpr size_t max_decimal_precision<Decimal128I>() {
     return 38;
 }
 
-template <typename T>
-constexpr typename T::NativeType max_decimal_value() {
-    return 0;
-}
-
 DataTypePtr create_decimal(UInt64 precision, UInt64 scale, bool use_v2);
 
 inline UInt32 least_decimal_precision_for(TypeIndex int_type) {
@@ -160,7 +155,7 @@ public:
         if constexpr (std::is_same_v<TypeId<T>, TypeId<Decimal128I>>) {
             return TYPE_DECIMAL128I;
         }
-        __builtin_unreachable();
+        return TYPE_DECIMALV2;
     }
 
     TPrimitiveType::type get_type_as_tprimitive_type() const override {
@@ -577,4 +572,17 @@ ToDataType::FieldType convert_to_decimal(const typename FromDataType::FieldType&
     }
 }
 
+template <typename T>
+    requires IsDecimalNumber<T>
+typename T::NativeType max_decimal_value(UInt32 precision) {
+    return type_limit<T>::max() / DataTypeDecimal<T>::get_scale_multiplier(
+                                          (UInt32)(max_decimal_precision<T>() - precision));
+}
+
+template <typename T>
+    requires IsDecimalNumber<T>
+typename T::NativeType min_decimal_value(UInt32 precision) {
+    return type_limit<T>::min() / DataTypeDecimal<T>::get_scale_multiplier(
+                                          (UInt32)(max_decimal_precision<T>() - precision));
+}
 } // namespace doris::vectorized

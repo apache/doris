@@ -17,6 +17,9 @@
 
 package org.apache.doris.analysis;
 
+import org.apache.doris.catalog.ScalarType;
+import org.apache.doris.catalog.Type;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.UserException;
@@ -81,6 +84,23 @@ public class CreateTableAsSelectStmt extends DdlStmt {
             if (queryStmt.getResultExprs().get(i).getSrcSlotRef() != null) {
                 queryStmt.getResultExprs().get(i).getSrcSlotRef().getColumn()
                         .setIsAllowNull(outputs.get(i).isNullable());
+            }
+            if (Config.enable_date_conversion) {
+                if (queryStmt.getResultExprs().get(i).getType() == Type.DATE) {
+                    Expr castExpr = queryStmt.getResultExprs().get(i).castTo(Type.DATEV2);
+                    queryStmt.getResultExprs().set(i, castExpr);
+                }
+                if (queryStmt.getResultExprs().get(i).getType() == Type.DATETIME) {
+                    Expr castExpr = queryStmt.getResultExprs().get(i).castTo(Type.DATETIMEV2);
+                    queryStmt.getResultExprs().set(i, castExpr);
+                }
+            }
+            if (Config.enable_decimal_conversion && queryStmt.getResultExprs().get(i).getType().isDecimalV2()) {
+                int precision = queryStmt.getResultExprs().get(i).getType().getPrecision();
+                int scalar = queryStmt.getResultExprs().get(i).getType().getDecimalDigits();
+                Expr castExpr = queryStmt.getResultExprs().get(i)
+                        .castTo(ScalarType.createDecimalV3Type(precision, scalar));
+                queryStmt.getResultExprs().set(i, castExpr);
             }
         }
         ArrayList<Expr> resultExprs = getQueryStmt().getResultExprs();

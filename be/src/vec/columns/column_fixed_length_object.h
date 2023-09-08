@@ -26,6 +26,7 @@
 #include "vec/common/arena.h"
 #include "vec/common/assert_cast.h"
 #include "vec/common/pod_array.h"
+#include "vec/common/sip_hash.h"
 
 namespace doris::vectorized {
 
@@ -169,7 +170,7 @@ public:
     }
 
     void update_hash_with_value(size_t n, SipHash& hash) const override {
-        LOG(FATAL) << "update_hash_with_value not supported";
+        hash.update(reinterpret_cast<const char*>(_data.data() + n * _item_size), _item_size);
     }
 
     [[noreturn]] ColumnPtr filter(const IColumn::Filter& filt,

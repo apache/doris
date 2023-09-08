@@ -96,6 +96,7 @@ public class AnalysisInfo implements Writable {
     @SerializedName("tblName")
     public final String tblName;
 
+    // TODO: Map here is wired, List is enough
     @SerializedName("colToPartitions")
     public final Map<String, Set<String>> colToPartitions;
 
@@ -200,6 +201,9 @@ public class AnalysisInfo implements Writable {
         this.partitionOnly = partitionOnly;
         this.samplingPartition = samplingPartition;
         this.cronExpression = cronExpression;
+        if (cronExpression != null) {
+            this.cronExprStr = cronExpression.getCronExpression();
+        }
     }
 
     @Override

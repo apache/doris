@@ -85,6 +85,7 @@ public abstract class Planner {
         if (explainLevel == org.apache.doris.thrift.TExplainLevel.VERBOSE) {
             appendTupleInfo(str);
         }
+        appendHintInfo(str);
         return str.toString();
     }
 
@@ -103,6 +104,8 @@ public abstract class Planner {
     }
 
     public void appendTupleInfo(StringBuilder stringBuilder) {}
+
+    public void appendHintInfo(StringBuilder stringBuilder) {}
 
     public List<PlanFragment> getFragments() {
         return fragments;

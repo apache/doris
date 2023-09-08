@@ -111,6 +111,6 @@ public class WhenClause extends Expression implements BinaryExpression, ExpectsI
 
     @Override
     public String toString() {
-        return toSql();
+        return " WHEN " + left().toString() + " THEN " + right().toString();
     }
 }

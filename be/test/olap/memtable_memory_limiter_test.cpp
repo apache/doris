@@ -87,7 +87,6 @@ protected:
         options.store_paths = paths;
         Status s = doris::StorageEngine::open(options, &_engine);
         ExecEnv* exec_env = doris::ExecEnv::GetInstance();
-        exec_env->set_storage_engine(_engine);
         _engine->start_bg_threads();
         exec_env->set_memtable_memory_limiter(new MemTableMemoryLimiter());
     }
@@ -95,17 +94,12 @@ protected:
     void TearDown() override {
         ExecEnv* exec_env = doris::ExecEnv::GetInstance();
         exec_env->set_memtable_memory_limiter(nullptr);
-        if (_engine != nullptr) {
-            _engine->stop();
-            delete _engine;
-            _engine = nullptr;
-        }
         EXPECT_EQ(system("rm -rf ./data_test"), 0);
         io::global_local_filesystem()->delete_directory(std::string(getenv("DORIS_HOME")) + "/" +
                                                         UNUSED_PREFIX);
     }
 
-    StorageEngine* _engine = nullptr;
+    std::unique_ptr<StorageEngine> _engine;
 };
 
 TEST_F(MemTableMemoryLimiterTest, handle_memtable_flush_test) {

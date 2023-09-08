@@ -40,6 +40,7 @@ suite ("test_rename_column") {
             `max_dwell_time` INT DEFAULT "0" COMMENT "用户最大停留时间",
             `min_dwell_time` INT DEFAULT "99999" COMMENT "用户最小停留时间")
         UNIQUE KEY(`user_id`, `date`, `city`, `age`, `sex`) DISTRIBUTED BY HASH(`user_id`)
+        BUCKETS 8
         PROPERTIES ( "replication_num" = "1" , "light_schema_change" = "false")
         """
     qt_desc """ desc ${tableName} """
@@ -120,6 +121,7 @@ suite ("test_rename_column") {
             `max_dwell_time` INT DEFAULT "0" COMMENT "用户最大停留时间",
             `min_dwell_time` INT DEFAULT "99999" COMMENT "用户最小停留时间")
         UNIQUE KEY(`user_id`, `date`, `city`, `age`, `sex`) DISTRIBUTED BY HASH(`user_id`)
+        BUCKETS 8
         PROPERTIES ( "replication_num" = "1" , "light_schema_change" = "false")
         """
     test {
@@ -142,7 +144,7 @@ suite ("test_rename_column") {
                 `hll_col` HLL HLL_UNION NOT NULL COMMENT "HLL列",
                 `bitmap_col` Bitmap BITMAP_UNION NOT NULL COMMENT "bitmap列")
             AGGREGATE KEY(`user_id`, `date`, `city`, `age`, `sex`) DISTRIBUTED BY HASH(`user_id`)
-            BUCKETS 1
+            BUCKETS 8
             PROPERTIES ( "replication_num" = "1", "light_schema_change" = "true" );
         """
     qt_desc """ desc ${tableName} """
@@ -209,7 +211,7 @@ suite ("test_rename_column") {
                 `hll_col` HLL HLL_UNION NOT NULL COMMENT "HLL列",
                 `bitmap_col` Bitmap BITMAP_UNION NOT NULL COMMENT "bitmap列")
             AGGREGATE KEY(`user_id`, `date`, `city`, `age`, `sex`) DISTRIBUTED BY HASH(`user_id`)
-            BUCKETS 1
+            BUCKETS 8
             PROPERTIES ( "replication_num" = "1", "light_schema_change" = "true" );
         """
 

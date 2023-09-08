@@ -1204,27 +1204,32 @@ public class FileSystemManager {
             // Avoid using the ByteBuffer based read for Hadoop because some FSDataInputStream
             // implementations are not ByteBufferReadable,
             // See https://issues.apache.org/jira/browse/HADOOP-14603
-            byte[] buf;
-            if (length > readBufferSize) {
-                buf = new byte[readBufferSize];
-            } else {
-                buf = new byte[(int) length];
+            int hasRead = 0;
+            byte[] buf = new byte[(int)length];
+            while (hasRead < length) {
+                int bufSize = Math.min((int) length - hasRead, readBufferSize);
+                try {
+                    int readLength = fsDataInputStream.read(buf, hasRead, bufSize);
+                    if (readLength < 0) {
+                        throw new BrokerException(TBrokerOperationStatusCode.END_OF_FILE,
+                                "end of file reached");
+                    }
+                    if (logger.isDebugEnabled()) {
+                        logger.debug("read buffer from input stream, buffer size:" + buf.length + ", read length:"
+                                + readLength);
+                    }
+                    hasRead += readLength;
+                } catch (IOException e) {
+                    logger.error("errors while read data from stream", e);
+                    throw new BrokerException(TBrokerOperationStatusCode.TARGET_STORAGE_SERVICE_ERROR,
+                            e, "errors while read data from stream");
+                }
             }
-            try {
-                int readLength = readBytesFully(fsDataInputStream, buf);
-                if (readLength < 0) {
-                    throw new BrokerException(TBrokerOperationStatusCode.END_OF_FILE,
-                            "end of file reached");
-                }
-                if (logger.isDebugEnabled()) {
-                    logger.debug("read buffer from input stream, buffer size:" + buf.length + ", read length:" + readLength);
-                }
-                return ByteBuffer.wrap(buf, 0, readLength);
-            } catch (IOException e) {
-                logger.error("errors while read data from stream", e);
+            if (hasRead != length) {
                 throw new BrokerException(TBrokerOperationStatusCode.TARGET_STORAGE_SERVICE_ERROR,
-                        e, "errors while write data to output stream");
+                        String.format("errors while read data from stream: hasRead(%d) != length(%d)", hasRead, length));
             }
+            return ByteBuffer.wrap(buf, 0, hasRead);
         }
     }
 
@@ -1323,19 +1328,6 @@ public class FileSystemManager {
 
     private static TBrokerFD parseUUIDToFD(UUID uuid) {
         return new TBrokerFD(uuid.getMostSignificantBits(), uuid.getLeastSignificantBits());
-    }
-
-    private int readBytesFully(FSDataInputStream is, byte[] dest) throws IOException {
-        int readLength = 0;
-        while (readLength < dest.length) {
-            int availableReadLength = dest.length - readLength;
-            int n = is.read(dest, readLength, availableReadLength);
-            if (n <= 0) {
-                break;
-            }
-            readLength += n;
-        }
-        return readLength;
     }
 
     /**

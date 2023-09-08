@@ -287,14 +287,14 @@ Status PointQueryExecutor::_lookup_row_key() {
         st = (_tablet->lookup_row_key(_row_read_ctxs[i]._primary_key, true, specified_rowsets,
                                       &location, INT32_MAX /*rethink?*/, segment_caches,
                                       rowset_ptr.get()));
-        if (st.is<ErrorCode::NOT_FOUND>()) {
+        if (st.is<ErrorCode::KEY_NOT_FOUND>()) {
             continue;
         }
         RETURN_IF_ERROR(st);
         _row_read_ctxs[i]._row_location = location;
         // acquire and wrap this rowset
         (*rowset_ptr)->acquire();
-        VLOG_DEBUG << "aquire rowset " << (*rowset_ptr)->unique_id();
+        VLOG_DEBUG << "aquire rowset " << (*rowset_ptr)->rowset_id();
         _row_read_ctxs[i]._rowset_ptr = std::unique_ptr<RowsetSharedPtr, decltype(&release_rowset)>(
                 rowset_ptr.release(), &release_rowset);
     }

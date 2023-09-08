@@ -82,31 +82,31 @@ public class DateTimeV2Literal extends DateTimeLiteral {
     }
 
     @Override
-    public Expression plusYears(int years) {
+    public Expression plusYears(long years) {
         return fromJavaDateType(DateUtils.getTime(DATE_TIME_FORMATTER_TO_MICRO_SECOND, getStringValue())
                 .plusYears(years), getDataType().getScale());
     }
 
     @Override
-    public Expression plusMonths(int months) {
+    public Expression plusMonths(long months) {
         return fromJavaDateType(DateUtils.getTime(DATE_TIME_FORMATTER_TO_MICRO_SECOND, getStringValue())
                 .plusMonths(months), getDataType().getScale());
     }
 
     @Override
-    public Expression plusDays(int days) {
+    public Expression plusDays(long days) {
         return fromJavaDateType(DateUtils.getTime(DATE_TIME_FORMATTER_TO_MICRO_SECOND, getStringValue())
                 .plusDays(days), getDataType().getScale());
     }
 
     @Override
-    public Expression plusHours(int hours) {
+    public Expression plusHours(long hours) {
         return fromJavaDateType(DateUtils.getTime(DATE_TIME_FORMATTER_TO_MICRO_SECOND, getStringValue())
                 .plusHours(hours), getDataType().getScale());
     }
 
     @Override
-    public Expression plusMinutes(int minutes) {
+    public Expression plusMinutes(long minutes) {
         return fromJavaDateType(DateUtils.getTime(DATE_TIME_FORMATTER_TO_MICRO_SECOND, getStringValue())
                 .plusMinutes(minutes), getDataType().getScale());
     }
@@ -117,7 +117,7 @@ public class DateTimeV2Literal extends DateTimeLiteral {
                 .plusSeconds(seconds), getDataType().getScale());
     }
 
-    public Expression plusMicroSeconds(int microSeconds) {
+    public Expression plusMicroSeconds(long microSeconds) {
         return fromJavaDateType(DateUtils.getTime(DATE_TIME_FORMATTER_TO_MICRO_SECOND, getStringValue())
                 .plusNanos(microSeconds * 1000L), getDataType().getScale());
     }

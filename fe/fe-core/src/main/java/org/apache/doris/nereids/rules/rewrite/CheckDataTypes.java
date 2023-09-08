@@ -25,6 +25,7 @@ import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionVisit
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.visitor.CustomRewriter;
+import org.apache.doris.nereids.types.ArrayType;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.JsonType;
 import org.apache.doris.nereids.types.MapType;
@@ -39,8 +40,7 @@ import java.util.Set;
  */
 public class CheckDataTypes implements CustomRewriter {
 
-    private static final Set<Class<? extends DataType>> UNSUPPORTED_TYPE = ImmutableSet.of(
-            MapType.class, StructType.class, JsonType.class);
+    private static final Set<Class<? extends DataType>> UNSUPPORTED_TYPE = ImmutableSet.of(JsonType.class);
 
     @Override
     public Plan rewriteRoot(Plan rootPlan, JobContext jobContext) {
@@ -86,7 +86,14 @@ public class CheckDataTypes implements CustomRewriter {
         }
 
         private void checkTypes(DataType dataType) {
-            if (UNSUPPORTED_TYPE.contains(dataType.getClass())) {
+            if (dataType instanceof ArrayType) {
+                checkTypes(((ArrayType) dataType).getItemType());
+            } else if (dataType instanceof MapType) {
+                checkTypes(((MapType) dataType).getKeyType());
+                checkTypes(((MapType) dataType).getValueType());
+            } else if (dataType instanceof StructType) {
+                ((StructType) dataType).getFields().forEach(f -> this.checkTypes(f.getDataType()));
+            } else if (UNSUPPORTED_TYPE.contains(dataType.getClass())) {
                 throw new AnalysisException(String.format("type %s is unsupported for Nereids", dataType));
             }
         }

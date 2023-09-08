@@ -103,21 +103,24 @@ public:
     class DataPageCache : public LRUCachePolicy {
     public:
         DataPageCache(size_t capacity, uint32_t num_shards)
-                : LRUCachePolicy("DataPageCache", capacity, LRUCacheType::SIZE,
-                                 config::data_page_cache_stale_sweep_time_sec, num_shards) {}
+                : LRUCachePolicy(CachePolicy::CacheType::DATA_PAGE_CACHE, capacity,
+                                 LRUCacheType::SIZE, config::data_page_cache_stale_sweep_time_sec,
+                                 num_shards) {}
     };
 
     class IndexPageCache : public LRUCachePolicy {
     public:
         IndexPageCache(size_t capacity, uint32_t num_shards)
-                : LRUCachePolicy("IndexPageCache", capacity, LRUCacheType::SIZE,
-                                 config::index_page_cache_stale_sweep_time_sec, num_shards) {}
+                : LRUCachePolicy(CachePolicy::CacheType::INDEXPAGE_CACHE, capacity,
+                                 LRUCacheType::SIZE, config::index_page_cache_stale_sweep_time_sec,
+                                 num_shards) {}
     };
 
     class PKIndexPageCache : public LRUCachePolicy {
     public:
         PKIndexPageCache(size_t capacity, uint32_t num_shards)
-                : LRUCachePolicy("PKIndexPageCache", capacity, LRUCacheType::SIZE,
+                : LRUCachePolicy(CachePolicy::CacheType::PK_INDEX_PAGE_CACHE, capacity,
+                                 LRUCacheType::SIZE,
                                  config::pk_index_page_cache_stale_sweep_time_sec, num_shards) {}
     };
 

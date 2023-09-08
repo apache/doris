@@ -1554,7 +1554,21 @@ public class Config extends ConfigBase {
     public static boolean enable_pipeline_load = false;
 
     @ConfField
-    public static int scheduler_job_task_max_num = 10;
+    public static int scheduler_job_task_max_saved_count = 10;
+
+    /**
+     * The number of async tasks that can be queued. @See TaskDisruptor
+     * if consumer is slow, the queue will be full, and the producer will be blocked.
+     */
+    @ConfField
+    public static int async_task_queen_size = 1024;
+
+    /**
+     * The number of threads used to consume async tasks. @See TaskDisruptor
+     * if we have a lot of async tasks, we need more threads to consume them. Sure, it's depends on the cpu cores.
+     */
+    @ConfField
+    public static int async_task_consumer_thread_num = 10;
 
     // enable_workload_group should be immutable and temporarily set to mutable during the development test phase
     @ConfField(mutable = true, varType = VariableAnnotation.EXPERIMENTAL)
@@ -1613,7 +1627,7 @@ public class Config extends ConfigBase {
      * condition，try to set this timeout longer.
      */
     @ConfField(mutable = true)
-    public static long remote_fragment_exec_timeout_ms = 5000; // 5 sec
+    public static long remote_fragment_exec_timeout_ms = 30000; // 30 sec
 
     /**
      * Max data version of backends serialize block.
@@ -1770,7 +1784,7 @@ public class Config extends ConfigBase {
      * For external schema cache and hive meta cache.
      */
     @ConfField(mutable = false, masterOnly = false)
-    public static long external_cache_expire_time_minutes_after_access = 24 * 60; // 1 day
+    public static long external_cache_expire_time_minutes_after_access = 10; // 10 mins
 
     /**
      * Github workflow test type, for setting some session variables
@@ -2097,6 +2111,9 @@ public class Config extends ConfigBase {
     public static int full_auto_analyze_simultaneously_running_task_num = 1;
 
     @ConfField
+    public static final int period_analyze_simultaneously_running_task_num = 1;
+
+    @ConfField
     public static int cpu_resource_limit_per_analyze_task = 1;
 
     @ConfField(mutable = true, description = {
@@ -2129,4 +2146,22 @@ public class Config extends ConfigBase {
 
     @ConfField
     public static int table_stats_health_threshold = 80;
+
+    @ConfField(description = {
+            "暂时性配置项，开启后会自动将所有的olap表修改为可light schema change",
+            "temporary config filed, will make all olap tables enable light schema change"
+    })
+    public static boolean enable_convert_light_weight_schema_change = true;
+
+    @ConfField(mutable = true, masterOnly = false, description = {
+            "查询information_schema.metadata_name_ids表时,获取一个数据库中所有表用的时间",
+            "When querying the information_schema.metadata_name_ids table,"
+                    + " the time used to obtain all tables in one database"
+    })
+    public static long query_metadata_name_ids_timeout = 3;
+
+    @ConfField(mutable = true, masterOnly = true, description = {
+            "是否禁止LocalDeployManager删除节点",
+            "Whether to disable LocalDeployManager drop node"})
+    public static boolean disable_local_deploy_manager_drop_node = true;
 }

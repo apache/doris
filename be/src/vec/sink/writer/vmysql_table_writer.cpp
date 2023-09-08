@@ -115,12 +115,12 @@ Status VMysqlTableWriter::append_block(vectorized::Block& block) {
     RETURN_IF_ERROR(_projection_block(block, &output_block));
     auto num_rows = output_block.rows();
     for (int i = 0; i < num_rows; ++i) {
-        RETURN_IF_ERROR(insert_row(output_block, i));
+        RETURN_IF_ERROR(_insert_row(output_block, i));
     }
     return Status::OK();
 }
 
-Status VMysqlTableWriter::insert_row(vectorized::Block& block, size_t row) {
+Status VMysqlTableWriter::_insert_row(vectorized::Block& block, size_t row) {
     _insert_stmt_buffer.clear();
     fmt::format_to(_insert_stmt_buffer, "INSERT INTO {} VALUES (", _conn_info.table_name);
     int num_columns = _vec_output_expr_ctxs.size();

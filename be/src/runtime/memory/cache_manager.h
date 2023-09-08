@@ -17,11 +17,10 @@
 
 #pragma once
 
+#include "runtime/memory/cache_policy.h"
 #include "util/runtime_profile.h"
 
 namespace doris {
-
-class CachePolicy;
 
 // Hold the list of all caches, for prune when memory not enough or timing.
 class CacheManager {
@@ -52,6 +51,8 @@ public:
     int64_t for_each_cache_prune_stale(RuntimeProfile* profile = nullptr);
 
     int64_t for_each_cache_prune_all(RuntimeProfile* profile = nullptr);
+
+    void clear_once(CachePolicy::CacheType type);
 
 private:
     static inline CacheManager* _s_instance = nullptr;

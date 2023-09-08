@@ -501,7 +501,8 @@ Status TabletReader::_init_conditions_param(const ReaderParams& read_params) {
 
     // Function filter push down to storage engine
     auto is_like_predicate = [](ColumnPredicate* _pred) {
-        if (dynamic_cast<LikeColumnPredicate*>(_pred)) {
+        if (dynamic_cast<LikeColumnPredicate<TYPE_CHAR>*>(_pred) != nullptr ||
+            dynamic_cast<LikeColumnPredicate<TYPE_STRING>*>(_pred) != nullptr) {
             return true;
         }
 
@@ -594,10 +595,10 @@ ColumnPredicate* TabletReader::_parse_to_predicate(const FunctionFilter& functio
     if (index < 0) {
         return nullptr;
     }
-
-    // currently only support like predicate
-    return new LikeColumnPredicate(function_filter._opposite, index, function_filter._fn_ctx,
-                                   function_filter._string_param);
+    const TabletColumn& column = _tablet_schema->column(index);
+    return create_column_predicate(index, std::make_shared<FunctionFilter>(function_filter),
+                                   column.type(), _reader_context.runtime_state->be_exec_version(),
+                                   &column);
 }
 
 Status TabletReader::_init_delete_condition(const ReaderParams& read_params) {
@@ -615,9 +616,17 @@ Status TabletReader::_init_delete_condition(const ReaderParams& read_params) {
                       ((read_params.reader_type == ReaderType::READER_CUMULATIVE_COMPACTION &&
                         config::enable_delete_when_cumu_compaction)) ||
                       read_params.reader_type == ReaderType::READER_CHECKSUM);
-
+    if (_filter_delete) {
+        // note(tsy): for compaction, keep delete sub pred v1 temporarily
+        return _delete_handler.init(_tablet_schema, read_params.delete_predicates,
+                                    read_params.version.second, false);
+    }
+    auto* runtime_state = read_params.runtime_state;
+    // note(tsy): for query, use session var to enable delete sub pred v2, for schema change, use v2 directly
+    bool enable_sub_pred_v2 =
+            runtime_state == nullptr ? true : runtime_state->enable_delete_sub_pred_v2();
     return _delete_handler.init(_tablet_schema, read_params.delete_predicates,
-                                read_params.version.second);
+                                read_params.version.second, enable_sub_pred_v2);
 }
 
 Status TabletReader::init_reader_params_and_create_block(

@@ -47,7 +47,7 @@ ScannerContext::ScannerContext(doris::RuntimeState* state_, doris::vectorized::V
                                const doris::TupleDescriptor* output_tuple_desc,
                                const std::list<VScannerSPtr>& scanners_, int64_t limit_,
                                int64_t max_bytes_in_blocks_queue_, const int num_parallel_instances,
-                               pipeline::ScanLocalState* local_state)
+                               pipeline::ScanLocalStateBase* local_state)
         : _state(state_),
           _parent(parent),
           _local_state(local_state),
@@ -145,6 +145,10 @@ Status ScannerContext::init() {
     return Status::OK();
 }
 
+std::string ScannerContext::parent_name() {
+    return _parent ? _parent->get_name() : _local_state->get_name();
+}
+
 vectorized::BlockUPtr ScannerContext::get_free_block(bool* has_free_block,
                                                      bool get_block_not_empty) {
     vectorized::BlockUPtr block;
@@ -188,6 +192,11 @@ bool ScannerContext::empty_in_queue(int id) {
 Status ScannerContext::get_block_from_queue(RuntimeState* state, vectorized::BlockUPtr* block,
                                             bool* eos, int id, bool wait) {
     std::unique_lock l(_transfer_lock);
+    // debug case failure, to be removed
+    if (state->enable_profile()) {
+        LOG(WARNING) << "debug case failure " << print_id(state->query_id()) << " "
+                     << _parent->get_name() << ": ScannerContext::get_block_from_queue";
+    }
     // Normally, the scanner scheduler will schedule ctx.
     // But when the amount of data in the blocks queue exceeds the upper limit,
     // the scheduler will stop scheduling.
@@ -204,6 +213,7 @@ Status ScannerContext::get_block_from_queue(RuntimeState* state, vectorized::Blo
     }
     // Wait for block from queue
     if (wait) {
+        // scanner batch wait time
         SCOPED_TIMER(_scanner_wait_batch_timer);
         while (!(!_blocks_queue.empty() || _is_finished || !status().ok() ||
                  state->is_cancelled())) {
@@ -419,7 +429,8 @@ taskgroup::TaskGroup* ScannerContext::get_task_group() const {
     return _state->get_query_ctx()->get_task_group();
 }
 
-template void ScannerContext::clear_and_join(pipeline::ScanLocalState* parent, RuntimeState* state);
+template void ScannerContext::clear_and_join(pipeline::ScanLocalStateBase* parent,
+                                             RuntimeState* state);
 template void ScannerContext::clear_and_join(VScanNode* parent, RuntimeState* state);
 
 } // namespace doris::vectorized

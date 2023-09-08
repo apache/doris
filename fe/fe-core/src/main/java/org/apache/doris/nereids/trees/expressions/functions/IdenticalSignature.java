@@ -19,6 +19,8 @@ package org.apache.doris.nereids.trees.expressions.functions;
 
 import org.apache.doris.catalog.FunctionSignature;
 import org.apache.doris.nereids.types.DataType;
+import org.apache.doris.nereids.types.coercion.AnyDataType;
+import org.apache.doris.nereids.types.coercion.FollowToAnyDataType;
 
 import java.util.List;
 
@@ -33,6 +35,10 @@ public interface IdenticalSignature extends ComputeSignature {
     static boolean isIdentical(DataType signatureType, DataType realType) {
         try {
             // TODO: copy matchesType to DataType
+            // TODO: resolve AnyDataType invoke toCatalogDataType
+            if (signatureType instanceof AnyDataType || signatureType instanceof FollowToAnyDataType) {
+                return false;
+            }
             return realType.toCatalogDataType().matchesType(signatureType.toCatalogDataType());
         } catch (Throwable t) {
             // the signatureType maybe DataType and can not cast to catalog data type.

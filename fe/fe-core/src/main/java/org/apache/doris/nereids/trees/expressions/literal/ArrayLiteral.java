@@ -19,8 +19,6 @@ package org.apache.doris.nereids.trees.expressions.literal;
 
 import org.apache.doris.analysis.LiteralExpr;
 import org.apache.doris.nereids.exceptions.AnalysisException;
-import org.apache.doris.nereids.trees.expressions.Expression;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.Array;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.ArrayType;
 import org.apache.doris.nereids.types.DataType;
@@ -32,6 +30,7 @@ import java.util.stream.Collectors;
 
 /** ArrayLiteral */
 public class ArrayLiteral extends Literal {
+
     private final List<Literal> items;
 
     public ArrayLiteral(List<Literal> items) {
@@ -63,7 +62,7 @@ public class ArrayLiteral extends Literal {
     @Override
     public String toString() {
         String items = this.items.stream()
-                .map(item -> item.toString())
+                .map(Literal::toString)
                 .collect(Collectors.joining(", "));
         return "array(" + items + ")";
     }
@@ -85,6 +84,6 @@ public class ArrayLiteral extends Literal {
         if (items.isEmpty()) {
             return ArrayType.SYSTEM_DEFAULT;
         }
-        return new Array(items.toArray(new Expression[0])).getDataType();
+        return ArrayType.of(items.get(0).dataType);
     }
 }

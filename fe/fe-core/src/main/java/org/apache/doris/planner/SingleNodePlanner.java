@@ -2020,7 +2020,7 @@ public class SingleNodePlanner {
                         scanNode = new HiveScanNode(ctx.getNextNodeId(), tblRef.getDesc(), true);
                         break;
                     default:
-                        throw new UserException("Not supported table type" + table.getType());
+                        throw new UserException("Not supported table type: " + ((HMSExternalTable) table).getDlaType());
                 }
                 break;
             case ICEBERG_EXTERNAL_TABLE:
@@ -2044,7 +2044,7 @@ public class SingleNodePlanner {
                 scanNode = new TestExternalTableScanNode(ctx.getNextNodeId(), tblRef.getDesc());
                 break;
             default:
-                throw new UserException("Not supported table type" + tblRef.getTable().getType());
+                throw new UserException("Not supported table type: " + tblRef.getTable().getType());
         }
         if (scanNode instanceof OlapScanNode || scanNode instanceof EsScanNode
                 || scanNode instanceof FileQueryScanNode) {
@@ -2762,7 +2762,7 @@ public class SingleNodePlanner {
                 while (sourceExpr instanceof SlotRef) {
                     SlotRef slotRef = (SlotRef) sourceExpr;
                     SlotDescriptor slotDesc = slotRef.getDesc();
-                    if (slotDesc.getSourceExprs().isEmpty()) {
+                    if (slotDesc.getSourceExprs().size() != 1) {
                         break;
                     }
                     sourceExpr = slotDesc.getSourceExprs().get(0);

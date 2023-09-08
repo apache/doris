@@ -44,15 +44,6 @@ public class UdfExecutor extends BaseExecutor {
     // setup by init() and cleared by close()
     private Method method;
 
-    // Pre-constructed input objects for the UDF. This minimizes object creation
-    // overhead
-    // as these objects are reused across calls to evaluate().
-    private Object[] inputObjects;
-
-    private long outputOffset;
-    private long rowIdx;
-
-    private long batchSizePtr;
     private int evaluateIndex;
 
     /**
@@ -92,10 +83,10 @@ public class UdfExecutor extends BaseExecutor {
         PrimitiveType valueType = argTypes[argIdx].getValueType().getPrimitiveType();
         Object[] keyCol = convertMapArg(keyType, argIdx, isNullable, 0, numRows, nullMapAddr, offsetsAddr,
                 keyNestedNullMapAddr, keyDataAddr,
-                keyStrOffsetAddr);
+                keyStrOffsetAddr, argTypes[argIdx].getKeyScale());
         Object[] valueCol = convertMapArg(valueType, argIdx, isNullable, 0, numRows, nullMapAddr, offsetsAddr,
                 valueNestedNullMapAddr, valueDataAddr,
-                valueStrOffsetAddr);
+                valueStrOffsetAddr, argTypes[argIdx].getValueScale());
         return buildHashMap(keyType, valueType, keyCol, valueCol);
     }
 
@@ -115,6 +106,7 @@ public class UdfExecutor extends BaseExecutor {
             }
             return result;
         } catch (Exception e) {
+            LOG.info("evaluate exception: " + debugString());
             LOG.info("evaluate(int numRows, Object[] column) Exception: " + e.toString());
             throw new UdfRuntimeException("UDF failed to evaluate", e);
         }
@@ -130,7 +122,7 @@ public class UdfExecutor extends BaseExecutor {
         Preconditions.checkState(result.length == numRows,
                 "copyBatchArrayResult result size should equal;");
         copyBatchArrayResultImpl(isNullable, numRows, result, nullMapAddr, offsetsAddr, nestedNullMapAddr, dataAddr,
-                strOffsetAddr, retType.getItemType().getPrimitiveType());
+                strOffsetAddr, retType.getItemType().getPrimitiveType(), retType.getScale());
     }
 
     public void copyBatchMapResult(boolean isNullable, int numRows, Object[] result, long nullMapAddr,
@@ -146,10 +138,10 @@ public class UdfExecutor extends BaseExecutor {
 
         copyBatchArrayResultImpl(isNullable, numRows, valueCol, nullMapAddr, offsetsAddr, valueNsestedNullMapAddr,
                 valueDataAddr,
-                valueStrOffsetAddr, valueType);
+                valueStrOffsetAddr, valueType, retType.getKeyScale());
         copyBatchArrayResultImpl(isNullable, numRows, keyCol, nullMapAddr, offsetsAddr, keyNsestedNullMapAddr,
                 keyDataAddr,
-                keyStrOffsetAddr, keyType);
+                keyStrOffsetAddr, keyType, retType.getValueScale());
     }
 
     /**
@@ -167,21 +159,12 @@ public class UdfExecutor extends BaseExecutor {
         return method;
     }
 
-
-    @Override
-    protected void updateOutputOffset(long offset) {
-        outputOffset = offset;
-    }
-
     // Preallocate the input objects that will be passed to the underlying UDF.
     // These objects are allocated once and reused across calls to evaluate()
     @Override
     protected void init(TJavaUdfExecutorCtorParams request, String jarPath, Type funcRetType,
             Type... parameterTypes) throws UdfRuntimeException {
         String className = request.fn.scalar_fn.symbol;
-        batchSizePtr = request.batch_size_ptr;
-        outputOffset = 0L;
-        rowIdx = 0L;
         ArrayList<String> signatures = Lists.newArrayList();
         try {
             LOG.debug("Loading UDF '" + className + "' from " + jarPath);

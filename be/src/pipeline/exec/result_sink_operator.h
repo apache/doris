@@ -20,6 +20,7 @@
 #include <stdint.h>
 
 #include "operator.h"
+#include "pipeline/pipeline_x/operator.h"
 #include "vec/sink/vresult_sink.h"
 
 namespace doris {
@@ -41,12 +42,12 @@ public:
     bool can_write() override;
 };
 
-class ResultSinkLocalState final : public PipelineXSinkLocalState {
+class ResultSinkLocalState final : public PipelineXSinkLocalState<> {
     ENABLE_FACTORY_CREATOR(ResultSinkLocalState);
 
 public:
-    ResultSinkLocalState(DataSinkOperatorX* parent, RuntimeState* state)
-            : PipelineXSinkLocalState(parent, state) {}
+    ResultSinkLocalState(DataSinkOperatorXBase* parent, RuntimeState* state)
+            : PipelineXSinkLocalState<>(parent, state) {}
 
     Status init(RuntimeState* state, LocalSinkStateInfo& info) override;
 
@@ -59,21 +60,21 @@ private:
 
     std::shared_ptr<BufferControlBlock> _sender;
     std::shared_ptr<ResultWriter> _writer;
-    RuntimeProfile* _profile; // Allocated from _pool
 };
 
-class ResultSinkOperatorX final : public DataSinkOperatorX {
+class ResultSinkOperatorX final : public DataSinkOperatorX<ResultSinkLocalState> {
 public:
     ResultSinkOperatorX(const RowDescriptor& row_desc, const std::vector<TExpr>& select_exprs,
-                        const TResultSink& sink, int buffer_size);
+                        const TResultSink& sink);
     Status prepare(RuntimeState* state) override;
     Status open(RuntimeState* state) override;
-    Status setup_local_state(RuntimeState* state, LocalSinkStateInfo& info) override;
 
     Status sink(RuntimeState* state, vectorized::Block* in_block,
                 SourceState source_state) override;
 
     bool can_write(RuntimeState* state) override;
+
+    [[nodiscard]] bool need_to_create_result_sender() const override { return true; }
 
 private:
     friend class ResultSinkLocalState;
@@ -89,7 +90,6 @@ private:
     // Owned by the RuntimeState.
     const std::vector<TExpr>& _t_output_expr;
     vectorized::VExprContextSPtrs _output_vexpr_ctxs;
-    int _buf_size; // Allocated from _pool
 
     // for fetch data by rowids
     TFetchOption _fetch_option;

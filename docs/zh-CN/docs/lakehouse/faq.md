@@ -192,6 +192,8 @@ under the License.
 
    去hadoop环境搜索`hadoop-lzo-*.jar`放在`"${DORIS_HOME}/fe/lib/"`目录下并重启fe。
 
+   从 2.0.2 版本起，可以将这个文件放置在BE的 `custom_lib/` 目录下（如不存在，手动创建即可），以防止升级集群时因为 lib 目录被替换而导致文件丢失。
+
 ## HDFS
 
 1. 访问 HDFS 3.x 时报错：`java.lang.VerifyError: xxx`

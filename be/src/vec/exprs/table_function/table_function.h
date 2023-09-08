@@ -36,10 +36,12 @@ public:
 
     virtual Status open() { return Status::OK(); }
 
-    virtual Status process_init(Block* block) = 0;
+    virtual Status process_init(Block* block, RuntimeState* state) = 0;
 
     virtual Status process_row(size_t row_idx) {
-        _cur_size = 0;
+        if (!_is_const) {
+            _cur_size = 0;
+        }
         return reset();
     }
 

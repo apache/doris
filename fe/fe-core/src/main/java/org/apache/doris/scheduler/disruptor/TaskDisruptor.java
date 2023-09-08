@@ -17,6 +17,7 @@
 
 package org.apache.doris.scheduler.disruptor;
 
+import org.apache.doris.common.Config;
 import org.apache.doris.scheduler.constants.TaskType;
 import org.apache.doris.scheduler.manager.TimerJobManager;
 import org.apache.doris.scheduler.manager.TransientTaskManager;
@@ -48,19 +49,14 @@ import java.util.concurrent.TimeUnit;
 public class TaskDisruptor implements Closeable {
 
     private final Disruptor<TaskEvent> disruptor;
-    private static final int DEFAULT_RING_BUFFER_SIZE = 1024;
+    private static final int DEFAULT_RING_BUFFER_SIZE = Config.async_task_queen_size;
+
+    private static int consumerThreadCount = Config.async_task_consumer_thread_num;
 
     /**
      * The default timeout for {@link #close()} in seconds.
      */
     private static final int DEFAULT_CLOSE_WAIT_TIME_SECONDS = 5;
-
-    /**
-     * The default number of consumers to create for each {@link Disruptor} instance.
-     */
-    private static final int DEFAULT_CONSUMER_COUNT = System.getProperty("event.task.disruptor.consumer.count")
-            == null ? Runtime.getRuntime().availableProcessors()
-            : Integer.parseInt(System.getProperty("event.task.disruptor.consumer.count"));
 
     /**
      * Whether this disruptor has been closed.
@@ -82,8 +78,8 @@ public class TaskDisruptor implements Closeable {
         ThreadFactory producerThreadFactory = DaemonThreadFactory.INSTANCE;
         disruptor = new Disruptor<>(TaskEvent.FACTORY, DEFAULT_RING_BUFFER_SIZE, producerThreadFactory,
                 ProducerType.SINGLE, new BlockingWaitStrategy());
-        WorkHandler<TaskEvent>[] workers = new TaskHandler[DEFAULT_CONSUMER_COUNT];
-        for (int i = 0; i < DEFAULT_CONSUMER_COUNT; i++) {
+        WorkHandler<TaskEvent>[] workers = new TaskHandler[consumerThreadCount];
+        for (int i = 0; i < consumerThreadCount; i++) {
             workers[i] = new TaskHandler(timerJobManager, transientTaskManager);
         }
         disruptor.handleEventsWithWorkerPool(workers);

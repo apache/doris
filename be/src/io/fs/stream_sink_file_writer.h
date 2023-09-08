@@ -27,18 +27,16 @@
 
 namespace doris {
 
+class LoadStreamStub;
+
 struct RowsetId;
 struct SegmentStatistics;
 
 namespace io {
 class StreamSinkFileWriter : public FileWriter {
 public:
-    StreamSinkFileWriter(int sender_id, std::vector<brpc::StreamId> stream_id)
-            : _sender_id(sender_id), _streams(stream_id) {}
-
-    static void deleter(void* data) { ::free(data); }
-
-    static Status send_with_retry(brpc::StreamId stream, butil::IOBuf buf);
+    StreamSinkFileWriter(std::vector<std::shared_ptr<LoadStreamStub>>& streams)
+            : _streams(streams) {}
 
     void init(PUniqueId load_id, int64_t partition_id, int64_t index_id, int64_t tablet_id,
               int32_t segment_id);
@@ -58,30 +56,10 @@ public:
     }
 
 private:
-    Status _stream_sender(butil::IOBuf buf) const {
-        for (auto stream : _streams) {
-            LOG(INFO) << "writer flushing, load_id: " << UniqueId(_load_id).to_string()
-                      << ", index_id: " << _index_id << ", tablet_id: " << _tablet_id
-                      << ", segment_id: " << _segment_id << ", stream id: " << stream
-                      << ", buf size: " << buf.size();
+    template <bool eos>
+    Status _flush();
 
-            RETURN_IF_ERROR(send_with_retry(stream, buf));
-        }
-        return Status::OK();
-    }
-
-    void _append_header();
-
-private:
-    PStreamHeader _header;
-    butil::IOBuf _buf;
-
-    std::queue<Slice> _pending_slices;
-    size_t _max_pending_bytes = config::brpc_streaming_client_batch_bytes;
-    size_t _pending_bytes;
-
-    int _sender_id;
-    std::vector<brpc::StreamId> _streams;
+    std::vector<std::shared_ptr<LoadStreamStub>> _streams;
 
     PUniqueId _load_id;
     int64_t _partition_id;

@@ -434,7 +434,9 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         } else {
             throw new RuntimeException("do not support table type " + table.getType());
         }
+
         scanNode.addConjuncts(translateToLegacyConjuncts(fileScan.getConjuncts()));
+        scanNode.setPushDownAggNoGrouping(context.getRelationPushAggOp(fileScan.getRelationId()));
 
         TableName tableName = new TableName(null, "", "");
         TableRef ref = new TableRef(tableName, null, null);
@@ -573,6 +575,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
                                 expr, olapScanNode, context)
                 )
         );
+        olapScanNode.setPushDownAggNoGrouping(context.getRelationPushAggOp(olapScan.getRelationId()));
         // TODO: we need to remove all finalizeForNereids
         olapScanNode.finalizeForNereids();
         // Create PlanFragment
@@ -674,8 +677,8 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         // TODO: it is weird update label in this way
         // set label for explain
         for (Slot slot : slots) {
-            String tableColumnName = "_table_valued_function_" + tvfRelation.getFunction().getName()
-                    + "." + slots.get(0).getName();
+            String tableColumnName = TableValuedFunctionIf.TVF_TABLE_PREFIX + tvfRelation.getFunction().getName()
+                    + "." + slot.getName();
             context.findSlotRef(slot.getExprId()).setLabel(tableColumnName);
         }
 
@@ -797,13 +800,14 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
                         || storageLayerAggregate.getRelation() instanceof PhysicalFileScan),
                 "PhysicalStorageLayerAggregate only support PhysicalOlapScan and PhysicalFileScan: "
                         + storageLayerAggregate.getRelation().getClass().getName());
-        PlanFragment planFragment = storageLayerAggregate.getRelation().accept(this, context);
 
-        ScanNode scanNode = (ScanNode) planFragment.getPlanRoot();
         TPushAggOp pushAggOp;
         switch (storageLayerAggregate.getAggOp()) {
             case COUNT:
                 pushAggOp = TPushAggOp.COUNT;
+                break;
+            case COUNT_ON_MATCH:
+                pushAggOp = TPushAggOp.COUNT_ON_INDEX;
                 break;
             case MIN_MAX:
                 pushAggOp = TPushAggOp.MINMAX;
@@ -815,7 +819,12 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
                 throw new AnalysisException("Unsupported storage layer aggregate: "
                         + storageLayerAggregate.getAggOp());
         }
-        scanNode.setPushDownAggNoGrouping(pushAggOp);
+
+        context.setRelationPushAggOp(
+                storageLayerAggregate.getRelation().getRelationId(), pushAggOp);
+
+        PlanFragment planFragment = storageLayerAggregate.getRelation().accept(this, context);
+
         updateLegacyPlanIdToPhysicalPlan(planFragment.getPlanRoot(), storageLayerAggregate);
         return planFragment;
     }

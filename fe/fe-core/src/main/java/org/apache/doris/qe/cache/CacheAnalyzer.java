@@ -141,12 +141,16 @@ public class CacheAnalyzer {
         public long latestPartitionId;
         public long latestVersion;
         public long latestTime;
+        public long partitionNum;
+        public long sumOfPartitionNum;
 
         public CacheTable() {
             olapTable = null;
             latestPartitionId = 0;
             latestVersion = 0;
             latestTime = 0;
+            partitionNum = 0;
+            sumOfPartitionNum = 0;
         }
 
         @Override
@@ -155,8 +159,8 @@ public class CacheAnalyzer {
         }
 
         public void debug() {
-            LOG.debug("table {}, partition id {}, ver {}, time {}", olapTable.getName(),
-                    latestPartitionId, latestVersion, latestTime);
+            LOG.debug("table {}, partition id {}, ver {}, time {}, partition num {}, sumOfPartitionNum: {}",
+                    olapTable.getName(), latestPartitionId, latestVersion, latestTime, partitionNum, sumOfPartitionNum);
         }
     }
 
@@ -216,7 +220,7 @@ public class CacheAnalyzer {
             }
             if (enablePartitionCache() && ((OlapScanNode) node).getSelectedPartitionNum() > 1
                     && selectStmt.hasGroupByClause()) {
-                LOG.debug("more than one partition scanned when qeury has agg, partition cache cannot use, queryid {}",
+                LOG.debug("more than one partition scanned when query has agg, partition cache cannot use, queryid {}",
                         DebugUtil.printId(queryId));
                 return CacheMode.None;
             }
@@ -226,6 +230,7 @@ public class CacheAnalyzer {
         MetricRepo.COUNTER_QUERY_OLAP_TABLE.increase(1L);
         Collections.sort(tblTimeList);
         latestTable = tblTimeList.get(0);
+        latestTable.sumOfPartitionNum = tblTimeList.stream().mapToLong(item -> item.partitionNum).sum();
         latestTable.debug();
 
         addAllViewStmt(selectStmt);
@@ -328,6 +333,7 @@ public class CacheAnalyzer {
         MetricRepo.COUNTER_QUERY_OLAP_TABLE.increase(1L);
         Collections.sort(tblTimeList);
         latestTable = tblTimeList.get(0);
+        latestTable.sumOfPartitionNum = tblTimeList.stream().mapToLong(item -> item.partitionNum).sum();
         latestTable.debug();
 
         addAllViewStmt((SetOperationStmt) parsedStmt);
@@ -382,6 +388,7 @@ public class CacheAnalyzer {
         MetricRepo.COUNTER_QUERY_OLAP_TABLE.increase(1L);
         Collections.sort(tblTimeList);
         latestTable = tblTimeList.get(0);
+        latestTable.sumOfPartitionNum = tblTimeList.stream().mapToLong(item -> item.partitionNum).sum();
         latestTable.debug();
 
         if (((LogicalPlanAdapter) parsedStmt).getStatementContext().getParsedStatement().isExplain()) {
@@ -576,6 +583,7 @@ public class CacheAnalyzer {
         CacheTable cacheTable = new CacheTable();
         OlapTable olapTable = node.getOlapTable();
         cacheTable.olapTable = olapTable;
+        cacheTable.partitionNum = node.getSelectedPartitionIds().size();
         for (Long partitionId : node.getSelectedPartitionIds()) {
             Partition partition = olapTable.getPartition(partitionId);
             if (partition.getVisibleVersionTime() >= cacheTable.latestTime) {

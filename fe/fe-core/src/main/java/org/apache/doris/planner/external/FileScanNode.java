@@ -25,6 +25,7 @@ import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.util.Util;
 import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.planner.external.FileSplit.FileSplitCreator;
 import org.apache.doris.qe.ConnectContext;
@@ -32,6 +33,7 @@ import org.apache.doris.spi.Split;
 import org.apache.doris.statistics.StatisticalType;
 import org.apache.doris.thrift.TExplainLevel;
 import org.apache.doris.thrift.TExpr;
+import org.apache.doris.thrift.TFileCompressType;
 import org.apache.doris.thrift.TFileRangeDesc;
 import org.apache.doris.thrift.TFileScanNode;
 import org.apache.doris.thrift.TFileScanRangeParams;
@@ -221,19 +223,20 @@ public abstract class FileScanNode extends ExternalScanNode {
         if (blockLocations == null) {
             blockLocations = new BlockLocation[0];
         }
+        List<Split> result = Lists.newArrayList();
+        TFileCompressType compressType = Util.inferFileCompressTypeByPath(path.toString());
+        if (!splittable || compressType != TFileCompressType.PLAIN) {
+            LOG.debug("Path {} is not splittable.", path);
+            String[] hosts = blockLocations.length == 0 ? null : blockLocations[0].getHosts();
+            result.add(splitCreator.create(path, 0, length, length, modificationTime, hosts, partitionValues));
+            return result;
+        }
         long splitSize = ConnectContext.get().getSessionVariable().getFileSplitSize();
         if (splitSize <= 0) {
             splitSize = blockSize;
         }
         // Min split size is DEFAULT_SPLIT_SIZE(128MB).
         splitSize = Math.max(splitSize, DEFAULT_SPLIT_SIZE);
-        List<Split> result = Lists.newArrayList();
-        if (!splittable) {
-            LOG.debug("Path {} is not splittable.", path);
-            String[] hosts = blockLocations.length == 0 ? null : blockLocations[0].getHosts();
-            result.add(splitCreator.create(path, 0, length, length, modificationTime, hosts, partitionValues));
-            return result;
-        }
         long bytesRemaining;
         for (bytesRemaining = length; (double) bytesRemaining / (double) splitSize > 1.1D;
                 bytesRemaining -= splitSize) {

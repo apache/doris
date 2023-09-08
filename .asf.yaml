@@ -53,6 +53,7 @@ github:
           - CheckStyle
           - P0 Regression (Doris Regression)
           - P1 Regression (Doris Regression)
+          - External Regression (Doris External Regression)
           - FE UT (Doris FE UT)
           - BE UT (Doris BE UT)
           - Build Broker
@@ -79,15 +80,14 @@ github:
         required_approving_review_count: 1
   collaborators:
     - LemonLiTree
-    - zy-kkk
     - Yukang-Lian
-    - xiaokang
     - TangSiyang2001
     - platoneko
     - Lchangliang
     - freemandealer
     - nanfeng1999
     - gitccl
+    - shuke987
 
 notifications:
     pullrequests_status:  commits@doris.apache.org

@@ -29,6 +29,7 @@ import org.apache.doris.analysis.TableName;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.View;
@@ -265,6 +266,11 @@ public class AnalysisManager extends Daemon implements Writable {
 
     public void createAnalysisJobs(AnalyzeDBStmt analyzeDBStmt, boolean proxy) throws DdlException {
         DatabaseIf<TableIf> db = analyzeDBStmt.getDb();
+        // Using auto analyzer if user specifies.
+        if (analyzeDBStmt.getAnalyzeProperties().getProperties().containsKey("use.auto.analyzer")) {
+            Env.getCurrentEnv().getStatisticsAutoCollector().analyzeDb(db);
+            return;
+        }
         List<AnalysisInfo> analysisInfos = buildAnalysisInfosForDB(db, analyzeDBStmt.getAnalyzeProperties());
         if (!analyzeDBStmt.isSync()) {
             sendJobId(analysisInfos, proxy);
@@ -347,7 +353,9 @@ public class AnalysisManager extends Daemon implements Writable {
         analysisJobIdToTaskMap.put(jobInfo.jobId, analysisTaskInfos);
         // TODO: maybe we should update table stats only when all task succeeded.
         updateTableStats(jobInfo);
-        analysisTaskInfos.values().forEach(taskExecutor::submitTask);
+        if (!jobInfo.scheduleType.equals(ScheduleType.PERIOD)) {
+            analysisTaskInfos.values().forEach(taskExecutor::submitTask);
+        }
         return jobInfo;
     }
 
@@ -361,6 +369,9 @@ public class AnalysisManager extends Daemon implements Writable {
         ShowResultSetMetaData commonResultSetMetaData = new ShowResultSetMetaData(columns);
         List<List<String>> resultRows = new ArrayList<>();
         for (AnalysisInfo analysisInfo : analysisInfos) {
+            if (analysisInfo == null) {
+                continue;
+            }
             List<String> row = new ArrayList<>();
             row.add(analysisInfo.catalogName);
             row.add(analysisInfo.dbName);
@@ -440,23 +451,9 @@ public class AnalysisManager extends Daemon implements Writable {
             StatisticsRepository.dropStatistics(invalidPartIds);
         }
 
-        if (analysisMode == AnalysisMode.INCREMENTAL && analysisType == AnalysisType.FUNDAMENTALS) {
-            existColAndPartsForStats.values().forEach(partIds -> partIds.removeAll(invalidPartIds));
-            // In incremental collection mode, just collect the uncollected partition statistics
-            existColAndPartsForStats.forEach((columnName, partitionIds) -> {
-                Set<String> existPartitions = partitionIds.stream()
-                        .map(idToPartition::get)
-                        .collect(Collectors.toSet());
-                columnToPartitions.computeIfPresent(columnName, (colName, partNames) -> {
-                    partNames.removeAll(existPartitions);
-                    return partNames;
-                });
-            });
-            if (invalidPartIds.isEmpty()) {
-                // There is no invalid statistics, so there is no need to update table statistics,
-                // remove columns that do not require re-collection of statistics
-                columnToPartitions.entrySet().removeIf(entry -> entry.getValue().isEmpty());
-            }
+        if (analysisType == AnalysisType.FUNDAMENTALS) {
+            Set<String> reAnalyzeNeededPartitions = findReAnalyzeNeededPartitions(table);
+            columnToPartitions.replaceAll((k, v) -> reAnalyzeNeededPartitions);
         }
 
         return columnToPartitions;
@@ -464,7 +461,7 @@ public class AnalysisManager extends Daemon implements Writable {
 
     @VisibleForTesting
     public AnalysisInfo buildAnalysisJobInfo(AnalyzeTblStmt stmt) throws DdlException {
-        AnalysisInfoBuilder info = new AnalysisInfoBuilder();
+        AnalysisInfoBuilder infoBuilder = new AnalysisInfoBuilder();
         long jobId = Env.getCurrentEnv().getNextId();
         String catalogName = stmt.getCatalogName();
         String db = stmt.getDBName();
@@ -484,49 +481,49 @@ public class AnalysisManager extends Daemon implements Writable {
         ScheduleType scheduleType = stmt.getScheduleType();
         CronExpression cronExpression = stmt.getCron();
 
-        info.setJobId(jobId);
-        info.setCatalogName(catalogName);
-        info.setDbName(db);
-        info.setTblName(tblName);
+        infoBuilder.setJobId(jobId);
+        infoBuilder.setCatalogName(catalogName);
+        infoBuilder.setDbName(db);
+        infoBuilder.setTblName(tblName);
         StringJoiner stringJoiner = new StringJoiner(",", "[", "]");
         for (String colName : columnNames) {
             stringJoiner.add(colName);
         }
-        info.setColName(stringJoiner.toString());
-        info.setPartitionNames(partitionNames);
-        info.setPartitionOnly(partitionOnly);
-        info.setSamplingPartition(isSamplingPartition);
-        info.setJobType(JobType.MANUAL);
-        info.setState(AnalysisState.PENDING);
-        info.setLastExecTimeInMs(System.currentTimeMillis());
-        info.setAnalysisType(analysisType);
-        info.setAnalysisMode(analysisMode);
-        info.setAnalysisMethod(analysisMethod);
-        info.setScheduleType(scheduleType);
-        info.setLastExecTimeInMs(0);
-        info.setCronExpression(cronExpression);
+        infoBuilder.setColName(stringJoiner.toString());
+        infoBuilder.setPartitionNames(partitionNames);
+        infoBuilder.setPartitionOnly(partitionOnly);
+        infoBuilder.setSamplingPartition(isSamplingPartition);
+        infoBuilder.setJobType(JobType.MANUAL);
+        infoBuilder.setState(AnalysisState.PENDING);
+        infoBuilder.setLastExecTimeInMs(System.currentTimeMillis());
+        infoBuilder.setAnalysisType(analysisType);
+        infoBuilder.setAnalysisMode(analysisMode);
+        infoBuilder.setAnalysisMethod(analysisMethod);
+        infoBuilder.setScheduleType(scheduleType);
+        infoBuilder.setLastExecTimeInMs(0);
+        infoBuilder.setCronExpression(cronExpression);
 
         if (analysisMethod == AnalysisMethod.SAMPLE) {
-            info.setSamplePercent(samplePercent);
-            info.setSampleRows(sampleRows);
+            infoBuilder.setSamplePercent(samplePercent);
+            infoBuilder.setSampleRows(sampleRows);
         }
 
         if (analysisType == AnalysisType.HISTOGRAM) {
             int numBuckets = stmt.getNumBuckets();
             int maxBucketNum = numBuckets > 0 ? numBuckets
                     : StatisticConstants.HISTOGRAM_MAX_BUCKET_NUM;
-            info.setMaxBucketNum(maxBucketNum);
+            infoBuilder.setMaxBucketNum(maxBucketNum);
         }
 
         long periodTimeInMs = stmt.getPeriodTimeInMs();
-        info.setPeriodTimeInMs(periodTimeInMs);
+        infoBuilder.setPeriodTimeInMs(periodTimeInMs);
 
         Map<String, Set<String>> colToPartitions = validateAndGetPartitions(table, columnNames,
                 partitionNames, analysisType, analysisMode);
-        info.setColToPartitions(colToPartitions);
-        info.setTaskIds(Lists.newArrayList());
+        infoBuilder.setColToPartitions(colToPartitions);
+        infoBuilder.setTaskIds(Lists.newArrayList());
 
-        return info.build();
+        return infoBuilder.build();
     }
 
     @VisibleForTesting
@@ -690,6 +687,11 @@ public class AnalysisManager extends Daemon implements Writable {
         }
         Set<String> cols = dropStatsStmt.getColumnNames();
         long tblId = dropStatsStmt.getTblId();
+        TableStats tableStats = findTableStatsStatus(dropStatsStmt.getTblId());
+        if (tableStats != null) {
+            tableStats.updatedTime = 0;
+            replayUpdateTableStatsStatus(tableStats);
+        }
         StatisticsRepository.dropStatistics(tblId, cols);
         for (String col : cols) {
             Env.getCurrentEnv().getStatisticsCache().invalidate(tblId, -1L, col);
@@ -820,7 +822,7 @@ public class AnalysisManager extends Daemon implements Writable {
     public List<AnalysisInfo> findPeriodicJobs() {
         synchronized (analysisJobInfoMap) {
             Predicate<AnalysisInfo> p = a -> {
-                if (a.state.equals(AnalysisState.RUNNING) || a.state.equals(AnalysisState.PENDING)) {
+                if (a.state.equals(AnalysisState.RUNNING)) {
                     return false;
                 }
                 if (a.cronExpression == null) {
@@ -844,7 +846,8 @@ public class AnalysisManager extends Daemon implements Writable {
     public List<AnalysisInfo> findTasksByTaskIds(long jobId) {
         AnalysisInfo jobInfo = analysisJobInfoMap.get(jobId);
         if (jobInfo != null && jobInfo.taskIds != null) {
-            return jobInfo.taskIds.stream().map(id -> analysisTaskInfoMap.get(id)).collect(Collectors.toList());
+            return jobInfo.taskIds.stream().map(analysisTaskInfoMap::get).filter(i -> i != null)
+                    .collect(Collectors.toList());
         }
         return null;
     }
@@ -944,7 +947,24 @@ public class AnalysisManager extends Daemon implements Writable {
     }
 
     public void registerSysJob(AnalysisInfo jobInfo, Map<Long, BaseAnalysisTask> taskInfos) {
+        jobInfo.state = AnalysisState.RUNNING;
         systemJobInfoMap.put(jobInfo.jobId, jobInfo);
         analysisJobIdToTaskMap.put(jobInfo.jobId, taskInfos);
     }
+
+    @VisibleForTesting
+    protected Set<String> findReAnalyzeNeededPartitions(TableIf table) {
+        TableStats tableStats = findTableStatsStatus(table.getId());
+        if (tableStats == null) {
+            return table.getPartitionNames().stream().map(table::getPartition)
+                    .filter(Partition::hasData).map(Partition::getName).collect(Collectors.toSet());
+        }
+        return table.getPartitionNames().stream()
+                .map(table::getPartition)
+                .filter(Partition::hasData)
+                .filter(partition ->
+                        partition.getVisibleVersionTime() >= tableStats.updatedTime).map(Partition::getName)
+                .collect(Collectors.toSet());
+    }
+
 }

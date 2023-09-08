@@ -52,7 +52,7 @@ public class Properties extends Expression implements LeafExpression {
 
     @Override
     public DataType getDataType() throws UnboundException {
-        return MapType.INSTANCE;
+        return MapType.SYSTEM_DEFAULT;
     }
 
     @Override

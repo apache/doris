@@ -28,6 +28,7 @@
 #include "olap/rowset/segment_v2/common.h"
 #include "olap/rowset/segment_v2/indexed_column_reader.h"
 #include "olap/types.h"
+#include "util/once.h"
 
 namespace roaring {
 class Roaring;
@@ -42,13 +43,11 @@ class BitmapIndexPB;
 
 class BitmapIndexReader {
 public:
-    explicit BitmapIndexReader(io::FileReaderSPtr file_reader,
-                               const BitmapIndexPB* bitmap_index_meta)
+    explicit BitmapIndexReader(io::FileReaderSPtr file_reader)
             : _file_reader(std::move(file_reader)),
-              _type_info(get_scalar_type_info<FieldType::OLAP_FIELD_TYPE_VARCHAR>()),
-              _bitmap_index_meta(bitmap_index_meta) {}
+              _type_info(get_scalar_type_info<FieldType::OLAP_FIELD_TYPE_VARCHAR>()) {}
 
-    Status load(bool use_page_cache, bool kept_in_memory);
+    Status load(bool use_page_cache, bool kept_in_memory, const BitmapIndexPB*);
 
     // create a new column iterator. Client should delete returned iterator
     Status new_iterator(BitmapIndexIterator** iterator);
@@ -58,12 +57,15 @@ public:
     const TypeInfo* type_info() { return _type_info; }
 
 private:
+    Status _load(bool use_page_cache, bool kept_in_memory, const BitmapIndexPB*);
+
+private:
     friend class BitmapIndexIterator;
 
     io::FileReaderSPtr _file_reader;
     const TypeInfo* _type_info;
-    const BitmapIndexPB* _bitmap_index_meta;
     bool _has_null = false;
+    DorisCallOnce<Status> _load_once;
     std::unique_ptr<IndexedColumnReader> _dict_column_reader;
     std::unique_ptr<IndexedColumnReader> _bitmap_column_reader;
 };

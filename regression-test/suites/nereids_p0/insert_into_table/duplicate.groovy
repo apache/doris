@@ -25,66 +25,66 @@ suite("nereids_insert_duplicate") {
     sql 'set enable_strict_consistency_dml=true'
 
     sql '''insert into dup_t
-            select * except(kaint, kmintint) from src'''
+            select * except(kaint, kmintint, kjson) from src'''
     sql 'sync'
     qt_11 'select * from dup_t order by id, kint'
 
     sql '''insert into dup_t with label label_dup_cte
-            with cte as (select * except(kaint, kmintint) from src)
+            with cte as (select * except(kaint, kmintint, kjson) from src)
             select * from cte'''
     sql 'sync'
     qt_12 'select * from dup_t order by id, kint'
 
     sql '''insert into dup_t partition (p1, p2) with label label_dup
-            select * except(kaint, kmintint) from src where id < 4'''
+            select * except(kaint, kmintint, kjson) from src where id < 4'''
     sql 'sync'
     qt_13 'select * from dup_t order by id, kint'
 
     sql '''insert into dup_light_sc_t
-            select * except(kaint, kmintint) from src'''
+            select * except(kaint, kmintint, kjson) from src'''
     sql 'sync'
     qt_21 'select * from dup_light_sc_t order by id, kint'
 
     sql '''insert into dup_light_sc_t with label label_dup_light_sc_cte
-            with cte as (select * except(kaint, kmintint) from src)
+            with cte as (select * except(kaint, kmintint, kjson) from src)
             select * from cte'''
     sql 'sync'
     qt_22 'select * from dup_light_sc_t order by id, kint'
 
     sql '''insert into dup_light_sc_t partition (p1, p2) with label label_dup_light_sc
-            select * except(kaint, kmintint) from src where id < 4'''
+            select * except(kaint, kmintint, kjson) from src where id < 4'''
     sql 'sync'
     qt_23 'select * from dup_light_sc_t order by id, kint'
 
     sql '''insert into dup_not_null_t
-            select * except(kaint, kmintint) from src where id is not null'''
+            select * except(kaint, kmintint, kjson) from src where id is not null'''
     sql 'sync'
     qt_31 'select * from dup_not_null_t order by id, kint'
 
     sql '''insert into dup_not_null_t with label label_dup_not_null_cte
-            with cte as (select * except(kaint, kmintint) from src)
+            with cte as (select * except(kaint, kmintint, kjson) from src)
             select * from cte where id is not null'''
     sql 'sync'
     qt_32 'select * from dup_not_null_t order by id, kint'
 
     sql '''insert into dup_not_null_t partition (p1, p2) with label label_dup_not_null
-            select * except(kaint, kmintint) from src where id < 4 and id is not null'''
+            select * except(kaint, kmintint, kjson) from src where id < 4 and id is not null'''
     sql 'sync'
     qt_33 'select * from dup_not_null_t order by id, kint'
 
     sql '''insert into dup_light_sc_not_null_t
-            select * except(kaint, kmintint) from src where id is not null'''
+            select * except(kaint, kmintint, kjson) from src where id is not null'''
     sql 'sync'
     qt_41 'select * from dup_light_sc_not_null_t order by id, kint'
 
     sql '''insert into dup_light_sc_not_null_t with label label_dup_light_sc_not_null_cte
-            with cte as (select * except(kaint, kmintint) from src)
+            with cte as (select * except(kaint, kmintint, kjson) from src)
             select * from cte where id is not null'''
     sql 'sync'
     qt_42 'select * from dup_light_sc_not_null_t order by id, kint'
 
     sql '''insert into dup_light_sc_not_null_t partition (p1, p2) with label label_dup_light_sc_not_null
-            select * except(kaint, kmintint) from src where id < 4 and id is not null'''
+            select * except(kaint, kmintint, kjson) from src where id < 4 and id is not null'''
     sql 'sync'
     qt_43 'select * from dup_light_sc_not_null_t order by id, kint'
 
@@ -93,12 +93,12 @@ suite("nereids_insert_duplicate") {
     sql 'alter table dup_light_sc_not_null_t rename column ktint ktinyint'
 
     sql '''insert into dup_light_sc_t
-            select * except(kaint, kmintint) from src'''
+            select * except(kaint, kmintint, kjson) from src'''
     sql 'sync'
     qt_lsc1 'select * from dup_light_sc_t order by id, kint'
 
     sql '''insert into dup_light_sc_not_null_t
-            select * except(kaint, kmintint) from src where id is not null'''
+            select * except(kaint, kmintint, kjson) from src where id is not null'''
     sql 'sync'
     qt_lsc2 'select * from dup_light_sc_not_null_t order by id, kint'
 

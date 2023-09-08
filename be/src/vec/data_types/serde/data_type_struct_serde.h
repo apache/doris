@@ -53,25 +53,22 @@ public:
 
     Status deserialize_one_cell_from_text(IColumn& column, Slice& slice,
                                           const FormatOptions& options) const override {
-        throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
-                               "deserialize_one_cell_from_text with type " + column.get_name());
+        return Status::NotSupported("deserialize_one_cell_from_text with type " +
+                                    column.get_name());
     }
 
     Status deserialize_column_from_text_vector(IColumn& column, std::vector<Slice>& slices,
                                                int* num_deserialized,
                                                const FormatOptions& options) const override {
-        throw doris::Exception(
-                ErrorCode::NOT_IMPLEMENTED_ERROR,
-                "deserialize_column_from_text_vector with type " + column.get_name());
+        return Status::NotSupported("deserialize_column_from_text_vector with type " +
+                                    column.get_name());
     }
     Status write_column_to_pb(const IColumn& column, PValues& result, int start,
                               int end) const override {
-        throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
-                               "write_column_to_pb with type " + column.get_name());
+        return Status::NotSupported("write_column_to_pb with type " + column.get_name());
     }
     Status read_column_from_pb(IColumn& column, const PValues& arg) const override {
-        throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
-                               "read_column_from_pb with type " + column.get_name());
+        return Status::NotSupported("read_column_from_pb with type " + column.get_name());
     }
     void write_one_cell_to_jsonb(const IColumn& column, JsonbWriter& result, Arena* mem_pool,
                                  int32_t col_id, int row_num) const override;
