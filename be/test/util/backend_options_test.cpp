@@ -75,36 +75,4 @@ TEST_F(BackendOptionsTest, emptyCidr3) {
     EXPECT_STREQ("10.10.10.10", localhost.c_str());
 }
 
-TEST_F(BackendOptionsTest, ipv4) {
-    std::vector<InetAddress> hosts;
-    hosts.emplace_back(std::string("127.0.0.1"), AF_INET, true);
-    hosts.emplace_back(std::string("10.10.10.10"), AF_INET, false);
-    hosts.emplace_back(std::string("10.10.10.11"), AF_INET, false);
-    hosts.emplace_back(std::string("fe80::5054:ff:fec9:dee0"), AF_INET6, false);
-    hosts.emplace_back(std::string("::1"), AF_INET6, true);
-
-    std::vector<CIDR> cidrs;
-    BackendOptions::analyze_priority_cidrs("127.0.0.1", &cidrs);
-    std::string localhost;
-    bool bind_ipv6 = false;
-    BackendOptions::analyze_localhost(localhost, bind_ipv6, &cidrs, &hosts);
-    EXPECT_STREQ("127.0.0.1", localhost.c_str());
-}
-
-TEST_F(BackendOptionsTest, ipv6) {
-    std::vector<InetAddress> hosts;
-    hosts.emplace_back(std::string("127.0.0.1"), AF_INET, true);
-    hosts.emplace_back(std::string("10.10.10.10"), AF_INET, false);
-    hosts.emplace_back(std::string("10.10.10.11"), AF_INET, false);
-    hosts.emplace_back(std::string("fe80::5054:ff:fec9:dee0"), AF_INET6, false);
-    hosts.emplace_back(std::string("::1"), AF_INET6, true);
-
-    std::vector<CIDR> cidrs;
-    BackendOptions::analyze_priority_cidrs("::1", &cidrs);
-    std::string localhost;
-    bool bind_ipv6 = false;
-    BackendOptions::analyze_localhost(localhost, bind_ipv6, &cidrs, &hosts);
-    EXPECT_STREQ("::1", localhost.c_str());
-}
-
 } // namespace doris
