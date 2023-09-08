@@ -378,12 +378,18 @@ public class RuntimeFilterGenerator extends PlanPostProcessor {
 
                 NamedExpression targetExpr = (NamedExpression) project.getProjects().get(projIndex);
 
-                SlotReference origSlot = null;
+                Expression target = null;
                 if (targetExpr instanceof Alias) {
-                    origSlot = (SlotReference) targetExpr.child(0);
+                    target = targetExpr.child(0);
                 } else {
-                    origSlot = (SlotReference) targetExpr;
+                    target = targetExpr;
                 }
+
+                if (!(target instanceof SlotReference)) {
+                    continue;
+                }
+                SlotReference origSlot = null;
+                origSlot = (SlotReference) target;
                 Slot olapScanSlot = aliasTransferMap.get(origSlot).second;
                 if (!checkCanPushDownFromJoinType(join, ctx, olapScanSlot)) {
                     continue;
