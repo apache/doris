@@ -553,14 +553,13 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             LoadTask.MergeType mergeType = ddc.mergeType() == null ? LoadTask.MergeType.APPEND
                         : LoadTask.MergeType.valueOf(ddc.mergeType().getText());
 
-            String fileFormat = ddc.format == null ? null : ddc.format.getText()
-                        .substring(1, ddc.format.getText().length() - 1);
+            String fileFormat = ddc.format == null ? null : ddc.format.getText();
             String separator = ddc.separator == null ? null : ddc.separator.getText()
                         .substring(1, ddc.separator.getText().length() - 1);
             String comma = ddc.comma == null ? null : ddc.comma.getText()
                         .substring(1, ddc.comma.getText().length() - 1);
             Map<String, String> dataProperties = ddc.propertyItemList() == null ? new HashMap<>()
-                        : visitPropertyItemList(loadStmt.properties);
+                        : visitPropertyItemList(ddc.propertyItemList());
             dataDescriptions.add(new BulkLoadDataDesc(
                     tableName,
                     partitions,

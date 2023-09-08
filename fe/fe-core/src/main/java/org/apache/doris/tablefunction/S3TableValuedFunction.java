@@ -25,6 +25,7 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.S3URI;
 import org.apache.doris.datasource.credentials.CloudCredentialWithEndpoint;
 import org.apache.doris.datasource.property.PropertyConverter;
+import org.apache.doris.datasource.property.S3ClientBEProperties;
 import org.apache.doris.datasource.property.constants.S3Properties;
 import org.apache.doris.fs.FileSystemFactory;
 import org.apache.doris.thrift.TFileType;
@@ -91,6 +92,8 @@ public class S3TableValuedFunction extends ExternalFileTableValuedFunction {
         // set S3 location properties
         // these five properties is necessary, no one can be lost.
         locationProperties = S3Properties.credentialToMap(credential);
+        locationProperties.putAll(S3ClientBEProperties.getBeFSProperties(locationProperties));
+
         String usePathStyle = tvfParams.getOrDefault(PropertyConverter.USE_PATH_STYLE, "false");
         locationProperties.put(PropertyConverter.USE_PATH_STYLE, usePathStyle);
 

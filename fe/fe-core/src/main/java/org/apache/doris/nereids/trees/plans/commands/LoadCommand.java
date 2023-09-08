@@ -32,6 +32,7 @@ import org.apache.doris.load.loadv2.LoadTask;
 import org.apache.doris.nereids.analyzer.UnboundAlias;
 import org.apache.doris.nereids.analyzer.UnboundOlapTableSink;
 import org.apache.doris.nereids.analyzer.UnboundSlot;
+import org.apache.doris.nereids.analyzer.UnboundStar;
 import org.apache.doris.nereids.analyzer.UnboundTVFRelation;
 import org.apache.doris.nereids.trees.expressions.CaseWhen;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
@@ -68,12 +69,12 @@ import org.apache.logging.log4j.Logger;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
-import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
+import java.util.TreeMap;
 
 /**
  * export table
@@ -108,9 +109,9 @@ public class LoadCommand extends Command implements ForwardWithSync, Explainable
      */
     @VisibleForTesting
     public List<LogicalPlan> parseToInsertIntoPlan(ConnectContext ctx) throws AnalysisException {
+        ctx.getState().setNereids(true);
         List<LogicalPlan> plans = new ArrayList<>();
         for (BulkLoadDataDesc dataDesc : sourceInfos) {
-            ctx.getState().setNereids(true);
             plans.add(completeQueryPlan(ctx, dataDesc));
         }
         return plans;
@@ -118,11 +119,11 @@ public class LoadCommand extends Command implements ForwardWithSync, Explainable
 
     @Override
     public void run(ConnectContext ctx, StmtExecutor executor) throws Exception {
+        ctx.getState().setNereids(true);
         this.profile = new Profile("Query", ctx.getSessionVariable().enableProfile);
         // TODO: begin txn form multi insert sql
         profile.getSummaryProfile().setQueryBeginTime();
         for (BulkLoadDataDesc dataDesc : sourceInfos) {
-            ctx.getState().setNereids(true);
             plans.add(new InsertIntoTableCommand(completeQueryPlan(ctx, dataDesc), Optional.of(labelName), false));
         }
         profile.getSummaryProfile().setQueryPlanFinishTime();
@@ -137,57 +138,109 @@ public class LoadCommand extends Command implements ForwardWithSync, Explainable
         // build source columns, add select and insert node.
         List<String> sinkCols = new ArrayList<>();
         // contains the map of olap column to FileFieldNames, ColumnMappingList, ColumnsFromPath.
-        Map<String, NamedExpression> originSinkToSourceMap = new LinkedHashMap<>();
+        Map<String, NamedExpression> originSinkToSourceMap = new TreeMap<>(String.CASE_INSENSITIVE_ORDER);
         OlapTable olapTable = getOlapTable(ctx, dataDesc);
-        buildSinkColumns(olapTable, dataDesc, sinkCols, originSinkToSourceMap);
+        Map<String, String> tvfProperties = getTvfProperties(dataDesc, bulkStorageDesc);
 
-        Map<String, String> properties = getTvfProperties(dataDesc, bulkStorageDesc);
+        buildSinkColumns(olapTable, dataDesc, tvfProperties, sinkCols, originSinkToSourceMap);
         // mapping sink colum to mapping expression
         if (!dataDesc.getColumnMappingList().isEmpty()) {
             for (Expression mappingExpr : dataDesc.getColumnMappingList()) {
                 if (!(mappingExpr instanceof EqualTo)) {
                     continue;
                 }
-                String mappingColumn = ((EqualTo) mappingExpr).left().toSql();
+                EqualTo equalTo = (EqualTo) mappingExpr;
+                if (!(equalTo.left() instanceof UnboundSlot)) {
+                    // if not column, skip
+                    continue;
+                }
+                String mappingColumn = equalTo.left().toSql();
                 if (originSinkToSourceMap.containsKey(mappingColumn)) {
-                    Expression mappingExprAlias = ((EqualTo) mappingExpr).right();
+                    Expression mappingExprAlias = equalTo.right();
                     originSinkToSourceMap.put(mappingColumn, new UnboundAlias(mappingExprAlias, mappingColumn));
                 }
             }
         }
-
-        for (String columnFromPath : dataDesc.getColumnsFromPath()) {
-            sinkCols.add(columnFromPath);
-            // columnFromPath will be parsed by BE, put columns as placeholder.
-            originSinkToSourceMap.put(columnFromPath, new UnboundSlot(columnFromPath));
-        }
-
-        checkAndAddSequenceCol(olapTable, dataDesc, sinkCols, originSinkToSourceMap);
         // build source columns
-        List<NamedExpression> selectLists = new ArrayList<>(originSinkToSourceMap.values());
+        List<NamedExpression> selectLists = new ArrayList<>();
+
+        if (sinkCols.isEmpty()) {
+            // build 'insert into tgt_tbl select * from src_tbl'
+            selectLists.add(new UnboundStar(new ArrayList<>()));
+        } else {
+            for (String columnFromPath : dataDesc.getColumnsFromPath()) {
+                sinkCols.add(columnFromPath);
+                // columnFromPath will be parsed by BE, put columns as placeholder.
+                originSinkToSourceMap.put(columnFromPath, new UnboundSlot(columnFromPath));
+            }
+            checkAndAddSequenceCol(olapTable, dataDesc, sinkCols, originSinkToSourceMap);
+            selectLists.addAll(originSinkToSourceMap.values());
+        }
+        Set<Expression> conjuncts = buildTvfFilter(dataDesc, originSinkToSourceMap);
+        if (dataDesc.getFileFieldNames().isEmpty() && isCsvType(tvfProperties) && !conjuncts.isEmpty()) {
+            throw new VerifyException("Required property 'csv_schema' for csv file, "
+                    + "when use PRECEDING FILTER, WHERE, ORDER BY AND DELETE ON clause.");
+        }
         LogicalPlan tvfLogicalPlan = new LogicalProject<>(selectLists,                            // add select
-                new LogicalFilter<>(buildTvfFilter(dataDesc, originSinkToSourceMap),              // add filter
-                        new LogicalCheckPolicy<>(getUnboundTVFRelation(properties))));            // add relation
-        // TODO: 1. get column schema in tvf metadata.
-        // TODO: 2. rewrite pre filter and source projects on tvfLogicalPlan when use csv or text format.
+                new LogicalFilter<>(conjuncts,                                                    // add filter
+                        new LogicalCheckPolicy<>(getUnboundTVFRelation(tvfProperties))));            // add relation
         boolean isPartialUpdate = olapTable.getEnableUniqueKeyMergeOnWrite()
                 && sinkCols.size() < olapTable.getColumns().size();
         return new UnboundOlapTableSink<>(dataDesc.getNameParts(), sinkCols, ImmutableList.of(),
                 dataDesc.getPartitionNames(), isPartialUpdate, tvfLogicalPlan);
     }
 
-    private static String getColumnValueFromPath(String columnFromPath, String columnName) {
-        // TODO: get partition value from path ?
-        return null;
+    private static boolean isCsvType(Map<String, String> tvfProperties) {
+        return tvfProperties.get(ExternalFileTableValuedFunction.FORMAT).equalsIgnoreCase("csv");
     }
 
-    private static void buildSinkColumns(OlapTable olapTable, BulkLoadDataDesc dataDesc, List<String> sinkCols,
-                                         Map<String, NamedExpression> originSinkToSourceMap) {
+    private static void parseCsvSchemaToSelect(List<Column> olapColumns, Map<String, String> sourceProperties,
+                                               List<String> sinkCols,
+                                               Map<String, NamedExpression> originSinkToSourceMap)
+            throws AnalysisException {
+        List<Column> csvSchema = new ArrayList<>();
+        ExternalFileTableValuedFunction.parseCsvSchema(csvSchema, sourceProperties);
+        int sinkColSize = Math.min(csvSchema.size(), olapColumns.size());
+        for (int i = 0; i < sinkColSize; i++) {
+            Column olapColumn = olapColumns.get(i);
+            Column csvColumn = csvSchema.get(i);
+            sinkCols.add(olapColumn.getName());
+            originSinkToSourceMap.put(olapColumn.getName(), new UnboundSlot(csvColumn.getName()));
+        }
+
+    }
+
+    /**
+     * fill all column that need to be loaded to sinkCols.
+     * fill the map with sink columns and generated source columns.
+     * sink columns use for 'INSERT INTO'
+     * generated source columns use for 'SELECT'
+     *
+     * @param olapTable             olapTable
+     * @param dataDesc              dataDesc
+     * @param tvfProperties         generated tvfProperties
+     * @param sinkCols              sinkCols for insert into table
+     * @param originSinkToSourceMap sink column map to source column
+     */
+    private static void buildSinkColumns(OlapTable olapTable,
+                                         BulkLoadDataDesc dataDesc,
+                                         Map<String, String> tvfProperties,
+                                         List<String> sinkCols,
+                                         Map<String, NamedExpression> originSinkToSourceMap) throws AnalysisException {
         List<Column> fullSchema = olapTable.getFullSchema();
         if (dataDesc.getFileFieldNames().size() > fullSchema.size()) {
             throw new VerifyException("Source columns size should less than sink columns size");
         }
         checkDeleteOnConditions(dataDesc.getMergeType(), dataDesc.getDeleteCondition());
+        Map<String, String> sourceProperties = dataDesc.getProperties();
+        if (dataDesc.getFileFieldNames().isEmpty() && isCsvType(tvfProperties)) {
+            String csvSchemaStr = sourceProperties.get(ExternalFileTableValuedFunction.CSV_SCHEMA);
+            if (csvSchemaStr != null) {
+                tvfProperties.put(ExternalFileTableValuedFunction.CSV_SCHEMA, csvSchemaStr);
+                parseCsvSchemaToSelect(fullSchema, sourceProperties, sinkCols, originSinkToSourceMap);
+            }
+            return;
+        }
         for (int i = 0; i < dataDesc.getFileFieldNames().size(); i++) {
             String targetColumn = fullSchema.get(i).getName();
             String sourceColumn = dataDesc.getFileFieldNames().get(i);

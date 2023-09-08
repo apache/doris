@@ -26,6 +26,7 @@ import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.analyzer.UnboundAlias;
 import org.apache.doris.nereids.analyzer.UnboundOlapTableSink;
 import org.apache.doris.nereids.analyzer.UnboundSlot;
+import org.apache.doris.nereids.analyzer.UnboundStar;
 import org.apache.doris.nereids.analyzer.UnboundTVFRelation;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.stats.ExpressionEstimation;
@@ -49,6 +50,7 @@ import org.apache.doris.statistics.ColumnStatistic;
 import org.apache.doris.statistics.Statistics;
 import org.apache.doris.utframe.TestWithFeService;
 
+import com.google.common.collect.ImmutableList;
 import mockit.Mock;
 import mockit.MockUp;
 import org.junit.jupiter.api.Assertions;
@@ -305,7 +307,7 @@ public class BulkLoadDataDescTest extends TestWithFeService {
         String loadSql1 = "LOAD LABEL customer_no_col( "
                 + "     DATA INFILE(\"s3://bucket/customer\") "
                 + "     INTO TABLE customer"
-                + "     FORMAT AS ORC"
+                + "     FORMAT AS CSV"
                 + "     ORDER BY custkey "
                 + "  ) "
                 + "  WITH S3(  "
@@ -317,22 +319,58 @@ public class BulkLoadDataDescTest extends TestWithFeService {
 
         List<Pair<LogicalPlan, StatementContext>> statements = new NereidsParser().parseMultiple(loadSql1);
         Assertions.assertFalse(statements.isEmpty());
-        // TODO: pass parsed csv columns case
-        // List<String> expectedSinkColumns = new ArrayList<>(sinkCols1);
-        // expectedSinkColumns.add(Column.SEQUENCE_COL);
-        // List<NamedExpression> expectedProjects = new ArrayList<NamedExpression>() {{
-        //     add(new UnboundAlias(new Add(
-        //             new UnboundSlot("c_custkey"), new TinyIntLiteral((byte) 1)), "custkey"));
-        //     add(new UnboundSlot("c_name"));
-        //     add(new UnboundSlot("c_address"));
-        //     add(new UnboundSlot("c_nationkey"));
-        //     add(new UnboundSlot("c_phone"));
-        //     add(new UnboundSlot("c_acctbal"));
-        //     add(new UnboundSlot("c_mktsegment"));
-        //     add(new UnboundSlot("c_comment"));
-        // }};
-        // List<Expression> expectedConjuncts = new ArrayList<>();
-        // assertInsertIntoPlan(statements, expectedSinkColumns, expectedProjects, expectedConjuncts);
+        List<String> expectedSinkColumns = new ArrayList<>();
+        List<NamedExpression> expectedProjects = new ArrayList<NamedExpression>() {
+            {
+                add(new UnboundStar(ImmutableList.of()));
+            }
+        };
+        List<Expression> expectedConjuncts = new ArrayList<>();
+        assertInsertIntoPlan(statements, expectedSinkColumns, expectedProjects, expectedConjuncts);
+
+        // k1:int;k2:bigint;k3:varchar(20);k4:datetime(6)
+        String loadSql2 = "LOAD LABEL customer_no_col2( "
+                + "     DATA INFILE(\"s3://bucket/customer\") "
+                + "     INTO TABLE customer"
+                + "     FORMAT AS CSV"
+                + "     ORDER BY custkey "
+                + "     PROPERTIES( "
+                + "         \"csv_schema\" = \""
+                + "             custkey:INT;"
+                + "             c_name:STRING;"
+                + "             c_address:STRING;"
+                + "             c_nationkey:INT;"
+                + "             c_phone:STRING;"
+                + "             c_acctbal:DECIMAL(15, 2);"
+                + "             c_mktsegment:STRING;"
+                + "             c_comment:STRING;\""
+                + "     ) "
+                + "  ) "
+                + "  WITH S3(  "
+                + "     \"s3.access_key\" = \"AK\", "
+                + "     \"s3.secret_key\" = \"SK\", "
+                + "     \"s3.endpoint\" = \"cos.ap-beijing.myqcloud.com\",   "
+                + "     \"s3.region\" = \"ap-beijing\") "
+                + "PROPERTIES( \"exec_mem_limit\" = \"8589934592\") COMMENT \"test\";";
+
+        List<Pair<LogicalPlan, StatementContext>> statements2 = new NereidsParser().parseMultiple(loadSql2);
+        Assertions.assertFalse(statements2.isEmpty());
+        List<String> expectedSinkColumns2 = new ArrayList<>(sinkCols1);
+        expectedSinkColumns2.add(Column.SEQUENCE_COL);
+        List<NamedExpression> expectedProjects2 = new ArrayList<NamedExpression>() {
+            {
+                add(new UnboundSlot("custkey"));
+                add(new UnboundSlot("c_name"));
+                add(new UnboundSlot("c_address"));
+                add(new UnboundSlot("c_nationkey"));
+                add(new UnboundSlot("c_phone"));
+                add(new UnboundSlot("c_acctbal"));
+                add(new UnboundSlot("c_mktsegment"));
+                add(new UnboundSlot("c_comment"));
+            }
+        };
+        List<Expression> expectedConjuncts2 = new ArrayList<>();
+        assertInsertIntoPlan(statements2, expectedSinkColumns2, expectedProjects2, expectedConjuncts2);
     }
 
     @Test
