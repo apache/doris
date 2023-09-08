@@ -240,7 +240,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         Collections.reverse(context.getPlanFragments());
         // TODO: maybe we need to trans nullable directly? and then we could remove call computeMemLayout
         context.getDescTable().computeMemLayout();
-        if (ConnectContext.get().getSessionVariable().forbidUnknownColStats) {
+        if (ConnectContext.get() != null && ConnectContext.get().getSessionVariable().forbidUnknownColStats) {
             Set<ScanNode> scans = context.getScanNodeWithUnknownColumnStats();
             if (!scans.isEmpty()) {
                 StringBuilder builder = new StringBuilder();
@@ -2021,7 +2021,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
             scanNode.getTupleDesc().getSlots().add(smallest);
         }
         try {
-            if (ConnectContext.get().getSessionVariable().forbidUnknownColStats) {
+            if (ConnectContext.get() != null && ConnectContext.get().getSessionVariable().forbidUnknownColStats) {
                 for (SlotId slotId : requiredByProjectSlotIdSet) {
                     if (context.isColumnStatsUnknown(scanNode, slotId)) {
                         throw new AnalysisException("meet unknown column stats on table " + scanNode);
