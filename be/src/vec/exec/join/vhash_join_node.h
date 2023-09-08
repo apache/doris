@@ -403,6 +403,9 @@ private:
     // add tuple is null flag column to Block for filter conjunct and output expr
     void _add_tuple_is_null_column(Block* block) override;
 
+    Status _filter_data_and_build_output(RuntimeState* state, vectorized::Block* output_block,
+                                         bool* eos, Block* temp_block);
+
     template <class HashTableContext>
     friend struct ProcessHashTableBuild;
 

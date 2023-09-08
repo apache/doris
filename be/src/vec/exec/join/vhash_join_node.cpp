@@ -563,17 +563,17 @@ Status HashJoinNode::pull(doris::RuntimeState* state, vectorized::Block* output_
             temp_block.insert({std::move(nullable_column), make_nullable(type),
                                _right_table_column_names[i]});
         }
-
-        {
-            SCOPED_TIMER(_join_filter_timer);
-            RETURN_IF_ERROR(
-                    VExprContext::filter_block(_conjuncts, &temp_block, temp_block.columns()));
+        if (_is_outer_join) {
+            reinterpret_cast<ColumnUInt8*>(_tuple_is_null_left_flag_column.get())
+                    ->get_data()
+                    .resize_fill(block_rows, 0);
+            reinterpret_cast<ColumnUInt8*>(_tuple_is_null_right_flag_column.get())
+                    ->get_data()
+                    .resize_fill(block_rows, 1);
         }
-
-        RETURN_IF_ERROR(_build_output_block(&temp_block, output_block, false));
+        RETURN_IF_ERROR(_filter_data_and_build_output(state, output_block, eos, &temp_block));
         temp_block.clear();
         release_block_memory(_probe_block);
-        reached_limit(output_block, eos);
         return Status::OK();
     }
     _join_block.clear_column_data();
@@ -650,22 +650,27 @@ Status HashJoinNode::pull(doris::RuntimeState* state, vectorized::Block* output_
     if (!st) {
         return st;
     }
-
-    if (_is_outer_join) {
-        _add_tuple_is_null_column(&temp_block);
-    }
-    auto output_rows = temp_block.rows();
-    DCHECK(output_rows <= state->batch_size());
-    {
-        SCOPED_TIMER(_join_filter_timer);
-        RETURN_IF_ERROR(VExprContext::filter_block(_conjuncts, &temp_block, temp_block.columns()));
-    }
-
+    RETURN_IF_ERROR(_filter_data_and_build_output(state, output_block, eos, &temp_block));
     // Here make _join_block release the columns' ptr
     _join_block.set_columns(_join_block.clone_empty_columns());
     mutable_join_block.clear();
-    RETURN_IF_ERROR(_build_output_block(&temp_block, output_block, false));
+    return Status::OK();
+}
 
+Status HashJoinNode::_filter_data_and_build_output(RuntimeState* state,
+                                                   vectorized::Block* output_block, bool* eos,
+                                                   Block* temp_block) {
+    if (_is_outer_join) {
+        _add_tuple_is_null_column(temp_block);
+    }
+    auto output_rows = temp_block->rows();
+    DCHECK(output_rows <= state->batch_size());
+    {
+        SCOPED_TIMER(_join_filter_timer);
+        RETURN_IF_ERROR(VExprContext::filter_block(_conjuncts, temp_block, temp_block->columns()));
+    }
+
+    RETURN_IF_ERROR(_build_output_block(temp_block, output_block, false));
     _reset_tuple_is_null_column();
     reached_limit(output_block, eos);
     return Status::OK();
