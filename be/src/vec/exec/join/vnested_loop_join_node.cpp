@@ -498,17 +498,6 @@ void VNestedLoopJoinNode::_finalize_current_phase(MutableBlock& mutable_block, s
                  j < _left_block_start_pos + _left_side_process_count; ++j) {
                 mark_data.emplace_back(IsSemi != _cur_probe_row_visited_flags[j]);
             }
-            for (size_t i = 0; i < _num_probe_side_columns; ++i) {
-                const ColumnWithTypeAndName src_column = _left_block.get_by_position(i);
-                DCHECK(_join_op != TJoinOp::FULL_OUTER_JOIN);
-                dst_columns[i]->insert_range_from(*src_column.column, _left_block_start_pos,
-                                                  _left_side_process_count);
-            }
-            for (size_t i = 0; i < _num_build_side_columns; ++i) {
-                dst_columns[_num_probe_side_columns + i]->insert_many_defaults(
-                        _left_side_process_count);
-            }
-            _resize_fill_tuple_is_null_column(_left_side_process_count, 0, 1);
         }
     }
 }
