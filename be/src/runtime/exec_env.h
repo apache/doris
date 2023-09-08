@@ -90,6 +90,7 @@ class TabletSchemaCache;
 class UserFunctionCache;
 class SchemaCache;
 class StoragePageCache;
+class SegmentLoader;
 
 inline bool k_doris_exit = false;
 
@@ -320,11 +321,8 @@ private:
     io::S3FileBufferPool* _s3_buffer_pool = nullptr;
     StorageEngine* _storage_engine = nullptr;
     SchemaCache* _schema_cache = nullptr;
-<<<<<<< HEAD
     StoragePageCache* _storage_page_cache = nullptr;
-=======
     SegmentLoader* _segment_loader = nullptr;
->>>>>>> a16f9b2b2e (segmentloader)
 };
 
 template <>
