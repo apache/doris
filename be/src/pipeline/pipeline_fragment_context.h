@@ -71,7 +71,9 @@ public:
 
     TUniqueId get_fragment_instance_id() { return _fragment_instance_id; }
 
-    RuntimeState* get_runtime_state() { return _runtime_state.get(); }
+    virtual RuntimeState* get_runtime_state(UniqueId /*fragment_instance_id*/) {
+        return _runtime_state.get();
+    }
 
     // should be protected by lock?
     [[nodiscard]] bool is_canceled() const { return _runtime_state->is_cancelled(); }
@@ -111,6 +113,9 @@ public:
             std::shared_ptr<RuntimeFilterMergeControllerEntity>& handler) {
         _merge_controller_handler = handler;
     }
+
+    virtual void add_merge_controller_handler(
+            std::shared_ptr<RuntimeFilterMergeControllerEntity>& handler) {}
 
     void send_report(bool);
 
