@@ -70,7 +70,8 @@ public class ProfileManager {
 
         private final RuntimeProfile profile;
         // cache the result of getProfileContent method
-        private Map<Integer, String> profileContent;
+        private String profileContent = null;
+        private String simplyProfileContent = null;
         public Map<String, String> infoStrings = Maps.newHashMap();
         public MultiProfileTreeBuilder builder = null;
         public String errMsg = "";
@@ -84,16 +85,17 @@ public class ProfileManager {
             if (profileContent == null) {
                 // Simple profile will change the structure of the profile.
                 try {
-                    profileContent = Maps.newHashMap();
-                    for (int level = RuntimeProfile.MAX_PROFILE_LEVEL; level >= 0; level--) {
-                        profileContent.put(level, profile.getSimpleString(level));
-                    }
+                    profileContent = profile.getSimpleString(RuntimeProfile.HIGH_PROFILE_LEVEL);
+                    simplyProfileContent = profile.getSimpleString(RuntimeProfile.LOW_PROFILE_LEVEL);
                 } catch (Exception e) {
                     LOG.warn(e.toString());
                 }
             }
             int profileLevel = Config.profile_level;
-            return profileContent.get(profileLevel);
+            if (profileLevel == RuntimeProfile.HIGH_PROFILE_LEVEL) {
+                return profileContent;
+            }
+            return simplyProfileContent;
         }
 
         public double getError() {

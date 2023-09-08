@@ -2022,7 +2022,7 @@ public class Config extends ConfigBase {
      * profile.
      */
     @ConfField(mutable = true)
-    public static int profile_level = 2;
+    public static int profile_level = 1;
 
     /**
      * This config used for export/outfile.
