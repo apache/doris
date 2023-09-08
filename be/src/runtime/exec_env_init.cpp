@@ -144,7 +144,7 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths) {
     init_doris_metrics(store_paths);
     _store_paths = store_paths;
     _user_function_cache = new UserFunctionCache();
-    _user_function_cache->init();
+    _user_function_cache->init(doris::config::user_function_dir);
     _external_scan_context_mgr = new ExternalScanContextMgr(this);
     _vstream_mgr = new doris::vectorized::VDataStreamMgr();
     _result_mgr = new ResultBufferMgr();
@@ -287,7 +287,8 @@ void ExecEnv::init_file_cache_factory() {
         io::IFileCache::init();
         std::unordered_set<std::string> cache_path_set;
         std::vector<doris::CachePath> cache_paths;
-        olap_res = doris::parse_conf_cache_paths(doris::config::file_cache_path, cache_paths);
+        Status olap_res =
+                doris::parse_conf_cache_paths(doris::config::file_cache_path, cache_paths);
         if (!olap_res) {
             LOG(FATAL) << "parse config file cache path failed, path="
                        << doris::config::file_cache_path;
