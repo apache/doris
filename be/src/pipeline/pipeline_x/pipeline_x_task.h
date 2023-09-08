@@ -86,8 +86,6 @@ public:
 
     Status finalize() override;
 
-    OperatorXPtr get_rootx() { return _root; }
-
     std::string debug_string() override;
 
     bool is_pending_finish() override {
