@@ -293,7 +293,6 @@ Status ProcessHashTableProbe<JoinOpType>::do_process(HashTableType& hash_table_c
         }
 
         if (current_offset < _batch_size) {
-            bool probe_row_match_iter_ok = probe_row_match_iter.ok();
             while (probe_index < probe_rows) {
                 if constexpr (ignore_null && need_null_map_for_probe) {
                     if ((*null_map)[probe_index]) {
@@ -401,7 +400,7 @@ Status ProcessHashTableProbe<JoinOpType>::do_process(HashTableType& hash_table_c
                                     }
                                     ++current_offset;
                                 }
-                                probe_row_match_iter_ok = it.ok();
+                                probe_row_match_iter = it;
                                 if (!it.ok()) {
                                     // If all matched rows for the current probe row are handled,
                                     // advance to next probe row.
@@ -449,7 +448,7 @@ Status ProcessHashTableProbe<JoinOpType>::do_process(HashTableType& hash_table_c
                     break;
                 }
             }
-            probe_size = probe_index - last_probe_index + probe_row_match_iter_ok;
+            probe_size = probe_index - last_probe_index + probe_row_match_iter.ok();
         }
     }
 
