@@ -7485,8 +7485,6 @@ keyword ::=
     {: RESULT = id; :}
     | KW_PARAMETER:id
     {: RESULT = id; :}
-    | KW_PARTITIONS:id
-    {: RESULT = id; :}
     | KW_PASSWORD:id
     {: RESULT = id; :}
     | KW_PASSWORD_EXPIRE:id
