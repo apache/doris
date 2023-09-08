@@ -726,8 +726,6 @@ public abstract class Type {
             return true;
         } else if (sourceType.isStructType() && targetType.isStructType()) {
             return StructType.canCastTo((StructType) sourceType, (StructType) targetType);
-        } else if (sourceType.isVariantType() && targetType.isArrayType()) {
-            return true;
         }
         return sourceType.isNull() || sourceType.getPrimitiveType().isCharFamily();
     }
