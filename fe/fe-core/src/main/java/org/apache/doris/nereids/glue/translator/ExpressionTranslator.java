@@ -394,10 +394,7 @@ public class ExpressionTranslator extends DefaultExpressionVisitor<Expr, PlanTra
 
     public Expr bindLambda(Lambda lambda, PlanTranslatorContext context) {
         Expr func = lambda.getLambdaFunction().accept(this, context);
-        List<Expr> children = lambda.getArguments().stream()
-                                    .map(e -> e.accept(this, context))
-                                    .collect(Collectors.toList());
-        return new LambdaFunctionExpr(func, lambda.getLambdaArgumentNames(), children);
+        return new LambdaFunctionExpr(func, lambda.getLambdaArgumentNames(), ImmutableList.of(func));
     }
 
     private Expr visitHighOrderFunction(ScalarFunction function, PlanTranslatorContext context) {
