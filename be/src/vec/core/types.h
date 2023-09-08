@@ -708,7 +708,7 @@ inline const char* getTypeName(TypeIndex idx) {
     case TypeIndex::Time:
         return "Time";
     }
-
+    LOG(FATAL) << "__builtin_unreachable";
     __builtin_unreachable();
 }
 } // namespace vectorized

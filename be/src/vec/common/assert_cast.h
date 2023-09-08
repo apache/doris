@@ -1,3 +1,11 @@
+/*
+ * @Author: 宋光璠 songguangfan@sf.com
+ * @Date: 2023-09-06 16:30:40
+ * @LastEditors: 宋光璠 songguangfan@sf.com
+ * @LastEditTime: 2023-09-08 13:12:31
+ * @FilePath: /doris/be/src/vec/common/assert_cast.h
+ * @Description: 这是默认设置,请设置`customMade`, 打开koroFileHeader查看配置 进行设置: https://github.com/OBKoro1/koro1FileHeader/wiki/%E9%85%8D%E7%BD%AE
+ */
 // Licensed to the Apache Software Foundation (ASF) under one
 // or more contributor license agreements.  See the NOTICE file
 // distributed with this work for additional information
@@ -56,6 +64,7 @@ To assert_cast(From&& from) {
 
     LOG(FATAL) << fmt::format("Bad cast from type:{} to {}", demangle(typeid(from).name()),
                               demangle(typeid(To).name()));
+    LOG(FATAL) << "__builtin_unreachable";
     __builtin_unreachable();
 #else
     return static_cast<To>(from);
