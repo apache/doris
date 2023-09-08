@@ -56,7 +56,6 @@ To assert_cast(From&& from) {
 
     LOG(FATAL) << fmt::format("Bad cast from type:{} to {}", demangle(typeid(from).name()),
                               demangle(typeid(To).name()));
-    LOG(FATAL) << "__builtin_unreachable";
     __builtin_unreachable();
 #else
     return static_cast<To>(from);

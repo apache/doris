@@ -152,7 +152,6 @@ public:
     // todo(Amory) from column to get data type is not correct ,column is memory data,can not to assume memory data belong to which data type
     virtual TypeIndex get_data_type() const {
         LOG(FATAL) << "Cannot get_data_type() column " << get_name();
-        LOG(FATAL) << "__builtin_unreachable";
         __builtin_unreachable();
     }
 
@@ -430,7 +429,6 @@ public:
      */
     virtual Status filter_by_selector(const uint16_t* sel, size_t sel_size, IColumn* col_ptr) {
         LOG(FATAL) << "column not support filter_by_selector";
-        LOG(FATAL) << "__builtin_unreachable";
         __builtin_unreachable();
     }
 
@@ -443,7 +441,6 @@ public:
     /// Indexes must be one of the ColumnUInt. For default implementation, see select_index_impl from ColumnsCommon.h
     virtual Ptr index(const IColumn& indexes, size_t limit) const {
         LOG(FATAL) << "column not support index";
-        LOG(FATAL) << "__builtin_unreachable";
         __builtin_unreachable();
     }
 

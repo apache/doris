@@ -470,13 +470,11 @@ public:
 
     [[noreturn]] const DataTypes& get_argument_types() const final {
         LOG(FATAL) << "get_argument_types is not implemented for IFunction";
-        LOG(FATAL) << "__builtin_unreachable";
         __builtin_unreachable();
     }
 
     [[noreturn]] const DataTypePtr& get_return_type() const final {
         LOG(FATAL) << "get_return_type is not implemented for IFunction";
-        LOG(FATAL) << "__builtin_unreachable";
         __builtin_unreachable();
     }
 

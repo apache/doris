@@ -496,7 +496,6 @@ Status HashJoinBuildSinkOperatorX::sink(RuntimeState* state, vectorized::Block* 
         }
         auto ret = std::visit(Overload {[&](std::monostate&) -> Status {
                                             LOG(FATAL) << "FATAL: uninited hash table";
-                                            LOG(FATAL) << "__builtin_unreachable";
                                             __builtin_unreachable();
                                         },
                                         [&](auto&& arg) -> Status {
