@@ -42,6 +42,7 @@ import org.apache.doris.analysis.FunctionCallExpr;
 import org.apache.doris.analysis.HashDistributionDesc;
 import org.apache.doris.analysis.KeysDesc;
 import org.apache.doris.analysis.PartitionDesc;
+import org.apache.doris.analysis.PartitionKeyDesc;
 import org.apache.doris.analysis.QueryStmt;
 import org.apache.doris.analysis.RecoverDbStmt;
 import org.apache.doris.analysis.RecoverPartitionStmt;
@@ -1348,15 +1349,21 @@ public class InternalCatalog implements CatalogIf<Database> {
                             + existedName + ". Reason: " + "partition " + existedName + "not exist");
                 }
                 PartitionInfo partitionInfo = olapTable.getPartitionInfo();
-                PartitionDesc partitionDesc = partitionInfo.toPartitionDesc((OlapTable) table);
-                SinglePartitionDesc oldPartitionDesc = partitionDesc.getSinglePartitionDescByName(existedName);
-                if (oldPartitionDesc == null) {
-                    throw new DdlException("Failed to ADD PARTITION" + partitionName + " LIKE "
-                            + existedName + ". Reason: " + "partition " + existedName + "desc not exist");
+                SinglePartitionDesc newPartitionDesc;
+                if (partitionInfo instanceof SinglePartitionInfo) {
+                    newPartitionDesc = new SinglePartitionDesc(false, partitionName,
+                            PartitionKeyDesc.DUMMY_KEY_DESC, Maps.newHashMap());
+                } else {
+                    PartitionDesc partitionDesc = partitionInfo.toPartitionDesc((OlapTable) table);
+                    SinglePartitionDesc oldPartitionDesc = partitionDesc.getSinglePartitionDescByName(existedName);
+                    if (oldPartitionDesc == null) {
+                        throw new DdlException("Failed to ADD PARTITION" + partitionName + " LIKE "
+                                + existedName + ". Reason: " + "partition " + existedName + "desc not exist");
+                    }
+                    newPartitionDesc = new SinglePartitionDesc(false, partitionName,
+                            oldPartitionDesc.getPartitionKeyDesc(), oldPartitionDesc.getProperties());
                 }
                 DistributionDesc distributionDesc = part.getDistributionInfo().toDistributionDesc();
-                SinglePartitionDesc newPartitionDesc = new SinglePartitionDesc(false, partitionName,
-                        oldPartitionDesc.getPartitionKeyDesc(), oldPartitionDesc.getProperties());
                 Map<String, String> properties = newPartitionDesc.getProperties();
                 clause = new AddPartitionClause(newPartitionDesc, distributionDesc,
                         properties, addPartitionLikeClause.getIsTempPartition());
@@ -1389,10 +1396,6 @@ public class InternalCatalog implements CatalogIf<Database> {
             olapTable.checkNormalStateForAlter();
             // check partition type
             PartitionInfo partitionInfo = olapTable.getPartitionInfo();
-            if (partitionInfo.getType() != PartitionType.RANGE && partitionInfo.getType() != PartitionType.LIST) {
-                throw new DdlException("Only support adding partition to range and list partitioned table");
-            }
-
             // check partition name
             if (olapTable.checkPartitionNameExist(partitionName)) {
                 if (singlePartitionDesc.isSetIfNotExists()) {
@@ -1605,9 +1608,6 @@ public class InternalCatalog implements CatalogIf<Database> {
 
                 // check partition type
                 PartitionInfo partitionInfo = olapTable.getPartitionInfo();
-                if (partitionInfo.getType() != PartitionType.RANGE && partitionInfo.getType() != PartitionType.LIST) {
-                    throw new DdlException("Only support adding partition to range and list partitioned table");
-                }
 
                 // update partition info
                 partitionInfo.handleNewSinglePartitionDesc(singlePartitionDesc, partitionId, isTempPartition);
@@ -1628,6 +1628,11 @@ public class InternalCatalog implements CatalogIf<Database> {
                 } else if (partitionInfo.getType() == PartitionType.LIST) {
                     info = new PartitionPersistInfo(db.getId(), olapTable.getId(), partition,
                             RangePartitionItem.DUMMY_ITEM, partitionInfo.getItem(partitionId), dataProperty,
+                            partitionInfo.getReplicaAllocation(partitionId), partitionInfo.getIsInMemory(partitionId),
+                            isTempPartition, partitionInfo.getIsMutable(partitionId));
+                } else {
+                    info = new PartitionPersistInfo(db.getId(), olapTable.getId(), partition,
+                            RangePartitionItem.DUMMY_ITEM, ListPartitionItem.DUMMY_ITEM, dataProperty,
                             partitionInfo.getReplicaAllocation(partitionId), partitionInfo.getIsInMemory(partitionId),
                             isTempPartition, partitionInfo.getIsMutable(partitionId));
                 }
@@ -3128,7 +3133,8 @@ public class InternalCatalog implements CatalogIf<Database> {
         return newChecksum;
     }
 
-    public ConcurrentHashMap<Long, Database> getIdToDb() {
+    @Override
+    public ConcurrentHashMap<Long, DatabaseIf> getIdToDb() {
         return new ConcurrentHashMap<>(idToDb);
     }
 

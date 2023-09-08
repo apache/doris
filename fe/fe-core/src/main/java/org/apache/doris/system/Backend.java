@@ -134,6 +134,10 @@ public class Backend implements Writable {
     // No need to persist, because only master FE handle heartbeat.
     private int heartbeatFailureCounter = 0;
 
+    // Not need serialize this field. If fe restart the state is reset to false. Maybe fe will
+    // send some queries to this BE, it is not an important problem.
+    private AtomicBoolean isShutDown = new AtomicBoolean(false);
+
     public Backend() {
         this.host = "";
         this.version = "";
@@ -330,7 +334,7 @@ public class Backend implements Writable {
     }
 
     public boolean isQueryAvailable() {
-        return isAlive() && !isQueryDisabled();
+        return isAlive() && !isQueryDisabled() && !isShutDown.get();
     }
 
     public boolean isScheduleAvailable() {
@@ -657,6 +661,12 @@ public class Backend implements Writable {
             if (this.brpcPort != hbResponse.getBrpcPort() && !FeConstants.runningUnitTest) {
                 isChanged = true;
                 this.brpcPort = hbResponse.getBrpcPort();
+            }
+
+            if (this.isShutDown.get() != hbResponse.isShutDown()) {
+                isChanged = true;
+                LOG.info("{} shutdown state is changed", this.toString());
+                this.isShutDown.set(hbResponse.isShutDown());
             }
 
             if (!this.getNodeRoleTag().value.equals(hbResponse.getNodeRole()) && Tag.validNodeRoleTag(

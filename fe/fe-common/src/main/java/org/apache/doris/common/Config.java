@@ -1627,7 +1627,7 @@ public class Config extends ConfigBase {
      * condition，try to set this timeout longer.
      */
     @ConfField(mutable = true)
-    public static long remote_fragment_exec_timeout_ms = 5000; // 5 sec
+    public static long remote_fragment_exec_timeout_ms = 30000; // 30 sec
 
     /**
      * Max data version of backends serialize block.
@@ -2104,6 +2104,9 @@ public class Config extends ConfigBase {
     public static int full_auto_analyze_simultaneously_running_task_num = 1;
 
     @ConfField
+    public static final int period_analyze_simultaneously_running_task_num = 1;
+
+    @ConfField
     public static int cpu_resource_limit_per_analyze_task = 1;
 
     @ConfField(mutable = true, description = {
@@ -2150,4 +2153,8 @@ public class Config extends ConfigBase {
     })
     public static long query_metadata_name_ids_timeout = 3;
 
+    @ConfField(mutable = true, masterOnly = true, description = {
+            "是否禁止LocalDeployManager删除节点",
+            "Whether to disable LocalDeployManager drop node"})
+    public static boolean disable_local_deploy_manager_drop_node = true;
 }

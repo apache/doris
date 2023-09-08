@@ -21,6 +21,8 @@
 #include "pipeline/exec/aggregation_source_operator.h"
 #include "pipeline/exec/analytic_sink_operator.h"
 #include "pipeline/exec/analytic_source_operator.h"
+#include "pipeline/exec/assert_num_rows_operator.h"
+#include "pipeline/exec/empty_set_operator.h"
 #include "pipeline/exec/exchange_sink_operator.h"
 #include "pipeline/exec/exchange_source_operator.h"
 #include "pipeline/exec/hashjoin_build_sink.h"
@@ -28,7 +30,9 @@
 #include "pipeline/exec/nested_loop_join_build_operator.h"
 #include "pipeline/exec/nested_loop_join_probe_operator.h"
 #include "pipeline/exec/olap_scan_operator.h"
+#include "pipeline/exec/repeat_operator.h"
 #include "pipeline/exec/result_sink_operator.h"
+#include "pipeline/exec/select_operator.h"
 #include "pipeline/exec/sort_sink_operator.h"
 #include "pipeline/exec/sort_source_operator.h"
 #include "pipeline/exec/streaming_aggregation_sink_operator.h"
@@ -112,7 +116,7 @@ void PipelineXLocalStateBase::clear_origin_block() {
 }
 
 Status OperatorXBase::do_projections(RuntimeState* state, vectorized::Block* origin_block,
-                                     vectorized::Block* output_block) {
+                                     vectorized::Block* output_block) const {
     auto local_state = state->get_local_state(id());
     SCOPED_TIMER(local_state->_projection_timer);
     using namespace vectorized;
@@ -212,6 +216,46 @@ Status OperatorX<LocalStateType>::setup_local_state(RuntimeState* state, LocalSt
     return local_state->init(state, info);
 }
 
+template <typename LocalStateType>
+Status StreamingOperatorX<LocalStateType>::get_block(RuntimeState* state, vectorized::Block* block,
+                                                     SourceState& source_state) {
+    RETURN_IF_ERROR(OperatorX<LocalStateType>::_child_x->get_next_after_projects(state, block,
+                                                                                 source_state));
+    return pull(state, block, source_state);
+}
+
+template <typename LocalStateType>
+Status StatefulOperatorX<LocalStateType>::get_block(RuntimeState* state, vectorized::Block* block,
+                                                    SourceState& source_state) {
+    auto& local_state = state->get_local_state(OperatorX<LocalStateType>::id())
+                                ->template cast<LocalStateType>();
+    if (need_more_input_data(state)) {
+        local_state._child_block->clear_column_data();
+        RETURN_IF_ERROR(OperatorX<LocalStateType>::_child_x->get_next_after_projects(
+                state, local_state._child_block.get(), local_state._child_source_state));
+        source_state = local_state._child_source_state;
+        if (local_state._child_block->rows() == 0 &&
+            local_state._child_source_state != SourceState::FINISHED) {
+            return Status::OK();
+        }
+        RETURN_IF_ERROR(
+                push(state, local_state._child_block.get(), local_state._child_source_state));
+    }
+
+    if (!need_more_input_data(state)) {
+        SourceState new_state = SourceState::DEPEND_ON_SOURCE;
+        RETURN_IF_ERROR(pull(state, block, new_state));
+        if (new_state == SourceState::FINISHED) {
+            source_state = SourceState::FINISHED;
+        } else if (!need_more_input_data(state)) {
+            source_state = SourceState::MORE_DATA;
+        } else if (source_state == SourceState::MORE_DATA) {
+            source_state = local_state._child_source_state;
+        }
+    }
+    return Status::OK();
+}
+
 #define DECLARE_OPERATOR_X(LOCAL_STATE) template class DataSinkOperatorX<LOCAL_STATE>;
 DECLARE_OPERATOR_X(HashJoinBuildSinkLocalState)
 DECLARE_OPERATOR_X(ResultSinkLocalState)
@@ -231,8 +275,18 @@ DECLARE_OPERATOR_X(AnalyticLocalState)
 DECLARE_OPERATOR_X(SortLocalState)
 DECLARE_OPERATOR_X(AggLocalState)
 DECLARE_OPERATOR_X(ExchangeLocalState)
+DECLARE_OPERATOR_X(RepeatLocalState)
 DECLARE_OPERATOR_X(NestedLoopJoinProbeLocalState)
+DECLARE_OPERATOR_X(AssertNumRowsLocalState)
+DECLARE_OPERATOR_X(EmptySetLocalState)
 
 #undef DECLARE_OPERATOR_X
+
+template class StreamingOperatorX<AssertNumRowsLocalState>;
+template class StreamingOperatorX<SelectLocalState>;
+
+template class StatefulOperatorX<HashJoinProbeLocalState>;
+template class StatefulOperatorX<RepeatLocalState>;
+template class StatefulOperatorX<NestedLoopJoinProbeLocalState>;
 
 } // namespace doris::pipeline
