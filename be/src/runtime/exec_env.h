@@ -167,7 +167,7 @@ public:
         }
         return _download_cache_buf_map[token].get();
     }
-    FileCacheFactory* file_cache_factory() { return _file_cache_factory; }
+    io::FileCacheFactory* file_cache_factory() { return _file_cache_factory; }
     UserFunctionCache* user_function_cache() { return _user_function_cache; }
     FragmentMgr* fragment_mgr() { return _fragment_mgr; }
     ResultCache* result_cache() { return _result_cache; }
@@ -236,7 +236,7 @@ private:
     inline static std::atomic_bool _s_ready {false};
     std::vector<StorePath> _store_paths;
 
-    FileCacheFactory* _file_cache_factory;
+    io::FileCacheFactory* _file_cache_factory;
     UserFunctionCache* _user_function_cache;
     // Leave protected so that subclasses can override
     ExternalScanContextMgr* _external_scan_context_mgr = nullptr;
