@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.rules.expression;
 
+import org.apache.doris.nereids.rules.expression.rules.ArrayContainToArrayOverlap;
 import org.apache.doris.nereids.rules.expression.rules.DistinctPredicatesRule;
 import org.apache.doris.nereids.rules.expression.rules.ExtractCommonFactorRule;
 import org.apache.doris.nereids.rules.expression.rules.OrToIn;
@@ -40,7 +41,8 @@ public class ExpressionOptimization extends ExpressionRewrite {
             SimplifyInPredicate.INSTANCE,
             SimplifyDecimalV3Comparison.INSTANCE,
             SimplifyRange.INSTANCE,
-            OrToIn.INSTANCE
+            OrToIn.INSTANCE,
+            ArrayContainToArrayOverlap.INSTANCE
 
     );
     private static final ExpressionRuleExecutor EXECUTOR = new ExpressionRuleExecutor(OPTIMIZE_REWRITE_RULES);

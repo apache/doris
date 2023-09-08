@@ -438,7 +438,7 @@ public class Group {
         for (GroupExpression physicalExpression : physicalExpressions) {
             str.append("    ").append(physicalExpression).append("\n");
         }
-        str.append(" enforcers:\n");
+        str.append("  enforcers:\n");
         for (GroupExpression enforcer : enforcers) {
             str.append("    ").append(enforcer).append("\n");
         }
@@ -446,6 +446,21 @@ public class Group {
             str.append("  chosen expression id: ").append(chosenGroupExpressionId).append("\n");
             str.append("  chosen properties: ").append(chosenProperties).append("\n");
         }
+        str.append("  stats").append("\n");
+        str.append(getStatistics() == null ? "" : getStatistics().detail("    "));
+        str.append("  lowest Plan(cost, properties, plan, childrenRequires)");
+        getAllProperties().forEach(
+                prop -> {
+                    Optional<Pair<Cost, GroupExpression>> costAndGroupExpression = getLowestCostPlan(prop);
+                    if (costAndGroupExpression.isPresent()) {
+                        Cost cost = costAndGroupExpression.get().first;
+                        GroupExpression child = costAndGroupExpression.get().second;
+                        str.append("\n\n    ").append(cost.getValue()).append(" ").append(prop)
+                                .append("\n     ").append(child).append("\n     ")
+                                .append(child.getInputPropertiesListOrEmpty(prop));
+                    }
+                }
+        );
         return str.toString();
     }
 

@@ -42,9 +42,9 @@ import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.StructType;
 import org.apache.doris.catalog.TableIf;
-import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.catalog.VariantType;
+import org.apache.doris.catalog.external.ExternalTable;
 import org.apache.doris.catalog.external.HMSExternalTable;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
@@ -704,6 +704,6 @@ public class StatisticsUtil {
             LOG.warn(e.getMessage());
             return false;
         }
-        return table.getType().equals(TableType.HMS_EXTERNAL_TABLE);
+        return table instanceof ExternalTable;
     }
 }

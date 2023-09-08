@@ -155,26 +155,33 @@ public class ExpressionEstimation extends ExpressionVisitor<ColumnStatistic, Sta
     }
 
     private ColumnStatistic castMinMax(ColumnStatistic colStats, DataType targetType) {
-        if (colStats.minExpr instanceof StringLiteral && targetType.isDateLikeType()) {
-            ColumnStatisticBuilder builder = new ColumnStatisticBuilder(colStats);
-            if (colStats.minExpr != null && colStats.maxExpr != null) {
-                String strMin = colStats.minExpr.getStringValue();
-                try {
-                    DateLiteral dateMinLiteral = new DateLiteral(strMin);
-                    long min = dateMinLiteral.getValue();
-                    builder.setMinValue(min);
-                    builder.setMinExpr(dateMinLiteral.toLegacyLiteral());
-
-                    String strMax = colStats.maxExpr.getStringValue();
-                    DateLiteral dateMaxLiteral = new DateLiteral(strMax);
-                    long max = dateMaxLiteral.getValue();
-                    builder.setMaxValue(max);
-                    builder.setMaxExpr(dateMaxLiteral.toLegacyLiteral());
-                } catch (AnalysisException e) {
-                    // ignore exception. do not convert min max
+        if (colStats.minExpr instanceof StringLiteral || colStats.maxExpr instanceof StringLiteral) {
+            if (targetType.isDateLikeType()) {
+                ColumnStatisticBuilder builder = new ColumnStatisticBuilder(colStats);
+                if (colStats.minExpr != null) {
+                    try {
+                        String strMin = colStats.minExpr.getStringValue();
+                        DateLiteral dateMinLiteral = new DateLiteral(strMin);
+                        long min = dateMinLiteral.getValue();
+                        builder.setMinValue(min);
+                        builder.setMinExpr(dateMinLiteral.toLegacyLiteral());
+                    } catch (AnalysisException e) {
+                        // ignore exception. do not convert min
+                    }
                 }
+                if (colStats.maxExpr != null) {
+                    try {
+                        String strMax = colStats.maxExpr.getStringValue();
+                        DateLiteral dateMaxLiteral = new DateLiteral(strMax);
+                        long max = dateMaxLiteral.getValue();
+                        builder.setMaxValue(max);
+                        builder.setMaxExpr(dateMaxLiteral.toLegacyLiteral());
+                    } catch (AnalysisException e) {
+                        // ignore exception. do not convert max
+                    }
+                }
+                return builder.build();
             }
-            return builder.build();
         }
         return colStats;
     }
