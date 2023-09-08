@@ -129,8 +129,8 @@ public:
 
     // Create global instance of this class
     static StoragePageCache* create_global_cache(size_t capacity, int32_t index_cache_percentage,
-                                    int64_t pk_index_cache_capacity,
-                                    uint32_t num_shards = kDefaultNumShards);
+                                                 int64_t pk_index_cache_capacity,
+                                                 uint32_t num_shards = kDefaultNumShards);
 
     // Return global instance.
     // Client should call create_global_cache before.

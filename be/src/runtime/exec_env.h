@@ -91,6 +91,9 @@ class UserFunctionCache;
 class SchemaCache;
 class StoragePageCache;
 class SegmentLoader;
+class LookupConnectionCache;
+class RowCache;
+class CacheManager;
 
 inline bool k_doris_exit = false;
 
@@ -227,6 +230,9 @@ public:
     SchemaCache* schema_cache() { return _schema_cache; }
     StoragePageCache* get_storage_page_cache() { return _storage_page_cache; }
     SegmentLoader* segment_loader() { return _segment_loader; }
+    LookupConnectionCache* get_lookup_connection_cache() { return _lookup_connection_cache; }
+    RowCache* get_row_cache() { return _row_cache; }
+    CacheManager* get_cache_manager() { return _cache_manager; }
 
 private:
     ExecEnv();
@@ -323,6 +329,9 @@ private:
     SchemaCache* _schema_cache = nullptr;
     StoragePageCache* _storage_page_cache = nullptr;
     SegmentLoader* _segment_loader = nullptr;
+    LookupConnectionCache* _lookup_connection_cache = nullptr;
+    RowCache* _row_cache = nullptr;
+    CacheManager* _cache_manager = nullptr;
 };
 
 template <>

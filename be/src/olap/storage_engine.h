@@ -374,7 +374,6 @@ private:
     int32_t _effective_cluster_id;
     bool _is_all_cluster_id_exist;
 
-    static StorageEngine* _s_instance;
     bool _stopped;
 
     std::mutex _gc_mutex;

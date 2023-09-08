@@ -344,7 +344,7 @@ Status ExecEnv::_init_mem_env() {
     }
 
     // 3. init storage page cache
-    CacheManager::create_global_instance();
+    _cache_manager = CacheManager::create_global_instance();
 
     int64_t storage_cache_limit =
             ParseUtil::parse_mem_spec(config::storage_page_cache_limit, MemInfo::mem_limit(),
@@ -368,8 +368,8 @@ Status ExecEnv::_init_mem_env() {
     while (!is_percent && pk_storage_page_cache_limit > MemInfo::mem_limit() / 2) {
         pk_storage_page_cache_limit = storage_cache_limit / 2;
     }
-    _storage_page_cache = StoragePageCache::create_global_cache(storage_cache_limit, index_percentage,
-                                          pk_storage_page_cache_limit, num_shards);
+    _storage_page_cache = StoragePageCache::create_global_cache(
+            storage_cache_limit, index_percentage, pk_storage_page_cache_limit, num_shards);
     LOG(INFO) << "Storage page cache memory limit: "
               << PrettyPrinter::print(storage_cache_limit, TUnit::BYTES)
               << ", origin config value: " << config::storage_page_cache_limit;
@@ -382,7 +382,7 @@ Status ExecEnv::_init_mem_env() {
         // Reason same as buffer_pool_limit
         row_cache_mem_limit = row_cache_mem_limit / 2;
     }
-    RowCache::create_global_cache(row_cache_mem_limit);
+    _row_cache = RowCache::create_global_cache(row_cache_mem_limit);
     LOG(INFO) << "Row cache memory limit: "
               << PrettyPrinter::print(row_cache_mem_limit, TUnit::BYTES)
               << ", origin config value: " << config::row_cache_mem_limit;
@@ -408,7 +408,8 @@ Status ExecEnv::_init_mem_env() {
 
     _schema_cache = new SchemaCache(config::schema_cache_capacity);
 
-    LookupConnectionCache::create_global_instance(config::lookup_connection_cache_bytes_limit);
+    _lookup_connection_cache = LookupConnectionCache::create_global_instance(
+            config::lookup_connection_cache_bytes_limit);
 
     // use memory limit
     int64_t inverted_index_cache_limit =
@@ -549,9 +550,12 @@ void ExecEnv::destroy() {
     InvertedIndexSearcherCache::reset_global_instance();
     SAFE_DELETE(_user_function_cache);
     SAFE_DELETE(_file_cache_factory);
-    // StoragePageCache must be destroied after Daemon in doris_main.cpp is stopped. 
+    // StoragePageCache must be destroied after Daemon in doris_main.cpp is stopped.
     // see https://github.com/apache/doris/issues/24082
-    SAFE_DELETE(_storage_page_cache);   
+    SAFE_DELETE(_storage_page_cache);
+    SAFE_DELETE(_lookup_connection_cache);
+    SAFE_DELETE(_row_cache);
+    SAFE_DELETE(_cache_manager);
 }
 
 } // namespace doris
