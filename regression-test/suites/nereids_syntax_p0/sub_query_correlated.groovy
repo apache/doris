@@ -415,4 +415,18 @@ suite ("sub_query_correlated") {
                                         and (exists (SELECT * FROM sub_query_correlated_subquery3, sub_query_correlated_subquery4 WHERE sub_query_correlated_subquery1.k1 = sub_query_correlated_subquery3.k1 and sub_query_correlated_subquery3.v1 = sub_query_correlated_subquery4.k1)
                                              OR exists (SELECT * FROM sub_query_correlated_subquery3, sub_query_correlated_subquery5 WHERE sub_query_correlated_subquery1.k2 = sub_query_correlated_subquery3.v1 and sub_query_correlated_subquery3.v1 = sub_query_correlated_subquery5.k1))
     """
+
+    order_qt_doris_6937 """
+    SELECT *
+        FROM sub_query_correlated_subquery1
+        WHERE EXISTS 
+            (SELECT k1
+            FROM sub_query_correlated_subquery3
+            WHERE sub_query_correlated_subquery1.k1 > sub_query_correlated_subquery3.v1)
+                OR k1 < 10;
+    """
+
+    order_qt_doris_6937_2 """
+        select * from sub_query_correlated_subquery1 where sub_query_correlated_subquery1.k1 not in (select sub_query_correlated_subquery3.k3 from sub_query_correlated_subquery3 where sub_query_correlated_subquery3.v2 > sub_query_correlated_subquery1.k2) or k1 < 10 order by k1, k2;
+    """
 }
