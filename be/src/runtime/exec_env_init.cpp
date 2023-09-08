@@ -308,10 +308,14 @@ void ExecEnv::init_file_cache_factory() {
                 continue;
             }
 
-            RETURN_IF_ERROR(file_cache_init_pool->submit_func(std::bind(
+            olap_res = file_cache_init_pool->submit_func(std::bind(
                     &io::FileCacheFactory::create_file_cache, _file_cache_factory, cache_path.path,
-                    cache_path.init_settings(), &(cache_status.emplace_back()))));
+                    cache_path.init_settings(), &(cache_status.emplace_back())));
 
+            if (!olap_res.ok()) {
+                LOG(FATAL) << "failed to init file cache, err: " << olap_res;
+                exit(-1);
+            }
             cache_path_set.emplace(cache_path.path);
         }
 
