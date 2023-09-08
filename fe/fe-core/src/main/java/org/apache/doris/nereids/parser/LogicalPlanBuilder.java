@@ -1699,7 +1699,11 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     @Override
     public Expression visitRowConstructor(RowConstructorContext ctx) {
         return new Row(ctx.namedExpression().stream()
-                .map(e -> ((NamedExpression) visitNamedExpression(e))).collect(ImmutableList.toImmutableList()));
+                .map(e -> visitNamedExpression(e))
+                .map(e -> (e instanceof NamedExpression)
+                        ? ((NamedExpression) e)
+                        : new Alias(e, e.toSql()))
+                .collect(ImmutableList.toImmutableList()));
     }
 
     @Override

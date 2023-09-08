@@ -74,7 +74,7 @@ suite('nereids_insert_into_values') {
         INSERT INTO ${t1} VALUES
             (1, (1 + 9) * (10 - 9), 1, '1', 1.0, '2000-01-01'),
             (2, 20, 2, '2', 2.0, days_add('2000-01-01', 1)),
-            (3, 30, 3, '3', 3.0, make_date(2000, 3));
+            (3, 30, 3, '3', 3.0, makedate(2000, 3));
     """
 
     sql """
