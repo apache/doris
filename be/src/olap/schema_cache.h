@@ -48,7 +48,7 @@ class SchemaCache : public LRUCachePolicy {
 public:
     enum class Type { TABLET_SCHEMA = 0, SCHEMA = 1 };
 
-    static SchemaCache* instance() { return _s_instance; }
+    static SchemaCache* instance();
 
     static void create_global_instance(size_t capacity);
 
@@ -120,7 +120,6 @@ private:
             : LRUCachePolicy(CachePolicy::CacheType::SCHEMA_CACHE, capacity, LRUCacheType::NUMBER,
                              config::schema_cache_sweep_time_sec) {}
     static constexpr char SCHEMA_DELIMITER = '-';
-    static SchemaCache* _s_instance;
 };
 
 } // namespace doris

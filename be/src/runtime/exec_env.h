@@ -88,6 +88,7 @@ class FileMetaCache;
 class GroupCommitMgr;
 class TabletSchemaCache;
 class UserFunctionCache;
+class SchemaCache;
 
 inline bool k_doris_exit = false;
 
@@ -221,6 +222,7 @@ public:
     TabletSchemaCache* get_tablet_schema_cache() { return _tablet_schema_cache; }
     StorageEngine* get_storage_engine() { return _storage_engine; }
     io::S3FileBufferPool* get_s3_file_buffer_pool() { return _s3_buffer_pool; }
+    SchemaCache schema_cache() { return _schema_cache; }
 
 private:
     ExecEnv();
@@ -236,8 +238,8 @@ private:
     inline static std::atomic_bool _s_ready {false};
     std::vector<StorePath> _store_paths;
 
-    io::FileCacheFactory* _file_cache_factory;
-    UserFunctionCache* _user_function_cache;
+    io::FileCacheFactory* _file_cache_factory = nullptr;
+    UserFunctionCache* _user_function_cache = nullptr;
     // Leave protected so that subclasses can override
     ExternalScanContextMgr* _external_scan_context_mgr = nullptr;
     doris::vectorized::VDataStreamMgr* _vstream_mgr = nullptr;
@@ -314,6 +316,7 @@ private:
     TabletSchemaCache* _tablet_schema_cache = nullptr;
     io::S3FileBufferPool* _s3_buffer_pool = nullptr;
     StorageEngine* _storage_engine = nullptr;
+    SchemaCache* _schema_cache = nullptr;
 };
 
 template <>
