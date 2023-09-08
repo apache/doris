@@ -493,7 +493,7 @@ void ExecEnv::_deregister_metrics() {
     DEREGISTER_HOOK_METRIC(download_cache_thread_pool_queue_size);
 }
 
-void ExecEnv::_destroy() {
+void ExecEnv::destroy() {
     //Only destroy once after init
     if (!ready()) {
         return;
@@ -548,10 +548,6 @@ void ExecEnv::_destroy() {
     InvertedIndexSearcherCache::reset_global_instance();
     SAFE_DELETE(_user_function_cache);
     SAFE_DELETE(_file_cache_factory);
-}
-
-void ExecEnv::destroy(ExecEnv* env) {
-    env->_destroy();
 }
 
 } // namespace doris

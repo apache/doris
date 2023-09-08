@@ -99,7 +99,7 @@ class ExecEnv {
 public:
     // Initial exec environment. must call this to init all
     [[nodiscard]] static Status init(ExecEnv* env, const std::vector<StorePath>& store_paths);
-    static void destroy(ExecEnv* exec_env);
+    void destroy();
 
     /// Returns the first created exec env instance. In a normal doris, this is
     /// the only instance. In test setups with multiple ExecEnv's per process,

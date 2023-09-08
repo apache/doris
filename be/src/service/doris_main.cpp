@@ -471,8 +471,8 @@ int main(int argc, char** argv) {
     }
 
     // init exec env
-    auto exec_env = doris::ExecEnv::GetInstance();
-    status = doris::ExecEnv::init(exec_env, paths);
+    auto exec_env(doris::ExecEnv::GetInstance());
+    status = doris::ExecEnv::init(doris::ExecEnv::GetInstance(), paths);
     if (status != Status::OK()) {
         LOG(FATAL) << "failed to init doris storage engine, res=" << status;
         exit(-1);
@@ -494,8 +494,9 @@ int main(int argc, char** argv) {
     }
 
     // 2. bprc service
-    doris::BRpcService brpc_service(exec_env);
-    status = brpc_service.start(doris::config::brpc_port, doris::config::brpc_num_threads);
+    std::unique_ptr<doris::BRpcService> brpc_service =
+            std::make_unique<doris::BRpcService>(exec_env);
+    status = brpc_service->start(doris::config::brpc_port, doris::config::brpc_num_threads);
     if (!status.ok()) {
         LOG(ERROR) << "BRPC service did not start correctly, exiting";
         doris::shutdown_logging();
@@ -503,9 +504,9 @@ int main(int argc, char** argv) {
     }
 
     // 3. http service
-    doris::HttpService http_service(exec_env, doris::config::webserver_port,
-                                    doris::config::webserver_num_workers);
-    status = http_service.start();
+    std::unique_ptr<doris::HttpService> http_service = std::make_unique<doris::HttpService>(
+            exec_env, doris::config::webserver_port, doris::config::webserver_num_workers);
+    status = http_service->start();
     if (!status.ok()) {
         LOG(ERROR) << "Doris Be http service did not start correctly, exiting";
         doris::shutdown_logging();
@@ -556,7 +557,13 @@ int main(int argc, char** argv) {
     // For graceful shutdown, need to wait for all running queries to stop
     exec_env->wait_for_all_tasks_done();
     daemon.stop();
-    exec_env->destroy(doris::ExecEnv::GetInstance());
+    be_server->stop();
+    be_server.reset(nullptr);
+    brpc_service.reset(nullptr);
+    heartbeat_thrift_server->stop();
+    heartbeat_thrift_server.reset(nullptr);
+    flight_server.reset();
+    exec_env->destroy();
 
     return 0;
 }
