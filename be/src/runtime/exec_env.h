@@ -52,7 +52,8 @@ class TaskGroupManager;
 }
 namespace io {
 class S3FileBufferPool;
-}
+class FileCacheFactory;
+} // namespace io
 
 class BfdParser;
 class BrokerMgr;
@@ -86,7 +87,6 @@ class FrontendServiceClient;
 class FileMetaCache;
 class GroupCommitMgr;
 class TabletSchemaCache;
-class FileCacheFactory;
 class UserFunctionCache;
 
 inline bool k_doris_exit = false;
