@@ -487,7 +487,7 @@ BlockRowPos VAnalyticEvalNode::_compare_row_to_find_end(int idx, BlockRowPos sta
     }
     //binary search, set start and end pos
     int64_t start_pos = start_init_row_num;
-    int64_t end_pos = _input_blocks[start.block_num].rows() - 1;
+    int64_t end_pos = _input_blocks[start.block_num].rows();
     //if end_block_num haven't moved, only start_block_num go to the end block
     //so could use the end.row_num for binary search
     if (start.block_num == end.block_num) {

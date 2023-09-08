@@ -522,6 +522,9 @@ struct TimeRound {
             is_null = false;
             return;
         };
+        if constexpr (std::is_same_v<DateValueType, VecDateTimeValue>) {
+            ts1.reset_zero_by_type(ts2.type());
+        }
         int64_t diff;
         int64_t part;
         if constexpr (Impl::Unit == YEAR) {

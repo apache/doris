@@ -40,7 +40,7 @@ struct TTabletSchema {
     12: optional i32 sort_col_num
     13: optional bool disable_auto_compaction
     14: optional i32 version_col_idx = -1
-    15: optional bool is_dynamic_schema = false
+    15: optional bool is_dynamic_schema = false // deprecated
     16: optional bool store_row_column = false
     17: optional bool enable_single_replica_compaction = false
     18: optional bool skip_write_index_on_load = false
@@ -412,6 +412,8 @@ struct TTabletMetaInfo {
     11: optional i64 time_series_compaction_goal_size_mbytes
     12: optional i64 time_series_compaction_file_count_threshold
     13: optional i64 time_series_compaction_time_threshold_seconds
+    14: optional bool enable_single_replica_compaction
+    15: optional bool skip_write_index_on_load
 }
 
 struct TUpdateTabletMetaInfoReq {

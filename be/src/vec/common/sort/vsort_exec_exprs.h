@@ -69,6 +69,8 @@ public:
         return _need_convert_to_nullable_flags;
     }
 
+    Status clone(RuntimeState* state, VSortExecExprs& new_exprs);
+
 private:
     // Create two VExprContexts for evaluating over the TupleRows.
     VExprContextSPtrs _lhs_ordering_expr_ctxs;

@@ -59,6 +59,7 @@ import java.util.Collections;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
+import java.util.stream.Collectors;
 
 /**
  * Analyze which caching mode a SQL is suitable for
@@ -140,12 +141,16 @@ public class CacheAnalyzer {
         public long latestPartitionId;
         public long latestVersion;
         public long latestTime;
+        public long partitionNum;
+        public long sumOfPartitionNum;
 
         public CacheTable() {
             olapTable = null;
             latestPartitionId = 0;
             latestVersion = 0;
             latestTime = 0;
+            partitionNum = 0;
+            sumOfPartitionNum = 0;
         }
 
         @Override
@@ -154,8 +159,8 @@ public class CacheAnalyzer {
         }
 
         public void debug() {
-            LOG.debug("table {}, partition id {}, ver {}, time {}", olapTable.getName(),
-                    latestPartitionId, latestVersion, latestTime);
+            LOG.debug("table {}, partition id {}, ver {}, time {}, partition num {}, sumOfPartitionNum: {}",
+                    olapTable.getName(), latestPartitionId, latestVersion, latestTime, partitionNum, sumOfPartitionNum);
         }
     }
 
@@ -189,6 +194,10 @@ public class CacheAnalyzer {
         cacheMode = innerCheckCacheMode(now);
     }
 
+    public void checkCacheModeForNereids(long now) {
+        cacheMode = innerCheckCacheModeForNereids(now);
+    }
+
     private CacheMode innerCheckCacheMode(long now) {
         if (!enableCache()) {
             LOG.debug("cache is disabled. queryid {}", DebugUtil.printId(queryId));
@@ -211,7 +220,7 @@ public class CacheAnalyzer {
             }
             if (enablePartitionCache() && ((OlapScanNode) node).getSelectedPartitionNum() > 1
                     && selectStmt.hasGroupByClause()) {
-                LOG.debug("more than one partition scanned when qeury has agg, partition cache cannot use, queryid {}",
+                LOG.debug("more than one partition scanned when query has agg, partition cache cannot use, queryid {}",
                         DebugUtil.printId(queryId));
                 return CacheMode.None;
             }
@@ -221,6 +230,7 @@ public class CacheAnalyzer {
         MetricRepo.COUNTER_QUERY_OLAP_TABLE.increase(1L);
         Collections.sort(tblTimeList);
         latestTable = tblTimeList.get(0);
+        latestTable.sumOfPartitionNum = tblTimeList.stream().mapToLong(item -> item.partitionNum).sum();
         latestTable.debug();
 
         addAllViewStmt(selectStmt);
@@ -232,7 +242,7 @@ public class CacheAnalyzer {
         if (enableSqlCache()
                 && (now - latestTable.latestTime) >= Config.cache_last_version_interval_second * 1000L) {
             if (LOG.isDebugEnabled()) {
-                LOG.debug("TIME:{},{},{}", now, latestTable.latestTime,
+                LOG.debug("Query cache time:{},{},{}", now, latestTable.latestTime,
                         Config.cache_last_version_interval_second * 1000);
             }
             cache = new SqlCache(this.queryId, this.selectStmt);
@@ -323,10 +333,11 @@ public class CacheAnalyzer {
         MetricRepo.COUNTER_QUERY_OLAP_TABLE.increase(1L);
         Collections.sort(tblTimeList);
         latestTable = tblTimeList.get(0);
+        latestTable.sumOfPartitionNum = tblTimeList.stream().mapToLong(item -> item.partitionNum).sum();
         latestTable.debug();
 
         addAllViewStmt((SetOperationStmt) parsedStmt);
-        String allViewExpandStmtListStr = parsedStmt.toSql() + "|" + StringUtils.join(allViewStmtSet, "|");
+        String allViewExpandStmtListStr = StringUtils.join(allViewStmtSet, "|");
 
         if (now == 0) {
             now = nowtime();
@@ -334,10 +345,10 @@ public class CacheAnalyzer {
         if (enableSqlCache()
                 && (now - latestTable.latestTime) >= Config.cache_last_version_interval_second * 1000L) {
             if (LOG.isDebugEnabled()) {
-                LOG.debug("TIME:{},{},{}", now, latestTable.latestTime,
+                LOG.debug("Query cache time:{},{},{}", now, latestTable.latestTime,
                         Config.cache_last_version_interval_second * 1000);
             }
-            cache = new SqlCache(this.queryId);
+            cache = new SqlCache(this.queryId, parsedStmt.toSql());
             ((SqlCache) cache).setCacheInfo(this.latestTable, allViewExpandStmtListStr);
             MetricRepo.COUNTER_CACHE_ADDED_SQL.increase(1L);
             return CacheMode.Sql;
@@ -377,25 +388,29 @@ public class CacheAnalyzer {
         MetricRepo.COUNTER_QUERY_OLAP_TABLE.increase(1L);
         Collections.sort(tblTimeList);
         latestTable = tblTimeList.get(0);
+        latestTable.sumOfPartitionNum = tblTimeList.stream().mapToLong(item -> item.partitionNum).sum();
         latestTable.debug();
 
         if (((LogicalPlanAdapter) parsedStmt).getStatementContext().getParsedStatement().isExplain()) {
             return CacheMode.NoNeed;
         }
 
-        String cacheKey = ((LogicalPlanAdapter) parsedStmt).getStatementContext()
-                .getOriginStatement().originStmt.toLowerCase();
+        allViewStmtSet.addAll(((LogicalPlanAdapter) parsedStmt).getViews()
+                    .stream().map(view -> view.getDdlSql()).collect(Collectors.toSet()));
+        String allViewExpandStmtListStr = StringUtils.join(allViewStmtSet, "|");
+
         if (now == 0) {
             now = nowtime();
         }
         if (enableSqlCache()
                 && (now - latestTable.latestTime) >= Config.cache_last_version_interval_second * 1000L) {
             if (LOG.isDebugEnabled()) {
-                LOG.debug("TIME:{},{},{}", now, latestTable.latestTime,
+                LOG.debug("Query cache time :{},{},{}", now, latestTable.latestTime,
                         Config.cache_last_version_interval_second * 1000);
             }
-            cache = new SqlCache(this.queryId);
-            ((SqlCache) cache).setCacheInfo(this.latestTable, cacheKey);
+            cache = new SqlCache(this.queryId, ((LogicalPlanAdapter) parsedStmt).getStatementContext()
+                        .getOriginStatement().originStmt);
+            ((SqlCache) cache).setCacheInfo(this.latestTable, allViewExpandStmtListStr);
             MetricRepo.COUNTER_CACHE_ADDED_SQL.increase(1L);
             return CacheMode.Sql;
         }
@@ -568,6 +583,7 @@ public class CacheAnalyzer {
         CacheTable cacheTable = new CacheTable();
         OlapTable olapTable = node.getOlapTable();
         cacheTable.olapTable = olapTable;
+        cacheTable.partitionNum = node.getSelectedPartitionIds().size();
         for (Long partitionId : node.getSelectedPartitionIds()) {
             Partition partition = olapTable.getPartition(partitionId);
             if (partition.getVisibleVersionTime() >= cacheTable.latestTime) {

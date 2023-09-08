@@ -46,5 +46,12 @@ suite("test_tvf_p2", "p2,external,tvf,external_remote,external_remote_tvf") {
             "uri" = "hdfs://${nameNodeHost}:${hdfsPort}/catalog/tvf/orc/all_nested_types.orc",
             "format" = "orc",
             "fs.defaultFS" = "hdfs://${nameNodeHost}:${hdfsPort}")"""
+
+        // a row of complex type may be stored across more pages
+        qt_row_cross_pages """select count(id), count(m1), count(m2)
+            from hdfs(
+            "uri" = "hdfs://${nameNodeHost}:${hdfsPort}/catalog/tvf/parquet/row_cross_pages.parquet",
+            "format" = "parquet",
+            "fs.defaultFS" = "hdfs://${nameNodeHost}:${hdfsPort}")"""
     }
 }

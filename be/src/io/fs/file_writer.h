@@ -21,17 +21,17 @@
 
 #include "common/status.h"
 #include "gutil/macros.h"
-#include "io/fs/file_reader_writer_fwd.h"
-#include "io/fs/file_system.h"
 #include "io/fs/path.h"
 #include "util/slice.h"
 
 namespace doris {
 namespace io {
+class FileSystem;
 
 class FileWriter {
 public:
-    FileWriter(Path&& path, FileSystemSPtr fs) : _path(std::move(path)), _fs(fs) {}
+    FileWriter(Path&& path, std::shared_ptr<FileSystem> fs) : _path(std::move(path)), _fs(fs) {}
+    FileWriter() = default;
     virtual ~FileWriter() = default;
 
     DISALLOW_COPY_AND_ASSIGN(FileWriter);
@@ -56,15 +56,19 @@ public:
 
     size_t bytes_appended() const { return _bytes_appended; }
 
-    FileSystemSPtr fs() const { return _fs; }
+    std::shared_ptr<FileSystem> fs() const { return _fs; }
+
+    bool is_closed() { return _closed; }
 
 protected:
     Path _path;
     size_t _bytes_appended = 0;
-    FileSystemSPtr _fs;
+    std::shared_ptr<FileSystem> _fs;
     bool _closed = false;
     bool _opened = false;
 };
+
+using FileWriterPtr = std::unique_ptr<FileWriter>;
 
 } // namespace io
 } // namespace doris

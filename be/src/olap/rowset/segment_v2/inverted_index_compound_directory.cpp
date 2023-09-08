@@ -424,12 +424,12 @@ void DorisCompoundDirectory::FSIndexOutput::close() {
     }
     if (writer) {
         Status ret = writer->finalize();
-        if (ret != Status::OK()) {
+        if (!ret.ok()) {
             LOG(WARNING) << "FSIndexOutput close, file writer finalize error: " << ret.to_string();
             _CLTHROWA(CL_ERR_IO, ret.to_string().c_str());
         }
         ret = writer->close();
-        if (ret != Status::OK()) {
+        if (!ret.ok()) {
             LOG(WARNING) << "FSIndexOutput close, file writer close error: " << ret.to_string();
             _CLTHROWA(CL_ERR_IO, ret.to_string().c_str());
         }

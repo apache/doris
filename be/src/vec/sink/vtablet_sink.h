@@ -408,11 +408,6 @@ public:
 
     size_t get_pending_bytes() const;
 
-    const RowDescriptor& row_desc() { return _input_row_desc; }
-
-    // Returns the runtime profile for the sink.
-    RuntimeProfile* profile() override { return _profile; }
-
     // the consumer func of sending pending batches in every NodeChannel.
     // use polling & NodeChannel::try_send_and_fetch_status() to achieve nonblocking sending.
     // only focus on pending batches and channel status, the internal errors of NodeChannels will be handled by the producer
@@ -441,7 +436,6 @@ private:
     std::shared_ptr<MemTracker> _mem_tracker;
 
     ObjectPool* _pool;
-    const RowDescriptor& _input_row_desc;
 
     // unique load id
     PUniqueId _load_id;
@@ -466,8 +460,6 @@ private:
     bool _write_single_replica = false;
     OlapTableLocationParam* _slave_location = nullptr;
     DorisNodesInfo* _nodes_info = nullptr;
-
-    RuntimeProfile* _profile = nullptr;
 
     std::unique_ptr<OlapTabletFinder> _tablet_finder;
 

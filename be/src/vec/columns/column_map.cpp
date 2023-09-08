@@ -466,6 +466,16 @@ ColumnPtr ColumnMap::replicate(const Offsets& offsets) const {
     return res;
 }
 
+void ColumnMap::replicate(const uint32_t* indexs, size_t target_size, IColumn& column) const {
+    auto& res = reinterpret_cast<ColumnMap&>(column);
+
+    // Make a temp column array for reusing its replicate function
+    ColumnArray::create(keys_column->assume_mutable(), offsets_column->assume_mutable())
+            ->replicate(indexs, target_size, res.keys_column->assume_mutable_ref());
+    ColumnArray::create(values_column->assume_mutable(), offsets_column->assume_mutable())
+            ->replicate(indexs, target_size, res.values_column->assume_mutable_ref());
+}
+
 void ColumnMap::reserve(size_t n) {
     get_offsets().reserve(n);
     keys_column->reserve(n);

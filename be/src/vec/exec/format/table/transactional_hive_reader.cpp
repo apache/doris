@@ -129,6 +129,8 @@ Status TransactionalHiveReader::init_row_filters(const TFileRangeDesc& range) {
         auto delete_file = fmt::format("{}/{}", delete_delta.directory_location, file_name);
 
         TFileRangeDesc delete_range;
+        // must use __set() method to make sure __isset is true
+        delete_range.__set_fs_name(_range.fs_name);
         delete_range.path = delete_file;
         delete_range.start_offset = 0;
         delete_range.size = -1;

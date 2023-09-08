@@ -549,6 +549,18 @@ Status TabletManager::_drop_tablet_unlocked(TTabletId tablet_id, TReplicaId repl
     _remove_tablet_from_partition(to_drop_tablet);
     tablet_map_t& tablet_map = _get_tablet_map(tablet_id);
     tablet_map.erase(tablet_id);
+    {
+        std::shared_lock rlock(to_drop_tablet->get_header_lock());
+        static auto recycle_segment_cache = [](const auto& rowset_map) {
+            for (auto& [_, rowset] : rowset_map) {
+                // If the tablet was deleted, it need to remove all rowsets fds directly
+                SegmentLoader::instance()->erase_segments(rowset->rowset_id(),
+                                                          rowset->num_segments());
+            }
+        };
+        recycle_segment_cache(to_drop_tablet->rowset_map());
+        recycle_segment_cache(to_drop_tablet->stale_rowset_map());
+    }
     if (!keep_files) {
         // drop tablet will update tablet meta, should lock
         std::lock_guard<std::shared_mutex> wrlock(to_drop_tablet->get_header_lock());
@@ -1033,7 +1045,7 @@ Status TabletManager::build_all_report_tablets_info(std::map<TTabletId, TTablet>
         TTabletInfo& tablet_info = t_tablet.tablet_infos.emplace_back();
         tablet->build_tablet_report_info(&tablet_info, true, true);
         // find expired transaction corresponding to this tablet
-        TabletInfo tinfo(tablet->tablet_id(), tablet->schema_hash(), tablet->tablet_uid());
+        TabletInfo tinfo(tablet->tablet_id(), tablet->tablet_uid());
         auto find = expire_txn_map.find(tinfo);
         if (find != expire_txn_map.end()) {
             tablet_info.__set_transaction_ids(find->second);
@@ -1124,7 +1136,7 @@ Status TabletManager::start_trash_sweep() {
                     (*it)->tablet_meta()->save(meta_file_path);
                     LOG(INFO) << "start to move tablet to trash. " << tablet_path;
                     Status rm_st = (*it)->data_dir()->move_to_trash(tablet_path);
-                    if (rm_st != Status::OK()) {
+                    if (!rm_st.ok()) {
                         LOG(WARNING) << "fail to move dir to trash. " << tablet_path;
                         ++it;
                         continue;
@@ -1417,8 +1429,7 @@ void TabletManager::get_tablets_distribution_on_different_disks(
             DataDir* data_dir = tablet->data_dir();
             size_t tablet_footprint = tablet->tablet_footprint();
             tablets_num[data_dir]++;
-            TabletSize tablet_size(tablet_info_iter->tablet_id, tablet_info_iter->schema_hash,
-                                   tablet_footprint);
+            TabletSize tablet_size(tablet_info_iter->tablet_id, tablet_footprint);
             tablets_info[data_dir].push_back(tablet_size);
         }
         tablets_num_on_disk[partition_id] = tablets_num;

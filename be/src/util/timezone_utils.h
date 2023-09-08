@@ -29,12 +29,16 @@ class time_zone;
 
 namespace doris {
 
+namespace vectorized {
+using ZoneList = std::unordered_map<std::string, cctz::time_zone>;
+}
+
 class TimezoneUtils {
 public:
     static void load_timezone_names();
+    static void load_timezones_to_cache(vectorized::ZoneList& cache_list);
     static bool find_cctz_time_zone(const std::string& timezone, cctz::time_zone& ctz);
 
-public:
     static const std::string default_time_zone;
 
 private:

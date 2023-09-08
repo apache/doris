@@ -181,7 +181,7 @@ There are two ways to configure BE configuration items:
 #### `mem_limit`
 
 * Type: string
-* Description: Limit the percentage of the server's maximum memory used by the BE process. It is used to prevent BE memory from occupying to many the machine's memory. This parameter must be greater than 0. When the percentage is greater than 100%, the value will default to 100%.
+* Description: Limit the percentage of the server's maximum memory used by the BE process. It is used to prevent BE memory from occupying too the machine's memory. This parameter must be greater than 0. When the percentage is greater than 100%, the value will default to 100%.
 * Default value: 80%
 
 #### `cluster_id`
@@ -189,7 +189,7 @@ There are two ways to configure BE configuration items:
 * Type: int32
 * Description: Configure the cluster id to which the BE belongs.
     - This value is usually delivered by the FE to the BE by the heartbeat, no need to configure. When it is confirmed that a BE belongs to a certain Drois cluster, it can be configured. The cluster_id file under the data directory needs to be modified to make sure same as this parament.
-* Default value: - 1
+* Default value: -1
 
 #### `custom_config_dir`
 
@@ -221,7 +221,7 @@ There are two ways to configure BE configuration items:
 #### `status_report_interval`
 
 * Description: Interval between profile reports
-* Default value: 5
+* Default value: 5 seconds
 
 #### `brpc_max_body_size`
 
@@ -806,7 +806,7 @@ BaseCompaction:546859:
 
 * Type: int64
 * Description: Used to limit the maximum amount of csv data allowed in one Stream load.
-  - Stream Load is generally suitable for loading data less than a few GB, not suitable for loading` too large data.
+  - Stream Load is generally suitable for loading data less than a few GB, not suitable for loading too large data.
 * Default value: 10240 (MB)
 * Dynamically modifiable: Yes
 
@@ -961,7 +961,7 @@ BaseCompaction:546859:
 
 #### `memtable_mem_tracker_refresh_interval_ms`
 
-* Description: Interval in milliseconds between memtbale flush mgr refresh iterations
+* Description: Interval in milliseconds between memtable flush mgr refresh iterations
 * Default value: 100
 
 #### `download_cache_buffer_size`
@@ -1026,14 +1026,7 @@ BaseCompaction:546859:
 * Type: int32
 * Description: The cache size used when reading files on hdfs or object storage.
   - Increasing this value can reduce the number of calls to read remote data, but it will increase memory overhead.
-* Default value: 16MB
-
-#### `segment_cache_capacity`
-
-* Type: int32
-* Description: The maximum number of Segments cached by Segment Cache.
-  - The default value is currently only an empirical value, and may need to be modified according to actual scenarios. Increasing this value can cache more segments and avoid some IO. Decreasing this value will reduce memory usage.
-* Default value: 1000000
+* Default value: 16 (MB)
 
 #### `file_cache_type`
 
@@ -1158,7 +1151,7 @@ BaseCompaction:546859:
 
 #### `small_file_dir`
 
-* Description: 用于保存 SmallFileMgr 下载的文件的目录
+* Description: Save files downloaded by SmallFileMgr
 * Default value: ${DORIS_HOME}/lib/small_file/
 
 #### `user_function_dir`
@@ -1196,6 +1189,11 @@ BaseCompaction:546859:
 * Type: int32
 * Description: Index page cache as a percentage of total storage page cache, value range is [0, 100]
 * Default value: 10
+
+#### `segment_cache_capacity`
+* Type: int32
+* Description: Max number of segment cache (the key is rowset id) entries. -1 is for backward compatibility as fd_number * 2/5.
+* Default value: -1
 
 #### `storage_strict_check_incompatible_old_format`
 
@@ -1374,7 +1372,7 @@ Indicates how many tablets failed to load in the data directory. At the same tim
 #### `sys_log_verbose_modules`
 
 * Description: Log printing module, writing olap will only print the log under the olap module
-* Default value: 空
+* Default value: empty
 
 #### `aws_log_level`
 
@@ -1394,7 +1392,7 @@ Indicates how many tablets failed to load in the data directory. At the same tim
 #### `log_buffer_level`
 
 * Description: The log flushing strategy is kept in memory by default
-* Default value: 空
+* Default value: empty
 
 ### Else
 
@@ -1486,3 +1484,13 @@ Indicates how many tablets failed to load in the data directory. At the same tim
 
 * Description: The storage directory for files queried by `local` table valued functions.
 * Default value: `${DORIS_HOME}`
+
+#### `brpc_streaming_client_batch_bytes`
+
+* Description: The batch size for sending data by brpc streaming client
+* Default value: 262144
+
+#### `grace_shutdown_wait_seconds`
+
+* Description: In cloud native deployment scenario, BE will be add to cluster and remove from cluster very frequently. User's query will fail if there is a fragment is running on the shuting down BE. Users could use stop_be.sh --grace, then BE will wait all running queries to stop to avoiding running query failure, but if the waiting time exceed the limit, then be will exit directly. During this period, FE will not send any queries to BE and waiting for all running queries to stop.
+* Default value: 120

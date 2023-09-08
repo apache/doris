@@ -43,20 +43,15 @@ import java.util.Set;
 public class DistributionSpecHash extends DistributionSpec {
 
     private final List<ExprId> orderedShuffledColumns;
-
     private final ShuffleType shuffleType;
-
-    // below two attributes use for colocate join
-    private final long tableId;
-
-    private final Set<Long> partitionIds;
-
-    private final long selectedIndexId;
-
     // use for satisfied judge
     private final List<Set<ExprId>> equivalenceExprIds;
-
     private final Map<ExprId, Integer> exprIdToEquivalenceSet;
+
+    // below two attributes use for colocate join, only store one table info is enough
+    private final long tableId;
+    private final Set<Long> partitionIds;
+    private final long selectedIndexId;
 
     /**
      * Use for no need set table related attributes.
@@ -236,6 +231,11 @@ public class DistributionSpecHash extends DistributionSpec {
 
     public DistributionSpecHash withShuffleType(ShuffleType shuffleType) {
         return new DistributionSpecHash(orderedShuffledColumns, shuffleType, tableId, selectedIndexId, partitionIds,
+                equivalenceExprIds, exprIdToEquivalenceSet);
+    }
+
+    public DistributionSpecHash withShuffleTypeAndForbidColocateJoin(ShuffleType shuffleType) {
+        return new DistributionSpecHash(orderedShuffledColumns, shuffleType, -1, -1, partitionIds,
                 equivalenceExprIds, exprIdToEquivalenceSet);
     }
 

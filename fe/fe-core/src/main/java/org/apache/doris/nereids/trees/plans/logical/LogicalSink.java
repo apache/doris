@@ -72,9 +72,6 @@ public abstract class LogicalSink<CHILD_TYPE extends Plan> extends LogicalUnary<
         if (o == null || getClass() != o.getClass()) {
             return false;
         }
-        if (!super.equals(o)) {
-            return false;
-        }
         LogicalSink<?> that = (LogicalSink<?>) o;
         return Objects.equals(outputExprs, that.outputExprs);
     }

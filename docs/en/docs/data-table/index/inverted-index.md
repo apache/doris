@@ -119,22 +119,28 @@ ALTER TABLE table_name ADD INDEX idx_name(column_name) USING INVERTED [PROPERTIE
 
 **After version 2.0-beta (including 2.0-beta):**
 
-The above 'create/add index' operation only generates inverted index for incremental data. The syntax of build index is added to add inverted index to stock data:
+The above 'create/add index' operation only generates inverted index for incremental data. The syntax of BUILD INDEX is added to add inverted index to stock data:
 ```sql
 -- syntax 1, add inverted index to the stock data of the whole table by default
 BUILD INDEX index_name ON table_name;
 -- syntax 2, partition can be specified, and one or more can be specified
 BUILD INDEX index_name ON table_name PARTITIONS(partition_name1, partition_name2);
 ```
-(**The above 'create/add index' operation needs to be executed before executing the build index**)
+(**The above 'create/add index' operation needs to be executed before executing the BUILD INDEX**)
 
-To view the progress of the `build index`, you can use the following statement
+To view the progress of the `BUILD INDEX`, you can run the following statement
 ```sql
-show build index [FROM db_name];
--- Example 1: Viewing the progress of all build index tasks
-show build index;
--- Example 2: Viewing the progress of the build index task for a specified table
-show build index where TableName = "table1";
+SHOW BUILD INDEX [FROM db_name];
+-- Example 1: Viewing the progress of all BUILD INDEX tasks
+SHOW BUILD INDEX;
+-- Example 2: Viewing the progress of the BUILD INDEX task for a specified table
+SHOW BUILD INDEX where TableName = "table1";
+```
+
+To cancel `BUILD INDEX`, you can run the following statement
+```sql
+CANCEL BUILD INDEX ON table_name;
+CANCEL BUILD INDEX ON table_name (job_id1,jobid_2,...);
 ```
 
 - drop an inverted index
@@ -166,6 +172,51 @@ SELECT * FROM table_name WHERE logmsg MATCH_PHRASE 'keyword1 keyword2';
 SELECT * FROM table_name WHERE id = 123;
 SELECT * FROM table_name WHERE ts > '2023-01-01 00:00:00';
 SELECT * FROM table_name WHERE op_type IN ('add', 'delete');
+```
+
+- Tokenization Function
+
+To evaluate the actual effects of tokenization or to tokenize a block of text, the `tokenize` function can be utilized.
+```sql
+mysql> SELECT TOKENIZE('武汉长江大桥','"parser"="chinese","parser_mode"="fine_grained");
++-----------------------------------------------------------------------------------+
+| tokenize('武汉长江大桥', '"parser"="chinese","parser_mode"="fine_grained"')       |
++-----------------------------------------------------------------------------------+
+| ["武汉", "武汉长江大桥", "长江", "长江大桥", "大桥"]                              |
++-----------------------------------------------------------------------------------+
+1 row in set (0.02 sec)
+
+mysql> SELECT TOKENIZE('武汉市长江大桥','"parser"="chinese","parser_mode"="fine_grained");
++--------------------------------------------------------------------------------------+
+| tokenize('武汉市长江大桥', '"parser"="chinese","parser_mode"="fine_grained"')        |
++--------------------------------------------------------------------------------------+
+| ["武汉", "武汉市", "市长", "长江", "长江大桥", "大桥"]                               |
++--------------------------------------------------------------------------------------+
+1 row in set (0.02 sec)
+
+mysql> SELECT TOKENIZE('武汉市长江大桥','"parser"="chinese","parser_mode"="coarse_grained");
++----------------------------------------------------------------------------------------+
+| tokenize('武汉市长江大桥', '"parser"="chinese","parser_mode"="coarse_grained"')        |
++----------------------------------------------------------------------------------------+
+| ["武汉市", "长江大桥"]                                                                 |
++----------------------------------------------------------------------------------------+
+1 row in set (0.02 sec)
+
+mysql> SELECT TOKENIZE('I love CHINA','"parser"="english");
++------------------------------------------------+
+| tokenize('I love CHINA', '"parser"="english"') |
++------------------------------------------------+
+| ["i", "love", "china"]                         |
++------------------------------------------------+
+1 row in set (0.02 sec)
+
+mysql> SELECT TOKENIZE('I love CHINA 我爱我的祖国','"parser"="unicode");
++-------------------------------------------------------------------+
+| tokenize('I love CHINA 我爱我的祖国', '"parser"="unicode"')       |
++-------------------------------------------------------------------+
+| ["i", "love", "china", "我", "爱", "我", "的", "祖", "国"]        |
++-------------------------------------------------------------------+
+1 row in set (0.02 sec)
 ```
 
 ## Examples
@@ -358,13 +409,13 @@ mysql> SELECT count() FROM hackernews_1m WHERE timestamp > '2007-08-23 04:17:00'
 mysql> CREATE INDEX idx_timestamp ON hackernews_1m(timestamp) USING INVERTED;
 Query OK, 0 rows affected (0.03 sec)
 ```
-**After 2.0-beta (including 2.0-beta), you need to execute `build index` to add inverted index to the stock data:**
+**After 2.0-beta (including 2.0-beta), you need to execute `BUILD INDEX` to add inverted index to the stock data:**
 ```sql
 mysql> BUILD INDEX idx_timestamp ON hackernews_1m;
 Query OK, 0 rows affected (0.01 sec)
 ```
 
-- progress of building index can be view by SQL. It just costs 1s (compare FinishTime and CreateTime) to build index for timestamp column with 1 million rows.
+- progress of building index can be view by SQL. It just costs 1s (compare FinishTime and CreateTime) to BUILD INDEX for timestamp column with 1 million rows.
 ```sql
 mysql> SHOW ALTER TABLE COLUMN;
 +-------+---------------+-------------------------+-------------------------+---------------+---------+---------------+---------------+---------------+----------+------+----------+---------+
@@ -375,10 +426,10 @@ mysql> SHOW ALTER TABLE COLUMN;
 1 row in set (0.00 sec)
 ```
 
-**After 2.0-beta (including 2.0-beta), you can view the progress of stock data creating index by `show build index`:**
+**After 2.0-beta (including 2.0-beta), you can view the progress of stock data creating index by `SHOW BUILD INDEX`:**
 ```sql
 -- If the table has no partitions, the PartitionName defaults to TableName
-mysql> show build index;
+mysql> SHOW BUILD INDEX;
 +-------+---------------+---------------+----------------------------------------------------------+-------------------------+-------------------------+---------------+----------+------+----------+
 | JobId | TableName     | PartitionName | AlterInvertedIndexes                                     | CreateTime              | FinishTime              | TransactionId | State    | Msg  | Progress |
 +-------+---------------+---------------+----------------------------------------------------------+-------------------------+-------------------------+---------------+----------+------+----------+
@@ -413,7 +464,7 @@ mysql> SELECT count() FROM hackernews_1m WHERE parent = 11189;
 mysql> ALTER TABLE hackernews_1m ADD INDEX idx_parent(parent) USING INVERTED;
 Query OK, 0 rows affected (0.01 sec)
 
--- After 2.0-beta (including 2.0-beta), you need to execute `build index` to add inverted index to the stock data:
+-- After 2.0-beta (including 2.0-beta), you need to execute `BUILD INDEX` to add inverted index to the stock data:
 mysql> BUILD INDEX idx_parent ON hackernews_1m;
 Query OK, 0 rows affected (0.01 sec)
 
@@ -425,7 +476,7 @@ mysql> SHOW ALTER TABLE COLUMN;
 | 10053 | hackernews_1m | 2023-02-10 19:49:32.893 | 2023-02-10 19:49:33.982 | hackernews_1m | 10054   | 10008         | 1:378856428   | 4             | FINISHED |      | NULL     | 2592000 |
 +-------+---------------+-------------------------+-------------------------+---------------+---------+---------------+---------------+---------------+----------+------+----------+---------+
 
-mysql> show build index;
+mysql> SHOW BUILD INDEX;
 +-------+---------------+---------------+----------------------------------------------------+-------------------------+-------------------------+---------------+----------+------+----------+
 | JobId | TableName     | PartitionName | AlterInvertedIndexes                               | CreateTime              | FinishTime              | TransactionId | State    | Msg  | Progress |
 +-------+---------------+---------------+----------------------------------------------------+-------------------------+-------------------------+---------------+----------+------+----------+
@@ -456,11 +507,11 @@ mysql> SELECT count() FROM hackernews_1m WHERE author = 'faster';
 mysql> ALTER TABLE hackernews_1m ADD INDEX idx_author(author) USING INVERTED;
 Query OK, 0 rows affected (0.01 sec)
 
--- After 2.0-beta (including 2.0-beta), you need to execute `build index` to add inverted index to the stock data:
+-- After 2.0-beta (including 2.0-beta), you need to execute `BUILD INDEX` to add inverted index to the stock data:
 mysql> BUILD INDEX idx_author ON hackernews_1m;
 Query OK, 0 rows affected (0.01 sec)
 
--- costs 1.5s to build index for author column with 1 million rows.
+-- costs 1.5s to BUILD INDEX for author column with 1 million rows.
 mysql> SHOW ALTER TABLE COLUMN;
 +-------+---------------+-------------------------+-------------------------+---------------+---------+---------------+---------------+---------------+----------+------+----------+---------+
 | JobId | TableName     | CreateTime              | FinishTime              | IndexName     | IndexId | OriginIndexId | SchemaVersion | TransactionId | State    | Msg  | Progress | Timeout |
@@ -470,7 +521,7 @@ mysql> SHOW ALTER TABLE COLUMN;
 | 10076 | hackernews_1m | 2023-02-10 19:54:20.046 | 2023-02-10 19:54:21.521 | hackernews_1m | 10077   | 10008         | 1:1335127701  | 5             | FINISHED |      | NULL     | 2592000 |
 +-------+---------------+-------------------------+-------------------------+---------------+---------+---------------+---------------+---------------+----------+------+----------+---------+
 
-mysql> show build index order by CreateTime desc limit 1;
+mysql> SHOW BUILD INDEX order by CreateTime desc limit 1;
 +-------+---------------+---------------+----------------------------------------------------+-------------------------+-------------------------+---------------+----------+------+----------+
 | JobId | TableName     | PartitionName | AlterInvertedIndexes                               | CreateTime              | FinishTime              | TransactionId | State    | Msg  | Progress |
 +-------+---------------+---------------+----------------------------------------------------+-------------------------+-------------------------+---------------+----------+------+----------+

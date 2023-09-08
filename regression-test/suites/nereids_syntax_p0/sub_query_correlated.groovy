@@ -39,6 +39,10 @@ suite ("sub_query_correlated") {
     """
 
     sql """
+        DROP TABLE IF EXISTS `sub_query_correlated_subquery5`
+    """
+
+    sql """
         create table if not exists sub_query_correlated_subquery1
         (k1 bigint, k2 bigint)
         duplicate key(k1)
@@ -403,7 +407,7 @@ suite ("sub_query_correlated") {
     """
 
     qt_cast_subquery_in_with_disconjunct """
-        SELECT * FROM sub_query_correlated_subquery1 WHERE k1 < (cast('1.2' as decimal(2,1)) * (SELECT sum(k1) FROM sub_query_correlated_subquery3 WHERE sub_query_correlated_subquery1.k1 = sub_query_correlated_subquery3.k1)) or k1 > 10 order by k1, k2;
+        SELECT * FROM sub_query_correlated_subquery1 WHERE k1 < (cast('1.2' as decimal(2,1)) * (SELECT sum(k1) FROM sub_query_correlated_subquery3 WHERE sub_query_correlated_subquery1.k1 = sub_query_correlated_subquery3.k1)) or k1 > 100 order by k1, k2;
     """
 
     qt_imitate_tpcds_10 """

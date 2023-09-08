@@ -198,8 +198,8 @@ public:
 private:
     friend class PointQueryExecutor;
     LookupConnectionCache(size_t capacity)
-            : LRUCachePolicy("LookupConnectionCache", capacity, LRUCacheType::SIZE,
-                             config::tablet_lookup_cache_clean_interval) {}
+            : LRUCachePolicy(CachePolicy::CacheType::LOOKUP_CONNECTION_CACHE, capacity,
+                             LRUCacheType::SIZE, config::tablet_lookup_cache_clean_interval) {}
 
     std::string encode_key(__int128_t cache_id) {
         fmt::memory_buffer buffer;
@@ -282,7 +282,7 @@ private:
 
     static void release_rowset(RowsetSharedPtr* r) {
         if (r && *r) {
-            VLOG_DEBUG << "release rowset " << (*r)->unique_id();
+            VLOG_DEBUG << "release rowset " << (*r)->rowset_id();
             (*r)->release();
         }
         delete r;

@@ -72,6 +72,7 @@ import org.apache.doris.proto.Types.PUniqueId;
 import org.apache.doris.qe.QueryStatisticsItem.FragmentInstanceInfo;
 import org.apache.doris.rpc.BackendServiceProxy;
 import org.apache.doris.rpc.RpcException;
+import org.apache.doris.service.ExecuteEnv;
 import org.apache.doris.service.FrontendOptions;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.SystemInfoService;
@@ -244,6 +245,7 @@ public class Coordinator {
     private boolean enableShareHashTableForBroadcastJoin = false;
 
     private boolean enablePipelineEngine = false;
+    private boolean enablePipelineXEngine = false;
 
     // Runtime filter merge instance address and ID
     public TNetworkAddress runtimeFilterMergeAddr;
@@ -323,6 +325,9 @@ public class Coordinator {
         // Only enable pipeline query engine in query, not load
         this.enablePipelineEngine = context.getSessionVariable().getEnablePipelineEngine()
                 && (fragments.size() > 0 && fragments.get(0).getSink() instanceof ResultSink);
+        this.enablePipelineXEngine = context.getSessionVariable().getEnablePipelineXEngine()
+                && (fragments.size() > 0 && fragments.get(0).getSink() instanceof ResultSink);
+
         initQueryOptions(context);
 
         setFromUserProperty(context);
@@ -395,6 +400,7 @@ public class Coordinator {
         this.queryOptions.setQueryTimeout(context.getExecTimeout());
         this.queryOptions.setExecutionTimeout(context.getExecTimeout());
         this.queryOptions.setEnableScanNodeRunSerial(context.getSessionVariable().isEnableScanRunSerial());
+        this.queryOptions.setFeProcessUuid(ExecuteEnv.getInstance().getProcessUUID());
     }
 
     public ConnectContext getConnectContext() {
@@ -558,6 +564,33 @@ public class Coordinator {
         }
     }
 
+    private void processFragmentAssignmentAndParams() throws Exception {
+        // prepare information
+        prepare();
+        // compute Fragment Instance
+        computeScanRangeAssignment();
+
+        computeFragmentExecParams();
+    }
+
+
+    public TExecPlanFragmentParams getStreamLoadPlan() throws Exception {
+        processFragmentAssignmentAndParams();
+
+        // This is a load process.
+        List<Long> relatedBackendIds = Lists.newArrayList(addressToBackendID.values());
+        Env.getCurrentEnv().getLoadManager().initJobProgress(jobId, queryId, instanceIds,
+                relatedBackendIds);
+        Env.getCurrentEnv().getProgressManager().addTotalScanNums(String.valueOf(jobId), scanRangeNum);
+        LOG.info("dispatch load job: {} to {}", DebugUtil.printId(queryId), addressToBackendID.keySet());
+
+        executionProfile.markInstances(instanceIds);
+        List<TExecPlanFragmentParams> tExecPlanFragmentParams
+                = ((FragmentExecParams) this.fragmentExecParamsMap.values().toArray()[0]).toThrift(0);
+        TExecPlanFragmentParams fragmentParams = tExecPlanFragmentParams.get(0);
+        return fragmentParams;
+    }
+
     // Initiate asynchronous execution of query. Returns as soon as all plan fragments
     // have started executing at their respective backends.
     // 'Request' must contain at least a coordinator plan fragment (ie, can't
@@ -574,12 +607,7 @@ public class Coordinator {
                     DebugUtil.printId(queryId), fragments.get(0).toThrift());
         }
 
-        // prepare information
-        prepare();
-        // compute Fragment Instance
-        computeScanRangeAssignment();
-
-        computeFragmentExecParams();
+        processFragmentAssignmentAndParams();
 
         traceInstance();
 
@@ -1759,7 +1787,7 @@ public class Coordinator {
                         }).findFirst();
 
                         // disable shared scan optimization if one of conditions below is met:
-                        // 1. Use non-pipeline engine
+                        // 1. Use non-pipeline or pipelineX engine
                         // 2. Number of scan ranges is larger than instances
                         // 3. This fragment has a colocated scan node
                         // 4. This fragment has a FileScanNode
@@ -1767,7 +1795,7 @@ public class Coordinator {
                         if (!enablePipelineEngine || perNodeScanRanges.size() > parallelExecInstanceNum
                                 || (node.isPresent() && node.get().getShouldColoScan())
                                 || (node.isPresent() && node.get() instanceof FileScanNode)
-                                || Config.disable_shared_scan) {
+                                || Config.disable_shared_scan || enablePipelineXEngine) {
                             int expectedInstanceNum = 1;
                             if (parallelExecInstanceNum > 1) {
                                 //the scan instance num should not larger than the tablets num

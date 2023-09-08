@@ -120,3 +120,45 @@ Z6n2t4XA2n7CXTECJ,PE,iBbsCh0RE1Dd2A,z48
 \N	2073732	2	13846443	596483.00	21.00	29163.75	0.10	0.08	R	F	1994-12-06	1995-01-01	DELIVER IN PERSON	FOB	dolphins nag furiously q
 \N	2479044	4	9763795	13805.00	40.00	74332.40	0.05	0.05	R	F	1994-11-16	1995-01-01	COLLECT COD	RAIL	equests hinder qu
 
+-- !null_expr_dict_filter_orc --
+4844	4363
+
+-- !null_expr_dict_filter_parquet --
+4844	4363
+
+-- !par_fields_in_file_orc1 --
+1	Alice	100.0	2023	8
+2	Bob	150.0	2023	8
+
+-- !par_fields_in_file_parquet1 --
+1	Alice	100.0	2023	8
+2	Bob	150.0	2023	8
+
+-- !par_fields_in_file_orc2 --
+1	Alice	100.0	2023	8
+2	Bob	150.0	2023	8
+
+-- !par_fields_in_file_parquet2 --
+1	Alice	100.0	2023	8
+2	Bob	150.0	2023	8
+
+-- !par_fields_in_file_orc3 --
+1	Alice	100.0	2023	8
+2	Bob	150.0	2023	8
+
+-- !par_fields_in_file_parquet3 --
+1	Alice	100.0	2023	8
+2	Bob	150.0	2023	8
+
+-- !par_fields_in_file_orc4 --
+1	Alice	100.0	2023	8
+2	Bob	150.0	2023	8
+
+-- !par_fields_in_file_parquet4 --
+1	Alice	100.0	2023	8
+2	Bob	150.0	2023	8
+
+-- !par_fields_in_file_orc5 --
+
+-- !par_fields_in_file_parquet5 --
+

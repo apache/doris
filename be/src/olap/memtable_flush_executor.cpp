@@ -72,7 +72,7 @@ Status FlushToken::submit(std::unique_ptr<MemTable> mem_table) {
     if (s != OK) {
         return Status::Error(s, "FlushToken meet error");
     }
-    if (mem_table->empty()) {
+    if (mem_table == nullptr || mem_table->empty()) {
         return Status::OK();
     }
     int64_t submit_task_time = MonotonicNanos();

@@ -39,4 +39,8 @@ suite('nereids_insert_random') {
             select id, ktint, ksint, kint, kbint, kdtv2, kdtm, kdbl from src where id < 4'''
     sql 'sync'
     qt_13 'select * from dup_t_type_cast_rd order by id, kint'
+
+    sql 'set delete_without_partition=true'
+    sql '''delete from dup_t_type_cast_rd where id is not null'''
+    sql '''delete from dup_t_type_cast_rd where id is null'''
 }

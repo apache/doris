@@ -40,22 +40,35 @@ public:
             : elemSerDeSPtrs(_elemSerDeSPtrs) {}
 
     void serialize_one_cell_to_text(const IColumn& column, int row_num, BufferWritable& bw,
-                                    const FormatOptions& options) const override {
-        LOG(FATAL) << "Not support serialize struct column to buffer";
+                                    FormatOptions& options) const override {
+        throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
+                               "serialize_one_cell_to_text with type " + column.get_name());
     }
 
-    Status deserialize_one_cell_from_text(IColumn& column, ReadBuffer& rb,
+    void serialize_column_to_text(const IColumn& column, int start_idx, int end_idx,
+                                  BufferWritable& bw, FormatOptions& options) const override {
+        throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
+                               "serialize_column_to_text with type " + column.get_name());
+    }
+
+    Status deserialize_one_cell_from_text(IColumn& column, Slice& slice,
                                           const FormatOptions& options) const override {
-        LOG(FATAL) << "Not support deserialize from buffer to struct";
-        return Status::NotSupported("Not support deserialize from buffer to struct");
+        return Status::NotSupported("deserialize_one_cell_from_text with type " +
+                                    column.get_name());
     }
 
+    Status deserialize_column_from_text_vector(IColumn& column, std::vector<Slice>& slices,
+                                               int* num_deserialized,
+                                               const FormatOptions& options) const override {
+        return Status::NotSupported("deserialize_column_from_text_vector with type " +
+                                    column.get_name());
+    }
     Status write_column_to_pb(const IColumn& column, PValues& result, int start,
                               int end) const override {
-        LOG(FATAL) << "Not support write struct column to pb";
+        return Status::NotSupported("write_column_to_pb with type " + column.get_name());
     }
     Status read_column_from_pb(IColumn& column, const PValues& arg) const override {
-        LOG(FATAL) << "Not support read from pb to strut";
+        return Status::NotSupported("read_column_from_pb with type " + column.get_name());
     }
     void write_one_cell_to_jsonb(const IColumn& column, JsonbWriter& result, Arena* mem_pool,
                                  int32_t col_id, int row_num) const override;

@@ -132,6 +132,46 @@ suite("test_hdfs_tvf","external,hive,tvf,external_docker") {
                         "strip_outer_array" = "false",
                         "read_json_by_line" = "true") order by id; """
 
+
+           uri = "${defaultFS}" + "/user/doris/preinstalled_data/json_format_test/simple_object_json.json"
+            format = "json"
+            qt_json_limit1 """ select * from HDFS(
+                        "uri" = "${uri}",
+                        "fs.defaultFS"= "${defaultFS}",
+                        "hadoop.username" = "${hdfsUserName}",
+                        "format" = "${format}",
+                        "strip_outer_array" = "false",
+                        "read_json_by_line" = "true") order by id limit 100; """
+
+           uri = "${defaultFS}" + "/user/doris/preinstalled_data/json_format_test/one_array_json.json"
+            format = "json"
+            qt_json_limit2 """ select * from HDFS(
+                        "uri" = "${uri}",
+                        "fs.defaultFS"= "${defaultFS}",
+                        "hadoop.username" = "${hdfsUserName}",
+                        "format" = "${format}",
+                        "strip_outer_array" = "true",
+                        "read_json_by_line" = "false") order by id limit 100; """
+           uri = "${defaultFS}" + "/user/doris/preinstalled_data/json_format_test/nest_json.json"
+            format = "json"
+            qt_json_limit3 """ select * from HDFS(
+                        "uri" = "${uri}",
+                        "fs.defaultFS"= "${defaultFS}",
+                        "hadoop.username" = "${hdfsUserName}",
+                        "format" = "${format}",
+                        "strip_outer_array" = "false",
+                        "read_json_by_line" = "true") order by no  limit 100; """
+           uri = "${defaultFS}" + "/user/doris/preinstalled_data/json_format_test/nest_json.json"
+            format = "json"
+            qt_json_limit4 """ select * from HDFS(
+                        "uri" = "${uri}",
+                        "fs.defaultFS"= "${defaultFS}",
+                        "hadoop.username" = "${hdfsUserName}",
+                        "format" = "${format}",
+                        "strip_outer_array" = "false",
+                        "read_json_by_line" = "true") order by no limit 2; """
+
+
             // test json root
             uri = "${defaultFS}" + "/user/doris/preinstalled_data/json_format_test/nest_json.json"
             format = "json"

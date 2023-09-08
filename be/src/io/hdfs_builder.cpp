@@ -109,9 +109,10 @@ THdfsParams parse_properties(const std::map<std::string, std::string>& propertie
     return hdfsParams;
 }
 
-Status createHDFSBuilder(const THdfsParams& hdfsParams, HDFSCommonBuilder* builder) {
+Status create_hdfs_builder(const THdfsParams& hdfsParams, const std::string& fs_name,
+                           HDFSCommonBuilder* builder) {
     RETURN_IF_ERROR(builder->init_hdfs_builder());
-    hdfsBuilderSetNameNode(builder->get(), hdfsParams.fs_name.c_str());
+    hdfsBuilderSetNameNode(builder->get(), fs_name.c_str());
     // set kerberos conf
     if (hdfsParams.__isset.hdfs_kerberos_principal) {
         builder->need_kinit = true;
@@ -165,10 +166,10 @@ Status createHDFSBuilder(const THdfsParams& hdfsParams, HDFSCommonBuilder* build
     return Status::OK();
 }
 
-Status createHDFSBuilder(const std::map<std::string, std::string>& properties,
-                         HDFSCommonBuilder* builder) {
+Status create_hdfs_builder(const std::map<std::string, std::string>& properties,
+                           HDFSCommonBuilder* builder) {
     THdfsParams hdfsParams = parse_properties(properties);
-    return createHDFSBuilder(hdfsParams, builder);
+    return create_hdfs_builder(hdfsParams, hdfsParams.fs_name, builder);
 }
 
 } // namespace doris

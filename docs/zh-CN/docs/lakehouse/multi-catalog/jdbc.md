@@ -284,6 +284,8 @@ CREATE CATALOG jdbc_oracle PROPERTIES (
 | Database |   User   |
 |  Table   |  Table   |
 
+**注意：** 当前不支持同步 Oracle 的 SYNONYM TABLE
+
 #### 类型映射
 
 | ORACLE Type                       | Doris Type                           | Comment                                                                                                                                         |
@@ -352,6 +354,8 @@ CREATE CATALOG jdbc_sqlserve PROPERTIES (
 
 Jdbc Catalog也支持连接另一个Doris数据库：
 
+* mysql 5.7 Driver
+
 ```sql
 CREATE CATALOG jdbc_doris PROPERTIES (
     "type"="jdbc",
@@ -360,10 +364,21 @@ CREATE CATALOG jdbc_doris PROPERTIES (
     "jdbc_url" = "jdbc:mysql://127.0.0.1:9030?useSSL=false",
     "driver_url" = "mysql-connector-java-5.1.47.jar",
     "driver_class" = "com.mysql.jdbc.Driver"
-);
+)
 ```
 
-**注意：** 目前 Jdbc Catalog 连接一个 Doris 数据库只支持用 5.x 版本的 jdbc jar 包。如果使用 8.x jdbc jar 包，可能会出现列类型无法匹配问题。
+* mysql 8 Driver
+
+```sql
+CREATE CATALOG jdbc_doris PROPERTIES (
+    "type"="jdbc",
+    "user"="root",
+    "password"="123456",
+    "jdbc_url" = "jdbc:mysql://127.0.0.1:9030?useSSL=false",
+    "driver_url" = "mysql-connector-java-8.0.25.jar",
+    "driver_class" = "com.mysql.cj.jdbc.Driver"
+)
+```
 
 #### 类型映射
 
@@ -384,7 +399,9 @@ CREATE CATALOG jdbc_doris PROPERTIES (
 | VARCHAR    | VARCHAR                |                                                      |
 | STRING     | STRING                 |                                                      |
 | TEXT       | STRING                 |                                                      |
-| HLL        | HLL                    | 查询HLL需要设置`return_object_data_as_binary=true`   |
+| HLL        | HLL                    | 查询HLL需要设置`return_object_data_as_binary=true`     |
+| Array      | Array                  | Array内部类型适配逻辑参考上述类型，不支持嵌套复杂类型        |
+| BITMAP     | BITMAP                 | 查询BITMAP需要设置`return_object_data_as_binary=true`  |
 | Other      | UNSUPPORTED            |                                                      |
 
 ### Clickhouse
@@ -770,6 +787,8 @@ DROP CATALOG <catalog_name>;
 12. 读取 Oracle 出现 `Non supported character set (add orai18n.jar in your classpath): ZHS16GBK` 异常
     
     下载 [orai18n.jar](https://www.oracle.com/database/technologies/appdev/jdbc-downloads.html) 并放到 Doris FE 的 lib 目录以及 BE 的 lib/java_extensions 目录 (Doris 2.0 之前的版本需放到 BE 的 lib 目录下) 下即可。
+
+    从 2.0.2 版本起，可以将这个文件放置在BE的 `custom_lib/` 目录下（如不存在，手动创建即可），以防止升级集群时因为 lib 目录被替换而导致文件丢失。
 
 13. 通过jdbc catalog 读取Clickhouse数据出现`NoClassDefFoundError: net/jpountz/lz4/LZ4Factory` 错误信息
     

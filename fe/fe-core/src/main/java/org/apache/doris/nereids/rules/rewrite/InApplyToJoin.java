@@ -76,7 +76,7 @@ public class InApplyToJoin extends OneRewriteRuleFactory {
                 List<Expression> groupExpressions = ImmutableList.of();
                 Expression bitmapCol = apply.right().getOutput().get(0);
                 BitmapUnion union = new BitmapUnion(bitmapCol);
-                Alias alias = new Alias(union, union.toSql());
+                Alias alias = new Alias(union);
                 List<NamedExpression> outputExpressions = Lists.newArrayList(alias);
 
                 LogicalAggregate agg = new LogicalAggregate(groupExpressions, outputExpressions, apply.right());
@@ -104,9 +104,6 @@ public class InApplyToJoin extends OneRewriteRuleFactory {
                 predicate = new EqualTo(left, right);
             }
 
-            if (apply.getSubCorrespondingConjunct().isPresent()) {
-                predicate = ExpressionUtils.and(predicate, apply.getSubCorrespondingConjunct().get());
-            }
             List<Expression> conjuncts = ExpressionUtils.extractConjunction(predicate);
             if (((InSubquery) apply.getSubqueryExpr()).isNot()) {
                 return new LogicalJoin<>(

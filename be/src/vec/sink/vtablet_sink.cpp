@@ -321,7 +321,7 @@ VNodeChannel::~VNodeChannel() {
     if (_open_closure != nullptr) {
         delete _open_closure;
     }
-    _cur_add_block_request.release_id();
+    static_cast<void>(_cur_add_block_request.release_id());
 }
 
 void VNodeChannel::clear_all_blocks() {
@@ -414,8 +414,8 @@ void VNodeChannel::open() {
     }
     _stub->tablet_writer_open(&_open_closure->cntl, &request, &_open_closure->result,
                               _open_closure);
-    request.release_id();
-    request.release_schema();
+    static_cast<void>(request.release_id());
+    static_cast<void>(request.release_schema());
 }
 
 Status VNodeChannel::open_wait() {
@@ -730,7 +730,7 @@ Status VNodeChannel::none_of(std::initializer_list<bool> vars) {
         if (!vars_str.empty()) {
             vars_str.pop_back(); // 0/1/0/ -> 0/1/0
         }
-        st = Status::InternalError(vars_str);
+        st = Status::Uninitialized(vars_str);
     }
 
     return st;
@@ -757,6 +757,8 @@ void VNodeChannel::try_send_block(RuntimeState* state) {
     // tablet_ids has already set when add row
     request.set_packet_seq(_next_packet_seq);
     auto block = mutable_block->to_block();
+    CHECK(block.rows() == request.tablet_ids_size())
+            << "block rows: " << block.rows() << ", tablet_ids_size: " << request.tablet_ids_size();
     if (block.rows() > 0) {
         SCOPED_ATOMIC_TIMER(&_serialize_batch_ns);
         size_t uncompressed_bytes = 0, compressed_bytes = 0;
@@ -897,7 +899,7 @@ void VNodeChannel::cancel(const std::string& cancel_msg) {
         closure->cntl.ignore_eovercrowded();
     }
     _stub->tablet_writer_cancel(&closure->cntl, &request, &closure->result, closure);
-    request.release_id();
+    static_cast<void>(request.release_id());
 }
 
 bool VNodeChannel::is_send_data_rpc_done() const {
@@ -978,7 +980,7 @@ void VNodeChannel::mark_close() {
 
 VOlapTableSink::VOlapTableSink(ObjectPool* pool, const RowDescriptor& row_desc,
                                const std::vector<TExpr>& texprs, Status* status)
-        : _pool(pool), _input_row_desc(row_desc) {
+        : DataSink(row_desc), _pool(pool) {
     // From the thrift expressions create the real exprs.
     *status = vectorized::VExpr::create_expr_trees(texprs, _output_vexpr_ctxs);
     _name = "VOlapTableSink";
@@ -1132,7 +1134,7 @@ Status VOlapTableSink::prepare(RuntimeState* state) {
         RETURN_IF_ERROR(_channels.back()->init(state, tablets));
     }
     // Prepare the exprs to run.
-    RETURN_IF_ERROR(vectorized::VExpr::prepare(_output_vexpr_ctxs, state, _input_row_desc));
+    RETURN_IF_ERROR(vectorized::VExpr::prepare(_output_vexpr_ctxs, state, _row_desc));
     _prepare = true;
     return Status::OK();
 }
@@ -1295,6 +1297,10 @@ Status VOlapTableSink::send(RuntimeState* state, vectorized::Block* input_block,
     SCOPED_CONSUME_MEM_TRACKER(_mem_tracker.get());
     Status status = Status::OK();
 
+    if (state->query_options().dry_run_query) {
+        return status;
+    }
+
     auto rows = input_block->rows();
     auto bytes = input_block->bytes();
     if (UNLIKELY(rows == 0)) {
@@ -1349,8 +1355,7 @@ Status VOlapTableSink::send(RuntimeState* state, vectorized::Block* input_block,
     _row_distribution_watch.stop();
     // Random distribution and the block belongs to a single tablet, we could optimize to append the whole
     // block into node channel.
-    bool load_block_to_single_tablet =
-            !_schema->is_dynamic_schema() && _tablet_finder->is_single_tablet();
+    bool load_block_to_single_tablet = _tablet_finder->is_single_tablet();
     if (load_block_to_single_tablet) {
         SCOPED_RAW_TIMER(&_filter_ns);
         // Filter block

@@ -199,7 +199,7 @@ public:
         io::Path index_path;               // index file path
         std::string column_name;           // column name
         InvertedIndexQueryType query_type; // query type
-        std::wstring value;                // query value
+        std::string value;                 // query value
 
         // Encode to a flat binary which can be used as LRUCache's key
         std::string encode() const {
@@ -213,8 +213,7 @@ public:
             }
             key_buf.append(query_type_str);
             key_buf.append("/");
-            auto str = lucene_wcstoutf8string(value.c_str(), value.length());
-            key_buf.append(str);
+            key_buf.append(value);
             return key_buf;
         }
     };
@@ -237,8 +236,9 @@ public:
     InvertedIndexQueryCache() = delete;
 
     InvertedIndexQueryCache(size_t capacity, uint32_t num_shards)
-            : LRUCachePolicy("InvertedIndexQueryCache", capacity, LRUCacheType::SIZE,
-                             config::inverted_index_cache_stale_sweep_time_sec, num_shards) {}
+            : LRUCachePolicy(CachePolicy::CacheType::INVERTEDINDEX_QUERY_CACHE, capacity,
+                             LRUCacheType::SIZE, config::inverted_index_cache_stale_sweep_time_sec,
+                             num_shards) {}
 
     bool lookup(const CacheKey& key, InvertedIndexQueryCacheHandle* handle);
 

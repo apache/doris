@@ -436,9 +436,11 @@ Status TabletsChannel::add_batch(const PTabletWriterAddBlockRequest& request,
         }
     }
 
-    auto get_send_data = [&]() { return vectorized::Block(request.block()); };
-
-    auto send_data = get_send_data();
+    vectorized::Block send_data;
+    RETURN_IF_ERROR(send_data.deserialize(request.block()));
+    CHECK(send_data.rows() == request.tablet_ids_size())
+            << "block rows: " << send_data.rows()
+            << ", tablet_ids_size: " << request.tablet_ids_size();
 
     auto write_tablet_data = [&](uint32_t tablet_id,
                                  std::function<Status(DeltaWriter * writer)> write_func) {
@@ -494,21 +496,6 @@ void TabletsChannel::_add_broken_tablet(int64_t tablet_id) {
 bool TabletsChannel::_is_broken_tablet(int64_t tablet_id) {
     std::shared_lock<std::shared_mutex> rlock(_broken_tablets_lock);
     return _broken_tablets.find(tablet_id) != _broken_tablets.end();
-}
-
-void TabletsChannel::register_memtable_memory_limiter() {
-    auto memtable_memory_limiter = ExecEnv::GetInstance()->memtable_memory_limiter();
-    _memtable_writers_foreach([memtable_memory_limiter](std::shared_ptr<MemTableWriter> writer) {
-        memtable_memory_limiter->register_writer(writer);
-    });
-}
-
-void TabletsChannel::_memtable_writers_foreach(
-        std::function<void(std::shared_ptr<MemTableWriter>)> fn) {
-    std::lock_guard<SpinLock> l(_tablet_writers_lock);
-    for (auto& [_, delta_writer] : _tablet_writers) {
-        fn(delta_writer->memtable_writer());
-    }
 }
 
 } // namespace doris

@@ -60,6 +60,14 @@ CREATE CATALOG `paimon_hdfs` PROPERTIES (
 
 #### S3
 
+> 注意：
+>
+> 用户需要手动下载[paimon-s3-0.4.0-incubating.jar](https://repo.maven.apache.org/maven2/org/apache/paimon/paimon-s3/0.4.0-incubating/paimon-s3-0.4.0-incubating.jar)
+
+> 放在${DORIS_HOME}/be/lib/java_extensions/preload-extensions目录下并重启be。
+>
+> 从 2.0.2 版本起，可以将这个文件放置在BE的 `custom_lib/` 目录下（如不存在，手动创建即可），以防止升级集群时因为 lib 目录被替换而导致文件丢失。
+
 ```sql
 CREATE CATALOG `paimon_s3` PROPERTIES (
     "type" = "paimon",
@@ -72,6 +80,11 @@ CREATE CATALOG `paimon_s3` PROPERTIES (
 ```
 
 #### OSS
+
+>注意：
+>
+> 用户需要手动下载[paimon-oss-0.4.0-incubating.jar](https://repo.maven.apache.org/maven2/org/apache/paimon/paimon-oss/0.4.0-incubating/paimon-oss-0.4.0-incubating.jar)
+> 放在${DORIS_HOME}/be/lib/java_extensions/preload-extensions目录下并重启be
 
 ```sql
 CREATE CATALOG `paimon_oss` PROPERTIES (

@@ -377,6 +377,7 @@ void S3FileWriter::_put_object(S3FileBuffer& buf) {
                                     static_cast<int>(response.GetError().GetResponseCode()));
         buf._on_failed(_st);
         LOG(WARNING) << _st;
+        return;
     }
     _bytes_written += buf.get_size();
     s3_file_created_total << 1;

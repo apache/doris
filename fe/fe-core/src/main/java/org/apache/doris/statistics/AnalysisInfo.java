@@ -22,7 +22,6 @@ import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.persist.gson.GsonUtils;
-import org.apache.doris.statistics.util.InternalQueryResult.ResultRow;
 import org.apache.doris.statistics.util.StatisticsUtil;
 
 import com.google.gson.Gson;
@@ -97,6 +96,7 @@ public class AnalysisInfo implements Writable {
     @SerializedName("tblName")
     public final String tblName;
 
+    // TODO: Map here is wired, List is enough
     @SerializedName("colToPartitions")
     public final Map<String, Set<String>> colToPartitions;
 
@@ -201,6 +201,9 @@ public class AnalysisInfo implements Writable {
         this.partitionOnly = partitionOnly;
         this.samplingPartition = samplingPartition;
         this.cronExpression = cronExpression;
+        if (cronExpression != null) {
+            this.cronExprStr = cronExpression.getCronExpression();
+        }
     }
 
     @Override
@@ -250,60 +253,6 @@ public class AnalysisInfo implements Writable {
 
     public void addTaskId(long taskId) {
         taskIds.add(taskId);
-    }
-
-    // TODO: use thrift
-    public static AnalysisInfo fromResultRow(ResultRow resultRow) {
-        try {
-            AnalysisInfoBuilder analysisInfoBuilder = new AnalysisInfoBuilder();
-            long jobId = Long.parseLong(resultRow.getColumnValue("job_id"));
-            analysisInfoBuilder.setJobId(jobId);
-            long taskId = Long.parseLong(resultRow.getColumnValue("task_id"));
-            analysisInfoBuilder.setTaskId(taskId);
-            String catalogName = resultRow.getColumnValue("catalog_name");
-            analysisInfoBuilder.setCatalogName(catalogName);
-            String dbName = resultRow.getColumnValue("db_name");
-            analysisInfoBuilder.setDbName(dbName);
-            String tblName = resultRow.getColumnValue("tbl_name");
-            analysisInfoBuilder.setTblName(tblName);
-            String colName = resultRow.getColumnValue("col_name");
-            analysisInfoBuilder.setColName(colName);
-            long indexId = Long.parseLong(resultRow.getColumnValue("index_id"));
-            analysisInfoBuilder.setIndexId(indexId);
-            String partitionNames = resultRow.getColumnValue("col_partitions");
-            Map<String, Set<String>> colToPartitions = getColToPartition(partitionNames);
-            analysisInfoBuilder.setColToPartitions(colToPartitions);
-            String jobType = resultRow.getColumnValue("job_type");
-            analysisInfoBuilder.setJobType(JobType.valueOf(jobType));
-            String analysisType = resultRow.getColumnValue("analysis_type");
-            analysisInfoBuilder.setAnalysisType(AnalysisType.valueOf(analysisType));
-            String analysisMode = resultRow.getColumnValue("analysis_mode");
-            analysisInfoBuilder.setAnalysisMode(AnalysisMode.valueOf(analysisMode));
-            String analysisMethod = resultRow.getColumnValue("analysis_method");
-            analysisInfoBuilder.setAnalysisMethod(AnalysisMethod.valueOf(analysisMethod));
-            String scheduleType = resultRow.getColumnValue("schedule_type");
-            analysisInfoBuilder.setScheduleType(ScheduleType.valueOf(scheduleType));
-            String state = resultRow.getColumnValue("state");
-            analysisInfoBuilder.setState(AnalysisState.valueOf(state));
-            String samplePercent = resultRow.getColumnValue("sample_percent");
-            analysisInfoBuilder.setSamplePercent(StatisticsUtil.convertStrToInt(samplePercent));
-            String sampleRows = resultRow.getColumnValue("sample_rows");
-            analysisInfoBuilder.setSampleRows(StatisticsUtil.convertStrToInt(sampleRows));
-            String maxBucketNum = resultRow.getColumnValue("max_bucket_num");
-            analysisInfoBuilder.setMaxBucketNum(StatisticsUtil.convertStrToInt(maxBucketNum));
-            String periodTimeInMs = resultRow.getColumnValue("period_time_in_ms");
-            analysisInfoBuilder.setPeriodTimeInMs(StatisticsUtil.convertStrToInt(periodTimeInMs));
-            String lastExecTimeInMs = resultRow.getColumnValue("last_exec_time_in_ms");
-            analysisInfoBuilder.setLastExecTimeInMs(StatisticsUtil.convertStrToLong(lastExecTimeInMs));
-            String timeCostInMs = resultRow.getColumnValue("time_cost_in_ms");
-            analysisInfoBuilder.setTimeCostInMs(StatisticsUtil.convertStrToLong(timeCostInMs));
-            String message = resultRow.getColumnValue("message");
-            analysisInfoBuilder.setMessage(message);
-            return analysisInfoBuilder.build();
-        } catch (Exception e) {
-            LOG.warn("Failed to deserialize analysis task info.", e);
-            return null;
-        }
     }
 
     public String getColToPartitionStr() {

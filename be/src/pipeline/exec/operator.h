@@ -31,10 +31,13 @@
 
 #include "common/status.h"
 #include "exec/exec_node.h"
+#include "pipeline/pipeline_x/dependency.h"
 #include "runtime/memory/mem_tracker.h"
 #include "runtime/runtime_state.h"
 #include "util/runtime_profile.h"
 #include "vec/core/block.h"
+#include "vec/runtime/vdata_stream_recvr.h"
+#include "vec/sink/vresult_sink.h"
 
 namespace doris {
 class DataSink;
@@ -86,9 +89,16 @@ enum class SinkState : uint8_t {
 
 class OperatorBuilderBase;
 class OperatorBase;
+class OperatorXBase;
+class DataSinkOperatorXBase;
 
 using OperatorPtr = std::shared_ptr<OperatorBase>;
 using Operators = std::vector<OperatorPtr>;
+
+using OperatorXPtr = std::shared_ptr<OperatorXBase>;
+using OperatorXs = std::vector<OperatorXPtr>;
+
+using DataSinkOperatorXPtr = std::shared_ptr<DataSinkOperatorXBase>;
 
 using OperatorBuilderPtr = std::shared_ptr<OperatorBuilderBase>;
 using OperatorBuilders = std::vector<OperatorBuilderPtr>;
@@ -111,6 +121,7 @@ public:
     int32_t id() const { return _id; }
 
 protected:
+    // Exec node id.
     const int32_t _id;
     const std::string _name;
 
@@ -157,11 +168,11 @@ public:
     explicit OperatorBase(OperatorBuilderBase* operator_builder);
     virtual ~OperatorBase() = default;
 
-    std::string get_name() const { return _operator_builder->get_name(); }
+    virtual std::string get_name() const { return _operator_builder->get_name(); }
 
-    bool is_sink() const;
+    virtual bool is_sink() const;
 
-    bool is_source() const;
+    virtual bool is_source() const;
 
     virtual Status init(const TDataSink& tsink) { return Status::OK(); }
 
@@ -193,11 +204,18 @@ public:
         return Status::OK();
     }
 
+    virtual Status set_child(OperatorXPtr child) {
+        _child_x = std::move(child);
+        return Status::OK();
+    }
+
     virtual bool can_read() { return false; } // for source
 
     virtual bool runtime_filters_are_ready_or_timeout() { return true; } // for source
 
     virtual bool can_write() { return false; } // for sink
+
+    [[nodiscard]] virtual bool can_terminate_early() { return false; }
 
     /**
      * The main method to execute a pipeline task.
@@ -237,10 +255,10 @@ public:
 
     const OperatorBuilderBase* operator_builder() const { return _operator_builder; }
 
-    const RowDescriptor& row_desc();
+    virtual const RowDescriptor& row_desc();
 
     virtual std::string debug_string() const;
-    int32_t id() const { return _operator_builder->id(); }
+    virtual int32_t id() const { return _operator_builder->id(); }
 
     [[nodiscard]] virtual RuntimeProfile* get_runtime_profile() const = 0;
 
@@ -248,7 +266,10 @@ protected:
     OperatorBuilderBase* _operator_builder;
     OperatorPtr _child;
 
-    bool _is_closed = false;
+    // Used on pipeline X
+    OperatorXPtr _child_x;
+
+    bool _is_closed;
 };
 
 /**
@@ -320,6 +341,8 @@ public:
             : OperatorBase(builder), _node(reinterpret_cast<NodeType*>(node)) {}
 
     ~StreamingOperator() override = default;
+
+    [[nodiscard]] bool can_terminate_early() override { return _node->can_terminate_early(); }
 
     Status prepare(RuntimeState* state) override {
         _node->increase_ref();

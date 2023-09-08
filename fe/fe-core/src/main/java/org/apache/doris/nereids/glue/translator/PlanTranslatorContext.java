@@ -32,6 +32,7 @@ import org.apache.doris.nereids.trees.expressions.CTEId;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.VirtualSlotReference;
+import org.apache.doris.nereids.trees.plans.RelationId;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalCTEConsumer;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalCTEProducer;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHashAggregate;
@@ -41,6 +42,7 @@ import org.apache.doris.planner.PlanFragmentId;
 import org.apache.doris.planner.PlanNode;
 import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.planner.ScanNode;
+import org.apache.doris.thrift.TPushAggOp;
 
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.Lists;
@@ -92,6 +94,8 @@ public class PlanTranslatorContext {
     private final Map<CTEId, PhysicalCTEConsumer> cteConsumerMap = Maps.newHashMap();
 
     private final Map<PlanFragmentId, CTEScanNode> cteScanNodeMap = Maps.newHashMap();
+
+    private final Map<RelationId, TPushAggOp> tablePushAggOp = Maps.newHashMap();
 
     public PlanTranslatorContext(CascadesContext ctx) {
         this.translator = new RuntimeFilterTranslator(ctx.getRuntimeFilterContext());
@@ -210,6 +214,7 @@ public class PlanTranslatorContext {
         } else {
             slotRef = new SlotRef(slotDescriptor);
         }
+        slotRef.setTable(table);
         slotRef.setLabel(slotReference.getName());
         this.addExprIdSlotRefPair(slotReference.getExprId(), slotRef);
         slotDescriptor.setIsNullable(slotReference.nullable());
@@ -233,5 +238,13 @@ public class PlanTranslatorContext {
 
     public DescriptorTable getDescTable() {
         return descTable;
+    }
+
+    public void setRelationPushAggOp(RelationId relationId, TPushAggOp aggOp) {
+        tablePushAggOp.put(relationId, aggOp);
+    }
+
+    public TPushAggOp getRelationPushAggOp(RelationId relationId) {
+        return tablePushAggOp.getOrDefault(relationId, TPushAggOp.NONE);
     }
 }

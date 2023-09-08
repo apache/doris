@@ -107,10 +107,6 @@ TaskWorkerPool::TaskWorkerPool(const TaskWorkerType task_worker_type, ExecEnv* e
           _thread_model(thread_model),
           _is_doing_work(false),
           _task_worker_type(task_worker_type) {
-    _backend.__set_host(BackendOptions::get_localhost());
-    _backend.__set_be_port(config::be_port);
-    _backend.__set_http_port(config::webserver_port);
-
     string task_worker_type_name = TYPE_STRING(task_worker_type);
     _name = strings::Substitute("TaskWorkerPool.$0", task_worker_type_name);
 
@@ -355,7 +351,7 @@ void TaskWorkerPool::_alter_inverted_index_worker_thread_callback() {
                 alter_inverted_index_rq.tablet_id);
         if (tablet_ptr != nullptr) {
             EngineIndexChangeTask engine_task(alter_inverted_index_rq);
-            status = _env->storage_engine()->execute_task(&engine_task);
+            status = StorageEngine::instance()->execute_task(&engine_task);
         } else {
             status =
                     Status::NotFound("could not find tablet {}", alter_inverted_index_rq.tablet_id);
@@ -363,7 +359,7 @@ void TaskWorkerPool::_alter_inverted_index_worker_thread_callback() {
 
         // Return result to fe
         TFinishTaskRequest finish_task_request;
-        finish_task_request.__set_backend(_backend);
+        finish_task_request.__set_backend(BackendOptions::get_local_backend());
         finish_task_request.__set_task_type(agent_task_req.task_type);
         finish_task_request.__set_signature(agent_task_req.signature);
         std::vector<TTabletInfo> finish_tablet_infos;
@@ -503,6 +499,33 @@ void TaskWorkerPool::_update_tablet_meta_worker_thread_callback() {
                 tablet->set_binlog_config(new_binlog_config);
                 need_to_save = true;
             }
+            if (tablet_meta_info.__isset.enable_single_replica_compaction) {
+                std::shared_lock rlock(tablet->get_header_lock());
+                tablet->tablet_meta()
+                        ->mutable_tablet_schema()
+                        ->set_enable_single_replica_compaction(
+                                tablet_meta_info.enable_single_replica_compaction);
+                for (auto& rowset_meta : tablet->tablet_meta()->all_mutable_rs_metas()) {
+                    rowset_meta->tablet_schema()->set_enable_single_replica_compaction(
+                            tablet_meta_info.enable_single_replica_compaction);
+                }
+                tablet->tablet_schema_unlocked()->set_enable_single_replica_compaction(
+                        tablet_meta_info.enable_single_replica_compaction);
+                need_to_save = true;
+            }
+
+            if (tablet_meta_info.__isset.skip_write_index_on_load) {
+                std::shared_lock rlock(tablet->get_header_lock());
+                tablet->tablet_meta()->mutable_tablet_schema()->set_skip_write_index_on_load(
+                        tablet_meta_info.skip_write_index_on_load);
+                for (auto& rowset_meta : tablet->tablet_meta()->all_mutable_rs_metas()) {
+                    rowset_meta->tablet_schema()->set_skip_write_index_on_load(
+                            tablet_meta_info.skip_write_index_on_load);
+                }
+                tablet->tablet_schema_unlocked()->set_skip_write_index_on_load(
+                        tablet_meta_info.skip_write_index_on_load);
+                need_to_save = true;
+            }
             if (need_to_save) {
                 std::shared_lock rlock(tablet->get_header_lock());
                 tablet->save_meta();
@@ -543,7 +566,7 @@ void TaskWorkerPool::_check_consistency_worker_thread_callback() {
         EngineChecksumTask engine_task(check_consistency_req.tablet_id,
                                        check_consistency_req.schema_hash,
                                        check_consistency_req.version, &checksum);
-        Status status = _env->storage_engine()->execute_task(&engine_task);
+        Status status = StorageEngine::instance()->execute_task(&engine_task);
         if (!status.ok()) {
             LOG_WARNING("failed to check consistency")
                     .tag("signature", agent_task_req.signature)
@@ -640,7 +663,7 @@ void TaskWorkerPool::_report_disk_state_worker_thread_callback() {
         request.__isset.disks = true;
 
         std::vector<DataDirInfo> data_dir_infos;
-        _env->storage_engine()->get_all_data_dir_info(&data_dir_infos, true /* update */);
+        StorageEngine::instance()->get_all_data_dir_info(&data_dir_infos, true /* update */);
 
         for (auto& root_path_info : data_dir_infos) {
             TDisk disk;
@@ -651,6 +674,7 @@ void TaskWorkerPool::_report_disk_state_worker_thread_callback() {
             disk.__set_data_used_capacity(root_path_info.local_used_capacity);
             disk.__set_remote_used_capacity(root_path_info.remote_used_capacity);
             disk.__set_disk_available_capacity(root_path_info.available);
+            disk.__set_trash_used_capacity(root_path_info.trash_used_capacity);
             disk.__set_used(root_path_info.is_used);
             request.disks[root_path_info.path] = disk;
         }
@@ -1278,7 +1302,7 @@ void CreateTableTaskPool::_create_tablet_worker_thread_callback() {
 
         std::vector<TTabletInfo> finish_tablet_infos;
         VLOG_NOTICE << "create tablet: " << create_tablet_req;
-        Status status = _env->storage_engine()->create_tablet(create_tablet_req, profile);
+        Status status = StorageEngine::instance()->create_tablet(create_tablet_req, profile);
         if (!status.ok()) {
             DorisMetrics::instance()->create_tablet_requests_failed->increment(1);
             LOG_WARNING("failed to create tablet, reason={}", status.to_string())
@@ -1357,7 +1381,7 @@ void DropTableTaskPool::_drop_tablet_worker_thread_callback() {
             // if tablet is dropped by fe, then the related txn should also be removed
             StorageEngine::instance()->txn_manager()->force_rollback_tablet_related_txns(
                     dropped_tablet->data_dir()->get_meta(), drop_tablet_req.tablet_id,
-                    drop_tablet_req.schema_hash, dropped_tablet->tablet_uid());
+                    dropped_tablet->tablet_uid());
             LOG_INFO("successfully drop tablet")
                     .tag("signature", agent_task_req.signature)
                     .tag("tablet_id", drop_tablet_req.tablet_id);
@@ -1443,7 +1467,7 @@ void PushTaskPool::_push_worker_thread_callback() {
         std::vector<TTabletInfo> tablet_infos;
 
         EngineBatchLoadTask engine_task(push_req, &tablet_infos);
-        auto status = _env->storage_engine()->execute_task(&engine_task);
+        auto status = StorageEngine::instance()->execute_task(&engine_task);
 
         // Return result to fe
         TFinishTaskRequest finish_task_request;
@@ -1512,7 +1536,7 @@ void PublishVersionTaskPool::_publish_version_worker_thread_callback() {
             error_tablet_ids.clear();
             EnginePublishVersionTask engine_task(publish_version_req, &error_tablet_ids,
                                                  &succ_tablet_ids, &discontinuous_version_tablets);
-            status = _env->storage_engine()->execute_task(&engine_task);
+            status = StorageEngine::instance()->execute_task(&engine_task);
             if (status.ok()) {
                 break;
             } else if (status.is<PUBLISH_VERSION_NOT_CONTINUOUS>()) {
@@ -1637,11 +1661,11 @@ void ClearTransactionTaskPool::_clear_transaction_task_worker_thread_callback() 
             // If it is not greater than zero, no need to execute
             // the following clear_transaction_task() function.
             if (!clear_transaction_task_req.partition_id.empty()) {
-                _env->storage_engine()->clear_transaction_task(
+                StorageEngine::instance()->clear_transaction_task(
                         clear_transaction_task_req.transaction_id,
                         clear_transaction_task_req.partition_id);
             } else {
-                _env->storage_engine()->clear_transaction_task(
+                StorageEngine::instance()->clear_transaction_task(
                         clear_transaction_task_req.transaction_id);
             }
             LOG(INFO) << "finish to clear transaction task. signature=" << agent_task_req.signature
@@ -1738,7 +1762,7 @@ void AlterTableTaskPool::_alter_tablet(const TAgentTaskRequest& agent_task_req, 
         new_tablet_id = agent_task_req.alter_tablet_req_v2.new_tablet_id;
         new_schema_hash = agent_task_req.alter_tablet_req_v2.new_schema_hash;
         EngineAlterTabletTask engine_task(agent_task_req.alter_tablet_req_v2);
-        status = _env->storage_engine()->execute_task(&engine_task);
+        status = StorageEngine::instance()->execute_task(&engine_task);
     }
 
     if (status.ok()) {
@@ -1839,7 +1863,7 @@ void CloneTaskPool::_clone_worker_thread_callback() {
         std::vector<TTabletInfo> tablet_infos;
         EngineCloneTask engine_task(clone_req, _master_info, agent_task_req.signature,
                                     &tablet_infos);
-        auto status = _env->storage_engine()->execute_task(&engine_task);
+        auto status = StorageEngine::instance()->execute_task(&engine_task);
         // Return result to fe
         TFinishTaskRequest finish_task_request;
         finish_task_request.__set_backend(BackendOptions::get_local_backend());
@@ -1896,7 +1920,7 @@ void StorageMediumMigrateTaskPool::_storage_medium_migrate_worker_thread_callbac
         auto status = _check_migrate_request(storage_medium_migrate_req, tablet, &dest_store);
         if (status.ok()) {
             EngineStorageMigrationTask engine_task(tablet, dest_store);
-            status = _env->storage_engine()->execute_task(&engine_task);
+            status = StorageEngine::instance()->execute_task(&engine_task);
         }
         if (!status.ok()) {
             LOG_WARNING("failed to migrate storage medium")

@@ -112,7 +112,7 @@ public class RowBatchBuilder {
     }
 
     public InternalService.PUpdateCacheRequest buildSqlUpdateRequest(
-            String sql, long partitionKey, long lastVersion, long lastestTime) {
+            String sql, long partitionKey, long lastVersion, long lastestTime, long partitionNum) {
         if (updateRequest == null) {
             updateRequest = InternalService.PUpdateCacheRequest.newBuilder()
                     .setSqlKey(CacheProxy.getMd5(sql))
@@ -124,6 +124,7 @@ public class RowBatchBuilder {
                                 .setPartitionKey(partitionKey)
                                 .setLastVersion(lastVersion)
                                 .setLastVersionTime(lastestTime)
+                                .setPartitionNum(partitionNum)
                                 .build()).setDataSize(dataSize).addAllRows(
                                 rowList.stream().map(row -> ByteString.copyFrom(row))
                                         .collect(Collectors.toList()))).build();

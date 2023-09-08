@@ -56,7 +56,7 @@ namespace doris {
 using namespace ErrorCode;
 
 static const uint32_t MAX_PATH_LEN = 1024;
-static StorageEngine* k_engine = nullptr;
+static std::unique_ptr<StorageEngine> k_engine;
 
 static void set_up() {
     char buffer[MAX_PATH_LEN];
@@ -90,11 +90,7 @@ static void tear_down() {
     EXPECT_TRUE(io::global_local_filesystem()
                         ->delete_directory(string(getenv("DORIS_HOME")) + "/" + UNUSED_PREFIX)
                         .ok());
-    if (k_engine != nullptr) {
-        k_engine->stop();
-        delete k_engine;
-        k_engine = nullptr;
-    }
+    k_engine.reset();
 }
 
 static void set_default_create_tablet_request(TCreateTabletReq* request) {
@@ -392,6 +388,33 @@ TEST_F(TestDeleteConditionHandler, StoreCondSucceed) {
     EXPECT_STREQ("k5='7'", del_pred.sub_predicates(4).c_str());
     EXPECT_STREQ("k12!='9'", del_pred.sub_predicates(5).c_str());
     EXPECT_STREQ("k$1>>'1'", del_pred.sub_predicates(6).c_str());
+
+    // check sub predicate v2
+
+    EXPECT_EQ(size_t(7), del_pred.sub_predicates_v2_size());
+    EXPECT_STREQ("k1", del_pred.sub_predicates_v2(0).column_name().c_str());
+    EXPECT_STREQ("k2", del_pred.sub_predicates_v2(1).column_name().c_str());
+    EXPECT_STREQ("k3", del_pred.sub_predicates_v2(2).column_name().c_str());
+    EXPECT_STREQ("k4", del_pred.sub_predicates_v2(3).column_name().c_str());
+    EXPECT_STREQ("k5", del_pred.sub_predicates_v2(4).column_name().c_str());
+    EXPECT_STREQ("k12", del_pred.sub_predicates_v2(5).column_name().c_str());
+    EXPECT_STREQ("k$1", del_pred.sub_predicates_v2(6).column_name().c_str());
+
+    EXPECT_STREQ("=", del_pred.sub_predicates_v2(0).op().c_str());
+    EXPECT_STREQ(">>", del_pred.sub_predicates_v2(1).op().c_str());
+    EXPECT_STREQ("<=", del_pred.sub_predicates_v2(2).op().c_str());
+    EXPECT_STREQ("IS", del_pred.sub_predicates_v2(3).op().c_str());
+    EXPECT_STREQ("=", del_pred.sub_predicates_v2(4).op().c_str());
+    EXPECT_STREQ("!=", del_pred.sub_predicates_v2(5).op().c_str());
+    EXPECT_STREQ(">>", del_pred.sub_predicates_v2(6).op().c_str());
+
+    EXPECT_STREQ("1", del_pred.sub_predicates_v2(0).cond_value().c_str());
+    EXPECT_STREQ("3", del_pred.sub_predicates_v2(1).cond_value().c_str());
+    EXPECT_STREQ("5", del_pred.sub_predicates_v2(2).cond_value().c_str());
+    EXPECT_STREQ("NULL", del_pred.sub_predicates_v2(3).cond_value().c_str());
+    EXPECT_STREQ("7", del_pred.sub_predicates_v2(4).cond_value().c_str());
+    EXPECT_STREQ("9", del_pred.sub_predicates_v2(5).cond_value().c_str());
+    EXPECT_STREQ("1", del_pred.sub_predicates_v2(6).cond_value().c_str());
 
     EXPECT_EQ(size_t(1), del_pred.in_predicates_size());
     EXPECT_FALSE(del_pred.in_predicates(0).is_not_in());

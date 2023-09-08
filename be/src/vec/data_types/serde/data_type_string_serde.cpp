@@ -22,7 +22,6 @@
 #include <stddef.h>
 
 #include "arrow/array/builder_binary.h"
-#include "gutil/casts.h"
 #include "util/jsonb_document.h"
 #include "util/jsonb_utils.h"
 #include "vec/columns/column.h"
@@ -34,28 +33,42 @@ namespace doris {
 namespace vectorized {
 class Arena;
 
+void DataTypeStringSerDe::serialize_column_to_text(const IColumn& column, int start_idx,
+                                                   int end_idx, BufferWritable& bw,
+                                                   FormatOptions& options) const {
+    SERIALIZE_COLUMN_TO_TEXT()
+}
+
 void DataTypeStringSerDe::serialize_one_cell_to_text(const IColumn& column, int row_num,
                                                      BufferWritable& bw,
-                                                     const FormatOptions& options) const {
+                                                     FormatOptions& options) const {
     auto result = check_column_const_set_readability(column, row_num);
     ColumnPtr ptr = result.first;
     row_num = result.second;
 
     const auto& value = assert_cast<const ColumnString&>(*ptr).get_data_at(row_num);
     bw.write(value.data, value.size);
-    bw.commit();
 }
 
-Status DataTypeStringSerDe::deserialize_one_cell_from_text(IColumn& column, ReadBuffer& rb,
+Status DataTypeStringSerDe::deserialize_column_from_text_vector(
+        IColumn& column, std::vector<Slice>& slices, int* num_deserialized,
+        const FormatOptions& options) const {
+    DESERIALIZE_COLUMN_FROM_TEXT_VECTOR()
+    return Status::OK();
+}
+
+Status DataTypeStringSerDe::deserialize_one_cell_from_text(IColumn& column, Slice& slice,
                                                            const FormatOptions& options) const {
     auto& column_data = assert_cast<ColumnString&>(column);
-    column_data.insert_data(rb.position(), rb.count());
+    column_data.insert_data(slice.data, slice.size);
     return Status::OK();
 }
 
 Status DataTypeStringSerDe::write_column_to_pb(const IColumn& column, PValues& result, int start,
                                                int end) const {
     result.mutable_bytes_value()->Reserve(end - start);
+    auto ptype = result.mutable_type();
+    ptype->set_id(PGenericType::STRING);
     for (size_t row_num = start; row_num < end; ++row_num) {
         StringRef data = column.get_data_at(row_num);
         result.add_string_value(data.to_string());
@@ -111,7 +124,7 @@ void DataTypeStringSerDe::read_column_from_arrow(IColumn& column, const arrow::A
     auto& column_offsets = assert_cast<ColumnString&>(column).get_offsets();
     if (arrow_array->type_id() == arrow::Type::STRING ||
         arrow_array->type_id() == arrow::Type::BINARY) {
-        auto concrete_array = down_cast<const arrow::BinaryArray*>(arrow_array);
+        auto concrete_array = dynamic_cast<const arrow::BinaryArray*>(arrow_array);
         std::shared_ptr<arrow::Buffer> buffer = concrete_array->value_data();
 
         for (size_t offset_i = start; offset_i < end; ++offset_i) {
@@ -122,7 +135,7 @@ void DataTypeStringSerDe::read_column_from_arrow(IColumn& column, const arrow::A
             column_offsets.emplace_back(column_chars_t.size());
         }
     } else if (arrow_array->type_id() == arrow::Type::FIXED_SIZE_BINARY) {
-        auto concrete_array = down_cast<const arrow::FixedSizeBinaryArray*>(arrow_array);
+        auto concrete_array = dynamic_cast<const arrow::FixedSizeBinaryArray*>(arrow_array);
         uint32_t width = concrete_array->byte_width();
         const auto* array_data = concrete_array->GetValue(start);
 

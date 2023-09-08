@@ -41,6 +41,23 @@ namespace cctz {
 class time_zone;
 } // namespace cctz
 
+#define SERIALIZE_COLUMN_TO_TEXT()                                            \
+    for (size_t i = start_idx; i < end_idx; ++i) {                            \
+        if (i != start_idx) {                                                 \
+            bw.write(options.field_delim.data(), options.field_delim.size()); \
+        }                                                                     \
+        serialize_one_cell_to_text(column, i, bw, options);                   \
+    }
+
+#define DESERIALIZE_COLUMN_FROM_TEXT_VECTOR()                                       \
+    for (int i = 0; i < slices.size(); ++i) {                                       \
+        if (Status st = deserialize_one_cell_from_text(column, slices[i], options); \
+            st != Status::OK()) {                                                   \
+            return st;                                                              \
+        }                                                                           \
+        ++*num_deserialized;                                                        \
+    }
+
 namespace doris {
 class PValues;
 class JsonbValue;
@@ -70,6 +87,24 @@ public:
          * use this format in olap, because it is more slower, keep this option is for compatibility.
          */
         bool date_olap_format = false;
+        /**
+         * field delimiter is used to separate fields in one row
+         */
+        std::string field_delim = ",";
+        /**
+         * collection_delim is used to separate elements in collection, such as array, map
+         */
+        char collection_delim = ',';
+        /**
+         * map_key_delim is used to separate key and value in map , eg. key:value
+         */
+        char map_key_delim = ':';
+        /**
+         * used in deserialize with text format, if the element is packed in string using "" or '', but not string type, and this switch is open
+         *  we can convert the string to the element type, such as int, float, double, date, datetime, timestamp, decimal
+         *  by dropping the "" or ''.
+         */
+        bool converted_from_string = false;
     };
 
 public:
@@ -77,10 +112,18 @@ public:
     virtual ~DataTypeSerDe();
     // Text serializer and deserializer with formatOptions to handle different text format
     virtual void serialize_one_cell_to_text(const IColumn& column, int row_num, BufferWritable& bw,
-                                            const FormatOptions& options) const = 0;
+                                            FormatOptions& options) const = 0;
 
-    virtual Status deserialize_one_cell_from_text(IColumn& column, ReadBuffer& rb,
+    // this function serialize multi-column to one row text to avoid virtual function call in complex type nested loop
+    virtual void serialize_column_to_text(const IColumn& column, int start_idx, int end_idx,
+                                          BufferWritable& bw, FormatOptions& options) const = 0;
+
+    virtual Status deserialize_one_cell_from_text(IColumn& column, Slice& slice,
                                                   const FormatOptions& options) const = 0;
+    // deserialize text vector is to avoid virtual function call in complex type nested loop
+    virtual Status deserialize_column_from_text_vector(IColumn& column, std::vector<Slice>& slices,
+                                                       int* num_deserialized,
+                                                       const FormatOptions& options) const = 0;
 
     // Protobuf serializer and deserializer
     virtual Status write_column_to_pb(const IColumn& column, PValues& result, int start,

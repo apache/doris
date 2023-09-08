@@ -34,9 +34,14 @@ class Arena;
 class DataTypeHLLSerDe : public DataTypeSerDe {
 public:
     void serialize_one_cell_to_text(const IColumn& column, int row_num, BufferWritable& bw,
-                                    const FormatOptions& options) const override;
-    Status deserialize_one_cell_from_text(IColumn& column, ReadBuffer& rb,
+                                    FormatOptions& options) const override;
+    void serialize_column_to_text(const IColumn& column, int start_idx, int end_idx,
+                                  BufferWritable& bw, FormatOptions& options) const override;
+    Status deserialize_one_cell_from_text(IColumn& column, Slice& slice,
                                           const FormatOptions& options) const override;
+    Status deserialize_column_from_text_vector(IColumn& column, std::vector<Slice>& slices,
+                                               int* num_deserialized,
+                                               const FormatOptions& options) const override;
     Status write_column_to_pb(const IColumn& column, PValues& result, int start,
                               int end) const override;
     Status read_column_from_pb(IColumn& column, const PValues& arg) const override;
@@ -50,7 +55,8 @@ public:
                                int end) const override;
     void read_column_from_arrow(IColumn& column, const arrow::Array* arrow_array, int start,
                                 int end, const cctz::time_zone& ctz) const override {
-        LOG(FATAL) << "Not support read hll column from arrow";
+        throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
+                               "read_column_from_arrow with type " + column.get_name());
     }
 
     Status write_column_to_mysql(const IColumn& column, MysqlRowBuffer<true>& row_buffer,

@@ -21,6 +21,7 @@
 #include <opentelemetry/exporters/otlp/otlp_environment.h>
 #include <opentelemetry/sdk/resource/resource.h>
 #include <opentelemetry/sdk/resource/resource_detector.h>
+#include <opentelemetry/sdk/trace/batch_span_processor_options.h>
 #include <opentelemetry/sdk/trace/exporter.h>
 #include <opentelemetry/sdk/trace/processor.h>
 #include <opentelemetry/sdk/trace/recordable.h>

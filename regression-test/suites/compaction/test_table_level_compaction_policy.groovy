@@ -65,7 +65,7 @@ suite("test_table_level_compaction_policy") {
     logger.info("${showResult3}")
     assertTrue(showResult3.toString().containsIgnoreCase('"time_series_compaction_file_count_threshold" = "6000"'))
 
-     sql """
+    sql """
         alter table ${tableName} set ("time_series_compaction_time_threshold_seconds" = "3000")
         """
     sql """sync"""
@@ -73,6 +73,33 @@ suite("test_table_level_compaction_policy") {
     def showResult4 = sql """show create table ${tableName}"""
     logger.info("${showResult4}")
     assertTrue(showResult4.toString().containsIgnoreCase('"time_series_compaction_time_threshold_seconds" = "3000"'))
+
+    sql """
+        alter table ${tableName} set ("time_series_compaction_goal_size_mbytes" = "1024")
+        """
+    sql """sync"""
+
+    def showResult6 = sql """show create table ${tableName}"""
+    logger.info("${showResult6}")
+    assertTrue(showResult6.toString().containsIgnoreCase('"time_series_compaction_goal_size_mbytes" = "1024"'))
+
+    sql """
+        alter table ${tableName} set ("time_series_compaction_file_count_threshold" = "6000")
+        """
+    sql """sync"""
+
+    def showResult7 = sql """show create table ${tableName}"""
+    logger.info("${showResult7}")
+    assertTrue(showResult7.toString().containsIgnoreCase('"time_series_compaction_file_count_threshold" = "6000"'))
+
+    sql """
+        alter table ${tableName} set ("time_series_compaction_time_threshold_seconds" = "3000")
+        """
+    sql """sync"""
+
+    def showResult8 = sql """show create table ${tableName}"""
+    logger.info("${showResult8}")
+    assertTrue(showResult8.toString().containsIgnoreCase('"time_series_compaction_time_threshold_seconds" = "3000"'))
 
     sql """ DROP TABLE IF EXISTS ${tableName} """
     sql """sync"""

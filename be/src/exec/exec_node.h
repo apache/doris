@@ -134,6 +134,8 @@ public:
 
     bool can_read() const { return _can_read; }
 
+    [[nodiscard]] virtual bool can_terminate_early() { return false; }
+
     // Sink Data to ExecNode to do some stock work, both need impl with method: get_result
     // `eos` means source is exhausted, exec node should do some finalize work
     // Eg: Aggregation, Sort

@@ -100,38 +100,51 @@ void PlainCsvTextFieldSplitter::_split_field_single_char(const Slice& line,
 
 void PlainCsvTextFieldSplitter::_split_field_multi_char(const Slice& line,
                                                         std::vector<Slice>* splitted_values) {
-    const char* data = line.data;
     size_t start = 0;  // point to the start pos of next col value.
     size_t curpos = 0; // point to the start pos of separator matching sequence.
-    size_t p1 = 0;     // point to the current pos of separator matching sequence.
 
-    // Separator: AAAA
-    //
-    //    p1
-    //     ▼
-    //     AAAA
-    //   1000AAAA2000AAAA
-    //   ▲   ▲
-    // Start │
-    //     curpos
-    while (curpos < line.size) {
-        if (curpos + p1 == line.size || *(data + curpos + p1) != _value_sep[p1]) {
-            // Not match, move forward:
-            curpos += (p1 == 0 ? 1 : p1);
-            p1 = 0;
-        } else {
-            p1++;
-            if (p1 == value_sep_len) {
-                // Match a separator
-                process_value_func(data, start, curpos - start, trimming_char, splitted_values);
-                start = curpos + value_sep_len;
-                curpos = start;
-                p1 = 0;
-            }
+    // value_sep : AAAA
+    // line.data : 1234AAAA5678
+    // -> 1234,5678
+
+    //    start   start
+    //      ▼       ▼
+    //      1234AAAA5678\0
+    //          ▲       ▲
+    //      curpos     curpos
+
+    //kmp
+    vector<int> next(value_sep_len);
+    next[0] = -1;
+    for (int i = 1, j = -1; i < value_sep_len; i++) {
+        while (j > -1 && _value_sep[i] != _value_sep[j + 1]) {
+            j = next[j];
+        }
+        if (_value_sep[i] == _value_sep[j + 1]) {
+            j++;
+        }
+        next[i] = j;
+    }
+
+    for (int i = 0, j = -1; i < line.size; i++) {
+        // i : line
+        // j : _value_sep
+        while (j > -1 && line[i] != _value_sep[j + 1]) {
+            j = next[j];
+        }
+        if (line[i] == _value_sep[j + 1]) {
+            j++;
+        }
+        if (j == value_sep_len - 1) {
+            curpos = i - value_sep_len + 1;
+
+            process_value_func(line.data, start, curpos - start, trimming_char, splitted_values);
+
+            start = i + 1;
+            j = next[j];
         }
     }
-    CHECK(curpos == line.size) << curpos << " vs " << line.size;
-    process_value_func(data, start, curpos - start, trimming_char, splitted_values);
+    process_value_func(line.data, start, line.size - start, trimming_char, splitted_values);
 }
 
 void PlainCsvTextFieldSplitter::do_split(const Slice& line, std::vector<Slice>* splitted_values) {
@@ -220,6 +233,9 @@ void CsvReader::_init_file_description() {
     _file_description.path = _range.path;
     _file_description.start_offset = _range.start_offset;
     _file_description.file_size = _range.__isset.file_size ? _range.file_size : 0;
+    if (_range.__isset.fs_name) {
+        _file_description.fs_name = _range.fs_name;
+    }
 }
 
 Status CsvReader::init_reader(bool is_load) {
@@ -327,7 +343,11 @@ Status CsvReader::init_reader(bool is_load) {
         [[fallthrough]];
     case TFileFormatType::FORMAT_CSV_LZ4FRAME:
         [[fallthrough]];
+    case TFileFormatType::FORMAT_CSV_LZ4BLOCK:
+        [[fallthrough]];
     case TFileFormatType::FORMAT_CSV_LZOP:
+        [[fallthrough]];
+    case TFileFormatType::FORMAT_CSV_SNAPPYBLOCK:
         [[fallthrough]];
     case TFileFormatType::FORMAT_CSV_DEFLATE:
         _line_reader =
@@ -384,21 +404,51 @@ Status CsvReader::get_next_block(Block* block, size_t* read_rows, bool* eof) {
 
     const int batch_size = std::max(_state->batch_size(), (int)_MIN_BATCH_SIZE);
     size_t rows = 0;
-    auto columns = block->mutate_columns();
-    while (rows < batch_size && !_line_reader_eof) {
-        const uint8_t* ptr = nullptr;
-        size_t size = 0;
-        RETURN_IF_ERROR(_line_reader->read_line(&ptr, &size, &_line_reader_eof, _io_ctx));
-        if (_skip_lines > 0) {
-            _skip_lines--;
-            continue;
-        }
-        if (size == 0) {
-            // Read empty row, just continue
-            continue;
+
+    bool success = false;
+    if (_push_down_agg_type == TPushAggOp::type::COUNT) {
+        while (rows < batch_size && !_line_reader_eof) {
+            const uint8_t* ptr = nullptr;
+            size_t size = 0;
+            RETURN_IF_ERROR(_line_reader->read_line(&ptr, &size, &_line_reader_eof, _io_ctx));
+            if (_skip_lines > 0) {
+                _skip_lines--;
+                continue;
+            }
+            if (size == 0) {
+                // Read empty row, just continue
+                continue;
+            }
+
+            RETURN_IF_ERROR(_validate_line(Slice(ptr, size), &success));
+            ++rows;
         }
 
-        RETURN_IF_ERROR(_fill_dest_columns(Slice(ptr, size), block, columns, &rows));
+        for (auto& col : block->mutate_columns()) {
+            col->resize(rows);
+        }
+
+    } else {
+        auto columns = block->mutate_columns();
+        while (rows < batch_size && !_line_reader_eof) {
+            const uint8_t* ptr = nullptr;
+            size_t size = 0;
+            RETURN_IF_ERROR(_line_reader->read_line(&ptr, &size, &_line_reader_eof, _io_ctx));
+            if (_skip_lines > 0) {
+                _skip_lines--;
+                continue;
+            }
+            if (size == 0) {
+                // Read empty row, just continue
+                continue;
+            }
+
+            RETURN_IF_ERROR(_validate_line(Slice(ptr, size), &success));
+            if (!success) {
+                continue;
+            }
+            RETURN_IF_ERROR(_fill_dest_columns(Slice(ptr, size), block, columns, &rows));
+        }
     }
 
     *eof = (rows == 0);
@@ -460,8 +510,14 @@ Status CsvReader::_create_decompressor() {
         case TFileCompressType::LZ4FRAME:
             compress_type = CompressType::LZ4FRAME;
             break;
+        case TFileCompressType::LZ4BLOCK:
+            compress_type = CompressType::LZ4BLOCK;
+            break;
         case TFileCompressType::DEFLATE:
             compress_type = CompressType::DEFLATE;
+            break;
+        case TFileCompressType::SNAPPYBLOCK:
+            compress_type = CompressType::SNAPPYBLOCK;
             break;
         default:
             return Status::InternalError("unknown compress type: {}", _file_compress_type);
@@ -482,11 +538,17 @@ Status CsvReader::_create_decompressor() {
         case TFileFormatType::FORMAT_CSV_LZ4FRAME:
             compress_type = CompressType::LZ4FRAME;
             break;
+        case TFileFormatType::FORMAT_CSV_LZ4BLOCK:
+            compress_type = CompressType::LZ4BLOCK;
+            break;
         case TFileFormatType::FORMAT_CSV_LZOP:
             compress_type = CompressType::LZOP;
             break;
         case TFileFormatType::FORMAT_CSV_DEFLATE:
             compress_type = CompressType::DEFLATE;
+            break;
+        case TFileFormatType::FORMAT_CSV_SNAPPYBLOCK:
+            compress_type = CompressType::SNAPPYBLOCK;
             break;
         default:
             return Status::InternalError("unknown format type: {}", _file_format_type);
@@ -541,7 +603,7 @@ Status CsvReader::_fill_dest_columns(const Slice& line, Block* block,
     return Status::OK();
 }
 
-Status CsvReader::_line_split_to_values(const Slice& line, bool* success) {
+Status CsvReader::_validate_line(const Slice& line, bool* success) {
     if (!_is_proto_format && !validate_utf8(line.data, line.size)) {
         if (!_is_load) {
             return Status::InternalError("Only support csv data in utf8 codec");
@@ -559,7 +621,11 @@ Status CsvReader::_line_split_to_values(const Slice& line, bool* success) {
             return Status::OK();
         }
     }
+    *success = true;
+    return Status::OK();
+}
 
+Status CsvReader::_line_split_to_values(const Slice& line, bool* success) {
     _split_line(line);
 
     if (_is_load) {

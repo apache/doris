@@ -31,6 +31,7 @@
 #include "http/action/download_binlog_action.h"
 #include "http/action/file_cache_action.h"
 #include "http/action/health_action.h"
+#include "http/action/http_stream.h"
 #include "http/action/jeprofile_actions.h"
 #include "http/action/meta_action.h"
 #include "http/action/metrics_action.h"
@@ -42,7 +43,6 @@
 #include "http/action/snapshot_action.h"
 #include "http/action/stream_load.h"
 #include "http/action/stream_load_2pc.h"
-#include "http/action/stream_load_with_sql.h"
 #include "http/action/tablet_migration_action.h"
 #include "http/action/tablets_distribution_action.h"
 #include "http/action/tablets_info_action.h"
@@ -63,7 +63,9 @@ HttpService::HttpService(ExecEnv* env, int port, int num_threads)
           _ev_http_server(new EvHttpServer(port, num_threads)),
           _web_page_handler(new WebPageHandler(_ev_http_server.get())) {}
 
-HttpService::~HttpService() {}
+HttpService::~HttpService() {
+    stop();
+}
 
 Status HttpService::start() {
     add_default_path_handlers(_web_page_handler.get());
@@ -80,11 +82,9 @@ Status HttpService::start() {
     _ev_http_server->register_handler(HttpMethod::PUT, "/api/{db}/{table}/_stream_load_2pc",
                                       streamload_2pc_action);
 
-    // register stream load with sql
-    StreamLoadWithSqlAction* streamload_with_sql_action =
-            _pool.add(new StreamLoadWithSqlAction(_env));
-    _ev_http_server->register_handler(HttpMethod::PUT, "/api/_stream_load_with_sql",
-                                      streamload_with_sql_action);
+    // register http_stream
+    HttpStreamAction* http_stream_action = _pool.add(new HttpStreamAction(_env));
+    _ev_http_server->register_handler(HttpMethod::PUT, "/api/_http_stream", http_stream_action);
 
     // register download action
     std::vector<std::string> allow_paths;

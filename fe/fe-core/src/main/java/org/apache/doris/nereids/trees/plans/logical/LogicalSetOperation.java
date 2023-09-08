@@ -62,7 +62,7 @@ public abstract class LogicalSetOperation extends AbstractLogicalPlan implements
     protected final List<NamedExpression> outputs;
 
     public LogicalSetOperation(PlanType planType, Qualifier qualifier, List<Plan> inputs) {
-        super(planType, inputs.toArray(new Plan[0]));
+        super(planType, inputs);
         this.qualifier = qualifier;
         this.outputs = ImmutableList.of();
     }
@@ -70,7 +70,7 @@ public abstract class LogicalSetOperation extends AbstractLogicalPlan implements
     public LogicalSetOperation(PlanType planType, Qualifier qualifier,
                                List<NamedExpression> outputs,
                                List<Plan> inputs) {
-        super(planType, inputs.toArray(new Plan[0]));
+        super(planType, inputs);
         this.qualifier = qualifier;
         this.outputs = ImmutableList.copyOf(outputs);
     }

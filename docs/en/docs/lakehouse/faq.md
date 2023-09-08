@@ -195,6 +195,12 @@ under the License.
     }
     ```
 
+8. Query the appearance of hive and encounter this error:`java.lang.ClassNotFoundException: Class com.hadoop.compression.lzo.LzoCodec not found`
+
+    Search in the hadoop environment hadoop-lzo-*.jar, and put it under "${DORIS_HOME}/fe/lib/",then restart fe.
+
+    Starting from version 2.0.2, this file can be placed in BE's `custom_lib/` directory (if it does not exist, just create it manually) to prevent the file from being lost due to the replacement of the lib directory when upgrading the cluster.
+
 ## HDFS
 
 1. What to do with the`java.lang.VerifyError: xxx` error when accessing HDFS 3.x?
@@ -240,4 +246,5 @@ under the License.
      `HedgedReadWins`: The number of successful Hedged Reads (numbers initiated and returned faster than the original request)
 
      Note that the value here is the cumulative value of a single HDFS Client, not the value of a single query. The same HDFS Client will be reused by multiple queries.
+
 

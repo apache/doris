@@ -20,7 +20,7 @@ package org.apache.doris.nereids.types;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
-import org.apache.doris.nereids.types.coercion.AbstractDataType;
+import org.apache.doris.common.Config;
 import org.apache.doris.nereids.types.coercion.FractionalType;
 
 import com.google.common.base.Preconditions;
@@ -143,12 +143,20 @@ public class DecimalV2Type extends FractionalType {
     }
 
     @Override
+    public DataType conversion() {
+        if (Config.enable_decimal_conversion) {
+            return DecimalV3Type.createDecimalV3Type(precision, scale);
+        }
+        return this;
+    }
+
+    @Override
     public DataType defaultConcreteType() {
         return this;
     }
 
     @Override
-    public boolean acceptsType(AbstractDataType other) {
+    public boolean acceptsType(DataType other) {
         return other instanceof DecimalV2Type;
     }
 

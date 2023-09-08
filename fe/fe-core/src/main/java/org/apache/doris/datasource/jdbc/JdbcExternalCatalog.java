@@ -130,6 +130,7 @@ public class JdbcExternalCatalog extends ExternalCatalog {
     @Override
     protected void initLocalObjectsImpl() {
         JdbcClientConfig jdbcClientConfig = new JdbcClientConfig()
+                .setCatalog(this.name)
                 .setUser(getJdbcUser())
                 .setPassword(getJdbcPasswd())
                 .setJdbcUrl(getJdbcUrl())
@@ -164,5 +165,17 @@ public class JdbcExternalCatalog extends ExternalCatalog {
     public boolean tableExist(SessionContext ctx, String dbName, String tblName) {
         makeSureInitialized();
         return jdbcClient.isTableExist(dbName, tblName);
+    }
+
+    @Override
+    public void setDefaultPropsWhenCreating(boolean isReplay) throws DdlException {
+        if (isReplay) {
+            return;
+        }
+        Map<String, String> properties = Maps.newHashMap();
+        if (properties.containsKey(JdbcResource.DRIVER_URL) && !properties.containsKey(JdbcResource.CHECK_SUM)) {
+            properties.put(JdbcResource.CHECK_SUM,
+                    JdbcResource.computeObjectChecksum(properties.get(JdbcResource.DRIVER_URL)));
+        }
     }
 }

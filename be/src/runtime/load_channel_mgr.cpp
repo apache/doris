@@ -111,7 +111,6 @@ Status LoadChannelMgr::open(const PTabletWriterOpenRequest& params) {
     }
 
     RETURN_IF_ERROR(channel->open(params));
-    _register_channel_all_writers(channel);
 
     return Status::OK();
 }

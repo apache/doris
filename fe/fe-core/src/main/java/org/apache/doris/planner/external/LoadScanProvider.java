@@ -190,7 +190,7 @@ public class LoadScanProvider {
                         .filter(c -> c.getColumnName().equalsIgnoreCase(finalSequenceCol)).findAny();
                 // if `columnDescs.descs` is empty, that means it's not a partial update load, and user not specify
                 // column name.
-                if (foundCol.isPresent() || columnDescs.descs.isEmpty()) {
+                if (foundCol.isPresent() || shouldAddSequenceColumn(columnDescs)) {
                     columnDescs.descs.add(new ImportColumnDesc(Column.SEQUENCE_COL,
                             new SlotRef(null, sequenceCol)));
                 } else if (!fileGroupInfo.isPartialUpdate()) {
@@ -224,6 +224,17 @@ public class LoadScanProvider {
             slotInfo.setIsFileSlot(i < numColumnsFromFile);
             context.params.addToRequiredSlots(slotInfo);
         }
+    }
+
+    /**
+     * if not set sequence column and column size is null or only have deleted sign ,return true
+     */
+    private boolean shouldAddSequenceColumn(LoadTaskInfo.ImportColumnDescs columnDescs) {
+        if (columnDescs.descs.isEmpty()) {
+            return true;
+        }
+        return columnDescs.descs.size() == 1 && columnDescs.descs.get(0).getColumnName()
+                .equalsIgnoreCase(Column.DELETE_SIGN);
     }
 
     private TFileFormatType formatType(String fileFormat, String path) throws UserException {

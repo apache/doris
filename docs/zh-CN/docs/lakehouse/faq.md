@@ -188,6 +188,11 @@ under the License.
         ]
     }
     ```
+8. 查询hive外表，遇到该报错：`java.lang.ClassNotFoundException: Class com.hadoop.compression.lzo.LzoCodec not found`
+
+   去hadoop环境搜索`hadoop-lzo-*.jar`放在`"${DORIS_HOME}/fe/lib/"`目录下并重启fe。
+
+   从 2.0.2 版本起，可以将这个文件放置在BE的 `custom_lib/` 目录下（如不存在，手动创建即可），以防止升级集群时因为 lib 目录被替换而导致文件丢失。
 
 ## HDFS
 
@@ -236,5 +241,6 @@ under the License.
     `HedgedReadWins`：Hedged Read 成功的次数（发起并且比原请求更快返回的次数）
      
     注意，这里的值是单个 HDFS Client 的累计值，而不是单个查询的数值。同一个 HDFS Client 会被多个查询复用。
+
 
 

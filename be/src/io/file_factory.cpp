@@ -27,7 +27,6 @@
 #include "common/config.h"
 #include "common/status.h"
 #include "io/fs/broker_file_system.h"
-#include "io/fs/file_reader_options.h"
 #include "io/fs/hdfs_file_system.h"
 #include "io/fs/local_file_system.h"
 #include "io/fs/multi_table_pipe.h"
@@ -47,26 +46,21 @@ namespace io {
 class FileWriter;
 } // namespace io
 
-static io::FileBlockCachePathPolicy BLOCK_CACHE_POLICY;
-static std::string RANDOM_CACHE_BASE_PATH = "random";
+constexpr std::string_view RANDOM_CACHE_BASE_PATH = "random";
 
 io::FileReaderOptions FileFactory::get_reader_options(RuntimeState* state) {
-    io::FileCachePolicy cache_policy = io::FileCachePolicy::NO_CACHE;
+    io::FileReaderOptions opts;
     if (config::enable_file_cache && state != nullptr &&
         state->query_options().__isset.enable_file_cache &&
         state->query_options().enable_file_cache) {
-        cache_policy = io::FileCachePolicy::FILE_BLOCK_CACHE;
+        opts.cache_type = io::FileCachePolicy::FILE_BLOCK_CACHE;
     }
-    io::FileReaderOptions reader_options(cache_policy, BLOCK_CACHE_POLICY);
     if (state != nullptr && state->query_options().__isset.file_cache_base_path &&
         state->query_options().file_cache_base_path != RANDOM_CACHE_BASE_PATH) {
-        reader_options.specify_cache_path(state->query_options().file_cache_base_path);
+        opts.cache_base_path = state->query_options().file_cache_base_path;
     }
-    return reader_options;
+    return opts;
 }
-
-io::FileReaderOptions FileFactory::NO_CACHE_READER_OPTIONS =
-        FileFactory::get_reader_options(nullptr);
 
 Status FileFactory::create_file_writer(TFileType::type type, ExecEnv* env,
                                        const std::vector<TNetworkAddress>& broker_addresses,
@@ -98,7 +92,7 @@ Status FileFactory::create_file_writer(TFileType::type type, ExecEnv* env,
     case TFileType::FILE_HDFS: {
         THdfsParams hdfs_params = parse_properties(properties);
         std::shared_ptr<io::HdfsFileSystem> fs;
-        RETURN_IF_ERROR(io::HdfsFileSystem::create(hdfs_params, "", nullptr, &fs));
+        RETURN_IF_ERROR(io::HdfsFileSystem::create(hdfs_params, hdfs_params.fs_name, nullptr, &fs));
         RETURN_IF_ERROR(fs->create_file(path, &file_writer));
         break;
     }
@@ -150,7 +144,18 @@ Status FileFactory::create_pipe_reader(const TUniqueId& load_id, io::FileReaderS
     if (!stream_load_ctx) {
         return Status::InternalError("unknown stream load id: {}", UniqueId(load_id).to_string());
     }
-    *file_reader = stream_load_ctx->pipe;
+    if (stream_load_ctx->need_schema == true) {
+        auto pipe = std::make_shared<io::StreamLoadPipe>(
+                io::kMaxPipeBufferedBytes /* max_buffered_bytes */, 64 * 1024 /* min_chunk_size */,
+                stream_load_ctx->schema_buffer->pos /* total_length */);
+        stream_load_ctx->schema_buffer->flip();
+        pipe->append(stream_load_ctx->schema_buffer);
+        pipe->finish();
+        *file_reader = std::move(pipe);
+        stream_load_ctx->need_schema = false;
+    } else {
+        *file_reader = stream_load_ctx->pipe;
+    }
 
     if (file_reader->get() == nullptr) {
         return Status::OK();
@@ -181,7 +186,7 @@ Status FileFactory::create_hdfs_reader(const THdfsParams& hdfs_params,
                                        std::shared_ptr<io::FileSystem>* hdfs_file_system,
                                        io::FileReaderSPtr* reader, RuntimeProfile* profile) {
     std::shared_ptr<io::HdfsFileSystem> fs;
-    RETURN_IF_ERROR(io::HdfsFileSystem::create(hdfs_params, "", profile, &fs));
+    RETURN_IF_ERROR(io::HdfsFileSystem::create(hdfs_params, fd.fs_name, profile, &fs));
     RETURN_IF_ERROR(fs->open_file(fd, reader_options, reader));
     *hdfs_file_system = std::move(fs);
     return Status::OK();
