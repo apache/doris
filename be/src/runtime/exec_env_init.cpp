@@ -38,6 +38,7 @@
 #include "common/daemon.h"
 #include "common/logging.h"
 #include "common/status.h"
+#include "io/cache/block/block_file_cache_factory.h"
 #include "io/fs/file_meta_cache.h"
 #include "io/fs/s3_file_write_bufferpool.h"
 #include "olap/memtable_memory_limiter.h"
@@ -282,8 +283,8 @@ Status ExecEnv::init_pipeline_task_scheduler() {
 void ExecEnv::init_file_cache_factory() {
     // Load file cache before starting up daemon threads to make sure StorageEngine is read.
     if (doris::config::enable_file_cache) {
-        _file_cache_factory = new FileCacheFactory();
-        doris::io::IFileCache::init();
+        _file_cache_factory = new io::FileCacheFactory();
+        io::IFileCache::init();
         std::unordered_set<std::string> cache_path_set;
         std::vector<doris::CachePath> cache_paths;
         olap_res = doris::parse_conf_cache_paths(doris::config::file_cache_path, cache_paths);
@@ -307,8 +308,8 @@ void ExecEnv::init_file_cache_factory() {
             }
 
             RETURN_IF_ERROR(file_cache_init_pool->submit_func(std::bind(
-                    &doris::io::FileCacheFactory::create_file_cache, _file_cache_factory,
-                    cache_path.path, cache_path.init_settings(), &(cache_status.emplace_back()))));
+                    &io::FileCacheFactory::create_file_cache, _file_cache_factory, cache_path.path,
+                    cache_path.init_settings(), &(cache_status.emplace_back()))));
 
             cache_path_set.emplace(cache_path.path);
         }
@@ -321,6 +322,7 @@ void ExecEnv::init_file_cache_factory() {
             }
         }
     }
+    return;
 }
 
 Status ExecEnv::_init_mem_env() {
