@@ -404,7 +404,7 @@ Status ExecEnv::_init_mem_env() {
     }
     LOG(INFO) << "segment_cache_capacity <= fd_number * 2 / 5, fd_number: " << fd_number
               << " segment_cache_capacity: " << segment_cache_capacity;
-    SegmentLoader::create_global_instance(segment_cache_capacity);
+    _segment_loader = new SegmentLoader(segment_cache_capacity);
 
     _schema_cache = new SchemaCache(config::schema_cache_capacity);
 
@@ -541,6 +541,7 @@ void ExecEnv::destroy() {
     _brpc_iobuf_block_memory_tracker.reset();
 
     SAFE_DELETE(_schema_cache);
+    SAFE_DELETE(_segment_loader);
     SAFE_DELETE(_tablet_schema_cache);
     SAFE_DELETE(_s3_buffer_pool);
     SAFE_DELETE(_storage_engine);

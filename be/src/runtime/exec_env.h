@@ -225,6 +225,7 @@ public:
     io::S3FileBufferPool* get_s3_file_buffer_pool() { return _s3_buffer_pool; }
     SchemaCache* schema_cache() { return _schema_cache; }
     StoragePageCache* get_storage_page_cache() { return _storage_page_cache; }
+    SegmentLoader* segment_loader() { return _segment_loader; }
 
 private:
     ExecEnv();
@@ -319,7 +320,11 @@ private:
     io::S3FileBufferPool* _s3_buffer_pool = nullptr;
     StorageEngine* _storage_engine = nullptr;
     SchemaCache* _schema_cache = nullptr;
+<<<<<<< HEAD
     StoragePageCache* _storage_page_cache = nullptr;
+=======
+    SegmentLoader* _segment_loader = nullptr;
+>>>>>>> a16f9b2b2e (segmentloader)
 };
 
 template <>
