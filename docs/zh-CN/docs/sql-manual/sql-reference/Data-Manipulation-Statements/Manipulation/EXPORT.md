@@ -359,7 +359,5 @@ WITH BROKER "broker_name"
 - 如果 Export 作业运行失败，已经生成的文件不会被删除，需要用户手动删除。
 - Export 作业只会导出 Base 表的数据，不会导出物化视图的数据。
 - Export 作业会扫描数据，占用 IO 资源，可能会影响系统的查询延迟。
-- 一个集群内同时运行的 Export 作业最大个数为 5。之后提交的作业将会排队。
 - 目前在export时只是简单检查tablets版本是否一致，建议在执行export过程中不要对该表进行导入数据操作。
-- 一个集群内所有Export Job的parallelism加起来最多是50。可以在fe.conf中添加参数`maximum_parallelism_of_export_job`并重启FE来修改该设置。
 - 一个Export Job允许导出的分区数量最大为2000，可以在fe.conf中添加参数`maximum_number_of_export_partitions`并重启FE来修改该设置。

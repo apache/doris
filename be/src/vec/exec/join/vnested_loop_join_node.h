@@ -106,9 +106,7 @@ public:
 private:
     template <typename JoinOpType, bool set_build_side_flag, bool set_probe_side_flag>
     Status _generate_join_block_data(RuntimeState* state, JoinOpType& join_op_variants) {
-        constexpr bool ignore_null = JoinOpType::value == TJoinOp::LEFT_ANTI_JOIN ||
-                                     JoinOpType::value == TJoinOp::NULL_AWARE_LEFT_ANTI_JOIN ||
-                                     JoinOpType::value == TJoinOp::RIGHT_ANTI_JOIN;
+        constexpr bool ignore_null = JoinOpType::value == TJoinOp::NULL_AWARE_LEFT_ANTI_JOIN;
         _left_block_start_pos = _left_block_pos;
         _left_side_process_count = 0;
         DCHECK(!_need_more_input_data || !_matched_rows_done);
