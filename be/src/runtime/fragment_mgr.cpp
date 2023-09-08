@@ -344,7 +344,7 @@ void FragmentMgr::_exec_actual(std::shared_ptr<PlanFragmentExecutor> fragment_ex
     bool all_done = false;
     if (query_ctx != nullptr) {
         // decrease the number of unfinished fragments
-        all_done = query_ctx->countdown();
+        all_done = query_ctx->countdown(1);
     }
 
     // remove exec state after this fragment finished
