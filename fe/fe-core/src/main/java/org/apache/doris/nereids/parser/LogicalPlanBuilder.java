@@ -740,14 +740,15 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     public LogicalPlan visitInlineTable(InlineTableContext ctx) {
         List<List<Expression>> exprsList = ctx.rowConstructor().stream()
                 .map(e -> visitRowConstructor(e).children())
-                .collect(Collectors.toList());
+                .collect(ImmutableList.toImmutableList());
         LogicalPlan relation = new LogicalOneRowRelation(
                 StatementScopeIdGenerator.newRelationId(),
-                exprsList.get(0).stream().map(e -> new Alias(e, e.toSql())).collect(Collectors.toList()));
+                exprsList.get(0).stream().map(e -> new Alias(e, e.toSql())).collect(ImmutableList.toImmutableList()));
         for (int i = 1; i < exprsList.size(); i++) {
             relation = new LogicalUnion(Qualifier.ALL, ImmutableList.of(relation, new LogicalOneRowRelation(
                     StatementScopeIdGenerator.newRelationId(),
-                    exprsList.get(i).stream().map(e -> new Alias(e, e.toSql())).collect(Collectors.toList()))));
+                    exprsList.get(i).stream().map(e -> new Alias(e, e.toSql()))
+                            .collect(ImmutableList.toImmutableList()))));
         }
         return withTableAlias(relation, ctx.tableAlias());
     }
@@ -1698,7 +1699,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     @Override
     public Expression visitRowConstructor(RowConstructorContext ctx) {
         return new Row(ctx.namedExpression().stream()
-                .map(e -> ((NamedExpression) visitNamedExpression(e))).collect(Collectors.toList()));
+                .map(e -> ((NamedExpression) visitNamedExpression(e))).collect(ImmutableList.toImmutableList()));
     }
 
     @Override

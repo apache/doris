@@ -94,7 +94,7 @@ suite('nereids_insert_into_values') {
     """
 
     sql "sync"
-    qt_sql_1 "select * from ${t1}, ${t2}, ${t3} order by ${t1}.id, ${t1}.id1, ${t2}.id, ${t3}.id"
+    qt_sql_cross_join "select * from ${t1}, ${t2}, ${t3} order by ${t1}.id, ${t1}.id1, ${t2}.id, ${t3}.id"
 
     sql "drop table if exists agg_have_dup_base_value"
 
