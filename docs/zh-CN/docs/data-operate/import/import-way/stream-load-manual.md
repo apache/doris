@@ -148,6 +148,10 @@ Stream Load 由于使用的是 HTTP 协议，所以所有导入任务有关的�
 
   待导入表的 Partition 信息，如果待导入数据不属于指定的 Partition 则不会被导入。这些数据将计入 `dpp.abnorm.ALL`
 
+- partial_columns
+
+  <version since="2.0"> 自版本2.0起，在Unique Key模型的Merge-on-Write实现上，用户可以使用streamload进行部分列更新。当该参数设置为true的时候，用户可以通过`columns`参数来指定要更新的数据的key列和value列。</version>
+
 - columns
 
   待导入数据的函数变换配置，目前 Stream load 支持的函数变换方法包含列的顺序变化以及表达式变换，其中表达式变换的方法与查询语句的一致。
