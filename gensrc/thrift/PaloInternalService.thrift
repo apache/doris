@@ -240,6 +240,8 @@ struct TQueryOptions {
 
   // A tag used to distinguish fe start epoch.
   82: optional i64 fe_process_uuid = 0;
+
+  83: optional i32 inverted_index_conjunction_opt_threshold = 1000;
 }
 
 
