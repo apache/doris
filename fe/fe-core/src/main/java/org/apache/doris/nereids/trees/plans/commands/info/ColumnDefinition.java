@@ -161,7 +161,7 @@ public class ColumnDefinition {
 
     public static ColumnDefinition newRowStoreColumnDefinition(AggregateType aggregateType) {
         return new ColumnDefinition(Column.ROW_STORE_COL, StringType.INSTANCE, false, aggregateType, false,
-                Optional.of(DefaultValue.NULL_DEFAULT_VALUE), "doris row store hidden column", false);
+                Optional.of(new DefaultValue("")), "doris row store hidden column", false);
     }
 
     public static ColumnDefinition newVersionColumnDefinition(AggregateType aggregateType) {
