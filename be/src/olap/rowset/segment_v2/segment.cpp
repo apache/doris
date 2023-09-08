@@ -328,12 +328,12 @@ Status Segment::new_bitmap_index_iterator(const TabletColumn& tablet_column,
 
 Status Segment::new_inverted_index_iterator(const TabletColumn& tablet_column,
                                             const TabletIndex* index_meta,
-                                            OlapReaderStatistics* stats,
+                                            const StorageReadOptions& read_options,
                                             std::unique_ptr<InvertedIndexIterator>* iter) {
     auto col_unique_id = tablet_column.unique_id();
     if (_column_readers.count(col_unique_id) > 0 && index_meta) {
         RETURN_IF_ERROR(_column_readers.at(col_unique_id)
-                                ->new_inverted_index_iterator(index_meta, stats, iter));
+                                ->new_inverted_index_iterator(index_meta, read_options, iter));
         return Status::OK();
     }
     return Status::OK();
