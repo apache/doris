@@ -355,6 +355,10 @@ public class ExportCommand extends Command implements ForwardWithSync {
         return this.fileProperties;
     }
 
+    public List<String> getNameParts() {
+        return this.nameParts;
+    }
+
     @Override
     public <R, C> R accept(PlanVisitor<R, C> visitor, C context) {
         return visitor.visitExportCommand(this, context);
