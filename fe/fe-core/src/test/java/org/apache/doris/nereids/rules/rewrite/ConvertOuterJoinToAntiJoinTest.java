@@ -32,11 +32,11 @@ import org.apache.doris.nereids.util.PlanConstructor;
 import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.Test;
 
-class TransformOuterJoinToAntiJoinTest implements MemoPatternMatchSupported {
+class ConvertOuterJoinToAntiJoinTest implements MemoPatternMatchSupported {
     private final LogicalOlapScan scan1;
     private final LogicalOlapScan scan2;
 
-    public TransformOuterJoinToAntiJoinTest() throws Exception {
+    public ConvertOuterJoinToAntiJoinTest() throws Exception {
         // clear id so that slot id keep consistent every running
         StatementScopeIdGenerator.clear();
         scan1 = PlanConstructor.newLogicalOlapScan(0, "t1", 0);
@@ -53,7 +53,7 @@ class TransformOuterJoinToAntiJoinTest implements MemoPatternMatchSupported {
 
         PlanChecker.from(MemoTestUtils.createConnectContext(), plan)
                 .applyTopDown(new InferFilterNotNull())
-                .applyTopDown(new TransformOuterJoinToAntiJoin())
+                .applyTopDown(new ConvertOuterJoinToAntiJoin())
                 .printlnTree()
                 .matches(logicalJoin().when(join -> join.getJoinType().isLeftAntiJoin()));
     }
@@ -68,7 +68,7 @@ class TransformOuterJoinToAntiJoinTest implements MemoPatternMatchSupported {
 
         PlanChecker.from(MemoTestUtils.createConnectContext(), plan)
                 .applyTopDown(new InferFilterNotNull())
-                .applyTopDown(new TransformOuterJoinToAntiJoin())
+                .applyTopDown(new ConvertOuterJoinToAntiJoin())
                 .printlnTree()
                 .matches(logicalJoin().when(join -> join.getJoinType().isRightAntiJoin()));
     }

@@ -63,6 +63,7 @@ public:
     }
 
     virtual Status init(RuntimeState* state, LocalStateInfo& info) = 0;
+    virtual Status open(RuntimeState* state) { return Status::OK(); }
     virtual Status close(RuntimeState* state) = 0;
 
     // If use projection, we should clear `_origin_block`.
@@ -86,6 +87,8 @@ public:
     [[nodiscard]] int64_t num_rows_returned() const { return _num_rows_returned; }
     void add_num_rows_returned(int64_t delta) { _num_rows_returned += delta; }
     void set_num_rows_returned(int64_t value) { _num_rows_returned = value; }
+
+    virtual std::string debug_string(int indentation_level = 0) const;
 
 protected:
     friend class OperatorXBase;
@@ -175,6 +178,13 @@ public:
         return Status::OK();
     }
 
+    bool runtime_filters_are_ready_or_timeout() override {
+        LOG(FATAL) << "should not reach here!";
+        return true;
+    }
+
+    virtual bool runtime_filters_are_ready_or_timeout(RuntimeState* state) const { return true; }
+
     virtual Status close(RuntimeState* state) override;
 
     virtual bool can_read(RuntimeState* state) { return true; }
@@ -185,7 +195,11 @@ public:
         return _row_descriptor;
     }
 
-    virtual std::string debug_string() const override;
+    std::string debug_string() const override { return ""; }
+
+    virtual std::string debug_string(int indentation_level = 0) const;
+
+    virtual std::string debug_string(RuntimeState* state, int indentation_level = 0) const;
 
     virtual Status setup_local_state(RuntimeState* state, LocalStateInfo& info) = 0;
 
@@ -302,6 +316,7 @@ public:
                 "PeakMemoryUsage", TUnit::BYTES, "MemoryUsage");
         return Status::OK();
     }
+
     virtual Status close(RuntimeState* state) override {
         if (_closed) {
             return Status::OK();
@@ -313,6 +328,8 @@ public:
         _closed = true;
         return Status::OK();
     }
+
+    virtual std::string debug_string(int indentation_level = 0) const override;
 
 protected:
     DependencyType* _dependency;
@@ -329,6 +346,9 @@ public:
 
     virtual Status init(RuntimeState* state, LocalSinkStateInfo& info) = 0;
     virtual Status close(RuntimeState* state) = 0;
+
+    virtual std::string debug_string(int indentation_level) const;
+
     template <class TARGET>
     TARGET& cast() {
         DCHECK(dynamic_cast<TARGET*>(this))
@@ -378,7 +398,7 @@ public:
     // For agg/sort/join sink.
     virtual Status init(const TPlanNode& tnode, RuntimeState* state);
 
-    virtual Status init(const TDataSink& tsink) override { return Status::OK(); }
+    virtual Status init(const TDataSink& tsink) override;
 
     virtual Status setup_local_state(RuntimeState* state, LocalSinkStateInfo& info) = 0;
 
@@ -424,7 +444,11 @@ public:
 
     virtual bool is_pending_finish(RuntimeState* state) const { return false; }
 
-    virtual std::string debug_string() const override;
+    std::string debug_string() const override { return ""; }
+
+    virtual std::string debug_string(int indentation_level) const;
+
+    virtual std::string debug_string(RuntimeState* state, int indentation_level) const;
 
     bool is_sink() const override { return true; }
 
@@ -484,6 +508,7 @@ public:
         _mem_tracker = std::make_unique<MemTracker>(_parent->get_name());
         return Status::OK();
     }
+
     virtual Status close(RuntimeState* state) override {
         if (_closed) {
             return Status::OK();
@@ -491,6 +516,8 @@ public:
         _closed = true;
         return Status::OK();
     }
+
+    virtual std::string debug_string(int indentation_level) const override;
 
 protected:
     DependencyType* _dependency;

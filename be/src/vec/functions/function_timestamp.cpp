@@ -782,6 +782,68 @@ public:
     }
 };
 
+struct MicroSec {
+    static constexpr auto name = "microsecond_timestamp";
+    static constexpr Int64 ratio = 1000000;
+};
+struct MilliSec {
+    static constexpr auto name = "millisecond_timestamp";
+    static constexpr Int64 ratio = 1000;
+};
+struct Sec {
+    static constexpr auto name = "second_timestamp";
+    static constexpr Int64 ratio = 1;
+};
+template <typename Impl>
+class DateTimeToTimestamp : public IFunction {
+public:
+    using ReturnType = Int64;
+    static constexpr Int64 ratio_to_micro = (1000 * 1000) / Impl::ratio;
+    static constexpr auto name = Impl::name;
+    static FunctionPtr create() { return std::make_shared<DateTimeToTimestamp<Impl>>(); }
+
+    String get_name() const override { return name; }
+
+    size_t get_number_of_arguments() const override { return 1; }
+
+    DataTypePtr get_return_type_impl(const ColumnsWithTypeAndName& arguments) const override {
+        return make_nullable(std::make_shared<DataTypeInt64>());
+    }
+
+    Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
+                        size_t result, size_t input_rows_count) override {
+        const auto& arg_col = block.get_by_position(arguments[0]).column;
+        const auto& column_data = assert_cast<const ColumnUInt64&>(*arg_col);
+        auto res_col = ColumnInt64::create();
+        auto null_vector = ColumnVector<UInt8>::create();
+        res_col->get_data().resize_fill(input_rows_count, 0);
+        null_vector->get_data().resize_fill(input_rows_count, false);
+        NullMap& null_map = null_vector->get_data();
+        auto& res_data = res_col->get_data();
+        const cctz::time_zone& time_zone = context->state()->timezone_obj();
+        for (int i = 0; i < input_rows_count; i++) {
+            if (arg_col->is_null_at(i)) {
+                null_map[i] = true;
+                continue;
+            }
+            StringRef source = column_data.get_data_at(i);
+            const DateV2Value<DateTimeV2ValueType>& dt =
+                    reinterpret_cast<const DateV2Value<DateTimeV2ValueType>&>(*source.data);
+            int64_t timestamp {0};
+            if (!dt.unix_timestamp(&timestamp, time_zone)) {
+                null_map[i] = true;
+            } else {
+                auto microsecond = dt.microsecond();
+                timestamp = timestamp * Impl::ratio + microsecond / ratio_to_micro;
+                res_data[i] = timestamp;
+            }
+        }
+        block.get_by_position(result).column =
+                ColumnNullable::create(std::move(res_col), std::move(null_vector));
+        return Status::OK();
+    }
+};
+
 template <template <typename> class Impl, typename DateType>
 class FunctionDateOrDateTimeToDate : public IFunction {
 public:
@@ -1235,6 +1297,10 @@ void register_function_timestamp(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionDateOrDateTimeToDate<MondayImpl, DataTypeDateTimeV2>>();
     factory.register_function<FunctionDateOrDateTimeToDate<MondayImpl, DataTypeDate>>();
     factory.register_function<FunctionDateOrDateTimeToDate<MondayImpl, DataTypeDateTime>>();
+
+    factory.register_function<DateTimeToTimestamp<MicroSec>>();
+    factory.register_function<DateTimeToTimestamp<MilliSec>>();
+    factory.register_function<DateTimeToTimestamp<Sec>>();
 }
 
 } // namespace doris::vectorized

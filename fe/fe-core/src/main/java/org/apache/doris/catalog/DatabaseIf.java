@@ -30,6 +30,7 @@ import org.apache.logging.log4j.Logger;
 
 import java.util.Arrays;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.TimeUnit;
@@ -257,4 +258,6 @@ public interface DatabaseIf<T extends TableIf> {
     default long getLastUpdateTime() {
         return -1L;
     }
+
+    public Map<Long, TableIf> getIdToTable();
 }
