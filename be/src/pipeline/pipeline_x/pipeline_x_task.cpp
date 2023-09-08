@@ -162,6 +162,7 @@ Status PipelineXTask::execute(bool* eos) {
             return Status::OK();
         }
     }
+    LOG(WARNING) << "=====1 " << debug_string();
 
     set_begin_execute_time();
     while (!_fragment_context->is_canceled()) {
@@ -260,6 +261,8 @@ std::string PipelineXTask::debug_string() {
     fmt::memory_buffer debug_string_buffer;
 
     fmt::format_to(debug_string_buffer, "QueryId: {}\n", print_id(query_context()->query_id()));
+    fmt::format_to(debug_string_buffer, "InstanceId: {}\n",
+                   print_id(_state->fragment_instance_id()));
 
     fmt::format_to(debug_string_buffer, "RuntimeUsage: {}\n",
                    PrettyPrinter::print(get_runtime_ns(), TUnit::TIME_NS));
@@ -273,14 +276,16 @@ std::string PipelineXTask::debug_string() {
                    "PipelineTask[this = {}, state = {}]\noperators: ", (void*)this,
                    get_state_name(_cur_state));
     for (size_t i = 0; i < _operators.size(); i++) {
-        fmt::format_to(debug_string_buffer, "\n{}{}", std::string(i * 2, ' '),
-                       _operators[i]->debug_string());
+        fmt::format_to(
+                debug_string_buffer, "\n{}",
+                _opened ? _operators[i]->debug_string(_state, i) : _operators[i]->debug_string(i));
         std::stringstream profile_ss;
         _operators[i]->get_runtime_profile()->pretty_print(&profile_ss, std::string(i * 2, ' '));
         fmt::format_to(debug_string_buffer, "\n{}", profile_ss.str());
     }
-    fmt::format_to(debug_string_buffer, "\n{}{}", std::string(_operators.size() * 2, ' '),
-                   _sink->debug_string());
+    fmt::format_to(debug_string_buffer, "\n{}",
+                   _opened ? _sink->debug_string(_state, _operators.size())
+                           : _sink->debug_string(_operators.size()));
     {
         std::stringstream profile_ss;
         _sink->get_runtime_profile()->pretty_print(&profile_ss,
