@@ -1394,7 +1394,10 @@ Status ColumnObject::extract_root(const PathInData& path, MutableColumnPtr& dst)
 template <typename ColumnInserterFn>
 void align_variant_by_name_and_type(ColumnObject& dst, const ColumnObject& src, size_t row_cnt,
                                     ColumnInserterFn inserter) {
-    CHECK(dst.is_finalized() && src.is_finalized());
+    CHECK(dst.is_finalized());
+    if (!src.is_finalized()) {
+        const_cast<ColumnObject&>(src).finalize();
+    }
     // Use rows() here instead of size(), since size() will check_consistency
     // but we could not check_consistency since num_rows will be upgraded even
     // if src and dst is empty, we just increase the num_rows of dst and fill
