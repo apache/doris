@@ -385,6 +385,12 @@ public:
 
     int64_t get_table_id() { return _tablet_meta->table_id(); }
 
+    // MUST hold SHARED `_meta_lock`
+    const auto& rowset_map() const { return _rs_version_map; }
+
+    // MUST hold SHARED `_meta_lock`
+    const auto& stale_rowset_map() const { return _stale_rs_version_map; }
+
 private:
     Status _init_once_action();
     void _print_missed_versions(const std::vector<Version>& missed_versions) const;
