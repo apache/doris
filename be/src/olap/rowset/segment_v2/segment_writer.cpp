@@ -658,8 +658,8 @@ Status SegmentWriter::append_block(const vectorized::Block* block, size_t row_po
             const vectorized::Int8* delete_sign_column_data = delete_sign_col.get_data().data();
             uint32_t segment_start_pos =
                     _column_writers[_tablet_schema->delete_sign_idx()]->get_next_rowid();
-            for (size_t block_pos = row_pos, seg_pos = segment_start_pos; seg_pos < num_rows;
-                 block_pos++, seg_pos++) {
+            for (size_t block_pos = row_pos, seg_pos = segment_start_pos;
+                 seg_pos < segment_start_pos + num_rows; block_pos++, seg_pos++) {
                 // we can directly use delete bitmap to mark the rows with delete sign as deleted
                 // if sequence column doesn't exist to eliminate reading delete sign columns in later reads
                 if (delete_sign_column_data[block_pos]) {
