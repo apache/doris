@@ -355,7 +355,6 @@ void HashJoinBuildSinkLocalState::_hash_table_init(RuntimeState* state) {
 
     std::visit(vectorized::Overload {[&](std::monostate& arg) {
                                          LOG(FATAL) << "FATAL: uninited hash table";
-                                         LOG(FATAL) << "__builtin_unreachable";
                                          __builtin_unreachable();
                                      },
                                      [&](auto&& arg) {

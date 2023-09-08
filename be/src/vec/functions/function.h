@@ -461,7 +461,6 @@ public:
                                              const ColumnNumbers& /*arguments*/,
                                              size_t /*result*/) const final {
         LOG(FATAL) << "prepare is not implemented for IFunction";
-        LOG(FATAL) << "__builtin_unreachable";
         __builtin_unreachable();
     }
 
