@@ -1132,7 +1132,8 @@ public class OlapTable extends Table {
         if (rowCount == 0) {
             return false;
         }
-        long updateRows = tblStats.updatedRows.get();
+        // long updateRows = tblStats.updatedRows.get();
+        long updateRows = Math.abs(tblStats.rowCount - rowCount);
         int tblHealth = StatisticsUtil.getTableHealth(rowCount, updateRows);
         return tblHealth < Config.table_stats_health_threshold;
     }

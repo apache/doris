@@ -87,6 +87,9 @@ import org.apache.logging.log4j.Logger;
 
 import java.net.InetSocketAddress;
 import java.text.SimpleDateFormat;
+import java.time.LocalTime;
+import java.time.format.DateTimeFormatter;
+import java.time.format.DateTimeParseException;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
@@ -710,5 +713,22 @@ public class StatisticsUtil {
             return false;
         }
         return table instanceof ExternalTable;
+    }
+
+    public static boolean checkAnalyzeTime(LocalTime now) {
+        try {
+            DateTimeFormatter timeFormatter = DateTimeFormatter.ofPattern("HH:mm:ss");
+            LocalTime start = LocalTime.parse(Config.full_auto_analyze_start_time, timeFormatter);
+            LocalTime end = LocalTime.parse(Config.full_auto_analyze_end_time, timeFormatter);
+
+            if (start.isAfter(end) && (now.isAfter(start) || now.isBefore(end))) {
+                return true;
+            } else {
+                return now.isAfter(start) && now.isBefore(end);
+            }
+        } catch (DateTimeParseException e) {
+            LOG.warn("Parse analyze start/end time format fail", e);
+            return true;
+        }
     }
 }

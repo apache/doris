@@ -21,6 +21,7 @@ import org.apache.doris.analysis.AnalyzeProperties;
 import org.apache.doris.analysis.AnalyzeTblStmt;
 import org.apache.doris.analysis.PartitionNames;
 import org.apache.doris.analysis.TableName;
+import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.statistics.AnalysisInfo.AnalysisType;
 import org.apache.doris.statistics.AnalysisInfo.JobType;
@@ -260,6 +261,80 @@ public class AnalysisManagerTest {
                 times = 1;
             }
         };
+    }
+
+    @Test
+    public void testSystemJobStatusUpdater() {
+        new MockUp<BaseAnalysisTask>() {
+
+            @Mock
+            protected void init(AnalysisInfo info) {
+
+            }
+        };
+
+        new MockUp<AnalysisManager>() {
+            @Mock
+            public void updateTableStats(AnalysisInfo jobInfo) {}
+
+            @Mock
+            protected void logAutoJob(AnalysisInfo autoJob) {
+
+            }
+        };
+
+        AnalysisManager analysisManager = new AnalysisManager();
+        AnalysisInfo job = new AnalysisInfoBuilder()
+                .setJobId(0)
+                .setColName("col1, col2").build();
+        analysisManager.systemJobInfoMap.put(job.jobId, job);
+        AnalysisInfo task1 = new AnalysisInfoBuilder()
+                .setJobId(0)
+                .setTaskId(1)
+                .setState(AnalysisState.RUNNING)
+                .setColName("col1").build();
+        AnalysisInfo task2 = new AnalysisInfoBuilder()
+                .setJobId(0)
+                .setTaskId(1)
+                .setState(AnalysisState.FINISHED)
+                .setColName("col2").build();
+        OlapAnalysisTask ot1 = new OlapAnalysisTask(task1);
+        OlapAnalysisTask ot2 = new OlapAnalysisTask(task2);
+        Map<Long, BaseAnalysisTask> taskMap = new HashMap<>();
+        taskMap.put(ot1.info.taskId, ot1);
+        taskMap.put(ot2.info.taskId, ot2);
+        analysisManager.analysisJobIdToTaskMap.put(job.jobId, taskMap);
+
+        // test invalid job
+        AnalysisInfo invalidJob = new AnalysisInfoBuilder().setJobId(-1).build();
+        analysisManager.systemJobStatusUpdater.apply(new TaskStatusWrapper(invalidJob,
+                AnalysisState.FAILED, "", 0));
+
+        // test finished
+        analysisManager.systemJobStatusUpdater.apply(new TaskStatusWrapper(task1, AnalysisState.FAILED, "", 0));
+        analysisManager.systemJobStatusUpdater.apply(new TaskStatusWrapper(task1, AnalysisState.FINISHED, "", 0));
+        Assertions.assertEquals(1, analysisManager.autoJobs.size());
+        Assertions.assertTrue(analysisManager.systemJobInfoMap.isEmpty());
+    }
+
+    @Test
+    public void testReAnalyze() {
+        new MockUp<OlapTable>() {
+
+            int count = 0;
+            int[] rowCount = new int[]{100, 200};
+            @Mock
+            public long getRowCount() {
+                return rowCount[count++];
+            }
+
+        };
+        OlapTable olapTable = new OlapTable();
+        TableStats stats1 = new TableStats(0, 50, new AnalysisInfoBuilder().build());
+        Assertions.assertTrue(olapTable.needReAnalyzeTable(stats1));
+        TableStats stats2 = new TableStats(0, 190, new AnalysisInfoBuilder().build());
+        Assertions.assertFalse(olapTable.needReAnalyzeTable(stats2));
+
     }
 
 }

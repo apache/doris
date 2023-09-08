@@ -2484,6 +2484,7 @@ public class StmtExecutor {
                     analyze(context.getSessionVariable().toThrift());
                 }
             } catch (Exception e) {
+                LOG.warn("Failed to run internal SQL: {}", originStmt.toString(), e);
                 throw new RuntimeException("Failed to execute internal SQL. " + Util.getRootCauseMessage(e), e);
             }
             planner.getFragments();

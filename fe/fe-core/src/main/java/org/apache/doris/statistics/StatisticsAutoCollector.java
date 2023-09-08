@@ -28,6 +28,7 @@ import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.statistics.AnalysisInfo.AnalysisMethod;
 import org.apache.doris.statistics.AnalysisInfo.JobType;
+import org.apache.doris.statistics.AnalysisInfo.ScheduleType;
 import org.apache.doris.statistics.util.StatisticsUtil;
 
 import com.google.common.collect.Maps;
@@ -36,8 +37,6 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.time.LocalTime;
-import java.time.format.DateTimeFormatter;
-import java.time.format.DateTimeParseException;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
@@ -58,7 +57,8 @@ public class StatisticsAutoCollector extends StatisticsCollector {
 
     @Override
     protected void collect() {
-        if (!checkAnalyzeTime(LocalTime.now(TimeUtils.getTimeZone().toZoneId()))) {
+        if (!StatisticsUtil.checkAnalyzeTime(LocalTime.now(TimeUtils.getTimeZone().toZoneId()))) {
+            analysisTaskExecutor.clear();
             return;
         }
         if (Config.enable_full_auto_analyze) {
@@ -104,7 +104,25 @@ public class StatisticsAutoCollector extends StatisticsCollector {
             if (table instanceof View || skip(table)) {
                 continue;
             }
-            createAnalyzeJobForTbl(db, analysisInfos, table);
+            TableName tableName = new TableName(db.getCatalog().getName(), db.getFullName(),
+                    table.getName());
+            AnalysisInfo jobInfo = new AnalysisInfoBuilder()
+                    .setJobId(Env.getCurrentEnv().getNextId())
+                    .setCatalogName(db.getCatalog().getName())
+                    .setDbName(db.getFullName())
+                    .setTblName(tableName.getTbl())
+                    .setColName(
+                            table.getBaseSchema().stream().filter(c -> !StatisticsUtil.isUnsupportedType(c.getType()))
+                                    .map(
+                                            Column::getName).collect(Collectors.joining(","))
+                    )
+                    .setAnalysisType(AnalysisInfo.AnalysisType.FUNDAMENTALS)
+                    .setAnalysisMethod(AnalysisInfo.AnalysisMethod.FULL)
+                    .setScheduleType(ScheduleType.AUTOMATIC)
+                    .setState(AnalysisState.PENDING)
+                    .setTaskIds(new ArrayList<>())
+                    .setJobType(JobType.SYSTEM).build();
+            analysisInfos.add(jobInfo);
         }
         return analysisInfos;
     }
@@ -172,6 +190,9 @@ public class StatisticsAutoCollector extends StatisticsCollector {
         Map<String, Set<String>> colToPartitions = jobInfo.colToPartitions;
         if (colToPartitions == null) {
             for (Column c : table.getColumns()) {
+                if (StatisticsUtil.isUnsupportedType(c.getType())) {
+                    continue;
+                }
                 newColToPartitions.put(c.getName(), needRunPartitions);
             }
         } else {
@@ -184,22 +205,5 @@ public class StatisticsAutoCollector extends StatisticsCollector {
         }
         return new AnalysisInfoBuilder(jobInfo)
                 .setColToPartitions(newColToPartitions).build();
-    }
-
-    private boolean checkAnalyzeTime(LocalTime now) {
-        try {
-            DateTimeFormatter timeFormatter = DateTimeFormatter.ofPattern("HH:mm:ss");
-            LocalTime start = LocalTime.parse(Config.full_auto_analyze_start_time, timeFormatter);
-            LocalTime end = LocalTime.parse(Config.full_auto_analyze_end_time, timeFormatter);
-
-            if (start.isAfter(end) && (now.isAfter(start) || now.isBefore(end))) {
-                return true;
-            } else {
-                return now.isAfter(start) && now.isBefore(end);
-            }
-        } catch (DateTimeParseException e) {
-            LOG.warn("Parse analyze start/end time format fail", e);
-            return true;
-        }
     }
 }

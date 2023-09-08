@@ -114,7 +114,7 @@ public abstract class BaseAnalysisTask {
         init(info);
     }
 
-    private void init(AnalysisInfo info) {
+    protected void init(AnalysisInfo info) {
         catalog = Env.getCurrentEnv().getCatalogMgr().getCatalog(info.catalogName);
         if (catalog == null) {
             Env.getCurrentEnv().getAnalysisManager().updateTaskStatus(info, AnalysisState.FAILED,

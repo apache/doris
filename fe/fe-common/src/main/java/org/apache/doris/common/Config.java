@@ -2184,4 +2184,10 @@ public class Config extends ConfigBase {
 
     @ConfField(description = {"是否开启大表自动sample", "Whether to enable automatic sampling of large tables"})
     public static boolean enable_auto_sample = false;
+
+    @ConfField(description = {
+            "控制系统自动触发作业执行记录的持久化行数",
+            "Determine the persist number of automatic triggered analyze job execution status"
+    })
+    public static long auto_analyze_job_record_count = 20000;
 }

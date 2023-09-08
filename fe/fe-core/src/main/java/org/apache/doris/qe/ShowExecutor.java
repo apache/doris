@@ -2676,7 +2676,9 @@ public class ShowExecutor {
                             ZoneId.systemDefault())));
             row.add(analysisInfo.state.toString());
             try {
-                row.add(Env.getCurrentEnv().getAnalysisManager().getJobProgress(analysisInfo.jobId));
+                row.add(showStmt.isAuto()
+                        ? analysisInfo.progress
+                        : Env.getCurrentEnv().getAnalysisManager().getJobProgress(analysisInfo.jobId));
             } catch (Exception e) {
                 row.add("N/A");
                 LOG.warn("Failed to get progress for job: {}", analysisInfo, e);

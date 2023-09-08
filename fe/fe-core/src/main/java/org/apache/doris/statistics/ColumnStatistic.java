@@ -161,7 +161,7 @@ public class ColumnStatistic {
             String colName = row.get(5);
             Column col = StatisticsUtil.findColumn(catalogId, dbID, tblId, idxId, colName);
             if (col == null) {
-                LOG.warn("Failed to deserialize column statistics, ctlId: {} dbId: {}"
+                LOG.debug("Failed to deserialize column statistics, ctlId: {} dbId: {}"
                                 + "tblId: {} column: {} not exists",
                         catalogId, dbID, tblId, colName);
                 return ColumnStatistic.UNKNOWN;

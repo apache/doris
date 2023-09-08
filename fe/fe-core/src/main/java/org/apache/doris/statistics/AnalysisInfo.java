@@ -48,6 +48,7 @@ public class AnalysisInfo implements Writable {
 
     private static final Logger LOG = LogManager.getLogger(AnalysisInfo.class);
 
+    // TODO: useless, remove it later
     public enum AnalysisMode {
         INCREMENTAL,
         FULL
@@ -165,6 +166,9 @@ public class AnalysisInfo implements Writable {
     // For serialize
     @SerializedName("cronExpr")
     public String cronExprStr;
+
+    @SerializedName("progress")
+    public String progress;
 
     public CronExpression cronExpression;
 
