@@ -59,6 +59,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.FromDays;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Hour;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.HoursDiff;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.HoursSub;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.If;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Least;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Minute;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MinutesAdd;
@@ -134,13 +135,25 @@ public class ExpressionEstimation extends ExpressionVisitor<ColumnStatistic, Sta
     //TODO: case-when need to re-implemented
     @Override
     public ColumnStatistic visitCaseWhen(CaseWhen caseWhen, Statistics context) {
-        ColumnStatisticBuilder columnStat = new ColumnStatisticBuilder();
-        columnStat.setNdv(caseWhen.getWhenClauses().size() + 1);
-        columnStat.setMinValue(0);
-        columnStat.setMaxValue(Double.MAX_VALUE);
-        columnStat.setAvgSizeByte(8);
-        columnStat.setNumNulls(0);
-        return columnStat.build();
+        return new ColumnStatisticBuilder()
+                .setNdv(caseWhen.getWhenClauses().size() + 1)
+                .setMinValue(0)
+                .setMaxValue(Double.MAX_VALUE)
+                .setAvgSizeByte(8)
+                .setNumNulls(0)
+                .build();
+    }
+
+    @Override
+    public ColumnStatistic visitIf(If function, Statistics context) {
+        // TODO: copy from visitCaseWhen, polish them.
+        return new ColumnStatisticBuilder()
+                .setNdv(2)
+                .setMinValue(0)
+                .setMaxValue(Double.MAX_VALUE)
+                .setAvgSizeByte(8)
+                .setNumNulls(0)
+                .build();
     }
 
     @Override
