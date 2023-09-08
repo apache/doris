@@ -368,7 +368,7 @@ Status ExecEnv::_init_mem_env() {
     while (!is_percent && pk_storage_page_cache_limit > MemInfo::mem_limit() / 2) {
         pk_storage_page_cache_limit = storage_cache_limit / 2;
     }
-    StoragePageCache::create_global_cache(storage_cache_limit, index_percentage,
+    _storage_page_cache = StoragePageCache::create_global_cache(storage_cache_limit, index_percentage,
                                           pk_storage_page_cache_limit, num_shards);
     LOG(INFO) << "Storage page cache memory limit: "
               << PrettyPrinter::print(storage_cache_limit, TUnit::BYTES)
@@ -548,6 +548,9 @@ void ExecEnv::destroy() {
     InvertedIndexSearcherCache::reset_global_instance();
     SAFE_DELETE(_user_function_cache);
     SAFE_DELETE(_file_cache_factory);
+    // StoragePageCache must be destroied after Daemon in doris_main.cpp is stopped. 
+    // see https://github.com/apache/doris/issues/24082
+    SAFE_DELETE(_storage_page_cache);   
 }
 
 } // namespace doris

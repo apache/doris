@@ -89,6 +89,7 @@ class GroupCommitMgr;
 class TabletSchemaCache;
 class UserFunctionCache;
 class SchemaCache;
+class StoragePageCache;
 
 inline bool k_doris_exit = false;
 
@@ -223,6 +224,7 @@ public:
     StorageEngine* get_storage_engine() { return _storage_engine; }
     io::S3FileBufferPool* get_s3_file_buffer_pool() { return _s3_buffer_pool; }
     SchemaCache* schema_cache() { return _schema_cache; }
+    StoragePageCache* get_storage_page_cache() { return _storage_page_cache; }
 
 private:
     ExecEnv();
@@ -317,6 +319,7 @@ private:
     io::S3FileBufferPool* _s3_buffer_pool = nullptr;
     StorageEngine* _storage_engine = nullptr;
     SchemaCache* _schema_cache = nullptr;
+    StoragePageCache* _storage_page_cache = nullptr;
 };
 
 template <>
@@ -343,6 +346,10 @@ inline io::S3FileBufferPool* GetGlobalS3FileBufferPool() {
 
 inline StorageEngine* GetGlobalStorageEngine() {
     return ExecEnv::GetInstance()->get_storage_engine();
+}
+
+inline StoragePageCache* GetGlobalStoragePageCache() {
+    return ExecEnv::GetInstance()->get_storage_page_cache();
 }
 
 } // namespace doris
