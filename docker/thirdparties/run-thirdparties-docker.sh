@@ -130,6 +130,7 @@ RUN_ES=0
 RUN_ICEBERG=0
 RUN_HUDI=0
 RUN_TRINO=0
+RUN_KAFKA=0
 
 for element in "${COMPONENTS_ARR[@]}"; do
     if [[ "${element}"x == "mysql"x ]]; then
@@ -146,6 +147,8 @@ for element in "${COMPONENTS_ARR[@]}"; do
         RUN_ES=1
     elif [[ "${element}"x == "hive"x ]]; then
         RUN_HIVE=1
+    elif [[ "${element}"x == "kafka"x ]]; then
+        RUN_KAFKA=1
     elif [[ "${element}"x == "iceberg"x ]]; then
         RUN_ICEBERG=1
     elif [[ "${element}"x == "hudi"x ]]; then
@@ -232,6 +235,15 @@ if [[ "${RUN_CLICKHOUSE}" -eq 1 ]]; then
         sudo mkdir -p "${ROOT}"/docker-compose/clickhouse/data/
         sudo rm "${ROOT}"/docker-compose/clickhouse/data/* -rf
         sudo docker compose -f "${ROOT}"/docker-compose/clickhouse/clickhouse.yaml --env-file "${ROOT}"/docker-compose/clickhouse/clickhouse.env up -d
+    fi
+fi
+
+if [[ "${RUN_KAFKA}" -eq 1 ]]; then
+    # kafka
+    cp "${ROOT}"/docker-compose/kafka/kafka.yaml.tpl "${ROOT}"/docker-compose/kafka/kafka.yaml
+    sudo docker compose -f "${ROOT}"/docker-compose/kafka/kafka.yaml --env-file "${ROOT}"/docker-compose/kafka/kafka.env down
+    if [[ "${STOP}" -ne 1 ]]; then
+        sudo sudo docker compose -f "${ROOT}"/docker-compose/kafka/kafka.yaml --env-file "${ROOT}"/docker-compose/kafka/kafka.env up --build --remove-orphans -d
     fi
 fi
 
