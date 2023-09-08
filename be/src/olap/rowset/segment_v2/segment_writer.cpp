@@ -648,7 +648,8 @@ Status SegmentWriter::append_block(const vectorized::Block* block, size_t row_po
         _serialize_block_to_row_column(*const_cast<vectorized::Block*>(block));
     }
 
-    if (!_tablet_schema->has_sequence_col() && _tablet_schema->delete_sign_idx() != -1) {
+    if (_opts.enable_unique_key_merge_on_write && !_tablet_schema->has_sequence_col() &&
+        _tablet_schema->delete_sign_idx() != -1) {
         const vectorized::ColumnWithTypeAndName& delete_sign_column =
                 block->get_by_position(_tablet_schema->delete_sign_idx());
         auto& delete_sign_col =
