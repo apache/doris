@@ -2509,6 +2509,8 @@ public class StmtExecutor {
                 fetchResultSpan.end();
             }
         } finally {
+            AuditLogHelper.logAuditLog(context, originStmt.toString(), parsedStmt, getQueryStatisticsForAuditLog(),
+                    true);
             QeProcessorImpl.INSTANCE.unregisterQuery(context.queryId());
         }
     }
