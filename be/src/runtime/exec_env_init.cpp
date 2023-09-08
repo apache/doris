@@ -23,6 +23,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/resource.h>
+#include <common/multi_version.h>
 
 #include <limits>
 #include <map>
@@ -34,9 +35,11 @@
 #include <vector>
 
 #include "common/config.h"
+#include "common/daemon.h"
 #include "common/logging.h"
 #include "common/status.h"
 #include "io/fs/file_meta_cache.h"
+#include "io/fs/s3_file_write_bufferpool.h"
 #include "olap/memtable_memory_limiter.h"
 #include "olap/olap_define.h"
 #include "olap/options.h"
@@ -44,6 +47,7 @@
 #include "olap/rowset/segment_v2/inverted_index_cache.h"
 #include "olap/schema_cache.h"
 #include "olap/segment_loader.h"
+#include "olap/storage_engine.h"
 #include "pipeline/task_queue.h"
 #include "pipeline/task_scheduler.h"
 #include "runtime/block_spill_manager.h"
@@ -70,6 +74,7 @@
 #include "runtime/task_group/task_group_manager.h"
 #include "runtime/thread_context.h"
 #include "service/backend_options.h"
+#include "service/backend_service.h"
 #include "service/point_query_executor.h"
 #include "util/bfd_parser.h"
 #include "util/bit_util.h"
@@ -82,6 +87,7 @@
 #include "util/parse_util.h"
 #include "util/pretty_printer.h"
 #include "util/threadpool.h"
+#include "util/thrift_rpc_helper.h"
 #include "util/timezone_utils.h"
 #include "vec/exec/scan/scanner_scheduler.h"
 #include "vec/runtime/vdata_stream_mgr.h"
@@ -131,7 +137,7 @@ Status ExecEnv::init(ExecEnv* env, const std::vector<StorePath>& store_paths) {
 Status ExecEnv::_init(const std::vector<StorePath>& store_paths) {
     //Only init once before be destroyed
     if (ready()) {
-        return Status::OK();
+        return Status::OK(); 
     }
     init_doris_metrics(store_paths);
     _store_paths = store_paths;
@@ -219,6 +225,33 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths) {
     _heartbeat_flags = new HeartbeatFlags();
     _register_metrics();
     _s_ready = true;
+
+    _tablet_schema_cache = TabletSchemaCache::create_global_schema_cache();
+
+    // S3 buffer pool
+    _s3_buffer_pool = new io::S3FileBufferPool();
+    _s3_buffer_pool->init(config::s3_write_buffer_whole_size, config::s3_write_buffer_size,
+                          this->buffered_reader_prefetch_thread_pool());
+
+    // Storage engine
+    doris::EngineOptions options;
+    options.store_paths = store_paths;
+    options.backend_uid = doris::UniqueId::gen_uid();
+    _storage_engine = new StorageEngine(options);
+    auto st = _storage_engine->open();
+    if (!st.ok()) {
+        LOG(ERROR) << "fail to open StorageEngine, res=" << st;
+        return st;
+    }
+    _storage_engine->set_heartbeat_flags(this->heartbeat_flags());
+    if (st = _storage_engine->start_bg_threads(); !st.ok()) {
+        LOG(ERROR) << "failed to starge bg threads of storage engine, res=" << st;
+        return st;
+    }
+
+    Daemon daemon;
+    daemon.start();
+
     return Status::OK();
 }
 
@@ -457,6 +490,11 @@ void ExecEnv::_destroy() {
     _experimental_mem_tracker.reset();
     _page_no_cache_mem_tracker.reset();
     _brpc_iobuf_block_memory_tracker.reset();
+
+    SAFE_DELETE(_tablet_schema_cache);
+    SAFE_DELETE(_s3_buffer_pool);
+    SAFE_DELETE(_storage_engine);
+
     InvertedIndexSearcherCache::reset_global_instance();
 }
 

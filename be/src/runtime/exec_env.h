@@ -21,6 +21,7 @@
 #include <stddef.h>
 
 #include <algorithm>
+#include <common/multi_version.h>
 #include <atomic>
 #include <map>
 #include <memory>
@@ -49,6 +50,10 @@ class TaskScheduler;
 namespace taskgroup {
 class TaskGroupManager;
 }
+namespace io {
+class S3FileBufferPool;
+}
+
 class BfdParser;
 class BrokerMgr;
 template <class T>
@@ -80,7 +85,8 @@ class HeartbeatFlags;
 class FrontendServiceClient;
 class FileMetaCache;
 class GroupCommitMgr;
-
+class TabletSchemaCache;
+ 
 inline bool k_doris_exit = false;
 
 // Execution environment for queries/plan fragments.
@@ -90,7 +96,7 @@ inline bool k_doris_exit = false;
 class ExecEnv {
 public:
     // Initial exec environment. must call this to init all
-    static Status init(ExecEnv* env, const std::vector<StorePath>& store_paths);
+    [[nodiscard]] static Status init(ExecEnv* env, const std::vector<StorePath>& store_paths);
     static void destroy(ExecEnv* exec_env);
 
     /// Returns the first created exec env instance. In a normal doris, this is
@@ -207,10 +213,14 @@ public:
     std::map<TNetworkAddress, FrontendInfo> get_frontends();
     std::map<TNetworkAddress, FrontendInfo> get_running_frontends();
 
+    TabletSchemaCache* get_tablet_schema_cache() { return _tablet_schema_cache; }
+    StorageEngine* get_storage_engine() { return _storage_engine; }
+    io::S3FileBufferPool* get_s3_file_buffer_pool() { return _s3_buffer_pool; }
+
 private:
     ExecEnv();
 
-    Status _init(const std::vector<StorePath>& store_paths);
+    [[nodiscard]] Status _init(const std::vector<StorePath>& store_paths);
     void _destroy();
 
     Status _init_mem_env();
@@ -289,6 +299,14 @@ private:
     std::mutex _frontends_lock;
     std::map<TNetworkAddress, FrontendInfo> _frontends;
     GroupCommitMgr* _group_commit_mgr = nullptr;
+
+    // Maybe we should use unique_ptr, but it need complete type, which means we need
+    // to include many headers, and for some cpp file that do not need class like TabletSchemaCache,
+    // these redundancy header could introduce potential bug, at least, more header means slow compile.
+    // So we choose to use raw pointer, please remember to delete these pointer in deconstructor.
+    TabletSchemaCache* _tablet_schema_cache = nullptr;
+    io::S3FileBufferPool* _s3_buffer_pool = nullptr;
+    StorageEngine* _storage_engine = nullptr;
 };
 
 template <>
@@ -303,6 +321,18 @@ template <>
 inline ClientCache<TPaloBrokerServiceClient>*
 ExecEnv::get_client_cache<TPaloBrokerServiceClient>() {
     return _broker_client_cache;
+}
+
+inline TabletSchemaCache* GetGlobalTabletSchemaCache() {
+    return ExecEnv::GetInstance()->get_tablet_schema_cache();
+}
+
+inline io::S3FileBufferPool* GetGlobalS3FileBufferPool() {
+    return ExecEnv::GetInstance()->get_s3_file_buffer_pool();
+}
+
+inline StorageEngine* GetGlobalStorageEngine() {
+    return ExecEnv::GetInstance()->get_storage_engine();
 }
 
 } // namespace doris

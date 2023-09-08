@@ -47,6 +47,7 @@
 #include "olap/rowset/segment_v2/segment.h"
 #include "olap/tablet.h"
 #include "olap/task/index_builder.h"
+#include "runtime/exec_env.h"
 #include "runtime/heartbeat_flags.h"
 #include "util/countdown_latch.h"
 
@@ -81,9 +82,9 @@ public:
     StorageEngine(const EngineOptions& options);
     ~StorageEngine();
 
-    static Status open(const EngineOptions& options, std::unique_ptr<StorageEngine>* engine_ptr);
+    [[nodiscard]] Status open();
 
-    static StorageEngine* instance() { return _s_instance; }
+    static StorageEngine* instance() { return GetGlobalStorageEngine(); }
 
     Status create_tablet(const TCreateTabletReq& request, RuntimeProfile* profile);
 

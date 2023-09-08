@@ -519,34 +519,12 @@ int main(int argc, char** argv) {
 
     // init exec env
     auto exec_env = doris::ExecEnv::GetInstance();
-    doris::ExecEnv::init(exec_env, paths);
-    doris::TabletSchemaCache::create_global_schema_cache();
-
-    // init s3 write buffer pool
-    doris::io::S3FileBufferPool* s3_buffer_pool = doris::io::S3FileBufferPool::GetInstance();
-    s3_buffer_pool->init(doris::config::s3_write_buffer_whole_size,
-                         doris::config::s3_write_buffer_size,
-                         exec_env->buffered_reader_prefetch_thread_pool());
-
-    // init and open storage engine
-    doris::EngineOptions options;
-    options.store_paths = paths;
-    options.backend_uid = doris::UniqueId::gen_uid();
-    std::unique_ptr<doris::StorageEngine> engine;
-    auto st = doris::StorageEngine::open(options, &engine);
-    if (!st.ok()) {
-        LOG(FATAL) << "fail to open StorageEngine, res=" << st;
+    status = doris::ExecEnv::init(exec_env, paths);
+    if (status != Status::OK()) {
+        LOG(FATAL) << "failed to init doris storage engine, res=" << status;
         exit(-1);
     }
-    engine->set_heartbeat_flags(exec_env->heartbeat_flags());
-
-    // start all background threads of storage engine.
-    // SHOULD be called after exec env is initialized.
-    EXIT_IF_ERROR(engine->start_bg_threads());
-
-    doris::Daemon daemon;
-    daemon.start();
-
+    
     doris::telemetry::init_tracer();
 
     // begin to start services
@@ -621,6 +599,7 @@ int main(int argc, char** argv) {
 
     // For graceful shutdown, need to wait for all running queries to stop
     exec_env->wait_for_all_tasks_done();
+    exec_env->destroy(doris::ExecEnv::GetInstance());
 
     return 0;
 }

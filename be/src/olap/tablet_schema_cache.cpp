@@ -24,7 +24,6 @@ TabletSchemaCache::~TabletSchemaCache() {
 }
 
 TabletSchemaSPtr TabletSchemaCache::insert(const std::string& key) {
-    DCHECK(_s_instance != nullptr);
     std::lock_guard guard(_mtx);
     auto iter = _cache.find(key);
     if (iter == _cache.end()) {

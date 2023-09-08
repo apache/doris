@@ -24,6 +24,7 @@
 #include <unordered_map>
 
 #include "olap/tablet_schema.h"
+#include "runtime/exec_env.h"
 #include "util/doris_metrics.h"
 
 namespace doris {
@@ -32,19 +33,18 @@ class TabletSchemaCache {
 public:
     ~TabletSchemaCache();
 
-    static void create_global_schema_cache() {
-        DCHECK(_s_instance == nullptr);
-        static TabletSchemaCache instance;
-        _s_instance = &instance;
-        std::thread t(&TabletSchemaCache::_recycle, _s_instance);
+    static TabletSchemaCache* create_global_schema_cache() {
+        TabletSchemaCache* res = new TabletSchemaCache();
+        std::thread t(&TabletSchemaCache::_recycle, res);
         t.detach();
+        return res;
     }
 
-    static TabletSchemaCache* instance() { return _s_instance; }
+    static TabletSchemaCache* instance() { return GetGlobalTabletSchemaCache(); }
 
     static void stop_and_join() {
-        DCHECK(_s_instance != nullptr);
-        _s_instance->stop();
+        DCHECK(GetGlobalTabletSchemaCache() != nullptr);
+        GetGlobalTabletSchemaCache()->stop();
     }
 
     TabletSchemaSPtr insert(const std::string& key);
@@ -58,7 +58,6 @@ private:
     void _recycle();
 
 private:
-    static inline TabletSchemaCache* _s_instance = nullptr;
     std::mutex _mtx;
     std::unordered_map<std::string, TabletSchemaSPtr> _cache;
     std::atomic_bool _should_stop = {false};
