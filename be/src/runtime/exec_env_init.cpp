@@ -35,7 +35,6 @@
 #include <vector>
 
 #include "common/config.h"
-#include "common/daemon.h"
 #include "common/logging.h"
 #include "common/status.h"
 #include "io/cache/block/block_file_cache_factory.h"
