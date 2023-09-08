@@ -60,6 +60,7 @@ public:
         if constexpr (std::is_same_v<TypeId<T>, TypeId<Decimal128>>) {
             return TYPE_DECIMALV2;
         }
+        LOG(FATAL) << "__builtin_unreachable";
         __builtin_unreachable();
     }
 
