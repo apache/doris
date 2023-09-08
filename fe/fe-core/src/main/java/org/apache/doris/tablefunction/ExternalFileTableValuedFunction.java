@@ -366,6 +366,7 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
             if (mockedUtObj instanceof List) {
                 return ((List<Column>) mockedUtObj);
             }
+            return new ArrayList<>();
         }
         if (!csvSchema.isEmpty()) {
             return csvSchema;
