@@ -487,6 +487,10 @@ private:
     scoped_refptr<Thread> _async_publish_thread;
     std::mutex _async_publish_mutex;
 
+    bool _clear_segment_cache = false;
+
+    std::atomic<bool> _need_clean_trash {false};
+
     DISALLOW_COPY_AND_ASSIGN(StorageEngine);
 };
 
