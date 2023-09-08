@@ -155,9 +155,8 @@ public:
         _doc = std::make_unique<lucene::document::Document>();
         _dir.reset(DorisCompoundDirectory::getDirectory(_fs, index_path.c_str(), true));
 
-        if (_parser_type == InvertedIndexParserType::PARSER_STANDARD) {
-            _analyzer = std::make_unique<lucene::analysis::standard::StandardAnalyzer>();
-        } else if (_parser_type == InvertedIndexParserType::PARSER_UNICODE) {
+        if (_parser_type == InvertedIndexParserType::PARSER_STANDARD ||
+            _parser_type == InvertedIndexParserType::PARSER_UNICODE) {
             _analyzer = std::make_unique<lucene::analysis::standard95::StandardAnalyzer>();
         } else if (_parser_type == InvertedIndexParserType::PARSER_ENGLISH) {
             _analyzer = std::make_unique<lucene::analysis::SimpleAnalyzer<char>>();
@@ -234,12 +233,10 @@ public:
 
     void new_fulltext_field(const char* field_value_data, size_t field_value_size) {
         if (_parser_type == InvertedIndexParserType::PARSER_ENGLISH ||
-            _parser_type == InvertedIndexParserType::PARSER_CHINESE) {
+            _parser_type == InvertedIndexParserType::PARSER_CHINESE ||
+            _parser_type == InvertedIndexParserType::PARSER_UNICODE ||
+            _parser_type == InvertedIndexParserType::PARSER_STANDARD) {
             new_char_token_stream(field_value_data, field_value_size, _field);
-        } else if (_parser_type == InvertedIndexParserType::PARSER_UNICODE) {
-            new_char_token_stream(field_value_data, field_value_size, _field);
-        } else if (_parser_type == InvertedIndexParserType::PARSER_STANDARD) {
-            new_field_value(field_value_data, field_value_size, _field);
         } else {
             new_field_char_value(field_value_data, field_value_size, _field);
         }

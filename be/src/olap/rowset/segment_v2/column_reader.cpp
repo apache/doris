@@ -32,6 +32,7 @@
 #include "olap/column_predicate.h"
 #include "olap/decimal12.h"
 #include "olap/inverted_index_parser.h"
+#include "olap/iterators.h"
 #include "olap/olap_common.h"
 #include "olap/rowset/segment_v2/binary_dict_page.h" // for BinaryDictPageDecoder
 #include "olap/rowset/segment_v2/binary_plain_page.h"
@@ -234,11 +235,12 @@ Status ColumnReader::new_bitmap_index_iterator(BitmapIndexIterator** iterator) {
 }
 
 Status ColumnReader::new_inverted_index_iterator(const TabletIndex* index_meta,
-                                                 OlapReaderStatistics* stats,
+                                                 const StorageReadOptions& read_options,
                                                  std::unique_ptr<InvertedIndexIterator>* iterator) {
     RETURN_IF_ERROR(_ensure_inverted_index_loaded(index_meta));
     if (_inverted_index) {
-        RETURN_IF_ERROR(_inverted_index->new_iterator(stats, iterator));
+        RETURN_IF_ERROR(_inverted_index->new_iterator(read_options.stats,
+                                                      read_options.runtime_state, iterator));
     }
     return Status::OK();
 }
