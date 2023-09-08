@@ -33,7 +33,9 @@ array_filter(lambda,array)
 </version>
 
 <version since="2.0.2">
+
 array<T> array_filter(array<T> arr, array<bool> filter_column)
+
 </version>
 
 ### description
