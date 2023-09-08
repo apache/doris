@@ -143,13 +143,20 @@ Status VSetOperationNode::prepare(RuntimeState* state) {
     _probe_timer = ADD_TIMER(runtime_profile(), "ProbeTime");
 
     // Prepare result expr lists.
+    vector<bool> nullable_flags;
+    nullable_flags.resize(_child_expr_lists[0].size(), false);
     for (int i = 0; i < _child_expr_lists.size(); ++i) {
+        for (int j = 0; j < _child_expr_lists[i].size(); ++j) {
+            nullable_flags[j] = nullable_flags[j] || _child_expr_lists[i][j]->root()->is_nullable();
+        }
         RETURN_IF_ERROR(VExpr::prepare(_child_expr_lists[i], state, child(i)->row_desc()));
     }
 
-    for (auto ctx : _child_expr_lists[0]) {
+    for (int i = 0; i < _child_expr_lists[0].size(); ++i) {
+        const auto& ctx = _child_expr_lists[0][i];
         _build_not_ignore_null.push_back(ctx->root()->is_nullable());
-        _left_table_data_types.push_back(ctx->root()->data_type());
+        _left_table_data_types.push_back(nullable_flags[i] ? make_nullable(ctx->root()->data_type())
+                                                           : ctx->root()->data_type());
     }
     hash_table_init();
 

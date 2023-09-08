@@ -225,7 +225,14 @@ struct HashTableProbe {
         auto it = value.begin();
         for (auto idx = _build_col_idx.begin(); idx != _build_col_idx.end(); ++idx) {
             auto& column = *_build_blocks[it->block_offset].get_by_position(idx->first).column;
-            _mutable_cols[idx->second]->insert_from(column, it->row_num);
+            if (_mutable_cols[idx->second]->is_nullable() xor column.is_nullable()) {
+                DCHECK(_mutable_cols[idx->second]->is_nullable());
+                ((ColumnNullable*)(_mutable_cols[idx->second].get()))
+                        ->insert_from_not_nullable(column, it->row_num);
+
+            } else {
+                _mutable_cols[idx->second]->insert_from(column, it->row_num);
+            }
         }
         block_size++;
     }
