@@ -429,28 +429,26 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     public LogicalPlan visitExport(ExportContext ctx) {
         List<String> tableName = visitMultipartIdentifier(ctx.tableName);
         List<String> partitions = ctx.partition == null ? ImmutableList.of() : visitIdentifierList(ctx.partition);
-        String path = parseConstant(ctx.filePath);
-        String whereSql = null;
+
+        // handle path string
+        String tmpPath = ctx.filePath.getText();
+        String path = escapeBackSlash(tmpPath.substring(1, tmpPath.length() - 1));
+
+        Optional<Expression> expr = Optional.empty();
         if (ctx.whereClause() != null) {
-            WhereClauseContext whereClauseContext = ctx.whereClause();
-            int startIndex = whereClauseContext.start.getStartIndex();
-            int stopIndex = whereClauseContext.stop.getStopIndex();
-            org.antlr.v4.runtime.misc.Interval interval = new org.antlr.v4.runtime.misc.Interval(startIndex,
-                    stopIndex);
-            whereSql = whereClauseContext.start.getInputStream().getText(interval);
+            expr = Optional.of(getExpression(ctx.whereClause().booleanExpression()));
         }
 
-        Map<String, String> filePropertiesMap = null;
+        Map<String, String> filePropertiesMap = ImmutableMap.of();
         if (ctx.propertyClause() != null) {
             filePropertiesMap = visitPropertyClause(ctx.propertyClause());
         }
 
-        BrokerDesc brokerDesc = null;
+        Optional<BrokerDesc> brokerDesc = Optional.empty();
         if (ctx.withRemoteStorageSystem() != null) {
-            brokerDesc = visitWithRemoteStorageSystem(ctx.withRemoteStorageSystem());
+            brokerDesc = Optional.ofNullable(visitWithRemoteStorageSystem(ctx.withRemoteStorageSystem()));
         }
-
-        return new ExportCommand(tableName, partitions, whereSql, path, filePropertiesMap, brokerDesc);
+        return new ExportCommand(tableName, partitions, expr, path, filePropertiesMap, brokerDesc);
     }
 
     @Override

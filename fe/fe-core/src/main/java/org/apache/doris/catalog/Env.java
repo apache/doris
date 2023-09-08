@@ -219,6 +219,7 @@ import org.apache.doris.scheduler.disruptor.TaskDisruptor;
 import org.apache.doris.scheduler.manager.JobTaskManager;
 import org.apache.doris.scheduler.manager.TimerJobManager;
 import org.apache.doris.scheduler.manager.TransientTaskManager;
+import org.apache.doris.scheduler.registry.ExportTaskRegister;
 import org.apache.doris.scheduler.registry.PersistentJobRegister;
 import org.apache.doris.scheduler.registry.TimerJobRegister;
 import org.apache.doris.service.ExecuteEnv;
@@ -338,6 +339,7 @@ public class Env {
     private MetastoreEventsProcessor metastoreEventsProcessor;
 
     private PersistentJobRegister persistentJobRegister;
+    private ExportTaskRegister exportTaskRegister;
     private TimerJobManager timerJobManager;
     private TransientTaskManager transientTaskManager;
     private JobTaskManager jobTaskManager;
@@ -621,6 +623,7 @@ public class Env {
         this.timerJobManager.setDisruptor(taskDisruptor);
         this.transientTaskManager.setDisruptor(taskDisruptor);
         this.persistentJobRegister = new TimerJobRegister(timerJobManager);
+        this.exportTaskRegister = new ExportTaskRegister(transientTaskManager);
         this.replayedJournalId = new AtomicLong(0L);
         this.stmtIdCounter = new AtomicLong(0L);
         this.isElectable = false;
@@ -1840,6 +1843,7 @@ public class Env {
             long jobId = dis.readLong();
             newChecksum ^= jobId;
             ExportJob job = ExportJob.read(dis);
+            job.cancelReplayedExportJob();
             if (!job.isExpired(curTime)) {
                 exportMgr.unprotectAddJob(job);
             }
@@ -3788,6 +3792,10 @@ public class Env {
         return persistentJobRegister;
     }
 
+    public ExportTaskRegister getExportTaskRegister() {
+        return exportTaskRegister;
+    }
+
     public TimerJobManager getAsyncJobManager() {
         return timerJobManager;
     }
@@ -4033,7 +4041,8 @@ public class Env {
     public void cancelAlter(CancelAlterTableStmt stmt) throws DdlException {
         if (stmt.getAlterType() == AlterType.ROLLUP) {
             this.getMaterializedViewHandler().cancel(stmt);
-        } else if (stmt.getAlterType() == AlterType.COLUMN) {
+        } else if (stmt.getAlterType() == AlterType.COLUMN
+                       || stmt.getAlterType() == AlterType.INDEX) {
             this.getSchemaChangeHandler().cancel(stmt);
         } else {
             throw new DdlException("Cancel " + stmt.getAlterType() + " does not implement yet");

@@ -131,7 +131,7 @@ public class OlapTableSink extends DataSink {
 
         if (partitionIds == null) {
             partitionIds = dstTable.getPartitionIds();
-            if (partitionIds.isEmpty() && dstTable.getPartitionInfo().enableAutomaticPartition() == false) {
+            if (partitionIds.isEmpty()) {
                 ErrorReport.reportAnalysisException(ErrorCode.ERR_EMPTY_PARTITION_IN_TABLE, dstTable.getName());
             }
         }
@@ -178,7 +178,7 @@ public class OlapTableSink extends DataSink {
         tSink.setNumReplicas(numReplicas);
         tSink.setNeedGenRollup(dstTable.shouldLoadToNewRollup());
         tSink.setSchema(createSchema(tSink.getDbId(), dstTable, analyzer));
-        tSink.setPartition(createPartition(tSink.getDbId(), dstTable, analyzer));
+        tSink.setPartition(createPartition(tSink.getDbId(), dstTable));
         List<TOlapTableLocationParam> locationParams = createLocation(dstTable);
         tSink.setLocation(locationParams.get(0));
         if (singleReplicaLoad) {
@@ -293,8 +293,7 @@ public class OlapTableSink extends DataSink {
         return distColumns;
     }
 
-    private TOlapTablePartitionParam createPartition(long dbId, OlapTable table, Analyzer analyzer)
-            throws UserException {
+    private TOlapTablePartitionParam createPartition(long dbId, OlapTable table) throws UserException {
         TOlapTablePartitionParam partitionParam = new TOlapTablePartitionParam();
         partitionParam.setDbId(dbId);
         partitionParam.setTableId(table.getId());
@@ -338,22 +337,6 @@ public class OlapTableSink extends DataSink {
                         }
                     }
                 }
-                // for auto create partition by function expr, there is no any partition firstly,
-                // But this is required in thrift struct.
-                if (partitionIds.isEmpty()) {
-                    partitionParam.setDistributedColumns(getDistColumns(table.getDefaultDistributionInfo()));
-                    partitionParam.setPartitions(new ArrayList<TOlapTablePartition>());
-                }
-                ArrayList<Expr> exprs = partitionInfo.getPartitionExprs();
-                if (exprs != null && analyzer != null) {
-                    tupleDescriptor.setTable(table);
-                    analyzer.registerTupleDescriptor(tupleDescriptor);
-                    for (Expr e : exprs) {
-                        e.analyze(analyzer);
-                    }
-                    partitionParam.setPartitionFunctionExprs(Expr.treesToThrift(exprs));
-                }
-                partitionParam.setEnableAutomaticPartition(partitionInfo.enableAutomaticPartition());
                 break;
             }
             case UNPARTITIONED: {
@@ -379,18 +362,16 @@ public class OlapTableSink extends DataSink {
                 }
                 partitionParam.addToPartitions(tPartition);
                 partitionParam.setDistributedColumns(getDistColumns(partition.getDistributionInfo()));
-                partitionParam.setEnableAutomaticPartition(false);
                 break;
             }
             default: {
                 throw new UserException("unsupported partition for OlapTable, partition=" + partType);
             }
         }
-        partitionParam.setPartitionType(partType.toThrift());
         return partitionParam;
     }
 
-    public static void setPartitionKeys(TOlapTablePartition tPartition, PartitionItem partitionItem, int partColNum) {
+    private void setPartitionKeys(TOlapTablePartition tPartition, PartitionItem partitionItem, int partColNum) {
         if (partitionItem instanceof RangePartitionItem) {
             Range<PartitionKey> range = partitionItem.getItems();
             // set start keys
@@ -458,10 +439,6 @@ public class OlapTableSink extends DataSink {
             }
         }
 
-        // for partition by function expr, there is no any partition firstly, But this is required in thrift struct.
-        if (partitionIds.isEmpty()) {
-            locationParam.setTablets(new ArrayList<TTabletLocation>());
-        }
         // check if disk capacity reach limit
         // this is for load process, so use high water mark to check
         Status st = Env.getCurrentSystemInfo().checkExceedDiskCapacityLimit(allBePathsMap, true);

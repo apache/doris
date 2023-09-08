@@ -137,7 +137,7 @@ public class OlapTable extends Table {
     private PartitionInfo partitionInfo;
     @SerializedName("idToPartition")
     private Map<Long, Partition> idToPartition = new HashMap<>();
-    private Map<String, Partition> nameToPartition = Maps.newTreeMap();
+    private Map<String, Partition> nameToPartition = Maps.newTreeMap(String.CASE_INSENSITIVE_ORDER);
 
     @SerializedName(value = "distributionInfo")
     private DistributionInfo defaultDistributionInfo;
