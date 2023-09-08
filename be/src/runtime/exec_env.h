@@ -222,7 +222,7 @@ public:
     TabletSchemaCache* get_tablet_schema_cache() { return _tablet_schema_cache; }
     StorageEngine* get_storage_engine() { return _storage_engine; }
     io::S3FileBufferPool* get_s3_file_buffer_pool() { return _s3_buffer_pool; }
-    SchemaCache schema_cache() { return _schema_cache; }
+    SchemaCache* schema_cache() { return _schema_cache; }
 
 private:
     ExecEnv();
