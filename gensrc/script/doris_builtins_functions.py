@@ -1133,6 +1133,8 @@ visible_functions = {
         [['hours_diff'], 'BIGINT', ['DATEV2', 'DATETIMEV2'], ''],
         [['minutes_diff'], 'BIGINT', ['DATEV2', 'DATETIMEV2'], ''],
         [['seconds_diff'], 'BIGINT', ['DATEV2', 'DATETIMEV2'], ''],
+        [['microseconds_diff'], 'BIGINT', ['DATEV2', 'DATETIMEV2'], ''],
+        [['milliseconds_diff'], 'BIGINT', ['DATEV2', 'DATETIMEV2'], ''],
 
         [['years_diff'], 'BIGINT', ['DATETIMEV2', 'DATEV2'], ''],
         [['months_diff'], 'BIGINT', ['DATETIMEV2', 'DATEV2'], ''],
@@ -1141,6 +1143,8 @@ visible_functions = {
         [['hours_diff'], 'BIGINT', ['DATETIMEV2', 'DATEV2'], ''],
         [['minutes_diff'], 'BIGINT', ['DATETIMEV2', 'DATEV2'], ''],
         [['seconds_diff'], 'BIGINT', ['DATETIMEV2', 'DATEV2'], ''],
+        [['microseconds_diff'], 'BIGINT', ['DATETIMEV2', 'DATEV2'], ''],
+        [['milliseconds_diff'], 'BIGINT', ['DATETIMEV2', 'DATEV2'], ''],
 
         [['years_diff'], 'BIGINT', ['DATEV2', 'DATEV2'], ''],
         [['months_diff'], 'BIGINT', ['DATEV2', 'DATEV2'], ''],
@@ -1149,6 +1153,8 @@ visible_functions = {
         [['hours_diff'], 'BIGINT', ['DATEV2', 'DATEV2'], ''],
         [['minutes_diff'], 'BIGINT', ['DATEV2', 'DATEV2'], ''],
         [['seconds_diff'], 'BIGINT', ['DATEV2', 'DATEV2'], ''],
+        [['microseconds_diff'], 'BIGINT', ['DATEV2', 'DATEV2'], ''],
+        [['milliseconds_diff'], 'BIGINT', ['DATEV2', 'DATEV2'], ''],
 
         [['year_floor'], 'DATETIMEV2', ['DATETIMEV2'], 'ALWAYS_NULLABLE'],
         [['year_floor'], 'DATETIMEV2', ['DATETIMEV2', 'DATETIMEV2'], 'ALWAYS_NULLABLE'],
