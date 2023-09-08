@@ -327,7 +327,7 @@ public class BindExpression implements AnalysisRuleFactory {
                                 return e;
                             })
                             .collect(Collectors.toList());
-                    groupBy.forEach(expression -> checkBound(expression, ctx.root));
+                    groupBy.forEach(expression -> checkBoundExceptLambda(expression, ctx.root));
                     groupBy = groupBy.stream()
                             .map(expr -> bindFunction(expr, ctx.root, ctx.cascadesContext))
                             .collect(ImmutableList.toImmutableList());
@@ -650,7 +650,7 @@ public class BindExpression implements AnalysisRuleFactory {
 
     @SuppressWarnings("unchecked")
     private <E extends Expression> E bindFunction(E expr, Plan plan, CascadesContext cascadesContext) {
-        return (E) FunctionBinder.INSTANCE.rewrite(checkBound(expr, plan),
+        return (E) FunctionBinder.INSTANCE.rewrite(checkBoundExceptLambda(expr, plan),
                 new ExpressionRewriteContext(cascadesContext));
     }
 
@@ -753,23 +753,22 @@ public class BindExpression implements AnalysisRuleFactory {
         }
     }
 
-    private <E extends Expression> E checkBound(E expression, Plan plan) {
+    private <E extends Expression> E checkBoundExceptLambda(E expression, Plan plan) {
         if (expression instanceof Lambda) {
             return expression;
         }
-        expression.foreachUp(e -> {
-            if (e instanceof UnboundSlot) {
-                UnboundSlot unboundSlot = (UnboundSlot) e;
-                String tableName = StringUtils.join(unboundSlot.getQualifier(), ".");
-                if (tableName.isEmpty()) {
-                    tableName = "table list";
-                }
-                throw new AnalysisException("Unknown column '"
-                        + unboundSlot.getNameParts().get(unboundSlot.getNameParts().size() - 1)
-                        + "' in '" + tableName + "' in "
-                        + plan.getType().toString().substring("LOGICAL_".length()) + " clause");
+        if (expression instanceof UnboundSlot) {
+            UnboundSlot unboundSlot = (UnboundSlot) expression;
+            String tableName = StringUtils.join(unboundSlot.getQualifier(), ".");
+            if (tableName.isEmpty()) {
+                tableName = "table list";
             }
-        });
+            throw new AnalysisException("Unknown column '"
+                    + unboundSlot.getNameParts().get(unboundSlot.getNameParts().size() - 1)
+                    + "' in '" + tableName + "' in "
+                    + plan.getType().toString().substring("LOGICAL_".length()) + " clause");
+        }
+        expression.children().forEach(e -> checkBoundExceptLambda(e, plan));
         return expression;
     }
 }
