@@ -167,6 +167,7 @@ auto instruction_fail_to_string(InstructionFail fail) {
     case InstructionFail::ARM_NEON:
         ret("ARM_NEON");
     }
+    LOG(FATAL) << "__builtin_unreachable";
     __builtin_unreachable();
 }
 

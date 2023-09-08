@@ -644,6 +644,7 @@ Status HashJoinNode::get_next(RuntimeState* state, Block* output_block, bool* eo
         const auto hash_table_empty = std::visit(
                 Overload {[&](std::monostate&) -> bool {
                               LOG(FATAL) << "FATAL: uninited hash table";
+                              LOG(FATAL) << "__builtin_unreachable";
                               __builtin_unreachable();
                           },
                           [&](auto&& arg) -> bool { return arg.hash_table.size() == 0; }},
@@ -1245,6 +1246,7 @@ void HashJoinNode::_hash_table_init(RuntimeState* state) {
 
     std::visit(Overload {[&](std::monostate& arg) {
                              LOG(FATAL) << "FATAL: uninited hash table";
+                             LOG(FATAL) << "__builtin_unreachable";
                              __builtin_unreachable();
                          },
                          [&](auto&& arg) {
