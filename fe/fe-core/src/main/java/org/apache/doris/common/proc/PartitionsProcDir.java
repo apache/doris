@@ -292,7 +292,7 @@ public class PartitionsProcDir implements ProcDirInterface {
 
                 partitionInfo.add(TimeUtils.longToTimeString(partition.getLastCheckTime()));
 
-                long dataSize = partition.getDataSize();
+                long dataSize = partition.getDataSize(false);
                 Pair<Double, String> sizePair = DebugUtil.getByteUint(dataSize);
                 String readableSize = DebugUtil.DECIMAL_FORMAT_SCALE_3.format(sizePair.first) + " "
                         + sizePair.second;
