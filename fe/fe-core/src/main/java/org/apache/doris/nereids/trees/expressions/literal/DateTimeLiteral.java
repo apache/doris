@@ -27,7 +27,6 @@ import org.apache.doris.nereids.types.coercion.DateLikeType;
 import org.apache.doris.nereids.util.DateUtils;
 
 import com.google.common.base.Preconditions;
-import com.google.common.collect.Lists;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -40,7 +39,6 @@ import java.time.format.ResolverStyle;
 import java.time.temporal.ChronoField;
 import java.time.temporal.TemporalAccessor;
 import java.util.Collections;
-import java.util.List;
 import java.util.Objects;
 import java.util.regex.Pattern;
 
@@ -48,12 +46,6 @@ import java.util.regex.Pattern;
  * date time literal.
  */
 public class DateTimeLiteral extends DateLiteral {
-    protected static DateTimeFormatter DATE_TIME_FORMATTER_TO_HOUR = null;
-    protected static DateTimeFormatter DATE_TIME_FORMATTER_TO_MINUTE = null;
-    protected static DateTimeFormatter DATE_TIME_FORMATTER_TWO_DIGIT = null;
-    protected static DateTimeFormatter DATETIMEKEY_FORMATTER = null;
-    protected static DateTimeFormatter DATE_TIME_FORMATTER_TO_MICRO_SECOND = null;
-    protected static List<DateTimeFormatter> formatterList = null;
     protected static final int MAX_MICROSECOND = 999999;
 
     private static final DateTimeLiteral MIN_DATETIME = new DateTimeLiteral(0000, 1, 1, 0, 0, 0);
@@ -67,46 +59,6 @@ public class DateTimeLiteral extends DateLiteral {
     protected long minute;
     protected long second;
     protected long microSecond;
-
-    static {
-        try {
-            DATE_TIME_FORMATTER = DateUtils.formatBuilder("%Y-%m-%d %H:%i:%s")
-                    .toFormatter().withResolverStyle(ResolverStyle.STRICT);
-            DATE_TIME_FORMATTER_TO_HOUR = DateUtils.formatBuilder("%Y-%m-%d %H")
-                    .toFormatter().withResolverStyle(ResolverStyle.STRICT);
-            DATE_TIME_FORMATTER_TO_MINUTE = DateUtils.formatBuilder("%Y-%m-%d %H:%i")
-                    .toFormatter().withResolverStyle(ResolverStyle.STRICT);
-            DATE_TIME_FORMATTER_TWO_DIGIT = DateUtils.formatBuilder("%y-%m-%d %H:%i:%s")
-                    .toFormatter().withResolverStyle(ResolverStyle.STRICT);
-
-            DATETIMEKEY_FORMATTER = DateUtils.formatBuilder("%Y%m%d%H%i%s")
-                    .toFormatter().withResolverStyle(ResolverStyle.STRICT);
-
-            DATE_TIME_FORMATTER_TO_MICRO_SECOND = new DateTimeFormatterBuilder()
-                    .appendPattern("uuuu-MM-dd HH:mm:ss")
-                    .appendFraction(ChronoField.MICRO_OF_SECOND, 0, 6, true)
-                    .toFormatter()
-                    .withResolverStyle(ResolverStyle.STRICT);
-
-            formatterList = Lists.newArrayList(
-                    DateUtils.formatBuilder("%Y%m%d").appendLiteral('T').appendPattern("HHmmss")
-                            .appendFraction(ChronoField.MICRO_OF_SECOND, 0, 6, true)
-                            .toFormatter().withResolverStyle(ResolverStyle.STRICT),
-                    DateUtils.formatBuilder("%Y%m%d").appendLiteral('T').appendPattern("HHmmss")
-                            .appendFraction(ChronoField.MICRO_OF_SECOND, 0, 6, false)
-                            .toFormatter().withResolverStyle(ResolverStyle.STRICT),
-                    DateUtils.formatBuilder("%Y%m%d%H%i%s")
-                            .appendFraction(ChronoField.MICRO_OF_SECOND, 0, 6, true)
-                            .toFormatter().withResolverStyle(ResolverStyle.STRICT),
-                    DateUtils.formatBuilder("%Y%m%d%H%i%s")
-                            .appendFraction(ChronoField.MICRO_OF_SECOND, 0, 6, false)
-                            .toFormatter().withResolverStyle(ResolverStyle.STRICT),
-                    DATETIMEKEY_FORMATTER, DATEKEY_FORMATTER);
-        } catch (AnalysisException e) {
-            LOG.error("invalid date format", e);
-            System.exit(-1);
-        }
-    }
 
     public DateTimeLiteral(String s) {
         this(DateTimeType.INSTANCE, s);

@@ -27,15 +27,18 @@ import org.apache.doris.nereids.types.DateType;
 import org.apache.doris.nereids.types.coercion.DateLikeType;
 import org.apache.doris.nereids.util.DateUtils;
 
+import com.google.common.collect.Lists;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.time.LocalDateTime;
 import java.time.Year;
 import java.time.format.DateTimeFormatter;
+import java.time.format.DateTimeFormatterBuilder;
 import java.time.format.ResolverStyle;
 import java.time.temporal.ChronoField;
 import java.time.temporal.TemporalAccessor;
+import java.util.List;
 
 /**
  * Date literal in Nereids.
@@ -43,11 +46,81 @@ import java.time.temporal.TemporalAccessor;
 public class DateLiteral extends Literal {
     public static final String JAVA_DATE_FORMAT = "yyyy-MM-dd";
 
-    protected static DateTimeFormatter DATE_FORMATTER = null;
-    protected static DateTimeFormatter DATE_FORMATTER_TWO_DIGIT = null;
-    protected static DateTimeFormatter DATEKEY_FORMATTER = null;
+    // %Y-%m-%d
+    protected static DateTimeFormatter DATE_FORMATTER = new DateTimeFormatterBuilder()
+            .appendValue(ChronoField.YEAR, 4)
+            .appendLiteral('-').appendValue(ChronoField.MONTH_OF_YEAR, 2)
+            .appendLiteral('-').appendValue(ChronoField.DAY_OF_MONTH, 2)
+            .toFormatter().withResolverStyle(ResolverStyle.STRICT);
+    // %Y%m%d
+    protected static DateTimeFormatter BASIC_DATE_FORMATTER = new DateTimeFormatterBuilder()
+            .appendValue(ChronoField.YEAR, 4)
+            .appendValue(ChronoField.MONTH_OF_YEAR, 2)
+            .appendValue(ChronoField.DAY_OF_MONTH, 2)
+            .toFormatter().withResolverStyle(ResolverStyle.STRICT);
+    // %H:%i:%s
+    protected static DateTimeFormatter TIME_FORMATTER = new DateTimeFormatterBuilder()
+            .appendValue(ChronoField.HOUR_OF_DAY, 2)
+            .appendLiteral(':').appendValue(ChronoField.MINUTE_OF_HOUR, 2)
+            .appendLiteral(':').appendValue(ChronoField.SECOND_OF_MINUTE, 2)
+            .toFormatter().withResolverStyle(ResolverStyle.STRICT);
+    // HHmmss
+    protected static DateTimeFormatter BASIC_TIME_FORMATTER = new DateTimeFormatterBuilder()
+            .appendValue(ChronoField.HOUR_OF_DAY, 2)
+            .appendValue(ChronoField.MINUTE_OF_HOUR, 2)
+            .appendValue(ChronoField.SECOND_OF_MINUTE, 2)
+            .toFormatter().withResolverStyle(ResolverStyle.STRICT);
+    // %y-%m-%d
+    protected static DateTimeFormatter DATE_FORMATTER_TWO_DIGIT = new DateTimeFormatterBuilder()
+            .appendValue(ChronoField.YEAR, 2)
+            .appendLiteral('-').appendValue(ChronoField.MONTH_OF_YEAR, 2)
+            .appendLiteral('-').appendValue(ChronoField.DAY_OF_MONTH, 2)
+            .toFormatter().withResolverStyle(ResolverStyle.STRICT);
+    protected static DateTimeFormatter DATE_TIME_FORMATTER = new DateTimeFormatterBuilder()
+            .append(DATE_FORMATTER)
+            .appendLiteral(' ')
+            .append(TIME_FORMATTER)
+            .toFormatter().withResolverStyle(ResolverStyle.STRICT);
+    protected static DateTimeFormatter DATETIMEKEY_FORMATTER = new DateTimeFormatterBuilder()
+            .append(BASIC_DATE_FORMATTER) // %Y%m%d
+            .append(BASIC_TIME_FORMATTER) // %H:%i:%s
+            .toFormatter().withResolverStyle(ResolverStyle.STRICT);
+    // "%Y-%m-%d %H:%i:%s.%f"
+    protected static DateTimeFormatter DATE_TIME_FORMATTER_TO_MICRO_SECOND = new DateTimeFormatterBuilder()
+            .append(DATE_FORMATTER)
+            .appendLiteral(' ')
+            .append(TIME_FORMATTER)
+            .appendFraction(ChronoField.MICRO_OF_SECOND, 0, 6, true) // Notice: min size is 0
+            .toFormatter().withResolverStyle(ResolverStyle.STRICT);
+
+    protected static List<DateTimeFormatter> formatterList = Lists.newArrayList(
+            new DateTimeFormatterBuilder()
+                    .append(BASIC_DATE_FORMATTER)
+                    .appendLiteral('T')
+                    .append(BASIC_TIME_FORMATTER)
+                    .appendFraction(ChronoField.MICRO_OF_SECOND, 1, 6, true)
+                    .toFormatter().withResolverStyle(ResolverStyle.STRICT),
+            new DateTimeFormatterBuilder()
+                    .append(BASIC_DATE_FORMATTER)
+                    .appendLiteral('T')
+                    .append(BASIC_TIME_FORMATTER)
+                    .appendFraction(ChronoField.MICRO_OF_SECOND, 1, 6, false)
+                    .toFormatter().withResolverStyle(ResolverStyle.STRICT),
+            new DateTimeFormatterBuilder()
+                    .append(BASIC_DATE_FORMATTER)
+                    .append(BASIC_TIME_FORMATTER)
+                    .appendFraction(ChronoField.MICRO_OF_SECOND, 1, 6, true)
+                    .toFormatter().withResolverStyle(ResolverStyle.STRICT),
+            new DateTimeFormatterBuilder()
+                    .append(BASIC_DATE_FORMATTER)
+                    .append(BASIC_TIME_FORMATTER)
+                    .appendFraction(ChronoField.MICRO_OF_SECOND, 1, 6, false)
+                    .toFormatter().withResolverStyle(ResolverStyle.STRICT),
+            DATETIMEKEY_FORMATTER,
+            BASIC_DATE_FORMATTER
+    );
+
     // for cast datetime type to date type.
-    protected static DateTimeFormatter DATE_TIME_FORMATTER = null;
     private static final LocalDateTime startOfAD = LocalDateTime.of(0, 1, 1, 0, 0, 0);
     private static final LocalDateTime endOfAD = LocalDateTime.of(9999, 12, 31, 23, 59, 59);
     private static final Logger LOG = LogManager.getLogger(DateLiteral.class);
@@ -60,22 +133,6 @@ public class DateLiteral extends Literal {
     protected long year;
     protected long month;
     protected long day;
-
-    static {
-        try {
-            DATE_FORMATTER = DateUtils.formatBuilder("%Y-%m-%d").toFormatter()
-                    .withResolverStyle(ResolverStyle.STRICT);
-            DATEKEY_FORMATTER = DateUtils.formatBuilder("%Y%m%d").toFormatter()
-                    .withResolverStyle(ResolverStyle.STRICT);
-            DATE_FORMATTER_TWO_DIGIT = DateUtils.formatBuilder("%y-%m-%d").toFormatter()
-                    .withResolverStyle(ResolverStyle.STRICT);
-            DATE_TIME_FORMATTER = DateUtils.formatBuilder("%Y-%m-%d %H:%i:%s").toFormatter()
-                    .withResolverStyle(ResolverStyle.STRICT);
-        } catch (AnalysisException e) {
-            LOG.error("invalid date format", e);
-            System.exit(-1);
-        }
-    }
 
     public DateLiteral(String s) throws AnalysisException {
         this(DateType.INSTANCE, s);
@@ -123,8 +180,8 @@ public class DateLiteral extends Literal {
             if (s.split("-")[0].length() == 2) {
                 dateTime = DATE_FORMATTER_TWO_DIGIT.parse(s);
             } else if (s.length() == DATEKEY_LENGTH && !s.contains("-")) {
-                dateTime = DATEKEY_FORMATTER.parse(s);
-            } else if (s.length() == 19) {
+                dateTime = BASIC_DATE_FORMATTER.parse(s);
+            } else if (s.length() >= 14 && s.length() <= 19) {
                 dateTime = DATE_TIME_FORMATTER.parse(s);
             } else {
                 dateTime = DATE_FORMATTER.parse(s);
