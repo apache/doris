@@ -744,7 +744,8 @@ TEST(TextSerde, ComplexTypeWithNestedSerdeTextTest) {
                  "cfA8gya-kfw-IugT\":0.20842299487398452,\"BBQ6e5-OJYRJhC-zki-7rQj\":0."
                  "3050124830713523,\"mKH57V-YmwCNFq-vs8-vUIX\":0.36446683035480754},{\"HfhEMX-"
                  "oAMBJCC-YIC-hCqN\":0.8131454631693608,\"xrnTFd-ikONWik-T7J-sL8J\":0."
-                 "37509722558990855,\"SVyEes-77mlzIr-N6c-DkYw\":0.4703053945053086}]"},
+                 "37509722558990855,\"SVyEes-77mlzIr-N6c-DkYw\":0.4703053945053086,"
+                 "\"NULL\":0.1,\"\\N\":0.1}]"},
                 {"[{\"2cKtIM-L1mOcEm-udR-HcB2\":0.23929040957798242, "
                  "\"eof2UN-Is0EEuA-H5D-hE58\":0.42373055809540094, "
                  "\"FwUSOB-R8rtK9W-BVG-8wYZ\":0.7680704548628841}, "
@@ -759,7 +760,8 @@ TEST(TextSerde, ComplexTypeWithNestedSerdeTextTest) {
                  "\"mKH57V-YmwCNFq-vs8-vUIX\":0.36446683035480754}, "
                  "{\"HfhEMX-oAMBJCC-YIC-hCqN\":0.8131454631693608, "
                  "\"xrnTFd-ikONWik-T7J-sL8J\":0.37509722558990855, "
-                 "\"SVyEes-77mlzIr-N6c-DkYw\":0.4703053945053086}]"},
+                 "\"SVyEes-77mlzIr-N6c-DkYw\":0.4703053945053086, "
+                 "\"NULL\":0.1, \"\\N\":0.1}]"},
                 {""},
                 {"[{2cKtIM-L1mOcEm-udR-HcB2:0.23929040957798242, "
                  "eof2UN-Is0EEuA-H5D-hE58:0.42373055809540094, "
@@ -775,7 +777,8 @@ TEST(TextSerde, ComplexTypeWithNestedSerdeTextTest) {
                  "mKH57V-YmwCNFq-vs8-vUIX:0.36446683035480754}, "
                  "{HfhEMX-oAMBJCC-YIC-hCqN:0.8131454631693608, "
                  "xrnTFd-ikONWik-T7J-sL8J:0.37509722558990855, "
-                 "SVyEes-77mlzIr-N6c-DkYw:0.4703053945053086}]"})};
+                 "SVyEes-77mlzIr-N6c-DkYw:0.4703053945053086, "
+                 "NULL:0.1, NULL:0.1}]"})};
         for (auto type_pair : nested_field_types) {
             auto key_type = std::get<0>(type_pair);
             DataTypePtr nested_key_data_type_ptr =

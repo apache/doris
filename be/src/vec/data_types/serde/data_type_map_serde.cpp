@@ -250,7 +250,6 @@ Status DataTypeMapSerDe::deserialize_one_cell_from_json(IColumn& column, Slice& 
             }
             Slice next(slice.data + start_pos, idx - start_pos);
             next.trim_prefix();
-            if (options.converted_from_string) next.trim_quote();
 
             if (Status st = value_serde->deserialize_one_cell_from_json(nested_val_column, next,
                                                                         options);
@@ -270,7 +269,6 @@ Status DataTypeMapSerDe::deserialize_one_cell_from_json(IColumn& column, Slice& 
     if (!has_quote && nested_level == 0 && idx == slice_size && idx != start_pos && key_added) {
         Slice next(slice.data + start_pos, idx - start_pos);
         next.trim_prefix();
-        if (options.converted_from_string) next.trim_quote();
 
         if (Status st =
                     value_serde->deserialize_one_cell_from_json(nested_val_column, next, options);

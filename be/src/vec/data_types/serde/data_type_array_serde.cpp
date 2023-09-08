@@ -118,12 +118,9 @@ Status DataTypeArraySerDe::deserialize_one_cell_from_json(IColumn& column, Slice
             // skip delimiter
             Slice next(slice.data + idx + 1, slice_size - idx - 1);
             next.trim_prefix();
-            if (options.converted_from_string) slices.back().trim_quote();
             slices.emplace_back(next);
         }
     }
-
-    if (options.converted_from_string) slices.back().trim_quote();
 
     int elem_deserialized = 0;
     Status st = nested_serde->deserialize_column_from_json_vector(nested_column, slices,

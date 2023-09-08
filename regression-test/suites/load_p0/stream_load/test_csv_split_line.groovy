@@ -113,6 +113,7 @@ suite("test_csv_split_line", "p0") {
     streamLoad {
         table "${tableName}2"
         set 'column_separator', '114455'
+        set 'trim_double_quotes', 'true'
         file 'test_csv_split_line3.csv'
     }
     

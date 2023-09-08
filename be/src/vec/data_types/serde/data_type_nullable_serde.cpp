@@ -120,13 +120,17 @@ Status DataTypeNullableSerDe::deserialize_one_cell_from_json(IColumn& column, Sl
                                                              const FormatOptions& options) const {
     auto& null_column = assert_cast<ColumnNullable&>(column);
     // TODO(Amory) make null literal configurable
-    if (slice.size == 4 && slice[0] == 'N' && slice[1] == 'U' && slice[2] == 'L' &&
-        slice[3] == 'L') {
-        null_column.insert_data(nullptr, 0);
-        return Status::OK();
-    } else if (slice.size == 2 && slice[0] == '\\' && slice[1] == 'N') {
-        null_column.insert_data(nullptr, 0);
-        return Status::OK();
+
+    if (!(options.converted_from_string && slice.trim_quote())) {
+        //for map<string,string> type : {"abc","NULL"} , the NULL is string , instead of null values
+        if (slice.size == 4 && slice[0] == 'N' && slice[1] == 'U' && slice[2] == 'L' &&
+            slice[3] == 'L') {
+            null_column.insert_data(nullptr, 0);
+            return Status::OK();
+        } else if (slice.size == 2 && slice[0] == '\\' && slice[1] == 'N') {
+            null_column.insert_data(nullptr, 0);
+            return Status::OK();
+        }
     }
 
     auto st = nested_serde->deserialize_one_cell_from_json(null_column.get_nested_column(), slice,
