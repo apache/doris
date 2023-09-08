@@ -225,8 +225,6 @@ private:
 
     Status _fresh_left_block(RuntimeState* state);
 
-    void _resize_fill_tuple_is_null_column(size_t new_size, int left_flag, int right_flag);
-
     // add tuple is null flag column to Block for filter conjunct and output expr
     void _update_additional_flags(Block* block);
 

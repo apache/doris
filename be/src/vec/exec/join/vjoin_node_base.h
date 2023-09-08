@@ -77,6 +77,17 @@ public:
     [[nodiscard]] bool can_terminate_early() override { return _short_circuit_for_probe; }
 
 protected:
+    void _resize_fill_tuple_is_null_column(size_t new_size, int left_flag, int right_flag) {
+        if (_is_outer_join) {
+            reinterpret_cast<vectorized::ColumnUInt8*>(_tuple_is_null_left_flag_column.get())
+                    ->get_data()
+                    .resize_fill(new_size, left_flag);
+            reinterpret_cast<vectorized::ColumnUInt8*>(_tuple_is_null_right_flag_column.get())
+                    ->get_data()
+                    .resize_fill(new_size, right_flag);
+        }
+    }
+
     // Construct the intermediate blocks to store the results from join operation.
     void _construct_mutable_join_block();
     // Convert the intermediate blocks to the final result. For example, if the block from probe

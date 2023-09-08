@@ -135,7 +135,13 @@ public:
 
     static bool all_arguments_are_constant(const Block& block, const ColumnNumbers& args) {
         for (const auto& arg : args) {
-            if (!is_column_const(*block.get_by_position(arg).column)) {
+            auto column = block.get_by_position(arg).column;
+            if (!column) {
+                throw Exception(
+                        ErrorCode::INTERNAL_ERROR, "input column is nullptr, column={}, block={}",
+                        block.get_by_position(arg).dump_structure(), block.dump_structure());
+            }
+            if (!is_column_const(*column)) {
                 return false;
             }
         }

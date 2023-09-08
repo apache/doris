@@ -291,7 +291,7 @@ public:
                                     const ColumnWithTypeAndName& arg_cond,
                                     const ColumnWithTypeAndName& arg_then,
                                     const ColumnWithTypeAndName& arg_else, size_t result,
-                                    size_t input_rows_count, Status& status) {
+                                    size_t input_rows_count, Status& status) const {
         bool then_is_null = arg_then.column->only_null();
         bool else_is_null = arg_else.column->only_null();
 

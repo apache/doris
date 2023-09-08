@@ -484,6 +484,11 @@ Status HashJoinNode::pull(doris::RuntimeState* state, vectorized::Block* output_
                                _right_table_column_names[i]});
         }
 
+        if (_is_outer_join) {
+            _resize_fill_tuple_is_null_column(block_rows, 1, 1);
+            _add_tuple_is_null_column(&temp_block);
+        }
+
         {
             SCOPED_TIMER(_join_filter_timer);
             RETURN_IF_ERROR(
