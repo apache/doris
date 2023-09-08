@@ -57,7 +57,6 @@
 #include "common/daemon.h"
 #include "common/logging.h"
 #include "common/phdr_cache.h"
-#include "common/resource_tls.h"
 #include "common/signal_handler.h"
 #include "common/status.h"
 #include "io/cache/block/block_file_cache_factory.h"
@@ -511,8 +510,6 @@ int main(int argc, char** argv) {
     // will work only after additional call of this function.
     // rewrites dl_iterate_phdr will cause Jemalloc to fail to run after enable profile. see #
     // updatePHDRCache();
-
-    doris::ResourceTls::init();
     if (!doris::BackendOptions::init()) {
         exit(-1);
     }
@@ -524,7 +521,7 @@ int main(int argc, char** argv) {
         LOG(FATAL) << "failed to init doris storage engine, res=" << status;
         exit(-1);
     }
-    
+
     doris::telemetry::init_tracer();
 
     // begin to start services
