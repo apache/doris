@@ -126,7 +126,6 @@ import org.apache.doris.nereids.trees.plans.commands.InsertIntoTableCommand;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.planner.OlapScanNode;
 import org.apache.doris.planner.OriginalPlanner;
-import org.apache.doris.planner.PlanFragment;
 import org.apache.doris.planner.Planner;
 import org.apache.doris.planner.ScanNode;
 import org.apache.doris.proto.Data;
@@ -968,11 +967,6 @@ public class StmtExecutor {
                 InsertStmt insertStmt = (InsertStmt) parsedStmt;
                 insertStmt.getTables(analyzer, tableMap, parentViewNameSet);
             }
-            CreateTableAsSelectStmt createTableAsSelectStmt = null;
-            if (parsedStmt instanceof CreateTableAsSelectStmt) {
-                createTableAsSelectStmt = ((CreateTableAsSelectStmt) parsedStmt);
-                parsedStmt = createTableAsSelectStmt.getQueryStmt();
-            }
             // table id in tableList is in ascending order because that table map is a sorted map
             List<TableIf> tables = Lists.newArrayList(tableMap.values());
             int analyzeTimes = 2;
@@ -1001,42 +995,6 @@ public class StmtExecutor {
                 } finally {
                     MetaLockUtils.readUnlockTables(tables);
                 }
-            }
-            if (createTableAsSelectStmt != null) {
-                queryStmt = createTableAsSelectStmt.getQueryStmt();
-                PlanFragment root = planner.getFragments().get(0);
-                List<Expr> outputs = root.getOutputExprs();
-                Preconditions.checkArgument(outputs.size() == queryStmt.getResultExprs().size());
-                for (int i = 0; i < outputs.size(); ++i) {
-                    if (queryStmt.getResultExprs().get(i).getSrcSlotRef() != null) {
-                        queryStmt.getResultExprs().get(i).getSrcSlotRef().getColumn()
-                                .setIsAllowNull(outputs.get(i).isNullable());
-                    }
-                    if (Config.enable_date_conversion) {
-                        if (queryStmt.getResultExprs().get(i).getType() == Type.DATE) {
-                            Expr castExpr = queryStmt.getResultExprs().get(i).castTo(Type.DATEV2);
-                            queryStmt.getResultExprs().set(i, castExpr);
-                        }
-                        if (queryStmt.getResultExprs().get(i).getType() == Type.DATETIME) {
-                            Expr castExpr =
-                                    queryStmt.getResultExprs().get(i).castTo(Type.DATETIMEV2);
-                            queryStmt.getResultExprs().set(i, castExpr);
-                        }
-                    }
-                    if (Config.enable_decimal_conversion
-                            && queryStmt.getResultExprs().get(i).getType().isDecimalV2()) {
-                        int precision = queryStmt.getResultExprs().get(i).getType().getPrecision();
-                        int scalar = queryStmt.getResultExprs().get(i).getType().getDecimalDigits();
-                        Expr castExpr = queryStmt.getResultExprs().get(i)
-                                .castTo(ScalarType.createDecimalV3Type(precision, scalar));
-                        queryStmt.getResultExprs().set(i, castExpr);
-                    }
-                }
-                if (createTableAsSelectStmt.getColumnNames() != null
-                        && createTableAsSelectStmt.getColumnNames().size() != outputs.size()) {
-                    ErrorReport.reportAnalysisException(ErrorCode.ERR_COL_NUMBER_NOT_MATCH);
-                }
-                parsedStmt = createTableAsSelectStmt;
             }
         } else {
             try {
