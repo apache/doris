@@ -123,6 +123,10 @@ Status DataTypeArraySerDe::deserialize_one_cell_from_text(IColumn& column, Slice
         } else if (!has_quote && nested_level == 0 && c == options.collection_delim) {
             // if meet collection_delimiter and not in quote, we can make it as an item.
             slices.back().remove_suffix(slice_size - idx);
+            // we do not handle item in array is empty,just return error
+            if (slices.back().empty()) {
+                return Status::InvalidArgument("here has item in Array is empty!");
+            }
             // add next total slice.(slice data will not change, so we can use slice directly)
             // skip delimiter
             Slice next(slice.data + idx + 1, slice_size - idx - 1);

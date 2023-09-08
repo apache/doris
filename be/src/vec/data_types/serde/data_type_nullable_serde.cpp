@@ -70,9 +70,9 @@ Status DataTypeNullableSerDe::deserialize_column_from_text_vector(
 Status DataTypeNullableSerDe::deserialize_one_cell_from_text(IColumn& column, Slice& slice,
                                                              const FormatOptions& options) const {
     auto& null_column = assert_cast<ColumnNullable&>(column);
-    // TODO(Amory) make null literal configurable
-    if (slice.size == 4 && slice[0] == 'N' && slice[1] == 'U' && slice[2] == 'L' &&
-        slice[3] == 'L') {
+    if (slice.size == 4 &&
+        ((slice[0] == 'N' && slice[1] == 'U' && slice[2] == 'L' && slice[3] == 'L') ||
+         (slice[0] == 'n' && slice[1] == 'u' && slice[2] == 'l' && slice[3] == 'l'))) {
         null_column.insert_data(nullptr, 0);
         return Status::OK();
     }

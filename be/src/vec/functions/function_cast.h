@@ -553,13 +553,16 @@ struct ConvertImplGenericFromString {
         auto data_type_to = block.get_by_position(result).type;
         if (const ColumnString* col_from_string = check_and_get_column<ColumnString>(&col_from)) {
             auto col_to = data_type_to->create_column();
-
+            auto serde = data_type_to->get_serde();
             size_t size = col_from.size();
             col_to->reserve(size);
 
             ColumnUInt8::MutablePtr col_null_map_to = ColumnUInt8::create(size);
             ColumnUInt8::Container* vec_null_map_to = &col_null_map_to->get_data();
             const bool is_complex = is_complex_type(data_type_to);
+            DataTypeSerDe::FormatOptions format_options;
+            format_options.converted_from_string = true;
+
             for (size_t i = 0; i < size; ++i) {
                 const auto& val = col_from_string->get_data_at(i);
                 // Note: here we should handle the null element
@@ -571,8 +574,9 @@ struct ConvertImplGenericFromString {
                     }
                     continue;
                 }
-                ReadBuffer read_buffer((char*)(val.data), val.size);
-                Status st = data_type_to->from_string(read_buffer, col_to);
+                Slice string_slice(val.data, val.size);
+                Status st = serde->deserialize_one_cell_from_text(*col_to, string_slice,
+                                                                  format_options);
                 // if parsing failed, will return null
                 (*vec_null_map_to)[i] = !st.ok();
                 if (!st.ok()) {
