@@ -503,7 +503,6 @@ public:
     virtual void get_indices_of_non_default_rows(Offsets64& indices, size_t from,
                                                  size_t limit) const {
         LOG(FATAL) << "column not support get_indices_of_non_default_rows";
-        LOG(FATAL) << "__builtin_unreachable";
         __builtin_unreachable();
     }
 

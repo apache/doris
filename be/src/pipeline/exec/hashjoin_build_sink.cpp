@@ -173,7 +173,6 @@ Status HashJoinBuildSinkLocalState::process_build_block(RuntimeState* state,
                     [&](std::monostate& arg, auto has_null_value,
                         auto short_circuit_for_null_in_build_side) -> Status {
                         LOG(FATAL) << "FATAL: uninited hash table";
-                        LOG(FATAL) << "__builtin_unreachable";
                         __builtin_unreachable();
                         return Status::OK();
                     },
@@ -555,7 +554,6 @@ Status HashJoinBuildSinkOperatorX::sink(RuntimeState* state, vectorized::Block* 
                     Overload {
                             [&](std::monostate&) -> Status {
                                 LOG(FATAL) << "FATAL: uninited hash table";
-                                LOG(FATAL) << "__builtin_unreachable";
                                 __builtin_unreachable();
                             },
                             [&](auto&& arg) -> Status {
