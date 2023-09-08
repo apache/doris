@@ -24,7 +24,6 @@
 
 #include <ostream>
 
-#include "common/status.h"
 #include "pipeline/exec/operator.h"
 #include "pipeline/pipeline.h"
 #include "pipeline_fragment_context.h"
@@ -34,6 +33,7 @@
 #include "task_queue.h"
 #include "util/defer_op.h"
 #include "util/runtime_profile.h"
+#include "vec/core/future_block.h"
 
 namespace doris {
 class RuntimeState;
@@ -161,7 +161,8 @@ Status PipelineTask::prepare(RuntimeState* state) {
     fmt::format_to(operator_ids_str, "]");
     _task_profile->add_info_string("OperatorIds(source2root)", fmt::to_string(operator_ids_str));
 
-    _block = doris::vectorized::Block::create_unique();
+    _block = _fragment_context->is_group_commit() ? doris::vectorized::FutureBlock::create_unique()
+                                                  : doris::vectorized::Block::create_unique();
 
     // We should make sure initial state for task are runnable so that we can do some preparation jobs (e.g. initialize runtime filters).
     set_state(PipelineTaskState::RUNNABLE);
@@ -278,8 +279,15 @@ Status PipelineTask::execute(bool* eos) {
         if (_block->rows() != 0 || *eos) {
             SCOPED_TIMER(_sink_timer);
             auto status = _sink->sink(_state, block, _data_state);
-            if (status.is<ErrorCode::NEED_SEND_AGAIN>()) {
-                status = _sink->sink(_state, block, _data_state);
+            if (UNLIKELY(!status.ok() || block->rows() == 0)) {
+                if (_fragment_context->is_group_commit()) {
+                    auto* future_block = dynamic_cast<vectorized::FutureBlock*>(block);
+                    std::unique_lock<doris::Mutex> l(*(future_block->lock));
+                    if (!future_block->is_handled()) {
+                        future_block->set_result(status, 0, 0);
+                        future_block->cv->notify_all();
+                    }
+                }
             }
             if (!status.is<ErrorCode::END_OF_FILE>()) {
                 RETURN_IF_ERROR(status);

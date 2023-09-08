@@ -53,6 +53,7 @@
 #include "runtime/exec_env.h"
 #include "runtime/external_scan_context_mgr.h"
 #include "runtime/fragment_mgr.h"
+#include "runtime/group_commit_mgr.h"
 #include "runtime/heartbeat_flags.h"
 #include "runtime/load_channel_mgr.h"
 #include "runtime/load_path_mgr.h"
@@ -194,6 +195,7 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths) {
     _routine_load_task_executor = new RoutineLoadTaskExecutor(this);
     _small_file_mgr = new SmallFileMgr(this, config::small_file_dir);
     _block_spill_mgr = new BlockSpillManager(_store_paths);
+    _group_commit_mgr = new GroupCommitMgr(this);
     _file_meta_cache = new FileMetaCache(config::max_external_file_meta_cache_num);
     _memtable_memory_limiter = std::make_unique<MemTableMemoryLimiter>();
 
@@ -433,6 +435,7 @@ void ExecEnv::_destroy() {
     SAFE_DELETE(_external_scan_context_mgr);
     SAFE_DELETE(_heartbeat_flags);
     SAFE_DELETE(_scanner_scheduler);
+    SAFE_DELETE(_group_commit_mgr);
     SAFE_DELETE(_file_meta_cache);
     // Master Info is a thrift object, it could be the last one to deconstruct.
     // Master info should be deconstruct later than fragment manager, because fragment will

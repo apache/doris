@@ -564,6 +564,7 @@ void BackendService::ingest_binlog(TIngestBinlogResult& result,
             RETURN_IF_ERROR(client->head());
             return client->get_content_length(&segment_file_size);
         };
+
         status = HttpClient::execute_with_retry(max_retry, 1, get_segment_file_size_cb);
         if (!status.ok()) {
             LOG(WARNING) << "failed to get segment file size from " << get_segment_file_size_url
@@ -571,6 +572,7 @@ void BackendService::ingest_binlog(TIngestBinlogResult& result,
             status.to_thrift(&tstatus);
             return;
         }
+
         segment_file_sizes.push_back(segment_file_size);
         segment_file_urls.push_back(std::move(get_segment_file_size_url));
     }

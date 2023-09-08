@@ -117,22 +117,28 @@ ALTER TABLE table_name ADD INDEX idx_name(column_name) USING INVERTED [PROPERTIE
 
 **2.0-beta版本（含2.0-beta）之后：**
 
-上述`create/add index`操作只对增量数据生成倒排索引，增加了build index的语法用于对存量数据加倒排索引：
+上述`create/add index`操作只对增量数据生成倒排索引，增加了BUILD INDEX的语法用于对存量数据加倒排索引：
 ```sql
 -- 语法1，默认给全表的存量数据加上倒排索引
 BUILD INDEX index_name ON table_name;
 -- 语法2，可指定partition，可指定一个或多个
 BUILD INDEX index_name ON table_name PARTITIONS(partition_name1, partition_name2);
 ```
-(**在执行build index之前需要已经执行了以上`create/add index`的操作**)
+(**在执行BUILD INDEX之前需要已经执行了以上`create/add index`的操作**)
 
-查看`build index`进展，可通过以下语句进行查看：
+查看`BUILD INDEX`进展，可通过以下语句进行查看：
 ```sql
-show build index [FROM db_name];
--- 示例1，查看所有的build index任务进展
-show build index;
--- 示例2，查看指定table的build index任务进展
-show build index where TableName = "table1";
+SHOW BUILD INDEX [FROM db_name];
+-- 示例1，查看所有的BUILD INDEX任务进展
+SHOW BUILD INDEX;
+-- 示例2，查看指定table的BUILD INDEX任务进展
+SHOW BUILD INDEX where TableName = "table1";
+```
+
+取消 `BUILD INDEX`, 可通过以下语句进行
+```sql
+CANCEL BUILD INDEX ON table_name;
+CANCEL BUILD INDEX ON table_name (job_id1,jobid_2,...);
 ```
 
 - 删除倒排索引
@@ -401,7 +407,7 @@ mysql> SELECT count() FROM hackernews_1m WHERE timestamp > '2007-08-23 04:17:00'
 mysql> CREATE INDEX idx_timestamp ON hackernews_1m(timestamp) USING INVERTED;
 Query OK, 0 rows affected (0.03 sec)
 ```
-  **2.0-beta(含2.0-beta)后，需要再执行`build index`才能给存量数据加上倒排索引：**
+  **2.0-beta(含2.0-beta)后，需要再执行`BUILD INDEX`才能给存量数据加上倒排索引：**
 ```sql
 mysql> BUILD INDEX idx_timestamp ON hackernews_1m;
 Query OK, 0 rows affected (0.01 sec)
@@ -421,7 +427,7 @@ mysql> SHOW ALTER TABLE COLUMN;
 **2.0-beta(含2.0-beta)后，可通过`show builde index`来查看存量数据创建索引进展：**
 ```sql
 -- 若table没有分区，PartitionName默认就是TableName
-mysql> show build index;
+mysql> SHOW BUILD INDEX;
 +-------+---------------+---------------+----------------------------------------------------------+-------------------------+-------------------------+---------------+----------+------+----------+
 | JobId | TableName     | PartitionName | AlterInvertedIndexes                                     | CreateTime              | FinishTime              | TransactionId | State    | Msg  | Progress |
 +-------+---------------+---------------+----------------------------------------------------------+-------------------------+-------------------------+---------------+----------+------+----------+
@@ -456,7 +462,7 @@ mysql> SELECT count() FROM hackernews_1m WHERE parent = 11189;
 mysql> ALTER TABLE hackernews_1m ADD INDEX idx_parent(parent) USING INVERTED;
 Query OK, 0 rows affected (0.01 sec)
 
--- 2.0-beta(含2.0-beta)后，需要再执行build index才能给存量数据加上倒排索引：
+-- 2.0-beta(含2.0-beta)后，需要再执行BUILD INDEX才能给存量数据加上倒排索引：
 mysql> BUILD INDEX idx_parent ON hackernews_1m;
 Query OK, 0 rows affected (0.01 sec)
 
@@ -468,7 +474,7 @@ mysql> SHOW ALTER TABLE COLUMN;
 | 10053 | hackernews_1m | 2023-02-10 19:49:32.893 | 2023-02-10 19:49:33.982 | hackernews_1m | 10054   | 10008         | 1:378856428   | 4             | FINISHED |      | NULL     | 2592000 |
 +-------+---------------+-------------------------+-------------------------+---------------+---------+---------------+---------------+---------------+----------+------+----------+---------+
 
-mysql> show build index;
+mysql> SHOW BUILD INDEX;
 +-------+---------------+---------------+----------------------------------------------------+-------------------------+-------------------------+---------------+----------+------+----------+
 | JobId | TableName     | PartitionName | AlterInvertedIndexes                               | CreateTime              | FinishTime              | TransactionId | State    | Msg  | Progress |
 +-------+---------------+---------------+----------------------------------------------------+-------------------------+-------------------------+---------------+----------+------+----------+
@@ -499,7 +505,7 @@ mysql> SELECT count() FROM hackernews_1m WHERE author = 'faster';
 mysql> ALTER TABLE hackernews_1m ADD INDEX idx_author(author) USING INVERTED;
 Query OK, 0 rows affected (0.01 sec)
 
--- 2.0-beta(含2.0-beta)后，需要再执行build index才能给存量数据加上倒排索引：
+-- 2.0-beta(含2.0-beta)后，需要再执行BUILD INDEX才能给存量数据加上倒排索引：
 mysql> BUILD INDEX idx_author ON hackernews_1m;
 Query OK, 0 rows affected (0.01 sec)
 
@@ -513,7 +519,7 @@ mysql> SHOW ALTER TABLE COLUMN;
 | 10076 | hackernews_1m | 2023-02-10 19:54:20.046 | 2023-02-10 19:54:21.521 | hackernews_1m | 10077   | 10008         | 1:1335127701  | 5             | FINISHED |      | NULL     | 2592000 |
 +-------+---------------+-------------------------+-------------------------+---------------+---------+---------------+---------------+---------------+----------+------+----------+---------+
 
-mysql> show build index order by CreateTime desc limit 1;
+mysql> SHOW BUILD INDEX order by CreateTime desc limit 1;
 +-------+---------------+---------------+----------------------------------------------------+-------------------------+-------------------------+---------------+----------+------+----------+
 | JobId | TableName     | PartitionName | AlterInvertedIndexes                               | CreateTime              | FinishTime              | TransactionId | State    | Msg  | Progress |
 +-------+---------------+---------------+----------------------------------------------------+-------------------------+-------------------------+---------------+----------+------+----------+

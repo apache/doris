@@ -1566,7 +1566,8 @@ public class FunctionCallExpr extends Expr {
         }
 
         if (fnName.getFunction().equalsIgnoreCase("collect_list")
-                || fnName.getFunction().equalsIgnoreCase("collect_set")) {
+                || fnName.getFunction().equalsIgnoreCase("collect_set")
+                || fnName.getFunction().equalsIgnoreCase("array_agg")) {
             fn.setReturnType(new ArrayType(getChild(0).type));
         }
 
@@ -1636,6 +1637,21 @@ public class FunctionCallExpr extends Expr {
                 fn.setReturnType(ret);
                 fn.getReturnType().getPrimitiveType().setTimeType();
             }
+        }
+
+        if (fn.getFunctionName().getFunction().equals("from_microsecond")) {
+            Type ret = ScalarType.createDatetimeV2Type(6);
+            fn.setReturnType(ret);
+        }
+
+        if (fn.getFunctionName().getFunction().equals("from_millisecond")) {
+            Type ret = ScalarType.createDatetimeV2Type(3);
+            fn.setReturnType(ret);
+        }
+
+        if (fn.getFunctionName().getFunction().equals("from_second")) {
+            Type ret = ScalarType.createDatetimeV2Type(0);
+            fn.setReturnType(ret);
         }
 
         if (fnName.getFunction().equalsIgnoreCase("map")) {

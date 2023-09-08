@@ -168,7 +168,7 @@ DECLARE_mString(process_full_gc_size);
 // used memory and the exec_mem_limit will be canceled.
 // If false, cancel query when the memory used exceeds exec_mem_limit, same as before.
 DECLARE_mBool(enable_query_memory_overcommit);
-
+//waibibabu
 // gc will release cache, cancel task, and task will wait for gc to release memory,
 // default gc strategy is conservative, if you want to exclude the interference of gc, let it be true
 DECLARE_mBool(disable_memory_gc);
@@ -1149,6 +1149,12 @@ DECLARE_Int32(fe_expire_duration_seconds);
 // , but if the waiting time exceed the limit, then be will exit directly.
 // During this period, FE will not send any queries to BE and waiting for all running queries to stop.
 DECLARE_Int32(grace_shutdown_wait_seconds);
+
+// BitmapValue serialize version.
+DECLARE_Int16(bitmap_serialize_version);
+
+// This config can be set to limit thread number in group commit insert thread pool.
+DECLARE_mInt32(group_commit_insert_threads);
 
 #ifdef BE_TEST
 // test s3

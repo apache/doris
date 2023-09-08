@@ -688,11 +688,10 @@ public class AnalysisManager extends Daemon implements Writable {
         Set<String> cols = dropStatsStmt.getColumnNames();
         long tblId = dropStatsStmt.getTblId();
         TableStats tableStats = findTableStatsStatus(dropStatsStmt.getTblId());
-        if (tableStats == null) {
-            return;
+        if (tableStats != null) {
+            tableStats.updatedTime = 0;
+            replayUpdateTableStatsStatus(tableStats);
         }
-        tableStats.updatedTime = 0;
-        replayUpdateTableStatsStatus(tableStats);
         StatisticsRepository.dropStatistics(tblId, cols);
         for (String col : cols) {
             Env.getCurrentEnv().getStatisticsCache().invalidate(tblId, -1L, col);
