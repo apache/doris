@@ -34,7 +34,7 @@ array_filter(lambda,array)
 
 <version since="2.0.2">
 
-array<T> array_filter(array<T> arr, array<bool> filter_column)
+array array_filter(array arr, array_bool filter_column)
 
 </version>
 
