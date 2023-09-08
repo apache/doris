@@ -218,8 +218,8 @@ Status RuntimeFilterMergeControllerEntity::_init_with_desc(
     cntVal->runtime_filter_desc = *runtime_filter_desc;
     cntVal->target_info = *target_info;
     cntVal->pool.reset(new ObjectPool());
-    cntVal->filter =
-            cntVal->pool->add(new IRuntimeFilter(_state, &_state->get_query_ctx()->obj_pool));
+    cntVal->filter = cntVal->pool->add(
+            new IRuntimeFilter(_state, &_state->get_query_ctx()->obj_pool, runtime_filter_desc));
 
     auto filter_id = runtime_filter_desc->filter_id;
     // LOG(INFO) << "entity filter id:" << filter_id;
@@ -240,8 +240,8 @@ Status RuntimeFilterMergeControllerEntity::_init_with_desc(
     cntVal->runtime_filter_desc = *runtime_filter_desc;
     cntVal->targetv2_info = *targetv2_info;
     cntVal->pool.reset(new ObjectPool());
-    cntVal->filter =
-            cntVal->pool->add(new IRuntimeFilter(_state, &_state->get_query_ctx()->obj_pool));
+    cntVal->filter = cntVal->pool->add(
+            new IRuntimeFilter(_state, &_state->get_query_ctx()->obj_pool, runtime_filter_desc));
 
     auto filter_id = runtime_filter_desc->filter_id;
     // LOG(INFO) << "entity filter id:" << filter_id;
