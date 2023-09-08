@@ -711,12 +711,11 @@ Status FragmentMgr::exec_plan_fragment(const TPipelineFragmentParams& params,
         }
         g_fragmentmgr_prepare_latency << (duration_ns / 1000);
 
-        //        std::shared_ptr<RuntimeFilterMergeControllerEntity> handler;
-        //        _runtimefilter_controller.add_entity(params, local_params, &handler,
-        //                                             context->get_runtime_state());
-        //        context->set_merge_controller_handler(handler);
-
         for (size_t i = 0; i < params.local_params.size(); i++) {
+            std::shared_ptr<RuntimeFilterMergeControllerEntity> handler;
+            _runtimefilter_controller.add_entity(params, params.local_params[i], &handler,
+                                                 context->get_runtime_state(UniqueId()));
+            context->set_merge_controller_handler(handler);
             const TUniqueId& fragment_instance_id = params.local_params[i].fragment_instance_id;
             {
                 std::lock_guard<std::mutex> lock(_lock);
@@ -792,7 +791,7 @@ Status FragmentMgr::exec_plan_fragment(const TPipelineFragmentParams& params,
 
             std::shared_ptr<RuntimeFilterMergeControllerEntity> handler;
             _runtimefilter_controller.add_entity(params, local_params, &handler,
-                                                 context->get_runtime_state());
+                                                 context->get_runtime_state(UniqueId()));
             context->set_merge_controller_handler(handler);
 
             {
@@ -1195,7 +1194,8 @@ Status FragmentMgr::apply_filter(const PPublishFilterRequest* request,
         pip_context = iter->second;
 
         DCHECK(pip_context != nullptr);
-        runtime_filter_mgr = pip_context->get_runtime_state()->runtime_filter_mgr();
+        runtime_filter_mgr =
+                pip_context->get_runtime_state(fragment_instance_id)->runtime_filter_mgr();
     } else {
         std::unique_lock<std::mutex> lock(_lock);
         auto iter = _fragment_map.find(tfragment_instance_id);
@@ -1237,8 +1237,9 @@ Status FragmentMgr::apply_filterv2(const PPublishFilterRequestV2* request,
             pip_context = iter->second;
 
             DCHECK(pip_context != nullptr);
-            runtime_filter_mgr =
-                    pip_context->get_runtime_state()->get_query_ctx()->runtime_filter_mgr();
+            runtime_filter_mgr = pip_context->get_runtime_state(fragment_instance_id)
+                                         ->get_query_ctx()
+                                         ->runtime_filter_mgr();
             pool = &pip_context->get_query_context()->obj_pool;
         } else {
             std::unique_lock<std::mutex> lock(_lock);
