@@ -109,7 +109,7 @@ docker run -itd \
 --name=fe \
 --env FE_SERVERS="fe1:${intranet IP of the current machine}:9010" \
 --env FE_ID=1 \
--p 8030:8030\
+-p 8030:8030 \
 -p 9030:9030 \
 -v /data/fe/doris-meta:/opt/apache-doris/fe/doris-meta \
 -v /data/fe/log:/opt/apache-doris/fe/log \
