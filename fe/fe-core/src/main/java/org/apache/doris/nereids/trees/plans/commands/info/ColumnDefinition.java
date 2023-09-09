@@ -41,8 +41,8 @@ public class ColumnDefinition {
     private DataType type;
     private boolean isKey;
     private AggregateType aggType;
-    private boolean isNullable;
-    private final Optional<DefaultValue> defaultValue;
+    private final boolean isNullable;
+    private Optional<DefaultValue> defaultValue;
     private final String comment;
     private final boolean isVisible;
     private boolean aggTypeImplicit = false;
@@ -81,6 +81,10 @@ public class ColumnDefinition {
 
     public AggregateType getAggType() {
         return aggType;
+    }
+
+    public boolean isNullable() {
+        return isNullable;
     }
 
     /**
@@ -123,6 +127,13 @@ public class ColumnDefinition {
         }
         if (!isKey && keysType.equals(KeysType.UNIQUE_KEYS)) {
             aggTypeImplicit = true;
+        }
+        if (type.isHllType()) {
+            defaultValue = Optional.of(DefaultValue.HLL_EMPTY_DEFAULT_VALUE);
+        } else if (type.isBitmapType()) {
+            defaultValue = Optional.of(DefaultValue.BITMAP_EMPTY_DEFAULT_VALUE);
+        } else if (type.isArrayType() && !defaultValue.isPresent()) {
+            defaultValue = Optional.of(DefaultValue.ARRAY_EMPTY_DEFAULT_VALUE);
         }
     }
 

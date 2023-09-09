@@ -283,6 +283,12 @@ public class CreateTableInfo {
         columns.forEach(c -> columnMap.put(c.getName(), c));
 
         if (partitions != null) {
+            partitionColumns.forEach(p -> {
+                if (!columnMap.containsKey(p)) {
+                    throw new AnalysisException(String.format("partition key %s is not exists", p));
+                }
+                validateColumn(columnMap.get(p));
+            });
             if (!checkPartitionsTypes()) {
                 throw new AnalysisException("partitions types is invalid, expected FIXED or LESS in range partitions"
                         + " and IN in list partitions");
@@ -339,7 +345,7 @@ public class CreateTableInfo {
     /**
      * check partitions types.
      */
-    public boolean checkPartitionsTypes() {
+    private boolean checkPartitionsTypes() {
         if (partitionType.equalsIgnoreCase("RANGE")) {
             if (partitions.stream().allMatch(p -> p instanceof StepPartition)) {
                 return true;
@@ -348,6 +354,15 @@ public class CreateTableInfo {
                     || (p instanceof FixedRangePartition));
         }
         return partitionType.equalsIgnoreCase("LIST") && partitions.stream().allMatch(p -> p instanceof InPartition);
+    }
+
+    private void validateColumn(ColumnDefinition column) {
+        if (column.isNullable()) {
+            throw new AnalysisException("The list partition column must be NOT NULL");
+        }
+        if (column.getAggType() != null) {
+            throw new AnalysisException("The partition column could not be aggregated column");
+        }
     }
 
     /**
