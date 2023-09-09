@@ -39,6 +39,7 @@
 #include <tuple>
 #include <vector>
 
+#include "common/stack_trace.h"
 #include "olap/tablet_schema_cache.h"
 #include "olap/utils.h"
 #include "runtime/memory/mem_tracker_limiter.h"
@@ -166,6 +167,7 @@ auto instruction_fail_to_string(InstructionFail fail) {
     case InstructionFail::ARM_NEON:
         ret("ARM_NEON");
     }
+    LOG(FATAL) << "__builtin_unreachable";
     __builtin_unreachable();
 }
 
@@ -307,6 +309,8 @@ struct Checker {
 int main(int argc, char** argv) {
     doris::signal::InstallFailureSignalHandler();
     doris::init_signals();
+    // create StackTraceCache Instance, at the beginning, other static destructors may use.
+    StackTrace::createCache();
 
     // check if print version or help
     if (argc > 1) {
@@ -608,6 +612,9 @@ int main(int argc, char** argv) {
 #endif
         sleep(3);
     }
+
+    // For graceful shutdown, need to wait for all running queries to stop
+    exec_env->wait_for_all_tasks_done();
 
     return 0;
 }

@@ -482,6 +482,7 @@ struct TMasterOpRequest {
     23: optional i32 clientNodePort
     24: optional bool syncJournalOnly // if set to true, this request means to do nothing but just sync max journal id of master
     25: optional string defaultCatalog
+    26: optional string defaultDatabase
 }
 
 struct TColumnDefinition {
@@ -634,6 +635,8 @@ struct TStreamLoadPutResult {
     // valid when status is OK
     2: optional PaloInternalService.TExecPlanFragmentParams params
     3: optional PaloInternalService.TPipelineFragmentParams pipeline_params
+    // used for group commit
+    4: optional i64 base_schema_version
 }
 
 struct TStreamLoadMultiTablePutResult {
@@ -692,6 +695,7 @@ struct TLoadTxnCommitRequest {
     13: optional string token
     14: optional i64 db_id
     15: optional list<string> tbls
+    16: optional i64 table_id
 }
 
 struct TLoadTxnCommitResult {

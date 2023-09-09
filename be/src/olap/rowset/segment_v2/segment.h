@@ -48,10 +48,6 @@ class StorageReadOptions;
 class MemTracker;
 class PrimaryKeyIndexReader;
 class RowwiseIterator;
-
-namespace io {
-class FileReaderOptions;
-} // namespace io
 struct RowLocation;
 
 namespace segment_v2 {
@@ -94,7 +90,8 @@ public:
                                      std::unique_ptr<BitmapIndexIterator>* iter);
 
     Status new_inverted_index_iterator(const TabletColumn& tablet_column,
-                                       const TabletIndex* index_meta, OlapReaderStatistics* stats,
+                                       const TabletIndex* index_meta,
+                                       const StorageReadOptions& read_options,
                                        std::unique_ptr<InvertedIndexIterator>* iter);
 
     const ShortKeyIndexDecoder* get_short_key_index() const {

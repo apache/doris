@@ -30,6 +30,7 @@ import org.apache.logging.log4j.Logger;
 
 import java.util.Arrays;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.TimeUnit;
@@ -202,6 +203,15 @@ public interface DatabaseIf<T extends TableIf> {
         return getTableOrException(tableName, t -> new DdlException(ErrorCode.ERR_BAD_TABLE_ERROR.formatErrorMsg(t)));
     }
 
+    default T getTableOrDdlException(String tableName, TableIf.TableType tableType) throws DdlException {
+        T table = getTableOrDdlException(tableName);
+        if (table.getType() != tableType) {
+            throw new DdlException(
+                    "table type is not " + tableType + ", tableName=" + tableName + ", type=" + table.getType());
+        }
+        return table;
+    }
+
     default T getTableOrDdlException(long tableId) throws DdlException {
         return getTableOrException(tableId, t -> new DdlException(ErrorCode.ERR_BAD_TABLE_ERROR.formatErrorMsg(t)));
     }
@@ -248,4 +258,6 @@ public interface DatabaseIf<T extends TableIf> {
     default long getLastUpdateTime() {
         return -1L;
     }
+
+    public Map<Long, TableIf> getIdToTable();
 }

@@ -97,6 +97,7 @@ DECLARE_Int32(be_port);
 DECLARE_Int32(brpc_port);
 
 // port for arrow flight
+// Default -1, do not start arrow flight server.
 DECLARE_Int32(arrow_flight_port);
 
 // the number of bthreads for brpc, the default value is set to -1,
@@ -167,7 +168,7 @@ DECLARE_mString(process_full_gc_size);
 // used memory and the exec_mem_limit will be canceled.
 // If false, cancel query when the memory used exceeds exec_mem_limit, same as before.
 DECLARE_mBool(enable_query_memory_overcommit);
-
+//waibibabu
 // gc will release cache, cancel task, and task will wait for gc to release memory,
 // default gc strategy is conservative, if you want to exclude the interference of gc, let it be true
 DECLARE_mBool(disable_memory_gc);
@@ -932,16 +933,11 @@ DECLARE_mInt32(remove_unused_remote_files_interval_sec); // 6h
 DECLARE_mInt32(confirm_unused_remote_files_interval_sec);
 DECLARE_Int32(cold_data_compaction_thread_num);
 DECLARE_mInt32(cold_data_compaction_interval_sec);
-DECLARE_mInt64(generate_cache_cleaner_task_interval_sec); // 12 h
 DECLARE_Int32(concurrency_per_dir);
-DECLARE_mInt64(cooldown_lag_time_sec);     // 3h
-DECLARE_mInt64(max_sub_cache_file_size);   // 100MB
-DECLARE_mInt64(file_cache_alive_time_sec); // 1 week
 // file_cache_type is used to set the type of file cache for remote files.
 // "": no cache, "sub_file_cache": split sub files from remote file.
 // "whole_file_cache": the whole file.
 DECLARE_mString(file_cache_type);
-DECLARE_mInt64(file_cache_max_size_per_disk); // zero for no limit
 
 DECLARE_Int32(s3_transfer_executor_pool_size);
 
@@ -1148,6 +1144,17 @@ DECLARE_Int32(partition_topn_partition_threshold);
 // If fe's frontend info has not been updated for more than fe_expire_duration_seconds, it will be regarded
 // as an abnormal fe, this will cause be to cancel this fe's related query.
 DECLARE_Int32(fe_expire_duration_seconds);
+
+// If use stop_be.sh --grace, then BE has to wait all running queries to stop to avoiding running query failure
+// , but if the waiting time exceed the limit, then be will exit directly.
+// During this period, FE will not send any queries to BE and waiting for all running queries to stop.
+DECLARE_Int32(grace_shutdown_wait_seconds);
+
+// BitmapValue serialize version.
+DECLARE_Int16(bitmap_serialize_version);
+
+// This config can be set to limit thread number in group commit insert thread pool.
+DECLARE_mInt32(group_commit_insert_threads);
 
 #ifdef BE_TEST
 // test s3

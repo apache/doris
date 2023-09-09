@@ -48,8 +48,8 @@ public class PhysicalJdbcScan extends PhysicalCatalogRelation {
      */
     public PhysicalJdbcScan(RelationId id, TableIf table, List<String> qualifier,
             Optional<GroupExpression> groupExpression, LogicalProperties logicalProperties, Set<Expression> conjuncts) {
-        super(id, PlanType.PHYSICAL_JDBC_SCAN, table, qualifier, groupExpression, logicalProperties);
-        this.conjuncts = ImmutableSet.copyOf(Objects.requireNonNull(conjuncts, "conjuncts should not be null"));
+        this(id, table, qualifier, groupExpression, logicalProperties,
+                null, null, conjuncts);
     }
 
     /**

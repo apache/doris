@@ -240,6 +240,8 @@ struct TQueryOptions {
 
   // A tag used to distinguish fe start epoch.
   82: optional i64 fe_process_uuid = 0;
+
+  83: optional i32 inverted_index_conjunction_opt_threshold = 1000;
 }
 
 
@@ -312,7 +314,7 @@ struct TPlanFragmentExecParams {
   11: optional bool send_query_statistics_with_every_batch
   // Used to merge and send runtime filter
   12: optional TRuntimeFilterParams runtime_filter_params
-
+  13: optional bool group_commit
 }
 
 // Global query parameters assigned by the coordinator.
@@ -652,6 +654,7 @@ struct TPipelineFragmentParams {
   28: optional string table_name
   // scan node id -> scan range params, only for external file scan
   29: optional map<Types.TPlanNodeId, PlanNodes.TFileScanRangeParams> file_scan_params
+  30: optional bool group_commit = false;
 }
 
 struct TPipelineFragmentParamsList {

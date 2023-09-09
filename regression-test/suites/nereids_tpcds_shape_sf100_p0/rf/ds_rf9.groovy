@@ -83,7 +83,7 @@ where r_reason_sk = 1
 
     '''
     String plan = sql "${stmt}"
-    println plan
+    log.info(plan)
     def getRuntimeFilters = { plantree ->
         {
             def lst = []

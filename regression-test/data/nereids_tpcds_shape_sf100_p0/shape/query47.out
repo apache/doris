@@ -43,7 +43,7 @@ PhysicalCteAnchor ( cteId=CTEId#0 )
 ------------------------PhysicalCteConsumer ( cteId=CTEId#0 )
 --------------------PhysicalDistribute
 ----------------------PhysicalProject
-------------------------filter((CASE WHEN (avg_monthly_sales > 0.0000) THEN (abs((cast(sum_sales as DOUBLE) - cast(avg_monthly_sales as DOUBLE))) / cast(avg_monthly_sales as DOUBLE)) ELSE NULL END > 0.1)(v2.d_year = 2001)(v2.avg_monthly_sales > 0.0000))
+------------------------filter((if((avg_monthly_sales > 0.0000), (abs((cast(sum_sales as DOUBLE) - cast(avg_monthly_sales as DOUBLE))) / cast(avg_monthly_sales as DOUBLE)), NULL) > 0.1)(v2.d_year = 2001)(v2.avg_monthly_sales > 0.0000))
 --------------------------PhysicalCteConsumer ( cteId=CTEId#0 )
 ----------------PhysicalDistribute
 ------------------PhysicalProject

@@ -109,6 +109,7 @@ public:
         default:
             LOG(FATAL) << "not match type of mem tracker limiter :" << static_cast<int>(type);
         }
+        LOG(FATAL) << "__builtin_unreachable";
         __builtin_unreachable();
     }
 

@@ -313,8 +313,9 @@ public abstract class DataType {
             List<DataType> types = catalogType.getSubTypes().stream().map(DataType::fromCatalogType)
                     .collect(Collectors.toList());
             return new AggStateType(catalogType.getFunctionName(), types, catalogType.getSubTypeNullables());
+        } else {
+            return UnsupportedType.INSTANCE;
         }
-        throw new AnalysisException("Nereids do not support type: " + type);
     }
 
     /**

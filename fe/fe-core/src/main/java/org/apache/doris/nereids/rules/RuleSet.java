@@ -73,6 +73,7 @@ import org.apache.doris.nereids.rules.implementation.LogicalTVFRelationToPhysica
 import org.apache.doris.nereids.rules.implementation.LogicalTopNToPhysicalTopN;
 import org.apache.doris.nereids.rules.implementation.LogicalUnionToPhysicalUnion;
 import org.apache.doris.nereids.rules.implementation.LogicalWindowToPhysicalWindow;
+import org.apache.doris.nereids.rules.rewrite.ConvertOuterJoinToAntiJoin;
 import org.apache.doris.nereids.rules.rewrite.EliminateOuterJoin;
 import org.apache.doris.nereids.rules.rewrite.MergeFilters;
 import org.apache.doris.nereids.rules.rewrite.MergeGenerates;
@@ -131,6 +132,7 @@ public class RuleSet {
             new PushdownFilterThroughWindow(),
             new PushdownProjectThroughLimit(),
             new EliminateOuterJoin(),
+            new ConvertOuterJoinToAntiJoin(),
             new MergeProjects(),
             new MergeFilters(),
             new MergeGenerates(),

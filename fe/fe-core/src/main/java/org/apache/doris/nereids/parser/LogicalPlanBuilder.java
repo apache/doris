@@ -366,6 +366,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
 
     @Override
     public LogicalPlan visitInsertIntoQuery(InsertIntoQueryContext ctx) {
+        boolean isOverwrite = ctx.INTO() == null;
         List<String> tableName = visitMultipartIdentifier(ctx.tableName);
         String labelName = ctx.labelName == null ? null : ctx.labelName.getText();
         List<String> colNames = ctx.cols == null ? ImmutableList.of() : visitIdentifierList(ctx.cols);
@@ -379,7 +380,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         if (ctx.explain() != null) {
             return withExplain(sink, ctx.explain());
         }
-        return new InsertIntoTableCommand(sink, Optional.ofNullable(labelName));
+        return new InsertIntoTableCommand(sink, Optional.ofNullable(labelName), isOverwrite);
     }
 
     @Override
@@ -428,28 +429,26 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     public LogicalPlan visitExport(ExportContext ctx) {
         List<String> tableName = visitMultipartIdentifier(ctx.tableName);
         List<String> partitions = ctx.partition == null ? ImmutableList.of() : visitIdentifierList(ctx.partition);
-        String path = parseConstant(ctx.filePath);
-        String whereSql = null;
+
+        // handle path string
+        String tmpPath = ctx.filePath.getText();
+        String path = escapeBackSlash(tmpPath.substring(1, tmpPath.length() - 1));
+
+        Optional<Expression> expr = Optional.empty();
         if (ctx.whereClause() != null) {
-            WhereClauseContext whereClauseContext = ctx.whereClause();
-            int startIndex = whereClauseContext.start.getStartIndex();
-            int stopIndex = whereClauseContext.stop.getStopIndex();
-            org.antlr.v4.runtime.misc.Interval interval = new org.antlr.v4.runtime.misc.Interval(startIndex,
-                    stopIndex);
-            whereSql = whereClauseContext.start.getInputStream().getText(interval);
+            expr = Optional.of(getExpression(ctx.whereClause().booleanExpression()));
         }
 
-        Map<String, String> filePropertiesMap = null;
+        Map<String, String> filePropertiesMap = ImmutableMap.of();
         if (ctx.propertyClause() != null) {
             filePropertiesMap = visitPropertyClause(ctx.propertyClause());
         }
 
-        BrokerDesc brokerDesc = null;
+        Optional<BrokerDesc> brokerDesc = Optional.empty();
         if (ctx.withRemoteStorageSystem() != null) {
-            brokerDesc = visitWithRemoteStorageSystem(ctx.withRemoteStorageSystem());
+            brokerDesc = Optional.ofNullable(visitWithRemoteStorageSystem(ctx.withRemoteStorageSystem()));
         }
-
-        return new ExportCommand(tableName, partitions, whereSql, path, filePropertiesMap, brokerDesc);
+        return new ExportCommand(tableName, partitions, expr, path, filePropertiesMap, brokerDesc);
     }
 
     @Override
@@ -1826,10 +1825,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             Optional<AggClauseContext> aggClause,
             Optional<HavingClauseContext> havingClause) {
         return ParserUtils.withOrigin(ctx, () -> {
-            // TODO: add lateral views
-
             // from -> where -> group by -> having -> select
-
             LogicalPlan filter = withFilter(inputRelation, whereClause);
             SelectColumnClauseContext selectColumnCtx = selectClause.selectColumnClause();
             LogicalPlan aggregate = withAggregate(filter, selectColumnCtx, aggClause);
@@ -1838,7 +1834,6 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                 throw new ParseException("cannot combine SELECT DISTINCT with aggregate functions or GROUP BY",
                         selectClause);
             }
-            // TODO: replace and process having at this position
             if (!(aggregate instanceof Aggregate) && havingClause.isPresent()) {
                 // create a project node for pattern match of ProjectToGlobalAggregate rule
                 // then ProjectToGlobalAggregate rule can insert agg node as LogicalHaving node's child
@@ -1849,10 +1844,10 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                         throw new ParseException("only column name is supported in except clause", selectColumnCtx);
                     }
                     project = new LogicalProject<>(ImmutableList.of(new UnboundStar(ImmutableList.of())),
-                        expressions, aggregate, isDistinct);
+                        expressions, isDistinct, aggregate);
                 } else {
                     List<NamedExpression> projects = getNamedExpressions(selectColumnCtx.namedExpressionSeq());
-                    project = new LogicalProject<>(projects, ImmutableList.of(), aggregate, isDistinct);
+                    project = new LogicalProject<>(projects, ImmutableList.of(), isDistinct, aggregate);
                 }
                 return new LogicalHaving<>(ExpressionUtils.extractConjunctionToSet(
                         getExpression((havingClause.get().booleanExpression()))), project);
@@ -2011,7 +2006,6 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     private LogicalPlan withProjection(LogicalPlan input, SelectColumnClauseContext selectCtx,
                                        Optional<AggClauseContext> aggCtx, boolean isDistinct) {
         return ParserUtils.withOrigin(selectCtx, () -> {
-            // TODO: skip if havingClause exists
             if (aggCtx.isPresent()) {
                 return input;
             } else {
@@ -2021,10 +2015,10 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                         throw new ParseException("only column name is supported in except clause", selectCtx);
                     }
                     return new LogicalProject<>(ImmutableList.of(new UnboundStar(ImmutableList.of())),
-                            expressions, input, isDistinct);
+                            expressions, isDistinct, input);
                 } else {
                     List<NamedExpression> projects = getNamedExpressions(selectCtx.namedExpressionSeq());
-                    return new LogicalProject<>(projects, Collections.emptyList(), input, isDistinct);
+                    return new LogicalProject<>(projects, Collections.emptyList(), isDistinct, input);
                 }
             }
         });

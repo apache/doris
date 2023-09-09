@@ -26,16 +26,16 @@
 
 namespace doris::vectorized {
 
-class VFileWriterWrapper {
+class VFileFormatTransformer {
 public:
-    VFileWriterWrapper(const VExprContextSPtrs& output_vexpr_ctxs, bool output_object_data)
+    VFileFormatTransformer(const VExprContextSPtrs& output_vexpr_ctxs, bool output_object_data)
             : _output_vexpr_ctxs(output_vexpr_ctxs),
               _cur_written_rows(0),
               _output_object_data(output_object_data) {}
 
-    virtual ~VFileWriterWrapper() = default;
+    virtual ~VFileFormatTransformer() = default;
 
-    virtual Status prepare() = 0;
+    virtual Status open() = 0;
 
     virtual Status write(const Block& block) = 0;
 
