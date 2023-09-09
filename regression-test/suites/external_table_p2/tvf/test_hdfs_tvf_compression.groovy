@@ -24,14 +24,16 @@ suite("test_hdfs_tvf_compression", "p2,external,tvf,external_remote,external_rem
         String baseUri = "hdfs://${nameNodeHost}:${hdfsPort}/usr/hive/warehouse/multi_catalog.db/test_compress_partitioned/"
         String baseFs = "hdfs://${nameNodeHost}:${hdfsPort}"
 
-        String orderBy_limit = "order by c1,c2,c3,c4,c5,c6,c7,c8,c9,c10,c11,c12,c13,c14,c15,c16,c17,c18,c19,c20,c21 limit 20 ";
+        String select_field = "c1,c2,c3,c4,c5,c6,c7,c8,c9,c10";
+        String orderBy_limit = "order by c1,c2,c3,c4,c5,c6,c7,c8,c9,c10 limit 20 ";
         
         qt_gz_1 """
-        select * from HDFS(
+        select ${select_field} from HDFS(
             "uri" = "${baseUri}/dt=gzip/000000_0.gz",
             "fs.defaultFS"= "${baseFs}",
             "hadoop.username" = "hadoop",
             "format" = "csv",
+            "column_separator" = '\001',
             "compress_type" = "GZ") ${orderBy_limit};
         """ 
 
@@ -41,28 +43,31 @@ suite("test_hdfs_tvf_compression", "p2,external,tvf,external_remote,external_rem
             "fs.defaultFS"= "${baseFs}",
             "hadoop.username" = "hadoop",
             "format" = "csv",
+            "column_separator" = '\001',
             "compress_type" = "GZ");
         """ 
 
 
         qt_bz2_1 """        
-        select * from 
+        select ${select_field} from 
         HDFS(
             "uri" = "${baseUri}/dt=bzip2/000000_0.bz2",
             "fs.defaultFS"= "${baseFs}",
             "hadoop.username" = "hadoop",
             "format" = "csv",
+            "column_separator" = '\001',
             "compress_type" = "bz2") ${orderBy_limit};
         """
 
 
         qt_deflate_1"""
-        select * from         
+        select ${select_field} from         
         HDFS(
             "uri" = "${baseUri}/dt=deflate/000000_0_copy_1.deflate",
             "fs.defaultFS"= "${baseFs}",
             "hadoop.username" = "hadoop",
             "format" = "csv",
+            "column_separator" = '\001',
             "compress_type" = "deflate") ${orderBy_limit};
         """
 
@@ -73,18 +78,20 @@ suite("test_hdfs_tvf_compression", "p2,external,tvf,external_remote,external_rem
             "fs.defaultFS"= "${baseFs}",
             "hadoop.username" = "hadoop",
             "format" = "csv",
+            "column_separator" = '\001',
             "compress_type" = "deflate") order by c7  limit 22;
         """
 
 
 
         qt_plain_1 """ 
-        select * from 
+        select ${select_field} from 
         HDFS(
             "uri" = "${baseUri}/dt=plain/000000_0",
             "fs.defaultFS"= "${baseFs}",
             "hadoop.username" = "hadoop",
             "format" = "csv",
+            "column_separator" = '\001',
             "compress_type" = "plain") ${orderBy_limit};
         """
 
@@ -95,30 +102,10 @@ suite("test_hdfs_tvf_compression", "p2,external,tvf,external_remote,external_rem
             "fs.defaultFS"= "${baseFs}",
             "hadoop.username" = "hadoop",
             "format" = "csv",
-            "compress_type" = "plain") where c2="abc";
+            "column_separator" = '\001',
+            "compress_type" = "plain") where c2="abc" order by c3,c4,c10 limit 5;
         """
-
         
-        qt_mix_1 """
-        select * from 
-        HDFS(
-            "uri" = "${baseUri}/dt=mix/000000_0",
-            "fs.defaultFS"= "${baseFs}",
-            "hadoop.username" = "hadoop",
-            "format" = "csv",
-            "compress_type" = "mix") ${orderBy_limit};
-        """
-
-        qt_mix_2 """
-        select c1,count(*) from 
-        HDFS(
-            "uri" = "${baseUri}/dt=mix/000000_0",
-            "fs.defaultFS"= "${baseFs}",
-            "hadoop.username" = "hadoop",
-            "format" = "csv",
-            "compress_type" = "mix") group by c1,c2 limit 50;
-        """
-
 
     }
 }

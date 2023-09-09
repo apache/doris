@@ -206,11 +206,6 @@ public class BrokerFileGroup implements Writable {
             olapTable.readUnlock();
         }
 
-        // column
-        columnSeparator = dataDescription.getColumnSeparator();
-        if (columnSeparator == null) {
-            columnSeparator = "\t";
-        }
         lineDelimiter = dataDescription.getLineDelimiter();
         if (lineDelimiter == null) {
             lineDelimiter = "\n";
@@ -224,8 +219,17 @@ public class BrokerFileGroup implements Writable {
                     && !fileFormat.equalsIgnoreCase("orc")
                     && !fileFormat.equalsIgnoreCase("json")
                     && !fileFormat.equalsIgnoreCase(FeConstants.csv_with_names)
-                    && !fileFormat.equalsIgnoreCase(FeConstants.csv_with_names_and_types)) {
+                    && !fileFormat.equalsIgnoreCase(FeConstants.csv_with_names_and_types)
+                    && !fileFormat.equalsIgnoreCase("hive_text")) {
                 throw new DdlException("File Format Type " + fileFormat + " is invalid.");
+            }
+        }
+        columnSeparator = dataDescription.getColumnSeparator();
+        if (columnSeparator == null) {
+            if (fileFormat != null && fileFormat.equalsIgnoreCase("hive_text")) {
+                columnSeparator = "\001";
+            } else {
+                columnSeparator = "\t";
             }
         }
         compressType = dataDescription.getCompressType();
