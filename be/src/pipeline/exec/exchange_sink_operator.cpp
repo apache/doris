@@ -98,6 +98,11 @@ bool ExchangeSinkLocalState::transfer_large_data_by_brpc() const {
 Status ExchangeSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& info) {
     RETURN_IF_ERROR(PipelineXSinkLocalState<>::init(state, info));
     _sender_id = info.sender_id;
+    return Status::OK();
+}
+
+Status ExchangeSinkLocalState::open(RuntimeState* state) {
+    RETURN_IF_ERROR(PipelineXSinkLocalState<>::open(state));
     _broadcast_pb_blocks.resize(config::num_broadcast_buffer);
     _broadcast_pb_block_idx = 0;
     auto& p = _parent->cast<ExchangeSinkOperatorX>();

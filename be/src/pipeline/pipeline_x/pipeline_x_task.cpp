@@ -44,19 +44,12 @@ namespace doris::pipeline {
 
 PipelineXTask::PipelineXTask(PipelinePtr& pipeline, uint32_t index, RuntimeState* state,
                              PipelineFragmentContext* fragment_context,
-                             RuntimeProfile* parent_profile,
-                             const std::vector<TScanRangeParams>& scan_ranges, const int sender_id,
-                             std::shared_ptr<BufferControlBlock>& sender,
-                             std::shared_ptr<vectorized::VDataStreamRecvr>& recvr)
+                             RuntimeProfile* parent_profile)
         : PipelineTask(pipeline, index, state, fragment_context, parent_profile),
-          _scan_ranges(scan_ranges),
           _operators(pipeline->operator_xs()),
           _source(_operators.front()),
           _root(_operators.back()),
-          _sink(pipeline->sink_shared_pointer()),
-          _sender_id(sender_id),
-          _sender(sender),
-          _recvr(recvr) {
+          _sink(pipeline->sink_shared_pointer()) {
     _pipeline_task_watcher.start();
     _sink->get_dependency(_downstream_dependency);
 }
@@ -98,27 +91,11 @@ Status PipelineXTask::_open() {
     SCOPED_TIMER(_task_profile->total_time_counter());
     SCOPED_CPU_TIMER(_task_cpu_timer);
     SCOPED_TIMER(_open_timer);
-    if (!_init_local_state) {
-        Status st = Status::OK();
-        for (auto& o : _operators) {
-            Dependency* dep = _upstream_dependency.find(o->id()) == _upstream_dependency.end()
-                                      ? (Dependency*)nullptr
-                                      : _upstream_dependency.find(o->id())->second.get();
-            LocalStateInfo info {_scan_ranges, dep, _recvr};
-            Status cur_st = o->setup_local_state(_state, info);
-            if (!cur_st.ok()) {
-                st = cur_st;
-            }
-        }
-        LocalSinkStateInfo info {_sender_id, _downstream_dependency.get(), _sender};
-        RETURN_IF_ERROR(_sink->setup_local_state(_state, info));
-        _dry_run = _sink->should_dry_run(_state);
-        RETURN_IF_ERROR(st);
-        _init_local_state = true;
-    }
+    _dry_run = _sink->should_dry_run(_state);
     for (auto& o : _operators) {
         RETURN_IF_ERROR(_state->get_local_state(o->id())->open(_state));
     }
+    RETURN_IF_ERROR(_state->get_sink_local_state(_sink->id())->open(_state));
     _opened = true;
     return Status::OK();
 }
