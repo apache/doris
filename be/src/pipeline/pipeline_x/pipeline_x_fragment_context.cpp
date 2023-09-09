@@ -749,8 +749,10 @@ void PipelineXFragmentContext::send_report(bool done) {
     // TODO: only send rpc once
     FOR_EACH_RUNTIME_STATE(
             _report_status_cb(
-                    {exec_status, _is_report_success ? _runtime_state->runtime_profile() : nullptr,
-                     _is_report_success ? runtime_state->load_channel_profile() : nullptr,
+                    {exec_status,
+                     _runtime_state->enable_profile() ? _runtime_state->runtime_profile() : nullptr,
+                     _runtime_state->enable_profile() ? runtime_state->load_channel_profile()
+                                                      : nullptr,
                      done || !exec_status.ok(), _query_ctx->coord_addr, _query_id, _fragment_id,
                      runtime_state->fragment_instance_id(), _backend_num, runtime_state.get(),
                      std::bind(&PipelineFragmentContext::update_status, this,
