@@ -28,7 +28,7 @@ import org.apache.doris.datasource.hive.event.InsertEvent;
 import org.apache.doris.datasource.hive.event.MetastoreEvent;
 import org.apache.doris.datasource.hive.event.MetastoreEventFactory;
 
-import org.apache.hadoop.util.Lists;
+import com.google.common.collect.Lists;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
@@ -57,7 +57,7 @@ public class MetastoreEventFactoryTest {
         AlterDatabaseEvent e14 = new AlterDatabaseEvent(14L, "test_ctl", "test_db", false);
 
         List<MetastoreEvent> mergedEvents;
-        List<MetastoreEvent> testEvents = Lists.newLinkedList();
+        List<MetastoreEvent> testEvents = Lists.newArrayList();
 
         testEvents.add(e1);
         testEvents.add(e2);
