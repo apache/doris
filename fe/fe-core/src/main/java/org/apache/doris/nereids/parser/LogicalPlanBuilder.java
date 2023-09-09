@@ -1651,6 +1651,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     }
 
     @Override
+    @Override
     public Object visitStructLiteral(StructLiteralContext ctx) {
         Literal[] items = ctx.items.stream().<Literal>map(this::typedVisit).toArray(Literal[]::new);
         return new CreateStruct(items);

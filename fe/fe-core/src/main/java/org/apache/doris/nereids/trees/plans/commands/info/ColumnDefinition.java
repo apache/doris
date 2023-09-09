@@ -20,11 +20,14 @@ package org.apache.doris.nereids.trees.plans.commands.info;
 import org.apache.doris.catalog.AggregateType;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.KeysType;
+import org.apache.doris.common.Config;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.types.ArrayType;
 import org.apache.doris.nereids.types.BigIntType;
 import org.apache.doris.nereids.types.CharType;
 import org.apache.doris.nereids.types.DataType;
+import org.apache.doris.nereids.types.DecimalV2Type;
+import org.apache.doris.nereids.types.DecimalV3Type;
 import org.apache.doris.nereids.types.StringType;
 import org.apache.doris.nereids.types.TinyIntType;
 import org.apache.doris.nereids.types.VarcharType;
@@ -104,6 +107,10 @@ public class ColumnDefinition {
             if (depth > 9) {
                 throw new AnalysisException("Type exceeds the maximum nesting depth of 9");
             }
+        }
+        if (type.isDecimalV2Type() && !Config.enable_decimal_conversion) {
+            DecimalV2Type decimalType = ((DecimalV2Type) type);
+            type = DecimalV3Type.createDecimalV3Type(decimalType.getPrecision(), decimalType.getScale());
         }
         if (keysSet.contains(name)) {
             isKey = true;
