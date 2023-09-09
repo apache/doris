@@ -242,6 +242,9 @@ struct TQueryOptions {
   82: optional i64 fe_process_uuid = 0;
 
   83: optional i32 inverted_index_conjunction_opt_threshold = 1000;
+  // A seperate flag to indicate whether to enable profile, not
+  // use is_report_success any more
+  84: optional bool enable_profile = false;
 }
 
 
