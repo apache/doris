@@ -1833,6 +1833,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         DataType colType = ctx.type instanceof PrimitiveDataTypeContext
                 ? visitPrimitiveDataType(((PrimitiveDataTypeContext) ctx.type))
                 : visitComplexDataType(((ComplexDataTypeContext) ctx.type));
+        colType = colType.conversion();
         boolean isKey = ctx.KEY() != null;
         boolean isNotNull = ctx.NOT() != null;
         String aggTypeString = ctx.aggType != null ? ctx.aggType.getText() : null;
