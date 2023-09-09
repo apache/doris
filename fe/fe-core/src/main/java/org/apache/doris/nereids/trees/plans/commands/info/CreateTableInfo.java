@@ -311,7 +311,8 @@ public class CreateTableInfo {
         distribution.validate(columnMap, keysType);
 
         final boolean finalEnableMergeOnWrite = isEnableMergeOnWrite;
-        Set<String> keysSet = Sets.newHashSet(keys);
+        Set<String> keysSet = Sets.newTreeSet(String.CASE_INSENSITIVE_ORDER);
+        keysSet.addAll(keys);
         columns.forEach(c -> c.validate(keysSet, finalEnableMergeOnWrite, keysType));
 
         // analyze key set.
