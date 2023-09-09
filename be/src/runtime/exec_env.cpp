@@ -23,6 +23,7 @@
 #include <utility>
 
 #include "common/config.h"
+#include "olap/olap_define.h"
 #include "runtime/fragment_mgr.h"
 #include "runtime/frontend_info.h"
 #include "time.h"
@@ -153,6 +154,10 @@ void ExecEnv::wait_for_all_tasks_done() {
         sleep(1);
         ++wait_seconds_passed;
     }
+}
+
+void ExecEnv::safe_reset_inverted_index_search_cache() {
+    SAFE_DELETE(_inverted_index_searcher_cache);
 }
 
 } // namespace doris

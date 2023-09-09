@@ -33,6 +33,7 @@
 
 #include "common/status.h"
 #include "olap/memtable_memory_limiter.h"
+#include "olap/olap_define.h"
 #include "olap/options.h"
 #include "util/threadpool.h"
 #include "vec/common/hash_table/phmap_fwd_decl.h"
@@ -54,6 +55,10 @@ namespace io {
 class S3FileBufferPool;
 class FileCacheFactory;
 } // namespace io
+namespace segment_v2 {
+class InvertedIndexSearcherCache;
+class InvertedIndexQueryCache;
+} // namespace segment_v2
 
 class BfdParser;
 class BrokerMgr;
@@ -238,6 +243,13 @@ public:
     LookupConnectionCache* get_lookup_connection_cache() { return _lookup_connection_cache; }
     RowCache* get_row_cache() { return _row_cache; }
     CacheManager* get_cache_manager() { return _cache_manager; }
+    segment_v2::InvertedIndexSearcherCache* get_inverted_index_searcher_cache() {
+        return _inverted_index_searcher_cache;
+    }
+    void safe_reset_inverted_index_search_cache();
+    segment_v2::InvertedIndexQueryCache* get_inverted_index_query_cache() {
+        return _inverted_index_query_cache;
+    }
 
 private:
     ExecEnv();
@@ -337,6 +349,8 @@ private:
     LookupConnectionCache* _lookup_connection_cache = nullptr;
     RowCache* _row_cache = nullptr;
     CacheManager* _cache_manager = nullptr;
+    segment_v2::InvertedIndexSearcherCache* _inverted_index_searcher_cache = nullptr;
+    segment_v2::InvertedIndexQueryCache* _inverted_index_query_cache;
 };
 
 template <>
@@ -367,6 +381,14 @@ inline StorageEngine* GetGlobalStorageEngine() {
 
 inline StoragePageCache* GetGlobalStoragePageCache() {
     return ExecEnv::GetInstance()->get_storage_page_cache();
+}
+
+inline segment_v2::InvertedIndexSearcherCache* GetInvertedIndexSearcherCache() {
+    return ExecEnv::GetInstance()->get_inverted_index_searcher_cache();
+}
+
+inline segment_v2::InvertedIndexQueryCache* GetInvertedIndexQueryCache() {
+    return ExecEnv::GetInstance()->get_inverted_index_query_cache();
 }
 
 } // namespace doris

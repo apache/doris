@@ -419,7 +419,8 @@ Status ExecEnv::_init_mem_env() {
         // Reason same as buffer_pool_limit
         inverted_index_cache_limit = inverted_index_cache_limit / 2;
     }
-    InvertedIndexSearcherCache::create_global_instance(inverted_index_cache_limit);
+    _inverted_index_searcher_cache =
+            InvertedIndexSearcherCache::create_global_instance(inverted_index_cache_limit);
     LOG(INFO) << "Inverted index searcher cache memory limit: "
               << PrettyPrinter::print(inverted_index_cache_limit, TUnit::BYTES)
               << ", origin config value: " << config::inverted_index_searcher_cache_limit;
@@ -432,7 +433,8 @@ Status ExecEnv::_init_mem_env() {
         // Reason same as buffer_pool_limit
         inverted_index_query_cache_limit = inverted_index_query_cache_limit / 2;
     }
-    InvertedIndexQueryCache::create_global_cache(inverted_index_query_cache_limit);
+    _inverted_index_query_cache =
+            InvertedIndexQueryCache::create_global_cache(inverted_index_query_cache_limit);
     LOG(INFO) << "Inverted index query match cache memory limit: "
               << PrettyPrinter::print(inverted_index_cache_limit, TUnit::BYTES)
               << ", origin config value: " << config::inverted_index_query_cache_limit;
@@ -555,7 +557,14 @@ void ExecEnv::destroy() {
     SAFE_DELETE(_storage_page_cache);
     SAFE_DELETE(_lookup_connection_cache);
     SAFE_DELETE(_row_cache);
+
+    SAFE_DELETE(_inverted_index_query_cache);
+    SAFE_DELETE(_inverted_index_searcher_cache);
+    // cache_manager must be destoried after _inverted_index_query_cache
+    // https://github.com/apache/doris/issues/24082#issuecomment-1712544039
     SAFE_DELETE(_cache_manager);
+
+    LOG(INFO) << "Doris exec envorinment is destoried.";
 }
 
 } // namespace doris

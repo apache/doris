@@ -389,7 +389,9 @@ void Daemon::start() {
 }
 
 void Daemon::stop() {
+    LOG(INFO) << "Doris daemon is stopping.";
     if (_stop_background_threads_latch.count() == 0) {
+        LOG(INFO) << "Doris daemon stop returned since no bg threads latch.";
         return;
     }
     _stop_background_threads_latch.count_down();
@@ -398,6 +400,7 @@ void Daemon::stop() {
             t->join();
         }
     }
+    LOG(INFO) << "Doris daemon stopped after background threads are joined.";
 }
 
 } // namespace doris
