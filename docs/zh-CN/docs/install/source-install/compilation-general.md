@@ -241,7 +241,7 @@ under the License.
 
         ```
         export REPOSITORY_URL=https://doris-thirdparty-repo.bj.bcebos.com/thirdparty
-        sh build-thirdparty.sh
+        sh thirdparty/build-thirdparty.sh
         ```
 
        REPOSITORY_URL 中包含所有第三方库源码包和他们的历史版本。

@@ -249,7 +249,7 @@ You can compile Doris directly in your own Linux environment.
 
          ```
          export REPOSITORY_URL=https://doris-thirdparty-repo.bj.bcebos.com/thirdparty
-         sh build-thirdparty.sh
+         sh thirdparty/build-thirdparty.sh
          ```
 
          REPOSITORY_URL contains all third-party library source code packages and their historical versions.
