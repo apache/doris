@@ -179,11 +179,11 @@ Status ColumnReader::create(const ColumnReaderOptions& opts, const ColumnMetaPB&
 
 ColumnReader::ColumnReader(const ColumnReaderOptions& opts, const ColumnMetaPB& meta,
                            uint64_t num_rows, io::FileReaderSPtr file_reader)
-        : _opts(opts),
+        : _use_index_page_cache(!config::disable_storage_page_cache),
+          _opts(opts),
           _num_rows(num_rows),
           _file_reader(std::move(file_reader)),
-          _dict_encoding_type(UNKNOWN_DICT_ENCODING),
-          _use_index_page_cache(!config::disable_storage_page_cache) {
+          _dict_encoding_type(UNKNOWN_DICT_ENCODING) {
     _meta_length = meta.length();
     _meta_type = (FieldType)meta.type();
     if (_meta_type == FieldType::OLAP_FIELD_TYPE_ARRAY) {
@@ -207,32 +207,31 @@ Status ColumnReader::init(const ColumnMetaPB* meta) {
         auto& index_meta = meta->indexes(i);
         switch (index_meta.type()) {
         case ORDINAL_INDEX:
-            _ordinal_index_meta = &index_meta.ordinal_index();
-            _ordinal_index.reset(new OrdinalIndexReader(_file_reader, _num_rows));
+            _ordinal_index.reset(new OrdinalIndexReader(_file_reader, _num_rows, index_meta.ordinal_index()));
             break;
         case ZONE_MAP_INDEX:
-            _zone_map_index_meta = &index_meta.zone_map_index();
-            _zone_map_index.reset(new ZoneMapIndexReader(_file_reader));
+            _segment_zone_map = std::make_unique<ZoneMapPB>(index_meta.zone_map_index().segment_zone_map());
+            _zone_map_index.reset(new ZoneMapIndexReader(_file_reader, index_meta.zone_map_index().page_zone_maps()));
             break;
         case BITMAP_INDEX:
-            _bitmap_index_meta = &index_meta.bitmap_index();
-            _bitmap_index.reset(new BitmapIndexReader(_file_reader));
+            _bitmap_index.reset(new BitmapIndexReader(_file_reader, index_meta.bitmap_index()));
             break;
         case BLOOM_FILTER_INDEX:
-            _bf_index_meta = &index_meta.bloom_filter_index();
-            _bloom_filter_index.reset(new BloomFilterIndexReader(_file_reader, _bf_index_meta));
+            _bloom_filter_index.reset(new BloomFilterIndexReader(_file_reader, index_meta.bloom_filter_index()));
             break;
         default:
             return Status::Corruption("Bad file {}: invalid column index type {}",
                                       _file_reader->path().native(), index_meta.type());
         }
     }
+
     // ArrayColumnWriter writes a single empty array and flushes. In this scenario,
     // the item writer doesn't write any data and the corresponding ordinal index is empty.
-    if (_ordinal_index_meta == nullptr && !is_empty()) {
+    if (_ordinal_index == nullptr && !is_empty()) {
         return Status::Corruption("Bad file {}: missing ordinal index for column {}",
                                   _file_reader->path().native(), meta->column_id());
     }
+
     return Status::OK();
 }
 
@@ -290,7 +289,7 @@ Status ColumnReader::next_batch_of_zone_map(size_t* n, vectorized::MutableColumn
     FieldType type = _type_info->type();
     std::unique_ptr<WrapperField> min_value(WrapperField::create_by_type(type, _meta_length));
     std::unique_ptr<WrapperField> max_value(WrapperField::create_by_type(type, _meta_length));
-    _parse_zone_map_skip_null(_zone_map_index_meta->segment_zone_map(), min_value.get(),
+    _parse_zone_map_skip_null(*_segment_zone_map, min_value.get(),
                               max_value.get());
 
     dst->reserve(*n);
@@ -325,15 +324,15 @@ Status ColumnReader::next_batch_of_zone_map(size_t* n, vectorized::MutableColumn
 }
 
 bool ColumnReader::match_condition(const AndBlockColumnPredicate* col_predicates) const {
-    if (_zone_map_index_meta == nullptr) {
+    if (_zone_map_index == nullptr) {
         return true;
     }
     FieldType type = _type_info->type();
     std::unique_ptr<WrapperField> min_value(WrapperField::create_by_type(type, _meta_length));
     std::unique_ptr<WrapperField> max_value(WrapperField::create_by_type(type, _meta_length));
-    _parse_zone_map(_zone_map_index_meta->segment_zone_map(), min_value.get(), max_value.get());
+    _parse_zone_map(*_segment_zone_map, min_value.get(), max_value.get());
 
-    return _zone_map_match_condition(_zone_map_index_meta->segment_zone_map(), min_value.get(),
+    return _zone_map_match_condition(*_segment_zone_map, min_value.get(),
                                      max_value.get(), col_predicates);
 }
 
@@ -473,20 +472,19 @@ Status ColumnReader::get_row_ranges_by_bloom_filter(const AndBlockColumnPredicat
 }
 
 Status ColumnReader::_load_ordinal_index(bool use_page_cache, bool kept_in_memory) {
-    DCHECK(_ordinal_index_meta != nullptr);
-    return _ordinal_index->load(use_page_cache, kept_in_memory, _ordinal_index_meta);
+    return _ordinal_index->load(use_page_cache, kept_in_memory);
 }
 
 Status ColumnReader::_load_zone_map_index(bool use_page_cache, bool kept_in_memory) {
-    if (_zone_map_index_meta != nullptr) {
-        return _zone_map_index->load(use_page_cache, kept_in_memory, _zone_map_index_meta);
+    if (_zone_map_index != nullptr) {
+        return _zone_map_index->load(use_page_cache, kept_in_memory);
     }
     return Status::OK();
 }
 
 Status ColumnReader::_load_bitmap_index(bool use_page_cache, bool kept_in_memory) {
-    if (_bitmap_index_meta != nullptr) {
-        return _bitmap_index->load(use_page_cache, kept_in_memory, _bitmap_index_meta);
+    if (_bitmap_index != nullptr) {
+        return _bitmap_index->load(use_page_cache, kept_in_memory);
     }
     return Status::OK();
 }
@@ -527,8 +525,18 @@ Status ColumnReader::_load_inverted_index_index(const TabletIndex* index_meta) {
     return Status::OK();
 }
 
+bool ColumnReader::has_bloom_filter_index(bool ngram) const {
+    if (_bloom_filter_index == nullptr) return false;
+
+    if (ngram) {
+        return _bloom_filter_index->algorithm() == BloomFilterAlgorithmPB::NGRAM_BLOOM_FILTER;
+    } else {
+        return _bloom_filter_index->algorithm() != BloomFilterAlgorithmPB::NGRAM_BLOOM_FILTER;
+    }
+}
+
 Status ColumnReader::_load_bloom_filter_index(bool use_page_cache, bool kept_in_memory) {
-    if (_bf_index_meta != nullptr) {
+    if (_bloom_filter_index != nullptr) {
         return _bloom_filter_index->load(use_page_cache, kept_in_memory);
     }
     return Status::OK();

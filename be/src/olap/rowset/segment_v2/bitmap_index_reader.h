@@ -43,11 +43,13 @@ class BitmapIndexPB;
 
 class BitmapIndexReader {
 public:
-    explicit BitmapIndexReader(io::FileReaderSPtr file_reader)
+    explicit BitmapIndexReader(io::FileReaderSPtr file_reader, const BitmapIndexPB& index_meta)
             : _file_reader(std::move(file_reader)),
-              _type_info(get_scalar_type_info<FieldType::OLAP_FIELD_TYPE_VARCHAR>()) {}
+              _type_info(get_scalar_type_info<FieldType::OLAP_FIELD_TYPE_VARCHAR>()) {
+                  _index_meta.reset(new BitmapIndexPB(index_meta));
+              }
 
-    Status load(bool use_page_cache, bool kept_in_memory, const BitmapIndexPB*);
+    Status load(bool use_page_cache, bool kept_in_memory);
 
     // create a new column iterator. Client should delete returned iterator
     Status new_iterator(BitmapIndexIterator** iterator);
@@ -57,7 +59,7 @@ public:
     const TypeInfo* type_info() { return _type_info; }
 
 private:
-    Status _load(bool use_page_cache, bool kept_in_memory, const BitmapIndexPB*);
+    Status _load(bool use_page_cache, bool kept_in_memory, std::unique_ptr<BitmapIndexPB>);
 
 private:
     friend class BitmapIndexIterator;
@@ -68,6 +70,7 @@ private:
     DorisCallOnce<Status> _load_once;
     std::unique_ptr<IndexedColumnReader> _dict_column_reader;
     std::unique_ptr<IndexedColumnReader> _bitmap_column_reader;
+    std::unique_ptr<BitmapIndexPB> _index_meta;
 };
 
 class BitmapIndexIterator {
