@@ -133,22 +133,24 @@ Status BetaRowsetReader::get_segment_iterators(RowsetReaderContext* read_context
     }
     VLOG_NOTICE << "read columns size: " << read_columns.size();
 
-    // Variant schema is not stable, should not use schema cache at present 
-    if ( _context->tablet_schema->num_variant_columns() == 0) {
-         std::string schema_key = SchemaCache::get_schema_key(
-            _read_options.tablet_id, _context->tablet_schema, read_columns,
-            _context->tablet_schema->schema_version(), SchemaCache::Type::SCHEMA);
+    // Variant schema is not stable, should not use schema cache at present
+    if (_context->tablet_schema->num_variant_columns() == 0) {
+        std::string schema_key = SchemaCache::get_schema_key(
+                _read_options.tablet_id, _context->tablet_schema, read_columns,
+                _context->tablet_schema->schema_version(), SchemaCache::Type::SCHEMA);
         // It is necessary to ensure that there is a schema version when using a cache
         // because the absence of a schema version can result in reading a stale version
         // of the schema after a schema change.
         if (_context->tablet_schema->schema_version() < 0 ||
-            (_input_schema = SchemaCache::instance()->get_schema<SchemaSPtr>(schema_key)) == nullptr) {
-            _input_schema = std::make_shared<Schema>(_context->tablet_schema->columns(), read_columns);
+            (_input_schema = SchemaCache::instance()->get_schema<SchemaSPtr>(schema_key)) ==
+                    nullptr) {
+            _input_schema =
+                    std::make_shared<Schema>(_context->tablet_schema->columns(), read_columns);
             SchemaCache::instance()->insert_schema(schema_key, _input_schema);
         }
     } else {
         _input_schema = std::make_shared<Schema>(_context->tablet_schema->columns(), read_columns);
-    } 
+    }
 
     if (read_context->predicates != nullptr) {
         _read_options.column_predicates.insert(_read_options.column_predicates.end(),
