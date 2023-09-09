@@ -86,6 +86,7 @@
 #include "runtime/exec_env.h"
 #include "runtime/fold_constant_executor.h"
 #include "runtime/fragment_mgr.h"
+#include "runtime/group_commit_mgr.h"
 #include "runtime/load_channel_mgr.h"
 #include "runtime/load_stream_mgr.h"
 #include "runtime/result_buffer_mgr.h"
@@ -1743,5 +1744,62 @@ void PInternalServiceImpl::glob(google::protobuf::RpcController* controller,
         return;
     }
 }
+
+void PInternalServiceImpl::group_commit_insert(google::protobuf::RpcController* controller,
+                                               const PGroupCommitInsertRequest* request,
+                                               PGroupCommitInsertResponse* response,
+                                               google::protobuf::Closure* done) {
+    bool ret = _light_work_pool.try_offer([this, request, response, done]() {
+        brpc::ClosureGuard closure_guard(done);
+        auto table_id = request->table_id();
+        Status st = Status::OK();
+        TPlan plan;
+        {
+            auto& plan_node = request->plan_node();
+            const uint8_t* buf = (const uint8_t*)plan_node.data();
+            uint32_t len = plan_node.size();
+            st = deserialize_thrift_msg(buf, &len, false, &plan);
+            if (UNLIKELY(!st.ok())) {
+                LOG(WARNING) << "deserialize plan failed, msg=" << st;
+                response->mutable_status()->set_status_code(st.code());
+                response->mutable_status()->set_error_msgs(0, st.to_string());
+                return;
+            }
+        }
+        TDescriptorTable tdesc_tbl;
+        {
+            auto& desc_tbl = request->desc_tbl();
+            const uint8_t* buf = (const uint8_t*)desc_tbl.data();
+            uint32_t len = desc_tbl.size();
+            st = deserialize_thrift_msg(buf, &len, false, &tdesc_tbl);
+            if (UNLIKELY(!st.ok())) {
+                LOG(WARNING) << "deserialize desc tbl failed, msg=" << st;
+                response->mutable_status()->set_status_code(st.code());
+                response->mutable_status()->set_error_msgs(0, st.to_string());
+                return;
+            }
+        }
+        TScanRangeParams tscan_range_params;
+        {
+            auto& bytes = request->scan_range_params();
+            const uint8_t* buf = (const uint8_t*)bytes.data();
+            uint32_t len = bytes.size();
+            st = deserialize_thrift_msg(buf, &len, false, &tscan_range_params);
+            if (UNLIKELY(!st.ok())) {
+                LOG(WARNING) << "deserialize scan range failed, msg=" << st;
+                response->mutable_status()->set_status_code(st.code());
+                response->mutable_status()->set_error_msgs(0, st.to_string());
+                return;
+            }
+        }
+        st = _exec_env->group_commit_mgr()->group_commit_insert(
+                table_id, plan, tdesc_tbl, tscan_range_params, request, response);
+        st.to_protobuf(response->mutable_status());
+    });
+    if (!ret) {
+        offer_failed(response, done, _light_work_pool);
+        return;
+    }
+};
 
 } // namespace doris

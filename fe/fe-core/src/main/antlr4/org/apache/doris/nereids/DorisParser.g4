@@ -789,7 +789,6 @@ nonReserved
     | OPTIMIZED
     | PARAMETER
     | PARSED
-    | PARTITIONS
     | PASSWORD
     | PASSWORD_EXPIRE
     | PASSWORD_HISTORY
