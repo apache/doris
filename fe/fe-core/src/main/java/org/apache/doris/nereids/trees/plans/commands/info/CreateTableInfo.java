@@ -48,6 +48,7 @@ import com.google.common.collect.Sets;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.TreeMap;
 import java.util.stream.Collectors;
 
 /**
@@ -278,8 +279,8 @@ public class CreateTableInfo {
         }
 
         // analyze partitions
-        Map<String, ColumnDefinition> columnMap = columns.stream()
-                .collect(Collectors.toMap(ColumnDefinition::getName, c -> c));
+        Map<String, ColumnDefinition> columnMap = new TreeMap<>(String.CASE_INSENSITIVE_ORDER);
+        columns.forEach(c -> columnMap.put(c.getName(), c));
 
         if (partitions != null) {
             if (!checkPartitionsTypes()) {
