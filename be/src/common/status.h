@@ -268,8 +268,9 @@ E(INVERTED_INDEX_NO_TERMS, -6005);
 E(INVERTED_INDEX_RENAME_FILE_FAILED, -6006);
 E(INVERTED_INDEX_EVALUATE_SKIPPED, -6007);
 E(INVERTED_INDEX_BUILD_WAITTING, -6008);
-E(KEY_NOT_FOUND, -6009);
-E(KEY_ALREADY_EXISTS, -6010);
+E(ENTRY_NOT_FOUND, -7000);
+E(KEY_NOT_FOUND, -7001);
+E(KEY_ALREADY_EXISTS, -7002);
 #undef E
 } // namespace ErrorCode
 
@@ -308,6 +309,7 @@ constexpr bool capture_stacktrace(int code) {
         && code != ErrorCode::TRANSACTION_ALREADY_VISIBLE
         && code != ErrorCode::TOO_MANY_TRANSACTIONS
         && code != ErrorCode::TRANSACTION_ALREADY_COMMITTED
+        && code != ErrorCode::ENTRY_NOT_FOUND
         && code != ErrorCode::KEY_NOT_FOUND
         && code != ErrorCode::KEY_ALREADY_EXISTS
         && code != ErrorCode::CANCELLED

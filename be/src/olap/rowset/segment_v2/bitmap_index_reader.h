@@ -86,7 +86,7 @@ public:
     // by `current_ordinal()`, *exact_match is set to indicate whether the
     // seeked value exactly matches `value` or not
     //
-    // Returns NotFound when no such value exists (all values in dictionary < `value`).
+    // Returns Status::Error<ENTRY_NOT_FOUND> when no such value exists (all values in dictionary < `value`).
     // Returns other error status otherwise.
     Status seek_dictionary(const void* value, bool* exact_match);
 
