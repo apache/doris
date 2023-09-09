@@ -241,7 +241,7 @@ struct TQueryOptions {
   // A tag used to distinguish fe start epoch.
   82: optional i64 fe_process_uuid = 0;
 
-  83: optional bool enable_page_cache = false;
+  85: optional bool enable_page_cache = false;
 }
 
 
