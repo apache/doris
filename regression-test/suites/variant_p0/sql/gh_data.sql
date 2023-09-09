@@ -11,3 +11,17 @@ SELECT v:payload.member.id FROM ghdata where cast(v:payload.member.id as string)
 -- select k, v:payload.commits.author.name AS name, e FROM ghdata as t lateral view  explode(cast(v:payload.commits.author.name as array<string>)) tm1 as e  order by k limit 5;
 select k, v from ghdata WHERE cast(v:type as string) = 'WatchEvent'  order by k limit 10;
 SELECT cast(v:payload.member.id as bigint), count() FROM ghdata where cast(v:payload.member.id as bigint) is not null group by cast(v:payload.member.id as bigint) order by 1, 2 desc LIMIT 10;
+
+
+SELECT count() from github_events_unique;
+SELECT cast(v:repo.name as string), count() AS stars FROM github_events_unique WHERE cast(v:type as string) = 'WatchEvent' GROUP BY cast(v:repo.name as string)  ORDER BY stars DESC, cast(v:repo.name as string) LIMIT 5;
+SELECT max(cast(cast(v:`id` as string) as bigint)) FROM github_events_unique;
+SELECT sum(cast(cast(v:`id` as string) as bigint)) FROM github_events_unique;
+SELECT sum(cast(v:payload.member.id as bigint)) FROM github_events_unique;
+SELECT sum(cast(v:payload.pull_request.milestone.creator.site_admin as bigint)) FROM github_events_unique;
+SELECT sum(length(v:payload.pull_request.base.repo.html_url)) FROM github_events_unique;
+SELECT v:payload.commits.author.name FROM github_events_unique ORDER BY k LIMIT 10;
+SELECT v:payload.member.id FROM github_events_unique where cast(v:payload.member.id as string) is not null  ORDER BY k LIMIT 10;
+-- select k, v:payload.commits.author.name AS name, e FROM github_events_unique as t lateral view  explode(cast(v:payload.commits.author.name as array<string>)) tm1 as e  order by k limit 5;
+select k, v from github_events_unique WHERE cast(v:type as string) = 'WatchEvent'  order by k limit 10;
+SELECT cast(v:payload.member.id as bigint), count() FROM github_events_unique where cast(v:payload.member.id as bigint) is not null group by cast(v:payload.member.id as bigint) order by 1, 2 desc LIMIT 10;
