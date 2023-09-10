@@ -100,8 +100,8 @@ import java.util.Collection;
 import java.util.List;
 import java.util.function.Function;
 
-public class PartitionCacheTest {
-    private static final Logger LOG = LogManager.getLogger(PartitionCacheTest.class);
+public class OlapQueryCacheTest {
+    private static final Logger LOG = LogManager.getLogger(OlapQueryCacheTest.class);
     public static String clusterName = "testCluster";
     public static String dbName = "testDb";
     public static String fullDbName = "testCluster:testDb";
