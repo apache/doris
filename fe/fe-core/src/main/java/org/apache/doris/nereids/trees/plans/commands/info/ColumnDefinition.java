@@ -20,12 +20,15 @@ package org.apache.doris.nereids.trees.plans.commands.info;
 import org.apache.doris.catalog.AggregateType;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.KeysType;
+import org.apache.doris.common.Config;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.types.ArrayType;
 import org.apache.doris.nereids.types.BigIntType;
 import org.apache.doris.nereids.types.CharType;
 import org.apache.doris.nereids.types.DataType;
+import org.apache.doris.nereids.types.MapType;
 import org.apache.doris.nereids.types.StringType;
+import org.apache.doris.nereids.types.StructType;
 import org.apache.doris.nereids.types.TinyIntType;
 import org.apache.doris.nereids.types.VarcharType;
 
@@ -41,7 +44,7 @@ public class ColumnDefinition {
     private DataType type;
     private boolean isKey;
     private AggregateType aggType;
-    private final boolean isNullable;
+    private boolean isNullable;
     private Optional<DefaultValue> defaultValue;
     private final String comment;
     private final boolean isVisible;
@@ -95,6 +98,9 @@ public class ColumnDefinition {
      * validate column definition and analyze
      */
     public void validate(Set<String> keysSet, boolean isEnableMergeOnWrite, KeysType keysType) {
+        if (Config.disable_nested_complex_type && isNestedComplexType()) {
+            throw new AnalysisException("Unsupported data type: " + type.toSql());
+        }
         if (type.isStringLikeType()) {
             if (type instanceof CharType && ((CharType) type).getLen() == -1) {
                 type = new CharType(1);
@@ -113,10 +119,22 @@ public class ColumnDefinition {
                 throw new AnalysisException("Type exceeds the maximum nesting depth of 9");
             }
         }
+        if (type.isBitmapType() || type.isHllType() || type.isQuantileStateType()) {
+            if (aggType == null) {
+                throw new AnalysisException("complex type have to use aggregate function: " + name);
+            }
+            isNullable = false;
+        }
         if (keysSet.contains(name)) {
             isKey = true;
             if (aggType != null) {
                 throw new AnalysisException(String.format("Key column %s can not set aggregation type", name));
+            }
+            if (type.isStringType()) {
+                throw new AnalysisException("String Type should not be used in key column[" + name + "]");
+            }
+            if (type.isBitmapType() || type.isHllType() || type.isQuantileStateType()) {
+                throw new AnalysisException("Key column can not set complex type:" + name);
             }
         } else if (aggType == null) {
             if (keysType.equals(KeysType.DUP_KEYS)) {
@@ -138,6 +156,24 @@ public class ColumnDefinition {
             defaultValue = Optional.of(DefaultValue.BITMAP_EMPTY_DEFAULT_VALUE);
         } else if (type.isArrayType() && !defaultValue.isPresent()) {
             defaultValue = Optional.of(DefaultValue.ARRAY_EMPTY_DEFAULT_VALUE);
+        }
+    }
+
+    /**
+     * check if is nested complex type.
+     */
+    private boolean isNestedComplexType() {
+        if (!type.isComplexType()) {
+            return false;
+        }
+        if (type.isArrayType()) {
+            return ((ArrayType) type).getItemType().isComplexType();
+        }
+        if (type.isMapType()) {
+            return ((MapType) type).getKeyType().isComplexType() || ((MapType) type).getValueType().isComplexType();
+        }
+        if (type.isStructType()) {
+            return ((StructType) type).getFields().stream().anyMatch(f -> f.getDataType().isComplexType());
         }
     }
 
