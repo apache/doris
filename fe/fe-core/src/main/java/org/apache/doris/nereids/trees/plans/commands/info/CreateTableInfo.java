@@ -301,6 +301,9 @@ public class CreateTableInfo {
             }
             Set<String> partitionNames = Sets.newHashSet();
             for (PartitionDefinition partition : partitions) {
+                if (partition instanceof StepPartition) {
+                    continue;
+                }
                 String partitionName = partition.getPartitionName();
                 if (partitionNames.contains(partitionName)) {
                     throw new AnalysisException("Duplicated named partition: " + partitionName);
