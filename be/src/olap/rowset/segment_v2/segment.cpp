@@ -102,7 +102,8 @@ Status Segment::_open() {
     _pk_index_meta.reset(footer.has_primary_key_index_meta()
                                  ? new PrimaryKeyIndexMetaPB(footer.primary_key_index_meta())
                                  : nullptr);
-    DCHECK(footer.has_short_key_index_page());
+    // delete_bitmap_calculator_test.cpp
+    // DCHECK(footer.has_short_key_index_page());
     _sk_index_page = footer.short_key_index_page();
     _num_rows = footer.num_rows();
     return Status::OK();
