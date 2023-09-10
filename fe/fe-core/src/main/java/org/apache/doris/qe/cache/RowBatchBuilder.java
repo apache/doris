@@ -97,6 +97,7 @@ public class RowBatchBuilder {
     public void copyRowData(RowBatch rowBatch) {
         batchSize++;
         TResultBatch resultBatch = rowBatch.getBatch();
+        // for empty result set, the resultBatch will be null
         rowSize += resultBatch == null ? 0 : resultBatch.getRowsSize();
         if (resultBatch != null) {
             for (ByteBuffer buf : rowBatch.getBatch().getRows()) {
