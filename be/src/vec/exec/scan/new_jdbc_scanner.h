@@ -60,6 +60,8 @@ protected:
     RuntimeProfile::Counter* _load_jar_timer = nullptr;
     RuntimeProfile::Counter* _init_connector_timer = nullptr;
     RuntimeProfile::Counter* _get_data_timer = nullptr;
+    RuntimeProfile::Counter* _call_jni_next_timer = nullptr;
+    RuntimeProfile::Counter* _convert_batch_timer = nullptr;
     RuntimeProfile::Counter* _check_type_timer = nullptr;
     RuntimeProfile::Counter* _execte_read_timer = nullptr;
     RuntimeProfile::Counter* _connector_close_timer = nullptr;
