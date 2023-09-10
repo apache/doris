@@ -308,7 +308,6 @@ struct Checker {
 
 int main(int argc, char** argv) {
     doris::signal::InstallFailureSignalHandler();
-    doris::init_signals();
     // create StackTraceCache Instance, at the beginning, other static destructors may use.
     StackTrace::createCache();
 
@@ -441,8 +440,12 @@ int main(int argc, char** argv) {
         if (!status.ok()) {
             LOG(WARNING) << "Failed to initialize JNI: " << status;
             exit(1);
+        } else {
+            LOG(INFO) << "Doris jni started.";
         }
     }
+
+    doris::init_signals();
 
     // Load file cache before starting up daemon threads to make sure StorageEngine is read.
     if (doris::config::enable_file_cache) {
