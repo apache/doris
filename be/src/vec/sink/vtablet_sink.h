@@ -399,7 +399,7 @@ public:
         }
     }
 
-    void mark_as_failed(int64_t node_id, const std::string& host, const std::string& err,
+    void mark_as_failed(const VNodeChannel* node_channel, const std::string& err,
                         int64_t tablet_id = -1);
     Status check_intolerable_failure();
 
