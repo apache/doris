@@ -2157,4 +2157,12 @@ public class Config extends ConfigBase {
             "是否禁止LocalDeployManager删除节点",
             "Whether to disable LocalDeployManager drop node"})
     public static boolean disable_local_deploy_manager_drop_node = true;
+
+    @ConfField(mutable = true, description = {
+            "开启 file cache 后，一致性哈希算法中，每个节点的虚拟节点数。"
+                    + "该值越大，哈希算法的分布越均匀，但是会增加内存开销。",
+            "When file cache is enabled, the number of virtual nodes of each node in the consistent hash algorithm. "
+                    + "The larger the value, the more uniform the distribution of the hash algorithm, "
+                    + "but it will increase the memory overhead."})
+    public static int virtual_node_number = 2048;
 }
