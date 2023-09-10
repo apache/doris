@@ -20,6 +20,7 @@ suite("eliminate_outer_join") {
     sql "SET enable_fallback_to_original_planner=false"
     sql "set disable_nereids_rules='ELIMINATE_NOT_NULL'"
     sql "set disable_join_reorder=true"
+    sql "set forbid_unknown_col_stats=false"
 
     String database = context.config.getDbNameByFile(context.file)
     sql "drop database if exists ${database}"

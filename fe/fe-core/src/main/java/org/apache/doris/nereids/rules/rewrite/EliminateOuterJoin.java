@@ -86,13 +86,14 @@ public class EliminateOuterJoin extends OneRewriteRuleFactory {
                  * by which the left outer join could be eliminated. Finally, the join transformed to
                  * (A join B on A.a=B.b) join C on B.x=C.x.
                  * This elimination can be processed recursively.
+                 *
+                 * TODO: is_not_null can also be inferred from A < B and so on
                  */
                 conjunctsChanged |= join.getHashJoinConjuncts().stream()
                         .map(EqualTo.class::cast)
                         .map(equalTo ->
                                 (EqualTo) JoinUtils.swapEqualToForChildrenOrder(equalTo, join.left().getOutputSet()))
-                        .map(equalTo -> createIsNotNullIfNeed(newJoinType,
-                                equalTo, canFilterLeftNull, canFilterRightNull, conjuncts)
+                        .map(equalTo -> createIsNotNullIfNecessary(equalTo, conjuncts)
                         ).anyMatch(Boolean::booleanValue);
 
                 JoinUtils.JoinSlotCoverageChecker checker = new JoinUtils.JoinSlotCoverageChecker(
@@ -104,8 +105,7 @@ public class EliminateOuterJoin extends OneRewriteRuleFactory {
                         .map(equalTo -> (EqualTo) JoinUtils.swapEqualToForChildrenOrder(equalTo,
                                 join.left().getOutputSet()))
                         .map(equalTo ->
-                            createIsNotNullIfNeed(newJoinType, equalTo,
-                                    canFilterLeftNull, canFilterRightNull, conjuncts))
+                            createIsNotNullIfNecessary(equalTo, conjuncts))
                         .anyMatch(Boolean::booleanValue);
             }
             if (conjunctsChanged) {
@@ -135,32 +135,18 @@ public class EliminateOuterJoin extends OneRewriteRuleFactory {
         return joinType;
     }
 
-    /**
-     * TODO: is_not_null can also be inferred from A < 1, A < B and so on
-     */
-    private boolean createIsNotNullIfNeed(JoinType newJoinType, EqualTo swapedEqualTo, boolean canFilterLeftNull,
-                                      boolean canFilterRightNull, Collection<Expression> container) {
+    private boolean createIsNotNullIfNecessary(EqualTo swapedEqualTo, Collection<Expression> container) {
         boolean containerChanged = false;
-        if (newJoinType.isInnerJoin()) {
-            containerChanged |= createIsNotNullIfNullable(swapedEqualTo.left(), container);
-            containerChanged |= createIsNotNullIfNullable(swapedEqualTo.right(), container);
-        } else {
-            if (canFilterLeftNull) {
-                containerChanged |= createIsNotNullIfNullable(swapedEqualTo.left(), container);
-            }
-            if (canFilterRightNull) {
-                containerChanged |= createIsNotNullIfNullable(swapedEqualTo.right(), container);
-            }
+        if (swapedEqualTo.left().nullable()) {
+            Not not = new Not(new IsNull(swapedEqualTo.left()));
+            not.isGeneratedIsNotNull = true;
+            containerChanged |= container.add(not);
+        }
+        if (swapedEqualTo.right().nullable()) {
+            Not not = new Not(new IsNull(swapedEqualTo.right()));
+            not.isGeneratedIsNotNull = true;
+            containerChanged |= container.add(not);
         }
         return containerChanged;
-    }
-
-    private boolean createIsNotNullIfNullable(Expression expr, Collection<Expression> container) {
-        if (expr.nullable()) {
-            Not not = new Not(new IsNull(expr));
-            not.isGeneratedIsNotNull = true;
-            return container.add(not);
-        }
-        return false;
     }
 }
