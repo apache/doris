@@ -30,10 +30,11 @@ suite("test_s3_tvf_compression", "p2,external,tvf,external_remote,external_remot
     select * from 
     s3(     
         "URI" = "https://${bucket}.${s3_endpoint}/regression/tvf/compression/test_tvf.csv.${compress_type}",    
-        "ACCESS_KEY" = "${ak}",     
-        "SECRET_KEY" = "${sk}",     
+        "s3.access_key" = "${ak}",     
+        "s3.secret_key" = "${sk}",     
         "REGION" = "${region}",    
         "FORMAT" = "csv",
+        "use_path_style" = "true",
         "compress_type" ="${compress_type}") order by c1,c2,c3,c4,c5 limit 20;
     """
 
@@ -42,10 +43,11 @@ suite("test_s3_tvf_compression", "p2,external,tvf,external_remote,external_remot
     select c1,c4 from 
     s3(     
         "URI" = "https://${bucket}.${s3_endpoint}/regression/tvf/compression/test_tvf.csv.${compress_type}",    
-        "ACCESS_KEY" = "${ak}",     
-        "SECRET_KEY" = "${sk}",     
+        "s3.access_key" = "${ak}",     
+        "s3.secret_key" = "${sk}",     
         "REGION" = "${region}",    
         "FORMAT" = "csv",
+        "use_path_style" = "true",
         "compress_type" ="${compress_type}") order by cast(c1 as int),c4 limit 20;
     """
 
@@ -56,10 +58,11 @@ suite("test_s3_tvf_compression", "p2,external,tvf,external_remote,external_remot
     select * from 
     s3(     
         "URI" = "https://${bucket}.${s3_endpoint}/regression/tvf/compression/test_tvf.csv.${compress_type}",    
-        "ACCESS_KEY" = "${ak}",     
-        "SECRET_KEY" = "${sk}",
+        "s3.access_key" = "${ak}",     
+        "s3.secret_key" = "${sk}",
         "REGION" = "${region}",    
         "FORMAT" = "csv",
+        "use_path_style" = "true",
         "compress_type" ="${compress_type}") order by c1,c2,c3,c4,c5 limit 15;
     """
 
@@ -68,10 +71,11 @@ suite("test_s3_tvf_compression", "p2,external,tvf,external_remote,external_remot
     select c1,c4 from 
     s3(     
         "URI" = "https://${bucket}.${s3_endpoint}/regression/tvf/compression/test_tvf.csv.${compress_type}",    
-        "ACCESS_KEY" = "${ak}",     
-        "SECRET_KEY" = "${sk}",
+        "s3.access_key" = "${ak}",     
+        "s3.secret_key" = "${sk}",
         "REGION" = "${region}",    
         "FORMAT" = "csv",
+        "use_path_style" = "true",
         "compress_type" ="${compress_type}")  where c1!="100"  order by cast(c4 as date),c1 limit 13;
     """
 
@@ -82,10 +86,11 @@ suite("test_s3_tvf_compression", "p2,external,tvf,external_remote,external_remot
     select * from 
     s3(     
         "URI" = "https://${bucket}.${s3_endpoint}/regression/tvf/compression/test_tvf.csv.${compress_type}",    
-        "ACCESS_KEY" = "${ak}",     
-        "SECRET_KEY" = "${sk}",     
+        "s3.access_key" = "${ak}",     
+        "s3.secret_key" = "${sk}",     
         "REGION" = "${region}",    
         "FORMAT" = "csv",
+        "use_path_style" = "true",
         "compress_type" ="${compress_type}FRAME") order by c1,c2,c3,c4,c5  limit 14;
     """
     
@@ -94,10 +99,11 @@ suite("test_s3_tvf_compression", "p2,external,tvf,external_remote,external_remot
     select c1,c3 from 
     s3(     
         "URI" = "https://${bucket}.${s3_endpoint}/regression/tvf/compression/test_tvf.csv.${compress_type}",    
-        "ACCESS_KEY" = "${ak}",     
-        "SECRET_KEY" = "${sk}",     
+        "s3.access_key" = "${ak}",     
+        "s3.secret_key" = "${sk}",     
         "REGION" = "${region}",    
         "FORMAT" = "csv",
+        "use_path_style" = "true",
         "compress_type" ="${compress_type}FRAME")  where c3="buHDwfGeNHfpRFdNaogneddi" order by c3,c1  limit 14;
     """
 
@@ -110,10 +116,11 @@ suite("test_s3_tvf_compression", "p2,external,tvf,external_remote,external_remot
     select ${select_field} from 
     s3(     
         "URI" = "https://${bucket}.${s3_endpoint}/regression/tvf/compression/000000_0.${compress_type}",    
-        "ACCESS_KEY" = "${ak}",     
-        "SECRET_KEY" = "${sk}",     
+        "s3.access_key" = "${ak}",     
+        "s3.secret_key" = "${sk}",     
         "REGION" = "${region}",    
         "FORMAT" = "csv",
+        "use_path_style" = "true",
         "column_separator" = '\001',
         "compress_type" ="${compress_type}") ${orderBy_limit};
     """
@@ -122,11 +129,12 @@ suite("test_s3_tvf_compression", "p2,external,tvf,external_remote,external_remot
     select c1,c2 from 
     s3(     
         "URI" = "https://${bucket}.${s3_endpoint}/regression/tvf/compression/000000_0.${compress_type}",    
-        "ACCESS_KEY" = "${ak}",     
-        "SECRET_KEY" = "${sk}",     
+        "s3.access_key" = "${ak}",     
+        "s3.secret_key" = "${sk}",     
         "REGION" = "${region}",    
         "FORMAT" = "csv",
         "column_separator" = '\001',
+        "use_path_style" = "true",
         "compress_type" ="${compress_type}") group by c1,c2  order by c1,c2 limit 5;
     """
 
@@ -138,10 +146,11 @@ suite("test_s3_tvf_compression", "p2,external,tvf,external_remote,external_remot
     select ${select_field} from 
     s3(     
         "URI" = "https://${bucket}.${s3_endpoint}/regression/tvf/compression/000000_0.${compress_type}",    
-        "ACCESS_KEY" = "${ak}",     
-        "SECRET_KEY" = "${sk}",     
+        "s3.access_key" = "${ak}",     
+        "s3.secret_key" = "${sk}",     
         "REGION" = "${region}",    
         "FORMAT" = "csv",
+        "use_path_style" = "true",
         "column_separator" = '\001',
         "compress_type" ="${compress_type}block") ${orderBy_limit};
     """
@@ -151,10 +160,11 @@ suite("test_s3_tvf_compression", "p2,external,tvf,external_remote,external_remot
     select count(*) from 
     s3(     
         "URI" = "https://${bucket}.${s3_endpoint}/regression/tvf/compression/000000_0.${compress_type}",    
-        "ACCESS_KEY" = "${ak}",     
-        "SECRET_KEY" = "${sk}",     
+        "s3.access_key" = "${ak}",     
+        "s3.secret_key" = "${sk}",     
         "REGION" = "${region}",    
         "FORMAT" = "csv",
+        "use_path_style" = "true",
         "column_separator" = '\001',
         "compress_type" ="${compress_type}block") where c2 ="abccc";
     """

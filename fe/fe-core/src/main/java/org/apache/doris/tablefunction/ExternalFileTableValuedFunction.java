@@ -136,6 +136,8 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
 
     protected List<TBrokerFileStatus> fileStatuses = Lists.newArrayList();
     protected Map<String, String> locationProperties;
+    protected String filePath;
+
 
     private TFileFormatType fileFormatType;
     private TFileCompressType compressionType;
@@ -198,8 +200,9 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
         }
     }
 
+    //The keys in the passed validParams map need to be lowercase.
     protected void parseProperties(Map<String, String> validParams) throws AnalysisException {
-        String formatString = validParams.getOrDefault(FORMAT, "").toLowerCase();
+        String formatString = validParams.getOrDefault(FORMAT, "");
         switch (formatString) {
             case "csv":
                 this.fileFormatType = TFileFormatType.FORMAT_CSV_PLAIN;
@@ -228,11 +231,6 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
                 throw new AnalysisException("format:" + formatString + " is not supported.");
         }
 
-        if (getTFileType() == TFileType.FILE_STREAM && (formatString.equals("parquet")
-                || formatString.equals("avro")
-                || formatString.equals("orc"))) {
-            throw new AnalysisException("current http_stream does not yet support parquet, avro and orc");
-        }
         columnSeparator = validParams.getOrDefault(COLUMN_SEPARATOR, DEFAULT_COLUMN_SEPARATOR);
         lineDelimiter = validParams.getOrDefault(LINE_DELIMITER, DEFAULT_LINE_DELIMITER);
         jsonRoot = validParams.getOrDefault(JSON_ROOT, "");
