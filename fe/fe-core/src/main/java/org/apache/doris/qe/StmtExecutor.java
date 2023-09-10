@@ -1248,6 +1248,8 @@ public class StmtExecutor {
         boolean isSend = isSendFields;
         for (InternalService.PCacheValue value : cacheValues) {
             TResultBatch resultBatch = new TResultBatch();
+            // need to set empty list first, to support empty result set.
+            resultBatch.setRows(Lists.newArrayList());
             for (ByteString one : value.getRowsList()) {
                 resultBatch.addToRows(ByteBuffer.wrap(one.toByteArray()));
             }
@@ -1424,11 +1426,11 @@ public class StmtExecutor {
                 profile.getSummaryProfile().freshFetchResultConsumeTime();
 
                 // for outfile query, there will be only one empty batch send back with eos flag
+                // call `copyRowBatch()` first, because batch.getBatch() may be null, it result set is empty
+                if (cacheAnalyzer != null && !isOutfileQuery) {
+                    cacheAnalyzer.copyRowBatch(batch);
+                }
                 if (batch.getBatch() != null) {
-                    if (cacheAnalyzer != null) {
-                        cacheAnalyzer.copyRowBatch(batch);
-                    }
-
                     // register send field result time.
                     profile.getSummaryProfile().setTempStartTime();
                     // For some language driver, getting error packet after fields packet
