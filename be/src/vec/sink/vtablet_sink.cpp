@@ -456,6 +456,7 @@ void VNodeChannel::_open_internal(bool is_incremental) {
     }
     // the real transmission here. the corresponding BE's load mgr will open load channel for it.
     _stub->tablet_writer_open(&open_closure->cntl, &request, &open_closure->result, open_closure);
+    _open_closures.push_back(open_closure);
 
     static_cast<void>(request.release_id());
     static_cast<void>(request.release_schema());
