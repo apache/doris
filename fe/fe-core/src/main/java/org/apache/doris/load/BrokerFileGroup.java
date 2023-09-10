@@ -205,11 +205,6 @@ public class BrokerFileGroup implements Writable {
             olapTable.readUnlock();
         }
 
-        // column
-        columnSeparator = dataDescription.getColumnSeparator();
-        if (columnSeparator == null) {
-            columnSeparator = "\t";
-        }
         lineDelimiter = dataDescription.getLineDelimiter();
         if (lineDelimiter == null) {
             lineDelimiter = "\n";
@@ -218,7 +213,6 @@ public class BrokerFileGroup implements Writable {
         escape = dataDescription.getEscape();
 
         fileFormat = dataDescription.getFileFormat();
-
         compressType = dataDescription.getCompressType();
         isNegative = dataDescription.isNegative();
 

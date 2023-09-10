@@ -36,6 +36,10 @@ suite("test_mow_get_binlog_case") {
     }
     
     def syncer = getSyncer()
+    if (!syncer.checkEnableFeatureBinlog()) {
+        logger.info("fe enable_feature_binlog is false, skip case test_mow_get_binlog_case")
+        return
+    }
     def seqTableName = "tbl_get_binlog_case"
     def test_num = 0
     def insert_num = 5
