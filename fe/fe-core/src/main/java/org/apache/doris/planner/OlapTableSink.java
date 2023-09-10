@@ -126,7 +126,7 @@ public class OlapTableSink extends DataSink {
                     "if load_to_single_tablet set to true," + " the olap table must be with random distribution");
         }
         tSink.setLoadToSingleTablet(loadToSingleTablet);
-        tDataSink = new TDataSink(TDataSinkType.OLAP_TABLE_SINK);
+        tDataSink = new TDataSink(getDataSinkType());
         tDataSink.setOlapTableSink(tSink);
 
         if (partitionIds == null) {
@@ -344,7 +344,12 @@ public class OlapTableSink extends DataSink {
                 Preconditions.checkArgument(table.getPartitions().size() == 1,
                         "Number of table partitions is not 1 for unpartitioned table, partitionNum="
                                 + table.getPartitions().size());
-                Partition partition = table.getPartitions().iterator().next();
+                Partition partition;
+                if (partitionIds != null && partitionIds.size() == 1) {
+                    partition = table.getPartition(partitionIds.get(0));
+                } else {
+                    partition = table.getPartitions().iterator().next();
+                }
 
                 TOlapTablePartition tPartition = new TOlapTablePartition();
                 tPartition.setId(partition.getId());
@@ -453,4 +458,7 @@ public class OlapTableSink extends DataSink {
         return nodesInfo;
     }
 
+    protected TDataSinkType getDataSinkType() {
+        return TDataSinkType.OLAP_TABLE_SINK;
+    }
 }

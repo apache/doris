@@ -50,7 +50,8 @@ Status CalcDeleteBitmapToken::submit(TabletSharedPtr tablet, RowsetSharedPtr cur
         if (!st.ok()) {
             LOG(WARNING) << "failed to calc segment delete bitmap, tablet_id: "
                          << tablet->tablet_id() << " rowset: " << cur_rowset->rowset_id()
-                         << " seg_id: " << cur_segment->id() << " version: " << end_version;
+                         << " seg_id: " << cur_segment->id() << " version: " << end_version
+                         << " error: " << st;
             std::lock_guard wlock(_lock);
             if (_status.ok()) {
                 _status = st;

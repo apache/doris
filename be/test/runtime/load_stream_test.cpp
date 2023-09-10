@@ -526,6 +526,8 @@ public:
         size_t hdr_len = header.ByteSizeLong();
         append_buf.append((char*)&hdr_len, sizeof(size_t));
         append_buf.append(header.SerializeAsString());
+        size_t data_len = data.length();
+        append_buf.append((char*)&data_len, sizeof(size_t));
         append_buf.append(data);
         LOG(INFO) << "send " << header.DebugString() << data;
         client.send(&append_buf);
@@ -626,8 +628,7 @@ public:
             if (tablet.tablet_id != tablet_id || rowset == nullptr) {
                 continue;
             }
-            auto path =
-                    BetaRowset::segment_file_path(rowset->rowset_dir(), rowset->rowset_id(), segid);
+            auto path = static_cast<BetaRowset*>(rowset.get())->segment_file_path(segid);
             LOG(INFO) << "read data from " << path;
             std::ifstream inputFile(path, std::ios::binary);
             inputFile.seekg(0, std::ios::end);

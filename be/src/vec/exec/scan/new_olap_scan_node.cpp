@@ -249,7 +249,8 @@ Status NewOlapScanNode::_process_conjuncts() {
 }
 
 Status NewOlapScanNode::_build_key_ranges_and_filters() {
-    if (_push_down_agg_type == TPushAggOp::NONE) {
+    if (_push_down_agg_type == TPushAggOp::NONE ||
+        _push_down_agg_type == TPushAggOp::COUNT_ON_INDEX) {
         const std::vector<std::string>& column_names = _olap_scan_node.key_column_name;
         const std::vector<TPrimitiveType::type>& column_types = _olap_scan_node.key_column_type;
         DCHECK(column_types.size() == column_names.size());

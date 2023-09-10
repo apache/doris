@@ -100,6 +100,7 @@ inline const char* get_state_name(PipelineTaskState idx) {
     case PipelineTaskState::BLOCKED_FOR_RF:
         return "BLOCKED_FOR_RF";
     }
+    LOG(FATAL) << "__builtin_unreachable";
     __builtin_unreachable();
 }
 

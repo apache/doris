@@ -91,7 +91,9 @@ import org.apache.doris.nereids.types.TimeType;
 import org.apache.doris.nereids.types.TimeV2Type;
 import org.apache.doris.nereids.types.TinyIntType;
 import org.apache.doris.nereids.types.VarcharType;
+import org.apache.doris.nereids.types.coercion.AnyDataType;
 import org.apache.doris.nereids.types.coercion.CharacterType;
+import org.apache.doris.nereids.types.coercion.FollowToAnyDataType;
 import org.apache.doris.nereids.types.coercion.FractionalType;
 import org.apache.doris.nereids.types.coercion.IntegralType;
 import org.apache.doris.nereids.types.coercion.NumericType;
@@ -183,7 +185,9 @@ public class TypeCoercionUtils {
         // TODO: complete the cast logic like FunctionCallExpr.analyzeImpl
         boolean legacyCastCompatible = false;
         try {
-            legacyCastCompatible = !input.toCatalogDataType().matchesType(expected.toCatalogDataType());
+            if (!(expected instanceof AnyDataType) && !(expected instanceof FollowToAnyDataType)) {
+                legacyCastCompatible = !input.toCatalogDataType().matchesType(expected.toCatalogDataType());
+            }
         } catch (Throwable t) {
             // ignore.
         }

@@ -142,6 +142,12 @@ This topic is about how to compile Doris from source.
     $ sh build.sh
     ```
 
+   To build debug version for BE, add BUILD_TYPE=Debug.
+
+    ```
+    $ BUILD_TYPE=Debug sh build.sh
+    ```
+
    After compilation, the output files will be in the `output/` directory.
 
     > **Note:**
@@ -213,6 +219,12 @@ You can compile Doris directly in your own Linux environment.
 
     ```
     $ USE_AVX2=0 sh build.sh
+    ```
+
+   To build debug version for BE, add BUILD_TYPE=Debug.
+
+    ```
+    $ BUILD_TYPE=Debug sh build.sh
     ```
 
    After compilation, the output files will be in the `output/` directory.

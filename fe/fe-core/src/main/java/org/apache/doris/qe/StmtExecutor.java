@@ -58,6 +58,7 @@ import org.apache.doris.analysis.SetOperationStmt;
 import org.apache.doris.analysis.SetStmt;
 import org.apache.doris.analysis.SetVar;
 import org.apache.doris.analysis.ShowStmt;
+import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.SqlParser;
 import org.apache.doris.analysis.SqlScanner;
 import org.apache.doris.analysis.StatementBase;
@@ -129,6 +130,8 @@ import org.apache.doris.planner.Planner;
 import org.apache.doris.planner.ScanNode;
 import org.apache.doris.proto.Data;
 import org.apache.doris.proto.InternalService;
+import org.apache.doris.proto.InternalService.PGroupCommitInsertRequest;
+import org.apache.doris.proto.InternalService.PGroupCommitInsertResponse;
 import org.apache.doris.proto.Types;
 import org.apache.doris.qe.CommonResultSet.CommonResultSetMetaData;
 import org.apache.doris.qe.QueryState.MysqlStateType;
@@ -139,19 +142,23 @@ import org.apache.doris.resource.workloadgroup.QueryQueue;
 import org.apache.doris.resource.workloadgroup.QueueOfferToken;
 import org.apache.doris.rewrite.ExprRewriter;
 import org.apache.doris.rewrite.mvrewrite.MVSelectFailedException;
+import org.apache.doris.rpc.BackendServiceProxy;
 import org.apache.doris.rpc.RpcException;
 import org.apache.doris.service.FrontendOptions;
 import org.apache.doris.statistics.ResultRow;
 import org.apache.doris.statistics.util.InternalQueryBuffer;
+import org.apache.doris.system.Backend;
 import org.apache.doris.task.LoadEtlTask;
 import org.apache.doris.thrift.TFileFormatType;
 import org.apache.doris.thrift.TFileType;
 import org.apache.doris.thrift.TLoadTxnBeginRequest;
 import org.apache.doris.thrift.TLoadTxnBeginResult;
 import org.apache.doris.thrift.TMergeType;
+import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TQueryOptions;
 import org.apache.doris.thrift.TQueryType;
 import org.apache.doris.thrift.TResultBatch;
+import org.apache.doris.thrift.TStatusCode;
 import org.apache.doris.thrift.TStreamLoadPutRequest;
 import org.apache.doris.thrift.TTxnParams;
 import org.apache.doris.thrift.TUniqueId;
@@ -187,6 +194,7 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ExecutionException;
+import java.util.concurrent.Future;
 import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.stream.Collectors;
@@ -1058,6 +1066,10 @@ public class StmtExecutor {
         }
         parsedStmt.analyze(analyzer);
         if (parsedStmt instanceof QueryStmt || parsedStmt instanceof InsertStmt) {
+            if (parsedStmt instanceof NativeInsertStmt && ((NativeInsertStmt) parsedStmt).isGroupCommit()) {
+                LOG.debug("skip generate query plan for group commit insert");
+                return;
+            }
             ExprRewriter rewriter = analyzer.getExprRewriter();
             rewriter.reset();
             if (context.getSessionVariable().isEnableFoldConstantByBe()) {
@@ -1151,6 +1163,10 @@ public class StmtExecutor {
 
         if (parsedStmt instanceof InsertStmt) {
             ((InsertStmt) parsedStmt).getQueryStmt().resetSelectList();
+        }
+
+        if (parsedStmt instanceof CreateTableAsSelectStmt) {
+            ((CreateTableAsSelectStmt) parsedStmt).getQueryStmt().resetSelectList();
         }
     }
 
@@ -1342,6 +1358,7 @@ public class StmtExecutor {
         }
 
         sendResult(isOutfileQuery, false, queryStmt, channel, null, null);
+        LOG.info("--ftw: over");
     }
 
     private void sendResult(boolean isOutfileQuery, boolean isSendFields, Queriable queryStmt, MysqlChannel channel,
@@ -1353,6 +1370,7 @@ public class StmtExecutor {
         //          Query OK, 10 rows affected (0.01 sec)
         //
         // 2. If this is a query, send the result expr fields first, and send result data back to client.
+        LOG.info("--ftw: begin send result");
         RowBatch batch;
         coord = new Coordinator(context, analyzer, planner, context.getStatsErrorEstimator());
         if (Config.enable_workload_group && context.sessionVariable.getEnablePipelineEngine()) {
@@ -1392,6 +1410,7 @@ public class StmtExecutor {
                 // register the fetch result time.
                 profile.getSummaryProfile().setTempStartTime();
                 batch = coord.getNext();
+                LOG.info("--ftw: get Next");
                 profile.getSummaryProfile().freshFetchResultConsumeTime();
 
                 // for outfile query, there will be only one empty batch send back with eos flag
@@ -1405,26 +1424,33 @@ public class StmtExecutor {
                     // For some language driver, getting error packet after fields packet
                     // will be recognized as a success result
                     // so We need to send fields after first batch arrived
+                    LOG.info("--ftw: judge");
                     if (!isSendFields) {
+                        LOG.info("--ftw: !isSendFields");
                         if (!isOutfileQuery) {
+                            LOG.info("--ftw: !isOutfileQuery send fiedl");
                             sendFields(queryStmt.getColLabels(), exprToType(queryStmt.getResultExprs()));
                         } else {
+                            LOG.info("--ftw: isOutfileQuery send field");
                             sendFields(OutFileClause.RESULT_COL_NAMES, OutFileClause.RESULT_COL_TYPES);
                         }
                         isSendFields = true;
                     }
                     for (ByteBuffer row : batch.getBatch().getRows()) {
                         channel.sendOnePacket(row);
+                        LOG.info("--ftw: channel send packet, row = " + row);
                     }
                     profile.getSummaryProfile().freshWriteResultConsumeTime();
                     context.updateReturnRows(batch.getBatch().getRows().size());
                     context.setResultAttachedInfo(batch.getBatch().getAttachedInfos());
                 }
                 if (batch.isEos()) {
+                    LOG.info("--ftw: isEos");
                     break;
                 }
             }
             if (cacheAnalyzer != null) {
+                LOG.info("--ftw: cacheAnalyzer");
                 if (cacheResult != null && cacheAnalyzer.getHitRange() == Cache.HitRange.Right) {
                     isSendFields =
                             sendCachedValues(channel, cacheResult.getValuesList(), (Queriable) queryStmt, isSendFields,
@@ -1434,6 +1460,7 @@ public class StmtExecutor {
                 cacheAnalyzer.updateCache();
             }
             if (!isSendFields) {
+                LOG.info("--ftw: !isSendFields 2");
                 if (!isOutfileQuery) {
                     if (ConnectContext.get() != null && ConnectContext.get().getSessionVariable().dryRunQuery) {
                         // Return a one row one column result set, with the real result number
@@ -1451,9 +1478,11 @@ public class StmtExecutor {
                 }
             }
 
+            LOG.info("--ftw: statisticsForAuditLog");
             statisticsForAuditLog = batch.getQueryStatistics() == null ? null : batch.getQueryStatistics().toBuilder();
             context.getState().setEof();
             profile.getSummaryProfile().setQueryFetchResultFinishTime();
+            LOG.info("--ftw: profile");
         } catch (Exception e) {
             // notify all be cancel runing fragment
             // in some case may block all fragment handle threads
@@ -1463,7 +1492,9 @@ public class StmtExecutor {
             fetchResultSpan.recordException(e);
             throw e;
         } finally {
+            LOG.info("--ftw: end begin");
             fetchResultSpan.end();
+            LOG.info("--ftw: end");
             if (coord.getInstanceTotalNum() > 1 && LOG.isDebugEnabled()) {
                 try {
                     LOG.debug("Finish to execute fragment. user: {}, db: {}, sql: {}, fragment instance num: {}",
@@ -1474,6 +1505,7 @@ public class StmtExecutor {
                     LOG.warn("Fail to print fragment concurrency for Query.", e);
                 }
             }
+            LOG.info("--ftw: last");
         }
     }
 
@@ -1729,6 +1761,87 @@ public class StmtExecutor {
             loadedRows = executeForTxn(insertStmt);
             label = context.getTxnEntry().getLabel();
             txnId = context.getTxnEntry().getTxnConf().getTxnId();
+        } else if (insertStmt instanceof NativeInsertStmt && ((NativeInsertStmt) insertStmt).isGroupCommit()) {
+            NativeInsertStmt nativeInsertStmt = (NativeInsertStmt) insertStmt;
+            Backend backend = context.getInsertGroupCommit(insertStmt.getTargetTable().getId());
+            if (backend == null || !backend.isAlive()) {
+                List<Long> allBackendIds = Env.getCurrentSystemInfo().getAllBackendIds(true);
+                if (allBackendIds.isEmpty()) {
+                    throw new DdlException("No alive backend");
+                }
+                Collections.shuffle(allBackendIds);
+                backend = Env.getCurrentSystemInfo().getBackend(allBackendIds.get(0));
+                context.setInsertGroupCommit(insertStmt.getTargetTable().getId(), backend);
+            }
+            int maxRetry = 3;
+            for (int i = 0; i < maxRetry; i++) {
+                nativeInsertStmt.planForGroupCommit(context.queryId);
+                // handle rows
+                List<InternalService.PDataRow> rows = new ArrayList<>();
+                SelectStmt selectStmt = (SelectStmt) insertStmt.getQueryStmt();
+                if (selectStmt.getValueList() != null) {
+                    for (List<Expr> row : selectStmt.getValueList().getRows()) {
+                        InternalService.PDataRow data = getRowStringValue(row);
+                        rows.add(data);
+                    }
+                } else {
+                    List<Expr> exprList = new ArrayList<>();
+                    for (Expr resultExpr : selectStmt.getResultExprs()) {
+                        if (resultExpr instanceof SlotRef) {
+                            exprList.add(((SlotRef) resultExpr).getDesc().getSourceExprs().get(0));
+                        } else {
+                            exprList.add(resultExpr);
+                        }
+                    }
+                    InternalService.PDataRow data = getRowStringValue(exprList);
+                    rows.add(data);
+                }
+                TUniqueId loadId = nativeInsertStmt.getLoadId();
+                PGroupCommitInsertRequest request = PGroupCommitInsertRequest.newBuilder()
+                        .setDbId(insertStmt.getTargetTable().getDatabase().getId())
+                        .setTableId(insertStmt.getTargetTable().getId())
+                        .setDescTbl(nativeInsertStmt.getTableBytes())
+                        .setBaseSchemaVersion(nativeInsertStmt.getBaseSchemaVersion())
+                        .setPlanNode(nativeInsertStmt.getPlanBytes())
+                        .setScanRangeParams(nativeInsertStmt.getRangeBytes())
+                        .setLoadId(Types.PUniqueId.newBuilder().setHi(loadId.hi).setLo(loadId.lo)
+                                .build()).addAllData(rows)
+                        .build();
+                Future<PGroupCommitInsertResponse> future = BackendServiceProxy.getInstance()
+                        .groupCommitInsert(new TNetworkAddress(backend.getHost(), backend.getBrpcPort()), request);
+                PGroupCommitInsertResponse response = future.get();
+                TStatusCode code = TStatusCode.findByValue(response.getStatus().getStatusCode());
+                if (code == TStatusCode.DATA_QUALITY_ERROR) {
+                    LOG.info("group commit insert failed. stmt: {}, backend id: {}, status: {}, "
+                                    + "schema version: {}, retry: {}", insertStmt.getOrigStmt().originStmt,
+                            backend.getId(), response.getStatus(), nativeInsertStmt.getBaseSchemaVersion(), i);
+                    if (i < maxRetry) {
+                        List<TableIf> tables = Lists.newArrayList(insertStmt.getTargetTable());
+                        MetaLockUtils.readLockTables(tables);
+                        try {
+                            insertStmt.reset();
+                            analyzer = new Analyzer(context.getEnv(), context);
+                            analyzeAndGenerateQueryPlan(context.getSessionVariable().toThrift());
+                        } finally {
+                            MetaLockUtils.readUnlockTables(tables);
+                        }
+                        continue;
+                    } else {
+                        errMsg = "group commit insert failed. backend id: " + backend.getId() + ", status: "
+                                + response.getStatus();
+                    }
+                } else if (code != TStatusCode.OK) {
+                    errMsg = "group commit insert failed. backend id: " + backend.getId() + ", status: "
+                            + response.getStatus();
+                    ErrorReport.reportDdlException(errMsg, ErrorCode.ERR_FAILED_WHEN_INSERT);
+                }
+                label = response.getLabel();
+                txnStatus = TransactionStatus.PREPARE;
+                txnId = response.getTxnId();
+                loadedRows = response.getLoadedRows();
+                filteredRows = (int) response.getFilteredRows();
+                break;
+            }
         } else {
             label = insertStmt.getLabel();
             LOG.info("Do insert [{}] with query id: {}", label, DebugUtil.printId(context.queryId()));
@@ -2189,7 +2302,7 @@ public class StmtExecutor {
     private void handleExportStmt() throws Exception {
         ExportStmt exportStmt = (ExportStmt) parsedStmt;
         // context.getEnv().getExportMgr().addExportJob(exportStmt);
-        context.getEnv().getExportMgr().addExportJobAndRegisterTask(exportStmt);
+        context.getEnv().getExportMgr().addExportJobAndRegisterTask(exportStmt.getExportJob());
     }
 
     private void handleCtasStmt() {
