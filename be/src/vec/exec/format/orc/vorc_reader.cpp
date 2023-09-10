@@ -770,10 +770,14 @@ Status OrcReader::get_next_block(Block* block, size_t* read_rows, bool* eof) {
         SCOPED_RAW_TIMER(&_statistics.get_batch_time);
         // reset decimal_scale_params_index
         _decimal_scale_params_index = 0;
-        if (!_row_reader->next(*_batch)) {
-            *eof = true;
-            *read_rows = 0;
-            return Status::OK();
+        try {
+            if (!_row_reader->next(*_batch)) {
+                *eof = true;
+                *read_rows = 0;
+                return Status::OK();
+            }
+        } catch (std::exception& e) {
+            return Status::InternalError("orc read fail. reason = {}", e.what());
         }
     }
     const auto& batch_vec = down_cast<orc::StructVectorBatch*>(_batch.get())->fields;
