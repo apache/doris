@@ -24,7 +24,6 @@ import org.apache.doris.catalog.ReplicaAllocation;
 import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Expression;
-import org.apache.doris.nereids.trees.expressions.literal.Literal;
 
 import com.google.common.collect.Maps;
 
@@ -38,13 +37,11 @@ import java.util.stream.Collectors;
 public class LessThanPartition extends PartitionDefinition {
     private final String partitionName;
     private final List<Expression> values;
-    private final boolean isMaxValue;
     private ReplicaAllocation replicaAllocation = ReplicaAllocation.DEFAULT_ALLOCATION;
 
-    public LessThanPartition(String partitionName, List<Expression> values, boolean isMaxValue) {
+    public LessThanPartition(String partitionName, List<Expression> values) {
         this.partitionName = partitionName;
         this.values = values;
-        this.isMaxValue = isMaxValue;
     }
 
     @Override
@@ -64,12 +61,12 @@ public class LessThanPartition extends PartitionDefinition {
      * translate to catalog objects.
      */
     public SinglePartitionDesc translateToCatalogStyle() {
-        if (isMaxValue) {
+        if (values.get(0) instanceof MaxValue) {
             return new SinglePartitionDesc(false, partitionName, PartitionKeyDesc.createMaxKeyDesc(),
                     replicaAllocation, Maps.newHashMap());
         }
         List<PartitionValue> partitionValues = values.stream()
-                .map(e -> new PartitionValue(((Literal) e).getStringValue()))
+                .map(this::toLegacyPartitionValueStmt)
                 .collect(Collectors.toList());
         return new SinglePartitionDesc(false, partitionName,
                 PartitionKeyDesc.createLessThan(partitionValues), replicaAllocation, Maps.newHashMap());

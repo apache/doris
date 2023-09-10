@@ -18,7 +18,10 @@
 package org.apache.doris.nereids.trees.plans.commands.info;
 
 import org.apache.doris.analysis.AllPartitionDesc;
+import org.apache.doris.analysis.PartitionValue;
+import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.shape.LeafExpression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.DataType;
@@ -51,6 +54,18 @@ public abstract class PartitionDefinition {
 
     public void setPartitionTypes(List<DataType> partitionTypes) {
         this.partitionTypes = partitionTypes;
+    }
+
+    /**
+     * translate partition value.
+     */
+    protected PartitionValue toLegacyPartitionValueStmt(Expression e) {
+        if (e.isLiteral()) {
+            return new PartitionValue(((Literal) e).getStringValue());
+        } else if (e instanceof MaxValue) {
+            return PartitionValue.MAX_VALUE;
+        }
+        throw new AnalysisException("Unsupported partition value");
     }
 
     /**

@@ -24,7 +24,6 @@ import org.apache.doris.catalog.ReplicaAllocation;
 import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Expression;
-import org.apache.doris.nereids.trees.expressions.literal.Literal;
 
 import com.google.common.collect.Maps;
 
@@ -68,10 +67,10 @@ public class StepPartition extends PartitionDefinition {
      */
     public MultiPartitionDesc translateToCatalogStyle() {
         List<PartitionValue> fromValues = fromExpression.stream()
-                .map(e -> new PartitionValue(((Literal) e).getStringValue()))
+                .map(this::toLegacyPartitionValueStmt)
                 .collect(Collectors.toList());
         List<PartitionValue> toValues = toExpression.stream()
-                .map(e -> new PartitionValue(((Literal) e).getStringValue()))
+                .map(this::toLegacyPartitionValueStmt)
                 .collect(Collectors.toList());
         try {
             if (unitString == null) {

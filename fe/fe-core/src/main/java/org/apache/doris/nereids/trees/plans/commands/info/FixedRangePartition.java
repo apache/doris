@@ -67,9 +67,9 @@ public class FixedRangePartition extends PartitionDefinition {
      * translate to catalog objects.
      */
     public SinglePartitionDesc translateToCatalogStyle() {
-        List<PartitionValue> lowerValues = lowerBounds.stream().map(e -> new PartitionValue(e.toSql()))
+        List<PartitionValue> lowerValues = lowerBounds.stream().map(this::toLegacyPartitionValueStmt)
                 .collect(Collectors.toList());
-        List<PartitionValue> upperValues = upperBounds.stream().map(e -> new PartitionValue(e.toSql()))
+        List<PartitionValue> upperValues = upperBounds.stream().map(this::toLegacyPartitionValueStmt)
                 .collect(Collectors.toList());
         return new SinglePartitionDesc(false, partitionName,
                 PartitionKeyDesc.createFixed(lowerValues, upperValues), replicaAllocation, Maps.newHashMap());

@@ -1894,9 +1894,9 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         String partitionName = ctx.partitionName.getText();
         if (ctx.MAXVALUE() == null) {
             List<Expression> lessThanValues = visitConstantSeq(ctx.constantSeq());
-            return new LessThanPartition(partitionName, lessThanValues, false);
+            return new LessThanPartition(partitionName, lessThanValues);
         } else {
-            return new LessThanPartition(partitionName, null, true);
+            return new LessThanPartition(partitionName, ImmutableList.of(MaxValue.INSTANCE));
         }
     }
 

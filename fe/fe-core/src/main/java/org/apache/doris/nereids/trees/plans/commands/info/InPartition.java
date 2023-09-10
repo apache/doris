@@ -25,7 +25,6 @@ import org.apache.doris.catalog.ReplicaAllocation;
 import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Expression;
-import org.apache.doris.nereids.trees.expressions.literal.Literal;
 
 import com.google.common.collect.Maps;
 
@@ -65,8 +64,9 @@ public class InPartition extends PartitionDefinition {
 
     @Override
     public AllPartitionDesc translateToCatalogStyle() {
-        List<List<PartitionValue>> catalogValues = values.stream().map(l -> l.stream().map(e -> new PartitionValue(
-                ((Literal) e).getStringValue())).collect(Collectors.toList())).collect(Collectors.toList());
+        List<List<PartitionValue>> catalogValues = values.stream().map(l -> l.stream()
+                .map(this::toLegacyPartitionValueStmt)
+                .collect(Collectors.toList())).collect(Collectors.toList());
         return new SinglePartitionDesc(false, partitionName, PartitionKeyDesc.createIn(catalogValues),
                 replicaAllocation, Maps.newHashMap());
     }
