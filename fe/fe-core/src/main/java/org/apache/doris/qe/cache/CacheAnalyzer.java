@@ -419,12 +419,6 @@ public class CacheAnalyzer {
                     : buildCacheTableForHiveScanNode((HiveScanNode) node);
             tblTimeList.add(cTable);
         }
-        if (olapScanNodeSize > 0) {
-            MetricRepo.COUNTER_QUERY_OLAP_TABLE.increase(1L);
-        }
-        if (hiveScanNodeSize > 0) {
-            MetricRepo.COUNTER_QUERY_HIVE_TABLE.increase(1L);
-        }
         Collections.sort(tblTimeList);
         return tblTimeList;
     }
