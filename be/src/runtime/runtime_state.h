@@ -394,7 +394,9 @@ public:
 
     void set_tracer(OpentelemetryTracer&& tracer) { _tracer = std::move(tracer); }
 
-    bool enable_profile() const { return _query_options.is_report_success; }
+    bool enable_profile() const {
+        return _query_options.__isset.enable_profile && _query_options.enable_profile;
+    }
 
     bool enable_scan_node_run_serial() const {
         return _query_options.__isset.enable_scan_node_run_serial &&
