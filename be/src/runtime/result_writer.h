@@ -40,9 +40,9 @@ public:
 
     virtual Status close() = 0;
 
-    virtual int64_t get_written_rows() const { return _written_rows; }
+    [[nodiscard]] virtual int64_t get_written_rows() const { return _written_rows; }
 
-    bool output_object_data() const { return _output_object_data; }
+    [[nodiscard]] bool output_object_data() const { return _output_object_data; }
 
     virtual Status append_block(vectorized::Block& block) = 0;
 

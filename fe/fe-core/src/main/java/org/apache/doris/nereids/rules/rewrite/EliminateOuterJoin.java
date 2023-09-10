@@ -19,11 +19,13 @@ package org.apache.doris.nereids.rules.rewrite;
 
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
+import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
+import org.apache.doris.nereids.util.JoinUtils;
 import org.apache.doris.nereids.util.TypeUtils;
 import org.apache.doris.nereids.util.Utils;
 
@@ -63,7 +65,32 @@ public class EliminateOuterJoin extends OneRewriteRuleFactory {
             }
 
             JoinType newJoinType = tryEliminateOuterJoin(join.getJoinType(), canFilterLeftNull, canFilterRightNull);
-            return filter.withChildren(join.withJoinType(newJoinType));
+            Set<Expression> conjuncts = new HashSet<>();
+            join.getHashJoinConjuncts().forEach(expression -> {
+                EqualTo equalTo = (EqualTo) expression;
+                if (canFilterLeftNull) {
+                    JoinUtils.addIsNotNullIfNullableToCollection(equalTo.left(), conjuncts);
+                }
+                if (canFilterRightNull) {
+                    JoinUtils.addIsNotNullIfNullableToCollection(equalTo.right(), conjuncts);
+                }
+            });
+            JoinUtils.JoinSlotCoverageChecker checker = new JoinUtils.JoinSlotCoverageChecker(
+                    join.left().getOutput(),
+                    join.right().getOutput());
+            join.getOtherJoinConjuncts().stream().filter(EqualTo.class::isInstance).forEach(expr -> {
+                EqualTo equalTo = (EqualTo) expr;
+                if (checker.isHashJoinCondition(equalTo)) {
+                    if (canFilterLeftNull) {
+                        JoinUtils.addIsNotNullIfNullableToCollection(equalTo.left(), conjuncts);
+                    }
+                    if (canFilterRightNull) {
+                        JoinUtils.addIsNotNullIfNullableToCollection(equalTo.right(), conjuncts);
+                    }
+                }
+            });
+            conjuncts.addAll(filter.getConjuncts());
+            return filter.withConjuncts(conjuncts).withChildren(join.withJoinType(newJoinType));
         }).toRule(RuleType.ELIMINATE_OUTER_JOIN);
     }
 

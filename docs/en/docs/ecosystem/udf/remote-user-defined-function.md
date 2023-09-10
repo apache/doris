@@ -88,9 +88,19 @@ Instructions:
 
 Sample:
 ```sql
-CREATE FUNCTION rpc_add(INT, INT) RETURNS INT PROPERTIES (
-  "SYMBOL"="add_int",
-  "OBJECT_FILE"="127.0.0.1:9090",
+CREATE FUNCTION rpc_add_two(INT,INT) RETURNS INT PROPERTIES (
+  "SYMBOL"="add_int_two",
+  "OBJECT_FILE"="127.0.0.1:9114",
+  "TYPE"="RPC"
+);
+CREATE FUNCTION rpc_add_one(INT) RETURNS INT PROPERTIES (
+  "SYMBOL"="add_int_one",
+  "OBJECT_FILE"="127.0.0.1:9114",
+  "TYPE"="RPC"
+);
+CREATE FUNCTION rpc_add_string(varchar(30)) RETURNS varchar(30) PROPERTIES (
+  "SYMBOL"="add_string",
+  "OBJECT_FILE"="127.0.0.1:9114",
   "TYPE"="RPC"
 );
 ```
@@ -107,3 +117,34 @@ When you no longer need UDF functions, you can delete a UDF function by the foll
 
 ## Example
 Examples of rpc server implementations and cpp/java/python languages are provided in the `samples/doris-demo/` directory. See the `README.md` in each directory for details on how to use it.
+For example, rpc_add_string
+```
+mysql >select rpc_add_string('doris');
++-------------------------+
+| rpc_add_string('doris') |
++-------------------------+
+| doris_rpc_test          |
++-------------------------+
+```
+The logs will be displayed.
+
+```
+INFO: fnCall request=function_name: "add_string"
+args {
+  type {
+    id: STRING
+  }
+  has_null: false
+  string_value: "doris"
+}
+INFO: fnCall res=result {
+  type {
+    id: STRING
+  }
+  has_null: false
+  string_value: "doris_rpc_test"
+}
+status {
+  status_code: 0
+}
+```

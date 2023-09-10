@@ -63,15 +63,9 @@
 #include "vec/olap/vgeneric_iterators.h"
 
 namespace doris {
-namespace io {
-class FileCacheManager;
-class FileReaderOptions;
-} // namespace io
 
 namespace segment_v2 {
 class InvertedIndexIterator;
-
-using io::FileCacheManager;
 
 Status Segment::open(io::FileSystemSPtr fs, const std::string& path, uint32_t segment_id,
                      RowsetId rowset_id, TabletSchemaSPtr tablet_schema,
@@ -80,17 +74,7 @@ Status Segment::open(io::FileSystemSPtr fs, const std::string& path, uint32_t se
     io::FileReaderSPtr file_reader;
     io::FileDescription fd;
     fd.path = path;
-#ifndef BE_TEST
     RETURN_IF_ERROR(fs->open_file(fd, reader_options, &file_reader));
-#else
-    // be ut use local file reader instead of remote file reader while use remote cache
-    if (!config::file_cache_type.empty()) {
-        RETURN_IF_ERROR(io::global_local_filesystem()->open_file(fd, reader_options, &file_reader));
-    } else {
-        RETURN_IF_ERROR(fs->open_file(fd, reader_options, &file_reader));
-    }
-#endif
-
     std::shared_ptr<Segment> segment(new Segment(segment_id, rowset_id, tablet_schema));
     segment->_file_reader = std::move(file_reader);
     RETURN_IF_ERROR(segment->_open());
@@ -160,7 +144,8 @@ Status Segment::new_iterator(SchemaSPtr schema, const StorageReadOptions& read_o
 
     RETURN_IF_ERROR(load_index());
     if (read_options.delete_condition_predicates->num_of_column_predicate() == 0 &&
-        read_options.push_down_agg_type_opt != TPushAggOp::NONE) {
+        read_options.push_down_agg_type_opt != TPushAggOp::NONE &&
+        read_options.push_down_agg_type_opt != TPushAggOp::COUNT_ON_INDEX) {
         iter->reset(vectorized::new_vstatistics_iterator(this->shared_from_this(), *schema));
     } else {
         iter->reset(new SegmentIterator(this->shared_from_this(), schema));
@@ -343,12 +328,12 @@ Status Segment::new_bitmap_index_iterator(const TabletColumn& tablet_column,
 
 Status Segment::new_inverted_index_iterator(const TabletColumn& tablet_column,
                                             const TabletIndex* index_meta,
-                                            OlapReaderStatistics* stats,
+                                            const StorageReadOptions& read_options,
                                             std::unique_ptr<InvertedIndexIterator>* iter) {
     auto col_unique_id = tablet_column.unique_id();
     if (_column_readers.count(col_unique_id) > 0 && index_meta) {
         RETURN_IF_ERROR(_column_readers.at(col_unique_id)
-                                ->new_inverted_index_iterator(index_meta, stats, iter));
+                                ->new_inverted_index_iterator(index_meta, read_options, iter));
         return Status::OK();
     }
     return Status::OK();

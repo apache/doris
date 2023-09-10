@@ -221,9 +221,8 @@ void ScannerScheduler::_schedule_scanners(ScannerContext* ctx) {
                     ctx->set_status_on_error(s);
                     // debug case failure, to be removed
                     if (ctx->state()->enable_profile()) {
-                        LOG(WARNING)
-                                << "debug case failure " << print_id(ctx->state()->query_id())
-                                << " " << ctx->parent()->get_name() << ": submit_func error: " << s;
+                        LOG(WARNING) << "debug case failure " << print_id(ctx->state()->query_id())
+                                     << " " << ctx->parent_name() << ": submit_func error: " << s;
                     }
                     break;
                 }
@@ -263,7 +262,7 @@ void ScannerScheduler::_schedule_scanners(ScannerContext* ctx) {
                     // debug case failure, to be removed
                     if (ctx->state()->enable_profile()) {
                         LOG(WARNING) << "debug case failure " << print_id(ctx->state()->query_id())
-                                     << " " << ctx->parent()->get_name() << ": submit_func error2";
+                                     << " " << ctx->parent_name() << ": submit_func error2";
                     }
                     break;
                 }
@@ -276,7 +275,7 @@ void ScannerScheduler::_schedule_scanners(ScannerContext* ctx) {
     // debug case failure, to be removed
     if (ctx->state()->enable_profile()) {
         LOG(WARNING) << "debug case failure " << print_id(ctx->state()->query_id()) << " "
-                     << ctx->parent()->get_name() << ": USE_BTHREAD_SCANNER";
+                     << ctx->parent_name() << ": USE_BTHREAD_SCANNER";
     }
     // Only OlapScanner uses bthread scanner
     // Todo: Make other scanners support bthread scanner
@@ -321,7 +320,7 @@ void ScannerScheduler::_scanner_scan(ScannerScheduler* scheduler, ScannerContext
     // debug case failure, to be removed
     if (ctx->state()->enable_profile()) {
         LOG(WARNING) << "debug case failure " << print_id(ctx->state()->query_id()) << " "
-                     << ctx->parent()->get_name() << ": ScannerScheduler::_scanner_scan";
+                     << ctx->parent_name() << ": ScannerScheduler::_scanner_scan";
     }
     SCOPED_ATTACH_TASK(scanner->runtime_state());
 #if !defined(USE_BTHREAD_SCANNER)
@@ -345,7 +344,7 @@ void ScannerScheduler::_scanner_scan(ScannerScheduler* scheduler, ScannerContext
             // debug case failure, to be removed
             if (ctx->state()->enable_profile()) {
                 LOG(WARNING) << "debug case failure " << print_id(ctx->state()->query_id()) << " "
-                             << ctx->parent()->get_name()
+                             << ctx->parent_name()
                              << ": ScannerScheduler::_scanner_scan scanner->init eos";
             }
         }
@@ -358,7 +357,7 @@ void ScannerScheduler::_scanner_scan(ScannerScheduler* scheduler, ScannerContext
             // debug case failure, to be removed
             if (ctx->state()->enable_profile()) {
                 LOG(WARNING) << "debug case failure " << print_id(ctx->state()->query_id()) << " "
-                             << ctx->parent()->get_name()
+                             << ctx->parent_name()
                              << ": ScannerScheduler::_scanner_scan scanner->open eos";
             }
         }
@@ -399,8 +398,7 @@ void ScannerScheduler::_scanner_scan(ScannerScheduler* scheduler, ScannerContext
             // debug case failure, to be removed
             if (ctx->state()->enable_profile()) {
                 LOG(WARNING) << "debug case failure " << print_id(ctx->state()->query_id()) << " "
-                             << ctx->parent()->get_name()
-                             << ": ScannerScheduler::_scanner_scan ctx->done";
+                             << ctx->parent_name() << ": ScannerScheduler::_scanner_scan ctx->done";
             }
             break;
         }

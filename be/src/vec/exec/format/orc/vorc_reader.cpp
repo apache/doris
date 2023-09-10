@@ -252,7 +252,6 @@ Status OrcReader::init_reader(
         const std::unordered_map<int, VExprContextSPtrs>* slot_id_to_filter_conjuncts) {
     _column_names = column_names;
     _colname_to_value_range = colname_to_value_range;
-    _text_converter.reset(new TextConverter('\\'));
     _lazy_read_ctx.conjuncts = conjuncts;
     _is_acid = is_acid;
     _tuple_descriptor = tuple_descriptor;

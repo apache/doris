@@ -35,6 +35,7 @@
 #include <unordered_set>
 #include <vector>
 
+#include "agent/task_worker_pool.h"
 #include "common/status.h"
 #include "gutil/ref_counted.h"
 #include "olap/calc_delete_bitmap_executor.h"
@@ -54,7 +55,6 @@ namespace doris {
 class DataDir;
 class EngineTask;
 class MemTableFlushExecutor;
-class TaskWorkerPool;
 class SegcompactionWorker;
 class BaseCompaction;
 class CumulativeCompaction;
@@ -137,6 +137,7 @@ public:
     void register_report_listener(TaskWorkerPool* listener);
     void deregister_report_listener(TaskWorkerPool* listener);
     void notify_listeners();
+    void notify_listener(TaskWorkerPool::TaskWorkerType task_worker_type);
 
     Status execute_task(EngineTask* task);
 
@@ -324,8 +325,6 @@ private:
     void _remove_unused_remote_files_callback();
     void _cold_data_compaction_producer_callback();
 
-    void _cache_file_cleaner_tasks_producer_callback();
-
     Status _handle_seg_compaction(SegcompactionWorker* worker,
                                   SegCompactionCandidatesSharedPtr segments);
 
@@ -484,6 +483,8 @@ private:
     std::mutex _async_publish_mutex;
 
     bool _clear_segment_cache = false;
+
+    std::atomic<bool> _need_clean_trash {false};
 
     DISALLOW_COPY_AND_ASSIGN(StorageEngine);
 };

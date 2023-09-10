@@ -64,7 +64,7 @@ public class LogicalFileScan extends LogicalCatalogRelation {
 
     public LogicalFileScan(RelationId id, ExternalTable table, List<String> qualifier) {
         this(id, table, qualifier, Optional.empty(), Optional.empty(),
-                Sets.newHashSet(), null);
+                Sets.newHashSet(), SelectedPartitions.EMPTY);
     }
 
     @Override
@@ -121,9 +121,14 @@ public class LogicalFileScan extends LogicalCatalogRelation {
      * Mainly for hive table partition pruning.
      */
     public static class SelectedPartitions {
-        /** total partition number */
+        public static SelectedPartitions EMPTY = new SelectedPartitions(0, Maps.newHashMap(), false);
+        /**
+         * total partition number
+         */
         public long totalPartitionNum = 0;
-        /** partition id -> partition item */
+        /**
+         * partition id -> partition item
+         */
         public Map<Long, PartitionItem> selectedPartitions;
         /**
          * true means the result is after partition pruning
@@ -151,3 +156,4 @@ public class LogicalFileScan extends LogicalCatalogRelation {
         }
     }
 }
+

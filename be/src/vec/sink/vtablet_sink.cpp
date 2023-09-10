@@ -88,6 +88,7 @@
 #include "vec/common/string_ref.h"
 #include "vec/core/block.h"
 #include "vec/core/column_with_type_and_name.h"
+#include "vec/core/future_block.h"
 #include "vec/core/types.h"
 #include "vec/data_types/data_type_decimal.h"
 #include "vec/data_types/data_type_nullable.h"
@@ -1297,6 +1298,10 @@ Status VOlapTableSink::send(RuntimeState* state, vectorized::Block* input_block,
     SCOPED_CONSUME_MEM_TRACKER(_mem_tracker.get());
     Status status = Status::OK();
 
+    if (state->query_options().dry_run_query) {
+        return status;
+    }
+
     auto rows = input_block->rows();
     auto bytes = input_block->bytes();
     if (UNLIKELY(rows == 0)) {
@@ -1313,6 +1318,8 @@ Status VOlapTableSink::send(RuntimeState* state, vectorized::Block* input_block,
 
     std::shared_ptr<vectorized::Block> block;
     bool has_filtered_rows = false;
+    int64_t filtered_rows =
+            _block_convertor->num_filtered_rows() + _tablet_finder->num_filtered_rows();
     RETURN_IF_ERROR(_block_convertor->validate_and_convert_block(
             state, input_block, block, _output_vexpr_ctxs, rows, eos, has_filtered_rows));
 
@@ -1368,6 +1375,9 @@ Status VOlapTableSink::send(RuntimeState* state, vectorized::Block* input_block,
                     block.get(), filter_col, block->columns()));
         }
     }
+    handle_block(input_block, rows,
+                 _block_convertor->num_filtered_rows() + _tablet_finder->num_filtered_rows() -
+                         filtered_rows);
     // Add block to node channel
     for (size_t i = 0; i < _channels.size(); i++) {
         for (const auto& entry : channel_to_payload[i]) {

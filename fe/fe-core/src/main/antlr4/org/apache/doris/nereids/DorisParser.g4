@@ -40,7 +40,7 @@ statement
         AS type=(RESTRICTIVE | PERMISSIVE)
         TO (user=userIdentify | ROLE roleName=identifier)
         USING LEFT_PAREN booleanExpression RIGHT_PAREN                 #createRowPolicy
-    | explain? INSERT INTO tableName=multipartIdentifier
+    | explain? INSERT (INTO | OVERWRITE TABLE) tableName=multipartIdentifier
         (PARTITION partition=identifierList)?  // partition define
         (WITH LABEL labelName=identifier)? cols=identifierList?  // label and columns define
         (LEFT_BRACKET hints=identifierSeq RIGHT_BRACKET)?  // hint define
@@ -56,7 +56,7 @@ statement
     | EXPORT TABLE tableName=multipartIdentifier
         (PARTITION partition=identifierList)?
         (whereClause)?
-        TO filePath=constant
+        TO filePath=STRING_LITERAL
         (propertyClause)?
         (withRemoteStorageSystem)?                                     #export
     ;
@@ -780,6 +780,7 @@ nonReserved
     | NEXT
     | NGRAM_BF
     | NO
+    | NON_NULLABLE
     | NULLS
     | OF
     | OFFSET
@@ -788,7 +789,6 @@ nonReserved
     | OPTIMIZED
     | PARAMETER
     | PARSED
-    | PARTITIONS
     | PASSWORD
     | PASSWORD_EXPIRE
     | PASSWORD_HISTORY

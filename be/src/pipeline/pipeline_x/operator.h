@@ -49,14 +49,21 @@ public:
 
     template <class TARGET>
     TARGET& cast() {
+        DCHECK(dynamic_cast<TARGET*>(this))
+                << " Mismatch type! Current type is " << typeid(*this).name()
+                << " and expect type is" << typeid(TARGET).name();
         return reinterpret_cast<TARGET&>(*this);
     }
     template <class TARGET>
     const TARGET& cast() const {
+        DCHECK(dynamic_cast<TARGET*>(this))
+                << " Mismatch type! Current type is " << typeid(*this).name()
+                << " and expect type is" << typeid(TARGET).name();
         return reinterpret_cast<const TARGET&>(*this);
     }
 
     virtual Status init(RuntimeState* state, LocalStateInfo& info) = 0;
+    virtual Status open(RuntimeState* state) { return Status::OK(); }
     virtual Status close(RuntimeState* state) = 0;
 
     // If use projection, we should clear `_origin_block`.
@@ -77,9 +84,11 @@ public:
     RuntimeState* state() { return _state; }
     vectorized::VExprContextSPtrs& conjuncts() { return _conjuncts; }
     vectorized::VExprContextSPtrs& projections() { return _projections; }
-    int64_t num_rows_returned() const { return _num_rows_returned; }
+    [[nodiscard]] int64_t num_rows_returned() const { return _num_rows_returned; }
     void add_num_rows_returned(int64_t delta) { _num_rows_returned += delta; }
     void set_num_rows_returned(int64_t value) { _num_rows_returned = value; }
+
+    virtual std::string debug_string(int indentation_level = 0) const;
 
 protected:
     friend class OperatorXBase;
@@ -169,6 +178,13 @@ public:
         return Status::OK();
     }
 
+    bool runtime_filters_are_ready_or_timeout() override {
+        LOG(FATAL) << "should not reach here!";
+        return true;
+    }
+
+    virtual bool runtime_filters_are_ready_or_timeout(RuntimeState* state) const { return true; }
+
     virtual Status close(RuntimeState* state) override;
 
     virtual bool can_read(RuntimeState* state) { return true; }
@@ -179,7 +195,11 @@ public:
         return _row_descriptor;
     }
 
-    virtual std::string debug_string() const override;
+    std::string debug_string() const override { return ""; }
+
+    virtual std::string debug_string(int indentation_level = 0) const;
+
+    virtual std::string debug_string(RuntimeState* state, int indentation_level = 0) const;
 
     virtual Status setup_local_state(RuntimeState* state, LocalStateInfo& info) = 0;
 
@@ -219,7 +239,7 @@ public:
 
     /// Only use in vectorized exec engine try to do projections to trans _row_desc -> _output_row_desc
     Status do_projections(RuntimeState* state, vectorized::Block* origin_block,
-                          vectorized::Block* output_block);
+                          vectorized::Block* output_block) const;
 
 protected:
     template <typename Dependency>
@@ -296,6 +316,7 @@ public:
                 "PeakMemoryUsage", TUnit::BYTES, "MemoryUsage");
         return Status::OK();
     }
+
     virtual Status close(RuntimeState* state) override {
         if (_closed) {
             return Status::OK();
@@ -307,6 +328,8 @@ public:
         _closed = true;
         return Status::OK();
     }
+
+    virtual std::string debug_string(int indentation_level = 0) const override;
 
 protected:
     DependencyType* _dependency;
@@ -323,6 +346,9 @@ public:
 
     virtual Status init(RuntimeState* state, LocalSinkStateInfo& info) = 0;
     virtual Status close(RuntimeState* state) = 0;
+
+    virtual std::string debug_string(int indentation_level) const;
+
     template <class TARGET>
     TARGET& cast() {
         DCHECK(dynamic_cast<TARGET*>(this))
@@ -372,7 +398,7 @@ public:
     // For agg/sort/join sink.
     virtual Status init(const TPlanNode& tnode, RuntimeState* state);
 
-    virtual Status init(const TDataSink& tsink) override { return Status::OK(); }
+    virtual Status init(const TDataSink& tsink) override;
 
     virtual Status setup_local_state(RuntimeState* state, LocalSinkStateInfo& info) = 0;
 
@@ -418,7 +444,11 @@ public:
 
     virtual bool is_pending_finish(RuntimeState* state) const { return false; }
 
-    virtual std::string debug_string() const override;
+    std::string debug_string() const override { return ""; }
+
+    virtual std::string debug_string(int indentation_level) const;
+
+    virtual std::string debug_string(RuntimeState* state, int indentation_level) const;
 
     bool is_sink() const override { return true; }
 
@@ -433,6 +463,8 @@ public:
     [[nodiscard]] std::string get_name() const override { return _name; }
 
     Status finalize(RuntimeState* state) override { return Status::OK(); }
+
+    virtual bool should_dry_run(RuntimeState* state) { return false; }
 
 protected:
     const int _id;
@@ -476,6 +508,7 @@ public:
         _mem_tracker = std::make_unique<MemTracker>(_parent->get_name());
         return Status::OK();
     }
+
     virtual Status close(RuntimeState* state) override {
         if (_closed) {
             return Status::OK();
@@ -484,9 +517,53 @@ public:
         return Status::OK();
     }
 
+    virtual std::string debug_string(int indentation_level) const override;
+
 protected:
     DependencyType* _dependency;
     typename DependencyType::SharedState* _shared_state;
+};
+
+/**
+ * StreamingOperatorX indicates operators which always processes block in streaming way (one-in-one-out).
+ */
+template <typename LocalStateType>
+class StreamingOperatorX : public OperatorX<LocalStateType> {
+public:
+    StreamingOperatorX(ObjectPool* pool, const TPlanNode& tnode, const DescriptorTbl& descs)
+            : OperatorX<LocalStateType>(pool, tnode, descs) {}
+    virtual ~StreamingOperatorX() = default;
+
+    Status get_block(RuntimeState* state, vectorized::Block* block,
+                     SourceState& source_state) override;
+
+    virtual Status pull(RuntimeState* state, vectorized::Block* block,
+                        SourceState& source_state) = 0;
+};
+
+/**
+ * StatefulOperatorX indicates the operators with some states inside.
+ *
+ * Specifically, we called an operator stateful if an operator can determine its output by itself.
+ * For example, hash join probe operator is a typical StatefulOperator. When it gets a block from probe side, it will hold this block inside (e.g. _child_block).
+ * If there are still remain rows in probe block, we can get output block by calling `get_block` without any data from its child.
+ * In a nutshell, it is a one-to-many relation between input blocks and output blocks for StatefulOperator.
+ */
+template <typename LocalStateType>
+class StatefulOperatorX : public OperatorX<LocalStateType> {
+public:
+    StatefulOperatorX(ObjectPool* pool, const TPlanNode& tnode, const DescriptorTbl& descs)
+            : OperatorX<LocalStateType>(pool, tnode, descs) {}
+    virtual ~StatefulOperatorX() = default;
+
+    [[nodiscard]] Status get_block(RuntimeState* state, vectorized::Block* block,
+                                   SourceState& source_state) override;
+
+    [[nodiscard]] virtual Status pull(RuntimeState* state, vectorized::Block* block,
+                                      SourceState& source_state) const = 0;
+    [[nodiscard]] virtual Status push(RuntimeState* state, vectorized::Block* input_block,
+                                      SourceState source_state) const = 0;
+    [[nodiscard]] virtual bool need_more_input_data(RuntimeState* state) const = 0;
 };
 
 } // namespace doris::pipeline

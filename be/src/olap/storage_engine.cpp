@@ -45,7 +45,6 @@
 #include <unordered_set>
 #include <utility>
 
-#include "agent/task_worker_pool.h"
 #include "common/config.h"
 #include "common/logging.h"
 #include "gutil/strings/substitute.h"
@@ -635,10 +634,13 @@ Status StorageEngine::start_trash_sweep(double* usage, bool ignore_guard) {
     std::unique_lock<std::mutex> l(_trash_sweep_lock, std::defer_lock);
     if (!l.try_lock()) {
         LOG(INFO) << "trash and snapshot sweep is running.";
+        if (ignore_guard) {
+            _need_clean_trash.store(true, std::memory_order_relaxed);
+        }
         return res;
     }
 
-    LOG(INFO) << "start trash and snapshot sweep.";
+    LOG(INFO) << "start trash and snapshot sweep. is_clean=" << ignore_guard;
 
     const int32_t snapshot_expire = config::snapshot_expire_time_sec;
     const int32_t trash_expire = config::trash_file_expire_time_sec;
@@ -714,6 +716,7 @@ Status StorageEngine::start_trash_sweep(double* usage, bool ignore_guard) {
     for (auto data_dir : get_stores()) {
         data_dir->perform_remote_rowset_gc();
         data_dir->perform_remote_tablet_gc();
+        data_dir->update_trash_capacity();
     }
 
     return res;
@@ -1013,8 +1016,7 @@ void StorageEngine::add_unused_rowset(RowsetSharedPtr rowset) {
     }
 
     VLOG_NOTICE << "add unused rowset, rowset id:" << rowset->rowset_id()
-                << ", version:" << rowset->version().first << "-" << rowset->version().second
-                << ", unique id:" << rowset->unique_id();
+                << ", version:" << rowset->version();
 
     auto rowset_id = rowset->rowset_id().to_string();
 
@@ -1141,6 +1143,15 @@ void StorageEngine::notify_listeners() {
     std::lock_guard<std::mutex> l(_report_mtx);
     for (auto& listener : _report_listeners) {
         listener->notify_thread();
+    }
+}
+
+void StorageEngine::notify_listener(TaskWorkerPool::TaskWorkerType task_worker_type) {
+    std::lock_guard<std::mutex> l(_report_mtx);
+    for (auto& listener : _report_listeners) {
+        if (listener->task_worker_type() == task_worker_type) {
+            listener->notify_thread();
+        }
     }
 }
 

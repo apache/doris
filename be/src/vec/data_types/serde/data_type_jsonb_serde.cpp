@@ -55,13 +55,13 @@ Status DataTypeJsonbSerDe::write_column_to_mysql(const IColumn& column,
     return _write_column_to_mysql(column, row_buffer, row_idx, col_const);
 }
 
-void DataTypeJsonbSerDe::serialize_column_to_text(const IColumn& column, int start_idx, int end_idx,
+void DataTypeJsonbSerDe::serialize_column_to_json(const IColumn& column, int start_idx, int end_idx,
                                                   BufferWritable& bw,
                                                   FormatOptions& options) const {
-    SERIALIZE_COLUMN_TO_TEXT()
+    SERIALIZE_COLUMN_TO_JSON()
 }
 
-void DataTypeJsonbSerDe::serialize_one_cell_to_text(const IColumn& column, int row_num,
+void DataTypeJsonbSerDe::serialize_one_cell_to_json(const IColumn& column, int row_num,
                                                     BufferWritable& bw,
                                                     FormatOptions& options) const {
     auto result = check_column_const_set_readability(column, row_num);
@@ -74,15 +74,15 @@ void DataTypeJsonbSerDe::serialize_one_cell_to_text(const IColumn& column, int r
     }
 }
 
-Status DataTypeJsonbSerDe::deserialize_column_from_text_vector(IColumn& column,
+Status DataTypeJsonbSerDe::deserialize_column_from_json_vector(IColumn& column,
                                                                std::vector<Slice>& slices,
                                                                int* num_deserialized,
                                                                const FormatOptions& options) const {
-    DESERIALIZE_COLUMN_FROM_TEXT_VECTOR()
+    DESERIALIZE_COLUMN_FROM_JSON_VECTOR()
     return Status::OK();
 }
 
-Status DataTypeJsonbSerDe::deserialize_one_cell_from_text(IColumn& column, Slice& slice,
+Status DataTypeJsonbSerDe::deserialize_one_cell_from_json(IColumn& column, Slice& slice,
                                                           const FormatOptions& options) const {
     JsonBinaryValue value;
     RETURN_IF_ERROR(value.from_json_string(slice.data, slice.size));

@@ -176,6 +176,13 @@ for f in "${DORIS_HOME}/lib"/*.jar; do
     CLASSPATH="${f}:${CLASSPATH}"
 done
 
+# add custome_libs to CLASSPATH
+if [[ -d "${DORIS_HOME}/custom_lib" ]]; then
+    for f in "${DORIS_HOME}/custom_lib"/*.jar; do
+        CLASSPATH="${f}:${CLASSPATH}"
+    done
+fi
+
 # make sure the doris-fe.jar is at first order, so that some classed
 # with same qualified name can be loaded priority from doris-fe.jar
 CLASSPATH="${DORIS_FE_JAR}:${CLASSPATH}"
