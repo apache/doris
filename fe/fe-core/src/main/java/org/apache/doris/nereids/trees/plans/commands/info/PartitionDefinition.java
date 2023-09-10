@@ -18,6 +18,9 @@
 package org.apache.doris.nereids.trees.plans.commands.info;
 
 import org.apache.doris.analysis.AllPartitionDesc;
+import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.shape.LeafExpression;
+import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.DataType;
 
 import java.util.List;
@@ -48,5 +51,22 @@ public abstract class PartitionDefinition {
 
     public void setPartitionTypes(List<DataType> partitionTypes) {
         this.partitionTypes = partitionTypes;
+    }
+
+    /**
+     * partition maxvalue
+     */
+    public static class MaxValue extends Expression implements LeafExpression {
+        public static MaxValue INSTANCE = new MaxValue();
+
+        @Override
+        public <R, C> R accept(ExpressionVisitor<R, C> visitor, C context) {
+            throw new UnsupportedOperationException("Unsupported for MaxValue");
+        }
+
+        @Override
+        public boolean nullable() {
+            return false;
+        }
     }
 }

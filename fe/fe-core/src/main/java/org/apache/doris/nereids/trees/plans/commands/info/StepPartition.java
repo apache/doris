@@ -52,6 +52,10 @@ public class StepPartition extends PartitionDefinition {
 
     @Override
     public void validate(Map<String, String> properties) {
+        if (fromExpression.stream().anyMatch(MaxValue.class::isInstance)
+                || toExpression.stream().anyMatch(MaxValue.class::isInstance)) {
+            throw new AnalysisException("MAXVALUE cannot be used in step partition");
+        }
         try {
             replicaAllocation = PropertyAnalyzer.analyzeReplicaAllocation(properties, "");
         } catch (Exception e) {

@@ -295,6 +295,7 @@ import org.apache.doris.nereids.trees.plans.commands.info.InPartition;
 import org.apache.doris.nereids.trees.plans.commands.info.IndexDefinition;
 import org.apache.doris.nereids.trees.plans.commands.info.LessThanPartition;
 import org.apache.doris.nereids.trees.plans.commands.info.PartitionDefinition;
+import org.apache.doris.nereids.trees.plans.commands.info.PartitionDefinition.MaxValue;
 import org.apache.doris.nereids.trees.plans.commands.info.RollupDefinition;
 import org.apache.doris.nereids.trees.plans.commands.info.StepPartition;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
@@ -1931,18 +1932,18 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     @Override
     public List<Expression> visitConstantSeq(ConstantSeqContext ctx) {
         return ctx.values.stream()
-                .map(v -> Literal.of(visitPartitionValueDef(v)))
+                .map(this::visitPartitionValueDef)
                 .collect(Collectors.toList());
     }
 
     @Override
-    public String visitPartitionValueDef(PartitionValueDefContext ctx) {
+    public Expression visitPartitionValueDef(PartitionValueDefContext ctx) {
         if (ctx.INTEGER_VALUE() != null) {
-            return ctx.INTEGER_VALUE().getText();
+            return Literal.of(ctx.INTEGER_VALUE().getText());
         } else if (ctx.STRING_LITERAL() != null) {
-            return toStringValue(ctx.STRING_LITERAL().getText());
+            return Literal.of(toStringValue(ctx.STRING_LITERAL().getText()));
         } else if (ctx.MAXVALUE() != null) {
-            return ctx.MAXVALUE().getText();
+            return MaxValue.INSTANCE;
         }
         throw new AnalysisException("Unsupported partition value: " + ctx.getText());
     }
