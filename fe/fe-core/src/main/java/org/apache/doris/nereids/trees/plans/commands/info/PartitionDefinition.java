@@ -43,8 +43,7 @@ public abstract class PartitionDefinition {
      * get partition name
      */
     public String getPartitionName() {
-        throw new UnsupportedOperationException("Should not get partition name from"
-                + " in partition and step partition");
+        throw new UnsupportedOperationException("Should not get partition name from step partition");
     }
 
     public void setPartitionTypes(List<DataType> partitionTypes) {

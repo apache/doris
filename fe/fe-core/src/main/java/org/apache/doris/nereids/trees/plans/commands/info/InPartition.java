@@ -56,6 +56,11 @@ public class InPartition extends PartitionDefinition {
     }
 
     @Override
+    public String getPartitionName() {
+        return partitionName;
+    }
+
+    @Override
     public AllPartitionDesc translateToCatalogStyle() {
         List<List<PartitionValue>> catalogValues = values.stream().map(l -> l.stream().map(e -> new PartitionValue(
                 ((Literal) e).getStringValue())).collect(Collectors.toList())).collect(Collectors.toList());
