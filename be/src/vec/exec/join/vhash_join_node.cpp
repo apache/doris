@@ -194,32 +194,6 @@ HashJoinBuildContext::HashJoinBuildContext(pipeline::HashJoinBuildSinkLocalState
           _arena(local_state->_shared_state->arena),
           _build_rf_cardinality(local_state->_build_rf_cardinality) {}
 
-template <class HashTableContext>
-Status ProcessRuntimeFilterBuild<HashTableContext>::operator()(RuntimeState* state,
-                                                               HashTableContext& hash_table_ctx) {
-    if (_context->_runtime_filter_descs.empty()) {
-        return Status::OK();
-    }
-    _context->_runtime_filter_slots = std::make_shared<VRuntimeFilterSlots>(
-            _context->_build_expr_ctxs, _context->_runtime_filter_descs);
-
-    RETURN_IF_ERROR(_context->_runtime_filter_slots->init(state, hash_table_ctx.hash_table.size(),
-                                                          _context->_build_rf_cardinality));
-
-    if (!_context->_runtime_filter_slots->empty() && !_context->_inserted_rows.empty()) {
-        {
-            SCOPED_TIMER(_context->_push_compute_timer);
-            _context->_runtime_filter_slots->insert(_context->_inserted_rows);
-        }
-    }
-    {
-        SCOPED_TIMER(_context->_push_down_timer);
-        RETURN_IF_ERROR(_context->_runtime_filter_slots->publish());
-    }
-
-    return Status::OK();
-}
-
 HashJoinNode::HashJoinNode(ObjectPool* pool, const TPlanNode& tnode, const DescriptorTbl& descs)
         : VJoinNodeBase(pool, tnode, descs),
           _is_broadcast_join(tnode.hash_join_node.__isset.is_broadcast_join &&
