@@ -98,6 +98,10 @@ public class DefaultValue {
         return 0;
     }
 
+    public String getRawValue() {
+        return value;
+    }
+
     /**
      * get string value of a default value expression.
      */

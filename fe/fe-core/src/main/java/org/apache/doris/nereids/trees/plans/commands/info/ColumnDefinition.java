@@ -183,7 +183,7 @@ public class ColumnDefinition {
      */
     public Column translateToCatalogStyle() {
         Column column = new Column(name, type.toCatalogDataType(), isKey, aggType, isNullable,
-                false, defaultValue.map(DefaultValue::getValue).orElse(null), comment, isVisible,
+                false, defaultValue.map(DefaultValue::getRawValue).orElse(null), comment, isVisible,
                 defaultValue.map(DefaultValue::getDefaultValueExprDef).orElse(null), Column.COLUMN_UNIQUE_ID_INIT_VALUE,
                 defaultValue.map(DefaultValue::getValue).orElse(null));
         column.setAggregationTypeImplicit(aggTypeImplicit);
