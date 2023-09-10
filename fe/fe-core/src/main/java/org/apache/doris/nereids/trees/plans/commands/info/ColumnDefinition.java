@@ -175,6 +175,7 @@ public class ColumnDefinition {
         if (type.isStructType()) {
             return ((StructType) type).getFields().stream().anyMatch(f -> f.getDataType().isComplexType());
         }
+        return false;
     }
 
     /**
