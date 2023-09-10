@@ -37,6 +37,7 @@
 #include "olap/key_coder.h"
 #include "olap/olap_common.h"
 #include "olap/rowset/segment_v2/common.h"
+#include "olap/rowset/segment_v2/inverted_index/char_filter/char_filter_factory.h"
 #include "olap/rowset/segment_v2/inverted_index_cache.h"
 #include "olap/rowset/segment_v2/inverted_index_compound_directory.h"
 #include "olap/rowset/segment_v2/inverted_index_desc.h"
@@ -152,6 +153,16 @@ public:
         }
 
         _char_string_reader = std::make_unique<lucene::util::SStringReader<char>>();
+        CharFilterMap char_filter_map =
+                get_parser_char_filter_map_from_properties(_index_meta->properties());
+        if (!char_filter_map.empty()) {
+            _char_string_reader.reset(CharFilterFactory::create(
+                    char_filter_map[INVERTED_INDEX_PARSER_CHAR_FILTER_TYPE],
+                    _char_string_reader.release(),
+                    char_filter_map[INVERTED_INDEX_PARSER_CHAR_FILTER_PATTERN],
+                    char_filter_map[INVERTED_INDEX_PARSER_CHAR_FILTER_REPLACEMENT]));
+        }
+
         _doc = std::make_unique<lucene::document::Document>();
         _dir.reset(DorisCompoundDirectory::getDirectory(_fs, index_path.c_str(), true));
 
@@ -497,7 +508,7 @@ private:
     lucene::document::Field* _field {};
     std::unique_ptr<lucene::index::IndexWriter> _index_writer {};
     std::unique_ptr<lucene::analysis::Analyzer> _analyzer {};
-    std::unique_ptr<lucene::util::SStringReader<char>> _char_string_reader {};
+    std::unique_ptr<lucene::util::Reader> _char_string_reader {};
     std::shared_ptr<lucene::util::bkd::bkd_writer> _bkd_writer;
     std::string _segment_file_name;
     std::string _directory;
