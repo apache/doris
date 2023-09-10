@@ -83,5 +83,10 @@ public abstract class PartitionDefinition {
         public boolean nullable() {
             return false;
         }
+
+        @Override
+        protected Expression uncheckedCastTo(DataType targetType) throws AnalysisException {
+            return this;
+        }
     }
 }
