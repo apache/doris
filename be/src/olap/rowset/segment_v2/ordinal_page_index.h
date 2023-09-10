@@ -69,8 +69,8 @@ public:
     explicit OrdinalIndexReader(io::FileReaderSPtr file_reader, ordinal_t num_values,
                                 const OrdinalIndexPB& meta_pb)
             : _file_reader(std::move(file_reader)), _num_values(num_values) {
-                _meta_pb.reset(new OrdinalIndexPB(meta_pb));
-            }
+        _meta_pb.reset(new OrdinalIndexPB(meta_pb));
+    }
 
     // load and parse the index page into memory
     Status load(bool use_page_cache, bool kept_in_memory);
@@ -91,7 +91,8 @@ public:
     int32_t num_data_pages() const { return _num_pages; }
 
 private:
-    Status _load(bool use_page_cache, bool kept_in_memory, std::unique_ptr<OrdinalIndexPB> index_meta);
+    Status _load(bool use_page_cache, bool kept_in_memory,
+                 std::unique_ptr<OrdinalIndexPB> index_meta);
 
 private:
     friend OrdinalPageIndexIterator;

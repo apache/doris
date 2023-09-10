@@ -207,17 +207,21 @@ Status ColumnReader::init(const ColumnMetaPB* meta) {
         auto& index_meta = meta->indexes(i);
         switch (index_meta.type()) {
         case ORDINAL_INDEX:
-            _ordinal_index.reset(new OrdinalIndexReader(_file_reader, _num_rows, index_meta.ordinal_index()));
+            _ordinal_index.reset(
+                    new OrdinalIndexReader(_file_reader, _num_rows, index_meta.ordinal_index()));
             break;
         case ZONE_MAP_INDEX:
-            _segment_zone_map = std::make_unique<ZoneMapPB>(index_meta.zone_map_index().segment_zone_map());
-            _zone_map_index.reset(new ZoneMapIndexReader(_file_reader, index_meta.zone_map_index().page_zone_maps()));
+            _segment_zone_map =
+                    std::make_unique<ZoneMapPB>(index_meta.zone_map_index().segment_zone_map());
+            _zone_map_index.reset(
+                    new ZoneMapIndexReader(_file_reader, index_meta.zone_map_index().page_zone_maps()));
             break;
         case BITMAP_INDEX:
             _bitmap_index.reset(new BitmapIndexReader(_file_reader, index_meta.bitmap_index()));
             break;
         case BLOOM_FILTER_INDEX:
-            _bloom_filter_index.reset(new BloomFilterIndexReader(_file_reader, index_meta.bloom_filter_index()));
+            _bloom_filter_index.reset(
+                    new BloomFilterIndexReader(_file_reader, index_meta.bloom_filter_index()));
             break;
         default:
             return Status::Corruption("Bad file {}: invalid column index type {}",
@@ -289,8 +293,7 @@ Status ColumnReader::next_batch_of_zone_map(size_t* n, vectorized::MutableColumn
     FieldType type = _type_info->type();
     std::unique_ptr<WrapperField> min_value(WrapperField::create_by_type(type, _meta_length));
     std::unique_ptr<WrapperField> max_value(WrapperField::create_by_type(type, _meta_length));
-    _parse_zone_map_skip_null(*_segment_zone_map, min_value.get(),
-                              max_value.get());
+    _parse_zone_map_skip_null(*_segment_zone_map, min_value.get(), max_value.get());
 
     dst->reserve(*n);
     bool is_string = is_olap_string_type(type);
@@ -332,8 +335,8 @@ bool ColumnReader::match_condition(const AndBlockColumnPredicate* col_predicates
     std::unique_ptr<WrapperField> max_value(WrapperField::create_by_type(type, _meta_length));
     _parse_zone_map(*_segment_zone_map, min_value.get(), max_value.get());
 
-    return _zone_map_match_condition(*_segment_zone_map, min_value.get(),
-                                     max_value.get(), col_predicates);
+    return _zone_map_match_condition(*_segment_zone_map, min_value.get(), max_value.get(),
+                                     col_predicates);
 }
 
 void ColumnReader::_parse_zone_map(const ZoneMapPB& zone_map, WrapperField* min_value_container,

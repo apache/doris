@@ -87,8 +87,7 @@ Segment::Segment(uint32_t segment_id, RowsetId rowset_id, TabletSchemaSPtr table
           _meta_mem_usage(0),
           _rowset_id(rowset_id),
           _tablet_schema(tablet_schema),
-          _segment_meta_mem_tracker(StorageEngine::instance()->segment_meta_mem_tracker()) {
-}
+          _segment_meta_mem_tracker(StorageEngine::instance()->segment_meta_mem_tracker()) {}
 
 Segment::~Segment() {
 #ifndef BE_TEST
@@ -100,8 +99,9 @@ Status Segment::_open() {
     SegmentFooterPB footer;
     RETURN_IF_ERROR(_parse_footer(&footer));
     RETURN_IF_ERROR(_create_column_readers(footer));
-    _pk_index_meta.reset(footer.has_primary_key_index_meta() ?
-                         new PrimaryKeyIndexMetaPB(footer.primary_key_index_meta()) : nullptr);
+    _pk_index_meta.reset(footer.has_primary_key_index_meta()
+                                 ? new PrimaryKeyIndexMetaPB(footer.primary_key_index_meta())
+                                 : nullptr);
     DCHECK(footer.has_short_key_index_page());
     _sk_index_page = footer.short_key_index_page();
     _num_rows = footer.num_rows();
@@ -233,8 +233,7 @@ Status Segment::load_index() {
     return _load_index_once.call([this] {
         if (_tablet_schema->keys_type() == UNIQUE_KEYS && _pk_index_meta != nullptr) {
             _pk_index_reader.reset(new PrimaryKeyIndexReader());
-            RETURN_IF_ERROR(
-                    _pk_index_reader->parse_index(_file_reader, *_pk_index_meta));
+            RETURN_IF_ERROR(_pk_index_reader->parse_index(_file_reader, *_pk_index_meta));
             _meta_mem_usage += _pk_index_reader->get_memory_size();
             _segment_meta_mem_tracker->consume(_pk_index_reader->get_memory_size());
             return Status::OK();
@@ -281,8 +280,8 @@ Status Segment::_create_column_readers(const SegmentFooterPB& footer) {
         ColumnReaderOptions opts;
         opts.kept_in_memory = _tablet_schema->is_in_memory();
         std::unique_ptr<ColumnReader> reader;
-        RETURN_IF_ERROR(ColumnReader::create(opts, footer.columns(iter->second),
-                                             footer.num_rows(), _file_reader, &reader));
+        RETURN_IF_ERROR(ColumnReader::create(opts, footer.columns(iter->second), footer.num_rows(),
+                                             _file_reader, &reader));
         _column_readers.emplace(column.unique_id(), std::move(reader));
     }
     return Status::OK();

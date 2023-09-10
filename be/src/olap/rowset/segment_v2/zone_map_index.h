@@ -147,10 +147,11 @@ private:
 
 class ZoneMapIndexReader {
 public:
-    explicit ZoneMapIndexReader(io::FileReaderSPtr file_reader, const IndexedColumnMetaPB& page_zone_maps)
+    explicit ZoneMapIndexReader(io::FileReaderSPtr file_reader,
+                                const IndexedColumnMetaPB& page_zone_maps)
             : _file_reader(std::move(file_reader)) {
-                _page_zone_maps_meta.reset(new IndexedColumnMetaPB(page_zone_maps));
-            }
+        _page_zone_maps_meta.reset(new IndexedColumnMetaPB(page_zone_maps));
+    }
 
     // load all page zone maps into memory
     Status load(bool use_page_cache, bool kept_in_memory);
