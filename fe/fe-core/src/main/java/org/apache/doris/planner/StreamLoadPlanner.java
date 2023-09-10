@@ -577,5 +577,9 @@ public class StreamLoadPlanner {
         }
         return null;
     }
+
+    public DescriptorTable getDescTable() {
+        return descTable;
+    }
 }
 

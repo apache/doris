@@ -379,7 +379,10 @@ struct HashTableFixedGrower {
     size_t next(size_t pos) const { return pos + 1; }
     bool overflow(size_t /*elems*/) const { return false; }
 
-    void increase_size() { __builtin_unreachable(); }
+    void increase_size() {
+        LOG(FATAL) << "__builtin_unreachable";
+        __builtin_unreachable();
+    }
     void set(size_t /*num_elems*/) {}
     void set_buf_size(size_t /*buf_size_*/) {}
 };

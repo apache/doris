@@ -232,6 +232,10 @@ Status StreamLoadAction::_on_header(HttpRequest* http_req, std::shared_ptr<Strea
         //treat as CSV
         format_str = BeConsts::CSV;
     }
+    if (iequal(format_str, "hive_text")) {
+        ctx->header_type = format_str;
+        format_str = BeConsts::CSV;
+    }
     LoadUtil::parse_format(format_str, http_req->header(HTTP_COMPRESS_TYPE), &ctx->format,
                            &ctx->compress_type);
     if (ctx->format == TFileFormatType::FORMAT_UNKNOWN) {

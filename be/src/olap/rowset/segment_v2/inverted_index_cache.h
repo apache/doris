@@ -17,7 +17,13 @@
 
 #pragma once
 
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Woverloaded-virtual"
+
 #include <CLucene.h> // IWYU pragma: keep
+
+#pragma GCC diagnostic pop
+
 #include <CLucene/config/repl_wchar.h>
 #include <CLucene/util/Misc.h>
 #include <butil/macros.h>

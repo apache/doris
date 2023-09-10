@@ -100,9 +100,9 @@ namespace doris::pipeline {
 PipelineXFragmentContext::PipelineXFragmentContext(
         const TUniqueId& query_id, const int fragment_id, std::shared_ptr<QueryContext> query_ctx,
         ExecEnv* exec_env, const std::function<void(RuntimeState*, Status*)>& call_back,
-        const report_status_callback& report_status_cb)
+        const report_status_callback& report_status_cb, bool group_commit)
         : PipelineFragmentContext(query_id, TUniqueId(), fragment_id, -1, query_ctx, exec_env,
-                                  call_back, report_status_cb) {}
+                                  call_back, report_status_cb, group_commit) {}
 
 PipelineXFragmentContext::~PipelineXFragmentContext() {
     auto st = _query_ctx->exec_status();
@@ -749,8 +749,10 @@ void PipelineXFragmentContext::send_report(bool done) {
     // TODO: only send rpc once
     FOR_EACH_RUNTIME_STATE(
             _report_status_cb(
-                    {exec_status, _is_report_success ? _runtime_state->runtime_profile() : nullptr,
-                     _is_report_success ? runtime_state->load_channel_profile() : nullptr,
+                    {exec_status,
+                     _runtime_state->enable_profile() ? _runtime_state->runtime_profile() : nullptr,
+                     _runtime_state->enable_profile() ? runtime_state->load_channel_profile()
+                                                      : nullptr,
                      done || !exec_status.ok(), _query_ctx->coord_addr, _query_id, _fragment_id,
                      runtime_state->fragment_instance_id(), _backend_num, runtime_state.get(),
                      std::bind(&PipelineFragmentContext::update_status, this,

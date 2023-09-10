@@ -30,6 +30,7 @@ import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.JsonType;
 import org.apache.doris.nereids.types.MapType;
 import org.apache.doris.nereids.types.StructType;
+import org.apache.doris.nereids.types.UnsupportedType;
 
 import com.google.common.collect.ImmutableSet;
 
@@ -40,7 +41,8 @@ import java.util.Set;
  */
 public class CheckDataTypes implements CustomRewriter {
 
-    private static final Set<Class<? extends DataType>> UNSUPPORTED_TYPE = ImmutableSet.of(JsonType.class);
+    private static final Set<Class<? extends DataType>> UNSUPPORTED_TYPE = ImmutableSet.of(
+            JsonType.class, UnsupportedType.class);
 
     @Override
     public Plan rewriteRoot(Plan rootPlan, JobContext jobContext) {

@@ -36,6 +36,7 @@ enum TDataSinkType {
     RESULT_FILE_SINK,
     JDBC_TABLE_SINK,
     MULTI_CAST_DATA_STREAM_SINK,
+    GROUP_COMMIT_OLAP_TABLE_SINK,
 }
 
 enum TResultSinkType {
