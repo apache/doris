@@ -1076,7 +1076,7 @@ Status SegmentIterator::_init_inverted_index_iterators() {
         if (_inverted_index_iterators[cid] == nullptr) {
             RETURN_IF_ERROR(_segment->new_inverted_index_iterator(
                     _opts.tablet_schema->column(cid), _opts.tablet_schema->get_inverted_index(cid),
-                    _opts.stats, &_inverted_index_iterators[cid]));
+                    _opts, &_inverted_index_iterators[cid]));
         }
     }
     return Status::OK();
