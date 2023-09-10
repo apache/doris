@@ -230,7 +230,11 @@ public class CreateTableInfo {
                     + " set 'true' when create olap table by default.");
         }
 
-        if (keysType.equals(KeysType.UNIQUE_KEYS) && properties != null) {
+        if (properties != null && properties.containsKey(PropertyAnalyzer.ENABLE_UNIQUE_KEY_MERGE_ON_WRITE)) {
+            if (!keysType.equals(KeysType.UNIQUE_KEYS)) {
+                throw new AnalysisException(PropertyAnalyzer.ENABLE_UNIQUE_KEY_MERGE_ON_WRITE
+                        + " property only support unique key table");
+            }
             try {
                 isEnableMergeOnWrite = PropertyAnalyzer.analyzeUniqueKeyMergeOnWrite(Maps.newHashMap(properties));
             } catch (Exception e) {
