@@ -40,7 +40,7 @@ public:
     static const char* get_service_bind_address_without_bracket();
     static bool analyze_priority_cidrs(const std::string& priority_networks,
                                        std::vector<CIDR>* cidrs);
-    static bool analyze_localhost(std::string& localhost,  bool& bind_ipv6, std::vector<CIDR>* cidrs,
+    static bool analyze_localhost(std::string& localhost, bool& bind_ipv6, std::vector<CIDR>* cidrs,
                                   std::vector<InetAddress>* hosts);
 
 private:

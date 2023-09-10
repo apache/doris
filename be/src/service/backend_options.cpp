@@ -113,8 +113,8 @@ bool BackendOptions::analyze_priority_cidrs(const std::string& priority_networks
     return true;
 }
 
-bool BackendOptions::analyze_localhost(std::string& localhost, bool& bind_ipv6, std::vector<CIDR>* cidrs,
-                                       std::vector<InetAddress>* hosts) {
+bool BackendOptions::analyze_localhost(std::string& localhost, bool& bind_ipv6,
+                                       std::vector<CIDR>* cidrs, std::vector<InetAddress>* hosts) {
     std::vector<InetAddress>::iterator addr_it = hosts->begin();
     if (!cidrs->empty()) {
         for (; addr_it != hosts->end(); ++addr_it) {
