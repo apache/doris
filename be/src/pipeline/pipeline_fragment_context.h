@@ -135,6 +135,10 @@ public:
     }
 
     bool is_group_commit() { return _group_commit; }
+    virtual void instance_ids(std::vector<TUniqueId>& ins_ids) const {
+        ins_ids.resize(1);
+        ins_ids[0] = _fragment_instance_id;
+    }
 
 protected:
     Status _create_sink(int sender_id, const TDataSink& t_data_sink, RuntimeState* state);
