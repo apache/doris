@@ -71,6 +71,7 @@ public class CreateTableInfo {
     private final DistributionDescriptor distribution;
     private final List<RollupDefinition> rollups;
     private Map<String, String> properties;
+    private boolean isEnableMergeOnWrite = false;
 
     /**
      * constructor for create table
@@ -166,7 +167,6 @@ public class CreateTableInfo {
             dbName = ClusterNamespace.getFullName(ctx.getClusterName(), dbName);
         }
 
-        boolean isEnableMergeOnWrite = false;
         boolean enableDuplicateWithoutKeysByDefault = false;
         if (properties != null) {
             try {
@@ -278,6 +278,12 @@ public class CreateTableInfo {
             }
         }
 
+        // analyze column
+        final boolean finalEnableMergeOnWrite = isEnableMergeOnWrite;
+        Set<String> keysSet = Sets.newTreeSet(String.CASE_INSENSITIVE_ORDER);
+        keysSet.addAll(keys);
+        columns.forEach(c -> c.validate(keysSet, finalEnableMergeOnWrite, keysType));
+
         // analyze partitions
         Map<String, ColumnDefinition> columnMap = new TreeMap<>(String.CASE_INSENSITIVE_ORDER);
         columns.forEach(c -> columnMap.put(c.getName(), c));
@@ -287,25 +293,24 @@ public class CreateTableInfo {
                 if (!columnMap.containsKey(p)) {
                     throw new AnalysisException(String.format("partition key %s is not exists", p));
                 }
-                validateColumn(columnMap.get(p));
+                validatePartitionColumn(columnMap.get(p), ctx);
             });
             if (!checkPartitionsTypes()) {
                 throw new AnalysisException("partitions types is invalid, expected FIXED or LESS in range partitions"
                         + " and IN in list partitions");
             }
+            Set<String> partitionNames = Sets.newHashSet();
+            for (PartitionDefinition partition : partitions) {
+                String partitionName = partition.getPartitionName();
+                if (partitionNames.contains(partitionName)) {
+                    throw new AnalysisException("Duplicated named partition: " + partitionName);
+                }
+                partitionNames.add(partitionName);
+            }
             Set<String> partitionColumnSets = Sets.newHashSet(partitionColumns);
             if (partitionColumnSets.size() != partitionColumns.size()) {
                 throw new AnalysisException("Duplicate partition keys is not allowed");
             }
-            partitionColumns.forEach(c -> {
-                if (!columnMap.containsKey(c)) {
-                    throw new AnalysisException(String.format("partition key %s is not found", c));
-                }
-                ColumnDefinition column = columnMap.get(c);
-                if (column.getType().isFloatLikeType()) {
-                    throw new AnalysisException("Floating point type column can not be partition column");
-                }
-            });
             partitions.forEach(p -> {
                 p.setPartitionTypes(partitionColumns.stream().map(s -> columnMap.get(s).getType())
                         .collect(Collectors.toList()));
@@ -315,11 +320,6 @@ public class CreateTableInfo {
 
         // analyze distribution descriptor
         distribution.validate(columnMap, keysType);
-
-        final boolean finalEnableMergeOnWrite = isEnableMergeOnWrite;
-        Set<String> keysSet = Sets.newTreeSet(String.CASE_INSENSITIVE_ORDER);
-        keysSet.addAll(keys);
-        columns.forEach(c -> c.validate(keysSet, finalEnableMergeOnWrite, keysType));
 
         // analyze key set.
         if (!distribution.isHash()) {
@@ -356,12 +356,26 @@ public class CreateTableInfo {
         return partitionType.equalsIgnoreCase("LIST") && partitions.stream().allMatch(p -> p instanceof InPartition);
     }
 
-    private void validateColumn(ColumnDefinition column) {
-        if (column.isNullable()) {
-            throw new AnalysisException("The list partition column must be NOT NULL");
-        }
-        if (column.getAggType() != null) {
+    private void validatePartitionColumn(ColumnDefinition column, ConnectContext ctx) {
+        if (!column.isKey() && (!column.getAggType().equals(AggregateType.NONE) || isEnableMergeOnWrite)) {
             throw new AnalysisException("The partition column could not be aggregated column");
+        }
+        if (column.getType().isFloatLikeType()) {
+            throw new AnalysisException("Floating point type column can not be partition column");
+        }
+        if (column.getType().isStringType()) {
+            throw new AnalysisException("String Type should not be used in partition column["
+                    + column.getName() + "].");
+        }
+        if (column.getType().isComplexType()) {
+            throw new AnalysisException("Complex type column can't be partition column: "
+                    + column.getType().toString());
+        }
+        if (!ctx.getSessionVariable().isAllowPartitionColumnNullable() && column.isNullable()) {
+            throw new AnalysisException("The partition column must be NOT NULL");
+        }
+        if (partitionType.equalsIgnoreCase("LIST") && column.isNullable()) {
+            throw new AnalysisException("The list partition column must be NOT NULL");
         }
     }
 

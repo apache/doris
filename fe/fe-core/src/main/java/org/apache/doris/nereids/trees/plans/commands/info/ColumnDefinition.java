@@ -87,6 +87,10 @@ public class ColumnDefinition {
         return isNullable;
     }
 
+    public boolean isKey() {
+        return isKey;
+    }
+
     /**
      * validate column definition and analyze
      */

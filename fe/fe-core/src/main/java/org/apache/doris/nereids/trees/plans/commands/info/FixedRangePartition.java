@@ -59,6 +59,10 @@ public class FixedRangePartition extends PartitionDefinition {
         upperBounds = upperBounds.stream().map(e -> e.castTo(type)).collect(Collectors.toList());
     }
 
+    public String getPartitionName() {
+        return partitionName;
+    }
+
     /**
      * translate to catalog objects.
      */

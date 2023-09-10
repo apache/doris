@@ -56,6 +56,10 @@ public class LessThanPartition extends PartitionDefinition {
         }
     }
 
+    public String getPartitionName() {
+        return partitionName;
+    }
+
     /**
      * translate to catalog objects.
      */

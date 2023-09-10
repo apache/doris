@@ -39,6 +39,14 @@ public abstract class PartitionDefinition {
 
     public abstract void validate(Map<String, String> properties);
 
+    /**
+     * get partition name
+     */
+    public String getPartitionName() {
+        throw new UnsupportedOperationException("Should not get partition name from"
+                + " in partition and step partition");
+    }
+
     public void setPartitionTypes(List<DataType> partitionTypes) {
         this.partitionTypes = partitionTypes;
     }
