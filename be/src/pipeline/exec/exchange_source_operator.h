@@ -80,7 +80,6 @@ public:
 
     Status close(RuntimeState* state) override;
     bool is_source() const override { return true; }
-    bool need_to_create_exch_recv() const override { return true; }
 
     RowDescriptor input_row_desc() const { return _input_row_desc; }
 
