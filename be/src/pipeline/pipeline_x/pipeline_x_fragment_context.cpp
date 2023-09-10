@@ -299,33 +299,9 @@ Status PipelineXFragmentContext::_build_pipeline_tasks(
 
         std::map<PipelineId, PipelineXTask*> pipeline_id_to_task;
         for (size_t pip_idx = 0; pip_idx < _pipelines.size(); pip_idx++) {
-            auto scan_ranges = find_with_default(local_params.per_node_scan_ranges,
-                                                 _pipelines[pip_idx]->operator_xs().front()->id(),
-                                                 no_scan_ranges);
-            std::shared_ptr<BufferControlBlock> sender = nullptr;
-            if (_pipelines[pip_idx]->sink_x()->need_to_create_result_sender()) {
-                // create sender
-                RETURN_IF_ERROR(_runtime_states[i]->exec_env()->result_mgr()->create_sender(
-                        _runtime_states[i]->fragment_instance_id(),
-                        vectorized::RESULT_SINK_BUFFER_SIZE, &sender, true,
-                        _runtime_states[i]->execution_timeout()));
-            }
-
-            std::shared_ptr<vectorized::VDataStreamRecvr> recvr = nullptr;
-            if (_pipelines[pip_idx]->operator_xs().front()->need_to_create_exch_recv()) {
-                auto* src =
-                        (ExchangeSourceOperatorX*)_pipelines[pip_idx]->operator_xs().front().get();
-                recvr = _runtime_states[i]->exec_env()->vstream_mgr()->create_recvr(
-                        _runtime_states[i].get(), src->input_row_desc(),
-                        _runtime_states[i]->fragment_instance_id(), src->id(), src->num_senders(),
-                        _runtime_profile.get(), src->is_merging(),
-                        src->sub_plan_query_statistics_recvr());
-            }
-
-            auto task = std::make_unique<PipelineXTask>(
-                    _pipelines[pip_idx], _total_tasks++, _runtime_states[i].get(), this,
-                    _pipelines[pip_idx]->pipeline_profile(), scan_ranges, local_params.sender_id,
-                    sender, recvr);
+            auto task = std::make_unique<PipelineXTask>(_pipelines[pip_idx], _total_tasks++,
+                                                        _runtime_states[i].get(), this,
+                                                        _pipelines[pip_idx]->pipeline_profile());
             pipeline_id_to_task.insert({_pipelines[pip_idx]->id(), task.get()});
             RETURN_IF_ERROR(task->prepare(_runtime_states[i].get()));
             _runtime_profile->add_child(_pipelines[pip_idx]->pipeline_profile(), true, nullptr);
@@ -361,6 +337,19 @@ Status PipelineXFragmentContext::_build_pipeline_tasks(
                             pipeline_id_to_task[dep]->get_downstream_dependency());
                 }
             }
+
+            auto scan_ranges = find_with_default(local_params.per_node_scan_ranges,
+                                                 _pipelines[pip_idx]->operator_xs().front()->id(),
+                                                 no_scan_ranges);
+            for (auto& op : _pipelines[pip_idx]->operator_xs()) {
+                LocalStateInfo info {scan_ranges, task->get_upstream_dependency(op->id())};
+                RETURN_IF_ERROR(op->setup_local_state(_runtime_states[i].get(), info));
+            }
+
+            LocalSinkStateInfo info {local_params.sender_id,
+                                     task->get_downstream_dependency().get()};
+            RETURN_IF_ERROR(_pipelines[pip_idx]->sink_x()->setup_local_state(
+                    _runtime_states[i].get(), info));
         }
 
         {
