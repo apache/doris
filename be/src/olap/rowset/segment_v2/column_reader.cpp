@@ -213,8 +213,8 @@ Status ColumnReader::init(const ColumnMetaPB* meta) {
         case ZONE_MAP_INDEX:
             _segment_zone_map =
                     std::make_unique<ZoneMapPB>(index_meta.zone_map_index().segment_zone_map());
-            _zone_map_index.reset(
-                    new ZoneMapIndexReader(_file_reader, index_meta.zone_map_index().page_zone_maps()));
+            _zone_map_index.reset(new ZoneMapIndexReader(
+                    _file_reader, index_meta.zone_map_index().page_zone_maps()));
             break;
         case BITMAP_INDEX:
             _bitmap_index.reset(new BitmapIndexReader(_file_reader, index_meta.bitmap_index()));
