@@ -133,10 +133,10 @@ public abstract class DataType {
                     case 1:
                         return DecimalV2Type.CATALOG_DEFAULT;
                     case 2:
-                        return DecimalV2Type.createDecimalV2Type(Integer.parseInt(types.get(1)),
+                        return DecimalV2Type.createDecimalType(Integer.parseInt(types.get(1)),
                                 0);
                     case 3:
-                        return DecimalV2Type.createDecimalV2Type(Integer.parseInt(types.get(1)),
+                        return DecimalV2Type.createDecimalType(Integer.parseInt(types.get(1)),
                                 Integer.parseInt(types.get(2)));
                     default:
                         throw new AnalysisException("Nereids do not support type: " + type);

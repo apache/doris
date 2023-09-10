@@ -99,6 +99,14 @@ public class DecimalV2Type extends FractionalType {
         return createDecimalV2Type(precision, scale);
     }
 
+    public static FractionalType createDecimalType(int precision, int scale) {
+        Preconditions.checkArgument(precision >= 0 && scale >= 0);
+        if (precision > MAX_PRECISION || scale > MAX_SCALE) {
+            return DecimalV3Type.createDecimalV3Type(precision, scale);
+        }
+        return createDecimalV2Type(precision, scale);
+    }
+
     /**
      * create DecimalV2Type with appropriate scale and precision.
      */
