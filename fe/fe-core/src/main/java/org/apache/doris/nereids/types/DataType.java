@@ -537,6 +537,9 @@ public abstract class DataType {
     }
 
     public DataType conversion() {
+        if (this instanceof ArrayType) {
+            return ArrayType.of(((ArrayType) this).getItemType().conversion(), ((ArrayType) this).containsNull());
+        }
         return this;
     }
 
