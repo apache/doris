@@ -1115,7 +1115,8 @@ public class DataDescription implements InsertStmt.DataDesc {
                     && !fileFormat.equalsIgnoreCase("orc")
                     && !fileFormat.equalsIgnoreCase("json")
                     && !fileFormat.equalsIgnoreCase(FeConstants.csv_with_names)
-                    && !fileFormat.equalsIgnoreCase(FeConstants.csv_with_names_and_types)) {
+                    && !fileFormat.equalsIgnoreCase(FeConstants.csv_with_names_and_types)
+                    && !fileFormat.equalsIgnoreCase("hive_text")) {
                 throw new AnalysisException("File Format Type " + fileFormat + " is invalid.");
             }
         }
