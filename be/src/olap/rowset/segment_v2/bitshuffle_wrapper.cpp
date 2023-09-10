@@ -95,5 +95,15 @@ size_t compress_lz4_bound(size_t size, size_t elem_size, size_t block_size) {
     return g_bshuf_compress_lz4_bound(size, elem_size, block_size);
 }
 
+int64_t bitshuffle(const void* in, void* out, const size_t size, const size_t elem_size,
+                   size_t block_size) {
+    return bshuf_bitshuffle(in, out, size, elem_size, block_size);
+}
+
+int64_t bitunshuffle(const void* in, void* out, const size_t size, const size_t elem_size,
+                     size_t block_size) {
+    return bshuf_bitunshuffle(in, out, size, elem_size, block_size);
+}
+
 } // namespace bitshuffle
 } // namespace doris

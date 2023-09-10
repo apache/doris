@@ -194,14 +194,11 @@ private:
             _data.push_back(0);
         }
 
-        // reserve enough place for compression
-        _buffer.resize(
-                BITSHUFFLE_PAGE_HEADER_SIZE +
-                bitshuffle::compress_lz4_bound(num_elems_after_padding, final_size_of_type, 0));
+        // reserve enough place for bitshuffle output
+        _buffer.resize(BITSHUFFLE_PAGE_HEADER_SIZE + _data.size());
 
-        int64_t bytes =
-                bitshuffle::compress_lz4(_data.data(), &_buffer[BITSHUFFLE_PAGE_HEADER_SIZE],
-                                         num_elems_after_padding, final_size_of_type, 0);
+        int64_t bytes = bitshuffle::bitshuffle(_data.data(), &_buffer[BITSHUFFLE_PAGE_HEADER_SIZE],
+                                               num_elems_after_padding, final_size_of_type, 0);
         if (PREDICT_FALSE(bytes < 0)) {
             // This means the bitshuffle function fails.
             // Ideally, this should not happen.

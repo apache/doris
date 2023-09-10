@@ -20,6 +20,7 @@
 #include "olap/page_cache.h"
 #include "olap/rowset/segment_v2/binary_dict_page.h"
 #include "olap/rowset/segment_v2/bitshuffle_page.h"
+#include "olap/rowset/segment_v2/bitshuffle_wrapper.h"
 #include "olap/rowset/segment_v2/encoding_info.h"
 
 namespace doris {
@@ -75,7 +76,7 @@ struct BitShufflePagePreDecoder : public DataPagePreDecoder {
 
         memcpy(decoded_slice.data + size_of_dict_header, data.data, BITSHUFFLE_PAGE_HEADER_SIZE);
 
-        auto bytes = bitshuffle::decompress_lz4(
+        auto bytes = bitshuffle::bitunshuffle(
                 &data.data[BITSHUFFLE_PAGE_HEADER_SIZE],
                 decoded_slice.data + BITSHUFFLE_PAGE_HEADER_SIZE + size_of_dict_header,
                 num_element_after_padding, size_of_element, 0);
