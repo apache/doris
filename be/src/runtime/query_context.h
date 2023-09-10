@@ -95,9 +95,7 @@ public:
 
     // Notice. For load fragments, the fragment_num sent by FE has a small probability of 0.
     // this may be a bug, bug <= 1 in theory it shouldn't cause any problems at this stage.
-    bool countdown() { return countdown(1); }
-
-    bool countdown(int delta) { return fragment_num.fetch_sub(delta) <= 1; }
+    bool countdown(int instance_num) { return fragment_num.fetch_sub(instance_num) <= 1; }
 
     ExecEnv* exec_env() { return _exec_env; }
 
