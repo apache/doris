@@ -163,19 +163,21 @@ public:
 
         // if function is variadic, added types_str as key
         if (function_variadic_set.count(key_str)) {
-            if(key_str == "json_extract"){
-                key_str.append(arguments[0].type->is_nullable()
-                               ? reinterpret_cast<const DataTypeNullable*>(arguments[0].type.get())
-                                       ->get_nested_type()
-                                       ->get_family_name()
-                               : arguments[0].type->get_family_name());
+            if (key_str == "json_extract") {
+                key_str.append(
+                        arguments[0].type->is_nullable()
+                                ? reinterpret_cast<const DataTypeNullable*>(arguments[0].type.get())
+                                          ->get_nested_type()
+                                          ->get_family_name()
+                                : arguments[0].type->get_family_name());
             } else {
                 for (auto& arg : arguments) {
-                    key_str.append(arg.type->is_nullable()
-                                   ? reinterpret_cast<const DataTypeNullable*>(arg.type.get())
-                                           ->get_nested_type()
-                                           ->get_family_name()
-                                   : arg.type->get_family_name());
+                    key_str.append(
+                            arg.type->is_nullable()
+                                    ? reinterpret_cast<const DataTypeNullable*>(arg.type.get())
+                                              ->get_nested_type()
+                                              ->get_family_name()
+                                    : arg.type->get_family_name());
                 }
             }
         }

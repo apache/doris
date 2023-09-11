@@ -386,7 +386,7 @@ public:
             auto& roffsets = assert_cast<const ColumnString*>(path_column.get())->get_offsets();
             size_t r_off = roffsets[index_check_const(i, is_const) - 1];
             size_t r_size = roffsets[index_check_const(i, is_const)] - r_off;
-            if(r_size == 0){
+            if (r_size == 0) {
                 block.get_by_position(result).column =
                         ColumnNullable::create(std::move(res), std::move(null_map));
                 return Status::OK();
@@ -1023,9 +1023,7 @@ struct JsonbExtractJsonb : public JsonbExtractStringImpl<JsonbTypeJson> {
     static constexpr auto name = "json_extract";
     static constexpr auto alias = "jsonb_extract";
 
-    static DataTypes get_variadic_argument_types() {
-        return {std::make_shared<DataTypeJsonb>()};
-    }
+    static DataTypes get_variadic_argument_types() { return {std::make_shared<DataTypeJsonb>()}; }
 };
 
 struct JsonbType : public JsonbExtractStringImpl<JsonbTypeType> {
