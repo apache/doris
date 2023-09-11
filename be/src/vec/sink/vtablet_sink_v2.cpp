@@ -30,6 +30,7 @@
 #include <algorithm>
 #include <execution>
 #include <mutex>
+#include <ranges>
 #include <string>
 #include <unordered_map>
 
