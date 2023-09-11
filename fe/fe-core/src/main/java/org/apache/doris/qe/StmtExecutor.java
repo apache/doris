@@ -2468,6 +2468,7 @@ public class StmtExecutor {
                     } catch (Exception e) {
                         LOG.warn("fall back to legacy planner, because: {}", e.getMessage(), e);
                         parsedStmt = null;
+                        planner = null;
                         context.getState().setNereids(false);
                         analyzer = new Analyzer(context.getEnv(), context);
                         analyze(context.getSessionVariable().toThrift());
