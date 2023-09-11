@@ -839,8 +839,7 @@ void VNodeChannel::_add_block_success_callback(const PTabletWriterAddBlockResult
     if (status.ok()) {
         // if has error tablet, handle them first
         for (auto& error : result.tablet_errors()) {
-            _index_channel->mark_as_failed(this, "tablet error: " + error.msg(),
-                                               error.tablet_id());
+            _index_channel->mark_as_failed(this, "tablet error: " + error.msg(), error.tablet_id());
         }
 
         Status st = _index_channel->check_intolerable_failure();
@@ -913,11 +912,11 @@ void VNodeChannel::_add_block_failed_callback(bool is_last_rpc) {
     }
     SCOPED_ATTACH_TASK(_state);
     // If rpc failed, mark all tablets on this node channel as failed
-    _index_channel->mark_as_failed(this,
-                                       fmt::format("rpc failed, error coed:{}, error text:{}",
-                                                   _add_block_closure->cntl.ErrorCode(),
-                                                   _add_block_closure->cntl.ErrorText()),
-                                       -1);
+    _index_channel->mark_as_failed(
+            this,
+            fmt::format("rpc failed, error coed:{}, error text:{}",
+                        _add_block_closure->cntl.ErrorCode(), _add_block_closure->cntl.ErrorText()),
+            -1);
     Status st = _index_channel->check_intolerable_failure();
     if (!st.ok()) {
         _cancel_with_msg(fmt::format("{}, err: {}", channel_info(), st.to_string()));
