@@ -87,7 +87,8 @@ public class BDBDebugger {
         httpServer.start();
 
         // MySQl server
-        QeService qeService = new QeService(Config.query_port, ExecuteEnv.getInstance().getScheduler());
+        QeService qeService = new QeService(Config.query_port, Config.flight_sql_query_port,
+                                            ExecuteEnv.getInstance().getScheduler());
         qeService.start();
 
         ThreadPoolManager.registerAllThreadPoolMetric();

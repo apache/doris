@@ -788,6 +788,7 @@ public class SystemInfoService {
             memoryBe.setHttpPort(be.getHttpPort());
             memoryBe.setBeRpcPort(be.getBeRpcPort());
             memoryBe.setBrpcPort(be.getBrpcPort());
+            memoryBe.setArrowFlightPort(be.getArrowFlightPort());
             memoryBe.setLastUpdateMs(be.getLastUpdateMs());
             memoryBe.setLastStartTime(be.getLastStartTime());
             memoryBe.setDisks(be.getDisks());

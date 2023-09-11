@@ -46,6 +46,7 @@ arrow::Result<std::shared_ptr<ArrowFlightBatchReader>> ArrowFlightBatchReader::C
         ARROW_RETURN_NOT_OK(arrow::Status::Invalid(fmt::format(
                 "Schema RowDescriptor Not Found, queryid: {}", print_id(statement_->query_id))));
     }
+    LOG(INFO) << "11111111 2 " << statement_->query_id;
     std::shared_ptr<arrow::Schema> schema;
     auto st = convert_to_arrow_schema(row_desc, &schema);
     if (UNLIKELY(!st.ok())) {
@@ -57,11 +58,20 @@ arrow::Result<std::shared_ptr<ArrowFlightBatchReader>> ArrowFlightBatchReader::C
 }
 
 arrow::Status ArrowFlightBatchReader::ReadNext(std::shared_ptr<arrow::RecordBatch>* out) {
-    CHECK(*out == nullptr);
+    // CHECK(*out == nullptr); // not nullptr
+    LOG(INFO) << "11111111 1 " << statement_->query_id;
+    *out = nullptr;
     auto st = ExecEnv::GetInstance()->result_mgr()->fetch_arrow_data(statement_->query_id, out);
     if (UNLIKELY(!st.ok())) {
+        LOG(INFO) << "11111111 k " << statement_->query_id;
         LOG(WARNING) << st.to_string();
         ARROW_RETURN_NOT_OK(to_arrow_status(st));
+    }
+    if (*out != nullptr) {
+        std::stringstream ss;
+        arrow_pretty_print(*(*out), &ss);
+        LOG(INFO) << "11111111 m " << (*out)->num_rows() << ", " << (*out)->num_columns();
+        LOG(INFO) << "11111111 l " << ss.str();
     }
     return arrow::Status::OK();
 }

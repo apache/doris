@@ -144,7 +144,6 @@ Status BufferControlBlock::add_batch(std::unique_ptr<TFetchDataResult>& result) 
             _fe_result_batch_queue.push_back(std::move(result));
         }
         _buffer_rows += num_rows;
-        _data_arrival.notify_one();
     } else {
         auto ctx = _waiting_rpc.front();
         _waiting_rpc.pop_front();
@@ -210,18 +209,23 @@ void BufferControlBlock::get_batch(GetResultBatchCtx* ctx) {
 
 Status BufferControlBlock::get_arrow_batch(std::shared_ptr<arrow::RecordBatch>* result) {
     std::unique_lock<std::mutex> l(_lock);
+    LOG(INFO) << "11111111 d " << _buffer_rows << ", " << _packet_num;
     if (!_status.ok()) {
+        LOG(INFO) << "11111111 h " << _buffer_rows << ", " << _packet_num;
         return _status;
     }
     if (_is_cancelled) {
+        LOG(INFO) << "11111111 g " << _buffer_rows << ", " << _packet_num;
         return Status::Cancelled("Cancelled");
     }
 
     while (_arrow_flight_batch_queue.empty() && !_is_cancelled && !_is_close) {
+        LOG(INFO) << "11111111 e " << _buffer_rows << ", " << _packet_num;
         _data_arrival.wait_for(l, std::chrono::seconds(1));
     }
 
     if (_is_cancelled) {
+        LOG(INFO) << "11111111 f " << _buffer_rows << ", " << _packet_num;
         return Status::Cancelled("Cancelled");
     }
 
@@ -231,11 +235,13 @@ Status BufferControlBlock::get_arrow_batch(std::shared_ptr<arrow::RecordBatch>* 
         _buffer_rows -= (*result)->num_rows();
         _data_removal.notify_one();
         _packet_num++;
+        LOG(INFO) << "11111111 c " << _buffer_rows << ", " << _packet_num;
         return Status::OK();
     }
 
     // normal path end
     if (_is_close) {
+        LOG(INFO) << "11111111 i " << _buffer_rows << ", " << _packet_num;
         return Status::OK();
     }
     return Status::InternalError("Abnormal Ending");

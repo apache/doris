@@ -76,6 +76,8 @@ public class Backend implements Writable {
     private volatile int beRpcPort; // be rpc port
     @SerializedName("brpcPort")
     private volatile int brpcPort = -1;
+    @SerializedName("arrowFlightPort")
+    private volatile int arrowFlightPort = -1;
 
     @SerializedName("lastUpdateMs")
     private volatile long lastUpdateMs;
@@ -204,6 +206,10 @@ public class Backend implements Writable {
         return brpcPort;
     }
 
+    public int getArrowFlightPort() {
+        return arrowFlightPort;
+    }
+
     public String getHeartbeatErrMsg() {
         return heartbeatErrMsg;
     }
@@ -287,6 +293,10 @@ public class Backend implements Writable {
 
     public void setBrpcPort(int brpcPort) {
         this.brpcPort = brpcPort;
+    }
+
+    public void setArrowFlightPort(int arrowFlightPort) {
+        this.arrowFlightPort = arrowFlightPort;
     }
 
     public void setCpuCores(int cpuCores) {
@@ -670,6 +680,11 @@ public class Backend implements Writable {
                 this.brpcPort = hbResponse.getBrpcPort();
             }
 
+            if (this.arrowFlightPort != hbResponse.getArrowFlightPort() && !FeConstants.runningUnitTest) {
+                isChanged = true;
+                this.arrowFlightPort = hbResponse.getArrowFlightPort();
+            }
+
             if (this.isShutDown.get() != hbResponse.isShutDown()) {
                 isChanged = true;
                 LOG.info("{} shutdown state is changed", this.toString());
@@ -796,8 +811,12 @@ public class Backend implements Writable {
         return tagMap;
     }
 
-    public TNetworkAddress getBrpcAdress() {
+    public TNetworkAddress getBrpcAddress() {
         return new TNetworkAddress(getHost(), getBrpcPort());
+    }
+
+    public TNetworkAddress getArrowFlightAddress() {
+        return new TNetworkAddress(getHost(), getArrowFlightPort());
     }
 
     public String getTagMapString() {

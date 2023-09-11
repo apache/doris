@@ -96,6 +96,7 @@
 #include "runtime/thread_context.h"
 #include "runtime/types.h"
 #include "service/point_query_executor.h"
+#include "util/arrow/row_batch.h"
 #include "util/async_io.h"
 #include "util/brpc_client_cache.h"
 #include "util/doris_metrics.h"
@@ -704,6 +705,41 @@ void PInternalServiceImpl::fetch_table_schema(google::protobuf::RpcController* c
     }
 }
 
+void PInternalServiceImpl::fetch_arrow_flight_schema(google::protobuf::RpcController* controller,
+                                                     const PFetchArrowFlightSchemaRequest* request,
+                                                     PFetchArrowFlightSchemaResult* result,
+                                                     google::protobuf::Closure* done) {
+    LOG(INFO) << "fetch_arrow_flight_schema";
+    bool ret = _light_work_pool.try_offer([request, result, done]() {
+        brpc::ClosureGuard closure_guard(done);
+        RowDescriptor row_desc = ExecEnv::GetInstance()->result_mgr()->find_row_descriptor(
+                UniqueId(request->finst_id()).to_thrift());
+        if (row_desc.equals(RowDescriptor())) {
+            auto st = Status::NotFound("not found row descriptor");
+            st.to_protobuf(result->mutable_status());
+            return;
+        }
+
+        std::shared_ptr<arrow::Schema> schema;
+        auto st = convert_to_arrow_schema(row_desc, &schema);
+        if (UNLIKELY(!st.ok())) {
+            st.to_protobuf(result->mutable_status());
+            return;
+        }
+
+        std::string schema_str;
+        st = serialize_arrow_schema(row_desc, &schema, &schema_str);
+        if (st.ok()) {
+            result->set_schema(std::move(schema_str));
+        }
+        st.to_protobuf(result->mutable_status());
+    });
+    if (!ret) {
+        offer_failed(result, done, _heavy_work_pool);
+        return;
+    }
+}
+
 Status PInternalServiceImpl::_tablet_fetch_data(const PTabletKeyLookupRequest* request,
                                                 PTabletKeyLookupResponse* response) {
     PointQueryExecutor lookup_util;
@@ -895,6 +931,7 @@ void PInternalServiceImpl::update_cache(google::protobuf::RpcController* control
 void PInternalServiceImpl::fetch_cache(google::protobuf::RpcController* controller,
                                        const PFetchCacheRequest* request, PFetchCacheResult* result,
                                        google::protobuf::Closure* done) {
+    LOG(INFO) << "fetch_cache";
     bool ret = _heavy_work_pool.try_offer([this, request, result, done]() {
         brpc::ClosureGuard closure_guard(done);
         _exec_env->result_cache()->fetch(request, result);
