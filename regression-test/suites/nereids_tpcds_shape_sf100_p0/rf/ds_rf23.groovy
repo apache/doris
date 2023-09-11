@@ -84,7 +84,7 @@ from
 
     '''
     String plan = sql "${stmt}"
-    println plan
+    log.info(plan)
     def getRuntimeFilters = { plantree ->
         {
             def lst = []

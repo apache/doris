@@ -63,6 +63,14 @@ class Syncer {
         TARGET
     }
 
+    Boolean checkEnableFeatureBinlog() {
+        List<List<Object>> rows = suite.sql("ADMIN SHOW FRONTEND CONFIG LIKE \"%%enable_feature_binlog%%\"")
+        if (rows.size() >= 1 && (rows[0][0] as String).contains("enable_feature_binlog")) {
+            return (rows[0][1] as String) == "true"
+        }
+        return false
+    }
+
     private Boolean checkBinlog(TBinlog binlog, String table, Boolean update) {
 
         // step 1: check binlog availability

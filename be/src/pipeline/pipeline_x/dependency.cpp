@@ -33,6 +33,13 @@ template Status HashJoinDependency::extract_join_column<false>(
         std::vector<vectorized::IColumn const*, std::allocator<vectorized::IColumn const*>>&,
         std::vector<int, std::allocator<int>> const&);
 
+std::string Dependency::debug_string(int indentation_level) const {
+    fmt::memory_buffer debug_string_buffer;
+    fmt::format_to(debug_string_buffer, "{}{}: id={}, done={}",
+                   std::string(indentation_level * 2, ' '), _name, _id, _done.load());
+    return fmt::to_string(debug_string_buffer);
+}
+
 Status AggDependency::reset_hash_table() {
     return std::visit(
             [&](auto&& agg_method) {

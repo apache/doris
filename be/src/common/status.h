@@ -51,7 +51,6 @@ TStatusError(MEM_LIMIT_EXCEEDED);
 TStatusError(THRIFT_RPC_ERROR);
 TStatusError(TIMEOUT);
 TStatusError(TOO_MANY_TASKS);
-TStatusError(SERVICE_UNAVAILABLE);
 TStatusError(UNINITIALIZED);
 TStatusError(ABORTED);
 TStatusError(DATA_QUALITY_ERROR);
@@ -113,7 +112,7 @@ E(NOT_INITIALIZED, -236);
 E(ALREADY_CANCELLED, -237);
 E(TOO_MANY_SEGMENTS, -238);
 E(ALREADY_CLOSED, -239);
-E(NEED_SEND_AGAIN, -240);
+E(SERVICE_UNAVAILABLE, -240);
 E(CE_CMD_PARAMS_ERROR, -300);
 E(CE_BUFFER_TOO_SMALL, -301);
 E(CE_CMD_NOT_VALID, -302);
@@ -271,6 +270,7 @@ E(INVERTED_INDEX_EVALUATE_SKIPPED, -6007);
 E(INVERTED_INDEX_BUILD_WAITTING, -6008);
 E(KEY_NOT_FOUND, -6009);
 E(KEY_ALREADY_EXISTS, -6010);
+E(ENTRY_NOT_FOUND, -6011);
 #undef E
 } // namespace ErrorCode
 
@@ -285,7 +285,6 @@ constexpr bool capture_stacktrace(int code) {
         && code != ErrorCode::TOO_MANY_VERSION
         && code != ErrorCode::ALREADY_CANCELLED
         && code != ErrorCode::ALREADY_CLOSED
-        && code != ErrorCode::NEED_SEND_AGAIN
         && code != ErrorCode::PUSH_TRANSACTION_ALREADY_EXIST
         && code != ErrorCode::BE_NO_SUITABLE_VERSION
         && code != ErrorCode::CUMULATIVE_NO_SUITABLE_VERSION
@@ -310,6 +309,7 @@ constexpr bool capture_stacktrace(int code) {
         && code != ErrorCode::TRANSACTION_ALREADY_VISIBLE
         && code != ErrorCode::TOO_MANY_TRANSACTIONS
         && code != ErrorCode::TRANSACTION_ALREADY_COMMITTED
+        && code != ErrorCode::ENTRY_NOT_FOUND
         && code != ErrorCode::KEY_NOT_FOUND
         && code != ErrorCode::KEY_ALREADY_EXISTS
         && code != ErrorCode::CANCELLED
@@ -423,13 +423,11 @@ public:
     ERROR_CTOR(RpcError, THRIFT_RPC_ERROR)
     ERROR_CTOR(TimedOut, TIMEOUT)
     ERROR_CTOR(TooManyTasks, TOO_MANY_TASKS)
-    ERROR_CTOR(ServiceUnavailable, SERVICE_UNAVAILABLE)
     ERROR_CTOR(Uninitialized, UNINITIALIZED)
     ERROR_CTOR(Aborted, ABORTED)
     ERROR_CTOR(DataQualityError, DATA_QUALITY_ERROR)
     ERROR_CTOR(NotAuthorized, NOT_AUTHORIZED)
     ERROR_CTOR(HttpError, HTTP_ERROR)
-    ERROR_CTOR(NeedSendAgain, NEED_SEND_AGAIN)
 #undef ERROR_CTOR
 
     template <int code>
