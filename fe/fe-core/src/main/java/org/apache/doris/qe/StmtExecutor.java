@@ -465,24 +465,32 @@ public class StmtExecutor {
         }
     }
 
-    private void checkBlockRules() throws AnalysisException {
-        if (originStmt != null) {
-            Env.getCurrentEnv().getSqlBlockRuleMgr().matchSql(
-                    originStmt.originStmt, context.getSqlHash(), context.getQualifiedUser());
-        }
+    public void checkBlockRules() throws AnalysisException {
+        checkBlockRulesByRegex(originStmt);
+        checkBlockRulesByScan(planner);
+    }
 
-        // limitations: partition_num, tablet_num, cardinality
-        if (planner != null) {
-            List<ScanNode> scanNodeList = planner.getScanNodes();
-            for (ScanNode scanNode : scanNodeList) {
-                if (scanNode instanceof OlapScanNode) {
-                    OlapScanNode olapScanNode = (OlapScanNode) scanNode;
-                    Env.getCurrentEnv().getSqlBlockRuleMgr().checkLimitations(
-                            olapScanNode.getSelectedPartitionNum().longValue(),
-                            olapScanNode.getSelectedTabletsNum(),
-                            olapScanNode.getCardinality(),
-                            context.getQualifiedUser());
-                }
+    public void checkBlockRulesByRegex(OriginStatement originStmt) throws AnalysisException {
+        if (originStmt == null) {
+            return;
+        }
+        Env.getCurrentEnv().getSqlBlockRuleMgr().matchSql(
+                originStmt.originStmt, context.getSqlHash(), context.getQualifiedUser());
+    }
+
+    public void checkBlockRulesByScan(Planner planner) throws AnalysisException {
+        if (planner == null) {
+            return;
+        }
+        List<ScanNode> scanNodeList = planner.getScanNodes();
+        for (ScanNode scanNode : scanNodeList) {
+            if (scanNode instanceof OlapScanNode) {
+                OlapScanNode olapScanNode = (OlapScanNode) scanNode;
+                Env.getCurrentEnv().getSqlBlockRuleMgr().checkLimitations(
+                        olapScanNode.getSelectedPartitionNum().longValue(),
+                        olapScanNode.getSelectedTabletsNum(),
+                        olapScanNode.getCardinality(),
+                        context.getQualifiedUser());
             }
         }
     }
@@ -494,7 +502,6 @@ public class StmtExecutor {
         profile.getSummaryProfile().setQueryBeginTime();
         context.setStmtId(STMT_ID_GENERATOR.incrementAndGet());
 
-        checkBlockRules();
         parseByNereids();
         Preconditions.checkState(parsedStmt instanceof LogicalPlanAdapter,
                 "Nereids only process LogicalPlanAdapter, but parsedStmt is " + parsedStmt.getClass().getName());
@@ -545,6 +552,7 @@ public class StmtExecutor {
             planner = new NereidsPlanner(statementContext);
             try {
                 planner.plan(parsedStmt, context.getSessionVariable().toThrift());
+                checkBlockRules();
             } catch (Exception e) {
                 LOG.debug("Nereids plan query failed:\n{}", originStmt.originStmt);
                 throw new NereidsException(new AnalysisException("Unexpected exception: " + e.getMessage(), e));
