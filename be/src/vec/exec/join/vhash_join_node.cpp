@@ -571,7 +571,11 @@ Status HashJoinNode::pull(doris::RuntimeState* state, vectorized::Block* output_
                     ->get_data()
                     .resize_fill(block_rows, 1);
         }
-        RETURN_IF_ERROR(_filter_data_and_build_output(state, output_block, eos, &temp_block));
+
+        /// No need to check the block size in `_filter_data_and_build_output` because here dose not
+        /// increase the output rows count(just same as `_probe_block`'s rows count).
+        RETURN_IF_ERROR(
+                _filter_data_and_build_output(state, output_block, eos, &temp_block, false));
         temp_block.clear();
         release_block_memory(_probe_block);
         return Status::OK();
@@ -659,12 +663,14 @@ Status HashJoinNode::pull(doris::RuntimeState* state, vectorized::Block* output_
 
 Status HashJoinNode::_filter_data_and_build_output(RuntimeState* state,
                                                    vectorized::Block* output_block, bool* eos,
-                                                   Block* temp_block) {
+                                                   Block* temp_block, bool check_rows_count) {
     if (_is_outer_join) {
         _add_tuple_is_null_column(temp_block);
     }
     auto output_rows = temp_block->rows();
-    DCHECK(output_rows <= state->batch_size());
+    if (check_rows_count) { // If the join node does not increase the number of output rows, no need to check.
+        DCHECK(output_rows <= state->batch_size());
+    }
     {
         SCOPED_TIMER(_join_filter_timer);
         RETURN_IF_ERROR(VExprContext::filter_block(_conjuncts, temp_block, temp_block->columns()));
