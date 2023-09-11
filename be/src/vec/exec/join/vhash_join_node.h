@@ -522,6 +522,7 @@ struct HashJoinProbeContext {
     Block* _probe_block;
     ColumnRawPtrs* _probe_columns;
     int* _probe_index;
+    int* _ready_probe_index;
 
     Sizes _probe_key_sz;
 
@@ -669,6 +670,7 @@ private:
     bool _has_set_need_null_map_for_build = false;
     bool _probe_ignore_null = false;
     int _probe_index = -1;
+    int _ready_probe_index=-1;
     bool _probe_eos = false;
 
     bool _build_side_ignore_null = false;
