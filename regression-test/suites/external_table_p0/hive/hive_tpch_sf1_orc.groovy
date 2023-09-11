@@ -611,7 +611,7 @@ where
         sql """set parallel_fragment_exec_instance_num=8"""
         sql """set disable_join_reorder=true"""
         sql """set enable_cost_based_join_reorder=false"""
-        qt_q01 """
+        qt_q18 """
 select
     c_name,
     c_custkey,
@@ -878,7 +878,7 @@ order by
         run_tpch()
         def with_cache_second_time = System.currentTimeMillis() - startTime
 
-        println("""tpch running time: ${without_cache_time}ms, ${with_cache_first_time}ms, ${with_cache_second_time}ms""")
+        println("""tpch orc running time(disable, enable, enable): ${without_cache_time}ms, ${with_cache_first_time}ms, ${with_cache_second_time}ms""")
 
         sql """drop catalog if exists ${catalog_name}"""
     }
