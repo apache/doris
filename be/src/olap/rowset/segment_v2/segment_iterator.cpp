@@ -1185,7 +1185,7 @@ Status SegmentIterator::_lookup_ordinal_from_pk_index(const RowCursor& key, bool
     Status status = index_iterator->seek_at_or_after(&index_key, &exact_match);
     if (UNLIKELY(!status.ok())) {
         *rowid = num_rows();
-        if (status.is<ENTRY_NOT_FOUND>()) {
+        if (status.is<END_OF_FILE>()) {
             return Status::OK();
         }
         return status;
