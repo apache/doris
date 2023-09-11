@@ -81,7 +81,7 @@ public class NereidsPlanner extends Planner {
     public static final Logger LOG = LogManager.getLogger(NereidsPlanner.class);
     private CascadesContext cascadesContext;
     private final StatementContext statementContext;
-    private List<ScanNode> scanNodeList = null;
+    private final List<ScanNode> scanNodeList = Lists.newArrayList();
     private DescriptorTable descTable;
 
     private Plan parsedPlan;
@@ -132,7 +132,7 @@ public class NereidsPlanner extends Planner {
         }
         PlanFragment root = physicalPlanTranslator.translatePlan(physicalPlan);
 
-        scanNodeList = planTranslatorContext.getScanNodes();
+        scanNodeList.addAll(planTranslatorContext.getScanNodes());
         descTable = planTranslatorContext.getDescTable();
         fragments = new ArrayList<>(planTranslatorContext.getPlanFragments());
         for (int seq = 0; seq < fragments.size(); seq++) {
