@@ -42,7 +42,7 @@ At the same time, the CBO of the new optimizer is based on the advanced cascades
 
 TPC-H SF100 query speed comparison. The environment is 3BE, the new optimizer uses the original SQL, and the statistical information is collected before executing the SQL. Old optimizers use hand-tuned SQL. It can be seen that the new optimizer does not need to manually optimize the query, and the overall query time is similar to that of the old optimizer after manual optimization.
 
-![execution time comparison](/images/nereids-tpch.png)
+![execution time comparison](/docs/images/nereids-tpch.png)
 
 ### more robust
 

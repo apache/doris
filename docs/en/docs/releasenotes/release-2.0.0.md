@@ -44,7 +44,7 @@ This new version highlights:
 
 In SSB-Flat and TPC-H benchmarking, Apache Doris 2.0.0 delivered **over 10-time faster query performance** compared to an early version of Apache Doris.
 
-![](/images/release-note-2.0.0-1.png)
+![](/docs/images/release-note-2.0.0-1.png)
 
 This is realized by the introduction of a smarter query optimizer, inverted index, a parallel execution model, and a series of new functionalities to support high-concurrency point queries.
 
@@ -54,7 +54,7 @@ The brand new query optimizer, Nereids, has a richer statistical base and adopts
 
 TPC-H tests showed that Nereids, with no human intervention, outperformed the old query optimizer by a wide margin. Over 100 users have tried Apache Doris 2.0.0 in their production environment and the vast majority of them reported huge speedups in query execution.
 
-![](/images/release-note-2.0.0-2.png)
+![](/docs/images/release-note-2.0.0-2.png)
 
 **Doc**: https://doris.apache.org/docs/dev/query-acceleration/nereids/
 
@@ -66,7 +66,7 @@ In Apache Doris 2.0.0, we introduced inverted index to better support fuzzy keyw
 
 A smartphone manufacturer tested Apache Doris 2.0.0 in their user behavior analysis scenarios. With inverted index enabled, v2.0.0 was able to finish the queries within milliseconds and maintain stable performance as the query concurrency level went up. In this case, it is 5 to 90 times faster than its old version. 
 
-![](/images/release-note-2.0.0-3.png)
+![](/docs/images/release-note-2.0.0-3.png)
 
 ### 20 times higher concurrency capability
 
@@ -98,19 +98,19 @@ Apache Doris has been pushing its boundaries. Starting as an OLAP engine for rep
 
 Apache Doris 2.0.0 provides native support for semi-structured data. In addition to JSON and Array, it now supports a complex data type: Map. Based on Light Schema Change, it also supports Schema Evolution, which means you can adjust the schema as your business changes. You can add or delete fields and indexes, and change the data types for fields. As we introduced inverted index and a high-performance text analysis algorithm into it, it can execute full-text search and dimensional analysis of logs more efficiently. With faster data writing and query speed and lower storage cost, it is 10 times more cost-effective than the common log analytic solution within the industry.
 
-![](/images/release-note-2.0.0-4.png)
+![](/docs/images/release-note-2.0.0-4.png)
 
 ### Enhanced data lakehousing capabilities
 
 In Apache Doris 1.2, we introduced Multi-Catalog to allow for auto-mapping and auto-synchronization of data from heterogeneous sources. In version 2.0.0, we extended the list of data sources supported and optimized Doris for based on users' needs in production environment.
 
-![](/images/release-note-2.0.0-5.png)
+![](/docs/images/release-note-2.0.0-5.png)
 
 Apache Doris 2.0.0 supports dozens of data sources including Hive, Hudi, Iceberg, Paimon, MaxCompute, Elasticsearch, Trino, ClickHouse, and almost all open lakehouse formats. It also supports snapshot queries on Hudi Copy-on-Write tables and read optimized queries on Hudi Merge-on-Read tables. It allows for authorization of Hive Catalog using Apache Ranger, so users can reuse their existing privilege control system. Besides, it supports extensible authorization plug-ins to enable user-defined authorization methods for any catalog. 
 
 TPC-H benchmark tests showed that Apache Doris 2.0.0 is 3~5 times faster than Presto/Trino in queries on Hive tables. This is realized by all-around optimizations (in small file reading, flat table reading, local file cache, ORC/Parquet file reading, Compute Nodes, and information collection of external tables) finished in this development cycle and the distributed execution framework, vectorized execution engine, and query optimizer of Apache Doris. 
 
-![](/images/release-note-2.0.0-6.png)
+![](/docs/images/release-note-2.0.0-6.png)
 
 All this gives Apache Doris 2.0.0 an edge in data lakehousing scenarios. With Doris, you can do incremental or overall synchronization of multiple upstream data sources in one place, and expect much higher data query performance than other query engines. The processed data can be written back to the sources or provided for downstream systems. In this way, you can make Apache Doris your unified data analytic gateway.
 
@@ -153,11 +153,11 @@ Read more: https://doris.apache.org/blog/FDC
 
 The purpose of multi-tenant resource isolation is to avoid resource preemption in the case of heavy loads. For that sake, older versions of Apache Doris adopted a hard isolation plan featured by Resource Group: Backend nodes of the same Doris cluster would be tagged, and those of the same tag formed a Resource Group. As data was ingested into the database, different data replicas would be written into different Resource Groups, which will be responsible for different workloads. For example, data reading and writing will be conducted on different data tablets, so as to realize read-write separation. Similarly, you can also put online and offline business on different Resource Groups. 
 
-![](/images/release-note-2.0.0-7.png)
+![](/docs/images/release-note-2.0.0-7.png)
 
 This is an effective solution, but in practice, it happens that some Resource Groups are heavily occupied while others are idle. We want a more flexible way to reduce vacancy rate of resources. Thus, in 2.0.0, we introduce Workload Group resource soft limit.
 
-![](/images/release-note-2.0.0-8.png)
+![](/docs/images/release-note-2.0.0-8.png)
 
 The idea is to divide workloads into groups to allow for flexible management of CPU and memory resources. Apache Doris associates a query with a Workload Group, and limits the percentage of CPU and memory that a single query can use on a backend node. The memory soft limit can be configured and enabled by the user. 
 

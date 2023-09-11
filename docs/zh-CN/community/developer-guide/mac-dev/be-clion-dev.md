@@ -26,7 +26,7 @@ under the License.
 
 ## 打开 Doris 代码根目录
 
-![deployment1](/images/mac-clion-deployment1.png)
+![deployment1](/docs/images/mac-clion-deployment1.png)
 
 ## 配置 CLion
 
@@ -34,13 +34,13 @@ under the License.
 
     参考下图，配置好全部检测成功就没问题了
 
-    ![deployment2](/images/mac-clion-deployment2.png)
+    ![deployment2](/docs/images/mac-clion-deployment2.png)
    
 2. 配置 CMake
 
     参考下图配置
 
-    ![deployment3](/images/mac-clion-deployment3.png)
+    ![deployment3](/docs/images/mac-clion-deployment3.png)
 
     配置完成确认后第一次会自动加载 CMake 文件，若没有自动加载，可手动右键点击 `$DORIS_HOME/be/CMakeLists.txt` 选择加载
 
@@ -48,7 +48,7 @@ under the License.
 
 选择编辑配置
 
-  ![deployment4](/images/mac-clion-deployment4.png)
+  ![deployment4](/docs/images/mac-clion-deployment4.png)
 
 给 doris_be 添加环境变量
 
@@ -67,12 +67,12 @@ UDF_RUNTIME_DIR=~/DorisDev/doris-run/be/lib/udf-runtime;
 DORIS_HOME=~/DorisDev/doris-run/be
 ```
 
-![deployment5](/images/mac-clion-deployment5.png)
-![deployment6](/images/mac-clion-deployment6.png)
+![deployment5](/docs/images/mac-clion-deployment5.png)
+![deployment6](/docs/images/mac-clion-deployment6.png)
 
 
 ## 启动Debug
 
 点击 Run 或者 Debug 就会开始编译，编译完 be 就会启动
 
-![deployment7](/images/mac-clion-deployment7.png)
+![deployment7](/docs/images/mac-clion-deployment7.png)

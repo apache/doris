@@ -73,7 +73,7 @@ mvn deploy \
 
 After successful execution, you can find the newly released version in [https://repository.apache.org/#stagingRepositories](https://repository.apache.org/#stagingRepositories):
 
-![](/images/staging-repositories.png)
+![](/docs/images/staging-repositories.png)
 
 **Note that the `.asc` signature file needs to be included. **
 

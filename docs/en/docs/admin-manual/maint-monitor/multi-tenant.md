@@ -71,7 +71,7 @@ In order to achieve isolation, the concept of **virtual cluster** is introduced.
 4. After Doris starts, the sink creates a default cluster: default_cluster. If the user does not want to use the function of multi-cluster, the default cluster is provided and other operational details of multi-cluster are hidden.
 
 The concrete structure is as follows:
-![](/images/multi_tenant_arch.png)
+![](/docs/images/multi_tenant_arch.png)
 
 ## SQL interface
 
@@ -150,13 +150,13 @@ The concrete structure is as follows:
 
 	- All the DB and user used in the code need to add a layer of cluster. There are many workload changes and deep levels. Most of the code acquires db. The existing functions almost need to be changed, and a layer of cluster locks need to be nested on the basis of DB locks.
 
-	![](/images/palo_meta.png)
+	![](/docs/images/palo_meta.png)
 
 	To sum up, we adopt a prefix to DB and user names to isolate the internal problems caused by the conflict of DB and user names between clusters.
 
 	As follows, all SQL input involves db name and user name, and all SQL input needs to spell the full name of DB and user according to their cluster.
 
-	![](/images/cluster_namaspace.png)
+	![](/docs/images/cluster_namaspace.png)
 
 	In this way, the above two problems no longer exist. Metadata is also organized in a relatively simple way. That is to say, use ** Figure 3 ** to record db, user and nodes belonging to their own cluster.
 
@@ -171,7 +171,7 @@ The concrete structure is as follows:
 
 	Only root users can check whether all be in the cluster is used through the cluster item in `SHOW PROC "/backends"`. To be free is to be idle, otherwise to be in use. `SHOW BACKENDS `can only see the nodes in the cluster. The following is a schematic diagram of the state changes of be nodes.
 
-	![](/images/backend_state.png)
+	![](/docs/images/backend_state.png)
 
 3. Creating Clusters
 
@@ -185,7 +185,7 @@ The concrete structure is as follows:
 
 	In order to be compatible with the old version of Doris, a cluster named default_cluster was built in, which could not be used when creating the cluster.
 
-	![](/images/user_authority.png)
+	![](/docs/images/user_authority.png)
 
 4. Cluster Expansion
 
@@ -199,7 +199,7 @@ The concrete structure is as follows:
 
 	Users can also directly use `ALTER CLUSTER DECOMMISSION BACKEND` to specify BE for cluster scaling.
 
-![](/images/replica_recover.png)
+![](/docs/images/replica_recover.png)
 
 6. Create table
 
@@ -231,7 +231,7 @@ The concrete structure is as follows:
 
 	Doris regularly checks whether machines in the cluster are balanced, replicas are complete, and redundant replicas are available. The migration of DB borrows this process, checking whether the be where the replica is located belongs to the cluster while checking the replica is complete, and if not, it is recorded in the replica to be restored. And when the duplicate is redundant to be deleted, it will first delete the duplicate outside the cluster, and then choose according to the existing strategy: the duplicate of the downtime be -> the duplicate of clone -> the duplicate of the backward version - > the duplicate on the host with high load, until the duplicate is not redundant.
 
-![](/images/cluster_link_and_migrate_db.png)
+![](/docs/images/cluster_link_and_migrate_db.png)
 
 10. BE process isolation
 

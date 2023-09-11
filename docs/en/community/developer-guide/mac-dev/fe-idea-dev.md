@@ -28,7 +28,7 @@ under the License.
 
 **Here we do not directly open the root directory of the Doris project, but open the FE directory (very important!! In order not to conflict with CLion**
 
-![deployment1](/images/mac-idea-deployment1.png)
+![deployment1](/docs/images/mac-idea-deployment1.png)
 
 ## Generate FE code
 
@@ -38,7 +38,7 @@ under the License.
 
    Just wait for Done to be displayed
     
-    ![deployment2](/images/mac-idea-deployment2.png)
+    ![deployment2](/docs/images/mac-idea-deployment2.png)
 
 2. Copy help-resource.zip
 
@@ -53,13 +53,13 @@ under the License.
 
 - select edit configuration
 
-  ![deployment3](/images/mac-idea-deployment3.png)
+  ![deployment3](/docs/images/mac-idea-deployment3.png)
 
 - Add DorisFE configuration
 
   Add an application configuration with the + sign in the upper left corner. For specific configuration, refer to the figure below
 
-  ![deployment4](/images/mac-idea-deployment4.png)
+  ![deployment4](/docs/images/mac-idea-deployment4.png)
 
   - Select the fe directory under the source code directory as the working directory
   - Refer to the environment variables of export in `fe/bin/start_fe.sh` in the root directory of the Doris code to configure the environment variables.
@@ -71,10 +71,10 @@ under the License.
     PID_DIR=~/DorisDev/doris-run/fe/log;
     DORIS_HOME=~/DorisDev/doris-run/fe
     ```
-    ![deployment5](/images/mac-idea-deployment5.png)
+    ![deployment5](/docs/images/mac-idea-deployment5.png)
 
 ## Start FE
 
 Click Run or Debug to start compiling, and fe will start after compiling
 
-![deployment6](/images/mac-idea-deployment6.png)
+![deployment6](/docs/images/mac-idea-deployment6.png)

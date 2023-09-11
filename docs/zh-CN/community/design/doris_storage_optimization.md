@@ -28,7 +28,7 @@ under the License.
 
 ## 文件格式 ##
 
-![](/images/segment_v2.png)
+![](/docs/images/segment_v2.png)
 <center>图1. doris segment文件格式</center>
 
 文件包括：

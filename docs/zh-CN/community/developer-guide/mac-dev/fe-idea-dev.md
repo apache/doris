@@ -28,7 +28,7 @@ under the License.
 
 **这里我们不要直接打开Doris项目根目录，要打开FE的目录（很重要！！为了不和CLion发生冲突**
 
-![deployment1](/images/mac-idea-deployment1.png)
+![deployment1](/docs/images/mac-idea-deployment1.png)
 
 ## 生成 FE 代码
 
@@ -37,7 +37,7 @@ under the License.
 
     等待显示 Done 就可以了
     
-    ![deployment2](/images/mac-idea-deployment2.png)
+    ![deployment2](/docs/images/mac-idea-deployment2.png)
 2. Copy help-resource.zip 
 
     ```
@@ -51,13 +51,13 @@ under the License.
 
 - 选择编辑配置
 
-  ![deployment3](/images/mac-idea-deployment3.png)
+  ![deployment3](/docs/images/mac-idea-deployment3.png)
 
 - 添加 DorisFE 配置
 
   左上角 + 号添加一个应用程序的配置，具体配置参考下图
 
-  ![deployment4](/images/mac-idea-deployment4.png)
+  ![deployment4](/docs/images/mac-idea-deployment4.png)
 
   - 工作目录选择源码目录下的 fe 目录
   - 参照 Doris 代码根目录下的 `fe/bin/start_fe.sh` 中 export 的环境变量进行环境变量配置。 
@@ -69,10 +69,10 @@ under the License.
     PID_DIR=~/DorisDev/doris-run/fe/log;
     DORIS_HOME=~/DorisDev/doris-run/fe
     ```
-    ![deployment5](/images/mac-idea-deployment5.png)
+    ![deployment5](/docs/images/mac-idea-deployment5.png)
 
 ## 启动 FE
 
 点击 Run 或者 Debug 就会开始编译，编译完 fe 就会启动
 
-![deployment6](/images/mac-idea-deployment6.png)
+![deployment6](/docs/images/mac-idea-deployment6.png)

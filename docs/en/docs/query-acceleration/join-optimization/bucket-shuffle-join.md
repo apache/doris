@@ -46,7 +46,7 @@ For example, there are join queries for table A and table B. the join method is 
 
 The data distribution information of each Doris table is saved in FE. If the join statement hits the data distribution column of the left table, we should use the data distribution information to reduce the network and memory overhead of the join query. This is the source of the idea of bucket shuffle join.
 
-![image.png](/images/bucket_shuffle_join.png)
+![image.png](/docs/images/bucket_shuffle_join.png)
 
 The picture above shows how the Bucket Shuffle Join works. The SQL query is A table join B table. The equivalent expression of join hits the data distribution column of A. According to the data distribution information of table A. Bucket Shuffle Join sends the data of table B to the corresponding data storage and calculation node of table A. The cost of Bucket Shuffle Join is as follows:
 

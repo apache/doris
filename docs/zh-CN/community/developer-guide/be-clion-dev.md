@@ -48,9 +48,9 @@ cd /mnt/datadisk0/chenqi/doris
 使用 **SFTP** 来添加一个远程开发服务器的相关连接登陆信息。设置 **Mappings** 路径。
 比如 Local Path 为本地路径 `/User/kaka/Programs/doris/be`，Deployment Path 为远程服务器路径 `/mnt/datadisk0/chenqi/clion/doris/be`。
 
-![Deployment1](/images/clion-deployment1.png)
+![Deployment1](/docs/images/clion-deployment1.png)
 
-![Deployment2](/images/clion-deployment2.png)
+![Deployment2](/docs/images/clion-deployment2.png)
 
 3. 将远程服务器上编译完成的 `gensrc` 路径，比如 `/mnt/datadisk0/chenqi/doris/gensrc` 拷贝到 **Deployment Path** 的上一级目录。
 比如拷贝完最终的目录为远程服务器路径 `/mnt/datadisk0/chenqi/clion/doris/gensrc`。
@@ -62,7 +62,7 @@ cp -R /mnt/datadisk0/chenqi/doris/gensrc /mnt/datadisk0/chenqi/clion/doris/gensr
 4. 在 Clion 中打开 **Preferences -> Build, Execution, Deployment -> Toolchains** 中添加远程环境的相关 Toolchains，比如 cmake、gcc、g++、gdb 等。
 **其中最关键的一点是需要在 **Environment file** 中 填写远程服务器 Doris 代码中的 **env.sh** 文件路径。**
 
-![Toolchains](/images/clion-toolchains.png)
+![Toolchains](/docs/images/clion-toolchains.png)
 
 5. 在 Clion 中打开 **Preferences -> Build, Execution, Deployment -> CMake** ，在CMake options中添加编译选项-DDORIS_JAVA_HOME=/path/to/remote/JAVA_HOME，将DORIS_JAVA_HOME设置为远程服务器的JAVA_HOME路径，否则会找不到 jni.h。
 
@@ -79,15 +79,15 @@ cp -R /mnt/datadisk0/chenqi/doris/gensrc /mnt/datadisk0/chenqi/clion/doris/gensr
 cp -R /mnt/datadisk0/chenqi/doris/output /mnt/datadisk0/chenqi/clion/doris/doris_be
 ```
 
-![Output Tree](/images/doris-dist-output-tree.png)
+![Output Tree](/docs/images/doris-dist-output-tree.png)
 
 3. 在 Clion 中选择 doris_be 相关的 Target，比如 **Debug** 或者 **Release**，进行配置运行。
 
-![Run Debug Conf1](/images/clion-run-debug-conf1.png)
+![Run Debug Conf1](/docs/images/clion-run-debug-conf1.png)
 
 参照 Doris 根目录下的 `be/bin/start_be.sh` 中 export 的环境变量进行环境变量配置。其中环境变量的值指向远程服务器对应的路径。
 环境变量参考：
 
-![Run Debug Conf2](/images/clion-run-debug-conf2.png)
+![Run Debug Conf2](/docs/images/clion-run-debug-conf2.png)
 
 4. 点击运行或者调试 BE。其中点击 **Run** 可以编译运行 BE，而点击 **Debug** 可以编译调试 BE。

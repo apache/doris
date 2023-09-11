@@ -65,15 +65,15 @@ GitHub下载：[https://github.com/apache/doris/releases](https://github.com/apa
 
 我们对 Apache Doris 1.2.0 新版本进行了多个标准测试集的测试，同时选择了 1.1.3 版本和 0.15.0 版本作为对比参照项。经测，1.2.0 **在 SSB-Flat 宽表场景上相对 1.1.3 版本整体性能提升了近 4 倍、相对于 0.15.0 版本性能提升了近 10 倍，在 TPC-H 多表关联场景上较 1.1.3 版本上有近 3 倍的提升、较 0.15.0 版本性能至少提升了 11 倍。**
 
-![ssb_flat](/images/ssb_flat.png)
+![ssb_flat](/docs/images/ssb_flat.png)
 
-![tpch](/images/tpch.png)
+![tpch](/docs/images/tpch.png)
 
 同时，我们将 1.2.0 版本的测试数据提交到了全球知名的数据库测试排行榜 ClickBench，在最新的排行榜中，Apache Doris 1.2.0 新版本取得了通用机型（c6a.4xlarge, 500gb gp2）下**查询性能 Cold Run 第二和 Hot Run 第三的醒目成绩，共有 8 个 SQL 刷新榜单最佳成绩、成为新的性能标杆**。导入性能方面，1.2.0 新版本数据写入效率在同机型所有产品中位列第一，压缩前 70G 数据写入仅耗时 415s、单节点写入速度超过 170 MB/s，在实现极致查询性能的同时也保证了高效的写入效率！
 
-![coldrun](/images/coldrun.png)
+![coldrun](/docs/images/coldrun.png)
 
-![hotrun](/images/hotrun.png)
+![hotrun](/docs/images/hotrun.png)
 
 ### 2. 在 Unique Key 模型上实现了 Merge-on-Write 的数据更新模式
 
@@ -83,7 +83,7 @@ GitHub下载：[https://github.com/apache/doris/releases](https://github.com/apa
 
 在比较有代表性的 SSB-Flat 数据集上，通过模拟多个持续导入场景，**新版本的大部分查询取得了 3-6 倍的性能提升**。
 
-![mergeonwrite_ssb](/images/mergeonwrite_ssb.png)
+![mergeonwrite_ssb](/docs/images/mergeonwrite_ssb.png)
 
 使用场景：所有对主键唯一性有需求，需要频繁进行实时 Upsert 更新的用户建议打开。
 
@@ -119,7 +119,7 @@ Multi-Catalog 多源数据目录功能的目标在于能够帮助用户更方便
 
 在 1.2.0 新版本中，对数据表的加减列操作，不再需要同步更改数据文件，仅需在 FE 中更新元数据即可，从而实现毫秒级的 Schema Change 操作，且存在导入任务时效率的提升更为显著。与此同时，使得 Apache Doris 在面对上游数据表维度变化时，可以更加快速稳定实现表结构同步，保证系统的高效且平稳运转。如用户可以通过 Flink CDC，可实现上游数据库到 Doris 的 DML 和 DDL 同步，进一步提升了实时数仓数据处理和分析链路的时效性与便捷性。
 
-![lightschemachange_compare.png](/images/lightschemachange_compare.png)
+![lightschemachange_compare.png](/docs/images/lightschemachange_compare.png)
 
 使用说明：作为新的 Feature 默认关闭，用户可以通过在建表时添加下面的 Property 来开启：
 

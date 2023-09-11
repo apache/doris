@@ -59,7 +59,7 @@ That's why we introduced a brand new query optimizer: Nereids. With a richer sta
 
 Testing on 22 TPC-H SQLs showed that Nereids, with no human intervention, **brought an over 10-time performance increase compared to the old query optimizer**. Similar results were reported by dozens of users who have tried Apache Doris 2.0 Alpha in their business scenarios. It has really freed engineers from the burden of fine-tuning.
 
-![](/images/Beta_1.png)
+![](/docs/images/Beta_1.png)
 
 **Documentation**: [https://doris.apache.org/docs/dev/query-acceleration/nereids/](https://doris.apache.org/docs/dev/query-acceleration/nereids/)
 
@@ -73,7 +73,7 @@ From a simple OLAP engine for real-time reporting to a data warehouse that is ca
 
 The common log analytic solutions within the industry are basically different tradeoffs between high writing throughput, low storage cost, and fast text retrieval. But Apache Doris 2.0 allows you to have them all. It has inverted index that allows full-text searches on strings and equivalence/range queries on numerics/datetime. Comparison tests with the same datasets in the same hardware environment showed that Apache Doris was 4 times faster than Elasticsearch in log data writing, 2 times faster in log queries, and cost only 20% of the storage space that Elasticsearch used. 
 
-![](/images/Beta_2.png)
+![](/docs/images/Beta_2.png)
 
 We are also making advancements in multi-model data analysis. Apache Doris 2.0 supports two new data types: Map and Struct, as well as the quick writing, functional analysis, and nesting of them.
 
@@ -87,7 +87,7 @@ For a column-oriented DBMS like Apache Doris, the I/O usage of point queries wil
 
 After these optimizations, Apache Doris 2.0 reached a concurrency level of **30,000 QPS per node** on YCSB on a 16 Core 64G cloud server with 4×1T hard drives, representing an improvement of **20 times** compared to older versions. This makes Apache Doris a good alternative to HBase in high-concurrency scenarios.
 
-![](/images/Beta_3.png)
+![](/docs/images/Beta_3.png)
 
 Doc: [https://doris.apache.org/blog/High_concurrency](https://doris.apache.org/blog/High_concurrency)
 
@@ -108,14 +108,14 @@ In Apache Doris 2.0, we extended the list of data sources supported and conducte
 - Performance improvement
   - Accelerated reading of flat tables and large numbers of small files; improved query speed by dozens of times; reduced reading overhead by techniques such as full loading of small files, I/O coalescing, and data pre-fetching.
   - Increased query speed on ORC/Parquet files by 100% compared to version 1.2.
-  - ![](/images/Beta_4.png)
+  - ![](/docs/images/Beta_4.png)
 
   - Supported local caching of lakehouse data. Users can cache data from HDFS or object storage in local disks to speed up queries involving the same data. In the case of cache hits, querying lakehouse data will be as quick as querying internal data in Apache Doris.
     -   Doc: [https://doris.apache.org/docs/dev/lakehouse/filecache/](https://doris.apache.org/docs/dev/lakehouse/filecache/)
   - Supported collection of external table statistics. Users can obtain statistics about their specified external tables via the Analyze statement so that Nereids can fine-tune the query plan for complicated SQLs more efficiently. 
     -   Doc: [https://doris.apache.org/docs/dev/lakehouse/multi-catalog/](https://doris.apache.org/docs/dev/lakehouse/multi-catalog/)
   - Improved data writeback speed of JDBC Catalog. By way of PrepareStmt and other batch methods, users can write data back to relational databases such as MySQL and Oracle via the INSERT INTO command much faster.
-  - ![](/images/Beta_5.png)
+  - ![](/docs/images/Beta_5.png)
 
   - 
 
@@ -162,7 +162,7 @@ properties (
 
 You can check the existing Workload Group via the `Show` command:
 
-![](/images/Beta_6.png)
+![](/docs/images/Beta_6.png)
 
 ## Query queue
 
@@ -172,7 +172,7 @@ When creating a Workload Group, users can set a maximum query number for it. Que
 - `max_queue_size`: the length of query queue. After all spots are filled, any new queries will be rejected.
 - `queue_timeout`: the waiting time of a query in a queue, measured in miliseconds. If a queue has been waiting for longer than this limit, it will be rejected.
 
-![](/images/Beta_7.png)
+![](/docs/images/Beta_7.png)
 
 Doc: [https://doris.apache.org/docs/dev/admin-manual/workload-group/](https://doris.apache.org/docs/dev/admin-manual/workload-group/)
 
@@ -202,7 +202,7 @@ Apache Doris 2.0 provides two solutions to address the needs of the first two ty
 
    2. Read more: [https://doris.apache.org/blog/HCDS/](https://doris.apache.org/blog/HCDS/)
 
-![](/images/Beta_8.png)
+![](/docs/images/Beta_8.png)
 
 For the third type of users, the SelectDB team is going to contribute the SelectDB Cloud Compute-Storage-Separation solution to the Apache Doris project. The performance and stability of this solution has stood the test of hundreds of companies in their production environment. The merging of the solution to Apache Doris is underway.
 

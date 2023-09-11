@@ -42,7 +42,7 @@ under the License.
 
 TPC-H SF100 查询速度比较。环境为 3BE，新优化器使用原始 SQL ，执行 SQL 前收集了统计信息。旧优化器使用手工调优 SQL。可以看到，新优化器在无需手工优化查询的情况下，总体查询时间与旧优化器手工优化后的查询时间相近。
 
-![execution time comparison](/images/nereids-tpch.png)
+![execution time comparison](/docs/images/nereids-tpch.png)
 
 ### 更健壮
 

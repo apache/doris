@@ -120,7 +120,7 @@ This document mainly introduces how to import data stored in AWS S3. It also sup
 ### Preparing
 1. Standard AK and SK
    First, you need to find or regenerate AWS `Access keys`, you can find the generation method in `My Security Credentials` of AWS console, as shown in the following figure:
-   [AK_SK](/images/aws_ak_sk.png)
+   [AK_SK](/docs/images/aws_ak_sk.png)
    Select `Create New Access Key` and pay attention to save and generate AK and SK.
 2. Prepare REGION and ENDPOINT
    REGION can be selected when creating the bucket or can be viewed in the bucket list. ENDPOINT can be found through REGION on the following page [AWS Documentation](https://docs.aws.amazon.com/general/latest/gr/s3.html#s3_region)

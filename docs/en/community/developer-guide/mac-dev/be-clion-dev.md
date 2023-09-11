@@ -26,7 +26,7 @@ under the License.
 
 ## Open the Doris code root directory
 
-![deployment1](/images/mac-clion-deployment1.png)
+![deployment1](/docs/images/mac-clion-deployment1.png)
 
 ## Configure CLion
 
@@ -34,13 +34,13 @@ under the License.
 
    Refer to the figure below, after configuring all the detections successfully, there will be no problem
 
-    ![deployment2](/images/mac-clion-deployment2.png)
+    ![deployment2](/docs/images/mac-clion-deployment2.png)
    
 2. Configure CMake
 
     Refer to the configuration below
 
-    ![deployment3](/images/mac-clion-deployment3.png)
+    ![deployment3](/docs/images/mac-clion-deployment3.png)
 
    After the configuration is completed and confirmed, the CMake file will be automatically loaded for the first time. If it is not automatically loaded, you can manually right-click `$DORIS_HOME/be/CMakeLists.txt` and select Load
 
@@ -48,7 +48,7 @@ under the License.
 
 select edit configuration
 
-  ![deployment4](/images/mac-clion-deployment4.png)
+  ![deployment4](/docs/images/mac-clion-deployment4.png)
 
 Add environment variables to doris_be
 
@@ -67,12 +67,12 @@ UDF_RUNTIME_DIR=~/DorisDev/doris-run/be/lib/udf-runtime;
 DORIS_HOME=~/DorisDev/doris-run/be
 ```
 
-![deployment5](/images/mac-clion-deployment5.png)
-![deployment6](/images/mac-clion-deployment6.png)
+![deployment5](/docs/images/mac-clion-deployment5.png)
+![deployment6](/docs/images/mac-clion-deployment6.png)
 
 
 ## Start BE
 
 Click Run or Debug to start compiling, and be will start after compiling
 
-![deployment7](/images/mac-clion-deployment7.png)
+![deployment7](/docs/images/mac-clion-deployment7.png)

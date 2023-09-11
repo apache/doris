@@ -116,7 +116,7 @@ Here we use Apache Doris 1.2.0-rc01, Apache Doris 1.1.3 and Apache Doris 0.15.0 
 | Q22      | 0.46                        | 0.9                    | 3.22                         |
 | **Total** | **19.64**                   | **51.253**             | **223.33**                   |
 
-![image-20220614114351241](/images/tpch.png)
+![image-20220614114351241](/docs/images/tpch.png)
 
 - **Result Description**
     - The data set corresponding to the test results is scale 100, about 600 million.

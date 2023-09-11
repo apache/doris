@@ -66,7 +66,7 @@ under the License.
 
 我们对全新查询优化器的执行性能进行了盲测，仅以 TPC-H 22 个 SQL 为例 ，**全新优化器在未进行任何手工调优和 SQL 改写的情况下** **查询耗时**，盲测性能提升了超过 10 倍！而在数十个 2.0 版本用户的真实业务场景中，绝大多数原始 SQL 执行效率得以极大提升，真正解决了人工调优的痛点！
 
-![](/images/release-note-2.0beta-1.png)
+![](/docs/images/release-note-2.0beta-1.png)
 
 参考文档：[https://doris.apache.org/zh-CN/docs/dev/query-acceleration/nereids](https://doris.apache.org/zh-CN/docs/dev/query-acceleration/nereids)
 
@@ -116,7 +116,7 @@ properties (
 
 可以通过 `Show` 命令来查看创建的 Workload Group，例如：
 
-![](/images/release-note-2.0beta-workload.png)
+![](/docs/images/release-note-2.0beta-workload.png)
 
 ## 作业排队
 
@@ -126,7 +126,7 @@ properties (
 -   `max_queue_size`查询排队的长度，当队列满了之后，新来的查询会被拒绝；
 -   `queue_timeout`查询在队列中等待的时间，如果查询等待时间超过等待时间查询将会被拒绝，时间单位为毫秒；
 
-![](/images/release-note-2.0beta-log-queue-group.png)
+![](/docs/images/release-note-2.0beta-log-queue-group.png)
 
 参考文档：[https://doris.apache.org/zh-CN/docs/dev/admin-manual/workload-group/](https://doris.apache.org/zh-CN/docs/dev/admin-manual/workload-group/)
 
@@ -213,7 +213,7 @@ curl  --location-trusted -u root: -H "partial_columns:true" -H "column_separator
 
 在相同硬件配置和数据集的测试表现上，Apache Doris 相对于 ElasticSearch 实现了日志数据写入速度提升 4 倍、存储空间降低 80%、查询性能提升 2 倍，再结合 Apache Doris 2.0 版本引入的冷热数据分层特性，整体性价比提升 10 倍以上。
 
-![](/images/release-note-2.0beta-es-log.png)
+![](/docs/images/release-note-2.0beta-es-log.png)
 
 除了日志分析场景的优化以外，在复杂数据类型方面，我们增加了全新的数据类型 Map/Struct，包括支持以上类型的高效写入、存储、分析函数以及类型之间的相互嵌套，以更好满足多模态数据分析的支持。
 
@@ -227,7 +227,7 @@ curl  --location-trusted -u root: -H "partial_columns:true" -H "column_separator
 
 通过以上一系列优化，**Apache Doris 2.0 版本在并发能力上实现了数量级的提升**！在标准 YCSB 基准测试中，单台 16 Core 64G 内存 4*1T 硬盘规格的云服务器上实现了单节点 30000 QPS 的并发表现，较过去版本点查询并发能力提升超 20 倍！基于以上能力，Apache Doris 可以更好应对高并发数据服务场景的需求，替代 HBase 在此类场景中的能力，减少复杂技术栈带来的维护成本以及数据的冗余存储。
 
-![](/images/release-note-2.0beta-ycsb-qps.png)
+![](/docs/images/release-note-2.0beta-ycsb-qps.png)
 
 参考文档：[https://doris.apache.org/zh-CN/docs/dev/query-acceleration/hight-concurrent-point-query](https://doris.apache.org/zh-CN/docs/dev/query-acceleration/hight-concurrent-point-query)
 
@@ -253,8 +253,8 @@ curl  --location-trusted -u root: -H "partial_columns:true" -H "column_separator
 - 优化了大量小文件场景以及宽表场景的读取性能。通过小文件全量加载、小 IO 合并、数据预读等技术，显著降低远端存储的读取开销，在此类场景下，查询性能最高提升数十倍。
 - 优化了 ORC/Parquet 文件的读取性能，相较于 1.2 版本查询性能提升一倍。
 
-![](/images/release-note-2.0beta-ssb-parquet.png)
-![](/images/release-note-2.0beta-ssb-orc.png)
+![](/docs/images/release-note-2.0beta-ssb-parquet.png)
+![](/docs/images/release-note-2.0beta-ssb-orc.png)
 
 - 支持湖上数据的本地文件缓存。可以利用本地磁盘缓存 HDFS 或对象存储等远端存储系统上的数据，通过缓存加速访问相同数据的查询。在命中本地文件缓存的情况下，通过 Apache Doris 查询湖上数据的性能可与 Apache Doris 内部表持平，该功能可以极大提升湖上热数据的查询性能。参考文档：[https://doris.apache.org/zh-CN/docs/dev/lakehouse/filecache](https://doris.apache.org/zh-CN/docs/dev/lakehouse/filecache)
 
@@ -262,7 +262,7 @@ curl  --location-trusted -u root: -H "partial_columns:true" -H "column_separator
 
 - 优化了 JDBC Catalog 的数据写回性能。通过 PrepareStmt 和批量方式，用户通过 INSERT INTO 命令、通过 JDBC Catalog 将数据写回到 MySQL、Oracle 等关系型数据库的性能提升数十倍。
 
-![](/images/release-note-2.0beta-jdbc.png)
+![](/docs/images/release-note-2.0beta-jdbc.png)
 
 # 支持 Kubernetes 容器化部署
 

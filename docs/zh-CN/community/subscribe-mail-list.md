@@ -32,13 +32,13 @@ under the License.
 
 打开自己的邮箱，新建邮件，向`dev-subscribe@doris.apache.org`发送一封邮件（邮件主题和内容任意）
 
-![step1](/images/subscribe-mail-list-step1.png)
+![step1](/docs/images/subscribe-mail-list-step1.png)
 
 ## 2. 接收来自 dev-help@doris.apache.org 的确认邮件
 
 执行完第一步之后，您将收到一封来自`dev-help@doris.apache.org`的确认邮件，邮件内容如下图所示。（**如果长时间未能收到，请确认该邮件是否已被拦截，或已经被自动归入“订阅邮件”、“垃圾邮件”、“推广邮件”等文件夹**）
 
-![step2](/images/subscribe-mail-list-step2.png)
+![step2](/docs/images/subscribe-mail-list-step2.png)
 
 ## 3. 回复确认邮件
 
@@ -52,14 +52,14 @@ under the License.
 
 ​均可，内容主题不限
 
-![step3](/images/subscribe-mail-list-step3.png)
+![step3](/docs/images/subscribe-mail-list-step3.png)
 
 
 ## 4. 接收欢迎邮件
 
 ​完成第三步之后，将会受到一封标题为**WELCOME to dev@doris.apache.org**的欢迎邮件。至此，订阅邮件列表的工作已经完成了，社区的动态都会通过邮件的方式通知您。
 
-![step4](/images/subscribe-mail-list-step4.png)
+![step4](/docs/images/subscribe-mail-list-step4.png)
 
 
 ## 5. 发起邮件讨论（可选）

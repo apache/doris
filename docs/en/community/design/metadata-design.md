@@ -34,7 +34,7 @@ under the License.
 * bdbje: [Oracle Berkeley DB Java Edition](http://www.oracle.com/technetwork/database/berkeleydb/overview/index-093405.html). In Doris, we use bdbje to persist metadata operation logs and high availability of FE.
 
 ## Overall architecture
-![](/images/palo_architecture.jpg)
+![](/docs/images/palo_architecture.jpg)
 
 As shown above, Doris's overall architecture is divided into two layers. Multiple FEs form the first tier, providing lateral expansion and high availability of FE. Multiple BEs form the second layer, which is responsible for data storage and management. This paper mainly introduces the design and implementation of metadata in FE layer.
 
@@ -54,7 +54,7 @@ At the same time, metadata is stored in the memory as a whole in a tree-like hie
 
 The following figure shows the contents stored in Doris meta-information.
 
-![](/images/metadata_contents.png)
+![](/docs/images/metadata_contents.png)
 
 As shown above, Doris's metadata mainly stores four types of data:
 
@@ -65,7 +65,7 @@ As shown above, Doris's metadata mainly stores four types of data:
 
 ## Data stream
 
-![](/images/metadata_stream.png)
+![](/docs/images/metadata_stream.png)
 
 The data flow of metadata is as follows:
 

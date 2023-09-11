@@ -139,7 +139,7 @@ mkdir -p /soft/be/storage
 
 4. 安装 vscode ms c++ 调试插件
 
-![](/images/image-20210618104004956.png)
+![](/docs/images/image-20210618104004956.png)
 
 5. 创建 launch.json 文件，文件内容如下：
 
@@ -212,7 +212,7 @@ lsof -i | grep -m 1 doris_be | awk "{print $2}"
 
 如图：
 
-![](/images/image-20210618095240216.png)
+![](/docs/images/image-20210618095240216.png)
 
 其中的 15200 即为当前运行的 be 的进程 id.
 
@@ -281,7 +281,7 @@ lsof -i | grep -m 1 doris_be | awk "{print $2}"
 
     下面就可以开始你的 Doris DEBUG 之旅了
 
-![](/images/image-20210618091006146.png)
+![](/docs/images/image-20210618091006146.png)
 
 ## 调试(LLDB)
 

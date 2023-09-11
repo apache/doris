@@ -49,7 +49,7 @@ Pipeline 执行引擎 是 Doris 在 2.0 版本加入的实验性功能。目标�
 
 而如下图所示（引用自[Push versus pull-based loop fusion in query engines]([jfp_1800010a (cambridge.org)](https://www.cambridge.org/core/services/aop-cambridge-core/content/view/D67AE4899E87F4B5102F859B0FC02045/S0956796818000102a.pdf/div-class-title-push-versus-pull-based-loop-fusion-in-query-engines-div.pdf))），Pipeline执行引擎基于多核CPU的特点，重新设计由数据驱动的执行引擎：
 
-![image.png](/images/pipeline-execution-engine.png)
+![image.png](/docs/images/pipeline-execution-engine.png)
 
 1. 将传统 Pull 拉取的逻辑驱动的执行流程改造为 Push 模型的数据驱动的执行引擎
 2. 阻塞操作异步化，减少了线程切换，线程阻塞导致的执行开销，对于 CPU 的利用更为高效

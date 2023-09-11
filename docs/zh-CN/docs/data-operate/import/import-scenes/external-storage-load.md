@@ -126,7 +126,7 @@ Hdfs load 创建导入语句，导入方式和[Broker Load](../../../data-operat
 ### 准备工作
 1. 准本AK 和 SK
    首先需要找到或者重新生成 AWS `Access keys`，可以在 AWS console 的 `My Security Credentials` 找到生成方式， 如下图所示：
-   [AK_SK](/images/aws_ak_sk.png)
+   [AK_SK](/docs/images/aws_ak_sk.png)
    选择 `Create New Access Key` 注意保存生成 AK和SK.
 2. 准备 REGION 和 ENDPOINT
    REGION 可以在创建桶的时候选择也可以在桶列表中查看到。ENDPOINT 可以通过如下页面通过 REGION 查到 [AWS 文档](https://docs.aws.amazon.com/general/latest/gr/s3.html#s3_region)

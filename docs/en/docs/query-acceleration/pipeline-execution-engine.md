@@ -49,7 +49,7 @@ The resulting set of problems drove Doris to implement an execution engine adapt
 
 And as shown in the figure below (quoted from[Push versus pull-based loop fusion in query engines]([jfp_1800010a (cambridge.org)](https://www.cambridge.org/core/services/aop-cambridge-core/content/view/D67AE4899E87F4B5102F859B0FC02045/S0956796818000102a.pdf/div-class-title-push-versus-pull-based-loop-fusion-in-query-engines-div.pdf))），The resulting set of problems drove Doris to implement an execution engine adapted to the architecture of modern multi-core CPUs.：
 
-![image.png](/images/pipeline-execution-engine.png)
+![image.png](/docs/images/pipeline-execution-engine.png)
 
 1. Transformation of the traditional pull pull logic-driven execution process into a data-driven execution engine for the push model
 2. Blocking operations are asynchronous, reducing the execution overhead caused by thread switching and thread blocking and making more efficient use of the CPU

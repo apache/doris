@@ -30,7 +30,7 @@ under the License.
 
 CloudCanal Community Edition is a free data migration and synchronization platform published by [ClouGence Co., Ltd](https://www.cloudcanalx.com) that integrates Schema Migration, Full Data Migration, verification, Correction, and real-time Incremental Synchronization.
 CloudCanal help users build a modern data stack in a simple way.
-![image.png](/images/cloudcanal/cloudcanal-1.jpg)
+![image.png](/docs/images/cloudcanal/cloudcanal-1.jpg)
 
 ## Download
 
@@ -64,7 +64,7 @@ First, refer to the [CloudCanal Quick Start](https://www.cloudcanalx.com/us/cc-d
 - Go to **DataSource Management** -> **Add DataSource**
 - Select **Doris** from the options for self-built databases
 
-![image.png](/images/cloudcanal/cloudcanal-11.png)
+![image.png](/docs/images/cloudcanal/cloudcanal-11.png)
 
 > Tips:
 >
@@ -80,29 +80,29 @@ Once the DataSource has been added successfully, you can follow these steps to c
 - Select the source and target databases for the DataJob
 - Click Next Step
 
-![image.png](/images/cloudcanal/cloudcanal-12.png)
+![image.png](/docs/images/cloudcanal/cloudcanal-12.png)
 
 - Choose **Incremental** and enable **Full Data**
 - Select DDL Sync
 - Click Next Step
 
-![image.png](/images/cloudcanal/cloudcanal-13.png)
+![image.png](/docs/images/cloudcanal/cloudcanal-13.png)
 
 - Select the tables you want to subscribe to. Please note that **the tables automatically created during structural migration follow the primary key model, so tables without a primary key are not currently supported**
 - Click Next Step
 
-![image.png](/images/cloudcanal/cloudcanal-14.png)
+![image.png](/docs/images/cloudcanal/cloudcanal-14.png)
 
 - Configure the column mapping
 - Click Next Step
 
-![image.png](/images/cloudcanal/cloudcanal-15.png)
+![image.png](/docs/images/cloudcanal/cloudcanal-15.png)
 
 - Create DataJob
 
-![image.png](/images/cloudcanal/cloudcanal-16.png)
+![image.png](/docs/images/cloudcanal/cloudcanal-16.png)
 
 - Check the status of DataJob. The DataJob will automatically go through the stages of Schema Migration, Full Data, and Incremental after it has been created
 
-![image.png](/images/cloudcanal/cloudcanal-17.png)
+![image.png](/docs/images/cloudcanal/cloudcanal-17.png)
 

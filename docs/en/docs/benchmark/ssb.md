@@ -91,7 +91,7 @@ We use Apache Doris 1.2.0-rc01, Apache Doris 1.1.3 and Apache Doris 0.15.0 RC04 
 | Q4.3  | 30            | 200           | 330               |
 | Total  | 880           | 3,150          | 8,030              |
 
-![ssb_v11_v015_compare](/images/ssb_flat.png)
+![ssb_v11_v015_compare](/docs/images/ssb_flat.png)
 
 **Interpretation of Results**
 
@@ -121,7 +121,7 @@ Here we use Apache Doris 1.2.0-rc01, Apache Doris 1.1.3 and Apache Doris 0.15.0 
 | Q4.3  | 610     | 660                  | 10,170                    |
 | Total  | 4,160    | 8,478                | 131,910 |
 
-![ssb_12_11_015](/images/ssb.png)
+![ssb_12_11_015](/docs/images/ssb.png)
 
 **Interpretation of Results**
 
