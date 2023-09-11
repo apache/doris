@@ -31,7 +31,7 @@ env:
 
 jobs:
   run_teamcity_pipeline:
-    if: (contains(github.event.comment.body, 'buildall') || contains(github.event.comment.body, 'ms_ut') || contains(github.event.comment.body, 'cloud_be_ut') || contains(github.event.comment.body, 'fe_ut') && contains(github.event.comment.body, 'run')) && !contains(github.event.comment.body, 'Thanks for your contribution')
+    if: (contains(github.event.comment.body, 'buildall') || contains(github.event.comment.body, 'ms_ut') || contains(github.event.comment.body, 'cloud_be_ut') || contains(github.event.comment.body, 'fe_ut') || contains(github.event.comment.body, 'compile') || contains(github.event.comment.body, 'p0') && contains(github.event.comment.body, 'run')) && !contains(github.event.comment.body, 'Thanks for your contribution')
 
     runs-on: ubuntu-latest
 
@@ -58,7 +58,7 @@ jobs:
           echo "latest_commit_id : ${{ env.LATEST_COMMIT }}"
           
           if [[ "${comment_message}" =~ "run" && "${comment_message}" =~ "buildall" && ! "${comment_message}" =~ "Thanks for your contribution" ]]; then
-            trigger_pipelines="SelectdbCore_Ut_MsUt SelectdbCore_Ut_FeUt SelectdbCore_BeUt_CloutBeUt ${trigger_pipelines}"
+            trigger_pipelines="SelectdbCore_Ut_MsUt SelectdbCore_Ut_FeUt SelectdbCore_BeUt_CloutBeUt SelectdbCore_Regression_Compile_2 ${trigger_pipelines}"
           fi
           if [[ "${comment_message}" =~ "run" && "${comment_message}" =~ "ms_ut" && ! "${comment_message}" =~ "Thanks for your contribution" ]]; then
             trigger_pipelines="SelectdbCore_Ut_MsUt  ${trigger_pipelines}"
@@ -68,6 +68,12 @@ jobs:
           fi
           if [[ "${comment_message}" =~ "run" && "${comment_message}" =~ "cloud_be_ut" && ! "${comment_message}" =~ "Thanks for your contribution" ]]; then
             trigger_pipelines="SelectdbCore_BeUt_CloutBeUt ${trigger_pipelines}"
+          fi
+          if [[ "${comment_message}" =~ "run" && "${comment_message}" =~ "compile" && ! "${comment_message}" =~ "Thanks for your contribution" ]]; then
+            trigger_pipelines="SelectdbCore_Regression_Compile_2 ${trigger_pipelines}"
+          fi
+          if [[ "${comment_message}" =~ "run" && "${comment_message}" =~ "p0" && ! "${comment_message}" =~ "Thanks for your contribution" ]]; then
+            trigger_pipelines="SelectdbCore_Regression_P0regression_2 ${trigger_pipelines}"
           fi
 
           if [ -z "${trigger_pipelines}" ];then
