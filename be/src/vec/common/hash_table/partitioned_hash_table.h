@@ -113,9 +113,7 @@ public:
         size_t count = 0;
         if (_is_partitioned) {
             for (auto i = 0u; i < this->NUM_LEVEL1_SUB_TABLES; ++i) {
-                for (auto& v : this->level1_sub_tables[i]) {
-                    count += v.get_second().get_row_count();
-                }
+                count += this->level1_sub_tables[i].size();
             }
         } else {
             count = level0_sub_table.get_size();
@@ -526,7 +524,9 @@ public:
     size_t size() const {
         if (_is_partitioned) {
             size_t res = 0;
-            for (size_t i = 0; i < NUM_LEVEL1_SUB_TABLES; ++i) res += level1_sub_tables[i].size();
+            for (size_t i = 0; i < NUM_LEVEL1_SUB_TABLES; ++i) {
+                res += level1_sub_tables[i].size();
+            }
             return res;
         } else {
             return level0_sub_table.size();

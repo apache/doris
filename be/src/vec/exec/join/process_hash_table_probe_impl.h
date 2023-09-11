@@ -277,22 +277,22 @@ Status ProcessHashTableProbe<JoinOpType>::do_process(HashTableType& hash_table_c
             }
         }
 
-        _probe_side_hash_values.resize(probe_rows);
-        auto& arena = *(_join_context->_arena);
-        {
-            for (size_t k = 0; k < probe_rows; ++k) {
-                if constexpr (ColumnsHashing::IsPreSerializedKeysHashMethodTraits<
-                                      KeyGetter>::value) {
-                    _probe_side_hash_values[k] =
-                            hash_table_ctx.hash_table.hash(key_getter.get_key_holder(k, arena).key);
-                } else {
-                    _probe_side_hash_values[k] =
-                            hash_table_ctx.hash_table.hash(key_getter.get_key_holder(k, arena));
+        if (current_offset < _batch_size) {
+            _probe_side_hash_values.resize(probe_rows);
+            auto& arena = *(_join_context->_arena);
+            {
+                for (size_t k = probe_index; k < probe_rows; ++k) {
+                    if constexpr (ColumnsHashing::IsPreSerializedKeysHashMethodTraits<
+                                          KeyGetter>::value) {
+                        _probe_side_hash_values[k] = hash_table_ctx.hash_table.hash(
+                                key_getter.get_key_holder(k, arena).key);
+                    } else {
+                        _probe_side_hash_values[k] =
+                                hash_table_ctx.hash_table.hash(key_getter.get_key_holder(k, arena));
+                    }
                 }
             }
-        }
 
-        if (current_offset < _batch_size) {
             while (probe_index < probe_rows) {
                 if constexpr (ignore_null && need_null_map_for_probe) {
                     if ((*null_map)[probe_index]) {
@@ -371,7 +371,7 @@ Status ProcessHashTableProbe<JoinOpType>::do_process(HashTableType& hash_table_c
                         auto& mapped = find_result.get_mapped();
                         // TODO: Iterators are currently considered to be a heavy operation and have a certain impact on performance.
                         // We should rethink whether to use this iterator mode in the future. Now just opt the one row case
-                        if (mapped.get_row_count() == 1) {
+                        if (mapped.is_single() == 1) {
                             if constexpr (std::is_same_v<Mapped, RowRefListWithFlag>) {
                                 mapped.visited = true;
                             }
@@ -551,23 +551,23 @@ Status ProcessHashTableProbe<JoinOpType>::do_process_with_other_join_conjuncts(
             probe_size = 1;
         }
 
-        _probe_side_hash_values.resize(probe_rows);
-        auto& arena = *(_join_context->_arena);
-        {
-            for (size_t k = 0; k < probe_rows; ++k) {
-                if constexpr (ColumnsHashing::IsPreSerializedKeysHashMethodTraits<
-                                      KeyGetter>::value) {
-                    _probe_side_hash_values[k] =
-                            hash_table_ctx.hash_table.hash(key_getter.get_key_holder(k, arena).key);
-                } else {
-                    _probe_side_hash_values[k] =
-                            hash_table_ctx.hash_table.hash(key_getter.get_key_holder(k, arena));
-                }
-            }
-        }
-
         int multi_matched_output_row_count = 0;
         if (current_offset < _batch_size) {
+            _probe_side_hash_values.resize(probe_rows);
+            auto& arena = *(_join_context->_arena);
+            {
+                for (size_t k = probe_index; k < probe_rows; ++k) {
+                    if constexpr (ColumnsHashing::IsPreSerializedKeysHashMethodTraits<
+                                          KeyGetter>::value) {
+                        _probe_side_hash_values[k] = hash_table_ctx.hash_table.hash(
+                                key_getter.get_key_holder(k, arena).key);
+                    } else {
+                        _probe_side_hash_values[k] =
+                                hash_table_ctx.hash_table.hash(key_getter.get_key_holder(k, arena));
+                    }
+                }
+            }
+
             SCOPED_TIMER(_search_hashtable_timer);
             while (probe_index < probe_rows) {
                 // ignore null rows
@@ -625,7 +625,7 @@ Status ProcessHashTableProbe<JoinOpType>::do_process_with_other_join_conjuncts(
                     auto origin_offset = current_offset;
                     // TODO: Iterators are currently considered to be a heavy operation and have a certain impact on performance.
                     // We should rethink whether to use this iterator mode in the future. Now just opt the one row case
-                    if (mapped.get_row_count() == 1) {
+                    if (mapped.is_single() == 1) {
                         if (LIKELY(current_offset < _build_block_rows.size())) {
                             _build_block_offsets[current_offset] = mapped.block_offset;
                             _build_block_rows[current_offset] = mapped.row_num;

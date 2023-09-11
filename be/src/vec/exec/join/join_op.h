@@ -67,7 +67,7 @@ template <typename RowRefType>
 struct Batch {
     static constexpr size_t MAX_SIZE = 7; /// Adequate values are 3, 7, 15, 31.
 
-    RowRef::SizeT size = 0; /// It's smaller than size_t but keeps align in Arena.
+    uint8_t size = 0; /// It's smaller than size_t but keeps align in Arena.
     Batch<RowRefType>* next;
     RowRefType row_refs[MAX_SIZE];
 
@@ -153,8 +153,6 @@ struct RowRefList : RowRef {
 
     /// insert element after current one
     void insert(RowRefType&& row_ref, Arena& pool) {
-        row_count++;
-
         if (!next) {
             next = pool.alloc<Batch<RowRefType>>();
             *next = Batch<RowRefType>(nullptr);
@@ -162,13 +160,12 @@ struct RowRefList : RowRef {
         next = next->insert(std::move(row_ref), pool);
     }
 
-    uint32_t get_row_count() const { return row_count; }
+    bool is_single() const { return next == nullptr; }
 
 private:
     friend class ForwardIterator<RowRefList>;
 
     Batch<RowRefType>* next = nullptr;
-    uint32_t row_count = 1;
 };
 
 struct RowRefListWithFlag : RowRef {
@@ -187,8 +184,6 @@ struct RowRefListWithFlag : RowRef {
 
     /// insert element after current one
     void insert(RowRef&& row_ref, Arena& pool) {
-        row_count++;
-
         if (!next) {
             next = pool.alloc<Batch<RowRefType>>();
             *next = Batch<RowRefType>(nullptr);
@@ -196,7 +191,7 @@ struct RowRefListWithFlag : RowRef {
         next = next->insert(std::move(row_ref), pool);
     }
 
-    uint32_t get_row_count() const { return row_count; }
+    bool is_single() const { return next == nullptr; }
 
     bool visited = false;
 
@@ -204,7 +199,6 @@ private:
     friend class ForwardIterator<RowRefListWithFlag>;
 
     Batch<RowRefType>* next = nullptr;
-    uint32_t row_count = 1;
 };
 
 struct RowRefListWithFlags : RowRefWithFlag {
@@ -223,8 +217,6 @@ struct RowRefListWithFlags : RowRefWithFlag {
 
     /// insert element after current one
     void insert(RowRefWithFlag&& row_ref, Arena& pool) {
-        row_count++;
-
         if (!next) {
             next = pool.alloc<Batch<RowRefType>>();
             *next = Batch<RowRefType>(nullptr);
@@ -232,13 +224,12 @@ struct RowRefListWithFlags : RowRefWithFlag {
         next = next->insert(std::move(row_ref), pool);
     }
 
-    uint32_t get_row_count() const { return row_count; }
+    bool is_single() const { return next == nullptr; }
 
 private:
     friend class ForwardIterator<RowRefListWithFlags>;
 
     Batch<RowRefType>* next = nullptr;
-    uint32_t row_count = 1;
 };
 
 } // namespace doris::vectorized
