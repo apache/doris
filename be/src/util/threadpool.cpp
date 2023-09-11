@@ -275,7 +275,7 @@ void ThreadPool::shutdown() {
     // concern though because shutting down a pool typically requires clients to
     // be quiesced first, so there's no danger of a client getting confused.
     // Not print stack trace here
-    _pool_status = Status::ERROR<SERVICE_UNAVAILABLE, false>(
+    _pool_status = Status::Error<SERVICE_UNAVAILABLE, false>(
             "The thread pool {} has been shut down.", _name);
 
     // Clear the various queues under the lock, but defer the releasing
@@ -358,14 +358,14 @@ Status ThreadPool::do_submit(std::shared_ptr<Runnable> r, ThreadPoolToken* token
     }
 
     if (PREDICT_FALSE(!token->may_submit_new_tasks())) {
-        return Status::ERROR<SERVICE_UNAVAILABLE>("Thread pool({}) token was shut down", _name);
+        return Status::Error<SERVICE_UNAVAILABLE>("Thread pool({}) token was shut down", _name);
     }
 
     // Size limit check.
     int64_t capacity_remaining = static_cast<int64_t>(_max_threads) - _active_threads +
                                  static_cast<int64_t>(_max_queue_size) - _total_queued_tasks;
     if (capacity_remaining < 1) {
-        return Status::ERROR<SERVICE_UNAVAILABLE>(
+        return Status::Error<SERVICE_UNAVAILABLE>(
                 "Thread pool {} is at capacity ({}/{} tasks running, {}/{} tasks queued)", _name,
                 _num_threads + _num_threads_pending_start, _max_threads, _total_queued_tasks,
                 _max_queue_size);
