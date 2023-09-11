@@ -241,17 +241,18 @@ fi
 if [[ "${RUN_KAFKA}" -eq 1 ]]; then
     # kafka
     KAFKA_CONTAINER_ID="${CONTAINER_UID}kafka"
+    eth0_num=$(ifconfig -a|grep flags=|grep -n ^eth0|awk -F ':' '{print $1}')
+    IP_HOST=$(ifconfig -a|grep inet|grep -v 127.0.0.1|grep -v inet6|awk '{print $2}'|tr -d "addr:"|tail -n +${eth0_num}|head -n 1)
     cp "${ROOT}"/docker-compose/kafka/kafka.yaml.tpl "${ROOT}"/docker-compose/kafka/kafka.yaml
     sed -i "s/doris--/${CONTAINER_UID}/g" "${ROOT}"/docker-compose/kafka/kafka.yaml
+    sed -i "s/localhost/${IP_HOST}/g" "${ROOT}"/docker-compose/kafka/kafka.yaml
     sudo docker-compose -f "${ROOT}"/docker-compose/kafka/kafka.yaml --env-file "${ROOT}"/docker-compose/kafka/kafka.env down
     if [[ "${STOP}" -ne 1 ]]; then
         sudo docker-compose -f "${ROOT}"/docker-compose/kafka/kafka.yaml --env-file "${ROOT}"/docker-compose/kafka/kafka.env up --build --remove-orphans -d
-        sleep 20s
+        sleep 30s
         while IFS= read -r line
             do
-                echo "$line | /opt/kafka/bin/kafka-console-producer.sh --broker-list "0.0.0.0:19193" --topic test" > /opt/test.log
-                echo "$line" > /opt/123.log
-                docker exec -i ${KAFKA_CONTAINER_ID} bash -c "echo "$line" | /opt/kafka/bin/kafka-console-producer.sh --broker-list '0.0.0.0:19193' --topic test"
+                docker exec -i ${KAFKA_CONTAINER_ID} bash -c "echo "$line" | /opt/kafka/bin/kafka-console-producer.sh --broker-list '${IP_HOST}:19193' --topic test"
                 sleep 1
             done < ""${ROOT}"/docker-compose/kafka/scripts/test.csv"
     fi
