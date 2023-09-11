@@ -205,7 +205,6 @@ Status S3FileWriter::close() {
 Status S3FileWriter::appendv(const Slice* data, size_t data_cnt) {
     DCHECK(!_closed);
     size_t buffer_size = config::s3_write_buffer_size;
-    SCOPED_RAW_TIMER(_upload_cost_ms.get());
     for (size_t i = 0; i < data_cnt; i++) {
         size_t data_size = data[i].get_size();
         for (size_t pos = 0, data_size_to_append = 0; pos < data_size; pos += data_size_to_append) {
@@ -303,7 +302,6 @@ void S3FileWriter::_upload_one_part(int64_t part_num, S3FileBuffer& buf) {
 }
 
 Status S3FileWriter::_complete() {
-    SCOPED_RAW_TIMER(_upload_cost_ms.get());
     if (_failed) {
         _wait_until_finish("early quit");
         return _st;
