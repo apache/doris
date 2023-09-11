@@ -18,9 +18,9 @@ if __name__ == '__main__':
     with open('rf.tmpl', 'r') as f:
         tmpl = f.read()
         for i in range(1,100):
-            with open('../../../../tools/tpcds-tools/queries/sf100/query'+str(i)+'.sql', 'r') as fi:
+            with open('./queries/query'+str(i)+'.ini', 'r') as fi:
                 casei = tmpl.replace('{--}', str(i))
-                casei = casei.replace('{query}', fi.read())
+                casei = casei.replace('{query}', fi.read().split(";")[0])
                 # with open('../rf/ds_rf'+str(i)+'.groovy', 'w') as out:
                 #     out.write(casei)
                 with open('rf/rf.'+str(i), 'r') as rf_file:

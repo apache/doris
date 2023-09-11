@@ -18,10 +18,14 @@
 package org.apache.doris.nereids.processor.post;
 
 import org.apache.doris.nereids.CascadesContext;
+import org.apache.doris.nereids.properties.PhysicalProperties;
+import org.apache.doris.nereids.trees.plans.AbstractPlan;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalFilter;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalProject;
 import org.apache.doris.nereids.util.ExpressionUtils;
+import org.apache.doris.statistics.Statistics;
 
 /**
  * merge consecutive projects
@@ -29,16 +33,29 @@ import org.apache.doris.nereids.util.ExpressionUtils;
 public class PushdownFilterThroughProject extends PlanPostProcessor {
     @Override
     public Plan visitPhysicalFilter(PhysicalFilter<? extends Plan> filter, CascadesContext context) {
+        PhysicalProperties properties = filter.getPhysicalProperties();
+        Statistics stats = filter.getStats();
         Plan child = filter.child();
         if (!(child instanceof PhysicalProject)) {
-            return filter.withChildren(child.accept(this, context));
+            PhysicalPlan newChild = (PhysicalPlan) child.accept(this, context);
+            if (child != newChild) {
+                newChild = newChild.withPhysicalPropertiesAndStats(
+                        ((PhysicalPlan) child).getPhysicalProperties(),
+                        ((AbstractPlan) child).getStats());
+                return ((PhysicalPlan) (filter.withChildren(newChild)))
+                        .withPhysicalPropertiesAndStats(properties, stats);
+            }
+            return filter;
         }
 
         PhysicalProject<? extends Plan> project = (PhysicalProject<? extends Plan>) child;
         PhysicalFilter<? extends Plan> newFilter = filter.withConjunctsAndChild(
                 ExpressionUtils.replace(filter.getConjuncts(), project.getAliasToProducer()),
-                project.child());
-
-        return project.withChildren(newFilter.accept(this, context));
+                project.child()).withPhysicalPropertiesAndStats(properties, stats);
+        PhysicalPlan newChild = (PhysicalPlan) newFilter.accept(this, context);
+        newChild = newChild.withPhysicalPropertiesAndStats(properties, stats);
+        PhysicalPlan ret = ((PhysicalPlan) (project.withChildren(newChild)))
+                .withPhysicalPropertiesAndStats(properties, stats);
+        return ret;
     }
 }
