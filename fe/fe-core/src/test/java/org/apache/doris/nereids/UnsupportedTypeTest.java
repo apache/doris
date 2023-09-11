@@ -73,8 +73,8 @@ public class UnsupportedTypeTest extends TestWithFeService {
                 null,
                 null,
                 null,
-                AnalysisException.class,
-                AnalysisException.class
+                null,
+                null
         };
         for (int i = 0; i < 5; ++i) {
             runPlanner(sqls[i]);

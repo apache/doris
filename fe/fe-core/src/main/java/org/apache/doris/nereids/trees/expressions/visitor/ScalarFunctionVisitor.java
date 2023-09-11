@@ -203,6 +203,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonbParseNul
 import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonbParseNullableErrorToNull;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonbParseNullableErrorToValue;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonbType;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonbValid;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.LastDay;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Least;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Left;
@@ -1147,6 +1148,9 @@ public interface ScalarFunctionVisitor<R, C> {
 
     default R visitJsonContains(JsonContains jsonContains, C context) {
         return visitScalarFunction(jsonContains, context);
+    
+    default R visitJsonbValid(JsonbValid jsonbValid, C context) {
+        return visitScalarFunction(jsonbValid, context);
     }
 
     default R visitLastDay(LastDay lastDay, C context) {
