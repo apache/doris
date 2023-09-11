@@ -210,8 +210,8 @@
                 "lakehouse/file",
                 "lakehouse/filecache",
                 "lakehouse/external-statistics",
-                "lakehouse/faq",
-                "lakehouse/fs-benchmark-tool"
+                "lakehouse/fs-benchmark-tool",
+                "lakehouse/faq"
             ]
         },
         {
