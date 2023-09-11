@@ -394,7 +394,9 @@ public class ExpressionTranslator extends DefaultExpressionVisitor<Expr, PlanTra
 
     public Expr bindLambda(Lambda lambda, PlanTranslatorContext context) {
         Expr func = lambda.getLambdaFunction().accept(this, context);
-        return new LambdaFunctionExpr(func, lambda.getLambdaArgumentNames(), ImmutableList.of(func));
+        List<Expr> arguments = lambda.getLambdaArguments().stream().map(e -> e.accept(this, context))
+                .collect(Collectors.toList());
+        return new LambdaFunctionExpr(func, lambda.getLambdaArgumentNames(), arguments);
     }
 
     private Expr visitHighOrderFunction(ScalarFunction function, PlanTranslatorContext context) {
@@ -420,6 +422,11 @@ public class ExpressionTranslator extends DefaultExpressionVisitor<Expr, PlanTra
                 .map(Expression::getDataType)
                 .map(DataType::toCatalogDataType)
                 .collect(Collectors.toList());
+        lambda.getLambdaArguments().stream()
+                .map(ArrayItemReference::getArrayExpression)
+                .map(Expression::getDataType)
+                .map(DataType::toCatalogDataType)
+                .forEach(argTypes::add);
         org.apache.doris.catalog.Function catalogFunction = new Function(
                 new FunctionName(function.getName()), argTypes,
                 ArrayType.create(lambda.getRetType().toCatalogDataType(), true),

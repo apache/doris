@@ -43,7 +43,7 @@ public class ArrayLiteral extends Literal {
                 .map(i -> {
                     if (i instanceof NullLiteral) {
                         DataType type = ((ArrayType) (this.getDataType())).getItemType();
-                        return (Literal) i.castTo(type);
+                        return new NullLiteral(type);
                     }
                     return i;
                 }).collect(ImmutableList.toImmutableList());

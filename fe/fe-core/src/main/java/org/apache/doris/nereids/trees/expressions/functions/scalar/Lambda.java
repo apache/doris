@@ -154,7 +154,7 @@ public class Lambda extends Expression {
 
     @Override
     public boolean nullable() {
-        return getLambdaFunction().nullable();
+        return getLambdaArguments().stream().anyMatch(ArrayItemReference::nullable);
     }
 
     @Override
