@@ -54,12 +54,12 @@ public class LambdaFunctionExpr extends Expr {
     }
 
     // for Nereids
-    public LambdaFunctionExpr(Expr e, List<String> argNames, List<Expr> children) {
-        this.slotExpr.add(e);
-        this.slotExpr.addAll(children);
+    public LambdaFunctionExpr(Expr lambdaBody, List<String> argNames, List<Expr> slotExpr) {
+        this.slotExpr.add(lambdaBody);
+        this.slotExpr.addAll(slotExpr);
         this.names.addAll(argNames);
-        this.params.addAll(children);
-        this.children.addAll(children);
+        this.params.addAll(slotExpr);
+        this.children.add(lambdaBody);
         this.setType(Type.LAMBDA_FUNCTION);
     }
 
