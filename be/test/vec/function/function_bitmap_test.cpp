@@ -92,11 +92,11 @@ TEST(function_bitmap_test, function_bitmap_remove) {
     BitmapValue bitmap1_res(1);
     BitmapValue bitmap2_res({1, 3, 5});
     {
-        DataSet data_set = {{{&bitmap1, 3}, bitmap1_res},
-                            {{&bitmap2, 6}, bitmap2_res},
+        DataSet data_set = {{{&bitmap1, (int64_t)3}, bitmap1_res},
+                            {{&bitmap2, (int64_t)6}, bitmap2_res},
                             {{&bitmap1, Null()}, Null()}};
 
-        check_function<DataTypeString, true>(func_name, input_types, data_set);
+        check_function<DataTypeBitMap, true>(func_name, input_types, data_set);
     }
 }
 namespace doris {
