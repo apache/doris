@@ -30,6 +30,7 @@ import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.SqlBlockUtil;
 import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.persist.gson.GsonUtils;
+import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
@@ -224,6 +225,10 @@ public class SqlBlockRuleMgr implements Writable {
      * Match SQL according to rules.
      **/
     public void matchSql(String originSql, String sqlHash, String user) throws AnalysisException {
+        if (ConnectContext.get() != null
+                && ConnectContext.get().getSessionVariable().internalSession) {
+            return;
+        }
         // match global rule
         List<SqlBlockRule> globalRules =
                 nameToSqlBlockRuleMap.values().stream().filter(SqlBlockRule::getGlobal).collect(Collectors.toList());
@@ -260,6 +265,9 @@ public class SqlBlockRuleMgr implements Writable {
      **/
     public void checkLimitations(Long partitionNum, Long tabletNum, Long cardinality, String user)
             throws AnalysisException {
+        if (ConnectContext.get().getSessionVariable().internalSession) {
+            return;
+        }
         // match global rule
         List<SqlBlockRule> globalRules =
                 nameToSqlBlockRuleMap.values().stream().filter(SqlBlockRule::getGlobal).collect(Collectors.toList());
