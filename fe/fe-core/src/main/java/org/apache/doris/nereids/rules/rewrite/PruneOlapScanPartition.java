@@ -70,13 +70,6 @@ public class PruneOlapScanPartition extends OneRewriteRuleFactory {
             List<Long> prunedPartitions = new ArrayList<>(PartitionPruner.prune(
                     partitionSlots, filter.getPredicate(), partitionInfo, ctx.cascadesContext,
                     PartitionTableType.OLAP));
-            // if prunedPartitions is empty, we select the default partition if exists.
-            prunedPartitions.addAll(
-                    Streams.concat(
-                            partitionInfo.getIdToItem(true).entrySet().stream(),
-                            partitionInfo.getIdToItem(false).entrySet().stream())
-                            .filter(p -> p.getValue().isDefaultPartition())
-                            .map(Entry::getKey).collect(Collectors.toList()));
 
             List<Long> manuallySpecifiedPartitions = scan.getManuallySpecifiedPartitions();
             if (!CollectionUtils.isEmpty(manuallySpecifiedPartitions)) {
