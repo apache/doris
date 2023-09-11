@@ -272,6 +272,9 @@ Status NewOlapScanner::open(RuntimeState* state) {
         return Status::InternalError(ss.str());
     }
 
+    // Do not hold rs_splits any more to release memory.
+    _tablet_reader_params.rs_splits.clear();
+
     return Status::OK();
 }
 
@@ -530,7 +533,8 @@ Status NewOlapScanner::close(RuntimeState* state) {
     // so that it will core
     _tablet_reader_params.rs_splits.clear();
     _tablet_reader.reset();
-
+    auto tablet_id = _scan_range.tablet_id;
+    LOG(INFO) << "close_tablet_id" << tablet_id;
     RETURN_IF_ERROR(VScanner::close(state));
     return Status::OK();
 }
