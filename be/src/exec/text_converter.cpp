@@ -333,6 +333,7 @@ bool TextConverter::_write_data(const TypeDescriptor& type_desc,
             if (i == len || data[i] == _collection_delimiter) {
                 ranges.push_back({from, kv, i - 1});
                 from = i + 1;
+		kv = from ;
             }
         }
 

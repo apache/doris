@@ -96,6 +96,7 @@ Status DataTypeMapSerDe::deserialize_one_cell_from_hive_text(IColumn& column, Sl
             key_slices.push_back({slice.data + from, kv - from});
             value_slices.push_back({slice.data + kv + 1, i - 1 - kv});
             from = i + 1;
+	    kv = from ;
         }
     }
 
