@@ -64,11 +64,12 @@ public:
     PipelineXFragmentContext(const TUniqueId& query_id, const int fragment_id,
                              std::shared_ptr<QueryContext> query_ctx, ExecEnv* exec_env,
                              const std::function<void(RuntimeState*, Status*)>& call_back,
-                             const report_status_callback& report_status_cb);
+                             const report_status_callback& report_status_cb,
+                             bool group_commit = false);
 
     ~PipelineXFragmentContext() override;
 
-    void instance_ids(std::vector<TUniqueId>& ins_ids) const {
+    void instance_ids(std::vector<TUniqueId>& ins_ids) const override {
         ins_ids.resize(_runtime_states.size());
         for (size_t i = 0; i < _runtime_states.size(); i++) {
             ins_ids[i] = _runtime_states[i]->fragment_instance_id();

@@ -58,6 +58,11 @@ public class MapType extends DataType {
     }
 
     @Override
+    public DataType conversion() {
+        return MapType.of(keyType.conversion(), valueType.conversion());
+    }
+
+    @Override
     public Type toCatalogDataType() {
         return new org.apache.doris.catalog.MapType(keyType.toCatalogDataType(), valueType.toCatalogDataType());
     }

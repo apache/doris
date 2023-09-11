@@ -37,6 +37,7 @@ import org.apache.doris.nereids.trees.expressions.NullSafeEqual;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.WhenClause;
+import org.apache.doris.nereids.trees.expressions.functions.ExpressionTrait;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ScalarFunction;
 import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
@@ -92,10 +93,16 @@ public abstract class AbstractSelectMaterializedIndexRule {
         OlapTable table = scan.getTable();
         MaterializedIndexMeta meta = table.getIndexMetaByIndexId(index.getId());
 
-        Set<String> predicateExprSql = predicateExpr.stream().map(e -> e.toSql()).collect(Collectors.toSet());
+        Set<String> predicateExprSql = predicateExpr.stream().map(ExpressionTrait::toSql).collect(Collectors.toSet());
+
+        // Here we use toSqlWithoutTbl because the output of toSql() is slot#[0] in Nereids
         Set<String> indexConjuncts = PlanNode.splitAndCompoundPredicateToConjuncts(meta.getWhereClause()).stream()
+                .map(e -> {
+                    e.setDisableTableName(true);
+                    return e;
+                })
                 .map(e -> new NereidsParser().parseExpression(e.toSql()).toSql()).collect(Collectors.toSet());
-        Set<String> commonConjuncts = indexConjuncts.stream().filter(e -> predicateExprSql.contains(e))
+        Set<String> commonConjuncts = indexConjuncts.stream().filter(predicateExprSql::contains)
                 .collect(Collectors.toSet());
         if (commonConjuncts.size() != indexConjuncts.size()) {
             return false;
@@ -390,7 +397,12 @@ public abstract class AbstractSelectMaterializedIndexRule {
 
         return new SlotContext(baseSlotToMvSlot, mvNameToMvSlot,
                 PlanNode.splitAndCompoundPredicateToConjuncts(meta.getWhereClause()).stream()
-                        .map(e -> new NereidsParser().parseExpression(e.toSql())).collect(Collectors.toSet()));
+                        .map(e -> {
+                            e.setDisableTableName(true);
+                            return e;
+                        })
+                        .map(e -> new NereidsParser().parseExpression(e.toSql()))
+                        .collect(Collectors.toSet()));
     }
 
     /** SlotContext */

@@ -97,6 +97,7 @@ public:
         default:
             LOG(FATAL) << "not match type to convert, from type:" << type;
         }
+        LOG(FATAL) << "__builtin_unreachable";
         __builtin_unreachable();
     }
 };

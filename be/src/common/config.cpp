@@ -974,6 +974,7 @@ DEFINE_Validator(file_cache_min_file_segment_size, [](const int64_t config) -> b
 });
 DEFINE_Bool(clear_file_cache, "false");
 DEFINE_Bool(enable_file_cache_query_limit, "false");
+DEFINE_mInt32(file_cache_wait_sec_after_fail, "0"); // // zero for no waiting and retrying
 
 DEFINE_mInt32(index_cache_entry_stay_time_after_lookup_s, "1800");
 DEFINE_mInt32(inverted_index_cache_stale_sweep_time_sec, "600");
@@ -1083,6 +1084,9 @@ DEFINE_Int32(fe_expire_duration_seconds, "60");
 DEFINE_Int32(grace_shutdown_wait_seconds, "120");
 
 DEFINE_Int16(bitmap_serialize_version, "1");
+
+// the count of thread to group commit insert
+DEFINE_Int32(group_commit_insert_threads, "10");
 
 #ifdef BE_TEST
 // test s3
