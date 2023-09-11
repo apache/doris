@@ -50,7 +50,7 @@ suite("test_routine_load") {
             FROM KAFKA
             (
                 "kafka_broker_list" = "0.0.0.0:19193",
-                "kafka_topic" = "topic1",
+                "kafka_topic" = "${topic1}",
                 "property.kafka_default_offsets" = "OFFSET_BEGINNING"
             );
     """
