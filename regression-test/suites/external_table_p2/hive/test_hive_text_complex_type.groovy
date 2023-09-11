@@ -44,7 +44,38 @@ suite("test_hive_text_complex_type", "p2,external,hive,external_remote,external_
             count(column1_struct),
             count(column_primitive_bigint)
             from parquet_predicate_table where column_primitive_bigint = 6;"""
+        qt_sql3 """ select * from hive_text_complex_type2 order by id; """   
+         
+        qt_sql4 """ select * from hive_text_complex_type_delimiter2 order by id; """   
+
+        qt_sql5 """ select * from hive_text_complex_type3 order by id; """   
+        
+        qt_sql6 """ select * from hive_text_complex_type_delimiter3 order by id; """   
+        sql """set enable_vectorized_engine = true """
+
+        qt_sql7 """ select array_size(col2) from hive_text_complex_type2 order by id; """ 
+
+
+        qt_sql8 """  select *  from hive_text_complex_type2 where array_size(col2)>2   order by id; """ 
+
+        qt_sql9 """ select count(*) as a  from hive_text_complex_type2  group by map_size(col1) order by a;"""
+
+
+        qt_sql10 """ select map_keys(col1) as a  from hive_text_complex_type2  order by id;"""
+
+        qt_sql11 """ select id   from hive_text_complex_type2 where element_at(map_keys(col1),1)=20 order by id ;"""
+
+        qt_sql12 """ select * from hive_text_complex_type_delimiter2  where map_keys(col5)[1]=6  order by id;"""
+
+        qt_sql13 """ select  id,col4  from hive_text_complex_type_delimiter2  where map_keys(map_values(col4)[1])[2]=500  order by id; """ 
+
+        qt_sql14 """ select col3 from hive_text_complex_type2 where struct_element(col3,1)=5 order by id; """ 
+
+        qt_sql15 """select count(*) from hive_text_complex_type2 where struct_element(struct_element(col3,3),2)=0; """
+
+        qt_sql16 """ select count(*) from hive_text_complex_type2 group by struct_element(col3,4)[1]; """ 
+
+
         sql """drop catalog ${catalog_name};"""
     }
 }
-

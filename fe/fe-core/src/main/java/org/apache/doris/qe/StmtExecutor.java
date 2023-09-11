@@ -1164,6 +1164,10 @@ public class StmtExecutor {
         if (parsedStmt instanceof InsertStmt) {
             ((InsertStmt) parsedStmt).getQueryStmt().resetSelectList();
         }
+
+        if (parsedStmt instanceof CreateTableAsSelectStmt) {
+            ((CreateTableAsSelectStmt) parsedStmt).getQueryStmt().resetSelectList();
+        }
     }
 
     // Because this is called by other thread
@@ -2618,6 +2622,8 @@ public class StmtExecutor {
                 fetchResultSpan.end();
             }
         } finally {
+            AuditLogHelper.logAuditLog(context, originStmt.toString(), parsedStmt, getQueryStatisticsForAuditLog(),
+                    true);
             QeProcessorImpl.INSTANCE.unregisterQuery(context.queryId());
         }
     }
