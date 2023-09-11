@@ -473,6 +473,11 @@ void VNodeChannel::incremental_open() {
 Status VNodeChannel::open_wait() {
     Status status;
     for (auto& open_closure : _open_closures) {
+        // because of incremental open, we will wait multi times. so skip the closures which have been checked and set to nullptr in previous rounds
+        if (open_closure == nullptr) {
+            continue;
+        }
+
         open_closure->join();
         SCOPED_CONSUME_MEM_TRACKER(_node_channel_tracker.get());
         if (open_closure->cntl.Failed()) {
