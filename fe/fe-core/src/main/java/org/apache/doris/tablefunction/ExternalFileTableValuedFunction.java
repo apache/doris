@@ -62,6 +62,7 @@ import org.apache.doris.thrift.THdfsParams;
 import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TPrimitiveType;
 import org.apache.doris.thrift.TStatusCode;
+import org.apache.doris.thrift.TTextSerdeType;
 
 import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableSet;
@@ -88,7 +89,7 @@ import java.util.stream.Collectors;
  */
 public abstract class ExternalFileTableValuedFunction extends TableValuedFunctionIf {
     public static final Logger LOG = LogManager.getLogger(ExternalFileTableValuedFunction.class);
-    protected static final String DEFAULT_COLUMN_SEPARATOR = ",";
+    protected static String DEFAULT_COLUMN_SEPARATOR = ",";
     protected static final String DEFAULT_LINE_DELIMITER = "\n";
     public static final String FORMAT = "format";
     public static final String COLUMN_SEPARATOR = "column_separator";
@@ -139,6 +140,7 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
     private TFileCompressType compressionType;
     private String headerType = "";
 
+    private TTextSerdeType textSerdeType = TTextSerdeType.JSON_TEXT_SERDE;
     private String columnSeparator = DEFAULT_COLUMN_SEPARATOR;
     private String lineDelimiter = DEFAULT_LINE_DELIMITER;
     private String jsonRoot = "";
@@ -201,6 +203,11 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
         switch (formatString) {
             case "csv":
                 this.fileFormatType = TFileFormatType.FORMAT_CSV_PLAIN;
+                break;
+            case "hive_text":
+                this.fileFormatType = TFileFormatType.FORMAT_CSV_PLAIN;
+                this.DEFAULT_COLUMN_SEPARATOR = "\001";
+                this.textSerdeType = TTextSerdeType.HIVE_TEXT_SERDE;
                 break;
             case "csv_with_names":
                 this.headerType = FeConstants.csv_with_names;
@@ -489,6 +496,7 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
         TFileScanRangeParams fileScanRangeParams = new TFileScanRangeParams();
         fileScanRangeParams.setFormatType(fileFormatType);
         fileScanRangeParams.setProperties(locationProperties);
+        fileScanRangeParams.setTextSerdeType(textSerdeType);
         fileScanRangeParams.setFileAttributes(getFileAttributes());
         ConnectContext ctx = ConnectContext.get();
         fileScanRangeParams.setLoadId(ctx.queryId());

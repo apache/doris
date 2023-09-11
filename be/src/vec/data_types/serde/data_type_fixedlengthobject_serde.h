@@ -36,24 +36,24 @@ class Arena;
 
 class DataTypeFixedLengthObjectSerDe : public DataTypeSerDe {
 public:
-    void serialize_one_cell_to_text(const IColumn& column, int row_num, BufferWritable& bw,
+    void serialize_one_cell_to_json(const IColumn& column, int row_num, BufferWritable& bw,
                                     FormatOptions& options) const override {
         throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
                                "serialize_one_cell_to_text with type " + column.get_name());
     }
 
-    void serialize_column_to_text(const IColumn& column, int start_idx, int end_idx,
+    void serialize_column_to_json(const IColumn& column, int start_idx, int end_idx,
                                   BufferWritable& bw, FormatOptions& options) const override {
         throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
                                "serialize_column_to_text with type " + column.get_name());
     }
-    Status deserialize_one_cell_from_text(IColumn& column, Slice& slice,
+    Status deserialize_one_cell_from_json(IColumn& column, Slice& slice,
                                           const FormatOptions& options) const override {
         return Status::NotSupported("deserialize_one_cell_from_text with type " +
                                     column.get_name());
     }
 
-    Status deserialize_column_from_text_vector(IColumn& column, std::vector<Slice>& slices,
+    Status deserialize_column_from_json_vector(IColumn& column, std::vector<Slice>& slices,
                                                int* num_deserialized,
                                                const FormatOptions& options) const override {
         return Status::NotSupported("deserialize_column_from_text_vector with type " +

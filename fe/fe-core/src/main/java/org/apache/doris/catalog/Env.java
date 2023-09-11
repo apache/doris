@@ -212,6 +212,7 @@ import org.apache.doris.qe.AuditEventProcessor;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.GlobalVariable;
 import org.apache.doris.qe.JournalObservable;
+import org.apache.doris.qe.QueryCancelWorker;
 import org.apache.doris.qe.VariableMgr;
 import org.apache.doris.resource.Tag;
 import org.apache.doris.resource.workloadgroup.WorkloadGroupMgr;
@@ -474,6 +475,8 @@ public class Env {
 
     private BinlogGcer binlogGcer;
 
+    private QueryCancelWorker queryCancelWorker;
+
     /**
      * TODO(tsy): to be removed after load refactor
      */
@@ -717,6 +720,7 @@ public class Env {
         this.binlogManager = new BinlogManager();
         this.binlogGcer = new BinlogGcer();
         this.columnIdFlusher = new ColumnIdFlushDaemon();
+        this.queryCancelWorker = new QueryCancelWorker(systemInfo);
     }
 
     public static void destroyCheckpoint() {
@@ -961,6 +965,8 @@ public class Env {
         if (statisticsPeriodCollector != null) {
             statisticsPeriodCollector.start();
         }
+
+        queryCancelWorker.start();
     }
 
     // wait until FE is ready.

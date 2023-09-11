@@ -63,7 +63,6 @@ import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Sets;
 import org.apache.commons.collections.CollectionUtils;
-import org.apache.commons.lang3.StringUtils;
 
 import java.util.List;
 import java.util.Optional;
@@ -220,16 +219,14 @@ public class BindRelation extends OneAnalysisRuleFactory {
             case OLAP:
                 return makeOlapScan(table, unboundRelation, tableQualifier);
             case VIEW:
-                cascadesContext.getStatementContext().addView((View) table);
                 Plan viewPlan = parseAndAnalyzeView(((View) table).getDdlSql(), cascadesContext);
                 return new LogicalSubQueryAlias<>(tableQualifier, viewPlan);
             case HMS_EXTERNAL_TABLE:
-                if (Config.enable_query_hive_views) {
-                    if (((HMSExternalTable) table).isView()
-                                && StringUtils.isNotEmpty(((HMSExternalTable) table).getViewText())) {
-                        Plan hiveViewPlan = parseAndAnalyzeHiveView(table, cascadesContext);
-                        return new LogicalSubQueryAlias<>(tableQualifier, hiveViewPlan);
-                    }
+                if (Config.enable_query_hive_views && ((HMSExternalTable) table).isView()) {
+                    String hiveCatalog = ((HMSExternalTable) table).getCatalog().getName();
+                    String ddlSql = ((HMSExternalTable) table).getViewText();
+                    Plan hiveViewPlan = parseAndAnalyzeHiveView(hiveCatalog, ddlSql, cascadesContext);
+                    return new LogicalSubQueryAlias<>(tableQualifier, hiveViewPlan);
                 }
                 return new LogicalFileScan(unboundRelation.getRelationId(), (HMSExternalTable) table, tableQualifier);
             case ICEBERG_EXTERNAL_TABLE:
@@ -248,20 +245,20 @@ public class BindRelation extends OneAnalysisRuleFactory {
         }
     }
 
-    private Plan parseAndAnalyzeHiveView(TableIf table, CascadesContext cascadesContext) {
-        HMSExternalTable hiveTable = (HMSExternalTable) table;
+    private Plan parseAndAnalyzeHiveView(String hiveCatalog, String ddlSql, CascadesContext cascadesContext) {
         ConnectContext ctx = cascadesContext.getConnectContext();
         String previousCatalog = ctx.getCurrentCatalog().getName();
         String previousDb = ctx.getDatabase();
-        ctx.changeDefaultCatalog(hiveTable.getCatalog().getName());
-        Plan hiveViewPlan = parseAndAnalyzeView(hiveTable.getViewText(), cascadesContext);
+        ctx.changeDefaultCatalog(hiveCatalog);
+        Plan hiveViewPlan = parseAndAnalyzeView(ddlSql, cascadesContext);
         ctx.changeDefaultCatalog(previousCatalog);
         ctx.setDatabase(previousDb);
         return hiveViewPlan;
     }
 
-    private Plan parseAndAnalyzeView(String viewSql, CascadesContext parentContext) {
-        LogicalPlan parsedViewPlan = new NereidsParser().parseSingle(viewSql);
+    private Plan parseAndAnalyzeView(String ddlSql, CascadesContext parentContext) {
+        parentContext.getStatementContext().addViewDdlSql(ddlSql);
+        LogicalPlan parsedViewPlan = new NereidsParser().parseSingle(ddlSql);
         // TODO: use a good to do this, such as eliminate UnboundResultSink
         if (parsedViewPlan instanceof UnboundResultSink) {
             parsedViewPlan = (LogicalPlan) ((UnboundResultSink<?>) parsedViewPlan).child();
