@@ -242,7 +242,7 @@ Status IndexedColumnIterator::seek_at_or_after(const void* key, bool* exact_matc
     // seek inside data page
     Status st = _data_page.data_decoder->seek_at_or_after_value(key, exact_match);
     // return the first row of next page when not found
-    if ((st.is<ENTRY_NOT_FOUND>() || st.is<END_OF_FILE>()) && _reader->_has_index_page) {
+    if (st.is<ENTRY_NOT_FOUND>() && _reader->_has_index_page) {
         if (_value_iter.has_next()) {
             _seeked = true;
             *exact_match = false;
