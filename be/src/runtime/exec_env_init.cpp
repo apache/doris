@@ -502,6 +502,9 @@ void ExecEnv::destroy() {
     }
     // Memory barrier to prevent other threads from accessing destructed resources
     _s_ready = false;
+    // StorageEngine must be destories first.
+    SAFE_DELETE(_storage_engine);
+
     _deregister_metrics();
     SAFE_DELETE(_internal_client_cache);
     SAFE_DELETE(_function_client_cache);
@@ -547,7 +550,6 @@ void ExecEnv::destroy() {
     SAFE_DELETE(_segment_loader);
     SAFE_DELETE(_tablet_schema_cache);
     SAFE_DELETE(_s3_buffer_pool);
-    SAFE_DELETE(_storage_engine);
 
     InvertedIndexSearcherCache::reset_global_instance();
     SAFE_DELETE(_user_function_cache);
