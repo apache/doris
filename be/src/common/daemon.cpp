@@ -63,10 +63,6 @@
 
 namespace doris {
 
-Daemon::~Daemon() {
-    stop();
-}
-
 void Daemon::tcmalloc_gc_thread() {
     // TODO All cache GC wish to be supported
 #if !defined(ADDRESS_SANITIZER) && !defined(LEAK_SANITIZER) && !defined(THREAD_SANITIZER) && \

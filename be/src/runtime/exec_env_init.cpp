@@ -154,6 +154,7 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths) {
 
     TimezoneUtils::load_timezone_names();
 
+    // _global_zone_cache is not owned by ExecEnv ... maybe should refactor.
     _global_zone_cache = std::make_unique<vectorized::ZoneList>();
     TimezoneUtils::load_timezones_to_cache(*_global_zone_cache);
 
@@ -213,12 +214,16 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths) {
     _result_mgr->init();
     Status status = _load_path_mgr->init();
     if (!status.ok()) {
-        LOG(ERROR) << "load path mgr init failed." << status;
-        exit(-1);
+        LOG(ERROR) << "Load path mgr init failed. " << status;
+        return status;
     }
     _broker_mgr->init();
     _small_file_mgr->init();
-    _scanner_scheduler->init(this);
+    status = _scanner_scheduler->init();
+    if (!status.ok()) {
+        LOG(ERROR) << "Scanner scheduler init failed. " << status;
+        return status;
+    }
 
     _init_mem_env();
 
@@ -226,7 +231,6 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths) {
     RETURN_IF_ERROR(_load_channel_mgr->init(MemInfo::mem_limit()));
     _heartbeat_flags = new HeartbeatFlags();
     _register_metrics();
-    _s_ready = true;
 
     _tablet_schema_cache = TabletSchemaCache::create_global_schema_cache();
 
@@ -242,14 +246,16 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths) {
     _storage_engine = new StorageEngine(options);
     auto st = _storage_engine->open();
     if (!st.ok()) {
-        LOG(ERROR) << "fail to open StorageEngine, res=" << st;
+        LOG(ERROR) << "Lail to open StorageEngine, res=" << st;
         return st;
     }
     _storage_engine->set_heartbeat_flags(this->heartbeat_flags());
     if (st = _storage_engine->start_bg_threads(); !st.ok()) {
-        LOG(ERROR) << "failed to starge bg threads of storage engine, res=" << st;
+        LOG(ERROR) << "Failed to starge bg threads of storage engine, res=" << st;
         return st;
     }
+
+    _s_ready = true;
 
     return Status::OK();
 }
@@ -495,6 +501,8 @@ void ExecEnv::_deregister_metrics() {
     DEREGISTER_HOOK_METRIC(download_cache_thread_pool_queue_size);
 }
 
+// TODO(zhiqiang): Need refactor all thread pool. Each thread pool must have a Stop method.
+// We need to stop all threads before releasing resource.
 void ExecEnv::destroy() {
     //Only destroy once after init
     if (!ready()) {
@@ -502,69 +510,103 @@ void ExecEnv::destroy() {
     }
     // Memory barrier to prevent other threads from accessing destructed resources
     _s_ready = false;
-    // StorageEngine must be destories first.
+
+    SAFE_STOP(_tablet_schema_cache);
+    SAFE_STOP(_load_channel_mgr);
+    SAFE_STOP(_scanner_scheduler);
+    SAFE_STOP(_storage_engine);
+    SAFE_STOP(_broker_mgr);
+    SAFE_STOP(_load_path_mgr);
+    SAFE_STOP(_result_mgr);
+    SAFE_STOP(_group_commit_mgr);
+    SAFE_STOP(_routine_load_task_executor);
+    SAFE_STOP(_pipeline_task_scheduler);
+    SAFE_STOP(_pipeline_task_group_scheduler);
+    SAFE_STOP(_external_scan_context_mgr);
+    SAFE_STOP(_fragment_mgr);
+
+    // Free resource after threads are stopped.
+    // Some threads are still running, like threads created by _new_load_stream_mgr ...
+
+    SAFE_DELETE(_s3_buffer_pool);
+    SAFE_DELETE(_tablet_schema_cache);
+    _deregister_metrics();
+    // NewLoadStreamMgr should be destoried before storage_engine
+    _new_load_stream_mgr.reset();
+    _stream_load_executor.reset();
+    SAFE_DELETE(_load_channel_mgr);
+    _memtable_memory_limiter.reset(nullptr);
+
+    // shared_ptr maybe no need to be reset
+    // _brpc_iobuf_block_memory_tracker.reset();
+    // _page_no_cache_mem_tracker.reset();
+    // _experimental_mem_tracker.reset();
+    // _orphan_mem_tracker.reset();
+
+    SAFE_DELETE(_block_spill_mgr);
+    SAFE_DELETE(_inverted_index_query_cache);
+    SAFE_DELETE(_inverted_index_searcher_cache);
+    SAFE_DELETE(_lookup_connection_cache);
+    SAFE_DELETE(_schema_cache);
+    SAFE_DELETE(_segment_loader);
+    SAFE_DELETE(_row_cache);
+
+    // StorageEngine must be destoried before _page_no_cache_mem_tracker.reset
+    // StorageEngine must be destoried before _cache_manager destory
     SAFE_DELETE(_storage_engine);
 
-    _deregister_metrics();
-    SAFE_DELETE(_internal_client_cache);
-    SAFE_DELETE(_function_client_cache);
-    SAFE_DELETE(_load_channel_mgr);
+    // _scanner_scheduler must be desotried before _storage_page_cache
+    SAFE_DELETE(_scanner_scheduler);
+    // _storage_page_cache must be destoried before _cache_manager
+    SAFE_DELETE(_storage_page_cache);
+    // cache_manager must be destoried after _inverted_index_query_cache
+    // https://github.com/apache/doris/issues/24082#issuecomment-1712544039
+    SAFE_DELETE(_cache_manager);
+    
+    SAFE_DELETE(_small_file_mgr);
     SAFE_DELETE(_broker_mgr);
-    SAFE_DELETE(_bfd_parser);
     SAFE_DELETE(_load_path_mgr);
-    SAFE_DELETE(_pipeline_task_scheduler);
-    SAFE_DELETE(_pipeline_task_group_scheduler);
-    SAFE_DELETE(_task_group_manager);
+    SAFE_DELETE(_result_mgr);
+    SAFE_DELETE(_file_meta_cache);
+    SAFE_DELETE(_group_commit_mgr);
+    SAFE_DELETE(_routine_load_task_executor);
+    // _stream_load_executor
+    SAFE_DELETE(_function_client_cache);
+    SAFE_DELETE(_internal_client_cache);
+
+    SAFE_DELETE(_bfd_parser);
+    SAFE_DELETE(_result_cache);
     SAFE_DELETE(_fragment_mgr);
+    SAFE_DELETE(_task_group_manager);
+    SAFE_DELETE(_pipeline_task_group_scheduler);
+    SAFE_DELETE(_pipeline_task_scheduler);
+    SAFE_DELETE(_file_cache_factory);
+    // TODO(zhiqiang): Maybe we should call shutdown before release thread pool?
+    _join_node_thread_pool.reset(nullptr);
+    _send_report_thread_pool.reset(nullptr);
+    _buffered_reader_prefetch_thread_pool.reset(nullptr);
+    _send_batch_thread_pool.reset(nullptr);
+    
     SAFE_DELETE(_broker_client_cache);
     SAFE_DELETE(_frontend_client_cache);
     SAFE_DELETE(_backend_client_cache);
-    SAFE_DELETE(_result_mgr);
     SAFE_DELETE(_result_queue_mgr);
-    SAFE_DELETE(_routine_load_task_executor);
+
+    SAFE_DELETE(_vstream_mgr);
     SAFE_DELETE(_external_scan_context_mgr);
+    SAFE_DELETE(_user_function_cache);
+
+    _serial_download_cache_thread_token.reset(nullptr);
+    _download_cache_thread_pool.reset(nullptr);
+
+    // _heartbeat_flags must be destoried after staroge engine
     SAFE_DELETE(_heartbeat_flags);
-    SAFE_DELETE(_scanner_scheduler);
-    SAFE_DELETE(_group_commit_mgr);
-    SAFE_DELETE(_file_meta_cache);
+
     // Master Info is a thrift object, it could be the last one to deconstruct.
     // Master info should be deconstruct later than fragment manager, because fragment will
     // access master_info.backend id to access some info. If there is a running query and master
     // info is deconstructed then BE process will core at coordinator back method in fragment mgr.
     SAFE_DELETE(_master_info);
-
-    _new_load_stream_mgr.reset();
-    _memtable_memory_limiter.reset(nullptr);
-    _send_batch_thread_pool.reset(nullptr);
-    _buffered_reader_prefetch_thread_pool.reset(nullptr);
-    _send_report_thread_pool.reset(nullptr);
-    _join_node_thread_pool.reset(nullptr);
-    _serial_download_cache_thread_token.reset(nullptr);
-    _download_cache_thread_pool.reset(nullptr);
-    _orphan_mem_tracker.reset();
-    _experimental_mem_tracker.reset();
-    _page_no_cache_mem_tracker.reset();
-    _brpc_iobuf_block_memory_tracker.reset();
-
-    SAFE_DELETE(_schema_cache);
-    SAFE_DELETE(_segment_loader);
-    SAFE_DELETE(_tablet_schema_cache);
-    SAFE_DELETE(_s3_buffer_pool);
-
-    InvertedIndexSearcherCache::reset_global_instance();
-    SAFE_DELETE(_user_function_cache);
-    SAFE_DELETE(_file_cache_factory);
-    // StoragePageCache must be destroied after Daemon in doris_main.cpp is stopped.
-    // see https://github.com/apache/doris/issues/24082
-    SAFE_DELETE(_storage_page_cache);
-    SAFE_DELETE(_lookup_connection_cache);
-    SAFE_DELETE(_row_cache);
-
-    SAFE_DELETE(_inverted_index_query_cache);
-    SAFE_DELETE(_inverted_index_searcher_cache);
-    // cache_manager must be destoried after _inverted_index_query_cache
-    // https://github.com/apache/doris/issues/24082#issuecomment-1712544039
-    SAFE_DELETE(_cache_manager);
 
     LOG(INFO) << "Doris exec envorinment is destoried.";
 }

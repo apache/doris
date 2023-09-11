@@ -179,6 +179,7 @@ public:
     // option: update disk usage after sweep
     Status start_trash_sweep(double* usage, bool ignore_guard = false);
 
+    // Must call stop() before storage_engine is deconstructed
     void stop();
 
     void get_tablet_rowset_versions(const PGetTabletVersionsRequest* request,

@@ -27,7 +27,6 @@
 #include <utility>
 
 #include "olap/lru_cache.h"
-#include "runtime/exec_env.h"
 #include "runtime/memory/lru_cache_policy.h"
 #include "util/slice.h"
 #include "vec/common/allocator.h"

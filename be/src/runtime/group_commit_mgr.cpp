@@ -362,7 +362,14 @@ GroupCommitMgr::GroupCommitMgr(ExecEnv* exec_env) : _exec_env(exec_env) {
             .build(&_insert_into_thread_pool);
 }
 
-GroupCommitMgr::~GroupCommitMgr() {}
+GroupCommitMgr::~GroupCommitMgr() {
+    LOG(INFO) << "GroupCommitMgr is destoried";
+}
+
+void GroupCommitMgr::stop() {
+    _insert_into_thread_pool->shutdown();
+       LOG(INFO) << "GroupCommitMgr is stopped";
+}
 
 Status GroupCommitMgr::group_commit_insert(int64_t table_id, const TPlan& plan,
                                            const TDescriptorTable& tdesc_tbl,

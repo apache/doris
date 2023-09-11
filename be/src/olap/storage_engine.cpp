@@ -133,28 +133,6 @@ StorageEngine::StorageEngine(const EngineOptions& options)
 
 StorageEngine::~StorageEngine() {
     stop();
-
-    DEREGISTER_HOOK_METRIC(unused_rowsets_count);
-
-    if (_base_compaction_thread_pool) {
-        _base_compaction_thread_pool->shutdown();
-    }
-    if (_cumu_compaction_thread_pool) {
-        _cumu_compaction_thread_pool->shutdown();
-    }
-    if (_single_replica_compaction_thread_pool) {
-        _single_replica_compaction_thread_pool->shutdown();
-    }
-
-    if (_seg_compaction_thread_pool) {
-        _seg_compaction_thread_pool->shutdown();
-    }
-    if (_tablet_meta_checkpoint_thread_pool) {
-        _tablet_meta_checkpoint_thread_pool->shutdown();
-    }
-    if (_cold_data_compaction_thread_pool) {
-        _cold_data_compaction_thread_pool->shutdown();
-    }
     _clear();
 }
 
@@ -575,6 +553,27 @@ void StorageEngine::stop() {
     THREADS_JOIN(_path_gc_threads);
     THREADS_JOIN(_path_scan_threads);
 #undef THREADS_JOIN
+    
+    if (_base_compaction_thread_pool) {
+        _base_compaction_thread_pool->shutdown();
+    }
+    if (_cumu_compaction_thread_pool) {
+        _cumu_compaction_thread_pool->shutdown();
+    }
+    if (_single_replica_compaction_thread_pool) {
+        _single_replica_compaction_thread_pool->shutdown();
+    }
+
+    if (_seg_compaction_thread_pool) {
+        _seg_compaction_thread_pool->shutdown();
+    }
+    if (_tablet_meta_checkpoint_thread_pool) {
+        _tablet_meta_checkpoint_thread_pool->shutdown();
+    }
+    if (_cold_data_compaction_thread_pool) {
+        _cold_data_compaction_thread_pool->shutdown();
+    }
+
     _stopped = true;
 }
 

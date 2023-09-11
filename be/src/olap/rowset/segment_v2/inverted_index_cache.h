@@ -82,12 +82,6 @@ public:
         // Reset or clear the state of the object.
     }
 
-    static void reset_global_instance() {
-        if (GetInvertedIndexSearcherCache() != nullptr) {
-            ExecEnv::GetInstance()->safe_reset_inverted_index_search_cache();
-        }
-    }
-
     // Return global instance.
     // Client should call create_global_cache before.
     static InvertedIndexSearcherCache* instance() { return GetInvertedIndexSearcherCache(); }

@@ -554,17 +554,26 @@ int main(int argc, char** argv) {
 #endif
         sleep(3);
     }
+    LOG(INFO) << "Doris main exiting.";
     // For graceful shutdown, need to wait for all running queries to stop
-    exec_env->wait_for_all_tasks_done();
+    // exec_env->wait_for_all_tasks_done();
     daemon.stop();
-    be_server->stop();
-    be_server.reset(nullptr);
-    brpc_service.reset(nullptr);
+    flight_server.reset();
+    LOG(INFO) << "Flight server stopped.";
     heartbeat_thrift_server->stop();
     heartbeat_thrift_server.reset(nullptr);
-    flight_server.reset();
+    LOG(INFO) << "Heartbeat server stopped";
+    // TODO(zhiqiang): http_service
+    http_service->stop();
+    http_service.reset(nullptr);
+    LOG(INFO) << "Http service stopped";
+    be_server->stop();
+    be_server.reset(nullptr);
+    LOG(INFO) << "Be server stopped";
+    brpc_service.reset(nullptr);
+    LOG(INFO) << "Brpc service stopped";
     exec_env->destroy();
-
+    LOG(INFO) << "Doris main exited.";
     return 0;
 }
 
