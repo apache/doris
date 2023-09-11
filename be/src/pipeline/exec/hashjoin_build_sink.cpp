@@ -23,6 +23,7 @@
 #include "pipeline/exec/hashjoin_probe_operator.h"
 #include "pipeline/exec/operator.h"
 #include "vec/common/aggregation_common.h"
+#include "vec/exec/join/vhash_join_node.h"
 #include "vec/utils/template_helpers.hpp"
 
 namespace doris::pipeline {
