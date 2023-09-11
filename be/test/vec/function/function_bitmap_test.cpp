@@ -82,6 +82,23 @@ TEST(function_bitmap_test, function_bitmap_to_string_test) {
     check_function<DataTypeString, true>(func_name, input_types, data_set);
 }
 
+TEST(function_bitmap_test, function_bitmap_remove) {
+    std::string func_name = "bitmap_remove";
+    InputTypeSet input_types = {TypeIndex::BitMap, TypeIndex::Int64};
+
+    BitmapValue bitmap1({1, 3});
+    BitmapValue bitmap2({1, 3, 5});
+
+    BitmapValue bitmap1_res(1);
+    BitmapValue bitmap2_res({1, 3, 5});
+    {
+        DataSet data_set = {{{&bitmap1, 3}, bitmap1_res},
+                            {{&bitmap2, 6}, bitmap2_res},
+                            {{&bitmap1, Null()}, Null()}};
+
+        check_function<DataTypeString, true>(func_name, input_types, data_set);
+    }
+}
 namespace doris {
 namespace config {
 DECLARE_Bool(enable_set_in_bitmap_value);

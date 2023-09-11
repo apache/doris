@@ -74,6 +74,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.BitmapMin;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.BitmapNot;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.BitmapOr;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.BitmapOrCount;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.BitmapRemove;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.BitmapSubsetInRange;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.BitmapSubsetLimit;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.BitmapToArray;
@@ -416,6 +417,7 @@ public class BuiltinScalarFunctions implements FunctionHelper {
             scalar(BitmapAndNot.class, "bitmap_and_not"),
             scalar(BitmapAndNotCount.class, "bitmap_and_not_count"),
             scalar(BitmapContains.class, "bitmap_contains"),
+            scalar(BitmapRemove.class, "bitmap_remove"),
             scalar(BitmapCount.class, "bitmap_count"),
             scalar(BitmapEmpty.class, "bitmap_empty"),
             scalar(BitmapFromArray.class, "bitmap_from_array"),
