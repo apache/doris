@@ -41,7 +41,7 @@ This operation will also delete the data of the rollup index related to this bas
 Syntax 1: This syntax can only specify filter predicates
 
 ```SQL
-DELETE FROM table_name [PARTITION partition_name | PARTITIONS (partition_name [, partition_name])]
+DELETE FROM table_name [PARTITION partition_name | PARTITION (partition_name [, partition_name])]
 WHERE
 column_name op { value | value_list } [ AND column_name op { value | value_list } ...];
 ```
@@ -52,7 +52,7 @@ Syntax 2：This syntax can only used on UNIQUE KEY model
 
 ```sql
 DELETE FROM table_name
-    [PARTITION partition_name | PARTITIONS (partition_name [, partition_name])]
+    [PARTITION partition_name | PARTITION (partition_name [, partition_name])]
     [USING additional_tables]
     WHERE condition
 ```
@@ -75,7 +75,7 @@ DELETE FROM table_name
 
 #### Optional Parameters
 
-+ PARTITION partition_name | PARTITIONS (partition_name [, partition_name]): Specifies the partition or partitions to select rows for removal
++ PARTITION partition_name | PARTITION (partition_name [, partition_name]): Specifies the partition or partitions to select rows for removal
 
 <version since="dev">
 
@@ -111,7 +111,7 @@ DELETE FROM table_name
 3. Delete the data rows where the value of column k1 is greater than or equal to 3 and the value of column k2 is "abc" in my_table partition p1, p2
 
    ```sql
-   DELETE FROM my_table PARTITIONS (p1, p2)
+   DELETE FROM my_table PARTITION (p1, p2)
    WHERE k1 >= 3 AND k2 = "abc";
    ````
 
