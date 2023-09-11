@@ -279,18 +279,24 @@ Status ProcessHashTableProbe<JoinOpType>::do_process(HashTableType& hash_table_c
 
         if (current_offset < _batch_size) {
             _probe_side_hash_values.resize(probe_rows);
-            auto& arena = *(_join_context->_arena);
-            {
-                for (size_t k = probe_index; k < probe_rows; ++k) {
+
+            if (*(_join_context->_ready_probe_index) < probe_rows) {
+                for (size_t k = *(_join_context->_ready_probe_index); k < probe_rows; ++k) {
+                    if constexpr (ignore_null && need_null_map_for_probe) {
+                        if ((*null_map)[probe_index]) {
+                            continue;
+                        }
+                    }
                     if constexpr (ColumnsHashing::IsPreSerializedKeysHashMethodTraits<
                                           KeyGetter>::value) {
                         _probe_side_hash_values[k] = hash_table_ctx.hash_table.hash(
-                                key_getter.get_key_holder(k, arena).key);
+                                key_getter.get_key_holder(k, *_arena).key);
                     } else {
-                        _probe_side_hash_values[k] =
-                                hash_table_ctx.hash_table.hash(key_getter.get_key_holder(k, arena));
+                        _probe_side_hash_values[k] = hash_table_ctx.hash_table.hash(
+                                key_getter.get_key_holder(k, *_arena));
                     }
                 }
+                *(_join_context->_ready_probe_index) = probe_rows;
             }
 
             while (probe_index < probe_rows) {
@@ -554,18 +560,23 @@ Status ProcessHashTableProbe<JoinOpType>::do_process_with_other_join_conjuncts(
         int multi_matched_output_row_count = 0;
         if (current_offset < _batch_size) {
             _probe_side_hash_values.resize(probe_rows);
-            auto& arena = *(_join_context->_arena);
-            {
-                for (size_t k = probe_index; k < probe_rows; ++k) {
+            if (*(_join_context->_ready_probe_index) < probe_rows) {
+                for (size_t k = *(_join_context->_ready_probe_index); k < probe_rows; ++k) {
+                    if constexpr (ignore_null && need_null_map_for_probe) {
+                        if ((*null_map)[probe_index]) {
+                            continue;
+                        }
+                    }
                     if constexpr (ColumnsHashing::IsPreSerializedKeysHashMethodTraits<
                                           KeyGetter>::value) {
                         _probe_side_hash_values[k] = hash_table_ctx.hash_table.hash(
-                                key_getter.get_key_holder(k, arena).key);
+                                key_getter.get_key_holder(k, *_arena).key);
                     } else {
-                        _probe_side_hash_values[k] =
-                                hash_table_ctx.hash_table.hash(key_getter.get_key_holder(k, arena));
+                        _probe_side_hash_values[k] = hash_table_ctx.hash_table.hash(
+                                key_getter.get_key_holder(k, *_arena));
                     }
                 }
+                *(_join_context->_ready_probe_index) = probe_rows;
             }
 
             SCOPED_TIMER(_search_hashtable_timer);
