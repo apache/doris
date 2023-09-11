@@ -49,6 +49,7 @@
 #include <vector>
 
 #include "common/config.h"
+#include "util/uid_util.h"
 
 namespace doris {
 
