@@ -550,6 +550,22 @@ Status ProcessHashTableProbe<JoinOpType>::do_process_with_other_join_conjuncts(
             }
             probe_size = 1;
         }
+
+        _probe_side_hash_values.resize(probe_rows);
+        auto& arena = *(_join_context->_arena);
+        {
+            for (size_t k = 0; k < probe_rows; ++k) {
+                if constexpr (ColumnsHashing::IsPreSerializedKeysHashMethodTraits<
+                                      KeyGetter>::value) {
+                    _probe_side_hash_values[k] =
+                            hash_table_ctx.hash_table.hash(key_getter.get_key_holder(k, arena).key);
+                } else {
+                    _probe_side_hash_values[k] =
+                            hash_table_ctx.hash_table.hash(key_getter.get_key_holder(k, arena));
+                }
+            }
+        }
+
         int multi_matched_output_row_count = 0;
         if (current_offset < _batch_size) {
             SCOPED_TIMER(_search_hashtable_timer);
@@ -580,21 +596,6 @@ Status ProcessHashTableProbe<JoinOpType>::do_process_with_other_join_conjuncts(
                             }
                         }
                         continue;
-                    }
-                }
-
-                _probe_side_hash_values.resize(probe_rows);
-                auto& arena = *(_join_context->_arena);
-                {
-                    for (size_t k = 0; k < probe_rows; ++k) {
-                        if constexpr (ColumnsHashing::IsPreSerializedKeysHashMethodTraits<
-                                              KeyGetter>::value) {
-                            _probe_side_hash_values[k] = hash_table_ctx.hash_table.hash(
-                                    key_getter.get_key_holder(k, arena).key);
-                        } else {
-                            _probe_side_hash_values[k] = hash_table_ctx.hash_table.hash(
-                                    key_getter.get_key_holder(k, arena));
-                        }
                     }
                 }
 
