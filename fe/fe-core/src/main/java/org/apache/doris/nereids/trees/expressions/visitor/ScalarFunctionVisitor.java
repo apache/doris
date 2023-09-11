@@ -537,10 +537,6 @@ public interface ScalarFunctionVisitor<R, C> {
         return visitScalarFunction(bitmapContains, context);
     }
 
-    default R visitBitmapRemove(BitmapRemove bitmapRemove, C context) {
-        return visitScalarFunction(bitmapRemove, context);
-    }
-
     default R visitBitmapCount(BitmapCount bitmapCount, C context) {
         return visitScalarFunction(bitmapCount, context);
     }
@@ -599,6 +595,10 @@ public interface ScalarFunctionVisitor<R, C> {
 
     default R visitBitmapOrCount(BitmapOrCount bitmapOrCount, C context) {
         return visitScalarFunction(bitmapOrCount, context);
+    }
+
+    default R visitBitmapRemove(BitmapRemove bitmapRemove, C context) {
+        return visitScalarFunction(bitmapRemove, context);
     }
 
     default R visitBitmapSubsetInRange(BitmapSubsetInRange bitmapSubsetInRange, C context) {
