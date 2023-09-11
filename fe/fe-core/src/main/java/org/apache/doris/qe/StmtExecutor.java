@@ -2590,7 +2590,12 @@ public class StmtExecutor {
             }
             planner.getFragments();
             RowBatch batch;
-            coord = new Coordinator(context, analyzer, planner, context.getStatsErrorEstimator());
+            CoordInterface coor = null; 
+            if (planner.isPointQuery()) {
+                coord = new PointQueryExec(planner, analyzer);
+            } else {
+                coord = new Coordinator(context, analyzer, planner, context.getStatsErrorEstimator());
+            }
             profile.addExecutionProfile(coord.getExecutionProfile());
             try {
                 QeProcessorImpl.INSTANCE.registerQuery(context.queryId(),

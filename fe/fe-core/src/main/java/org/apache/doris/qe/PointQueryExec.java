@@ -24,6 +24,7 @@ import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.Status;
+import org.apache.doris.planner.Planner;
 import org.apache.doris.proto.InternalService;
 import org.apache.doris.proto.InternalService.KeyTuple;
 import org.apache.doris.rpc.BackendServiceProxy;
@@ -53,7 +54,7 @@ import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 
-public class PointQueryExec {
+public class PointQueryExec extends CoordInterface {
     private static final Logger LOG = LogManager.getLogger(PointQueryExec.class);
     // SlotRef sorted by column id
     private Map<SlotRef, Expr> equalPredicats;
@@ -75,11 +76,40 @@ public class PointQueryExec {
     // using this ID to find for this prepared statement
     private UUID cacheID;
 
-    public PointQueryExec(Map<SlotRef, Expr> equalPredicats, DescriptorTable descTable,
-            ArrayList<Expr> outputExprs) {
-        this.equalPredicats = equalPredicats;
-        this.descriptorTable = descTable;
-        this.outputExprs = outputExprs;
+    public PointQueryExec(Planner planner, Analyzer analyzer) {
+        // init from planner
+        List<ScanNode> scanNodes = planner.getScanNodes();
+        List<PlanFragment> fragments = planner.getFragments();
+        OlapScanNode olapScanNode = (OlapScanNode) (this.scanNodes.get(0));
+
+        PlanFragment fragment = fragments.get(0);
+        LOG.debug("execPointGet fragment {}", fragment);
+        OlapScanNode planRoot = (OlapScanNode) fragment.getPlanRoot();
+        Preconditions.checkNotNull(planRoot);
+
+        this.equalPredicats = planRoot.getPointQueryEqualPredicates();
+        this.descriptorTable = planRoot.getDescTable();
+        this.outputExprs = fragment.getOutputExprs();
+
+        PrepareStmt prepareStmt = analyzer == null ? null : analyzer.getPrepareStmt();
+        if (prepareStmt != null && prepareStmt.getPreparedType() == PreparedType.FULL_PREPARED) {
+            // Used cached or better performance
+            setCacheID(prepareStmt.getID());
+            setSerializedDescTable(prepareStmt.getSerializedDescTable());
+            setSerializedOutputExpr(prepareStmt.getSerializedOutputExprs());
+            setBinaryProtocol(prepareStmt.isBinaryProtocol());
+        } else {
+            // TODO
+            // planner.getDescTable().toThrift();
+        }
+
+        Preconditions.checkState(planRoot.getScanTabletIds().size() == 1);
+        setCandidateBackends(planRoot.getScanBackendIds());
+        setTabletId(planRoot.getScanTabletIds().get(0));
+
+        // compute scan range
+        List<TScanRangeLocations> locations = planRoot.lazyEvaluateRangeLocations();
+        Preconditions.checkNotNull(locations);
     }
 
     void setCandidateBackends(HashSet<Long> backendsIds) {
@@ -128,8 +158,9 @@ public class PointQueryExec {
         }
         requestBuilder.addKeyTuples(kBuilder);
     }
-
-    public RowBatch getNext(Status status) throws TException {
+    
+    @Override
+    public RowBatch getNext() throws Exception {
         Iterator<Backend> backendIter = candidateBackends.iterator();
         RowBatch rowBatch = null;
         int tryCount = 0;
@@ -146,7 +177,31 @@ public class PointQueryExec {
             }
             status.setStatus(Status.OK);
         } while (true);
+        // handle status code
+        if (!status.ok()) {
+            if (status.isNullOrEmpty(status.getErrorMsg())) {
+                status.rewriteErrorMsg();
+            }
+            if (status.isRpcError()) {
+                throw new RpcException(null, status.getErrorMsg());
+            } else {
+                String errMsg = status.getErrorMsg();
+                LOG.warn("query failed: {}", errMsg);
+
+                // hide host info
+                int hostIndex = errMsg.indexOf("host");
+                if (hostIndex != -1) {
+                    errMsg = errMsg.substring(0, hostIndex);
+                }
+                throw new UserException(errMsg);
+            }
+        }
         return rowBatch;
+    }
+
+    @Override
+    public void exec() throws Exception {
+        // Do nothing
     }
 
     private RowBatch getNextInternal(Status status, Backend backend) throws TException {

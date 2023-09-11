@@ -150,6 +150,16 @@ public class OriginalPlanner extends Planner {
     public void appendHintInfo(StringBuilder str) {
     }
 
+    @Override
+    public boolean isPointQuery() {
+        QueryStmt queryStmt;
+        if (statement instanceof QueryStmt) {
+            queryStmt = (QueryStmt) statement;
+            return queryStmt.isPointQuery()
+        }
+        return false;
+    }
+
     /**
      * Create plan fragments for an analyzed statement, given a set of execution options. The fragments are returned in
      * a list such that element i of that list can only consume output of the following fragments j > i.
