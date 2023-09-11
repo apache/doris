@@ -441,10 +441,13 @@ int main(int argc, char** argv) {
             LOG(WARNING) << "Failed to initialize JNI: " << status;
             exit(1);
         } else {
-            LOG(INFO) << "Doris jni started.";
+            LOG(INFO) << "Doris backend JNI is initialized.";
         }
     }
 
+    // Doris own signal handler must be register after jvm is init.
+    // Or our own sig-handler for SIGINT & SIGTERM will not be chained ...
+    // https://www.oracle.com/java/technologies/javase/signals.html
     doris::init_signals();
 
     // Load file cache before starting up daemon threads to make sure StorageEngine is read.
