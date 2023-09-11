@@ -15,25 +15,25 @@
 # limitations under the License.
 #
 
-
 version: "3"
 
 services:
-    zookeeper:
+    doris--zookeeper:
         image: wurstmeister/zookeeper
         restart: always
+        container_name: doris--zookeeper
         ports:
-            - ${DOCKER_ZOOKEEPER_EXTERNAL_PORT}:12181
-    kafka1:
+            - ${DOCKER_ZOOKEEPER_EXTERNAL_PORT}:2181
+    doris--kafka:
         image: wurstmeister/kafka 
         restart: always
+        container_name: doris--kafka
         depends_on:
-            - zookeeper
+            - doris--zookeeper
         ports:
             - ${DOCKER_KAFKA_EXTERNAL_PORT}:19193
         environment:
-            KAFKA_ADVERTISED_HOST_NAME: kafka1
-            KAFKA_ZOOKEEPER_CONNECT: zookeeper:12181/kafka
+            KAFKA_ZOOKEEPER_CONNECT: doris--zookeeper:2181/kafka
             KAFKA_LISTENERS: PLAINTEXT://:19193
             KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://localhost:19193
             KAFKA_BROKER_ID: 1
