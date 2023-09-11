@@ -17,7 +17,6 @@
 
 package org.apache.doris.datasource.jdbc.client;
 
-import org.apache.doris.catalog.ArrayType;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
 
@@ -56,10 +55,6 @@ public class JdbcDruidClient extends JdbcClient {
             case "FLOAT":
                 return Type.FLOAT;
             case "TIMESTAMP": {
-                int scale = fieldSchema.getDecimalDigits();
-                if (scale > 6) {
-                    scale = 6;
-                }
                 return ScalarType.createDatetimeV2Type(6);
             }
             case "VARCHAR":
