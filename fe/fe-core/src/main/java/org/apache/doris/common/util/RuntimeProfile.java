@@ -50,8 +50,9 @@ public class RuntimeProfile {
     public static int FRAGMENT_DEPTH = 3;
     public static int HIGH_PROFILE_LEVEL = 2;
     public static int LOW_PROFILE_LEVEL = 1;
-    public static String MAX_TIME_PRE = "max_";
-    public static String MIN_TIME_PRE = "min_";
+    public static String MAX_TIME_PRE = "max: ";
+    public static String MIN_TIME_PRE = "min: ";
+    public static String AVG_TIME_PRE = "avg: ";
     private Counter counterTotalTime;
     private double localTimePercent;
 
@@ -409,7 +410,10 @@ public class RuntimeProfile {
             Set<String> strList = new TreeSet<String>();
             strList.add(src.infoStrings.get(key));
             for (RuntimeProfile profile : rhs) {
-                strList.add(profile.infoStrings.get(key));
+                String value = profile.infoStrings.get(key);
+                if (value != null) {
+                    strList.add(value);
+                }
             }
             try {
                 String joinedString = String.join("  |  ", strList);
@@ -458,6 +462,15 @@ public class RuntimeProfile {
             }
             childCounterSet.add(minCounterName);
             childCounterSet.add(maxCounterName);
+            if (counter.getValue() > 0) {
+                src.infoStringsDisplayOrder.add(counterName);
+                String infoString = "[ "
+                        + AVG_TIME_PRE + printCounter(counter.getValue(), counter.getType()) + " , "
+                        + MAX_TIME_PRE + printCounter(maxCounter.getValue(), maxCounter.getType()) + " , "
+                        + MIN_TIME_PRE + printCounter(minCounter.getValue(), minCounter.getType()) + " ]";
+                src.infoStrings.put(counterName, infoString);
+            }
+            counter.setValue(0); // value 0 will remove in removeZeroeCounter
         } else {
             if (rhsCounter.size() == 0) {
                 return;
