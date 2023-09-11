@@ -41,8 +41,8 @@ class ArrayContainsToArrayOverlapTest extends ExpressionRewriteTestHelper {
                 .getPlan();
         Expression expression = plan.child(0).getExpressions().get(0).child(0);
         Assertions.assertTrue(expression instanceof ArraysOverlap);
-        Assertions.assertEquals("array(1)", expression.child(0).toSql());
-        Assertions.assertEquals("array(1, 2, 3)", expression.child(1).toSql());
+        Assertions.assertEquals("[1]", expression.child(0).toSql());
+        Assertions.assertEquals("[1, 2, 3]", expression.child(1).toSql());
     }
 
     @Test
@@ -92,8 +92,8 @@ class ArrayContainsToArrayOverlapTest extends ExpressionRewriteTestHelper {
                 .rewrite()
                 .getPlan();
         Expression expression = plan.child(0).getExpressions().get(0).child(0);
-        Assertions.assertEquals("(array_contains(array(1), 0) OR "
-                        + "(array_contains(array(1), 1) AND arrays_overlap(array(1), array(2, 3, 4))))",
+        Assertions.assertEquals("(array_contains([1], 0) OR "
+                        + "(array_contains([1], 1) AND arrays_overlap([1], [2, 3, 4])))",
                 expression.toSql());
     }
 }
