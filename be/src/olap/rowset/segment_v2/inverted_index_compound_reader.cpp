@@ -135,7 +135,9 @@ DorisCompoundReader::DorisCompoundReader(lucene::store::Directory* d, const char
     try {
         if (dir->fileLength(name) == 0) {
             LOG(WARNING) << "CompoundReader open failed, index file " << name << " is empty.";
-            _CLTHROWA(CL_ERR_IO, fmt::format("CompoundReader open failed, index file {} is empty", name).c_str());
+            _CLTHROWA(CL_ERR_IO,
+                      fmt::format("CompoundReader open failed, index file {} is empty", name)
+                              .c_str());
         }
         stream = dir->openInput(name, readBufferSize);
 

@@ -589,7 +589,8 @@ DorisCompoundDirectory* DorisCompoundDirectory::getDirectory(
     bool exists = false;
     LOG_AND_THROW_IF_ERROR(_fs->exists(file, &exists), "Get directory exists IO error")
     if (!exists) {
-        LOG_AND_THROW_IF_ERROR(_fs->create_directory(file), "Get directory create directory IO error")
+        LOG_AND_THROW_IF_ERROR(_fs->create_directory(file),
+                               "Get directory create directory IO error")
     }
 
     dir = _CLNEW DorisCompoundDirectory();
@@ -659,7 +660,8 @@ bool DorisCompoundDirectory::deleteDirectory() {
     CND_PRECONDITION(directory[0] != 0, "directory is not open");
     char fl[CL_MAX_DIR];
     priv_getFN(fl, "");
-    LOG_AND_THROW_IF_ERROR(fs->delete_directory(fl), fmt::format("Delete directory {} IO error", fl))
+    LOG_AND_THROW_IF_ERROR(fs->delete_directory(fl),
+                           fmt::format("Delete directory {} IO error", fl))
     return true;
 }
 
@@ -677,7 +679,8 @@ void DorisCompoundDirectory::renameFile(const char* from, const char* to) {
     if (exists) {
         LOG_AND_THROW_IF_ERROR(fs->delete_directory(nu), fmt::format("Delete {} IO error", nu))
     }
-    LOG_AND_THROW_IF_ERROR(fs->rename_dir(old, nu), fmt::format("Rename {} to {} IO error", old, nu))
+    LOG_AND_THROW_IF_ERROR(fs->rename_dir(old, nu),
+                           fmt::format("Rename {} to {} IO error", old, nu))
 }
 
 lucene::store::IndexOutput* DorisCompoundDirectory::createOutput(const char* name) {
@@ -687,7 +690,8 @@ lucene::store::IndexOutput* DorisCompoundDirectory::createOutput(const char* nam
     bool exists = false;
     LOG_AND_THROW_IF_ERROR(fs->exists(fl, &exists), "Create output file exists IO error")
     if (exists) {
-        LOG_AND_THROW_IF_ERROR(fs->delete_file(fl), fmt::format("Create output delete file {} IO error", fl))
+        LOG_AND_THROW_IF_ERROR(fs->delete_file(fl),
+                               fmt::format("Create output delete file {} IO error", fl))
         LOG_AND_THROW_IF_ERROR(fs->exists(fl, &exists), "Create output file exists IO error")
         assert(!exists);
     }
