@@ -177,5 +177,22 @@ public class JdbcExternalCatalog extends ExternalCatalog {
             properties.put(JdbcResource.CHECK_SUM,
                     JdbcResource.computeObjectChecksum(properties.get(JdbcResource.DRIVER_URL)));
         }
+        String onlySpecifiedDatabase = getOnlySpecifiedDatabase();
+        if (!onlySpecifiedDatabase.equalsIgnoreCase("true") && !onlySpecifiedDatabase.equalsIgnoreCase("false")) {
+            throw new DdlException("only_specified_database must be true or false");
+        }
+        String lowerCaseTableNames = getLowerCaseTableNames();
+        if (!lowerCaseTableNames.equalsIgnoreCase("true") && !lowerCaseTableNames.equalsIgnoreCase("false")) {
+            throw new DdlException("lower_case_table_names must be true or false");
+        }
+        if (!onlySpecifiedDatabase.equalsIgnoreCase("true")) {
+            Map<String, Boolean> includeDatabaseList = getIncludeDatabaseMap();
+            Map<String, Boolean> excludeDatabaseList = getExcludeDatabaseMap();
+            if ((includeDatabaseList != null && !includeDatabaseList.isEmpty())
+                    || (excludeDatabaseList != null && !excludeDatabaseList.isEmpty())) {
+                throw new DdlException("include_database_list and exclude_database_list can not be set when "
+                        + "only_specified_database is false");
+            }
+        }
     }
 }

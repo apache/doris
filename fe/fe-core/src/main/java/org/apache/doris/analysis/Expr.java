@@ -1845,6 +1845,11 @@ public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
             if (slot.getColumnName() != null && slot.getColumnName().equals(colName)) {
                 return true;
             }
+        } else if (this instanceof ColumnRefExpr) {
+            ColumnRefExpr slot = (ColumnRefExpr) this;
+            if (slot.getName() != null && slot.getName().equals(colName)) {
+                return true;
+            }
         }
         return false;
     }

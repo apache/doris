@@ -236,7 +236,13 @@ Status OrcReader::_create_file_reader() {
         _reader = orc::createReader(
                 std::unique_ptr<ORCFileInputStream>(_file_input_stream.release()), options);
     } catch (std::exception& e) {
-        return Status::InternalError("Init OrcReader failed. reason = {}", e.what());
+        // invoker maybe just skip Status.NotFound and continue
+        // so we need distinguish between it and other kinds of errors
+        std::string _err_msg = e.what();
+        if (_err_msg.find("No such file or directory") != std::string::npos) {
+            return Status::NotFound(_err_msg);
+        }
+        return Status::InternalError("Init OrcReader failed. reason = {}", _err_msg);
     }
     _remaining_rows = _reader->getNumberOfRows();
 
