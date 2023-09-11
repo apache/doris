@@ -75,7 +75,7 @@ public class FeConstants {
     public static String csv_with_names = "csv_with_names";
     public static String csv_with_names_and_types = "csv_with_names_and_types";
 
-    public static String text = "text";
+    public static String text = "hive_text";
 
     public static String FS_PREFIX_S3 = "s3";
     public static String FS_PREFIX_S3A = "s3a";

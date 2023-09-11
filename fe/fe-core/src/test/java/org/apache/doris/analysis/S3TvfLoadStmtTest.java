@@ -34,11 +34,11 @@ import org.apache.doris.load.loadv2.LoadTask.MergeType;
 import org.apache.doris.tablefunction.S3TableValuedFunction;
 import org.apache.doris.utframe.TestWithFeService;
 
+import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 import mockit.Expectations;
 import mockit.Injectable;
-import org.apache.hadoop.util.Lists;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;

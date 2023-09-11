@@ -152,6 +152,14 @@ Status AggSinkLocalState<Derived>::init(RuntimeState* state, LocalSinkStateInfo&
                                (!p._have_conjuncts) && // no having conjunct
                                p._needs_finalize;      // agg's finalize step
     }
+
+    return Status::OK();
+}
+
+template <typename Derived>
+Status AggSinkLocalState<Derived>::open(RuntimeState* state) {
+    RETURN_IF_ERROR(PipelineXSinkLocalState<AggDependency>::open(state));
+    _agg_data = _shared_state->agg_data.get();
     // move _create_agg_status to open not in during prepare,
     // because during prepare and open thread is not the same one,
     // this could cause unable to get JVM

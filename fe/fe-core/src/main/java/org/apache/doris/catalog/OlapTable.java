@@ -137,7 +137,7 @@ public class OlapTable extends Table {
     private PartitionInfo partitionInfo;
     @SerializedName("idToPartition")
     private Map<Long, Partition> idToPartition = new HashMap<>();
-    private Map<String, Partition> nameToPartition = Maps.newTreeMap(String.CASE_INSENSITIVE_ORDER);
+    private Map<String, Partition> nameToPartition = Maps.newTreeMap();
 
     @SerializedName(value = "distributionInfo")
     private DistributionInfo defaultDistributionInfo;
@@ -1167,7 +1167,7 @@ public class OlapTable extends Table {
         long dataSize = 0;
         for (Map.Entry<Long, Partition> entry : idToPartition.entrySet()) {
             rowCount += entry.getValue().getBaseIndex().getRowCount();
-            dataSize += entry.getValue().getBaseIndex().getDataSize();
+            dataSize += entry.getValue().getBaseIndex().getDataSize(false);
         }
         if (rowCount > 0) {
             return dataSize / rowCount;
@@ -1180,7 +1180,7 @@ public class OlapTable extends Table {
     public long getDataLength() {
         long dataSize = 0;
         for (Map.Entry<Long, Partition> entry : idToPartition.entrySet()) {
-            dataSize += entry.getValue().getBaseIndex().getDataSize();
+            dataSize += entry.getValue().getBaseIndex().getDataSize(false);
         }
         return dataSize;
     }
@@ -1556,7 +1556,7 @@ public class OlapTable extends Table {
     public long getDataSize() {
         long dataSize = 0;
         for (Partition partition : getAllPartitions()) {
-            dataSize += partition.getDataSize();
+            dataSize += partition.getDataSize(false);
         }
         return dataSize;
     }

@@ -63,6 +63,8 @@ public class ExecutionProfile {
     // instance id -> dummy value
     private MarkedCountDownLatch<TUniqueId, Long> profileDoneSignal;
 
+    private TUniqueId queryId;
+
     public ExecutionProfile(TUniqueId queryId, int fragmentNum) {
         executionProfile = new RuntimeProfile("Execution Profile " + DebugUtil.printId(queryId));
         RuntimeProfile fragmentsProfile = new RuntimeProfile("Fragments");
@@ -74,6 +76,7 @@ public class ExecutionProfile {
         }
         loadChannelProfile = new RuntimeProfile("LoadChannels");
         executionProfile.addChild(loadChannelProfile);
+        this.queryId = queryId;
     }
 
     public RuntimeProfile getExecutionProfile() {
@@ -117,7 +120,7 @@ public class ExecutionProfile {
         if (profileDoneSignal != null) {
             // count down to zero to notify all objects waiting for this
             profileDoneSignal.countDownToZero(new Status());
-            LOG.info("unfinished instance: {}", profileDoneSignal.getLeftMarks()
+            LOG.info("Query {} unfinished instance: {}", DebugUtil.printId(queryId),  profileDoneSignal.getLeftMarks()
                     .stream().map(e -> DebugUtil.printId(e.getKey())).toArray());
         }
     }

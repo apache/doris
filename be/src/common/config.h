@@ -1013,6 +1013,8 @@ DECLARE_Int64(file_cache_min_file_segment_size);
 DECLARE_Int64(file_cache_max_file_segment_size);
 DECLARE_Bool(clear_file_cache);
 DECLARE_Bool(enable_file_cache_query_limit);
+// only for debug, will be removed after finding out the root cause
+DECLARE_mInt32(file_cache_wait_sec_after_fail); // zero for no waiting and retrying
 
 // inverted index searcher cache
 // cache entry stay time after lookup
@@ -1152,6 +1154,9 @@ DECLARE_Int32(grace_shutdown_wait_seconds);
 
 // BitmapValue serialize version.
 DECLARE_Int16(bitmap_serialize_version);
+
+// This config can be set to limit thread number in group commit insert thread pool.
+DECLARE_mInt32(group_commit_insert_threads);
 
 #ifdef BE_TEST
 // test s3
