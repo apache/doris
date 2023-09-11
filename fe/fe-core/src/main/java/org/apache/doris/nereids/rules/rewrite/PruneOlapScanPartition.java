@@ -29,11 +29,13 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.util.Utils;
 
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.Streams;
 import org.apache.commons.collections.CollectionUtils;
 
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Map.Entry;
 import java.util.Set;
 import java.util.function.Function;
 import java.util.stream.Collectors;
@@ -68,6 +70,14 @@ public class PruneOlapScanPartition extends OneRewriteRuleFactory {
             List<Long> prunedPartitions = new ArrayList<>(PartitionPruner.prune(
                     partitionSlots, filter.getPredicate(), partitionInfo, ctx.cascadesContext,
                     PartitionTableType.OLAP));
+            // if prunedPartitions is empty, we select the default partition if exists.
+            prunedPartitions.addAll(
+                    Streams.concat(
+                            partitionInfo.getIdToItem(true).entrySet().stream(),
+                            partitionInfo.getIdToItem(false).entrySet().stream())
+                            .filter(p -> p.getValue().isDefaultPartition())
+                            .map(Entry::getKey).collect(Collectors.toList()));
+
             List<Long> manuallySpecifiedPartitions = scan.getManuallySpecifiedPartitions();
             if (!CollectionUtils.isEmpty(manuallySpecifiedPartitions)) {
                 prunedPartitions.retainAll(manuallySpecifiedPartitions);
