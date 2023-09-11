@@ -532,7 +532,7 @@ public class ScalarType extends Type {
     public String toString() {
         if (type == PrimitiveType.CHAR) {
             if (isWildcardChar()) {
-                return "CHAR(*)";
+                return "CHARACTER";
             }
             return "CHAR(" + len + ")";
         } else  if (type == PrimitiveType.DECIMALV2) {
@@ -567,7 +567,9 @@ public class ScalarType extends Type {
         StringBuilder stringBuilder = new StringBuilder();
         switch (type) {
             case CHAR:
-                if (Strings.isNullOrEmpty(lenStr)) {
+                if (isWildcardVarchar()) {
+                    stringBuilder.append("character");
+                } else if (Strings.isNullOrEmpty(lenStr)) {
                     stringBuilder.append("char").append("(").append(len).append(")");
                 } else {
                     stringBuilder.append("char").append("(`").append(lenStr).append("`)");

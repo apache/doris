@@ -53,6 +53,7 @@ class WrapperField;
 class AndBlockColumnPredicate;
 class ColumnPredicate;
 class TabletIndex;
+class StorageReadOptions;
 
 namespace io {
 class FileReader;
@@ -119,7 +120,8 @@ public:
     // Client should delete returned iterator
     Status new_bitmap_index_iterator(BitmapIndexIterator** iterator);
 
-    Status new_inverted_index_iterator(const TabletIndex* index_meta, OlapReaderStatistics* stats,
+    Status new_inverted_index_iterator(const TabletIndex* index_meta,
+                                       const StorageReadOptions& read_options,
                                        std::unique_ptr<InvertedIndexIterator>* iterator);
 
     // Seek to the first entry in the column.

@@ -63,7 +63,8 @@ public:
                             const int fragment_id, int backend_num,
                             std::shared_ptr<QueryContext> query_ctx, ExecEnv* exec_env,
                             const std::function<void(RuntimeState*, Status*)>& call_back,
-                            const report_status_callback& report_status_cb);
+                            const report_status_callback& report_status_cb,
+                            bool group_commit = false);
 
     virtual ~PipelineFragmentContext();
 
@@ -71,7 +72,9 @@ public:
 
     TUniqueId get_fragment_instance_id() { return _fragment_instance_id; }
 
-    RuntimeState* get_runtime_state() { return _runtime_state.get(); }
+    virtual RuntimeState* get_runtime_state(UniqueId /*fragment_instance_id*/) {
+        return _runtime_state.get();
+    }
 
     // should be protected by lock?
     [[nodiscard]] bool is_canceled() const { return _runtime_state->is_cancelled(); }
@@ -112,6 +115,9 @@ public:
         _merge_controller_handler = handler;
     }
 
+    virtual void add_merge_controller_handler(
+            std::shared_ptr<RuntimeFilterMergeControllerEntity>& handler) {}
+
     void send_report(bool);
 
     virtual void report_profile();
@@ -126,6 +132,12 @@ public:
 
     taskgroup::TaskGroupPipelineTaskEntity* get_task_group_entity() const {
         return _task_group_entity;
+    }
+
+    bool is_group_commit() { return _group_commit; }
+    virtual void instance_ids(std::vector<TUniqueId>& ins_ids) const {
+        ins_ids.resize(1);
+        ins_ids[0] = _fragment_instance_id;
     }
 
 protected:
@@ -206,6 +218,7 @@ protected:
 
 private:
     std::vector<std::unique_ptr<PipelineTask>> _tasks;
+    bool _group_commit;
 };
 } // namespace pipeline
 } // namespace doris

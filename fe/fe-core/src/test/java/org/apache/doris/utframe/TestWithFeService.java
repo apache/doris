@@ -58,6 +58,7 @@ import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.util.SqlParserUtils;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.StatementContext;
+import org.apache.doris.nereids.glue.LogicalPlanAdapter;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
@@ -183,6 +184,12 @@ public abstract class TestWithFeService {
         return statementContext;
     }
 
+    protected StatementContext createStatementCtx(String sql, ConnectContext ctx) {
+        StatementContext statementContext = new StatementContext(ctx, new OriginStatement(sql, 0));
+        ctx.setStatementContext(statementContext);
+        return statementContext;
+    }
+
     protected  <T extends StatementBase> T createStmt(String showSql)
             throws Exception {
         return (T) parseAndAnalyzeStmt(showSql, connectContext);
@@ -193,7 +200,12 @@ public abstract class TestWithFeService {
         return MemoTestUtils.createCascadesContext(statementCtx, sql);
     }
 
-    public LogicalPlan analyze(String sql) {
+    protected CascadesContext createCascadesContext(String sql, ConnectContext ctx) {
+        StatementContext statementCtx = createStatementCtx(sql, ctx);
+        return MemoTestUtils.createCascadesContext(statementCtx, sql);
+    }
+
+    public LogicalPlan analyzeAndGetLogicalPlanByNereids(String sql) {
         Set<String> originDisableRules = connectContext.getSessionVariable().getDisableNereidsRuleNames();
         Set<String> disableRuleWithAuth = Sets.newHashSet(originDisableRules);
         disableRuleWithAuth.add(RuleType.RELATION_AUTHENTICATION.name());
@@ -203,6 +215,40 @@ public abstract class TestWithFeService {
         connectContext.getSessionVariable().setDisableNereidsRules(String.join(",", originDisableRules));
         cascadesContext.toMemo();
         return (LogicalPlan) cascadesContext.getRewritePlan();
+    }
+
+    public LogicalPlan analyzeAndGetLogicalPlanByNereids(String sql, ConnectContext ctx) {
+        Set<String> originDisableRules = ctx.getSessionVariable().getDisableNereidsRuleNames();
+        Set<String> disableRuleWithAuth = Sets.newHashSet(originDisableRules);
+        disableRuleWithAuth.add(RuleType.RELATION_AUTHENTICATION.name());
+        ctx.getSessionVariable().setDisableNereidsRules(String.join(",", disableRuleWithAuth));
+        CascadesContext cascadesContext = createCascadesContext(sql, ctx);
+        cascadesContext.newAnalyzer().analyze();
+        ctx.getSessionVariable().setDisableNereidsRules(String.join(",", originDisableRules));
+        cascadesContext.toMemo();
+        return (LogicalPlan) cascadesContext.getRewritePlan();
+    }
+
+    // Parse an origin stmt and analyze it by nereids. Return a StatementBase instance.
+    public StatementBase analyzeAndGetStmtByNereids(String sql) {
+        return analyzeAndGetStmtByNereids(sql, connectContext);
+    }
+
+    // Parse an origin stmt and analyze it by nereids. Return a StatementBase instance.
+    public StatementBase analyzeAndGetStmtByNereids(String sql, ConnectContext ctx) {
+        Set<String> originDisableRules = ctx.getSessionVariable().getDisableNereidsRuleNames();
+        Set<String> disableRuleWithAuth = Sets.newHashSet(originDisableRules);
+        disableRuleWithAuth.add(RuleType.RELATION_AUTHENTICATION.name());
+        ctx.getSessionVariable().setDisableNereidsRules(String.join(",", disableRuleWithAuth));
+        CascadesContext cascadesContext = createCascadesContext(sql, ctx);
+        cascadesContext.newAnalyzer().analyze();
+        ctx.getSessionVariable().setDisableNereidsRules(String.join(",", originDisableRules));
+        cascadesContext.toMemo();
+        LogicalPlan plan = (LogicalPlan) cascadesContext.getRewritePlan();
+        LogicalPlanAdapter adapter = new LogicalPlanAdapter(plan, cascadesContext.getStatementContext());
+        adapter.setViewDdlSqls(cascadesContext.getStatementContext().getViewDdlSqls());
+        cascadesContext.getStatementContext().setParsedStatement(adapter);
+        return adapter;
     }
 
     protected ConnectContext createCtx(UserIdentity user, String host) throws IOException {

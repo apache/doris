@@ -2835,7 +2835,7 @@ Status Tablet::lookup_row_key(const Slice& encoded_key, bool with_seq_col,
 
         for (auto id : picked_segments) {
             Status s = segments[id]->lookup_row_key(encoded_key, with_seq_col, &loc);
-            if (s.is<KEY_NOT_FOUND>()) {
+            if (s.is<ENTRY_NOT_FOUND>() || s.is<KEY_NOT_FOUND>()) {
                 continue;
             }
             if (!s.ok() && !s.is<KEY_ALREADY_EXISTS>()) {
@@ -3239,6 +3239,12 @@ Status Tablet::update_delete_bitmap_without_lock(const RowsetSharedPtr& rowset) 
     std::vector<segment_v2::SegmentSharedPtr> segments;
     _load_rowset_segments(rowset, &segments);
 
+    // If this rowset does not have a segment, there is no need for an update.
+    if (segments.empty()) {
+        LOG(INFO) << "[Schema Change or Clone] skip to construct delete bitmap tablet: "
+                  << tablet_id() << " cur max_version: " << cur_version;
+        return Status::OK();
+    }
     RowsetIdUnorderedSet cur_rowset_ids = all_rs_id(cur_version - 1);
     DeleteBitmapPtr delete_bitmap = std::make_shared<DeleteBitmap>(tablet_id());
     RETURN_IF_ERROR(calc_delete_bitmap_between_segments(rowset, segments, delete_bitmap));
@@ -3507,6 +3513,7 @@ RowsetIdUnorderedSet Tablet::all_rs_id(int64_t max_version) const {
 }
 
 bool Tablet::check_all_rowset_segment() {
+    std::shared_lock rdlock(_meta_lock);
     for (auto& version_rowset : _rs_version_map) {
         RowsetSharedPtr rowset = version_rowset.second;
         if (!rowset->check_rowset_segment()) {

@@ -439,7 +439,7 @@ Status HashJoinNode::close(RuntimeState* state) {
 
 bool HashJoinNode::need_more_input_data() const {
     return (_probe_block.rows() == 0 || _probe_index == _probe_block.rows()) && !_probe_eos &&
-           !_short_circuit_for_probe;
+           (!_short_circuit_for_probe || _is_mark_join);
 }
 
 void HashJoinNode::prepare_for_next() {
@@ -450,10 +450,43 @@ void HashJoinNode::prepare_for_next() {
 Status HashJoinNode::pull(doris::RuntimeState* state, vectorized::Block* output_block, bool* eos) {
     SCOPED_TIMER(_probe_timer);
     if (_short_circuit_for_probe) {
+        /// If `_short_circuit_for_probe` is true, this indicates no rows
+        /// match the join condition, and this is 'mark join', so we need to create a column as mark
+        /// with all rows set to 0.
+        if (_is_mark_join) {
+            auto block_rows = _probe_block.rows();
+            if (block_rows == 0) {
+                *eos = _probe_eos;
+                return Status::OK();
+            }
+
+            Block temp_block;
+            //get probe side output column
+            for (int i = 0; i < _left_output_slot_flags.size(); ++i) {
+                if (_left_output_slot_flags[i]) {
+                    temp_block.insert(_probe_block.get_by_position(i));
+                }
+            }
+            auto mark_column = ColumnUInt8::create(block_rows, 0);
+            temp_block.insert({std::move(mark_column), std::make_shared<DataTypeUInt8>(), ""});
+
+            {
+                SCOPED_TIMER(_join_filter_timer);
+                RETURN_IF_ERROR(
+                        VExprContext::filter_block(_conjuncts, &temp_block, temp_block.columns()));
+            }
+
+            RETURN_IF_ERROR(_build_output_block(&temp_block, output_block, false));
+            temp_block.clear();
+            release_block_memory(_probe_block);
+            reached_limit(output_block, eos);
+            return Status::OK();
+        }
         // If we use a short-circuit strategy, should return empty block directly.
         *eos = true;
         return Status::OK();
     }
+
     //TODO: this short circuit maybe could refactor, no need to check at here.
     if (_short_circuit_for_probe_and_additional_data) {
         // when build table rows is 0 and not have other_join_conjunct and join type is one of LEFT_OUTER_JOIN/FULL_OUTER_JOIN/LEFT_ANTI_JOIN
@@ -483,17 +516,21 @@ Status HashJoinNode::pull(doris::RuntimeState* state, vectorized::Block* output_
             temp_block.insert({std::move(nullable_column), make_nullable(type),
                                _right_table_column_names[i]});
         }
-
-        {
-            SCOPED_TIMER(_join_filter_timer);
-            RETURN_IF_ERROR(
-                    VExprContext::filter_block(_conjuncts, &temp_block, temp_block.columns()));
+        if (_is_outer_join) {
+            reinterpret_cast<ColumnUInt8*>(_tuple_is_null_left_flag_column.get())
+                    ->get_data()
+                    .resize_fill(block_rows, 0);
+            reinterpret_cast<ColumnUInt8*>(_tuple_is_null_right_flag_column.get())
+                    ->get_data()
+                    .resize_fill(block_rows, 1);
         }
 
-        RETURN_IF_ERROR(_build_output_block(&temp_block, output_block, false));
+        /// No need to check the block size in `_filter_data_and_build_output` because here dose not
+        /// increase the output rows count(just same as `_probe_block`'s rows count).
+        RETURN_IF_ERROR(
+                _filter_data_and_build_output(state, output_block, eos, &temp_block, false));
         temp_block.clear();
         release_block_memory(_probe_block);
-        reached_limit(output_block, eos);
         return Status::OK();
     }
     _join_block.clear_column_data();
@@ -570,22 +607,29 @@ Status HashJoinNode::pull(doris::RuntimeState* state, vectorized::Block* output_
     if (!st) {
         return st;
     }
-
-    if (_is_outer_join) {
-        _add_tuple_is_null_column(&temp_block);
-    }
-    auto output_rows = temp_block.rows();
-    DCHECK(output_rows <= state->batch_size());
-    {
-        SCOPED_TIMER(_join_filter_timer);
-        RETURN_IF_ERROR(VExprContext::filter_block(_conjuncts, &temp_block, temp_block.columns()));
-    }
-
+    RETURN_IF_ERROR(_filter_data_and_build_output(state, output_block, eos, &temp_block));
     // Here make _join_block release the columns' ptr
     _join_block.set_columns(_join_block.clone_empty_columns());
     mutable_join_block.clear();
-    RETURN_IF_ERROR(_build_output_block(&temp_block, output_block, false));
+    return Status::OK();
+}
 
+Status HashJoinNode::_filter_data_and_build_output(RuntimeState* state,
+                                                   vectorized::Block* output_block, bool* eos,
+                                                   Block* temp_block, bool check_rows_count) {
+    if (_is_outer_join) {
+        _add_tuple_is_null_column(temp_block);
+    }
+    auto output_rows = temp_block->rows();
+    if (check_rows_count) { // If the join node does not increase the number of output rows, no need to check.
+        DCHECK(output_rows <= state->batch_size());
+    }
+    {
+        SCOPED_TIMER(_join_filter_timer);
+        RETURN_IF_ERROR(VExprContext::filter_block(_conjuncts, temp_block, temp_block->columns()));
+    }
+
+    RETURN_IF_ERROR(_build_output_block(temp_block, output_block, false));
     _reset_tuple_is_null_column();
     reached_limit(output_block, eos);
     return Status::OK();
@@ -634,7 +678,7 @@ Status HashJoinNode::get_next(RuntimeState* state, Block* output_block, bool* eo
         return Status::OK();
     }
 
-    if (_short_circuit_for_probe) {
+    if (_short_circuit_for_probe && !_is_mark_join) {
         // If we use a short-circuit strategy, should return empty block directly.
         *eos = true;
         return Status::OK();

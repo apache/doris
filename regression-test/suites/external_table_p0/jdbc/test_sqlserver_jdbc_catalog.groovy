@@ -74,5 +74,18 @@ suite("test_sqlserver_jdbc_catalog", "p0,external,sqlserver,external_docker,exte
 
 
         sql """ drop catalog if exists ${catalog_name} """
+
+        sql """ create catalog if not exists ${catalog_name} properties(
+                    "type"="jdbc",
+                    "user"="sa",
+                    "password"="Doris123456",
+                    "jdbc_url" = "jdbc:sqlserver://${externalEnvIp}:${sqlserver_port};encrypt=false;databaseName=doris_test;trustServerCertificate=false",
+                    "driver_url" = "${driver_url}",
+                    "driver_class" = "com.microsoft.sqlserver.jdbc.SQLServerDriver"
+        );"""
+
+        order_qt_sql """ show databases from ${catalog_name} """
+
+        sql """ drop catalog if exists ${catalog_name} """
     }
 }
