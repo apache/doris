@@ -157,7 +157,7 @@ Status VOlapTableSinkV2::open(RuntimeState* state) {
 
     if (config::share_delta_writers) {
         _delta_writer_for_tablet =
-                ExecEnv::GetInstance()->delta_writer_v2_pool()->get_or_create(_load_id)
+                ExecEnv::GetInstance()->delta_writer_v2_pool()->get_or_create(_load_id);
     } else {
         _delta_writer_for_tablet = std::make_shared<DeltaWriterV2Map>(_load_id);
     }
