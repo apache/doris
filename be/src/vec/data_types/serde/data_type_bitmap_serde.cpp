@@ -35,12 +35,13 @@ class IColumn;
 
 Status DataTypeBitMapSerDe::deserialize_column_from_json_vector(
         IColumn& column, std::vector<Slice>& slices, int* num_deserialized,
-        const FormatOptions& options) const {
+        const FormatOptions& options,int nesting_level ) const {
     DESERIALIZE_COLUMN_FROM_JSON_VECTOR()
     return Status::OK();
 }
 Status DataTypeBitMapSerDe::deserialize_one_cell_from_json(IColumn& column, Slice& slice,
-                                                           const FormatOptions& options) const {
+                                                           const FormatOptions& options,
+                                                           int nesting_level ) const {
     auto& data_column = assert_cast<ColumnBitmap&>(column);
     auto& data = data_column.get_data();
 
