@@ -32,6 +32,7 @@ enum class InvertedIndexQueryType {
     MATCH_ANY_QUERY = 5,
     MATCH_ALL_QUERY = 6,
     MATCH_PHRASE_QUERY = 7,
+    RANGE_QUERY = 8,
 };
 
 inline std::string InvertedIndexQueryType_toString(InvertedIndexQueryType query_type) {

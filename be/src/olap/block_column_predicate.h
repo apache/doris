@@ -90,7 +90,7 @@ public:
     virtual bool can_do_bloom_filter(bool ngram) const { return false; }
 
     //evaluate predicate on inverted
-    virtual Status evaluate(const std::string& column_name, InvertedIndexIterator* iterator,
+    virtual Status evaluate(const Schema& schema, InvertedIndexIterator* iterator,
                             uint32_t num_rows, roaring::Roaring* bitmap) const {
         return Status::NotSupported(
                 "Not Implemented evaluate with inverted index, please check the predicate");
@@ -199,8 +199,8 @@ public:
         return true;
     }
 
-    Status evaluate(const std::string& column_name, InvertedIndexIterator* iterator,
-                    uint32_t num_rows, roaring::Roaring* bitmap) const override;
+    Status evaluate(const Schema& schema, InvertedIndexIterator* iterator, uint32_t num_rows,
+                    roaring::Roaring* bitmap) const override;
 };
 
 } //namespace doris

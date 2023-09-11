@@ -86,6 +86,9 @@ struct FilterPredicates {
     std::vector<std::pair<std::string, std::shared_ptr<BitmapFilterFuncBase>>> bitmap_filters;
 
     std::vector<std::pair<std::string, std::shared_ptr<HybridSetBase>>> in_filters;
+
+    // Save range filter predicates
+    std::vector<std::pair<std::string, ColumnValueRangeType>> range_filters;
 };
 
 class VScanNode : public ExecNode, public RuntimeFilterConsumer {
@@ -279,7 +282,7 @@ protected:
     std::unordered_map<std::string, ColumnValueRangeType> _colname_to_value_range;
     /**
      * _colname_to_value_range only store the leaf of and in the conjunct expr tree,
-     * we use _compound_value_ranges to store conresponding value ranges 
+     * we use _compound_value_ranges to store corresponding value ranges
      * in the one compound relationship except the leaf of and node,
      * such as `where a > 1 or b > 10 and c < 200`, the expr tree like: 
      *     or

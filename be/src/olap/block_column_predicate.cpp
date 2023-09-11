@@ -19,6 +19,8 @@
 
 #include <string.h>
 
+#include "comparison_predicate.h"
+
 namespace roaring {
 class Roaring;
 } // namespace roaring
@@ -213,11 +215,37 @@ void AndBlockColumnPredicate::evaluate_vec(vectorized::MutableColumns& block, ui
     }
 }
 
-Status AndBlockColumnPredicate::evaluate(const std::string& column_name,
-                                         InvertedIndexIterator* iterator, uint32_t num_rows,
-                                         roaring::Roaring* bitmap) const {
-    return Status::NotSupported(
-            "Not Implemented evaluate with inverted index, please check the predicate");
+Status AndBlockColumnPredicate::evaluate(const Schema& schema, InvertedIndexIterator* iterator,
+                                         uint32_t num_rows, roaring::Roaring* bitmap) const {
+    std::set<const ColumnPredicate*> predicates;
+    get_all_column_predicate(predicates);
+    std::unique_ptr<InvertedIndexQueryBase> query_value = nullptr;
+    uint32_t column_id = 0;
+    for (auto& pred : predicates) {
+        pred->set_inverted_index_query_value(query_value, schema);
+        column_id = pred->column_id();
+    }
+    if (!predicates.empty()) {
+        auto column_desc = schema.column(column_id);
+        std::string column_name = column_desc->name();
+        RETURN_IF_ERROR(iterator->read_from_inverted_index(column_name, query_value.get(), num_rows,
+                                                           bitmap));
+
+        // mask out null_bitmap, since NULL cmp VALUE will produce NULL
+        //  and be treated as false in WHERE
+        // keep it after query, since query will try to read null_bitmap and put it to cache
+        InvertedIndexQueryCacheHandle null_bitmap_cache_handle;
+        RETURN_IF_ERROR(iterator->read_null_bitmap(&null_bitmap_cache_handle));
+        std::shared_ptr<roaring::Roaring> null_bitmap = null_bitmap_cache_handle.get_bitmap();
+        if (null_bitmap) {
+            *bitmap -= *null_bitmap;
+        }
+        return Status::OK();
+    }
+    DCHECK(false);
+
+    return Status::Error(INTERNAL_ERROR,
+                         "block column predicates size = 0, please check the predicate");
 }
 
 } // namespace doris

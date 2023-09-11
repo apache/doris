@@ -447,6 +447,20 @@ Status VScanNode::_normalize_conjuncts() {
                 it.second.second);
         _colname_to_value_range[it.second.first->col_name()] = it.second.second;
     }
+    for (auto& it : _slot_id_to_value_range) {
+        bool is_range = false;
+        std::visit(
+                [&](auto&& range) {
+                    if (range.is_range_value_range()) {
+                        is_range = true;
+                    }
+                },
+                it.second.second);
+        if (is_range) {
+            _filter_predicates.range_filters.emplace_back(it.second.first->col_name(),
+                                                          it.second.second);
+        }
+    }
 
     return Status::OK();
 }

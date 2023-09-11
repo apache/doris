@@ -925,8 +925,8 @@ Status SegmentIterator::_apply_inverted_index_on_block_column_predicate(
 
         std::string column_name = _schema->column(column_id)->name();
 
-        auto res = pred->evaluate(column_name, _inverted_index_iterators[column_id].get(),
-                                  num_rows(), &output_result);
+        auto res = pred->evaluate(*_schema, _inverted_index_iterators[column_id].get(), num_rows(),
+                                  &output_result);
 
         if (res.ok()) {
             if (_check_column_pred_all_push_down(column_name) &&
