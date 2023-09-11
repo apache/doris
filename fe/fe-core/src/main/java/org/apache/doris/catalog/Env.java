@@ -1184,7 +1184,8 @@ public class Env {
         }
 
         if (Config.cluster_id != -1 && clusterId != Config.cluster_id) {
-            throw new IOException("cluster id is not equal with config item cluster_id. will exit.");
+            throw new IOException("cluster id is not equal with config item cluster_id. will exit. "
+                    + "If you are in recovery mode, please also modify the cluster_id in 'doris-meta/image/VERSION'");
         }
 
         if (role.equals(FrontendNodeType.FOLLOWER)) {

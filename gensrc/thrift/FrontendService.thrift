@@ -1133,6 +1133,21 @@ struct TAutoIncrementRangeResult {
     3: optional i64 length
 }
 
+struct TCreatePartitionRequest {
+    1: optional i64 txn_id
+    2: optional i64 db_id
+    3: optional i64 table_id
+    // for each partition column's partition values. [missing_rows, partition_keys]->Left bound(for range) or Point(for list)
+    4: optional list<list<Exprs.TStringLiteral>> partitionValues
+}
+
+struct TCreatePartitionResult {
+    1: optional Status.TStatus status
+    2: optional list<Descriptors.TOlapTablePartition> partitions
+    3: optional list<Descriptors.TTabletLocation> tablets
+    4: optional list<Descriptors.TNodeInfo> nodes
+}
+
 service FrontendService {
     TGetDbsResult getDbNames(1: TGetDbsParams params)
     TGetTablesResult getTableNames(1: TGetTablesParams params)
@@ -1202,4 +1217,6 @@ service FrontendService {
     Status.TStatus updateStatsCache(1: TUpdateFollowerStatsCacheRequest request)
 
     TAutoIncrementRangeResult getAutoIncrementRange(1: TAutoIncrementRangeRequest request)
+
+    TCreatePartitionResult createPartition(1: TCreatePartitionRequest request)
 }

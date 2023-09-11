@@ -3228,7 +3228,28 @@ opt_partition ::=
     | KW_PARTITION KW_BY KW_LIST LPAREN ident_list:columns RPAREN
             LPAREN opt_all_partition_desc_list:list RPAREN
     {:
-        RESULT = new ListPartitionDesc(columns, list);
+         RESULT = new ListPartitionDesc(columns, list);
+    :}
+    /* expr range partition */
+    | KW_AUTO KW_PARTITION KW_BY KW_RANGE function_call_expr:fnExpr
+            LPAREN opt_all_partition_desc_list:list RPAREN
+    {:
+        ArrayList<Expr> exprs = new ArrayList<Expr>();
+        exprs.add(fnExpr);
+        RESULT = RangePartitionDesc.createRangePartitionDesc(exprs, list);
+    :}
+    /* expr list partition */
+    | KW_AUTO KW_PARTITION KW_BY KW_LIST LPAREN expr_list:exprs RPAREN
+            LPAREN opt_all_partition_desc_list:list RPAREN
+    {:
+        RESULT = ListPartitionDesc.createListPartitionDesc(exprs, list);
+    :}
+    | KW_AUTO KW_PARTITION KW_BY KW_LIST function_call_expr:fnExpr
+            LPAREN opt_all_partition_desc_list:list RPAREN
+    {:
+        ArrayList<Expr> exprs = new ArrayList<Expr>();
+        exprs.add(fnExpr);
+        RESULT = ListPartitionDesc.createListPartitionDesc(exprs, list);
     :}
     ;
 
