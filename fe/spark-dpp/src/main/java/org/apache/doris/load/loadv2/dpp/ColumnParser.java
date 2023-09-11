@@ -85,6 +85,10 @@ public abstract class ColumnParser implements Serializable {
         }
     }
 
+    public static ColumnParser createBigIntParser() {
+        return new BigIntParser();
+    }
+
     public abstract boolean parse(String value);
 }
 

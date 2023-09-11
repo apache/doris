@@ -107,8 +107,8 @@ public class SparkLoadSparkEnv implements Serializable {
         return abnormalRowAcc.value();
     }
 
-    public void addScannedRowsAcc() {
-        scannedRowsAcc.add(1);
+    public void addScannedRowsAcc(Long n) {
+        scannedRowsAcc.add(n);
     }
 
     public Long getScannedRowsAccValue() {
@@ -140,6 +140,10 @@ public class SparkLoadSparkEnv implements Serializable {
 
     public String getInvalidRowsValue() {
         return invalidRows.value();
+    }
+
+    public boolean invalidRowsIsEmpty() {
+        return invalidRows.isZero();
     }
 
     public void stop() {

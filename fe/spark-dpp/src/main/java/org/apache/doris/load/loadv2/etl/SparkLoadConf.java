@@ -48,6 +48,7 @@ public class SparkLoadConf implements Serializable {
     private static final String TO_BITMAP_FUNC = "to_bitmap";
     private static final String BITMAP_HASH = "bitmap_hash";
     private static final String BINARY_BITMAP = "binary_bitmap";
+    private static final String OUTPUT_FILE_PATTEN = "V1.sl.%d.%d.%d.%d.%d.parquet";
 
     // private String jobConfigFilePath;
     private EtlJobConfig etlJobConfig;
@@ -55,8 +56,8 @@ public class SparkLoadConf implements Serializable {
     private final Map<Long, Set<String>> tableToBitmapDictColumns = Maps.newHashMap();
     private final Map<Long, Set<String>> tableToBinaryBitmapColumns = Maps.newHashMap();
 
-    SparkLoadCommand command;
-    SerializableConfiguration hadoopConf;
+    private final SparkLoadCommand command;
+    private final SerializableConfiguration hadoopConf;
 
     private SparkLoadConf(SparkLoadCommand command, SerializableConfiguration hadoopConf) {
         this.command = command;
@@ -159,14 +160,6 @@ public class SparkLoadConf implements Serializable {
         return etlJobConfig.tables;
     }
 
-    public String getOutputPath() {
-        return etlJobConfig.outputPath;
-    }
-
-    public String getOutputFilePattern() {
-        return etlJobConfig.outputFilePattern;
-    }
-
     public Map<Long, Set<String>> getTableToBitmapDictColumns() {
         return tableToBitmapDictColumns;
     }
@@ -177,5 +170,9 @@ public class SparkLoadConf implements Serializable {
 
     public SparkLoadCommand getCommend() {
         return command;
+    }
+
+    public String getOutputFilePatten() {
+        return OUTPUT_FILE_PATTEN;
     }
 }

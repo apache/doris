@@ -36,12 +36,12 @@ public class SparkLoadFileGroupFactory {
         switch (fileGroup.sourceType) {
             case FILE:
                 switch (fileGroup.fileFormat) {
-                    case PARQUET:
+                    case "parquet":
                         return new SparkLoadFromParquet(
                                 loadSparkEnv, sparkLoadConf, baseIndex, fileGroup, dstTableSchema);
-                    case ORC:
+                    case "orc":
                         return new SparkLoadFromOrc(loadSparkEnv, sparkLoadConf, baseIndex, fileGroup, dstTableSchema);
-                    case CSV:
+                    case "csv":
                         if (fileGroup.columnSeparator == null) {
                             throw new SparkDppException("Reason: invalid null column separator!");
                         }

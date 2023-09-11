@@ -39,7 +39,6 @@ import org.slf4j.LoggerFactory;
 
 import java.util.ArrayList;
 import java.util.HashSet;
-import java.util.Iterator;
 import java.util.List;
 import java.util.Set;
 
@@ -90,7 +89,7 @@ public class SparkLoadFromHive extends SparkLoadFileGroup {
         // So in spark load, we first do step 1,3,4,and then do step 2.
         dataframe = checkDataFromHiveWithStrictMode(
                 dataframe, baseIndex, fileGroup.columnMappings.keySet(),
-                sparkLoadConf.getEtlJobConfig().properties.strictMode,
+                sparkLoadConf.getCommend().getStrictMode(),
                 dstTableSchema, dictBitmapColumnSet, binaryBitmapColumnSet);
         return dataframe;
     }
@@ -104,7 +103,7 @@ public class SparkLoadFromHive extends SparkLoadFileGroup {
             // note(wb): there are three data source for bitmap column
             // case 1: global dict and binary data; needn't check
             // case 2: bitmap hash function; this func is not supported in spark load now, so ignore it here
-            // case 3: origin value is a integer value; it should be checked use LongParser
+            // case 3: origin value is an integer value; it should be checked use LongParser
             if (StringUtils.equalsIgnoreCase(column.columnType, "bitmap")) {
                 if (dictBitmapColumnSet.contains(column.columnName.toLowerCase())) {
                     continue;
@@ -113,11 +112,7 @@ public class SparkLoadFromHive extends SparkLoadFileGroup {
                     continue;
                 }
                 columnNameNeedCheckArrayList.add(column);
-                // TODO  wuwenchi xxxx 这里的 BigIntParser 应该怎么弄出来呢？
-                // columnParserArrayList.add(new BigIntParser());
-                EtlColumn etlColumn = new EtlColumn();
-                etlColumn.columnType = "BIGINT";
-                columnParserArrayList.add(ColumnParser.create(etlColumn));
+                columnParserArrayList.add(ColumnParser.createBigIntParser());
             } else if (!StringUtils.equalsIgnoreCase(column.columnType, "varchar")
                     && !StringUtils.equalsIgnoreCase(column.columnType, "char")
                     && !mappingColKeys.contains(column.columnName)) {
@@ -130,55 +125,52 @@ public class SparkLoadFromHive extends SparkLoadFileGroup {
         EtlJobConfig.EtlColumn[] columnNameArray = columnNameNeedCheckArrayList.toArray(new EtlJobConfig.EtlColumn[0]);
 
         StructType srcSchema = dataframe.schema();
-        JavaRDD<Row> result = dataframe.toJavaRDD().flatMap(new FlatMapFunction<Row, Row>() {
-            @Override
-            public Iterator<Row> call(Row row) throws Exception {
-                List<Row> result = new ArrayList<>();
-                Set<Integer> columnIndexNeedToRepalceNull = new HashSet<Integer>();
-                boolean validRow = true;
-                for (int i = 0; i < columnNameArray.length; i++) {
-                    EtlJobConfig.EtlColumn column = columnNameArray[i];
-                    int fieldIndex = row.fieldIndex(column.columnName);
-                    Object value = row.get(fieldIndex);
-                    if (value == null && !column.isAllowNull) {
+        JavaRDD<Row> result = dataframe.toJavaRDD().flatMap((FlatMapFunction<Row, Row>) row -> {
+            List<Row> result1 = new ArrayList<>();
+            Set<Integer> columnIndexNeedToReplaceNull = new HashSet<Integer>();
+            boolean validRow = true;
+            for (int i = 0; i < columnNameArray.length; i++) {
+                EtlColumn column = columnNameArray[i];
+                int fieldIndex = row.fieldIndex(column.columnName);
+                Object value = row.get(fieldIndex);
+                if (value == null && !column.isAllowNull) {
+                    validRow = false;
+                    LOG.warn("column:" + i + " can not be null. row:" + row.toString());
+                    break;
+                }
+                if (value != null && !columnParserArray[i].parse(value.toString())) {
+                    if (isStrictMode) {
+                        validRow = false;
+                        LOG.warn(String.format("row parsed failed in strict mode, column name %s, src row %s",
+                                column.columnName, row.toString()));
+                    } else if (!column.isAllowNull) {
+                        // a column parsed failed would be filled null,
+                        // but if doris column is not allowed null, we should skip this row
                         validRow = false;
                         LOG.warn("column:" + i + " can not be null. row:" + row.toString());
                         break;
-                    }
-                    if (value != null && !columnParserArray[i].parse(value.toString())) {
-                        if (isStrictMode) {
-                            validRow = false;
-                            LOG.warn(String.format("row parsed failed in strict mode, column name %s, src row %s",
-                                    column.columnName, row.toString()));
-                        } else if (!column.isAllowNull) {
-                            // a column parsed failed would be filled null,
-                            // but if doris column is not allowed null, we should skip this row
-                            validRow = false;
-                            LOG.warn("column:" + i + " can not be null. row:" + row.toString());
-                            break;
-                        } else {
-                            columnIndexNeedToRepalceNull.add(fieldIndex);
-                        }
+                    } else {
+                        columnIndexNeedToReplaceNull.add(fieldIndex);
                     }
                 }
-                if (!validRow) {
-                    loadSparkEnv.addAbnormalRowAcc();
-                    loadSparkEnv.addInvalidRows(row.toString());
-                } else if (columnIndexNeedToRepalceNull.size() != 0) {
-                    Object[] newRow = new Object[row.size()];
-                    for (int i = 0; i < row.size(); i++) {
-                        if (columnIndexNeedToRepalceNull.contains(i)) {
-                            newRow[i] = null;
-                        } else {
-                            newRow[i] = row.get(i);
-                        }
-                    }
-                    result.add(RowFactory.create(newRow));
-                } else {
-                    result.add(row);
-                }
-                return result.iterator();
             }
+            if (!validRow) {
+                loadSparkEnv.addAbnormalRowAcc();
+                loadSparkEnv.addInvalidRows(row.toString());
+            } else if (columnIndexNeedToReplaceNull.size() != 0) {
+                Object[] newRow = new Object[row.size()];
+                for (int i = 0; i < row.size(); i++) {
+                    if (columnIndexNeedToReplaceNull.contains(i)) {
+                        newRow[i] = null;
+                    } else {
+                        newRow[i] = row.get(i);
+                    }
+                }
+                result1.add(RowFactory.create(newRow));
+            } else {
+                result1.add(row);
+            }
+            return result1.iterator();
         });
 
         // here we just check data but not do cast,

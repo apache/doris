@@ -95,14 +95,14 @@ public final class SparkLoadJobV2 implements java.io.Serializable {
     private SparkSession spark = null;
     private SparkLoadSparkEnv loadSparkEnv;
     private EtlJobConfig etlJobConfig = null;
+    private SparkLoadConf sparkLoadConf;
+    private Long specTableId = null;
 
     private final Map<String, Integer> bucketKeyMap = new HashMap<>();
 
     private final DppResult dppResult = new DppResult();
     Map<Long, Set<String>> tableToBitmapDictColumns;
     Map<Long, Set<String>> tableToBinaryBitmapColumns;
-
-    SparkLoadConf sparkLoadConf;
 
     // just for ut
     public SparkLoadJobV2() {
@@ -115,6 +115,9 @@ public final class SparkLoadJobV2 implements java.io.Serializable {
         this.etlJobConfig = sparkLoadConf.getEtlJobConfig();
         this.tableToBitmapDictColumns = sparkLoadConf.getTableToBitmapDictColumns();
         this.tableToBinaryBitmapColumns = sparkLoadConf.getTableToBinaryBitmapColumns();
+        if (sparkLoadConf.getCommend().getTableId() != null) {
+            this.specTableId = sparkLoadConf.getCommend().getTableId();
+        }
     }
 
     private JavaPairRDD<List<Object>, Object[]> processRDDAggregate(JavaPairRDD<List<Object>, Object[]> currentPairRDD,
@@ -167,7 +170,7 @@ public final class SparkLoadJobV2 implements java.io.Serializable {
     // write data to parquet file by using writing the parquet scheme of spark.
     private void writeRepartitionAndSortedRDDToParquet(JavaPairRDD<List<Object>, Object[]> resultRDD,
             String pathPattern, long tableId,
-            EtlJobConfig.EtlIndex indexMeta, SparkRDDAggregator[] sparkRDDAggregators) {
+            EtlJobConfig.EtlIndex indexMeta, SparkRDDAggregator[] sparkRDDAggregators) throws IOException {
         // TODO(wb) should deal largeint as BigInteger instead of string when using biginteger as key,
         // data type may affect sorting logic
         StructType dstSchema = DppUtils.convertDorisColumnsToSparkColumns(indexMeta.columns, false, true);
@@ -178,7 +181,7 @@ public final class SparkLoadJobV2 implements java.io.Serializable {
                 .foreachPartition((VoidFunction<Iterator<Tuple2<List<Object>, Object[]>>>) t -> {
                     // write the data to dst file
                     Configuration conf = new Configuration(loadSparkEnv.getHadoopConf());
-                    FileSystem fs = FileSystem.get(new Path(etlJobConfig.outputPath).toUri(), conf);
+                    FileSystem fs = FileSystem.get(new Path(sparkLoadConf.getCommend().getOutputPath()).toUri(), conf);
                     String lastBucketKey = null;
                     ParquetWriter<InternalRow> parquetWriter = null;
                     TaskContext taskContext = TaskContext.get();
@@ -191,20 +194,11 @@ public final class SparkLoadJobV2 implements java.io.Serializable {
                         List<Object> keyColumns = pair._1();
                         Object[] valueColumns = pair._2();
                         if ((keyColumns.size() + valueColumns.length) <= 1) {
-                            LOG.warn("invalid row:" + pair);
+                            LOG.error("invalid row:" + pair);
                             continue;
                         }
 
                         String curBucketKey = keyColumns.get(0).toString();
-                        List<Object> columnObjects = new ArrayList<>();
-                        for (int i = 1; i < keyColumns.size(); ++i) {
-                            columnObjects.add(keyColumns.get(i));
-                        }
-                        for (int i = 0; i < valueColumns.length; ++i) {
-                            columnObjects.add(sparkRDDAggregators[i].finalize(valueColumns[i]));
-                        }
-
-                        Row rowWithoutBucketKey = RowFactory.create(columnObjects.toArray());
                         // if the bucket key is new, it will belong to a new tablet
                         if (lastBucketKey == null || !curBucketKey.equals(lastBucketKey)) {
                             if (parquetWriter != null) {
@@ -245,6 +239,14 @@ public final class SparkLoadJobV2 implements java.io.Serializable {
                             lastBucketKey = curBucketKey;
                         }
 
+                        List<Object> columnObjects = new ArrayList<>();
+                        for (int i = 1; i < keyColumns.size(); ++i) {
+                            columnObjects.add(keyColumns.get(i));
+                        }
+                        for (int i = 0; i < valueColumns.length; ++i) {
+                            columnObjects.add(sparkRDDAggregators[i].finalize(valueColumns[i]));
+                        }
+                        Row rowWithoutBucketKey = RowFactory.create(columnObjects.toArray());
                         InternalRow internalRow = encoder.toRow(rowWithoutBucketKey);
                         parquetWriter.write(internalRow);
                     }
@@ -258,14 +260,13 @@ public final class SparkLoadJobV2 implements java.io.Serializable {
                             throw ioe;
                         }
                     }
-
                 });
     }
 
     // TODO(wb) one shuffle to calculate the rollup in the same level
     private void processRollupTree(RollupTreeNode rootNode,
             JavaPairRDD<List<Object>, Object[]> rootRDD,
-            long tableId, EtlJobConfig.EtlIndex baseIndex) throws SparkDppException {
+            long tableId, EtlJobConfig.EtlIndex baseIndex) throws SparkDppException, IOException {
         Queue<RollupTreeNode> nodeQueue = new LinkedList<>();
         nodeQueue.offer(rootNode);
         int currentLevel = 0;
@@ -273,7 +274,7 @@ public final class SparkLoadJobV2 implements java.io.Serializable {
         Map<Long, JavaPairRDD<List<Object>, Object[]>> parentRDDMap = new HashMap<>();
         parentRDDMap.put(baseIndex.indexId, rootRDD);
         Map<Long, JavaPairRDD<List<Object>, Object[]>> childrenRDDMap = new HashMap<>();
-        String pathPattern = etlJobConfig.outputPath + "/" + etlJobConfig.outputFilePattern;
+        String pathPattern = sparkLoadConf.getCommend().getOutputPath() + "/" + sparkLoadConf.getOutputFilePatten();
         while (!nodeQueue.isEmpty()) {
             RollupTreeNode curNode = nodeQueue.poll();
             LOG.info("start to process index:" + curNode.indexId);
@@ -514,6 +515,10 @@ public final class SparkLoadJobV2 implements java.io.Serializable {
             Long tableId = entry.getKey();
             EtlJobConfig.EtlTable etlTable = entry.getValue();
 
+            if (specTableId != null && !specTableId.equals(tableId)) {
+                continue;
+            }
+
             // get the base index meta
             EtlJobConfig.EtlIndex baseIndex = getEtlIndex(etlTable);
             SparkDppException.checkArgument(baseIndex != null, "should have a base index for: " + tableId);
@@ -575,7 +580,10 @@ public final class SparkLoadJobV2 implements java.io.Serializable {
             LOG.info("Start to process rollup tree:" + rootNode);
             processRollupTree(rootNode, tablePairRDD, tableId, baseIndex);
         }
-        LOG.error("invalid rows contents:" + loadSparkEnv.getInvalidRowsValue());
+
+        if (!loadSparkEnv.invalidRowsIsEmpty()) {
+            LOG.warn("invalid rows contents:" + loadSparkEnv.getInvalidRowsValue());
+        }
     }
 
     private EtlJobConfig.EtlIndex getEtlIndex(EtlJobConfig.EtlTable etlTable) {
@@ -596,7 +604,7 @@ public final class SparkLoadJobV2 implements java.io.Serializable {
         dppResult.abnormalRows = loadSparkEnv.getAbnormalRowAccValue();
         dppResult.partialAbnormalRows = loadSparkEnv.getInvalidRowsValue();
 
-        String outputPath = etlJobConfig.outputPath;
+        String outputPath = sparkLoadConf.getCommend().getOutputPath();
         String resultFilePath = outputPath + "/" + DPP_RESULT_FILE;
         FileSystem fs = FileSystem.get(new Path(outputPath).toUri(), loadSparkEnv.getHadoopConf());
         Path filePath = new Path(resultFilePath);
@@ -616,6 +624,10 @@ public final class SparkLoadJobV2 implements java.io.Serializable {
                 tableId = entry.getKey();
                 table = entry.getValue();
                 break;
+            }
+
+            if (specTableId != null && !specTableId.equals(tableId)) {
+                return;
             }
 
             // init hive configs like metastore service
@@ -653,11 +665,10 @@ public final class SparkLoadJobV2 implements java.io.Serializable {
         EtlFileGroup fileGroup = table.fileGroups.get(0);
         String sourceHiveDBTableName = fileGroup.hiveDbTableName;
         String dorisHiveDB = sourceHiveDBTableName.split("\\.")[0];
-        String taskId = etlJobConfig.outputPath.substring(etlJobConfig.outputPath.lastIndexOf("/") + 1);
         String globalDictTableName = String.format(EtlJobConfig.GLOBAL_DICT_TABLE_NAME, tableId);
-        String distinctKeyTableName = String.format(EtlJobConfig.DISTINCT_KEY_TABLE_NAME, tableId, taskId);
+        String distinctKeyTableName = String.format(EtlJobConfig.DISTINCT_KEY_TABLE_NAME, tableId);
         String dorisIntermediateHiveTable = String.format(
-                EtlJobConfig.DORIS_INTERMEDIATE_HIVE_TABLE_NAME, tableId, taskId);
+                EtlJobConfig.DORIS_INTERMEDIATE_HIVE_TABLE_NAME, tableId);
         String sourceHiveFilter = fileGroup.where;
 
         // others

@@ -132,8 +132,8 @@ import java.util.Map;
 public class EtlJobConfig implements Serializable {
     // global dict
     public static final String GLOBAL_DICT_TABLE_NAME = "doris_global_dict_table_%d";
-    public static final String DISTINCT_KEY_TABLE_NAME = "doris_distinct_key_table_%d_%s";
-    public static final String DORIS_INTERMEDIATE_HIVE_TABLE_NAME = "doris_intermediate_hive_table_%d_%s";
+    public static final String DISTINCT_KEY_TABLE_NAME = "doris_distinct_key_table_%d";
+    public static final String DORIS_INTERMEDIATE_HIVE_TABLE_NAME = "doris_intermediate_hive_table_%d";
 
     // hdfsEtlPath/jobs/dbId/loadLabel/PendingTaskSignature
     private static final String ETL_OUTPUT_PATH_FORMAT = "%s/jobs/%d/%s/%d";
@@ -260,12 +260,6 @@ public class EtlJobConfig implements Serializable {
     public enum SourceType {
         FILE,
         HIVE
-    }
-
-    public enum FileFormat {
-        PARQUET,
-        ORC,
-        CSV
     }
 
     public static class EtlTable implements Serializable {
@@ -486,7 +480,7 @@ public class EtlJobConfig implements Serializable {
         @SerializedName(value = "isNegative")
         public boolean isNegative;
         @SerializedName(value = "fileFormat")
-        public FileFormat fileFormat;
+        public String fileFormat;
         @SerializedName(value = "columnMappings")
         public Map<String, EtlColumnMapping> columnMappings;
         @SerializedName(value = "where")
@@ -506,7 +500,7 @@ public class EtlJobConfig implements Serializable {
         // for data infile path
         public EtlFileGroup(SourceType sourceType, List<String> filePaths, List<String> fileFieldNames,
                             List<String> columnsFromPath, String columnSeparator, String lineDelimiter,
-                            boolean isNegative, FileFormat fileFormat, Map<String, EtlColumnMapping> columnMappings,
+                            boolean isNegative, String fileFormat, Map<String, EtlColumnMapping> columnMappings,
                             String where, List<Long> partitions) {
             this.sourceType = sourceType;
             this.filePaths = filePaths;

@@ -77,6 +77,8 @@ public abstract class SparkLoadFromFile extends SparkLoadFileGroup {
             return null;
         }
 
+        loadSparkEnv.addScannedRowsAcc(fileGroupDataframe.count());
+
         if (!Strings.isNullOrEmpty(fileGroup.where)) {
             fileGroupDataframe = fileGroupDataframe.where(fileGroup.where);
         }

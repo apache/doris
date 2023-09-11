@@ -89,7 +89,6 @@ public class SparkLoadFromCsv extends SparkLoadFromFile {
         char separator = (char) fileGroup.columnSeparator.getBytes(StandardCharsets.UTF_8)[0];
         JavaRDD<Row> rowRDD = sourceDataRdd.flatMap(
                 record -> {
-                    loadSparkEnv.addScannedRowsAcc();
                     String[] attributes = splitLine(record, separator);
                     List<Row> result = new ArrayList<>();
                     boolean validRow = true;
@@ -113,8 +112,8 @@ public class SparkLoadFromCsv extends SparkLoadFromFile {
                                 }
                             }
 
-                            boolean isStrictMode = sparkLoadConf.getEtlJobConfig().properties.strictMode;
-                            if (isStrictMode) {
+                            boolean strictMode = sparkLoadConf.getCommend().getStrictMode();
+                            if (strictMode) {
                                 if (dstColumnNameToIndex.containsKey(srcColumnName)) {
                                     int index = dstColumnNameToIndex.get(srcColumnName);
                                     String type = baseIndex.columns.get(index).columnType;

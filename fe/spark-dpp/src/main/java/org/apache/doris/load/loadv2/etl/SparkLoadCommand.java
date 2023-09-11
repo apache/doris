@@ -36,7 +36,7 @@ public class SparkLoadCommand implements Serializable {
     }
 
     @Parameter(
-            names = {"--config-file", "-c"},
+            names = {"-c", "--config-file"},
             description = "配置文件路径",
             required = true
     )
@@ -50,10 +50,29 @@ public class SparkLoadCommand implements Serializable {
 
     @Parameter(
             names = {"--debug-output-file-groups-path"},
-            description = "把源文件输出到指定路径",
-            required = false
+            description = "把源文件输出到指定路径"
     )
     private String debugFileGroupPath;
+
+    @Parameter(
+            names = {"-o", "--output-path"},
+            description = "文件输出路径",
+            required = true
+    )
+    private String outputPath;
+
+    @Parameter(
+            names = {"--strictMode"},
+            description = "文件输出路径"
+    )
+    private boolean strictMode = false;
+
+
+    @Parameter(
+            names = {"-t", "--table-id"},
+            description = "指定表执行"
+    )
+    private Long tableId;
 
     public String getConfigFile() {
         return configFile;
@@ -67,4 +86,15 @@ public class SparkLoadCommand implements Serializable {
         return debugFileGroupPath;
     }
 
+    public String getOutputPath() {
+        return outputPath;
+    }
+
+    public boolean getStrictMode() {
+        return strictMode;
+    }
+
+    public Long getTableId() {
+        return tableId;
+    }
 }
