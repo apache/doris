@@ -93,7 +93,7 @@ struct AggregateFunctionDistinctGenericData {
 
     void merge(const Self& rhs, Arena* arena) {
         Set::LookupResult it;
-        bool inserted;
+        bool inserted = false;
         for (const auto& elem : rhs.set) {
             set.emplace(ArenaKeyHolder {elem.get_value(), *arena}, it, inserted);
         }
