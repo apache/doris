@@ -19,53 +19,57 @@
 suite("test_local_tvf") {
     List<List<Object>> table =  sql """ select * from backends(); """
     assertTrue(table.size() > 0)
-    def be_id = table[0][0]
 
-    List<List<Object>> doris_log = sql """ ADMIN SHOW FRONTEND CONFIG like "sys_log_dir"; """
-    assertTrue(doris_log.size() > 0)
-    def doris_log_path = doris_log[0][1]
+    if ( table.size() == 1) {
+        // here may do not have fe log with multi doris be cluster
+        def be_id = table[0][0]
 
-    table = sql """
-        select count(*) from local(
-            "file_path" = "${doris_log_path}/fe.out",
-            "backend_id" = "${be_id}",
-            "format" = "csv")
-        where c1 like "%FE type%";"""
+        List<List<Object>> doris_log = sql """ ADMIN SHOW FRONTEND CONFIG like "sys_log_dir"; """
+        assertTrue(doris_log.size() > 0)
+        def doris_log_path = doris_log[0][1]
 
-    assertTrue(table.size() > 0)
-    assertTrue(Long.valueOf(table[0][0]) > 0)
+        table = sql """
+            select count(*) from local(
+                "file_path" = "${doris_log_path}/fe.out",
+                "backend_id" = "${be_id}",
+                "format" = "csv")
+            where c1 like "%FE type%";"""
 
-    table = sql """
-        select count(*) from local(
-            "file_path" = "${doris_log_path}/*.out",
-            "backend_id" = "${be_id}",
-            "format" = "csv")
-        where c1 like "%FE type%";"""
+        assertTrue(table.size() > 0)
+        assertTrue(Long.valueOf(table[0][0]) > 0)
 
-    assertTrue(table.size() > 0)
-    assertTrue(Long.valueOf(table[0][0]) > 0)
+        table = sql """
+            select count(*) from local(
+                "file_path" = "${doris_log_path}/*.out",
+                "backend_id" = "${be_id}",
+                "format" = "csv")
+            where c1 like "%FE type%";"""
 
-    test {
-        sql """
-        select count(*) from local(
-            "file_path" = "../fe.out",
-            "backend_id" = "${be_id}",
-            "format" = "csv")
-        where c1 like "%FE type%";
-        """
-        // check exception message contains
-        exception "can not contain '..' in path"
-    }
+        assertTrue(table.size() > 0)
+        assertTrue(Long.valueOf(table[0][0]) > 0)
 
-    test {
-        sql """
-        select count(*) from local(
-            "file_path" = "./xx.out",
-            "backend_id" = "${be_id}",
-            "format" = "csv")
-        where c1 like "%FE type%";
-        """
-        // check exception message contains
-        exception "No matches found"
+        test {
+            sql """
+            select count(*) from local(
+                "file_path" = "../fe.out",
+                "backend_id" = "${be_id}",
+                "format" = "csv")
+            where c1 like "%FE type%";
+            """
+            // check exception message contains
+            exception "can not contain '..' in path"
+        }
+
+        test {
+            sql """
+            select count(*) from local(
+                "file_path" = "./xx.out",
+                "backend_id" = "${be_id}",
+                "format" = "csv")
+            where c1 like "%FE type%";
+            """
+            // check exception message contains
+            exception "No matches found"
+        }
     }
 }
