@@ -213,6 +213,9 @@ class PruneOlapScanPartitionTest extends TestWithFeService implements MemoPatter
                 + "            PARTITION p3 ) \n"
                 + "        DISTRIBUTED BY HASH(k1) BUCKETS 5 properties(\"replication_num\" = \"1\")");
         test("test_default_parts", "k1 = 10", 1);
+        test("test_default_parts", "k1 > 5", 2);
+        test("test_default_parts", "k1 > 2", 3);
+        test("test_default_parts", "(k1 > 1 and k1 < 8)", 2);
     }
 
     @Test
