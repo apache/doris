@@ -216,10 +216,12 @@ Status UserFunctionCache::_get_cache_entry(int64_t fid, const std::string& url,
     std::string file_name = _get_file_name_from_url(url);
     {
         std::lock_guard<std::mutex> l(_cache_lock);
-        auto it = _entry_map.find(fid);
-        if (it != _entry_map.end()) {
-            entry = it->second;
-        } else {
+        for (const auto &item: _entry_map) {
+            if (item.second->checksum == checksum) {
+                entry = item.second;
+            }
+        }
+        if (entry == nullptr) {
             entry = UserFunctionCacheEntry::create_shared(
                     fid, checksum, _make_lib_file(fid, checksum, type, file_name), type);
             _entry_map.emplace(fid, entry);
