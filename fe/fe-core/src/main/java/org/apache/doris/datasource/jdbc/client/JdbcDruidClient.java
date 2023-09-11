@@ -54,9 +54,8 @@ public class JdbcDruidClient extends JdbcClient {
                 return Type.DOUBLE;
             case "FLOAT":
                 return Type.FLOAT;
-            case "TIMESTAMP": {
+            case "TIMESTAMP":
                 return ScalarType.createDatetimeV2Type(6);
-            }
             case "VARCHAR":
                 return ScalarType.createStringType();
             default:
@@ -68,6 +67,10 @@ public class JdbcDruidClient extends JdbcClient {
             switch (complexDataType) {
                 case "json":
                     return ScalarType.createJsonbType();
+                case "hyperUnique":
+                case "thetaSketch":
+                case "HLLSketch":
+                    return ScalarType.createStringType();
                 default:
                     return Type.UNSUPPORTED;
             }
