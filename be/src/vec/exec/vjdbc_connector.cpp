@@ -362,7 +362,7 @@ Status JdbcConnector::_check_type(SlotDescriptor* slot_desc, const std::string& 
         break;
     }
     case TYPE_JSONB: {
-        if (type_str != "java.lang.String" && type_str != "org.postgresql.util.PGobject") {
+        if (type_str != "java.lang.String" && type_str != "org.postgresql.util.PGobject" && type_str != "java.lang.Object") {
             return Status::InternalError(error_msg);
         }
 

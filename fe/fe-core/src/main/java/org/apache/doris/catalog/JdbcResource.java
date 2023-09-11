@@ -72,6 +72,7 @@ public class JdbcResource extends Resource {
     public static final String JDBC_TRINO = "jdbc:trino";
     public static final String JDBC_PRESTO = "jdbc:presto";
     public static final String JDBC_OCEANBASE = "jdbc:oceanbase";
+    public static final String JDBC_AVATICA_DRUID = "jdbc:avatica:remote:url";
 
     public static final String NEBULA = "NEBULA";
     public static final String MYSQL = "MYSQL";
@@ -84,6 +85,7 @@ public class JdbcResource extends Resource {
     public static final String PRESTO = "PRESTO";
     public static final String OCEANBASE = "OCEANBASE";
     public static final String OCEANBASE_ORACLE = "OCEANBASE_ORACLE";
+    public static final String DRUID = "DRUID";
 
     public static final String JDBC_PROPERTIES_PREFIX = "jdbc.";
     public static final String JDBC_URL = "jdbc_url";
@@ -286,6 +288,8 @@ public class JdbcResource extends Resource {
             return OCEANBASE;
         } else if (url.startsWith(JDBC_NEBULA)) {
             return NEBULA;
+        } else if (url.startsWith(JDBC_AVATICA_DRUID)) {
+            return DRUID;
         }
         throw new DdlException("Unsupported jdbc database type, please check jdbcUrl: " + url);
     }

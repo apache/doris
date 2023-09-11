@@ -81,6 +81,7 @@ public class JdbcTable extends Table {
         tempMap.put("presto", TOdbcTableType.PRESTO);
         tempMap.put("oceanbase", TOdbcTableType.OCEANBASE);
         tempMap.put("oceanbase_oracle", TOdbcTableType.OCEANBASE_ORACLE);
+        tempMap.put("druid", TOdbcTableType.DRUID);
         TABLE_TYPE_MAP = Collections.unmodifiableMap(tempMap);
     }
 
@@ -386,6 +387,7 @@ public class JdbcTable extends Table {
             case PRESTO:
             case OCEANBASE_ORACLE:
             case SAP_HANA:
+            case DRUID:
                 return formatName(name, "\"", "\"", false, false);
             case ORACLE:
                 return formatName(name, "\"", "\"", true, false);
