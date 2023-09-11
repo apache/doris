@@ -148,6 +148,7 @@ jobs:
           DISABLE_JAVA_UDF=ON DORIS_TOOLCHAIN=clang OUTPUT_BE_BINARY=0 ./build.sh --be
 
       - name: SonarCloud Scan
+        if: ${{ steps.filter.outputs.be_changes == 'true' }}
         uses: sonarsource/sonarcloud-github-action@master
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
