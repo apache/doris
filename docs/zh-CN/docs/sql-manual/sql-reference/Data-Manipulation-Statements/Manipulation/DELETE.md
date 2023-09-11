@@ -41,7 +41,7 @@ DELETE
 语法一：该语法只能指定过滤谓词
 
 ```SQL
-DELETE FROM table_name [table_alias] [PARTITION partition_name | PARTITIONS (partition_name [, partition_name])]
+DELETE FROM table_name [table_alias] [PARTITION partition_name | PARTITION (partition_name [, partition_name])]
 WHERE
 column_name op { value | value_list } [ AND column_name op { value | value_list } ...];
 ```
@@ -52,7 +52,7 @@ column_name op { value | value_list } [ AND column_name op { value | value_list 
 
 ```sql
 DELETE FROM table_name [table_alias]
-    [PARTITION partition_name | PARTITIONS (partition_name [, partition_name])]
+    [PARTITION partition_name | PARTITION (partition_name [, partition_name])]
     [USING additional_tables]
     WHERE condition
 ```
@@ -75,7 +75,7 @@ DELETE FROM table_name [table_alias]
 
 #### Optional Parameters
 
-+ PARTITION partition_name | PARTITIONS (partition_name [, partition_name]): 指定执行删除数据的分区名，如果表不存在此分区，则报错
++ PARTITION partition_name | PARTITION (partition_name [, partition_name]): 指定执行删除数据的分区名，如果表不存在此分区，则报错
 
 <version since="dev">
 
@@ -111,7 +111,7 @@ DELETE FROM table_name [table_alias]
 3. 删除 my_table partition p1, p2 中 k1 列值大于等于 3 且 k2 列值为 "abc" 的数据行
     
     ```sql
-    DELETE FROM my_table PARTITIONS (p1, p2)
+    DELETE FROM my_table PARTITION (p1, p2)
     WHERE k1 >= 3 AND k2 = "abc";
     ```
 
