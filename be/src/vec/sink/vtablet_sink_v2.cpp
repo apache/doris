@@ -155,8 +155,12 @@ Status VOlapTableSinkV2::open(RuntimeState* state) {
     SCOPED_TIMER(_open_timer);
     SCOPED_CONSUME_MEM_TRACKER(_mem_tracker.get());
 
-    _delta_writer_for_tablet =
-            ExecEnv::GetInstance()->delta_writer_v2_pool()->get_or_create(_load_id);
+    if (config::share_delta_writers) {
+        _delta_writer_for_tablet =
+                ExecEnv::GetInstance()->delta_writer_v2_pool()->get_or_create(_load_id)
+    } else {
+        _delta_writer_for_tablet = std::make_shared<DeltaWriterV2Map>(_load_id);
+    }
     _build_tablet_node_mapping();
     RETURN_IF_ERROR(_open_streams(state->backend_id()));
 
@@ -169,8 +173,19 @@ Status VOlapTableSinkV2::_open_streams(int64_t src_id) {
         if (node_info == nullptr) {
             return Status::InternalError("Unknown node {} in tablet location", dst_id);
         }
-        auto streams = ExecEnv::GetInstance()->load_stream_stub_pool()->get_or_create(
-                _load_id, src_id, dst_id);
+        std::shared_ptr<Streams> streams;
+        if (config::share_load_streams) {
+            streams = ExecEnv::GetInstance()->load_stream_stub_pool()->get_or_create(
+                    _load_id, src_id, dst_id);
+        } else {
+            int32_t num_streams = std::max(1, config::num_streams_per_sink);
+            streams = std::make_shared<Streams>();
+            LoadStreamStub template_stub {_load_id, _sender_id};
+            for (int32_t i = 0; i < num_streams; i++) {
+                // copy construct, internal tablet schema map will be shared among all stubs
+                streams->emplace_back(new LoadStreamStub {template_stub});
+            }
+        }
         // get tablet schema from each backend only in the 1st stream
         for (auto& stream : *streams | std::ranges::views::take(1)) {
             const std::vector<PTabletID>& tablets_for_schema = _indexes_from_node[node_info->id];
