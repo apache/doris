@@ -114,6 +114,10 @@ Status FlightSqlServer::init(int port) {
 }
 
 Status FlightSqlServer::join() {
+    if (port == -1) {
+        // Flight not inited, not need shutdown
+        return Status::OK();
+    }
     RETURN_DORIS_STATUS_IF_ERROR(Shutdown());
     return Status::OK();
 }
