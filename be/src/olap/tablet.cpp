@@ -2835,7 +2835,7 @@ Status Tablet::lookup_row_key(const Slice& encoded_key, bool with_seq_col,
 
         for (auto id : picked_segments) {
             Status s = segments[id]->lookup_row_key(encoded_key, with_seq_col, &loc);
-            if (s.is<ENTRY_NOT_FOUND>() || s.is<KEY_NOT_FOUND>() || s.is<END_OF_FILE>()) {
+            if (s.is<ENTRY_NOT_FOUND>() || s.is<KEY_NOT_FOUND>()) {
                 continue;
             }
             if (!s.ok() && !s.is<KEY_ALREADY_EXISTS>()) {

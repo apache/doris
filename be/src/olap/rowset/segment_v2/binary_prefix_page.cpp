@@ -206,7 +206,9 @@ Status BinaryPrefixPageDecoder::seek_at_or_after_value(const void* value, bool* 
         if (st.is<ErrorCode::END_OF_FILE>()) {
             return Status::Error<ErrorCode::ENTRY_NOT_FOUND>("all value small than the value");
         }
-        RETURN_IF_ERROR(st);
+        if (!st.ok()) {
+            return st;
+        }
     }
 }
 
