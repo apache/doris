@@ -1036,7 +1036,7 @@ struct ToNumberMonotonicity {
                 return {};
             }
         }
-
+        LOG(FATAL) << "__builtin_unreachable";
         __builtin_unreachable();
     }
 };

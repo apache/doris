@@ -31,8 +31,9 @@ import java.util.Objects;
 public abstract class MetastoreTableEvent extends MetastoreEvent {
 
     // for test
-    protected MetastoreTableEvent(long eventId, String catalogName, String dbName, String tblName) {
-        super(eventId, catalogName, dbName, tblName);
+    protected MetastoreTableEvent(long eventId, String catalogName, String dbName,
+                                  String tblName, MetastoreEventType eventType) {
+        super(eventId, catalogName, dbName, tblName, eventType);
     }
 
     protected MetastoreTableEvent(NotificationEvent event, String catalogName) {
@@ -66,6 +67,11 @@ public abstract class MetastoreTableEvent extends MetastoreEvent {
      * Returns if the process of this event will create or drop this table.
      */
     protected abstract boolean willCreateOrDropTable();
+
+    /**
+     * Returns if the process of this event will rename this table.
+     */
+    protected abstract boolean willChangeTableName();
 
     public TableKey getTableKey() {
         return new TableKey(catalogName, dbName, tblName);

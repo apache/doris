@@ -377,8 +377,16 @@ Status BlockReader::_unique_key_next_block(Block* block, bool* eof) {
                 reinterpret_cast<ColumnInt8*>(target_columns[delete_sign_idx].get())
                         ->get_data()
                         .data();
+        int delete_count = 0;
         for (int i = 0; i < target_block_row; ++i) {
-            filter_data[i] = delete_data[i] == 0;
+            bool sign = (delete_data[i] == 0);
+            filter_data[i] = sign;
+            if (UNLIKELY(!sign)) {
+                if (UNLIKELY(_reader_context.record_rowids)) {
+                    _block_row_locations[i].row_id = -1;
+                    delete_count++;
+                }
+            }
         }
 
         ColumnWithTypeAndName column_with_type_and_name {_delete_filter_column,
@@ -388,6 +396,9 @@ Status BlockReader::_unique_key_next_block(Block* block, bool* eof) {
         RETURN_IF_ERROR(Block::filter_block(block, target_columns.size(), target_columns.size()));
         _stats.rows_del_filtered += target_block_row - block->rows();
         DCHECK(block->try_get_by_name("__DORIS_COMPACTION_FILTER__") == nullptr);
+        if (UNLIKELY(_reader_context.record_rowids)) {
+            DCHECK_EQ(_block_row_locations.size(), block->rows() + delete_count);
+        }
     }
     return Status::OK();
 }

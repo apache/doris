@@ -1313,11 +1313,15 @@ public class FrontendServiceImpl implements FrontendService.Iface {
     }
 
     private List<Table> queryLoadCommitTables(TLoadTxnCommitRequest request, Database db) throws UserException {
+        if (request.isSetTableId() && request.getTableId() > 0) {
+            Table table = Env.getCurrentEnv().getInternalCatalog().getTableByTableId(request.getTableId());
+            return Collections.singletonList(table);
+        }
+
         List<String> tbNames;
         //check has multi table
         if (CollectionUtils.isNotEmpty(request.getTbls())) {
             tbNames = request.getTbls();
-
         } else {
             tbNames = Collections.singletonList(request.getTbl());
         }
@@ -2003,6 +2007,10 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             result.getParams().setTableName(parsedStmt.getTbl());
             // The txn_id here is obtained from the NativeInsertStmt
             result.getParams().setTxnConf(new TTxnParams().setTxnId(txn_id));
+            if (parsedStmt.isInnerGroupCommit) {
+                result.setBaseSchemaVersion(((OlapTable) parsedStmt.getTargetTable()).getBaseSchemaVersion());
+                result.getParams().params.setGroupCommit(true);
+            }
         } catch (UserException e) {
             LOG.warn("exec sql error", e);
             throw new UserException("exec sql error" + e);

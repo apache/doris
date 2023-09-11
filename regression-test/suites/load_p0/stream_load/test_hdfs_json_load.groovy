@@ -69,6 +69,8 @@ suite("test_hdfs_json_load", "p0,external,external_docker,external_docker_hive,h
                             "max_filter_ratio"="0"
                             );
                         """
+
+        println "${result1}"
         
         assertTrue(result1.size() == 1)
         assertTrue(result1[0].size() == 1)
