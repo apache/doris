@@ -148,11 +148,15 @@ public class JdbcExecutor {
             int columnCount = resultSetMetaData.getColumnCount();
             resultColumnTypeNames = new ArrayList<>(columnCount);
             block = new ArrayList<>(columnCount);
-            for (int i = 0; i < columnCount; ++i) {
-                if (!isNebula()) {
-                    resultColumnTypeNames.add(resultSetMetaData.getColumnClassName(i + 1));
+            if (isNebula()) {
+                for (int i = 0; i < columnCount; ++i) {
+                    block.add((Object[]) Array.newInstance(Object.class, batchSizeNum));
                 }
-                block.add((Object[]) Array.newInstance(Object.class, batchSizeNum));
+            } else {
+                for (int i = 0; i < columnCount; ++i) {
+                    resultColumnTypeNames.add(resultSetMetaData.getColumnClassName(i + 1));
+                    block.add((Object[]) Array.newInstance(Object.class, batchSizeNum));
+                }
             }
             return columnCount;
         } catch (SQLException e) {
@@ -367,16 +371,22 @@ public class JdbcExecutor {
         try {
             int columnCount = resultSetMetaData.getColumnCount();
             curBlockRows = 0;
-            do {
-                for (int i = 0; i < columnCount; ++i) {
-                    if (isNebula()) {
+
+            if (isNebula()) {
+                do {
+                    for (int i = 0; i < columnCount; ++i) {
                         block.get(i)[curBlockRows] = UdfUtils.convertObject((ValueWrapper) resultSet.getObject(i + 1));
-                    } else {
+                    }
+                    curBlockRows++;
+                } while (curBlockRows < batchSize && resultSet.next());
+            } else {
+                do {
+                    for (int i = 0; i < columnCount; ++i) {
                         block.get(i)[curBlockRows] = resultSet.getObject(i + 1);
                     }
-                }
-                curBlockRows++;
-            } while (curBlockRows < batchSize && resultSet.next());
+                    curBlockRows++;
+                } while (curBlockRows < batchSize && resultSet.next());
+            }
         } catch (SQLException e) {
             throw new UdfRuntimeException("get next block failed: ", e);
         }
