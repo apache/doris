@@ -69,8 +69,7 @@ statement
         TO filePath=STRING_LITERAL
         (propertyClause)?
         (withRemoteStorageSystem)?                                     #export
-    | CREATE MATERIALIZED VIEW (IF NOT EXISTS)? mvName=multipartIdentifier
-        buildMode
+    | CREATE MATERIALIZED VIEW (IF NOT EXISTS)? mvName=multipartIdentifier buildMode
         REFRESH refreshMethod refreshTrigger
         (KEY keys=identifierList)?
         (COMMENT STRING_LITERAL)?
@@ -96,7 +95,7 @@ refreshSchedule
     ;
 
 mvRefreshUnit
-    : SECOND | MINUTE | HOUR | DAY
+    : SECOND | MINUTE | HOUR | DAY | WEEK
     ;
 
 refreshMethod

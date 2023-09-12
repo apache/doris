@@ -488,7 +488,8 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     @Override
     public MVRefreshSchedule visitRefreshSchedule(RefreshScheduleContext ctx) {
         int interval = Integer.parseInt(ctx.INTEGER_VALUE().getText());
-        String startTime = ctx.STARTS() == null ? null : ctx.STRING_LITERAL().getText();
+        String startTime = ctx.STARTS() == null ? null
+                : ctx.STRING_LITERAL().getText().substring(1, ctx.STRING_LITERAL().getText().length() - 1);
         IntervalUnit unit = visitMvRefreshUnit(ctx.mvRefreshUnit());
         return new MVRefreshSchedule(startTime, interval, unit);
     }
