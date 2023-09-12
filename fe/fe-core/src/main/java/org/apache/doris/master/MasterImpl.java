@@ -67,6 +67,7 @@ import org.apache.thrift.TException;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.stream.Collectors;
 
 public class MasterImpl {
@@ -465,6 +466,10 @@ public class MasterImpl {
     }
 
     private void finishPublishVersion(AgentTask task, TFinishTaskRequest request) {
+        Map<Long, Long> succTablets = null;
+        if (request.isSetSuccTablets()) {
+            succTablets = request.getSuccTablets();
+        }
         List<Long> errorTabletIds = null;
         if (request.isSetErrorTabletIds()) {
             errorTabletIds = request.getErrorTabletIds();
@@ -478,6 +483,7 @@ public class MasterImpl {
         }
 
         PublishVersionTask publishVersionTask = (PublishVersionTask) task;
+        publishVersionTask.setSuccTablets(succTablets);
         publishVersionTask.addErrorTablets(errorTabletIds);
         publishVersionTask.setFinished(true);
 
