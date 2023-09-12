@@ -52,6 +52,7 @@ import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.SqlParserUtils;
 import org.apache.doris.common.util.TimeUtils;
+import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.analyzer.UnboundRelation;
 import org.apache.doris.nereids.analyzer.UnboundSlot;
@@ -270,13 +271,15 @@ public class ExportJob implements Writable {
         String catalogType = Env.getCurrentEnv().getCatalogMgr().getCatalog(this.tableName.getCtl()).getType();
         exportTable.readLock();
         try {
-            if ("internal".equals(catalogType)) {
+            if (InternalCatalog.INTERNAL_CATALOG_NAME.equals(catalogType)) {
                 if (exportTable.getType() == TableType.VIEW) {
                     // view table
                     generateViewOrExternalTableOutfile(qualifiedTableName);
-                } else {
+                } else if (exportTable.getType() == TableType.OLAP) {
                     // olap table
                     generateOlapTableOutfile(qualifiedTableName);
+                } else {
+                    throw new UserException("Do not support export table type [" + exportTable.getType() + "]");
                 }
             } else {
                 // external table
@@ -341,7 +344,7 @@ public class ExportJob implements Writable {
         // Because there is no division of tablets in view and external table
         // we set parallelism = 1;
         this.parallelism = 1;
-        LOG.info("Because there is no division of tablets in view and external table, we set parallelism = 1");
+        LOG.debug("Because there is no division of tablets in view and external table, we set parallelism = 1");
 
         // build source columns
         List<NamedExpression> selectLists = Lists.newArrayList();

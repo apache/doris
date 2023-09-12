@@ -21,7 +21,7 @@ import java.nio.charset.StandardCharsets
 import java.nio.file.Files
 import java.nio.file.Paths
 
-suite("test_export_external_table", "p0") {
+suite("test_export_external_table", "p0,external,mysql,external_docker,external_docker_mysql") {
     // open nereids
     sql """ set enable_nereids_planner=true """
     sql """ set enable_fallback_to_original_planner=false """

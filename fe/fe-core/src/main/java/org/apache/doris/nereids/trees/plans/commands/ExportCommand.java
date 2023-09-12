@@ -36,6 +36,7 @@ import org.apache.doris.common.FeNameFormat;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.datasource.CatalogIf;
+import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.load.ExportJob;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.exceptions.AnalysisException;
@@ -166,7 +167,7 @@ public class ExportCommand extends Command implements ForwardWithSync {
 
         CatalogIf catalog = ctx.getEnv().getCatalogMgr().getCatalogOrAnalysisException(tblName.getCtl());
         // As for external table, we do not support export PARTITION
-        if (!"internal".equals(catalog.getType())) {
+        if (!InternalCatalog.INTERNAL_CATALOG_NAME.equals(catalog.getType())) {
             throw new AnalysisException("Table[" + tblName.getTbl() + "] is EXTERNAL TABLE type, "
                     + "do not support export PARTITION.");
         }
