@@ -326,15 +326,15 @@ Status ProcessHashTableProbe<JoinOpType>::do_process(HashTableType& hash_table_c
                     }
                 }
                 int last_offset = current_offset;
-                auto find_result =
-                        !need_null_map_for_probe   ? key_getter.find_key(hash_table_ctx.hash_table,
-                                                                         probe_index, *_arena)
-                        : (*null_map)[probe_index] ? decltype(key_getter.find_key_with_hash(
-                                                             hash_table_ctx.hash_table,
-                                                             _probe_side_hash_values[probe_index],
-                                                             probe_index, *_arena)) {nullptr, false}
-                                                   : key_getter.find_key(hash_table_ctx.hash_table,
-                                                                         probe_index, *_arena);
+                auto find_result = !need_null_map_for_probe
+                                           ? key_getter.find_key(hash_table_ctx.hash_table,
+                                                                 probe_index, *_arena)
+                                   : (*null_map)[probe_index]
+                                           ? decltype(key_getter.find_key(hash_table_ctx.hash_table,
+                                                                          probe_index,
+                                                                          *_arena)) {nullptr, false}
+                                           : key_getter.find_key(hash_table_ctx.hash_table,
+                                                                 probe_index, *_arena);
                 if (probe_index + HASH_MAP_PREFETCH_DIST < probe_rows) {
                     key_getter.template prefetch_by_key<true>(hash_table_ctx.hash_table,
                                                               probe_index + HASH_MAP_PREFETCH_DIST,
@@ -555,6 +555,7 @@ Status ProcessHashTableProbe<JoinOpType>::do_process_with_other_join_conjuncts(
 
         int multi_matched_output_row_count = 0;
         if (current_offset < _batch_size) {
+            /*
             if (*(_join_context->_ready_probe_index) < probe_rows) {
                 _probe_side_hash_values.resize(probe_rows);
                 for (size_t k = *(_join_context->_ready_probe_index); k < probe_rows; ++k) {
@@ -574,6 +575,7 @@ Status ProcessHashTableProbe<JoinOpType>::do_process_with_other_join_conjuncts(
                 }
                 *(_join_context->_ready_probe_index) = probe_rows;
             }
+            */
 
             SCOPED_TIMER(_search_hashtable_timer);
             while (probe_index < probe_rows) {
@@ -607,23 +609,19 @@ Status ProcessHashTableProbe<JoinOpType>::do_process_with_other_join_conjuncts(
                 }
 
                 auto last_offset = current_offset;
-                auto find_result =
-                        !need_null_map_for_probe ? key_getter.find_key_with_hash(
-                                                           hash_table_ctx.hash_table,
-                                                           _probe_side_hash_values[probe_index],
-                                                           probe_index, *_arena)
-                        : (*null_map)[probe_index] ? decltype(key_getter.find_key_with_hash(
-                                                             hash_table_ctx.hash_table,
-                                                             _probe_side_hash_values[probe_index],
-                                                             probe_index, *_arena)) {nullptr, false}
-                                                   : key_getter.find_key_with_hash(
-                                                             hash_table_ctx.hash_table,
-                                                             _probe_side_hash_values[probe_index],
-                                                             probe_index, *_arena);
+                auto find_result = !need_null_map_for_probe
+                                           ? key_getter.find_key(hash_table_ctx.hash_table,
+                                                                 probe_index, *_arena)
+                                   : (*null_map)[probe_index]
+                                           ? decltype(key_getter.find_key(hash_table_ctx.hash_table,
+                                                                          probe_index,
+                                                                          *_arena)) {nullptr, false}
+                                           : key_getter.find_key(hash_table_ctx.hash_table,
+                                                                 probe_index, *_arena);
                 if (probe_index + HASH_MAP_PREFETCH_DIST < probe_rows) {
-                    key_getter.template prefetch_by_hash<true>(
-                            hash_table_ctx.hash_table,
-                            _probe_side_hash_values[probe_index + HASH_MAP_PREFETCH_DIST]);
+                    key_getter.template prefetch_by_key<true>(hash_table_ctx.hash_table,
+                                                              probe_index + HASH_MAP_PREFETCH_DIST,
+                                                              *_arena);
                 }
 
                 auto current_probe_index = probe_index;
