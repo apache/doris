@@ -115,4 +115,9 @@ suite('nereids_insert_into_values') {
     sql "insert into agg_have_dup_base_value values (-4, -4, -4, 'd')"
     sql "sync"
     qt_mv "select * from agg_have_dup_base_value"
+    
+    test {
+        sql 'select * from values(1, 2, 3), (4, 5, 6)'
+        result([[1, 2, 3], [4, 5, 6]])
+    }
 }

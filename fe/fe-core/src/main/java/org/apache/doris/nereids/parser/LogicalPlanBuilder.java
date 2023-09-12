@@ -741,11 +741,11 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         List<List<Expression>> exprsList = ctx.rowConstructor().stream()
                 .map(e -> visitRowConstructor(e).children())
                 .collect(ImmutableList.toImmutableList());
-        LogicalPlan relation = new LogicalOneRowRelation(
+        LogicalPlan relation = new UnboundOneRowRelation(
                 StatementScopeIdGenerator.newRelationId(),
                 exprsList.get(0).stream().map(e -> new Alias(e, e.toSql())).collect(ImmutableList.toImmutableList()));
         for (int i = 1; i < exprsList.size(); i++) {
-            relation = new LogicalUnion(Qualifier.ALL, ImmutableList.of(relation, new LogicalOneRowRelation(
+            relation = new LogicalUnion(Qualifier.ALL, ImmutableList.of(relation, new UnboundOneRowRelation(
                     StatementScopeIdGenerator.newRelationId(),
                     exprsList.get(i).stream().map(e -> new Alias(e, e.toSql()))
                             .collect(ImmutableList.toImmutableList()))));
