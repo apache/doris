@@ -838,6 +838,42 @@ struct BitmapContains {
     }
 };
 
+struct NameBitmapRemove {
+    static constexpr auto name = "bitmap_remove";
+};
+
+template <typename LeftDataType, typename RightDataType>
+struct BitmapRemove {
+    using ResultDataType = DataTypeBitMap;
+    using T0 = typename LeftDataType::FieldType;
+    using T1 = typename RightDataType::FieldType;
+    using LTData = std::vector<BitmapValue>;
+    using RTData = typename ColumnVector<T1>::Container;
+    using ResTData = std::vector<BitmapValue>;
+
+    static void vector_vector(const LTData& lvec, const RTData& rvec, ResTData& res) {
+        size_t size = lvec.size();
+        for (size_t i = 0; i < size; ++i) {
+            res[i] = lvec[i];
+            res[i].remove(rvec[i]);
+        }
+    }
+    static void vector_scalar(const LTData& lvec, const T1& rval, ResTData& res) {
+        size_t size = lvec.size();
+        for (size_t i = 0; i < size; ++i) {
+            res[i] = lvec[i];
+            res[i].remove(rval);
+        }
+    }
+    static void scalar_vector(const BitmapValue& lval, const RTData& rvec, ResTData& res) {
+        size_t size = rvec.size();
+        for (size_t i = 0; i < size; ++i) {
+            res[i] = lval;
+            res[i].remove(rvec[i]);
+        }
+    }
+};
+
 struct NameBitmapHasAny {
     static constexpr auto name = "bitmap_has_any";
 };
@@ -1227,6 +1263,8 @@ using FunctionBitmapAndNot =
         FunctionBinaryToType<DataTypeBitMap, DataTypeBitMap, BitmapAndNot, NameBitmapAndNot>;
 using FunctionBitmapContains =
         FunctionBinaryToType<DataTypeBitMap, DataTypeInt64, BitmapContains, NameBitmapContains>;
+using FunctionBitmapRemove =
+        FunctionBinaryToType<DataTypeBitMap, DataTypeInt64, BitmapRemove, NameBitmapRemove>;
 
 using FunctionBitmapHasAny =
         FunctionBinaryToType<DataTypeBitMap, DataTypeBitMap, BitmapHasAny, NameBitmapHasAny>;
@@ -1254,6 +1292,7 @@ void register_function_bitmap(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionBitmapAndNot>();
     factory.register_function<FunctionBitmapAndNotCount>();
     factory.register_function<FunctionBitmapContains>();
+    factory.register_function<FunctionBitmapRemove>();
     factory.register_function<FunctionBitmapHasAny>();
     factory.register_function<FunctionBitmapHasAll>();
     factory.register_function<FunctionSubBitmap>();
