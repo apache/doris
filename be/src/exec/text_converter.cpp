@@ -330,7 +330,7 @@ bool TextConverter::_write_data(const TypeDescriptor& type_desc,
                 kv = i;
                 continue;
             }
-            if (i == len || data[i] == _collection_delimiter) {
+	    if ((i == slice.size || slice[i] == collection_delimiter)&& i  >= kv + 1) {
                 ranges.push_back({from, kv, i - 1});
                 from = i + 1;
                 kv = from;
