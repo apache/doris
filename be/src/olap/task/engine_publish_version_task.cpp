@@ -34,8 +34,7 @@ using std::map;
 EnginePublishVersionTask::EnginePublishVersionTask(TPublishVersionRequest& publish_version_req,
                                                    std::vector<TTabletId>* error_tablet_ids,
                                                    std::vector<TTabletId>* succ_tablet_ids)
-        : _total_task_num(0),
-          _publish_version_req(publish_version_req),
+        : _publish_version_req(publish_version_req),
           _error_tablet_ids(error_tablet_ids),
           _succ_tablet_ids(succ_tablet_ids) {}
 
@@ -49,25 +48,14 @@ void EnginePublishVersionTask::add_succ_tablet_id(int64_t tablet_id) {
     _succ_tablet_ids->push_back(tablet_id);
 }
 
-void EnginePublishVersionTask::wait() {
-    std::unique_lock<std::mutex> lock(_tablet_finish_mutex);
-    _tablet_finish_cond.wait(lock);
-}
-
-void EnginePublishVersionTask::notify() {
-    std::unique_lock<std::mutex> lock(_tablet_finish_mutex);
-    _tablet_finish_cond.notify_one();
-}
-
-int64_t EnginePublishVersionTask::finish_task() {
-    return _total_task_num.fetch_sub(1);
-}
-
 Status EnginePublishVersionTask::finish() {
     Status res = Status::OK();
     int64_t transaction_id = _publish_version_req.transaction_id;
     OlapStopWatch watch;
     VLOG_NOTICE << "begin to process publish version. transaction_id=" << transaction_id;
+    std::unique_ptr<ThreadPoolToken> token =
+            StorageEngine::instance()->tablet_publish_txn_thread_pool()->new_token(
+                    ThreadPool::ExecutionMode::CONCURRENT);
 
     // each partition
     for (auto& par_ver_info : _publish_version_req.partition_version_infos) {
@@ -145,19 +133,13 @@ Status EnginePublishVersionTask::finish() {
                     continue;
                 }
             }
-            _total_task_num.fetch_add(1);
             auto tablet_publish_txn_ptr = std::make_shared<TabletPublishTxnTask>(
                     this, tablet, rowset, partition_id, transaction_id, version, tablet_info);
-            auto submit_st =
-                    StorageEngine::instance()->tablet_publish_txn_thread_pool()->submit_func(
-                            [=]() { tablet_publish_txn_ptr->handle(); });
+            auto submit_st = token->submit_func([=]() { tablet_publish_txn_ptr->handle(); });
             CHECK(submit_st.ok()) << submit_st;
         }
     }
-    // wait for all publish txn finished
-    while (_total_task_num.load() != 0) {
-        wait();
-    }
+    token->wait();
 
     // check if the related tablet remained all have the version
     for (auto& par_ver_info : _publish_version_req.partition_version_infos) {
@@ -209,11 +191,6 @@ TabletPublishTxnTask::TabletPublishTxnTask(EnginePublishVersionTask* engine_task
           _tablet_info(tablet_info) {}
 
 void TabletPublishTxnTask::handle() {
-    Defer defer {[&] {
-        if (_engine_publish_version_task->finish_task() == 1) {
-            _engine_publish_version_task->notify();
-        }
-    }};
     auto publish_status = StorageEngine::instance()->txn_manager()->publish_txn(
             _partition_id, _tablet, _transaction_id, _version);
     if (publish_status != Status::OK()) {
