@@ -40,13 +40,13 @@ public class FlightSqlService {
             = FlightServerMiddleware.Key.of(FLIGHT_CLIENT_PROPERTIES_MIDDLEWARE);
 
     public FlightSqlService(int port) {
-        BufferAllocator allocator = new RootAllocator(100000);
+        BufferAllocator allocator = new RootAllocator();
         Location location = Location.forGrpcInsecure("0.0.0.0", port);
         FlightSqlServiceImpl producer = new FlightSqlServiceImpl(location);
         flightServer = FlightServer.builder(allocator, location, producer)
             .middleware(FLIGHT_CLIENT_PROPERTIES_MIDDLEWARE_KEY,
                 new ServerCookieMiddleware.Factory())
-            .authHandler(new BasicServerAuthHandler(new FlightServerBasicAuth())).build();
+            .authHandler(new BasicServerAuthHandler(new FlightServerBasicAuthValidator())).build();
     }
 
     // start Flightsql protocol service

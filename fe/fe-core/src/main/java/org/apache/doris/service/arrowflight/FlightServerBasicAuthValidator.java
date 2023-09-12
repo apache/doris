@@ -26,11 +26,11 @@ import java.util.Optional;
  * authentication specialized implementation of BasicAuthValidator. Authenticates with provided
  * credentials.
  */
-public class FlightServerBasicAuth implements BasicServerAuthHandler.BasicAuthValidator {
+public class FlightServerBasicAuthValidator implements BasicServerAuthHandler.BasicAuthValidator {
 
     private static final String myToken = "DORIS_READ_WRITE_TOKEN";
 
-    public FlightServerBasicAuth() {
+    public FlightServerBasicAuthValidator() {
     }
 
     @Override

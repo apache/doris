@@ -2658,7 +2658,7 @@ public class StmtExecutor {
         }
     }
 
-    public void executeArrowFlightQuery(FlightStatementContext<Statement> flightStatementContext) {
+    public void executeArrowFlightQuery(FlightStatementContext flightStatementContext) {
         LOG.debug("ARROW FLIGHT QUERY: " + originStmt.toString());
         try {
             try {
@@ -2702,12 +2702,13 @@ public class StmtExecutor {
                 coord.exec();
             } catch (Exception e) {
                 queryScheduleSpan.recordException(e);
+                LOG.warn("Failed to coord exec, because: {}", e.getMessage(), e);
                 throw new InternalQueryExecutionException(e.getMessage() + Util.getRootCauseMessage(e), e);
             } finally {
                 queryScheduleSpan.end();
             }
         } finally {
-            QeProcessorImpl.INSTANCE.unregisterQuery(context.queryId());
+            QeProcessorImpl.INSTANCE.unregisterQuery(context.queryId()); // TODO for query profile
         }
         flightStatementContext.setFinstId(coord.getFinstId());
         flightStatementContext.setResultFlightServerAddr(coord.getResultFlightServerAddr());
