@@ -38,7 +38,6 @@ import java.math.BigInteger;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -272,28 +271,6 @@ public abstract class Type {
             .put(PrimitiveType.DECIMAL128, Sets.newHashSet(BigDecimal.class))
             .put(PrimitiveType.ARRAY, Sets.newHashSet(ArrayList.class))
             .build();
-                    .put(PrimitiveType.BOOLEAN, Sets.newHashSet(Boolean.class, boolean.class))
-                    .put(PrimitiveType.TINYINT, Sets.newHashSet(Byte.class, byte.class))
-                    .put(PrimitiveType.SMALLINT, Sets.newHashSet(Short.class, short.class))
-                    .put(PrimitiveType.INT, Sets.newHashSet(Integer.class, int.class))
-                    .put(PrimitiveType.FLOAT, Sets.newHashSet(Float.class, float.class))
-                    .put(PrimitiveType.DOUBLE, Sets.newHashSet(Double.class, double.class))
-                    .put(PrimitiveType.BIGINT, Sets.newHashSet(Long.class, long.class))
-                    .put(PrimitiveType.CHAR, Sets.newHashSet(String.class))
-                    .put(PrimitiveType.VARCHAR, Sets.newHashSet(String.class))
-                    .put(PrimitiveType.STRING, Sets.newHashSet(String.class))
-                    .put(PrimitiveType.DATE, DATE_SUPPORTED_JAVA_TYPE)
-                    .put(PrimitiveType.DATEV2, DATE_SUPPORTED_JAVA_TYPE)
-                    .put(PrimitiveType.DATETIME, DATETIME_SUPPORTED_JAVA_TYPE)
-                    .put(PrimitiveType.DATETIMEV2, DATETIME_SUPPORTED_JAVA_TYPE)
-                    .put(PrimitiveType.LARGEINT, Sets.newHashSet(BigInteger.class))
-                    .put(PrimitiveType.DECIMALV2, Sets.newHashSet(BigDecimal.class))
-                    .put(PrimitiveType.DECIMAL32, Sets.newHashSet(BigDecimal.class))
-                    .put(PrimitiveType.DECIMAL64, Sets.newHashSet(BigDecimal.class))
-                    .put(PrimitiveType.DECIMAL128, Sets.newHashSet(BigDecimal.class))
-                    .put(PrimitiveType.ARRAY, Sets.newHashSet(ArrayList.class))
-                    .put(PrimitiveType.MAP, Sets.newHashSet(HashMap.class))
-                    .build();
 
     public static ArrayList<ScalarType> getIntegerTypes() {
         return integerTypes;

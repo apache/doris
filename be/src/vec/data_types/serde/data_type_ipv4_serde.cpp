@@ -16,12 +16,7 @@
 // under the License.
 
 #include "data_type_ipv4_serde.h"
-
 #include <arrow/builder.h>
-
-#include <type_traits>
-
-#include "gutil/casts.h"
 #include "vec/columns/column_const.h"
 
 namespace doris {
