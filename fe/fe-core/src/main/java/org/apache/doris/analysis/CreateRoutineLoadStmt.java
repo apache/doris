@@ -92,6 +92,7 @@ public class CreateRoutineLoadStmt extends DdlStmt {
 
     // routine load properties
     public static final String DESIRED_CONCURRENT_NUMBER_PROPERTY = "desired_concurrent_number";
+    public static final String CURRENT_CONCURRENT_NUMBER_PROPERTY = "current_concurrent_number";
     // max error number in ten thousand records
     public static final String MAX_ERROR_NUMBER_PROPERTY = "max_error_number";
     // the following 3 properties limit the time and batch size of a single routine load task
