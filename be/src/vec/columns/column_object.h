@@ -34,6 +34,7 @@
 #include <vector>
 
 #include "common/status.h"
+#include "olap/tablet_schema.h"
 #include "vec/columns/column.h"
 #include "vec/columns/subcolumn_tree.h"
 #include "vec/common/cow.h"
@@ -336,7 +337,9 @@ public:
 
     void remove_subcolumns(const std::unordered_set<std::string>& keys);
 
-    void finalize(bool ignore_sparse);
+    // use sparse_subcolumns_schema to record sparse column's path info and type
+    void finalize(bool ignore_sparse,
+                  std::vector<TabletColumn>* sparse_subcolumns_schema = nullptr);
 
     /// Finalizes all subcolumns.
     void finalize() override;

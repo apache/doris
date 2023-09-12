@@ -717,6 +717,11 @@ Status VerticalSegmentWriter::write_batch() {
         RETURN_IF_ERROR(_column_writers[cid]->write_data());
     }
 
+    // add sparse column to footer
+    for (uint32_t i = 0; i < _tablet_schema->num_sparse_columns(); i++) {
+        _init_column_meta(_footer.add_sparse_columns(), -1, _tablet_schema->sparse_column_at(i));
+    }
+
     for (auto& data : _batched_blocks) {
         _olap_data_convertor->set_source_content(data.block, data.row_pos, data.num_rows);
         // find all row pos for short key indexes

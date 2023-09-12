@@ -242,6 +242,7 @@ public:
     void init_from_pb(const TabletSchemaPB& schema, bool ignore_extracted_columns = false);
     void to_schema_pb(TabletSchemaPB* tablet_meta_pb) const;
     void append_column(TabletColumn column, ColumnType col_type = ColumnType::NORMAL);
+    void append_sparse_column(TabletColumn column);
     void append_index(TabletIndex index);
     void update_index(const TabletColumn& column, TabletIndex index);
     void remove_index(int64_t index_id);
@@ -260,11 +261,14 @@ public:
     int32_t field_index(int32_t col_unique_id) const;
     const TabletColumn& column(size_t ordinal) const;
     const TabletColumn& column(const std::string& field_name) const;
+    const TabletColumn& sparse_column_at(size_t oridinal) const;
     Status have_column(const std::string& field_name) const;
     const TabletColumn& column_by_uid(int32_t col_unique_id) const;
     const std::vector<TabletColumn>& columns() const;
+    const std::vector<TabletColumn>& sparse_columns() const;
     std::vector<TabletColumn>& mutable_columns();
     size_t num_columns() const { return _num_columns; }
+    size_t num_sparse_columns() const { return _num_sparse_columns; }
     size_t num_key_columns() const { return _num_key_columns; }
     const std::vector<uint32_t>& cluster_key_idxes() const { return _cluster_key_idxes; }
     size_t num_null_columns() const { return _num_null_columns; }
@@ -315,6 +319,7 @@ public:
     // If schema version is not set, it should be -1
     int32_t schema_version() const { return _schema_version; }
     void clear_columns();
+    void clear_sparse_columns();
     vectorized::Block create_block(
             const std::vector<uint32_t>& return_columns,
             const std::unordered_set<uint32_t>* tablet_columns_need_convert_null = nullptr) const;
@@ -376,6 +381,19 @@ public:
             str += (_cols[p.second].is_nullable() ? "true" : "false");
             str += ")";
         }
+        for (auto column : _sparse_cols) {
+            if (str.size() > 1) {
+                str += ", ";
+            }
+            str += "(SPARSE: ";
+            str += column.name();
+            str += ", ";
+            str += TabletColumn::get_string_by_field_type(column.type());
+            str += ", ";
+            str += "is_nullable:";
+            str += (column.is_nullable() ? "true" : "false");
+            str += ")";
+        }
         str += "]";
         return str;
     }
@@ -392,12 +410,20 @@ private:
     SortType _sort_type = SortType::LEXICAL;
     size_t _sort_col_num = 0;
     std::vector<TabletColumn> _cols;
+
+    // Record information about columns merged into a sparse column within a variant
+    // `{"id": 100, "name" : "jack", "point" : 3.9}`
+    // If the information mentioned above is inserted into the variant column,
+    // 'id' and 'name' are correctly extracted, while 'point' is merged into the sparse column due to its sparsity.
+    // The path_info and type of 'point' will be recorded using the TabletColumn.
+    std::vector<TabletColumn> _sparse_cols;
     std::vector<TabletIndex> _indexes;
     std::unordered_map<std::string, int32_t> _field_name_to_index;
     std::unordered_map<int32_t, int32_t> _field_id_to_index;
     std::unordered_map<vectorized::PathInData, int32_t, vectorized::PathInData::Hash>
             _field_path_to_index;
     size_t _num_columns = 0;
+    size_t _num_sparse_columns = 0;
     size_t _num_variant_columns = 0;
     size_t _num_key_columns = 0;
     std::vector<uint32_t> _cluster_key_idxes;

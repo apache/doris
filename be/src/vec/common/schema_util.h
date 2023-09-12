@@ -109,7 +109,12 @@ Status get_least_common_schema(const std::vector<TabletSchemaSPtr>& schemas,
 // Get least common types for extracted columns which has Path info,
 // with a speicified variant column's unique id
 void update_least_common_schema(const std::vector<TabletSchemaSPtr>& schemas,
-                                TabletSchemaSPtr& common_schema, int32_t variant_col_unique_id);
+                                TabletSchemaSPtr& common_schema, int32_t variant_col_unique_id,
+                                std::unordered_set<PathInData, PathInData::Hash>* path_set);
+
+void update_least_sparse_column(const std::vector<TabletSchemaSPtr>& schemas,
+                                TabletSchemaSPtr& common_schema, int32_t variant_col_unique_id,
+                                const std::unordered_set<PathInData, PathInData::Hash>& path_set);
 
 // inherit index info from it's parent column
 void inherit_tablet_index(TabletSchemaSPtr& schema);

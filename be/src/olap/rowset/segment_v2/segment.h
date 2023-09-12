@@ -193,6 +193,9 @@ private:
     Status _create_column_readers(const SegmentFooterPB& footer);
     Status _load_pk_bloom_filter();
     ColumnReader* _get_column_reader(const TabletColumn& col);
+    Status new_iterator_with_root(const TabletColumn& tablet_column,
+                                  std::unique_ptr<ColumnIterator>* iter,
+                                  const SubcolumnColumnReaders::Node* root);
 
     Status _load_index_impl();
 
@@ -222,6 +225,9 @@ private:
     // Each node in the tree represents the sub column reader and type
     // for variants.
     SubcolumnColumnReaders _sub_column_tree;
+
+    // each sprase column's path info
+    SubcolumnColumnReaders _sparse_column_tree;
 
     // used to guarantee that short key index will be loaded at most once in a thread-safe way
     DorisCallOnce<Status> _load_index_once;

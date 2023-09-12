@@ -812,6 +812,11 @@ void TabletSchema::append_column(TabletColumn column, ColumnType col_type) {
     _num_columns++;
 }
 
+void TabletSchema::append_sparse_column(TabletColumn column) {
+    _sparse_cols.push_back(std::move(column));
+    _num_sparse_columns++;
+}
+
 void TabletSchema::append_index(TabletIndex index) {
     _indexes.push_back(std::move(index));
 }
@@ -853,6 +858,12 @@ void TabletSchema::clear_columns() {
     _num_null_columns = 0;
     _num_key_columns = 0;
     _cols.clear();
+    clear_sparse_columns();
+}
+
+void TabletSchema::clear_sparse_columns() {
+    _num_sparse_columns = 0;
+    _sparse_cols.clear();
 }
 
 void TabletSchema::init_from_pb(const TabletSchemaPB& schema, bool ignore_extracted_columns) {
@@ -866,6 +877,7 @@ void TabletSchema::init_from_pb(const TabletSchemaPB& schema, bool ignore_extrac
     _field_name_to_index.clear();
     _field_id_to_index.clear();
     _cluster_key_idxes.clear();
+    clear_sparse_columns();
     for (const auto& i : schema.cluster_key_idxes()) {
         _cluster_key_idxes.push_back(i);
     }
@@ -888,6 +900,12 @@ void TabletSchema::init_from_pb(const TabletSchemaPB& schema, bool ignore_extrac
         _field_id_to_index[column.unique_id()] = _num_columns;
         _cols.emplace_back(std::move(column));
         _num_columns++;
+    }
+    for (auto& column_pb : schema.sparse_column()) {
+        TabletColumn column;
+        column.init_from_pb(column_pb);
+        _sparse_cols.emplace_back(std::move(column));
+        _num_sparse_columns++;
     }
     for (auto& index_pb : schema.index()) {
         TabletIndex index;
@@ -969,6 +987,7 @@ void TabletSchema::build_current_tablet_schema(int64_t index_id, int32_t version
     for (const auto& i : ori_tablet_schema._cluster_key_idxes) {
         _cluster_key_idxes.push_back(i);
     }
+    clear_sparse_columns();
     for (auto& column : index->columns) {
         if (column->is_key()) {
             _num_key_columns++;
@@ -1080,6 +1099,10 @@ void TabletSchema::to_schema_pb(TabletSchemaPB* tablet_schema_pb) const {
         ColumnPB* column = tablet_schema_pb->add_column();
         col.to_schema_pb(column);
     }
+    for (auto& col : _sparse_cols) {
+        ColumnPB* column = tablet_schema_pb->add_sparse_column();
+        col.to_schema_pb(column);
+    }
     for (auto& index : _indexes) {
         auto index_pb = tablet_schema_pb->add_index();
         index.to_schema_pb(index_pb);
@@ -1134,6 +1157,10 @@ const std::vector<TabletColumn>& TabletSchema::columns() const {
     return _cols;
 }
 
+const std::vector<TabletColumn>& TabletSchema::sparse_columns() const {
+    return _sparse_cols;
+}
+
 std::vector<TabletColumn>& TabletSchema::mutable_columns() {
     return _cols;
 }
@@ -1141,6 +1168,12 @@ std::vector<TabletColumn>& TabletSchema::mutable_columns() {
 const TabletColumn& TabletSchema::column(size_t ordinal) const {
     DCHECK(ordinal < _num_columns) << "ordinal:" << ordinal << ", _num_columns:" << _num_columns;
     return _cols[ordinal];
+}
+
+const TabletColumn& TabletSchema::sparse_column_at(size_t ordinal) const {
+    DCHECK(ordinal < _sparse_cols.size())
+            << "ordinal:" << ordinal << ", _num_columns:" << _sparse_cols.size();
+    return _sparse_cols[ordinal];
 }
 
 const TabletColumn& TabletSchema::column_by_uid(int32_t col_unique_id) const {

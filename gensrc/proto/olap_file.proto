@@ -343,6 +343,7 @@ message TabletSchemaPB {
     optional bool enable_single_replica_compaction = 22 [default=false];
     optional bool skip_write_index_on_load = 23 [default=false];
     repeated int32 cluster_key_idxes = 24;
+    repeated ColumnPB sparse_column = 25;  // sparse column within a variant column
 }
 
 message TabletSchemaCloudPB {

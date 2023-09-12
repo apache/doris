@@ -219,6 +219,8 @@ message SegmentFooterPB {
 
     // Primary key index meta
     optional PrimaryKeyIndexMetaPB primary_key_index_meta = 10;
+    
+    repeated ColumnMetaPB sparse_columns = 11; // sparse column within a variant column
 }
 
 message BTreeMetaPB {

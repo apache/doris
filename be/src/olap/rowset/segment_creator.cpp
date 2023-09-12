@@ -149,6 +149,19 @@ Status SegmentFlusher::_expand_variant_to_subcolumns(vectorized::Block& block,
                             final_data_type_from_object, column_name});
     };
 
+    auto append_sparse_column = [&](const TabletColumn& parent_variant, auto&& sparse_column) {
+        const std::string& column_name =
+                parent_variant.name_lower_case() + "." + sparse_column.name();
+        sparse_column.set_name(column_name);
+        vectorized::PathInDataBuilder full_path_builder;
+        auto full_path = full_path_builder.append(parent_variant.name_lower_case(), false)
+                                 .append(sparse_column.path_info().get_parts(), false)
+                                 .build();
+        sparse_column.set_path_info(full_path);
+        sparse_column.set_parent_unique_id(parent_variant.unique_id());
+        flush_schema->append_sparse_column(std::move(sparse_column));
+    };
+
     // 1. Flatten variant column into flat columns, append flatten columns to the back of original Block and TabletSchema
     // those columns are extracted columns, leave none extracted columns remain in original variant column, which is
     // JSONB format at present.
@@ -171,6 +184,15 @@ Status SegmentFlusher::_expand_variant_to_subcolumns(vectorized::Block& block,
             }
             append_column(parent_column, entry);
         }
+
+        // add sparse columns to flush_schema
+        auto it = variant_sparse_subcolumns.find(variant_column_pos[i]);
+        if (it != variant_sparse_subcolumns.end() && !it->second.empty()) {
+            for (auto& sparse_column : it->second) {
+                append_sparse_column(parent_column, std::move(sparse_column));
+            }
+        }
+
         // Create new variant column and set root column
         auto obj = vectorized::ColumnObject::create(true, false);
         // '{}' indicates a root path
