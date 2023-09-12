@@ -503,16 +503,31 @@ Status ColumnReader::_load_inverted_index_index(const TabletIndex* index_meta) {
 
     if (is_string_type(type)) {
         if (parser_type != InvertedIndexParserType::PARSER_NONE) {
-            _inverted_index = FullTextIndexReader::create_shared(
-                    _file_reader->fs(), _file_reader->path().native(), index_meta);
-            return Status::OK();
+            try {
+                _inverted_index = FullTextIndexReader::create_shared(
+                        _file_reader->fs(), _file_reader->path().native(), index_meta);
+                return Status::OK();
+            } catch (const CLuceneError& e) {
+                return Status::Error<ErrorCode::INVERTED_INDEX_CLUCENE_ERROR>(
+                        "create FullTextIndexReader error: {}", e.what());
+            }
         } else {
-            _inverted_index = StringTypeInvertedIndexReader::create_shared(
-                    _file_reader->fs(), _file_reader->path().native(), index_meta);
+            try {
+                _inverted_index = StringTypeInvertedIndexReader::create_shared(
+                        _file_reader->fs(), _file_reader->path().native(), index_meta);
+            } catch (const CLuceneError& e) {
+                return Status::Error<ErrorCode::INVERTED_INDEX_CLUCENE_ERROR>(
+                        "create StringTypeInvertedIndexReader error: {}", e.what());
+            }
         }
     } else if (is_numeric_type(type)) {
-        _inverted_index = BkdIndexReader::create_shared(_file_reader->fs(),
-                                                        _file_reader->path().native(), index_meta);
+        try {
+            _inverted_index = BkdIndexReader::create_shared(
+                    _file_reader->fs(), _file_reader->path().native(), index_meta);
+        } catch (const CLuceneError& e) {
+            return Status::Error<ErrorCode::INVERTED_INDEX_CLUCENE_ERROR>(
+                    "create BkdIndexReader error: {}", e.what());
+        }
     } else {
         _inverted_index.reset();
     }
