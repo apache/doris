@@ -28,10 +28,12 @@ import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
+import com.google.common.collect.Sets;
 
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
 
 /**
  * PartitionPruner
@@ -76,14 +78,23 @@ public class PartitionPruner {
         partitionPredicate = TryEliminateUninterestedPredicates.rewrite(
                 partitionPredicate, ImmutableSet.copyOf(partitionSlots), cascadesContext);
 
+        Set<Long> defaultPartitionIds = Sets.newHashSet();
         List<OnePartitionEvaluator> evaluators = idToPartitions.entrySet()
                 .stream()
+                .peek(kv -> {
+                    if (kv.getValue().isDefaultPartition()) {
+                        defaultPartitionIds.add(kv.getKey());
+                    }
+                })
                 .map(kv -> toPartitionEvaluator(kv.getKey(), kv.getValue(), partitionSlots, cascadesContext,
                         partitionTableType))
                 .collect(ImmutableList.toImmutableList());
 
         PartitionPruner partitionPruner = new PartitionPruner(evaluators, partitionPredicate);
-        return partitionPruner.prune();
+        //TODO: we keep default partition because it's too hard to prune it.
+        Set<Long> prunedPartition = Sets.newHashSet(partitionPruner.prune());
+        prunedPartition.addAll(defaultPartitionIds);
+        return ImmutableList.copyOf(prunedPartition);
     }
 
     /**

@@ -198,7 +198,7 @@ class PruneOlapScanPartitionTest extends TestWithFeService implements MemoPatter
 
     @Test
     public void prunePartitionWithDefaultPartition() throws Exception {
-        createTable("CREATE TABLE IF NOT EXISTS test_default_parts ( \n"
+        createTable("CREATE TABLE IF NOT EXISTS test_default_in_parts (\n"
                 + "            k1 tinyint NOT NULL, \n"
                 + "            k2 smallint NOT NULL, \n"
                 + "            k3 int NOT NULL, \n"
@@ -212,10 +212,10 @@ class PruneOlapScanPartitionTest extends TestWithFeService implements MemoPatter
                 + "            PARTITION p2 VALUES IN (\"5\",\"6\",\"7\",\"8\"), \n"
                 + "            PARTITION p3 ) \n"
                 + "        DISTRIBUTED BY HASH(k1) BUCKETS 5 properties(\"replication_num\" = \"1\")");
-        test("test_default_parts", "k1 = 10", 1);
-        test("test_default_parts", "k1 > 5", 2);
-        test("test_default_parts", "k1 > 2", 3);
-        test("test_default_parts", "(k1 > 1 and k1 < 8)", 2);
+        test("test_default_in_parts", "k1 = 10", 1);
+        test("test_default_in_parts", "k1 > 5", 2);
+        test("test_default_in_parts", "k1 > 2", 3);
+        test("test_default_in_parts", "(k1 > 1 and k1 < 8)", 3);
     }
 
     @Test
