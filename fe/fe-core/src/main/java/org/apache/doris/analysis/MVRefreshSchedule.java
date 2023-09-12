@@ -17,9 +17,14 @@
 
 package org.apache.doris.analysis;
 
+import org.apache.doris.common.util.TimeUtils;
+import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.scheduler.common.IntervalUnit;
 
 import com.google.gson.annotations.SerializedName;
+import org.apache.commons.lang3.StringUtils;
+
+import java.util.Objects;
 
 public class MVRefreshSchedule {
     @SerializedName("startTime")
@@ -35,8 +40,8 @@ public class MVRefreshSchedule {
 
     public MVRefreshSchedule(String startTime, int interval, IntervalUnit timeUnit) {
         this.startTime = startTime;
-        this.interval = interval;
-        this.timeUnit = timeUnit;
+        this.interval = Objects.requireNonNull(interval, "require interval object");
+        this.timeUnit = Objects.requireNonNull(timeUnit, "require timeUnit object");
     }
 
     public String getStartTime() {
@@ -49,5 +54,17 @@ public class MVRefreshSchedule {
 
     public IntervalUnit getTimeUnit() {
         return timeUnit;
+    }
+
+    public void validate() {
+        if (interval <= 0) {
+            throw new AnalysisException("interval must be greater than 0");
+        }
+        if (!StringUtils.isEmpty(startTime)) {
+            long startsTimeMillis = TimeUtils.timeStringToLong(startTime);
+            if (startsTimeMillis < System.currentTimeMillis()) {
+                throw new AnalysisException("starts time must be greater than current time");
+            }
+        }
     }
 }

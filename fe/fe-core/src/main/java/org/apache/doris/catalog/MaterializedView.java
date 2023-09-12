@@ -109,8 +109,14 @@ public class MaterializedView extends OlapTable {
 
     @Override
     public void readFields(DataInput in) throws IOException {
-        //        super.readFields(in);
-        //        MaterializedView materializedView = GsonUtils.GSON.fromJson(Text.readString(in), this.getClass());
+        super.readFields(in);
+        MaterializedView materializedView = GsonUtils.GSON.fromJson(Text.readString(in), this.getClass());
+        buildMode = materializedView.buildMode;
+        refreshMethod = materializedView.refreshMethod;
+        refreshTriggerInfo = materializedView.refreshTriggerInfo;
+        querySql = materializedView.querySql;
+        originSql = materializedView.originSql;
+        baseTables = materializedView.baseTables;
     }
 
 }

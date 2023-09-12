@@ -18,8 +18,11 @@
 package org.apache.doris.analysis;
 
 import org.apache.doris.analysis.MVRefreshInfo.RefreshTrigger;
+import org.apache.doris.nereids.exceptions.AnalysisException;
 
 import com.google.gson.annotations.SerializedName;
+
+import java.util.Objects;
 
 public class MVRefreshTriggerInfo {
     @SerializedName("refreshTrigger")
@@ -35,7 +38,7 @@ public class MVRefreshTriggerInfo {
     }
 
     public MVRefreshTriggerInfo(RefreshTrigger refreshTrigger, MVRefreshSchedule intervalTrigger) {
-        this.refreshTrigger = refreshTrigger;
+        this.refreshTrigger = Objects.requireNonNull(refreshTrigger, "require refreshTrigger object");
         this.intervalTrigger = intervalTrigger;
     }
 
@@ -45,5 +48,14 @@ public class MVRefreshTriggerInfo {
 
     public MVRefreshSchedule getIntervalTrigger() {
         return intervalTrigger;
+    }
+
+    public void validate() {
+        if (refreshTrigger.equals(RefreshTrigger.SCHEDULE)) {
+            if (intervalTrigger == null) {
+                throw new AnalysisException("require intervalTrigger object.");
+            }
+            intervalTrigger.validate();
+        }
     }
 }

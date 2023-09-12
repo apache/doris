@@ -299,6 +299,7 @@ import org.apache.doris.nereids.trees.plans.commands.ExportCommand;
 import org.apache.doris.nereids.trees.plans.commands.InsertIntoTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.UpdateCommand;
 import org.apache.doris.nereids.trees.plans.commands.info.ColumnDefinition;
+import org.apache.doris.nereids.trees.plans.commands.info.CreateMTMVInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.CreateTableInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.DefaultValue;
 import org.apache.doris.nereids.trees.plans.commands.info.DistributionDescriptor;
@@ -427,16 +428,42 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
 
     @Override
     public CreateMTMVCommand visitCreateMTMV(CreateMTMVContext ctx) {
+        String dbName = null;
+        String tableName;
+        List<String> nameParts = visitMultipartIdentifier(ctx.mvName);
+        if (nameParts.size() == 1) {
+            tableName = nameParts.get(0);
+        } else if (nameParts.size() == 2) {
+            dbName = nameParts.get(0);
+            tableName = nameParts.get(1);
+        } else {
+            throw new AnalysisException("nameParts in create table should be 1 or 2");
+        }
+
         BuildMode buildMode = visitBuildMode(ctx.buildMode());
         RefreshMethod refreshMethod = visitRefreshMethod(ctx.refreshMethod());
         MVRefreshTriggerInfo refreshTriggerInfo = visitRefreshTrigger(ctx.refreshTrigger());
         LogicalPlan logicalPlan = visitQuery(ctx.query());
         String querySql = getOriginSql(ctx.query());
-        return new CreateMTMVCommand(logicalPlan, buildMode, refreshMethod, refreshTriggerInfo, querySql);
+        String originSql = getOriginSql(ctx);
+
+        DistributionDescriptor distributionDesc = new DistributionDescriptor(ctx.HASH() != null, ctx.AUTO() != null,
+                Integer.parseInt(ctx.INTEGER_VALUE().getText()),
+                ctx.HASH() != null ? visitIdentifierList(ctx.hashKeys) : null);
+        Map<String, String> properties = ctx.propertyClause() != null
+                ? visitPropertyClause(ctx.propertyClause()) : null;
+
+        return new CreateMTMVCommand(new CreateMTMVInfo(ctx.EXISTS() != null, dbName, tableName,
+                ctx.keys != null ? visitIdentifierList(ctx.keys) : ImmutableList.of(),
+                ctx.STRING_LITERAL() != null ? ctx.STRING_LITERAL().getText() : null,
+                distributionDesc, properties, logicalPlan, querySql, originSql, buildMode, refreshMethod,
+                refreshTriggerInfo
+        ));
     }
 
     /**
      * get originSql
+     *
      * @param ctx context
      * @return originSql
      */
@@ -648,8 +675,8 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             LogicalPlan queryPlan = plan(ctx.query());
             Optional<List<String>> columnNames = optionalVisit(ctx.columnAliases(), () ->
                     ctx.columnAliases().identifier().stream()
-                    .map(RuleContext::getText)
-                    .collect(ImmutableList.toImmutableList())
+                            .map(RuleContext::getText)
+                            .collect(ImmutableList.toImmutableList())
             );
             return new LogicalSubQueryAlias<>(ctx.identifier().getText(), columnNames, queryPlan);
         });
@@ -977,7 +1004,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                     return new NullSafeEqual(left, right);
                 default:
                     throw new ParseException("Unsupported comparison expression: "
-                        + operator.getSymbol().getText(), ctx);
+                            + operator.getSymbol().getText(), ctx);
             }
         });
     }
@@ -1336,11 +1363,11 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     /**
      * Create a value based [[CaseWhen]] expression. This has the following SQL form:
      * {{{
-     *   CASE [expression]
-     *    WHEN [value] THEN [expression]
-     *    ...
-     *    ELSE [expression]
-     *   END
+     * CASE [expression]
+     * WHEN [value] THEN [expression]
+     * ...
+     * ELSE [expression]
+     * END
      * }}}
      */
     @Override
@@ -1358,11 +1385,11 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     /**
      * Create a condition based [[CaseWhen]] expression. This has the following SQL syntax:
      * {{{
-     *   CASE
-     *    WHEN [predicate] THEN [expression]
-     *    ...
-     *    ELSE [expression]
-     *   END
+     * CASE
+     * WHEN [predicate] THEN [expression]
+     * ...
+     * ELSE [expression]
+     * END
      * }}}
      *
      * @param context the parse tree
@@ -1503,8 +1530,8 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         List<OrderExpression> orderKeyList = Lists.newArrayList();
         if (ctx.sortClause() != null) {
             orderKeyList = visit(ctx.sortClause().sortItem(), OrderKey.class).stream()
-                .map(orderKey -> new OrderExpression(orderKey))
-                .collect(Collectors.toList());
+                    .map(orderKey -> new OrderExpression(orderKey))
+                    .collect(Collectors.toList());
         }
 
         if (ctx.windowFrame() != null) {
@@ -1758,8 +1785,8 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     @Override
     public List<String> visitMultipartIdentifier(MultipartIdentifierContext ctx) {
         return ctx.parts.stream()
-            .map(RuleContext::getText)
-            .collect(ImmutableList.toImmutableList());
+                .map(RuleContext::getText)
+                .collect(ImmutableList.toImmutableList());
     }
 
     /**
@@ -1776,8 +1803,8 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     @Override
     public List<String> visitIdentifierSeq(IdentifierSeqContext ctx) {
         return ctx.ident.stream()
-            .map(RuleContext::getText)
-            .collect(ImmutableList.toImmutableList());
+                .map(RuleContext::getText)
+                .collect(ImmutableList.toImmutableList());
     }
 
     @Override
@@ -2169,7 +2196,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                         throw new ParseException("only column name is supported in except clause", selectColumnCtx);
                     }
                     project = new LogicalProject<>(ImmutableList.of(new UnboundStar(ImmutableList.of())),
-                        expressions, isDistinct, aggregate);
+                            expressions, isDistinct, aggregate);
                 } else {
                     List<NamedExpression> projects = getNamedExpressions(selectColumnCtx.namedExpressionSeq());
                     project = new LogicalProject<>(projects, ImmutableList.of(), isDistinct, aggregate);
@@ -2329,7 +2356,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     }
 
     private LogicalPlan withProjection(LogicalPlan input, SelectColumnClauseContext selectCtx,
-                                       Optional<AggClauseContext> aggCtx, boolean isDistinct) {
+            Optional<AggClauseContext> aggCtx, boolean isDistinct) {
         return ParserUtils.withOrigin(selectCtx, () -> {
             if (aggCtx.isPresent()) {
                 return input;
@@ -2371,12 +2398,12 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
 
     private LogicalPlan withFilter(LogicalPlan input, Optional<WhereClauseContext> whereCtx) {
         return input.optionalMap(whereCtx, () ->
-            new LogicalFilter<>(ExpressionUtils.extractConjunctionToSet(
-                    getExpression(whereCtx.get().booleanExpression())), input));
+                new LogicalFilter<>(ExpressionUtils.extractConjunctionToSet(
+                        getExpression(whereCtx.get().booleanExpression())), input));
     }
 
     private LogicalPlan withAggregate(LogicalPlan input, SelectColumnClauseContext selectCtx,
-                                      Optional<AggClauseContext> aggCtx) {
+            Optional<AggClauseContext> aggCtx) {
         return input.optionalMap(aggCtx, () -> {
             GroupingElementContext groupingElementContext = aggCtx.get().groupingElement();
             List<NamedExpression> namedExpressions = getNamedExpressions(selectCtx.namedExpressionSeq());
@@ -2430,15 +2457,15 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                     break;
                 case DorisParser.LIKE:
                     outExpression = new Like(
-                        valueExpression,
-                        getExpression(ctx.pattern)
+                            valueExpression,
+                            getExpression(ctx.pattern)
                     );
                     break;
                 case DorisParser.RLIKE:
                 case DorisParser.REGEXP:
                     outExpression = new Regexp(
-                        valueExpression,
-                        getExpression(ctx.pattern)
+                            valueExpression,
+                            getExpression(ctx.pattern)
                     );
                     break;
                 case DorisParser.IN:
@@ -2461,20 +2488,20 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                 case DorisParser.MATCH:
                 case DorisParser.MATCH_ANY:
                     outExpression = new MatchAny(
-                        valueExpression,
-                        getExpression(ctx.pattern)
+                            valueExpression,
+                            getExpression(ctx.pattern)
                     );
                     break;
                 case DorisParser.MATCH_ALL:
                     outExpression = new MatchAll(
-                        valueExpression,
-                        getExpression(ctx.pattern)
+                            valueExpression,
+                            getExpression(ctx.pattern)
                     );
                     break;
                 case DorisParser.MATCH_PHRASE:
                     outExpression = new MatchPhrase(
-                        valueExpression,
-                        getExpression(ctx.pattern)
+                            valueExpression,
+                            getExpression(ctx.pattern)
                     );
                     break;
                 default:

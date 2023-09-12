@@ -72,9 +72,10 @@ statement
     | CREATE MATERIALIZED VIEW (IF NOT EXISTS)? mvName=multipartIdentifier
         buildMode
         REFRESH refreshMethod refreshTrigger
-//        mvKeys?
-//        distribution?
-        (properties=propertyItemList)?
+        (KEY keys=identifierList)?
+        (COMMENT STRING_LITERAL)?
+        DISTRIBUTED BY (HASH hashKeys=identifierList | RANDOM) BUCKETS (INTEGER_VALUE | AUTO)?
+        propertyClause?
         AS query                                                        #createMTMV
     ;
 

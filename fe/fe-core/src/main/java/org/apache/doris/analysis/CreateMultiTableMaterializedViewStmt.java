@@ -19,8 +19,11 @@ package org.apache.doris.analysis;
 
 import org.apache.doris.analysis.MVRefreshInfo.BuildMode;
 import org.apache.doris.analysis.MVRefreshInfo.RefreshMethod;
+import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.Index;
 import org.apache.doris.catalog.TableIf;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 
@@ -32,21 +35,19 @@ public class CreateMultiTableMaterializedViewStmt extends CreateTableStmt {
     private final String originSql;
     private final List<TableIf> baseTables;
 
-    public CreateMultiTableMaterializedViewStmt(TableName mvName, BuildMode buildMode,
+    public CreateMultiTableMaterializedViewStmt(boolean ifNotExists, TableName mvName, List<Column> columns,
+            BuildMode buildMode,
             RefreshMethod refreshMethod, KeysDesc keyDesc, DistributionDesc distributionDesc,
             Map<String, String> properties, String querySql, MVRefreshTriggerInfo refreshTriggerInfo,
-            List<TableIf> baseTables, String originSql) {
-        this.tableName = mvName;
+            List<TableIf> baseTables, String originSql, String comment) {
+        super(ifNotExists, false, mvName, columns, new ArrayList<Index>(), DEFAULT_ENGINE_NAME, keyDesc, null,
+                distributionDesc, properties, null, comment, null, null);
         this.buildMode = buildMode;
         this.querySql = querySql;
         this.refreshTriggerInfo = refreshTriggerInfo;
         this.refreshMethod = refreshMethod;
-        this.keysDesc = keyDesc;
-        this.distributionDesc = distributionDesc;
-        this.properties = properties;
         this.baseTables = baseTables;
         this.originSql = originSql;
-        engineName = DEFAULT_ENGINE_NAME;
     }
 
     public BuildMode getBuildMode() {
