@@ -30,12 +30,13 @@ import org.apache.doris.nereids.util.StandardDateFormat;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.time.Instant;
 import java.time.LocalDateTime;
+import java.time.ZoneId;
 import java.time.temporal.ChronoField;
 import java.time.temporal.TemporalAccessor;
+import java.time.temporal.TemporalQueries;
 import java.util.Objects;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
 
 /**
  * date time literal.
@@ -47,8 +48,6 @@ public class DateTimeLiteral extends DateLiteral {
     private static final DateTimeLiteral MAX_DATETIME = new DateTimeLiteral(9999, 12, 31, 23, 59, 59);
 
     private static final Logger LOG = LogManager.getLogger(DateTimeLiteral.class);
-
-    private static final Pattern HAS_OFFSET_PART = Pattern.compile("[\\+\\-]\\d{2}:\\d{2}");
 
     protected long hour;
     protected long minute;
@@ -94,34 +93,6 @@ public class DateTimeLiteral extends DateLiteral {
         this.day = day;
     }
 
-    private String normalizeOffset(String s) {
-        String suffix = s.substring(s.length() - 9);
-        Pattern pattern = Pattern.compile("([-+])(\\d{1,2})(?::(\\d{1,2})(?::(\\d{1,2}))?)?$");
-        Matcher matcher = pattern.matcher(suffix);
-
-        if (!matcher.find()) {
-            return s;
-        }
-
-        // matcher sum length
-        int sum = matcher.group().length();
-
-        StringBuilder sb = new StringBuilder(s.substring(0, s.length() - sum));
-        sb.append(matcher.group(1));
-
-        sb.append(String.format("%02d", Integer.parseInt(matcher.group(2))));
-        if (matcher.group(3) != null) {
-            sb.append(':');
-            sb.append(String.format("%02d", Integer.parseInt(matcher.group(3))));
-        }
-        if (matcher.group(4) != null) {
-            sb.append(':');
-            sb.append(String.format("%02d", Integer.parseInt(matcher.group(4))));
-        }
-        return sb.toString();
-    }
-
-    // tmp method
     public static int getScale(String s) {
         TemporalAccessor dateTime = parse(s);
         int microSecond = DateUtils.getOrDefault(dateTime, ChronoField.MICRO_OF_SECOND);
@@ -130,15 +101,30 @@ public class DateTimeLiteral extends DateLiteral {
 
     @Override
     protected void init(String s) throws AnalysisException {
-        TemporalAccessor dateTime = parse(s);
+        TemporalAccessor temporal = parse(s);
 
-        year = DateUtils.getOrDefault(dateTime, ChronoField.YEAR);
-        month = DateUtils.getOrDefault(dateTime, ChronoField.MONTH_OF_YEAR);
-        day = DateUtils.getOrDefault(dateTime, ChronoField.DAY_OF_MONTH);
-        hour = DateUtils.getOrDefault(dateTime, ChronoField.HOUR_OF_DAY);
-        minute = DateUtils.getOrDefault(dateTime, ChronoField.MINUTE_OF_HOUR);
-        second = DateUtils.getOrDefault(dateTime, ChronoField.SECOND_OF_MINUTE);
-        microSecond = DateUtils.getOrDefault(dateTime, ChronoField.MICRO_OF_SECOND);
+        year = DateUtils.getOrDefault(temporal, ChronoField.YEAR);
+        month = DateUtils.getOrDefault(temporal, ChronoField.MONTH_OF_YEAR);
+        day = DateUtils.getOrDefault(temporal, ChronoField.DAY_OF_MONTH);
+        hour = DateUtils.getOrDefault(temporal, ChronoField.HOUR_OF_DAY);
+        minute = DateUtils.getOrDefault(temporal, ChronoField.MINUTE_OF_HOUR);
+        second = DateUtils.getOrDefault(temporal, ChronoField.SECOND_OF_MINUTE);
+        microSecond = DateUtils.getOrDefault(temporal, ChronoField.MICRO_OF_SECOND);
+
+        ZoneId zoneId = temporal.query(TemporalQueries.zone());
+        if (zoneId != null) {
+            int offset = DateUtils.getTimeZone().getRules().getOffset(Instant.now()).getTotalSeconds()
+                    - zoneId.getRules().getOffset(Instant.now()).getTotalSeconds();
+            if (offset != 0) {
+                DateTimeLiteral result = (DateTimeLiteral) this.plusSeconds(offset);
+                this.second = result.second;
+                this.minute = result.minute;
+                this.hour = result.hour;
+                this.day = result.day;
+                this.month = result.month;
+                this.year = result.year;
+            }
+        }
 
         if (checkRange() || checkDate()) {
             throw new AnalysisException("datetime literal [" + s + "] is out of range");

@@ -36,8 +36,6 @@ import java.time.LocalDateTime;
 import java.time.Year;
 import java.time.temporal.ChronoField;
 import java.time.temporal.TemporalAccessor;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
 
 /**
  * Date literal in Nereids.
@@ -98,25 +96,29 @@ public class DateLiteral extends Literal {
         this.day = other.day;
     }
 
-    protected static String trimZoneOffset(String s) {
-        return s.replaceFirst("[A-Za-z/_]+(?:[+-]\\d{1,2}(?::(\\d{1,2})(?::(\\d{1,2}))?)?)?$", "").trim();
-    }
-
     // replace 'T' with ' '
     private static String replaceDelimiterT(String s) {
-        Matcher matcher = Pattern.compile("^(\\d{2,4}-\\d{1,2}-\\d{1,2})T").matcher(s);
-        if (matcher.find()) {
-            return matcher.group(1) + " " + s.substring(matcher.end());
+        // Matcher matcher = Pattern.compile("^(\\d{2,4}-\\d{1,2}-\\d{1,2})T").matcher(s);
+        // if (matcher.find()) {
+        //     return matcher.group(1) + " " + s.substring(matcher.end());
+        // }
+        // return s;
+        if (s.length() <= 10) {
+            return s;
         }
-        return s;
+        if (s.charAt(10) == 'T') {
+            return s.substring(0, 10) + " " + s.substring(11);
+        } else if (s.charAt(8) == 'T') {
+            return s.substring(0, 8) + " " + s.substring(9);
+        } else {
+            return s;
+        }
     }
 
     protected static TemporalAccessor parse(String s) {
         String originalString = s;
         try {
             TemporalAccessor dateTime;
-
-            s = trimZoneOffset(s);
 
             // parse condition without '-' and ':'
             if (!s.contains("-") && !s.contains(":")) {
@@ -136,9 +138,9 @@ public class DateLiteral extends Literal {
             // replace first 'T' with ' '
             s = replaceDelimiterT(s);
             if (!s.contains(" ")) {
-                dateTime = DateTimeFormatterUtils.DATE_FORMATTER.parse(s);
+                dateTime = DateTimeFormatterUtils.ZONE_DATE_FORMATTER.parse(s);
             } else {
-                dateTime = DateTimeFormatterUtils.DATE_TIME_FORMATTER.parse(s);
+                dateTime = DateTimeFormatterUtils.ZONE_DATE_TIME_FORMATTER.parse(s);
             }
 
             // if Year is not present, throw exception

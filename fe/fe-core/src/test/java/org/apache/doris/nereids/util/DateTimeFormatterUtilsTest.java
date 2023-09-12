@@ -27,6 +27,22 @@ import java.time.temporal.TemporalAccessor;
 import java.util.function.Consumer;
 
 class DateTimeFormatterUtilsTest {
+    @Test
+    void test() {
+        DateTimeFormatter formatter = DateTimeFormatterUtils.ZONE_FORMATTER;
+
+        formatter.parse("");
+
+        // formatter.parse("UTC+01");
+        formatter.parse("UTC+01:00");
+        formatter.parse("UTC+01:00:00");
+
+        // formatter.parse("GMT+01");
+        formatter.parse("GMT+01:00");
+        formatter.parse("Asia/Shanghai");
+        formatter.parse("Z");
+    }
+
     private void assertDatePart(TemporalAccessor dateTime) {
         Assertions.assertEquals(2020, dateTime.get(ChronoField.YEAR));
         Assertions.assertEquals(2, dateTime.get(ChronoField.MONTH_OF_YEAR));

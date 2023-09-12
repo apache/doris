@@ -39,6 +39,19 @@ import java.time.temporal.ChronoField;
  *      Note incomplete times 'hh:mm:ss', 'hh:mm', 'D hh:mm', 'D hh', or 'ss'
  */
 public class DateTimeFormatterUtils {
+    public static final DateTimeFormatter ZONE_FORMATTER = new DateTimeFormatterBuilder()
+            .optionalStart()
+            // .appendZoneText(TextStyle.FULL)
+            .appendZoneOrOffsetId()
+            .optionalEnd()
+            // .appendOptional(
+            //         new DateTimeFormatterBuilder().appendOffset("+HH", "").toFormatter())
+            // .appendOptional(
+            //         new DateTimeFormatterBuilder().appendOffset("+HH:MM", "").toFormatter())
+            // .appendOptional(
+            //         new DateTimeFormatterBuilder().appendOffset("+HH:MM:SS", "").toFormatter())
+            .toFormatter()
+            .withResolverStyle(ResolverStyle.STRICT);
     // yymmdd
     public static final DateTimeFormatter BASIC_TWO_DIGIT_DATE_FORMATTER = new DateTimeFormatterBuilder()
             .appendValueReduced(ChronoField.YEAR, 2, 2, 1970)
@@ -103,5 +116,23 @@ public class DateTimeFormatterUtils {
             .append(DATE_FORMATTER)
             .appendLiteral(' ')
             .append(TIME_FORMATTER)
+            .toFormatter().withResolverStyle(ResolverStyle.STRICT);
+    public static final DateTimeFormatter ZONE_DATE_FORMATTER = new DateTimeFormatterBuilder()
+            .appendOptional(
+                    new DateTimeFormatterBuilder().appendValue(ChronoField.YEAR, 4).toFormatter())
+            .appendOptional(
+                    new DateTimeFormatterBuilder().appendValueReduced(ChronoField.YEAR, 2, 2, 1970).toFormatter())
+            .appendLiteral('-').appendValue(ChronoField.MONTH_OF_YEAR, 2)
+            .appendLiteral('-').appendValue(ChronoField.DAY_OF_MONTH, 2)
+            // .optionalStart()
+            // .appendZoneOrOffsetId()
+            // .optionalEnd()
+            .append(ZONE_FORMATTER)
+            .toFormatter().withResolverStyle(ResolverStyle.STRICT);
+    public static final DateTimeFormatter ZONE_DATE_TIME_FORMATTER = new DateTimeFormatterBuilder()
+            .append(DATE_FORMATTER)
+            .appendLiteral(' ')
+            .append(TIME_FORMATTER)
+            .append(ZONE_FORMATTER)
             .toFormatter().withResolverStyle(ResolverStyle.STRICT);
 }
