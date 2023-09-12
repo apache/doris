@@ -56,7 +56,8 @@ import javax.net.ssl.X509TrustManager;
 public class EsRestClient {
 
     private static final Logger LOG = LogManager.getLogger(EsRestClient.class);
-    private static final OkHttpClient networkClient = new OkHttpClient.Builder().readTimeout(10, TimeUnit.SECONDS).build();
+    private static final OkHttpClient networkClient = new OkHttpClient
+            .Builder().readTimeout(10, TimeUnit.SECONDS).build();
 
     private static OkHttpClient sslNetworkClient;
     private final Request.Builder builder;
@@ -129,7 +130,7 @@ public class EsRestClient {
      **/
     public boolean existIndex(OkHttpClient httpClient, String indexName) {
         String path = indexName + "/_mapping";
-        try (Response response = executeResponse(httpClient, path)){
+        try (Response response = executeResponse(httpClient, path)) {
             if (response.isSuccessful()) {
                 return true;
             }
@@ -224,7 +225,7 @@ public class EsRestClient {
         if (!currentNode.endsWith("/")) {
             currentNode = currentNode + "/";
         }
-        Request request = builder.get().url(currentNode+ path).build();
+        Request request = builder.get().url(currentNode + path).build();
         if (LOG.isInfoEnabled()) {
             LOG.info("es rest client request URL: {}", currentNode + "/" + path);
         }
