@@ -21,7 +21,6 @@ suite("test_routine_load") {
     // define a sql table
     def testTable = "tbl_test_routine_load_basic"
 
-    def create_test_table = {
     def result1 = sql """
         CREATE TABLE IF NOT EXISTS ${testTable} (
         `k1` int(20) NULL COMMENT "",
@@ -35,13 +34,11 @@ suite("test_routine_load") {
         "storage_format" = "V2"
         )
     """
-    }
 
     String enabled = context.config.otherConfigs.get("enableKafkaTest")
     if (enabled != null && enabled.equalsIgnoreCase("true")) {
         String kafka_port = context.config.otherConfigs.get("kafka_port")
         String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
-
 
         def topic1 = "test"
         sql """
@@ -60,4 +57,5 @@ suite("test_routine_load") {
             "property.kafka_default_offsets" = "OFFSET_BEGINNING"
             );
         """
+    }
 }
