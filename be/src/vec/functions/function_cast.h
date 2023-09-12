@@ -117,6 +117,11 @@ inline UInt32 extract_to_decimal_scale(const ColumnWithTypeAndName& named_column
     named_column.column->get(0, field);
     return field.get<UInt32>();
 }
+
+struct PrecisionScaleArg {
+    UInt32 precision;
+    UInt32 scale;
+};
 /** Cast from string or number to Time.
   * In Doris, the underlying storage type of the Time class is Float64.
   */
@@ -270,7 +275,7 @@ struct ConvertImpl {
                     check_and_get_column<ColVecFrom>(named_from.column.get())) {
             typename ColVecTo::MutablePtr col_to = nullptr;
             if constexpr (IsDataTypeDecimal<ToDataType>) {
-                UInt32 scale = additions;
+                UInt32 scale = ((PrecisionScaleArg)additions).scale;
                 ToDataType::check_type_scale(scale);
                 col_to = ColVecTo::create(0, scale);
             } else {
@@ -897,25 +902,37 @@ bool try_parse_impl(typename DataType::FieldType& x, ReadBuffer& rb,
     if constexpr (std::is_integral_v<typename DataType::FieldType>) {
         return try_read_int_text(x, rb);
     }
+}
 
+template <typename DataType, typename Additions = void*>
+StringParser::ParseResult try_parse_decimal_impl(typename DataType::FieldType& x, ReadBuffer& rb,
+                                                 const cctz::time_zone& local_time_zone,
+                                                 ZoneList& time_zone_cache,
+                                                 std::shared_mutex& cache_lock,
+                                                 Additions additions
+                                                 [[maybe_unused]] = Additions()) {
     if constexpr (IsDataTypeDecimalV2<DataType>) {
-        UInt32 scale = additions;
-        return try_read_decimal_text<TYPE_DECIMALV2>(x, rb, DataType::max_precision(), scale);
+        UInt32 scale = ((PrecisionScaleArg)additions).scale;
+        UInt32 precision = ((PrecisionScaleArg)additions).precision;
+        return try_read_decimal_text<TYPE_DECIMALV2>(x, rb, precision, scale);
     }
 
     if constexpr (std::is_same_v<DataTypeDecimal<Decimal32>, DataType>) {
-        UInt32 scale = additions;
-        return try_read_decimal_text<TYPE_DECIMAL32>(x, rb, DataType::max_precision(), scale);
+        UInt32 scale = ((PrecisionScaleArg)additions).scale;
+        UInt32 precision = ((PrecisionScaleArg)additions).precision;
+        return try_read_decimal_text<TYPE_DECIMAL32>(x, rb, precision, scale);
     }
 
     if constexpr (std::is_same_v<DataTypeDecimal<Decimal64>, DataType>) {
-        UInt32 scale = additions;
-        return try_read_decimal_text<TYPE_DECIMAL64>(x, rb, DataType::max_precision(), scale);
+        UInt32 scale = ((PrecisionScaleArg)additions).scale;
+        UInt32 precision = ((PrecisionScaleArg)additions).precision;
+        return try_read_decimal_text<TYPE_DECIMAL64>(x, rb, precision, scale);
     }
 
     if constexpr (IsDataTypeDecimal128I<DataType>) {
-        UInt32 scale = additions;
-        return try_read_decimal_text<TYPE_DECIMAL128I>(x, rb, DataType::max_precision(), scale);
+        UInt32 scale = ((PrecisionScaleArg)additions).scale;
+        UInt32 precision = ((PrecisionScaleArg)additions).precision;
+        return try_read_decimal_text<TYPE_DECIMAL128I>(x, rb, precision, scale);
     }
 }
 
@@ -1346,7 +1363,7 @@ struct ConvertThroughParsing {
         typename ColVecTo::MutablePtr col_to = nullptr;
 
         if constexpr (IsDataTypeDecimal<ToDataType>) {
-            UInt32 scale = additions;
+            UInt32 scale = ((PrecisionScaleArg)additions).scale;
             ToDataType::check_type_scale(scale);
             col_to = ColVecTo::create(size, scale);
         } else {
@@ -1382,9 +1399,13 @@ struct ConvertThroughParsing {
 
             bool parsed;
             if constexpr (IsDataTypeDecimal<ToDataType>) {
-                parsed = try_parse_impl<ToDataType>(
+                ToDataType::check_type_precision((PrecisionScaleArg(additions).precision));
+                StringParser::ParseResult res = try_parse_decimal_impl<ToDataType>(
                         vec_to[i], read_buffer, context->state()->timezone_obj(), time_zone_cache,
-                        cache_lock, vec_to.get_scale());
+                        cache_lock, PrecisionScaleArg(additions));
+                parsed = (res == StringParser::PARSE_SUCCESS ||
+                          res == StringParser::PARSE_OVERFLOW ||
+                          res == StringParser::PARSE_UNDERFLOW);
             } else if constexpr (IsDataTypeDateTimeV2<ToDataType>) {
                 auto type = check_and_get_data_type<DataTypeDateTimeV2>(
                         block.get_by_position(result).type.get());
@@ -1625,7 +1646,8 @@ private:
 
                         auto state = ConvertImpl<LeftDataType, RightDataType, NameCast>::execute(
                                 context, block, arguments, result, input_rows_count,
-                                context->check_overflow_for_decimal(), scale);
+                                context->check_overflow_for_decimal(),
+                                PrecisionScaleArg {precision, scale});
                         if (!state) {
                             throw Exception(state.code(), state.to_string());
                         }

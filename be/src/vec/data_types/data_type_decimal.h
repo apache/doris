@@ -408,9 +408,9 @@ constexpr bool IsDataTypeDecimalOrNumber =
 
 template <typename FromDataType, typename ToDataType>
     requires IsDataTypeDecimal<FromDataType> && IsDataTypeDecimal<ToDataType>
-ToDataType::FieldType convert_decimals(const typename FromDataType::FieldType& value,
-                                       UInt32 scale_from, UInt32 scale_to,
-                                       UInt8* overflow_flag = nullptr) {
+typename ToDataType::FieldType convert_decimals(const typename FromDataType::FieldType& value,
+                                                UInt32 scale_from, UInt32 scale_to,
+                                                UInt8* overflow_flag = nullptr) {
     using FromFieldType = typename FromDataType::FieldType;
     using ToFieldType = typename ToDataType::FieldType;
     using MaxFieldType =
@@ -535,8 +535,8 @@ void convert_decimal_cols(
 
 template <typename FromDataType, typename ToDataType>
     requires IsDataTypeDecimal<FromDataType> && IsDataTypeNumber<ToDataType>
-ToDataType::FieldType convert_from_decimal(const typename FromDataType::FieldType& value,
-                                           UInt32 scale) {
+typename ToDataType::FieldType convert_from_decimal(const typename FromDataType::FieldType& value,
+                                                    UInt32 scale) {
     using FromFieldType = typename FromDataType::FieldType;
     using ToFieldType = typename ToDataType::FieldType;
 
@@ -579,8 +579,8 @@ ToDataType::FieldType convert_from_decimal(const typename FromDataType::FieldTyp
 
 template <typename FromDataType, typename ToDataType>
     requires IsDataTypeNumber<FromDataType> && IsDataTypeDecimal<ToDataType>
-ToDataType::FieldType convert_to_decimal(const typename FromDataType::FieldType& value,
-                                         UInt32 scale, UInt8* overflow_flag) {
+typename ToDataType::FieldType convert_to_decimal(const typename FromDataType::FieldType& value,
+                                                  UInt32 scale, UInt8* overflow_flag) {
     using FromFieldType = typename FromDataType::FieldType;
     using ToNativeType = typename ToDataType::FieldType::NativeType;
 

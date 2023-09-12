@@ -722,13 +722,10 @@ T StringParser::string_to_decimal(const char* s, int len, int type_precision, in
                     return 0;
                 }
                 *result = StringParser::PARSE_SUCCESS;
-                if constexpr (std::is_same_v<T, vectorized::Int128I>) {
-                    value *= get_scale_multiplier<__int128>(type_scale - scale);
-                } else {
+
+                if (type_scale > scale) {
                     value *= get_scale_multiplier<T>(type_scale - scale);
                 }
-
-                return is_negative ? T(-value) : T(value);
             }
         }
     }
@@ -762,6 +759,14 @@ T StringParser::string_to_decimal(const char* s, int len, int type_precision, in
     *result = StringParser::PARSE_SUCCESS;
     if (UNLIKELY(precision - scale > type_precision - type_scale)) {
         *result = StringParser::PARSE_OVERFLOW;
+        if constexpr (TYPE_DECIMALV2 == P) {
+        } else {
+            // decimalv3 overflow will return max min value for type precision
+            value = is_negative
+                            ? vectorized::min_decimal_value<vectorized::Decimal<T>>(type_precision)
+                            : vectorized::max_decimal_value<vectorized::Decimal<T>>(type_precision);
+            return value;
+        }
     } else if (UNLIKELY(scale > type_scale)) {
         *result = StringParser::PARSE_UNDERFLOW;
         int shift = scale - type_scale;
