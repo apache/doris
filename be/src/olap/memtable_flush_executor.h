@@ -87,8 +87,8 @@ private:
 
     // Records the current flush status of the tablet.
     // Note: Once its value is set to Failed, it cannot return to SUCCESS.
-    Status _flush_status;
     std::shared_mutex _flush_status_lock;
+    Status _flush_status;
 
     FlushStatistic _stats;
 

@@ -148,6 +148,7 @@ void FlushToken::_flush_memtable(MemTable* memtable, int32_t segment_id, int64_t
         std::lock_guard wrlk(_flush_status_lock);
         LOG(WARNING) << "Flush memtable failed with res = " << s;
         _flush_status = s;
+        return;
     }
 
     VLOG_CRITICAL << "flush memtable wait time:" << flush_wait_time_ns
