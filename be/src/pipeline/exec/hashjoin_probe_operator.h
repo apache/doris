@@ -90,7 +90,8 @@ private:
     vectorized::ColumnUInt8::MutablePtr _null_map_column;
     // for cases when a probe row matches more than batch size build rows.
     bool _is_any_probe_match_row_output = false;
-    std::unique_ptr<vectorized::HashTableCtxVariants> _process_hashtable_ctx_variants = nullptr;
+    std::unique_ptr<vectorized::HashTableCtxVariants> _process_hashtable_ctx_variants =
+            std::make_unique<vectorized::HashTableCtxVariants>();
 
     RuntimeProfile::Counter* _probe_expr_call_timer;
     RuntimeProfile::Counter* _probe_next_timer;
@@ -110,18 +111,17 @@ public:
     Status open(RuntimeState* state) override;
     bool can_read(RuntimeState* state) override;
 
-    Status get_block(RuntimeState* state, vectorized::Block* block,
-                     SourceState& source_state) override;
-
-    Status push(RuntimeState* state, vectorized::Block* input_block, SourceState source_state);
+    Status push(RuntimeState* state, vectorized::Block* input_block,
+                SourceState source_state) const override;
     Status pull(doris::RuntimeState* state, vectorized::Block* output_block,
-                SourceState& source_state);
+                SourceState& source_state) const override;
 
-    bool need_more_input_data(RuntimeState* state) const;
+    bool need_more_input_data(RuntimeState* state) const override;
 
 private:
     Status _do_evaluate(vectorized::Block& block, vectorized::VExprContextSPtrs& exprs,
-                        RuntimeProfile::Counter& expr_call_timer, std::vector<int>& res_col_ids);
+                        RuntimeProfile::Counter& expr_call_timer,
+                        std::vector<int>& res_col_ids) const;
     friend class HashJoinProbeLocalState;
     friend struct vectorized::HashJoinProbeContext;
 

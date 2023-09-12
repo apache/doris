@@ -226,7 +226,6 @@ protected:
 
     // Reference to the ExecEnv::_master_info
     const TMasterInfo& _master_info;
-    TBackend _backend;
     std::unique_ptr<AgentUtils> _agent_utils;
     ExecEnv* _env;
 

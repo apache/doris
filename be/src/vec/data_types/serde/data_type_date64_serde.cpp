@@ -27,13 +27,13 @@
 namespace doris {
 namespace vectorized {
 
-void DataTypeDate64SerDe::serialize_column_to_text(const IColumn& column, int start_idx,
+void DataTypeDate64SerDe::serialize_column_to_json(const IColumn& column, int start_idx,
                                                    int end_idx, BufferWritable& bw,
                                                    FormatOptions& options) const {
-    SERIALIZE_COLUMN_TO_TEXT();
+    SERIALIZE_COLUMN_TO_JSON();
 }
 
-void DataTypeDate64SerDe::serialize_one_cell_to_text(const IColumn& column, int row_num,
+void DataTypeDate64SerDe::serialize_one_cell_to_json(const IColumn& column, int row_num,
                                                      BufferWritable& bw,
                                                      FormatOptions& options) const {
     auto result = check_column_const_set_readability(column, row_num);
@@ -61,14 +61,14 @@ void DataTypeDate64SerDe::serialize_one_cell_to_text(const IColumn& column, int 
     }
 }
 
-Status DataTypeDate64SerDe::deserialize_column_from_text_vector(
+Status DataTypeDate64SerDe::deserialize_column_from_json_vector(
         IColumn& column, std::vector<Slice>& slices, int* num_deserialized,
         const FormatOptions& options) const {
-    DESERIALIZE_COLUMN_FROM_TEXT_VECTOR()
+    DESERIALIZE_COLUMN_FROM_JSON_VECTOR()
     return Status::OK();
 }
 
-Status DataTypeDate64SerDe::deserialize_one_cell_from_text(IColumn& column, Slice& slice,
+Status DataTypeDate64SerDe::deserialize_one_cell_from_json(IColumn& column, Slice& slice,
                                                            const FormatOptions& options) const {
     auto& column_data = assert_cast<ColumnInt64&>(column);
     Int64 val = 0;
@@ -89,13 +89,13 @@ Status DataTypeDate64SerDe::deserialize_one_cell_from_text(IColumn& column, Slic
     return Status::OK();
 }
 
-void DataTypeDateTimeSerDe::serialize_column_to_text(const IColumn& column, int start_idx,
+void DataTypeDateTimeSerDe::serialize_column_to_json(const IColumn& column, int start_idx,
                                                      int end_idx, BufferWritable& bw,
                                                      FormatOptions& options) const {
-    SERIALIZE_COLUMN_TO_TEXT()
+    SERIALIZE_COLUMN_TO_JSON()
 }
 
-void DataTypeDateTimeSerDe::serialize_one_cell_to_text(const IColumn& column, int row_num,
+void DataTypeDateTimeSerDe::serialize_one_cell_to_json(const IColumn& column, int row_num,
                                                        BufferWritable& bw,
                                                        FormatOptions& options) const {
     auto result = check_column_const_set_readability(column, row_num);
@@ -128,14 +128,14 @@ void DataTypeDateTimeSerDe::serialize_one_cell_to_text(const IColumn& column, in
     }
 }
 
-Status DataTypeDateTimeSerDe::deserialize_column_from_text_vector(
+Status DataTypeDateTimeSerDe::deserialize_column_from_json_vector(
         IColumn& column, std::vector<Slice>& slices, int* num_deserialized,
         const FormatOptions& options) const {
-    DESERIALIZE_COLUMN_FROM_TEXT_VECTOR()
+    DESERIALIZE_COLUMN_FROM_JSON_VECTOR()
     return Status::OK();
 }
 
-Status DataTypeDateTimeSerDe::deserialize_one_cell_from_text(IColumn& column, Slice& slice,
+Status DataTypeDateTimeSerDe::deserialize_one_cell_from_json(IColumn& column, Slice& slice,
                                                              const FormatOptions& options) const {
     auto& column_data = assert_cast<ColumnInt64&>(column);
     Int64 val = 0;

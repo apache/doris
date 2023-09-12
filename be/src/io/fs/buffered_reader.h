@@ -32,7 +32,6 @@
 #include "io/file_factory.h"
 #include "io/fs/broker_file_reader.h"
 #include "io/fs/file_reader.h"
-#include "io/fs/file_reader_writer_fwd.h"
 #include "io/fs/path.h"
 #include "io/fs/s3_file_reader.h"
 #include "olap/olap_define.h"
@@ -75,6 +74,15 @@ struct PrefetchRange {
  */
 class MergeRangeFileReader : public io::FileReader {
 public:
+    struct Statistics {
+        int64_t copy_time = 0;
+        int64_t read_time = 0;
+        int64_t request_io = 0;
+        int64_t merged_io = 0;
+        int64_t request_bytes = 0;
+        int64_t read_bytes = 0;
+    };
+
     struct RangeCachedData {
         size_t start_offset;
         size_t end_offset;
@@ -190,20 +198,14 @@ public:
     // for test only
     const std::vector<int16>& box_reference() const { return _box_ref; }
 
+    // for test only
+    const Statistics& statistics() const { return _statistics; }
+
 protected:
     Status read_at_impl(size_t offset, Slice result, size_t* bytes_read,
                         const IOContext* io_ctx) override;
 
 private:
-    struct Statistics {
-        int64_t copy_time = 0;
-        int64_t read_time = 0;
-        int64_t request_io = 0;
-        int64_t merged_io = 0;
-        int64_t request_bytes = 0;
-        int64_t read_bytes = 0;
-    };
-
     RuntimeProfile::Counter* _copy_time;
     RuntimeProfile::Counter* _read_time;
     RuntimeProfile::Counter* _request_io;

@@ -100,7 +100,7 @@ void DataTypeNumberSerDe<T>::write_column_to_arrow(const IColumn& column, const 
 }
 
 template <typename T>
-Status DataTypeNumberSerDe<T>::deserialize_one_cell_from_text(IColumn& column, Slice& slice,
+Status DataTypeNumberSerDe<T>::deserialize_one_cell_from_json(IColumn& column, Slice& slice,
                                                               const FormatOptions& options) const {
     auto& column_data = reinterpret_cast<ColumnType&>(column);
     ReadBuffer rb(slice.data, slice.size);
@@ -136,14 +136,14 @@ Status DataTypeNumberSerDe<T>::deserialize_one_cell_from_text(IColumn& column, S
 }
 
 template <typename T>
-void DataTypeNumberSerDe<T>::serialize_column_to_text(const IColumn& column, int start_idx,
+void DataTypeNumberSerDe<T>::serialize_column_to_json(const IColumn& column, int start_idx,
                                                       int end_idx, BufferWritable& bw,
                                                       FormatOptions& options) const {
-    SERIALIZE_COLUMN_TO_TEXT()
+    SERIALIZE_COLUMN_TO_JSON()
 }
 
 template <typename T>
-void DataTypeNumberSerDe<T>::serialize_one_cell_to_text(const IColumn& column, int row_num,
+void DataTypeNumberSerDe<T>::serialize_one_cell_to_json(const IColumn& column, int row_num,
                                                         BufferWritable& bw,
                                                         FormatOptions& options) const {
     auto result = check_column_const_set_readability(column, row_num);
@@ -164,10 +164,10 @@ void DataTypeNumberSerDe<T>::serialize_one_cell_to_text(const IColumn& column, i
 }
 
 template <typename T>
-Status DataTypeNumberSerDe<T>::deserialize_column_from_text_vector(
+Status DataTypeNumberSerDe<T>::deserialize_column_from_json_vector(
         IColumn& column, std::vector<Slice>& slices, int* num_deserialized,
         const FormatOptions& options) const {
-    DESERIALIZE_COLUMN_FROM_TEXT_VECTOR()
+    DESERIALIZE_COLUMN_FROM_JSON_VECTOR()
     return Status::OK();
 }
 

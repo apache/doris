@@ -75,18 +75,21 @@ Status HashJoinProbeLocalState::close(RuntimeState* state) {
     if (_closed) {
         return Status::OK();
     }
-    std::visit(vectorized::Overload {[&](std::monostate&) {},
-                                     [&](auto&& process_hashtable_ctx) {
-                                         if (process_hashtable_ctx._arena) {
-                                             process_hashtable_ctx._arena.reset();
-                                         }
+    if (_process_hashtable_ctx_variants) {
+        std::visit(vectorized::Overload {[&](std::monostate&) {},
+                                         [&](auto&& process_hashtable_ctx) {
+                                             if (process_hashtable_ctx._arena) {
+                                                 process_hashtable_ctx._arena.reset();
+                                             }
 
-                                         if (process_hashtable_ctx._serialize_key_arena) {
-                                             process_hashtable_ctx._serialize_key_arena.reset();
-                                             process_hashtable_ctx._serialized_key_buffer_size = 0;
-                                         }
-                                     }},
-               *_process_hashtable_ctx_variants);
+                                             if (process_hashtable_ctx._serialize_key_arena) {
+                                                 process_hashtable_ctx._serialize_key_arena.reset();
+                                                 process_hashtable_ctx._serialized_key_buffer_size =
+                                                         0;
+                                             }
+                                         }},
+                   *_process_hashtable_ctx_variants);
+    }
     _shared_state->arena = nullptr;
     _shared_state->hash_table_variants.reset();
     _process_hashtable_ctx_variants = nullptr;
@@ -180,39 +183,10 @@ HashJoinProbeOperatorX::HashJoinProbeOperatorX(ObjectPool* pool, const TPlanNode
                                         ? tnode.hash_join_node.hash_output_slot_ids
                                         : std::vector<SlotId> {}) {}
 
-Status HashJoinProbeOperatorX::get_block(RuntimeState* state, vectorized::Block* block,
-                                         SourceState& source_state) {
+Status HashJoinProbeOperatorX::pull(doris::RuntimeState* state, vectorized::Block* output_block,
+                                    SourceState& source_state) const {
     auto& local_state = state->get_local_state(id())->cast<HashJoinProbeLocalState>();
     local_state.init_for_probe(state);
-    if (need_more_input_data(state)) {
-        local_state._child_block->clear_column_data();
-        RETURN_IF_ERROR(_child_x->get_block(state, local_state._child_block.get(),
-                                            local_state._child_source_state));
-        source_state = local_state._child_source_state;
-        if (local_state._child_block->rows() == 0 &&
-            local_state._child_source_state != SourceState::FINISHED) {
-            return Status::OK();
-        }
-        local_state.prepare_for_next();
-        RETURN_IF_ERROR(
-                push(state, local_state._child_block.get(), local_state._child_source_state));
-    }
-
-    if (!need_more_input_data(state)) {
-        RETURN_IF_ERROR(pull(state, block, source_state));
-        if (source_state != SourceState::FINISHED && !need_more_input_data(state)) {
-            source_state = SourceState::MORE_DATA;
-        } else if (source_state != SourceState::FINISHED &&
-                   source_state == SourceState::MORE_DATA) {
-            source_state = local_state._child_source_state;
-        }
-    }
-    return Status::OK();
-}
-
-Status HashJoinProbeOperatorX::pull(doris::RuntimeState* state, vectorized::Block* output_block,
-                                    SourceState& source_state) {
-    auto& local_state = state->get_local_state(id())->cast<HashJoinProbeLocalState>();
     SCOPED_TIMER(local_state._probe_timer);
     if (local_state._shared_state->short_circuit_for_probe) {
         // If we use a short-circuit strategy, should return empty block directly.
@@ -331,7 +305,7 @@ bool HashJoinProbeOperatorX::need_more_input_data(RuntimeState* state) const {
 Status HashJoinProbeOperatorX::_do_evaluate(vectorized::Block& block,
                                             vectorized::VExprContextSPtrs& exprs,
                                             RuntimeProfile::Counter& expr_call_timer,
-                                            std::vector<int>& res_col_ids) {
+                                            std::vector<int>& res_col_ids) const {
     for (size_t i = 0; i < exprs.size(); ++i) {
         int result_col_id = -1;
         // execute build column
@@ -349,8 +323,9 @@ Status HashJoinProbeOperatorX::_do_evaluate(vectorized::Block& block,
 }
 
 Status HashJoinProbeOperatorX::push(RuntimeState* state, vectorized::Block* input_block,
-                                    SourceState source_state) {
+                                    SourceState source_state) const {
     auto& local_state = state->get_local_state(id())->cast<HashJoinProbeLocalState>();
+    local_state.prepare_for_next();
     local_state._probe_eos = source_state == SourceState::FINISHED;
     if (input_block->rows() > 0) {
         COUNTER_UPDATE(local_state._probe_rows_counter, input_block->rows());

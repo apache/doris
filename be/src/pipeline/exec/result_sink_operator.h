@@ -50,7 +50,7 @@ public:
             : PipelineXSinkLocalState<>(parent, state) {}
 
     Status init(RuntimeState* state, LocalSinkStateInfo& info) override;
-
+    Status open(RuntimeState* state) override;
     Status close(RuntimeState* state) override;
 
 private:
@@ -73,8 +73,6 @@ public:
                 SourceState source_state) override;
 
     bool can_write(RuntimeState* state) override;
-
-    [[nodiscard]] bool need_to_create_result_sender() const override { return true; }
 
 private:
     friend class ResultSinkLocalState;

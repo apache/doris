@@ -28,7 +28,6 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.CascadesContext;
-import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.memo.Group;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.trees.expressions.Alias;
@@ -126,7 +125,6 @@ import org.apache.doris.statistics.StatisticConstants;
 import org.apache.doris.statistics.StatisticRange;
 import org.apache.doris.statistics.Statistics;
 import org.apache.doris.statistics.StatisticsBuilder;
-import org.apache.doris.statistics.util.StatisticsUtil;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Maps;
@@ -192,10 +190,6 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
         return totalColumnStatisticMap;
     }
 
-    public void setTotalColumnStatisticMap(Map<String, ColumnStatistic> totalColumnStatisticMap) {
-        this.totalColumnStatisticMap = totalColumnStatisticMap;
-    }
-
     /**
      * estimate stats
      */
@@ -226,23 +220,23 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
 
     private void estimate() {
         Plan plan = groupExpression.getPlan();
-        Statistics stats = plan.accept(this, null);
-        Statistics originStats = groupExpression.getOwnerGroup().getStatistics();
+        Statistics newStats = plan.accept(this, null);
+        Statistics oldStats = groupExpression.getOwnerGroup().getStatistics();
         /*
         in an ideal cost model, every group expression in a group are equivalent, but in fact the cost are different.
         we record the lowest expression cost as group cost to avoid missing this group.
         */
-        if (originStats == null || originStats.getRowCount() > stats.getRowCount()) {
-            groupExpression.getOwnerGroup().setStatistics(stats);
+        if (oldStats == null) {
+            groupExpression.getOwnerGroup().setStatistics(newStats);
         } else {
-            if (originStats.getRowCount() > stats.getRowCount()) {
-                stats.updateNdv(originStats);
-                groupExpression.getOwnerGroup().setStatistics(stats);
-            } else {
-                originStats.updateNdv(stats);
+            Statistics discardStats = newStats;
+            if (oldStats.getRowCount() > newStats.getRowCount()) {
+                groupExpression.getOwnerGroup().setStatistics(newStats);
+                discardStats = oldStats;
             }
+            groupExpression.getOwnerGroup().getStatistics().updateNdv(discardStats);
         }
-        groupExpression.setEstOutputRowCount(stats.getRowCount());
+        groupExpression.setEstOutputRowCount(newStats.getRowCount());
         groupExpression.setStatDerived(true);
     }
 
@@ -643,36 +637,16 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
                         .setAvgSizeByte(slotReference.getColumn().get().getType().getSlotSize())
                         .build();
             }
-            if (cache.isUnKnown) {
-                if (forbidUnknownColStats && !shouldIgnoreThisCol) {
-                    if (StatisticsUtil.statsTblAvailable()) {
-                        throw new AnalysisException(String.format("Found unknown stats for column:%s.%s.\n"
-                                + "It may caused by:\n"
-                                + "\n"
-                                + "1. This column never got analyzed\n"
-                                + "2. This table is empty\n"
-                                + "3. Stats load failed caused by unstable of backends,"
-                                + "and FE cached the unknown stats by default in this scenario\n"
-                                + "4. There is a bug, please report it to Doris community\n"
-                                + "\n"
-                                + "If an unknown stats for this column is tolerable,"
-                                + "you could set session variable `forbid_unknown_col_stats` to false to make planner"
-                                + " ignore this error and keep planning.", table.getName(), colName));
-                    } else {
-                        throw new AnalysisException("BE is not available!");
-                    }
+            if (!cache.isUnKnown) {
+                rowCount = Math.max(rowCount, cache.count);
+                cache = setOlapPartitionInfo(table, cache);
+                Histogram histogram = getColumnHistogram(table, colName);
+                if (histogram != null) {
+                    ColumnStatisticBuilder columnStatisticBuilder =
+                            new ColumnStatisticBuilder(cache).setHistogram(histogram);
+                    columnStatisticMap.put(slotReference, columnStatisticBuilder.build());
+                    cache = columnStatisticBuilder.build();
                 }
-                columnStatisticMap.put(slotReference, cache);
-                continue;
-            }
-            rowCount = Math.max(rowCount, cache.count);
-            cache = setOlapPartitionInfo(table, cache);
-            Histogram histogram = getColumnHistogram(table, colName);
-            if (histogram != null) {
-                ColumnStatisticBuilder columnStatisticBuilder =
-                        new ColumnStatisticBuilder(cache).setHistogram(histogram);
-                columnStatisticMap.put(slotReference, columnStatisticBuilder.build());
-                cache = columnStatisticBuilder.build();
             }
             columnStatisticMap.put(slotReference, cache);
         }

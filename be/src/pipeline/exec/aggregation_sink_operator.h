@@ -54,6 +54,7 @@ public:
     virtual ~AggSinkLocalState() = default;
 
     virtual Status init(RuntimeState* state, LocalSinkStateInfo& info) override;
+    virtual Status open(RuntimeState* state) override;
     virtual Status close(RuntimeState* state) override;
 
     Status try_spill_disk(bool eos = false);
