@@ -429,8 +429,9 @@ public class LoadStmt extends DdlStmt {
                 for (int i = 0; i < dataDescription.getFilePaths().size(); i++) {
                     String location = brokerDesc.getFileLocation(dataDescription.getFilePaths().get(i));
                     dataDescription.getFilePaths().set(i, location);
-                    dataDescription.getFilePaths().set(i,
-                            ExportStmt.checkPath(dataDescription.getFilePaths().get(i), brokerDesc.getStorageType()));
+                    StorageBackend.checkPath(dataDescription.getFilePaths().get(i),
+                            brokerDesc.getStorageType());
+                    dataDescription.getFilePaths().set(i, dataDescription.getFilePaths().get(i));
                 }
             }
         }

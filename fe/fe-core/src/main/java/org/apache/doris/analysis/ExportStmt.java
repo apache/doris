@@ -31,7 +31,6 @@ import org.apache.doris.common.FeNameFormat;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.PrintableMap;
 import org.apache.doris.common.util.PropertyAnalyzer;
-import org.apache.doris.common.util.URI;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.load.ExportJob;
 import org.apache.doris.mysql.privilege.PrivPredicate;
@@ -42,7 +41,7 @@ import org.apache.doris.qe.VariableMgr;
 import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Splitter;
-import com.google.common.base.Strings;
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Maps;
 import lombok.Getter;
@@ -86,7 +85,6 @@ public class ExportStmt extends StatementBase {
     private TableName tblName;
     private List<String> partitionStringNames;
     private Expr whereExpr;
-    private String whereSql;
     private String path;
     private BrokerDesc brokerDesc;
     private Map<String, String> properties = Maps.newHashMap();
@@ -129,15 +127,6 @@ public class ExportStmt extends StatementBase {
         this.sessionVariables = optionalSessionVariable.orElse(VariableMgr.getDefaultSessionVariable());
     }
 
-    /**
-     * This constructor used by nereids planner
-     */
-    public ExportStmt(TableRef tableRef, String whereSql, String path,
-            Map<String, String> properties, BrokerDesc brokerDesc) {
-        this(tableRef, (Expr) null, path, properties, brokerDesc);
-        this.whereSql = whereSql;
-    }
-
     @Override
     public boolean needAuditEncryption() {
         return brokerDesc != null;
@@ -162,6 +151,8 @@ public class ExportStmt extends StatementBase {
                 throw new AnalysisException("Do not support exporting temporary partitions");
             }
             partitionStringNames = optionalPartitionNames.get().getPartitionNames();
+        } else {
+            partitionStringNames = ImmutableList.of();
         }
 
         // check auth
@@ -185,7 +176,7 @@ public class ExportStmt extends StatementBase {
         }
 
         // check path is valid
-        path = checkPath(path, brokerDesc.getStorageType());
+        StorageBackend.checkPath(path, brokerDesc.getStorageType());
         if (brokerDesc.getStorageType() == StorageBackend.StorageType.BROKER) {
             BrokerMgr brokerMgr = analyzer.getEnv().getBrokerMgr();
             if (!brokerMgr.containsBroker(brokerDesc.getName())) {
@@ -201,7 +192,7 @@ public class ExportStmt extends StatementBase {
 
         // create job and analyze job
         setJob();
-        exportJob.analyze();
+        exportJob.generateOutfileStatement();
     }
 
     private void setJob() throws UserException {
@@ -219,7 +210,6 @@ public class ExportStmt extends StatementBase {
 
         // set where expr
         exportJob.setWhereExpr(this.whereExpr);
-        exportJob.setWhereSql(this.whereSql);
 
         // set path
         exportJob.setExportPath(this.path);
@@ -248,13 +238,12 @@ public class ExportStmt extends StatementBase {
         exportJob.setSessionVariables(this.sessionVariables);
         exportJob.setTimeoutSecond(this.sessionVariables.getQueryTimeoutS());
 
-        exportJob.setSql(this.toSql());
         exportJob.setOrigStmt(this.getOrigStmt());
     }
 
     // check partitions specified by user are belonged to the table.
     private void checkPartitions(Env env) throws AnalysisException {
-        if (partitionStringNames == null) {
+        if (partitionStringNames.isEmpty()) {
             return;
         }
 
@@ -297,43 +286,6 @@ public class ExportStmt extends StatementBase {
         } finally {
             table.readUnlock();
         }
-    }
-
-    public static String checkPath(String path, StorageBackend.StorageType type) throws AnalysisException {
-        if (Strings.isNullOrEmpty(path)) {
-            throw new AnalysisException("No destination path specified.");
-        }
-
-        URI uri = URI.create(path);
-        String schema = uri.getScheme();
-        if (schema == null) {
-            throw new AnalysisException(
-                    "Invalid export path, there is no schema of URI found. please check your path.");
-        }
-        if (type == StorageBackend.StorageType.BROKER) {
-            if (!schema.equalsIgnoreCase("bos")
-                    && !schema.equalsIgnoreCase("afs")
-                    && !schema.equalsIgnoreCase("hdfs")
-                    && !schema.equalsIgnoreCase("ofs")
-                    && !schema.equalsIgnoreCase("obs")
-                    && !schema.equalsIgnoreCase("oss")
-                    && !schema.equalsIgnoreCase("s3a")
-                    && !schema.equalsIgnoreCase("cosn")
-                    && !schema.equalsIgnoreCase("gfs")
-                    && !schema.equalsIgnoreCase("jfs")
-                    && !schema.equalsIgnoreCase("gs")) {
-                throw new AnalysisException("Invalid broker path. please use valid 'hdfs://', 'afs://' , 'bos://',"
-                        + " 'ofs://', 'obs://', 'oss://', 's3a://', 'cosn://', 'gfs://', 'gs://' or 'jfs://' path.");
-            }
-        } else if (type == StorageBackend.StorageType.S3 && !schema.equalsIgnoreCase("s3")) {
-            throw new AnalysisException("Invalid export path. please use valid 's3://' path.");
-        } else if (type == StorageBackend.StorageType.HDFS && !schema.equalsIgnoreCase("hdfs")) {
-            throw new AnalysisException("Invalid export path. please use valid 'HDFS://' path.");
-        } else if (type == StorageBackend.StorageType.LOCAL && !schema.equalsIgnoreCase("file")) {
-            throw new AnalysisException(
-                        "Invalid export path. please use valid '" + OutFileClause.LOCAL_FILE_PREFIX + "' path.");
-        }
-        return path;
     }
 
     private void checkProperties(Map<String, String> properties) throws UserException {

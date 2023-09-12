@@ -252,7 +252,6 @@ private:
     io::FileReaderSPtr _file_reader;
     std::unique_ptr<LineReader> _line_reader;
     bool _line_reader_eof;
-    std::unique_ptr<TextConverter> _text_converter;
     std::unique_ptr<Decompressor> _decompressor;
 
     TFileFormatType::type _file_format_type;
@@ -271,10 +270,8 @@ private:
     char _enclose = 0;
     char _escape = 0;
 
-    // struct, array and map delimiter
-    std::string _collection_delimiter;
-    // map key and value delimiter
-    std::string _map_kv_delimiter;
+    vectorized::DataTypeSerDeSPtrs _serdes;
+    vectorized::DataTypeSerDe::FormatOptions _options;
 
     int _value_separator_length;
     int _line_delimiter_length;
@@ -288,6 +285,7 @@ private:
     // save source text which have been splitted.
     std::vector<Slice> _split_values;
     std::unique_ptr<LineFieldSplitterIf> _fields_splitter;
+    TTextSerdeType::type _text_serde_type;
 };
 } // namespace vectorized
 } // namespace doris
