@@ -277,6 +277,7 @@ Status UserFunctionCache::_download_lib(const std::string& url,
 
     // get local path to save library
     std::string tmp_file = entry->lib_file + ".tmp";
+    LOG(WARNING) << "entry lib_file, lib_file=" << entry->lib_file << "tmp_file =" << tmp_file;
     auto fp_closer = [](FILE* fp) { fclose(fp); };
     std::unique_ptr<FILE, decltype(fp_closer)> fp(fopen(tmp_file.c_str(), "w"), fp_closer);
     if (fp == nullptr) {
@@ -286,6 +287,7 @@ Status UserFunctionCache::_download_lib(const std::string& url,
 
     std::string real_url = _get_real_url(url);
 
+    LOG(WARNING) << "jar real_url, real_url=" << real_url;
     Md5Digest digest;
     HttpClient client;
     int64_t file_size = 0;
@@ -293,9 +295,12 @@ Status UserFunctionCache::_download_lib(const std::string& url,
     Status status;
     auto download_cb = [&status, &tmp_file, &fp, &digest, &file_size](const void* data,
                                                                       size_t length) {
+        LOG(WARNING)  << "write file before. data=" << data << "file file_size=" << file_size << "file length=" << length << "fp=" << fp.get();
         digest.update(data, length);
         file_size = file_size + length;
         auto res = fwrite(data, length, 1, fp.get());
+        LOG(WARNING)  << "write file after. data=" << data << "file file_size=" << file_size << "file length=" << length << "fp=" << fp.get();
+
         if (res != 1) {
             LOG(WARNING) << "fail to write data to file, file=" << tmp_file
                          << ", error=" << ferror(fp.get());
@@ -304,8 +309,12 @@ Status UserFunctionCache::_download_lib(const std::string& url,
         }
         return true;
     };
+
+    LOG(WARNING)  << "HttpClient execute before. file_size=" << file_size;
     RETURN_IF_ERROR(client.execute(download_cb));
     RETURN_IF_ERROR(status);
+    LOG(WARNING)  << "HttpClient execute after. file_size=" << file_size;
+
     digest.digest();
     if (!iequal(digest.hex(), entry->checksum)) {
         fmt::memory_buffer error_msg;
@@ -321,8 +330,10 @@ Status UserFunctionCache::_download_lib(const std::string& url,
     // close this file
     fp.reset();
 
+    LOG(WARNING) << "rename file before. tmp_file=" << tmp_file.c_str() << "target lib_file=" << entry->lib_file.c_str();
     // rename temporary file to library file
     auto ret = rename(tmp_file.c_str(), entry->lib_file.c_str());
+    LOG(WARNING) << "rename file after. tmp_file=" << tmp_file.c_str() << "target lib_file=" << entry->lib_file.c_str();
     if (ret != 0) {
         char buf[64];
         LOG(WARNING) << "fail to rename file from=" << tmp_file << ", to=" << entry->lib_file
