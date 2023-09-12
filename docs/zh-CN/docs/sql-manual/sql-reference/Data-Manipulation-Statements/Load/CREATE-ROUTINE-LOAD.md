@@ -246,7 +246,7 @@ FROM data_source [data_source_properties]
 
   11. `load_to_single_tablet`
 
-      布尔类型，为 true 表示支持一个任务只导入数据到对应分区的一个 tablet，默认值为 false，该参数只允许在对带有 random 分区的 olap 表导数的时候设置。
+      布尔类型，为 true 表示支持一个任务只导入数据到对应分区的一个 tablet，默认值为 false，该参数只允许在对带有 random 分桶的 olap 表导数的时候设置。
 
   12. `partial_columns`
       布尔类型，为 true 表示使用部分列更新，默认值为 false，该参数只允许在表模型为 Unique 且采用 Merge on Write 时设置。一流多表不支持此参数。
