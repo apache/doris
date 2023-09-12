@@ -22,6 +22,7 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.FunctionRegistry;
 import org.apache.doris.nereids.analyzer.Scope;
 import org.apache.doris.nereids.analyzer.UnboundFunction;
+import org.apache.doris.nereids.analyzer.UnboundSlot;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.rules.analysis.ArithmeticFunctionBinder;
 import org.apache.doris.nereids.rules.analysis.SlotBinder;
@@ -88,6 +89,17 @@ public class FunctionBinder extends AbstractExpressionRewriteRule {
     /* ********************************************************************************************
      * bind function
      * ******************************************************************************************** */
+    private void checkBoundLambda(Expression lambdaFunction, List<String> argumentNames) {
+        lambdaFunction.foreachUp(e -> {
+            if (e instanceof UnboundSlot) {
+                UnboundSlot unboundSlot = (UnboundSlot) e;
+                throw new AnalysisException("Unknown lambda slot '"
+                        + unboundSlot.getNameParts().get(unboundSlot.getNameParts().size() - 1)
+                        + " in lambda arguments" + argumentNames);
+            }
+        });
+    }
+
     private UnboundFunction bindHighOrderFunction(UnboundFunction unboundFunction, ExpressionRewriteContext context) {
         int childrenSize = unboundFunction.children().size();
         List<Expression> subChildren = new ArrayList<>();
@@ -106,6 +118,8 @@ public class FunctionBinder extends AbstractExpressionRewriteRule {
                 .collect(ImmutableList.toImmutableList());
         lambdaFunction = new SlotBinder(new Scope(boundedSlots), context.cascadesContext,
                 true, false).bind(lambdaFunction);
+        checkBoundLambda(lambdaFunction, lambda.getLambdaArgumentNames());
+
         // 2.bindFunction
         lambdaFunction = lambdaFunction.accept(this, context);
 

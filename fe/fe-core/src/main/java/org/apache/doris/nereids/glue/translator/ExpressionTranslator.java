@@ -392,7 +392,8 @@ public class ExpressionTranslator extends DefaultExpressionVisitor<Expr, PlanTra
 
     }
 
-    public Expr bindLambda(Lambda lambda, PlanTranslatorContext context) {
+    @Override
+    public Expr visitLambda(Lambda lambda, PlanTranslatorContext context) {
         Expr func = lambda.getLambdaFunction().accept(this, context);
         List<Expr> arguments = lambda.getLambdaArguments().stream().map(e -> e.accept(this, context))
                 .collect(Collectors.toList());
@@ -433,7 +434,7 @@ public class ExpressionTranslator extends DefaultExpressionVisitor<Expr, PlanTra
                 true, true, NullableMode.DEPEND_ON_ARGUMENT);
 
         // create catalog FunctionCallExpr without analyze again
-        Expr lambdaBody = bindLambda(lambda, context);
+        Expr lambdaBody = visitLambda(lambda, context);
         arguments.set(0, lambdaBody);
         return new LambdaFunctionCallExpr(catalogFunction, new FunctionParams(false, arguments));
     }
