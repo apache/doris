@@ -1513,6 +1513,7 @@ public class Env {
         publishVersionDaemon.start();
         // Start txn cleaner
         txnCleaner.start();
+        timerJobManager.start();
         // Alter
         getAlterInstance().start();
         // Consistency checker

@@ -32,19 +32,19 @@ public enum JobCategory {
     private int code;
 
     @Getter
-    private String description;
+    private String name;
 
-    JobCategory(int code, String description) {
+    JobCategory(int code, String name) {
         this.code = code;
-        this.description = description;
+        this.name = name;
     }
 
-    public static JobCategory getJobCategoryByCode(int code) {
+    public static JobCategory getJobCategoryByName(String name) {
         for (JobCategory jobCategory : JobCategory.values()) {
-            if (jobCategory.getCode() == code) {
+            if (jobCategory.name.equalsIgnoreCase(name)) {
                 return jobCategory;
             }
         }
-        return null;
+        throw new IllegalArgumentException("Unknown job category name: " + name);
     }
 }

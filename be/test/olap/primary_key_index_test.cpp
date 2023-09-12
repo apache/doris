@@ -129,7 +129,7 @@ TEST_F(PrimaryKeyIndexTest, builder) {
         EXPECT_FALSE(exists);
         auto status = index_iterator->seek_at_or_after(&slice, &exact_match);
         EXPECT_FALSE(exact_match);
-        EXPECT_TRUE(status.is<ErrorCode::END_OF_FILE>());
+        EXPECT_TRUE(status.is<ErrorCode::ENTRY_NOT_FOUND>());
     }
 
     // read all key
