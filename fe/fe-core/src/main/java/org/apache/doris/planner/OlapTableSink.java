@@ -338,6 +338,23 @@ public class OlapTableSink extends DataSink {
                         }
                     }
                 }
+                // for auto create partition by function expr, there is no any partition firstly,
+                // But this is required in thrift struct.
+                if (partitionIds.isEmpty()) {
+                    partitionParam.setDistributedColumns(getDistColumns(table.getDefaultDistributionInfo()));
+                    partitionParam.setPartitions(new ArrayList<TOlapTablePartition>());
+                }
+                ArrayList<Expr> exprs = partitionInfo.getPartitionExprs();
+                if (exprs != null && analyzer != null) {
+                    Analyzer funcAnalyzer = new Analyzer(analyzer.getEnv(), analyzer.getContext());
+                    tupleDescriptor.setTable(table);
+                    funcAnalyzer.registerTupleDescriptor(tupleDescriptor);
+                    for (Expr e : exprs) {
+                        e.analyze(funcAnalyzer);
+                    }
+                    partitionParam.setPartitionFunctionExprs(Expr.treesToThrift(exprs));
+                }
+                partitionParam.setEnableAutomaticPartition(partitionInfo.enableAutomaticPartition());
                 break;
             }
             case UNPARTITIONED: {
