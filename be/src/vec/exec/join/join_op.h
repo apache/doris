@@ -44,9 +44,7 @@ namespace doris::vectorized {
  *  RowRefListWithFlags is a list of many RowRefWithFlags. This means each row will have different visited flags. It's used for join operation which has `other_conjuncts`.
  */
 struct RowRef {
-    using SizeT = uint32_t; /// Do not use size_t cause of memory economy
-
-    SizeT row_num = 0;
+    uint32_t row_num = 0;
     uint8_t block_offset;
 
     RowRef() = default;
@@ -65,11 +63,11 @@ struct RowRefWithFlag : public RowRef {
 /// Portion of RowRefs, 16 * (MAX_SIZE + 1) bytes sized.
 template <typename RowRefType>
 struct Batch {
-    static constexpr uint8_t MAX_SIZE = 7; /// Adequate values are 3, 7, 15, 31.
+    static constexpr uint32_t MAX_SIZE = 7; /// Adequate values are 3, 7, 15, 31.
 
+    uint32_t size = 0; // It's smaller than uint32_t but keeps align in Arena.
     RowRefType row_refs[MAX_SIZE];
     Batch<RowRefType>* next;
-    uint8_t size = 0;
 
     Batch(Batch<RowRefType>* parent) : next(parent) {}
 
