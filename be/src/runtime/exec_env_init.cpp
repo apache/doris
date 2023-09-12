@@ -529,10 +529,15 @@ void ExecEnv::destroy() {
     _new_load_stream_mgr.reset();
     _stream_load_executor.reset();
     SAFE_STOP(_storage_engine);
+    SAFE_SHUTDOWN(_buffered_reader_prefetch_thread_pool);
+    SAFE_SHUTDOWN(_join_node_thread_pool);
+    SAFE_SHUTDOWN(_send_report_thread_pool);
+    SAFE_SHUTDOWN(_send_batch_thread_pool);
+    SAFE_SHUTDOWN(_serial_download_cache_thread_token);
+    SAFE_SHUTDOWN(_download_cache_thread_pool);
 
     // Free resource after threads are stopped.
     // Some threads are still running, like threads created by _new_load_stream_mgr ...
-    _buffered_reader_prefetch_thread_pool->shutdown();
     SAFE_DELETE(_s3_buffer_pool);
     SAFE_DELETE(_tablet_schema_cache);
     _deregister_metrics();
