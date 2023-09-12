@@ -147,7 +147,7 @@ public:
 
     // todo(wb) rethinking how to calculate ```_max_bytes_in_queue``` when executing shared scan
     virtual inline bool should_be_schedule() const {
-       return (_cur_bytes_in_queue < _max_bytes_in_queue / 2) &&
+        return (_cur_bytes_in_queue < _max_bytes_in_queue / 2) &&
                (_serving_blocks_num < allowed_blocks_num());
     }
 
@@ -160,7 +160,8 @@ public:
 
     int32_t allowed_blocks_num() const {
         int32_t blocks_num = std::min(_free_blocks_capacity,
-                                      int32_t((_max_bytes_in_queue + _estimated_block_bytes - 1) / _estimated_block_bytes));
+                                      int32_t((_max_bytes_in_queue + _estimated_block_bytes - 1) /
+                                              _estimated_block_bytes));
         return blocks_num;
     }
 
@@ -252,8 +253,7 @@ protected:
     int64_t _cur_bytes_in_queue = 0;
     // The max limit bytes of blocks in blocks queue
     const int64_t _max_bytes_in_queue;
-    std::atomic<int64_t > _bytes_allocated = 0;
-    std::atomic<int64_t> _reading_bytes_allocated = 0;
+    std::atomic<int64_t> _bytes_allocated = 0;
 
     doris::vectorized::ScannerScheduler* _scanner_scheduler;
     // List "scanners" saves all "unfinished" scanners.

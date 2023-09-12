@@ -374,7 +374,7 @@ void ScannerScheduler::_scanner_scan(ScannerScheduler* scheduler, ScannerContext
 
         BlockUPtr block = ctx->get_free_block();
         if (block == nullptr) {
-            LOG(INFO) << " get free block returns nullptr " << (void *)ctx;
+            LOG(INFO) << " get free block returns nullptr " << (void*)ctx;
             break;
         }
 
