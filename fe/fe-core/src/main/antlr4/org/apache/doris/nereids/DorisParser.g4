@@ -63,20 +63,19 @@ statement
         (PARTITION partition=identifierList)?
         (USING relation (COMMA relation)*)
         whereClause                                                    #delete
-    | (LOAD LABEL lableName=identifier
+    | LOAD LABEL lableName=identifier
         LEFT_PAREN dataDescs+=dataDesc (COMMA dataDescs+=dataDesc)* RIGHT_PAREN
         (withRemoteStorageSystem)?
         (PROPERTIES LEFT_PAREN properties=propertyItemList RIGHT_PAREN)?
-        (commentSpec)?
+        (commentSpec)?                                                 #load
     | LOAD LABEL lableName=identifier
         LEFT_PAREN dataDescs+=dataDesc (COMMA dataDescs+=dataDesc)* RIGHT_PAREN
         resourceDesc
         (PROPERTIES LEFT_PAREN properties=propertyItemList RIGHT_PAREN)?
-        (commentSpec)?
+        (commentSpec)?                                                 #resourceLoad
     | LOAD mysqlDataDesc
         (PROPERTIES LEFT_PAREN properties=propertyItemList RIGHT_PAREN)?
-        (commentSpec)?
-    )                                                                  #load
+        (commentSpec)?                                                 #mysqlLoad
     | EXPORT TABLE tableName=multipartIdentifier
         (PARTITION partition=identifierList)?
         (whereClause)?
@@ -142,7 +141,8 @@ preFilterClause : PRECEDING FILTER expression ;
 deleteOnClause : DELETE ON expression ;
 sequenceColClause : ORDER BY identifier ;
 colFromPath : COLUMNS FROM PATH AS identifierList ;
-colMappingList : SET LEFT_PAREN mappingSet+=expression (COMMA mappingSet+=expression)* RIGHT_PAREN ;
+colMappingList : SET LEFT_PAREN mappingSet+= (COMMA mappingSet+=expression)* RIGHT_PAREN ;
+mappingExpr: (s=identifier EQ expression)
 
 withRemoteStorageSystem
     : WITH S3 LEFT_PAREN
