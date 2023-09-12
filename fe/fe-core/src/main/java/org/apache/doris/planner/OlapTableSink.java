@@ -26,6 +26,7 @@ import org.apache.doris.catalog.DistributionInfo;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.HashDistributionInfo;
 import org.apache.doris.catalog.Index;
+import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.ListPartitionItem;
 import org.apache.doris.catalog.MaterializedIndex;
 import org.apache.doris.catalog.MaterializedIndex.IndexExtState;
@@ -189,6 +190,17 @@ public class OlapTableSink extends DataSink {
         }
         tSink.setWriteSingleReplica(singleReplicaLoad);
         tSink.setNodesInfo(createPaloNodesInfo());
+        if (isUniqueKeyIgnoreMode) {
+            if (dstTable.getKeysType() != KeysType.UNIQUE_KEYS || !dstTable.getEnableUniqueKeyMergeOnWrite()) {
+                throw new UserException("ignore mode can only be enabled if the target table is "
+                        + "a unique table with merge-on-write enabled.");
+            } else if (isPartialUpdate) {
+                throw new UserException("ignore mode can't be used in partial update.");
+            } else if (dstTable.hasSequenceCol()) {
+                throw new UserException("ignore mode can't be used if the target table has sequence column, "
+                        + "but table[" + dstTable.getName() + "] has sequnce column.");
+            }
+        }
     }
 
     @Override
