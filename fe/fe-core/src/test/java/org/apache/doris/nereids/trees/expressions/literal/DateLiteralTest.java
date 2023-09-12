@@ -72,8 +72,8 @@ class DateLiteralTest {
         new DateLiteral("2022-01-01Z");
         new DateLiteral("2022-01-01UTC");
         new DateLiteral("2022-01-01GMT");
-        // new DateLiteral("2022-01-01UTC+08");
-        // new DateLiteral("2022-01-01UTC-06");
+        new DateLiteral("2022-01-01UTC+08");
+        new DateLiteral("2022-01-01UTC-06");
         new DateLiteral("2022-01-01UTC+08:00");
         new DateLiteral("2022-01-01UTC-06:00");
         new DateLiteral("2022-01-01Europe/London");

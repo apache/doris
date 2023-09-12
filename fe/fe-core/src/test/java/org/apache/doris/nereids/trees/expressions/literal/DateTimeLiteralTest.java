@@ -133,32 +133,32 @@ class DateTimeLiteralTest {
 
         new DateTimeV2Literal("2022-08-01 01:01:01UTC+01:01");
 
-        // new DateTimeV2Literal("2022-08-01 01:01:01UTC+01");
-        // new DateTimeV2Literal("2022-08-01 01:01:01UTC+1");
+        new DateTimeV2Literal("2022-08-01 01:01:01UTC+01");
+        new DateTimeV2Literal("2022-08-01 01:01:01UTC+1");
     }
 
     @Test
     void testTwoDigitalYearZoneOffset() {
         new DateTimeV2Literal("22-08-01 01:01:01UTC+01:01:01");
-        // new DateTimeV2Literal("22-08-01 01:01:01UTC+1:1:1");
+        new DateTimeV2Literal("22-08-01 01:01:01UTC+1:1:1");
 
         new DateTimeV2Literal("22-08-01 01:01:01UTC+01:01");
 
-        // new DateTimeV2Literal("22-08-01 01:01:01UTC+01");
-        // new DateTimeV2Literal("22-08-01 01:01:01UTC+1");
+        new DateTimeV2Literal("22-08-01 01:01:01UTC+01");
+        new DateTimeV2Literal("22-08-01 01:01:01UTC+1");
     }
 
     @Test
     void testOffset() {
         new DateTimeV2Literal("2022-08-01 01:01:01+01:01:01");
         new DateTimeV2Literal("2022-08-01 01:01:01+01:01");
-        // new DateTimeV2Literal("2022-08-01 01:01:01+01");
+        new DateTimeV2Literal("2022-08-01 01:01:01+01");
         new DateTimeV2Literal("2022-08-01 01:01:01+01:1:01");
         new DateTimeV2Literal("2022-08-01 01:01:01+01:1");
         new DateTimeV2Literal("2022-08-01 01:01:01+01:01:1");
         new DateTimeV2Literal("2022-08-01 01:01:01+1:1:1");
         new DateTimeV2Literal("2022-08-01 01:01:01+1:1");
-        // new DateTimeV2Literal("2022-08-01 01:01:01+1");
+        new DateTimeV2Literal("2022-08-01 01:01:01+1");
 
         new DateTimeV2Literal("2022-05-01 01:02:55+02:30");
         new DateTimeV2Literal("2022-05-01 01:02:55.123-02:30");
@@ -179,7 +179,7 @@ class DateTimeLiteralTest {
     void testDateTime() {
         new DateTimeV2Literal("2022-08-01 01:01:01UTC+1:1:1");
         new DateTimeV2Literal("2022-08-01 01:01:01UTC+1:1");
-        // new DateTimeV2Literal("2022-08-01 01:01:01UTC+1");
+        new DateTimeV2Literal("2022-08-01 01:01:01UTC+1");
 
         new DateTimeV2Literal("0001-01-01 00:01:01");
         new DateTimeV2Literal("0001-01-01 00:01:01.001");
@@ -189,20 +189,20 @@ class DateTimeLiteralTest {
         new DateTimeV2Literal("2022-01-01 01:02:55.123");
         new DateTimeV2Literal("2022-02-01 01:02:55Z");
         new DateTimeV2Literal("2022-02-01 01:02:55.123Z");
-        // new DateTimeV2Literal("2022-03-01 01:02:55UTC+8");
+        new DateTimeV2Literal("2022-03-01 01:02:55UTC+8");
         new DateTimeV2Literal("2022-03-01 01:02:55.123UTC");
-        // new DateTimeV2Literal("2022-04-01 01:02:55UTC-6");
-        // new DateTimeV2Literal("2022-04-01T01:02:55UTC-6");
-        // new DateTimeV2Literal("2022-04-01T01:02:55.123UTC+6");
+        new DateTimeV2Literal("2022-04-01 01:02:55UTC-6");
+        new DateTimeV2Literal("2022-04-01T01:02:55UTC-6");
+        new DateTimeV2Literal("2022-04-01T01:02:55.123UTC+6");
 
         new DateTimeV2Literal("2022-01-01 01:02:55");
         new DateTimeV2Literal("2022-01-01 01:02:55.123");
         new DateTimeV2Literal("2022-02-01 01:02:55Z");
         new DateTimeV2Literal("2022-02-01 01:02:55.123Z");
-        // new DateTimeV2Literal("2022-03-01 01:02:55UTC+8");
+        new DateTimeV2Literal("2022-03-01 01:02:55UTC+8");
         new DateTimeV2Literal("2022-03-01 01:02:55.123UTC");
-        // new DateTimeV2Literal("2022-04-01T01:02:55UTC-6");
-        // new DateTimeV2Literal("2022-04-01T01:02:55.123UTC+6");
+        new DateTimeV2Literal("2022-04-01T01:02:55UTC-6");
+        new DateTimeV2Literal("2022-04-01T01:02:55.123UTC+6");
 
         new DateTimeV2Literal("0001-01-01");
         // new DateTimeV2Literal("20220801GMT+5");
