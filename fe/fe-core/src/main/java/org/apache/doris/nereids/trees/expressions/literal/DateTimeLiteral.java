@@ -32,7 +32,6 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.time.LocalDateTime;
-import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
 import java.time.format.DateTimeFormatterBuilder;
 import java.time.format.ResolverStyle;
@@ -133,24 +132,16 @@ public class DateTimeLiteral extends DateLiteral {
     protected void init(String s) throws AnalysisException {
         try {
             TemporalAccessor dateTime = null;
-            int offset = 0;
             // parse timezone
             if (haveTimeZoneOffset(s) || haveTimeZoneName(s)) {
-                String tzString = new String();
                 if (haveTimeZoneName(s)) { // GMT, UTC+8, Z[, CN, Asia/Shanghai]
                     int split = getTimeZoneSplitPos(s);
                     Preconditions.checkArgument(split > 0);
-                    tzString = s.substring(split);
                     s = s.substring(0, split);
                 } else { // +04:30
                     Preconditions.checkArgument(s.charAt(s.length() - 6) == '-' || s.charAt(s.length() - 6) == '+');
-                    tzString = s.substring(s.length() - 6);
                     s = s.substring(0, s.length() - 6);
                 }
-                ZoneId zone = ZoneId.of(tzString);
-                ZoneId dorisZone = DateUtils.getTimeZone();
-                offset = dorisZone.getRules().getOffset(java.time.Instant.now()).getTotalSeconds()
-                        - zone.getRules().getOffset(java.time.Instant.now()).getTotalSeconds();
             }
             if (!s.contains("-") && !s.contains(":")) {
                 dateTime = DateTimeFormatterUtils.BASIC_DATE_TIME_FORMATTER.parse(s);
@@ -223,16 +214,6 @@ public class DateTimeLiteral extends DateLiteral {
             minute = DateUtils.getOrDefault(dateTime, ChronoField.MINUTE_OF_HOUR);
             second = DateUtils.getOrDefault(dateTime, ChronoField.SECOND_OF_MINUTE);
             microSecond = DateUtils.getOrDefault(dateTime, ChronoField.MICRO_OF_SECOND);
-
-            if (offset != 0) {
-                DateTimeLiteral result = (DateTimeLiteral) this.plusSeconds(offset);
-                this.second = result.second;
-                this.minute = result.minute;
-                this.hour = result.hour;
-                this.day = result.day;
-                this.month = result.month;
-                this.year = result.year;
-            }
 
         } catch (Exception ex) {
             throw new AnalysisException("datetime literal [" + s + "] is invalid");
