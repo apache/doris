@@ -41,12 +41,12 @@ import java.time.temporal.ChronoField;
 public class DateTimeFormatterUtils {
     // Date: %Y-%m-%d
     public static DateTimeFormatter DATE_FORMATTER = new DateTimeFormatterBuilder()
-            .appendOptional(new DateTimeFormatterBuilder().appendValue(ChronoField.YEAR, 4).toFormatter())
-            .appendOptional(new DateTimeFormatterBuilder().appendValue(ChronoField.YEAR, 2).toFormatter())
+            .appendOptional(
+                    new DateTimeFormatterBuilder().appendValue(ChronoField.YEAR, 4).toFormatter())
+            .appendOptional(
+                    new DateTimeFormatterBuilder().appendValueReduced(ChronoField.YEAR, 2, 2, 1970).toFormatter())
             .appendLiteral('-').appendValue(ChronoField.MONTH_OF_YEAR, 2)
             .appendLiteral('-').appendValue(ChronoField.DAY_OF_MONTH, 2)
-            // if year isn't present, use -1 as default, so that it can be rejected by check
-            .parseDefaulting(ChronoField.YEAR, -1)
             .toFormatter().withResolverStyle(ResolverStyle.STRICT);
     // Date without delimiter: %Y%m%d
     public static DateTimeFormatter BASIC_DATE_FORMATTER = new DateTimeFormatterBuilder()
