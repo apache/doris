@@ -108,4 +108,10 @@ public class CreateTableAsSelectStmt extends DdlStmt {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_COL_NUMBER_NOT_MATCH);
         }
     }
+
+    @Override
+    public void reset() {
+        super.reset();
+        queryStmt.reset();
+    }
 }

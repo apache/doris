@@ -56,8 +56,11 @@ public:
     Status prepare(RuntimeState* state) override;
     Status open(RuntimeState* state) override {
         RETURN_IF_ERROR(alloc_resource(state));
-        RETURN_IF_ERROR(VExpr::open(_vfn_ctxs, state));
         return _children[0]->open(state);
+    }
+    Status alloc_resource(RuntimeState* state) override {
+        RETURN_IF_ERROR(ExecNode::alloc_resource(state));
+        return VExpr::open(_vfn_ctxs, state);
     }
     Status get_next(RuntimeState* state, Block* block, bool* eos) override;
     bool need_more_input_data() const { return !_child_block.rows() && !_child_eos; }

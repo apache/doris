@@ -71,6 +71,11 @@ public class StructType extends DataType {
     }
 
     @Override
+    public DataType conversion() {
+        return new StructType(fields.stream().map(StructField::conversion).collect(Collectors.toList()));
+    }
+
+    @Override
     public Type toCatalogDataType() {
         return new org.apache.doris.catalog.StructType(fields.stream()
                 .map(StructField::toCatalogDataType)

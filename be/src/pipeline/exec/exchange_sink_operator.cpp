@@ -98,6 +98,34 @@ bool ExchangeSinkLocalState::transfer_large_data_by_brpc() const {
 Status ExchangeSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& info) {
     RETURN_IF_ERROR(PipelineXSinkLocalState<>::init(state, info));
     _sender_id = info.sender_id;
+
+    _bytes_sent_counter = ADD_COUNTER(_profile, "BytesSent", TUnit::BYTES);
+    _uncompressed_bytes_counter = ADD_COUNTER(_profile, "UncompressedRowBatchSize", TUnit::BYTES);
+    _local_sent_rows = ADD_COUNTER(_profile, "LocalSentRows", TUnit::UNIT);
+    _serialize_batch_timer = ADD_TIMER(_profile, "SerializeBatchTime");
+    _compress_timer = ADD_TIMER(_profile, "CompressTime");
+    _brpc_send_timer = ADD_TIMER(_profile, "BrpcSendTime");
+    _brpc_wait_timer = ADD_TIMER(_profile, "BrpcSendTime.Wait");
+    _local_send_timer = ADD_TIMER(_profile, "LocalSendTime");
+    _split_block_hash_compute_timer = ADD_TIMER(_profile, "SplitBlockHashComputeTime");
+    _split_block_distribute_by_channel_timer =
+            ADD_TIMER(_profile, "SplitBlockDistributeByChannelTime");
+    _blocks_sent_counter = ADD_COUNTER(_profile, "BlocksSent", TUnit::UNIT);
+    _overall_throughput = _profile->add_derived_counter(
+            "OverallThroughput", TUnit::BYTES_PER_SECOND,
+            std::bind<int64_t>(&RuntimeProfile::units_per_second, _bytes_sent_counter,
+                               _profile->total_time_counter()),
+            "");
+    _merge_block_timer = ADD_TIMER(profile(), "MergeBlockTime");
+    _local_bytes_send_counter = ADD_COUNTER(_profile, "LocalBytesSent", TUnit::BYTES);
+    _memory_usage_counter = ADD_LABEL_COUNTER(_profile, "MemoryUsage");
+    _peak_memory_usage_counter =
+            _profile->AddHighWaterMarkCounter("PeakMemoryUsage", TUnit::BYTES, "MemoryUsage");
+    return Status::OK();
+}
+
+Status ExchangeSinkLocalState::open(RuntimeState* state) {
+    RETURN_IF_ERROR(PipelineXSinkLocalState<>::open(state));
     _broadcast_pb_blocks.resize(config::num_broadcast_buffer);
     _broadcast_pb_block_idx = 0;
     auto& p = _parent->cast<ExchangeSinkOperatorX>();
@@ -121,11 +149,6 @@ Status ExchangeSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& inf
         }
     }
 
-    std::vector<std::string> instances;
-    for (const auto& channel : channels) {
-        instances.emplace_back(channel->get_fragment_instance_id_str());
-    }
-    std::string title = "VDataStreamSender (dst_id={}, dst_fragments=[{}])";
     SCOPED_TIMER(_profile->total_time_counter());
     SCOPED_CONSUME_MEM_TRACKER(_mem_tracker.get());
 
@@ -156,28 +179,6 @@ Status ExchangeSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& inf
 
     register_channels(_sink_buffer.get());
 
-    _bytes_sent_counter = ADD_COUNTER(_profile, "BytesSent", TUnit::BYTES);
-    _uncompressed_bytes_counter = ADD_COUNTER(_profile, "UncompressedRowBatchSize", TUnit::BYTES);
-    _local_sent_rows = ADD_COUNTER(_profile, "LocalSentRows", TUnit::UNIT);
-    _serialize_batch_timer = ADD_TIMER(_profile, "SerializeBatchTime");
-    _compress_timer = ADD_TIMER(_profile, "CompressTime");
-    _brpc_send_timer = ADD_TIMER(_profile, "BrpcSendTime");
-    _brpc_wait_timer = ADD_TIMER(_profile, "BrpcSendTime.Wait");
-    _local_send_timer = ADD_TIMER(_profile, "LocalSendTime");
-    _split_block_hash_compute_timer = ADD_TIMER(_profile, "SplitBlockHashComputeTime");
-    _split_block_distribute_by_channel_timer =
-            ADD_TIMER(_profile, "SplitBlockDistributeByChannelTime");
-    _blocks_sent_counter = ADD_COUNTER(_profile, "BlocksSent", TUnit::UNIT);
-    _overall_throughput = _profile->add_derived_counter(
-            "OverallThroughput", TUnit::BYTES_PER_SECOND,
-            std::bind<int64_t>(&RuntimeProfile::units_per_second, _bytes_sent_counter,
-                               _profile->total_time_counter()),
-            "");
-    _merge_block_timer = ADD_TIMER(profile(), "MergeBlockTime");
-    _local_bytes_send_counter = ADD_COUNTER(_profile, "LocalBytesSent", TUnit::BYTES);
-    _memory_usage_counter = ADD_LABEL_COUNTER(profile(), "MemoryUsage");
-    _peak_memory_usage_counter =
-            profile()->AddHighWaterMarkCounter("PeakMemoryUsage", TUnit::BYTES, "MemoryUsage");
     return Status::OK();
 }
 

@@ -43,10 +43,8 @@ import org.apache.doris.common.ThreadPoolManager.BlockedPolicy;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.Daemon;
 import org.apache.doris.common.util.Util;
-import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.persist.AnalyzeDeletionLog;
-import org.apache.doris.persist.TableStatsDeletionLog;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ShowResultSet;
 import org.apache.doris.qe.ShowResultSetMetaData;
@@ -222,7 +220,7 @@ public class AnalysisManager extends Daemon implements Writable {
     }
 
     private void clear() {
-        clearExpiredAnalysisInfo(analysisJobInfoMap, (a) ->
+        clearMeta(analysisJobInfoMap, (a) ->
                         a.scheduleType.equals(ScheduleType.ONCE)
                                 && System.currentTimeMillis() - a.lastExecTimeInMs
                                 > TimeUnit.DAYS.toMillis(StatisticConstants.ANALYSIS_JOB_INFO_EXPIRATION_TIME_IN_DAYS),
@@ -230,7 +228,7 @@ public class AnalysisManager extends Daemon implements Writable {
                     Env.getCurrentEnv().getEditLog().logDeleteAnalysisJob(new AnalyzeDeletionLog(id));
                     return null;
                 });
-        clearExpiredAnalysisInfo(analysisTaskInfoMap, (a) -> System.currentTimeMillis() - a.lastExecTimeInMs
+        clearMeta(analysisTaskInfoMap, (a) -> System.currentTimeMillis() - a.lastExecTimeInMs
                         > TimeUnit.DAYS.toMillis(StatisticConstants.ANALYSIS_JOB_INFO_EXPIRATION_TIME_IN_DAYS),
                 (id) -> {
                     Env.getCurrentEnv().getEditLog().logDeleteAnalysisTask(new AnalyzeDeletionLog(id));
@@ -238,7 +236,7 @@ public class AnalysisManager extends Daemon implements Writable {
                 });
     }
 
-    private void clearExpiredAnalysisInfo(Map<Long, AnalysisInfo> infoMap, Predicate<AnalysisInfo> isExpired,
+    private void clearMeta(Map<Long, AnalysisInfo> infoMap, Predicate<AnalysisInfo> isExpired,
             Function<Long, Void> writeLog) {
         synchronized (infoMap) {
             List<Long> expired = new ArrayList<>();
@@ -690,11 +688,10 @@ public class AnalysisManager extends Daemon implements Writable {
         Set<String> cols = dropStatsStmt.getColumnNames();
         long tblId = dropStatsStmt.getTblId();
         TableStats tableStats = findTableStatsStatus(dropStatsStmt.getTblId());
-        if (tableStats == null) {
-            return;
+        if (tableStats != null) {
+            tableStats.updatedTime = 0;
+            replayUpdateTableStatsStatus(tableStats);
         }
-        tableStats.updatedTime = 0;
-        replayUpdateTableStatsStatus(tableStats);
         StatisticsRepository.dropStatistics(tblId, cols);
         for (String col : cols) {
             Env.getCurrentEnv().getStatisticsCache().invalidate(tblId, -1L, col);
@@ -970,36 +967,4 @@ public class AnalysisManager extends Daemon implements Writable {
                 .collect(Collectors.toSet());
     }
 
-    public void removeExternalTableStats(CatalogIf<DatabaseIf<TableIf>> catalogIf) {
-        if (FeConstants.runningUnitTest) {
-            return;
-        }
-        Set<Long> tblSet = catalogIf.getAllDbs().stream()
-                .map(DatabaseIf::getTables)
-                .flatMap(Collection::stream)
-                .map(t -> ((TableIf) t).getId())
-                .collect(Collectors.toSet());
-        List<Long> expiredTblIds = new ArrayList<>();
-        for (Map.Entry<Long, TableStats> entry : idToTblStatsStatus.entrySet()) {
-            if (tblSet.contains(entry.getKey())) {
-                expiredTblIds.add(entry.getKey());
-            }
-        }
-        for (Long tblId : expiredTblIds) {
-            removeTableStats(tblId);
-        }
-    }
-
-    public void removeTableStats(long tblId) {
-        if (!idToTblStatsStatus.containsKey(tblId)) {
-            return;
-        }
-        TableStatsDeletionLog log = new TableStatsDeletionLog(tblId);
-        Env.getCurrentEnv().getEditLog().logDeleteTableStats(log);
-        replayTableStatsDeletion(log);
-    }
-
-    public void replayTableStatsDeletion(TableStatsDeletionLog log) {
-        idToTblStatsStatus.remove(log.id);
-    }
 }

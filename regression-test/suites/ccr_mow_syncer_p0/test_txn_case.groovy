@@ -39,6 +39,10 @@ suite("test_mow_txn_case") {
     }
 
     def syncer = getSyncer()
+    if (!syncer.checkEnableFeatureBinlog()) {
+        logger.info("fe enable_feature_binlog is false, skip case test_mow_txn_case")
+        return
+    }
     def txnTableName = "tbl_txn_case"
     def test_num = 0
     sql "DROP TABLE IF EXISTS ${txnTableName}"

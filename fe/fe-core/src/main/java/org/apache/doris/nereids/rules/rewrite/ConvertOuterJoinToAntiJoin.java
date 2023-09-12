@@ -41,14 +41,14 @@ import java.util.stream.Collectors;
  * project(A.*)
  *    - LeftAntiJoin(A, B)
  */
-public class TransformOuterJoinToAntiJoin extends OneRewriteRuleFactory {
+public class ConvertOuterJoinToAntiJoin extends OneRewriteRuleFactory {
 
     @Override
     public Rule build() {
         return logicalProject(logicalFilter(logicalJoin()
                 .when(join -> join.getJoinType().isOuterJoin())))
                 .then(this::toAntiJoin)
-        .toRule(RuleType.TRANSFORM_OUTER_JOIN_TO_ANTI);
+        .toRule(RuleType.CONVERT_OUTER_JOIN_TO_ANTI);
     }
 
     private Plan toAntiJoin(LogicalProject<LogicalFilter<LogicalJoin<Plan, Plan>>> project) {

@@ -116,6 +116,7 @@ public enum PlanType {
 
     // commands
     CREATE_POLICY_COMMAND,
+    CREATE_TABLE_COMMAND,
     DELETE_COMMAND,
     EXPLAIN_COMMAND,
     INSERT_INTO_TABLE_COMMAND,

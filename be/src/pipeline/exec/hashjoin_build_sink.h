@@ -55,6 +55,7 @@ public:
     ~HashJoinBuildSinkLocalState() = default;
 
     Status init(RuntimeState* state, LocalSinkStateInfo& info) override;
+    Status open(RuntimeState* state) override;
     Status process_build_block(RuntimeState* state, vectorized::Block& block, uint8_t offset);
 
     void init_short_circuit_for_probe();

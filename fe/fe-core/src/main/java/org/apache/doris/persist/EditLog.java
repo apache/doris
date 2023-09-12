@@ -362,6 +362,7 @@ public class EditLog {
                 case OperationType.OP_EXPORT_CREATE: {
                     ExportJob job = (ExportJob) journal.getData();
                     ExportMgr exportMgr = env.getExportMgr();
+                    job.cancelReplayedExportJob();
                     exportMgr.replayCreateExportJob(job);
                     break;
                 }
@@ -1067,10 +1068,6 @@ public class EditLog {
                 }
                 case OperationType.OP_UPDATE_TABLE_STATS: {
                     env.getAnalysisManager().replayUpdateTableStatsStatus((TableStats) journal.getData());
-                    break;
-                }
-                case OperationType.OP_DELETE_TABLE_STATS: {
-                    env.getAnalysisManager().replayTableStatsDeletion((TableStatsDeletionLog) journal.getData());
                     break;
                 }
                 default: {
@@ -1885,9 +1882,5 @@ public class EditLog {
 
     public void logCreateTableStats(TableStats tableStats) {
         logEdit(OperationType.OP_UPDATE_TABLE_STATS, tableStats);
-    }
-
-    public void logDeleteTableStats(TableStatsDeletionLog log) {
-        logEdit(OperationType.OP_DELETE_ANALYSIS_JOB, log);
     }
 }
