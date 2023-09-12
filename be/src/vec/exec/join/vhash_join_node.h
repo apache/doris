@@ -87,7 +87,29 @@ template <class HashTableContext>
 struct ProcessRuntimeFilterBuild {
     ProcessRuntimeFilterBuild(RuntimeFilterContext* context) : _context(context) {}
 
-    Status operator()(RuntimeState* state, HashTableContext& hash_table_ctx);
+    Status operator()(RuntimeState* state, HashTableContext& hash_table_ctx) {
+        if (_context->_runtime_filter_descs.empty()) {
+            return Status::OK();
+        }
+        _context->_runtime_filter_slots = std::make_shared<VRuntimeFilterSlots>(
+                _context->_build_expr_ctxs, _context->_runtime_filter_descs);
+
+        RETURN_IF_ERROR(_context->_runtime_filter_slots->init(
+                state, hash_table_ctx.hash_table.get_size(), _context->_build_bf_cardinality));
+
+        if (!_context->_runtime_filter_slots->empty() && !_context->_inserted_rows.empty()) {
+            {
+                SCOPED_TIMER(_context->_push_compute_timer);
+                _context->_runtime_filter_slots->insert(_context->_inserted_rows);
+            }
+        }
+        {
+            SCOPED_TIMER(_context->_push_down_timer);
+            RETURN_IF_ERROR(_context->_runtime_filter_slots->publish());
+        }
+
+        return Status::OK();
+    }
 
 private:
     RuntimeFilterContext* _context;
@@ -97,10 +119,10 @@ struct HashJoinBuildContext {
     HashJoinBuildContext(HashJoinNode* join_node);
     HashJoinBuildContext(pipeline::HashJoinBuildSinkLocalState* local_state);
 
-    void add_hash_buckets_info(const std::string& info) {
+    void add_hash_buckets_info(const std::string& info) const {
         _profile->add_info_string("HashTableBuckets", info);
     }
-    void add_hash_buckets_filled_info(const std::string& info) {
+    void add_hash_buckets_filled_info(const std::string& info) const {
         _profile->add_info_string("HashTableFilledBuckets", info);
     }
     RuntimeProfile::Counter* _hash_table_memory_usage;
