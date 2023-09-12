@@ -131,7 +131,8 @@ Status BetaRowsetWriter::add_block(const vectorized::Block* block) {
     return _segment_creator.add_block(block);
 }
 
-Status BetaRowsetWriter::_generate_delete_bitmap(int32_t segment_id) {
+Status BetaRowsetWriter::_generate_delete_bitmap(int32_t segment_id,
+                                                 bool is_unique_key_ignore_mode) {
     SCOPED_RAW_TIMER(&_delete_bitmap_ns);
     if (!_context.tablet->enable_unique_key_merge_on_write() ||
         _context.tablet_schema->is_partial_update()) {
@@ -149,7 +150,7 @@ Status BetaRowsetWriter::_generate_delete_bitmap(int32_t segment_id) {
     OlapStopWatch watch;
     RETURN_IF_ERROR(_context.tablet->calc_delete_bitmap(
             rowset, segments, specified_rowsets, _context.mow_context->delete_bitmap,
-            _context.mow_context->max_version, nullptr));
+            _context.mow_context->max_version, nullptr, nullptr, is_unique_key_ignore_mode));
     size_t total_rows = std::accumulate(
             segments.begin(), segments.end(), 0,
             [](size_t sum, const segment_v2::SegmentSharedPtr& s) { return sum += s->num_rows(); });
@@ -714,7 +715,8 @@ Status BetaRowsetWriter::add_segment(uint32_t segment_id, SegmentStatistics& seg
         }
     }
     if (_context.mow_context != nullptr) {
-        RETURN_IF_ERROR(_generate_delete_bitmap(segment_id));
+        RETURN_IF_ERROR(_generate_delete_bitmap(
+                segment_id, _context.tablet_schema->is_unique_key_ignore_mode()));
     }
     RETURN_IF_ERROR(_segcompaction_if_necessary());
     return Status::OK();

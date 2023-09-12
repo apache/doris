@@ -52,7 +52,7 @@ public:
     Status submit(TabletSharedPtr tablet, RowsetSharedPtr cur_rowset,
                   const segment_v2::SegmentSharedPtr& cur_segment,
                   const std::vector<RowsetSharedPtr>& target_rowsets, int64_t end_version,
-                  RowsetWriter* rowset_writer);
+                  RowsetWriter* rowset_writer, bool is_unique_key_ignore_mode = false);
 
     // wait all tasks in token to be completed.
     Status wait();

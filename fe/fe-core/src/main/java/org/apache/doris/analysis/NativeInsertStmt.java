@@ -166,6 +166,8 @@ public class NativeInsertStmt extends InsertStmt {
     // true if be generates an insert from group commit tvf stmt and executes to load data
     public boolean isInnerGroupCommit = false;
 
+    private boolean isInsertIgnore = false;
+
     public NativeInsertStmt(InsertTarget target, String label, List<String> cols, InsertSource source,
             List<String> hints) {
         super(new LabelName(null, label), null, null);
@@ -185,6 +187,20 @@ public class NativeInsertStmt extends InsertStmt {
         this.tableId = tableId;
     }
 
+    public NativeInsertStmt(InsertTarget target, String label, List<String> cols, InsertSource source,
+            List<String> hints, boolean isInsertIgnore) {
+        super(new LabelName(null, label), null, null);
+        this.tblName = target.getTblName();
+        this.targetPartitionNames = target.getPartitionNames();
+        this.label = new LabelName(null, label);
+        this.queryStmt = source.getQueryStmt();
+        this.planHints = hints;
+        this.isInsertIgnore = isInsertIgnore;
+        this.targetColumnNames = cols;
+        this.isValuesOrConstantSelect = (queryStmt instanceof SelectStmt
+                && ((SelectStmt) queryStmt).getTableRefs().isEmpty());
+    }
+
     // Ctor for CreateTableAsSelectStmt and InsertOverwriteTableStmt
     public NativeInsertStmt(TableName name, PartitionNames targetPartitionNames, LabelName label,
             QueryStmt queryStmt, List<String> planHints, List<String> targetColumnNames) {
@@ -199,10 +215,11 @@ public class NativeInsertStmt extends InsertStmt {
     }
 
     public NativeInsertStmt(InsertTarget target, String label, List<String> cols, InsertSource source,
-             List<String> hints, boolean isPartialUpdate) {
+             List<String> hints, boolean isPartialUpdate, boolean isInsertIgnore) {
         this(target, label, cols, source, hints);
         this.isPartialUpdate = isPartialUpdate;
         this.partialUpdateCols.addAll(cols);
+        this.isInsertIgnore = isInsertIgnore;
     }
 
     public boolean isValuesOrConstantSelect() {
@@ -382,7 +399,8 @@ public class NativeInsertStmt extends InsertStmt {
             OlapTableSink sink = (OlapTableSink) dataSink;
             TUniqueId loadId = analyzer.getContext().queryId();
             int sendBatchParallelism = analyzer.getContext().getSessionVariable().getSendBatchParallelism();
-            sink.init(loadId, transactionId, db.getId(), timeoutSecond, sendBatchParallelism, false, false);
+            sink.init(loadId, transactionId, db.getId(), timeoutSecond,
+                    sendBatchParallelism, false, false, isInsertIgnore);
         }
     }
 

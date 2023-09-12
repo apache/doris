@@ -107,6 +107,7 @@
 #include "olap/txn_manager.h"
 #include "olap/types.h"
 #include "olap/utils.h"
+#include "runtime/define_primitive_type.h"
 #include "segment_loader.h"
 #include "service/point_query_executor.h"
 #include "util/bvar_helper.h"
@@ -2878,7 +2879,8 @@ Status Tablet::calc_segment_delete_bitmap(RowsetSharedPtr rowset,
                                           const segment_v2::SegmentSharedPtr& seg,
                                           const std::vector<RowsetSharedPtr>& specified_rowsets,
                                           DeleteBitmapPtr delete_bitmap, int64_t end_version,
-                                          RowsetWriter* rowset_writer) {
+                                          RowsetWriter* rowset_writer,
+                                          bool is_unique_key_ignore_mode) {
     OlapStopWatch watch;
     auto rowset_id = rowset->rowset_id();
     Version dummy_version(end_version + 1, end_version + 1);
@@ -3025,7 +3027,8 @@ Status Tablet::calc_delete_bitmap(RowsetSharedPtr rowset,
                                   const std::vector<segment_v2::SegmentSharedPtr>& segments,
                                   const std::vector<RowsetSharedPtr>& specified_rowsets,
                                   DeleteBitmapPtr delete_bitmap, int64_t end_version,
-                                  CalcDeleteBitmapToken* token, RowsetWriter* rowset_writer) {
+                                  CalcDeleteBitmapToken* token, RowsetWriter* rowset_writer,
+                                  bool is_unique_key_ignore_mode) {
     auto rowset_id = rowset->rowset_id();
     if (specified_rowsets.empty() || segments.empty()) {
         LOG(INFO) << "skip to construct delete bitmap tablet: " << tablet_id()
@@ -3045,13 +3048,13 @@ Status Tablet::calc_delete_bitmap(RowsetSharedPtr rowset,
         auto& seg = segments[i];
         if (token != nullptr) {
             RETURN_IF_ERROR(token->submit(tablet_ptr, rowset, seg, specified_rowsets, end_version,
-                                          rowset_writer));
+                                          rowset_writer, is_unique_key_ignore_mode));
         } else {
             DeleteBitmapPtr seg_delete_bitmap = std::make_shared<DeleteBitmap>(tablet_id());
             seg_delete_bitmaps.push_back(seg_delete_bitmap);
             RETURN_IF_ERROR(calc_segment_delete_bitmap(rowset, segments[i], specified_rowsets,
                                                        seg_delete_bitmap, end_version,
-                                                       rowset_writer));
+                                                       rowset_writer, is_unique_key_ignore_mode));
         }
     }
 

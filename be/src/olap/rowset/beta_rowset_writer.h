@@ -134,7 +134,7 @@ public:
 private:
     Status _create_file_writer(std::string path, io::FileWriterPtr& file_writer);
     Status _check_segment_number_limit();
-    Status _generate_delete_bitmap(int32_t segment_id);
+    Status _generate_delete_bitmap(int32_t segment_id, bool is_unique_key_ignore_mode);
     void _build_rowset_meta(std::shared_ptr<RowsetMeta> rowset_meta);
 
     // segment compaction
