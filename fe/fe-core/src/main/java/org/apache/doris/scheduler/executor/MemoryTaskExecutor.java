@@ -20,16 +20,19 @@ package org.apache.doris.scheduler.executor;
 import org.apache.doris.scheduler.exception.JobException;
 
 /**
- * A functional interface for executing a job.
- * todo
+ * A functional interface for executing a memory task.
  */
-@FunctionalInterface
-public interface MemoryTaskExecutor<T> {
+public interface TransientTaskExecutor {
 
     /**
-     * Executes the event job and returns the result.
+     * Executes the memory task.
      * Exceptions will be caught internally, so there is no need to define or throw them separately.
      */
     void execute() throws JobException;
+
+    /**
+     * Cancel the memory task.
+     */
+    void cancel() throws JobException;
 }
 
