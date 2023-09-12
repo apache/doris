@@ -568,7 +568,7 @@ Status StringTypeInvertedIndexReader::handle_point_query(const std::string& colu
         std::wstring search_ws = StringUtil::string_to_wstring(v);
         term.reset(_CLNEW lucene::index::Term(column_name_ws.c_str(), search_ws.c_str()));
         auto term_query = std::make_unique<lucene::search::TermQuery>(term.get());
-        lucene_query->add(term_query.get(), lucene::search::BooleanClause::SHOULD);
+        lucene_query->add(term_query.release(), true, lucene::search::BooleanClause::SHOULD);
     }
 
     InvertedIndexQueryCache::CacheKey cache_key {_file_full_path, column_name,
