@@ -439,6 +439,13 @@ public class Config extends ConfigBase {
             "Maximal waiting time for all publish version tasks of one transaction to be finished, in seconds."})
     public static int publish_version_timeout_second = 30; // 30 seconds
 
+    @ConfField(mutable = true, masterOnly = true, description = {"导入 Publish 阶段的等待时间，单位是秒。超过此时间，"
+            + "则只需每个tablet包含一个成功副本，则导入成功。值为 -1 时，表示无限等待。",
+            "Waiting time for one transaction changing to \"at least one replica success\", in seconds."
+            + "If time exceeds this, and for each tablet it has at least one replica publish successful, "
+            + "then the load task will be successful." })
+    public static int publish_wait_time_second = 300;
+
     @ConfField(mutable = true, masterOnly = true, description = {"提交事务的最大超时时间，单位是秒。"
             + "该参数仅用于事务型 insert 操作中。",
             "Maximal waiting time for all data inserted before one transaction to be committed, in seconds. "
