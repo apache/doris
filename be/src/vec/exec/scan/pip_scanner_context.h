@@ -176,6 +176,15 @@ public:
         }
     }
 
+    std::string debug_string() override {
+        auto res = ScannerContext::debug_string();
+        for (int i = 0; i < _blocks_queues.size(); ++i) {
+            res += " queue " + std::to_string(i) + ":size " +
+                   std::to_string(_blocks_queues[i].size_approx());
+        }
+        return res;
+    }
+
 private:
     int _next_queue_to_feed = 0;
     std::vector<moodycamel::ConcurrentQueue<vectorized::BlockUPtr>> _blocks_queues;

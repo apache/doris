@@ -25,14 +25,12 @@ namespace doris::pipeline {
 struct LocalStateInfo {
     const std::vector<TScanRangeParams> scan_ranges;
     Dependency* dependency;
-    std::shared_ptr<vectorized::VDataStreamRecvr> recvr;
 };
 
 // This struct is used only for initializing local sink state.
 struct LocalSinkStateInfo {
     const int sender_id;
     Dependency* dependency;
-    std::shared_ptr<BufferControlBlock> sender;
 };
 
 class PipelineXLocalStateBase {
@@ -62,7 +60,11 @@ public:
         return reinterpret_cast<const TARGET&>(*this);
     }
 
+    // Do initialization. This step should be executed only once and in bthread, so we can do some
+    // lightweight or non-idempotent operations (e.g. init profile, clone expr ctx from operatorX)
     virtual Status init(RuntimeState* state, LocalStateInfo& info) = 0;
+    // Do initialization. This step can be executed multiple times, so we should make sure it is
+    // idempotent (e.g. wait for runtime filters).
     virtual Status open(RuntimeState* state) { return Status::OK(); }
     virtual Status close(RuntimeState* state) = 0;
 
@@ -232,7 +234,6 @@ public:
     }
 
     [[nodiscard]] virtual bool is_source() const override { return false; }
-    [[nodiscard]] virtual bool need_to_create_exch_recv() const { return false; }
 
     Status get_next_after_projects(RuntimeState* state, vectorized::Block* block,
                                    SourceState& source_state);
@@ -344,7 +345,13 @@ public:
             : _parent(parent_), _state(state_) {}
     virtual ~PipelineXSinkLocalStateBase() {}
 
+    // Do initialization. This step should be executed only once and in bthread, so we can do some
+    // lightweight or non-idempotent operations (e.g. init profile, clone expr ctx from operatorX)
     virtual Status init(RuntimeState* state, LocalSinkStateInfo& info) = 0;
+
+    // Do initialization. This step can be executed multiple times, so we should make sure it is
+    // idempotent (e.g. wait for runtime filters).
+    virtual Status open(RuntimeState* state) { return Status::OK(); }
     virtual Status close(RuntimeState* state) = 0;
 
     virtual std::string debug_string(int indentation_level) const;
@@ -401,8 +408,6 @@ public:
     virtual Status init(const TDataSink& tsink) override;
 
     virtual Status setup_local_state(RuntimeState* state, LocalSinkStateInfo& info) = 0;
-
-    [[nodiscard]] virtual bool need_to_create_result_sender() const { return false; }
 
     template <class TARGET>
     TARGET& cast() {
