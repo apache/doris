@@ -1002,7 +1002,7 @@ private:
 Status IRuntimeFilter::create(RuntimeState* state, ObjectPool* pool, const TRuntimeFilterDesc* desc,
                               const TQueryOptions* query_options, const RuntimeFilterRole role,
                               int node_id, IRuntimeFilter** res, bool build_bf_exactly) {
-    *res = pool->add(new IRuntimeFilter(state, pool));
+    *res = pool->add(new IRuntimeFilter(state, pool, desc));
     (*res)->set_role(role);
     return (*res)->init_with_desc(desc, query_options, node_id, build_bf_exactly);
 }
@@ -1011,7 +1011,7 @@ Status IRuntimeFilter::create(QueryContext* query_ctx, ObjectPool* pool,
                               const TRuntimeFilterDesc* desc, const TQueryOptions* query_options,
                               const RuntimeFilterRole role, int node_id, IRuntimeFilter** res,
                               bool build_bf_exactly) {
-    *res = pool->add(new IRuntimeFilter(query_ctx, pool));
+    *res = pool->add(new IRuntimeFilter(query_ctx, pool, desc));
     (*res)->set_role(role);
     return (*res)->init_with_desc(desc, query_options, node_id, build_bf_exactly);
 }
@@ -1215,25 +1215,10 @@ Status IRuntimeFilter::init_with_desc(const TRuntimeFilterDesc* desc, const TQue
     // if node_id == -1 , it shouldn't be a consumer
     DCHECK(node_id >= 0 || (node_id == -1 && !is_consumer()));
 
-    if (desc->type == TRuntimeFilterType::BLOOM) {
-        _runtime_filter_type = RuntimeFilterType::BLOOM_FILTER;
-    } else if (desc->type == TRuntimeFilterType::MIN_MAX) {
-        _runtime_filter_type = RuntimeFilterType::MINMAX_FILTER;
-    } else if (desc->type == TRuntimeFilterType::IN) {
-        _runtime_filter_type = RuntimeFilterType::IN_FILTER;
-    } else if (desc->type == TRuntimeFilterType::IN_OR_BLOOM) {
-        _runtime_filter_type = RuntimeFilterType::IN_OR_BLOOM_FILTER;
-    } else if (desc->type == TRuntimeFilterType::BITMAP) {
-        _runtime_filter_type = RuntimeFilterType::BITMAP_FILTER;
-    } else {
-        return Status::InvalidArgument("unknown filter type");
-    }
-
     _is_broadcast_join = desc->is_broadcast_join;
     _has_local_target = desc->has_local_targets;
     _has_remote_target = desc->has_remote_targets;
     _expr_order = desc->expr_order;
-    _filter_id = desc->filter_id;
     _opt_remote_rf = desc->__isset.opt_remote_rf && desc->opt_remote_rf;
     vectorized::VExprContextSPtr build_ctx;
     RETURN_IF_ERROR(vectorized::VExpr::create_expr_tree(desc->src_expr, build_ctx));
@@ -1387,17 +1372,7 @@ void IRuntimeFilter::init_profile(RuntimeProfile* parent_profile) {
         parent_profile->add_child(_profile.get(), true, nullptr);
         return;
     }
-    {
-        std::lock_guard guard(_profile_mutex);
-        if (_profile_init) {
-            return;
-        }
-        DCHECK(parent_profile != nullptr);
-        _name = fmt::format("RuntimeFilter: (id = {}, type = {})", _filter_id,
-                            to_string(_runtime_filter_type));
-        _profile.reset(new RuntimeProfile(_name));
-        _profile_init = true;
-    }
+    _profile_init = true;
     parent_profile->add_child(_profile.get(), true, nullptr);
     _profile->add_info_string("Info", _format_status());
     if (_runtime_filter_type == RuntimeFilterType::IN_OR_BLOOM_FILTER) {

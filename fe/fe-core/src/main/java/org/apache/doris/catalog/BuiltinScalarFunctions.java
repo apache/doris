@@ -74,6 +74,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.BitmapMin;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.BitmapNot;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.BitmapOr;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.BitmapOrCount;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.BitmapRemove;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.BitmapSubsetInRange;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.BitmapSubsetLimit;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.BitmapToArray;
@@ -143,6 +144,9 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.Fmod;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Fpow;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.FromBase64;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.FromDays;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.FromMicrosecond;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.FromMillisecond;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.FromSecond;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.FromUnixtime;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.GetJsonBigInt;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.GetJsonDouble;
@@ -212,7 +216,9 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.MaskFirstN;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MaskLastN;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Md5;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Md5Sum;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.MicroSecondTimestamp;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Microsecond;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.MilliSecondTimestamp;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Minute;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MinuteCeil;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MinuteFloor;
@@ -267,6 +273,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.SecToTime;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Second;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.SecondCeil;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.SecondFloor;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.SecondTimestamp;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.SecondsAdd;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.SecondsDiff;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.SecondsSub;
@@ -424,6 +431,7 @@ public class BuiltinScalarFunctions implements FunctionHelper {
             scalar(BitmapNot.class, "bitmap_not"),
             scalar(BitmapOr.class, "bitmap_or"),
             scalar(BitmapOrCount.class, "bitmap_or_count"),
+            scalar(BitmapRemove.class, "bitmap_remove"),
             scalar(BitmapSubsetInRange.class, "bitmap_subset_in_range"),
             scalar(BitmapSubsetLimit.class, "bitmap_subset_limit"),
             scalar(BitmapToArray.class, "bitmap_to_array"),
@@ -620,6 +628,12 @@ public class BuiltinScalarFunctions implements FunctionHelper {
             scalar(SecondsDiff.class, "seconds_diff"),
             scalar(SecondsSub.class, "seconds_sub"),
             scalar(SecToTime.class, "sec_to_time"),
+            scalar(FromMicrosecond.class, "from_microsecond"),
+            scalar(FromMillisecond.class, "from_millisecond"),
+            scalar(FromSecond.class, "from_second"),
+            scalar(SecondTimestamp.class, "second_timestamp"),
+            scalar(MilliSecondTimestamp.class, "millisecond_timestamp"),
+            scalar(MicroSecondTimestamp.class, "microsecond_timestamp"),
             scalar(Sign.class, "sign"),
             scalar(Sin.class, "sin"),
             scalar(Sleep.class, "sleep"),

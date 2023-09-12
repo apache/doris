@@ -71,6 +71,7 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 
@@ -281,7 +282,7 @@ public class SparkLoadPendingTask extends LoadTask {
 
     private EtlColumn createEtlColumn(Column column) {
         // column name
-        String name = column.getName();
+        String name = column.getName().toLowerCase(Locale.ROOT);
         // column type
         PrimitiveType type = column.getDataType();
         String columnType = column.getDataType().toString();

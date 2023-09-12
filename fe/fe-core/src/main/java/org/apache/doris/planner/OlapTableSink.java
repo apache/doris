@@ -126,7 +126,7 @@ public class OlapTableSink extends DataSink {
                     "if load_to_single_tablet set to true," + " the olap table must be with random distribution");
         }
         tSink.setLoadToSingleTablet(loadToSingleTablet);
-        tDataSink = new TDataSink(TDataSinkType.OLAP_TABLE_SINK);
+        tDataSink = new TDataSink(getDataSinkType());
         tDataSink.setOlapTableSink(tSink);
 
         if (partitionIds == null) {
@@ -346,10 +346,11 @@ public class OlapTableSink extends DataSink {
                 }
                 ArrayList<Expr> exprs = partitionInfo.getPartitionExprs();
                 if (exprs != null && analyzer != null) {
+                    Analyzer funcAnalyzer = new Analyzer(analyzer.getEnv(), analyzer.getContext());
                     tupleDescriptor.setTable(table);
-                    analyzer.registerTupleDescriptor(tupleDescriptor);
+                    funcAnalyzer.registerTupleDescriptor(tupleDescriptor);
                     for (Expr e : exprs) {
-                        e.analyze(analyzer);
+                        e.analyze(funcAnalyzer);
                     }
                     partitionParam.setPartitionFunctionExprs(Expr.treesToThrift(exprs));
                 }
@@ -481,4 +482,7 @@ public class OlapTableSink extends DataSink {
         return nodesInfo;
     }
 
+    protected TDataSinkType getDataSinkType() {
+        return TDataSinkType.OLAP_TABLE_SINK;
+    }
 }

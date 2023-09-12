@@ -69,6 +69,7 @@ Status DataTypeBitMapSerDe::write_column_to_pb(const IColumn& column, PValues& r
     }
     return Status::OK();
 }
+
 Status DataTypeBitMapSerDe::read_column_from_pb(IColumn& column, const PValues& arg) const {
     auto& col = reinterpret_cast<ColumnBitmap&>(column);
     for (int i = 0; i < arg.bytes_value_size(); ++i) {

@@ -53,7 +53,7 @@ public class FrontendsProcNode implements ProcNodeInterface {
             .build();
 
     public static final ImmutableList<String> DISK_TITLE_NAMES = new ImmutableList.Builder<String>()
-            .add("Name").add("Host").add("EditLogPort").add("DirType").add("Dir").add("Filesystem")
+            .add("Name").add("Host").add("DirType").add("Dir").add("Filesystem")
             .add("Capacity").add("Used").add("Available").add("UseRate").add("MountOn")
             .build();
 
@@ -159,7 +159,6 @@ public class FrontendsProcNode implements ProcNodeInterface {
                     List<String> info = new ArrayList<String>();
                     info.add(fe.getNodeName());
                     info.add(fe.getHost());
-                    info.add(Integer.toString(fe.getEditLogPort()));
                     info.add(disk.getDirType());
                     info.add(disk.getDir());
                     info.add(disk.getSpaceInfo().fileSystem);

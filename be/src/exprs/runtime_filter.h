@@ -79,6 +79,29 @@ enum class RuntimeFilterType {
     BITMAP_FILTER = 4
 };
 
+static RuntimeFilterType get_runtime_filter_type(TRuntimeFilterType::type ttype) {
+    switch (ttype) {
+    case TRuntimeFilterType::BLOOM: {
+        return RuntimeFilterType::BLOOM_FILTER;
+    }
+    case TRuntimeFilterType::MIN_MAX: {
+        return RuntimeFilterType::MINMAX_FILTER;
+    }
+    case TRuntimeFilterType::IN: {
+        return RuntimeFilterType::IN_FILTER;
+    }
+    case TRuntimeFilterType::IN_OR_BLOOM: {
+        return RuntimeFilterType::IN_OR_BLOOM_FILTER;
+    }
+    case TRuntimeFilterType::BITMAP: {
+        return RuntimeFilterType::BITMAP_FILTER;
+    }
+    default: {
+        throw doris::Exception(doris::ErrorCode::INTERNAL_ERROR, "Invalid runtime filter type!");
+    }
+    }
+}
+
 enum class RuntimeFilterRole { PRODUCER = 0, CONSUMER = 1 };
 
 struct RuntimeFilterParams {
@@ -151,11 +174,10 @@ enum RuntimeFilterState {
 /// that can be pushed down to node based on the results of the right table.
 class IRuntimeFilter {
 public:
-    IRuntimeFilter(RuntimeState* state, ObjectPool* pool)
+    IRuntimeFilter(RuntimeState* state, ObjectPool* pool, const TRuntimeFilterDesc* desc)
             : _state(state),
               _pool(pool),
-              _runtime_filter_type(RuntimeFilterType::UNKNOWN_FILTER),
-              _filter_id(-1),
+              _filter_id(desc->filter_id),
               _is_broadcast_join(true),
               _has_remote_target(false),
               _has_local_target(false),
@@ -166,13 +188,16 @@ public:
               _always_true(false),
               _is_ignored(false),
               registration_time_(MonotonicMillis()),
-              _enable_pipeline_exec(_state->enable_pipeline_exec()) {}
+              _enable_pipeline_exec(_state->enable_pipeline_exec()),
+              _runtime_filter_type(get_runtime_filter_type(desc->type)),
+              _name(fmt::format("RuntimeFilter: (id = {}, type = {})", _filter_id,
+                                to_string(_runtime_filter_type))),
+              _profile(new RuntimeProfile(_name)) {}
 
-    IRuntimeFilter(QueryContext* query_ctx, ObjectPool* pool)
+    IRuntimeFilter(QueryContext* query_ctx, ObjectPool* pool, const TRuntimeFilterDesc* desc)
             : _query_ctx(query_ctx),
               _pool(pool),
-              _runtime_filter_type(RuntimeFilterType::UNKNOWN_FILTER),
-              _filter_id(-1),
+              _filter_id(desc->filter_id),
               _is_broadcast_join(true),
               _has_remote_target(false),
               _has_local_target(false),
@@ -183,7 +208,11 @@ public:
               _always_true(false),
               _is_ignored(false),
               registration_time_(MonotonicMillis()),
-              _enable_pipeline_exec(query_ctx->enable_pipeline_exec()) {}
+              _enable_pipeline_exec(query_ctx->enable_pipeline_exec()),
+              _runtime_filter_type(get_runtime_filter_type(desc->type)),
+              _name(fmt::format("RuntimeFilter: (id = {}, type = {})", _filter_id,
+                                to_string(_runtime_filter_type))),
+              _profile(new RuntimeProfile(_name)) {}
 
     ~IRuntimeFilter() = default;
 
@@ -363,8 +392,6 @@ protected:
     // _wrapper is a runtime filter function wrapper
     // _wrapper should alloc from _pool
     RuntimePredicateWrapper* _wrapper;
-    // runtime filter type
-    RuntimeFilterType _runtime_filter_type;
     // runtime filter id
     int _filter_id;
     // Specific types BoardCast or Shuffle
@@ -400,18 +427,18 @@ protected:
 
     std::shared_ptr<RPCContext> _rpc_context;
 
-    // parent profile
-    // only effect on consumer
-    std::unique_ptr<RuntimeProfile> _profile;
-
     /// Time in ms (from MonotonicMillis()), that the filter was registered.
     const int64_t registration_time_;
 
     const bool _enable_pipeline_exec;
 
-    bool _profile_init = false;
-    std::mutex _profile_mutex;
+    std::atomic<bool> _profile_init = false;
+    // runtime filter type
+    RuntimeFilterType _runtime_filter_type;
     std::string _name;
+    // parent profile
+    // only effect on consumer
+    std::unique_ptr<RuntimeProfile> _profile;
     bool _opt_remote_rf;
 };
 

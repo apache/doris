@@ -72,9 +72,6 @@ import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
-import java.util.concurrent.Executors;
-import java.util.concurrent.ScheduledExecutorService;
-import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 
 /**
@@ -84,7 +81,7 @@ public class NereidsPlanner extends Planner {
     public static final Logger LOG = LogManager.getLogger(NereidsPlanner.class);
     private CascadesContext cascadesContext;
     private final StatementContext statementContext;
-    private List<ScanNode> scanNodeList = null;
+    private final List<ScanNode> scanNodeList = Lists.newArrayList();
     private DescriptorTable descTable;
 
     private Plan parsedPlan;
@@ -135,7 +132,7 @@ public class NereidsPlanner extends Planner {
         }
         PlanFragment root = physicalPlanTranslator.translatePlan(physicalPlan);
 
-        scanNodeList = planTranslatorContext.getScanNodes();
+        scanNodeList.addAll(planTranslatorContext.getScanNodes());
         descTable = planTranslatorContext.getDescTable();
         fragments = new ArrayList<>(planTranslatorContext.getPlanFragments());
         for (int seq = 0; seq < fragments.size(); seq++) {
@@ -146,7 +143,7 @@ public class NereidsPlanner extends Planner {
         ArrayList<String> columnLabelList = physicalPlan.getOutput().stream().map(NamedExpression::getName)
                 .collect(Collectors.toCollection(ArrayList::new));
         logicalPlanAdapter.setColLabels(columnLabelList);
-        logicalPlanAdapter.setViews(statementContext.getViews());
+        logicalPlanAdapter.setViewDdlSqls(statementContext.getViewDdlSqls());
     }
 
     @VisibleForTesting
@@ -335,18 +332,12 @@ public class NereidsPlanner extends Planner {
                     groupExpression.getOwnerGroup().getStatistics());
             return physicalPlan;
         } catch (Exception e) {
-            String memo = cascadesContext.getMemo().toString();
-            LOG.warn("Failed to choose best plan, memo structure:{}", memo, e);
-            throw new AnalysisException("Failed to choose best plan", e);
+            if (e instanceof AnalysisException && e.getMessage().contains("Failed to choose best plan")) {
+                throw e;
+            }
+            LOG.warn("Failed to choose best plan, memo structure:{}", cascadesContext.getMemo(), e);
+            throw new AnalysisException("Failed to choose best plan: " + e.getMessage(), e);
         }
-    }
-
-    private ScheduledExecutorService runTimeoutExecutor() {
-        ScheduledExecutorService executor = Executors.newSingleThreadScheduledExecutor();
-        Runnable task = () -> cascadesContext.setIsTimeout(true);
-        executor.schedule(task, 5, TimeUnit.SECONDS);
-
-        return executor;
     }
 
     /**

@@ -318,6 +318,16 @@ public class InternalCatalog implements CatalogIf<Database> {
         return null;
     }
 
+    public Table getTableByTableId(Long tableId) {
+        for (Database db : fullNameToDb.values()) {
+            Table table = db.getTableNullable(tableId);
+            if (table != null) {
+                return table;
+            }
+        }
+        return null;
+    }
+
     // Use tryLock to avoid potential dead lock
     private boolean tryLock(boolean mustLock) {
         while (true) {
@@ -3133,7 +3143,8 @@ public class InternalCatalog implements CatalogIf<Database> {
         return newChecksum;
     }
 
-    public ConcurrentHashMap<Long, Database> getIdToDb() {
+    @Override
+    public ConcurrentHashMap<Long, DatabaseIf> getIdToDb() {
         return new ConcurrentHashMap<>(idToDb);
     }
 
