@@ -36,8 +36,14 @@ std::shared_ptr<Streams> LoadStreamStubPool::get_or_create(PUniqueId load_id, in
         return streams;
     }
     int32_t num_streams = std::max(1, config::num_streams_per_sink);
-    streams = std::make_shared<Streams>();
-    auto [it, _] = _template_stub.emplace(load_id, new LoadStreamStub {load_id, src_id});
+    auto [it, _] = _template_stubs.emplace(load_id, new LoadStreamStub {load_id, src_id});
+    auto deleter = [this, key](Streams* s) {
+        std::lock_guard<std::mutex> lock(_mutex);
+        _pool.erase(key);
+        _template_stubs.erase(key.first);
+        delete s;
+    };
+    streams = std::shared_ptr<Streams>(new Streams(), deleter);
     for (int32_t i = 0; i < num_streams; i++) {
         // copy construct, internal tablet schema map will be shared among all stubs
         streams->emplace_back(new LoadStreamStub {*it->second});

@@ -82,7 +82,7 @@ public:
 
 private:
     std::mutex _mutex;
-    std::unordered_map<UniqueId, std::unique_ptr<LoadStreamStub>> _template_stub;
+    std::unordered_map<UniqueId, std::unique_ptr<LoadStreamStub>> _template_stubs;
     std::unordered_map<std::pair<UniqueId, int64_t>, std::weak_ptr<Streams>> _pool;
 };
 
