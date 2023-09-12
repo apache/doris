@@ -86,7 +86,7 @@ public class DateTimeV2Type extends DateLikeType {
         if (!s.contains(".")) {
             return DateTimeV2Type.SYSTEM_DEFAULT;
         }
-        int scale = DateTimeLiteral.getScale(s);
+        int scale = DateTimeLiteral.determineScale(s);
         return DateTimeV2Type.of(scale);
     }
 

@@ -93,10 +93,23 @@ public class DateTimeLiteral extends DateLiteral {
         this.day = day;
     }
 
-    public static int getScale(String s) {
+    /**
+     * determine scale by datetime string
+     */
+    public static int determineScale(String s) {
         TemporalAccessor dateTime = parse(s);
         int microSecond = DateUtils.getOrDefault(dateTime, ChronoField.MICRO_OF_SECOND);
-        return String.valueOf(microSecond).length();
+
+        if (microSecond == 0) {
+            return 0;
+        }
+
+        int scale = 6;
+        while (microSecond % 10 == 0) {
+            scale--;
+            microSecond /= 10;
+        }
+        return scale;
     }
 
     @Override
