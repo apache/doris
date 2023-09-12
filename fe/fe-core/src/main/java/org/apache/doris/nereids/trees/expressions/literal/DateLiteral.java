@@ -103,7 +103,7 @@ public class DateLiteral extends Literal {
 
         // handle two digit year
         if (s.charAt(2) != '-' && s.charAt(4) != '-') {
-            throw new AnalysisException("datetime literal [" + s + "] is invalid");
+            throw new AnalysisException("date/datetime literal [" + s + "] is invalid");
         }
         if (s.charAt(2) == '-') {
             String yy = s.substring(0, 2);
@@ -146,7 +146,7 @@ public class DateLiteral extends Literal {
                     sb.append('0');
                     sb.append(c);
                 } else {
-                    throw new AnalysisException("datetime literal [" + s + "] is invalid");
+                    throw new AnalysisException("date/datetime literal [" + s + "] is invalid");
                 }
                 i = j;
             } else {
@@ -180,20 +180,6 @@ public class DateLiteral extends Literal {
         return sb.toString();
     }
 
-    // replace 'T' with ' '
-    private static String replaceDelimiterT(String s) {
-        if (s.length() <= 10) {
-            return s;
-        }
-        if (s.charAt(10) == 'T') {
-            return s.substring(0, 10) + " " + s.substring(11);
-        } else if (s.charAt(8) == 'T') {
-            return s.substring(0, 8) + " " + s.substring(9);
-        } else {
-            return s;
-        }
-    }
-
     protected static TemporalAccessor parse(String s) {
         String originalString = s;
         try {
@@ -224,12 +210,12 @@ public class DateLiteral extends Literal {
 
             // if Year is not present, throw exception
             if (!dateTime.isSupported(ChronoField.YEAR)) {
-                throw new AnalysisException("datetime literal [" + originalString + "] is invalid");
+                throw new AnalysisException("date/datetime literal [" + originalString + "] is invalid");
             }
 
             return dateTime;
         } catch (Exception ex) {
-            throw new AnalysisException("datetime literal [" + originalString + "] is invalid");
+            throw new AnalysisException("date/datetime literal [" + originalString + "] is invalid");
         }
     }
 
@@ -240,7 +226,7 @@ public class DateLiteral extends Literal {
         day = DateUtils.getOrDefault(dateTime, ChronoField.DAY_OF_MONTH);
 
         if (checkRange() || checkDate()) {
-            throw new AnalysisException("datetime literal [" + s + "] is out of range");
+            throw new AnalysisException("date/datetime literal [" + s + "] is out of range");
         }
     }
 
