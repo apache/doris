@@ -511,13 +511,9 @@ void ExecEnv::destroy() {
     // Memory barrier to prevent other threads from accessing destructed resources
     _s_ready = false;
 
-    // NewLoadStreamMgr should be destoried before storage_engine
-    _new_load_stream_mgr.reset();
-    _stream_load_executor.reset();
     SAFE_STOP(_tablet_schema_cache);
     SAFE_STOP(_load_channel_mgr);
     SAFE_STOP(_scanner_scheduler);
-    SAFE_STOP(_storage_engine);
     SAFE_STOP(_broker_mgr);
     SAFE_STOP(_load_path_mgr);
     SAFE_STOP(_result_mgr);
@@ -527,6 +523,10 @@ void ExecEnv::destroy() {
     SAFE_STOP(_pipeline_task_group_scheduler);
     SAFE_STOP(_external_scan_context_mgr);
     SAFE_STOP(_fragment_mgr);
+    // NewLoadStreamMgr should be destoried before storage_engine & after fragment_mgr stopped.
+    _new_load_stream_mgr.reset();
+    _stream_load_executor.reset();
+    SAFE_STOP(_storage_engine);
 
     // Free resource after threads are stopped.
     // Some threads are still running, like threads created by _new_load_stream_mgr ...

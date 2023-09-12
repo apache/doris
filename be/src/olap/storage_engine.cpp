@@ -574,6 +574,9 @@ void StorageEngine::stop() {
         _cold_data_compaction_thread_pool->shutdown();
     }
 
+    _memtable_flush_executor.reset(nullptr);
+    _calc_delete_bitmap_executor.reset(nullptr);
+
     _stopped = true;
 }
 
