@@ -109,12 +109,9 @@ public class PartitionPruner {
     }
 
     private boolean canPrune(OnePartitionEvaluator evaluator) {
-        if (evaluator.isDefaultPartition()) {
-            return false;
-        }
         List<Map<Slot, PartitionSlotInput>> onePartitionInputs = evaluator.getOnePartitionInputs();
         for (Map<Slot, PartitionSlotInput> currentInputs : onePartitionInputs) {
-            Expression result = evaluator.evaluate(partitionPredicate, currentInputs);
+            Expression result = evaluator.evaluateWithDefaultPartition(partitionPredicate, currentInputs);
             if (!result.equals(BooleanLiteral.FALSE)) {
                 return false;
             }
