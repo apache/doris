@@ -327,14 +327,16 @@ Status ProcessHashTableProbe<JoinOpType>::do_process(HashTableType& hash_table_c
                 auto find_result = !need_null_map_for_probe
                                            ? key_getter.find_key_with_hash(
                                                      hash_table_ctx.hash_table,
-                                                     _probe_side_hash_values[probe_index], *_arena)
+                                                     _probe_side_hash_values[probe_index],
+                                                     probe_index, *_arena)
                                    : (*null_map)[probe_index]
                                            ? decltype(key_getter.find_key(hash_table_ctx.hash_table,
                                                                           probe_index,
                                                                           *_arena)) {nullptr, false}
                                            : key_getter.find_key_with_hash(
                                                      hash_table_ctx.hash_table,
-                                                     _probe_side_hash_values[probe_index], *_arena);
+                                                     _probe_side_hash_values[probe_index],
+                                                     probe_index, *_arena);
                 if (probe_index + HASH_MAP_PREFETCH_DIST < probe_rows) {
                     key_getter.template prefetch_by_hash<true>(
                             hash_table_ctx.hash_table,
