@@ -1803,6 +1803,7 @@ visible_functions = {
         [['bitmap_from_array'], 'BITMAP', ['ARRAY_INT'], 'ALWAYS_NULLABLE'],
         [['bitmap_from_array'], 'BITMAP', ['ARRAY_BIGINT'], 'ALWAYS_NULLABLE'],
         [['bitmap_contains'], 'BOOLEAN', ['BITMAP','BIGINT'], ''],
+        [['bitmap_remove'], 'BITMAP', ['BITMAP','BIGINT'], ''],
         [['bitmap_has_any'], 'BOOLEAN', ['BITMAP','BITMAP'], ''],
         [['bitmap_has_all'], 'BOOLEAN', ['BITMAP','BITMAP'], ''],
         [['bitmap_min'], 'BIGINT', ['BITMAP'], 'ALWAYS_NULLABLE'],
