@@ -511,6 +511,9 @@ void ExecEnv::destroy() {
     // Memory barrier to prevent other threads from accessing destructed resources
     _s_ready = false;
 
+    // NewLoadStreamMgr should be destoried before storage_engine
+    _new_load_stream_mgr.reset();
+    _stream_load_executor.reset();
     SAFE_STOP(_tablet_schema_cache);
     SAFE_STOP(_load_channel_mgr);
     SAFE_STOP(_scanner_scheduler);
@@ -531,9 +534,6 @@ void ExecEnv::destroy() {
     SAFE_DELETE(_s3_buffer_pool);
     SAFE_DELETE(_tablet_schema_cache);
     _deregister_metrics();
-    // NewLoadStreamMgr should be destoried before storage_engine
-    _new_load_stream_mgr.reset();
-    _stream_load_executor.reset();
     SAFE_DELETE(_load_channel_mgr);
     _memtable_memory_limiter.reset(nullptr);
 
