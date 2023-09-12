@@ -353,8 +353,8 @@ public:
     }
 
     bool enable_page_cache() const {
-        return _query_options.__isset.enable_page_cache ? _query_options.enable_page_cache
-                                                        : !config::disable_storage_page_cache;
+        return !config::disable_storage_page_cache &&
+               (!_query_options.__isset.enable_page_cache || _query_options.enable_page_cache);
     }
 
     int partitioned_hash_join_rows_threshold() const {
