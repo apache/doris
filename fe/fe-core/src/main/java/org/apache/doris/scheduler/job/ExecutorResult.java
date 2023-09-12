@@ -15,36 +15,21 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.scheduler.constants;
+package org.apache.doris.scheduler.job;
 
-import lombok.Getter;
+import lombok.AllArgsConstructor;
+import lombok.Data;
 
-/**
- * The job category is used to distinguish different types of jobs.
- */
-public enum JobCategory {
-    COMMON(1, "common"),
-    SQL(2, "sql"),
-    MTMV(3, "mtmv"),
-    ;
+@Data
+@AllArgsConstructor
+public class ExecutorResult<T> {
 
-    @Getter
-    private int code;
+    private T result;
 
-    @Getter
-    private String name;
+    private boolean success;
 
-    JobCategory(int code, String name) {
-        this.code = code;
-        this.name = name;
-    }
+    private String errorMsg;
 
-    public static JobCategory getJobCategoryByName(String name) {
-        for (JobCategory jobCategory : JobCategory.values()) {
-            if (jobCategory.name.equalsIgnoreCase(name)) {
-                return jobCategory;
-            }
-        }
-        throw new IllegalArgumentException("Unknown job category name: " + name);
-    }
+    private String executorSql;
+
 }

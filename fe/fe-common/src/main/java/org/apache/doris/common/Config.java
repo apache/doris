@@ -1554,7 +1554,7 @@ public class Config extends ConfigBase {
     public static boolean enable_pipeline_load = false;
 
     @ConfField
-    public static int scheduler_job_task_max_saved_count = 10;
+    public static int scheduler_job_task_max_saved_count = 20;
 
     /**
      * The number of async tasks that can be queued. @See TaskDisruptor
@@ -1568,7 +1568,7 @@ public class Config extends ConfigBase {
      * if we have a lot of async tasks, we need more threads to consume them. Sure, it's depends on the cpu cores.
      */
     @ConfField
-    public static int async_task_consumer_thread_num = 10;
+    public static int async_task_consumer_thread_num = 5;
 
     // enable_workload_group should be immutable and temporarily set to mutable during the development test phase
     @ConfField(mutable = true, varType = VariableAnnotation.EXPERIMENTAL)
