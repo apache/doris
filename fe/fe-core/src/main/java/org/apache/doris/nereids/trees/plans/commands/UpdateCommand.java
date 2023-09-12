@@ -123,9 +123,12 @@ public class UpdateCommand extends Command implements ForwardWithSync, Explainab
             logicalQuery = ((LogicalPlan) cte.get().withChildren(logicalQuery));
         }
 
+        boolean isPartialUpdate = targetTable.getEnableUniqueKeyMergeOnWrite()
+                && selectItems.size() < targetTable.getColumns().size();
+
         // make UnboundTableSink
         return new UnboundOlapTableSink<>(nameParts, ImmutableList.of(), ImmutableList.of(),
-                ImmutableList.of(), logicalQuery);
+                ImmutableList.of(), isPartialUpdate, logicalQuery);
     }
 
     private void checkTable(ConnectContext ctx) throws AnalysisException {
