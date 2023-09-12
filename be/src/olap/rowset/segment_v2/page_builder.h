@@ -46,6 +46,10 @@ public:
     // Column writer depends on the result to decide whether to flush current page.
     virtual bool is_page_full() = 0;
 
+    // Analyze the input values, for now it is only used by fsst page builder to build symbol table.
+    // todo(sky): use this function to estimate compression ratio and decide which encode method to use.
+    virtual Status analyze(const uint8_t* vals, size_t count) { return Status::OK(); }
+
     // Add a sequence of values to the page.
     // The number of values actually added will be returned through count, which may be less
     // than requested if the page is full.

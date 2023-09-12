@@ -3,6 +3,7 @@
 be/src/apache-orc/*
 be/src/clucene/*
 be/src/gutil/*
+be/src/fsst/*
 be/src/glibc-compatibility/*
 be/src/util/sse2neo.h
 be/src/util/sse2neon.h

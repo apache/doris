@@ -28,6 +28,10 @@
 
 #pragma once
 
+#include <glog/logging.h>
+
+#include <cstddef>
+
 #include "common/logging.h"
 #include "gutil/strings/substitute.h"
 #include "olap/olap_common.h"
@@ -88,6 +92,23 @@ public:
         }
 
         *count = i;
+        return Status::OK();
+    }
+
+    Status add_one(char* data, size_t size, size_t* count) {
+        DCHECK_EQ(*count, 1);
+        if (is_page_full()) {
+            *count = 0;
+            return Status::OK();
+        }
+        size_t offset = _buffer.size();
+        _offsets.push_back(offset);
+        _buffer.append(data, size);
+
+        _last_value_size = size;
+        _size_estimate += size;
+        _size_estimate += sizeof(uint32_t);
+
         return Status::OK();
     }
 

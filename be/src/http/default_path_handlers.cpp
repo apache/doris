@@ -390,7 +390,8 @@ void add_default_path_handlers(WebPageHandler* web_page_handler) {
     web_page_handler->register_page(
             "/mem_tracker", "MemTracker",
             std::bind<void>(&mem_tracker_handler, std::placeholders::_1, std::placeholders::_2),
-            true /* is_on_nav_bar */);
+            true /* is_on_nav_bar */
+    );
     web_page_handler->register_page("/heap", "Heap Profile", heap_handler,
                                     true /* is_on_nav_bar */);
     web_page_handler->register_page("/cpu", "CPU Profile", cpu_handler, true /* is_on_nav_bar */);
@@ -399,7 +400,8 @@ void add_default_path_handlers(WebPageHandler* web_page_handler) {
             "/tablets_page", "Tablets",
             std::bind<void>(&display_tablets_callback, std::placeholders::_1,
                             std::placeholders::_2),
-            true /* is_on_nav_bar */);
+            true /* is_on_nav_bar */
+    );
 }
 
 } // namespace doris

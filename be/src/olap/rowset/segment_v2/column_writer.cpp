@@ -522,6 +522,7 @@ Status ScalarColumnWriter::append_nulls(size_t num_rows) {
 // num_rows must be written before return. And ptr will be modified
 // to next data should be written
 Status ScalarColumnWriter::append_data(const uint8_t** ptr, size_t num_rows) {
+    _page_builder->analyze(*ptr, num_rows);
     size_t remaining = num_rows;
     while (remaining > 0) {
         size_t num_written = remaining;
@@ -600,7 +601,8 @@ Status ScalarColumnWriter::write_data() {
         page = page->next;
     }
     // write column dict
-    if (_encoding_info->encoding() == DICT_ENCODING) {
+    if (_encoding_info->encoding() == DICT_ENCODING ||
+        _encoding_info->encoding() == FSST_ENCODING) {
         OwnedSlice dict_body;
         RETURN_IF_ERROR(_page_builder->get_dictionary_page(&dict_body));
 

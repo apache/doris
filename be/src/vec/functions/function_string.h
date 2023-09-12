@@ -1794,7 +1794,8 @@ public:
     }
 
     Status execute_impl(FunctionContext* /*context*/, Block& block, const ColumnNumbers& arguments,
-                        size_t result, size_t /*input_rows_count*/) override {
+                        size_t result, size_t /*input_rows_count*/
+                        ) override {
         DCHECK_EQ(arguments.size(), 2);
 
         const auto& [src_column, left_const] =

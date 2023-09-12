@@ -398,7 +398,8 @@ struct LibCASCIICaseInsensitiveStringSearcher : public StringSearcherBase {
     template <typename CharT>
     // requires (sizeof(CharT) == 1)
     LibCASCIICaseInsensitiveStringSearcher(const CharT* const needle_,
-                                           const size_t /* needle_size */)
+                                           const size_t /* needle_size */
+                                           )
             : needle(reinterpret_cast<const char*>(needle_)) {}
 
     template <typename CharT>

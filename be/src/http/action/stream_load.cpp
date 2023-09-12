@@ -349,7 +349,8 @@ Status StreamLoadAction::_process_put(HttpRequest* http_req,
     if (ctx->use_streaming) {
         auto pipe = std::make_shared<io::StreamLoadPipe>(
                 io::kMaxPipeBufferedBytes /* max_buffered_bytes */, 64 * 1024 /* min_chunk_size */,
-                ctx->body_bytes /* total_length */);
+                ctx->body_bytes /* total_length */
+        );
         request.fileType = TFileType::FILE_STREAM;
         ctx->body_sink = pipe;
         ctx->pipe = pipe;

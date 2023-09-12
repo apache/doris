@@ -1014,8 +1014,9 @@ void TaskWorkerPool::_move_dir_thread_callback() {
         }
         LOG(INFO) << "get move dir task. signature=" << agent_task_req.signature
                   << ", job_id=" << move_dir_req.job_id;
-        Status status = _move_dir(move_dir_req.tablet_id, move_dir_req.src, move_dir_req.job_id,
-                                  true /* TODO */);
+        Status status = _move_dir(
+                move_dir_req.tablet_id, move_dir_req.src, move_dir_req.job_id, true /* TODO */
+        );
 
         if (!status.ok()) {
             LOG_WARNING("failed to move dir")

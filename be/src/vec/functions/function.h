@@ -194,7 +194,8 @@ public:
       * Must return ColumnConst with single row or nullptr.
       */
     virtual ColumnPtr get_result_if_always_returns_constant_and_has_arguments(
-            const Block& /*block*/, const ColumnNumbers& /*arguments*/) const {
+            const Block& /*block*/, const ColumnNumbers& /*arguments*/
+    ) const {
         return nullptr;
     }
 
@@ -261,8 +262,8 @@ public:
       * NULL can be passed as one of the arguments. This means that the corresponding range is unlimited on the left or on the right.
       */
     virtual Monotonicity get_monotonicity_for_range(const IDataType& /*type*/,
-                                                    const Field& /*left*/,
-                                                    const Field& /*right*/) const {
+                                                    const Field& /*left*/, const Field& /*right*/
+    ) const {
         LOG(FATAL) << fmt::format("Function {} has no information about its monotonicity.",
                                   get_name());
         return Monotonicity {};

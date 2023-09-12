@@ -69,7 +69,8 @@ public:
                       IColumn& dest_nested_column, ColumnArray::Offsets64& dest_offsets,
                       NullMapType* dest_nested_null_map);
     Status execute_impl(FunctionContext* /*context*/, Block& block, const ColumnNumbers& arguments,
-                        size_t result, size_t /*input_rows_count*/) override;
+                        size_t result, size_t /*input_rows_count*/
+                        ) override;
 
     Status open(FunctionContext* context, FunctionContext::FunctionStateScope scope) override {
         return Status::OK();

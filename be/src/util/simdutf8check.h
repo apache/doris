@@ -104,23 +104,23 @@ static inline void checkFirstContinuationMax(__m128i current_bytes, __m128i off1
 static inline void checkOverlong(__m128i current_bytes, __m128i off1_current_bytes, __m128i hibits,
                                  __m128i previous_hibits, __m128i* has_error) {
     __m128i off1_hibits = _mm_alignr_epi8(hibits, previous_hibits, 16 - 1);
-    __m128i initial_mins =
-            _mm_shuffle_epi8(_mm_setr_epi8(-128, -128, -128, -128, -128, -128, -128, -128, -128,
-                                           -128, -128, -128, // 10xx => false
-                                           0xC2, -128,       // 110x
-                                           0xE1,             // 1110
-                                           0xF1),
-                             off1_hibits);
+    __m128i initial_mins = _mm_shuffle_epi8(
+            _mm_setr_epi8(-128, -128, -128, -128, -128, -128, -128, -128, -128, -128, -128,
+                          -128,       // 10xx => false
+                          0xC2, -128, // 110x
+                          0xE1,       // 1110
+                          0xF1),
+            off1_hibits);
 
     __m128i initial_under = _mm_cmpgt_epi8(initial_mins, off1_current_bytes);
 
-    __m128i second_mins =
-            _mm_shuffle_epi8(_mm_setr_epi8(-128, -128, -128, -128, -128, -128, -128, -128, -128,
-                                           -128, -128, -128, // 10xx => false
-                                           127, 127,         // 110x => true
-                                           0xA0,             // 1110
-                                           0x90),
-                             off1_hibits);
+    __m128i second_mins = _mm_shuffle_epi8(
+            _mm_setr_epi8(-128, -128, -128, -128, -128, -128, -128, -128, -128, -128, -128,
+                          -128,     // 10xx => false
+                          127, 127, // 110x => true
+                          0xA0,     // 1110
+                          0x90),
+            off1_hibits);
     __m128i second_under = _mm_cmpgt_epi8(second_mins, current_bytes);
     *has_error = _mm_or_si128(*has_error, _mm_and_si128(initial_under, second_under));
 }
@@ -270,31 +270,31 @@ static inline void avxcheckFirstContinuationMax(__m256i current_bytes, __m256i o
 static inline void avxcheckOverlong(__m256i current_bytes, __m256i off1_current_bytes,
                                     __m256i hibits, __m256i previous_hibits, __m256i* has_error) {
     __m256i off1_hibits = push_last_byte_of_a_to_b(previous_hibits, hibits);
-    __m256i initial_mins =
-            _mm256_shuffle_epi8(_mm256_setr_epi8(-128, -128, -128, -128, -128, -128, -128, -128,
-                                                 -128, -128, -128, -128, // 10xx => false
-                                                 0xC2, -128,             // 110x
-                                                 0xE1,                   // 1110
-                                                 0xF1, -128, -128, -128, -128, -128, -128, -128,
-                                                 -128, -128, -128, -128, -128, // 10xx => false
-                                                 0xC2, -128,                   // 110x
-                                                 0xE1,                         // 1110
-                                                 0xF1),
-                                off1_hibits);
+    __m256i initial_mins = _mm256_shuffle_epi8(
+            _mm256_setr_epi8(-128, -128, -128, -128, -128, -128, -128, -128, -128, -128, -128,
+                             -128,       // 10xx => false
+                             0xC2, -128, // 110x
+                             0xE1,       // 1110
+                             0xF1, -128, -128, -128, -128, -128, -128, -128, -128, -128, -128, -128,
+                             -128,       // 10xx => false
+                             0xC2, -128, // 110x
+                             0xE1,       // 1110
+                             0xF1),
+            off1_hibits);
 
     __m256i initial_under = _mm256_cmpgt_epi8(initial_mins, off1_current_bytes);
 
-    __m256i second_mins =
-            _mm256_shuffle_epi8(_mm256_setr_epi8(-128, -128, -128, -128, -128, -128, -128, -128,
-                                                 -128, -128, -128, -128, // 10xx => false
-                                                 127, 127,               // 110x => true
-                                                 0xA0,                   // 1110
-                                                 0x90, -128, -128, -128, -128, -128, -128, -128,
-                                                 -128, -128, -128, -128, -128, // 10xx => false
-                                                 127, 127,                     // 110x => true
-                                                 0xA0,                         // 1110
-                                                 0x90),
-                                off1_hibits);
+    __m256i second_mins = _mm256_shuffle_epi8(
+            _mm256_setr_epi8(-128, -128, -128, -128, -128, -128, -128, -128, -128, -128, -128,
+                             -128,     // 10xx => false
+                             127, 127, // 110x => true
+                             0xA0,     // 1110
+                             0x90, -128, -128, -128, -128, -128, -128, -128, -128, -128, -128, -128,
+                             -128,     // 10xx => false
+                             127, 127, // 110x => true
+                             0xA0,     // 1110
+                             0x90),
+            off1_hibits);
     __m256i second_under = _mm256_cmpgt_epi8(second_mins, current_bytes);
     *has_error = _mm256_or_si256(*has_error, _mm256_and_si256(initial_under, second_under));
 }

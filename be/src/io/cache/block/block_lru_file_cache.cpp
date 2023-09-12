@@ -1050,7 +1050,8 @@ void IFileCache::LRUQueue::move_to_end(Iterator queue_it,
     queue.splice(queue.end(), queue, queue_it);
 }
 bool IFileCache::LRUQueue::contains(const IFileCache::Key& key, size_t offset,
-                                    std::lock_guard<std::mutex>& /* cache_lock */) const {
+                                    std::lock_guard<std::mutex>& /* cache_lock */
+) const {
     /// This method is used for assertions in debug mode.
     /// So we do not care about complexity here.
     for (const auto& [entry_key, entry_offset, size] : queue) {

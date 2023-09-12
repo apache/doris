@@ -89,7 +89,7 @@ public:
     /// @return The length (in bytes) of the referenced data.
     size_t get_size() const { return size; }
 
-    /// @return @c true iff the length of the referenced data is zero.
+    /// @return @c true if the length of the referenced data is zero.
     bool empty() const { return size == 0; }
 
     /// @return the n-th byte in the referenced data.

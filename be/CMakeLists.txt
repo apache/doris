@@ -172,6 +172,9 @@ SET(ZLIB_HOME "$ENV{DORIS_THIRDPARTY}/installed")
 SET(ZSTD_HOME "$ENV{DORIS_THIRDPARTY}/installed")
 SET(ZSTD_INCLUDE_DIR "$ENV{DORIS_THIRDPARTY}/installed/include/zstd")
 
+add_subdirectory(${SRC_DIR}/fsst EXCLUDE_FROM_ALL)
+include_directories(${SRC_DIR}/fsst/)
+
 add_subdirectory(${SRC_DIR}/apache-orc EXCLUDE_FROM_ALL)
 target_compile_options(orc PRIVATE -Wno-implicit-fallthrough -w)
 
@@ -577,6 +580,7 @@ set(DORIS_DEPENDENCIES ${DORIS_DEPENDENCIES} ic)
 set(DORIS_DEPENDENCIES ${DORIS_DEPENDENCIES} clucene-core-static)
 set(DORIS_DEPENDENCIES ${DORIS_DEPENDENCIES} clucene-shared-static)
 set(DORIS_DEPENDENCIES ${DORIS_DEPENDENCIES} clucene-contribs-lib)
+set(DORIS_DEPENDENCIES ${DORIS_DEPENDENCIES} fsst)
 
 set(DORIS_DEPENDENCIES ${DORIS_DEPENDENCIES} ${WL_END_GROUP})
 

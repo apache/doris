@@ -316,10 +316,11 @@ TEST_F(MetricsTest, MetricRegistryOutput) {
         IntCounter* cpu_idle = (IntCounter*)entity->register_metric<IntCounter>(&cpu_idle_type);
         cpu_idle->increment(8);
 
-        EXPECT_EQ(R"(# TYPE test_registry_cpu_idle gauge
+        EXPECT_EQ(
+                R"(# TYPE test_registry_cpu_idle gauge
 test_registry_cpu_idle 8
 )",
-                  registry.to_prometheus());
+                registry.to_prometheus());
         EXPECT_EQ(R"([{"tags":{"metric":"cpu_idle"},"unit":"percent","value":8}])",
                   registry.to_json());
         EXPECT_EQ("test_registry_cpu_idle LONG 8\n", registry.to_core_string());
@@ -335,10 +336,11 @@ test_registry_cpu_idle 8
         IntCounter* cpu_idle = (IntCounter*)entity->register_metric<IntCounter>(&cpu_idle_type);
         cpu_idle->increment(18);
 
-        EXPECT_EQ(R"(# TYPE test_registry_cpu gauge
+        EXPECT_EQ(
+                R"(# TYPE test_registry_cpu gauge
 test_registry_cpu{mode="idle"} 18
 )",
-                  registry.to_prometheus());
+                registry.to_prometheus());
         EXPECT_EQ(R"([{"tags":{"metric":"cpu","mode":"idle"},"unit":"percent","value":18}])",
                   registry.to_json());
         EXPECT_EQ("", registry.to_core_string());
@@ -353,10 +355,11 @@ test_registry_cpu{mode="idle"} 18
         IntCounter* cpu_idle = (IntCounter*)entity->register_metric<IntCounter>(&cpu_idle_type);
         cpu_idle->increment(28);
 
-        EXPECT_EQ(R"(# TYPE test_registry_cpu_idle gauge
+        EXPECT_EQ(
+                R"(# TYPE test_registry_cpu_idle gauge
 test_registry_cpu_idle{name="label_test"} 28
 )",
-                  registry.to_prometheus());
+                registry.to_prometheus());
         EXPECT_EQ(
                 R"([{"tags":{"metric":"cpu_idle","name":"label_test"},"unit":"percent","value":28}])",
                 registry.to_json());
@@ -373,10 +376,11 @@ test_registry_cpu_idle{name="label_test"} 28
         IntCounter* cpu_idle = (IntCounter*)entity->register_metric<IntCounter>(&cpu_idle_type);
         cpu_idle->increment(38);
 
-        EXPECT_EQ(R"(# TYPE test_registry_cpu gauge
+        EXPECT_EQ(
+                R"(# TYPE test_registry_cpu gauge
 test_registry_cpu{name="label_test",mode="idle"} 38
 )",
-                  registry.to_prometheus());
+                registry.to_prometheus());
         EXPECT_EQ(
                 R"([{"tags":{"metric":"cpu","mode":"idle","name":"label_test"},"unit":"percent","value":38}])",
                 registry.to_json());
@@ -398,11 +402,12 @@ test_registry_cpu{name="label_test",mode="idle"} 38
         IntGauge* cpu_guest = (IntGauge*)entity->register_metric<IntGauge>(&cpu_guest_type);
         cpu_guest->increment(58);
 
-        EXPECT_EQ(R"(# TYPE test_registry_cpu gauge
+        EXPECT_EQ(
+                R"(# TYPE test_registry_cpu gauge
 test_registry_cpu{mode="idle"} 48
 test_registry_cpu{mode="guest"} 58
 )",
-                  registry.to_prometheus());
+                registry.to_prometheus());
         EXPECT_EQ(
                 R"([{"tags":{"metric":"cpu","mode":"guest"},"unit":"percent","value":58},{"tags":{"metric":"cpu","mode":"idle"},"unit":"percent","value":48}])",
                 registry.to_json());
@@ -425,7 +430,8 @@ TEST_F(MetricsTest, HistogramRegistryOutput) {
         for (int j = 1; j <= 100; j++) {
             task_duration->add(j);
         }
-        EXPECT_EQ(R"(# TYPE test_registry_task_duration histogram
+        EXPECT_EQ(
+                R"(# TYPE test_registry_task_duration histogram
 test_registry_task_duration{quantile="0.50"} 50
 test_registry_task_duration{quantile="0.75"} 75
 test_registry_task_duration{quantile="0.90"} 95.8333
@@ -439,7 +445,7 @@ test_registry_task_duration_average 50.5
 test_registry_task_duration_median 50
 test_registry_task_duration_standard_deviation 28.8661
 )",
-                  registry.to_prometheus());
+                registry.to_prometheus());
         EXPECT_EQ(
                 R"*([{"tags":{"metric":"task_duration"},"unit":"milliseconds",)*"
                 R"*("value":{"total_count":100,"min":1,"average":50.5,"median":50.0,)*"
@@ -461,7 +467,8 @@ test_registry_task_duration_standard_deviation 28.8661
             task_duration->add(j);
         }
 
-        EXPECT_EQ(R"(# TYPE test_registry_task_duration histogram
+        EXPECT_EQ(
+                R"(# TYPE test_registry_task_duration histogram
 test_registry_task_duration{instance="test",type="create_tablet",quantile="0.50"} 50
 test_registry_task_duration{instance="test",type="create_tablet",quantile="0.75"} 75
 test_registry_task_duration{instance="test",type="create_tablet",quantile="0.90"} 95.8333
@@ -475,7 +482,7 @@ test_registry_task_duration_average{instance="test",type="create_tablet"} 50.5
 test_registry_task_duration_median{instance="test",type="create_tablet"} 50
 test_registry_task_duration_standard_deviation{instance="test",type="create_tablet"} 28.8661
 )",
-                  registry.to_prometheus());
+                registry.to_prometheus());
         EXPECT_EQ(
                 R"*([{"tags":{"metric":"task_duration","type":"create_tablet","instance":"test"},"unit":"milliseconds",)*"
                 R"*("value":{"total_count":100,"min":1,"average":50.5,"median":50.0,)*"

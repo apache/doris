@@ -537,7 +537,8 @@ struct ConvertImplGenericToString {
     }
 
     static Status execute2(FunctionContext* /*ctx*/, Block& block, const ColumnNumbers& arguments,
-                           const size_t result, size_t /*input_rows_count*/) {
+                           const size_t result, size_t /*input_rows_count*/
+    ) {
         return execute(block, arguments, result);
     }
 };
@@ -1664,9 +1665,8 @@ private:
         LOG(WARNING) << error_msg;
         return [error_msg](FunctionContext* /*context*/, Block& /*block*/,
                            const ColumnNumbers& /*arguments*/, const size_t /*result*/,
-                           size_t /*input_rows_count*/) {
-            return Status::InvalidArgument(error_msg);
-        };
+                           size_t /*input_rows_count*/
+               ) { return Status::InvalidArgument(error_msg); };
     }
 
     WrapperType create_unsupport_wrapper(const String from_type_name,
@@ -1729,7 +1729,8 @@ private:
 
         return [nested_function, from_nested_type, to_nested_type](
                        FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                       const size_t result, size_t /*input_rows_count*/) -> Status {
+                       const size_t result, size_t /*input_rows_count*/
+                       ) -> Status {
             auto& from_column = block.get_by_position(arguments.front()).column;
 
             const ColumnArray* from_col_array =
@@ -1873,7 +1874,8 @@ private:
         auto element_wrappers = get_element_wrappers(context, from_element_types, to_element_types);
         return [element_wrappers, from_element_types, to_element_types](
                        FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                       const size_t result, size_t /*input_rows_count*/) -> Status {
+                       const size_t result, size_t /*input_rows_count*/
+                       ) -> Status {
             auto& from_column = block.get_by_position(arguments.front()).column;
             auto from_col_struct = check_and_get_column<ColumnStruct>(from_column.get());
             if (!from_col_struct) {

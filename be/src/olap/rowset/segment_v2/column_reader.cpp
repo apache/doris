@@ -34,6 +34,7 @@
 #include "olap/inverted_index_parser.h"
 #include "olap/olap_common.h"
 #include "olap/rowset/segment_v2/binary_dict_page.h" // for BinaryDictPageDecoder
+#include "olap/rowset/segment_v2/binary_fsst_page.h"
 #include "olap/rowset/segment_v2/binary_plain_page.h"
 #include "olap/rowset/segment_v2/bitmap_index_reader.h"
 #include "olap/rowset/segment_v2/bloom_filter.h"
@@ -1192,6 +1193,26 @@ Status FileColumnIterator::_read_data_page(const OrdinalPageIndexIterator& iter)
 
             dict_page_decoder->set_dict_decoder(_dict_decoder.get(), _dict_word_info.get());
         }
+    }
+    if (_reader->encoding_info()->encoding() == FSST_ENCODING) {
+        auto dict_page_decoder = reinterpret_cast<BinaryFsstPageDecoder*>(_page.data_decoder.get());
+        if (_dict_decoder == nullptr) {
+            Slice dict_data;
+            PageFooterPB dict_footer;
+            _opts.type = INDEX_PAGE;
+            RETURN_IF_ERROR(_reader->read_page(_opts, _reader->get_dict_page_pointer(),
+                                               &_dict_page_handle, &dict_data, &dict_footer,
+                                               _compress_codec));
+            _dict_decoder =
+                    std::make_unique<BinaryPlainPageDecoder<FieldType::OLAP_FIELD_TYPE_NONE>>(
+                            dict_data);
+            RETURN_IF_ERROR(_dict_decoder->init());
+            auto* pd_decoder = (BinaryPlainPageDecoder<FieldType::OLAP_FIELD_TYPE_VARCHAR>*)
+                                       _dict_decoder.get();
+            _dict_word_info.reset(new StringRef[pd_decoder->_num_elems]);
+            pd_decoder->get_dict_word_info(_dict_word_info.get());
+        }
+        dict_page_decoder->set_dict_decoder(_dict_decoder.get(), _dict_word_info.get());
     }
     return Status::OK();
 }

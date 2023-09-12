@@ -123,7 +123,8 @@ void FunctionTokenize::_do_tokenize(const ColumnString& src_column_string,
 
 Status FunctionTokenize::execute_impl(FunctionContext* /*context*/, Block& block,
                                       const ColumnNumbers& arguments, size_t result,
-                                      size_t /*input_rows_count*/) {
+                                      size_t /*input_rows_count*/
+) {
     DCHECK_EQ(arguments.size(), 2);
     const auto& [src_column, left_const] =
             unpack_if_const(block.get_by_position(arguments[0]).column);

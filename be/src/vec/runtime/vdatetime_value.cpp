@@ -1964,7 +1964,8 @@ template <typename T>
 bool DateV2Value<T>::from_date_str(const char* date_str, int len,
                                    const cctz::time_zone& local_time_zone,
                                    ZoneList& time_zone_cache, std::shared_mutex* cache_lock,
-                                   int scale /* = -1*/) {
+                                   int scale /* = -1*/
+) {
     return from_date_str_base(date_str, len, scale, &local_time_zone, &time_zone_cache, cache_lock);
 }
 template <typename T>

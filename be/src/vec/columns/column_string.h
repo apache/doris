@@ -348,7 +348,8 @@ public:
     }
 
     void insert_many_dict_data(const int32_t* data_array, size_t start_index, const StringRef* dict,
-                               size_t num, uint32_t /*dict_num*/) override {
+                               size_t num, uint32_t /*dict_num*/
+                               ) override {
         size_t offset_size = offsets.size();
         size_t old_size = chars.size();
         size_t new_size = old_size;

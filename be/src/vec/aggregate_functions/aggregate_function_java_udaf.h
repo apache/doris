@@ -552,7 +552,8 @@ public:
     }
 
     void add_batch(size_t batch_size, AggregateDataPtr* places, size_t place_offset,
-                   const IColumn** columns, Arena* /*arena*/, bool /*agg_many*/) const override {
+                   const IColumn** columns, Arena* /*arena*/, bool /*agg_many*/
+    ) const override {
         int64_t places_address = reinterpret_cast<int64_t>(places);
         Status st = this->data(_exec_place)
                             .add(places_address, false, columns, 0, batch_size, argument_types,
@@ -563,7 +564,8 @@ public:
     }
 
     void add_batch_single_place(size_t batch_size, AggregateDataPtr place, const IColumn** columns,
-                                Arena* /*arena*/) const override {
+                                Arena* /*arena*/
+    ) const override {
         int64_t places_address = reinterpret_cast<int64_t>(place);
         Status st = this->data(_exec_place)
                             .add(places_address, true, columns, 0, batch_size, argument_types, 0);

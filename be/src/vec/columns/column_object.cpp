@@ -353,7 +353,8 @@ void ColumnObject::Subcolumn::insert(Field field, FieldInfo info) {
         if (!schema_util::is_conversion_required_between_integers(*base_type,
                                                                   *least_common_base_type)) {
             get_least_supertype(DataTypes {std::move(base_type), least_common_base_type},
-                                &base_type, true /*compatible with string type*/);
+                                &base_type, true /*compatible with string type*/
+            );
             type_changed = true;
             if (!least_common_base_type->equals(*base_type)) {
                 add_new_column_part(create_array_of_type(std::move(base_type), value_dim));
@@ -382,7 +383,8 @@ void ColumnObject::Subcolumn::insertRangeFrom(const Subcolumn& src, size_t start
     } else {
         DataTypePtr new_least_common_type = nullptr;
         get_least_supertype(DataTypes {least_common_type.get(), src_type}, &new_least_common_type,
-                            true /*compatible with string type*/);
+                            true /*compatible with string type*/
+        );
         ColumnPtr casted_column;
         Status st = schema_util::cast_column({src_column, src_type, ""}, new_least_common_type,
                                              &casted_column);
