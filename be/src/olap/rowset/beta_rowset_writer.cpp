@@ -118,7 +118,15 @@ Status BetaRowsetWriter::init(const RowsetWriterContext& rowset_writer_context) 
         _rowset_meta->set_newest_write_timestamp(_context.newest_write_timestamp);
     }
     _rowset_meta->set_tablet_uid(_context.tablet_uid);
+    LOG(INFO) << "[BetaRowsetWriter::init][_context.tablet_schema:"
+              << _context.tablet_schema->is_unique_key_ignore_mode() << "]";
+    if (_context.tablet_schema->is_unique_key_ignore_mode()) {
+        int a = 1;
+        (void)a;
+    }
     _rowset_meta->set_tablet_schema(_context.tablet_schema);
+    LOG(INFO) << "[BetaRowsetWriter::init][_rowset_meta.tablet_schema:"
+              << _rowset_meta->tablet_schema()->is_unique_key_ignore_mode() << "]";
     _context.schema_change_recorder =
             std::make_shared<vectorized::schema_util::LocalSchemaChangeRecorder>();
     _context.segment_collector = std::make_shared<SegmentCollectorT<BetaRowsetWriter>>(this);
@@ -131,8 +139,7 @@ Status BetaRowsetWriter::add_block(const vectorized::Block* block) {
     return _segment_creator.add_block(block);
 }
 
-Status BetaRowsetWriter::_generate_delete_bitmap(int32_t segment_id,
-                                                 bool is_unique_key_ignore_mode) {
+Status BetaRowsetWriter::_generate_delete_bitmap(int32_t segment_id) {
     SCOPED_RAW_TIMER(&_delete_bitmap_ns);
     if (!_context.tablet->enable_unique_key_merge_on_write() ||
         _context.tablet_schema->is_partial_update()) {
@@ -150,7 +157,7 @@ Status BetaRowsetWriter::_generate_delete_bitmap(int32_t segment_id,
     OlapStopWatch watch;
     RETURN_IF_ERROR(_context.tablet->calc_delete_bitmap(
             rowset, segments, specified_rowsets, _context.mow_context->delete_bitmap,
-            _context.mow_context->max_version, nullptr, nullptr, is_unique_key_ignore_mode));
+            _context.mow_context->max_version, nullptr, nullptr));
     size_t total_rows = std::accumulate(
             segments.begin(), segments.end(), 0,
             [](size_t sum, const segment_v2::SegmentSharedPtr& s) { return sum += s->num_rows(); });
@@ -622,6 +629,10 @@ RowsetSharedPtr BetaRowsetWriter::_build_tmp() {
     *rowset_meta_ = *_rowset_meta;
     _build_rowset_meta(rowset_meta_);
 
+    LOG(INFO) << "[BetaRowsetWriter::_build_tmp][_context.tablet_schema:"
+              << _context.tablet_schema->is_unique_key_ignore_mode()
+              << "][rowset_meta_.tablet_schema:"
+              << rowset_meta_->tablet_schema()->is_unique_key_ignore_mode() << "]";
     RowsetSharedPtr rowset;
     auto status = RowsetFactory::create_rowset(_context.tablet_schema, _context.rowset_dir,
                                                rowset_meta_, &rowset);
@@ -715,8 +726,7 @@ Status BetaRowsetWriter::add_segment(uint32_t segment_id, SegmentStatistics& seg
         }
     }
     if (_context.mow_context != nullptr) {
-        RETURN_IF_ERROR(_generate_delete_bitmap(
-                segment_id, _context.tablet_schema->is_unique_key_ignore_mode()));
+        RETURN_IF_ERROR(_generate_delete_bitmap(segment_id));
     }
     RETURN_IF_ERROR(_segcompaction_if_necessary());
     return Status::OK();

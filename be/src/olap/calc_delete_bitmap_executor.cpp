@@ -33,8 +33,7 @@ using namespace ErrorCode;
 Status CalcDeleteBitmapToken::submit(TabletSharedPtr tablet, RowsetSharedPtr cur_rowset,
                                      const segment_v2::SegmentSharedPtr& cur_segment,
                                      const std::vector<RowsetSharedPtr>& target_rowsets,
-                                     int64_t end_version, RowsetWriter* rowset_writer,
-                                     bool is_unique_key_ignore_mode) {
+                                     int64_t end_version, RowsetWriter* rowset_writer) {
     {
         std::shared_lock rlock(_lock);
         RETURN_IF_ERROR(_status);
@@ -47,8 +46,7 @@ Status CalcDeleteBitmapToken::submit(TabletSharedPtr tablet, RowsetSharedPtr cur
     }
     return _thread_token->submit_func([=, this]() {
         auto st = tablet->calc_segment_delete_bitmap(cur_rowset, cur_segment, target_rowsets,
-                                                     bitmap, end_version, rowset_writer,
-                                                     is_unique_key_ignore_mode);
+                                                     bitmap, end_version, rowset_writer);
         if (!st.ok()) {
             LOG(WARNING) << "failed to calc segment delete bitmap, tablet_id: "
                          << tablet->tablet_id() << " rowset: " << cur_rowset->rowset_id()
