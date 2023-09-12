@@ -56,32 +56,31 @@ public class LocalTableValuedFunction extends ExternalFileTableValuedFunction {
             .add(BACKEND_ID)
             .build();
 
-    private String filePath;
     private long backendId;
 
     public LocalTableValuedFunction(Map<String, String> params) throws AnalysisException {
-        Map<String, String> fileFormatParams = new CaseInsensitiveMap();
+        Map<String, String> fileParams = new CaseInsensitiveMap();
         locationProperties = Maps.newHashMap();
         for (String key : params.keySet()) {
-            if (FILE_FORMAT_PROPERTIES.contains(key.toLowerCase())) {
-                fileFormatParams.put(key, params.get(key));
-            } else if (LOCATION_PROPERTIES.contains(key.toLowerCase())) {
-                locationProperties.put(key.toLowerCase(), params.get(key));
+            String lowerKey = key.toLowerCase();
+            if (FILE_FORMAT_PROPERTIES.contains(lowerKey)) {
+                fileParams.put(lowerKey, params.get(key));
+            } else if (LOCATION_PROPERTIES.contains(lowerKey)) {
+                locationProperties.put(lowerKey, params.get(key));
             } else {
                 throw new AnalysisException(key + " is invalid property");
             }
         }
 
-        if (!locationProperties.containsKey(FILE_PATH)) {
-            throw new AnalysisException(String.format("Configuration '%s' is required.", FILE_PATH));
-        }
-        if (!locationProperties.containsKey(BACKEND_ID)) {
-            throw new AnalysisException(String.format("Configuration '%s' is required.", BACKEND_ID));
+        for (String key : LOCATION_PROPERTIES) {
+            if (!locationProperties.containsKey(key)) {
+                throw new AnalysisException(String.format("Configuration '%s' is required.", key));
+            }
         }
 
         filePath = locationProperties.get(FILE_PATH);
         backendId = Long.parseLong(locationProperties.get(BACKEND_ID));
-        parseProperties(fileFormatParams);
+        super.parseProperties(fileParams);
 
         getFileListFromBackend();
     }
