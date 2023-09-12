@@ -95,6 +95,28 @@ Please place the `krb5.conf` file and `keytab` authentication file under all `BE
 
 The value of `hive.metastore.kerberos.principal` needs to be consistent with the property of the same name of the connected hive metastore, which can be obtained from `hive-site.xml`.
 
+### Hive On VIEWFS
+
+```sql
+CREATE CATALOG hive PROPERTIES (
+    'type'='hms',
+    'hive.metastore.uris' = 'thrift://172.0.0.1:9083',
+    'hadoop.username' = 'hive',
+    'dfs.nameservices'='your-nameservice',
+    'dfs.ha.namenodes.your-nameservice'='nn1,nn2',
+    'dfs.namenode.rpc-address.your-nameservice.nn1'='172.21.0.2:8088',
+    'dfs.namenode.rpc-address.your-nameservice.nn2'='172.21.0.3:8088',
+    'dfs.client.failover.proxy.provider.your-nameservice'='org.apache.hadoop.hdfs.server.namenode.ha.ConfiguredFailoverProxyProvider',
+    'fs.defaultFS' = 'viewfs://your-cluster',
+    'fs.viewfs.mounttable.your-cluster.link./ns1' = 'hdfs://your-nameservice/',
+    'fs.viewfs.mounttable.your-cluster.homedir' = '/ns1'
+);
+```
+
+viewfs related parameters can be added to the catalog configuration as above, or added to `conf/core-site.xml`.
+
+How viewfs works and parameter configuration, please refer to relevant hadoop documents, for example, https://hadoop.apache.org/docs/stable/hadoop-project-dist/hadoop-hdfs/ViewFs.html
+
 ### Hive On JuiceFS
 
 Data is stored in JuiceFS, examples are as follows:
