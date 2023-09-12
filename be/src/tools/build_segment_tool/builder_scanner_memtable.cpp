@@ -18,6 +18,7 @@
 #include "tools/build_segment_tool/builder_scanner_memtable.h"
 
 #include <gen_cpp/Exprs_types.h>
+#include <gen_cpp/Opcodes_types.h>
 
 #include <cstddef>
 #include <filesystem>
@@ -170,7 +171,7 @@ TDescriptorTable BuilderScannerMemtable::create_descriptor_tablet() {
         TTupleDescriptorBuilder tuple_builder;
         for (int i = 0; i < _tablet->num_columns(); i++) {
             const auto& col = _tablet->tablet_schema()->column(i);
-
+            
             if (col.type() == FieldType::OLAP_FIELD_TYPE_DECIMAL ||
                 col.type() == FieldType::OLAP_FIELD_TYPE_DECIMAL32 ||
                 col.type() == FieldType::OLAP_FIELD_TYPE_DECIMAL64 ||
@@ -202,34 +203,43 @@ TDescriptorTable BuilderScannerMemtable::create_descriptor_tablet() {
     }
 
     // build source table descriptor 1
-    {
+     {
         TTupleDescriptorBuilder tuple_builder;
         for (int i = 0; i < _tablet->num_columns(); i++) {
             const auto& col = _tablet->tablet_schema()->column(i);
+            if (_file_type == "csv") {
+                tuple_builder.add_slot(TSlotDescriptorBuilder()
+                                       .string_type(65535)
+                                       .nullable(true)
+                                       .column_name(col.name())
+                                       .column_pos(i)
+                                       .build());
 
-            if (col.type() == FieldType::OLAP_FIELD_TYPE_DECIMAL ||
-                col.type() == FieldType::OLAP_FIELD_TYPE_DECIMAL32 ||
-                col.type() == FieldType::OLAP_FIELD_TYPE_DECIMAL64 ||
-                col.type() == FieldType::OLAP_FIELD_TYPE_DECIMAL128I) {
-                tuple_builder.add_slot(TSlotDescriptorBuilder()
-                                               .decimal_type(col.precision(), col.frac())
-                                               .column_name(col.name())
-                                               .column_pos(i)
-                                               .build());
-            } else if (col.type() == FieldType::OLAP_FIELD_TYPE_CHAR ||
-                       col.type() == FieldType::OLAP_FIELD_TYPE_VARCHAR) {
-                tuple_builder.add_slot(TSlotDescriptorBuilder()
-                                               .string_type(col.length())
-                                               .column_name(col.name())
-                                               .column_pos(i)
-                                               .build());
             } else {
-                tuple_builder.add_slot(TSlotDescriptorBuilder()
-                                               .type(thrift_to_type(getPrimitiveType(col.type())))
-                                               .column_name(col.name())
-                                               .column_pos(i)
-                                               .build());
-            }
+                if (col.type() == FieldType::OLAP_FIELD_TYPE_DECIMAL ||
+                    col.type() == FieldType::OLAP_FIELD_TYPE_DECIMAL32 ||
+                    col.type() == FieldType::OLAP_FIELD_TYPE_DECIMAL64 ||
+                    col.type() == FieldType::OLAP_FIELD_TYPE_DECIMAL128I) {
+                    tuple_builder.add_slot(TSlotDescriptorBuilder()
+                                                .decimal_type(col.precision(), col.frac())
+                                                .column_name(col.name())
+                                                .column_pos(i)
+                                                .build());
+                } else if (col.type() == FieldType::OLAP_FIELD_TYPE_CHAR ||
+                           col.type() == FieldType::OLAP_FIELD_TYPE_VARCHAR) {
+                    tuple_builder.add_slot(TSlotDescriptorBuilder()
+                                                .string_type(col.length())
+                                                .column_name(col.name())
+                                                .column_pos(i)
+                                                .build());
+                } else {
+                    tuple_builder.add_slot(TSlotDescriptorBuilder()
+                                                .type(thrift_to_type(getPrimitiveType(col.type())))
+                                                .column_name(col.name())
+                                                .column_pos(i)
+                                                .build());
+                }
+            }   
         }
         tuple_builder.build(&dtb);
     }
@@ -257,41 +267,64 @@ void BuilderScannerMemtable::init_desc_table() {
 }
 
 void BuilderScannerMemtable::create_expr_info() {
-    // TTypeDesc varchar_type;
-    // {
-    //     TTypeNode node;
-    //     node.__set_type(TTypeNodeType::SCALAR);
-    //     TScalarType scalar_type;
-    //     scalar_type.__set_type(TPrimitiveType::VARCHAR);
-    //     scalar_type.__set_len(65535);
-    //     node.__set_scalar_type(scalar_type);
-    //     varchar_type.types.push_back(node);
-    // }
     for (int i = 0; i < _tablet->num_columns(); i++) {
         auto col = _tablet->tablet_schema()->column(i);
-        TTypeDesc type;
+        TTypeDesc defaultType;
+        {
+            TTypeNode node;
+            node.__set_type(TTypeNodeType::SCALAR);
+            TScalarType scalar_type;
+            scalar_type.__set_type(TPrimitiveType::VARCHAR);
+            scalar_type.__set_len(65535);
+            node.__set_scalar_type(scalar_type);
+            defaultType.types.emplace_back(node);
+        }
+        TTypeDesc destType;
         {
             TTypeNode node;
             node.__set_type(TTypeNodeType::SCALAR);
             TScalarType scalar_type;
             scalar_type.__set_type(getPrimitiveType(col.type()));
             if (getPrimitiveType(col.type()) == TPrimitiveType::VARCHAR) {
-                scalar_type.__set_len(col.length());
+            scalar_type.__set_len(col.length());
             }
             node.__set_scalar_type(scalar_type);
-            type.types.emplace_back(node);
+            destType.types.emplace_back(node);
         }
+
         // expr_of_dest_slot
         {
+            TExpr expr;
+            if (_file_type == "csv") {
+                TExprNode slot_cast;
+                slot_cast.node_type = TExprNodeType::CAST_EXPR;
+                slot_cast.opcode = TExprOpcode::CAST;
+                slot_cast.num_children = 1;
+                slot_cast.type = destType;
+                TFunction fn;
+                fn.binary_type = TFunctionBinaryType::BUILTIN;
+                fn.arg_types.push_back(defaultType);
+                fn.ret_type = destType;
+                fn.vectorized = true;
+                fn.has_var_args = false;
+                // fn.signature
+                slot_cast.fn = fn;
+                slot_cast.__isset.fn = true;
+                expr.nodes.push_back(slot_cast);
+            }
             TExprNode slot_ref;
             slot_ref.node_type = TExprNodeType::SLOT_REF;
-            slot_ref.type = type;
+            if (_file_type == "csv") {
+                slot_ref.type = defaultType;
+            } else {
+                slot_ref.type = destType;
+            }
+            
             slot_ref.num_children = 0;
             slot_ref.slot_ref.slot_id = _tablet->num_columns() + i;
             slot_ref.slot_ref.tuple_id = 1;
             slot_ref.__isset.slot_ref = true;
 
-            TExpr expr;
             expr.nodes.push_back(slot_ref);
             _params.expr_of_dest_slot.emplace(i, expr);
         }
@@ -312,7 +345,7 @@ void BuilderScannerMemtable::create_expr_info() {
                     continue;
                 }
             }
-            node.type = type;
+            node.type = destType;
             node.num_children = 0;
             TExpr expr;
             expr.nodes.push_back(node);
@@ -335,7 +368,13 @@ void BuilderScannerMemtable::create_expr_info() {
 
     _params.__set_dest_tuple_id(TUPLE_ID_DST);
     _params.__set_src_tuple_id(TUPLE_ID_SRC);
-    _params.format_type = TFileFormatType::FORMAT_PARQUET;
+    if (_file_type == "csv") {
+        _params.format_type = TFileFormatType::FORMAT_CSV_PLAIN;
+        _params.file_attributes.text_params.line_delimiter = "\n";
+        _params.file_attributes.text_params.column_separator = "\t";
+    } else {
+        _params.format_type = TFileFormatType::FORMAT_PARQUET;
+    }
     _params.file_type = TFileType::FILE_LOCAL;
     _params.compress_type = TFileCompressType::PLAIN;
     _params.strict_mode = false;

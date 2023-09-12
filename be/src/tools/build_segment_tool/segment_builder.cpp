@@ -34,7 +34,7 @@
 
 DEFINE_string(meta_file, "", "tablet header meta file");
 DEFINE_string(data_path, "", "this tablet's data to be build");
-DEFINE_string(format, "parquet", "input data's format, currently just support parquet");
+DEFINE_string(format, "parquet", "input data's format, currently just support parquet and csv");
 
 std::string get_usage(const std::string& progname) {
     std::stringstream ss;
@@ -62,6 +62,9 @@ int main(int argc, char** argv, char** envp) {
 
     LOG(INFO) << "meta file:" << FLAGS_meta_file << " data path:" << FLAGS_data_path
               << " format:" << FLAGS_format;
+    if (FLAGS_format != "parquet" && FLAGS_format != "csv") {
+        LOG(FATAL) << "unsupported file format: " << FLAGS_format;
+    }
     std::string build_dir = FLAGS_data_path;
     // clear & create output dir before build start
     std::filesystem::path output_path(std::filesystem::path(build_dir + "/output"));
