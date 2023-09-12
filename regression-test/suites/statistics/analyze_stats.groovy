@@ -20,6 +20,14 @@ suite("test_analyze") {
     String tbl = "analyzetestlimited_duplicate_all"
 
     sql """
+        DROP DATABASE IF EXISTS `${db}`
+    """
+
+    sql """
+        CREATE DATABASE `${db}`
+    """
+
+    sql """
         DROP TABLE IF EXISTS `${tbl}`
     """
 

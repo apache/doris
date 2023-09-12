@@ -112,14 +112,12 @@ public abstract class DataType {
     public static DataType convertPrimitiveFromStrings(List<String> types) {
         String type = types.get(0).toLowerCase().trim();
         switch (type) {
-            case "bool":
             case "boolean":
                 return BooleanType.INSTANCE;
             case "tinyint":
                 return TinyIntType.INSTANCE;
             case "smallint":
                 return SmallIntType.INSTANCE;
-            case "integer":
             case "int":
                 return IntegerType.INSTANCE;
             case "bigint":
@@ -131,14 +129,15 @@ public abstract class DataType {
             case "double":
                 return DoubleType.INSTANCE;
             case "decimal":
+                // NOTICE, maybe convert to decimalv3, so do not truc here.
                 switch (types.size()) {
                     case 1:
                         return DecimalV2Type.CATALOG_DEFAULT;
                     case 2:
-                        return DecimalV2Type.createDecimalV2Type(Integer.parseInt(types.get(1)),
+                        return DecimalV2Type.createDecimalV2TypeWithoutTruncate(Integer.parseInt(types.get(1)),
                                 0);
                     case 3:
-                        return DecimalV2Type.createDecimalV2Type(Integer.parseInt(types.get(1)),
+                        return DecimalV2Type.createDecimalV2TypeWithoutTruncate(Integer.parseInt(types.get(1)),
                                 Integer.parseInt(types.get(2)));
                     default:
                         throw new AnalysisException("Nereids do not support type: " + type);
@@ -163,7 +162,11 @@ public abstract class DataType {
                     case 1:
                         return VarcharType.SYSTEM_DEFAULT;
                     case 2:
-                        return VarcharType.createVarcharType(Integer.parseInt(types.get(1)));
+                        if (types.get(1).equals("*")) {
+                            return VarcharType.SYSTEM_DEFAULT;
+                        } else {
+                            return VarcharType.createVarcharType(Integer.parseInt(types.get(1)));
+                        }
                     default:
                         throw new AnalysisException("Nereids do not support type: " + type);
                 }
@@ -173,7 +176,11 @@ public abstract class DataType {
                     case 1:
                         return CharType.SYSTEM_DEFAULT;
                     case 2:
-                        return CharType.createCharType(Integer.parseInt(types.get(1)));
+                        if (types.get(1).equals("*")) {
+                            return CharType.SYSTEM_DEFAULT;
+                        } else {
+                            return CharType.createCharType(Integer.parseInt(types.get(1)));
+                        }
                     default:
                         throw new AnalysisException("Nereids do not support type: " + type);
                 }
@@ -211,6 +218,7 @@ public abstract class DataType {
             case "quantile_state":
                 return QuantileStateType.INSTANCE;
             case "json":
+            case "jsonb":
                 return JsonType.INSTANCE;
             default:
                 throw new AnalysisException("Nereids do not support type: " + type);
@@ -306,8 +314,9 @@ public abstract class DataType {
             List<DataType> types = catalogType.getSubTypes().stream().map(DataType::fromCatalogType)
                     .collect(Collectors.toList());
             return new AggStateType(catalogType.getFunctionName(), types, catalogType.getSubTypeNullables());
+        } else {
+            return UnsupportedType.INSTANCE;
         }
-        throw new AnalysisException("Nereids do not support type: " + type);
     }
 
     /**

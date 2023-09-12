@@ -50,6 +50,7 @@ import java.util.List;
  * An expression evaluator that evaluates the value of an expression.
  */
 public enum ExpressionEvaluator {
+
     INSTANCE;
 
     private ImmutableMultimap<String, FunctionInvoker> functions;

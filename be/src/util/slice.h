@@ -80,6 +80,31 @@ public:
               data(const_cast<char*>(s)),
               size(strlen(s)) {}
 
+    Slice(const Slice& src) : data(src.data), size(src.size) {}
+
+    Slice& operator=(const Slice& src) {
+        if (this != &src) {
+            data = src.data;
+            size = src.size;
+        }
+        return *this;
+    }
+
+    Slice(Slice&& src) : data(src.data), size(src.size) {
+        src.data = nullptr;
+        src.size = 0;
+    }
+
+    Slice& operator=(Slice&& src) {
+        if (this != &src) {
+            data = src.data;
+            size = src.size;
+            src.data = nullptr;
+            src.size = 0;
+        }
+        return *this;
+    }
+
     /// @return A pointer to the beginning of the referenced data.
     const char* get_data() const { return data; }
 
@@ -159,13 +184,16 @@ public:
     ///
     /// @param [in] n
     ///   Number of bytes of space that should be dropped from the beginning.
-    void trim_quote() {
+    bool trim_quote() {
         int32_t begin = 0;
+        bool change = false;
         if (size > 2 && ((data[begin] == '"' && data[size - 1] == '"') ||
                          (data[begin] == '\'' && data[size - 1] == '\''))) {
             data += 1;
             size -= 2;
+            change = true;
         }
+        return change;
     }
     /// Truncate the slice to the given number of bytes.
     ///

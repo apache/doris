@@ -63,6 +63,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
+import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * The abstract class for all types of external catalogs.
@@ -71,6 +72,8 @@ import java.util.Optional;
 public abstract class ExternalCatalog
             implements CatalogIf<ExternalDatabase<? extends ExternalTable>>, Writable, GsonPostProcessable {
     private static final Logger LOG = LogManager.getLogger(ExternalCatalog.class);
+
+    public static final String ENABLE_AUTO_ANALYZE = "enable.auto.analyze";
 
     // Unique id of this catalog, will be assigned after catalog is loaded.
     @SerializedName(value = "id")
@@ -589,5 +592,23 @@ public abstract class ExternalCatalog
     public Collection<DatabaseIf> getAllDbs() {
         makeSureInitialized();
         return new HashSet<>(idToDb.values());
+    }
+
+    @Override
+    public boolean enableAutoAnalyze() {
+        // By default, external catalog disables auto analyze, uses could set catalog property to enable it:
+        // "enable.auto.analyze" = true
+        Map<String, String> properties = catalogProperty.getProperties();
+        boolean ret = false;
+        if (properties.containsKey(ENABLE_AUTO_ANALYZE)
+                && properties.get(ENABLE_AUTO_ANALYZE).equalsIgnoreCase("true")) {
+            ret = true;
+        }
+        return ret;
+    }
+
+    @Override
+    public ConcurrentHashMap<Long, DatabaseIf> getIdToDb() {
+        return new ConcurrentHashMap<>(idToDb);
     }
 }

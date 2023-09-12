@@ -53,6 +53,7 @@
 #include "runtime/exec_env.h"
 #include "runtime/external_scan_context_mgr.h"
 #include "runtime/fragment_mgr.h"
+#include "runtime/group_commit_mgr.h"
 #include "runtime/heartbeat_flags.h"
 #include "runtime/load_channel_mgr.h"
 #include "runtime/load_path_mgr.h"
@@ -194,6 +195,7 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths) {
     _routine_load_task_executor = new RoutineLoadTaskExecutor(this);
     _small_file_mgr = new SmallFileMgr(this, config::small_file_dir);
     _block_spill_mgr = new BlockSpillManager(_store_paths);
+    _group_commit_mgr = new GroupCommitMgr(this);
     _file_meta_cache = new FileMetaCache(config::max_external_file_meta_cache_num);
     _memtable_memory_limiter = std::make_unique<MemTableMemoryLimiter>();
 
@@ -229,12 +231,14 @@ Status ExecEnv::init_pipeline_task_scheduler() {
     // TODO pipeline task group combie two blocked schedulers.
     auto t_queue = std::make_shared<pipeline::MultiCoreTaskQueue>(executors_size);
     auto b_scheduler = std::make_shared<pipeline::BlockedTaskScheduler>(t_queue);
-    _pipeline_task_scheduler = new pipeline::TaskScheduler(this, b_scheduler, t_queue);
+    _pipeline_task_scheduler =
+            new pipeline::TaskScheduler(this, b_scheduler, t_queue, "WithoutGroupTaskSchePool");
     RETURN_IF_ERROR(_pipeline_task_scheduler->start());
 
     auto tg_queue = std::make_shared<pipeline::TaskGroupTaskQueue>(executors_size);
     auto tg_b_scheduler = std::make_shared<pipeline::BlockedTaskScheduler>(tg_queue);
-    _pipeline_task_group_scheduler = new pipeline::TaskScheduler(this, tg_b_scheduler, tg_queue);
+    _pipeline_task_group_scheduler =
+            new pipeline::TaskScheduler(this, tg_b_scheduler, tg_queue, "WithGroupTaskSchePool");
     RETURN_IF_ERROR(_pipeline_task_group_scheduler->start());
 
     return Status::OK();
@@ -312,8 +316,11 @@ Status ExecEnv::_init_mem_env() {
     }
     // SegmentLoader caches segments in rowset granularity. So the size of
     // opened files will greater than segment_cache_capacity.
-    uint64_t segment_cache_capacity = fd_number * 2 / 5;
-    LOG(INFO) << "segment_cache_capacity = fd_number * 2 / 5, fd_number: " << fd_number
+    int64_t segment_cache_capacity = config::segment_cache_capacity;
+    if (segment_cache_capacity < 0 || segment_cache_capacity > fd_number * 2 / 5) {
+        segment_cache_capacity = fd_number * 2 / 5;
+    }
+    LOG(INFO) << "segment_cache_capacity <= fd_number * 2 / 5, fd_number: " << fd_number
               << " segment_cache_capacity: " << segment_cache_capacity;
     SegmentLoader::create_global_instance(segment_cache_capacity);
 
@@ -430,6 +437,7 @@ void ExecEnv::_destroy() {
     SAFE_DELETE(_external_scan_context_mgr);
     SAFE_DELETE(_heartbeat_flags);
     SAFE_DELETE(_scanner_scheduler);
+    SAFE_DELETE(_group_commit_mgr);
     SAFE_DELETE(_file_meta_cache);
     // Master Info is a thrift object, it could be the last one to deconstruct.
     // Master info should be deconstruct later than fragment manager, because fragment will

@@ -270,6 +270,9 @@ public:
     template <typename T>
     void create_from_date_v2(DateV2Value<T>& value, TimeType type);
 
+    template <typename T>
+    void create_from_date_v2(DateV2Value<T>&& value, TimeType type);
+
     void set_time(uint32_t year, uint32_t month, uint32_t day, uint32_t hour, uint32_t minute,
                   uint32_t second);
 
@@ -1496,8 +1499,24 @@ class DataTypeDateTime;
 class DataTypeDateV2;
 class DataTypeDateTimeV2;
 
-[[maybe_unused]] void init_date_day_offset_dict();
-[[maybe_unused]] DateV2Value<DateV2ValueType>* get_date_day_offset_dict();
+class date_day_offset_dict {
+private:
+    static date_day_offset_dict instance;
+
+    date_day_offset_dict();
+    ~date_day_offset_dict() = default;
+    date_day_offset_dict(const date_day_offset_dict&) = default;
+    date_day_offset_dict& operator=(const date_day_offset_dict&) = default;
+
+public:
+    static constexpr int DAY_BEFORE_EPOCH = 25566; // 1900-01-01
+    static constexpr int DAY_AFTER_EPOCH = 25500;  // 2039-10-24
+    static constexpr int DICT_DAYS = DAY_BEFORE_EPOCH + DAY_AFTER_EPOCH;
+
+    static date_day_offset_dict& get();
+
+    DateV2Value<DateV2ValueType> operator[](int day);
+};
 
 template <typename T>
 struct DateTraits {};

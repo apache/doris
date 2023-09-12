@@ -468,6 +468,7 @@ set(DORIS_LINK_LIBS
     DorisGen
     Webserver
     Geo
+    GeoType
     Vec
     Pipeline
     ${WL_END_GROUP}

@@ -63,6 +63,7 @@ import org.apache.doris.thrift.TScanRange;
 import org.apache.doris.thrift.TScanRangeLocation;
 import org.apache.doris.thrift.TScanRangeLocations;
 import org.apache.doris.thrift.TTableFormatFileDesc;
+import org.apache.doris.thrift.TTextSerdeType;
 import org.apache.doris.thrift.TTransactionalHiveDeleteDeltaDesc;
 import org.apache.doris.thrift.TTransactionalHiveDesc;
 
@@ -139,7 +140,7 @@ public abstract class FileQueryScanNode extends FileScanNode {
                                 table.getName()));
             }
         }
-        computeColumnFilter();
+        computeColumnsFilter();
         initBackendPolicy();
         initSchemaParams();
     }
@@ -151,6 +152,9 @@ public abstract class FileQueryScanNode extends FileScanNode {
             destSlotDescByName.put(slot.getColumn().getName(), slot);
         }
         params = new TFileScanRangeParams();
+        if (this instanceof HiveScanNode) {
+            params.setTextSerdeType(TTextSerdeType.HIVE_TEXT_SERDE);
+        }
         params.setDestTupleId(desc.getId().asInt());
         List<String> partitionKeys = getPathPartitionKeys();
         List<Column> columns = desc.getTable().getBaseSchema(false);

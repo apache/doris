@@ -83,9 +83,6 @@ public:
     void remove_pipeline_context(
             std::shared_ptr<pipeline::PipelineFragmentContext> pipeline_context);
 
-    void remove_pipeline_context(
-            std::shared_ptr<pipeline::PipelineXFragmentContext> pipeline_context);
-
     // TODO(zc): report this is over
     Status exec_plan_fragment(const TExecPlanFragmentParams& params, const FinishCallback& cb);
 
@@ -144,6 +141,11 @@ public:
 
     ThreadPool* get_thread_pool() { return _thread_pool.get(); }
 
+    int32_t running_query_num() {
+        std::unique_lock<std::mutex> ctx_lock(_lock);
+        return _query_ctx_map.size();
+    }
+
 private:
     void cancel_unlocked_impl(const TUniqueId& id, const PPlanFragmentCancelReason& reason,
                               const std::unique_lock<std::mutex>& state_lock, bool is_pipeline,
@@ -162,6 +164,9 @@ private:
                                                     const TPipelineInstanceParams& local_params,
                                                     QueryContext* query_ctx);
 
+    void _setup_shared_hashtable_for_broadcast_join(const TPipelineFragmentParams& params,
+                                                    QueryContext* query_ctx);
+
     template <typename Params>
     Status _get_query_ctx(const Params& params, TUniqueId query_id, bool pipeline,
                           std::shared_ptr<QueryContext>& query_ctx);
@@ -169,6 +174,11 @@ private:
     // This is input params
     ExecEnv* _exec_env;
 
+    // The lock should only be used to protect the structures in fragment manager. Has to be
+    // used in a very small scope because it may dead lock. For example, if the _lock is used
+    // in prepare stage, the call path is  prepare --> expr prepare --> may call allocator
+    // when allocate failed, allocator may call query_is_cancelled, query is callced will also
+    // call _lock, so that there is dead lock.
     std::mutex _lock;
 
     std::condition_variable _cv;

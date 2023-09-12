@@ -42,6 +42,7 @@
 #include "vec/common/string_ref.h"
 #include "vec/core/types.h"
 #include "vec/data_types/data_type.h"
+#include "vec/exprs/vexpr.h"
 #include "vec/runtime/vdatetime_value.h"
 
 namespace butil {
@@ -77,6 +78,29 @@ enum class RuntimeFilterType {
     IN_OR_BLOOM_FILTER = 3,
     BITMAP_FILTER = 4
 };
+
+static RuntimeFilterType get_runtime_filter_type(TRuntimeFilterType::type ttype) {
+    switch (ttype) {
+    case TRuntimeFilterType::BLOOM: {
+        return RuntimeFilterType::BLOOM_FILTER;
+    }
+    case TRuntimeFilterType::MIN_MAX: {
+        return RuntimeFilterType::MINMAX_FILTER;
+    }
+    case TRuntimeFilterType::IN: {
+        return RuntimeFilterType::IN_FILTER;
+    }
+    case TRuntimeFilterType::IN_OR_BLOOM: {
+        return RuntimeFilterType::IN_OR_BLOOM_FILTER;
+    }
+    case TRuntimeFilterType::BITMAP: {
+        return RuntimeFilterType::BITMAP_FILTER;
+    }
+    default: {
+        throw doris::Exception(doris::ErrorCode::INTERNAL_ERROR, "Invalid runtime filter type!");
+    }
+    }
+}
 
 enum class RuntimeFilterRole { PRODUCER = 0, CONSUMER = 1 };
 
@@ -150,11 +174,10 @@ enum RuntimeFilterState {
 /// that can be pushed down to node based on the results of the right table.
 class IRuntimeFilter {
 public:
-    IRuntimeFilter(RuntimeState* state, ObjectPool* pool)
+    IRuntimeFilter(RuntimeState* state, ObjectPool* pool, const TRuntimeFilterDesc* desc)
             : _state(state),
               _pool(pool),
-              _runtime_filter_type(RuntimeFilterType::UNKNOWN_FILTER),
-              _filter_id(-1),
+              _filter_id(desc->filter_id),
               _is_broadcast_join(true),
               _has_remote_target(false),
               _has_local_target(false),
@@ -165,13 +188,16 @@ public:
               _always_true(false),
               _is_ignored(false),
               registration_time_(MonotonicMillis()),
-              _enable_pipeline_exec(_state->enable_pipeline_exec()) {}
+              _enable_pipeline_exec(_state->enable_pipeline_exec()),
+              _runtime_filter_type(get_runtime_filter_type(desc->type)),
+              _name(fmt::format("RuntimeFilter: (id = {}, type = {})", _filter_id,
+                                to_string(_runtime_filter_type))),
+              _profile(new RuntimeProfile(_name)) {}
 
-    IRuntimeFilter(QueryContext* query_ctx, ObjectPool* pool)
+    IRuntimeFilter(QueryContext* query_ctx, ObjectPool* pool, const TRuntimeFilterDesc* desc)
             : _query_ctx(query_ctx),
               _pool(pool),
-              _runtime_filter_type(RuntimeFilterType::UNKNOWN_FILTER),
-              _filter_id(-1),
+              _filter_id(desc->filter_id),
               _is_broadcast_join(true),
               _has_remote_target(false),
               _has_local_target(false),
@@ -182,7 +208,11 @@ public:
               _always_true(false),
               _is_ignored(false),
               registration_time_(MonotonicMillis()),
-              _enable_pipeline_exec(query_ctx->enable_pipeline_exec()) {}
+              _enable_pipeline_exec(query_ctx->enable_pipeline_exec()),
+              _runtime_filter_type(get_runtime_filter_type(desc->type)),
+              _name(fmt::format("RuntimeFilter: (id = {}, type = {})", _filter_id,
+                                to_string(_runtime_filter_type))),
+              _profile(new RuntimeProfile(_name)) {}
 
     ~IRuntimeFilter() = default;
 
@@ -362,8 +392,6 @@ protected:
     // _wrapper is a runtime filter function wrapper
     // _wrapper should alloc from _pool
     RuntimePredicateWrapper* _wrapper;
-    // runtime filter type
-    RuntimeFilterType _runtime_filter_type;
     // runtime filter id
     int _filter_id;
     // Specific types BoardCast or Shuffle
@@ -399,18 +427,18 @@ protected:
 
     std::shared_ptr<RPCContext> _rpc_context;
 
-    // parent profile
-    // only effect on consumer
-    std::unique_ptr<RuntimeProfile> _profile;
-
     /// Time in ms (from MonotonicMillis()), that the filter was registered.
     const int64_t registration_time_;
 
     const bool _enable_pipeline_exec;
 
-    bool _profile_init = false;
-    std::mutex _profile_mutex;
+    std::atomic<bool> _profile_init = false;
+    // runtime filter type
+    RuntimeFilterType _runtime_filter_type;
     std::string _name;
+    // parent profile
+    // only effect on consumer
+    std::unique_ptr<RuntimeProfile> _profile;
     bool _opt_remote_rf;
 };
 
@@ -425,143 +453,4 @@ public:
 private:
     WrapperPtr _wrapper;
 };
-
-// copied from expr.h since it is only used in runtime filter
-
-template <PrimitiveType T>
-Status create_texpr_literal_node(const void* data, TExprNode* node, int precision = 0,
-                                 int scale = 0) {
-    if constexpr (T == TYPE_BOOLEAN) {
-        auto origin_value = reinterpret_cast<const bool*>(data);
-        TBoolLiteral boolLiteral;
-        (*node).__set_node_type(TExprNodeType::BOOL_LITERAL);
-        boolLiteral.__set_value(*origin_value);
-        (*node).__set_bool_literal(boolLiteral);
-        (*node).__set_type(create_type_desc(PrimitiveType::TYPE_BOOLEAN));
-    } else if constexpr (T == TYPE_TINYINT) {
-        auto origin_value = reinterpret_cast<const int8_t*>(data);
-        (*node).__set_node_type(TExprNodeType::INT_LITERAL);
-        TIntLiteral intLiteral;
-        intLiteral.__set_value(*origin_value);
-        (*node).__set_int_literal(intLiteral);
-        (*node).__set_type(create_type_desc(PrimitiveType::TYPE_TINYINT));
-    } else if constexpr (T == TYPE_SMALLINT) {
-        auto origin_value = reinterpret_cast<const int16_t*>(data);
-        (*node).__set_node_type(TExprNodeType::INT_LITERAL);
-        TIntLiteral intLiteral;
-        intLiteral.__set_value(*origin_value);
-        (*node).__set_int_literal(intLiteral);
-        (*node).__set_type(create_type_desc(PrimitiveType::TYPE_SMALLINT));
-    } else if constexpr (T == TYPE_INT) {
-        auto origin_value = reinterpret_cast<const int32_t*>(data);
-        (*node).__set_node_type(TExprNodeType::INT_LITERAL);
-        TIntLiteral intLiteral;
-        intLiteral.__set_value(*origin_value);
-        (*node).__set_int_literal(intLiteral);
-        (*node).__set_type(create_type_desc(PrimitiveType::TYPE_INT));
-    } else if constexpr (T == TYPE_BIGINT) {
-        auto origin_value = reinterpret_cast<const int64_t*>(data);
-        (*node).__set_node_type(TExprNodeType::INT_LITERAL);
-        TIntLiteral intLiteral;
-        intLiteral.__set_value(*origin_value);
-        (*node).__set_int_literal(intLiteral);
-        (*node).__set_type(create_type_desc(PrimitiveType::TYPE_BIGINT));
-    } else if constexpr (T == TYPE_LARGEINT) {
-        auto origin_value = reinterpret_cast<const int128_t*>(data);
-        (*node).__set_node_type(TExprNodeType::LARGE_INT_LITERAL);
-        TLargeIntLiteral large_int_literal;
-        large_int_literal.__set_value(LargeIntValue::to_string(*origin_value));
-        (*node).__set_large_int_literal(large_int_literal);
-        (*node).__set_type(create_type_desc(PrimitiveType::TYPE_LARGEINT));
-    } else if constexpr ((T == TYPE_DATE) || (T == TYPE_DATETIME) || (T == TYPE_TIME)) {
-        auto origin_value = reinterpret_cast<const vectorized::VecDateTimeValue*>(data);
-        TDateLiteral date_literal;
-        char convert_buffer[30];
-        origin_value->to_string(convert_buffer);
-        date_literal.__set_value(convert_buffer);
-        (*node).__set_date_literal(date_literal);
-        (*node).__set_node_type(TExprNodeType::DATE_LITERAL);
-        if (origin_value->type() == TimeType::TIME_DATE) {
-            (*node).__set_type(create_type_desc(PrimitiveType::TYPE_DATE));
-        } else if (origin_value->type() == TimeType::TIME_DATETIME) {
-            (*node).__set_type(create_type_desc(PrimitiveType::TYPE_DATETIME));
-        } else if (origin_value->type() == TimeType::TIME_TIME) {
-            (*node).__set_type(create_type_desc(PrimitiveType::TYPE_TIME));
-        }
-    } else if constexpr (T == TYPE_DATEV2) {
-        auto origin_value =
-                reinterpret_cast<const vectorized::DateV2Value<vectorized::DateV2ValueType>*>(data);
-        TDateLiteral date_literal;
-        char convert_buffer[30];
-        origin_value->to_string(convert_buffer);
-        date_literal.__set_value(convert_buffer);
-        (*node).__set_date_literal(date_literal);
-        (*node).__set_node_type(TExprNodeType::DATE_LITERAL);
-        (*node).__set_type(create_type_desc(PrimitiveType::TYPE_DATEV2));
-    } else if constexpr (T == TYPE_DATETIMEV2) {
-        auto origin_value =
-                reinterpret_cast<const vectorized::DateV2Value<vectorized::DateTimeV2ValueType>*>(
-                        data);
-        TDateLiteral date_literal;
-        char convert_buffer[30];
-        origin_value->to_string(convert_buffer);
-        date_literal.__set_value(convert_buffer);
-        (*node).__set_date_literal(date_literal);
-        (*node).__set_node_type(TExprNodeType::DATE_LITERAL);
-        (*node).__set_type(create_type_desc(PrimitiveType::TYPE_DATETIMEV2));
-    } else if constexpr (T == TYPE_DECIMALV2) {
-        auto origin_value = reinterpret_cast<const DecimalV2Value*>(data);
-        (*node).__set_node_type(TExprNodeType::DECIMAL_LITERAL);
-        TDecimalLiteral decimal_literal;
-        decimal_literal.__set_value(origin_value->to_string());
-        (*node).__set_decimal_literal(decimal_literal);
-        (*node).__set_type(create_type_desc(PrimitiveType::TYPE_DECIMALV2, precision, scale));
-    } else if constexpr (T == TYPE_DECIMAL32) {
-        auto origin_value = reinterpret_cast<const vectorized::Decimal<int32_t>*>(data);
-        (*node).__set_node_type(TExprNodeType::DECIMAL_LITERAL);
-        TDecimalLiteral decimal_literal;
-        decimal_literal.__set_value(origin_value->to_string(scale));
-        (*node).__set_decimal_literal(decimal_literal);
-        (*node).__set_type(create_type_desc(PrimitiveType::TYPE_DECIMAL32, precision, scale));
-    } else if constexpr (T == TYPE_DECIMAL64) {
-        auto origin_value = reinterpret_cast<const vectorized::Decimal<int64_t>*>(data);
-        (*node).__set_node_type(TExprNodeType::DECIMAL_LITERAL);
-        TDecimalLiteral decimal_literal;
-        decimal_literal.__set_value(origin_value->to_string(scale));
-        (*node).__set_decimal_literal(decimal_literal);
-        (*node).__set_type(create_type_desc(PrimitiveType::TYPE_DECIMAL64, precision, scale));
-    } else if constexpr (T == TYPE_DECIMAL128I) {
-        auto origin_value = reinterpret_cast<const vectorized::Decimal<int128_t>*>(data);
-        (*node).__set_node_type(TExprNodeType::DECIMAL_LITERAL);
-        TDecimalLiteral decimal_literal;
-        decimal_literal.__set_value(origin_value->to_string(scale));
-        (*node).__set_decimal_literal(decimal_literal);
-        (*node).__set_type(create_type_desc(PrimitiveType::TYPE_DECIMAL128I, precision, scale));
-    } else if constexpr (T == TYPE_FLOAT) {
-        auto origin_value = reinterpret_cast<const float*>(data);
-        (*node).__set_node_type(TExprNodeType::FLOAT_LITERAL);
-        TFloatLiteral float_literal;
-        float_literal.__set_value(*origin_value);
-        (*node).__set_float_literal(float_literal);
-        (*node).__set_type(create_type_desc(PrimitiveType::TYPE_FLOAT));
-    } else if constexpr (T == TYPE_DOUBLE) {
-        auto origin_value = reinterpret_cast<const double*>(data);
-        (*node).__set_node_type(TExprNodeType::FLOAT_LITERAL);
-        TFloatLiteral float_literal;
-        float_literal.__set_value(*origin_value);
-        (*node).__set_float_literal(float_literal);
-        (*node).__set_type(create_type_desc(PrimitiveType::TYPE_DOUBLE));
-    } else if constexpr ((T == TYPE_STRING) || (T == TYPE_CHAR) || (T == TYPE_VARCHAR)) {
-        auto origin_value = reinterpret_cast<const StringRef*>(data);
-        (*node).__set_node_type(TExprNodeType::STRING_LITERAL);
-        TStringLiteral string_literal;
-        string_literal.__set_value(origin_value->to_string());
-        (*node).__set_string_literal(string_literal);
-        (*node).__set_type(create_type_desc(PrimitiveType::TYPE_STRING));
-    } else {
-        return Status::InvalidArgument("Invalid argument type!");
-    }
-    return Status::OK();
-}
-
 } // namespace doris

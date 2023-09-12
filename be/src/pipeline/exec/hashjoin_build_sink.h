@@ -47,7 +47,7 @@ public:
 class HashJoinBuildSinkOperatorX;
 
 class HashJoinBuildSinkLocalState final
-        : public JoinBuildSinkLocalState<JoinDependency, HashJoinBuildSinkLocalState> {
+        : public JoinBuildSinkLocalState<HashJoinDependency, HashJoinBuildSinkLocalState> {
 public:
     ENABLE_FACTORY_CREATOR(HashJoinBuildSinkLocalState);
     using Parent = HashJoinBuildSinkOperatorX;
@@ -55,6 +55,7 @@ public:
     ~HashJoinBuildSinkLocalState() = default;
 
     Status init(RuntimeState* state, LocalSinkStateInfo& info) override;
+    Status open(RuntimeState* state) override;
     Status process_build_block(RuntimeState* state, vectorized::Block& block, uint8_t offset);
 
     void init_short_circuit_for_probe();
@@ -122,9 +123,22 @@ public:
 
     Status sink(RuntimeState* state, vectorized::Block* in_block,
                 SourceState source_state) override;
-    Status close(RuntimeState* state) override;
 
-    virtual bool can_write(RuntimeState* state) override { return true; }
+    bool can_write(RuntimeState* state) override {
+        if (state->get_sink_local_state(id())
+                    ->cast<HashJoinBuildSinkLocalState>()
+                    ._should_build_hash_table) {
+            return true;
+        }
+        return _shared_hash_table_context && _shared_hash_table_context->signaled;
+    }
+
+    bool should_dry_run(RuntimeState* state) override {
+        auto tmp = _is_broadcast_join && !state->get_sink_local_state(id())
+                                                  ->cast<HashJoinBuildSinkLocalState>()
+                                                  ._should_build_hash_table;
+        return tmp;
+    }
 
 private:
     friend class HashJoinBuildSinkLocalState;

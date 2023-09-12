@@ -15,6 +15,11 @@
 // specific language governing permissions and limitations
 // under the License.
 
+#include <arrow/flight/client.h>
+#include <arrow/flight/sql/client.h>
+#include <arrow/scalar.h>
+#include <arrow/status.h>
+#include <arrow/table.h>
 #include <butil/macros.h>
 // IWYU pragma: no_include <bthread/errno.h>
 #include <errno.h> // IWYU pragma: keep
@@ -34,6 +39,7 @@
 #include <tuple>
 #include <vector>
 
+#include "common/stack_trace.h"
 #include "olap/tablet_schema_cache.h"
 #include "olap/utils.h"
 #include "runtime/memory/mem_tracker_limiter.h"
@@ -60,6 +66,7 @@
 #include "olap/storage_engine.h"
 #include "runtime/exec_env.h"
 #include "runtime/user_function_cache.h"
+#include "service/arrow_flight/flight_sql_service.h"
 #include "service/backend_options.h"
 #include "service/backend_service.h"
 #include "service/brpc_service.h"
@@ -160,6 +167,7 @@ auto instruction_fail_to_string(InstructionFail fail) {
     case InstructionFail::ARM_NEON:
         ret("ARM_NEON");
     }
+    LOG(FATAL) << "__builtin_unreachable";
     __builtin_unreachable();
 }
 
@@ -300,7 +308,8 @@ struct Checker {
 
 int main(int argc, char** argv) {
     doris::signal::InstallFailureSignalHandler();
-    doris::init_signals();
+    // create StackTraceCache Instance, at the beginning, other static destructors may use.
+    StackTrace::createCache();
 
     // check if print version or help
     if (argc > 1) {
@@ -431,8 +440,15 @@ int main(int argc, char** argv) {
         if (!status.ok()) {
             LOG(WARNING) << "Failed to initialize JNI: " << status;
             exit(1);
+        } else {
+            LOG(INFO) << "Doris backend JNI is initialized.";
         }
     }
+
+    // Doris own signal handler must be register after jvm is init.
+    // Or our own sig-handler for SIGINT & SIGTERM will not be chained ...
+    // https://www.oracle.com/java/technologies/javase/signals.html
+    doris::init_signals();
 
     // Load file cache before starting up daemon threads to make sure StorageEngine is read.
     if (doris::config::enable_file_cache) {
@@ -505,7 +521,6 @@ int main(int argc, char** argv) {
     auto exec_env = doris::ExecEnv::GetInstance();
     doris::ExecEnv::init(exec_env, paths);
     doris::TabletSchemaCache::create_global_schema_cache();
-    doris::vectorized::init_date_day_offset_dict();
 
     // init s3 write buffer pool
     doris::io::S3FileBufferPool* s3_buffer_pool = doris::io::S3FileBufferPool::GetInstance();
@@ -586,12 +601,26 @@ int main(int argc, char** argv) {
         exit(1);
     }
 
+    // 5. arrow flight service
+    std::shared_ptr<doris::flight::FlightSqlServer> flight_server =
+            std::move(doris::flight::FlightSqlServer::create()).ValueOrDie();
+    status = flight_server->init(doris::config::arrow_flight_port);
+    if (!status.ok()) {
+        LOG(ERROR) << "Arrow Flight Service did not start correctly, exiting, "
+                   << status.to_string();
+        doris::shutdown_logging();
+        exit(1);
+    }
+
     while (!doris::k_doris_exit) {
 #if defined(LEAK_SANITIZER)
         __lsan_do_leak_check();
 #endif
         sleep(3);
     }
+
+    // For graceful shutdown, need to wait for all running queries to stop
+    exec_env->wait_for_all_tasks_done();
 
     return 0;
 }

@@ -9,7 +9,7 @@ header:
     - "**/*.md"
     - "LICENSE"
     - "NOTICE"
-    - "DISCLAIMER"
+    - "doap_Doris.rdf"
     - ".clang-format"
     - ".clang-format-ignore"
     - ".clang-tidy"

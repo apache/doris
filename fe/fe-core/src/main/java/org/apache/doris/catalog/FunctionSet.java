@@ -345,10 +345,12 @@ public class FunctionSet<T> {
     public Function specializeTemplateFunction(Function templateFunction, Function requestFunction, boolean isVariadic) {
         try {
             boolean hasTemplateType = false;
-            LOG.debug("templateFunction signature: " + templateFunction.signatureString()
-                        + "  return: " + templateFunction.getReturnType());
-            LOG.debug("requestFunction signature: " + requestFunction.signatureString()
-                        + "  return: " + requestFunction.getReturnType());
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("templateFunction signature: {}, return type: {}",
+                            templateFunction.signatureString(), templateFunction.getReturnType());
+                LOG.debug("requestFunction signature: {}, return type: {}",
+                            requestFunction.signatureString(), requestFunction.getReturnType());
+            }
             List<Type> newArgTypes = Lists.newArrayList();
             List<Type> newRetType = Lists.newArrayList();
             if (isVariadic) {
@@ -397,12 +399,14 @@ public class FunctionSet<T> {
                         specializedFunction.getReturnType().specializeTemplateType(
                         requestFunction.getReturnType(), specializedTypeMap, true));
             }
-            LOG.debug("specializedFunction signature: " + specializedFunction.signatureString()
-                        + "  return: " + specializedFunction.getReturnType());
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("specializedFunction signature: {}, return type: {}",
+                            specializedFunction.signatureString(), specializedFunction.getReturnType());
+            }
             return hasTemplateType ? specializedFunction : templateFunction;
         } catch (TypeException e) {
-            if (inited) {
-                LOG.warn("specializeTemplateFunction exception", e);
+            if (inited && LOG.isDebugEnabled()) {
+                LOG.debug("specializeTemplateFunction exception", e);
             }
             return null;
         }
@@ -567,6 +571,8 @@ public class FunctionSet<T> {
     public static final String GROUP_UNIQ_ARRAY = "group_uniq_array";
 
     public static final String GROUP_ARRAY = "group_array";
+
+    public static final String ARRAY_AGG = "array_agg";
 
     // Populate all the aggregate builtins in the catalog.
     // null symbols indicate the function does not need that step of the evaluation.
@@ -1397,6 +1403,9 @@ public class FunctionSet<T> {
             addBuiltin(
                     AggregateFunction.createBuiltin(GROUP_ARRAY, Lists.newArrayList(t, Type.INT), new ArrayType(t),
                             t, "", "", "", "", "", true, false, true, true));
+
+            addBuiltin(AggregateFunction.createBuiltin(ARRAY_AGG, Lists.newArrayList(t), new ArrayType(t), t, "", "", "", "", "",
+                    true, false, true, true));
 
             //first_value/last_value for array
             addBuiltin(AggregateFunction.createAnalyticBuiltin("first_value",

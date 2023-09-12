@@ -533,4 +533,15 @@ public class PolicyMgr implements Writable {
             readUnlock();
         }
     }
+
+    public boolean checkStoragePolicyIfSameResource(String policyName, String anotherPolicyName) {
+        Optional<Policy> policy = findPolicy(policyName, PolicyTypeEnum.STORAGE);
+        Optional<Policy> policy1 = findPolicy(anotherPolicyName, PolicyTypeEnum.STORAGE);
+        if (policy1.isPresent() && policy.isPresent()) {
+            StoragePolicy storagePolicy = (StoragePolicy) policy.get();
+            StoragePolicy storagePolicy1 = (StoragePolicy) policy1.get();
+            return storagePolicy1.getStorageResource().equals(storagePolicy.getStorageResource());
+        }
+        return false;
+    }
 }
