@@ -351,7 +351,7 @@ Status ProcessHashTableProbe<JoinOpType>::do_process(HashTableType& hash_table_c
                         auto& mapped = find_result.get_mapped();
                         // TODO: Iterators are currently considered to be a heavy operation and have a certain impact on performance.
                         // We should rethink whether to use this iterator mode in the future. Now just opt the one row case
-                        if (mapped.get_row_count() == 1) {
+                        if (mapped.is_single() == 1) {
                             if constexpr (std::is_same_v<Mapped, RowRefListWithFlag>) {
                                 mapped.visited = true;
                             }
@@ -584,7 +584,7 @@ Status ProcessHashTableProbe<JoinOpType>::do_process_with_other_join_conjuncts(
                     auto origin_offset = current_offset;
                     // TODO: Iterators are currently considered to be a heavy operation and have a certain impact on performance.
                     // We should rethink whether to use this iterator mode in the future. Now just opt the one row case
-                    if (mapped.get_row_count() == 1) {
+                    if (mapped.is_single() == 1) {
                         if (LIKELY(current_offset < _build_block_rows.size())) {
                             _build_block_offsets[current_offset] = mapped.block_offset;
                             _build_block_rows[current_offset] = mapped.row_num;

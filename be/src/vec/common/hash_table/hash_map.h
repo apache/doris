@@ -197,14 +197,6 @@ public:
         for (auto& v : *this) func(v.get_second());
     }
 
-    size_t get_size() {
-        size_t count = 0;
-        for (auto& v : *this) {
-            count += v.get_second().get_row_count();
-        }
-        return count;
-    }
-
     mapped_type& ALWAYS_INLINE operator[](Key x) {
         typename HashMapTable::LookupResult it;
         bool inserted;
