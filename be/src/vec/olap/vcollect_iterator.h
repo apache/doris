@@ -122,8 +122,7 @@ private:
 
         virtual Status init(bool get_data_by_ref = false) = 0;
 
-        virtual void init_for_union(bool is_first_child, bool get_data_by_ref = false) {
-        }
+        virtual void init_for_union(bool is_first_child, bool get_data_by_ref = false) {}
 
         virtual int64_t version() const = 0;
 
