@@ -1,4 +1,4 @@
-CREATE TABLE stream_load_dup_tbl_basic
+CREATE TABLE stream_load_dup_tbl_basic_random_bucket
 (
     k00 INT             NOT NULL,
     k01 DATE            NOT NULL,
@@ -58,7 +58,7 @@ PARTITION BY RANGE(k01)
     PARTITION p2 VALUES [('2023-08-11'), ('2023-08-21')),
     PARTITION p3 VALUES [('2023-08-21'), ('2023-09-01'))
 )
-DISTRIBUTED BY HASH(k00) BUCKETS 32
+DISTRIBUTED BY random BUCKETS 32
 PROPERTIES (
     "bloom_filter_columns"="k05",
     "replication_num" = "1"
