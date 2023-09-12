@@ -100,6 +100,24 @@ public class DateLiteral extends Literal {
         StringBuilder sb = new StringBuilder();
 
         int i = 0;
+
+        // handle two digit year
+        if (s.charAt(2) != '-' && s.charAt(4) != '-') {
+            throw new AnalysisException("datetime literal [" + s + "] is invalid");
+        }
+        if (s.charAt(2) == '-') {
+            String yy = s.substring(0, 2);
+            int year = Integer.parseInt(yy);
+            if (year >= 0 && year <= 69) {
+                sb.append("20");
+            } else if (year >= 70 && year <= 99) {
+                sb.append("19");
+            }
+            sb.append(yy);
+            i = 2;
+        }
+
+        // normalized leading 0
         while (i < s.length()) {
             char c = s.charAt(i);
 
@@ -136,6 +154,22 @@ public class DateLiteral extends Literal {
                 i += 1;
             }
         }
+
+        int len = sb.length();
+        // Replace delimiter 'T' with ' '
+        if (len > 10 && sb.charAt(10) == 'T') {
+            sb.setCharAt(10, ' ');
+        }
+
+        // add missing Minute Second in Time part
+        if (len > 10 && sb.charAt(10) == ' ') {
+            if (len == 13 || len > 13 && sb.charAt(13) != ':') {
+                sb.insert(13, ":00:00");
+            } else if (len == 16 || (len > 16 && sb.charAt(16) != ':')) {
+                sb.insert(16, ":00");
+            }
+        }
+
         return sb.toString();
     }
 
@@ -174,8 +208,7 @@ public class DateLiteral extends Literal {
             }
 
             s = normalize(s);
-            // replace delimiter 'T' with ' '
-            s = replaceDelimiterT(s);
+
             if (!s.contains(" ")) {
                 dateTime = DateTimeFormatterUtils.ZONE_DATE_FORMATTER.parse(s);
             } else {
