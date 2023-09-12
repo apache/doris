@@ -31,12 +31,10 @@ namespace doris {
 
 class TabletSchemaCache {
 public:
-    ~TabletSchemaCache();
+    ~TabletSchemaCache() = default;
 
     static TabletSchemaCache* create_global_schema_cache() {
         TabletSchemaCache* res = new TabletSchemaCache();
-        std::thread t(&TabletSchemaCache::_recycle, res);
-        t.detach();
         return res;
     }
 
@@ -44,9 +42,9 @@ public:
         return ExecEnv::GetInstance()->get_tablet_schema_cache();
     }
 
-    static void stop_and_join() { ExecEnv::GetInstance()->get_tablet_schema_cache()->stop(); }
-
     TabletSchemaSPtr insert(const std::string& key);
+
+    void start();
 
     void stop();
 

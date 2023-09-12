@@ -27,7 +27,6 @@ namespace doris {
 class CacheManager {
 public:
     static CacheManager* create_global_instance() {
-        DCHECK(ExecEnv::GetInstance()->get_cache_manager() == nullptr);
         CacheManager* res = new CacheManager();
         return res;
     }

@@ -56,7 +56,6 @@ IndexSearcherPtr InvertedIndexSearcherCache::build_index_searcher(const io::File
 
 InvertedIndexSearcherCache* InvertedIndexSearcherCache::create_global_instance(
         size_t capacity, uint32_t num_shards) {
-    DCHECK(ExecEnv::GetInstance()->get_inverted_index_searcher_cache() == nullptr);
     InvertedIndexSearcherCache* res = new InvertedIndexSearcherCache(capacity, num_shards);
     return res;
 }

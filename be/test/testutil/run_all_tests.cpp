@@ -42,6 +42,7 @@ int main(int argc, char** argv) {
     doris::ExecEnv::GetInstance()->set_cache_manager(doris::CacheManager::create_global_instance());
     doris::ExecEnv::GetInstance()->set_tablet_schema_cache(
             doris::TabletSchemaCache::create_global_schema_cache());
+    doris::ExecEnv::GetInstance()->get_tablet_schema_cache()->start();
     doris::ExecEnv::GetInstance()->set_storage_page_cache(
             doris::StoragePageCache::create_global_cache(1 << 30, 10, 0));
     doris::ExecEnv::GetInstance()->set_segment_loader(new doris::SegmentLoader(1000));
@@ -56,5 +57,7 @@ int main(int argc, char** argv) {
     doris::DiskInfo::init();
     doris::MemInfo::init();
     doris::BackendOptions::init();
-    return RUN_ALL_TESTS();
+    int res = RUN_ALL_TESTS();
+    doris::ExecEnv::GetInstance()->get_tablet_schema_cache()->stop();
+    return res;
 }

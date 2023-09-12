@@ -233,6 +233,7 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths) {
     _register_metrics();
 
     _tablet_schema_cache = TabletSchemaCache::create_global_schema_cache();
+    _tablet_schema_cache->start();
 
     // S3 buffer pool
     _s3_buffer_pool = new io::S3FileBufferPool();
@@ -531,7 +532,7 @@ void ExecEnv::destroy() {
 
     // Free resource after threads are stopped.
     // Some threads are still running, like threads created by _new_load_stream_mgr ...
-
+    _buffered_reader_prefetch_thread_pool->shutdown();
     SAFE_DELETE(_s3_buffer_pool);
     SAFE_DELETE(_tablet_schema_cache);
     _deregister_metrics();

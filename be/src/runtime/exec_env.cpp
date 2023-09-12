@@ -154,8 +154,4 @@ void ExecEnv::wait_for_all_tasks_done() {
     }
 }
 
-void ExecEnv::safe_reset_inverted_index_search_cache() {
-    SAFE_DELETE(_inverted_index_searcher_cache);
-}
-
 } // namespace doris

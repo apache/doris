@@ -252,7 +252,6 @@ public:
     segment_v2::InvertedIndexSearcherCache* get_inverted_index_searcher_cache() {
         return _inverted_index_searcher_cache;
     }
-    void safe_reset_inverted_index_search_cache();
     segment_v2::InvertedIndexQueryCache* get_inverted_index_query_cache() {
         return _inverted_index_query_cache;
     }
@@ -357,7 +356,7 @@ private:
     RowCache* _row_cache = nullptr;
     CacheManager* _cache_manager = nullptr;
     segment_v2::InvertedIndexSearcherCache* _inverted_index_searcher_cache = nullptr;
-    segment_v2::InvertedIndexQueryCache* _inverted_index_query_cache;
+    segment_v2::InvertedIndexQueryCache* _inverted_index_query_cache = nullptr;
 };
 
 template <>

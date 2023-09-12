@@ -514,7 +514,10 @@ void StorageEngine::_exit_if_too_many_disks_are_failed() {
 }
 
 void StorageEngine::stop() {
-    if (_stopped) return;
+    if (_stopped) {
+        LOG(WARNING) << "Storage engine is stopped twice.";
+        return;
+    }
     // trigger the waiting threads
     notify_listeners();
 
@@ -578,6 +581,7 @@ void StorageEngine::stop() {
     _calc_delete_bitmap_executor.reset(nullptr);
 
     _stopped = true;
+    LOG(INFO) << "Storage engine is stopped.";
 }
 
 void StorageEngine::_clear() {
