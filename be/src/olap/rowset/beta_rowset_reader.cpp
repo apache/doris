@@ -140,7 +140,8 @@ Status BetaRowsetReader::get_segment_iterators(RowsetReaderContext* read_context
     // of the schema after a schema change.
     if (_read_context->tablet_schema->schema_version() < 0 ||
         (_input_schema = SchemaCache::instance()->get_schema<SchemaSPtr>(schema_key)) == nullptr) {
-        _input_schema = std::make_shared<Schema>(_read_context->tablet_schema->columns(), read_columns);
+        _input_schema =
+                std::make_shared<Schema>(_read_context->tablet_schema->columns(), read_columns);
         SchemaCache::instance()->insert_schema(schema_key, _input_schema);
     }
 
@@ -247,9 +248,7 @@ Status BetaRowsetReader::init(RowsetReaderContext* read_context, const RowSetSpl
 }
 
 Status BetaRowsetReader::_init_iterator_once() {
-    return _init_iter_once.call([this] {
-        return _init_iterator();
-    });
+    return _init_iter_once.call([this] { return _init_iterator(); });
 }
 
 Status BetaRowsetReader::_init_iterator() {

@@ -45,20 +45,17 @@ class BetaRowsetReader : public RowsetReader {
 public:
     BetaRowsetReader(BetaRowsetSharedPtr rowset);
 
-    ~BetaRowsetReader() override {
-        _rowset->release(); }
+    ~BetaRowsetReader() override { _rowset->release(); }
 
     Status init(RowsetReaderContext* read_context, const RowSetSplits& rs_splits) override;
 
     Status get_segment_iterators(RowsetReaderContext* read_context,
                                  std::vector<RowwiseIteratorUPtr>* out_iters,
-                                  bool use_cache = false) override;
+                                 bool use_cache = false) override;
     void reset_read_options() override;
     Status next_block(vectorized::Block* block) override;
     Status next_block_view(vectorized::BlockView* block_view) override;
-    bool support_return_data_by_ref() override {
-        return _is_merge_iterator();
-    }
+    bool support_return_data_by_ref() override { return _is_merge_iterator(); }
 
     bool delete_flag() override { return _rowset->delete_flag(); }
 
@@ -92,7 +89,8 @@ private:
     Status _init_iterator();
     bool _should_push_down_value_predicates() const;
     bool _is_merge_iterator() const {
-        return _read_context->need_ordered_result && _rowset->rowset_meta()->is_segments_overlapping();
+        return _read_context->need_ordered_result &&
+               _rowset->rowset_meta()->is_segments_overlapping();
     }
 
     DorisCallOnce<Status> _init_iter_once;
