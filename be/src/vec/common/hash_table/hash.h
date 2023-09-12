@@ -28,7 +28,7 @@
 #include "vec/core/types.h"
 
 // Here is an empirical value.
-static constexpr size_t HASH_MAP_PREFETCH_DIST = 64;
+static constexpr size_t HASH_MAP_PREFETCH_DIST = 16;
 
 /** Hash functions that are better than the trivial function std::hash.
   *
