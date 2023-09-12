@@ -49,7 +49,7 @@ Status MergeRangeFileReader::read_at_impl(size_t offset, Slice result, size_t* b
     if (result.size == 0) {
         return Status::OK();
     }
-    int range_index = _search_read_range(offset, offset + result.size);
+    const int range_index = _search_read_range(offset, offset + result.size);
     if (range_index < 0) {
         SCOPED_RAW_TIMER(&_statistics.read_time);
         Status st = _reader->read_at(offset, result, bytes_read, io_ctx);
@@ -99,6 +99,8 @@ Status MergeRangeFileReader::read_at_impl(size_t offset, Slice result, size_t* b
     // merge small IO
     size_t merge_start = offset + has_read;
     const size_t merge_end = merge_start + READ_SLICE_SIZE;
+    // <slice_size, is_content>
+    std::vector<std::pair<size_t, bool>> merged_slice;
     size_t content_size = 0;
     size_t hollow_size = 0;
     if (merge_start > _random_access_ranges[range_index].end_offset) {
@@ -118,12 +120,14 @@ Status MergeRangeFileReader::read_at_impl(size_t offset, Slice result, size_t* b
             size_t add_content = std::min(merge_end - merge_start, content_max);
             content_size += add_content;
             merge_start += add_content;
+            merged_slice.emplace_back(add_content, true);
             break;
         }
         size_t add_content =
                 std::min(_random_access_ranges[merge_index].end_offset - merge_start, content_max);
         content_size += add_content;
         merge_start += add_content;
+        merged_slice.emplace_back(add_content, true);
         if (merge_start != _random_access_ranges[merge_index].end_offset) {
             break;
         }
@@ -136,18 +140,9 @@ Status MergeRangeFileReader::read_at_impl(size_t offset, Slice result, size_t* b
             }
             if (gap < merge_end - merge_start && content_size < _remaining &&
                 !_range_cached_data[merge_index + 1].has_read) {
-                size_t next_content =
-                        std::min(_random_access_ranges[merge_index + 1].end_offset, merge_end) -
-                        _random_access_ranges[merge_index + 1].start_offset;
-                next_content = std::min(next_content, _remaining - content_size);
-                double amplified_ratio = config::max_amplified_read_ratio;
-                if ((content_size + hollow_size) > MIN_READ_SIZE &&
-                    (hollow_size + gap) > (next_content + content_size) * amplified_ratio) {
-                    // too large gap
-                    break;
-                }
                 hollow_size += gap;
                 merge_start = _random_access_ranges[merge_index + 1].start_offset;
+                merged_slice.emplace_back(gap, false);
             } else {
                 // there's no enough memory to read hollow data
                 break;
@@ -155,7 +150,33 @@ Status MergeRangeFileReader::read_at_impl(size_t offset, Slice result, size_t* b
         }
         merge_index++;
     }
-    if (content_size + hollow_size == to_read) {
+    content_size = 0;
+    hollow_size = 0;
+    double amplified_ratio = config::max_amplified_read_ratio;
+    std::vector<std::pair<double, size_t>> ratio_and_size;
+    // Calculate the read amplified ratio for each merge operation and the size of the merged data.
+    // Find the largest size of the merged data whose amplified ratio is less than config::max_amplified_read_ratio
+    for (const std::pair<size_t, bool>& slice : merged_slice) {
+        if (slice.second) {
+            content_size += slice.first;
+            if (slice.first > 0) {
+                ratio_and_size.emplace_back((double)hollow_size / content_size,
+                                            content_size + hollow_size);
+            }
+        } else {
+            hollow_size += slice.first;
+        }
+    }
+    size_t best_merged_size = 0;
+    for (const std::pair<double, size_t>& rs : ratio_and_size) {
+        if (rs.second > best_merged_size) {
+            if (rs.first < amplified_ratio || rs.second <= MIN_READ_SIZE) {
+                best_merged_size = rs.second;
+            }
+        }
+    }
+
+    if (best_merged_size == to_read) {
         // read directly to avoid copy operation
         SCOPED_RAW_TIMER(&_statistics.read_time);
         size_t read_size = 0;
@@ -170,8 +191,8 @@ Status MergeRangeFileReader::read_at_impl(size_t offset, Slice result, size_t* b
 
     merge_start = offset + has_read;
     size_t merge_read_size = 0;
-    RETURN_IF_ERROR(_fill_box(range_index, merge_start, content_size + hollow_size,
-                              &merge_read_size, io_ctx));
+    RETURN_IF_ERROR(
+            _fill_box(range_index, merge_start, best_merged_size, &merge_read_size, io_ctx));
     if (cached_data.start_offset != merge_start) {
         return Status::IOError("Wrong start offset in merged IO");
     }

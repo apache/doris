@@ -1056,14 +1056,11 @@ public class TabletScheduler extends MasterDaemon {
             Replica replica, String reason, boolean force) throws SchedException {
 
         List<Replica> replicas = tabletCtx.getTablet().getReplicas();
-        int matchupReplicaCount = 0;
-        for (Replica tmpReplica : replicas) {
-            if (tmpReplica.getVersion() >= replica.getVersion()) {
-                matchupReplicaCount++;
-            }
-        }
-
-        if (matchupReplicaCount <= 1) {
+        boolean otherCatchup = replicas.stream().anyMatch(
+                r -> r.getId() != replica.getId()
+                && (r.getVersion() > replica.getVersion()
+                        || (r.getVersion() == replica.getVersion() && r.getLastFailedVersion() < 0)));
+        if (!otherCatchup) {
             LOG.info("can not delete only one replica, tabletId = {} replicaId = {}", tabletCtx.getTabletId(),
                      replica.getId());
             throw new SchedException(Status.UNRECOVERABLE, "the only one latest replia can not be dropped, tabletId = "

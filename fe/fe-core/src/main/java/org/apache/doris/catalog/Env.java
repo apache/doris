@@ -212,6 +212,7 @@ import org.apache.doris.qe.AuditEventProcessor;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.GlobalVariable;
 import org.apache.doris.qe.JournalObservable;
+import org.apache.doris.qe.QueryCancelWorker;
 import org.apache.doris.qe.VariableMgr;
 import org.apache.doris.resource.Tag;
 import org.apache.doris.resource.workloadgroup.WorkloadGroupMgr;
@@ -219,14 +220,16 @@ import org.apache.doris.scheduler.disruptor.TaskDisruptor;
 import org.apache.doris.scheduler.manager.JobTaskManager;
 import org.apache.doris.scheduler.manager.TimerJobManager;
 import org.apache.doris.scheduler.manager.TransientTaskManager;
+import org.apache.doris.scheduler.registry.ExportTaskRegister;
 import org.apache.doris.scheduler.registry.PersistentJobRegister;
 import org.apache.doris.scheduler.registry.TimerJobRegister;
 import org.apache.doris.service.ExecuteEnv;
 import org.apache.doris.service.FrontendOptions;
 import org.apache.doris.statistics.AnalysisManager;
-import org.apache.doris.statistics.StatisticsAutoAnalyzer;
+import org.apache.doris.statistics.StatisticsAutoCollector;
 import org.apache.doris.statistics.StatisticsCache;
 import org.apache.doris.statistics.StatisticsCleaner;
+import org.apache.doris.statistics.StatisticsPeriodCollector;
 import org.apache.doris.statistics.query.QueryStats;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.Frontend;
@@ -337,6 +340,7 @@ public class Env {
     private MetastoreEventsProcessor metastoreEventsProcessor;
 
     private PersistentJobRegister persistentJobRegister;
+    private ExportTaskRegister exportTaskRegister;
     private TimerJobManager timerJobManager;
     private TransientTaskManager transientTaskManager;
     private JobTaskManager jobTaskManager;
@@ -471,12 +475,16 @@ public class Env {
 
     private BinlogGcer binlogGcer;
 
+    private QueryCancelWorker queryCancelWorker;
+
     /**
      * TODO(tsy): to be removed after load refactor
      */
     private final LoadManagerAdapter loadManagerAdapter;
 
-    private StatisticsAutoAnalyzer statisticsAutoAnalyzer;
+    private StatisticsAutoCollector statisticsAutoCollector;
+
+    private StatisticsPeriodCollector statisticsPeriodCollector;
 
     private HiveTransactionMgr hiveTransactionMgr;
 
@@ -618,6 +626,7 @@ public class Env {
         this.timerJobManager.setDisruptor(taskDisruptor);
         this.transientTaskManager.setDisruptor(taskDisruptor);
         this.persistentJobRegister = new TimerJobRegister(timerJobManager);
+        this.exportTaskRegister = new ExportTaskRegister(transientTaskManager);
         this.replayedJournalId = new AtomicLong(0L);
         this.stmtIdCounter = new AtomicLong(0L);
         this.isElectable = false;
@@ -701,7 +710,8 @@ public class Env {
         this.extMetaCacheMgr = new ExternalMetaCacheMgr();
         this.analysisManager = new AnalysisManager();
         this.statisticsCleaner = new StatisticsCleaner();
-        this.statisticsAutoAnalyzer = new StatisticsAutoAnalyzer();
+        this.statisticsAutoCollector = new StatisticsAutoCollector();
+        this.statisticsPeriodCollector = new StatisticsPeriodCollector();
         this.globalFunctionMgr = new GlobalFunctionMgr();
         this.workloadGroupMgr = new WorkloadGroupMgr();
         this.queryStats = new QueryStats();
@@ -710,6 +720,7 @@ public class Env {
         this.binlogManager = new BinlogManager();
         this.binlogGcer = new BinlogGcer();
         this.columnIdFlusher = new ColumnIdFlushDaemon();
+        this.queryCancelWorker = new QueryCancelWorker(systemInfo);
     }
 
     public static void destroyCheckpoint() {
@@ -948,9 +959,14 @@ public class Env {
         if (statisticsCleaner != null) {
             statisticsCleaner.start();
         }
-        if (statisticsAutoAnalyzer != null) {
-            statisticsAutoAnalyzer.start();
+        if (statisticsAutoCollector != null) {
+            statisticsAutoCollector.start();
         }
+        if (statisticsPeriodCollector != null) {
+            statisticsPeriodCollector.start();
+        }
+
+        queryCancelWorker.start();
     }
 
     // wait until FE is ready.
@@ -1168,7 +1184,8 @@ public class Env {
         }
 
         if (Config.cluster_id != -1 && clusterId != Config.cluster_id) {
-            throw new IOException("cluster id is not equal with config item cluster_id. will exit.");
+            throw new IOException("cluster id is not equal with config item cluster_id. will exit. "
+                    + "If you are in recovery mode, please also modify the cluster_id in 'doris-meta/image/VERSION'");
         }
 
         if (role.equals(FrontendNodeType.FOLLOWER)) {
@@ -1766,6 +1783,12 @@ public class Env {
 
     public long loadHeaderCOR1(DataInputStream dis, long checksum) throws IOException {
         int journalVersion = dis.readInt();
+        if (journalVersion > FeMetaVersion.VERSION_CURRENT) {
+            throw new IOException("The meta version of image is " + journalVersion
+                    + ", which is higher than FE current version " + FeMetaVersion.VERSION_CURRENT
+                    + ". Please upgrade your cluster to the latest version first.");
+        }
+
         long newChecksum = checksum ^ journalVersion;
         MetaContext.get().setMetaVersion(journalVersion);
 
@@ -1827,6 +1850,7 @@ public class Env {
             long jobId = dis.readLong();
             newChecksum ^= jobId;
             ExportJob job = ExportJob.read(dis);
+            job.cancelReplayedExportJob();
             if (!job.isExpired(curTime)) {
                 exportMgr.unprotectAddJob(job);
             }
@@ -3775,6 +3799,10 @@ public class Env {
         return persistentJobRegister;
     }
 
+    public ExportTaskRegister getExportTaskRegister() {
+        return exportTaskRegister;
+    }
+
     public TimerJobManager getAsyncJobManager() {
         return timerJobManager;
     }
@@ -4020,7 +4048,8 @@ public class Env {
     public void cancelAlter(CancelAlterTableStmt stmt) throws DdlException {
         if (stmt.getAlterType() == AlterType.ROLLUP) {
             this.getMaterializedViewHandler().cancel(stmt);
-        } else if (stmt.getAlterType() == AlterType.COLUMN) {
+        } else if (stmt.getAlterType() == AlterType.COLUMN
+                       || stmt.getAlterType() == AlterType.INDEX) {
             this.getSchemaChangeHandler().cancel(stmt);
         } else {
             throw new DdlException("Cancel " + stmt.getAlterType() + " does not implement yet");
@@ -5578,10 +5607,6 @@ public class Env {
         return loadManagerAdapter;
     }
 
-    public StatisticsAutoAnalyzer getStatisticsAutoAnalyzer() {
-        return statisticsAutoAnalyzer;
-    }
-
     public QueryStats getQueryStats() {
         return queryStats;
     }
@@ -5597,5 +5622,9 @@ public class Env {
 
     public ColumnIdFlushDaemon getColumnIdFlusher() {
         return columnIdFlusher;
+    }
+
+    public StatisticsAutoCollector getStatisticsAutoCollector() {
+        return statisticsAutoCollector;
     }
 }

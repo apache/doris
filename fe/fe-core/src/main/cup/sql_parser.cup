@@ -855,7 +855,7 @@ nonterminal MultiPartitionDesc multi_partition_desc;
 
 nonterminal List<AccessPrivilegeWithCols> privilege_list;
 nonterminal List<String> string_list;
-nonterminal List<Long> integer_list, cancel_rollup_job_id_list;
+nonterminal List<Long> integer_list, job_id_list;
 nonterminal AccessPrivilegeWithCols privilege_type;
 
 nonterminal DataDescription data_desc, mysql_data_desc;
@@ -3228,7 +3228,28 @@ opt_partition ::=
     | KW_PARTITION KW_BY KW_LIST LPAREN ident_list:columns RPAREN
             LPAREN opt_all_partition_desc_list:list RPAREN
     {:
-        RESULT = new ListPartitionDesc(columns, list);
+         RESULT = new ListPartitionDesc(columns, list);
+    :}
+    /* expr range partition */
+    | KW_AUTO KW_PARTITION KW_BY KW_RANGE function_call_expr:fnExpr
+            LPAREN opt_all_partition_desc_list:list RPAREN
+    {:
+        ArrayList<Expr> exprs = new ArrayList<Expr>();
+        exprs.add(fnExpr);
+        RESULT = RangePartitionDesc.createRangePartitionDesc(exprs, list);
+    :}
+    /* expr list partition */
+    | KW_AUTO KW_PARTITION KW_BY KW_LIST LPAREN expr_list:exprs RPAREN
+            LPAREN opt_all_partition_desc_list:list RPAREN
+    {:
+        RESULT = ListPartitionDesc.createListPartitionDesc(exprs, list);
+    :}
+    | KW_AUTO KW_PARTITION KW_BY KW_LIST function_call_expr:fnExpr
+            LPAREN opt_all_partition_desc_list:list RPAREN
+    {:
+        ArrayList<Expr> exprs = new ArrayList<Expr>();
+        exprs.add(fnExpr);
+        RESULT = ListPartitionDesc.createListPartitionDesc(exprs, list);
     :}
     ;
 
@@ -4484,7 +4505,7 @@ cancel_stmt ::=
     :}
     ;
 
-cancel_rollup_job_id_list ::=
+job_id_list ::=
     {:
         RESULT = null;
     :}
@@ -4503,9 +4524,13 @@ cancel_param ::=
     {:
         RESULT = new CancelExportStmt(db, parser.where);
     :}
-    | KW_ALTER KW_TABLE opt_alter_type:type KW_FROM table_name:table cancel_rollup_job_id_list:list
+    | KW_ALTER KW_TABLE opt_alter_type:type KW_FROM table_name:table job_id_list:list
     {:
         RESULT = new CancelAlterTableStmt(type, table, list);
+    :}
+    | KW_BUILD KW_INDEX KW_ON table_name:table job_id_list:list
+    {:
+        RESULT = new CancelAlterTableStmt(ShowAlterStmt.AlterType.INDEX, table, list);
     :}
     | KW_DECOMMISSION KW_BACKEND string_list:hostPorts
     {:
@@ -4782,6 +4807,11 @@ insert_stmt ::=
     :}
     // TODO(zc) add default value for SQL-2003
     // | KW_INSERT KW_INTO insert_target:target KW_DEFAULT KW_VALUES
+    | /* used for group commit */
+    KW_INSERT KW_INTO INTEGER_LITERAL:table_id opt_with_label:label opt_col_list:cols opt_plan_hints:hints insert_source:source
+    {:
+        RESULT = new NativeInsertStmt(table_id, label, cols, source, hints);
+    :}
     ;
 
 insert_target ::=
@@ -7588,8 +7618,6 @@ keyword ::=
     | KW_OPEN:id
     {: RESULT = id; :}
     | KW_PARAMETER:id
-    {: RESULT = id; :}
-    | KW_PARTITIONS:id
     {: RESULT = id; :}
     | KW_PASSWORD:id
     {: RESULT = id; :}

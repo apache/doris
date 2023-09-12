@@ -40,7 +40,17 @@ statement
         AS type=(RESTRICTIVE | PERMISSIVE)
         TO (user=userIdentify | ROLE roleName=identifier)
         USING LEFT_PAREN booleanExpression RIGHT_PAREN                 #createRowPolicy
-    | explain? INSERT INTO tableName=multipartIdentifier
+    | CREATE TABLE (IF NOT EXISTS)? name=multipartIdentifier
+        ((LEFT_PAREN columnDefs indexDefs? RIGHT_PAREN) | (ctasCols=identifierList)?)
+        (ENGINE EQ engine=identifier)?
+        ((AGGREGATE | UNIQUE | DUPLICATE) KEY keys=identifierList)?
+        (COMMENT STRING_LITERAL)?
+        (PARTITION BY (RANGE | LIST) partitionKeys=identifierList LEFT_PAREN partitions=partitionsDef RIGHT_PAREN)?
+        DISTRIBUTED BY (HASH hashKeys=identifierList | RANDOM) BUCKETS (INTEGER_VALUE | AUTO)?
+        (ROLLUP LEFT_PAREN rollupDefs RIGHT_PAREN)?
+        propertyClause?
+        (AS query)?                                                    #createTable
+    | explain? INSERT (INTO | OVERWRITE TABLE) tableName=multipartIdentifier
         (PARTITION partition=identifierList)?  // partition define
         (WITH LABEL labelName=identifier)? cols=identifierList?  // label and columns define
         (LEFT_BRACKET hints=identifierSeq RIGHT_BRACKET)?  // hint define
@@ -56,7 +66,7 @@ statement
     | EXPORT TABLE tableName=multipartIdentifier
         (PARTITION partition=identifierList)?
         (whereClause)?
-        TO filePath=constant
+        TO filePath=STRING_LITERAL
         (propertyClause)?
         (withRemoteStorageSystem)?                                     #export
     ;
@@ -314,6 +324,73 @@ tableAlias
 
 multipartIdentifier
     : parts+=errorCapturingIdentifier (DOT parts+=errorCapturingIdentifier)*
+    ;
+    
+// ----------------Create Table Fields----------
+    
+columnDefs
+    : cols+=columnDef (COMMA cols+=columnDef)*
+    ;
+    
+columnDef
+    : colName=identifier type=dataType
+        KEY? (aggType=aggTypeDef)? ((NOT NULL) | NULL)?
+        (DEFAULT (nullValue=NULL | INTEGER_VALUE | stringValue=STRING_LITERAL
+            | CURRENT_TIMESTAMP (LEFT_PAREN precision=number RIGHT_PAREN)?))?
+        (COMMENT comment=STRING_LITERAL)?
+    ;
+    
+indexDefs
+    : indexes+=indexDef (COMMA indexes+=indexDef)*
+    ;
+    
+indexDef
+    : INDEX indexName=identifier cols=identifierList (USING BITMAP)? (comment=STRING_LITERAL)?
+    ;
+    
+partitionsDef
+    : partitions+=partitionDef (COMMA partitions+=partitionDef)*
+    ;
+    
+partitionDef
+    : (lessThanPartitionDef | fixedPartitionDef | stepPartitionDef | inPartitionDef) properties=propertyClause?
+    ;
+    
+lessThanPartitionDef
+    : PARTITION (IF NOT EXISTS)? partitionName=identifier VALUES LESS THAN (MAXVALUE | constantSeq)
+    ;
+    
+fixedPartitionDef
+    : PARTITION (IF NOT EXISTS)? partitionName=identifier VALUES LEFT_BRACKET lower=constantSeq COMMA upper=constantSeq RIGHT_PAREN
+    ;
+
+stepPartitionDef
+    : FROM from=constantSeq TO to=constantSeq INTERVAL unitsAmount=INTEGER_VALUE unit=datetimeUnit?
+    ;
+
+inPartitionDef
+    : PARTITION (IF NOT EXISTS)? partitionName=identifier VALUES IN ((LEFT_PAREN constantSeqs+=constantSeq
+        (COMMA constantSeqs+=constantSeq)* RIGHT_PAREN) | constants=constantSeq)
+    ;
+    
+constantSeq
+    : LEFT_PAREN values+=partitionValueDef (COMMA values+=partitionValueDef)* RIGHT_PAREN
+    ;
+    
+partitionValueDef
+    : INTEGER_VALUE | STRING_LITERAL | MAXVALUE
+    ;
+    
+rollupDefs
+    : rollups+=rollupDef (COMMA rollups+=rollupDef)*
+    ;
+    
+rollupDef
+    : rollupName=identifier rollupCols=identifierList (DUPLICATE KEY dupKeys=identifierList)? properties=propertyClause?
+    ;
+
+aggTypeDef
+    : MAX | MIN | SUM | REPLACE | REPLACE_IF_NOT_NULL | HLL_UNION | BITMAP_UNION | QUANTILE_UNION
     ;
 
 tabletList
@@ -780,6 +857,7 @@ nonReserved
     | NEXT
     | NGRAM_BF
     | NO
+    | NON_NULLABLE
     | NULLS
     | OF
     | OFFSET
@@ -788,7 +866,6 @@ nonReserved
     | OPTIMIZED
     | PARAMETER
     | PARSED
-    | PARTITIONS
     | PASSWORD
     | PASSWORD_EXPIRE
     | PASSWORD_HISTORY

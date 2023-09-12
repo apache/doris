@@ -126,12 +126,12 @@ public class OlapTableSink extends DataSink {
                     "if load_to_single_tablet set to true," + " the olap table must be with random distribution");
         }
         tSink.setLoadToSingleTablet(loadToSingleTablet);
-        tDataSink = new TDataSink(TDataSinkType.OLAP_TABLE_SINK);
+        tDataSink = new TDataSink(getDataSinkType());
         tDataSink.setOlapTableSink(tSink);
 
         if (partitionIds == null) {
             partitionIds = dstTable.getPartitionIds();
-            if (partitionIds.isEmpty()) {
+            if (partitionIds.isEmpty() && dstTable.getPartitionInfo().enableAutomaticPartition() == false) {
                 ErrorReport.reportAnalysisException(ErrorCode.ERR_EMPTY_PARTITION_IN_TABLE, dstTable.getName());
             }
         }
@@ -178,7 +178,7 @@ public class OlapTableSink extends DataSink {
         tSink.setNumReplicas(numReplicas);
         tSink.setNeedGenRollup(dstTable.shouldLoadToNewRollup());
         tSink.setSchema(createSchema(tSink.getDbId(), dstTable, analyzer));
-        tSink.setPartition(createPartition(tSink.getDbId(), dstTable));
+        tSink.setPartition(createPartition(tSink.getDbId(), dstTable, analyzer));
         List<TOlapTableLocationParam> locationParams = createLocation(dstTable);
         tSink.setLocation(locationParams.get(0));
         if (singleReplicaLoad) {
@@ -293,7 +293,8 @@ public class OlapTableSink extends DataSink {
         return distColumns;
     }
 
-    private TOlapTablePartitionParam createPartition(long dbId, OlapTable table) throws UserException {
+    private TOlapTablePartitionParam createPartition(long dbId, OlapTable table, Analyzer analyzer)
+            throws UserException {
         TOlapTablePartitionParam partitionParam = new TOlapTablePartitionParam();
         partitionParam.setDbId(dbId);
         partitionParam.setTableId(table.getId());
@@ -337,6 +338,22 @@ public class OlapTableSink extends DataSink {
                         }
                     }
                 }
+                // for auto create partition by function expr, there is no any partition firstly,
+                // But this is required in thrift struct.
+                if (partitionIds.isEmpty()) {
+                    partitionParam.setDistributedColumns(getDistColumns(table.getDefaultDistributionInfo()));
+                    partitionParam.setPartitions(new ArrayList<TOlapTablePartition>());
+                }
+                ArrayList<Expr> exprs = partitionInfo.getPartitionExprs();
+                if (exprs != null && analyzer != null) {
+                    tupleDescriptor.setTable(table);
+                    analyzer.registerTupleDescriptor(tupleDescriptor);
+                    for (Expr e : exprs) {
+                        e.analyze(analyzer);
+                    }
+                    partitionParam.setPartitionFunctionExprs(Expr.treesToThrift(exprs));
+                }
+                partitionParam.setEnableAutomaticPartition(partitionInfo.enableAutomaticPartition());
                 break;
             }
             case UNPARTITIONED: {
@@ -344,7 +361,12 @@ public class OlapTableSink extends DataSink {
                 Preconditions.checkArgument(table.getPartitions().size() == 1,
                         "Number of table partitions is not 1 for unpartitioned table, partitionNum="
                                 + table.getPartitions().size());
-                Partition partition = table.getPartitions().iterator().next();
+                Partition partition;
+                if (partitionIds != null && partitionIds.size() == 1) {
+                    partition = table.getPartition(partitionIds.get(0));
+                } else {
+                    partition = table.getPartitions().iterator().next();
+                }
 
                 TOlapTablePartition tPartition = new TOlapTablePartition();
                 tPartition.setId(partition.getId());
@@ -357,16 +379,18 @@ public class OlapTableSink extends DataSink {
                 }
                 partitionParam.addToPartitions(tPartition);
                 partitionParam.setDistributedColumns(getDistColumns(partition.getDistributionInfo()));
+                partitionParam.setEnableAutomaticPartition(false);
                 break;
             }
             default: {
                 throw new UserException("unsupported partition for OlapTable, partition=" + partType);
             }
         }
+        partitionParam.setPartitionType(partType.toThrift());
         return partitionParam;
     }
 
-    private void setPartitionKeys(TOlapTablePartition tPartition, PartitionItem partitionItem, int partColNum) {
+    public static void setPartitionKeys(TOlapTablePartition tPartition, PartitionItem partitionItem, int partColNum) {
         if (partitionItem instanceof RangePartitionItem) {
             Range<PartitionKey> range = partitionItem.getItems();
             // set start keys
@@ -434,6 +458,10 @@ public class OlapTableSink extends DataSink {
             }
         }
 
+        // for partition by function expr, there is no any partition firstly, But this is required in thrift struct.
+        if (partitionIds.isEmpty()) {
+            locationParam.setTablets(new ArrayList<TTabletLocation>());
+        }
         // check if disk capacity reach limit
         // this is for load process, so use high water mark to check
         Status st = Env.getCurrentSystemInfo().checkExceedDiskCapacityLimit(allBePathsMap, true);
@@ -453,4 +481,7 @@ public class OlapTableSink extends DataSink {
         return nodesInfo;
     }
 
+    protected TDataSinkType getDataSinkType() {
+        return TDataSinkType.OLAP_TABLE_SINK;
+    }
 }

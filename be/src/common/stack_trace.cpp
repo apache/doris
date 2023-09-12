@@ -474,6 +474,11 @@ std::string StackTrace::toString(void** frame_pointers_raw, size_t offset, size_
     return toStringCached(frame_pointers, offset, size);
 }
 
+void StackTrace::createCache() {
+    std::lock_guard lock {stacktrace_cache_mutex};
+    cacheInstance();
+}
+
 void StackTrace::dropCache() {
     std::lock_guard lock {stacktrace_cache_mutex};
     cacheInstance().clear();

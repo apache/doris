@@ -79,6 +79,7 @@ class ClientCache;
 class HeartbeatFlags;
 class FrontendServiceClient;
 class FileMetaCache;
+class GroupCommitMgr;
 
 inline bool k_doris_exit = false;
 
@@ -173,6 +174,7 @@ public:
     std::shared_ptr<NewLoadStreamMgr> new_load_stream_mgr() { return _new_load_stream_mgr; }
     SmallFileMgr* small_file_mgr() { return _small_file_mgr; }
     BlockSpillManager* block_spill_mgr() { return _block_spill_mgr; }
+    GroupCommitMgr* group_commit_mgr() { return _group_commit_mgr; }
 
     const std::vector<StorePath>& store_paths() const { return _store_paths; }
 
@@ -198,6 +200,8 @@ public:
     void set_stream_load_executor(std::shared_ptr<StreamLoadExecutor> stream_load_executor) {
         this->_stream_load_executor = stream_load_executor;
     }
+
+    void wait_for_all_tasks_done();
 
     void update_frontends(const std::vector<TFrontendInfo>& new_infos);
     std::map<TNetworkAddress, FrontendInfo> get_frontends();
@@ -284,6 +288,7 @@ private:
 
     std::mutex _frontends_lock;
     std::map<TNetworkAddress, FrontendInfo> _frontends;
+    GroupCommitMgr* _group_commit_mgr = nullptr;
 };
 
 template <>

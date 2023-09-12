@@ -94,7 +94,7 @@ public:
         RowsetMetaSharedPtr meta_ptr = make_shared<RowsetMeta>();
         meta_ptr->init_from_pb(rs_meta_pb);
         RowsetSharedPtr res_ptr;
-        MockRowset::create_rowset(schema_, rowset_path_, meta_ptr, &res_ptr, is_mem_rowset);
+        MockRowset::create_rowset(schema_, meta_ptr, &res_ptr, is_mem_rowset);
         return res_ptr;
     }
 

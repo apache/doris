@@ -38,6 +38,7 @@ struct InvertedIndexCtx {
 };
 
 using InvertedIndexCtxSPtr = std::shared_ptr<InvertedIndexCtx>;
+using CharFilterMap = std::map<std::string, std::string>;
 
 const std::string INVERTED_INDEX_PARSER_MODE_KEY = "parser_mode";
 const std::string INVERTED_INDEX_PARSER_FINE_GRANULARITY = "fine_grained";
@@ -55,6 +56,10 @@ const std::string INVERTED_INDEX_PARSER_PHRASE_SUPPORT_KEY = "support_phrase";
 const std::string INVERTED_INDEX_PARSER_PHRASE_SUPPORT_YES = "true";
 const std::string INVERTED_INDEX_PARSER_PHRASE_SUPPORT_NO = "false";
 
+const std::string INVERTED_INDEX_PARSER_CHAR_FILTER_TYPE = "char_filter_type";
+const std::string INVERTED_INDEX_PARSER_CHAR_FILTER_PATTERN = "char_filter_pattern";
+const std::string INVERTED_INDEX_PARSER_CHAR_FILTER_REPLACEMENT = "char_filter_replacement";
+
 std::string inverted_index_parser_type_to_string(InvertedIndexParserType parser_type);
 
 InvertedIndexParserType get_inverted_index_parser_type_from_string(const std::string& parser_str);
@@ -63,6 +68,9 @@ std::string get_parser_string_from_properties(const std::map<std::string, std::s
 std::string get_parser_mode_string_from_properties(
         const std::map<std::string, std::string>& properties);
 std::string get_parser_phrase_support_string_from_properties(
+        const std::map<std::string, std::string>& properties);
+
+CharFilterMap get_parser_char_filter_map_from_properties(
         const std::map<std::string, std::string>& properties);
 
 } // namespace doris
