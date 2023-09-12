@@ -2689,15 +2689,15 @@ resume_job_stmt ::=
 show_job_stmt ::=
     KW_SHOW KW_JOBS
     {:
-        RESULT = new ShowJobStmt(null,null);
+        RESULT = new ShowJobStmt(null,null,null);
     :}
     | KW_SHOW  KW_JOB KW_FOR job_label:jobLabel
     {:
-        RESULT = new ShowJobStmt(jobLabel,null);
+        RESULT = new ShowJobStmt(null,jobLabel,null);
     :}
     | KW_SHOW KW_JOB KW_TASKS KW_FOR job_label:jobLabel
     {:
-        RESULT = new ShowJobTaskStmt(jobLabel);
+        RESULT = new ShowJobTaskStmt(null,jobLabel);
     :}    
     ;
 pause_job_stmt ::=
