@@ -105,7 +105,7 @@ public class UpdateCommand extends Command implements ForwardWithSync, Explainab
         List<NamedExpression> selectItems = Lists.newArrayList();
         String tableName = tableAlias != null ? tableAlias : targetTable.getName();
         for (Column column : targetTable.getFullSchema()) {
-            if (!column.isVisible()) {
+            if (!column.isVisible() || !column.isSequenceColumn()) {
                 continue;
             }
             if (colNameToExpression.containsKey(column.getName())) {
