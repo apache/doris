@@ -58,18 +58,20 @@ TEST_F(DeltaWriterV2PoolTest, test_map) {
     auto map = pool.get_or_create(load_id);
     EXPECT_EQ(1, pool.size());
     WriteRequest req;
-    RuntimeProfile profile("test");
-    auto writer = map->get_or_create(100, [&req, &profile]() {
+    auto writer = map->get_or_create(100, [&req]() {
+        RuntimeProfile profile("test");
         DeltaWriterV2* writer;
         DeltaWriterV2::open(&req, {}, &writer, &profile);
         return writer;
     });
-    auto writer2 = map->get_or_create(101, [&req, &profile]() {
+    auto writer2 = map->get_or_create(101, [&req]() {
+        RuntimeProfile profile("test");
         DeltaWriterV2* writer;
         DeltaWriterV2::open(&req, {}, &writer, &profile);
         return writer;
     });
-    auto writer3 = map->get_or_create(100, [&req, &profile]() {
+    auto writer3 = map->get_or_create(100, [&req]() {
+        RuntimeProfile profile("test");
         DeltaWriterV2* writer;
         DeltaWriterV2::open(&req, {}, &writer, &profile);
         return writer;
