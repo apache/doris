@@ -68,7 +68,7 @@ Status AutoIncIDBuffer::sync_request_ids(size_t length,
     }
     if (length > 0) {
         _wait_for_prefetching();
-        if (_rpc_status != Status::OK()) {
+        if (!_rpc_status.ok()) {
             return _rpc_status;
         }
 

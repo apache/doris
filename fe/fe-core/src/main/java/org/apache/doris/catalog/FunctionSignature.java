@@ -19,7 +19,6 @@ package org.apache.doris.catalog;
 
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.types.DataType;
-import org.apache.doris.nereids.types.coercion.AbstractDataType;
 import org.apache.doris.nereids.types.coercion.FollowToArgumentType;
 
 import com.google.common.base.MoreObjects;
@@ -33,13 +32,13 @@ import java.util.Optional;
 import java.util.function.BiFunction;
 
 public class FunctionSignature {
-    public final AbstractDataType returnType;
+    public final DataType returnType;
     public final boolean hasVarArgs;
-    public final List<AbstractDataType> argumentsTypes;
+    public final List<DataType> argumentsTypes;
     public final int arity;
 
-    private FunctionSignature(AbstractDataType returnType, boolean hasVarArgs,
-            List<? extends AbstractDataType> argumentsTypes) {
+    private FunctionSignature(DataType returnType, boolean hasVarArgs,
+            List<? extends DataType> argumentsTypes) {
         this.returnType = Objects.requireNonNull(returnType, "returnType is not null");
         this.argumentsTypes = ImmutableList.copyOf(
                 Objects.requireNonNull(argumentsTypes, "argumentsTypes is not null"));
@@ -47,11 +46,11 @@ public class FunctionSignature {
         this.arity = argumentsTypes.size();
     }
 
-    public Optional<AbstractDataType> getVarArgType() {
+    public Optional<DataType> getVarArgType() {
         return hasVarArgs ? Optional.of(argumentsTypes.get(arity - 1)) : Optional.empty();
     }
 
-    public AbstractDataType getArgType(int index) {
+    public DataType getArgType(int index) {
         if (hasVarArgs && index >= arity) {
             return argumentsTypes.get(arity - 1);
         }
@@ -62,8 +61,8 @@ public class FunctionSignature {
         return new FunctionSignature(returnType, hasVarArgs, argumentsTypes);
     }
 
-    public FunctionSignature withArgumentType(int index, AbstractDataType argumentType) {
-        ImmutableList.Builder<AbstractDataType> builder = ImmutableList.builder();
+    public FunctionSignature withArgumentType(int index, DataType argumentType) {
+        ImmutableList.Builder<DataType> builder = ImmutableList.builder();
         for (int i = 0; i < argumentsTypes.size(); i++) {
             if (i == index) {
                 builder.add(argumentType);
@@ -74,7 +73,7 @@ public class FunctionSignature {
         return new FunctionSignature(returnType, hasVarArgs, builder.build());
     }
 
-    public FunctionSignature withArgumentTypes(boolean hasVarArgs, List<? extends AbstractDataType> argumentsTypes) {
+    public FunctionSignature withArgumentTypes(boolean hasVarArgs, List<? extends DataType> argumentsTypes) {
         return new FunctionSignature(returnType, hasVarArgs, argumentsTypes);
     }
 
@@ -85,8 +84,8 @@ public class FunctionSignature {
      * @return
      */
     public FunctionSignature withArgumentTypes(List<Expression> arguments,
-            BiFunction<AbstractDataType, Expression, AbstractDataType> transform) {
-        List<AbstractDataType> newTypes = Lists.newArrayList();
+            BiFunction<DataType, Expression, DataType> transform) {
+        List<DataType> newTypes = Lists.newArrayList();
         for (int i = 0; i < arguments.size(); i++) {
             newTypes.add(transform.apply(getArgType(i), arguments.get(i)));
         }
@@ -101,29 +100,29 @@ public class FunctionSignature {
      * @return
      */
     public FunctionSignature withArgumentTypes(List<Expression> arguments,
-            TripleFunction<Integer, AbstractDataType, Expression, AbstractDataType> transform) {
-        List<AbstractDataType> newTypes = Lists.newArrayList();
+            TripleFunction<Integer, DataType, Expression, DataType> transform) {
+        List<DataType> newTypes = Lists.newArrayList();
         for (int i = 0; i < argumentsTypes.size(); i++) {
             newTypes.add(transform.apply(i, argumentsTypes.get(i), arguments.get(i)));
         }
         return withArgumentTypes(hasVarArgs, newTypes);
     }
 
-    public static FunctionSignature of(AbstractDataType returnType, List<? extends AbstractDataType> argumentsTypes) {
+    public static FunctionSignature of(DataType returnType, List<? extends DataType> argumentsTypes) {
         return of(returnType, false, argumentsTypes);
     }
 
-    public static FunctionSignature of(AbstractDataType returnType, boolean hasVarArgs,
-            List<? extends AbstractDataType> argumentsTypes) {
+    public static FunctionSignature of(DataType returnType, boolean hasVarArgs,
+            List<? extends DataType> argumentsTypes) {
         return new FunctionSignature(returnType, hasVarArgs, argumentsTypes);
     }
 
-    public static FunctionSignature of(AbstractDataType returnType, AbstractDataType... argumentsTypes) {
+    public static FunctionSignature of(DataType returnType, DataType... argumentsTypes) {
         return of(returnType, false, argumentsTypes);
     }
 
-    public static FunctionSignature of(AbstractDataType returnType,
-            boolean hasVarArgs, AbstractDataType... argumentsTypes) {
+    public static FunctionSignature of(DataType returnType,
+            boolean hasVarArgs, DataType... argumentsTypes) {
         return new FunctionSignature(returnType, hasVarArgs, Arrays.asList(argumentsTypes));
     }
 
@@ -146,17 +145,17 @@ public class FunctionSignature {
     }
 
     public static class FuncSigBuilder {
-        public final AbstractDataType returnType;
+        public final DataType returnType;
 
-        public FuncSigBuilder(AbstractDataType returnType) {
+        public FuncSigBuilder(DataType returnType) {
             this.returnType = returnType;
         }
 
-        public FunctionSignature args(AbstractDataType...argTypes) {
+        public FunctionSignature args(DataType...argTypes) {
             return FunctionSignature.of(returnType, false, argTypes);
         }
 
-        public FunctionSignature varArgs(AbstractDataType...argTypes) {
+        public FunctionSignature varArgs(DataType...argTypes) {
             return FunctionSignature.of(returnType, true, argTypes);
         }
     }

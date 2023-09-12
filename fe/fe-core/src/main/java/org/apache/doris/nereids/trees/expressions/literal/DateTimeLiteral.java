@@ -24,22 +24,22 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.DateTimeType;
 import org.apache.doris.nereids.types.coercion.DateLikeType;
+import org.apache.doris.nereids.util.DateTimeFormatterUtils;
 import org.apache.doris.nereids.util.DateUtils;
 
-import com.google.common.collect.Lists;
+import com.google.common.base.Preconditions;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.time.format.DateTimeFormatterBuilder;
-import java.time.format.DateTimeParseException;
 import java.time.format.ResolverStyle;
 import java.time.temporal.ChronoField;
 import java.time.temporal.TemporalAccessor;
 import java.util.Collections;
-import java.util.List;
 import java.util.Objects;
+import java.util.regex.Pattern;
 
 /**
  * date time literal.
@@ -48,15 +48,15 @@ public class DateTimeLiteral extends DateLiteral {
     protected static DateTimeFormatter DATE_TIME_FORMATTER_TO_HOUR = null;
     protected static DateTimeFormatter DATE_TIME_FORMATTER_TO_MINUTE = null;
     protected static DateTimeFormatter DATE_TIME_FORMATTER_TWO_DIGIT = null;
-    protected static DateTimeFormatter DATETIMEKEY_FORMATTER = null;
     protected static DateTimeFormatter DATE_TIME_FORMATTER_TO_MICRO_SECOND = null;
-    protected static List<DateTimeFormatter> formatterList = null;
     protected static final int MAX_MICROSECOND = 999999;
 
     private static final DateTimeLiteral MIN_DATETIME = new DateTimeLiteral(0000, 1, 1, 0, 0, 0);
     private static final DateTimeLiteral MAX_DATETIME = new DateTimeLiteral(9999, 12, 31, 23, 59, 59);
 
     private static final Logger LOG = LogManager.getLogger(DateTimeLiteral.class);
+
+    private static final Pattern HAS_OFFSET_PART = Pattern.compile("[\\+\\-]\\d{2}:\\d{2}");
 
     protected long hour;
     protected long minute;
@@ -74,29 +74,11 @@ public class DateTimeLiteral extends DateLiteral {
             DATE_TIME_FORMATTER_TWO_DIGIT = DateUtils.formatBuilder("%y-%m-%d %H:%i:%s")
                     .toFormatter().withResolverStyle(ResolverStyle.STRICT);
 
-            DATETIMEKEY_FORMATTER = DateUtils.formatBuilder("%Y%m%d%H%i%s")
-                    .toFormatter().withResolverStyle(ResolverStyle.STRICT);
-
             DATE_TIME_FORMATTER_TO_MICRO_SECOND = new DateTimeFormatterBuilder()
                     .appendPattern("uuuu-MM-dd HH:mm:ss")
                     .appendFraction(ChronoField.MICRO_OF_SECOND, 0, 6, true)
                     .toFormatter()
                     .withResolverStyle(ResolverStyle.STRICT);
-
-            formatterList = Lists.newArrayList(
-                    DateUtils.formatBuilder("%Y%m%d").appendLiteral('T').appendPattern("HHmmss")
-                            .appendFraction(ChronoField.MICRO_OF_SECOND, 0, 6, true)
-                            .toFormatter().withResolverStyle(ResolverStyle.STRICT),
-                    DateUtils.formatBuilder("%Y%m%d").appendLiteral('T').appendPattern("HHmmss")
-                            .appendFraction(ChronoField.MICRO_OF_SECOND, 0, 6, false)
-                            .toFormatter().withResolverStyle(ResolverStyle.STRICT),
-                    DateUtils.formatBuilder("%Y%m%d%H%i%s")
-                            .appendFraction(ChronoField.MICRO_OF_SECOND, 0, 6, true)
-                            .toFormatter().withResolverStyle(ResolverStyle.STRICT),
-                    DateUtils.formatBuilder("%Y%m%d%H%i%s")
-                            .appendFraction(ChronoField.MICRO_OF_SECOND, 0, 6, false)
-                            .toFormatter().withResolverStyle(ResolverStyle.STRICT),
-                    DATETIMEKEY_FORMATTER, DATEKEY_FORMATTER);
         } catch (AnalysisException e) {
             LOG.error("invalid date format", e);
             System.exit(-1);
@@ -146,21 +128,19 @@ public class DateTimeLiteral extends DateLiteral {
     protected void init(String s) throws AnalysisException {
         try {
             TemporalAccessor dateTime = null;
-            if (!s.contains("-")) {
-                // handle format like 20210106, but should not handle 2021-1-6
-                boolean parsed = false;
-                for (DateTimeFormatter formatter : formatterList) {
-                    try {
-                        dateTime = formatter.parse(s);
-                        parsed = true;
-                        break;
-                    } catch (DateTimeParseException ex) {
-                        // ignore
-                    }
+            // parse timezone
+            if (haveTimeZoneOffset(s) || haveTimeZoneName(s)) {
+                if (haveTimeZoneName(s)) { // GMT, UTC+8, Z[, CN, Asia/Shanghai]
+                    int split = getTimeZoneSplitPos(s);
+                    Preconditions.checkArgument(split > 0);
+                    s = s.substring(0, split);
+                } else { // +04:30
+                    Preconditions.checkArgument(s.charAt(s.length() - 6) == '-' || s.charAt(s.length() - 6) == '+');
+                    s = s.substring(0, s.length() - 6);
                 }
-                if (!parsed) {
-                    throw new AnalysisException("datetime literal [" + s + "] is invalid");
-                }
+            }
+            if (!s.contains("-") && !s.contains(":")) {
+                dateTime = DateTimeFormatterUtils.BASIC_DATE_TIME_FORMATTER.parse(s);
             } else {
                 String[] datePart = s.contains(" ") ? s.split(" ")[0].split("-") : s.split("-");
                 DateTimeFormatterBuilder builder = new DateTimeFormatterBuilder();
@@ -281,23 +261,23 @@ public class DateTimeLiteral extends DateLiteral {
         return new org.apache.doris.analysis.DateLiteral(year, month, day, hour, minute, second, Type.DATETIME);
     }
 
-    public Expression plusYears(int years) {
+    public Expression plusYears(long years) {
         return fromJavaDateType(DateUtils.getTime(DATE_TIME_FORMATTER, getStringValue()).plusYears(years));
     }
 
-    public Expression plusMonths(int months) {
+    public Expression plusMonths(long months) {
         return fromJavaDateType(DateUtils.getTime(DATE_TIME_FORMATTER, getStringValue()).plusMonths(months));
     }
 
-    public Expression plusDays(int days) {
+    public Expression plusDays(long days) {
         return fromJavaDateType(DateUtils.getTime(DATE_TIME_FORMATTER, getStringValue()).plusDays(days));
     }
 
-    public Expression plusHours(int hours) {
+    public Expression plusHours(long hours) {
         return fromJavaDateType(DateUtils.getTime(DATE_TIME_FORMATTER, getStringValue()).plusHours(hours));
     }
 
-    public Expression plusMinutes(int minutes) {
+    public Expression plusMinutes(long minutes) {
         return fromJavaDateType(DateUtils.getTime(DATE_TIME_FORMATTER, getStringValue()).plusMinutes(minutes));
     }
 
@@ -343,5 +323,28 @@ public class DateTimeLiteral extends DateLiteral {
                 ? new NullLiteral(DateTimeType.INSTANCE)
                 : new DateTimeLiteral(dateTime.getYear(), dateTime.getMonthValue(), dateTime.getDayOfMonth(),
                         dateTime.getHour(), dateTime.getMinute(), dateTime.getSecond());
+    }
+
+    private static boolean haveTimeZoneOffset(String arg) {
+        Preconditions.checkArgument(arg.length() > 6);
+        return HAS_OFFSET_PART.matcher(arg.substring(arg.length() - 6)).matches();
+    }
+
+    private static boolean haveTimeZoneName(String arg) {
+        for (char ch : arg.toCharArray()) {
+            if (Character.isUpperCase(ch) && ch != 'T') {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static int getTimeZoneSplitPos(String arg) {
+        int split = arg.length() - 1;
+        for (; !Character.isAlphabetic(arg.charAt(split)); split--) {
+        } // skip +8 of UTC+8
+        for (; split >= 0 && (Character.isUpperCase(arg.charAt(split)) || arg.charAt(split) == '/'); split--) {
+        }
+        return split + 1;
     }
 }

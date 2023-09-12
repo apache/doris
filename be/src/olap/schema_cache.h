@@ -117,7 +117,7 @@ public:
 
 private:
     SchemaCache(size_t capacity)
-            : LRUCachePolicy("SchemaCache", capacity, LRUCacheType::NUMBER,
+            : LRUCachePolicy(CachePolicy::CacheType::SCHEMA_CACHE, capacity, LRUCacheType::NUMBER,
                              config::schema_cache_sweep_time_sec) {}
     static constexpr char SCHEMA_DELIMITER = '-';
     static SchemaCache* _s_instance;

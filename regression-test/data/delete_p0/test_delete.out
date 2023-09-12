@@ -131,3 +131,7 @@ abc	5
 \N	\N	6.6
 5	\N	5.5
 
+-- !delete_fn --
+a	a
+ccc	ccc
+

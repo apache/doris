@@ -30,6 +30,7 @@ import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 
 public class ArrayLiteral extends LiteralExpr {
@@ -37,6 +38,12 @@ public class ArrayLiteral extends LiteralExpr {
     public ArrayLiteral() {
         type = new ArrayType(Type.NULL);
         children = new ArrayList<>();
+    }
+
+    public ArrayLiteral(Type type, LiteralExpr... exprs) throws AnalysisException {
+        this.type = type;
+        children = new ArrayList<>(Arrays.asList(exprs));
+        analysisDone();
     }
 
     public ArrayLiteral(LiteralExpr... exprs) throws AnalysisException {

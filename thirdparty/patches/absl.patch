@@ -1,11 +1,11 @@
 diff --git a/absl/container/internal/btree.h b/absl/container/internal/btree.h
-index 01f4e749..3ff8e798 100644
+index d734676a..43216318 100644
 --- a/absl/container/internal/btree.h
 +++ b/absl/container/internal/btree.h
-@@ -75,16 +75,6 @@ namespace absl {
+@@ -76,16 +76,6 @@ namespace absl {
  ABSL_NAMESPACE_BEGIN
  namespace container_internal {
- 
+
 -#ifdef ABSL_BTREE_ENABLE_GENERATIONS
 -#error ABSL_BTREE_ENABLE_GENERATIONS cannot be directly set
 -#elif defined(ABSL_HAVE_ADDRESS_SANITIZER) || \
@@ -18,4 +18,3 @@ index 01f4e749..3ff8e798 100644
 -
  template <typename Compare, typename T, typename U>
  using compare_result_t = absl::result_of_t<const Compare(const T &, const U &)>;
- 

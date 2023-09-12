@@ -64,6 +64,10 @@ public class BinlogConfig implements Writable {
     }
 
     public void mergeFromProperties(Map<String, String> properties) {
+        if (properties == null) {
+            return;
+        }
+
         if (properties.containsKey(PropertyAnalyzer.PROPERTIES_BINLOG_ENABLE)) {
             enable = Boolean.parseBoolean(properties.get(
                     PropertyAnalyzer.PROPERTIES_BINLOG_ENABLE));

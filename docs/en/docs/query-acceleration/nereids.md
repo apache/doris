@@ -1,6 +1,6 @@
 ---
 {
-    "title": "Nereids-The Brand New Planner",
+    "title": "Nereids-the Brand New Planner",
     "language": "en"
 }
 ---
@@ -24,7 +24,7 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# Nereids-The Brand New Planner
+# Nereids-the Brand New Planner
 
 <version since="dev"></version>
 
@@ -83,4 +83,4 @@ Recommand execute analyze on table before query on it to get the benefits of cbo
 
 ### known issues
 
-- Cannot use query cache and partition cache to accelarate query
+- Cannot use partition cache to accelarate query

@@ -29,6 +29,8 @@
 #include <utility>
 #include <vector>
 
+#include "arrow/record_batch.h"
+#include "arrow/type_fwd.h"
 #include "runtime/exec_env.h"
 #include "runtime/thread_context.h"
 #include "util/thrift_util.h"
@@ -119,7 +121,7 @@ Status BufferControlBlock::add_batch(std::unique_ptr<TFetchDataResult>& result) 
 
     int num_rows = result->result_batch.rows.size();
 
-    while ((!_batch_queue.empty() && _buffer_rows > _buffer_limit) && !_is_cancelled) {
+    while ((!_fe_result_batch_queue.empty() && _buffer_rows > _buffer_limit) && !_is_cancelled) {
         _data_removal.wait_for(l, std::chrono::seconds(1));
     }
 
@@ -129,15 +131,16 @@ Status BufferControlBlock::add_batch(std::unique_ptr<TFetchDataResult>& result) 
 
     if (_waiting_rpc.empty()) {
         // Merge result into batch to reduce rpc times
-        if (!_batch_queue.empty() &&
-            ((_batch_queue.back()->result_batch.rows.size() + num_rows) < _buffer_limit) &&
+        if (!_fe_result_batch_queue.empty() &&
+            ((_fe_result_batch_queue.back()->result_batch.rows.size() + num_rows) <
+             _buffer_limit) &&
             !result->eos) {
-            std::vector<std::string>& back_rows = _batch_queue.back()->result_batch.rows;
+            std::vector<std::string>& back_rows = _fe_result_batch_queue.back()->result_batch.rows;
             std::vector<std::string>& result_rows = result->result_batch.rows;
             back_rows.insert(back_rows.end(), std::make_move_iterator(result_rows.begin()),
                              std::make_move_iterator(result_rows.end()));
         } else {
-            _batch_queue.push_back(std::move(result));
+            _fe_result_batch_queue.push_back(std::move(result));
         }
         _buffer_rows += num_rows;
         _data_arrival.notify_one();
@@ -147,6 +150,31 @@ Status BufferControlBlock::add_batch(std::unique_ptr<TFetchDataResult>& result) 
         ctx->on_data(result, _packet_num);
         _packet_num++;
     }
+    return Status::OK();
+}
+
+Status BufferControlBlock::add_arrow_batch(std::shared_ptr<arrow::RecordBatch>& result) {
+    std::unique_lock<std::mutex> l(_lock);
+
+    if (_is_cancelled) {
+        return Status::Cancelled("Cancelled");
+    }
+
+    int num_rows = result->num_rows();
+
+    while ((!_arrow_flight_batch_queue.empty() && _buffer_rows > _buffer_limit) && !_is_cancelled) {
+        _data_removal.wait_for(l, std::chrono::seconds(1));
+    }
+
+    if (_is_cancelled) {
+        return Status::Cancelled("Cancelled");
+    }
+
+    // TODO: merge RocordBatch, ToStructArray -> Make again
+
+    _arrow_flight_batch_queue.push_back(std::move(result));
+    _buffer_rows += num_rows;
+    _data_arrival.notify_one();
     return Status::OK();
 }
 
@@ -160,10 +188,10 @@ void BufferControlBlock::get_batch(GetResultBatchCtx* ctx) {
         ctx->on_failure(Status::Cancelled("Cancelled"));
         return;
     }
-    if (!_batch_queue.empty()) {
+    if (!_fe_result_batch_queue.empty()) {
         // get result
-        std::unique_ptr<TFetchDataResult> result = std::move(_batch_queue.front());
-        _batch_queue.pop_front();
+        std::unique_ptr<TFetchDataResult> result = std::move(_fe_result_batch_queue.front());
+        _fe_result_batch_queue.pop_front();
         _buffer_rows -= result->result_batch.rows.size();
         _data_removal.notify_one();
 
@@ -177,6 +205,39 @@ void BufferControlBlock::get_batch(GetResultBatchCtx* ctx) {
     }
     // no ready data, push ctx to waiting list
     _waiting_rpc.push_back(ctx);
+}
+
+Status BufferControlBlock::get_arrow_batch(std::shared_ptr<arrow::RecordBatch>* result) {
+    std::unique_lock<std::mutex> l(_lock);
+    if (!_status.ok()) {
+        return _status;
+    }
+    if (_is_cancelled) {
+        return Status::Cancelled("Cancelled");
+    }
+
+    while (_arrow_flight_batch_queue.empty() && !_is_cancelled && !_is_close) {
+        _data_arrival.wait_for(l, std::chrono::seconds(1));
+    }
+
+    if (_is_cancelled) {
+        return Status::Cancelled("Cancelled");
+    }
+
+    if (!_arrow_flight_batch_queue.empty()) {
+        *result = std::move(_arrow_flight_batch_queue.front());
+        _arrow_flight_batch_queue.pop_front();
+        _buffer_rows -= (*result)->num_rows();
+        _data_removal.notify_one();
+        _packet_num++;
+        return Status::OK();
+    }
+
+    // normal path end
+    if (_is_close) {
+        return Status::OK();
+    }
+    return Status::InternalError("Abnormal Ending");
 }
 
 Status BufferControlBlock::close(Status exec_status) {

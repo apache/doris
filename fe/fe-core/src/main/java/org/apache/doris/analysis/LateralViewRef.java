@@ -143,7 +143,7 @@ public class LateralViewRef extends TableRef {
             }
             if (tableName.getDb() != null && !tableName.getDb().equalsIgnoreCase(relatedTableName.getDb())) {
                 // db2.t1 lateral view explode_split(db1.t1.k1, ",")
-                throw new AnalysisException("The column " + slotRef.toMySql()
+                throw new AnalysisException("The column " + slotRef.toSql()
                         + " in lateral view must come from the origin table "
                         + relatedTableRef.toSql());
             }
@@ -170,7 +170,7 @@ public class LateralViewRef extends TableRef {
                                 + "when config.lower_case_table_names is not 0, 1 or 2");
                 }
                 // t1 lateral view explode_split(t2.k1, ",")
-                throw new AnalysisException("The column " + slotRef.toMySql()
+                throw new AnalysisException("The column " + slotRef.toSql()
                         + " in lateral view must come from the origin table "
                         + relatedTableName.toSql());
             }

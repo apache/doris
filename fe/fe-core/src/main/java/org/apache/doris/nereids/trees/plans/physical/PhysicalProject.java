@@ -77,7 +77,7 @@ public class PhysicalProject<CHILD_TYPE extends Plan> extends PhysicalUnary<CHIL
 
     @Override
     public String toString() {
-        return Utils.toSqlString("PhysicalProject[" + id.asInt() + "]" + getGroupIdAsString(),
+        return Utils.toSqlString("PhysicalProject[" + id.asInt() + "]" + getGroupIdWithPrefix(),
                 "projects", projects,
                 "stats", statistics
         );
@@ -206,5 +206,18 @@ public class PhysicalProject<CHILD_TYPE extends Plan> extends PhysicalUnary<CHIL
         boolean pushedDown = child.pushDownRuntimeFilter(context, generator, builderNode,
                 src, probeExpr, type, buildSideNdv, exprOrder);
         return pushedDown;
+    }
+
+    @Override
+    public List<Slot> computeOutput() {
+        return projects.stream()
+                .map(NamedExpression::toSlot)
+                .collect(ImmutableList.toImmutableList());
+    }
+
+    @Override
+    public PhysicalProject<CHILD_TYPE> resetLogicalProperties() {
+        return new PhysicalProject<>(projects, groupExpression, null, physicalProperties,
+                statistics, child());
     }
 }

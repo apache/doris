@@ -210,8 +210,9 @@ public class AliasFunction extends Function {
                 existFlag |= typeDefParam.equals(str);
             }
             if (!existFlag) {
-                throw new AnalysisException(
-                        "Alias function [" + functionName() + "]  do not contain parameter [" + str + "].");
+                throw new AnalysisException("Alias function [" + functionName() + "]  do not contain parameter [" + str
+                        + "]. typeDefParams="
+                        + typeDefParams.stream().map(String::toString).collect(Collectors.joining(", ")));
             }
         }
     }

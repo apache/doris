@@ -206,8 +206,8 @@ private:
         }
         return true;
     }
-    template <bool LCONST, bool RCONST, typename T, typename... Ts,
-              std::enable_if_t<(sizeof...(Ts) > 0), int> = 0>
+    template <bool LCONST, bool RCONST, typename T, typename... Ts>
+        requires(sizeof...(Ts) > 0)
     static bool _execute_internal(ColumnArrayMutableData& dst,
                                   const ColumnArrayExecutionData& left_data,
                                   const ColumnArrayExecutionData& right_data) {

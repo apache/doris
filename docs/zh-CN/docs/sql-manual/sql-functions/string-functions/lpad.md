@@ -1,6 +1,6 @@
 ---
 {
-    "title": "lpad",
+    "title": "LPAD",
     "language": "zh-CN"
 }
 ---

@@ -72,7 +72,7 @@ public class MultiJoin extends AbstractLogicalPlan {
 
     public MultiJoin(List<Plan> inputs, List<Expression> joinFilter, JoinType joinType,
             List<Expression> notInnerJoinConditions) {
-        super(PlanType.LOGICAL_MULTI_JOIN, inputs.toArray(new Plan[0]));
+        super(PlanType.LOGICAL_MULTI_JOIN, inputs);
         this.joinFilter = Objects.requireNonNull(joinFilter);
         this.joinType = joinType;
         this.notInnerJoinConditions = Objects.requireNonNull(notInnerJoinConditions);

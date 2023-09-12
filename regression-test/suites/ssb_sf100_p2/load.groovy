@@ -108,6 +108,7 @@ suite('load') {
                 INNER JOIN supplier s ON (s.s_suppkey = l.lo_suppkey) 
                 INNER JOIN part p ON (p.p_partkey = l.lo_partkey);"""
         }
+        sql "sync"
         rowCount = sql "select count(*) from ${table}"
         assertEquals(table_rows, rowCount[0][0])
     }

@@ -21,6 +21,7 @@ import org.apache.doris.analysis.ArithmeticExpr.Operator;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 
 import com.google.common.base.Preconditions;
+import com.google.common.collect.ImmutableList;
 
 import java.util.List;
 
@@ -30,13 +31,17 @@ import java.util.List;
 public class BitXor extends BinaryArithmetic {
 
     public BitXor(Expression left, Expression right) {
-        super(left, right, Operator.BITXOR);
+        super(ImmutableList.of(left, right), Operator.BITXOR);
+    }
+
+    private BitXor(List<Expression> children) {
+        super(children, Operator.BITXOR);
     }
 
     @Override
     public Expression withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 2);
-        return new BitXor(children.get(0), children.get(1));
+        return new BitXor(children);
     }
 
     @Override

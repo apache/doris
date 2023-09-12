@@ -487,6 +487,32 @@ public class Replica implements Writable {
         return strBuffer.toString();
     }
 
+    public String toStringSimple(boolean checkBeAlive) {
+        StringBuilder strBuffer = new StringBuilder("[replicaId=");
+        strBuffer.append(id);
+        strBuffer.append(", backendId=");
+        strBuffer.append(backendId);
+        if (checkBeAlive) {
+            strBuffer.append(", backendAlive=");
+            strBuffer.append(Env.getCurrentSystemInfo().checkBackendAlive(backendId));
+        }
+        strBuffer.append(", version=");
+        strBuffer.append(version);
+        if (lastFailedVersion > 0) {
+            strBuffer.append(", lastFailedVersion=");
+            strBuffer.append(lastFailedVersion);
+            strBuffer.append(", lastSuccessVersion=");
+            strBuffer.append(lastSuccessVersion);
+            strBuffer.append(", lastFailedTimestamp=");
+            strBuffer.append(lastFailedTimestamp);
+        }
+        strBuffer.append(", state=");
+        strBuffer.append(state.name());
+        strBuffer.append("]");
+
+        return strBuffer.toString();
+    }
+
     @Override
     public void write(DataOutput out) throws IOException {
         out.writeLong(id);

@@ -51,7 +51,7 @@ class PushdownDistinctThroughJoinTest implements MemoPatternMatchSupported {
                         logicalAggregate(
                                 logicalJoin(
                                         logicalAggregate(logicalJoin()),
-                                        logicalAggregate(logicalOlapScan())
+                                        logicalOlapScan()
                                 )
                         )
                 )
@@ -75,7 +75,7 @@ class PushdownDistinctThroughJoinTest implements MemoPatternMatchSupported {
                         logicalAggregate(
                                 logicalJoin(
                                         logicalAggregate(logicalProject(logicalJoin())),
-                                        logicalAggregate(logicalOlapScan())
+                                        logicalOlapScan()
                                 )
                         )
                 )

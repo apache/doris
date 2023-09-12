@@ -106,7 +106,6 @@
 
 #include "gutil/basictypes.h"
 #include "gutil/move.h"
-#include "gutil/template_util.h"
 
 namespace doris {
 

@@ -518,7 +518,7 @@ thread, lazyCheck, events, connect, selectUnionAll
 # 测试suiteName包含'sql'的用例，**注意需要用单引号括起来**
 ./run-regression-test.sh --run '*sql*' 
 
-# 测试demo和perfomance group
+# 测试demo和performance group
 ./run-regression-test.sh --run -g 'demo,performance'
 
 # 测试demo group下的sql_action

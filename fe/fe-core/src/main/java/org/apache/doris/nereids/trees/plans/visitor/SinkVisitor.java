@@ -18,12 +18,17 @@
 package org.apache.doris.nereids.trees.plans.visitor;
 
 import org.apache.doris.nereids.analyzer.UnboundOlapTableSink;
+import org.apache.doris.nereids.analyzer.UnboundResultSink;
 import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalDeferMaterializeResultSink;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFileSink;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapTableSink;
+import org.apache.doris.nereids.trees.plans.logical.LogicalResultSink;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSink;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalDeferMaterializeResultSink;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalFileSink;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalOlapTableSink;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalResultSink;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalSink;
 
 /**
@@ -47,6 +52,10 @@ public interface SinkVisitor<R, C> {
         return visitLogicalSink(unboundOlapTableSink, context);
     }
 
+    default R visitUnboundResultSink(UnboundResultSink<? extends Plan> unboundResultSink, C context) {
+        return visitLogicalSink(unboundResultSink, context);
+    }
+
     // *******************************
     // logical
     // *******************************
@@ -59,6 +68,15 @@ public interface SinkVisitor<R, C> {
         return visitLogicalSink(olapTableSink, context);
     }
 
+    default R visitLogicalResultSink(LogicalResultSink<? extends Plan> logicalResultSink, C context) {
+        return visitLogicalSink(logicalResultSink, context);
+    }
+
+    default R visitLogicalDeferMaterializeResultSink(
+            LogicalDeferMaterializeResultSink<? extends Plan> logicalDeferMaterializeResultSink, C context) {
+        return visitLogicalSink(logicalDeferMaterializeResultSink, context);
+    }
+
     // *******************************
     // physical
     // *******************************
@@ -69,5 +87,14 @@ public interface SinkVisitor<R, C> {
 
     default R visitPhysicalOlapTableSink(PhysicalOlapTableSink<? extends Plan> olapTableSink, C context) {
         return visitPhysicalSink(olapTableSink, context);
+    }
+
+    default R visitPhysicalResultSink(PhysicalResultSink<? extends Plan> physicalResultSink, C context) {
+        return visitPhysicalSink(physicalResultSink, context);
+    }
+
+    default R visitPhysicalDeferMaterializeResultSink(
+            PhysicalDeferMaterializeResultSink<? extends Plan> sink, C context) {
+        return visitPhysicalSink(sink, context);
     }
 }

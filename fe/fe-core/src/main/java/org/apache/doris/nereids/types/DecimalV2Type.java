@@ -20,7 +20,7 @@ package org.apache.doris.nereids.types;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
-import org.apache.doris.nereids.types.coercion.AbstractDataType;
+import org.apache.doris.common.Config;
 import org.apache.doris.nereids.types.coercion.FractionalType;
 
 import com.google.common.base.Preconditions;
@@ -71,11 +71,7 @@ public class DecimalV2Type extends FractionalType {
     /**
      * constructors.
      */
-    public DecimalV2Type(int precision, int scale) {
-        Preconditions.checkArgument(precision > 0 && precision <= MAX_PRECISION,
-                "precision should in (0, " + MAX_PRECISION + "], but real precision is " + precision);
-        Preconditions.checkArgument(scale >= 0 && scale <= MAX_SCALE,
-                "scale should in [0, " + MAX_SCALE + "], but real scale is " + scale);
+    private DecimalV2Type(int precision, int scale) {
         Preconditions.checkArgument(precision >= scale, "precision should not smaller than scale,"
                 + " but precision is " + precision, ", scale is " + scale);
         this.precision = precision;
@@ -97,6 +93,19 @@ public class DecimalV2Type extends FractionalType {
         int precision = org.apache.doris.analysis.DecimalLiteral.getBigDecimalPrecision(bigDecimal);
         int scale = org.apache.doris.analysis.DecimalLiteral.getBigDecimalScale(bigDecimal);
         return createDecimalV2Type(precision, scale);
+    }
+
+    /**
+     * create DecimalV2Type with appropriate scale and precision, not truncate to MAX_PRECISION, MAX_SCALE.
+     */
+    public static DecimalV2Type createDecimalV2TypeWithoutTruncate(int precision, int scale) {
+        if (precision == SYSTEM_DEFAULT.precision && scale == SYSTEM_DEFAULT.scale) {
+            return SYSTEM_DEFAULT;
+        }
+        if (precision == CATALOG_DEFAULT.precision && scale == CATALOG_DEFAULT.scale) {
+            return CATALOG_DEFAULT;
+        }
+        return new DecimalV2Type(precision, scale);
     }
 
     /**
@@ -143,12 +152,24 @@ public class DecimalV2Type extends FractionalType {
     }
 
     @Override
+    public DataType conversion() {
+        if (Config.enable_decimal_conversion) {
+            return DecimalV3Type.createDecimalV3Type(precision, scale);
+        }
+        Preconditions.checkArgument(precision > 0 && precision <= MAX_PRECISION,
+                "precision should in (0, " + MAX_PRECISION + "], but real precision is " + precision);
+        Preconditions.checkArgument(scale >= 0 && scale <= MAX_SCALE,
+                "scale should in [0, " + MAX_SCALE + "], but real scale is " + scale);
+        return this;
+    }
+
+    @Override
     public DataType defaultConcreteType() {
         return this;
     }
 
     @Override
-    public boolean acceptsType(AbstractDataType other) {
+    public boolean acceptsType(DataType other) {
         return other instanceof DecimalV2Type;
     }
 

@@ -30,9 +30,11 @@ import org.apache.doris.analysis.UserDesc;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.analysis.WorkloadGroupPattern;
 import org.apache.doris.catalog.AccessPrivilege;
+import org.apache.doris.catalog.AccessPrivilegeWithCols;
 import org.apache.doris.catalog.DomainResolver;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ExceptionChecker;
 import org.apache.doris.common.UserException;
@@ -44,6 +46,7 @@ import org.apache.doris.qe.QueryState;
 import org.apache.doris.system.SystemInfoService;
 
 import com.google.common.collect.Lists;
+import com.google.common.collect.Sets;
 import mockit.Expectations;
 import mockit.Mocked;
 import org.junit.Assert;
@@ -151,6 +154,7 @@ public class AuthTest {
         };
 
         resolver = new MockDomainResolver(auth);
+        Config.enable_col_auth = true;
     }
 
     @Test
@@ -373,7 +377,9 @@ public class AuthTest {
 
         // 9. grant for cmy@'%'
         TablePattern tablePattern = new TablePattern("*", "*");
-        List<AccessPrivilege> privileges = Lists.newArrayList(AccessPrivilege.CREATE_PRIV, AccessPrivilege.DROP_PRIV);
+        List<AccessPrivilegeWithCols> privileges = Lists
+                .newArrayList(new AccessPrivilegeWithCols(AccessPrivilege.CREATE_PRIV),
+                        new AccessPrivilegeWithCols(AccessPrivilege.DROP_PRIV));
         GrantStmt grantStmt = new GrantStmt(new UserIdentity("cmy", "%"), null, tablePattern, privileges);
 
         try {
@@ -409,7 +415,8 @@ public class AuthTest {
 
         // 10. grant auth for non exist user
         tablePattern = new TablePattern("*", "*");
-        privileges = Lists.newArrayList(AccessPrivilege.CREATE_PRIV, AccessPrivilege.DROP_PRIV);
+        privileges = Lists.newArrayList(new AccessPrivilegeWithCols(AccessPrivilege.CREATE_PRIV),
+                new AccessPrivilegeWithCols(AccessPrivilege.DROP_PRIV));
         grantStmt = new GrantStmt(new UserIdentity("nouser", "%"), null, tablePattern, privileges);
 
         try {
@@ -430,7 +437,8 @@ public class AuthTest {
 
         // 11. grant auth for user with non exist host
         tablePattern = new TablePattern("*", "*");
-        privileges = Lists.newArrayList(AccessPrivilege.SELECT_PRIV, AccessPrivilege.DROP_PRIV);
+        privileges = Lists.newArrayList(new AccessPrivilegeWithCols(AccessPrivilege.SELECT_PRIV),
+                new AccessPrivilegeWithCols(AccessPrivilege.DROP_PRIV));
         grantStmt = new GrantStmt(new UserIdentity("zhangsan", "%"), null, tablePattern, privileges);
 
         try {
@@ -451,7 +459,8 @@ public class AuthTest {
 
         // 12. grant db auth to exist user
         tablePattern = new TablePattern("db1", "*");
-        privileges = Lists.newArrayList(AccessPrivilege.SELECT_PRIV, AccessPrivilege.DROP_PRIV);
+        privileges = Lists.newArrayList(new AccessPrivilegeWithCols(AccessPrivilege.SELECT_PRIV),
+                new AccessPrivilegeWithCols(AccessPrivilege.DROP_PRIV));
         grantStmt = new GrantStmt(new UserIdentity("zhangsan", "192.%"), null, tablePattern, privileges);
 
         try {
@@ -482,7 +491,8 @@ public class AuthTest {
 
         // 13. grant tbl auth to exist user
         tablePattern = new TablePattern("db2", "tbl2");
-        privileges = Lists.newArrayList(AccessPrivilege.ALTER_PRIV, AccessPrivilege.DROP_PRIV);
+        privileges = Lists.newArrayList(new AccessPrivilegeWithCols(AccessPrivilege.ALTER_PRIV),
+                new AccessPrivilegeWithCols(AccessPrivilege.DROP_PRIV));
         grantStmt = new GrantStmt(new UserIdentity("zhangsan", "192.%"), null, tablePattern, privileges);
 
         try {
@@ -513,7 +523,7 @@ public class AuthTest {
 
         // 13.1 grant external ctl tbl auth to exist user
         tablePattern = new TablePattern("ext_ctl", "ext_db1", "ext_tbl1");
-        privileges = Lists.newArrayList(AccessPrivilege.SELECT_PRIV);
+        privileges = Lists.newArrayList(new AccessPrivilegeWithCols(AccessPrivilege.SELECT_PRIV));
         grantStmt = new GrantStmt(new UserIdentity("zhangsan", "192.%"), null, tablePattern, privileges);
 
         try {
@@ -545,7 +555,8 @@ public class AuthTest {
 
         // 14. grant db auth to zhangsan@['palo.domain1']
         tablePattern = new TablePattern("db3", "*");
-        privileges = Lists.newArrayList(AccessPrivilege.ALTER_PRIV, AccessPrivilege.DROP_PRIV);
+        privileges = Lists.newArrayList(new AccessPrivilegeWithCols(AccessPrivilege.ALTER_PRIV),
+                new AccessPrivilegeWithCols(AccessPrivilege.DROP_PRIV));
         grantStmt = new GrantStmt(new UserIdentity("zhangsan", "palo.domain1", true), null, tablePattern, privileges);
 
         try {
@@ -570,7 +581,7 @@ public class AuthTest {
                 PrivPredicate.ALTER));
         // 15. grant new auth to exist priv entry (exist ALTER/DROP, add SELECT)
         tablePattern = new TablePattern("db3", "*");
-        privileges = Lists.newArrayList(AccessPrivilege.SELECT_PRIV);
+        privileges = Lists.newArrayList(new AccessPrivilegeWithCols(AccessPrivilege.SELECT_PRIV));
         grantStmt = new GrantStmt(new UserIdentity("zhangsan", "palo.domain1", true), null, tablePattern, privileges);
 
         try {
@@ -622,7 +633,7 @@ public class AuthTest {
 
         // 16. revoke privs from non exist user
         tablePattern = new TablePattern("*", "*");
-        privileges = Lists.newArrayList(AccessPrivilege.SELECT_PRIV);
+        privileges = Lists.newArrayList(new AccessPrivilegeWithCols(AccessPrivilege.SELECT_PRIV));
         RevokeStmt revokeStmt = new RevokeStmt(new UserIdentity("nouser", "%"), null, tablePattern, privileges);
 
         try {
@@ -643,7 +654,7 @@ public class AuthTest {
 
         // 17. revoke privs from non exist host
         tablePattern = new TablePattern("*", "*");
-        privileges = Lists.newArrayList(AccessPrivilege.SELECT_PRIV);
+        privileges = Lists.newArrayList(new AccessPrivilegeWithCols(AccessPrivilege.SELECT_PRIV));
         revokeStmt = new RevokeStmt(new UserIdentity("cmy", "172.%"), null, tablePattern, privileges);
 
         try {
@@ -664,7 +675,7 @@ public class AuthTest {
 
         // 18. revoke privs from non exist db
         tablePattern = new TablePattern("nodb", "*");
-        privileges = Lists.newArrayList(AccessPrivilege.SELECT_PRIV);
+        privileges = Lists.newArrayList(new AccessPrivilegeWithCols(AccessPrivilege.SELECT_PRIV));
         revokeStmt = new RevokeStmt(new UserIdentity("cmy", "%"), null, tablePattern, privileges);
 
         try {
@@ -685,7 +696,7 @@ public class AuthTest {
 
         // 19. revoke privs from user @ ip
         tablePattern = new TablePattern("*", "*");
-        privileges = Lists.newArrayList(AccessPrivilege.CREATE_PRIV);
+        privileges = Lists.newArrayList(new AccessPrivilegeWithCols(AccessPrivilege.CREATE_PRIV));
         revokeStmt = new RevokeStmt(new UserIdentity("cmy", "%"), null, tablePattern, privileges);
 
         try {
@@ -713,7 +724,7 @@ public class AuthTest {
 
         // 19. revoke tbl privs from user @ ip
         tablePattern = new TablePattern("db2", "tbl2");
-        privileges = Lists.newArrayList(AccessPrivilege.ALTER_PRIV);
+        privileges = Lists.newArrayList(new AccessPrivilegeWithCols(AccessPrivilege.ALTER_PRIV));
         revokeStmt = new RevokeStmt(new UserIdentity("zhangsan", "192.%"), null, tablePattern, privileges);
 
         try {
@@ -749,7 +760,7 @@ public class AuthTest {
 
         // 20. revoke privs from non exist user @ domain
         tablePattern = new TablePattern("db2", "tbl2");
-        privileges = Lists.newArrayList(AccessPrivilege.ALTER_PRIV);
+        privileges = Lists.newArrayList(new AccessPrivilegeWithCols(AccessPrivilege.ALTER_PRIV));
         revokeStmt = new RevokeStmt(new UserIdentity("zhangsan", "nodomain", true), null, tablePattern, privileges);
 
         try {
@@ -770,7 +781,7 @@ public class AuthTest {
 
         // 21. revoke privs from non exist db from user @ domain
         tablePattern = new TablePattern("nodb", "*");
-        privileges = Lists.newArrayList(AccessPrivilege.ALTER_PRIV);
+        privileges = Lists.newArrayList(new AccessPrivilegeWithCols(AccessPrivilege.ALTER_PRIV));
         revokeStmt = new RevokeStmt(new UserIdentity("zhangsan", "palo.domain1", true), null, tablePattern, privileges);
 
         try {
@@ -791,7 +802,7 @@ public class AuthTest {
 
         // 22. revoke privs from exist user @ domain
         tablePattern = new TablePattern("db3", "*");
-        privileges = Lists.newArrayList(AccessPrivilege.DROP_PRIV);
+        privileges = Lists.newArrayList(new AccessPrivilegeWithCols(AccessPrivilege.DROP_PRIV));
         revokeStmt = new RevokeStmt(new UserIdentity("zhangsan", "palo.domain1", true), null, tablePattern, privileges);
 
         try {
@@ -920,7 +931,8 @@ public class AuthTest {
         Assert.assertTrue(hasException);
 
         // 25. grant auth to non exist role, will create this new role
-        privileges = Lists.newArrayList(AccessPrivilege.DROP_PRIV, AccessPrivilege.SELECT_PRIV);
+        privileges = Lists.newArrayList(new AccessPrivilegeWithCols(AccessPrivilege.DROP_PRIV),
+                new AccessPrivilegeWithCols(AccessPrivilege.SELECT_PRIV));
         grantStmt = new GrantStmt(null, "role2", new TablePattern("*", "*"), privileges);
         try {
             grantStmt.analyze(analyzer);
@@ -937,7 +949,8 @@ public class AuthTest {
         }
 
         // 26. grant auth to role
-        privileges = Lists.newArrayList(AccessPrivilege.DROP_PRIV, AccessPrivilege.SELECT_PRIV);
+        privileges = Lists.newArrayList(new AccessPrivilegeWithCols(AccessPrivilege.DROP_PRIV),
+                new AccessPrivilegeWithCols(AccessPrivilege.SELECT_PRIV));
         grantStmt = new GrantStmt(null, "role1", new TablePattern("*", "*"), privileges);
         try {
             grantStmt.analyze(analyzer);
@@ -1008,7 +1021,7 @@ public class AuthTest {
                 PrivPredicate.DROP));
 
         // 29. revoke auth on non exist db from role1
-        privileges = Lists.newArrayList(AccessPrivilege.DROP_PRIV);
+        privileges = Lists.newArrayList(new AccessPrivilegeWithCols(AccessPrivilege.DROP_PRIV));
         revokeStmt = new RevokeStmt(null, "role1", new TablePattern("nodb", "*"), privileges);
         try {
             revokeStmt.analyze(analyzer);
@@ -1027,7 +1040,7 @@ public class AuthTest {
         Assert.assertTrue(hasException);
 
         // 30. revoke auth from role1
-        privileges = Lists.newArrayList(AccessPrivilege.DROP_PRIV);
+        privileges = Lists.newArrayList(new AccessPrivilegeWithCols(AccessPrivilege.DROP_PRIV));
         revokeStmt = new RevokeStmt(null, "role1", new TablePattern("*", "*"), privileges);
         try {
             revokeStmt.analyze(analyzer);
@@ -1337,7 +1350,7 @@ public class AuthTest {
         createUserStmt.analyze(analyzer);
         auth.createUser(createUserStmt);
 
-        privileges = Lists.newArrayList(AccessPrivilege.NODE_PRIV);
+        privileges = Lists.newArrayList(new AccessPrivilegeWithCols(AccessPrivilege.NODE_PRIV));
         // 40.1 grant to non-global level, which is not allowed
         grantStmt = new GrantStmt(opUser, null, new TablePattern("db1", "*"), privileges);
         try {
@@ -1425,7 +1438,7 @@ public class AuthTest {
             e.printStackTrace();
         }
         // Now, we grant grant_priv to opUser, and check if it can than grant node_priv to other user
-        privileges = Lists.newArrayList(AccessPrivilege.GRANT_PRIV);
+        privileges = Lists.newArrayList(new AccessPrivilegeWithCols(AccessPrivilege.GRANT_PRIV));
         grantStmt = new GrantStmt(opUser, null, new TablePattern("*", "*"), privileges);
         try {
             new Expectations() {
@@ -1460,6 +1473,109 @@ public class AuthTest {
     }
 
     @Test
+    public void testColAuth() {
+        // create user
+        UserIdentity userIdentity = new UserIdentity("colUser", "%");
+        UserDesc userDesc = new UserDesc(userIdentity, "12345", true);
+        CreateUserStmt createUserStmt = new CreateUserStmt(false, userDesc, null);
+        try {
+            createUserStmt.analyze(analyzer);
+            auth.createUser(createUserStmt);
+        } catch (UserException e) {
+            e.printStackTrace();
+            Assert.fail();
+        }
+
+        // test table is *
+        GrantStmt grantStmt = new GrantStmt(userIdentity, null, new TablePattern("db1", "*"), Lists.newArrayList(
+                new AccessPrivilegeWithCols(AccessPrivilege.SELECT_PRIV, Lists.newArrayList("a", "b"))));
+        try {
+            grantStmt.analyze(analyzer);
+            Assert.fail();
+        } catch (UserException e) {
+            e.printStackTrace();
+        }
+
+        // test CREATE_PRIV with col
+        grantStmt = new GrantStmt(userIdentity, null, new TablePattern("db1", "tbl1"), Lists.newArrayList(
+                new AccessPrivilegeWithCols(AccessPrivilege.CREATE_PRIV, Lists.newArrayList("a", "b"))));
+        try {
+            grantStmt.analyze(analyzer);
+            Assert.fail();
+        } catch (UserException e) {
+            e.printStackTrace();
+        }
+
+        // test Select_PRIV with col
+        grantStmt = new GrantStmt(userIdentity, null, new TablePattern("db1", "tbl1"), Lists.newArrayList(
+                new AccessPrivilegeWithCols(AccessPrivilege.SELECT_PRIV, Lists.newArrayList("a", "b"))));
+        try {
+            grantStmt.analyze(analyzer);
+            auth.grant(grantStmt);
+        } catch (UserException e) {
+            e.printStackTrace();
+            Assert.fail();
+        }
+        // check has select priv of column 'a'
+        try {
+            accessManager
+                    .checkColumnsPriv(userIdentity, SystemInfoService.DEFAULT_CLUSTER + ":db1", "tbl1",
+                            Sets.newHashSet("a"), PrivPredicate.SELECT);
+        } catch (UserException e) {
+            e.printStackTrace();
+            Assert.fail();
+        }
+        // check has select priv of column 'c'
+        try {
+            accessManager
+                    .checkColumnsPriv(userIdentity, SystemInfoService.DEFAULT_CLUSTER + ":db1", "tbl1",
+                            Sets.newHashSet("c"), PrivPredicate.SELECT);
+            Assert.fail();
+        } catch (UserException e) {
+            e.printStackTrace();
+        }
+        // check has load priv of column 'a'
+        try {
+            accessManager
+                    .checkColumnsPriv(userIdentity, SystemInfoService.DEFAULT_CLUSTER + ":db1", "tbl1",
+                            Sets.newHashSet("a"), PrivPredicate.LOAD);
+            Assert.fail();
+        } catch (UserException e) {
+            e.printStackTrace();
+        }
+        // check 'create_priv' use checkColumnsPriv
+        try {
+            accessManager
+                    .checkColumnsPriv(userIdentity, SystemInfoService.DEFAULT_CLUSTER + ":db1", "tbl1",
+                            Sets.newHashSet("a"), PrivPredicate.CREATE);
+            Assert.fail();
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+
+        // check show priv on ctl when has col priv
+        boolean hasPriv = accessManager.checkCtlPriv(userIdentity, Auth.DEFAULT_CATALOG, PrivPredicate.SHOW);
+        if (!hasPriv) {
+            Assert.fail();
+        }
+        // check show priv on db when has col priv
+        hasPriv = accessManager.checkDbPriv(userIdentity, Auth.DEFAULT_CATALOG, "db1", PrivPredicate.SHOW);
+        if (!hasPriv) {
+            Assert.fail();
+        }
+        // check show priv on tbl when has col priv
+        hasPriv = accessManager.checkTblPriv(userIdentity, Auth.DEFAULT_CATALOG, "db1", "tbl1", PrivPredicate.SHOW);
+        if (!hasPriv) {
+            Assert.fail();
+        }
+        // check select priv on tbl when has col priv
+        hasPriv = accessManager.checkTblPriv(userIdentity, Auth.DEFAULT_CATALOG, "db1", "tbl1", PrivPredicate.SELECT);
+        if (hasPriv) {
+            Assert.fail();
+        }
+    }
+
+    @Test
     public void testGrantRole() {
         UserIdentity userIdentity = new UserIdentity("testUser", "%");
         UserDesc userDesc = new UserDesc(userIdentity, "12345", true);
@@ -1475,7 +1591,7 @@ public class AuthTest {
         }
         // grant select_priv on db 'db1' to role 'role1'
         GrantStmt grantStmt = new GrantStmt(null, role, new TablePattern("db1", "*"),
-                Lists.newArrayList(AccessPrivilege.SELECT_PRIV));
+                Lists.newArrayList(new AccessPrivilegeWithCols(AccessPrivilege.SELECT_PRIV)));
         try {
             grantStmt.analyze(analyzer);
             auth.grant(grantStmt);
@@ -1544,7 +1660,8 @@ public class AuthTest {
         ResourcePattern resourcePattern = new ResourcePattern(resourceName);
         String anyResource = "*";
         ResourcePattern anyResourcePattern = new ResourcePattern(anyResource);
-        List<AccessPrivilege> usagePrivileges = Lists.newArrayList(AccessPrivilege.USAGE_PRIV);
+        List<AccessPrivilegeWithCols> usagePrivileges = Lists
+                .newArrayList(new AccessPrivilegeWithCols(AccessPrivilege.USAGE_PRIV));
         UserDesc userDesc = new UserDesc(userIdentity, "12345", true);
 
         // ------ grant|revoke resource to|from user ------
@@ -1583,8 +1700,9 @@ public class AuthTest {
         Assert.assertFalse(accessManager.checkGlobalPriv(userIdentity, PrivPredicate.USAGE));
         // 3.1 grant 'notBelongToResourcePrivileges' on resource 'spark0' to 'testUser'@'%'
         for (int i = 0; i < Privilege.notBelongToResourcePrivileges.length; i++) {
-            List<AccessPrivilege> notAllowedPrivileges = Lists
-                    .newArrayList(AccessPrivilege.fromName(Privilege.notBelongToResourcePrivileges[i].getName()));
+            List<AccessPrivilegeWithCols> notAllowedPrivileges = Lists
+                    .newArrayList(new AccessPrivilegeWithCols(
+                            AccessPrivilege.fromName(Privilege.notBelongToResourcePrivileges[i].getName())));
             grantStmt = new GrantStmt(userIdentity, null, resourcePattern, notAllowedPrivileges);
             try {
                 grantStmt.analyze(analyzer);
@@ -1791,7 +1909,8 @@ public class AuthTest {
         }
 
         // 1. grant db table priv to resource
-        List<AccessPrivilege> privileges = Lists.newArrayList(AccessPrivilege.SELECT_PRIV);
+        List<AccessPrivilegeWithCols> privileges = Lists
+                .newArrayList(new AccessPrivilegeWithCols(AccessPrivilege.SELECT_PRIV));
         grantStmt = new GrantStmt(userIdentity, null, resourcePattern, privileges);
         hasException = false;
         try {
@@ -1824,7 +1943,8 @@ public class AuthTest {
         WorkloadGroupPattern workloadGroupPattern = new WorkloadGroupPattern(workloadGroupName);
         String anyWorkloadGroup = "%";
         WorkloadGroupPattern anyWorkloadGroupPattern = new WorkloadGroupPattern(anyWorkloadGroup);
-        List<AccessPrivilege> usagePrivileges = Lists.newArrayList(AccessPrivilege.USAGE_PRIV);
+        List<AccessPrivilegeWithCols> usagePrivileges = Lists
+                .newArrayList(new AccessPrivilegeWithCols(AccessPrivilege.USAGE_PRIV));
         UserDesc userDesc = new UserDesc(userIdentity, "12345", true);
 
         // ------ grant|revoke workload group to|from user ------
@@ -1863,8 +1983,9 @@ public class AuthTest {
         Assert.assertFalse(accessManager.checkGlobalPriv(userIdentity, PrivPredicate.USAGE));
         // 3.1 grant 'notBelongToWorkloadGroupPrivileges'
         for (int i = 0; i < Privilege.notBelongToWorkloadGroupPrivileges.length; i++) {
-            List<AccessPrivilege> notAllowedPrivileges = Lists.newArrayList(
-                    AccessPrivilege.fromName(Privilege.notBelongToWorkloadGroupPrivileges[i].getName()));
+            List<AccessPrivilegeWithCols> notAllowedPrivileges = Lists.newArrayList(
+                    new AccessPrivilegeWithCols(
+                            AccessPrivilege.fromName(Privilege.notBelongToWorkloadGroupPrivileges[i].getName())));
             grantStmt = new GrantStmt(userIdentity, null, workloadGroupPattern, notAllowedPrivileges);
             try {
                 grantStmt.analyze(analyzer);
@@ -2072,7 +2193,8 @@ public class AuthTest {
         }
 
         // 1. grant db table priv to workload group
-        List<AccessPrivilege> privileges = Lists.newArrayList(AccessPrivilege.SELECT_PRIV);
+        List<AccessPrivilegeWithCols> privileges = Lists
+                .newArrayList(new AccessPrivilegeWithCols(AccessPrivilege.SELECT_PRIV));
         grantStmt = new GrantStmt(userIdentity, null, workloadGroupPattern, privileges);
         hasException = false;
         try {

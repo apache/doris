@@ -87,7 +87,8 @@ struct AggregateFunctionSortData {
 
         PBlock pblock;
         pblock.ParseFromString(data);
-        block = Block(pblock);
+        auto st = block.deserialize(pblock);
+        CHECK(st.ok());
     }
 
     void add(const IColumn** columns, size_t columns_num, size_t row_num) {

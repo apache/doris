@@ -68,6 +68,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 import java.util.stream.Collectors;
 
@@ -80,6 +81,8 @@ public class RoutineLoadManager implements Writable {
     // routine load job meta
     private Map<Long, RoutineLoadJob> idToRoutineLoadJob = Maps.newConcurrentMap();
     private Map<Long, Map<String, List<RoutineLoadJob>>> dbToNameToRoutineLoadJob = Maps.newConcurrentMap();
+
+    private ConcurrentHashMap<Long, Long> multiLoadTaskTxnIdToRoutineLoadJobId = new ConcurrentHashMap<>();
 
     private ReentrantReadWriteLock lock = new ReentrantReadWriteLock(true);
 
@@ -100,6 +103,22 @@ public class RoutineLoadManager implements Writable {
     }
 
     public RoutineLoadManager() {
+    }
+
+    public void addMultiLoadTaskTxnIdToRoutineLoadJobId(long txnId, long routineLoadJobId) {
+        multiLoadTaskTxnIdToRoutineLoadJobId.put(txnId, routineLoadJobId);
+    }
+
+    public RoutineLoadJob getRoutineLoadJobByMultiLoadTaskTxnId(long txnId) {
+        long routineLoadJobId = multiLoadTaskTxnIdToRoutineLoadJobId.get(txnId);
+        if (routineLoadJobId == 0) {
+            return null;
+        }
+        return idToRoutineLoadJob.get(routineLoadJobId);
+    }
+
+    public void removeMultiLoadTaskTxnIdToRoutineLoadJobId(long txnId) {
+        multiLoadTaskTxnIdToRoutineLoadJobId.remove(txnId);
     }
 
     public void updateBeIdToMaxConcurrentTasks() {

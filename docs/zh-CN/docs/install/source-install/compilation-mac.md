@@ -1,6 +1,6 @@
 ---
 {
-    "title": "在macOS平台上编译",
+    "title": "在 MacOS 平台上编译",
     "language": "zh-CN"
 }
 ---
@@ -24,7 +24,7 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# 在macOS平台上编译
+# 在 MacOS 平台上编译
 
 本文介绍如何在 macOS 平台上编译源码。
 
@@ -38,8 +38,12 @@ under the License.
 1. 使用[Homebrew](https://brew.sh/)安装依赖
     ```shell
     brew install automake autoconf libtool pkg-config texinfo coreutils gnu-getopt \
-        python@3 cmake ninja ccache bison byacc gettext wget pcre maven llvm@16 openjdk@8 npm
+        python@3 cmake ninja ccache bison byacc gettext wget pcre maven llvm@16 openjdk@11 npm
     ```
+
+:::tip
+使用 brew 安装的 jdk 版本为 11，因为在 macOS上，arm64 版本的 brew 默认没有 8 版本的 jdk
+:::
 
 2. 编译源码
     ```shell
@@ -111,4 +115,4 @@ under the License.
 
 2. Java版本
 
-   推荐使用Java 8。
+   使用 brew 安装的 jdk 版本为 11，因为在 macOS上，arm64 版本的 brew 默认没有 8 版本的 jdk，也可以自行下载 jdk 的安装包进行安装

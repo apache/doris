@@ -1268,6 +1268,7 @@ false	3	1989	1002	11011905	24453.325	false	2012-03-14	2000-01-01T00:00	yunlj8@nk
 15
 
 -- !left_anti_join_null_3 --
+\N
 1
 2
 3
@@ -1308,6 +1309,7 @@ false	3	1989	1002	11011905	24453.325	false	2012-03-14	2000-01-01T00:00	yunlj8@nk
 3
 
 -- !right_anti_join_null_1 --
+\N
 1
 
 -- !right_anti_join_null_2 --

@@ -20,6 +20,8 @@
 #include <utility>
 #include <vector>
 
+#include "common/exception.h"
+#include "common/status.h"
 #include "util/runtime_profile.h"
 #include "util/stopwatch.hpp"
 #include "vec/columns/column.h"
@@ -96,11 +98,28 @@ Status VSortedRunMerger::get_next(Block* output_block, bool* eos) {
     // Only have one receive data queue of data, no need to do merge and
     // copy the data of block.
     // return the data in receive data directly
-    if (_priority_queue.size() == 1) {
+
+    if (_pending_cursor != nullptr) {
+        MergeSortCursor cursor(_pending_cursor);
+        if (has_next_block(cursor)) {
+            _priority_queue.push(cursor);
+        }
+        _pending_cursor = nullptr;
+    }
+
+    if (_priority_queue.empty()) {
+        *eos = true;
+        return Status::OK();
+    } else if (_priority_queue.size() == 1) {
         auto current = _priority_queue.top();
         while (_offset != 0 && current->block_ptr() != nullptr) {
             if (_offset >= current->rows - current->pos) {
                 _offset -= (current->rows - current->pos);
+                if (_pipeline_engine_enabled) {
+                    _pending_cursor = current.impl;
+                    _priority_queue.pop();
+                    return Status::OK();
+                }
                 has_next_block(current);
             } else {
                 current->pos += _offset;
@@ -111,6 +130,11 @@ Status VSortedRunMerger::get_next(Block* output_block, bool* eos) {
         if (current->isFirst()) {
             if (current->block_ptr() != nullptr) {
                 current->block_ptr()->swap(*output_block);
+                if (_pipeline_engine_enabled) {
+                    _pending_cursor = current.impl;
+                    _priority_queue.pop();
+                    return Status::OK();
+                }
                 *eos = !has_next_block(current);
             } else {
                 *eos = true;
@@ -123,6 +147,11 @@ Status VSortedRunMerger::get_next(Block* output_block, bool* eos) {
                             current->pos, current->rows - current->pos);
                 }
                 current->block_ptr()->swap(*output_block);
+                if (_pipeline_engine_enabled) {
+                    _pending_cursor = current.impl;
+                    _priority_queue.pop();
+                    return Status::OK();
+                }
                 *eos = !has_next_block(current);
             } else {
                 *eos = true;
@@ -134,6 +163,13 @@ Status VSortedRunMerger::get_next(Block* output_block, bool* eos) {
                 VectorizedUtils::build_mutable_mem_reuse_block(output_block, _empty_block);
         MutableColumns& merged_columns = m_block.mutable_columns();
 
+        if (num_columns != merged_columns.size()) {
+            throw Exception(
+                    ErrorCode::INTERNAL_ERROR,
+                    "num_columns!=merged_columns.size(), num_columns={}, merged_columns.size()={}",
+                    num_columns, merged_columns.size());
+        }
+
         /// Take rows from queue in right order and push to 'merged'.
         size_t merged_rows = 0;
         while (!_priority_queue.empty()) {
@@ -143,12 +179,20 @@ Status VSortedRunMerger::get_next(Block* output_block, bool* eos) {
             if (_offset > 0) {
                 _offset--;
             } else {
-                for (size_t i = 0; i < num_columns; ++i)
+                for (size_t i = 0; i < num_columns; ++i) {
                     merged_columns[i]->insert_from(*current->all_columns[i], current->pos);
+                }
                 ++merged_rows;
             }
-            next_heap(current);
-            if (merged_rows == _batch_size) break;
+
+            // In pipeline engine, needs to check if the sender is readable before the next reading.
+            if (!next_heap(current)) {
+                return Status::OK();
+            }
+
+            if (merged_rows == _batch_size) {
+                break;
+            }
         }
 
         if (merged_rows == 0) {
@@ -165,13 +209,18 @@ Status VSortedRunMerger::get_next(Block* output_block, bool* eos) {
     return Status::OK();
 }
 
-void VSortedRunMerger::next_heap(MergeSortCursor& current) {
+bool VSortedRunMerger::next_heap(MergeSortCursor& current) {
     if (!current->isLast()) {
         current->next();
         _priority_queue.push(current);
+    } else if (_pipeline_engine_enabled) {
+        // need to check sender is readable again before the next reading.
+        _pending_cursor = current.impl;
+        return false;
     } else if (has_next_block(current)) {
         _priority_queue.push(current);
     }
+    return true;
 }
 
 inline bool VSortedRunMerger::has_next_block(doris::vectorized::MergeSortCursor& current) {

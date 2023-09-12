@@ -51,6 +51,7 @@
 15
 
 -- !left_anti_join_null_3 --
+\N
 1
 2
 3
@@ -91,6 +92,7 @@
 3
 
 -- !right_anti_join_null_1 --
+\N
 1
 
 -- !right_anti_join_null_2 --

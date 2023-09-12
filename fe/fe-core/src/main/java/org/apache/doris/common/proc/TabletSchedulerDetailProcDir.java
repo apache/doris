@@ -37,7 +37,7 @@ public class TabletSchedulerDetailProcDir implements ProcDirInterface {
     public static final ImmutableList<String> TITLE_NAMES = new ImmutableList.Builder<String>().add("TabletId")
             .add("Type").add("Medium").add("Status").add("State").add("SchedCode").add("Priority").add("SrcBe")
             .add("SrcPath").add("DestBe").add("DestPath").add("Timeout").add("Create").add("LstSched").add("LstVisit")
-            .add("Finished").add("Rate").add("FailedSched").add("FailedRunning").add("VisibleVer")
+            .add("Finished").add("ReplicaSize").add("Rate").add("FailedSched").add("FailedRunning").add("VisibleVer")
             .add("CmtVer").add("ErrMsg")
             .build();
 

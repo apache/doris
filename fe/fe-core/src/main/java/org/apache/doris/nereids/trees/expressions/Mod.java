@@ -24,6 +24,7 @@ import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.DecimalV3Type;
 
 import com.google.common.base.Preconditions;
+import com.google.common.collect.ImmutableList;
 
 import java.util.List;
 
@@ -33,13 +34,17 @@ import java.util.List;
 public class Mod extends BinaryArithmetic implements AlwaysNullable {
 
     public Mod(Expression left, Expression right) {
-        super(left, right, Operator.MOD);
+        super(ImmutableList.of(left, right), Operator.MOD);
+    }
+
+    private Mod(List<Expression> children) {
+        super(children, Operator.MOD);
     }
 
     @Override
     public Expression withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 2);
-        return new Mod(children.get(0), children.get(1));
+        return new Mod(children);
     }
 
     @Override

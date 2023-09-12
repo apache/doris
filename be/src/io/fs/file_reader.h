@@ -33,6 +33,28 @@ namespace io {
 class FileSystem;
 class IOContext;
 
+enum class FileCachePolicy : uint8_t {
+    NO_CACHE,
+    FILE_BLOCK_CACHE,
+};
+
+inline FileCachePolicy cache_type_from_string(std::string_view type) {
+    if (type == "file_block_cache") {
+        return FileCachePolicy::FILE_BLOCK_CACHE;
+    } else {
+        return FileCachePolicy::NO_CACHE;
+    }
+}
+
+// Only affects remote file readers
+struct FileReaderOptions {
+    FileCachePolicy cache_type {FileCachePolicy::NO_CACHE};
+    bool is_doris_table = false;
+    std::string cache_base_path;
+    // Use modification time to determine whether the file is changed
+    int64_t modification_time = 0;
+};
+
 class FileReader {
 public:
     FileReader() = default;
@@ -59,6 +81,8 @@ protected:
     virtual Status read_at_impl(size_t offset, Slice result, size_t* bytes_read,
                                 const IOContext* io_ctx) = 0;
 };
+
+using FileReaderSPtr = std::shared_ptr<FileReader>;
 
 } // namespace io
 } // namespace doris

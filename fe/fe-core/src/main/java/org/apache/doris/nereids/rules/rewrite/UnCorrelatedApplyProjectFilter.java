@@ -89,8 +89,8 @@ public class UnCorrelatedApplyProjectFilter extends OneRewriteRuleFactory {
                     LogicalProject newProject = project.withProjectsAndChild(projects, child);
                     return new LogicalApply<>(apply.getCorrelationSlot(), apply.getSubqueryExpr(),
                             ExpressionUtils.optionalAnd(correlatedPredicate), apply.getMarkJoinSlotReference(),
-                            apply.getSubCorrespondingConjunct(), apply.isNeedAddSubOutputToProjects(),
-                            apply.left(), newProject);
+                            apply.isNeedAddSubOutputToProjects(),
+                            apply.isInProject(), apply.left(), newProject);
                 }).toRule(RuleType.UN_CORRELATED_APPLY_PROJECT_FILTER);
     }
 }

@@ -16,5 +16,9 @@
 // under the License.
 
 suite("test_if") {
-    sql "select if(id=1,count,hll_empty()) from (select 1 as id, hll_hash(1) as count) t"
+    qt_select "select if(id=1,count,hll_empty()) from (select 1 as id, hll_hash(1) as count) t"
+
+    qt_select "select if(job_d is null, array(), job_d) as test from (select array('1970-01-01', '1970-01-01') as job_d) t"
+    qt_select "select if(job_d is null, array('1970-01-01'), job_d) as test from (select array('1970-01-01', '1970-01-01') as job_d) t"
+    qt_select "select if(job_d is null, job_d, array()) as test from (select array('1970-01-01', '1970-01-01') as job_d) t"
 }

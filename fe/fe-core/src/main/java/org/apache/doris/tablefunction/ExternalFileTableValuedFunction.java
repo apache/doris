@@ -21,6 +21,7 @@ import org.apache.doris.analysis.BrokerDesc;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.catalog.ArrayType;
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.HdfsResource;
 import org.apache.doris.catalog.MapType;
 import org.apache.doris.catalog.PrimitiveType;
@@ -44,6 +45,7 @@ import org.apache.doris.proto.InternalService.PFetchTableSchemaRequest;
 import org.apache.doris.proto.Types.PScalarType;
 import org.apache.doris.proto.Types.PTypeDesc;
 import org.apache.doris.proto.Types.PTypeNode;
+import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.rpc.BackendServiceProxy;
 import org.apache.doris.rpc.RpcException;
 import org.apache.doris.system.Backend;
@@ -60,6 +62,7 @@ import org.apache.doris.thrift.THdfsParams;
 import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TPrimitiveType;
 import org.apache.doris.thrift.TStatusCode;
+import org.apache.doris.thrift.TTextSerdeType;
 
 import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableSet;
@@ -86,7 +89,7 @@ import java.util.stream.Collectors;
  */
 public abstract class ExternalFileTableValuedFunction extends TableValuedFunctionIf {
     public static final Logger LOG = LogManager.getLogger(ExternalFileTableValuedFunction.class);
-    protected static final String DEFAULT_COLUMN_SEPARATOR = ",";
+    protected static String DEFAULT_COLUMN_SEPARATOR = ",";
     protected static final String DEFAULT_LINE_DELIMITER = "\n";
     public static final String FORMAT = "format";
     public static final String COLUMN_SEPARATOR = "column_separator";
@@ -137,6 +140,7 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
     private TFileCompressType compressionType;
     private String headerType = "";
 
+    private TTextSerdeType textSerdeType = TTextSerdeType.JSON_TEXT_SERDE;
     private String columnSeparator = DEFAULT_COLUMN_SEPARATOR;
     private String lineDelimiter = DEFAULT_LINE_DELIMITER;
     private String jsonRoot = "";
@@ -200,6 +204,11 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
             case "csv":
                 this.fileFormatType = TFileFormatType.FORMAT_CSV_PLAIN;
                 break;
+            case "hive_text":
+                this.fileFormatType = TFileFormatType.FORMAT_CSV_PLAIN;
+                this.DEFAULT_COLUMN_SEPARATOR = "\001";
+                this.textSerdeType = TTextSerdeType.HIVE_TEXT_SERDE;
+                break;
             case "csv_with_names":
                 this.headerType = FeConstants.csv_with_names;
                 this.fileFormatType = TFileFormatType.FORMAT_CSV_PLAIN;
@@ -224,6 +233,11 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
                 throw new AnalysisException("format:" + formatString + " is not supported.");
         }
 
+        if (getTFileType() == TFileType.FILE_STREAM && (formatString.equals("parquet")
+                || formatString.equals("avro")
+                || formatString.equals("orc"))) {
+            throw new AnalysisException("current http_stream does not yet support parquet, avro and orc");
+        }
         columnSeparator = validParams.getOrDefault(COLUMN_SEPARATOR, DEFAULT_COLUMN_SEPARATOR);
         lineDelimiter = validParams.getOrDefault(LINE_DELIMITER, DEFAULT_LINE_DELIMITER);
         jsonRoot = validParams.getOrDefault(JSON_ROOT, "");
@@ -364,18 +378,13 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
             return columns;
         }
         // get one BE address
-        TNetworkAddress address = null;
         columns = Lists.newArrayList();
-        for (Backend be : org.apache.doris.catalog.Env.getCurrentSystemInfo().getIdToBackend().values()) {
-            if (be.isAlive()) {
-                address = new TNetworkAddress(be.getHost(), be.getBrpcPort());
-                break;
-            }
-        }
-        if (address == null) {
+        Backend be = getBackend();
+        if (be == null) {
             throw new AnalysisException("No Alive backends");
         }
 
+        TNetworkAddress address = new TNetworkAddress(be.getHost(), be.getBrpcPort());
         try {
             PFetchTableSchemaRequest request = getFetchTableStructureRequest();
             Future<InternalService.PFetchTableSchemaResult> future = BackendServiceProxy.getInstance()
@@ -405,6 +414,24 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
             throw new AnalysisException("getFetchTableStructureRequest exception", e);
         }
         return columns;
+    }
+
+    protected Backend getBackend() {
+        ConnectContext ctx = ConnectContext.get();
+        // For the http stream task, we should obtain the be for processing the task
+        long backendId = ctx.getBackendId();
+        if (getTFileType() == TFileType.FILE_STREAM) {
+            Backend be = Env.getCurrentSystemInfo().getIdToBackend().get(backendId);
+            if (be.isAlive()) {
+                return be;
+            }
+        }
+        for (Backend be : Env.getCurrentSystemInfo().getIdToBackend().values()) {
+            if (be.isAlive()) {
+                return be;
+            }
+        }
+        return null;
     }
 
     /**
@@ -469,7 +496,16 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
         TFileScanRangeParams fileScanRangeParams = new TFileScanRangeParams();
         fileScanRangeParams.setFormatType(fileFormatType);
         fileScanRangeParams.setProperties(locationProperties);
+        fileScanRangeParams.setTextSerdeType(textSerdeType);
         fileScanRangeParams.setFileAttributes(getFileAttributes());
+        ConnectContext ctx = ConnectContext.get();
+        fileScanRangeParams.setLoadId(ctx.queryId());
+
+        if (getTFileType() == TFileType.FILE_STREAM) {
+            fileStatuses.add(new TBrokerFileStatus("", false, -1, true));
+            fileScanRangeParams.setFileType(getTFileType());
+        }
+
         if (getTFileType() == TFileType.FILE_HDFS) {
             THdfsParams tHdfsParams = HdfsResource.generateHdfsParam(locationProperties);
             String fsNmae = getLocationProperties().get(HdfsResource.HADOOP_FS_NAME);
@@ -492,6 +528,7 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
 
         // set TFileRangeDesc
         TFileRangeDesc fileRangeDesc = new TFileRangeDesc();
+        fileRangeDesc.setLoadId(ctx.queryId());
         fileRangeDesc.setFileType(getTFileType());
         fileRangeDesc.setCompressType(Util.getOrInferCompressType(compressionType, firstFile.getPath()));
         fileRangeDesc.setPath(firstFile.getPath());

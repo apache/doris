@@ -56,11 +56,11 @@ public class CheckExpressionLegalityTest implements MemoPatternMatchSupported {
         ConnectContext connectContext = MemoTestUtils.createConnectContext();
         PlanChecker.from(connectContext)
                 .analyze("select count(distinct id) from (select to_bitmap(1) id) tbl")
-                .matchesFromRoot(logicalAggregate().when(agg ->
+                .matches(logicalAggregate().when(agg ->
                     agg.getOutputExpressions().get(0).child(0) instanceof Count
                 ))
                 .rewrite()
-                .matchesFromRoot(logicalAggregate().when(agg ->
+                .matches(logicalAggregate().when(agg ->
                     agg.getOutputExpressions().get(0).child(0) instanceof BitmapUnionCount
                 ));
 

@@ -255,6 +255,7 @@ public class FileLoadScanNode extends FileScanNode {
                     if (column.getDefaultValue() != null) {
                         if (column.getDefaultValueExprDef() != null) {
                             expr = column.getDefaultValueExpr();
+                            expr.analyze(analyzer);
                         } else {
                             expr = new StringLiteral(destSlotDesc.getColumn().getDefaultValue());
                         }

@@ -478,7 +478,30 @@ public class FunctionCallExpr extends Expr {
             aggFnParams = aggFnParams
                     .clone(newParams);
         }
-        return super.substituteImpl(smap, disjunctsMap, analyzer);
+        if (isImplicitCast()) {
+            return getChild(0).substituteImpl(smap, disjunctsMap, analyzer);
+        }
+        if (smap != null) {
+            Expr substExpr = smap.get(this);
+            if (substExpr != null) {
+                return substExpr.clone();
+            }
+        }
+        if (Expr.IS_OR_PREDICATE.apply(this) && disjunctsMap != null) {
+            smap = disjunctsMap;
+            disjunctsMap = null;
+        }
+        for (int i = 0; i < children.size(); ++i) {
+            // we shouldn't change literal expr in function call expr
+            if (!(children.get(i) instanceof LiteralExpr)) {
+                children.set(i, children.get(i).substituteImpl(smap, disjunctsMap, analyzer));
+            }
+        }
+        // SlotRefs must remain analyzed to support substitution across query blocks. All
+        // other exprs must be analyzed again after the substitution to add implicit casts
+        // and for resolving their correct function signature.
+        resetAnalysisState();
+        return this;
     }
 
     @Override
@@ -528,14 +551,34 @@ public class FunctionCallExpr extends Expr {
             sb.append("DISTINCT ");
         }
         int len = children.size();
+
+        if (fnName.getFunction().equalsIgnoreCase("char")) {
+            for (int i = 1; i < len; ++i) {
+                sb.append(children.get(i).toSql());
+                if (i < len - 1) {
+                    sb.append(", ");
+                }
+            }
+            sb.append(" using ");
+            String encodeType = children.get(0).toSql();
+            if (encodeType.charAt(0) == '\'') {
+                encodeType = encodeType.substring(1, encodeType.length());
+            }
+            if (encodeType.charAt(encodeType.length() - 1) == '\'') {
+                encodeType = encodeType.substring(0, encodeType.length() - 1);
+            }
+            sb.append(encodeType).append(")");
+            return sb.toString();
+        }
+
         // XXX_diff are used by nereids only
         if (fnName.getFunction().equalsIgnoreCase("years_diff") || fnName.getFunction().equalsIgnoreCase("months_diff")
                 || fnName.getFunction().equalsIgnoreCase("days_diff")
                 || fnName.getFunction().equalsIgnoreCase("hours_diff")
                 || fnName.getFunction().equalsIgnoreCase("minutes_diff")
                 || fnName.getFunction().equalsIgnoreCase("seconds_diff")) {
-            sb.append(children.get(1).toSql()).append(", ");
-            sb.append(children.get(0).toSql()).append(")");
+            sb.append(children.get(0).toSql()).append(", ");
+            sb.append(children.get(1).toSql()).append(")");
             return sb.toString();
         }
         // used by nereids END
@@ -547,7 +590,12 @@ public class FunctionCallExpr extends Expr {
 
         for (int i = 0; i < len; ++i) {
             if (i != 0) {
-                sb.append(", ");
+                if (fnName.getFunction().equalsIgnoreCase("group_concat")
+                        && orderByElements.size() > 0 && i == len - orderByElements.size()) {
+                    sb.append(" ");
+                } else {
+                    sb.append(", ");
+                }
             }
             if (ConnectContext.get() != null && ConnectContext.get().getState().isQuery() && i == 1
                     && (fnName.getFunction().equalsIgnoreCase("aes_decrypt")
@@ -934,7 +982,7 @@ public class FunctionCallExpr extends Expr {
 
         if (fnName.getFunction().equalsIgnoreCase(FunctionSet.QUANTILE_UNION)) {
             if (children.size() != 1) {
-                throw new AnalysisException(fnName + "function could only have one child");
+                throw new AnalysisException(fnName + " function could only have one child");
             }
             Type inputType = getChild(0).getType();
             if (!inputType.isQuantileStateType()) {
@@ -1152,7 +1200,8 @@ public class FunctionCallExpr extends Expr {
                 || fnName.getFunction().equalsIgnoreCase("array_cum_sum")
                 || fnName.getFunction().equalsIgnoreCase("array_intersect")
                 || fnName.getFunction().equalsIgnoreCase("arrays_overlap")
-                || fnName.getFunction().equalsIgnoreCase("array_concat")) {
+                || fnName.getFunction().equalsIgnoreCase("array_concat")
+                || fnName.getFunction().equalsIgnoreCase("array")) {
             Type[] childTypes = collectChildReturnTypes();
             Type compatibleType = childTypes[0];
             for (int i = 1; i < childTypes.length; ++i) {
@@ -1168,9 +1217,7 @@ public class FunctionCallExpr extends Expr {
             for (int i = 0; i < childTypes.length; i++) {
                 uncheckedCastChild(compatibleType, i);
             }
-        }
-
-        if (fnName.getFunction().equalsIgnoreCase("array_exists")) {
+        } else if (fnName.getFunction().equalsIgnoreCase("array_exists")) {
             Type[] newArgTypes = new Type[1];
             if (!(getChild(0) instanceof CastExpr)) {
                 Expr castExpr = getChild(0).castTo(ArrayType.create(Type.BOOLEAN, true));
@@ -1185,6 +1232,22 @@ public class FunctionCallExpr extends Expr {
                 throw new AnalysisException(getFunctionNotFoundError(collectChildReturnTypes()));
             }
             fn.setReturnType(getChild(0).getType());
+        } else if (fnName.getFunction().equalsIgnoreCase("array_position")
+                || fnName.getFunction().equalsIgnoreCase("array_contains")
+                || fnName.getFunction().equalsIgnoreCase("countequal")) {
+            // make nested type with function param can be Compatible otherwise be will not deal with type
+            Type[] childTypes = collectChildReturnTypes();
+            if (childTypes[0].isNull()) {
+                childTypes[0] = new ArrayType(Type.NULL);
+            }
+            Type compatibleType = ((ArrayType) childTypes[0]).getItemType();
+            for (int i = 1; i < childTypes.length; ++i) {
+                compatibleType = Type.getAssignmentCompatibleType(compatibleType, childTypes[i], true);
+                if (compatibleType == Type.INVALID) {
+                    throw new AnalysisException(getFunctionNotFoundError(collectChildReturnTypes()));
+                }
+                uncheckedCastChild(compatibleType, i);
+            }
         }
     }
 
@@ -1406,20 +1469,22 @@ public class FunctionCallExpr extends Expr {
         } else if (fnName.getFunction().equalsIgnoreCase("ifnull")) {
             Type[] childTypes = collectChildReturnTypes();
             Type assignmentCompatibleType = ScalarType.getAssignmentCompatibleType(childTypes[0], childTypes[1], true);
-            if (assignmentCompatibleType.isDecimalV3()) {
-                if (assignmentCompatibleType.isDecimalV3() && !childTypes[0].equals(assignmentCompatibleType)) {
-                    uncheckedCastChild(assignmentCompatibleType, 0);
+            if (assignmentCompatibleType != Type.INVALID) {
+                if (assignmentCompatibleType.isDecimalV3()) {
+                    if (assignmentCompatibleType.isDecimalV3() && !childTypes[0].equals(assignmentCompatibleType)) {
+                        uncheckedCastChild(assignmentCompatibleType, 0);
+                    }
+                    if (assignmentCompatibleType.isDecimalV3() && !childTypes[1].equals(assignmentCompatibleType)) {
+                        uncheckedCastChild(assignmentCompatibleType, 1);
+                    }
                 }
-                if (assignmentCompatibleType.isDecimalV3() && !childTypes[1].equals(assignmentCompatibleType)) {
-                    uncheckedCastChild(assignmentCompatibleType, 1);
-                }
-            }
-            childTypes[0] = assignmentCompatibleType;
-            childTypes[1] = assignmentCompatibleType;
+                childTypes[0] = assignmentCompatibleType;
+                childTypes[1] = assignmentCompatibleType;
 
-            if (childTypes[1].isDecimalV3() && childTypes[0].isDecimalV3()) {
-                argTypes[1] = assignmentCompatibleType;
-                argTypes[0] = assignmentCompatibleType;
+                if (childTypes[1].isDecimalV3() && childTypes[0].isDecimalV3()) {
+                    argTypes[1] = assignmentCompatibleType;
+                    argTypes[0] = assignmentCompatibleType;
+                }
             }
             fn = getBuiltinFunction(fnName.getFunction(), childTypes,
                     Function.CompareMode.IS_NONSTRICT_SUPERTYPE_OF);
@@ -1501,8 +1566,13 @@ public class FunctionCallExpr extends Expr {
         }
 
         if (fnName.getFunction().equalsIgnoreCase("collect_list")
-                || fnName.getFunction().equalsIgnoreCase("collect_set")) {
+                || fnName.getFunction().equalsIgnoreCase("collect_set")
+                || fnName.getFunction().equalsIgnoreCase("array_agg")) {
             fn.setReturnType(new ArrayType(getChild(0).type));
+        }
+
+        if (fnName.getFunction().equalsIgnoreCase("map_agg")) {
+            fn.setReturnType(new MapType(getChild(0).type, getChild(1).type));
         }
 
         if (fnName.getFunction().equalsIgnoreCase("group_uniq_array")
@@ -1531,6 +1601,20 @@ public class FunctionCallExpr extends Expr {
                                 .toSql());
             }
         }
+        if (fnName.getFunction().equalsIgnoreCase("date_trunc")) {
+            if ((children.size() != 2) || (getChild(1).isConstant() == false)
+                    || !(getChild(1) instanceof StringLiteral)) {
+                throw new AnalysisException(
+                        fnName.getFunction() + " needs two params, and the second is must be a string constant: "
+                                + this.toSql());
+            }
+            final String constParam = ((StringLiteral) getChild(1)).getValue().toLowerCase();
+            if (!Lists.newArrayList("year", "quarter", "month", "week", "day", "hour", "minute", "second")
+                    .contains(constParam)) {
+                throw new AnalysisException("date_trunc function second param only support argument is "
+                        + "year|quarter|month|week|day|hour|minute|second");
+            }
+        }
         if (fnName.getFunction().equalsIgnoreCase("char")) {
             if (!getChild(0).isConstant()) {
                 throw new AnalysisException(
@@ -1553,6 +1637,21 @@ public class FunctionCallExpr extends Expr {
                 fn.setReturnType(ret);
                 fn.getReturnType().getPrimitiveType().setTimeType();
             }
+        }
+
+        if (fn.getFunctionName().getFunction().equals("from_microsecond")) {
+            Type ret = ScalarType.createDatetimeV2Type(6);
+            fn.setReturnType(ret);
+        }
+
+        if (fn.getFunctionName().getFunction().equals("from_millisecond")) {
+            Type ret = ScalarType.createDatetimeV2Type(3);
+            fn.setReturnType(ret);
+        }
+
+        if (fn.getFunctionName().getFunction().equals("from_second")) {
+            Type ret = ScalarType.createDatetimeV2Type(0);
+            fn.setReturnType(ret);
         }
 
         if (fnName.getFunction().equalsIgnoreCase("map")) {
@@ -1648,10 +1747,6 @@ public class FunctionCallExpr extends Expr {
                         || fnName.getFunction().equalsIgnoreCase("hist"))
                         && children.get(0).getType().isDecimalV3() && args[ix].isDecimalV3()) {
                     continue;
-                } else if (fnName.getFunction().equalsIgnoreCase("array")
-                        && (children.get(0).getType().isDecimalV3() && args[ix].isDecimalV3()
-                        || children.get(0).getType().isDatetimeV2() && args[ix].isDatetimeV2())) {
-                    continue;
                 } else if ((fnName.getFunction().equalsIgnoreCase("array_min") || fnName.getFunction()
                         .equalsIgnoreCase("array_max") || fnName.getFunction().equalsIgnoreCase("element_at"))
                         && ((
@@ -1662,8 +1757,10 @@ public class FunctionCallExpr extends Expr {
                         || (children.get(0).getType().isDecimalV2()
                         && ((ArrayType) args[ix]).getItemType().isDecimalV2()))) {
                     continue;
-                } else if ((fnName.getFunction().equalsIgnoreCase("array_distinct") || fnName.getFunction()
-                        .equalsIgnoreCase("array_remove") || fnName.getFunction().equalsIgnoreCase("array_sort")
+                } else if ((fnName.getFunction().equalsIgnoreCase("array")
+                        || fnName.getFunction().equalsIgnoreCase("array_distinct")
+                        || fnName.getFunction().equalsIgnoreCase("array_remove")
+                        || fnName.getFunction().equalsIgnoreCase("array_sort")
                         || fnName.getFunction().equalsIgnoreCase("array_reverse_sort")
                         || fnName.getFunction().equalsIgnoreCase("array_overlap")
                         || fnName.getFunction().equalsIgnoreCase("array_union")
@@ -1681,8 +1778,6 @@ public class FunctionCallExpr extends Expr {
                         || fnName.getFunction().equalsIgnoreCase("array_shuffle")
                         || fnName.getFunction().equalsIgnoreCase("shuffle")
                         || fnName.getFunction().equalsIgnoreCase("array_except")
-                        || fnName.getFunction().equalsIgnoreCase("array_contains")
-                        || fnName.getFunction().equalsIgnoreCase("array_position")
                         || fnName.getFunction().equalsIgnoreCase("width_bucket"))
                         && (args[ix].isDecimalV3() || (children.get(0).getType().isArrayType()
                         && (((ArrayType) children.get(0).getType()).getItemType().isDecimalV3())
@@ -1701,6 +1796,9 @@ public class FunctionCallExpr extends Expr {
                         && !(argTypes[i].isDecimalV3OrContainsDecimalV3()
                         && args[ix].isDecimalV3OrContainsDecimalV3())) {
                     // Do not do this cast if types are both decimalv3 with different precision/scale.
+                    uncheckedCastChild(args[ix], i);
+                } else if (fnName.getFunction().equalsIgnoreCase("if")
+                        && argTypes[i].isArrayType() && ((ArrayType) argTypes[i]).getItemType().isNull()) {
                     uncheckedCastChild(args[ix], i);
                 }
             }
@@ -1785,6 +1883,11 @@ public class FunctionCallExpr extends Expr {
         }
         // rewrite return type if is nested type function
         analyzeNestedFunction();
+        for (OrderByElement o : orderByElements) {
+            if (!o.getExpr().isAnalyzed) {
+                o.getExpr().analyzeImpl(analyzer);
+            }
+        }
     }
 
     // if return type is nested type, need to be determined the sub-element type
@@ -2203,5 +2306,18 @@ public class FunctionCallExpr extends Expr {
                     Function.CompareMode.IS_NONSTRICT_SUPERTYPE_OF);
         }
         return fn;
+    }
+
+    // eg: date_floor("0001-01-01 00:00:18",interval 5 second) convert to
+    // second_floor("0001-01-01 00:00:18", 5, "0001-01-01 00:00:00");
+    public static FunctionCallExpr functionWithIntervalConvert(String functionName, Expr str, Expr interval,
+            String timeUnitIdent) throws AnalysisException {
+        String newFunctionName = timeUnitIdent + "_" + functionName.split("_")[1];
+        List<Expr> params = new ArrayList<>();
+        Expr defaultDatetime = new DateLiteral(0001, 01, 01, 0, 0, 0, 0, Type.DATETIMEV2);
+        params.add(str);
+        params.add(interval);
+        params.add(defaultDatetime);
+        return new FunctionCallExpr(newFunctionName, params);
     }
 }

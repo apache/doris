@@ -43,26 +43,32 @@ struct type_limit<DecimalV2Value> {
 
 template <>
 struct type_limit<vectorized::Decimal32> {
-    static vectorized::Int32 min() { return -999999999; }
-    static vectorized::Int32 max() { return 999999999; }
+    static vectorized::Decimal32 max() { return 999999999; }
+    static vectorized::Decimal32 min() { return -max(); }
 };
 
 template <>
 struct type_limit<vectorized::Decimal64> {
-    static vectorized::Int64 min() { return -999999999999999999; }
-    static vectorized::Int64 max() { return 999999999999999999; }
+    static vectorized::Decimal64 max() { return int64_t(999999999999999999ll); }
+    static vectorized::Decimal64 min() { return -max(); }
 };
 
 template <>
 struct type_limit<vectorized::Decimal128I> {
-    static vectorized::Int128 min() {
-        return -(static_cast<int128_t>(999999999999999999ll) * 100000000000000000ll * 1000ll +
-                 static_cast<int128_t>(99999999999999999ll) * 1000ll + 999ll);
+    static vectorized::Decimal128I max() {
+        return (static_cast<int128_t>(999999999999999999ll) * 100000000000000000ll * 1000ll +
+                static_cast<int128_t>(99999999999999999ll) * 1000ll + 999ll);
     }
-    static vectorized::Int128 max() {
-        return static_cast<int128_t>(999999999999999999ll) * 100000000000000000ll * 1000ll +
-               static_cast<int128_t>(99999999999999999ll) * 1000ll + 999ll;
+    static vectorized::Decimal128I min() { return -max(); }
+};
+
+template <>
+struct type_limit<vectorized::Decimal128> {
+    static vectorized::Decimal128 max() {
+        return (static_cast<int128_t>(999999999999999999ll) * 100000000000000000ll * 1000ll +
+                static_cast<int128_t>(99999999999999999ll) * 1000ll + 999ll);
     }
+    static vectorized::Decimal128 min() { return -max(); }
 };
 
 template <>

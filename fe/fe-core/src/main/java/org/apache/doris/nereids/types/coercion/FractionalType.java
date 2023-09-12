@@ -32,7 +32,7 @@ public class FractionalType extends NumericType {
     }
 
     @Override
-    public boolean acceptsType(AbstractDataType other) {
+    public boolean acceptsType(DataType other) {
         return other instanceof FractionalType;
     }
 

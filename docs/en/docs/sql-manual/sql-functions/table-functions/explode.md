@@ -1,6 +1,6 @@
 ---
 {
-    "title": "explode",
+    "title": "EXPLODE",
     "language": "en"
 }
 ---

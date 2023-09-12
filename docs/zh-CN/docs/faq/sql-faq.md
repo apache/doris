@@ -1,6 +1,6 @@
 ---
 {
-    "title": "SQL问题",
+    "title": "SQL 问题",
     "language": "zh-CN"
 }
 ---
@@ -84,3 +84,8 @@ Doris的 Master FE 节点会主动发送心跳给各个FE或BE节点，并且在
 1. 在 [https://curl.se/docs/caextract.html](https://curl.se/docs/caextract.html) 下载证书：cacert.pem
 2. 拷贝证书到指定位置：`sudo cp /tmp/cacert.pem /etc/ssl/certs/ca-certificates.crt`
 3. 重启 BE 节点。
+
+### Q7. 导入报错："Message": "[INTERNAL_ERROR]single replica load is disabled on BE."
+
+1. be.conf中增加 enable_single_replica_load = true
+2. 重启 BE 节点。

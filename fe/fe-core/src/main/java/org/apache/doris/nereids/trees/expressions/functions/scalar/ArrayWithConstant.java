@@ -25,19 +25,7 @@ import org.apache.doris.nereids.trees.expressions.shape.BinaryExpression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.ArrayType;
 import org.apache.doris.nereids.types.BigIntType;
-import org.apache.doris.nereids.types.BooleanType;
-import org.apache.doris.nereids.types.DateTimeType;
-import org.apache.doris.nereids.types.DateType;
-import org.apache.doris.nereids.types.DecimalV2Type;
-import org.apache.doris.nereids.types.DecimalV3Type;
-import org.apache.doris.nereids.types.DoubleType;
-import org.apache.doris.nereids.types.FloatType;
-import org.apache.doris.nereids.types.IntegerType;
-import org.apache.doris.nereids.types.LargeIntType;
-import org.apache.doris.nereids.types.SmallIntType;
-import org.apache.doris.nereids.types.StringType;
-import org.apache.doris.nereids.types.TinyIntType;
-import org.apache.doris.nereids.types.VarcharType;
+import org.apache.doris.nereids.types.coercion.AnyDataType;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
@@ -51,23 +39,7 @@ public class ArrayWithConstant extends ScalarFunction
         implements BinaryExpression, ExplicitlyCastableSignature, AlwaysNotNullable {
 
     public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
-            FunctionSignature.ret(ArrayType.of(BooleanType.INSTANCE)).args(BigIntType.INSTANCE, BooleanType.INSTANCE),
-            FunctionSignature.ret(ArrayType.of(TinyIntType.INSTANCE)).args(BigIntType.INSTANCE, TinyIntType.INSTANCE),
-            FunctionSignature.ret(ArrayType.of(SmallIntType.INSTANCE)).args(BigIntType.INSTANCE, SmallIntType.INSTANCE),
-            FunctionSignature.ret(ArrayType.of(IntegerType.INSTANCE)).args(BigIntType.INSTANCE, IntegerType.INSTANCE),
-            FunctionSignature.ret(ArrayType.of(BigIntType.INSTANCE)).args(BigIntType.INSTANCE, BigIntType.INSTANCE),
-            FunctionSignature.ret(ArrayType.of(LargeIntType.INSTANCE)).args(BigIntType.INSTANCE, LargeIntType.INSTANCE),
-            FunctionSignature.ret(ArrayType.of(DateTimeType.INSTANCE)).args(BigIntType.INSTANCE, DateTimeType.INSTANCE),
-            FunctionSignature.ret(ArrayType.of(DateType.INSTANCE)).args(BigIntType.INSTANCE, DateType.INSTANCE),
-            FunctionSignature.ret(ArrayType.of(FloatType.INSTANCE)).args(BigIntType.INSTANCE, FloatType.INSTANCE),
-            FunctionSignature.ret(ArrayType.of(DoubleType.INSTANCE)).args(BigIntType.INSTANCE, DoubleType.INSTANCE),
-            FunctionSignature.ret(ArrayType.of(DecimalV2Type.SYSTEM_DEFAULT))
-                    .args(BigIntType.INSTANCE, DecimalV2Type.SYSTEM_DEFAULT),
-            FunctionSignature.ret(ArrayType.of(DecimalV3Type.WILDCARD))
-                    .args(BigIntType.INSTANCE, DecimalV3Type.WILDCARD),
-            FunctionSignature.ret(ArrayType.of(VarcharType.SYSTEM_DEFAULT))
-                    .args(BigIntType.INSTANCE, VarcharType.SYSTEM_DEFAULT),
-            FunctionSignature.ret(ArrayType.of(StringType.INSTANCE)).args(BigIntType.INSTANCE, StringType.INSTANCE)
+            FunctionSignature.ret(ArrayType.of(new AnyDataType(0))).args(BigIntType.INSTANCE, new AnyDataType(0))
     );
 
     /**

@@ -39,16 +39,22 @@ public class BackendHbResponse extends HeartbeatResponse implements Writable {
     private int brpcPort;
     @SerializedName(value = "nodeRole")
     private String nodeRole = Tag.VALUE_MIX;
-    private long beStartTime;
+
+    // We need to broadcast be start time to all frontends,
+    // it will be used to check if query on this backend should be canceled.
+    @SerializedName(value = "beStartTime")
+    private long beStartTime = 0;
     private String host;
     private String version = "";
+    @SerializedName(value = "isShutDown")
+    private boolean isShutDown = false;
 
     public BackendHbResponse() {
         super(HeartbeatResponse.Type.BACKEND);
     }
 
     public BackendHbResponse(long beId, int bePort, int httpPort, int brpcPort, long hbTime, long beStartTime,
-            String version, String nodeRole) {
+            String version, String nodeRole, boolean isShutDown) {
         super(HeartbeatResponse.Type.BACKEND);
         this.beId = beId;
         this.status = HbStatus.OK;
@@ -59,6 +65,7 @@ public class BackendHbResponse extends HeartbeatResponse implements Writable {
         this.beStartTime = beStartTime;
         this.version = version;
         this.nodeRole = nodeRole;
+        this.isShutDown = isShutDown;
     }
 
     public BackendHbResponse(long beId, String errMsg) {
@@ -102,6 +109,10 @@ public class BackendHbResponse extends HeartbeatResponse implements Writable {
 
     public String getNodeRole() {
         return nodeRole;
+    }
+
+    public boolean isShutDown() {
+        return isShutDown;
     }
 
     @Override

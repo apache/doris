@@ -21,9 +21,12 @@ package org.apache.doris.common.util;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.system.SystemInfoService.HostInfo;
 
+import com.google.common.collect.Maps;
+
 import java.io.IOException;
 import java.net.HttpURLConnection;
 import java.net.URL;
+import java.util.Map;
 
 public class HttpURLUtil {
 
@@ -38,4 +41,15 @@ public class HttpURLUtil {
         conn.setRequestProperty(Env.CLIENT_NODE_PORT_KEY, selfNode.getPort() + "");
         return conn;
     }
+
+    public static Map<String, String> getNodeIdentHeaders() throws IOException {
+        Map<String, String> headers = Maps.newHashMap();
+        // Must use Env.getServingEnv() instead of getCurrentEnv(),
+        // because here we need to obtain selfNode through the official service catalog.
+        HostInfo selfNode = Env.getServingEnv().getSelfNode();
+        headers.put(Env.CLIENT_NODE_HOST_KEY, selfNode.getHost());
+        headers.put(Env.CLIENT_NODE_PORT_KEY, selfNode.getPort() + "");
+        return headers;
+    }
+
 }

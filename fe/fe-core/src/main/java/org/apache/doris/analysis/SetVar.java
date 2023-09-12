@@ -19,7 +19,6 @@ package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.AnalysisException;
-import org.apache.doris.common.Config;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.UserException;
@@ -179,22 +178,7 @@ public class SetVar {
             this.value = new StringLiteral(TimeUtils.checkTimeZoneValidAndStandardize(getResult().getStringValue()));
             this.result = (LiteralExpr) this.value;
         }
-        if (getVariable().equalsIgnoreCase(SessionVariable.PARALLEL_FRAGMENT_EXEC_INSTANCE_NUM)) {
-            int instanceNum = Integer.parseInt(getResult().getStringValue());
-            if (instanceNum > Config.max_instance_num) {
-                ErrorReport.reportAnalysisException(ErrorCode.ERR_WRONG_VALUE_FOR_VAR,
-                        SessionVariable.PARALLEL_FRAGMENT_EXEC_INSTANCE_NUM,
-                        instanceNum + "(Should not be set to more than " + Config.max_instance_num + ")");
-            }
-        }
-        if (getVariable().equalsIgnoreCase(SessionVariable.PARALLEL_PIPELINE_TASK_NUM)) {
-            int instanceNum = Integer.parseInt(getValue().getStringValue());
-            if (instanceNum > Config.max_instance_num) {
-                ErrorReport.reportAnalysisException(ErrorCode.ERR_WRONG_VALUE_FOR_VAR,
-                        SessionVariable.PARALLEL_PIPELINE_TASK_NUM,
-                        instanceNum + "(Should not be set to more than " + Config.max_instance_num + ")");
-            }
-        }
+
         if (getVariable().equalsIgnoreCase(SessionVariable.EXEC_MEM_LIMIT)) {
             this.value = new StringLiteral(Long.toString(ParseUtil.analyzeDataVolumn(getResult().getStringValue())));
             this.result = (LiteralExpr) this.value;

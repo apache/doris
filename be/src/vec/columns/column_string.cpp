@@ -35,6 +35,23 @@
 
 namespace doris::vectorized {
 
+void ColumnString::sanity_check() const {
+    auto count = offsets.size();
+    if (chars.size() != offsets[count - 1]) {
+        LOG(FATAL) << "row count: " << count << ", chars.size(): " << chars.size() << ", offset["
+                   << count - 1 << "]: " << offsets[count - 1];
+    }
+    if (offsets[-1] != 0) {
+        LOG(FATAL) << "wrong offsets[-1]: " << offsets[-1];
+    }
+    for (size_t i = 0; i < count; ++i) {
+        if (offsets[i] < offsets[i - 1]) {
+            LOG(FATAL) << "row count: " << count << ", offsets[" << i << "]: " << offsets[i]
+                       << ", offsets[" << i - 1 << "]: " << offsets[i - 1];
+        }
+    }
+}
+
 MutableColumnPtr ColumnString::clone_resized(size_t to_size) const {
     auto res = ColumnString::create();
     if (to_size == 0) {

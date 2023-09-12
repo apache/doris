@@ -207,10 +207,17 @@ class DorisAdapter(SQLAdapter):
         for v in raw_columns.values():
             col_name = cls.quote(v["name"]) if v.get("quote") else v["name"]
             data_type = v.get('data_type')
+            comment = v.get('description')
+
             if data_type is not None:
                 rendered_column_constraint = [f"cast(`{col_name}` as {data_type}) as `{col_name}`"]
             else:
-                rendered_column_constraint = [f"`{col_name}` as `{col_name}`"]
+                if comment != "":
+                    rendered_column_constraint  = [f"`{col_name}` COMMENT '{comment}'"]
+                else:
+                    rendered_column_constraint = [f"`{col_name}`"]
+
+
             rendered_column_constraints.append(" ".join(rendered_column_constraint))
 
         return rendered_column_constraints

@@ -28,7 +28,7 @@
 namespace doris::vectorized {
 
 Block materialize_block(const Block& block) {
-    if (!block) return block;
+    if (!block.columns()) return block;
 
     Block res = block;
     size_t columns = res.columns();

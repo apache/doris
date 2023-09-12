@@ -670,10 +670,12 @@ public class DynamicPartitionUtil {
     public static void checkAlterAllowed(OlapTable olapTable) throws DdlException {
         TableProperty tableProperty = olapTable.getTableProperty();
         if (tableProperty != null && tableProperty.getDynamicPartitionProperty() != null
+                && !tableProperty.isBeingSynced()
                 && tableProperty.getDynamicPartitionProperty().isExist()
                 && tableProperty.getDynamicPartitionProperty().getEnable()) {
             throw new DdlException("Cannot add/drop partition on a Dynamic Partition Table, "
-                    + "Use command `ALTER TABLE tbl_name SET (\"dynamic_partition.enable\" = \"false\")` firstly.");
+                    + "Use command `ALTER TABLE " + olapTable.getName()
+                    + " SET (\"dynamic_partition.enable\" = \"false\")` firstly.");
         }
     }
 

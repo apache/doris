@@ -17,10 +17,7 @@
 
 #pragma once
 
-#include <gen_cpp/Types_types.h>
 #include <glog/logging.h>
-#include <stddef.h>
-#include <stdint.h>
 
 #include <memory>
 #include <ostream>
@@ -45,13 +42,12 @@ class IColumn;
 } // namespace doris
 
 namespace doris::vectorized {
-template <typename T>
 class DataTypeQuantileState : public IDataType {
 public:
     DataTypeQuantileState() = default;
     ~DataTypeQuantileState() override = default;
-    using ColumnType = ColumnQuantileState<T>;
-    using FieldType = QuantileState<T>;
+    using ColumnType = ColumnQuantileState;
+    using FieldType = QuantileState;
 
     std::string do_get_name() const override { return get_family_name(); }
     const char* get_family_name() const override { return "QuantileState"; }
@@ -93,22 +89,17 @@ public:
     }
     void to_string(const IColumn& column, size_t row_num, BufferWritable& ostr) const override;
 
-    [[noreturn]] virtual Field get_default() const override {
-        LOG(FATAL) << "Method get_default() is not implemented for data type " << get_name();
-        __builtin_unreachable();
-    }
+    Field get_default() const override { return QuantileState(); }
 
     [[noreturn]] Field get_field(const TExprNode& node) const override {
         LOG(FATAL) << "Unimplemented get_field for quantilestate";
     }
 
-    static void serialize_as_stream(const QuantileState<T>& value, BufferWritable& buf);
+    static void serialize_as_stream(const QuantileState& value, BufferWritable& buf);
 
-    static void deserialize_as_stream(QuantileState<T>& value, BufferReadable& buf);
+    static void deserialize_as_stream(QuantileState& value, BufferReadable& buf);
     DataTypeSerDeSPtr get_serde() const override {
-        return std::make_shared<DataTypeQuantileStateSerDe<T>>();
+        return std::make_shared<DataTypeQuantileStateSerDe>();
     };
 };
-using DataTypeQuantileStateDouble = DataTypeQuantileState<double>;
-
 } // namespace doris::vectorized

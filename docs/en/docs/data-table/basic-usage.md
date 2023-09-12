@@ -92,7 +92,7 @@ Follow-up logins can be performed with the following connection commands.
 
 ## Create Data Table and Import Data
 
-### Create a database
+### Create a Database
 
 Initially, root or admin users can create a database by the following command:
 
@@ -290,7 +290,7 @@ MySQL> DESC table2;
 > 5. You can add Rollups to Tables to improve query performance. See the Rollup-related section in "Advanced Usage".
 > 6. The value of the column is nullable by default, which may affect query performance.
 
-### Load data
+### Load Data
 
 Doris supports a variety of data loading methods. You can refer to [Data Loading](../data-operate/import/load-manual.md) for more details. The following uses Stream Load and Broker Load as examples.
 

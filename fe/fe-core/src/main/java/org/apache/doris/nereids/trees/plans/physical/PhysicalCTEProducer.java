@@ -22,6 +22,7 @@ import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.trees.expressions.CTEId;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
@@ -54,7 +55,8 @@ public class PhysicalCTEProducer<CHILD_TYPE extends Plan> extends PhysicalUnary<
     public PhysicalCTEProducer(CTEId cteId, Optional<GroupExpression> groupExpression,
             LogicalProperties logicalProperties, PhysicalProperties physicalProperties,
             Statistics statistics, CHILD_TYPE child) {
-        super(PlanType.PHYSICAL_CTE_PRODUCE, groupExpression, logicalProperties, physicalProperties, statistics, child);
+        super(PlanType.PHYSICAL_CTE_PRODUCER, groupExpression,
+                logicalProperties, physicalProperties, statistics, child);
         this.cteId = cteId;
     }
 
@@ -72,18 +74,16 @@ public class PhysicalCTEProducer<CHILD_TYPE extends Plan> extends PhysicalUnary<
         if (this == o) {
             return true;
         }
-
-        if (!super.equals(o)) {
+        if (o == null || getClass() != o.getClass()) {
             return false;
         }
-
-        PhysicalCTEProducer that = (PhysicalCTEProducer) o;
-        return Objects.equals(cteId, that.cteId);
+        PhysicalCTEProducer<?> that = (PhysicalCTEProducer<?>) o;
+        return cteId.equals(that.cteId);
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(super.hashCode(), cteId);
+        return Objects.hash(cteId);
     }
 
     @Override
@@ -126,5 +126,16 @@ public class PhysicalCTEProducer<CHILD_TYPE extends Plan> extends PhysicalUnary<
     public String shapeInfo() {
         return Utils.toSqlString("PhysicalCteProducer",
                 "cteId", cteId);
+    }
+
+    @Override
+    public List<Slot> computeOutput() {
+        return child().getOutput();
+    }
+
+    @Override
+    public PhysicalCTEProducer<CHILD_TYPE> resetLogicalProperties() {
+        return new PhysicalCTEProducer<>(cteId, groupExpression, null, physicalProperties,
+                statistics, child());
     }
 }

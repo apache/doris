@@ -17,9 +17,11 @@
 
 package org.apache.doris.regression.suite
 
+import com.google.common.collect.Maps
 import com.google.common.util.concurrent.Futures
 import com.google.common.util.concurrent.ListenableFuture
 import com.google.common.util.concurrent.MoreExecutors
+import com.google.gson.Gson
 import groovy.json.JsonSlurper
 import com.google.common.collect.ImmutableList
 import org.apache.doris.regression.action.BenchmarkAction
@@ -188,6 +190,23 @@ class Suite implements GroovyInterceptable {
     public <T> T connect(String user = context.config.jdbcUser, String password = context.config.jdbcPassword,
                          String url = context.config.jdbcUrl, Closure<T> actionSupplier) {
         return context.connect(user, password, url, actionSupplier)
+    }
+
+    String get_ccr_body(String table) {
+        Gson gson = new Gson()
+
+        Map<String, String> srcSpec = context.getSrcSpec()
+        srcSpec.put("table", table)
+
+        Map<String, String> destSpec = context.getDestSpec()
+        destSpec.put("table", table)
+
+        Map<String, Object> body = Maps.newHashMap()
+        body.put("name", context.suiteName + "_" + context.dbName + "_" + table)
+        body.put("src", srcSpec)
+        body.put("dest", destSpec)
+
+        return gson.toJson(body)
     }
 
     Syncer getSyncer() {
@@ -493,6 +512,7 @@ class Suite implements GroovyInterceptable {
     }
 
     PreparedStatement prepareStatement(String sql) {
+        logger.info("Execute sql: ${sql}".toString())
         return JdbcUtils.prepareStatement(context.getConnection(), sql)
     } 
 
@@ -607,6 +627,21 @@ class Suite implements GroovyInterceptable {
         logger.info("Now row is ${row}")
 
         return (row[4] as String) == "FINISHED"
+    }
+
+    String getServerPrepareJdbcUrl(String jdbcUrl, String database) {
+        String urlWithoutSchema = jdbcUrl.substring(jdbcUrl.indexOf("://") + 3)
+        def sql_ip = urlWithoutSchema.substring(0, urlWithoutSchema.indexOf(":"))
+        def sql_port
+        if (urlWithoutSchema.indexOf("/") >= 0) {
+            // e.g: jdbc:mysql://locahost:8080/?a=b
+            sql_port = urlWithoutSchema.substring(urlWithoutSchema.indexOf(":") + 1, urlWithoutSchema.indexOf("/"))
+        } else {
+            // e.g: jdbc:mysql://locahost:8080
+            sql_port = urlWithoutSchema.substring(urlWithoutSchema.indexOf(":") + 1)
+        }
+        // set server side prepared statement url
+        return "jdbc:mysql://" + sql_ip + ":" + sql_port + "/" + database + "?&useServerPrepStmts=true"
     }
 }
 

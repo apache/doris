@@ -68,14 +68,14 @@ CREATE TABLE table_name [( column_name_list )]
 
     ```sql
     create table `test`.`select_varchar` 
-    PROPERTIES(\"replication_num\" = \"1\") 
+    PROPERTIES("replication_num" = "1") 
     as select * from `test`.`varchar_table`
     ```
 
 2. 自定义字段名(需要与返回结果字段数量一致)
     ```sql
     create table `test`.`select_name`(user, testname, userstatus) 
-    PROPERTIES(\"replication_num\" = \"1\") 
+    PROPERTIES("replication_num" = "1") 
     as select vt.userId, vt.username, jt.status 
     from `test`.`varchar_table` vt join 
     `test`.`join_table` jt on vt.userId=jt.userId

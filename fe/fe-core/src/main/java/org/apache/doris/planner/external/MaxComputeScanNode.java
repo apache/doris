@@ -44,6 +44,10 @@ public class MaxComputeScanNode extends FileQueryScanNode {
     private final MaxComputeExternalCatalog catalog;
     public static final int MIN_SPLIT_SIZE = 4096;
 
+    public MaxComputeScanNode(PlanNodeId id, TupleDescriptor desc, boolean needCheckColumnPriv) {
+        this(id, desc, "MCScanNode", StatisticalType.MAX_COMPUTE_SCAN_NODE, needCheckColumnPriv);
+    }
+
     public MaxComputeScanNode(PlanNodeId id, TupleDescriptor desc, String planNodeName,
                               StatisticalType statisticalType, boolean needCheckColumnPriv) {
         super(id, desc, planNodeName, statisticalType, needCheckColumnPriv);

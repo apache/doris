@@ -105,11 +105,50 @@ suite("add_table_policy_by_modify_partition") {
     // OK
     assertEquals(alter_table_partition_try_again_result.size(), 1);
 
+    try_sql """
+    CREATE STORAGE POLICY IF NOT EXISTS tmp2
+        PROPERTIES(
+        "storage_resource" = "test_modify_partition_table_use_resource",
+        "cooldown_datetime" = "$cooldownTime"
+        );
+    """
+
+    sql """
+    CREATE TABLE create_table_partion_use_created_policy_test
+    (
+    k1 DATE,
+    k2 INT,
+    V1 VARCHAR(2048) REPLACE
+    ) PARTITION BY RANGE (k1) (
+    PARTITION p1 VALUES LESS THAN ("2022-01-01") ("storage_policy" = "tmp2" ,"replication_num"="1"),
+    PARTITION p2 VALUES LESS THAN ("2022-02-01") ("storage_policy" = "tmp2" ,"replication_num"="1")
+    ) DISTRIBUTED BY HASH(k2) BUCKETS 1 
+    PROPERTIES (
+    "replication_allocation" = "tag.location.default: 1",
+    "storage_policy" = "created_create_table_partition_alter_policy"
+    );
+    """
+
+    // Test that the partition's specified policy would be covered by the table's policy
+    def partitions = sql """
+    show partitions from create_table_partion_use_created_policy_test
+    """
+
+    for (par in partitions) {
+        assertTrue(par[12] == "created_create_table_partition_alter_policy")
+    }
+
     sql """
     DROP TABLE IF EXISTS create_table_partition;
     """
     sql """
+    DROP TABLE IF EXISTS create_table_partion_use_created_policy_test;
+    """
+    sql """
     DROP STORAGE POLICY created_create_table_partition_alter_policy
+    """
+    sql """
+    DROP STORAGE POLICY tmp2
     """
     sql """
     DROP RESOURCE test_modify_partition_table_use_resource

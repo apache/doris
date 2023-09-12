@@ -35,6 +35,22 @@ public class RangePartitionDesc extends PartitionDesc {
                               List<AllPartitionDesc> allPartitionDescs) throws AnalysisException {
         super(partitionColNames, allPartitionDescs);
         type = org.apache.doris.catalog.PartitionType.RANGE;
+        this.isAutoCreatePartitions = false;
+    }
+
+    public RangePartitionDesc(ArrayList<Expr> exprs, List<String> partitionColNames,
+            List<AllPartitionDesc> allPartitionDescs) throws AnalysisException {
+        this.partitionExprs = exprs;
+        this.partitionColNames = partitionColNames;
+        this.singlePartitionDescs = handleAllPartitionDesc(allPartitionDescs);
+        this.type = org.apache.doris.catalog.PartitionType.RANGE;
+        this.isAutoCreatePartitions = true;
+    }
+
+    public static RangePartitionDesc createRangePartitionDesc(ArrayList<Expr> exprs,
+            List<AllPartitionDesc> allPartitionDescs) throws AnalysisException {
+        List<String> colNames = getColNamesFromExpr(exprs, false);
+        return new RangePartitionDesc(exprs, colNames, allPartitionDescs);
     }
 
     @Override
@@ -116,7 +132,8 @@ public class RangePartitionDesc extends PartitionDesc {
          * [ {10,  100, 1000},    {50,  500, MIN } )
          * [ {50,  500, MIN },    {80,  MIN, MIN } )
          */
-        RangePartitionInfo rangePartitionInfo = new RangePartitionInfo(partitionColumns);
+        RangePartitionInfo rangePartitionInfo = new RangePartitionInfo(this.isAutoCreatePartitions, this.partitionExprs,
+                partitionColumns);
         for (SinglePartitionDesc desc : singlePartitionDescs) {
             long partitionId = partitionNameToId.get(desc.getPartitionName());
             rangePartitionInfo.handleNewSinglePartitionDesc(desc, partitionId, isTemp);

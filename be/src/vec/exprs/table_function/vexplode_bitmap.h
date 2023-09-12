@@ -45,7 +45,7 @@ public:
     void get_value(MutableColumnPtr& column) override;
     Status forward(int step = 1) override;
 
-    Status process_init(Block* block) override;
+    Status process_init(Block* block, RuntimeState* state) override;
     Status process_row(size_t row_idx) override;
     Status process_close() override;
 

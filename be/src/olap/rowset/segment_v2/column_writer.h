@@ -171,7 +171,7 @@ public:
 // Because some columns would be stored in a file, we should wait
 // until all columns has been finished, and then data can be written
 // to file
-class ScalarColumnWriter final : public ColumnWriter {
+class ScalarColumnWriter : public ColumnWriter {
 public:
     ScalarColumnWriter(const ColumnWriterOptions& opts, std::unique_ptr<Field> field,
                        io::FileWriter* file_writer);
@@ -208,6 +208,7 @@ public:
 
     Status append_data_in_current_page(const uint8_t* ptr, size_t* num_written);
     friend class ArrayColumnWriter;
+    friend class OffsetColumnWriter;
 
 private:
     std::unique_ptr<PageBuilder> _page_builder;
@@ -276,6 +277,26 @@ private:
     FlushPageCallback* _new_page_callback = nullptr;
 };
 
+// offsetColumnWriter is used column which has offset column, like array, map.
+//  column type is only uint64 and should response for whole column value [start, end], end will set
+//  in footer.next_array_item_ordinal which in finish_cur_page() callback put_extra_info_in_page()
+class OffsetColumnWriter final : public ScalarColumnWriter, FlushPageCallback {
+public:
+    OffsetColumnWriter(const ColumnWriterOptions& opts, std::unique_ptr<Field> field,
+                       io::FileWriter* file_writer);
+
+    ~OffsetColumnWriter() override;
+
+    Status init() override;
+
+    Status append_data(const uint8_t** ptr, size_t num_rows) override;
+
+private:
+    Status put_extra_info_in_page(DataPageFooterPB* footer) override;
+
+    uint64_t _next_offset;
+};
+
 class StructColumnWriter final : public ColumnWriter {
 public:
     explicit StructColumnWriter(const ColumnWriterOptions& opts, std::unique_ptr<Field> field,
@@ -328,10 +349,10 @@ private:
     ColumnWriterOptions _opts;
 };
 
-class ArrayColumnWriter final : public ColumnWriter, public FlushPageCallback {
+class ArrayColumnWriter final : public ColumnWriter {
 public:
     explicit ArrayColumnWriter(const ColumnWriterOptions& opts, std::unique_ptr<Field> field,
-                               ScalarColumnWriter* offset_writer, ScalarColumnWriter* null_writer,
+                               OffsetColumnWriter* offset_writer, ScalarColumnWriter* null_writer,
                                std::unique_ptr<ColumnWriter> item_writer);
     ~ArrayColumnWriter() override = default;
 
@@ -345,6 +366,7 @@ public:
     Status write_data() override;
     Status write_ordinal_index() override;
     Status append_nulls(size_t num_rows) override;
+    Status append_nullable(const uint8_t* null_map, const uint8_t** ptr, size_t num_rows) override;
 
     Status finish_current_page() override;
 
@@ -372,22 +394,21 @@ public:
     ordinal_t get_next_rowid() const override { return _offset_writer->get_next_rowid(); }
 
 private:
-    Status put_extra_info_in_page(DataPageFooterPB* header) override;
     Status write_null_column(size_t num_rows, bool is_null); // 写入num_rows个null标记
     bool has_empty_items() const { return _item_writer->get_next_rowid() == 0; }
 
 private:
-    std::unique_ptr<ScalarColumnWriter> _offset_writer;
+    std::unique_ptr<OffsetColumnWriter> _offset_writer;
     std::unique_ptr<ScalarColumnWriter> _null_writer;
     std::unique_ptr<ColumnWriter> _item_writer;
     std::unique_ptr<InvertedIndexColumnWriter> _inverted_index_builder;
     ColumnWriterOptions _opts;
 };
 
-class MapColumnWriter final : public ColumnWriter, public FlushPageCallback {
+class MapColumnWriter final : public ColumnWriter {
 public:
     explicit MapColumnWriter(const ColumnWriterOptions& opts, std::unique_ptr<Field> field,
-                             ScalarColumnWriter* null_writer, ScalarColumnWriter* offsets_writer,
+                             ScalarColumnWriter* null_writer, OffsetColumnWriter* offsets_writer,
                              std::vector<std::unique_ptr<ColumnWriter>>& _kv_writers);
 
     ~MapColumnWriter() override = default;
@@ -431,12 +452,10 @@ public:
     ordinal_t get_next_rowid() const override { return _offsets_writer->get_next_rowid(); }
 
 private:
-    Status put_extra_info_in_page(DataPageFooterPB* header) override;
-
     std::vector<std::unique_ptr<ColumnWriter>> _kv_writers;
     // we need null writer to make sure a row is null or not
     std::unique_ptr<ScalarColumnWriter> _null_writer;
-    std::unique_ptr<ScalarColumnWriter> _offsets_writer;
+    std::unique_ptr<OffsetColumnWriter> _offsets_writer;
     std::unique_ptr<InvertedIndexColumnWriter> _inverted_index_builder;
     ColumnWriterOptions _opts;
 };

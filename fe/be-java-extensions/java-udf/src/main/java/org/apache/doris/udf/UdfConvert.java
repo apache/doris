@@ -705,11 +705,11 @@ public class UdfConvert {
     }
 
 
-    ////////////////////////////////////copyBatchArray//////////////////////////////////////////////////////////
+    //////////////////////////////////// copyBatchArray//////////////////////////////////////////////////////////
 
-    public static long copyBatchArrayBooleanResult(long hasPutElementNum, boolean isNullable, int row, Object[] result,
+    public static long copyBatchArrayBooleanResult(long hasPutElementNum, boolean isNullable, int row, Object result,
             long nullMapAddr, long offsetsAddr, long nestedNullMapAddr, long dataAddr) {
-        ArrayList<Boolean> data = (ArrayList<Boolean>) result[row];
+        ArrayList<Boolean> data = (ArrayList<Boolean>) result;
         if (isNullable) {
             if (data == null) {
                 UdfUtils.UNSAFE.putByte(nullMapAddr + row, (byte) 1);
@@ -741,9 +741,9 @@ public class UdfConvert {
         return hasPutElementNum;
     }
 
-    public static long copyBatchArrayTinyIntResult(long hasPutElementNum, boolean isNullable, int row, Object[] result,
+    public static long copyBatchArrayTinyIntResult(long hasPutElementNum, boolean isNullable, int row, Object result,
             long nullMapAddr, long offsetsAddr, long nestedNullMapAddr, long dataAddr) {
-        ArrayList<Byte> data = (ArrayList<Byte>) result[row];
+        ArrayList<Byte> data = (ArrayList<Byte>) result;
         if (isNullable) {
             if (data == null) {
                 UdfUtils.UNSAFE.putByte(nullMapAddr + row, (byte) 1);
@@ -775,9 +775,9 @@ public class UdfConvert {
         return hasPutElementNum;
     }
 
-    public static long copyBatchArraySmallIntResult(long hasPutElementNum, boolean isNullable, int row, Object[] result,
+    public static long copyBatchArraySmallIntResult(long hasPutElementNum, boolean isNullable, int row, Object result,
             long nullMapAddr, long offsetsAddr, long nestedNullMapAddr, long dataAddr) {
-        ArrayList<Short> data = (ArrayList<Short>) result[row];
+        ArrayList<Short> data = (ArrayList<Short>) result;
         if (isNullable) {
             if (data == null) {
                 UdfUtils.UNSAFE.putByte(nullMapAddr + row, (byte) 1);
@@ -809,9 +809,9 @@ public class UdfConvert {
         return hasPutElementNum;
     }
 
-    public static long copyBatchArrayIntResult(long hasPutElementNum, boolean isNullable, int row, Object[] result,
+    public static long copyBatchArrayIntResult(long hasPutElementNum, boolean isNullable, int row, Object result,
             long nullMapAddr, long offsetsAddr, long nestedNullMapAddr, long dataAddr) {
-        ArrayList<Integer> data = (ArrayList<Integer>) result[row];
+        ArrayList<Integer> data = (ArrayList<Integer>) result;
         if (isNullable) {
             if (data == null) {
                 UdfUtils.UNSAFE.putByte(nullMapAddr + row, (byte) 1);
@@ -843,9 +843,9 @@ public class UdfConvert {
         return hasPutElementNum;
     }
 
-    public static long copyBatchArrayBigIntResult(long hasPutElementNum, boolean isNullable, int row, Object[] result,
+    public static long copyBatchArrayBigIntResult(long hasPutElementNum, boolean isNullable, int row, Object result,
             long nullMapAddr, long offsetsAddr, long nestedNullMapAddr, long dataAddr) {
-        ArrayList<Long> data = (ArrayList<Long>) result[row];
+        ArrayList<Long> data = (ArrayList<Long>) result;
         if (isNullable) {
             if (data == null) {
                 UdfUtils.UNSAFE.putByte(nullMapAddr + row, (byte) 1);
@@ -877,9 +877,9 @@ public class UdfConvert {
         return hasPutElementNum;
     }
 
-    public static long copyBatchArrayFloatResult(long hasPutElementNum, boolean isNullable, int row, Object[] result,
+    public static long copyBatchArrayFloatResult(long hasPutElementNum, boolean isNullable, int row, Object result,
             long nullMapAddr, long offsetsAddr, long nestedNullMapAddr, long dataAddr) {
-        ArrayList<Float> data = (ArrayList<Float>) result[row];
+        ArrayList<Float> data = (ArrayList<Float>) result;
         if (isNullable) {
             if (data == null) {
                 UdfUtils.UNSAFE.putByte(nullMapAddr + row, (byte) 1);
@@ -911,9 +911,9 @@ public class UdfConvert {
         return hasPutElementNum;
     }
 
-    public static long copyBatchArrayDoubleResult(long hasPutElementNum, boolean isNullable, int row, Object[] result,
+    public static long copyBatchArrayDoubleResult(long hasPutElementNum, boolean isNullable, int row, Object result,
             long nullMapAddr, long offsetsAddr, long nestedNullMapAddr, long dataAddr) {
-        ArrayList<Double> data = (ArrayList<Double>) result[row];
+        ArrayList<Double> data = (ArrayList<Double>) result;
         if (isNullable) {
             if (data == null) {
                 UdfUtils.UNSAFE.putByte(nullMapAddr + row, (byte) 1);
@@ -945,9 +945,9 @@ public class UdfConvert {
         return hasPutElementNum;
     }
 
-    public static long copyBatchArrayDateResult(long hasPutElementNum, boolean isNullable, int row, Object[] result,
+    public static long copyBatchArrayDateResult(long hasPutElementNum, boolean isNullable, int row, Object result,
             long nullMapAddr, long offsetsAddr, long nestedNullMapAddr, long dataAddr) {
-        ArrayList<LocalDate> data = (ArrayList<LocalDate>) result[row];
+        ArrayList<LocalDate> data = (ArrayList<LocalDate>) result;
         if (isNullable) {
             if (data == null) {
                 UdfUtils.UNSAFE.putByte(nullMapAddr + row, (byte) 1);
@@ -981,9 +981,9 @@ public class UdfConvert {
         return hasPutElementNum;
     }
 
-    public static long copyBatchArrayDateTimeResult(long hasPutElementNum, boolean isNullable, int row, Object[] result,
+    public static long copyBatchArrayDateTimeResult(long hasPutElementNum, boolean isNullable, int row, Object result,
             long nullMapAddr, long offsetsAddr, long nestedNullMapAddr, long dataAddr) {
-        ArrayList<LocalDateTime> data = (ArrayList<LocalDateTime>) result[row];
+        ArrayList<LocalDateTime> data = (ArrayList<LocalDateTime>) result;
         if (isNullable) {
             if (data == null) {
                 UdfUtils.UNSAFE.putByte(nullMapAddr + row, (byte) 1);
@@ -1017,9 +1017,9 @@ public class UdfConvert {
         return hasPutElementNum;
     }
 
-    public static long copyBatchArrayDateV2Result(long hasPutElementNum, boolean isNullable, int row, Object[] result,
+    public static long copyBatchArrayDateV2Result(long hasPutElementNum, boolean isNullable, int row, Object result,
             long nullMapAddr, long offsetsAddr, long nestedNullMapAddr, long dataAddr) {
-        ArrayList<LocalDate> data = (ArrayList<LocalDate>) result[row];
+        ArrayList<LocalDate> data = (ArrayList<LocalDate>) result;
         if (isNullable) {
             if (data == null) {
                 UdfUtils.UNSAFE.putByte(nullMapAddr + row, (byte) 1);
@@ -1054,9 +1054,9 @@ public class UdfConvert {
     }
 
     public static long copyBatchArrayDateTimeV2Result(long hasPutElementNum, boolean isNullable, int row,
-            Object[] result,
+            Object result,
             long nullMapAddr, long offsetsAddr, long nestedNullMapAddr, long dataAddr) {
-        ArrayList<LocalDateTime> data = (ArrayList<LocalDateTime>) result[row];
+        ArrayList<LocalDateTime> data = (ArrayList<LocalDateTime>) result;
         if (isNullable) {
             if (data == null) {
                 UdfUtils.UNSAFE.putByte(nullMapAddr + row, (byte) 1);
@@ -1090,9 +1090,9 @@ public class UdfConvert {
         return hasPutElementNum;
     }
 
-    public static long copyBatchArrayLargeIntResult(long hasPutElementNum, boolean isNullable, int row, Object[] result,
+    public static long copyBatchArrayLargeIntResult(long hasPutElementNum, boolean isNullable, int row, Object result,
             long nullMapAddr, long offsetsAddr, long nestedNullMapAddr, long dataAddr) {
-        ArrayList<BigInteger> data = (ArrayList<BigInteger>) result[row];
+        ArrayList<BigInteger> data = (ArrayList<BigInteger>) result;
         if (isNullable) {
             if (data == null) {
                 UdfUtils.UNSAFE.putByte(nullMapAddr + row, (byte) 1);
@@ -1140,9 +1140,9 @@ public class UdfConvert {
         return hasPutElementNum;
     }
 
-    public static long copyBatchArrayDecimalResult(long hasPutElementNum, boolean isNullable, int row, Object[] result,
+    public static long copyBatchArrayDecimalResult(long hasPutElementNum, boolean isNullable, int row, Object result,
             long nullMapAddr, long offsetsAddr, long nestedNullMapAddr, long dataAddr) {
-        ArrayList<BigDecimal> data = (ArrayList<BigDecimal>) result[row];
+        ArrayList<BigDecimal> data = (ArrayList<BigDecimal>) result;
         if (isNullable) {
             if (data == null) {
                 UdfUtils.UNSAFE.putByte(nullMapAddr + row, (byte) 1);
@@ -1194,9 +1194,9 @@ public class UdfConvert {
 
     public static long copyBatchArrayDecimalV3Result(int scale, long typeLen, long hasPutElementNum, boolean isNullable,
             int row,
-            Object[] result,
+            Object result,
             long nullMapAddr, long offsetsAddr, long nestedNullMapAddr, long dataAddr) {
-        ArrayList<BigDecimal> data = (ArrayList<BigDecimal>) result[row];
+        ArrayList<BigDecimal> data = (ArrayList<BigDecimal>) result;
         if (isNullable) {
             if (data == null) {
                 UdfUtils.UNSAFE.putByte(nullMapAddr + row, (byte) 1);
@@ -1247,9 +1247,9 @@ public class UdfConvert {
     }
 
     public static long copyBatchArrayStringResult(long hasPutElementNum, boolean isNullable, int row,
-            Object[] result, long nullMapAddr, long offsetsAddr, long nestedNullMapAddr, long dataAddr,
+            Object result, long nullMapAddr, long offsetsAddr, long nestedNullMapAddr, long dataAddr,
             long strOffsetAddr) {
-        ArrayList<String> data = (ArrayList<String>) result[row];
+        ArrayList<String> data = (ArrayList<String>) result;
         if (isNullable) {
             if (data == null) {
                 UdfUtils.UNSAFE.putByte(nullMapAddr + row, (byte) 1);
@@ -1270,8 +1270,12 @@ public class UdfConvert {
                     offset += byteRes[i].length;
                     offsets[i] = offset;
                 }
-                byte[] bytes = new byte[offsets[num - 1] - oldOffsetNum];
-                long bytesAddr = JNINativeMethod.resizeStringColumn(dataAddr, offsets[num - 1]);
+                int oldSzie = 0;
+                if (num > 0) {
+                    oldSzie = offsets[num - 1];
+                }
+                byte[] bytes = new byte[oldSzie - oldOffsetNum];
+                long bytesAddr = JNINativeMethod.resizeStringColumn(dataAddr, oldSzie);
                 int dst = 0;
                 for (int i = 0; i < num; i++) {
                     for (int j = 0; j < byteRes[i].length; j++) {
@@ -1281,7 +1285,7 @@ public class UdfConvert {
                 UdfUtils.copyMemory(offsets, UdfUtils.INT_ARRAY_OFFSET, null, strOffsetAddr + (4L * hasPutElementNum),
                         num * 4L);
                 UdfUtils.copyMemory(bytes, UdfUtils.BYTE_ARRAY_OFFSET, null, bytesAddr + oldOffsetNum,
-                        offsets[num - 1] - oldOffsetNum);
+                        oldSzie - oldOffsetNum);
                 hasPutElementNum = hasPutElementNum + num;
             }
         } else {
@@ -1300,9 +1304,13 @@ public class UdfConvert {
                 offset += byteRes[i].length;
                 offsets[i] = offset;
             }
-            byte[] bytes = new byte[offsets[num - 1]];
             int oldOffsetNum = UdfUtils.UNSAFE.getInt(null, strOffsetAddr + ((hasPutElementNum - 1) * 4L));
-            long bytesAddr = JNINativeMethod.resizeStringColumn(dataAddr, oldOffsetNum + offsets[num - 1]);
+            int oldSzie = 0;
+            if (num > 0) {
+                oldSzie = offsets[num - 1];
+            }
+            byte[] bytes = new byte[oldSzie];
+            long bytesAddr = JNINativeMethod.resizeStringColumn(dataAddr, oldOffsetNum + oldSzie);
             int dst = 0;
             for (int i = 0; i < num; i++) {
                 for (int j = 0; j < byteRes[i].length; j++) {
@@ -1312,7 +1320,7 @@ public class UdfConvert {
             UdfUtils.copyMemory(offsets, UdfUtils.INT_ARRAY_OFFSET, null, strOffsetAddr + (4L * oldOffsetNum),
                     num * 4L);
             UdfUtils.copyMemory(bytes, UdfUtils.BYTE_ARRAY_OFFSET, null, bytesAddr + oldOffsetNum,
-                    offsets[num - 1]);
+                    oldSzie);
             hasPutElementNum = hasPutElementNum + num;
         }
         UdfUtils.UNSAFE.putLong(null, offsetsAddr + 8L * row, hasPutElementNum);

@@ -22,6 +22,7 @@ import org.apache.doris.nereids.trees.expressions.functions.PropagateNullable;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 
 import com.google.common.base.Preconditions;
+import com.google.common.collect.ImmutableList;
 
 import java.util.List;
 
@@ -36,7 +37,11 @@ public class LessThanEqual extends ComparisonPredicate implements PropagateNulla
      * @param right right child of Less Than And Equal
      */
     public LessThanEqual(Expression left, Expression right) {
-        super(left, right, "<=");
+        super(ImmutableList.of(left, right), "<=");
+    }
+
+    private LessThanEqual(List<Expression> children) {
+        super(children, "<=");
     }
 
     @Override
@@ -52,7 +57,7 @@ public class LessThanEqual extends ComparisonPredicate implements PropagateNulla
     @Override
     public LessThanEqual withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 2);
-        return new LessThanEqual(children.get(0), children.get(1));
+        return new LessThanEqual(children);
     }
 
     @Override

@@ -105,7 +105,7 @@ public class SystemInfoService {
         }
 
         public String getIdent() {
-            return host;
+            return host + "_" + port;
         }
 
         @Override
@@ -355,7 +355,7 @@ public class SystemInfoService {
     }
 
     public int getBackendsNumber(boolean needAlive) {
-        int beNumber = ConnectContext.get().getSessionVariable().getBeNumber();
+        int beNumber = ConnectContext.get().getSessionVariable().getBeNumberForTest();
         if (beNumber < 0) {
             beNumber = getAllBackendIds(needAlive).size();
         }
@@ -718,11 +718,6 @@ public class SystemInfoService {
             throw new AnalysisException("Invalid host port: " + hostPort);
         }
 
-        String[] pair = hostPort.split(":");
-        if (pair.length != 2) {
-            throw new AnalysisException("Invalid host port: " + hostPort);
-        }
-
         HostInfo hostInfo = NetUtils.resolveHostInfoFromHostPort(hostPort);
 
         String host = hostInfo.getHost();
@@ -859,7 +854,8 @@ public class SystemInfoService {
                 DiskInfo diskInfo = pathHashToDiskInfo.get(pathHash);
                 if (diskInfo != null && diskInfo.exceedLimit(floodStage)) {
                     return new Status(TStatusCode.CANCELLED,
-                            "disk " + pathHash + " on backend " + beId + " exceed limit usage");
+                            "disk " + diskInfo.getRootPath() + " on backend "
+                                    + beId + " exceed limit usage, path hash: " + pathHash);
                 }
             }
         }

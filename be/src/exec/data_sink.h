@@ -28,6 +28,7 @@
 #include <vector>
 
 #include "common/status.h"
+#include "runtime/descriptors.h"
 #include "util/runtime_profile.h"
 #include "util/telemetry/telemetry.h"
 
@@ -36,7 +37,6 @@ namespace doris {
 class ObjectPool;
 class RuntimeState;
 class TPlanFragmentExecParams;
-class RowDescriptor;
 class DescriptorTbl;
 class QueryStatistics;
 class TDataSink;
@@ -50,7 +50,7 @@ class Block;
 // Superclass of all data sinks.
 class DataSink {
 public:
-    DataSink() : _closed(false) {}
+    DataSink(const RowDescriptor& desc) : _row_desc(desc) {}
     virtual ~DataSink() {}
 
     virtual Status init(const TDataSink& thrift_sink);
@@ -65,6 +65,11 @@ public:
     // Send a Block into this sink.
     virtual Status send(RuntimeState* state, vectorized::Block* block, bool eos = false) {
         return Status::NotSupported("Not support send block");
+    }
+
+    // Send a Block into this sink, not blocked thredd API only use in pipeline exec engine
+    virtual Status sink(RuntimeState* state, vectorized::Block* block, bool eos = false) {
+        return send(state, block, eos);
     }
 
     [[nodiscard]] virtual Status try_close(RuntimeState* state, Status exec_status) {
@@ -99,17 +104,24 @@ public:
                                    DescriptorTbl& desc_tbl);
 
     // Returns the runtime profile for the sink.
-    virtual RuntimeProfile* profile() = 0;
+    RuntimeProfile* profile() { return _profile; }
 
     virtual void set_query_statistics(std::shared_ptr<QueryStatistics> statistics) {
         _query_statistics = statistics;
     }
 
+    const RowDescriptor& row_desc() { return _row_desc; }
+
+    virtual bool can_write() { return true; }
+
 protected:
     // Set to true after close() has been called. subclasses should check and set this in
     // close().
-    bool _closed;
+    bool _closed = false;
     std::string _name;
+    const RowDescriptor& _row_desc;
+
+    RuntimeProfile* _profile = nullptr; // Allocated from _pool
 
     // Maybe this will be transferred to BufferControlBlock.
     std::shared_ptr<QueryStatistics> _query_statistics;

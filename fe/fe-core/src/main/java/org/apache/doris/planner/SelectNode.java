@@ -107,9 +107,4 @@ public class SelectNode extends PlanNode {
         }
         return output.toString();
     }
-
-    @Override
-    public int getNumInstances() {
-        return children.get(0).getNumInstances();
-    }
 }

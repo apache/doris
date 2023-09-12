@@ -232,6 +232,12 @@ CREATE CATALOG hive PROPERTIES (
 | `struct<col1: Type1, col2: Type2, ...>` | `struct<col1: Type1, col2: Type2, ...>` | 暂不支持嵌套，Type1, Type2, ... 需要为基础类型 |
 | other | unsupported | |
 
+## 是否按照 hive 表的 schema 来截断 char 或者 varchar 列
+
+如果变量 `truncate_char_or_varchar_columns` 开启，则当 hive 表的 schema 中 char 或者 varchar 列的最大长度和底层 parquet 或者 orc 文件中的 schema 不一致时会按照 hive 表列的最大长度进行截断。
+
+该变量默认为 false。
+
 ## 使用 Ranger 进行权限校验
 
 Apache Ranger是一个用来在Hadoop平台上进行监控，启用服务，以及全方位数据安全访问管理的安全框架。

@@ -28,6 +28,7 @@ import org.apache.doris.nereids.trees.expressions.functions.agg.BitmapUnionInt;
 import org.apache.doris.nereids.trees.expressions.functions.agg.CollectList;
 import org.apache.doris.nereids.trees.expressions.functions.agg.CollectSet;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Count;
+import org.apache.doris.nereids.trees.expressions.functions.agg.CountByEnum;
 import org.apache.doris.nereids.trees.expressions.functions.agg.GroupBitAnd;
 import org.apache.doris.nereids.trees.expressions.functions.agg.GroupBitOr;
 import org.apache.doris.nereids.trees.expressions.functions.agg.GroupBitXor;
@@ -115,6 +116,10 @@ public interface AggregateFunctionVisitor<R, C> {
     }
 
     default R visitCount(Count count, C context) {
+        return visitAggregateFunction(count, context);
+    }
+
+    default R visitCountByEnum(CountByEnum count, C context) {
         return visitAggregateFunction(count, context);
     }
 

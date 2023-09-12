@@ -22,6 +22,7 @@ import org.apache.doris.nereids.trees.expressions.functions.PropagateNullable;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 
 import com.google.common.base.Preconditions;
+import com.google.common.collect.ImmutableList;
 
 import java.util.List;
 
@@ -29,14 +30,13 @@ import java.util.List;
  * Greater than and equal expression: a >= b.
  */
 public class GreaterThanEqual extends ComparisonPredicate implements PropagateNullable {
-    /**
-     * Constructor of Greater Than And Equal.
-     *
-     * @param left  left child of Greater Than And Equal
-     * @param right right child of Greater Than And Equal
-     */
+
     public GreaterThanEqual(Expression left, Expression right) {
-        super(left, right, ">=");
+        super(ImmutableList.of(left, right), ">=");
+    }
+
+    private GreaterThanEqual(List<Expression> children) {
+        super(children, ">=");
     }
 
     @Override
@@ -52,7 +52,7 @@ public class GreaterThanEqual extends ComparisonPredicate implements PropagateNu
     @Override
     public GreaterThanEqual withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 2);
-        return new GreaterThanEqual(children.get(0), children.get(1));
+        return new GreaterThanEqual(children);
     }
 
     @Override

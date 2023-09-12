@@ -3,7 +3,7 @@
 PhysicalCteAnchor ( cteId=CTEId#0 )
 --PhysicalCteProducer ( cteId=CTEId#0 )
 ----PhysicalProject
-------filter((CASE WHEN (mean = 0.0) THEN 0.0 ELSE (stdev / mean) END > 1.0))
+------filter((if((mean = 0), 0, (stdev / mean)) > 1))
 --------hashAgg[GLOBAL]
 ----------PhysicalDistribute
 ------------hashAgg[LOCAL]
@@ -22,17 +22,18 @@ PhysicalCteAnchor ( cteId=CTEId#0 )
 ------------------PhysicalDistribute
 --------------------PhysicalProject
 ----------------------PhysicalOlapScan[warehouse]
---PhysicalQuickSort
-----PhysicalDistribute
-------PhysicalQuickSort
---------PhysicalProject
-----------hashJoin[INNER_JOIN](inv1.w_warehouse_sk = inv2.w_warehouse_sk)(inv1.i_item_sk = inv2.i_item_sk)
-------------PhysicalDistribute
---------------PhysicalProject
-----------------filter((inv1.d_moy = 1))
-------------------PhysicalCteConsumer ( cteId=CTEId#0 )
-------------PhysicalDistribute
---------------PhysicalProject
-----------------filter((inv2.d_moy = 2))
-------------------PhysicalCteConsumer ( cteId=CTEId#0 )
+--PhysicalResultSink
+----PhysicalQuickSort
+------PhysicalDistribute
+--------PhysicalQuickSort
+----------PhysicalProject
+------------hashJoin[INNER_JOIN](inv1.w_warehouse_sk = inv2.w_warehouse_sk)(inv1.i_item_sk = inv2.i_item_sk)
+--------------PhysicalDistribute
+----------------PhysicalProject
+------------------filter((inv1.d_moy = 1))
+--------------------PhysicalCteConsumer ( cteId=CTEId#0 )
+--------------PhysicalDistribute
+----------------PhysicalProject
+------------------filter((inv2.d_moy = 2))
+--------------------PhysicalCteConsumer ( cteId=CTEId#0 )
 

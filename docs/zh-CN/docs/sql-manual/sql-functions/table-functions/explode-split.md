@@ -1,6 +1,6 @@
 ---
 {
-    "title": "explode_split",
+    "title": "EXPLODE_SPLIT",
     "language": "zh-CN"
 }
 ---

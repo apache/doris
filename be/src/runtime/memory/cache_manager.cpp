@@ -43,7 +43,16 @@ int64_t CacheManager::for_each_cache_prune_stale(RuntimeProfile* profile) {
 
 int64_t CacheManager::for_each_cache_prune_all(RuntimeProfile* profile) {
     return for_each_cache_prune_stale_wrap(
-            [](CachePolicy* cache_policy) { cache_policy->prune_all(); }, profile);
+            [](CachePolicy* cache_policy) { cache_policy->prune_all(false); }, profile);
+}
+
+void CacheManager::clear_once(CachePolicy::CacheType type) {
+    std::lock_guard<std::mutex> l(_caches_lock);
+    for (auto cache_policy : _caches) {
+        if (cache_policy->type() == type) {
+            cache_policy->prune_all(true); // will print log
+        }
+    }
 }
 
 } // namespace doris

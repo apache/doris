@@ -18,6 +18,7 @@
 #pragma once
 
 #include <aws/core/utils/memory/stl/AWSStringStream.h>
+#include <bthread/countdown_event.h>
 
 #include <cstddef>
 #include <list>
@@ -57,48 +58,10 @@ public:
         return Status::NotSupported("not support");
     }
 
-    int64_t upload_cost_ms() const { return *_upload_cost_ms; }
+    [[nodiscard]] int64_t upload_cost_ms() const { return *_upload_cost_ms; }
 
 private:
-    class WaitGroup {
-    public:
-        WaitGroup() = default;
-
-        ~WaitGroup() = default;
-
-        WaitGroup(const WaitGroup&) = delete;
-        WaitGroup(WaitGroup&&) = delete;
-        void operator=(const WaitGroup&) = delete;
-        void operator=(WaitGroup&&) = delete;
-        // add one counter indicating one more concurrent worker
-        void add(int count = 1) { _count += count; }
-
-        // decrease count if one concurrent worker finished it's work
-        void done() {
-            _count--;
-            if (_count.load() <= 0) {
-                _cv.notify_all();
-            }
-        }
-
-        // wait for all concurrent workers finish their work and return true
-        // would return false if timeout, default timeout would be 5min
-        bool wait(int64_t timeout_seconds = 300) {
-            if (_count.load() <= 0) {
-                return true;
-            }
-            std::unique_lock<std::mutex> lck {_lock};
-            _cv.wait_for(lck, std::chrono::seconds(timeout_seconds),
-                         [this]() { return _count.load() <= 0; });
-            return _count.load() <= 0;
-        }
-
-    private:
-        std::mutex _lock;
-        std::condition_variable _cv;
-        std::atomic_int64_t _count {0};
-    };
-    void _wait_until_finish(std::string task_name);
+    void _wait_until_finish(std::string_view task_name);
     Status _complete();
     Status _create_multi_upload_request();
     void _put_object(S3FileBuffer& buf);
@@ -119,7 +82,8 @@ private:
     std::mutex _completed_lock;
     std::vector<std::unique_ptr<Aws::S3::Model::CompletedPart>> _completed_parts;
 
-    WaitGroup _wait;
+    // **Attention** call add_count() before submitting buf to async thread pool
+    bthread::CountdownEvent _countdown_event {0};
 
     std::atomic_bool _failed = false;
     Status _st = Status::OK();

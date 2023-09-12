@@ -38,7 +38,7 @@ public class MinBy extends NullableAggregateFunction
         implements BinaryExpression, ExplicitlyCastableSignature {
 
     public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
-            FunctionSignature.retArgType(0).args(AnyDataType.INSTANCE, AnyDataType.INSTANCE)
+            FunctionSignature.retArgType(0).args(AnyDataType.INSTANCE_WITHOUT_INDEX, AnyDataType.INSTANCE_WITHOUT_INDEX)
     );
 
     /**

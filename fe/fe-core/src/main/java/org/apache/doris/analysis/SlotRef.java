@@ -232,6 +232,14 @@ public class SlotRef extends Expr {
 
     @Override
     public String toSqlImpl() {
+        if (needToMysql) {
+            if (col != null) {
+                return col;
+            } else {
+                return "<slot " + Integer.toString(desc.getId().asInt()) + ">";
+            }
+        }
+
         if (disableTableName && label != null) {
             return label;
         }
@@ -271,15 +279,6 @@ public class SlotRef extends Expr {
             return sb.toString();
         } else {
             return "<slot " + desc.getId().asInt() + ">" + sb.toString();
-        }
-    }
-
-    @Override
-    public String toMySql() {
-        if (col != null) {
-            return col;
-        } else {
-            return "<slot " + Integer.toString(desc.getId().asInt()) + ">";
         }
     }
 
@@ -478,6 +477,10 @@ public class SlotRef extends Expr {
 
     public void setTable(TableIf table) {
         this.table = table;
+    }
+
+    public TableIf getTableDirect() {
+        return this.table;
     }
 
     public TableIf getTable() {

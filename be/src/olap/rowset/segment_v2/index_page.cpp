@@ -52,7 +52,7 @@ void IndexPageBuilder::finish(OwnedSlice* body, PageFooterPB* footer) {
 
 Status IndexPageBuilder::get_first_key(Slice* key) const {
     if (_count == 0) {
-        return Status::NotFound("index page is empty");
+        return Status::Error<ErrorCode::ENTRY_NOT_FOUND>("index page is empty");
     }
     Slice input(_buffer);
     if (get_length_prefixed_slice(&input, key)) {
@@ -105,7 +105,8 @@ Status IndexPageIterator::seek_at_or_before(const Slice& search_key) {
     // no exact match, the insertion point is `left`
     if (left == 0) {
         // search key is smaller than all keys
-        return Status::NotFound("given key is smaller than all keys in page");
+        return Status::Error<ErrorCode::ENTRY_NOT_FOUND>(
+                "given key is smaller than all keys in page");
     }
     // index entry records the first key of the indexed page,
     // therefore the first page with keys >= searched key is the one before the insertion point

@@ -228,14 +228,14 @@ Partition平均数据大小 = cache_memory_total / cache_partition_total
 
 ### 优化参数
 
-FE的配置项cache_result_max_row_count，查询结果集放入缓存的最大行数，可以根据实际情况调整，但建议不要设置过大，避免过多占用内存，超过这个大小的结果集不会被缓存。
+FE的配置项cache_result_max_row_count，查询结果集放入缓存的最大行数，FE的配置项cache_result_max_data_size，查询结果集放入缓存的最大数据大小，可以根据实际情况调整，但建议不要设置过大，避免过多占用内存，超过这个大小的结果集不会被缓存。
 
 ```text
 vim fe/conf/fe.conf
 cache_result_max_row_count=3000
 ```
 
-BE最大分区数量cache_max_partition_count，指每个SQL对应的最大分区数，如果是按日期分区，能缓存2年多的数据，假如想保留更长时间的缓存，请把这个参数设置得更大，同时修改cache_result_max_row_count的参数。
+BE最大分区数量cache_max_partition_count，指每个SQL对应的最大分区数，如果是按日期分区，能缓存2年多的数据，假如想保留更长时间的缓存，请把这个参数设置得更大，同时修改cache_result_max_row_count和cache_result_max_data_size的参数。
 
 ```text
 vim be/conf/be.conf

@@ -39,7 +39,7 @@ This operation is an asynchronous operation. After the submission is successful,
 grammar:
 
 ```sql
-CREATE MATERIALIZED VIEW [MV name] as [query]
+CREATE MATERIALIZED VIEW < MV name > as < query >
 [PROPERTIES ("key" = "value")]
 ````
 

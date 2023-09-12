@@ -230,6 +230,18 @@ public class MetaPersistMethod {
                 metaPersistMethod.writeMethod =
                         Env.class.getDeclaredMethod("saveAnalysisMgr", CountingDataOutputStream.class, long.class);
                 break;
+            case "AsyncJobManager":
+                metaPersistMethod.readMethod =
+                        Env.class.getDeclaredMethod("loadAsyncJobManager", DataInputStream.class, long.class);
+                metaPersistMethod.writeMethod =
+                        Env.class.getDeclaredMethod("saveAsyncJobManager", CountingDataOutputStream.class, long.class);
+                break;
+            case "JobTaskManager":
+                metaPersistMethod.readMethod =
+                        Env.class.getDeclaredMethod("loadJobTaskManager", DataInputStream.class, long.class);
+                metaPersistMethod.writeMethod =
+                        Env.class.getDeclaredMethod("saveJobTaskManager", CountingDataOutputStream.class, long.class);
+                break;
             default:
                 break;
         }

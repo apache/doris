@@ -25,16 +25,17 @@
 #include "olap/olap_common.h"
 
 namespace doris {
-constexpr std::string_view kBinlogPrefix = "binglog_";
+constexpr std::string_view kBinlogPrefix = "binlog_";
 constexpr std::string_view kBinlogMetaPrefix = "binlog_meta_";
+constexpr std::string_view kBinlogDataPrefix = "binlog_data_";
 
-inline auto make_binlog_meta_key(std::string_view tablet, int64_t version,
-                                 std::string_view rowset) {
+inline auto make_binlog_meta_key(const std::string_view tablet, int64_t version,
+                                 const std::string_view rowset) {
     return fmt::format("{}meta_{}_{:020d}_{}", kBinlogPrefix, tablet, version, rowset);
 }
 
-inline auto make_binlog_meta_key(std::string_view tablet, std::string_view version_str,
-                                 std::string_view rowset) {
+inline auto make_binlog_meta_key(const std::string_view tablet, const std::string_view version_str,
+                                 const std::string_view rowset) {
     // TODO(Drogon): use fmt::format not convert to version_num, only string with length prefix '0'
     int64_t version = std::atoll(version_str.data());
     return make_binlog_meta_key(tablet, version, rowset);
@@ -45,25 +46,6 @@ inline auto make_binlog_meta_key(const TabletUid& tablet_uid, int64_t version,
     return make_binlog_meta_key(tablet_uid.to_string(), version, rowset_id.to_string());
 }
 
-inline auto make_binlog_data_key(std::string_view tablet, int64_t version,
-                                 std::string_view rowset) {
-    return fmt::format("{}data_{}_{:020d}_{}", kBinlogPrefix, tablet, version, rowset);
-}
-
-inline auto make_binlog_data_key(std::string_view tablet, std::string_view version,
-                                 std::string_view rowset) {
-    return fmt::format("{}data_{}_{:0>20}_{}", kBinlogPrefix, tablet, version, rowset);
-}
-
-inline auto make_binlog_data_key(const TabletUid& tablet_uid, int64_t version,
-                                 const RowsetId& rowset_id) {
-    return make_binlog_data_key(tablet_uid.to_string(), version, rowset_id.to_string());
-}
-
-inline auto make_binlog_filename_key(const TabletUid& tablet_uid, std::string_view version) {
-    return fmt::format("{}meta_{}_{:0>20}_", kBinlogPrefix, tablet_uid.to_string(), version);
-}
-
 inline auto make_binlog_meta_key_prefix(const TabletUid& tablet_uid) {
     return fmt::format("{}meta_{}_", kBinlogPrefix, tablet_uid.to_string());
 }
@@ -72,7 +54,35 @@ inline auto make_binlog_meta_key_prefix(const TabletUid& tablet_uid, int64_t ver
     return fmt::format("{}meta_{}_{:020d}_", kBinlogPrefix, tablet_uid.to_string(), version);
 }
 
-inline bool starts_with_binlog_meta(std::string_view str) {
+inline auto make_binlog_data_key(const std::string_view tablet, int64_t version,
+                                 const std::string_view rowset) {
+    return fmt::format("{}data_{}_{:020d}_{}", kBinlogPrefix, tablet, version, rowset);
+}
+
+inline auto make_binlog_data_key(const std::string_view tablet, const std::string_view version,
+                                 const std::string_view rowset) {
+    return fmt::format("{}data_{}_{:0>20}_{}", kBinlogPrefix, tablet, version, rowset);
+}
+
+inline auto make_binlog_data_key(const TabletUid& tablet_uid, int64_t version,
+                                 const RowsetId& rowset_id) {
+    return make_binlog_data_key(tablet_uid.to_string(), version, rowset_id.to_string());
+}
+
+inline auto make_binlog_data_key(const TabletUid& tablet_uid, int64_t version,
+                                 const std::string_view rowset_id) {
+    return make_binlog_data_key(tablet_uid.to_string(), version, rowset_id);
+}
+
+inline auto make_binlog_data_key_prefix(const TabletUid& tablet_uid, int64_t version) {
+    return fmt::format("{}data_{}_{:020d}_", kBinlogPrefix, tablet_uid.to_string(), version);
+}
+
+inline auto make_binlog_filename_key(const TabletUid& tablet_uid, const std::string_view version) {
+    return fmt::format("{}meta_{}_{:0>20}_", kBinlogPrefix, tablet_uid.to_string(), version);
+}
+
+inline bool starts_with_binlog_meta(const std::string_view str) {
     auto prefix = kBinlogMetaPrefix;
     if (prefix.length() > str.length()) {
         return false;
@@ -81,8 +91,8 @@ inline bool starts_with_binlog_meta(std::string_view str) {
     return str.compare(0, prefix.length(), prefix) == 0;
 }
 
-inline std::string get_binlog_data_key_from_meta_key(std::string_view meta_key) {
-    // like "binglog_meta_6943f1585fe834b5-e542c2b83a21d0b7" => "binglog_data-6943f1585fe834b5-e542c2b83a21d0b7"
+inline std::string get_binlog_data_key_from_meta_key(const std::string_view meta_key) {
+    // like "binlog_meta_6943f1585fe834b5-e542c2b83a21d0b7" => "binlog_data-6943f1585fe834b5-e542c2b83a21d0b7"
     return fmt::format("{}data_{}", kBinlogPrefix, meta_key.substr(kBinlogMetaPrefix.length()));
 }
 } // namespace doris

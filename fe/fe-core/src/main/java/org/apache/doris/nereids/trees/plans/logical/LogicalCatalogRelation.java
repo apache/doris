@@ -33,6 +33,7 @@ import org.apache.doris.nereids.util.Utils;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
+import org.apache.commons.lang3.StringUtils;
 
 import java.util.List;
 import java.util.Objects;
@@ -97,6 +98,9 @@ public abstract class LogicalCatalogRelation extends LogicalRelation implements 
      * Full qualified name parts, i.e., concat qualifier and name into a list.
      */
     public List<String> qualified() {
+        if (qualifier.size() == 3) {
+            return qualifier;
+        }
         return Utils.qualifiedNameParts(qualifier, table.getName());
     }
 
@@ -104,6 +108,9 @@ public abstract class LogicalCatalogRelation extends LogicalRelation implements 
      * Full qualified table name, concat qualifier and name with `.` as separator.
      */
     public String qualifiedName() {
+        if (qualifier.size() == 3) {
+            return StringUtils.join(qualifier, ".");
+        }
         return Utils.qualifiedName(qualifier, table.getName());
     }
 }

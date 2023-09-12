@@ -26,7 +26,7 @@
 #include "vec/columns/column_struct.h"
 #include "vec/data_types/data_type.h"
 #include "vec/data_types/data_type_nullable.h"
-#include "vec/utils/template_helpers.hpp"
+#include "vec/functions/function.h"
 
 namespace doris::vectorized {
 

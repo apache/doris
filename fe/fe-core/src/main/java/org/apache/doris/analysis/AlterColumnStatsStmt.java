@@ -22,7 +22,6 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.PartitionType;
-import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
@@ -148,17 +147,13 @@ public class AlterColumnStatsStmt extends DdlStmt {
         DatabaseIf db = catalog.getDbOrAnalysisException(tableName.getDb());
         TableIf table = db.getTableOrAnalysisException(tableName.getTbl());
 
-        if (table.getType() != Table.TableType.OLAP) {
-            throw new AnalysisException("Only OLAP table statistics are supported");
-        }
-
-        OlapTable olapTable = (OlapTable) table;
-        if (olapTable.getColumn(columnName) == null) {
+        if (table.getColumn(columnName) == null) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_WRONG_COLUMN_NAME,
                     columnName, FeNameFormat.getColumnNameRegex());
         }
 
-        if (optPartitionNames != null) {
+        if (optPartitionNames != null && table instanceof OlapTable) {
+            OlapTable olapTable = (OlapTable) table;
             if (olapTable.getPartitionInfo().getType().equals(PartitionType.UNPARTITIONED)) {
                 throw new AnalysisException("Not a partitioned table: " + olapTable.getName());
             }

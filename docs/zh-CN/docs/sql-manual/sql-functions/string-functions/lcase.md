@@ -1,6 +1,6 @@
 ---
 {
-    "title": "lcase",
+    "title": "LCASE",
     "language": "zh-CN"
 }
 ---

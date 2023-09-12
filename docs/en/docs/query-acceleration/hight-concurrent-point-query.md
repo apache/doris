@@ -1,6 +1,6 @@
 --- 
 {
-    "title": "High-concurrency point query",
+    "title": "High-Concurrency Point Query",
     "language": "en"
 }
 --- 
@@ -24,7 +24,7 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# High-concurrency point query
+# High-Concurrency Point Query
 
 <version since="2.0.0"></version>
 
@@ -32,7 +32,7 @@ under the License.
 
 Doris is built on a columnar storage format engine. In high-concurrency service scenarios, users always want to retrieve entire rows of data from the system. However, when tables are wide, the columnar format greatly amplifies random read IO. Doris query engine and planner are too heavy for some simple queries, such as point queries. A short path needs to be planned in the FE's query plan to handle such queries. FE is the access layer service for SQL queries, written in Java. Parsing and analyzing SQL also leads to high CPU overhead for high-concurrency queries. To solve these problems, we have introduced row storage, short query path, and PreparedStatement in Doris. Below is a guide to enable these optimizations.
 
-## Row Store format
+## Row Store Format
 
 We support a row format for olap table to reduce point lookup io cost,
 but to enable this format, you need to spend more disk space for row format store.

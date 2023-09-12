@@ -63,8 +63,7 @@ public class AddDefaultLimit extends DefaultPlanRewriter<StatementContext> imple
     // currently, it's one of the olap table sink and file sink.
     @Override
     public Plan visitLogicalSink(LogicalSink<? extends Plan> logicalSink, StatementContext context) {
-        Plan child = logicalSink.child().accept(this, context);
-        return logicalSink.withChildren(child);
+        return super.visit(logicalSink, context);
     }
 
     @Override

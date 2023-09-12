@@ -125,6 +125,11 @@ public class MaterializedViewSelector {
         long start = System.currentTimeMillis();
         Preconditions.checkState(scanNode instanceof OlapScanNode);
         OlapScanNode olapScanNode = (OlapScanNode) scanNode;
+
+        if (olapScanNode.getOlapTable().getVisibleIndex().size() == 1) {
+            return new BestIndexInfo(olapScanNode.getOlapTable().getBaseIndexId(), isPreAggregation, reasonOfDisable);
+        }
+
         Map<Long, List<Column>> candidateIndexIdToSchema = predicates(olapScanNode);
         if (candidateIndexIdToSchema.keySet().size() == 0) {
             return null;

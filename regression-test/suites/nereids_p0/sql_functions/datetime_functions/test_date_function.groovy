@@ -640,4 +640,6 @@ suite("test_date_function") {
         sql "select cast('20230631' as date), cast('20230632' as date)"
         result([[null, null]])
     }
+
+    qt_sql """ select date_add("2023-08-17T01:41:18Z", interval 8 hour) """
 }

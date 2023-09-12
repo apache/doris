@@ -1,6 +1,6 @@
 ---
 {
-    "title": "Data import things and atomicity",
+    "title": "Data Import Things and Atomicity",
     "language": "en"
 }
 ---

@@ -208,6 +208,11 @@ public class CreateMaterializedViewStmt extends DdlStmt {
          */
         for (int i = 0; i < selectList.getItems().size(); i++) {
             SelectListItem selectListItem = selectList.getItems().get(i);
+
+            if (selectListItem.isStar()) {
+                throw new AnalysisException("The materialized view not support select star");
+            }
+
             Expr selectListItemExpr = selectListItem.getExpr();
             if (!(selectListItemExpr instanceof SlotRef) && !(selectListItemExpr instanceof FunctionCallExpr)
                     && !(selectListItemExpr instanceof ArithmeticExpr)) {
@@ -452,14 +457,14 @@ public class CreateMaterializedViewStmt extends DdlStmt {
                 break;
             case FunctionSet.BITMAP_UNION:
                 type = Type.BITMAP;
-                if (analyzer != null && !baseType.isBitmapType()) {
+                if (!isReplay && analyzer != null && !baseType.isBitmapType()) {
                     throw new AnalysisException(
                             "BITMAP_UNION need input a bitmap column, but input " + baseType.toString());
                 }
                 break;
             case FunctionSet.HLL_UNION:
                 type = Type.HLL;
-                if (analyzer != null && !baseType.isHllType()) {
+                if (!isReplay && analyzer != null && !baseType.isHllType()) {
                     throw new AnalysisException("HLL_UNION need input a hll column, but input " + baseType.toString());
                 }
                 break;

@@ -476,7 +476,8 @@ public class Tablet extends MetaObject implements Writable {
 
 
         Map<Tag, Short> allocMap = replicaAlloc.getAllocMap();
-        Map<Tag, Short> currentAllocMap = Maps.newHashMap();
+        Map<Tag, Short> stableAllocMap = Maps.newHashMap();
+        Map<Tag, Short> stableVersionCompleteAllocMap = Maps.newHashMap();
 
         short replicationNum = replicaAlloc.getTotalReplicaNum();
         int alive = 0;
@@ -496,32 +497,30 @@ public class Tablet extends MetaObject implements Writable {
                 // ATTN: Replicas on same host is a bug of previous Doris version, so we fix it by this way.
                 continue;
             }
+
             alive++;
 
-            // this replica is alive but version incomplete
-            if (replica.getLastFailedVersion() > 0 || replica.getVersion() < visibleVersion) {
-                if (replica.needFurtherRepair() && backend.isScheduleAvailable()) {
+            boolean versionCompleted = replica.getLastFailedVersion() < 0 && replica.getVersion() >= visibleVersion;
+            if (versionCompleted) {
+                aliveAndVersionComplete++;
+            }
+
+            if (backend.isScheduleAvailable()) {
+                if (replica.needFurtherRepair() && (needFurtherRepairReplica == null || !versionCompleted)) {
                     needFurtherRepairReplica = replica;
                 }
-                continue;
+
+                short allocNum = stableAllocMap.getOrDefault(backend.getLocationTag(), (short) 0);
+                stableAllocMap.put(backend.getLocationTag(), (short) (allocNum + 1));
+
+                if (versionCompleted) {
+                    stable++;
+                    versions.add(replica.getVersionCount());
+
+                    allocNum = stableVersionCompleteAllocMap.getOrDefault(backend.getLocationTag(), (short) 0);
+                    stableVersionCompleteAllocMap.put(backend.getLocationTag(), (short) (allocNum + 1));
+                }
             }
-
-            aliveAndVersionComplete++;
-
-            if (!backend.isScheduleAvailable()) {
-                // this replica is alive, version complete, but backend is not available
-                continue;
-            }
-            stable++;
-
-            if (replica.needFurtherRepair() && needFurtherRepairReplica == null) {
-                needFurtherRepairReplica = replica;
-            }
-
-            versions.add(replica.getVersionCount());
-
-            short curNum = currentAllocMap.getOrDefault(backend.getLocationTag(), (short) 0);
-            currentAllocMap.put(backend.getLocationTag(), (short) (curNum + 1));
         }
 
         // 0. We can not choose a good replica as src to repair this tablet.
@@ -583,9 +582,12 @@ public class Tablet extends MetaObject implements Writable {
 
         // 4. got enough healthy replicas, check tag
         for (Map.Entry<Tag, Short> alloc : allocMap.entrySet()) {
-            if (!currentAllocMap.containsKey(alloc.getKey())
-                    || currentAllocMap.get(alloc.getKey()) < alloc.getValue()) {
-                return Pair.of(TabletStatus.REPLICA_MISSING_FOR_TAG, TabletSchedCtx.Priority.NORMAL);
+            if (stableVersionCompleteAllocMap.getOrDefault(alloc.getKey(), (short) 0) < alloc.getValue()) {
+                if (stableAllocMap.getOrDefault(alloc.getKey(), (short) 0) >= alloc.getValue()) {
+                    return Pair.of(TabletStatus.VERSION_INCOMPLETE, TabletSchedCtx.Priority.NORMAL);
+                } else {
+                    return Pair.of(TabletStatus.REPLICA_MISSING_FOR_TAG, TabletSchedCtx.Priority.NORMAL);
+                }
             }
         }
 

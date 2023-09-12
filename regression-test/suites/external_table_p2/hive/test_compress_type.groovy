@@ -1,0 +1,61 @@
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
+//
+//   http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied.  See the License for the
+// specific language governing permissions and limitations
+// under the License.
+
+suite("test_compress_type", "p2,external,hive,external_remote,external_remote_hive") {
+    String enabled = context.config.otherConfigs.get("enableExternalHiveTest")
+    if (enabled != null && enabled.equalsIgnoreCase("true")) {
+        String extHiveHmsHost = context.config.otherConfigs.get("extHiveHmsHost")
+        String extHiveHmsPort = context.config.otherConfigs.get("extHiveHmsPort")
+        String catalog_name = "test_compress_type"
+        sql """drop catalog if exists ${catalog_name};"""
+        sql """
+            create catalog if not exists ${catalog_name} properties (
+                'type'='hms',
+                'hadoop.username' = 'hadoop',
+                'hive.metastore.uris' = 'thrift://${extHiveHmsHost}:${extHiveHmsPort}'
+            );
+        """
+        logger.info("catalog " + catalog_name + " created")
+        sql """switch ${catalog_name};"""
+        logger.info("switched to catalog " + catalog_name)
+        
+        sql """ use multi_catalog """
+
+        // table test_compress_partitioned has 6 partitions with different compressed file: plain, gzip, bzip2, deflate
+        sql """set file_split_size=0"""
+        explain {
+            sql("select count(*) from test_compress_partitioned")
+            contains "inputSplitNum=16, totalFileSize=734675596, scanRanges=16"
+            contains "partition=8/8"
+        }
+        qt_q21 """select count(*) from test_compress_partitioned where dt="gzip" or dt="mix""""
+        qt_q22 """select count(*) from test_compress_partitioned"""
+        order_qt_q23 """select * from test_compress_partitioned where watchid=4611870011201662970"""
+
+        sql """set file_split_size=8388608"""
+        explain {
+            sql("select count(*) from test_compress_partitioned")
+            contains "inputSplitNum=82, totalFileSize=734675596, scanRanges=82"
+            contains "partition=8/8"
+        }
+
+        qt_q31 """select count(*) from test_compress_partitioned where dt="gzip" or dt="mix""""
+        qt_q32 """select count(*) from test_compress_partitioned"""
+        order_qt_q33 """select * from test_compress_partitioned where watchid=4611870011201662970"""
+        sql """set file_split_size=0"""
+    }
+}

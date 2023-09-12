@@ -25,6 +25,7 @@ import org.apache.doris.nereids.types.BooleanType;
 import org.apache.doris.nereids.types.DataType;
 
 import com.google.common.base.Preconditions;
+import com.google.common.collect.ImmutableList;
 
 import java.util.List;
 import java.util.Objects;
@@ -35,7 +36,11 @@ import java.util.Objects;
 public class IsNull extends Expression implements UnaryExpression, AlwaysNotNullable {
 
     public IsNull(Expression e) {
-        super(e);
+        super(ImmutableList.of(e));
+    }
+
+    private IsNull(List<Expression> children) {
+        super(children);
     }
 
     @Override
@@ -46,7 +51,7 @@ public class IsNull extends Expression implements UnaryExpression, AlwaysNotNull
     @Override
     public IsNull withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new IsNull(children.get(0));
+        return new IsNull(children);
     }
 
     @Override

@@ -17,12 +17,14 @@
 
 package org.apache.doris.nereids.rules.analysis;
 
+import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.CreateUserStmt;
 import org.apache.doris.analysis.GrantStmt;
 import org.apache.doris.analysis.TablePattern;
 import org.apache.doris.analysis.UserDesc;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.AccessPrivilege;
+import org.apache.doris.catalog.AccessPrivilegeWithCols;
 import org.apache.doris.catalog.AggregateType;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
@@ -89,10 +91,12 @@ public class CheckRowPolicyTest extends TestWithFeService {
         user.analyze(SystemInfoService.DEFAULT_CLUSTER);
         CreateUserStmt createUserStmt = new CreateUserStmt(new UserDesc(user));
         Env.getCurrentEnv().getAuth().createUser(createUserStmt);
-        List<AccessPrivilege> privileges = Lists.newArrayList(AccessPrivilege.ADMIN_PRIV);
+        List<AccessPrivilegeWithCols> privileges = Lists.newArrayList(new AccessPrivilegeWithCols(AccessPrivilege.ADMIN_PRIV));
         TablePattern tablePattern = new TablePattern("*", "*", "*");
         tablePattern.analyze(SystemInfoService.DEFAULT_CLUSTER);
         GrantStmt grantStmt = new GrantStmt(user, null, tablePattern, privileges);
+        Analyzer analyzer = new Analyzer(connectContext.getEnv(), connectContext);
+        grantStmt.analyze(analyzer);
         Env.getCurrentEnv().getAuth().grant(grantStmt);
     }
 
@@ -140,9 +144,6 @@ public class CheckRowPolicyTest extends TestWithFeService {
         Assertions.assertTrue(ImmutableList.copyOf(filter.getConjuncts()).get(0) instanceof EqualTo);
         Assertions.assertTrue(filter.getConjuncts().toString().contains("'k1 = 1"));
 
-        dropPolicy("DROP ROW POLICY "
-                + policyName
-                + " ON "
-                + tableName);
+        dropPolicy("DROP ROW POLICY " + policyName);
     }
 }

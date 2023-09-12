@@ -33,7 +33,7 @@ CloudCanal 社区版是一款由 [ClouGence 公司](https://www.clougence.com) �
 
 ## 下载安装
 
-[CloudCanal 最新版下载地址](https://clougence.com)
+[CloudCanal 最新版下载地址](https://www.clougence.com/)
 
 ## 功能说明
 
@@ -55,7 +55,7 @@ CloudCanal 提供了完整的产品化能力，用户在可视化界面完成数
 
 ### 前置条件
 
-首先参考 [CloudCanal 安装部署参考文档](https://www.askcug.com/topic/75) 完成 CloudCanal 社区版的安装和部署。
+首先参考 [CloudCanal 快速开始](https://www.clougence.com/cc-doc/quick/quick_start) 完成 CloudCanal 社区版的安装和部署。
 
 ### 添加数据源
 
@@ -63,7 +63,7 @@ CloudCanal 提供了完整的产品化能力，用户在可视化界面完成数
 - 数据源管理-> 新增数据源
 - 选择自建数据库中 Doris
 
-![image.png](/images/cloudcanal/cloudcanal-2.jpg)
+![image.png](/images/cloudcanal/cloudcanal-1.png)
 
 > Tips:
 >
@@ -79,13 +79,13 @@ CloudCanal 提供了完整的产品化能力，用户在可视化界面完成数
 - 选择 **源** 和 **目标** 数据库
 - 点击 下一步
 
-![image.png](/images/cloudcanal/cloudcanal-3.jpg)
+![image.png](/images/cloudcanal/cloudcanal-2.png)
 
 - 选择 **增量同步**，并且启用 **全量数据初始化**
-- 不勾选 DDL 同步(暂不支持)
+- 勾选 DDL 同步
 - 点击下一步
 
-![image.png](/images/cloudcanal/cloudcanal-4.png)
+![image.png](/images/cloudcanal/cloudcanal-3.png)
 
 - 选择订阅的表，**结构迁移自动创建的表为主键模型的表，因此暂不支持无主键表**
 - 点击下一步
@@ -109,6 +109,6 @@ CloudCanal 提供了完整的产品化能力，用户在可视化界面完成数
 
 更多关于 CloudCanal 同步 Doris 的资料，可以查看
 
-- [5 分钟搞定 MySQL/PostgreSQL/Oracle 到 Doris 数据迁移同步-CloudCanal 实战](https://www.clougence.com/cc-doc/blog/postgresql_doris_sync/)
+- [5 分钟搞定 PostgreSQL 到 Doris 数据迁移同步-CloudCanal 实战](https://www.clougence.com/cc-doc/blog/postgresql_doris_sync/)
 
-- [CloudCanal 官方社区](https://www.askcug.com/)
+- [CloudCanal 官网](https://www.clougence.com/)

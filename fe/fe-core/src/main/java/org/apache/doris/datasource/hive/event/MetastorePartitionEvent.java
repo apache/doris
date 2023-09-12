@@ -20,14 +20,17 @@ package org.apache.doris.datasource.hive.event;
 
 import org.apache.hadoop.hive.metastore.api.NotificationEvent;
 
+import java.util.Set;
+
 /**
  * Base class for all the partition events
  */
 public abstract class MetastorePartitionEvent extends MetastoreTableEvent {
 
     // for test
-    protected MetastorePartitionEvent(long eventId, String catalogName, String dbName, String tblName) {
-        super(eventId, catalogName, dbName, tblName);
+    protected MetastorePartitionEvent(long eventId, String catalogName, String dbName,
+                                      String tblName, MetastoreEventType eventType) {
+        super(eventId, catalogName, dbName, tblName, eventType);
     }
 
     protected MetastorePartitionEvent(NotificationEvent event, String catalogName) {
@@ -37,4 +40,15 @@ public abstract class MetastorePartitionEvent extends MetastoreTableEvent {
     protected boolean willCreateOrDropTable() {
         return false;
     }
+
+    protected boolean willChangeTableName() {
+        return false;
+    }
+
+    /**
+     * Returns if the process of this event will rename this partition.
+     */
+    protected abstract boolean willChangePartitionName();
+
+    public abstract Set<String> getAllPartitionNames();
 }

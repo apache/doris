@@ -147,6 +147,10 @@ public class ExchangeNode extends PlanNode {
         }
     }
 
+    public SortInfo getMergeInfo() {
+        return mergeInfo;
+    }
+
     /**
      * Set the parameters used to merge sorted input streams. This can be called
      * after init().

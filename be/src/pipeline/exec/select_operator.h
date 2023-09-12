@@ -20,6 +20,7 @@
 #include <stdint.h>
 
 #include "operator.h"
+#include "pipeline/pipeline_x/operator.h"
 #include "vec/exec/vselect_node.h"
 
 namespace doris {
@@ -37,6 +38,36 @@ public:
 class SelectOperator final : public StreamingOperator<SelectOperatorBuilder> {
 public:
     SelectOperator(OperatorBuilderBase* operator_builder, ExecNode* select_node);
+};
+
+class SelectOperatorX;
+class SelectLocalState final : public PipelineXLocalState<FakeDependency> {
+public:
+    ENABLE_FACTORY_CREATOR(SelectLocalState);
+
+    SelectLocalState(RuntimeState* state, OperatorXBase* parent)
+            : PipelineXLocalState<FakeDependency>(state, parent) {}
+    ~SelectLocalState() = default;
+
+private:
+    friend class SelectOperatorX;
+};
+
+class SelectOperatorX final : public StreamingOperatorX<SelectLocalState> {
+public:
+    SelectOperatorX(ObjectPool* pool, const TPlanNode& tnode, const DescriptorTbl& descs)
+            : StreamingOperatorX<SelectLocalState>(pool, tnode, descs) {}
+
+    Status pull(RuntimeState* state, vectorized::Block* block, SourceState& source_state) override {
+        auto& local_state = state->get_local_state(id())->cast<SelectLocalState>();
+        RETURN_IF_CANCELLED(state);
+        RETURN_IF_ERROR(vectorized::VExprContext::filter_block(local_state._conjuncts, block,
+                                                               block->columns()));
+        local_state.reached_limit(block, source_state);
+        return Status::OK();
+    }
+
+    [[nodiscard]] bool is_source() const override { return false; }
 };
 
 } // namespace pipeline

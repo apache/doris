@@ -39,6 +39,7 @@ import org.apache.doris.catalog.Type;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.thrift.TExprOpcode;
 
 import com.google.common.base.Preconditions;
@@ -59,12 +60,7 @@ import org.apache.iceberg.types.Types;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
-import java.time.LocalDateTime;
-import java.time.ZoneId;
-import java.time.format.DateTimeFormatter;
-import java.time.format.DateTimeParseException;
 import java.util.ArrayList;
-import java.util.Date;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -83,6 +79,7 @@ public class IcebergUtils {
             return 0;
         }
     };
+    static long MILLIS_TO_NANO_TIME = 1000;
 
     /**
      * Create Iceberg schema from Doris ColumnDef.
@@ -341,7 +338,7 @@ public class IcebergUtils {
             }
             List<Object> valueList = new ArrayList<>();
             for (int i = 1; i < inExpr.getChildren().size(); ++i) {
-                if (!(inExpr.getChild(i) instanceof  LiteralExpr)) {
+                if (!(inExpr.getChild(i) instanceof LiteralExpr)) {
                     return null;
                 }
                 LiteralExpr literalExpr = (LiteralExpr) inExpr.getChild(i);
@@ -372,23 +369,7 @@ public class IcebergUtils {
             return boolLiteral.getValue();
         } else if (expr instanceof DateLiteral) {
             DateLiteral dateLiteral = (DateLiteral) expr;
-            DateTimeFormatter formatter = DateTimeFormatter.ofPattern("yyyyMMddHHmmss")
-                    .withZone(ZoneId.systemDefault());
-            StringBuilder sb = new StringBuilder();
-            sb.append(dateLiteral.getYear())
-                    .append(dateLiteral.getMonth())
-                    .append(dateLiteral.getDay())
-                    .append(dateLiteral.getHour())
-                    .append(dateLiteral.getMinute())
-                    .append(dateLiteral.getSecond());
-            Date date;
-            try {
-                date = Date.from(
-                        LocalDateTime.parse(sb.toString(), formatter).atZone(ZoneId.systemDefault()).toInstant());
-            } catch (DateTimeParseException e) {
-                return null;
-            }
-            return date.getTime();
+            return dateLiteral.unixTimestamp(TimeUtils.getTimeZone()) * MILLIS_TO_NANO_TIME;
         } else if (expr instanceof DecimalLiteral) {
             DecimalLiteral decimalLiteral = (DecimalLiteral) expr;
             return decimalLiteral.getValue();

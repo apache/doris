@@ -39,11 +39,7 @@ struct FileCacheStatistics;
 
 class CachedRemoteFileReader final : public FileReader {
 public:
-    CachedRemoteFileReader(FileReaderSPtr remote_file_reader, const std::string& cache_path,
-                           const long modification_time);
-
-    CachedRemoteFileReader(FileReaderSPtr remote_file_reader, const std::string& cache_base_path,
-                           const std::string& cache_path, const long modification_time);
+    CachedRemoteFileReader(FileReaderSPtr remote_file_reader, const FileReaderOptions* opts);
 
     ~CachedRemoteFileReader() override;
 
@@ -69,6 +65,7 @@ private:
     FileReaderSPtr _remote_file_reader;
     IFileCache::Key _cache_key;
     CloudFileCachePtr _cache;
+    bool _is_doris_table;
 
     struct ReadStatistics {
         bool hit_cache = true;
@@ -80,6 +77,9 @@ private:
         int64_t local_write_timer = 0;
     };
     void _update_state(const ReadStatistics& stats, FileCacheStatistics* state) const;
+
+    Status _read_from_cache(size_t offset, Slice result, size_t* bytes_read,
+                            const IOContext* io_ctx);
 };
 
 } // namespace io

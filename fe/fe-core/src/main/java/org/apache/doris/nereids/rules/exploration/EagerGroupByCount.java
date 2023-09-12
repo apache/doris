@@ -78,7 +78,7 @@ public class EagerGroupByCount extends OneExplorationRuleFactory {
                             rightSums.add(sum);
                         }
                     }
-                    if (leftSums.size() == 0 || rightSums.size() == 0) {
+                    if (leftSums.size() == 0 && rightSums.size() == 0) {
                         return null;
                     }
 

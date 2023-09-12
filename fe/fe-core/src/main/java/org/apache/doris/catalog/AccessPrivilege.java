@@ -17,10 +17,10 @@
 
 package org.apache.doris.catalog;
 
-import org.apache.doris.mysql.privilege.PrivBitSet;
 import org.apache.doris.mysql.privilege.Privilege;
 
 import com.google.common.base.Preconditions;
+import com.google.common.collect.Lists;
 
 import java.util.List;
 
@@ -48,37 +48,41 @@ public enum AccessPrivilege {
         this.desc = desc;
     }
 
-    public PrivBitSet toPaloPrivilege() {
+    public List<Privilege> toDorisPrivilege() {
         Preconditions.checkState(flag > 0 && flag < 13);
         switch (flag) {
             case 1:
-                return PrivBitSet.of(Privilege.SELECT_PRIV);
+            case 6:
+                return Lists.newArrayList(Privilege.SELECT_PRIV);
             case 2:
             case 3:
-                return PrivBitSet.of(Privilege.SELECT_PRIV, Privilege.LOAD_PRIV,
+                return Lists.newArrayList(Privilege.SELECT_PRIV, Privilege.LOAD_PRIV,
                         Privilege.ALTER_PRIV, Privilege.CREATE_PRIV,
                         Privilege.DROP_PRIV);
             case 4:
-                return PrivBitSet.of(Privilege.NODE_PRIV);
+                return Lists.newArrayList(Privilege.NODE_PRIV);
             case 5:
-                return PrivBitSet.of(Privilege.GRANT_PRIV);
-            case 6:
-                return PrivBitSet.of(Privilege.SELECT_PRIV);
+                return Lists.newArrayList(Privilege.GRANT_PRIV);
             case 7:
-                return PrivBitSet.of(Privilege.LOAD_PRIV);
+                return Lists.newArrayList(Privilege.LOAD_PRIV);
             case 8:
-                return PrivBitSet.of(Privilege.ALTER_PRIV);
+                return Lists.newArrayList(Privilege.ALTER_PRIV);
             case 9:
-                return PrivBitSet.of(Privilege.CREATE_PRIV);
+                return Lists.newArrayList(Privilege.CREATE_PRIV);
             case 10:
-                return PrivBitSet.of(Privilege.DROP_PRIV);
+                return Lists.newArrayList(Privilege.DROP_PRIV);
             case 11:
-                return PrivBitSet.of(Privilege.ADMIN_PRIV);
+                return Lists.newArrayList(Privilege.ADMIN_PRIV);
             case 12:
-                return PrivBitSet.of(Privilege.USAGE_PRIV);
+                return Lists.newArrayList(Privilege.USAGE_PRIV);
             default:
                 return null;
         }
+    }
+
+    // Used to restrict which permissions support column permissions
+    public boolean canHasColPriv() {
+        return this == SELECT_PRIV;
     }
 
     public static AccessPrivilege fromName(String privStr) {

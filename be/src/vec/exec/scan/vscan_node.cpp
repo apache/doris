@@ -113,6 +113,24 @@ Status VScanNode::init(const TPlanNode& tnode, RuntimeState* state) {
     } else {
         _max_pushdown_conditions_per_column = config::max_pushdown_conditions_per_column;
     }
+
+    // tnode.olap_scan_node.push_down_agg_type_opt field is deprecated
+    // Introduced a new field : tnode.push_down_agg_type_opt
+    //
+    // make it compatible here
+    if (tnode.__isset.push_down_agg_type_opt) {
+        _push_down_agg_type = tnode.push_down_agg_type_opt;
+    } else if (tnode.olap_scan_node.__isset.push_down_agg_type_opt) {
+        _push_down_agg_type = tnode.olap_scan_node.push_down_agg_type_opt;
+
+    } else {
+        _push_down_agg_type = TPushAggOp::type::NONE;
+    }
+
+    if (tnode.__isset.push_down_count) {
+        _push_down_count = tnode.push_down_count;
+    }
+
     return Status::OK();
 }
 
@@ -165,7 +183,6 @@ Status VScanNode::alloc_resource(RuntimeState* state) {
     if (_opened) {
         return Status::OK();
     }
-    _input_tuple_desc = state->desc_tbl().get_tuple_descriptor(_input_tuple_id);
     _output_tuple_desc = state->desc_tbl().get_tuple_descriptor(_output_tuple_id);
     RETURN_IF_ERROR(ExecNode::alloc_resource(state));
     RETURN_IF_ERROR(_acquire_runtime_filter());
@@ -209,6 +226,11 @@ Status VScanNode::alloc_resource(RuntimeState* state) {
 }
 
 Status VScanNode::get_next(RuntimeState* state, vectorized::Block* block, bool* eos) {
+    // debug case failure, to be removed
+    if (state->enable_profile()) {
+        LOG(WARNING) << "debug case failure " << print_id(state->query_id()) << " " << get_name()
+                     << ": VScanNode::get_next";
+    }
     SCOPED_TIMER(_get_next_timer);
     SCOPED_TIMER(_runtime_profile->total_time_counter());
     // in inverted index apply logic, in order to optimize query performance,
@@ -225,6 +247,11 @@ Status VScanNode::get_next(RuntimeState* state, vectorized::Block* block, bool* 
     }};
 
     if (state->is_cancelled()) {
+        // debug case failure, to be removed
+        if (state->enable_profile()) {
+            LOG(WARNING) << "debug case failure " << print_id(state->query_id()) << " "
+                         << get_name() << ": VScanNode::get_next canceled";
+        }
         // ISSUE: https://github.com/apache/doris/issues/16360
         // _scanner_ctx may be null here, see: `VScanNode::alloc_resource` (_eos == null)
         if (_scanner_ctx) {
@@ -237,6 +264,11 @@ Status VScanNode::get_next(RuntimeState* state, vectorized::Block* block, bool* 
 
     if (_eos) {
         *eos = true;
+        // debug case failure, to be removed
+        if (state->enable_profile()) {
+            LOG(WARNING) << "debug case failure " << print_id(state->query_id()) << " "
+                         << get_name() << ": VScanNode::get_next eos";
+        }
         return Status::OK();
     }
 
@@ -247,6 +279,10 @@ Status VScanNode::get_next(RuntimeState* state, vectorized::Block* block, bool* 
         return Status::OK();
     }
 
+    if (scan_block == nullptr) {
+        LOG(FATAL) << "Scan block nullptr error _context_queue_id:" << _context_queue_id
+                   << " context debug string:" << _scanner_ctx->debug_string();
+    }
     // get scanner's block memory
     block->swap(*scan_block);
     _scanner_ctx->return_free_block(std::move(scan_block));
@@ -303,12 +339,11 @@ Status VScanNode::_start_scanners(const std::list<VScannerSPtr>& scanners,
     if (_is_pipeline_scan) {
         int max_queue_size = _shared_scan_opt ? std::max(query_parallel_instance_num, 1) : 1;
         _scanner_ctx = pipeline::PipScannerContext::create_shared(
-                _state, this, _input_tuple_desc, _output_tuple_desc, scanners, limit(),
-                _state->scan_queue_mem_limit(), _col_distribute_ids, max_queue_size);
+                _state, this, _output_tuple_desc, scanners, limit(), _state->scan_queue_mem_limit(),
+                _col_distribute_ids, max_queue_size);
     } else {
-        _scanner_ctx =
-                ScannerContext::create_shared(_state, this, _input_tuple_desc, _output_tuple_desc,
-                                              scanners, limit(), _state->scan_queue_mem_limit());
+        _scanner_ctx = ScannerContext::create_shared(_state, this, _output_tuple_desc, scanners,
+                                                     limit(), _state->scan_queue_mem_limit());
     }
     return Status::OK();
 }
@@ -533,7 +568,8 @@ Status VScanNode::_normalize_predicate(const VExprSPtr& conjunct_expr_root, VExp
                 return Status::OK();
             }
 
-            if (pdt == PushDownType::ACCEPTABLE && _is_key_column(slot->col_name())) {
+            if (pdt == PushDownType::ACCEPTABLE &&
+                (_is_key_column(slot->col_name()) || _storage_no_merge())) {
                 output_expr = nullptr;
                 return Status::OK();
             } else {

@@ -47,16 +47,13 @@ public:
     VRuntimeFilterWrapper(const TExprNode& node, const VExprSPtr& impl);
     VRuntimeFilterWrapper(const VRuntimeFilterWrapper& vexpr);
     ~VRuntimeFilterWrapper() override = default;
-    doris::Status execute(VExprContext* context, doris::vectorized::Block* block,
-                          int* result_column_id) override;
-    doris::Status prepare(doris::RuntimeState* state, const doris::RowDescriptor& desc,
-                          VExprContext* context) override;
-    doris::Status open(doris::RuntimeState* state, VExprContext* context,
-                       FunctionContext::FunctionStateScope scope) override;
+    Status execute(VExprContext* context, Block* block, int* result_column_id) override;
+    Status prepare(RuntimeState* state, const RowDescriptor& desc, VExprContext* context) override;
+    Status open(RuntimeState* state, VExprContext* context,
+                FunctionContext::FunctionStateScope scope) override;
     std::string debug_string() const override { return _impl->debug_string(); }
     bool is_constant() const override;
     void close(VExprContext* context, FunctionContext::FunctionStateScope scope) override;
-    VExprSPtr clone() const override { return VRuntimeFilterWrapper::create_shared(*this); }
     const std::string& expr_name() const override;
     const VExprSPtrs& children() const override { return _impl->children(); }
 
@@ -68,8 +65,7 @@ public:
     static void calculate_filter(int64_t filter_rows, int64_t scan_rows, bool& has_calculate,
                                  bool& always_true) {
         if ((!has_calculate) && (scan_rows > config::bloom_filter_predicate_check_row_num)) {
-            if (filter_rows / (scan_rows * 1.0) <
-                vectorized::VRuntimeFilterWrapper::EXPECTED_FILTER_RATE) {
+            if (filter_rows / (scan_rows * 1.0) < VRuntimeFilterWrapper::EXPECTED_FILTER_RATE) {
                 always_true = true;
             }
             has_calculate = true;

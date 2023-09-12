@@ -87,7 +87,7 @@ public class EnforceMissingPropertiesHelper {
         groupExpression.getOwnerGroup()
                 .replaceBestPlanProperty(
                         output, PhysicalProperties.ANY, groupExpression.getCostValueByProperties(output));
-        return enforceSortAndDistribution(output, request);
+        return enforceSortAndDistribution(PhysicalProperties.ANY, request);
     }
 
     private PhysicalProperties enforceGlobalSort(PhysicalProperties oldOutputProperty, PhysicalProperties required) {
@@ -149,7 +149,7 @@ public class EnforceMissingPropertiesHelper {
     private void addEnforcerUpdateCost(GroupExpression enforcer,
             PhysicalProperties oldOutputProperty,
             PhysicalProperties newOutputProperty) {
-        context.getCascadesContext().getMemo().addEnforcerPlan(enforcer, groupExpression.getOwnerGroup());
+        groupExpression.getOwnerGroup().addEnforcer(enforcer);
         NereidsTracer.logEnforcerEvent(enforcer.getOwnerGroup().getGroupId(), groupExpression.getPlan(),
                 oldOutputProperty, newOutputProperty);
         ENFORCER_TRACER.log(EnforcerEvent.of(groupExpression, ((PhysicalPlan) enforcer.getPlan()),

@@ -52,9 +52,4 @@ public class StringLiteral extends StringLikeLiteral {
     public LiteralExpr toLegacyLiteral() {
         return new org.apache.doris.analysis.StringLiteral(value);
     }
-
-    @Override
-    public String toString() {
-        return "'" + value + "'";
-    }
 }

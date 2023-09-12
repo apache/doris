@@ -20,21 +20,23 @@
 #include <gen_cpp/internal_service.pb.h>
 #include <glog/logging.h>
 
+#include "bvar/bvar.h"
 #include "runtime/memory/mem_tracker.h"
 #include "runtime/tablets_channel.h"
 
 namespace doris {
 
-LoadChannel::LoadChannel(const UniqueId& load_id, std::unique_ptr<MemTracker> mem_tracker,
-                         int64_t timeout_s, bool is_high_priority, const std::string& sender_ip,
-                         int64_t backend_id, bool enable_profile)
+bvar::Adder<int64_t> g_loadchannel_cnt("loadchannel_cnt");
+
+LoadChannel::LoadChannel(const UniqueId& load_id, int64_t timeout_s, bool is_high_priority,
+                         const std::string& sender_ip, int64_t backend_id, bool enable_profile)
         : _load_id(load_id),
-          _mem_tracker(std::move(mem_tracker)),
           _timeout_s(timeout_s),
           _is_high_priority(is_high_priority),
           _sender_ip(sender_ip),
           _backend_id(backend_id),
           _enable_profile(enable_profile) {
+    g_loadchannel_cnt << 1;
     // _last_updated_time should be set before being inserted to
     // _load_channels in load_channel_mgr, or it may be erased
     // immediately by gc thread.
@@ -43,9 +45,10 @@ LoadChannel::LoadChannel(const UniqueId& load_id, std::unique_ptr<MemTracker> me
 }
 
 LoadChannel::~LoadChannel() {
-    LOG(INFO) << "load channel removed. mem peak usage=" << _mem_tracker->peak_consumption()
-              << ", info=" << _mem_tracker->debug_string() << ", load_id=" << _load_id
-              << ", is high priority=" << _is_high_priority << ", sender_ip=" << _sender_ip;
+    g_loadchannel_cnt << -1;
+    LOG(INFO) << "load channel removed"
+              << " load_id=" << _load_id << ", is high priority=" << _is_high_priority
+              << ", sender_ip=" << _sender_ip;
 }
 
 void LoadChannel::_init_profile() {
@@ -83,7 +86,12 @@ Status LoadChannel::open(const PTabletWriterOpenRequest& params) {
         }
     }
 
-    RETURN_IF_ERROR(channel->open(params));
+    if (params.is_incremental()) {
+        // incremental open would ensure not to open tablet repeatedly
+        RETURN_IF_ERROR(channel->incremental_open(params));
+    } else {
+        RETURN_IF_ERROR(channel->open(params));
+    }
 
     _opened = true;
     _last_updated_time.store(time(nullptr));
@@ -148,7 +156,6 @@ void LoadChannel::_report_profile(PTabletWriterAddBlockResult* response) {
         return;
     }
 
-    COUNTER_SET(_peak_memory_usage_counter, _mem_tracker->peak_consumption());
     // TabletSink and LoadChannel in BE are M: N relationship,
     // Every once in a while LoadChannel will randomly return its own runtime profile to a TabletSink,
     // so usually all LoadChannel runtime profiles are saved on each TabletSink,
@@ -165,10 +172,11 @@ void LoadChannel::_report_profile(PTabletWriterAddBlockResult* response) {
     }
 
     TRuntimeProfileTree tprofile;
-    _profile->to_thrift(&tprofile);
     ThriftSerializer ser(false, 4096);
     uint8_t* buf = nullptr;
     uint32_t len = 0;
+    std::lock_guard<SpinLock> l(_profile_serialize_lock);
+    _profile->to_thrift(&tprofile);
     auto st = ser.serialize(&tprofile, &len, &buf);
     if (st.ok()) {
         response->set_load_channel_profile(std::string((const char*)buf, len));

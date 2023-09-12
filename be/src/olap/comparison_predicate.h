@@ -18,6 +18,7 @@
 #pragma once
 
 #include <cstdint>
+#include <type_traits>
 
 #include "olap/column_predicate.h"
 #include "olap/rowset/segment_v2/bloom_filter.h"
@@ -65,7 +66,7 @@ public:
         }
 
         roaring::Roaring roaring;
-        bool exact_match;
+        bool exact_match = false;
         Status status = iterator->seek_dictionary(&_value, &exact_match);
         rowid_t seeked_ordinal = iterator->current_ordinal();
 
@@ -81,7 +82,7 @@ public:
         auto column_desc = schema.column(_column_id);
         std::string column_name = column_desc->name();
 
-        InvertedIndexQueryType query_type;
+        InvertedIndexQueryType query_type = InvertedIndexQueryType::UNKNOWN_QUERY;
         switch (PT) {
         case PredicateType::EQ:
             query_type = InvertedIndexQueryType::EQUAL_QUERY;
@@ -149,56 +150,27 @@ public:
         _evaluate_bit<true>(column, sel, size, flags);
     }
 
-#define COMPARE_TO_MIN_OR_MAX(ELE)                                                        \
-    if constexpr (Type == TYPE_DATE) {                                                    \
-        T tmp_uint32_value = 0;                                                           \
-        memcpy((char*)(&tmp_uint32_value), statistic.ELE->cell_ptr(), sizeof(uint24_t));  \
-        return _operator(tmp_uint32_value, _value);                                       \
-    } else {                                                                              \
-        return _operator(*reinterpret_cast<const T*>(statistic.ELE->cell_ptr()), _value); \
-    }
+    using WarpperFieldType = std::conditional_t<Type == TYPE_DATE, uint24_t, T>;
 
     bool evaluate_and(const std::pair<WrapperField*, WrapperField*>& statistic) const override {
         if (statistic.first->is_null()) {
             return true;
         }
+
+        T tmp_min_value {};
+        T tmp_max_value {};
+        memcpy((char*)(&tmp_min_value), statistic.first->cell_ptr(), sizeof(WarpperFieldType));
+        memcpy((char*)(&tmp_max_value), statistic.second->cell_ptr(), sizeof(WarpperFieldType));
+
         if constexpr (PT == PredicateType::EQ) {
-            if constexpr (Type == TYPE_DATE) {
-                T tmp_min_uint32_value = 0;
-                memcpy((char*)(&tmp_min_uint32_value), statistic.first->cell_ptr(),
-                       sizeof(uint24_t));
-                T tmp_max_uint32_value = 0;
-                memcpy((char*)(&tmp_max_uint32_value), statistic.second->cell_ptr(),
-                       sizeof(uint24_t));
-                return _operator(tmp_min_uint32_value <= _value && tmp_max_uint32_value >= _value,
-                                 true);
-            } else {
-                return _operator(
-                        _get_zone_map_value<T>(statistic.first->cell_ptr()) <= _value &&
-                                _get_zone_map_value<T>(statistic.second->cell_ptr()) >= _value,
-                        true);
-            }
+            return _operator(tmp_min_value <= _value && tmp_max_value >= _value, true);
         } else if constexpr (PT == PredicateType::NE) {
-            if constexpr (Type == TYPE_DATE) {
-                T tmp_min_uint32_value = 0;
-                memcpy((char*)(&tmp_min_uint32_value), statistic.first->cell_ptr(),
-                       sizeof(uint24_t));
-                T tmp_max_uint32_value = 0;
-                memcpy((char*)(&tmp_max_uint32_value), statistic.second->cell_ptr(),
-                       sizeof(uint24_t));
-                return _operator(tmp_min_uint32_value == _value && tmp_max_uint32_value == _value,
-                                 true);
-            } else {
-                return _operator(
-                        _get_zone_map_value<T>(statistic.first->cell_ptr()) == _value &&
-                                _get_zone_map_value<T>(statistic.second->cell_ptr()) == _value,
-                        true);
-            }
+            return _operator(tmp_min_value == _value && tmp_max_value == _value, true);
         } else if constexpr (PT == PredicateType::LT || PT == PredicateType::LE) {
-            COMPARE_TO_MIN_OR_MAX(first)
+            return _operator(tmp_min_value, _value);
         } else {
             static_assert(PT == PredicateType::GT || PT == PredicateType::GE);
-            COMPARE_TO_MIN_OR_MAX(second)
+            return _operator(tmp_max_value, _value);
         }
     }
 
@@ -206,54 +178,35 @@ public:
         if (statistic.first->is_null() || statistic.second->is_null()) {
             return false;
         }
+
+        T tmp_min_value {};
+        T tmp_max_value {};
+        memcpy((char*)(&tmp_min_value), statistic.first->cell_ptr(), sizeof(WarpperFieldType));
+        memcpy((char*)(&tmp_max_value), statistic.second->cell_ptr(), sizeof(WarpperFieldType));
+
         if constexpr (PT == PredicateType::EQ) {
-            if constexpr (Type == TYPE_DATE) {
-                T tmp_min_uint32_value = 0;
-                memcpy((char*)(&tmp_min_uint32_value), statistic.first->cell_ptr(),
-                       sizeof(uint24_t));
-                T tmp_max_uint32_value = 0;
-                memcpy((char*)(&tmp_max_uint32_value), statistic.second->cell_ptr(),
-                       sizeof(uint24_t));
-                return _operator(tmp_min_uint32_value == _value && tmp_max_uint32_value == _value,
-                                 true);
-            } else {
-                return _get_zone_map_value<T>(statistic.first->cell_ptr()) == _value &&
-                       _get_zone_map_value<T>(statistic.second->cell_ptr()) == _value;
-            }
+            return tmp_min_value == _value && tmp_max_value == _value;
         } else if constexpr (PT == PredicateType::NE) {
-            if constexpr (Type == TYPE_DATE) {
-                T tmp_min_uint32_value = 0;
-                memcpy((char*)(&tmp_min_uint32_value), statistic.first->cell_ptr(),
-                       sizeof(uint24_t));
-                T tmp_max_uint32_value = 0;
-                memcpy((char*)(&tmp_max_uint32_value), statistic.second->cell_ptr(),
-                       sizeof(uint24_t));
-                return tmp_min_uint32_value > _value || tmp_max_uint32_value < _value;
-            } else {
-                return _get_zone_map_value<T>(statistic.first->cell_ptr()) > _value ||
-                       _get_zone_map_value<T>(statistic.second->cell_ptr()) < _value;
-            }
+            return tmp_min_value > _value || tmp_max_value < _value;
         } else if constexpr (PT == PredicateType::LT || PT == PredicateType::LE) {
-            COMPARE_TO_MIN_OR_MAX(second)
+            return _operator(tmp_max_value, _value);
         } else {
             static_assert(PT == PredicateType::GT || PT == PredicateType::GE);
-            COMPARE_TO_MIN_OR_MAX(first)
+            return _operator(tmp_min_value, _value);
         }
     }
-#undef COMPARE_TO_MIN_OR_MAX
 
     bool evaluate_and(const segment_v2::BloomFilter* bf) const override {
         if constexpr (PT == PredicateType::EQ) {
             // EQ predicate can not use ngram bf, just return true to accept
-            if (bf->is_ngram_bf()) return true;
+            if (bf->is_ngram_bf()) {
+                return true;
+            }
             if constexpr (std::is_same_v<T, StringRef>) {
                 return bf->test_bytes(_value.data, _value.size);
-            } else if constexpr (Type == TYPE_DATE) {
-                return bf->test_bytes(const_cast<char*>(reinterpret_cast<const char*>(&_value)),
-                                      sizeof(uint24_t));
             } else {
                 return bf->test_bytes(const_cast<char*>(reinterpret_cast<const char*>(&_value)),
-                                      sizeof(_value));
+                                      sizeof(WarpperFieldType));
             }
         } else {
             LOG(FATAL) << "Bloom filter is not supported by predicate type.";

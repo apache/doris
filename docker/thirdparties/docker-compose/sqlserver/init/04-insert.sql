@@ -14,6 +14,7 @@
 -- KIND, either express or implied.  See the License for the
 -- specific language governing permissions and limitations
 -- under the License.
+use doris_test;
 
 Insert into dbo.student values (1, 'doris', 18), (2, 'alice', 19), (3, 'bob', 20);
 
@@ -58,4 +59,7 @@ VALUES (
     '2023-06-25T14:30:45.1234567', -- DATETIME2
     '2023-06-25 14:30:45.1234567 -07:00' -- DATETIMEOFFSET
 );
+
+INSERT INTO dbo.t_id (ID, Name) VALUES (NEWID(), 'Data 1');
+INSERT INTO dbo.t_id (ID, Name) VALUES (NEWID(), 'Data 2');
 

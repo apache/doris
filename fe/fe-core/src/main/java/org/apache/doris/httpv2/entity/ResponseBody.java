@@ -19,6 +19,8 @@ package org.apache.doris.httpv2.entity;
 
 import org.apache.doris.httpv2.rest.RestApiStatusCode;
 
+import java.util.Objects;
+
 /**
  * The response body of restful api.
  * <p>
@@ -95,5 +97,35 @@ public class ResponseBody<T> {
         this.code = RestApiStatusCode.COMMON_ERROR.code;
         this.msg = msg;
         return this;
+    }
+
+    @Override
+    public String toString() {
+        return "ResponseBody{"
+                + "msg='" + msg + '\''
+                + ", code=" + code
+                + ", data=" + data
+                + ", count=" + count
+                + '}';
+    }
+
+    @Override
+    public boolean equals(Object o) {
+        if (this == o) {
+            return true;
+        }
+        if (o == null || getClass() != o.getClass()) {
+            return false;
+        }
+        ResponseBody<?> that = (ResponseBody<?>) o;
+        return code == that.code
+                && count == that.count
+                && Objects.equals(msg, that.msg)
+                && Objects.equals(data, that.data);
+    }
+
+    @Override
+    public int hashCode() {
+        return Objects.hash(msg, code, data, count);
     }
 }

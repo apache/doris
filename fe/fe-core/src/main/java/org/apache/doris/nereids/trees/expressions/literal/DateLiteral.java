@@ -25,6 +25,7 @@ import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.DateType;
 import org.apache.doris.nereids.types.coercion.DateLikeType;
+import org.apache.doris.nereids.util.DateTimeFormatterUtils;
 import org.apache.doris.nereids.util.DateUtils;
 
 import org.apache.logging.log4j.LogManager;
@@ -45,7 +46,6 @@ public class DateLiteral extends Literal {
 
     protected static DateTimeFormatter DATE_FORMATTER = null;
     protected static DateTimeFormatter DATE_FORMATTER_TWO_DIGIT = null;
-    protected static DateTimeFormatter DATEKEY_FORMATTER = null;
     // for cast datetime type to date type.
     protected static DateTimeFormatter DATE_TIME_FORMATTER = null;
     private static final LocalDateTime startOfAD = LocalDateTime.of(0, 1, 1, 0, 0, 0);
@@ -64,8 +64,6 @@ public class DateLiteral extends Literal {
     static {
         try {
             DATE_FORMATTER = DateUtils.formatBuilder("%Y-%m-%d").toFormatter()
-                    .withResolverStyle(ResolverStyle.STRICT);
-            DATEKEY_FORMATTER = DateUtils.formatBuilder("%Y%m%d").toFormatter()
                     .withResolverStyle(ResolverStyle.STRICT);
             DATE_FORMATTER_TWO_DIGIT = DateUtils.formatBuilder("%y-%m-%d").toFormatter()
                     .withResolverStyle(ResolverStyle.STRICT);
@@ -120,10 +118,10 @@ public class DateLiteral extends Literal {
     protected void init(String s) throws AnalysisException {
         try {
             TemporalAccessor dateTime;
-            if (s.split("-")[0].length() == 2) {
+            if (!s.contains("-") && !s.contains(":")) {
+                dateTime = DateTimeFormatterUtils.BASIC_DATE_TIME_FORMATTER.parse(s);
+            } else if (s.split("-")[0].length() == 2) {
                 dateTime = DATE_FORMATTER_TWO_DIGIT.parse(s);
-            } else if (s.length() == DATEKEY_LENGTH && !s.contains("-")) {
-                dateTime = DATEKEY_FORMATTER.parse(s);
             } else if (s.length() == 19) {
                 dateTime = DATE_TIME_FORMATTER.parse(s);
             } else {
@@ -206,20 +204,48 @@ public class DateLiteral extends Literal {
         return day;
     }
 
-    public Expression plusDays(int days) {
+    public Expression plusDays(long days) {
         return fromJavaDateType(DateUtils.getTime(DATE_FORMATTER, getStringValue()).plusDays(days));
     }
 
-    public Expression plusMonths(int months) {
+    public Expression plusMonths(long months) {
         return fromJavaDateType(DateUtils.getTime(DATE_FORMATTER, getStringValue()).plusMonths(months));
     }
 
-    public Expression plusYears(int years) {
+    public Expression plusYears(long years) {
         return fromJavaDateType(DateUtils.getTime(DATE_FORMATTER, getStringValue()).plusYears(years));
     }
 
     public LocalDateTime toJavaDateType() {
         return LocalDateTime.of(((int) getYear()), ((int) getMonth()), ((int) getDay()), 0, 0, 0);
+    }
+
+    public long getTotalDays() {
+        return calculateDays(this.year, this.month, this.day);
+    }
+
+    // calculate the number of days from year 0000-00-00 to year-month-day
+    private long calculateDays(long year, long month, long day) {
+        long totalDays = 0;
+        long y = year;
+
+        if (year == 0 && month == 0) {
+            return 0;
+        }
+
+        /* Cast to int to be able to handle month == 0 */
+        totalDays = 365 * y + 31 * (month - 1) + day;
+        if (month <= 2) {
+            // No leap year
+            y--;
+        } else {
+            // This is great!!!
+            // 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12
+            // 0, 0, 3, 3, 4, 4, 5, 5, 5,  6,  7,  8
+            totalDays -= (month * 4 + 23) / 10;
+        }
+        // Every 400 year has 97 leap year, 100, 200, 300 are not leap year.
+        return totalDays + y / 4 - y / 100 + y / 400;
     }
 
     public static Expression fromJavaDateType(LocalDateTime dateTime) {

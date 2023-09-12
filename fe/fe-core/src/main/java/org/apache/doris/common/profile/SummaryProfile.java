@@ -50,8 +50,9 @@ public class SummaryProfile {
     public static final String INSTANCES_NUM_PER_BE = "Instances Num Per BE";
     public static final String PARALLEL_FRAGMENT_EXEC_INSTANCE = "Parallel Fragment Exec Instance Num";
     public static final String TRACE_ID = "Trace ID";
+    public static final String WORKLOAD_GROUP = "Workload Group";
 
-    // Execution  Summary
+    // Execution Summary
     public static final String ANALYSIS_TIME = "Analysis Time";
     public static final String JOIN_REORDER_TIME = "JoinReorder Time";
     public static final String CREATE_SINGLE_NODE_TIME = "CreateSingleNode Time";
@@ -68,16 +69,21 @@ public class SummaryProfile {
     public static final String WRITE_RESULT_TIME = "Write Result Time";
     public static final String WAIT_FETCH_RESULT_TIME = "Wait and Fetch Result Time";
 
-    public static final ImmutableList<String> SUMMARY_KEYS = ImmutableList.of(PROFILE_ID, DORIS_VERSION, TASK_TYPE,
-            START_TIME, END_TIME, TOTAL_TIME, TASK_STATE, USER, DEFAULT_DB, SQL_STATEMENT, IS_NEREIDS, IS_PIPELINE,
-            IS_CACHED, TOTAL_INSTANCES_NUM, INSTANCES_NUM_PER_BE, PARALLEL_FRAGMENT_EXEC_INSTANCE, TRACE_ID);
+    // These info will display on FE's web ui table, every one will be displayed as
+    // a column, so that should not
+    // add many columns here. Add to ExcecutionSummary list.
+    public static final ImmutableList<String> SUMMARY_KEYS = ImmutableList.of(PROFILE_ID, TASK_TYPE,
+            START_TIME, END_TIME, TOTAL_TIME, TASK_STATE, USER, DEFAULT_DB, SQL_STATEMENT);
 
-    public static final ImmutableList<String> EXECUTION_SUMMARY_KEYS = ImmutableList.of(ANALYSIS_TIME, PLAN_TIME,
-            JOIN_REORDER_TIME, CREATE_SINGLE_NODE_TIME, QUERY_DISTRIBUTED_TIME,
+    public static final ImmutableList<String> EXECUTION_SUMMARY_KEYS = ImmutableList.of(WORKLOAD_GROUP, ANALYSIS_TIME,
+            PLAN_TIME, JOIN_REORDER_TIME, CREATE_SINGLE_NODE_TIME, QUERY_DISTRIBUTED_TIME,
             INIT_SCAN_NODE_TIME, FINALIZE_SCAN_NODE_TIME, GET_SPLITS_TIME, GET_PARTITIONS_TIME,
             GET_PARTITION_FILES_TIME, CREATE_SCAN_RANGE_TIME, SCHEDULE_TIME, FETCH_RESULT_TIME,
-            WRITE_RESULT_TIME, WAIT_FETCH_RESULT_TIME);
+            WRITE_RESULT_TIME, WAIT_FETCH_RESULT_TIME, DORIS_VERSION, IS_NEREIDS, IS_PIPELINE,
+            IS_CACHED, TOTAL_INSTANCES_NUM, INSTANCES_NUM_PER_BE, PARALLEL_FRAGMENT_EXEC_INSTANCE, TRACE_ID);
 
+    // Ident of each item. Default is 0, which doesn't need to present in this Map.
+    // Please set this map for new profile items if they need ident.
     public static ImmutableMap<String, Integer> EXECUTION_SUMMARY_KEYS_IDENTATION = ImmutableMap.of();
 
     {
@@ -152,6 +158,10 @@ public class SummaryProfile {
         for (String key : infos.keySet()) {
             if (SUMMARY_KEYS.contains(key)) {
                 summaryProfile.addInfoString(key, infos.get(key));
+            } else if (EXECUTION_SUMMARY_KEYS.contains(key)) {
+                // Some static value is build in summary profile, should add
+                // them to execution summary profile during update.
+                executionSummaryProfile.addInfoString(key, infos.get(key));
             }
         }
     }
@@ -305,6 +315,11 @@ public class SummaryProfile {
 
         public SummaryBuilder defaultDb(String val) {
             map.put(DEFAULT_DB, val);
+            return this;
+        }
+
+        public SummaryBuilder workloadGroup(String workloadGroup) {
+            map.put(WORKLOAD_GROUP, workloadGroup);
             return this;
         }
 

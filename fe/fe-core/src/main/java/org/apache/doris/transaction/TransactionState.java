@@ -219,8 +219,14 @@ public class TransactionState implements Writable {
     private long publishVersionTime = -1;
     private TransactionStatus preStatus = null;
 
+    // When publish txn, if every tablet has at least 1 replica published succ, but not quorum replicas succ,
+    // and time since firstPublishOneSuccTime has exceeds Config.publish_wait_time_second,
+    // then this transaction will become visible.
+    private long firstPublishOneSuccTime = -1;
+
     @SerializedName(value = "callbackId")
     private long callbackId = -1;
+
     // In the beforeStateTransform() phase, we will get the callback object through the callbackId,
     // and if we get it, we will save it in this variable.
     // The main function of this variable is to retain a reference to this callback object.
@@ -385,6 +391,14 @@ public class TransactionState implements Writable {
 
     public String getErrorLogUrl() {
         return errorLogUrl;
+    }
+
+    public long getFirstPublishOneSuccTime() {
+        return firstPublishOneSuccTime;
+    }
+
+    public void setFirstPublishOneSuccTime(long firstPublishOneSuccTime) {
+        this.firstPublishOneSuccTime = firstPublishOneSuccTime;
     }
 
     public void setTransactionStatus(TransactionStatus transactionStatus) {

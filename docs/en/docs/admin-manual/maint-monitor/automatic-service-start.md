@@ -33,7 +33,7 @@ The automatic pull-up service of FE and BE must be configured after the Doris cl
 
 ## Systemd Configures the Doris service
 
-For details about systemd usage and parameter parsing, see [here](https://blog.51cto.com/arm2012/1963238) 
+For details about systemd usage and parameter parsing, see [here](https://systemd.io/) 
 
 ### sudo permission control
 
@@ -49,9 +49,14 @@ doris   ALL=(ALL)       NOPASSWD:DORISCTL
 
 ### Configuration procedure
 
-1. Download the doris-fe.service file: [doris-fe.service](https://github.com/apache/doris/blob/master/tools/systemd/doris-fe.service)
+1. You should config the "JAVA_HOME" variable in the config file, both fe.conf and be.conf, or you can't use the command "systemctl start" to start doris
+   ```
+   echo "JAVA_HOME=your_java_home" >> /home/doris/fe/conf/fe.conf
+   echo "JAVA_HOME=your_java_home" >> /home/doris/be/conf/be.conf
+   ```
+2. Download the doris-fe.service file: [doris-fe.service](https://github.com/apache/doris/blob/master/tools/systemd/doris-fe.service)
 
-2. The details of doris-fe.service are as follows:
+3. The details of doris-fe.service are as follows:
 
     ```
     # Licensed to the Apache Software Foundation (ASF) under one
@@ -98,9 +103,9 @@ doris   ALL=(ALL)       NOPASSWD:DORISCTL
 
 - ExecStart and ExecStop are configured based on actual fe paths
 
-3. Download the doris-be.service file : [doris-be.service](https://github.com/apache/doris/blob/master/tools/systemd/doris-be.service)
+4. Download the doris-be.service file : [doris-be.service](https://github.com/apache/doris/blob/master/tools/systemd/doris-be.service)
 
-4. The details of doris-be.service are as follows: 
+5. The details of doris-be.service are as follows: 
     ```
     # Licensed to the Apache Software Foundation (ASF) under one
     # or more contributor license agreements.  See the NOTICE file
@@ -146,11 +151,11 @@ doris   ALL=(ALL)       NOPASSWD:DORISCTL
 
 - ExecStart and ExecStop are configured based on actual be paths
 
-5. Service configuration
+6. Service configuration
 
    Place doris-fe.service and doris-be.service in the /usr/lib/systemd/system directory
 
-6. Set self-start
+7. Set self-start
 
     After you add or modify the configuration file, you need to reload it
 
@@ -165,7 +170,7 @@ doris   ALL=(ALL)       NOPASSWD:DORISCTL
     systemctl enable doris-be
     ```
 
-7. Service initiation
+8. Service initiation
 
     ```
     systemctl start doris-fe
@@ -315,6 +320,8 @@ Supervisor configuration automatically pulls up the supervisor configuration. Yo
 ```
 supervisor installed directly using the yum command only supports python2,Therefore, the file contents in /usr/bin/supervisorctl and /usr/bin/supervisorctl should be changed at the beginning Change #! /usr/bin/python to #! /usr/bin/python2, python2 must be installed
 ```
+
+- If the supervisor is configured to automatically pull up the Doris process, if the BE node breaks down due to abnormal factors on Doris, the error stack information that should be output to be.out will be intercepted by the supervisor. We need to look it up in supervisor's log for further analysis. 
 
 
 

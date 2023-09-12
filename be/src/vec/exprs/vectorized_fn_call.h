@@ -50,7 +50,6 @@ public:
     Status open(RuntimeState* state, VExprContext* context,
                 FunctionContext::FunctionStateScope scope) override;
     void close(VExprContext* context, FunctionContext::FunctionStateScope scope) override;
-    VExprSPtr clone() const override { return VectorizedFnCall::create_shared(*this); }
     const std::string& expr_name() const override;
     std::string debug_string() const override;
     bool is_constant() const override {

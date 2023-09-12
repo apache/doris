@@ -123,13 +123,38 @@ public class PropertyConverter {
         } else if (props.containsKey(MinioProperties.ENDPOINT)) {
             return convertToMinioProperties(props, MinioProperties.getCredential(props));
         } else if (props.containsKey(S3Properties.ENDPOINT)) {
-            return convertToS3Properties(props, S3Properties.getCredential(props));
+            CloudCredential s3Credential = S3Properties.getCredential(props);
+            Map<String, String> s3Properties = convertToS3Properties(props, s3Credential);
+            String s3CliEndpoint = props.get(S3Properties.ENDPOINT);
+            return convertToCompatibleS3Properties(props, s3CliEndpoint, s3Credential, s3Properties);
         } else if (props.containsKey(S3Properties.Env.ENDPOINT)) {
             // checkout env in the end
             // compatible with the s3,obs,oss,cos when they use aws client.
-            return convertToS3EnvProperties(props, S3Properties.getEnvironmentCredentialWithEndpoint(props), false);
+            CloudCredentialWithEndpoint envCredentials = S3Properties.getEnvironmentCredentialWithEndpoint(props);
+            Map<String, String> s3Properties = convertToS3EnvProperties(props, envCredentials, false);
+            String s3CliEndpoint = envCredentials.getEndpoint();
+            return convertToCompatibleS3Properties(props, s3CliEndpoint, envCredentials, s3Properties);
         }
         return props;
+    }
+
+    private static Map<String, String> convertToCompatibleS3Properties(Map<String, String> props,
+                                                                       String s3CliEndpoint,
+                                                                       CloudCredential credential,
+                                                                       Map<String, String> s3Properties) {
+        Map<String, String> heteroProps = new HashMap<>(s3Properties);
+        if (s3CliEndpoint.contains(CosProperties.COS_PREFIX)) {
+            props.putIfAbsent(CosProperties.ENDPOINT, s3CliEndpoint);
+            // CosN is not compatible with S3, when use s3 properties, will convert to cosn properties.
+            heteroProps.putAll(convertToCOSProperties(props, credential));
+        } else if (s3CliEndpoint.contains(ObsProperties.OBS_PREFIX)) {
+            props.putIfAbsent(ObsProperties.ENDPOINT, s3CliEndpoint);
+            heteroProps.putAll(convertToOBSProperties(props, credential));
+        } else if (s3CliEndpoint.contains(OssProperties.OSS_REGION_PREFIX)) {
+            props.putIfAbsent(OssProperties.ENDPOINT, s3CliEndpoint);
+            heteroProps.putAll(convertToOSSProperties(props, credential));
+        }
+        return heteroProps;
     }
 
 
@@ -224,7 +249,7 @@ public class PropertyConverter {
                                       CloudCredential credential) {
         s3Properties.put(Constants.MAX_ERROR_RETRIES, "2");
         s3Properties.put("fs.s3.impl.disable.cache", "true");
-        s3Properties.put("fs.s3.impl", S3AFileSystem.class.getName());
+        s3Properties.putIfAbsent("fs.s3.impl", S3AFileSystem.class.getName());
         String defaultProviderList = String.join(",", S3Properties.AWS_CREDENTIALS_PROVIDERS);
         String credentialsProviders = s3Properties
                 .getOrDefault(S3Properties.CREDENTIALS_PROVIDER, defaultProviderList);

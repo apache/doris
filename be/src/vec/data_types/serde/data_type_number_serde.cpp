@@ -21,7 +21,6 @@
 
 #include <type_traits>
 
-#include "gutil/casts.h"
 #include "gutil/strings/numbers.h"
 #include "util/mysql_global.h"
 #include "vec/io/io_helper.h"
@@ -101,9 +100,10 @@ void DataTypeNumberSerDe<T>::write_column_to_arrow(const IColumn& column, const 
 }
 
 template <typename T>
-Status DataTypeNumberSerDe<T>::deserialize_one_cell_from_text(IColumn& column, ReadBuffer& rb,
+Status DataTypeNumberSerDe<T>::deserialize_one_cell_from_json(IColumn& column, Slice& slice,
                                                               const FormatOptions& options) const {
     auto& column_data = reinterpret_cast<ColumnType&>(column);
+    ReadBuffer rb(slice.data, slice.size);
     if constexpr (std::is_same<T, UInt128>::value) {
         // TODO: support for Uint128
         return Status::InvalidArgument("uint128 is not support");
@@ -136,9 +136,16 @@ Status DataTypeNumberSerDe<T>::deserialize_one_cell_from_text(IColumn& column, R
 }
 
 template <typename T>
-void DataTypeNumberSerDe<T>::serialize_one_cell_to_text(const IColumn& column, int row_num,
+void DataTypeNumberSerDe<T>::serialize_column_to_json(const IColumn& column, int start_idx,
+                                                      int end_idx, BufferWritable& bw,
+                                                      FormatOptions& options) const {
+    SERIALIZE_COLUMN_TO_JSON()
+}
+
+template <typename T>
+void DataTypeNumberSerDe<T>::serialize_one_cell_to_json(const IColumn& column, int row_num,
                                                         BufferWritable& bw,
-                                                        const FormatOptions& options) const {
+                                                        FormatOptions& options) const {
     auto result = check_column_const_set_readability(column, row_num);
     ColumnPtr ptr = result.first;
     row_num = result.second;
@@ -154,7 +161,14 @@ void DataTypeNumberSerDe<T>::serialize_one_cell_to_text(const IColumn& column, i
     } else if constexpr (std::is_integral<T>::value || std::numeric_limits<T>::is_iec559) {
         bw.write_number(data);
     }
-    bw.commit();
+}
+
+template <typename T>
+Status DataTypeNumberSerDe<T>::deserialize_column_from_json_vector(
+        IColumn& column, std::vector<Slice>& slices, int* num_deserialized,
+        const FormatOptions& options) const {
+    DESERIALIZE_COLUMN_FROM_JSON_VECTOR()
+    return Status::OK();
 }
 
 template <typename T>
@@ -166,7 +180,7 @@ void DataTypeNumberSerDe<T>::read_column_from_arrow(IColumn& column,
 
     // now uint8 for bool
     if constexpr (std::is_same_v<T, UInt8>) {
-        auto concrete_array = down_cast<const arrow::BooleanArray*>(arrow_array);
+        auto concrete_array = dynamic_cast<const arrow::BooleanArray*>(arrow_array);
         for (size_t bool_i = 0; bool_i != static_cast<size_t>(concrete_array->length()); ++bool_i) {
             col_data.emplace_back(concrete_array->Value(bool_i));
         }

@@ -239,7 +239,7 @@ public class FillUpMissingSlots implements AnalysisRuleFactory {
         }
 
         private void generateAliasForNewOutputSlots(Expression expression) {
-            Alias alias = new Alias(expression, expression.toSql());
+            Alias alias = new Alias(expression);
             newOutputSlots.add(alias);
             substitution.put(expression, alias.toSlot());
         }

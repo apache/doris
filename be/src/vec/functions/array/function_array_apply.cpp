@@ -130,6 +130,7 @@ private:
         if constexpr (op == ApplyOp::GE) {
             return data >= comp;
         }
+        LOG(FATAL) << "__builtin_unreachable";
         __builtin_unreachable();
     }
 

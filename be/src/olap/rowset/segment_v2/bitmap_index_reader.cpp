@@ -33,9 +33,17 @@ namespace doris {
 namespace segment_v2 {
 
 Status BitmapIndexReader::load(bool use_page_cache, bool kept_in_memory) {
-    const IndexedColumnMetaPB& dict_meta = _bitmap_index_meta->dict_column();
-    const IndexedColumnMetaPB& bitmap_meta = _bitmap_index_meta->bitmap_column();
-    _has_null = _bitmap_index_meta->has_null();
+    // TODO yyq: implement a new once flag to avoid status construct.
+    return _load_once.call([this, use_page_cache, kept_in_memory] {
+        return _load(use_page_cache, kept_in_memory, std::move(_index_meta));
+    });
+}
+
+Status BitmapIndexReader::_load(bool use_page_cache, bool kept_in_memory,
+                                std::unique_ptr<BitmapIndexPB> index_meta) {
+    const IndexedColumnMetaPB& dict_meta = index_meta->dict_column();
+    const IndexedColumnMetaPB& bitmap_meta = index_meta->bitmap_column();
+    _has_null = index_meta->has_null();
 
     _dict_column_reader.reset(new IndexedColumnReader(_file_reader, dict_meta));
     _bitmap_column_reader.reset(new IndexedColumnReader(_file_reader, bitmap_meta));

@@ -1,6 +1,6 @@
 ---
 {
-    "title": "Synchronize data through external table",
+    "title": "Synchronize Data Through External Table",
     "language": "en"
 }
 ---

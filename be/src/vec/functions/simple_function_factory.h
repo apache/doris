@@ -32,6 +32,7 @@ namespace doris::vectorized {
 
 class SimpleFunctionFactory;
 
+void register_function_size(SimpleFunctionFactory& factory);
 void register_function_comparison(SimpleFunctionFactory& factory);
 void register_function_comparison_eq_for_null(SimpleFunctionFactory& factory);
 void register_function_hll_cardinality(SimpleFunctionFactory& factory);
@@ -207,6 +208,7 @@ public:
         static std::once_flag oc;
         static SimpleFunctionFactory instance;
         std::call_once(oc, []() {
+            register_function_size(instance);
             register_function_bitmap(instance);
             register_function_quantile_state(instance);
             register_function_bitmap_variadic(instance);

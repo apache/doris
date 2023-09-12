@@ -106,7 +106,7 @@ class PruneOlapScanTabletTest implements MemoPatternMatchSupported {
                 olapTable.getPartitionIds();
                 result = ImmutableList.of(1L);
 
-                olapTable.getBaseSchema();
+                olapTable.getBaseSchema(true);
                 result = columns;
 
                 olapTable.getName();

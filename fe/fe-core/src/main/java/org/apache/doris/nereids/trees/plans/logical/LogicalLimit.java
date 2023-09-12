@@ -104,7 +104,7 @@ public class LogicalLimit<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_TY
         if (o == null || getClass() != o.getClass()) {
             return false;
         }
-        LogicalLimit that = (LogicalLimit) o;
+        LogicalLimit<?> that = (LogicalLimit<?>) o;
         return limit == that.limit && offset == that.offset && phase == that.phase;
     }
 
@@ -115,10 +115,6 @@ public class LogicalLimit<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_TY
 
     public List<? extends Expression> getExpressions() {
         return ImmutableList.of();
-    }
-
-    public LogicalLimit<Plan> withLimitPhase(LimitPhase phase) {
-        return new LogicalLimit<>(limit, offset, phase, child());
     }
 
     @Override

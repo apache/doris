@@ -1,6 +1,6 @@
 ---
 {
-"title": "Compilation With Arm",
+"title": "Compilation with Arm",
 "language": "en"
 }
 ---
@@ -24,7 +24,7 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# Compile With ARM
+# Compile with ARM
 
 This topic is about how to compile Doris on the ARM64 platform.
 
@@ -53,7 +53,7 @@ Note that this is for reference only. Other errors may occur when compiling in d
    model name  : Phytium,FT-2000+/64
    ```
 
-### Compile With ldb-toolchain
+### Compile with ldb-Toolchain
 
 This method works for Doris versions after [commit 7f3564](https://github.com/apache/doris/commit/7f3564cca62de49c9f2ea67fcf735921dbebb4d1).
 

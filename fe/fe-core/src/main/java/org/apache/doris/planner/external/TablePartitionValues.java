@@ -190,8 +190,7 @@ public class TablePartitionValues {
         try {
             PartitionKey key = PartitionKey.createListPartitionKeyWithTypes(
                     partitionValues.stream().map(p -> new PartitionValue(p, HIVE_DEFAULT_PARTITION.equals(p)))
-                            .collect(Collectors.toList()),
-                    types);
+                            .collect(Collectors.toList()), types, false);
             return new ListPartitionItem(Lists.newArrayList(key));
         } catch (AnalysisException e) {
             throw new CacheException("failed to convert partition %s to list partition",

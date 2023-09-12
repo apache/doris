@@ -31,7 +31,6 @@
 
 namespace doris {
 namespace io {
-class FileReaderOptions;
 
 class RemoteFileSystem : public FileSystem {
 public:

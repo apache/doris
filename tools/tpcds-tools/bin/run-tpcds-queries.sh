@@ -42,6 +42,7 @@ Usage: $0
 OPTS=$(getopt \
     -n "$0" \
     -o '' \
+    -o 'hs:' \
     -- "$@")
 
 eval set -- "${OPTS}"
@@ -79,10 +80,20 @@ fi
 
 if [[ ${SCALE_FACTOR} -eq 1 ]]; then
     echo "Running tpcds sf 1 queries"
-    TPCDS_QUERIES_DIR="${CURDIR}/../queries_1"
+    TPCDS_QUERIES_DIR="${CURDIR}/../queries/sf1"
+    TPCDS_OPT_CONF="${CURDIR}/../conf/opt/opt_sf1.sql"
 elif [[ ${SCALE_FACTOR} -eq 100 ]]; then
     echo "Running tpcds sf 100 queries"
-    TPCDS_QUERIES_DIR="${CURDIR}/../queries_100"
+    TPCDS_QUERIES_DIR="${CURDIR}/../queries/sf100"
+    TPCDS_OPT_CONF="${CURDIR}/../conf/opt/opt_sf100.sql"
+elif [[ ${SCALE_FACTOR} -eq 1000 ]]; then
+    echo "Running tpcds sf 1000 queries"
+    TPCDS_QUERIES_DIR="${CURDIR}/../queries/sf1000"
+    TPCDS_OPT_CONF="${CURDIR}/../conf/opt/opt_sf1000.sql"
+elif [[ ${SCALE_FACTOR} -eq 10000 ]]; then
+    echo "Running tpcds sf 10000 queries"
+    TPCDS_QUERIES_DIR="${CURDIR}/../queries/sf10000"
+    TPCDS_OPT_CONF="${CURDIR}/../conf/opt/opt_sf10000.sql"
 else
     echo "${SCALE_FACTOR} scale is NOT support currently."
     exit 1
@@ -114,11 +125,13 @@ run_sql() {
 }
 
 echo '============================================'
+run_sql "source ${TPCDS_OPT_CONF};"
+echo '============================================'
 run_sql "show variables;"
 echo '============================================'
 run_sql "show table status;"
 echo '============================================'
-run_sql "analyze database ${DB};"
+run_sql "analyze database ${DB} with sync;"
 echo '============================================'
 echo "Time Unit: ms"
 

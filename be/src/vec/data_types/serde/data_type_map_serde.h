@@ -39,23 +39,36 @@ public:
     DataTypeMapSerDe(const DataTypeSerDeSPtr& _key_serde, const DataTypeSerDeSPtr& _value_serde)
             : key_serde(_key_serde), value_serde(_value_serde) {}
 
-    void serialize_one_cell_to_text(const IColumn& column, int row_num, BufferWritable& bw,
-                                    const FormatOptions& options) const override {
-        LOG(FATAL) << "Not support serialize map column to buffer";
-    }
+    void serialize_one_cell_to_json(const IColumn& column, int row_num, BufferWritable& bw,
+                                    FormatOptions& options) const override;
+    void serialize_column_to_json(const IColumn& column, int start_idx, int end_idx,
+                                  BufferWritable& bw, FormatOptions& options) const override;
+    Status deserialize_one_cell_from_json(IColumn& column, Slice& slice,
+                                          const FormatOptions& options) const override;
 
-    Status deserialize_one_cell_from_text(IColumn& column, ReadBuffer& rb,
-                                          const FormatOptions& options) const override {
-        LOG(FATAL) << "Not support deserialize from buffer to map";
-        return Status::NotSupported("Not support deserialize from buffer to map");
-    }
+    Status deserialize_column_from_json_vector(IColumn& column, std::vector<Slice>& slices,
+                                               int* num_deserialized,
+                                               const FormatOptions& options) const override;
+
+    Status deserialize_one_cell_from_hive_text(IColumn& column, Slice& slice,
+                                               const FormatOptions& options,
+                                               int nesting_level = 1) const override;
+
+    Status deserialize_column_from_hive_text_vector(IColumn& column, std::vector<Slice>& slices,
+                                                    int* num_deserialized,
+                                                    const FormatOptions& options,
+                                                    int nesting_level = 1) const override;
+
+    void serialize_one_cell_to_hive_text(const IColumn& column, int row_num, BufferWritable& bw,
+                                         FormatOptions& options,
+                                         int nesting_level = 1) const override;
 
     Status write_column_to_pb(const IColumn& column, PValues& result, int start,
                               int end) const override {
-        LOG(FATAL) << "Not support write map column to pb";
+        return Status::NotSupported("write_column_to_pb with type " + column.get_name());
     }
     Status read_column_from_pb(IColumn& column, const PValues& arg) const override {
-        LOG(FATAL) << "Not support read from pb to map";
+        return Status::NotSupported("read_column_from_pb with type " + column.get_name());
     }
     void write_one_cell_to_jsonb(const IColumn& column, JsonbWriter& result, Arena* mem_pool,
                                  int32_t col_id, int row_num) const override;

@@ -68,7 +68,8 @@ public:
     ~BackendService() override = default;
 
     // NOTE: now we do not support multiple backend in one process
-    static Status create_service(ExecEnv* exec_env, int port, ThriftServer** server);
+    static Status create_service(ExecEnv* exec_env, int port,
+                                 std::unique_ptr<ThriftServer>* server);
 
     // Agent service
     void submit_tasks(TAgentResult& return_value,

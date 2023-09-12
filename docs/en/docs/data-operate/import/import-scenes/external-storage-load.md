@@ -1,6 +1,6 @@
 ---
 {
-    "title": "External storage data import",
+    "title": "External Storage Data Import",
     "language": "en"
 }
 ---
@@ -24,7 +24,7 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# External storage data import
+# External Storage Data Import
 
 The following mainly introduces how to import data stored in an external system. For example (HDFS, All object stores that support the S3 protocol)
 ## HDFS LOAD

@@ -24,6 +24,7 @@
 #include <stdint.h>
 #include <sys/types.h>
 
+#include <concepts>
 #include <cstddef>
 #include <functional>
 #include <initializer_list>
@@ -279,7 +280,8 @@ std::pair<ColumnPtr, size_t> check_column_const_set_readability(const IColumn& c
 /*
  * @warning use this function sometimes cause performance problem in GCC.
 */
-template <typename T, std::enable_if_t<std::is_integral_v<T>, T> = 0>
+template <typename T>
+    requires std::is_integral_v<T>
 T index_check_const(T arg, bool constancy) noexcept {
     return constancy ? 0 : arg;
 }

@@ -78,6 +78,9 @@ public:
         if (UNLIKELY(scale > 6)) {
             LOG(FATAL) << fmt::format("Scale {} is out of bounds", scale);
         }
+        if (scale == -1) {
+            _scale = 0;
+        }
     }
     bool equals(const IDataType& rhs) const override;
 

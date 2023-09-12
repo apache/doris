@@ -454,8 +454,8 @@ void ColumnDecimal<T>::replicate(const uint32_t* __restrict indexs, size_t targe
 template <typename T>
 void ColumnDecimal<T>::get_extremes(Field& min, Field& max) const {
     if (data.size() == 0) {
-        min = NearestFieldType<T>(0, scale);
-        max = NearestFieldType<T>(0, scale);
+        min = NearestFieldType<T>(T(), scale);
+        max = NearestFieldType<T>(T(), scale);
         return;
     }
 

@@ -49,12 +49,9 @@ public:
                                  _fn.name.function_name, get_child_names(), _data_type->get_name());
     }
 
-    VExprSPtr clone() const override { return VCompoundPred::create_shared(*this); }
-
     const std::string& expr_name() const override { return _expr_name; }
 
-    Status execute(VExprContext* context, vectorized::Block* block,
-                   int* result_column_id) override {
+    Status execute(VExprContext* context, Block* block, int* result_column_id) override {
         if (children().size() == 1 || !_all_child_is_compound_and_not_const() ||
             _children[0]->is_nullable() || _children[1]->is_nullable()) {
             // TODO:

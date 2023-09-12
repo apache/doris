@@ -23,24 +23,24 @@ public class LimitClauseTest extends ParserTestBase {
     @Test
     public void testLimit() {
         parsePlan("SELECT b FROM test order by a limit 3 offset 100")
-                .matchesFromRoot(
+                .matches(
                         logicalLimit(
                                 logicalSort()
                         ).when(limit -> limit.getLimit() == 3 && limit.getOffset() == 100)
                 );
 
         parsePlan("SELECT b FROM test order by a limit 100, 3")
-                .matchesFromRoot(
+                .matches(
                         logicalLimit(
                                 logicalSort()
                         ).when(limit -> limit.getLimit() == 3 && limit.getOffset() == 100)
                 );
 
         parsePlan("SELECT b FROM test limit 3")
-                .matchesFromRoot(logicalLimit().when(limit -> limit.getLimit() == 3 && limit.getOffset() == 0));
+                .matches(logicalLimit().when(limit -> limit.getLimit() == 3 && limit.getOffset() == 0));
 
         parsePlan("SELECT b FROM test order by a limit 3")
-                .matchesFromRoot(
+                .matches(
                         logicalLimit(
                                 logicalSort()
                         ).when(limit -> limit.getLimit() == 3 && limit.getOffset() == 0)
@@ -49,13 +49,13 @@ public class LimitClauseTest extends ParserTestBase {
 
     @Test
     public void testNoLimit() {
-        parsePlan("select a from tbl order by x").matchesFromRoot(logicalSort());
+        parsePlan("select a from tbl order by x").matches(logicalSort());
     }
 
     @Test
     public void testNoQueryOrganization() {
         parsePlan("select a from tbl")
-                .matchesFromRoot(
+                .matches(
                         logicalProject(
                                 logicalCheckPolicy(
                                         unboundRelation()

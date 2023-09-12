@@ -47,7 +47,7 @@ namespace doris {
 using namespace ErrorCode;
 
 static const uint32_t MAX_PATH_LEN = 1024;
-StorageEngine* l_engine = nullptr;
+static std::unique_ptr<StorageEngine> l_engine;
 static const std::string lTestDir = "./data_test/data/segcompaction_test";
 
 class SegCompactionTest : public testing::Test {
@@ -79,7 +79,6 @@ public:
         EXPECT_TRUE(s.ok()) << s.to_string();
 
         ExecEnv* exec_env = doris::ExecEnv::GetInstance();
-        exec_env->set_storage_engine(l_engine);
 
         EXPECT_TRUE(io::global_local_filesystem()->create_directory(lTestDir).ok());
 
@@ -87,11 +86,7 @@ public:
     }
 
     void TearDown() {
-        if (l_engine != nullptr) {
-            l_engine->stop();
-            delete l_engine;
-            l_engine = nullptr;
-        }
+        l_engine.reset();
         config::enable_segcompaction = false;
     }
 
@@ -187,12 +182,13 @@ protected:
         rowset_writer_context->version.second = 10;
 
 #if 0
+        RuntimeProfile profile("CreateTablet");
         TCreateTabletReq req;
         req.table_id =
         req.tablet_id =
         req.tablet_scheme =
         req.partition_id =
-        l_engine->create_tablet(req);
+        l_engine->create_tablet(req, &profile);
         rowset_writer_context->tablet = l_engine->tablet_manager()->get_tablet(TTabletId tablet_id);
 #endif
         std::shared_ptr<DataDir> data_dir = std::make_shared<DataDir>(lTestDir);
@@ -231,9 +227,9 @@ TEST_F(SegCompactionTest, SegCompactionThenRead) {
     RowsetSharedPtr rowset;
     const int num_segments = 15;
     const uint32_t rows_per_segment = 4096;
-    config::segcompaction_small_threshold = 6000; // set threshold above
-                                                  // rows_per_segment
-    config::segcompaction_threshold_segment_num = 10;
+    config::segcompaction_candidate_max_rows = 6000; // set threshold above
+                                                     // rows_per_segment
+    config::segcompaction_batch_size = 10;
     std::vector<uint32_t> segment_num_rows;
     { // write `num_segments * rows_per_segment` rows to rowset
         RowsetWriterContext writer_context;
@@ -340,8 +336,8 @@ TEST_F(SegCompactionTest, SegCompactionInterleaveWithBig_ooooOOoOooooooooO) {
     create_tablet_schema(tablet_schema, DUP_KEYS);
 
     RowsetSharedPtr rowset;
-    config::segcompaction_small_threshold = 6000; // set threshold above
-                                                  // rows_per_segment
+    config::segcompaction_candidate_max_rows = 6000; // set threshold above
+                                                     // rows_per_segment
     std::vector<uint32_t> segment_num_rows;
     { // write `num_segments * rows_per_segment` rows to rowset
         RowsetWriterContext writer_context;
@@ -484,8 +480,8 @@ TEST_F(SegCompactionTest, SegCompactionInterleaveWithBig_OoOoO) {
     create_tablet_schema(tablet_schema, DUP_KEYS);
 
     RowsetSharedPtr rowset;
-    config::segcompaction_small_threshold = 6000; // set threshold above
-    config::segcompaction_threshold_segment_num = 5;
+    config::segcompaction_candidate_max_rows = 6000; // set threshold above
+    config::segcompaction_batch_size = 5;
     std::vector<uint32_t> segment_num_rows;
     { // write `num_segments * rows_per_segment` rows to rowset
         RowsetWriterContext writer_context;
@@ -607,9 +603,9 @@ TEST_F(SegCompactionTest, SegCompactionThenReadUniqueTableSmall) {
     create_tablet_schema(tablet_schema, UNIQUE_KEYS);
 
     RowsetSharedPtr rowset;
-    config::segcompaction_small_threshold = 6000; // set threshold above
-                                                  // rows_per_segment
-    config::segcompaction_threshold_segment_num = 3;
+    config::segcompaction_candidate_max_rows = 6000; // set threshold above
+                                                     // rows_per_segment
+    config::segcompaction_batch_size = 3;
     std::vector<uint32_t> segment_num_rows;
     { // write `num_segments * rows_per_segment` rows to rowset
         RowsetWriterContext writer_context;
@@ -841,9 +837,9 @@ TEST_F(SegCompactionTest, SegCompactionThenReadAggTableSmall) {
     create_tablet_schema(tablet_schema, AGG_KEYS);
 
     RowsetSharedPtr rowset;
-    config::segcompaction_small_threshold = 6000; // set threshold above
-                                                  // rows_per_segment
-    config::segcompaction_threshold_segment_num = 3;
+    config::segcompaction_candidate_max_rows = 6000; // set threshold above
+                                                     // rows_per_segment
+    config::segcompaction_batch_size = 3;
     std::vector<uint32_t> segment_num_rows;
     { // write `num_segments * rows_per_segment` rows to rowset
         RowsetWriterContext writer_context;

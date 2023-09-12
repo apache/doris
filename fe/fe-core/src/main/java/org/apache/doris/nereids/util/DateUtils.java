@@ -89,7 +89,9 @@ public class DateUtils {
                         break;
                     case 'r': // %r Time, 12-hour (hh:mm:ss followed by AM or PM)
                         builder.appendValue(ChronoField.HOUR_OF_AMPM, 2)
-                                .appendPattern(":mm:ss ")
+                                .appendValue(ChronoField.MINUTE_OF_HOUR, 2)
+                                .appendValue(ChronoField.SECOND_OF_MINUTE, 2)
+                                .appendLiteral(' ')
                                 .appendText(ChronoField.AMPM_OF_DAY, TextStyle.FULL)
                                 .toFormatter();
                         break;

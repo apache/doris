@@ -94,9 +94,12 @@ public class PaimonExternalTable extends ExternalTable {
                 return Type.DOUBLE;
             case SMALLINT:
                 return Type.SMALLINT;
+            case TINYINT:
+                return Type.TINYINT;
             case VARCHAR:
             case BINARY:
             case CHAR:
+            case VARBINARY:
                 return Type.STRING;
             case DECIMAL:
                 DecimalType decimal = (DecimalType) dataType;

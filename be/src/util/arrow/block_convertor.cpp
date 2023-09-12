@@ -386,14 +386,14 @@ Status FromBlockConverter::convert(std::shared_ptr<arrow::RecordBatch>* out) {
         std::unique_ptr<arrow::ArrayBuilder> builder;
         auto arrow_st = arrow::MakeBuilder(_pool, _schema->field(idx)->type(), &builder);
         if (!arrow_st.ok()) {
-            return to_status(arrow_st);
+            return to_doris_status(arrow_st);
         }
         _cur_builder = builder.get();
         _cur_type->get_serde()->write_column_to_arrow(*_cur_col, nullptr, _cur_builder, _cur_start,
                                                       _cur_start + _cur_rows);
         arrow_st = _cur_builder->Finish(&_arrays[_cur_field_idx]);
         if (!arrow_st.ok()) {
-            return to_status(arrow_st);
+            return to_doris_status(arrow_st);
         }
     }
     *out = arrow::RecordBatch::Make(_schema, _block.rows(), std::move(_arrays));

@@ -56,7 +56,6 @@ import org.apache.doris.catalog.AggregateFunction;
 import org.apache.doris.catalog.AggregateType;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.FunctionSet;
-import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.MysqlTable;
 import org.apache.doris.catalog.OdbcTable;
 import org.apache.doris.catalog.PrimitiveType;
@@ -423,17 +422,8 @@ public class SingleNodePlanner {
 
     private void pushDownAggNoGrouping(AggregateInfo aggInfo, SelectStmt selectStmt, Analyzer analyzer, PlanNode root) {
         do {
-            // TODO: Support other scan node in the future
-            if (!(root instanceof OlapScanNode)) {
-                break;
-            }
-
-            KeysType type = ((OlapScanNode) root).getOlapTable().getKeysType();
-            if (type == KeysType.UNIQUE_KEYS || type == KeysType.PRIMARY_KEYS) {
-                break;
-            }
-
-            if (CollectionUtils.isNotEmpty(root.getConjuncts())) {
+            if (CollectionUtils.isNotEmpty(root.getConjuncts())
+                    || CollectionUtils.isNotEmpty(root.getProjectList())) {
                 break;
             }
 
@@ -457,7 +447,6 @@ public class SingleNodePlanner {
             boolean aggExprValidate = true;
             TPushAggOp aggOp = null;
             for (FunctionCallExpr aggExpr : aggExprs) {
-                // Only support `min`, `max`, `count` and `count` only effective in dup table
                 String functionName = aggExpr.getFnName().getFunction();
                 if (!functionName.equalsIgnoreCase("MAX")
                         && !functionName.equalsIgnoreCase("MIN")
@@ -466,8 +455,7 @@ public class SingleNodePlanner {
                     break;
                 }
 
-                if (functionName.equalsIgnoreCase("COUNT")
-                        && type != KeysType.DUP_KEYS) {
+                if (!root.pushDownAggNoGrouping(aggExpr)) {
                     aggExprValidate = false;
                     break;
                 }
@@ -512,8 +500,7 @@ public class SingleNodePlanner {
                             continue;
                         }
 
-                        // The value column of the agg does not support zone_map index.
-                        if (type == KeysType.AGG_KEYS && !col.isKey()) {
+                        if (!root.pushDownAggNoGroupingCheckCol(aggExpr, col)) {
                             returnColumnValidate = false;
                             break;
                         }
@@ -556,8 +543,7 @@ public class SingleNodePlanner {
                 break;
             }
 
-            OlapScanNode olapNode = (OlapScanNode) root;
-            olapNode.setPushDownAggNoGrouping(aggOp);
+            root.setPushDownAggNoGrouping(aggOp);
         } while (false);
     }
 
@@ -1069,7 +1055,7 @@ public class SingleNodePlanner {
                 // reset assigned conjuncts of analyzer in every compare
                 analyzer.setAssignedConjuncts(root.getAssignedConjuncts());
                 PlanNode candidate = createJoinNode(analyzer, root, rootPlanNodeOfCandidate, tblRefOfCandidate);
-                // (ML): 这里还需要吗？应该不会返回null吧
+                // it may not return null, but protect.
                 if (candidate == null) {
                     continue;
                 }
@@ -2034,7 +2020,7 @@ public class SingleNodePlanner {
                         scanNode = new HiveScanNode(ctx.getNextNodeId(), tblRef.getDesc(), true);
                         break;
                     default:
-                        throw new UserException("Not supported table type" + table.getType());
+                        throw new UserException("Not supported table type: " + ((HMSExternalTable) table).getDlaType());
                 }
                 break;
             case ICEBERG_EXTERNAL_TABLE:
@@ -2058,7 +2044,7 @@ public class SingleNodePlanner {
                 scanNode = new TestExternalTableScanNode(ctx.getNextNodeId(), tblRef.getDesc());
                 break;
             default:
-                throw new UserException("Not supported table type" + tblRef.getTable().getType());
+                throw new UserException("Not supported table type: " + tblRef.getTable().getType());
         }
         if (scanNode instanceof OlapScanNode || scanNode instanceof EsScanNode
                 || scanNode instanceof FileQueryScanNode) {
@@ -2210,7 +2196,7 @@ public class SingleNodePlanner {
 
     /**
      * Create a tree of PlanNodes for the given tblRef, which can be a BaseTableRef,
-     * TableValuedFunctionRef, CollectionTableRef or an InlineViewRef.
+     * CollectionTableRef or an InlineViewRef.
      * <p>
      * 'fastPartitionKeyScans' indicates whether to try to produce the slots with
      * metadata instead of table scans. Only applicable to BaseTableRef which is also
@@ -2389,7 +2375,18 @@ public class SingleNodePlanner {
                 // Forbid to register Conjuncts with SelectStmt' tuple when Select is constant
                 if ((queryStmt instanceof SelectStmt) && selectHasTableRef) {
                     final SelectStmt select = (SelectStmt) queryStmt;
-                    op.getAnalyzer().registerConjuncts(opConjuncts, select.getTableRefIds());
+                    // if there is an agg node, we need register the constant conjuncts on agg node's tuple
+                    // this is consistent with migrateConstantConjuncts()
+                    if (select.getAggInfo() != null) {
+                        Map<Boolean, List<Expr>> splittedConjuncts = opConjuncts.stream()
+                                .collect(Collectors.partitioningBy(expr -> expr.isConstant()));
+                        op.getAnalyzer().registerConjuncts(splittedConjuncts.get(true),
+                                select.getAggInfo().getOutputTupleId().asList());
+                        op.getAnalyzer().registerConjuncts(splittedConjuncts.get(false),
+                                select.getTableRefIds());
+                    } else {
+                        op.getAnalyzer().registerConjuncts(opConjuncts, select.getTableRefIds());
+                    }
                 } else if (queryStmt instanceof SetOperationStmt) {
                     final SetOperationStmt subSetOp = (SetOperationStmt) queryStmt;
                     op.getAnalyzer().registerConjuncts(opConjuncts, subSetOp.getTupleId().asList());
@@ -2702,7 +2699,12 @@ public class SingleNodePlanner {
         if (aggregateInfo == null || aggregateInfo.getGroupingExprs().isEmpty()) {
             return;
         }
-        final List<Expr> predicates = getBoundPredicates(analyzer, aggregateInfo.getOutputTupleDesc());
+        // The output of the 1st phase agg is the 1st phase intermediate.
+        // see createSecondPhaseAggInfo method
+        final List<Expr> predicates = getBoundPredicates(analyzer,
+                aggregateInfo.getSecondPhaseDistinctAggInfo() != null
+                        ? aggregateInfo.getIntermediateTupleDesc()
+                        : aggregateInfo.getOutputTupleDesc());
         if (predicates.isEmpty()) {
             return;
         }
@@ -2728,7 +2730,11 @@ public class SingleNodePlanner {
         }
         final AggregateInfo secondPhaseAggInfo = firstPhaseAggInfo.getSecondPhaseDistinctAggInfo();
 
-        final List<TupleId> firstPhaseTupleIds = Lists.newArrayList(firstPhaseAggInfo.getOutputTupleId());
+        // The output of the 1st phase agg is the 1st phase intermediate.
+        // see createSecondPhaseAggInfo method
+        final List<TupleId> firstPhaseTupleIds = Lists.newArrayList(
+                secondPhaseAggInfo != null ? firstPhaseAggInfo.getIntermediateTupleId()
+                        : firstPhaseAggInfo.getOutputTupleId());
         pushDownPredicatesPastAggregationOnePhase(secondPhaseAggInfo, analyzer, stmt, firstPhaseTupleIds);
         pushDownPredicatesPastAggregationOnePhase(firstPhaseAggInfo, analyzer, stmt, stmt.getTableRefIds());
     }
@@ -2756,7 +2762,7 @@ public class SingleNodePlanner {
                 while (sourceExpr instanceof SlotRef) {
                     SlotRef slotRef = (SlotRef) sourceExpr;
                     SlotDescriptor slotDesc = slotRef.getDesc();
-                    if (slotDesc.getSourceExprs().isEmpty()) {
+                    if (slotDesc.getSourceExprs().size() != 1) {
                         break;
                     }
                     sourceExpr = slotDesc.getSourceExprs().get(0);

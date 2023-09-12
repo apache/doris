@@ -50,5 +50,6 @@
     "executionTime": "Execution Time",
     "search":"Search",
     "executionFailed":"Execution failed",
-    "loading":"loading"
+    "loading":"loading",
+    "Download": "Download"
 }

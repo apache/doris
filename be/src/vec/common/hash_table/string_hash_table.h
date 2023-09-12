@@ -309,6 +309,7 @@ protected:
                 return iterator4 == rhs.iterator4;
             }
             }
+            LOG(FATAL) << "__builtin_unreachable";
             __builtin_unreachable();
         }
 

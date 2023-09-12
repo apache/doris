@@ -28,6 +28,8 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.StmtExecutor;
 
+import com.google.common.collect.ImmutableList;
+
 import java.util.List;
 import java.util.Optional;
 
@@ -36,8 +38,8 @@ import java.util.Optional;
  */
 public abstract class Command extends AbstractPlan implements LogicalPlan {
 
-    public Command(PlanType type, Plan... children) {
-        super(type, children);
+    protected Command(PlanType type) {
+        super(type, ImmutableList.of());
     }
 
     public void run(ConnectContext ctx, StmtExecutor executor) throws Exception {

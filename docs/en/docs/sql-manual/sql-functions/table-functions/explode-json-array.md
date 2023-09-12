@@ -1,6 +1,6 @@
 ---
 {
-    "title": "explode_json_array",
+    "title": "EXPLODE_JSON_ARRAY",
     "language": "en"
 }
 ---

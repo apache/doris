@@ -23,5 +23,6 @@ Checks: |
   performance-type-promotion-in-math-fn,
   performance-faster-string-find,
   performance-inefficient-algorithm,
-  performance-move-const-arg
+  performance-move-const-arg,
+  cppcoreguidelines-init-variables
 WarningsAsErrors: '*'

@@ -101,12 +101,17 @@ public:
     bool is_merge() const { return _is_merge; }
     const VExprContextSPtrs& input_exprs_ctxs() const { return _input_exprs_ctxs; }
 
+    void set_version(const int version) { _function->set_version(version); }
+
+    AggFnEvaluator* clone(RuntimeState* state, ObjectPool* pool);
+
 private:
     const TFunction _fn;
 
     const bool _is_merge;
 
     AggFnEvaluator(const TExprNode& desc);
+    AggFnEvaluator(AggFnEvaluator& evaluator, RuntimeState* state);
 
     Status _calc_argument_columns(Block* block);
 

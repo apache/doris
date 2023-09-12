@@ -83,7 +83,7 @@ public:
         } else if (which.is_decimal()) {
             return_type = nested_type;
         } else if (which.is_date_time()) {
-            return_type = std::make_shared<DataTypeTime>();
+            return_type = std::make_shared<DataTypeTimeV2>();
         } else if (which.is_date_time_v2()) {
             return_type = std::make_shared<DataTypeTimeV2>();
         } else if (which.is_date() || which.is_date_v2()) {

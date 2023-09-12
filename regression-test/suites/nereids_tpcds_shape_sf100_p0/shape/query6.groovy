@@ -24,11 +24,14 @@ suite("query6") {
     sql 'set enable_fallback_to_original_planner=false'
     sql 'set exec_mem_limit=21G'
     sql 'set be_number_for_test=3'
-    sql 'set parallel_fragment_exec_instance_num=8'
+    sql 'set parallel_pipeline_task_num=8'
     sql 'set forbid_unknown_col_stats=true'
     sql 'set broadcast_row_count_limit = 30000000'
     sql 'set enable_nereids_timeout = false'
     sql 'SET enable_pipeline_engine = true'
+
+    // TODO: uncomment following line to get better shape 
+    // sql 'set max_join_number_bushy_tree=6'
 
     qt_ds_shape_6 '''
     explain shape plan

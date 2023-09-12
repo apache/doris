@@ -98,6 +98,10 @@ public class DataProperty implements Writable, GsonPostProcessable {
         return storagePolicy;
     }
 
+    public void setStoragePolicy(String storagePolicy) {
+        this.storagePolicy = storagePolicy;
+    }
+
     public boolean isStorageMediumSpecified() {
         return storageMediumSpecified;
     }

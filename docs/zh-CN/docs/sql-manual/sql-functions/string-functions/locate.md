@@ -1,6 +1,6 @@
 ---
 {
-    "title": "locate",
+    "title": "LOCATE",
     "language": "zh-CN"
 }
 ---

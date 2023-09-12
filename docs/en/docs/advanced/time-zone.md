@@ -1,6 +1,6 @@
 ---
 {
-    "title": "Time zone",
+    "title": "Time Zone",
     "language": "en"
 }
 ---
@@ -24,7 +24,7 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# Time zone
+# Time Zone
 
 Doris supports multiple time zone settings
 

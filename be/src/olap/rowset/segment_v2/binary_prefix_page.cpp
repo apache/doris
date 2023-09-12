@@ -23,6 +23,7 @@
 #include <algorithm>
 #include <vector>
 
+#include "common/status.h"
 #include "gutil/port.h"
 #include "gutil/strings/substitute.h"
 #include "util/coding.h"
@@ -114,12 +115,13 @@ const uint8_t* BinaryPrefixPageDecoder::_decode_value_lengths(const uint8_t* ptr
 
 Status BinaryPrefixPageDecoder::_read_next_value() {
     if (_cur_pos >= _num_values) {
-        return Status::NotFound("no more value to read");
+        return Status::EndOfFile("no more value to read");
     }
     uint32_t shared_len;
     uint32_t non_shared_len;
     auto data_ptr = _decode_value_lengths(_next_ptr, &shared_len, &non_shared_len);
     if (data_ptr == nullptr) {
+        DCHECK(false) << "[BinaryPrefixPageDecoder::_read_next_value] corruption!";
         return Status::Corruption("Failed to decode value at position {}", _cur_pos);
     }
     _current_value.resize(shared_len);
@@ -200,7 +202,13 @@ Status BinaryPrefixPageDecoder::seek_at_or_after_value(const void* value, bool* 
             return Status::OK();
         }
         _cur_pos++;
-        RETURN_IF_ERROR(_read_next_value());
+        auto st = _read_next_value();
+        if (st.is<ErrorCode::END_OF_FILE>()) {
+            return Status::Error<ErrorCode::ENTRY_NOT_FOUND>("all value small than the value");
+        }
+        if (!st.ok()) {
+            return st;
+        }
     }
 }
 
@@ -215,8 +223,11 @@ Status BinaryPrefixPageDecoder::next_batch(size_t* n, vectorized::MutableColumnP
     // read and copy values
     for (size_t i = 0; i < max_fetch; ++i) {
         dst->insert_data((char*)(_current_value.data()), _current_value.size());
-        _read_next_value();
         _cur_pos++;
+        // reach the end of the page, should not read the next value
+        if (_cur_pos < _num_values) {
+            RETURN_IF_ERROR(_read_next_value());
+        }
     }
 
     *n = max_fetch;

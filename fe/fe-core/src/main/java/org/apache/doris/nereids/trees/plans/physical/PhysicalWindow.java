@@ -25,6 +25,7 @@ import org.apache.doris.nereids.properties.RequirePropertiesSupplier;
 import org.apache.doris.nereids.rules.implementation.LogicalWindowToPhysicalWindow.WindowFrameGroup;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
+import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.algebra.Window;
@@ -33,6 +34,7 @@ import org.apache.doris.nereids.util.Utils;
 import org.apache.doris.statistics.Statistics;
 
 import com.google.common.base.Preconditions;
+import com.google.common.collect.ImmutableList;
 
 import java.util.List;
 import java.util.Objects;
@@ -47,23 +49,29 @@ public class PhysicalWindow<CHILD_TYPE extends Plan> extends PhysicalUnary<CHILD
     private final WindowFrameGroup windowFrameGroup;
     private final RequireProperties requireProperties;
 
+    private final List<NamedExpression> windowExpressions;
+
     public PhysicalWindow(WindowFrameGroup windowFrameGroup, RequireProperties requireProperties,
+                          List<NamedExpression> windowExpressions,
                           LogicalProperties logicalProperties, CHILD_TYPE child) {
-        this(windowFrameGroup, requireProperties, Optional.empty(), logicalProperties, child);
+        this(windowFrameGroup, requireProperties, windowExpressions, Optional.empty(), logicalProperties, child);
     }
 
     /** constructor for PhysicalWindow */
     public PhysicalWindow(WindowFrameGroup windowFrameGroup, RequireProperties requireProperties,
+                          List<NamedExpression> windowExpressions,
                           Optional<GroupExpression> groupExpression, LogicalProperties logicalProperties,
                           CHILD_TYPE child) {
         super(PlanType.PHYSICAL_WINDOW, groupExpression, logicalProperties, child);
         this.windowFrameGroup = Objects.requireNonNull(windowFrameGroup, "windowFrameGroup in PhysicalWindow"
                 + "cannot be null");
         this.requireProperties = requireProperties;
+        this.windowExpressions = ImmutableList.copyOf(windowExpressions);
     }
 
     /** constructor for PhysicalWindow */
     public PhysicalWindow(WindowFrameGroup windowFrameGroup, RequireProperties requireProperties,
+                          List<NamedExpression> windowExpressions,
                           Optional<GroupExpression> groupExpression, LogicalProperties logicalProperties,
                           PhysicalProperties physicalProperties, Statistics statistics,
                           CHILD_TYPE child) {
@@ -72,6 +80,7 @@ public class PhysicalWindow<CHILD_TYPE extends Plan> extends PhysicalUnary<CHILD
         this.windowFrameGroup = Objects.requireNonNull(windowFrameGroup, "windowFrameGroup in PhysicalWindow"
             + "cannot be null");
         this.requireProperties = requireProperties;
+        this.windowExpressions = ImmutableList.copyOf(windowExpressions);
     }
 
     @Override
@@ -95,9 +104,9 @@ public class PhysicalWindow<CHILD_TYPE extends Plan> extends PhysicalUnary<CHILD
 
     @Override
     public String toString() {
-        return Utils.toSqlString("PhysicalWindow[" + id.asInt() + "]" + getGroupIdAsString(),
+        return Utils.toSqlString("PhysicalWindow[" + id.asInt() + "]" + getGroupIdWithPrefix(),
             "windowFrameGroup", windowFrameGroup,
-            "requiredProperties", requireProperties
+            "requiredProperties", requireProperties, "stats", statistics
         );
     }
 
@@ -127,13 +136,13 @@ public class PhysicalWindow<CHILD_TYPE extends Plan> extends PhysicalUnary<CHILD
     @Override
     public Plan withChildren(List<Plan> children) {
         Preconditions.checkState(children.size() == 1);
-        return new PhysicalWindow<>(windowFrameGroup, requireProperties, groupExpression,
+        return new PhysicalWindow<>(windowFrameGroup, requireProperties, windowExpressions, groupExpression,
                 getLogicalProperties(), physicalProperties, statistics, children.get(0));
     }
 
     @Override
     public Plan withGroupExpression(Optional<GroupExpression> groupExpression) {
-        return new PhysicalWindow<>(windowFrameGroup, requireProperties, groupExpression,
+        return new PhysicalWindow<>(windowFrameGroup, requireProperties, windowExpressions, groupExpression,
                 getLogicalProperties(), child());
     }
 
@@ -141,14 +150,14 @@ public class PhysicalWindow<CHILD_TYPE extends Plan> extends PhysicalUnary<CHILD
     public Plan withGroupExprLogicalPropChildren(Optional<GroupExpression> groupExpression,
             Optional<LogicalProperties> logicalProperties, List<Plan> children) {
         Preconditions.checkState(children.size() == 1);
-        return new PhysicalWindow<>(windowFrameGroup, requireProperties, groupExpression,
+        return new PhysicalWindow<>(windowFrameGroup, requireProperties, windowExpressions, groupExpression,
                 logicalProperties.get(), children.get(0));
     }
 
     @Override
     public PhysicalPlan withPhysicalPropertiesAndStats(PhysicalProperties physicalProperties,
                                                        Statistics statistics) {
-        return new PhysicalWindow<>(windowFrameGroup, requireProperties, groupExpression,
+        return new PhysicalWindow<>(windowFrameGroup, requireProperties, windowExpressions, groupExpression,
                 getLogicalProperties(), physicalProperties, statistics, child());
     }
 
@@ -160,7 +169,23 @@ public class PhysicalWindow<CHILD_TYPE extends Plan> extends PhysicalUnary<CHILD
 
     public <C extends Plan> PhysicalWindow<C> withRequirePropertiesAndChild(RequireProperties requireProperties,
                                                                             C newChild) {
-        return new PhysicalWindow<>(windowFrameGroup, requireProperties, Optional.empty(),
+        return new PhysicalWindow<>(windowFrameGroup, requireProperties, windowExpressions, Optional.empty(),
                 getLogicalProperties(), physicalProperties, statistics, newChild);
+    }
+
+    @Override
+    public List<Slot> computeOutput() {
+        return new ImmutableList.Builder<Slot>()
+                .addAll(child().getOutput())
+                .addAll(windowExpressions.stream()
+                        .map(NamedExpression::toSlot)
+                        .collect(ImmutableList.toImmutableList()))
+                .build();
+    }
+
+    @Override
+    public PhysicalWindow<CHILD_TYPE> resetLogicalProperties() {
+        return new PhysicalWindow<>(windowFrameGroup, requireProperties, windowExpressions, groupExpression,
+                null, physicalProperties, statistics, child());
     }
 }

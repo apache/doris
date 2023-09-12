@@ -42,11 +42,17 @@ namespace vectorized {
 class Arena;
 
 class DataTypeDateV2SerDe : public DataTypeNumberSerDe<UInt32> {
-    void serialize_one_cell_to_text(const IColumn& column, int row_num, BufferWritable& bw,
-                                    const FormatOptions& options) const override;
+    void serialize_one_cell_to_json(const IColumn& column, int row_num, BufferWritable& bw,
+                                    FormatOptions& options) const override;
+    void serialize_column_to_json(const IColumn& column, int start_idx, int end_idx,
+                                  BufferWritable& bw, FormatOptions& options) const override;
 
-    Status deserialize_one_cell_from_text(IColumn& column, ReadBuffer& rb,
+    Status deserialize_one_cell_from_json(IColumn& column, Slice& slice,
                                           const FormatOptions& options) const override;
+
+    Status deserialize_column_from_json_vector(IColumn& column, std::vector<Slice>& slices,
+                                               int* num_deserialized,
+                                               const FormatOptions& options) const override;
 
     void write_column_to_arrow(const IColumn& column, const NullMap* null_map,
                                arrow::ArrayBuilder* array_builder, int start,

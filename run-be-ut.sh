@@ -201,7 +201,7 @@ cd "${CMAKE_BUILD_DIR}"
     -DUSE_LIBCPP="${USE_LIBCPP}" \
     -DBUILD_META_TOOL=OFF \
     -DBUILD_BENCHMARK_TOOL="${BUILD_BENCHMARK_TOOL}" \
-    -DWITH_MYSQL=OFF \
+    -DWITH_MYSQL=ON \
     -DUSE_DWARF="${USE_DWARF}" \
     -DUSE_UNWIND="${USE_UNWIND}" \
     -DUSE_MEM_TRACKER="${USE_MEM_TRACKER}" \
@@ -233,7 +233,7 @@ rm -rf "${CONF_DIR}"
 mkdir "${CONF_DIR}"
 cp "${DORIS_HOME}/conf/be.conf" "${CONF_DIR}"/
 
-export TERM='xterm'
+export TERM="xterm"
 export UDF_RUNTIME_DIR="${DORIS_TEST_BINARY_DIR}/lib/udf-runtime"
 export LOG_DIR="${DORIS_TEST_BINARY_DIR}/log"
 while read -r variable; do
@@ -381,11 +381,24 @@ export JAVA_OPTS="-Xmx1024m -DlogPath=${DORIS_HOME}/log/jni.log -Xloggc:${DORIS_
 # find all executable test files
 test="${DORIS_TEST_BINARY_DIR}/doris_be_test"
 profraw=${DORIS_TEST_BINARY_DIR}/doris_be_test.profraw
+profdata=${DORIS_TEST_BINARY_DIR}/doris_be_test.profdata
 
 file_name="${test##*/}"
 if [[ -f "${test}" ]]; then
     if [[ "_${DENABLE_CLANG_COVERAGE}" == "_ON" ]]; then
         LLVM_PROFILE_FILE="${profraw}" "${test}" --gtest_output="xml:${GTEST_OUTPUT_DIR}/${file_name}.xml" --gtest_print_time=true "${FILTER}"
+        if [[ -d "${DORIS_TEST_BINARY_DIR}"/report ]]; then
+            rm -rf "${DORIS_TEST_BINARY_DIR}"/report
+        fi
+        cmd1="${LLVM_PROFDATA} merge -o ${profdata} ${profraw}"
+        echo "${cmd1}"
+        eval "${cmd1}"
+        cmd2="${LLVM_COV} show -output-dir=${DORIS_TEST_BINARY_DIR}/report -format=html \
+            -ignore-filename-regex='(.*gensrc/.*)|(.*_test\.cpp$)|(.*be/test.*)|(.*apache-orc/.*)|(.*clucene/.*)' \
+            -instr-profile=${profdata} \
+            -object=${test}"
+        echo "${cmd2}"
+        eval "${cmd2}"
     else
         "${test}" --gtest_output="xml:${GTEST_OUTPUT_DIR}/${file_name}.xml" --gtest_print_time=true "${FILTER}"
     fi

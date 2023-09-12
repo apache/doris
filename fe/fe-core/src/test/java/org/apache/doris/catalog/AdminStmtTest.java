@@ -22,6 +22,7 @@ import org.apache.doris.catalog.MaterializedIndex.IndexExtState;
 import org.apache.doris.catalog.Replica.ReplicaStatus;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Pair;
+import org.apache.doris.persist.SetPartitionVersionOperationLog;
 import org.apache.doris.persist.SetReplicaStatusOperationLog;
 import org.apache.doris.utframe.TestWithFeService;
 
@@ -46,6 +47,15 @@ public class AdminStmtTest extends TestWithFeService {
                 + "  `id2` bitmap bitmap_union NULL\n"
                 + ") ENGINE=OLAP\n"
                 + "AGGREGATE KEY(`id`)\n"
+                + "DISTRIBUTED BY HASH(`id`) BUCKETS 3\n"
+                + "PROPERTIES (\n"
+                + " \"replication_num\" = \"1\"\n"
+                + ");");
+        createTable("CREATE TABLE test.tbl2 (\n"
+                + "  `id` int(11) NULL COMMENT \"\",\n"
+                + "  `name` varchar(20) NULL\n"
+                + ") ENGINE=OLAP\n"
+                + "DUPLICATE KEY(`id`, `name`)\n"
                 + "DISTRIBUTED BY HASH(`id`) BUCKETS 3\n"
                 + "PROPERTIES (\n"
                 + " \"replication_num\" = \"1\"\n"
@@ -113,6 +123,59 @@ public class AdminStmtTest extends TestWithFeService {
             Assertions.assertEquals(log.getBackendId(), readLog.getBackendId());
             Assertions.assertEquals(log.getTabletId(), readLog.getTabletId());
             Assertions.assertEquals(log.getReplicaStatus(), readLog.getReplicaStatus());
+
+            in.close();
+        } finally {
+            Files.deleteIfExists(path);
+        }
+    }
+
+    @Test
+    public void testAdminSetPartitionVersion() throws Exception {
+        Database db = Env.getCurrentInternalCatalog().getDbNullable("default_cluster:test");
+        Assertions.assertNotNull(db);
+        OlapTable tbl = (OlapTable) db.getTableNullable("tbl2");
+        Assertions.assertNotNull(tbl);
+        Partition partition = tbl.getPartitions().iterator().next();
+        long partitionId = partition.getId();
+        long oldVersion = partition.getVisibleVersion();
+        // origin version is 1
+        Assertions.assertEquals(1, oldVersion);
+        // set partition version to 100
+        long newVersion = 100;
+        String adminStmt = "admin set table test.tbl2 partition version properties ('partition_id' = '"
+                + partitionId + "', " + "'visible_version' = '" + newVersion + "');";
+        Assertions.assertNotNull(getSqlStmtExecutor(adminStmt));
+        Assertions.assertEquals(newVersion, partition.getVisibleVersion());
+        adminStmt = "admin set table test.tbl2 partition version properties ('partition_id' = '"
+                + partitionId + "', " + "'visible_version' = '" + oldVersion + "');";
+        Assertions.assertNotNull(getSqlStmtExecutor(adminStmt));
+        Assertions.assertEquals(oldVersion, partition.getVisibleVersion());
+    }
+
+    @Test
+    public void testSetPartitionVersionOperationLog() throws IOException, AnalysisException {
+        String fileName = "./SetPartitionVersionOperationLog";
+        Path path = Paths.get(fileName);
+        try {
+            // 1. Write objects to file
+            Files.createFile(path);
+            DataOutputStream out = new DataOutputStream(Files.newOutputStream(path));
+
+            SetPartitionVersionOperationLog log = new SetPartitionVersionOperationLog(
+                    "test", "tbl2", 10002, 100);
+            log.write(out);
+            out.flush();
+            out.close();
+
+            // 2. Read objects from file
+            DataInputStream in = new DataInputStream(Files.newInputStream(path));
+
+            SetPartitionVersionOperationLog readLog = SetPartitionVersionOperationLog.read(in);
+            Assertions.assertEquals(log.getDatabase(), readLog.getDatabase());
+            Assertions.assertEquals(log.getTable(), readLog.getTable());
+            Assertions.assertEquals(log.getPartitionId(), readLog.getPartitionId());
+            Assertions.assertEquals(log.getVisibleVersion(), readLog.getVisibleVersion());
 
             in.close();
         } finally {

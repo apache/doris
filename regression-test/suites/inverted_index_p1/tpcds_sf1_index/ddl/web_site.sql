@@ -28,7 +28,7 @@ CREATE TABLE IF NOT EXISTS web_site (
     INDEX web_site_sk_idx(web_site_sk) USING INVERTED COMMENT "web_site_sk index",
     INDEX web_site_id_idx(web_site_id) USING INVERTED COMMENT "web_site_id index",
     INDEX web_rec_start_date_idx(web_rec_start_date) USING INVERTED COMMENT "web_rec_start_date index",
-    INDEX web_name_idx(web_name) USING INVERTED COMMENT "web_name index",
+    INDEX web_name_idx(web_name) USING INVERTED PROPERTIES("parser"="unicode") COMMENT "web_name index",
     INDEX web_class_idx(web_class) USING INVERTED COMMENT "web_class index",
     INDEX web_manager_idx(web_manager) USING INVERTED PROPERTIES("parser"="standard") COMMENT "web_manager index",
     INDEX web_market_manager_idx(web_market_manager) USING INVERTED PROPERTIES("parser"="none") COMMENT "web_market_manager index",

@@ -1,6 +1,6 @@
 ---
 {
-    "title": "frontends",
+    "title": "FRONTENDS",
     "language": "en"
 }
 ---

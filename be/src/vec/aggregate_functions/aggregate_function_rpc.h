@@ -155,7 +155,7 @@ public:
             PValues* arg = request.add_args();
             auto data_type = argument_types[i];
             if (auto st = data_type->get_serde()->write_column_to_pb(*columns[i], *arg, start, end);
-                st != Status::OK()) {
+                !st.ok()) {
                 return st;
             }
         }

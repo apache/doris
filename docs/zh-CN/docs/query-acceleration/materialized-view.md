@@ -83,7 +83,7 @@ Doris 系统提供了一整套对物化视图的 DDL 语法，包括创建，查
 
 如果不清楚如何验证一个查询是否命中物化视图，可以阅读本文的`最佳实践1`。
 
-与此同时，我们不建议用户在同一张表上建多个形态类似的物化视图，这可能会导致多个物化视图之间的冲突使得查询命中失败。（当然，这些可能出现的问题都可以在测试环境中验证）
+与此同时，我们不建议用户在同一张表上建多个形态类似的物化视图，这可能会导致多个物化视图之间的冲突使得查询命中失败(在新优化器中这个问题会有所改善)。建议用户先在测试环境中验证物化视图和查询是否满足需求并能正常使用。
 
 ### 支持聚合函数
 
@@ -487,7 +487,7 @@ MySQL [test]> desc advertiser_view_record;
 
 <version since="2.0.0"></version>
 
-在`Doris 2.0`中，我们对物化视图所支持的表达式做了一些增强，本示例将主要体现新版本物化视图对各种表达式的支持。
+在`Doris 2.0`中，我们对物化视图所支持的表达式做了一些增强，本示例将主要体现新版本物化视图对各种表达式的支持和提前过滤。
 
 1. 创建一个 Base 表并插入一些数据。
 ```sql
@@ -495,7 +495,7 @@ create table d_table (
    k1 int null,
    k2 int not null,
    k3 bigint null,
-   k4 varchar(100) null
+   k4 date null
 )
 duplicate key (k1,k2,k3)
 distributed BY hash(k1) buckets 3
@@ -509,24 +509,23 @@ insert into d_table select 3,-3,null,'2022-02-20';
 2. 创建一些物化视图。
 ```sql
 create materialized view k1a2p2ap3ps as select abs(k1)+k2+1,sum(abs(k2+2)+k3+3) from d_table group by abs(k1)+k2+1;
-create materialized view kymd as select year(k4),month(k4),day(k4) from d_table;
+create materialized view kymd as select year(k4),month(k4) from d_table where year(k4) = 2020; // 提前用where表达式过滤以减少物化视图中的数据量。
 ```
 
 3. 用一些查询测试是否成功命中物化视图。
 ```sql
 select abs(k1)+k2+1,sum(abs(k2+2)+k3+3) from d_table group by abs(k1)+k2+1; // 命中k1a2p2ap3ps
 select bin(abs(k1)+k2+1),sum(abs(k2+2)+k3+3) from d_table group by bin(abs(k1)+k2+1); // 命中k1a2p2ap3ps
-select year(k4),month(k4),day(k4) from d_table; // 命中kymd
-select year(k4)+month(k4)+day(k4) from d_table where year(k4) = 2020; // 命中kymd
+select year(k4),month(k4) from d_table; // 无法命中物化视图，因为where条件不匹配
+select year(k4)+month(k4) from d_table where year(k4) = 2020; // 命中kymd
 ```
 
 ## 局限性
 
-1. 物化视图的聚合函数的参数不支持表达式仅支持单列，比如： sum(a+b) 不支持。(2.0 后支持)
-2. 如果删除语句的条件列，在物化视图中不存在，则不能进行删除操作。如果一定要删除数据，则需要先将物化视图删除，然后方可删除数据。
-3. 单表上过多的物化视图会影响导入的效率：导入数据时，物化视图和 Base 表数据是同步更新的，如果一张表的物化视图表超过 10 张，则有可能导致导入速度很慢。这就像单次导入需要同时导入 10 张表数据是一样的。
-4. 相同列，不同聚合函数，不能同时出现在一张物化视图中，比如：select sum(a), min(a) from table 不支持。(2.0后支持)
-5. 物化视图针对 Unique Key数据模型，只能改变列顺序，不能起到聚合的作用，所以在Unique Key模型上不能通过创建物化视图的方式对数据进行粗粒度聚合操作
+1. 如果删除语句的条件列，在物化视图中不存在，则不能进行删除操作。如果一定要删除数据，则需要先将物化视图删除，然后方可删除数据。
+2. 单表上过多的物化视图会影响导入的效率：导入数据时，物化视图和 Base 表数据是同步更新的，如果一张表的物化视图表超过 10 张，则有可能导致导入速度很慢。这就像单次导入需要同时导入 10 张表数据是一样的。
+3. 物化视图针对 Unique Key数据模型，只能改变列顺序，不能起到聚合的作用，所以在Unique Key模型上不能通过创建物化视图的方式对数据进行粗粒度聚合操作
+4. 目前一些优化器对sql的改写行为可能会导致物化视图无法被命中，例如k1+1-1被改写成k1，between被改写成<=和>=，day被改写成dayofmonth，遇到这种情况需要手动调整下查询和物化视图的语句。
 
 ## 异常错误
 

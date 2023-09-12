@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.trees.expressions;
 
 import org.apache.doris.analysis.ArithmeticExpr.Operator;
+import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.exceptions.UnboundException;
 import org.apache.doris.nereids.trees.expressions.functions.PropagateNullableOnDateLikeV2Args;
 import org.apache.doris.nereids.trees.expressions.literal.Interval.TimeUnit;
@@ -30,6 +31,7 @@ import org.apache.doris.nereids.types.DateType;
 import org.apache.doris.nereids.types.DateV2Type;
 
 import com.google.common.base.Preconditions;
+import com.google.common.collect.ImmutableList;
 
 import java.util.List;
 import java.util.Objects;
@@ -57,7 +59,7 @@ public class TimestampArithmetic extends Expression implements BinaryExpression,
      */
     public TimestampArithmetic(String funcName, Operator op, Expression e1, Expression e2, TimeUnit timeUnit,
             boolean intervalFirst) {
-        super(e1, e2);
+        super(ImmutableList.of(e1, e2));
         Preconditions.checkState(op == Operator.ADD || op == Operator.SUBTRACT);
         this.funcName = funcName;
         this.op = op;
@@ -115,6 +117,18 @@ public class TimestampArithmetic extends Expression implements BinaryExpression,
 
     public TimeUnit getTimeUnit() {
         return timeUnit;
+    }
+
+    @Override
+    public void checkLegalityBeforeTypeCoercion() {
+        children().forEach(c -> {
+            if (c.getDataType().isObjectType()) {
+                throw new AnalysisException("timestamp arithmetic could not contains object type: " + this.toSql());
+            }
+            if (c.getDataType().isComplexType()) {
+                throw new AnalysisException("timestamp arithmetic could not contains complex type: " + this.toSql());
+            }
+        });
     }
 
     @Override

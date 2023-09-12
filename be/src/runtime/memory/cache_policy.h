@@ -17,7 +17,6 @@
 
 #pragma once
 
-#include "runtime/memory/cache_manager.h"
 #include "util/runtime_profile.h"
 
 namespace doris {
@@ -27,21 +26,55 @@ static constexpr int32_t CACHE_MIN_FREE_SIZE = 67108864; // 64M
 // Base of all caches. register to CacheManager when cache is constructed.
 class CachePolicy {
 public:
-    CachePolicy(const std::string& name, uint32_t stale_sweep_time_s)
-            : _name(name), _stale_sweep_time_s(stale_sweep_time_s) {
-        _it = CacheManager::instance()->register_cache(this);
-        init_profile();
+    enum class CacheType {
+        DATA_PAGE_CACHE = 0,
+        INDEXPAGE_CACHE = 1,
+        PK_INDEX_PAGE_CACHE = 2,
+        SCHEMA_CACHE = 3,
+        SEGMENT_CACHE = 4,
+        INVERTEDINDEX_SEARCHER_CACHE = 5,
+        INVERTEDINDEX_QUERY_CACHE = 6,
+        LOOKUP_CONNECTION_CACHE = 7
+    };
+
+    static std::string type_string(CacheType type) {
+        switch (type) {
+        case CacheType::DATA_PAGE_CACHE:
+            return "DataPageCache";
+        case CacheType::INDEXPAGE_CACHE:
+            return "IndexPageCache";
+        case CacheType::PK_INDEX_PAGE_CACHE:
+            return "PKIndexPageCache";
+        case CacheType::SCHEMA_CACHE:
+            return "SchemaCache";
+        case CacheType::SEGMENT_CACHE:
+            return "SegmentCache";
+        case CacheType::INVERTEDINDEX_SEARCHER_CACHE:
+            return "InvertedIndexSearcherCache";
+        case CacheType::INVERTEDINDEX_QUERY_CACHE:
+            return "InvertedIndexQueryCache";
+        case CacheType::LOOKUP_CONNECTION_CACHE:
+            return "LookupConnectionCache";
+        default:
+            LOG(FATAL) << "not match type of cache policy :" << static_cast<int>(type);
+        }
+        LOG(FATAL) << "__builtin_unreachable";
+        __builtin_unreachable();
     }
 
-    virtual ~CachePolicy() { CacheManager::instance()->unregister_cache(_it); };
-    virtual void prune_stale() = 0;
-    virtual void prune_all() = 0;
+    CachePolicy(CacheType type, uint32_t stale_sweep_time_s);
+    virtual ~CachePolicy();
 
+    virtual void prune_stale() = 0;
+    virtual void prune_all(bool clear) = 0;
+
+    CacheType type() { return _type; }
     RuntimeProfile* profile() { return _profile.get(); }
 
 protected:
     void init_profile() {
-        _profile = std::make_unique<RuntimeProfile>(fmt::format("Cache name={}", _name));
+        _profile =
+                std::make_unique<RuntimeProfile>(fmt::format("Cache type={}", type_string(_type)));
         _prune_stale_number_counter = ADD_COUNTER(_profile, "PruneStaleNumber", TUnit::UNIT);
         _prune_all_number_counter = ADD_COUNTER(_profile, "PruneAllNumber", TUnit::UNIT);
         _freed_memory_counter = ADD_COUNTER(_profile, "FreedMemory", TUnit::BYTES);
@@ -49,7 +82,7 @@ protected:
         _cost_timer = ADD_TIMER(_profile, "CostTime");
     }
 
-    std::string _name;
+    CacheType _type;
     std::list<CachePolicy*>::iterator _it;
 
     std::unique_ptr<RuntimeProfile> _profile;

@@ -37,6 +37,8 @@ import com.google.common.collect.Maps;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
@@ -74,6 +76,16 @@ public final class QeProcessorImpl implements QeProcessor {
             return queryInfo.getCoord();
         }
         return null;
+    }
+
+    @Override
+    public List<Coordinator> getAllCoordinators() {
+        List<Coordinator> res = new ArrayList<>();
+
+        for (QueryInfo co : coordinatorMap.values()) {
+            res.add(co.coord);
+        }
+        return res;
     }
 
     @Override

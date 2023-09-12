@@ -17,7 +17,12 @@
 
 package org.apache.doris.nereids.sqltest;
 
+import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.memo.Memo;
+import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
+import org.apache.doris.nereids.util.HyperGraphBuilder;
+import org.apache.doris.nereids.util.MemoTestUtils;
 import org.apache.doris.nereids.util.PlanChecker;
 
 import org.junit.jupiter.api.Assertions;
@@ -88,6 +93,20 @@ public class JoinOrderJobTest extends SqlTestBase {
     }
 
     @Test
+    protected void testConstantJoin() {
+        String sql = "select count(*) \n"
+                + "from \n"
+                + "T1 \n"
+                + " join (\n"
+                + "select * , now() as t from T2 \n"
+                + ") subTable on T1.id = t; \n";
+        PlanChecker.from(connectContext)
+                .analyze(sql)
+                .rewrite()
+                .dpHypOptimize();
+    }
+
+    @Test
     protected void testCountJoin() {
         String sql = "select count(*) \n"
                 + "from \n"
@@ -107,5 +126,19 @@ public class JoinOrderJobTest extends SqlTestBase {
                 .getCascadesContext()
                 .getMemo();
         Assertions.assertEquals(memo.countMaxContinuousJoin(), 2);
+    }
+
+    @Test
+    protected void test64TableJoin() {
+        HyperGraphBuilder hyperGraphBuilder = new HyperGraphBuilder();
+        Plan plan = hyperGraphBuilder
+                .randomBuildPlanWith(65, 65);
+        plan = new LogicalProject(plan.getOutput(), plan);
+        CascadesContext cascadesContext = MemoTestUtils.createCascadesContext(connectContext, plan);
+        Assertions.assertEquals(cascadesContext.getMemo().countMaxContinuousJoin(), 64);
+        hyperGraphBuilder.initStats(cascadesContext);
+        PlanChecker.from(cascadesContext)
+                .optimize()
+                .getBestPlanTree();
     }
 }

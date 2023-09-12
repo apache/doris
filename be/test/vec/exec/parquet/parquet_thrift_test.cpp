@@ -498,11 +498,11 @@ TEST_F(ParquetThriftReaderTest, group_reader) {
     SlotDescriptor string_slot(tslot_desc);
     tuple_slots.emplace_back(&string_slot);
 
-    std::vector<ParquetReadColumn> read_columns;
+    std::vector<std::string> read_columns;
     RowGroupReader::LazyReadContext lazy_read_ctx;
     for (const auto& slot : tuple_slots) {
         lazy_read_ctx.all_read_columns.emplace_back(slot->col_name());
-        read_columns.emplace_back(ParquetReadColumn(7, slot->col_name()));
+        read_columns.emplace_back(slot->col_name());
     }
     io::FileSystemSPtr local_fs = io::LocalFileSystem::create("");
     io::FileReaderSPtr file_reader;

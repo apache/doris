@@ -419,7 +419,7 @@ FE 的配置参数 `async_loading_load_task_pool_size` 用于限制同时运行�
 
 - 导入报错：`LOAD_RUN_FAIL; msg:Invalid Column Name:xxx`
 
-  如果是PARQUET或者ORC格式的数据,需要再文件头的列名与doris表中的列名一致，如 :
+  如果是PARQUET或者ORC格式的数据，则文件头的列名需要与doris表中的列名保持一致，如:
 
   ```text
   (tmp_c1,tmp_c2)
@@ -433,6 +433,10 @@ FE 的配置参数 `async_loading_load_task_pool_size` 用于限制同时运行�
   代表获取在 parquet 或 orc 中以(tmp_c1, tmp_c2)为列名的列，映射到 doris 表中的(id, name)列。如果没有设置set, 则以column中的列作为映射。
 
   注：如果使用某些 hive 版本直接生成的 orc 文件，orc 文件中的表头并非 hive meta 数据，而是（_col0, _col1, _col2, ...）, 可能导致 Invalid Column Name 错误，那么则需要使用 set 进行映射
+
+- 导入报错：`Failed to get S3 FileSystem for bucket is null/empty`
+  1. bucket信息填写不正确或者不存在。
+  2. bucket的格式不受支持。使用GCS创建带`_`的桶名时，比如：`s3://gs_bucket/load_tbl`，S3 Client访问GCS会报错，建议创建bucket路径时不使用`_`。
 
 ## 更多帮助
 

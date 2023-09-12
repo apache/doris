@@ -82,7 +82,7 @@ public class Nvl extends ScalarFunction
      * constructor with 2 arguments.
      */
     public Nvl(Expression arg0, Expression arg1) {
-        super("nvl", arg0, arg1);
+        super("ifnull", arg0, arg1);
     }
 
     /**

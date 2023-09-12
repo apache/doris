@@ -37,6 +37,7 @@
 #include "common/logging.h"
 #include "common/status.h"
 #include "io/fs/file_meta_cache.h"
+#include "olap/memtable_memory_limiter.h"
 #include "olap/olap_define.h"
 #include "olap/options.h"
 #include "olap/page_cache.h"
@@ -52,6 +53,7 @@
 #include "runtime/exec_env.h"
 #include "runtime/external_scan_context_mgr.h"
 #include "runtime/fragment_mgr.h"
+#include "runtime/group_commit_mgr.h"
 #include "runtime/heartbeat_flags.h"
 #include "runtime/load_channel_mgr.h"
 #include "runtime/load_path_mgr.h"
@@ -67,17 +69,20 @@
 #include "runtime/stream_load/stream_load_executor.h"
 #include "runtime/task_group/task_group_manager.h"
 #include "runtime/thread_context.h"
+#include "service/backend_options.h"
 #include "service/point_query_executor.h"
 #include "util/bfd_parser.h"
 #include "util/bit_util.h"
 #include "util/brpc_client_cache.h"
 #include "util/cpu_info.h"
+#include "util/disk_info.h"
 #include "util/doris_metrics.h"
 #include "util/mem_info.h"
 #include "util/metrics.h"
 #include "util/parse_util.h"
 #include "util/pretty_printer.h"
 #include "util/threadpool.h"
+#include "util/timezone_utils.h"
 #include "vec/exec/scan/scanner_scheduler.h"
 #include "vec/runtime/vdata_stream_mgr.h"
 
@@ -96,20 +101,40 @@ DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(send_batch_thread_pool_queue_size, MetricUnit
 DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(download_cache_thread_pool_thread_num, MetricUnit::NOUNIT);
 DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(download_cache_thread_pool_queue_size, MetricUnit::NOUNIT);
 
+static void init_doris_metrics(const std::vector<StorePath>& store_paths) {
+    bool init_system_metrics = config::enable_system_metrics;
+    std::set<std::string> disk_devices;
+    std::vector<std::string> network_interfaces;
+    std::vector<std::string> paths;
+    for (auto& store_path : store_paths) {
+        paths.emplace_back(store_path.path);
+    }
+    if (init_system_metrics) {
+        auto st = DiskInfo::get_disk_devices(paths, &disk_devices);
+        if (!st.ok()) {
+            LOG(WARNING) << "get disk devices failed, status=" << st;
+            return;
+        }
+        st = get_inet_interfaces(&network_interfaces, BackendOptions::is_bind_ipv6());
+        if (!st.ok()) {
+            LOG(WARNING) << "get inet interfaces failed, status=" << st;
+            return;
+        }
+    }
+    DorisMetrics::instance()->initialize(init_system_metrics, disk_devices, network_interfaces);
+}
+
 Status ExecEnv::init(ExecEnv* env, const std::vector<StorePath>& store_paths) {
     return env->_init(store_paths);
 }
 
 Status ExecEnv::_init(const std::vector<StorePath>& store_paths) {
     //Only init once before be destroyed
-    if (_is_init) {
+    if (ready()) {
         return Status::OK();
     }
+    init_doris_metrics(store_paths);
     _store_paths = store_paths;
-    // path_name => path_index
-    for (int i = 0; i < store_paths.size(); i++) {
-        _store_path_map[store_paths[i].path] = i;
-    }
 
     _external_scan_context_mgr = new ExternalScanContextMgr(this);
     _vstream_mgr = new doris::vectorized::VDataStreamMgr();
@@ -120,6 +145,9 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths) {
     _broker_client_cache = new BrokerServiceClientCache(config::max_client_cache_size_per_host);
 
     TimezoneUtils::load_timezone_names();
+
+    _global_zone_cache = std::make_unique<vectorized::ZoneList>();
+    TimezoneUtils::load_timezones_to_cache(*_global_zone_cache);
 
     ThreadPoolBuilder("SendBatchThreadPool")
             .set_min_threads(config::send_batch_thread_pool_thread_num)
@@ -167,7 +195,9 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths) {
     _routine_load_task_executor = new RoutineLoadTaskExecutor(this);
     _small_file_mgr = new SmallFileMgr(this, config::small_file_dir);
     _block_spill_mgr = new BlockSpillManager(_store_paths);
+    _group_commit_mgr = new GroupCommitMgr(this);
     _file_meta_cache = new FileMetaCache(config::max_external_file_meta_cache_num);
+    _memtable_memory_limiter = std::make_unique<MemTableMemoryLimiter>();
 
     _backend_client_cache->init_metrics("backend");
     _frontend_client_cache->init_metrics("frontend");
@@ -184,10 +214,11 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths) {
 
     _init_mem_env();
 
+    RETURN_IF_ERROR(_memtable_memory_limiter->init(MemInfo::mem_limit()));
     RETURN_IF_ERROR(_load_channel_mgr->init(MemInfo::mem_limit()));
     _heartbeat_flags = new HeartbeatFlags();
     _register_metrics();
-    _is_init = true;
+    _s_ready = true;
     return Status::OK();
 }
 
@@ -200,12 +231,14 @@ Status ExecEnv::init_pipeline_task_scheduler() {
     // TODO pipeline task group combie two blocked schedulers.
     auto t_queue = std::make_shared<pipeline::MultiCoreTaskQueue>(executors_size);
     auto b_scheduler = std::make_shared<pipeline::BlockedTaskScheduler>(t_queue);
-    _pipeline_task_scheduler = new pipeline::TaskScheduler(this, b_scheduler, t_queue);
+    _pipeline_task_scheduler =
+            new pipeline::TaskScheduler(this, b_scheduler, t_queue, "WithoutGroupTaskSchePool");
     RETURN_IF_ERROR(_pipeline_task_scheduler->start());
 
     auto tg_queue = std::make_shared<pipeline::TaskGroupTaskQueue>(executors_size);
     auto tg_b_scheduler = std::make_shared<pipeline::BlockedTaskScheduler>(tg_queue);
-    _pipeline_task_group_scheduler = new pipeline::TaskScheduler(this, tg_b_scheduler, tg_queue);
+    _pipeline_task_group_scheduler =
+            new pipeline::TaskScheduler(this, tg_b_scheduler, tg_queue, "WithGroupTaskSchePool");
     RETURN_IF_ERROR(_pipeline_task_group_scheduler->start());
 
     return Status::OK();
@@ -283,8 +316,11 @@ Status ExecEnv::_init_mem_env() {
     }
     // SegmentLoader caches segments in rowset granularity. So the size of
     // opened files will greater than segment_cache_capacity.
-    uint64_t segment_cache_capacity = fd_number * 2 / 5;
-    LOG(INFO) << "segment_cache_capacity = fd_number * 2 / 5, fd_number: " << fd_number
+    int64_t segment_cache_capacity = config::segment_cache_capacity;
+    if (segment_cache_capacity < 0 || segment_cache_capacity > fd_number * 2 / 5) {
+        segment_cache_capacity = fd_number * 2 / 5;
+    }
+    LOG(INFO) << "segment_cache_capacity <= fd_number * 2 / 5, fd_number: " << fd_number
               << " segment_cache_capacity: " << segment_cache_capacity;
     SegmentLoader::create_global_instance(segment_cache_capacity);
 
@@ -376,9 +412,11 @@ void ExecEnv::_deregister_metrics() {
 
 void ExecEnv::_destroy() {
     //Only destroy once after init
-    if (!_is_init) {
+    if (!ready()) {
         return;
     }
+    // Memory barrier to prevent other threads from accessing destructed resources
+    _s_ready = false;
     _deregister_metrics();
     SAFE_DELETE(_internal_client_cache);
     SAFE_DELETE(_function_client_cache);
@@ -399,6 +437,7 @@ void ExecEnv::_destroy() {
     SAFE_DELETE(_external_scan_context_mgr);
     SAFE_DELETE(_heartbeat_flags);
     SAFE_DELETE(_scanner_scheduler);
+    SAFE_DELETE(_group_commit_mgr);
     SAFE_DELETE(_file_meta_cache);
     // Master Info is a thrift object, it could be the last one to deconstruct.
     // Master info should be deconstruct later than fragment manager, because fragment will
@@ -407,6 +446,7 @@ void ExecEnv::_destroy() {
     SAFE_DELETE(_master_info);
 
     _new_load_stream_mgr.reset();
+    _memtable_memory_limiter.reset(nullptr);
     _send_batch_thread_pool.reset(nullptr);
     _buffered_reader_prefetch_thread_pool.reset(nullptr);
     _send_report_thread_pool.reset(nullptr);
@@ -418,8 +458,6 @@ void ExecEnv::_destroy() {
     _page_no_cache_mem_tracker.reset();
     _brpc_iobuf_block_memory_tracker.reset();
     InvertedIndexSearcherCache::reset_global_instance();
-
-    _is_init = false;
 }
 
 void ExecEnv::destroy(ExecEnv* env) {

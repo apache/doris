@@ -1,6 +1,6 @@
 ---
 {
-    "title": "concat",
+    "title": "CONCAT",
     "language": "zh-CN"
 }
 ---

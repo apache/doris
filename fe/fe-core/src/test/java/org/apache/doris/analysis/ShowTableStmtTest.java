@@ -68,10 +68,17 @@ public class ShowTableStmtTest {
         Assert.assertEquals("Table_type", stmt.getMetaData().getColumn(1).getName());
     }
 
-    @Test(expected = AnalysisException.class)
-    public void testNoDb() throws AnalysisException {
+    @Test
+    public void testNoDb() {
         ShowTableStmt stmt = new ShowTableStmt("", null, false, null);
-        stmt.analyze(AccessTestUtil.fetchEmptyDbAnalyzer());
+        try {
+            stmt.analyze(AccessTestUtil.fetchEmptyDbAnalyzer());
+        } catch (AnalysisException e) {
+            return;
+        } catch (Exception e) {
+            e.printStackTrace();
+            Assert.fail(e.getMessage());
+        }
         Assert.fail("No exception throws");
     }
 }

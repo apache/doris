@@ -503,9 +503,12 @@ vectorized::AggregateFunctionPtr TabletColumn::get_aggregate_function_union(
 }
 
 vectorized::AggregateFunctionPtr TabletColumn::get_aggregate_function(std::string suffix) const {
-    std::string origin_name = TabletColumn::get_string_by_aggregation_type(_aggregation);
     auto type = vectorized::DataTypeFactory::instance().create_data_type(*this);
+    if (type && type->get_type_as_primitive_type() == PrimitiveType::TYPE_AGG_STATE) {
+        return get_aggregate_function_union(type);
+    }
 
+    std::string origin_name = TabletColumn::get_string_by_aggregation_type(_aggregation);
     std::string agg_name = origin_name + suffix;
     std::transform(agg_name.begin(), agg_name.end(), agg_name.begin(),
                    [](unsigned char c) { return std::tolower(c); });
@@ -515,12 +518,9 @@ vectorized::AggregateFunctionPtr TabletColumn::get_aggregate_function(std::strin
     if (function) {
         return function;
     }
-    if (type->get_type_as_primitive_type() != PrimitiveType::TYPE_AGG_STATE) {
-        LOG(WARNING) << "get column aggregate function failed, aggregation_name=" << origin_name
-                     << ", column_type=" << type->get_name();
-        return nullptr;
-    }
-    return get_aggregate_function_union(type);
+    LOG(WARNING) << "get column aggregate function failed, aggregation_name=" << origin_name
+                 << ", column_type=" << type->get_name();
+    return nullptr;
 }
 
 void TabletIndex::init_from_thrift(const TOlapTableIndex& index,
@@ -710,7 +710,6 @@ void TabletSchema::init_from_pb(const TabletSchemaPB& schema) {
     _enable_single_replica_compaction = schema.enable_single_replica_compaction();
     _store_row_column = schema.store_row_column();
     _skip_write_index_on_load = schema.skip_write_index_on_load();
-    _is_dynamic_schema = schema.is_dynamic_schema();
     _delete_sign_idx = schema.delete_sign_idx();
     _sequence_col_idx = schema.sequence_col_idx();
     _version_col_idx = schema.version_col_idx();
@@ -871,7 +870,6 @@ void TabletSchema::to_schema_pb(TabletSchemaPB* tablet_schema_pb) const {
     tablet_schema_pb->set_sort_col_num(_sort_col_num);
     tablet_schema_pb->set_schema_version(_schema_version);
     tablet_schema_pb->set_compression_type(_compression_type);
-    tablet_schema_pb->set_is_dynamic_schema(_is_dynamic_schema);
     tablet_schema_pb->set_version_col_idx(_version_col_idx);
     tablet_schema_pb->set_is_partial_update(_is_partial_update);
     for (auto& col : _partial_update_input_columns) {

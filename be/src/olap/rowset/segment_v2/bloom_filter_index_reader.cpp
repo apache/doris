@@ -31,6 +31,13 @@ namespace doris {
 namespace segment_v2 {
 
 Status BloomFilterIndexReader::load(bool use_page_cache, bool kept_in_memory) {
+    // TODO yyq: implement a new once flag to avoid status construct.
+    return _load_once.call([this, use_page_cache, kept_in_memory] {
+        return _load(use_page_cache, kept_in_memory);
+    });
+}
+
+Status BloomFilterIndexReader::_load(bool use_page_cache, bool kept_in_memory) {
     const IndexedColumnMetaPB& bf_index_meta = _bloom_filter_index_meta->bloom_filter();
 
     _bloom_filter_reader.reset(new IndexedColumnReader(_file_reader, bf_index_meta));

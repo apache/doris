@@ -205,6 +205,47 @@ suite("test_ctas") {
             DROP TABLE IF EXISTS ctas_113815
         """
     }
+    
+    try {
+        sql '''create table a (
+                id int not null,
+                        name varchar(20) not null
+        )
+        distributed by hash(id) buckets 4
+        properties (
+                "replication_num"="1"
+        );
+        '''
 
+        sql '''create table b (
+                id int not null,
+                        age int not null
+        )
+        distributed by hash(id) buckets 4
+        properties (
+                "replication_num"="1"
+        );
+        '''
+
+        sql 'insert into a values(1, \'ww\'), (2, \'zs\');'
+        sql 'insert into b values(1, 22);'
+
+        sql 'create table c properties("replication_num"="1") as select a.id, a.name, b.age from a left join b on a.id = b.id;'
+        
+        String desc = sql 'desc c'
+        assertTrue(desc.contains('Yes'))
+        sql '''create table test_date_v2 
+        properties (
+                "replication_num"="1"
+        ) as select to_date('20250829');
+        '''
+        desc = sql 'desc test_date_v2'
+        assertTrue(desc.contains('Yes'))
+    } finally {
+        sql 'drop table a'
+        sql 'drop table b'
+        sql 'drop table c'
+        sql 'drop table test_date_v2'
+    }
 }
 

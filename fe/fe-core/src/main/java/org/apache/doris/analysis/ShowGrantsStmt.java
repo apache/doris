@@ -89,6 +89,9 @@ public class ShowGrantsStmt extends ShowStmt {
                 ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "GRANT");
             }
         }
+        if (userIdent != null && !Env.getCurrentEnv().getAccessManager().getAuth().doesUserExist(userIdent)) {
+            throw new AnalysisException(String.format("User: %s does not exist", userIdent));
+        }
     }
 
     @Override

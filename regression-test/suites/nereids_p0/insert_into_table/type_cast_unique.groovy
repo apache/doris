@@ -22,7 +22,7 @@ suite("nereids_insert_unique_type_cast") {
     sql 'set enable_nereids_planner=true'
     sql 'set enable_fallback_to_original_planner=false'
     sql 'set enable_nereids_dml=true'
-    sql 'set parallel_fragment_exec_instance_num=13'
+    sql 'set enable_strict_consistency_dml=true'
 
     sql '''insert into uni_t_type_cast
             select id, ktint, ksint, kint, kbint, kdtv2, kdtm, kdbl from src'''

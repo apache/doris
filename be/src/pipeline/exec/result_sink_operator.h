@@ -20,6 +20,7 @@
 #include <stdint.h>
 
 #include "operator.h"
+#include "pipeline/pipeline_x/operator.h"
 #include "vec/sink/vresult_sink.h"
 
 namespace doris {
@@ -39,6 +40,57 @@ public:
     ResultSinkOperator(OperatorBuilderBase* operator_builder, DataSink* sink);
 
     bool can_write() override;
+};
+
+class ResultSinkLocalState final : public PipelineXSinkLocalState<> {
+    ENABLE_FACTORY_CREATOR(ResultSinkLocalState);
+
+public:
+    ResultSinkLocalState(DataSinkOperatorXBase* parent, RuntimeState* state)
+            : PipelineXSinkLocalState<>(parent, state) {}
+
+    Status init(RuntimeState* state, LocalSinkStateInfo& info) override;
+    Status open(RuntimeState* state) override;
+    Status close(RuntimeState* state) override;
+
+private:
+    friend class ResultSinkOperatorX;
+
+    vectorized::VExprContextSPtrs _output_vexpr_ctxs;
+
+    std::shared_ptr<BufferControlBlock> _sender;
+    std::shared_ptr<ResultWriter> _writer;
+};
+
+class ResultSinkOperatorX final : public DataSinkOperatorX<ResultSinkLocalState> {
+public:
+    ResultSinkOperatorX(const RowDescriptor& row_desc, const std::vector<TExpr>& select_exprs,
+                        const TResultSink& sink);
+    Status prepare(RuntimeState* state) override;
+    Status open(RuntimeState* state) override;
+
+    Status sink(RuntimeState* state, vectorized::Block* in_block,
+                SourceState source_state) override;
+
+    bool can_write(RuntimeState* state) override;
+
+private:
+    friend class ResultSinkLocalState;
+
+    Status _second_phase_fetch_data(RuntimeState* state, vectorized::Block* final_block);
+    TResultSinkType::type _sink_type;
+    // set file options when sink type is FILE
+    std::unique_ptr<vectorized::ResultFileOptions> _file_opts;
+
+    // Owned by the RuntimeState.
+    const RowDescriptor& _row_desc;
+
+    // Owned by the RuntimeState.
+    const std::vector<TExpr>& _t_output_expr;
+    vectorized::VExprContextSPtrs _output_vexpr_ctxs;
+
+    // for fetch data by rowids
+    TFetchOption _fetch_option;
 };
 
 } // namespace pipeline

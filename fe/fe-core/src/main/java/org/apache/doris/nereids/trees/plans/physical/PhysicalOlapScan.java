@@ -45,8 +45,6 @@ import java.util.Optional;
  */
 public class PhysicalOlapScan extends PhysicalCatalogRelation implements OlapScan {
 
-    public static final String DEFERRED_MATERIALIZED_SLOTS = "deferred_materialized_slots";
-
     private final DistributionSpec distributionSpec;
     private final long selectedIndexId;
     private final ImmutableList<Long> selectedTabletIds;
@@ -116,7 +114,7 @@ public class PhysicalOlapScan extends PhysicalCatalogRelation implements OlapSca
 
     @Override
     public String toString() {
-        return Utils.toSqlString("PhysicalOlapScan[" + relationId.asInt() + "]" + getGroupIdAsString(),
+        return Utils.toSqlString("PhysicalOlapScan[" + relationId.asInt() + "]" + getGroupIdWithPrefix(),
                 "qualified", Utils.qualifiedName(qualifier, table.getName()),
                 "stats", statistics, "fr", getMutableState(AbstractPlan.FRAGMENT_ID)
         );

@@ -51,25 +51,32 @@ public class MVColumnItem {
 
     public MVColumnItem(String name, Type type, AggregateType aggregateType, boolean isAggregationTypeImplicit,
             Expr defineExpr, String baseColumnName) {
-        this(name, type, aggregateType, isAggregationTypeImplicit, defineExpr, baseColumnName, null);
+        this(name, type, aggregateType, isAggregationTypeImplicit, defineExpr);
     }
 
-    public MVColumnItem(Type type, AggregateType aggregateType,
-            Expr defineExpr, String baseColumnName) {
+    public MVColumnItem(Type type, AggregateType aggregateType, Expr defineExpr, String baseColumnName) {
         this(CreateMaterializedViewStmt.mvColumnBuilder(aggregateType, baseColumnName), type, aggregateType, false,
-                defineExpr, baseColumnName, null);
+                defineExpr);
     }
 
     public MVColumnItem(String name, Type type, AggregateType aggregateType, boolean isAggregationTypeImplicit,
-            Expr defineExpr, String baseColumnName, String baseTableName) {
+            Expr defineExpr) {
         this.name = name;
         this.type = type;
         this.aggregationType = aggregateType;
         this.isAggregationTypeImplicit = isAggregationTypeImplicit;
         this.defineExpr = defineExpr;
         baseColumnNames = new HashSet<>();
-        baseColumnNames.add(baseColumnName);
-        this.baseTableName = baseTableName;
+
+        Map<Long, Set<String>> tableIdToColumnNames = defineExpr.getTableIdToColumnNames();
+        if (defineExpr instanceof SlotRef) {
+            baseColumnNames = new HashSet<>();
+            baseColumnNames.add(this.name);
+        } else if (tableIdToColumnNames.size() == 1) {
+            for (Map.Entry<Long, Set<String>> entry : tableIdToColumnNames.entrySet()) {
+                baseColumnNames = entry.getValue();
+            }
+        }
     }
 
     public MVColumnItem(String name, Type type) {
@@ -92,11 +99,11 @@ public class MVColumnItem {
 
         this.type = defineExpr.getType();
         if (this.type instanceof ScalarType && this.type.isStringType()) {
+            this.type = new ScalarType(type.getPrimitiveType());
             ((ScalarType) this.type).setMaxLength();
         }
 
         Map<Long, Set<String>> tableIdToColumnNames = defineExpr.getTableIdToColumnNames();
-
         if (defineExpr instanceof SlotRef) {
             baseColumnNames = new HashSet<>();
             baseColumnNames.add(this.name);

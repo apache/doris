@@ -106,7 +106,7 @@ public class CheckAfterRewrite extends OneAnalysisRuleFactory {
         notFromChildren = removeValidSlotsNotFromChildren(notFromChildren, childrenOutput);
         if (!notFromChildren.isEmpty()) {
             throw new AnalysisException(String.format("Input slot(s) not in child's output: %s in plan: %s,"
-                            + " child output is: %s",
+                            + " child output is: %s\n" + "plan tree:\n" + plan.treeString(),
                     StringUtils.join(notFromChildren.stream()
                             .map(ExpressionTrait::toString)
                             .collect(Collectors.toSet()), ", "), plan,

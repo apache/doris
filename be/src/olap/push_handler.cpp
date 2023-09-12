@@ -189,13 +189,13 @@ Status PushHandler::_do_streaming_ingestion(TabletSharedPtr tablet, const TPushR
     // add pending data to tablet
 
     if (push_type == PushType::PUSH_FOR_DELETE) {
-        rowset_to_add->rowset_meta()->set_delete_predicate(del_preds.front());
+        rowset_to_add->rowset_meta()->set_delete_predicate(std::move(del_preds.front()));
         del_preds.pop();
     }
     Status commit_status = StorageEngine::instance()->txn_manager()->commit_txn(
             request.partition_id, tablet, request.transaction_id, load_id, rowset_to_add, false);
-    if (commit_status != Status::OK() && !commit_status.is<PUSH_TRANSACTION_ALREADY_EXIST>()) {
-        res = commit_status;
+    if (!commit_status.ok() && !commit_status.is<PUSH_TRANSACTION_ALREADY_EXIST>()) {
+        res = std::move(commit_status);
     }
     return res;
 }
@@ -290,7 +290,7 @@ Status PushHandler::_convert_v2(TabletSharedPtr cur_tablet, RowsetSharedPtr* cur
             reader->close();
         }
 
-        if (rowset_writer->flush() != Status::OK()) {
+        if (!rowset_writer->flush().ok()) {
             LOG(WARNING) << "failed to finalize writer";
             break;
         }
@@ -340,15 +340,14 @@ PushBrokerReader::PushBrokerReader(const Schema* schema, const TBrokerScanRange&
         // Later, this field is moved to TFileRangeDesc, but here we still only use _ranges[0]'s
         // file_type.
         // Because I don't know if other range has this field, so just keep it same as before.
-        file_range.file_type = _ranges[0].file_type;
-        file_range.load_id = _ranges[i].load_id;
-        file_range.path = _ranges[i].path;
-        file_range.start_offset = _ranges[i].start_offset;
-        file_range.__isset.size = true;
-        file_range.size = _ranges[i].size;
-        file_range.__isset.file_size = true;
-        file_range.file_size = _ranges[i].file_size;
-        file_range.columns_from_path = _ranges[i].columns_from_path;
+        file_range.__set_file_type(_ranges[0].file_type);
+        file_range.__set_load_id(_ranges[i].load_id);
+        file_range.__set_path(_ranges[i].path);
+        file_range.__set_start_offset(_ranges[i].start_offset);
+        file_range.__set_size(_ranges[i].size);
+        file_range.__set_file_size(_ranges[i].file_size);
+        file_range.__set_columns_from_path(_ranges[i].columns_from_path);
+
         _file_ranges.push_back(file_range);
     }
 }
@@ -385,7 +384,7 @@ Status PushBrokerReader::init() {
 
     auto slot_descs = desc_tbl->get_tuple_descriptor(0)->slots();
     for (int i = 0; i < slot_descs.size(); i++) {
-        _all_col_names.push_back(slot_descs[i]->col_name());
+        _all_col_names.push_back(to_lower((slot_descs[i]->col_name())));
     }
 
     RETURN_IF_ERROR(_init_expr_ctxes());
@@ -425,7 +424,7 @@ Status PushBrokerReader::_init_src_block() {
     for (auto& slot : _src_slot_descs) {
         vectorized::DataTypePtr data_type;
         auto it = _name_to_col_type.find(slot->col_name());
-        if (it == _name_to_col_type.end() || _is_dynamic_schema) {
+        if (it == _name_to_col_type.end()) {
             // not exist in file, using type from _input_tuple_desc
             data_type = vectorized::DataTypeFactory::instance().create_data_type(
                     slot->type(), slot->is_nullable());
@@ -448,9 +447,6 @@ Status PushBrokerReader::_init_src_block() {
 }
 
 Status PushBrokerReader::_cast_to_input_block() {
-    if (_is_dynamic_schema) {
-        return Status::OK();
-    }
     size_t idx = 0;
     for (auto& slot_desc : _src_slot_descs) {
         if (_name_to_col_type.find(slot_desc->col_name()) == _name_to_col_type.end()) {
@@ -551,11 +547,6 @@ Status PushBrokerReader::_init_expr_ctxes() {
             return Status::InternalError("Unknown source slot descriptor, slot_id={}", slot_id);
         }
         _src_slot_descs.emplace_back(it->second);
-
-        if (it->second->type().is_variant_type() &&
-            it->second->col_name() == BeConsts::DYNAMIC_COLUMN_NAME) {
-            _is_dynamic_schema = true;
-        }
     }
     _row_desc.reset(new RowDescriptor(_runtime_state->desc_tbl(),
                                       std::vector<TupleId>({_params.src_tuple_id}),

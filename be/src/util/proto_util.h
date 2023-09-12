@@ -68,7 +68,7 @@ void transmit_block(PBackendService_Stub& stub, Closure* closure,
 }
 
 template <typename Closure>
-Status transmit_block_http(RuntimeState* state, Closure* closure, PTransmitDataParams& params,
+Status transmit_block_http(ExecEnv* exec_env, Closure* closure, PTransmitDataParams& params,
                            TNetworkAddress brpc_dest_addr) {
     RETURN_IF_ERROR(request_embed_attachment_contain_block(&params, closure));
 
@@ -76,8 +76,7 @@ Status transmit_block_http(RuntimeState* state, Closure* closure, PTransmitDataP
     std::string brpc_url = get_brpc_http_url(brpc_dest_addr.hostname, brpc_dest_addr.port);
 
     std::shared_ptr<PBackendService_Stub> brpc_http_stub =
-            state->exec_env()->brpc_internal_client_cache()->get_new_client_no_cache(brpc_url,
-                                                                                     "http");
+            exec_env->brpc_internal_client_cache()->get_new_client_no_cache(brpc_url, "http");
     closure->cntl.http_request().uri() = brpc_url + "/PInternalServiceImpl/transmit_block_by_http";
     closure->cntl.http_request().set_method(brpc::HTTP_METHOD_POST);
     closure->cntl.http_request().set_content_type("application/json");

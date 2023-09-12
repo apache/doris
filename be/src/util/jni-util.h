@@ -30,7 +30,7 @@
 #include "util/thrift_util.h"
 
 #ifdef USE_HADOOP_HDFS
-// defined in hadoop_hdfs/hdfs.h
+// defined in hadoop/hadoop-hdfs-project/hadoop-hdfs/src/main/native/libhdfs/jni_helper.c
 extern "C" JNIEnv* getJNIEnv(void);
 #endif
 
@@ -74,12 +74,13 @@ public:
     static inline int64_t IncreaseReservedBufferSize(int n) {
         return INITIAL_RESERVED_BUFFER_SIZE << n;
     }
-
+    static Status get_jni_scanner_class(JNIEnv* env, const char* classname, jclass* loaded_class);
     static jobject convert_to_java_map(JNIEnv* env, const std::map<std::string, std::string>& map);
     static std::map<std::string, std::string> convert_to_cpp_map(JNIEnv* env, jobject map);
 
 private:
     static Status GetJNIEnvSlowPath(JNIEnv** env);
+    static Status init_jni_scanner_loader(JNIEnv* env);
 
     static bool jvm_inited_;
     static jclass internal_exc_cl_;
@@ -90,7 +91,9 @@ private:
     static jmethodID get_jvm_metrics_id_;
     static jmethodID get_jvm_threads_id_;
     static jmethodID get_jmx_json_;
-
+    // JNI scanner loader
+    static jobject jni_scanner_loader_obj_;
+    static jmethodID jni_scanner_loader_method_;
     // Thread-local cache of the JNIEnv for this thread.
     static __thread JNIEnv* tls_env_;
 };

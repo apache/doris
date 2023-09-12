@@ -96,14 +96,21 @@ run_sql() {
     echo "$*"
     mysql -h"${FE_HOST}" -u"${USER}" -P"${FE_QUERY_PORT}" -D"${DB}" -e "$*"
 }
-
+run_sql "set global query_timeout=900;"
 echo '============================================'
 run_sql "show variables;"
 echo '============================================'
 run_sql "show table status;"
 echo '============================================'
 start=$(date +%s)
-run_sql "analyze database ${DB} with sync;"
+run_sql "analyze table lineitem with sync;"
+run_sql "analyze table orders with sync;"
+run_sql "analyze table partsupp with sync;"
+run_sql "analyze table part with sync;"
+run_sql "analyze table customer with sync;"
+run_sql "analyze table supplier with sync;"
+run_sql "analyze table nation with sync;"
+run_sql "analyze table region with sync;"
 end=$(date +%s)
 totalTime=$((end - start))
 echo "analyze database ${DB} with sync total time: ${totalTime} s"

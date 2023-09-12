@@ -45,6 +45,7 @@ import org.apache.doris.thrift.TFileTextScanRangeParams;
 import org.apache.doris.thrift.TFileType;
 import org.apache.doris.thrift.THdfsParams;
 import org.apache.doris.thrift.TScanRangeLocations;
+import org.apache.doris.thrift.TTextSerdeType;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
@@ -90,6 +91,10 @@ public class LoadScanProvider {
         params.setFormatType(formatType(fileGroupInfo.getFileGroup().getFileFormat(), ""));
         params.setCompressType(fileGroupInfo.getFileGroup().getCompressType());
         params.setStrictMode(fileGroupInfo.isStrictMode());
+        if (fileGroupInfo.getFileGroup().getFileFormat() != null
+                && fileGroupInfo.getFileGroup().getFileFormat().equals("hive_text")) {
+            params.setTextSerdeType(TTextSerdeType.HIVE_TEXT_SERDE);
+        }
         params.setProperties(fileGroupInfo.getBrokerDesc().getProperties());
         if (fileGroupInfo.getBrokerDesc().getFileType() == TFileType.FILE_HDFS) {
             THdfsParams tHdfsParams = HdfsResource.generateHdfsParam(fileGroupInfo.getBrokerDesc().getProperties());
@@ -109,6 +114,8 @@ public class LoadScanProvider {
         TFileTextScanRangeParams textParams = new TFileTextScanRangeParams();
         textParams.setColumnSeparator(fileGroup.getColumnSeparator());
         textParams.setLineDelimiter(fileGroup.getLineDelimiter());
+        textParams.setEnclose(fileGroup.getEnclose());
+        textParams.setEscape(fileGroup.getEscape());
         fileAttributes.setTextParams(textParams);
         fileAttributes.setStripOuterArray(fileGroup.isStripOuterArray());
         fileAttributes.setJsonpaths(fileGroup.getJsonPaths());
@@ -188,7 +195,7 @@ public class LoadScanProvider {
                         .filter(c -> c.getColumnName().equalsIgnoreCase(finalSequenceCol)).findAny();
                 // if `columnDescs.descs` is empty, that means it's not a partial update load, and user not specify
                 // column name.
-                if (foundCol.isPresent() || columnDescs.descs.isEmpty()) {
+                if (foundCol.isPresent() || shouldAddSequenceColumn(columnDescs)) {
                     columnDescs.descs.add(new ImportColumnDesc(Column.SEQUENCE_COL,
                             new SlotRef(null, sequenceCol)));
                 } else if (!fileGroupInfo.isPartialUpdate()) {
@@ -222,6 +229,17 @@ public class LoadScanProvider {
             slotInfo.setIsFileSlot(i < numColumnsFromFile);
             context.params.addToRequiredSlots(slotInfo);
         }
+    }
+
+    /**
+     * if not set sequence column and column size is null or only have deleted sign ,return true
+     */
+    private boolean shouldAddSequenceColumn(LoadTaskInfo.ImportColumnDescs columnDescs) {
+        if (columnDescs.descs.isEmpty()) {
+            return true;
+        }
+        return columnDescs.descs.size() == 1 && columnDescs.descs.get(0).getColumnName()
+                .equalsIgnoreCase(Column.DELETE_SIGN);
     }
 
     private TFileFormatType formatType(String fileFormat, String path) throws UserException {

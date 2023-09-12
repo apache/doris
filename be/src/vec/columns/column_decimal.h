@@ -204,7 +204,7 @@ public:
     bool get_bool(size_t n) const override { return bool(data[n]); }
     Int64 get_int(size_t n) const override { return Int64(data[n] * scale); }
     UInt64 get64(size_t n) const override;
-    bool is_default_at(size_t n) const override { return data[n] == 0; }
+    bool is_default_at(size_t n) const override { return data[n].value == 0; }
 
     void clear() override { data.clear(); }
 

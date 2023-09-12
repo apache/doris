@@ -43,7 +43,7 @@ private:
 };
 class DataTypeTimeV2SerDe : public DataTypeNumberSerDe<Float64> {
 public:
-    DataTypeTimeV2SerDe(int scale = -1) : scale(scale) {};
+    DataTypeTimeV2SerDe(int scale = 0) : scale(scale) {};
     Status write_column_to_mysql(const IColumn& column, MysqlRowBuffer<true>& row_buffer,
                                  int row_idx, bool col_const) const override;
     Status write_column_to_mysql(const IColumn& column, MysqlRowBuffer<false>& row_buffer,

@@ -26,6 +26,7 @@ import org.apache.doris.nereids.trees.expressions.shape.BinaryExpression;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.Lists;
 import org.apache.commons.lang3.StringUtils;
 
 import java.util.ArrayList;
@@ -255,5 +256,9 @@ public class Utils {
 
     public static <T> List<T> copyRequiredList(List<T> list) {
         return ImmutableList.copyOf(Objects.requireNonNull(list, "non-null list is required"));
+    }
+
+    public static <T> List<T> copyRequiredMutableList(List<T> list) {
+        return Lists.newArrayList(Objects.requireNonNull(list, "non-null list is required"));
     }
 }

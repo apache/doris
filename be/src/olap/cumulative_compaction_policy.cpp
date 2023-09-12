@@ -22,6 +22,7 @@
 #include <ostream>
 #include <string>
 
+#include "common/config.h"
 #include "common/logging.h"
 #include "olap/cumulative_compaction_time_series_policy.h"
 #include "olap/olap_common.h"
@@ -234,7 +235,7 @@ int SizeBasedCumulativeCompactionPolicy::pick_input_rowsets(
         Tablet* tablet, const std::vector<RowsetSharedPtr>& candidate_rowsets,
         const int64_t max_compaction_score, const int64_t min_compaction_score,
         std::vector<RowsetSharedPtr>* input_rowsets, Version* last_delete_version,
-        size_t* compaction_score) {
+        size_t* compaction_score, bool allow_delete) {
     size_t promotion_size = tablet->cumulative_promotion_size();
     auto max_version = tablet->max_version().first;
     int transient_size = 0;
@@ -242,7 +243,7 @@ int SizeBasedCumulativeCompactionPolicy::pick_input_rowsets(
     int64_t total_size = 0;
     for (auto& rowset : candidate_rowsets) {
         // check whether this rowset is delete version
-        if (rowset->rowset_meta()->has_delete_predicate()) {
+        if (!allow_delete && rowset->rowset_meta()->has_delete_predicate()) {
             *last_delete_version = rowset->version();
             if (!input_rowsets->empty()) {
                 // we meet a delete version, and there were other versions before.
@@ -368,9 +369,12 @@ int64_t SizeBasedCumulativeCompactionPolicy::_level_size(const int64_t size) {
 }
 
 std::shared_ptr<CumulativeCompactionPolicy>
-CumulativeCompactionPolicyFactory::create_cumulative_compaction_policy() {
-    if (config::compaction_policy == CUMULATIVE_TIME_SERIES_POLICY) {
+CumulativeCompactionPolicyFactory::create_cumulative_compaction_policy(
+        const std::string_view& compaction_policy) {
+    if (compaction_policy == CUMULATIVE_TIME_SERIES_POLICY) {
         return std::make_shared<TimeSeriesCumulativeCompactionPolicy>();
+    } else if (compaction_policy == CUMULATIVE_SIZE_BASED_POLICY) {
+        return std::make_shared<SizeBasedCumulativeCompactionPolicy>();
     }
     return std::make_shared<SizeBasedCumulativeCompactionPolicy>();
 }

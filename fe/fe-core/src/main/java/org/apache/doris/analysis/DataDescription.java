@@ -156,6 +156,10 @@ public class DataDescription implements InsertStmt.DataDesc {
 
     private boolean isAnalyzed = false;
 
+    private byte enclose = 0;
+
+    private byte escape = 0;
+
     public DataDescription(String tableName,
                            PartitionNames partitionNames,
                            List<String> filePaths,
@@ -301,6 +305,8 @@ public class DataDescription implements InsertStmt.DataDesc {
         this.fileFieldNames = taskInfo.getColumnExprDescs().getFileColNames();
         this.columnSeparator = taskInfo.getColumnSeparator();
         this.lineDelimiter = taskInfo.getLineDelimiter();
+        this.enclose = taskInfo.getEnclose();
+        this.escape = taskInfo.getEscape();
         getFileFormatAndCompressType(taskInfo);
         this.columnsFromPath = null;
         this.isNegative = taskInfo.getNegative();
@@ -627,6 +633,14 @@ public class DataDescription implements InsertStmt.DataDesc {
         this.lineDelimiter = lineDelimiter;
     }
 
+    public byte getEnclose() {
+        return enclose;
+    }
+
+    public byte getEscape() {
+        return escape;
+    }
+
     public String getSequenceCol() {
         return sequenceCol;
     }
@@ -925,7 +939,7 @@ public class DataDescription implements InsertStmt.DataDesc {
         boolean hasSourceSequenceCol = false;
         if (!parsedColumnExprList.isEmpty()) {
             for (ImportColumnDesc importColumnDesc : parsedColumnExprList) {
-                if (importColumnDesc.getColumnName().equals(sequenceCol)) {
+                if (importColumnDesc.getColumnName().equalsIgnoreCase(sequenceCol)) {
                     hasSourceSequenceCol = true;
                     break;
                 }
@@ -933,7 +947,7 @@ public class DataDescription implements InsertStmt.DataDesc {
         } else {
             List<Column> columns = olapTable.getBaseSchema();
             for (Column column : columns) {
-                if (column.getName().equals(sequenceCol)) {
+                if (column.getName().equalsIgnoreCase(sequenceCol)) {
                     hasSourceSequenceCol = true;
                     break;
                 }

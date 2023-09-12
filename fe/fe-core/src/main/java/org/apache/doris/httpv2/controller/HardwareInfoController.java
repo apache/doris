@@ -36,6 +36,7 @@ import oshi.software.os.NetworkParams;
 import oshi.software.os.OSFileStore;
 import oshi.software.os.OSProcess;
 import oshi.software.os.OperatingSystem;
+import oshi.software.os.OperatingSystem.ProcessSorting;
 import oshi.util.FormatUtil;
 import oshi.util.Util;
 
@@ -101,8 +102,8 @@ public class HardwareInfoController {
         processorInfo.add(" " + processor.getPhysicalProcessorCount() + " physical CPU core(s)");
         processorInfo.add(" " + processor.getLogicalProcessorCount() + " logical CPU(s)");
 
-        processorInfo.add("Identifier:&nbsp;&nbsp; " + processor.getIdentifier());
-        processorInfo.add("ProcessorID:&nbsp;&nbsp; " + processor.getProcessorID());
+        processorInfo.add("Identifier:&nbsp;&nbsp; " + processor.getProcessorIdentifier().getIdentifier());
+        processorInfo.add("ProcessorID:&nbsp;&nbsp; " + processor.getProcessorIdentifier().getProcessorID());
         processorInfo.add("Context Switches/Interrupts:&nbsp;&nbsp; " + processor.getContextSwitches()
                 + " / " + processor.getInterrupts() + "<br>");
 
@@ -150,7 +151,7 @@ public class HardwareInfoController {
             procCpu.append(String.format(" %.1f%%", avg * 100));
         }
         processorInfo.add(procCpu.toString());
-        long freq = processor.getVendorFreq();
+        long freq = processor.getProcessorIdentifier().getVendorFreq();
         if (freq > 0) {
             processorInfo.add("Vendor Frequency:&nbsp;&nbsp; " + FormatUtil.formatHertz(freq));
         }
@@ -187,7 +188,8 @@ public class HardwareInfoController {
         processInfo.add("Processes:&nbsp;&nbsp; " + os.getProcessCount()
                 + ", Threads:&nbsp;&nbsp; " + os.getThreadCount());
         // Sort by highest CPU
-        List<OSProcess> procs = Arrays.asList(os.getProcesses(5, OperatingSystem.ProcessSort.CPU));
+
+        List<OSProcess> procs = os.getProcesses((osProcess) -> true, ProcessSorting.CPU_DESC, 5);
 
         processInfo.add("&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; PID  %CPU %MEM       VSZ       RSS Name");
         for (int i = 0; i < procs.size() && i < 5; i++) {
@@ -201,7 +203,7 @@ public class HardwareInfoController {
         return processInfo;
     }
 
-    private List<String> getDisks(HWDiskStore[] diskStores) {
+    private List<String> getDisks(List<HWDiskStore> diskStores) {
         List<String> diskInfo = new ArrayList<>();
         diskInfo.add("Disks:&nbsp;&nbsp;");
         for (HWDiskStore disk : diskStores) {
@@ -213,7 +215,7 @@ public class HardwareInfoController {
                     readwrite ? disk.getReads() : "?", readwrite ? FormatUtil.formatBytes(disk.getReadBytes()) : "?",
                     readwrite ? disk.getWrites() : "?", readwrite ? FormatUtil.formatBytes(disk.getWriteBytes()) : "?",
                     readwrite ? disk.getTransferTime() : "?"));
-            HWPartition[] partitions = disk.getPartitions();
+            List<HWPartition> partitions = disk.getPartitions();
             for (HWPartition part : partitions) {
                 diskInfo.add(String.format("&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;"
                                 + " |-- %s: %s (%s) Maj:Min=%d:%d, size: %s%s", part.getIdentification(),
@@ -232,13 +234,13 @@ public class HardwareInfoController {
         fsInfo.add(String.format("&nbsp;&nbsp;&nbsp;&nbsp;File Descriptors: %d/%d", fileSystem.getOpenFileDescriptors(),
                 fileSystem.getMaxFileDescriptors()));
 
-        OSFileStore[] fsArray = fileSystem.getFileStores();
-        for (OSFileStore fs : fsArray) {
+        List<OSFileStore> fsList = fileSystem.getFileStores();
+        for (OSFileStore fs : fsList) {
             long usable = fs.getUsableSpace();
             long total = fs.getTotalSpace();
             fsInfo.add(String.format("&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;"
                             + "%s (%s) [%s] %s of %s free (%.1f%%), %s of %s files free (%.1f%%) is %s "
-                            + (fs.getLogicalVolume() != null && fs.getLogicalVolume().length() > 0 ? "[%s]" : "%s")
+                            + (fs.getLogicalVolume() != null && !fs.getLogicalVolume().isEmpty() ? "[%s]" : "%s")
                             + " and is mounted at %s",
                     fs.getName(), fs.getDescription().isEmpty() ? "file system" : fs.getDescription(), fs.getType(),
                     FormatUtil.formatBytes(usable), FormatUtil.formatBytes(fs.getTotalSpace()), 100d * usable / total,
@@ -249,7 +251,7 @@ public class HardwareInfoController {
         return fsInfo;
     }
 
-    private List<String> getNetworkInterfaces(NetworkIF[] networkIFs) {
+    private List<String> getNetworkInterfaces(List<NetworkIF> networkIFs) {
         List<String> getNetwork = new ArrayList<>();
         getNetwork.add("Network interfaces:&nbsp;&nbsp;");
         for (NetworkIF net : networkIFs) {

@@ -41,6 +41,7 @@ public abstract class Cache {
     protected TUniqueId queryId;
     protected SelectStmt selectStmt;
     protected RowBatchBuilder rowBatchBuilder;
+    protected boolean disableCache = false;
     protected CacheAnalyzer.CacheTable latestTable;
     protected CacheProxy proxy;
     protected HitRange hitRange;
@@ -81,12 +82,20 @@ public abstract class Cache {
     public abstract void updateCache();
 
     protected boolean checkRowLimit() {
-        if (rowBatchBuilder == null) {
+        if (disableCache || rowBatchBuilder == null) {
             return false;
         }
         if (rowBatchBuilder.getRowSize() > Config.cache_result_max_row_count) {
-            LOG.info("can not be cached. rowbatch size {} is more than {}", rowBatchBuilder.getRowSize(),
+            LOG.debug("can not be cached. rowbatch size {} is more than {}", rowBatchBuilder.getRowSize(),
                     Config.cache_result_max_row_count);
+            rowBatchBuilder.clear();
+            disableCache = true;
+            return false;
+        } else if (rowBatchBuilder.getDataSize() > Config.cache_result_max_data_size) {
+            LOG.debug("can not be cached. rowbatch data size {} is more than {}", rowBatchBuilder.getDataSize(),
+                    Config.cache_result_max_data_size);
+            rowBatchBuilder.clear();
+            disableCache = true;
             return false;
         } else {
             return true;

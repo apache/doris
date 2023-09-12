@@ -43,4 +43,9 @@ public abstract class StringLikeLiteral extends Literal {
         }
         return (double) v;
     }
+
+    @Override
+    public String toString() {
+        return "'" + value + "'";
+    }
 }

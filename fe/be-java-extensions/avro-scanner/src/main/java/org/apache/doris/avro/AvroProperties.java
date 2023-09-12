@@ -27,8 +27,6 @@ public class AvroProperties {
     protected static final String REQUIRED_FIELDS = "required_fields";
     protected static final String FILE_TYPE = "file_type";
     protected static final String URI = "uri";
-    protected static final String S3_BUCKET = "s3.virtual.bucket";
-    protected static final String S3_KEY = "s3.virtual.key";
     protected static final String S3_ACCESS_KEY = "s3.access_key";
     protected static final String S3_SECRET_KEY = "s3.secret_key";
     protected static final String S3_ENDPOINT = "s3.endpoint";

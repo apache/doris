@@ -56,8 +56,6 @@ public:
 
     Status sink(RuntimeState* state, vectorized::Block* in_block,
                 SourceState source_state) override;
-    // this operator in sink open directly return, do this work in source
-    Status open(RuntimeState* /*state*/) override { return Status::OK(); }
 
     Status close(RuntimeState* state) override;
 

@@ -2,7 +2,7 @@
 
 {
 
-"title": "远程UDAF",
+"title": "远程 UDAF",
 
 "language": "zh-CN"
 

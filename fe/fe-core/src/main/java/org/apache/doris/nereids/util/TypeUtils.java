@@ -70,4 +70,18 @@ public class TypeUtils {
             return Optional.empty();
         }
     }
+
+    /**
+     * Judge whether the expression is `is null`.
+     *
+     * @return Optional.empty() if the expression is `is null`, otherwise return slot.
+     */
+    public static Optional<Slot> isNull(Expression expr) {
+        if (expr instanceof IsNull
+                && (expr.child(0) instanceof SlotReference)) {
+            return Optional.of((Slot) expr.child(0));
+        } else {
+            return Optional.empty();
+        }
+    }
 }

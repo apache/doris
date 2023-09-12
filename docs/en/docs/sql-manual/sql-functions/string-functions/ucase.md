@@ -1,6 +1,6 @@
 ---
 {
-    "title": "ucase",
+    "title": "UCASE",
     "language": "en"
 }
 ---

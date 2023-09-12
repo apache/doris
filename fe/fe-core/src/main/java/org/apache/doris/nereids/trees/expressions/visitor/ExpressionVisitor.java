@@ -21,12 +21,12 @@ import org.apache.doris.nereids.analyzer.UnboundAlias;
 import org.apache.doris.nereids.analyzer.UnboundFunction;
 import org.apache.doris.nereids.analyzer.UnboundSlot;
 import org.apache.doris.nereids.analyzer.UnboundStar;
+import org.apache.doris.nereids.analyzer.UnboundVariable;
 import org.apache.doris.nereids.trees.expressions.Add;
 import org.apache.doris.nereids.trees.expressions.AggregateExpression;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.And;
 import org.apache.doris.nereids.trees.expressions.AssertNumRowsElement;
-import org.apache.doris.nereids.trees.expressions.Between;
 import org.apache.doris.nereids.trees.expressions.BinaryArithmetic;
 import org.apache.doris.nereids.trees.expressions.BinaryOperator;
 import org.apache.doris.nereids.trees.expressions.BitAnd;
@@ -63,15 +63,16 @@ import org.apache.doris.nereids.trees.expressions.Not;
 import org.apache.doris.nereids.trees.expressions.NullSafeEqual;
 import org.apache.doris.nereids.trees.expressions.Or;
 import org.apache.doris.nereids.trees.expressions.OrderExpression;
+import org.apache.doris.nereids.trees.expressions.Properties;
 import org.apache.doris.nereids.trees.expressions.ScalarSubquery;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.SubqueryExpr;
 import org.apache.doris.nereids.trees.expressions.Subtract;
-import org.apache.doris.nereids.trees.expressions.TVFProperties;
 import org.apache.doris.nereids.trees.expressions.TimestampArithmetic;
 import org.apache.doris.nereids.trees.expressions.UnaryArithmetic;
 import org.apache.doris.nereids.trees.expressions.UnaryOperator;
+import org.apache.doris.nereids.trees.expressions.Variable;
 import org.apache.doris.nereids.trees.expressions.VariableDesc;
 import org.apache.doris.nereids.trees.expressions.VirtualSlotReference;
 import org.apache.doris.nereids.trees.expressions.WhenClause;
@@ -100,6 +101,7 @@ import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.Interval;
 import org.apache.doris.nereids.trees.expressions.literal.LargeIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
+import org.apache.doris.nereids.trees.expressions.literal.MapLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.SmallIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
@@ -197,6 +199,10 @@ public abstract class ExpressionVisitor<R, C>
         return visitNamedExpression(slot, context);
     }
 
+    public R visitVariable(Variable variable, C context) {
+        return visit(variable, context);
+    }
+
     public R visitNamedExpression(NamedExpression namedExpression, C context) {
         return visit(namedExpression, context);
     }
@@ -289,8 +295,8 @@ public abstract class ExpressionVisitor<R, C>
         return visitLiteral(arrayLiteral, context);
     }
 
-    public R visitBetween(Between between, C context) {
-        return visit(between, context);
+    public R visitMapLiteral(MapLiteral mapLiteral, C context) {
+        return visitLiteral(mapLiteral, context);
     }
 
     public R visitCompoundPredicate(CompoundPredicate compoundPredicate, C context) {
@@ -409,8 +415,8 @@ public abstract class ExpressionVisitor<R, C>
         return visit(variableDesc, context);
     }
 
-    public R visitTVFProperties(TVFProperties tvfProperties, C context) {
-        return visit(tvfProperties, context);
+    public R visitProperties(Properties properties, C context) {
+        return visit(properties, context);
     }
 
     public R visitInterval(Interval interval, C context) {
@@ -471,5 +477,9 @@ public abstract class ExpressionVisitor<R, C>
 
     public R visitUnboundStar(UnboundStar unboundStar, C context) {
         return visitNamedExpression(unboundStar, context);
+    }
+
+    public R visitUnboundVariable(UnboundVariable unboundVariable, C context) {
+        return visit(unboundVariable, context);
     }
 }

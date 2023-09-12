@@ -204,7 +204,7 @@ public class InsertStmtTest {
         stmt.setTargetTable(targetTable);
         stmt.setQueryStmt(queryStmt);
 
-        Deencapsulation.invoke(stmt, "analyzeSubquery", analyzer);
+        Deencapsulation.invoke(stmt, "analyzeSubquery", analyzer, false);
         System.out.println(stmt.getQueryStmt().toSql());
 
         QueryStmt queryStmtSubstitute = stmt.getQueryStmt();
@@ -276,7 +276,7 @@ public class InsertStmtTest {
         stmt.setTargetTable(targetTable);
         stmt.setQueryStmt(queryStmt);
 
-        Deencapsulation.invoke(stmt, "analyzeSubquery", analyzer);
+        Deencapsulation.invoke(stmt, "analyzeSubquery", analyzer, false);
         System.out.println(stmt.getQueryStmt());
 
         QueryStmt queryStmtSubstitue = stmt.getQueryStmt();

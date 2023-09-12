@@ -41,7 +41,7 @@ class VScanner;
 static const std::string NEW_SCAN_NODE_TYPE = "NewEsScanNode";
 
 // Prefer to the local host
-static std::string get_host_port(const std::vector<doris::TNetworkAddress>& es_hosts) {
+static std::string get_host_and_port(const std::vector<doris::TNetworkAddress>& es_hosts) {
     std::string host_port;
     std::string localhost = doris::BackendOptions::get_localhost();
 
@@ -152,7 +152,7 @@ Status NewEsScanNode::_init_scanners(std::list<VScannerSPtr>* scanners) {
         }
         properties[ESScanReader::KEY_SHARD] = std::to_string(es_scan_range->shard_id);
         properties[ESScanReader::KEY_BATCH_SIZE] = std::to_string(_state->batch_size());
-        properties[ESScanReader::KEY_HOST_PORT] = get_host_port(es_scan_range->es_hosts);
+        properties[ESScanReader::KEY_HOST_PORT] = get_host_and_port(es_scan_range->es_hosts);
         // push down limit to Elasticsearch
         // if predicate in _conjunct_ctxs can not be processed by Elasticsearch, we can not push down limit operator to Elasticsearch
         if (limit() != -1 && limit() <= _state->batch_size()) {

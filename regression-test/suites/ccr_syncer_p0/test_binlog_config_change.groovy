@@ -18,6 +18,10 @@
 suite("test_binlog_config_change") {
 
     def syncer = getSyncer()
+    if (!syncer.checkEnableFeatureBinlog()) {
+        logger.info("fe enable_feature_binlog is false, skip case test_binlog_config_change")
+        return
+    }
     def tableName = "tbl_binlog_config_change"
     def test_num = 0
     def insert_num = 5

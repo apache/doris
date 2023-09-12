@@ -28,6 +28,8 @@ import java.util.List;
 // Describe the partition key values in create table or add partition clause
 public class PartitionKeyDesc {
     public static final PartitionKeyDesc MAX_VALUE = new PartitionKeyDesc();
+    // UNPARTITIONED table not have real keyDesc,therefore, provide this DUMMY_KEY_DESC
+    public static final PartitionKeyDesc DUMMY_KEY_DESC = new PartitionKeyDesc();
 
     public enum PartitionKeyValueType {
         INVALID,
@@ -125,6 +127,10 @@ public class PartitionKeyDesc {
         return this == MAX_VALUE;
     }
 
+    public boolean isDummy() {
+        return this == DUMMY_KEY_DESC;
+    }
+
     public boolean hasLowerValues() {
         return lowerValues != null;
     }
@@ -138,6 +144,9 @@ public class PartitionKeyDesc {
     }
 
     public void analyze(int partColNum) throws AnalysisException {
+        if (isDummy()) {
+            return;
+        }
         if (!isMax()) {
             if ((upperValues != null && (upperValues.isEmpty() || upperValues.size() > partColNum))) {
                 throw new AnalysisException("Partition values number is more than partition column number: " + toSql());

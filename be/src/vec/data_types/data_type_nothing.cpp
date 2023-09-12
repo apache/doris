@@ -22,21 +22,19 @@
 
 #include <typeinfo>
 
-#include "vec/columns/column_nothing.h"
-
 namespace doris::vectorized {
 
 MutableColumnPtr DataTypeNothing::create_column() const {
-    return ColumnNothing::create(0);
+    LOG(FATAL) << "not support";
 }
 
 char* DataTypeNothing::serialize(const IColumn& column, char* buf, int be_exec_version) const {
-    return buf;
+    LOG(FATAL) << "not support";
 }
 
 const char* DataTypeNothing::deserialize(const char* buf, IColumn* column,
                                          int be_exec_version) const {
-    return buf;
+    LOG(FATAL) << "not support";
 }
 
 bool DataTypeNothing::equals(const IDataType& rhs) const {

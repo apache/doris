@@ -32,6 +32,8 @@ under the License.
 
 动态分区只支持 Range 分区。
 
+注意：这个功能在被CCR同步时将会失效。如果这个表是被CCR复制而来的，即PROPERTIES中包含`is_being_synced = true`时，在`show create table`中会显示开启状态，但不会实际生效。当`is_being_synced`被设置为 `false` 时，这些功能将会恢复生效，但`is_being_synced`属性仅供CCR外围模块使用，在CCR同步的过程中不要手动设置。  
+
 ## 原理
 
 在某些使用场景下，用户会将表按照天进行分区划分，每天定时执行例行任务，这时需要使用方手动管理分区，否则可能由于使用方没有创建分区导致数据导入失败，这给使用方带来了额外的维护成本。
@@ -74,7 +76,7 @@ under the License.
 
   是否开启动态分区特性。可指定为 `TRUE` 或 `FALSE`。如果不填写，默认为 `TRUE`。如果为 `FALSE`，则 Doris 会忽略该表的动态分区规则。
 
-- `dynamic_partition.time_unit`
+- `dynamic_partition.time_unit`（必选参数）
 
   动态分区调度的单位。可指定为 `HOUR`、`DAY`、`WEEK`、`MONTH`、`YEAR`。分别表示按小时、按天、按星期、按月、按年进行分区创建或删除。
 
@@ -96,11 +98,11 @@ under the License.
 
   动态分区的起始偏移，为负数。根据 `time_unit` 属性的不同，以当天（星期/月）为基准，分区范围在此偏移之前的分区将会被删除。如果不填写，则默认为 `-2147483648`，即不删除历史分区。
 
-- `dynamic_partition.end`
+- `dynamic_partition.end`（必选参数）
 
   动态分区的结束偏移，为正数。根据 `time_unit` 属性的不同，以当天（星期/月）为基准，提前创建对应范围的分区。
 
-- `dynamic_partition.prefix`
+- `dynamic_partition.prefix`（必选参数）
 
   动态创建的分区名前缀。
 

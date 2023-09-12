@@ -67,7 +67,7 @@ TEST(TabletMetaTest, TestReviseMeta) {
         meta_ptr->init_from_pb(rs_meta_pb);
         RowsetSharedPtr rowset_ptr;
         TabletSchemaSPtr schema = std::make_shared<TabletSchema>();
-        MockRowset::create_rowset(schema, "", meta_ptr, &rowset_ptr, false);
+        MockRowset::create_rowset(schema, meta_ptr, &rowset_ptr, false);
         src_rowsets.push_back(rowset_ptr);
         tablet_meta.add_rs_meta(rowset_ptr->rowset_meta());
     }

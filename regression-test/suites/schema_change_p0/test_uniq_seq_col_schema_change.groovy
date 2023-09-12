@@ -29,7 +29,7 @@ suite("test_uniq_seq_col_schema_change", "schema_change") {
                 value3 INT
             )
             UNIQUE KEY (k1)
-            DISTRIBUTED BY HASH(k1) BUCKETS 1 
+            DISTRIBUTED BY HASH(k1) BUCKETS 8
             properties("replication_num" = "1",
                        "light_schema_change" = "false",
                        "function_column.sequence_type" = 'INT');

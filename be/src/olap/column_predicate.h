@@ -219,7 +219,8 @@ public:
     virtual void clone(ColumnPredicate** to) const { LOG(FATAL) << "clone not supported"; }
 
     virtual int get_filter_id() const { return -1; }
-
+    // now InListPredicateBase BloomFilterColumnPredicate BitmapFilterColumnPredicate  = true
+    virtual bool is_filter() const { return false; }
     PredicateFilterInfo get_filtered_info() const {
         return PredicateFilterInfo {static_cast<int>(type()), _evaluated_rows - 1,
                                     _evaluated_rows - 1 - _passed_rows};

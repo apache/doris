@@ -355,7 +355,8 @@ struct GetJsonNumberType {
         }
     }
 
-    template <typename T, std::enable_if_t<std::is_same_v<double, T>, T>* = nullptr>
+    template <typename T>
+        requires std::is_same_v<double, T>
     static void handle_result(rapidjson::Value* root, T& res, uint8_t& res_null) {
         if (root == nullptr || root->IsNull()) {
             res = 0;
@@ -371,7 +372,8 @@ struct GetJsonNumberType {
         }
     }
 
-    template <typename T, std::enable_if_t<std::is_same_v<int32_t, T>, T>* = nullptr>
+    template <typename T>
+        requires std::is_same_v<T, int32_t>
     static void handle_result(rapidjson::Value* root, int32_t& res, uint8_t& res_null) {
         if (root != nullptr && root->IsInt()) {
             res = root->GetInt();
@@ -380,7 +382,8 @@ struct GetJsonNumberType {
         }
     }
 
-    template <typename T, std::enable_if_t<std::is_same_v<int64_t, T>, T>* = nullptr>
+    template <typename T>
+        requires std::is_same_v<T, int64_t>
     static void handle_result(rapidjson::Value* root, int64_t& res, uint8_t& res_null) {
         if (root != nullptr && root->IsInt64()) {
             res = root->GetInt64();

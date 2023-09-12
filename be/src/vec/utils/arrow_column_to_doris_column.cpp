@@ -34,7 +34,6 @@
 #include "arrow/array/array_binary.h"
 #include "arrow/array/array_nested.h"
 #include "arrow/type.h"
-#include "gutil/casts.h"
 #include "util/binary_cast.hpp"
 #include "util/timezone_utils.h"
 #include "vec/columns/column.h"

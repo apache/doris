@@ -50,15 +50,15 @@ public class DateV2Literal extends DateLiteral {
         return visitor.visitDateV2Literal(this, context);
     }
 
-    public Expression plusDays(int days) {
+    public Expression plusDays(long days) {
         return fromJavaDateType(DateUtils.getTime(DATE_FORMATTER, getStringValue()).plusDays(days));
     }
 
-    public Expression plusMonths(int months) {
+    public Expression plusMonths(long months) {
         return fromJavaDateType(DateUtils.getTime(DATE_FORMATTER, getStringValue()).plusMonths(months));
     }
 
-    public Expression plusYears(int years) {
+    public Expression plusYears(long years) {
         return fromJavaDateType(DateUtils.getTime(DATE_FORMATTER, getStringValue()).plusYears(years));
     }
 

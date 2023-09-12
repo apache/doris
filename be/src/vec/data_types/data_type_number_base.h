@@ -66,6 +66,9 @@ public:
     const char* get_family_name() const override { return TypeName<T>::get(); }
     TypeIndex get_type_id() const override { return TypeId<T>::value; }
     PrimitiveType get_type_as_primitive_type() const override {
+        if constexpr (std::is_same_v<TypeId<T>, TypeId<UInt8>>) {
+            return TYPE_BOOLEAN;
+        }
         if constexpr (std::is_same_v<TypeId<T>, TypeId<Int8>>) {
             return TYPE_TINYINT;
         }
@@ -87,7 +90,7 @@ public:
         if constexpr (std::is_same_v<TypeId<T>, TypeId<Float64>>) {
             return TYPE_DOUBLE;
         }
-        __builtin_unreachable();
+        return INVALID_TYPE;
     }
     TPrimitiveType::type get_type_as_tprimitive_type() const override {
         if constexpr (std::is_same_v<TypeId<T>, TypeId<Int8>>) {
@@ -111,6 +114,7 @@ public:
         if constexpr (std::is_same_v<TypeId<T>, TypeId<Float64>>) {
             return TPrimitiveType::DOUBLE;
         }
+        LOG(FATAL) << "__builtin_unreachable";
         __builtin_unreachable();
     }
     Field get_default() const override;

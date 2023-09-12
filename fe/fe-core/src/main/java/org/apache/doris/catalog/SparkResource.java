@@ -37,7 +37,12 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.io.File;
+import java.util.Collections;
 import java.util.Map;
+import java.util.Map.Entry;
+import java.util.Optional;
+import java.util.stream.Collectors;
+import java.util.stream.Stream;
 
 /**
  * Spark resource for etl or query.
@@ -159,16 +164,20 @@ public class SparkResource extends Resource {
     }
 
     public Map<String, String> getEnvConfigsWithoutPrefix() {
-        Map<String, String> envConfig = Maps.newHashMap();
-        if (envConfigs != null) {
-            for (Map.Entry<String, String> entry : envConfigs.entrySet()) {
-                if (entry.getKey().startsWith(ENV_PREFIX)) {
-                    String key = entry.getKey().substring(ENV_PREFIX.length());
-                    envConfig.put(key, entry.getValue());
-                }
-            }
-        }
-        return envConfig;
+        return Stream.concat(
+                        getSystemEnvConfigs().entrySet().stream(),
+                        Optional.ofNullable(envConfigs).orElse(Collections.emptyMap()).entrySet().stream()
+                )
+                .filter(entry -> entry.getKey().startsWith(ENV_PREFIX))
+                .collect(Collectors.toMap(
+                        entry -> entry.getKey().substring(ENV_PREFIX.length()),
+                        Entry::getValue,
+                        (oldValue, newValue) -> newValue
+                ));
+    }
+
+    public Map<String, String> getSystemEnvConfigs() {
+        return System.getenv();
     }
 
     public Pair<String, String> getYarnResourcemanagerAddressPair() {

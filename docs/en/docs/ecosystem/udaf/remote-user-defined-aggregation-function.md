@@ -1,6 +1,6 @@
 ---
 {
-    "title": "Remote User Defined  Aggregation Function Service",
+    "title": "Remote User Defined Aggregation Function Service",
     "language": "en"
 }
 ---

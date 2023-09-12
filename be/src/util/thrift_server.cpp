@@ -299,6 +299,11 @@ ThriftServer::ThriftServer(const std::string& name,
     INT_COUNTER_METRIC_REGISTER(_thrift_server_metric_entity, thrift_connections_total);
 }
 
+ThriftServer::~ThriftServer() {
+    stop();
+    join();
+}
+
 Status ThriftServer::start() {
     DCHECK(!_started);
     std::shared_ptr<apache::thrift::protocol::TProtocolFactory> protocol_factory(

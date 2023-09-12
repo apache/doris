@@ -66,4 +66,8 @@ Suite.metaClass.be_run_full_compaction = { String ip, String port, String tablet
     return curl("POST", String.format("http://%s:%s/api/compaction/run?tablet_id=%s&compact_type=full", ip, port, tablet_id))
 }
 
+Suite.metaClass.be_run_full_compaction_by_table_id = { String ip, String port, String table_id  /* param */-> 
+    return curl("POST", String.format("http://%s:%s/api/compaction/run?table_id=%s&compact_type=full", ip, port, table_id))
+}
+
 logger.info("Added 'be_run_full_compaction' function to Suite")

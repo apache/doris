@@ -25,7 +25,9 @@ namespace doris::vectorized {
 class MultiCastDataStreamSink : public DataSink {
 public:
     MultiCastDataStreamSink(std::shared_ptr<pipeline::MultiCastDataStreamer>& streamer)
-            : _multi_cast_data_streamer(streamer) {};
+            : DataSink(streamer->row_desc()), _multi_cast_data_streamer(streamer) {
+        _profile = _multi_cast_data_streamer->profile();
+    };
 
     ~MultiCastDataStreamSink() override = default;
 
@@ -37,11 +39,7 @@ public:
     Status open(doris::RuntimeState* state) override { return Status::OK(); };
 
     // use sink to check can_write, now always true after we support spill to disk
-    bool can_write() { return _multi_cast_data_streamer->can_write(); }
-
-    RuntimeProfile* profile() override { return _multi_cast_data_streamer->profile(); }
-
-    const RowDescriptor& row_desc() { return _multi_cast_data_streamer->row_desc(); }
+    bool can_write() override { return _multi_cast_data_streamer->can_write(); }
 
     std::shared_ptr<pipeline::MultiCastDataStreamer>& get_multi_cast_data_streamer() {
         return _multi_cast_data_streamer;

@@ -218,4 +218,66 @@ suite("test_delete") {
 
     sql """ delete from  delete_test_tb2 where k1 is null and k2 = 4.45; """
     qt_check_numeric4 """ select k1, k2, v1 from delete_test_tb2 order by k1, k2; """;
+    
+    sql """ DROP TABLE IF EXISTS test1 """
+
+    sql '''
+        CREATE TABLE test1 (
+            x varchar(10) NOT NULL,
+            id varchar(10) NOT NULL
+        )
+        ENGINE=OLAP
+        UNIQUE KEY(`x`)COMMENT "OLAP"
+        DISTRIBUTED BY HASH(`x`) 
+        BUCKETS 96
+        PROPERTIES (
+            "replication_num" = "1",
+            "enable_unique_key_merge_on_write" = "true"
+        );
+    '''
+    
+    sql 'insert into test1 values("a", "a"), ("bb", "bb"), ("ccc", "ccc")'
+    sql 'delete from test1 where length(x)=2'
+    
+    qt_delete_fn 'select * from test1 order by x'
+    
+    sql 'truncate table test1'
+
+    sql 'insert into test1 values("a", "a"), ("bb", "bb"), ("ccc", "ccc")'
+    sql 'delete from test1 where length(id) >= 2'
+
+    test {
+        sql 'select * from test1 order by x'
+        result([['a', 'a']])
+    }
+
+    sql "drop table if exists dwd_pay"
+    sql """
+    CREATE TABLE `dwd_pay` (
+  `tenant_id` int(11) DEFAULT NULL COMMENT '租户ID',
+  `pay_time` datetime DEFAULT NULL COMMENT '付款时间',
+)  ENGINE=OLAP
+DUPLICATE KEY(`tenant_id`)
+COMMENT "付款明细"
+PARTITION BY RANGE(`pay_time` ) (
+PARTITION p202012 VALUES LESS THAN ('2021-01-01 00:00:00')
+)
+DISTRIBUTED BY HASH(`tenant_id`) BUCKETS auto
+PROPERTIES
+(
+    "dynamic_partition.enable" = "true",
+    "dynamic_partition.time_unit" = "MONTH",
+    "dynamic_partition.end" = "2",
+    "dynamic_partition.prefix" = "p",
+    "dynamic_partition.start_day_of_month" = "1",
+    "dynamic_partition.create_history_partition" = "true",
+    "dynamic_partition.history_partition_num" = "120",
+    "dynamic_partition.buckets"="1",
+    "estimate_partition_size" = "1G",
+    "storage_type" = "COLUMN",
+    "replication_num" = "1"
+);
+    """
+
+    sql "delete from dwd_pay partitions(p202310) where pay_time = '20231002';"
 }

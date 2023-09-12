@@ -785,6 +785,7 @@ public abstract class QueryStmt extends StatementBase implements Queriable {
         sortInfo = (other.sortInfo != null) ? other.sortInfo.clone() : null;
         analyzer = other.analyzer;
         evaluateOrderBy = other.evaluateOrderBy;
+        disableTuplesMVRewriter = other.disableTuplesMVRewriter;
     }
 
     @Override

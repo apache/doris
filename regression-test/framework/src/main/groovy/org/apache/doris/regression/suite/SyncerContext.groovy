@@ -212,6 +212,8 @@ class SyncerContext {
     }
 
     void closeConn() {
-        targetConnection.close()
+        if (targetConnection != null) {
+            targetConnection.close()
+        }
     }
 }

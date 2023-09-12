@@ -23,6 +23,7 @@
 
 #include <atomic>
 #include <cstddef>
+#include <limits>
 #include <map>
 #include <memory>
 #include <mutex>
@@ -106,7 +107,11 @@ public:
                TabletUid tablet_uid, TTabletType::type tabletType,
                TCompressionType::type compression_type, int64_t storage_policy_id = 0,
                bool enable_unique_key_merge_on_write = false,
-               std::optional<TBinlogConfig> binlog_config = {});
+               std::optional<TBinlogConfig> binlog_config = {},
+               std::string compaction_policy = "size_based",
+               int64_t time_series_compaction_goal_size_mbytes = 1024,
+               int64_t time_series_compaction_file_count_threshold = 2000,
+               int64_t time_series_compaction_time_threshold_seconds = 3600);
     // If need add a filed in TableMeta, filed init copy in copy construct function
     TabletMeta(const TabletMeta& tablet_meta);
     TabletMeta(TabletMeta&& tablet_meta) = delete;
@@ -228,6 +233,29 @@ public:
         _binlog_config = std::move(binlog_config);
     }
 
+    void set_compaction_policy(std::string compaction_policy) {
+        _compaction_policy = compaction_policy;
+    }
+    std::string compaction_policy() const { return _compaction_policy; }
+    void set_time_series_compaction_goal_size_mbytes(int64_t goal_size_mbytes) {
+        _time_series_compaction_goal_size_mbytes = goal_size_mbytes;
+    }
+    int64_t time_series_compaction_goal_size_mbytes() const {
+        return _time_series_compaction_goal_size_mbytes;
+    }
+    void set_time_series_compaction_file_count_threshold(int64_t file_count_threshold) {
+        _time_series_compaction_file_count_threshold = file_count_threshold;
+    }
+    int64_t time_series_compaction_file_count_threshold() const {
+        return _time_series_compaction_file_count_threshold;
+    }
+    void set_time_series_compaction_time_threshold_seconds(int64_t time_threshold) {
+        _time_series_compaction_time_threshold_seconds = time_threshold;
+    }
+    int64_t time_series_compaction_time_threshold_seconds() const {
+        return _time_series_compaction_time_threshold_seconds;
+    }
+
 private:
     Status _save_meta(DataDir* data_dir);
 
@@ -274,6 +302,12 @@ private:
     // binlog config
     BinlogConfig _binlog_config {};
 
+    // meta for compaction
+    std::string _compaction_policy;
+    int64_t _time_series_compaction_goal_size_mbytes = 0;
+    int64_t _time_series_compaction_file_count_threshold = 0;
+    int64_t _time_series_compaction_time_threshold_seconds = 0;
+
     mutable std::shared_mutex _meta_lock;
 };
 
@@ -302,6 +336,16 @@ public:
     using Version = uint64_t;
     using BitmapKey = std::tuple<RowsetId, SegmentId, Version>;
     std::map<BitmapKey, roaring::Roaring> delete_bitmap; // Ordered map
+    constexpr static inline uint32_t INVALID_SEGMENT_ID = std::numeric_limits<uint32_t>::max() - 1;
+    constexpr static inline uint32_t ROWSET_SENTINEL_MARK =
+            std::numeric_limits<uint32_t>::max() - 1;
+
+    // When a delete bitmap is merged into tablet's delete bitmap, the version of entries in the delete bitmap
+    // will be replaced to the correspoding correct version. So before we finally merge a delete bitmap into
+    // tablet's delete bitmap we can use arbitary version number in BitmapKey. Here we define some version numbers
+    // for specific usage during this periods to avoid conflicts
+    constexpr static inline uint64_t TEMP_VERSION_COMMON = 0;
+    constexpr static inline uint64_t TEMP_VERSION_FOR_DELETE_SIGN = 1;
 
     /**
      * 

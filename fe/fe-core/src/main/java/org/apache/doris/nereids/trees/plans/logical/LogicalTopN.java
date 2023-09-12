@@ -64,14 +64,17 @@ public class LogicalTopN<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_TYP
         return child().getOutput();
     }
 
+    @Override
     public List<OrderKey> getOrderKeys() {
         return orderKeys;
     }
 
+    @Override
     public long getOffset() {
         return offset;
     }
 
+    @Override
     public long getLimit() {
         return limit;
     }
@@ -93,7 +96,7 @@ public class LogicalTopN<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_TYP
         if (o == null || getClass() != o.getClass()) {
             return false;
         }
-        LogicalTopN that = (LogicalTopN) o;
+        LogicalTopN<?> that = (LogicalTopN<?>) o;
         return this.offset == that.offset && this.limit == that.limit && Objects.equals(this.orderKeys, that.orderKeys);
     }
 
@@ -104,7 +107,7 @@ public class LogicalTopN<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_TYP
 
     @Override
     public <R, C> R accept(PlanVisitor<R, C> visitor, C context) {
-        return visitor.visitLogicalTopN((LogicalTopN<Plan>) this, context);
+        return visitor.visitLogicalTopN(this, context);
     }
 
     @Override
@@ -121,7 +124,8 @@ public class LogicalTopN<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_TYP
 
     @Override
     public LogicalTopN<Plan> withChildren(List<Plan> children) {
-        Preconditions.checkArgument(children.size() == 1);
+        Preconditions.checkArgument(children.size() == 1,
+                "LogicalTopN should have 1 child, but input is %s", children.size());
         return new LogicalTopN<>(orderKeys, limit, offset, children.get(0));
     }
 

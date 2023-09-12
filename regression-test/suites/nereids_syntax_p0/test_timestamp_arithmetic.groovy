@@ -22,12 +22,12 @@ suite("nereids_timestamp_arithmetic") {
 
     test {
         sql = "select bitmap_empty() + interval 1 year;"
-        exception = "Unexpected exception: Operand 'bitmap_empty()' of timestamp arithmetic expression 'years_add(bitmap_empty(), INTERVAL 1 YEAR)' returns type 'BITMAP'. Expected type 'TIMESTAMP/DATE/DATETIME'"
+        exception = "timestamp arithmetic could not contains object type"
     }
 
     test {
         sql = "select date '20200808' + interval array() day;"
-        exception = "the second argument must be a scalar type. but it is array()"
+        exception = "timestamp arithmetic could not contains complex type"
     }
 
     sql """

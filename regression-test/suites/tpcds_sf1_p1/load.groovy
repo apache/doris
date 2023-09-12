@@ -100,4 +100,5 @@ suite("load") {
         }
         sql """ ANALYZE TABLE $tableName WITH SYNC """
     }
+    sql """ sync """
 }

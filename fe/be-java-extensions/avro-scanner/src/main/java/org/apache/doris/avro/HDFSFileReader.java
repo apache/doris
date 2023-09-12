@@ -30,6 +30,7 @@ import org.apache.log4j.Logger;
 import java.io.BufferedInputStream;
 import java.io.IOException;
 import java.net.URI;
+import java.util.Objects;
 
 public class HDFSFileReader implements AvroReader {
     private static final Logger LOG = LogManager.getLogger(HDFSFileReader.class);
@@ -67,7 +68,11 @@ public class HDFSFileReader implements AvroReader {
 
     @Override
     public void close() throws IOException {
-        inputStream.close();
-        reader.close();
+        if (Objects.nonNull(inputStream)) {
+            inputStream.close();
+        }
+        if (Objects.nonNull(reader)) {
+            reader.close();
+        }
     }
 }

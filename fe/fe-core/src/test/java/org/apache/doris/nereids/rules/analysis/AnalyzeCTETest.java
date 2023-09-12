@@ -140,7 +140,7 @@ public class AnalyzeCTETest extends TestWithFeService implements MemoPatternMatc
                         logicalFilter(
                                 logicalProject(
                                         logicalJoin(
-                                                logicalAggregate(),
+                                                logicalProject(logicalAggregate()),
                                                 logicalProject()
                                         )
                                 )
@@ -153,7 +153,7 @@ public class AnalyzeCTETest extends TestWithFeService implements MemoPatternMatc
     public void testCTEWithAlias() {
         PlanChecker.from(connectContext)
                 .analyze(cteConsumerJoin)
-                .matchesFromRoot(
+                .matches(
                         logicalCTEAnchor(
                                 logicalCTEProducer(),
                                 logicalCTEAnchor(
@@ -173,7 +173,7 @@ public class AnalyzeCTETest extends TestWithFeService implements MemoPatternMatc
     public void testCTEWithAnExistedTableOrViewName() {
         PlanChecker.from(connectContext)
                 .analyze(cteReferToAnotherOne)
-                .matchesFromRoot(
+                .matches(
                         logicalCTEAnchor(
                                 logicalCTEProducer(),
                                 logicalCTEAnchor(
@@ -191,7 +191,7 @@ public class AnalyzeCTETest extends TestWithFeService implements MemoPatternMatc
     public void testDifferenceRelationId() {
         PlanChecker.from(connectContext)
                 .analyze(cteWithDiffRelationId)
-                .matchesFromRoot(
+                .matches(
                         logicalCTEAnchor(
                                 logicalCTEProducer(),
                                 logicalProject(
@@ -212,7 +212,7 @@ public class AnalyzeCTETest extends TestWithFeService implements MemoPatternMatc
     public void testCteInTheMiddle() {
         PlanChecker.from(connectContext)
                 .analyze(cteInTheMiddle)
-                .matchesFromRoot(
+                .matches(
                         logicalProject(
                                 logicalSubQueryAlias(
                                         logicalCTEAnchor(
@@ -231,7 +231,7 @@ public class AnalyzeCTETest extends TestWithFeService implements MemoPatternMatc
     public void testCteNested() {
         PlanChecker.from(connectContext)
                 .analyze(cteNested)
-                .matchesFromRoot(
+                .matches(
                         logicalCTEAnchor(
                                 logicalCTEProducer(
                                         logicalSubQueryAlias(

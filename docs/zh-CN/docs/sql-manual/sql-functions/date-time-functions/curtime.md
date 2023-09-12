@@ -1,6 +1,6 @@
 ---
 {
-    "title": "curtime,current_time",
+    "title": "CURTIME,CURRENT_TIME",
     "language": "zh-CN"
 }
 ---
@@ -38,11 +38,11 @@ under the License.
 
 ```
 mysql> select current_time();
-+----------------+
-| current_time() |
-+----------------+
-| 15:25:47       |
-+----------------+
++---------------------+
+| current_time()      |
++---------------------+
+| 2023-08-01 17:32:24 |
++---------------------+
 ```
 
 ### keywords

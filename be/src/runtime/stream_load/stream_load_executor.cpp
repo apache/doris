@@ -248,7 +248,7 @@ Status StreamLoadExecutor::begin_txn(StreamLoadContext* ctx) {
     int64_t duration_ns = 0;
     TNetworkAddress master_addr = _exec_env->master_info()->network_address;
     if (master_addr.hostname.empty() || master_addr.port == 0) {
-        status = Status::ServiceUnavailable("Have not get FE Master heartbeat yet");
+        status = Status::Error<SERVICE_UNAVAILABLE>("Have not get FE Master heartbeat yet");
     } else {
         SCOPED_RAW_TIMER(&duration_ns);
 #ifndef BE_TEST

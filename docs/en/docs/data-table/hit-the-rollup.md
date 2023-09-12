@@ -1,6 +1,6 @@
 ---
 {
-    "title": "Rollup and query",
+    "title": "Rollup and Query",
     "language": "en"
 }
 ---

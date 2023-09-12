@@ -29,7 +29,7 @@ The sequence column currently only supports the Uniq model. The Uniq model is ma
 
 In order to solve this problem, Doris supports the sequence column. The user specifies the sequence column when importing. Under the same key column, the REPLACE aggregation type column will be replaced according to the value of the sequence column. The larger value can replace the smaller value, and vice versa. Cannot be replaced. This method leaves the determination of the order to the user, who controls the replacement order.
 
-## Applicable scene
+## Applicable Scene
 
 Sequence columns can only be used under the Uniq data model.
 
@@ -60,7 +60,7 @@ The principle is the same as the reading process during Base Compaction.
 
 There are two ways to create a table with sequence column. One is to set the `sequence_col` attribute when creating a table, and the other is to set the `sequence_type` attribute when creating a table.
 
-#### Set `sequence_col`(recommend)
+#### Set `sequence_col`(Recommend)
 When you create the Uniq table, you can specify the mapping of sequence column to other columns
 
 ```text
@@ -145,12 +145,12 @@ The mapping method is the same as above, as shown below
     );
 ```
 
-## Enable sequence column support
+## Enable Sequence Column Support
 If `function_column.sequence_col`  or  `function_column.sequence_type` is set when creating a new table, the new table will support sequence column. For a table that does not support sequence column, if you want to use this function, you can use the following statement: `ALTER TABLE example_db.my_table ENABLE FEATURE "SEQUENCE_LOAD" WITH PROPERTIES ("function_column.sequence_type" = "Date")` to enable.
 
  If you are not sure whether a table supports sequence column, you can display hidden columns by setting a session variable `SET show_hidden_columns=true`, then use `desc tablename`, if there is a `__DORIS_SEQUENCE_COL__` column in the output, it is supported, if not, it is not supported .
 
-## Usage example
+## Usage Examples
 Let's take the stream Load as an example to show how to use it
 1. Create a table that supports sequence column. 
 

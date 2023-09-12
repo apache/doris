@@ -21,6 +21,7 @@ import org.apache.doris.analysis.AlterSystemStmt;
 import org.apache.doris.analysis.AlterTableStmt;
 import org.apache.doris.analysis.CreateDbStmt;
 import org.apache.doris.analysis.CreateTableStmt;
+import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ExceptionChecker;
 import org.apache.doris.qe.ConnectContext;
@@ -134,23 +135,27 @@ public class ModifyBackendTest {
         Assert.assertEquals("tag.location.default: 3", tblProperties.get("default.replication_allocation"));
 
         // modify default replica
-        String alterStr = "alter table test.tbl4 set ('default.replication_allocation' = 'tag.location.zonex:1')";
+        String alterStr = "alter table test.tbl4 set ('default.replication_allocation' = 'tag.location.zone1:1')";
         AlterTableStmt alterStmt = (AlterTableStmt) UtFrameUtils.parseAndAnalyzeStmt(alterStr, connectContext);
         ExceptionChecker.expectThrowsNoException(() -> DdlExecutor.execute(Env.getCurrentEnv(), alterStmt));
         defaultAlloc = tbl.getDefaultReplicaAllocation();
         ReplicaAllocation expectedAlloc = new ReplicaAllocation();
-        expectedAlloc.put(Tag.create(Tag.TYPE_LOCATION, "zonex"), (short) 1);
+        expectedAlloc.put(Tag.create(Tag.TYPE_LOCATION, "zone1"), (short) 1);
         Assert.assertEquals(expectedAlloc, defaultAlloc);
         tblProperties = tableProperty.getProperties();
         Assert.assertTrue(tblProperties.containsKey("default.replication_allocation"));
 
         // modify partition replica with wrong zone
+        // it will fail because of we check tag location during the analysis process, so we check AnalysisException
         String partName = tbl.getPartitionNames().stream().findFirst().get();
-        alterStr = "alter table test.tbl4 modify partition " + partName
+        String wrongAlterStr = "alter table test.tbl4 modify partition " + partName
                 + " set ('replication_allocation' = 'tag.location.zonex:1')";
-        AlterTableStmt alterStmt2 = (AlterTableStmt) UtFrameUtils.parseAndAnalyzeStmt(alterStr, connectContext);
-        ExceptionChecker.expectThrowsWithMsg(DdlException.class, "Failed to find enough host with tag",
-                () -> DdlExecutor.execute(Env.getCurrentEnv(), alterStmt2));
+        ExceptionChecker.expectThrowsWithMsg(AnalysisException.class, "errCode = 2, detailMessage = "
+                + "errCode = 2, detailMessage = Failed to find enough backend, "
+                + "please check the replication num,replication tag and storage medium.\n"
+                + "Create failed replications:\n"
+                + "replication tag: {\"location\" : \"zonex\"}, replication num: 1, storage medium: null",
+                () -> UtFrameUtils.parseAndAnalyzeStmt(wrongAlterStr, connectContext));
         tblProperties = tableProperty.getProperties();
         Assert.assertTrue(tblProperties.containsKey("default.replication_allocation"));
 

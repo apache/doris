@@ -64,7 +64,7 @@ CREATE SQL_BLOCK_RULE rule_name
      ```sql
      CREATE SQL_BLOCK_RULE test_rule 
      PROPERTIES(
-       "sql"="select \\* from order_analysis;",
+       "sql"="select \\* from order_analysis",
        "global"="false",
        "enable"="true"
      );

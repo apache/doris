@@ -92,6 +92,7 @@ public class CreateTableAsSelectStmtTest extends TestWithFeService {
                         + "DISTRIBUTED BY HASH(`userId`) BUCKETS 10\n"
                         + "PROPERTIES (\n"
                         + "\"replication_allocation\" = \"tag.location.default: 1\",\n"
+                        + "\"is_being_synced\" = \"false\",\n"
                         + "\"storage_format\" = \"V2\",\n"
                         + "\"light_schema_change\" = \"true\",\n"
                         + "\"disable_auto_compaction\" = \"false\",\n"
@@ -112,6 +113,7 @@ public class CreateTableAsSelectStmtTest extends TestWithFeService {
                             + "DISTRIBUTED BY HASH(`_col0`) BUCKETS 10\n"
                             + "PROPERTIES (\n"
                             + "\"replication_allocation\" = \"tag.location.default: 1\",\n"
+                            + "\"is_being_synced\" = \"false\",\n"
                             + "\"storage_format\" = \"V2\",\n"
                             + "\"light_schema_change\" = \"true\",\n"
                             + "\"disable_auto_compaction\" = \"false\",\n"
@@ -128,6 +130,7 @@ public class CreateTableAsSelectStmtTest extends TestWithFeService {
                             + "DISTRIBUTED BY HASH(`_col0`) BUCKETS 10\n"
                             + "PROPERTIES (\n"
                             + "\"replication_allocation\" = \"tag.location.default: 1\",\n"
+                            + "\"is_being_synced\" = \"false\",\n"
                             + "\"storage_format\" = \"V2\",\n"
                             + "\"light_schema_change\" = \"true\",\n"
                             + "\"disable_auto_compaction\" = \"false\",\n"
@@ -162,6 +165,7 @@ public class CreateTableAsSelectStmtTest extends TestWithFeService {
                         + "DISTRIBUTED BY HASH(`userId`) BUCKETS 10\n"
                         + "PROPERTIES (\n"
                         + "\"replication_allocation\" = \"tag.location.default: 1\",\n"
+                        + "\"is_being_synced\" = \"false\",\n"
                         + "\"storage_format\" = \"V2\",\n"
                         + "\"light_schema_change\" = \"true\",\n"
                         + "\"disable_auto_compaction\" = \"false\",\n"
@@ -185,6 +189,7 @@ public class CreateTableAsSelectStmtTest extends TestWithFeService {
                         + "DISTRIBUTED BY HASH(`_col0`) BUCKETS 10\n"
                         + "PROPERTIES (\n"
                         + "\"replication_allocation\" = \"tag.location.default: 1\",\n"
+                        + "\"is_being_synced\" = \"false\",\n"
                         + "\"storage_format\" = \"V2\",\n"
                         + "\"light_schema_change\" = \"true\",\n"
                         + "\"disable_auto_compaction\" = \"false\",\n"
@@ -210,6 +215,7 @@ public class CreateTableAsSelectStmtTest extends TestWithFeService {
                         + "DISTRIBUTED BY HASH(`_col0`) BUCKETS 10\n"
                         + "PROPERTIES (\n"
                         + "\"replication_allocation\" = \"tag.location.default: 1\",\n"
+                        + "\"is_being_synced\" = \"false\",\n"
                         + "\"storage_format\" = \"V2\",\n"
                         + "\"light_schema_change\" = \"true\",\n"
                         + "\"disable_auto_compaction\" = \"false\",\n"
@@ -232,6 +238,7 @@ public class CreateTableAsSelectStmtTest extends TestWithFeService {
                 + "DISTRIBUTED BY HASH(`amount`) BUCKETS 10\n"
                 + "PROPERTIES (\n"
                 + "\"replication_allocation\" = \"tag.location.default: 1\",\n"
+                + "\"is_being_synced\" = \"false\",\n"
                 + "\"storage_format\" = \"V2\",\n"
                 + "\"light_schema_change\" = \"true\",\n"
                 + "\"disable_auto_compaction\" = \"false\",\n"
@@ -250,6 +257,7 @@ public class CreateTableAsSelectStmtTest extends TestWithFeService {
                         + "DISTRIBUTED BY HASH(`alias_name`) BUCKETS 10\n"
                         + "PROPERTIES (\n"
                         + "\"replication_allocation\" = \"tag.location.default: 1\",\n"
+                        + "\"is_being_synced\" = \"false\",\n"
                         + "\"storage_format\" = \"V2\",\n"
                         + "\"light_schema_change\" = \"true\",\n"
                         + "\"disable_auto_compaction\" = \"false\",\n"
@@ -275,6 +283,7 @@ public class CreateTableAsSelectStmtTest extends TestWithFeService {
                         + "DISTRIBUTED BY HASH(`userId`) BUCKETS 10\n"
                         + "PROPERTIES (\n"
                         + "\"replication_allocation\" = \"tag.location.default: 1\",\n"
+                        + "\"is_being_synced\" = \"false\",\n"
                         + "\"storage_format\" = \"V2\",\n"
                         + "\"light_schema_change\" = \"true\",\n"
                         + "\"disable_auto_compaction\" = \"false\",\n"
@@ -297,6 +306,7 @@ public class CreateTableAsSelectStmtTest extends TestWithFeService {
                         + "DISTRIBUTED BY HASH(`userId1`) BUCKETS 10\n"
                         + "PROPERTIES (\n"
                         + "\"replication_allocation\" = \"tag.location.default: 1\",\n"
+                        + "\"is_being_synced\" = \"false\",\n"
                         + "\"storage_format\" = \"V2\",\n"
                         + "\"light_schema_change\" = \"true\",\n"
                         + "\"disable_auto_compaction\" = \"false\",\n"
@@ -323,6 +333,7 @@ public class CreateTableAsSelectStmtTest extends TestWithFeService {
                         + "DISTRIBUTED BY HASH(`user`) BUCKETS 10\n"
                         + "PROPERTIES (\n"
                         + "\"replication_allocation\" = \"tag.location.default: 1\",\n"
+                        + "\"is_being_synced\" = \"false\",\n"
                         + "\"storage_format\" = \"V2\",\n"
                         + "\"light_schema_change\" = \"true\",\n"
                         + "\"disable_auto_compaction\" = \"false\",\n"
@@ -346,6 +357,7 @@ public class CreateTableAsSelectStmtTest extends TestWithFeService {
                         + "DISTRIBUTED BY HASH(`userId`) BUCKETS 10\n"
                         + "PROPERTIES (\n"
                         + "\"replication_allocation\" = \"tag.location.default: 1\",\n"
+                        + "\"is_being_synced\" = \"false\",\n"
                         + "\"storage_format\" = \"V2\",\n"
                         + "\"light_schema_change\" = \"true\",\n"
                         + "\"disable_auto_compaction\" = \"false\",\n"
@@ -368,6 +380,7 @@ public class CreateTableAsSelectStmtTest extends TestWithFeService {
                         + "DISTRIBUTED BY HASH(`userId`) BUCKETS 10\n"
                         + "PROPERTIES (\n"
                         + "\"replication_allocation\" = \"tag.location.default: 1\",\n"
+                        + "\"is_being_synced\" = \"false\",\n"
                         + "\"storage_format\" = \"V2\",\n"
                         + "\"light_schema_change\" = \"true\",\n"
                         + "\"disable_auto_compaction\" = \"false\",\n"
@@ -386,6 +399,7 @@ public class CreateTableAsSelectStmtTest extends TestWithFeService {
                 + "DISTRIBUTED BY HASH(`id`) BUCKETS 10\n"
                 + "PROPERTIES (\n"
                 + "\"replication_allocation\" = \"tag.location.default: 1\",\n"
+                + "\"is_being_synced\" = \"false\",\n"
                 + "\"storage_format\" = \"V2\",\n"
                 + "\"light_schema_change\" = \"true\",\n"
                 + "\"disable_auto_compaction\" = \"false\",\n"
@@ -411,6 +425,7 @@ public class CreateTableAsSelectStmtTest extends TestWithFeService {
                         + "DISTRIBUTED BY HASH(`userId`) BUCKETS 10\n"
                         + "PROPERTIES (\n"
                         + "\"replication_allocation\" = \"tag.location.default: 1\",\n"
+                        + "\"is_being_synced\" = \"false\",\n"
                         + "\"storage_format\" = \"V2\",\n"
                         + "\"light_schema_change\" = \"true\",\n"
                         + "\"disable_auto_compaction\" = \"false\",\n"
@@ -435,6 +450,7 @@ public class CreateTableAsSelectStmtTest extends TestWithFeService {
                         + "DISTRIBUTED BY HASH(`userId`) BUCKETS 10\n"
                         + "PROPERTIES (\n"
                         + "\"replication_allocation\" = \"tag.location.default: 1\",\n"
+                        + "\"is_being_synced\" = \"false\",\n"
                         + "\"storage_format\" = \"V2\",\n"
                         + "\"light_schema_change\" = \"true\",\n"
                         + "\"disable_auto_compaction\" = \"false\",\n"
@@ -458,6 +474,7 @@ public class CreateTableAsSelectStmtTest extends TestWithFeService {
                         + "DISTRIBUTED BY HASH(`username`) BUCKETS 10\n"
                         + "PROPERTIES (\n"
                         + "\"replication_allocation\" = \"tag.location.default: 1\",\n"
+                        + "\"is_being_synced\" = \"false\",\n"
                         + "\"storage_format\" = \"V2\",\n"
                         + "\"light_schema_change\" = \"true\",\n"
                         + "\"disable_auto_compaction\" = \"false\",\n"
@@ -482,6 +499,7 @@ public class CreateTableAsSelectStmtTest extends TestWithFeService {
                         + "DISTRIBUTED BY HASH(`userId`) BUCKETS 10\n"
                         + "PROPERTIES (\n"
                         + "\"replication_allocation\" = \"tag.location.default: 1\",\n"
+                        + "\"is_being_synced\" = \"false\",\n"
                         + "\"storage_format\" = \"V2\",\n"
                         + "\"light_schema_change\" = \"true\",\n"
                         + "\"disable_auto_compaction\" = \"false\",\n"
@@ -530,6 +548,7 @@ public class CreateTableAsSelectStmtTest extends TestWithFeService {
                                 + "DISTRIBUTED BY HASH(`k1`) BUCKETS 1\n"
                                 + "PROPERTIES (\n"
                                 + "\"replication_allocation\" = \"tag.location.default: 1\",\n"
+                                + "\"is_being_synced\" = \"false\",\n"
                                 + "\"storage_format\" = \"V2\",\n"
                                 + "\"light_schema_change\" = \"true\",\n"
                                 + "\"disable_auto_compaction\" = \"false\",\n"
@@ -546,6 +565,7 @@ public class CreateTableAsSelectStmtTest extends TestWithFeService {
                                 + "DISTRIBUTED BY HASH(`k1`) BUCKETS 1\n"
                                 + "PROPERTIES (\n"
                                 + "\"replication_allocation\" = \"tag.location.default: 1\",\n"
+                                + "\"is_being_synced\" = \"false\",\n"
                                 + "\"storage_format\" = \"V2\",\n"
                                 + "\"light_schema_change\" = \"true\",\n"
                                 + "\"disable_auto_compaction\" = \"false\",\n"
@@ -555,5 +575,33 @@ public class CreateTableAsSelectStmtTest extends TestWithFeService {
             }
         }
         Assert.assertEquals(2, createStmts.size());
+    }
+
+    @Test
+    public void testVarcharLength() throws Exception {
+        String createSql =
+                "create table `test`.`varchar_len1` PROPERTIES (\"replication_num\" = \"1\")"
+                        + " as select 'abc', concat('xx', userId), userId from `test`.`varchar_table`";
+        createTableAsSelect(createSql);
+        ShowResultSet showResultSet = showCreateTableByName("varchar_len1");
+        String showStr = showResultSet.getResultRows().get(0).get(1);
+        Assertions.assertEquals(
+                "CREATE TABLE `varchar_len1` (\n"
+                        + "  `_col0` varchar(*) NULL,\n"
+                        + "  `_col1` varchar(*) NULL,\n"
+                        + "  `userId` varchar(255) NOT NULL\n"
+                        + ") ENGINE=OLAP\n"
+                        + "DUPLICATE KEY(`_col0`)\n"
+                        + "COMMENT 'OLAP'\n"
+                        + "DISTRIBUTED BY HASH(`_col0`) BUCKETS 10\n"
+                        + "PROPERTIES (\n"
+                        + "\"replication_allocation\" = \"tag.location.default: 1\",\n"
+                        + "\"is_being_synced\" = \"false\",\n"
+                        + "\"storage_format\" = \"V2\",\n"
+                        + "\"light_schema_change\" = \"true\",\n"
+                        + "\"disable_auto_compaction\" = \"false\",\n"
+                        + "\"enable_single_replica_compaction\" = \"false\"\n"
+                        + ");",
+                showStr);
     }
 }

@@ -65,7 +65,8 @@ public:
 
 private:
     // handle result == DataTypeString
-    template <typename T, std::enable_if_t<std::is_same_v<T, DataTypeString>, T>* = nullptr>
+    template <typename T>
+        requires std::is_same_v<T, DataTypeString>
     Status execute_impl(Block& block, const ColumnNumbers& arguments, size_t result,
                         size_t input_rows_count) {
         const ColumnPtr column = block.get_by_position(arguments[0]).column;
@@ -92,7 +93,8 @@ private:
                                     block.get_by_position(arguments[0]).column->get_name(),
                                     get_name());
     }
-    template <typename T, std::enable_if_t<!std::is_same_v<T, DataTypeString>, T>* = nullptr>
+    template <typename T>
+        requires(!std::is_same_v<T, DataTypeString>)
     Status execute_impl(Block& block, const ColumnNumbers& arguments, size_t result,
                         size_t input_rows_count) {
         const ColumnPtr column = block.get_by_position(arguments[0]).column;
@@ -223,9 +225,8 @@ public:
     }
 
 private:
-    template <typename ReturnDataType,
-              std::enable_if_t<!std::is_same_v<ResultDataType, DataTypeString>, ReturnDataType>* =
-                      nullptr>
+    template <typename ReturnDataType>
+        requires(!std::is_same_v<ResultDataType, DataTypeString>)
     Status execute_inner_impl(const ColumnWithTypeAndName& left, const ColumnWithTypeAndName& right,
                               Block& block, const ColumnNumbers& arguments, size_t result) {
         const auto& [lcol, left_const] = unpack_if_const(left.column);
@@ -261,9 +262,8 @@ private:
         return Status::RuntimeError("unimplements function {}", get_name());
     }
 
-    template <typename ReturnDataType,
-              std::enable_if_t<std::is_same_v<ResultDataType, DataTypeString>, ReturnDataType>* =
-                      nullptr>
+    template <typename ReturnDataType>
+        requires std::is_same_v<ResultDataType, DataTypeString>
     Status execute_inner_impl(const ColumnWithTypeAndName& left, const ColumnWithTypeAndName& right,
                               Block& block, const ColumnNumbers& arguments, size_t result) {
         const auto& [lcol, left_const] = unpack_if_const(left.column);

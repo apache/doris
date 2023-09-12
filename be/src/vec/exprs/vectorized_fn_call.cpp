@@ -56,10 +56,7 @@ namespace doris::vectorized {
 
 const std::string AGG_STATE_SUFFIX = "_state";
 
-VectorizedFnCall::VectorizedFnCall(const TExprNode& node) : VExpr(node) {
-    _expr_name = fmt::format("VectorizedFnCall[{}](arguments={},return={})", _fn.name.function_name,
-                             get_child_names(), _data_type->get_name());
-}
+VectorizedFnCall::VectorizedFnCall(const TExprNode& node) : VExpr(node) {}
 
 Status VectorizedFnCall::prepare(RuntimeState* state, const RowDescriptor& desc,
                                  VExprContext* context) {
@@ -69,6 +66,9 @@ Status VectorizedFnCall::prepare(RuntimeState* state, const RowDescriptor& desc,
     for (auto child : _children) {
         argument_template.emplace_back(nullptr, child->data_type(), child->expr_name());
     }
+
+    _expr_name = fmt::format("VectorizedFnCall[{}](arguments={},return={})", _fn.name.function_name,
+                             get_child_names(), _data_type->get_name());
 
     if (_fn.binary_type == TFunctionBinaryType::RPC) {
         _function = FunctionRPC::create(_fn, argument_template, _data_type);

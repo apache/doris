@@ -20,6 +20,7 @@ package org.apache.doris.nereids.trees.plans.physical;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.properties.PhysicalProperties;
+import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
@@ -35,23 +36,25 @@ import java.util.Optional;
 public class PhysicalIntersect extends PhysicalSetOperation {
 
     public PhysicalIntersect(Qualifier qualifier,
-                          LogicalProperties logicalProperties,
-                          List<Plan> inputs) {
-        super(PlanType.PHYSICAL_INTERSECT, qualifier, logicalProperties, inputs);
+                             List<NamedExpression> outputs,
+                             LogicalProperties logicalProperties,
+                             List<Plan> inputs) {
+        super(PlanType.PHYSICAL_INTERSECT, qualifier, outputs, logicalProperties, inputs);
     }
 
     public PhysicalIntersect(Qualifier qualifier,
+                             List<NamedExpression> outputs,
                              Optional<GroupExpression> groupExpression,
                              LogicalProperties logicalProperties,
                              List<Plan> inputs) {
-        super(PlanType.PHYSICAL_INTERSECT, qualifier, groupExpression, logicalProperties, inputs);
+        super(PlanType.PHYSICAL_INTERSECT, qualifier, outputs, groupExpression, logicalProperties, inputs);
     }
 
-    public PhysicalIntersect(Qualifier qualifier,
+    public PhysicalIntersect(Qualifier qualifier, List<NamedExpression> outputs,
                              Optional<GroupExpression> groupExpression, LogicalProperties logicalProperties,
                              PhysicalProperties physicalProperties, Statistics statistics,
                              List<Plan> inputs) {
-        super(PlanType.PHYSICAL_INTERSECT, qualifier,
+        super(PlanType.PHYSICAL_INTERSECT, qualifier, outputs,
                 groupExpression, logicalProperties, physicalProperties, statistics, inputs);
     }
 
@@ -69,25 +72,31 @@ public class PhysicalIntersect extends PhysicalSetOperation {
 
     @Override
     public PhysicalIntersect withChildren(List<Plan> children) {
-        return new PhysicalIntersect(qualifier, getLogicalProperties(), children);
+        return new PhysicalIntersect(qualifier, outputs, getLogicalProperties(), children);
     }
 
     @Override
     public PhysicalIntersect withGroupExpression(
             Optional<GroupExpression> groupExpression) {
-        return new PhysicalIntersect(qualifier, groupExpression, getLogicalProperties(), children);
+        return new PhysicalIntersect(qualifier, outputs, groupExpression, getLogicalProperties(), children);
     }
 
     @Override
     public Plan withGroupExprLogicalPropChildren(Optional<GroupExpression> groupExpression,
             Optional<LogicalProperties> logicalProperties, List<Plan> children) {
-        return new PhysicalIntersect(qualifier, groupExpression, logicalProperties.get(), children);
+        return new PhysicalIntersect(qualifier, outputs, groupExpression, logicalProperties.get(), children);
     }
 
     @Override
     public PhysicalIntersect withPhysicalPropertiesAndStats(
             PhysicalProperties physicalProperties, Statistics statistics) {
-        return new PhysicalIntersect(qualifier,
+        return new PhysicalIntersect(qualifier, outputs,
                 Optional.empty(), getLogicalProperties(), physicalProperties, statistics, children);
+    }
+
+    @Override
+    public PhysicalIntersect resetLogicalProperties() {
+        return new PhysicalIntersect(qualifier, outputs,
+                Optional.empty(), null, physicalProperties, statistics, children);
     }
 }

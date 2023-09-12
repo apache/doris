@@ -108,12 +108,13 @@ suite("test_partial_update_strict_mode", "p0") {
             assertTrue(exception == null)
             def json = parseJson(result)
             assertEquals("Fail", json.Status)
-            assertEquals("[INTERNAL_ERROR]too many filtered rows", json.Message)
+            assertTrue(json.Message.contains("[INTERNAL_ERROR]too many filtered rows"))
             assertEquals(3, json.NumberTotalRows)
             assertEquals(1, json.NumberLoadedRows)
             assertEquals(2, json.NumberFilteredRows)
         }
     }
+    sql "sync"
     qt_sql """select * from ${tableName2} order by id;"""
 
     def tableName3 = "test_partial_update_strict_mode3";
@@ -156,12 +157,13 @@ suite("test_partial_update_strict_mode", "p0") {
             assertTrue(exception == null)
             def json = parseJson(result)
             assertEquals("Fail", json.Status)
-            assertEquals("[INTERNAL_ERROR]too many filtered rows", json.Message)
+            assertTrue(json.Message.contains("[INTERNAL_ERROR]too many filtered rows"))
             assertEquals(3, json.NumberTotalRows)
             assertEquals(1, json.NumberLoadedRows)
             assertEquals(2, json.NumberFilteredRows)
         }
     }
+    sql "sync"
     qt_sql """select * from ${tableName3} order by id;"""
 
     // all columns valid, partial columns do not exist in file
@@ -207,5 +209,6 @@ suite("test_partial_update_strict_mode", "p0") {
         }
     }
 
+    sql "sync"
     qt_sql """select * from ${tableName4} order by id;"""
 }

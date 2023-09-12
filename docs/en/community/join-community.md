@@ -1,6 +1,6 @@
 ---
 {
-    "title": "Join Our Community",
+    "title": "Join Community",
     "language": "en"
 }
 
@@ -25,14 +25,14 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# Thrive Together in the [Apache Doris](https://github.com/apache/doris) Community.
 
-Apache Doris Community is a warm & lovely place, with users and developers from all around the world. **We have graduated from Apache incubator succesffully and become an Top-Level Project in June 2022**.
+**Thrive together in [Apache Doris](https://github.com/apache/doris) community with users and developers from all around the world.** 
+We have graduated from Apache incubator succesffully and become an Top-Level Project in June 2022.
+
+<hr />
 
 ## 🙌 More Developers Join Us
-
-[![Monthly Active Contributors](https://p3-juejin.byteimg.com/tos-cn-i-k3u1fbpfcp/fe6aa24cc0b74680a4dbd4e049379ab8~tplv-k3u1fbpfcp-zoom-1.image)](https://www.apiseven.com/en/contributor-graph?chart=contributorMonthlyActivity\&repo=apache/doris)
-
+[![Monthly Active Contributors](https://contributor-overtime-api.apiseven.com/contributors-svg?chart=contributorMonthlyActivity&repo=apache/doris)](https://www.apiseven.com/en/contributor-graph?chart=contributorMonthlyActivity&repo=apache/doris)
 
 
 
@@ -45,7 +45,8 @@ Apache Doris Community is a warm & lovely place, with users and developers from 
 
 
 
-[![Contributor over time](https://p3-juejin.byteimg.com/tos-cn-i-k3u1fbpfcp/8d9d0d644ba2477e8a06e7dc0932a365~tplv-k3u1fbpfcp-zoom-1.image)](https://www.apiseven.com/en/contributor-graph?chart=contributorOverTime\&repo=apache/doris)
+
+[![Contributor over time](https://contributor-overtime-api.apiseven.com/contributors-svg?chart=contributorOverTime&repo=apache/doris)](https://www.apiseven.com/en/contributor-graph?chart=contributorOverTime&repo=apache/doris)
 
 
 
@@ -64,7 +65,13 @@ Apache Doris Community is a warm & lovely place, with users and developers from 
 
 
 ## 🌟 More Stars on Github
-[![Star History Chart](https://p3-juejin.byteimg.com/tos-cn-i-k3u1fbpfcp/c6113fbeec93458b931014aafc40ab0b~tplv-k3u1fbpfcp-zoom-1.image)](https://star-history.com/#Apache/doris\&Date)
+<a href="https://star-history.com/#apache/doris&Date">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/svg?repos=apache/doris&type=Date&theme=dark" />
+    <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/svg?repos=apache/doris&type=Date" />
+    <img alt="Star History Chart" src="https://api.star-history.com/svg?repos=apache/doris&type=Date" />
+  </picture>
+</a>
 
 
 
@@ -79,26 +86,26 @@ Apache Doris Community is a warm & lovely place, with users and developers from 
 
 
 
-We deeply appreciate 🔗[community contributors](https://github.com/apache/doris/graphs/contributors) for their contribution to Apache Doris.
+
+##### We deeply appreciate 🔗[community contributors](https://github.com/apache/doris/graphs/contributors) for their contribution to Apache Doris.
 
 
 
 
-
+<hr />
 
 # Don't Miss Out the Latest News and Events
 
 Learn our latest techniques, get inspirations from our rich use cases, and see what the community has been up to !
 
 
-- ##### Join our heated discussions -  💬 [Slack](https://join.slack.com/t/apachedoriscommunity/shared_invite/zt-1x7x8fger-F7NoshFQn~djlvGdnEtxUQ) 📇 [Github](https://github.com/apache/doris) 
+- ### Join our heated discussions -  💬 [Slack](https://join.slack.com/t/apachedoriscommunity/shared_invite/zt-1x7x8fger-F7NoshFQn~djlvGdnEtxUQ) 📇 [Github](https://github.com/apache/doris) 
 
-- ##### Use cases and tech insight -  📭 [Twitter](https://twitter.com/doris_apache) 
+- ### Use cases and tech insight -  📭 [Twitter](https://twitter.com/doris_apache) 
 
-- ##### Come and connect with us - 🌐 [LinkedIn](https://www.linkedin.com/company/doris-apache/) 
+- ### Come and connect with us - 🌐 [LinkedIn](https://www.linkedin.com/company/doris-apache/) 
 
-
-- ##### Events Videos - ▶️ [YouTube](https://www.youtube.com/@Select_DB) 📺 [Bilibili](https://space.bilibili.com/362350065) 
+- ### Events Videos - ▶️ [YouTube](https://www.youtube.com/@Select_DB) 📺 [Bilibili](https://space.bilibili.com/362350065) 
 
 
 
