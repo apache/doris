@@ -18,10 +18,16 @@
 package org.apache.doris.nereids.trees.expressions.literal;
 
 import org.junit.jupiter.api.Assertions;
-import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Test;
 
 class DateTimeLiteralTest {
+    @Test
+    void reject() {
+        // Assertions.assertThrows(IllegalArgumentException.class, () -> {
+        //     new DateTimeV2Literal("2022-08-01T01:01:01-00:00");
+        // });
+    }
+
     @Test
     void testWithoutZoneOrOffset() {
         new DateTimeV2Literal("2022-08-01");
@@ -91,7 +97,7 @@ class DateTimeLiteralTest {
     @Test
     void testZoneOrOffsetRight() {
         java.util.function.BiConsumer<DateTimeV2Literal, Long> assertHour = (dateTimeV2Literal, expectHour) -> {
-            Assertions.assertSame(dateTimeV2Literal.hour, expectHour);
+            Assertions.assertEquals(dateTimeV2Literal.hour, expectHour);
         };
         DateTimeV2Literal dateTimeV2Literal;
         dateTimeV2Literal = new DateTimeV2Literal("2022-08-01 00:00:00Europe/London"); // +01:00
@@ -123,7 +129,7 @@ class DateTimeLiteralTest {
     @Test
     void testZoneOffset() {
         new DateTimeV2Literal("2022-08-01 01:01:01UTC+01:01:01");
-        // new DateTimeV2Literal("2022-08-01 01:01:01UTC+1:1:1");
+        new DateTimeV2Literal("2022-08-01 01:01:01UTC+1:1:1");
 
         new DateTimeV2Literal("2022-08-01 01:01:01UTC+01:01");
 
@@ -147,11 +153,11 @@ class DateTimeLiteralTest {
         new DateTimeV2Literal("2022-08-01 01:01:01+01:01:01");
         new DateTimeV2Literal("2022-08-01 01:01:01+01:01");
         // new DateTimeV2Literal("2022-08-01 01:01:01+01");
-        // new DateTimeV2Literal("2022-08-01 01:01:01+01:1:01");
-        // new DateTimeV2Literal("2022-08-01 01:01:01+01:1");
-        // new DateTimeV2Literal("2022-08-01 01:01:01+01:01:1");
-        // new DateTimeV2Literal("2022-08-01 01:01:01+1:1:1");
-        // new DateTimeV2Literal("2022-08-01 01:01:01+1:1");
+        new DateTimeV2Literal("2022-08-01 01:01:01+01:1:01");
+        new DateTimeV2Literal("2022-08-01 01:01:01+01:1");
+        new DateTimeV2Literal("2022-08-01 01:01:01+01:01:1");
+        new DateTimeV2Literal("2022-08-01 01:01:01+1:1:1");
+        new DateTimeV2Literal("2022-08-01 01:01:01+1:1");
         // new DateTimeV2Literal("2022-08-01 01:01:01+1");
 
         new DateTimeV2Literal("2022-05-01 01:02:55+02:30");
@@ -171,8 +177,8 @@ class DateTimeLiteralTest {
 
     @Test
     void testDateTime() {
-        // new DateTimeV2Literal("2022-08-01 01:01:01UTC+1:1:1");
-        // new DateTimeV2Literal("2022-08-01 01:01:01UTC+1:1");
+        new DateTimeV2Literal("2022-08-01 01:01:01UTC+1:1:1");
+        new DateTimeV2Literal("2022-08-01 01:01:01UTC+1:1");
         // new DateTimeV2Literal("2022-08-01 01:01:01UTC+1");
 
         new DateTimeV2Literal("0001-01-01 00:01:01");
@@ -203,7 +209,6 @@ class DateTimeLiteralTest {
         // new DateTimeV2Literal("20220801GMT-3");
     }
 
-    @Disabled
     @Test
     void testIrregularDateTime() {
         new DateLiteral("2016-07-02 01:01:00");
@@ -227,7 +232,6 @@ class DateTimeLiteralTest {
         new DateLiteral("2016-7-2 01:1:0");
     }
 
-    @Disabled
     @Test
     void testIrregularDateTimeHour() {
         new DateTimeV2Literal("2016-07-02 01");
@@ -243,7 +247,6 @@ class DateTimeLiteralTest {
         new DateTimeV2Literal("2016-7-2 01");
     }
 
-    @Disabled
     @Test
     void testIrregularDateTimeHourMinute() {
         new DateTimeV2Literal("2016-07-02 01:01");
@@ -267,7 +270,6 @@ class DateTimeLiteralTest {
         new DateTimeV2Literal("2016-7-2 1:1");
     }
 
-    @Disabled
     @Test
     void testIrregularDateTimeHourMinuteSecond() {
         new DateTimeV2Literal("2016-07-02 01:01:01");
@@ -307,7 +309,6 @@ class DateTimeLiteralTest {
         new DateTimeV2Literal("2016-7-2 1:1:1");
     }
 
-    @Disabled
     @Test
     void testIrregularDateTimeHourMinuteSecondMicrosecond() {
         new DateTimeV2Literal("2016-07-02 01:01:01.1");

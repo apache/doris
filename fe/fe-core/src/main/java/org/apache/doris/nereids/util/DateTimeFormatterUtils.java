@@ -46,10 +46,6 @@ public class DateTimeFormatterUtils {
             .optionalEnd()
             // .appendOptional(
             //         new DateTimeFormatterBuilder().appendOffset("+HH", "").toFormatter())
-            // .appendOptional(
-            //         new DateTimeFormatterBuilder().appendOffset("+HH:MM", "").toFormatter())
-            // .appendOptional(
-            //         new DateTimeFormatterBuilder().appendOffset("+HH:MM:SS", "").toFormatter())
             .toFormatter()
             .withResolverStyle(ResolverStyle.STRICT);
     // yymmdd

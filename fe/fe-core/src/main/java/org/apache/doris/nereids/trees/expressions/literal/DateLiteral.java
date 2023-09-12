@@ -96,13 +96,51 @@ public class DateLiteral extends Literal {
         this.day = other.day;
     }
 
+    static String normalize(String s) {
+        StringBuilder sb = new StringBuilder();
+
+        int i = 0;
+        while (i < s.length()) {
+            char c = s.charAt(i);
+
+            if (c == '.') {
+                // skip .microsecond, such as .0001 .000001
+                sb.append(c);  // Append the dot itself
+                i += 1;  // Skip the dot
+
+                // skip the microsecond part
+                while (i < s.length() && Character.isDigit(s.charAt(i))) {
+                    sb.append(s.charAt(i));
+                    i += 1;
+                }
+            } else if (Character.isDigit(c)) {
+                // find consecutive digit
+                int j = i + 1;
+                while (j < s.length() && Character.isDigit(s.charAt(j))) {
+                    j += 1;
+                }
+                int len = j - i;
+                if (len == 4 || len == 2) {
+                    for (int k = i; k < j; k++) {
+                        sb.append(s.charAt(k));
+                    }
+                } else if (len == 1) {
+                    sb.append('0');
+                    sb.append(c);
+                } else {
+                    throw new AnalysisException("datetime literal [" + s + "] is invalid");
+                }
+                i = j;
+            } else {
+                sb.append(c);
+                i += 1;
+            }
+        }
+        return sb.toString();
+    }
+
     // replace 'T' with ' '
     private static String replaceDelimiterT(String s) {
-        // Matcher matcher = Pattern.compile("^(\\d{2,4}-\\d{1,2}-\\d{1,2})T").matcher(s);
-        // if (matcher.find()) {
-        //     return matcher.group(1) + " " + s.substring(matcher.end());
-        // }
-        // return s;
         if (s.length() <= 10) {
             return s;
         }
@@ -135,7 +173,8 @@ public class DateLiteral extends Literal {
                 return dateTime;
             }
 
-            // replace first 'T' with ' '
+            s = normalize(s);
+            // replace delimiter 'T' with ' '
             s = replaceDelimiterT(s);
             if (!s.contains(" ")) {
                 dateTime = DateTimeFormatterUtils.ZONE_DATE_FORMATTER.parse(s);

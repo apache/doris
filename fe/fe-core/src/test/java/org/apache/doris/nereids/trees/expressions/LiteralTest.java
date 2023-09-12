@@ -17,29 +17,24 @@
 
 package org.apache.doris.nereids.trees.expressions;
 
-import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
-import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
-import org.apache.doris.nereids.trees.expressions.literal.Literal;
-import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
-import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.DateLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.DateTimeV2Literal;
 
-import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
 class LiteralTest {
-
-    @Test
-    public void testEqual() {
-        IntegerLiteral one = new IntegerLiteral(1);
-        IntegerLiteral anotherOne = new IntegerLiteral(1);
-        IntegerLiteral two = new IntegerLiteral(2);
-        Assertions.assertNotEquals(one, two);
-        Assertions.assertEquals(one, anotherOne);
-        StringLiteral str1 = new StringLiteral("hello");
-        Assertions.assertNotEquals(str1, one);
-        Assertions.assertTrue(Literal.of("world") instanceof StringLiteral);
-        Assertions.assertTrue(Literal.of(null) instanceof NullLiteral);
-        Assertions.assertTrue(Literal.of(1) instanceof IntegerLiteral);
-        Assertions.assertTrue(Literal.of(false) instanceof BooleanLiteral);
-    }
+    // MySQL Date的组成
+    // 1. 没有任何分隔符 eg: 20220801, 20220801010101
+    //    MySQL 支持 20220801T010101 但是不支持 20220801 010101
+    //    MySQL 这种情况下不支持 zone / offset
+    // 2. 有分隔符
+    //    分隔符可以为 ' '/ 'T'
+    //    组成为 Date + delimiter + Time + Zone + Offset
+    //    其中 Zone 和 Offset 是 Optional
+    //    Date 需要注意 two-digit year https://dev.mysql.com/doc/refman/8.0/en/datetime.html
+    //      Dates containing 2-digit year values are ambiguous because the century is unknown. MySQL interprets 2-digit year values using these rules:
+    //          Year values in the range 00-69 become 2000-2069.
+    //          Year values in the range 70-99 become 1970-1999.
+    //    Time 需要注意 microsecond
+    //      需要注意 不完全time 'hh:mm:ss', 'hh:mm', 'D hh:mm', 'D hh', or 'ss'
 }
