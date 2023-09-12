@@ -54,7 +54,7 @@ CachedRemoteFileReader::CachedRemoteFileReader(FileReaderSPtr remote_file_reader
         _cache_key = IFileCache::hash(unique_path);
         if (!opts.cache_base_path.empty()) {
             // from query session variable: file_cache_base_path
-            _cache = FileCacheFactory::instance()->get_by_path(opts->cache_base_path);
+            _cache = FileCacheFactory::instance()->get_by_path(opts.cache_base_path);
             if (_cache == nullptr) {
                 LOG(WARNING) << "Can't get cache from base path: " << opts.cache_base_path
                              << ", using random instead.";
