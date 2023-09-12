@@ -28,7 +28,7 @@ import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Test;
 
-public class AggScalarSubQueryToWindowFunctionTest extends TPCHTestBase implements MemoPatternMatchSupported {
+class AggScalarSubQueryToWindowFunctionTest extends TPCHTestBase implements MemoPatternMatchSupported {
     private static final String SQL_TEMPLATE = "    select\n"
             + "        sum(l_extendedprice) / 7.0 as avg_yearly\n"
             + "    from\n"
@@ -73,14 +73,14 @@ public class AggScalarSubQueryToWindowFunctionTest extends TPCHTestBase implemen
     }
 
     @Test
-    public void testRuleOnTPCHTest() {
+    void testRuleOnTPCHTest() {
         check(TPCHUtils.Q2);
         check(TPCHUtils.Q17);
     }
 
     @Disabled
     @Test
-    public void testComplexPredicates() {
+    void testComplexPredicates() {
         // we ensure there's one sub-query in a predicate and in-predicates do not contain sub-query,
         // so we test compound predicates and sub-query in more than one predicates
         // now we disabled them temporarily, and enable when the rule support the cases.
@@ -96,7 +96,7 @@ public class AggScalarSubQueryToWindowFunctionTest extends TPCHTestBase implemen
     }
 
     @Test
-    public void testNotMatchTheRule() {
+    void testNotMatchTheRule() {
         String[] testCases = {
                 // not correlated
                 "select sum(l_extendedprice) / 7.0 as avg_yearly\n"
