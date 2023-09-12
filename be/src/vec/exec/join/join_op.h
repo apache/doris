@@ -65,11 +65,11 @@ struct RowRefWithFlag : public RowRef {
 /// Portion of RowRefs, 16 * (MAX_SIZE + 1) bytes sized.
 template <typename RowRefType>
 struct Batch {
-    static constexpr size_t MAX_SIZE = 7; /// Adequate values are 3, 7, 15, 31.
+    static constexpr uint8_t MAX_SIZE = 7; /// Adequate values are 3, 7, 15, 31.
 
-    uint8_t size = 0; /// It's smaller than size_t but keeps align in Arena.
-    Batch<RowRefType>* next;
     RowRefType row_refs[MAX_SIZE];
+    Batch<RowRefType>* next;
+    uint8_t size = 0;
 
     Batch(Batch<RowRefType>* parent) : next(parent) {}
 
