@@ -242,8 +242,8 @@ public class BindSink implements AnalysisRuleFactory {
 
     private List<Column> bindTargetColumns(OlapTable table, List<String> colsName) {
         return colsName.isEmpty()
-                ? table.getFullSchema().stream().filter(column -> column.isVisible()
-                        || column.isSequenceColumn()
+                ? table.getFullSchema().stream().filter(column -> (column.isVisible()
+                        || column.isSequenceColumn())
                         && !column.isMaterializedViewColumn())
                 .collect(Collectors.toList())
                 : colsName.stream().map(cn -> {
