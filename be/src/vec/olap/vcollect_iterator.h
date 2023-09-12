@@ -122,9 +122,12 @@ private:
 
         virtual Status init(bool get_data_by_ref = false) = 0;
 
+        virtual void init_for_union(bool is_first_child, bool get_data_by_ref = false) {
+        }
+
         virtual int64_t version() const = 0;
 
-        const IteratorRowRef* current_row_ref() const { return &_ref; }
+        virtual const IteratorRowRef* current_row_ref() const { return &_ref; }
 
         virtual Status next(IteratorRowRef* ref) = 0;
 
@@ -183,6 +186,8 @@ private:
 
         Status init(bool get_data_by_ref = false) override;
 
+        virtual void init_for_union(bool is_first_child, bool get_data_by_ref = false) override;
+
         int64_t version() const override;
 
         Status next(IteratorRowRef* ref) override;
@@ -200,10 +205,10 @@ private:
             return false;
         }
 
+        Status refresh_current_row();
+
     private:
-        Status _refresh_current_row();
         Status _next_by_ref(IteratorRowRef* ref);
-        Status _refresh_current_row_by_ref();
 
         bool _is_empty() {
             if (_get_data_by_ref) {
@@ -277,6 +282,8 @@ private:
             }
             return false;
         }
+
+        void init_level0_iterators_for_union();
 
     private:
         Status _merge_next(IteratorRowRef* ref);
