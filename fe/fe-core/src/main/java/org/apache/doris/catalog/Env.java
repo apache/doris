@@ -1613,6 +1613,9 @@ public class Env {
 
         // stop mtmv scheduler
         mtmvJobManager.stop();
+        if (analysisManager != null) {
+            analysisManager.getStatisticsCache().preHeat();
+        }
     }
 
     // Set global variable 'lower_case_table_names' only when the cluster is initialized.

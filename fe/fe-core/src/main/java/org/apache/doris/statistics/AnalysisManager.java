@@ -255,6 +255,9 @@ public class AnalysisManager extends Daemon implements Writable {
     }
 
     public void createAnalyze(AnalyzeStmt analyzeStmt, boolean proxy) throws DdlException {
+        if (!StatisticsUtil.statsTblAvailable() && !FeConstants.runningUnitTest) {
+            throw new DdlException("Stats table not available, please make sure your cluster status is normal");
+        }
         if (analyzeStmt instanceof AnalyzeDBStmt) {
             createAnalysisJobs((AnalyzeDBStmt) analyzeStmt, proxy);
         } else if (analyzeStmt instanceof AnalyzeTblStmt) {
@@ -324,11 +327,7 @@ public class AnalysisManager extends Daemon implements Writable {
 
     @Nullable
     @VisibleForTesting
-    public AnalysisInfo buildAndAssignJob(AnalyzeTblStmt stmt) throws DdlException {
-        if (!StatisticsUtil.statsTblAvailable() && !FeConstants.runningUnitTest) {
-            throw new DdlException("Stats table not available, please make sure your cluster status is normal");
-        }
-
+    protected AnalysisInfo buildAndAssignJob(AnalyzeTblStmt stmt) throws DdlException {
         AnalysisInfo jobInfo = buildAnalysisJobInfo(stmt);
         if (jobInfo.colToPartitions.isEmpty()) {
             // No statistics need to be collected or updated

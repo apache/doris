@@ -393,11 +393,12 @@ public class StatisticsUtil {
                             .findTable(InternalCatalog.INTERNAL_CATALOG_NAME,
                                     dbName,
                                     StatisticConstants.STATISTIC_TBL_NAME));
-            statsTbls.add(
-                    (OlapTable) StatisticsUtil
-                            .findTable(InternalCatalog.INTERNAL_CATALOG_NAME,
-                                    dbName,
-                                    StatisticConstants.HISTOGRAM_TBL_NAME));
+            // uncomment it when hist is available for user.
+            // statsTbls.add(
+            //         (OlapTable) StatisticsUtil
+            //                 .findTable(InternalCatalog.INTERNAL_CATALOG_NAME,
+            //                         dbName,
+            //                         StatisticConstants.HISTOGRAM_TBL_NAME));
         } catch (Throwable t) {
             return false;
         }
