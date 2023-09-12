@@ -45,4 +45,6 @@ public interface OnePartitionEvaluator {
      * we will return a context which result expression is BooleanLiteral.FALSE
      */
     Expression evaluate(Expression expression, Map<Slot, PartitionSlotInput> currentInputs);
+
+    boolean isDefaultPartition();
 }
