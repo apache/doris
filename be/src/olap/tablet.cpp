@@ -2971,7 +2971,8 @@ Status Tablet::calc_segment_delete_bitmap(RowsetSharedPtr rowset,
             Slice key = Slice(index_column->get_data_at(i).data, index_column->get_data_at(i).size);
             RowLocation loc;
             // same row in segments should be filtered
-            if (delete_bitmap->contains({rowset_id, seg->id(), 0}, row_id)) {
+            if (delete_bitmap->contains({rowset_id, seg->id(), DeleteBitmap::TEMP_VERSION_COMMON},
+                                        row_id)) {
                 continue;
             }
 
@@ -2989,7 +2990,8 @@ Status Tablet::calc_segment_delete_bitmap(RowsetSharedPtr rowset,
 
             // sequence id smaller than the previous one, so delete current row
             if (st.is<KEY_ALREADY_EXISTS>()) {
-                delete_bitmap->add({rowset_id, seg->id(), 0}, row_id);
+                delete_bitmap->add({rowset_id, seg->id(), DeleteBitmap::TEMP_VERSION_COMMON},
+                                   row_id);
                 continue;
             } else if (is_partial_update && rowset_writer != nullptr) {
                 // In publish version, record rows to be deleted for concurrent update
@@ -3011,12 +3013,16 @@ Status Tablet::calc_segment_delete_bitmap(RowsetSharedPtr rowset,
                 // rowset.
                 // just set 0 as a unified temporary version number, and update to
                 // the real version number later.
-                delete_bitmap->add({loc.rowset_id, loc.segment_id, 0}, loc.row_id);
-                delete_bitmap->add({rowset_id, seg->id(), 0}, row_id);
+                delete_bitmap->add(
+                        {loc.rowset_id, loc.segment_id, DeleteBitmap::TEMP_VERSION_COMMON},
+                        loc.row_id);
+                delete_bitmap->add({rowset_id, seg->id(), DeleteBitmap::TEMP_VERSION_COMMON},
+                                   row_id);
                 continue;
             }
             // when st = ok
-            delete_bitmap->add({loc.rowset_id, loc.segment_id, 0}, loc.row_id);
+            delete_bitmap->add({loc.rowset_id, loc.segment_id, DeleteBitmap::TEMP_VERSION_COMMON},
+                               loc.row_id);
         }
         remaining -= num_read;
     }
@@ -3717,8 +3723,9 @@ Status Tablet::calc_delete_bitmap_between_segments(
 void Tablet::add_sentinel_mark_to_delete_bitmap(DeleteBitmap* delete_bitmap,
                                                 const RowsetIdUnorderedSet& rowsetids) {
     for (const auto& rowsetid : rowsetids) {
-        delete_bitmap->add({rowsetid, DeleteBitmap::INVALID_SEGMENT_ID, 0},
-                           DeleteBitmap::ROWSET_SENTINEL_MARK);
+        delete_bitmap->add(
+                {rowsetid, DeleteBitmap::INVALID_SEGMENT_ID, DeleteBitmap::TEMP_VERSION_COMMON},
+                DeleteBitmap::ROWSET_SENTINEL_MARK);
     }
 }
 
@@ -3739,8 +3746,8 @@ Status Tablet::check_delete_bitmap_correctness(DeleteBitmapPtr delete_bitmap, in
                                                std::vector<RowsetSharedPtr>* rowsets) {
     RowsetIdUnorderedSet missing_ids;
     for (const auto& rowsetid : rowset_ids) {
-        if (!delete_bitmap->delete_bitmap.contains(
-                    {rowsetid, DeleteBitmap::INVALID_SEGMENT_ID, 0})) {
+        if (!delete_bitmap->delete_bitmap.contains({rowsetid, DeleteBitmap::INVALID_SEGMENT_ID,
+                                                    DeleteBitmap::TEMP_VERSION_COMMON})) {
             missing_ids.insert(rowsetid);
         }
     }
