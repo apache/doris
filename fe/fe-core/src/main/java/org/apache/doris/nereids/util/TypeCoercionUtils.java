@@ -1435,7 +1435,7 @@ public class TypeCoercionUtils {
         DecimalV3Type dt1 =
                 DecimalV3Type.forType(TypeCoercionUtils.getNumResultType(left.getDataType()));
         DecimalV3Type dt2 =
-                DecimalV3Type.forType(TypeCoercionUtils.getNumResultType(left.getDataType()));
+                DecimalV3Type.forType(TypeCoercionUtils.getNumResultType(right.getDataType()));
 
         // check return type whether overflow, if true, turn to double
         DecimalV3Type retType;
