@@ -32,7 +32,6 @@
 
 #include <atomic>
 // IWYU pragma: no_include <bits/chrono.h>
-
 #include <chrono> // IWYU pragma: keep
 #include <functional>
 #include <initializer_list>
