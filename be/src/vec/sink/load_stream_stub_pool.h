@@ -80,6 +80,17 @@ public:
 
     std::shared_ptr<Streams> get_or_create(PUniqueId load_id, int64_t src_id, int64_t dst_id);
 
+    size_t size() {
+        std::lock_guard<std::mutex> lock(_mutex);
+        return _pool.size();
+    }
+
+    // for UT only
+    size_t templates_size() {
+        std::lock_guard<std::mutex> lock(_mutex);
+        return _template_stubs.size();
+    }
+
 private:
     std::mutex _mutex;
     std::unordered_map<UniqueId, std::unique_ptr<LoadStreamStub>> _template_stubs;

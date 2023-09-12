@@ -76,6 +76,8 @@ public:
 
     UniqueId unique_id() const { return _load_id; }
 
+    size_t size() const { return _map.size(); }
+
 private:
     using TabletToDeltaWriterV2Map = phmap::parallel_flat_hash_map<
             int64_t, std::unique_ptr<DeltaWriterV2>, std::hash<int64_t>, std::equal_to<int64_t>,
@@ -94,6 +96,11 @@ public:
     ~DeltaWriterV2Pool();
 
     std::shared_ptr<DeltaWriterV2Map> get_or_create(PUniqueId load_id);
+
+    size_t size() {
+        std::lock_guard<std::mutex> lock(_mutex);
+        return _pool.size();
+    }
 
 private:
     std::mutex _mutex;
