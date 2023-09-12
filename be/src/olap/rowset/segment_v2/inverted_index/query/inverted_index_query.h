@@ -88,7 +88,7 @@ public:
         LOG_FATAL("Execution reached an undefined behavior code path in InvertedIndexPointQueryI");
         __builtin_unreachable();
     }
-    [[nodiscard]] virtual std::vector<std::string> get_values() const {
+    [[nodiscard]] virtual const std::vector<std::string>& get_values() const {
         LOG_FATAL("Execution reached an undefined behavior code path in InvertedIndexPointQueryI");
         __builtin_unreachable();
     };
@@ -122,7 +122,9 @@ public:
         }
         return result;
     }
-    [[nodiscard]] std::vector<std::string> get_values() const override { return _values_encoded; };
+    [[nodiscard]] const std::vector<std::string>& get_values() const override {
+        return _values_encoded;
+    };
     [[nodiscard]] PredicateType get_predicate_type() const override { return PT; };
     [[nodiscard]] InvertedIndexQueryType get_query_type() const override { return _type; };
 
@@ -146,6 +148,8 @@ public:
     ~InvertedIndexRangeQueryI() override = default;
     [[nodiscard]] virtual const std::string& get_low_value() const = 0;
     [[nodiscard]] virtual const std::string& get_high_value() const = 0;
+    virtual bool low_value_is_null() = 0;
+    virtual bool high_value_is_null() = 0;
     QueryCategory get_query_category() override { return QueryCategory::RANGE_QUERY; }
     std::string to_string() override {
         LOG_FATAL("Execution reached an undefined behavior code path in InvertedIndexRangeQueryI");
@@ -208,6 +212,8 @@ public:
     [[nodiscard]] const std::string& get_high_value() const override {
         return _high_value_encoded;
     };
+    bool low_value_is_null() override { return _low_value == nullptr; };
+    bool high_value_is_null() override { return _high_value == nullptr; };
     std::string to_string() override {
         std::string low_op = _inclusive_low ? ">=" : ">";
         std::string high_op = _inclusive_high ? "<=" : "<";
@@ -218,6 +224,8 @@ public:
     [[nodiscard]] bool is_high_value_inclusive() const override { return _inclusive_high; }
 
 private:
+    const T* _low_value {};
+    const T* _high_value {};
     std::string _low_value_encoded {};
     std::string _high_value_encoded {};
 

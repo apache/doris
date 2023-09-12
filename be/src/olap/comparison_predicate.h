@@ -213,7 +213,7 @@ public:
                                         const Schema& schema) const override {
         if (query_value == nullptr) {
             auto column_desc = schema.column(_column_id);
-            if constexpr (PT == PredicateType::EQ) {
+            if constexpr (PT == PredicateType::EQ || PT == PredicateType::NE) {
                 query_value = std::make_unique<InvertedIndexPointQuery<Type, PT>>(
                         column_desc->type_info());
             } else {
@@ -221,7 +221,7 @@ public:
                         column_desc->type_info());
             }
         }
-        if constexpr (PT == PredicateType::EQ) {
+        if constexpr (PT == PredicateType::EQ || PT == PredicateType::NE) {
             auto q = static_cast<InvertedIndexPointQuery<Type, PT>*>(query_value.get());
             q->add_value(&_value, InvertedIndexQueryType::EQUAL_QUERY);
         } else {

@@ -480,13 +480,18 @@ Status StringTypeInvertedIndexReader::handle_range_query(const std::string& colu
             nullptr, [](lucene::index::Term* term) { _CLDECDELETE(term); });
     std::wstring column_name_ws = std::wstring(column_name.begin(), column_name.end());
 
+    if (query->low_value_is_null() && query->high_value_is_null()) {
+        return Status::Error<ErrorCode::INVERTED_INDEX_INVALID_PARAMETERS>(
+                "StringTypeInvertedIndexReader::handle_range_query error: both low_value and "
+                "high_value is null");
+    }
     auto search_low = query->get_low_value();
-    if (!search_low.empty()) {
+    if (!query->low_value_is_null()) {
         std::wstring search_low_ws = StringUtil::string_to_wstring(search_low);
         low_term.reset(_CLNEW lucene::index::Term(column_name_ws.c_str(), search_low_ws.c_str()));
     }
     auto search_high = query->get_high_value();
-    if (!search_high.empty()) {
+    if (!query->high_value_is_null()) {
         std::wstring search_high_ws = StringUtil::string_to_wstring(search_high);
         high_term.reset(_CLNEW lucene::index::Term(column_name_ws.c_str(), search_high_ws.c_str()));
     }
@@ -792,7 +797,7 @@ InvertedIndexVisitor::InvertedIndexVisitor(roaring::Roaring* h, InvertedIndexQue
         }
     } else if (query_value->get_query_category() == QueryCategory::POINT_QUERY) {
         auto point_query = reinterpret_cast<InvertedIndexPointQueryI*>(query_value);
-        for (auto v : point_query->get_values()) {
+        for (const std::string& v : point_query->get_values()) {
             query_points.emplace_back(v);
         }
         // =1 equals 1<= && >=1

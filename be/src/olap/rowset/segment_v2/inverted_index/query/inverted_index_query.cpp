@@ -170,12 +170,14 @@ template <PrimitiveType Type, PredicateType PT>
 Status InvertedIndexRangeQuery<Type, PT>::add_value(const T& value, InvertedIndexQueryType t) {
     switch (t) {
     case InvertedIndexQueryType::GREATER_THAN_QUERY: {
+        _low_value = &value;
         _low_value_encoded.clear();
         _value_key_coder->full_encode_ascending(&value, &_low_value_encoded);
         break;
     }
 
     case InvertedIndexQueryType::GREATER_EQUAL_QUERY: {
+        _low_value = &value;
         _inclusive_low = true;
         _low_value_encoded.clear();
         _value_key_coder->full_encode_ascending(&value, &_low_value_encoded);
@@ -183,18 +185,21 @@ Status InvertedIndexRangeQuery<Type, PT>::add_value(const T& value, InvertedInde
     }
 
     case InvertedIndexQueryType::LESS_THAN_QUERY: {
+        _high_value = &value;
         _high_value_encoded.clear();
         _value_key_coder->full_encode_ascending(&value, &_high_value_encoded);
         break;
     }
 
     case InvertedIndexQueryType::LESS_EQUAL_QUERY: {
+        _high_value = &value;
         _inclusive_high = true;
         _high_value_encoded.clear();
         _value_key_coder->full_encode_ascending(&value, &_high_value_encoded);
         break;
     }
     case InvertedIndexQueryType::EQUAL_QUERY: {
+        _high_value = _low_value = &value;
         _high_value_encoded.clear();
         _value_key_coder->full_encode_ascending(&value, &_high_value_encoded);
         _low_value_encoded.clear();
