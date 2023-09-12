@@ -53,7 +53,7 @@ public class BitmapRemove extends ScalarFunction
      */
     @Override
     public BitmapRemove withChildren(List<Expression> children) {
-        Preconditions.checkArgument(children.size() == 2, String.format("children.size() is %d", children.size()));
+        Preconditions.checkArgument(children.size() == 2, "children.size() is %d", children.size());
         return new BitmapRemove(children.get(0), children.get(1));
     }
 
