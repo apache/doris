@@ -306,6 +306,7 @@ Status HttpStreamAction::_process_put(HttpRequest* http_req,
     ctx->db = ctx->put_result.params.db_name;
     ctx->table = ctx->put_result.params.table_name;
     ctx->txn_id = ctx->put_result.params.txn_conf.txn_id;
+    ctx->label = ctx->put_result.params.import_label;
     return _exec_env->stream_load_executor()->execute_plan_fragment(ctx);
 }
 
