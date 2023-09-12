@@ -178,6 +178,12 @@ if ! test -f ${RUN_JAR:+${RUN_JAR}}; then
     "${MVN_CMD}" package
     cp target/java-udf-case-jar-with-dependencies.jar "${DORIS_HOME}"/regression-test/suites/javaudf_p0/jars/
     cd "${DORIS_HOME}"
+
+    echo "===== BUILD JAVA_UDF_REPLACE_SRC TO GENERATE JAR ====="
+    cd "${DORIS_HOME}"/regression-test/java-udf-replace-src
+    "${MVN_CMD}" package
+    cp target/java-udf-replace-jar-with-dependencies.jar "${DORIS_HOME}"/regression-test/suites/javaudf_p0/jars/
+    cd "${DORIS_HOME}"
 fi
 
 # check java home
