@@ -92,7 +92,7 @@ Status VDataStreamRecvr::SenderQueue::_inner_get_batch_without_lock(Block* block
 
     DCHECK(!_block_queue.empty());
     auto [next_block, block_byte_size] = std::move(_block_queue.front());
-    _recvr->_blocks_memory_usage->add(-block_byte_size);
+    _recvr->update_blocks_memory_usage(-block_byte_size);
     _block_queue.pop_front();
 
     if (!_pending_closures.empty()) {
@@ -173,7 +173,7 @@ Status VDataStreamRecvr::SenderQueue::add_block(const PBlock& pblock, int be_num
         _pending_closures.emplace_back(*done, monotonicStopWatch);
         *done = nullptr;
     }
-    _recvr->_blocks_memory_usage->add(block_byte_size);
+    _recvr->update_blocks_memory_usage(block_byte_size);
     if (!empty) {
         _data_arrival_cv.notify_one();
     }
@@ -220,7 +220,12 @@ void VDataStreamRecvr::SenderQueue::add_block(Block* block, bool use_move) {
         _data_arrival_cv.notify_one();
     }
 
-    if (_recvr->exceeds_limit(block_mem_size)) {
+    // Careful: Accessing members of _recvr that are allocated by Object pool
+    // should be done before the following logic, because the _lock will be released
+    // by `iter->second->wait(l)`, after `iter->second->wait(l)` returns, _recvr may
+    // have been closed and resouces in _recvr are released;
+    _recvr->update_blocks_memory_usage(block_mem_size);
+    if (_recvr->exceeds_limit(0)) {
         // yiguolei
         // It is too tricky here, if the running thread is bthread then the tid may be wrong.
         std::thread::id tid = std::this_thread::get_id();
@@ -234,8 +239,6 @@ void VDataStreamRecvr::SenderQueue::add_block(Block* block, bool use_move) {
         _pending_closures.emplace_back(iter->second.get(), monotonicStopWatch);
         iter->second->wait(l);
     }
-
-    _recvr->_blocks_memory_usage->add(block_mem_size);
 }
 
 void VDataStreamRecvr::SenderQueue::decrement_senders(int be_number) {

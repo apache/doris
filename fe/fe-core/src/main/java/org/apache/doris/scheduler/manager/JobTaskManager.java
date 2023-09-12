@@ -31,6 +31,7 @@ import java.io.DataOutput;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
@@ -43,6 +44,31 @@ public class JobTaskManager implements Writable {
     private static final Integer TASK_MAX_NUM = Config.scheduler_job_task_max_saved_count;
 
     private ConcurrentHashMap<Long, ConcurrentLinkedQueue<JobTask>> jobTaskMap = new ConcurrentHashMap<>(16);
+
+
+    /**
+     * taskId -> startTime
+     * used to record the start time of the task to be executed
+     * will clear when the task is executed
+     */
+    private static ConcurrentHashMap<Long, Map<Long, Long>> prepareTaskCreateMsMap = new ConcurrentHashMap<>(16);
+
+    public static void addPrepareTaskStartTime(Long jobId, Long taskId, Long startTime) {
+        prepareTaskCreateMsMap.computeIfAbsent(jobId, k -> new HashMap<>());
+        prepareTaskCreateMsMap.get(jobId).put(taskId, startTime);
+    }
+
+    public static Long pollPrepareTaskByTaskId(Long jobId, Long taskId) {
+        if (!prepareTaskCreateMsMap.containsKey(jobId)) {
+            // if the job is not in the map, return current time
+            return System.currentTimeMillis();
+        }
+        return prepareTaskCreateMsMap.get(jobId).remove(taskId);
+    }
+
+    public static void clearPrepareTaskByJobId(Long jobId) {
+        prepareTaskCreateMsMap.remove(jobId);
+    }
 
     public void addJobTask(JobTask jobTask) {
         ConcurrentLinkedQueue<JobTask> jobTasks = jobTaskMap
