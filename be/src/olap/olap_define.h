@@ -179,7 +179,7 @@ const std::string REMOTE_TABLET_GC_PREFIX = "tgc_";
         }                      \
     } while (0)
 
-#define SAFE_STOP(ptr)      \
+#define SAFE_STOP(ptr)        \
     do {                      \
         if (nullptr != ptr) { \
             ptr->stop();      \

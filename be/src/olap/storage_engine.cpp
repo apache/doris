@@ -553,7 +553,7 @@ void StorageEngine::stop() {
     THREADS_JOIN(_path_gc_threads);
     THREADS_JOIN(_path_scan_threads);
 #undef THREADS_JOIN
-    
+
     if (_base_compaction_thread_pool) {
         _base_compaction_thread_pool->shutdown();
     }

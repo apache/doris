@@ -562,7 +562,7 @@ void ExecEnv::destroy() {
     // cache_manager must be destoried after _inverted_index_query_cache
     // https://github.com/apache/doris/issues/24082#issuecomment-1712544039
     SAFE_DELETE(_cache_manager);
-    
+
     SAFE_DELETE(_small_file_mgr);
     SAFE_DELETE(_broker_mgr);
     SAFE_DELETE(_load_path_mgr);
@@ -586,7 +586,7 @@ void ExecEnv::destroy() {
     _send_report_thread_pool.reset(nullptr);
     _buffered_reader_prefetch_thread_pool.reset(nullptr);
     _send_batch_thread_pool.reset(nullptr);
-    
+
     SAFE_DELETE(_broker_client_cache);
     SAFE_DELETE(_frontend_client_cache);
     SAFE_DELETE(_backend_client_cache);

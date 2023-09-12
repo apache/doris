@@ -447,7 +447,7 @@ int main(int argc, char** argv) {
     // Doris own signal handler must be register after jvm is init.
     // Or our own sig-handler for SIGINT & SIGTERM will not be chained ...
     // https://www.oracle.com/java/technologies/javase/signals.html
-    doris::init_signals();   
+    doris::init_signals();
     // ATTN: MUST init before `ExecEnv`, `StorageEngine` and other daemon services
     //
     //       Daemon ───┬──► StorageEngine ──► ExecEnv ──► Disk/Mem/CpuInfo
