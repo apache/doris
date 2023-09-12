@@ -18,9 +18,7 @@
 #pragma once
 
 #include <common/multi_version.h>
-#include <gen_cpp/HeartbeatService_types.h>
 #include <stddef.h>
-
 #include <algorithm>
 #include <atomic>
 #include <map>
@@ -35,11 +33,11 @@
 #include "olap/memtable_memory_limiter.h"
 #include "olap/olap_define.h"
 #include "olap/options.h"
+#include "runtime/frontend_info.h"  // TODO(zhiqiang): find a way to remove this include header
 #include "util/threadpool.h"
 #include "vec/common/hash_table/phmap_fwd_decl.h"
 
 namespace doris {
-struct FrontendInfo;
 namespace vectorized {
 class VDataStreamMgr;
 class ScannerScheduler;
@@ -108,8 +106,14 @@ inline bool k_doris_exit = false;
 // once to properly initialise service state.
 class ExecEnv {
 public:
+    // Empty destructor because the compiler-generated one requires full
+    // declarations for classes in scoped_ptrs.
+    ~ExecEnv();
+
     // Initial exec environment. must call this to init all
     [[nodiscard]] static Status init(ExecEnv* env, const std::vector<StorePath>& store_paths);
+
+    // Stop all threads and delete resources.
     void destroy();
 
     /// Returns the first created exec env instance. In a normal doris, this is
@@ -119,10 +123,6 @@ public:
         static ExecEnv s_exec_env;
         return &s_exec_env;
     }
-
-    // Empty destructor because the compiler-generated one requires full
-    // declarations for classes in scoped_ptrs.
-    ~ExecEnv();
 
     static bool ready() { return _s_ready.load(std::memory_order_acquire); }
     const std::string& token() const;
@@ -207,6 +207,8 @@ public:
     FileMetaCache* file_meta_cache() { return _file_meta_cache; }
     MemTableMemoryLimiter* memtable_memory_limiter() { return _memtable_memory_limiter.get(); }
 #ifdef BE_TEST
+    void set_ready() { this->_s_ready = true; }
+    void set_not_ready() { this->_s_ready = false; }
     void set_memtable_memory_limiter(MemTableMemoryLimiter* limiter) {
         _memtable_memory_limiter.reset(limiter);
     }
@@ -223,6 +225,7 @@ public:
     void set_tablet_schema_cache(TabletSchemaCache* c) { this->_tablet_schema_cache = c; }
     void set_storage_page_cache(StoragePageCache* c) { this->_storage_page_cache = c; }
     void set_segment_loader(SegmentLoader* sl) { this->_segment_loader = sl; }
+    void set_routine_load_task_executor(RoutineLoadTaskExecutor* r) { this->_routine_load_task_executor = r; }
 
 #endif
     vectorized::ZoneList& global_zone_cache() { return *_global_zone_cache; }
@@ -252,7 +255,7 @@ public:
     }
 
 private:
-    ExecEnv();
+    ExecEnv() = default;
 
     [[nodiscard]] Status _init(const std::vector<StorePath>& store_paths);
     void _destroy();

@@ -63,7 +63,7 @@ public:
         config::max_consumer_num_per_group = 3;
     }
 
-    void TearDown() override { delete _env.master_info(); }
+    void TearDown() override {  delete _env.master_info(); }
 
     ExecEnv _env;
 };
@@ -93,7 +93,6 @@ TEST_F(RoutineLoadTaskExecutorTest, exec_task) {
     task.__set_kafka_load_info(k_info);
 
     RoutineLoadTaskExecutor executor(&_env);
-
     // submit task
     Status st;
     st = executor.submit_task(task);
@@ -116,6 +115,8 @@ TEST_F(RoutineLoadTaskExecutorTest, exec_task) {
     task.__set_kafka_load_info(k_info);
     st = executor.submit_task(task);
     EXPECT_TRUE(st.ok());
+
+    executor.stop();
 }
 
 } // namespace doris

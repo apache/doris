@@ -32,8 +32,6 @@
 
 namespace doris {
 
-ExecEnv::ExecEnv() = default;
-
 ExecEnv::~ExecEnv() {
     destroy();
 }

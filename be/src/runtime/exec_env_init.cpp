@@ -518,6 +518,7 @@ void ExecEnv::destroy() {
     SAFE_STOP(_load_path_mgr);
     SAFE_STOP(_result_mgr);
     SAFE_STOP(_group_commit_mgr);
+    // _routine_load_task_executor should be stopped before _new_load_stream_mgr.
     SAFE_STOP(_routine_load_task_executor);
     SAFE_STOP(_pipeline_task_scheduler);
     SAFE_STOP(_pipeline_task_group_scheduler);
