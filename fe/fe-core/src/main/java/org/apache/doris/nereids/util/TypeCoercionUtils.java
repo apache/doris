@@ -17,7 +17,6 @@
 
 package org.apache.doris.nereids.util;
 
-import org.apache.doris.analysis.ArithmeticExpr;
 import org.apache.doris.analysis.FunctionCallExpr;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
@@ -102,7 +101,6 @@ import org.apache.doris.nereids.types.coercion.PrimitiveType;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.annotations.VisibleForTesting;
-import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableList.Builder;
 import com.google.common.collect.Lists;
@@ -699,7 +697,8 @@ public class TypeCoercionUtils {
             commonType = DoubleType.INSTANCE;
         }
 
-        if (t1.isDecimalV3Type() || t2.isDecimalV3Type()) {
+        if (t1.isDecimalV3Type() && t2.isDecimalV2Type()
+                || t1.isDecimalV2Type() && t2.isDecimalV3Type()) {
             return processDecimalV3BinaryArithmetic(binaryArithmetic, left, right);
         }
 
@@ -741,26 +740,7 @@ public class TypeCoercionUtils {
 
         // double and float already process, we only process decimalv2 and fixed point number.
         if (t1 instanceof DecimalV3Type || t2 instanceof DecimalV3Type) {
-            DecimalV3Type dt1 = DecimalV3Type.forType(t1);
-            DecimalV3Type dt2 = DecimalV3Type.forType(t2);
-
-            // check return type whether overflow, if true, turn to double
-            DecimalV3Type retType;
-            try {
-                retType = binaryArithmetic.getDataTypeForDecimalV3(dt1, dt2);
-            } catch (Exception e) {
-                // exception means overflow.
-                return castChildren(binaryArithmetic, left, right, DoubleType.INSTANCE);
-            }
-
-            // add, subtract and mod should cast children to exactly same type as return type
-            if (binaryArithmetic instanceof Add
-                    || binaryArithmetic instanceof Subtract
-                    || binaryArithmetic instanceof Mod) {
-                return castChildren(binaryArithmetic, left, right, retType);
-            }
-            // multiply do not need to cast children to same type
-            return binaryArithmetic.withChildren(castIfNotSameType(left, dt1), castIfNotSameType(right, dt2));
+            return processDecimalV3BinaryArithmetic(binaryArithmetic, left, right);
         }
 
         // double, float and decimalv3 already process, we only process fixed point number
@@ -1450,118 +1430,29 @@ public class TypeCoercionUtils {
         }
     }
 
-    // This function is nereids's version of ArithmeticExpr's analyzeDecimalV3Op() method in old planner
-    // The function also do exact the same thing as analyzeDecimalV3Op
     private static Expression processDecimalV3BinaryArithmetic(BinaryArithmetic binaryArithmetic,
             Expression left, Expression right) {
-        DataType t1 = left.getDataType();
-        DataType t2 = right.getDataType();
-        ArithmeticExpr.Operator op = binaryArithmetic.getLegacyOperator();
-        switch (op) {
-            case MULTIPLY:
-            case ADD:
-            case SUBTRACT:
-            case MOD:
-            case DIVIDE:
-                if (t1.isFloatLikeType() || t2.isFloatLikeType()) {
-                    return binaryArithmetic.withChildren(
-                            castIfNotSameType(left, DoubleType.INSTANCE),
-                            castIfNotSameType(right, DoubleType.INSTANCE));
-                }
+        DecimalV3Type dt1 =
+                DecimalV3Type.forType(TypeCoercionUtils.getNumResultType(left.getDataType()));
+        DecimalV3Type dt2 =
+                DecimalV3Type.forType(TypeCoercionUtils.getNumResultType(left.getDataType()));
 
-                t1 = DecimalV3Type.forType(t1);
-                t2 = DecimalV3Type.forType(t2);
-
-                final int t1Precision = t1.isDecimalV2Type() ? ((DecimalV2Type) t1).getPrecision()
-                        : ((DecimalV3Type) t1).getPrecision();
-                final int t2Precision = t2.isDecimalV2Type() ? ((DecimalV2Type) t2).getPrecision()
-                        : ((DecimalV3Type) t2).getPrecision();
-                final int t1Scale = t1.isDecimalV2Type() ? ((DecimalV2Type) t1).getScale()
-                        : ((DecimalV3Type) t1).getScale();
-                final int t2Scale = t2.isDecimalV2Type() ? ((DecimalV2Type) t2).getScale()
-                        : ((DecimalV3Type) t2).getScale();
-                int precision = Math.max(t1Precision, t2Precision);
-                int scale = Math.max(t1Scale, t2Scale);
-
-                // operands: DECIMALV3(precision1, scale1) and DECIMALV3(precision2, scale2)
-                // we use widthOfIntPart to present width of integer part.
-                int widthOfIntPart1 = t1Precision - t1Scale;
-                int widthOfIntPart2 = t2Precision - t2Scale;
-                if (op == ArithmeticExpr.Operator.MULTIPLY) {
-                    // target type: DECIMALV3(precision1 + precision2, scale1 + scale2)
-                    scale = t1Scale + t2Scale;
-                    precision = t1Precision + t2Precision;
-                } else if (op == ArithmeticExpr.Operator.DIVIDE) {
-                    precision = DecimalV3Type.forType(t1).getPrecision() + t2Scale
-                            + Config.div_precision_increment;
-                    scale = t1Scale + Config.div_precision_increment;
-                } else if (op == ArithmeticExpr.Operator.ADD
-                        || op == ArithmeticExpr.Operator.SUBTRACT) {
-                    // target type: DECIMALV3(max(widthOfIntPart1, widthOfIntPart2) + max(scale1, scale2) + 1,
-                    // max(scale1, scale2))
-                    scale = Math.max(t1Scale, t2Scale);
-                    precision = Math.max(widthOfIntPart1, widthOfIntPart2) + scale + 1;
-                } else {
-                    scale = Math.max(t1Scale, t2Scale);
-                    precision = widthOfIntPart2 + scale;
-                }
-                if (precision > ScalarType.MAX_DECIMAL128_PRECISION) {
-                    // TODO(gabriel): if precision is bigger than 38?
-                    precision = ScalarType.MAX_DECIMAL128_PRECISION;
-                }
-                if (precision < scale) {
-                    return binaryArithmetic.withChildren(
-                            castIfNotSameType(left, DoubleType.INSTANCE),
-                            castIfNotSameType(right, DoubleType.INSTANCE));
-                }
-                DecimalV3Type type = DecimalV3Type.createDecimalV3Type(precision, scale);
-                if (op == ArithmeticExpr.Operator.ADD || op == ArithmeticExpr.Operator.SUBTRACT) {
-                    return binaryArithmetic.withChildren(
-                            type.getScale() != t1Scale ? castIfNotSameType(left, type) : left,
-                            type.getScale() != t2Scale ? castIfNotSameType(right, type) : right);
-                } else if (op == ArithmeticExpr.Operator.DIVIDE && t1.isDecimalV3Type()) {
-                    int leftPrecision = t1Precision + t2Scale + Config.div_precision_increment;
-                    int leftScale = t1Scale + t2Scale + Config.div_precision_increment;
-                    if (leftPrecision < leftScale
-                            || leftPrecision > ScalarType.MAX_DECIMAL128_PRECISION) {
-                        return binaryArithmetic.withChildren(
-                                castIfNotSameType(left, DoubleType.INSTANCE),
-                                castIfNotSameType(right, DoubleType.INSTANCE));
-                    }
-                    return binaryArithmetic.withChildren(
-                            unSafeCast(left,
-                                    DecimalV3Type.createDecimalV3Type(leftPrecision, leftScale)),
-                            right);
-                } else if (op == ArithmeticExpr.Operator.MOD) {
-                    // TODO use max int part + max scale of two operands as result type
-                    // because BE require the result and operands types are the exact the same decimalv3 type
-                    precision = Math.max(widthOfIntPart1, widthOfIntPart2) + scale;
-                    if (precision > ScalarType.MAX_DECIMAL128_PRECISION) {
-                        return binaryArithmetic.withChildren(
-                                castIfNotSameType(left, DoubleType.INSTANCE),
-                                castIfNotSameType(right, DoubleType.INSTANCE));
-                    } else {
-                        type = DecimalV3Type.createDecimalV3Type(precision, scale);
-                        return binaryArithmetic.withChildren(castIfNotSameType(left, type),
-                                castIfNotSameType(right, type));
-                    }
-                }
-                break;
-            case INT_DIVIDE:
-            case BITAND:
-            case BITOR:
-            case BITXOR:
-                return binaryArithmetic.withChildren(castIfNotSameType(left, BigIntType.INSTANCE),
-                        castIfNotSameType(right, BigIntType.INSTANCE));
-            case BITNOT:
-            case FACTORIAL:
-                break;
-            default:
-                Preconditions.checkState(false,
-                        "Unknown arithmetic operation " + op + " in: " + binaryArithmetic.toSql());
-                break;
+        // check return type whether overflow, if true, turn to double
+        DecimalV3Type retType;
+        try {
+            retType = binaryArithmetic.getDataTypeForDecimalV3(dt1, dt2);
+        } catch (Exception e) {
+            // exception means overflow.
+            return castChildren(binaryArithmetic, left, right, DoubleType.INSTANCE);
         }
-        return binaryArithmetic.withChildren(castIfNotSameType(left, t1),
-                castIfNotSameType(right, t2));
+
+        // add, subtract and mod should cast children to exactly same type as return type
+        if (binaryArithmetic instanceof Add || binaryArithmetic instanceof Subtract
+                || binaryArithmetic instanceof Mod) {
+            return castChildren(binaryArithmetic, left, right, retType);
+        }
+        // multiply do not need to cast children to same type
+        return binaryArithmetic.withChildren(castIfNotSameType(left, dt1),
+                castIfNotSameType(right, dt2));
     }
 }
