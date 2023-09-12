@@ -2695,11 +2695,6 @@ show_job_stmt ::=
     {:
         RESULT = new ShowJobStmt(null,jobLabel,null);
     :}
-        | KW_SHOW ident:category KW_JOB KW_FOR job_label:jobLabel
-        {:
-            RESULT = new ShowJobStmt(ncategoryll,jobLabel,null);
-        :}
-    
     | KW_SHOW KW_JOB KW_TASKS KW_FOR job_label:jobLabel
     {:
         RESULT = new ShowJobTaskStmt(null,jobLabel);
