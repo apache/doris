@@ -479,9 +479,9 @@ DEFINE_Int32(tablet_writer_open_rpc_timeout_sec, "60");
 DEFINE_mBool(tablet_writer_ignore_eovercrowded, "true");
 DEFINE_mBool(exchange_sink_ignore_eovercrowded, "true");
 DEFINE_mInt32(slave_replica_writer_rpc_timeout_sec, "60");
-// Whether to enable stream load record function, the default is false.
+// Whether to enable stream load record function, the default is true.
 // False: disable stream load record
-DEFINE_mBool(enable_stream_load_record, "false");
+DEFINE_mBool(enable_stream_load_record, "true");
 // batch size of stream load record reported to FE
 DEFINE_mInt32(stream_load_record_batch_size, "50");
 // expire time of stream load record in rocksdb.
