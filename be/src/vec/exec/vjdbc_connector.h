@@ -64,6 +64,8 @@ public:
         int64_t _load_jar_timer = 0;
         int64_t _init_connector_timer = 0;
         int64_t _get_data_timer = 0;
+        int64_t _call_jni_next_timer = 0;
+        int64_t _convert_batch_timer = 0;
         int64_t _check_type_timer = 0;
         int64_t _execte_read_timer = 0;
         int64_t _connector_close_timer = 0;

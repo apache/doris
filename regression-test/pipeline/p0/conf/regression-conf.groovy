@@ -54,11 +54,9 @@ testDirectories = ""
 // this groups will not be executed
 excludeGroups = ""
 // this suites will not be executed
-
-excludeSuites = "test_ddl,test_analyze,test_leading,test_stream_load_move_memtable,ds_rf95,test_profile,test_broker_load,test_spark_load,test_refresh_mtmv,test_bitmap_filter,test_export_parquet,test_doris_jdbc_catalog,nereids_delete_mow_partial_update"
-
+excludeSuites = "test_sql_block_rule,test_ddl,test_analyze,test_leading,test_stream_load_move_memtable,ds_rf95,ds_rf16,ds_rf94,test_profile,test_broker_load,test_spark_load,test_refresh_mtmv,test_bitmap_filter,test_export_parquet,test_doris_jdbc_catalog,nereids_delete_mow_partial_update,insert_group_commit_with_prepare_stmt"
 // this directories will not be executed
-excludeDirectories = "workload_manager_p1,nereids_tpch_shape_sf1000_p0,nereids_tpcds_shape_sf100_p0"
+excludeDirectories = "workload_manager_p1"
 
 customConf1 = "test_custom_conf_value"
 

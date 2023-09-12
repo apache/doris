@@ -201,6 +201,17 @@ under the License.
 
     Starting from version 2.0.2, this file can be placed in BE's `custom_lib/` directory (if it does not exist, just create it manually) to prevent the file from being lost due to the replacement of the lib directory when upgrading the cluster.
 
+9. Create a hive table specifying `serde` as `org.apache.hadoop.hive.contrib.serde2.MultiDelimitserDe`, and an error is reported when accessing the table: `storage schema reading not supported`
+
+   Add the following configuration to the hive-site .xml file and restart the HMS service:
+
+   ```
+    <property>
+      <name>metastore.storage.schema.reader.impl</name>
+      <value>org.apache.hadoop.hive.metastore.SerDeStorageSchemaReader</value>
+    </property> 
+   ```
+
 ## HDFS
 
 1. What to do with the`java.lang.VerifyError: xxx` error when accessing HDFS 3.x?

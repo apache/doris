@@ -325,8 +325,6 @@ private:
     void _remove_unused_remote_files_callback();
     void _cold_data_compaction_producer_callback();
 
-    void _cache_file_cleaner_tasks_producer_callback();
-
     Status _handle_seg_compaction(SegcompactionWorker* worker,
                                   SegCompactionCandidatesSharedPtr segments);
 
@@ -485,6 +483,8 @@ private:
     std::mutex _async_publish_mutex;
 
     bool _clear_segment_cache = false;
+
+    std::atomic<bool> _need_clean_trash {false};
 
     DISALLOW_COPY_AND_ASSIGN(StorageEngine);
 };
