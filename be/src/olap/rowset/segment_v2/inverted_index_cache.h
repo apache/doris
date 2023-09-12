@@ -84,7 +84,9 @@ public:
 
     // Return global instance.
     // Client should call create_global_cache before.
-    static InvertedIndexSearcherCache* instance() { return GetInvertedIndexSearcherCache(); }
+    static InvertedIndexSearcherCache* instance() {
+        return ExecEnv::GetInstance()->get_inverted_index_searcher_cache();
+    }
 
     static IndexSearcherPtr build_index_searcher(const io::FileSystemSPtr& fs,
                                                  const std::string& index_dir,
@@ -219,14 +221,15 @@ public:
 
     // Create global instance of this class
     static InvertedIndexQueryCache* create_global_cache(size_t capacity, uint32_t num_shards = 16) {
-        DCHECK(GetInvertedIndexQueryCache() == nullptr);
         InvertedIndexQueryCache* res = new InvertedIndexQueryCache(capacity, num_shards);
         return res;
     }
 
     // Return global instance.
     // Client should call create_global_cache before.
-    static InvertedIndexQueryCache* instance() { return GetInvertedIndexQueryCache(); }
+    static InvertedIndexQueryCache* instance() {
+        return ExecEnv::GetInstance()->get_inverted_index_query_cache();
+    }
 
     InvertedIndexQueryCache() = delete;
 

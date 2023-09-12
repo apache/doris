@@ -63,7 +63,7 @@ public:
         config::max_consumer_num_per_group = 3;
     }
 
-    void TearDown() override {  delete _env.master_info(); }
+    void TearDown() override { delete _env.master_info(); }
 
     ExecEnv _env;
 };

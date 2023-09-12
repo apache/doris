@@ -40,12 +40,11 @@ public:
         return res;
     }
 
-    static TabletSchemaCache* instance() { return GetGlobalTabletSchemaCache(); }
-
-    static void stop_and_join() {
-        DCHECK(GetGlobalTabletSchemaCache() != nullptr);
-        GetGlobalTabletSchemaCache()->stop();
+    static TabletSchemaCache* instance() {
+        return ExecEnv::GetInstance()->get_tablet_schema_cache();
     }
+
+    static void stop_and_join() { ExecEnv::GetInstance()->get_tablet_schema_cache()->stop(); }
 
     TabletSchemaSPtr insert(const std::string& key);
 

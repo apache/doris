@@ -19,6 +19,7 @@
 
 #include <common/multi_version.h>
 #include <stddef.h>
+
 #include <algorithm>
 #include <atomic>
 #include <map>
@@ -33,7 +34,7 @@
 #include "olap/memtable_memory_limiter.h"
 #include "olap/olap_define.h"
 #include "olap/options.h"
-#include "runtime/frontend_info.h"  // TODO(zhiqiang): find a way to remove this include header
+#include "runtime/frontend_info.h" // TODO(zhiqiang): find a way to remove this include header
 #include "util/threadpool.h"
 #include "vec/common/hash_table/phmap_fwd_decl.h"
 
@@ -225,7 +226,9 @@ public:
     void set_tablet_schema_cache(TabletSchemaCache* c) { this->_tablet_schema_cache = c; }
     void set_storage_page_cache(StoragePageCache* c) { this->_storage_page_cache = c; }
     void set_segment_loader(SegmentLoader* sl) { this->_segment_loader = sl; }
-    void set_routine_load_task_executor(RoutineLoadTaskExecutor* r) { this->_routine_load_task_executor = r; }
+    void set_routine_load_task_executor(RoutineLoadTaskExecutor* r) {
+        this->_routine_load_task_executor = r;
+    }
 
 #endif
     vectorized::ZoneList& global_zone_cache() { return *_global_zone_cache; }
@@ -369,26 +372,6 @@ template <>
 inline ClientCache<TPaloBrokerServiceClient>*
 ExecEnv::get_client_cache<TPaloBrokerServiceClient>() {
     return _broker_client_cache;
-}
-
-inline TabletSchemaCache* GetGlobalTabletSchemaCache() {
-    return ExecEnv::GetInstance()->get_tablet_schema_cache();
-}
-
-inline io::S3FileBufferPool* GetGlobalS3FileBufferPool() {
-    return ExecEnv::GetInstance()->get_s3_file_buffer_pool();
-}
-
-inline StorageEngine* GetGlobalStorageEngine() {
-    return ExecEnv::GetInstance()->get_storage_engine();
-}
-
-inline StoragePageCache* GetGlobalStoragePageCache() {
-    return ExecEnv::GetInstance()->get_storage_page_cache();
-}
-
-inline segment_v2::InvertedIndexSearcherCache* GetInvertedIndexSearcherCache() {
-    return ExecEnv::GetInstance()->get_inverted_index_searcher_cache();
 }
 
 inline segment_v2::InvertedIndexQueryCache* GetInvertedIndexQueryCache() {

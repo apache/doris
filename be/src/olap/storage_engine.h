@@ -84,7 +84,7 @@ public:
 
     [[nodiscard]] Status open();
 
-    static StorageEngine* instance() { return GetGlobalStorageEngine(); }
+    static StorageEngine* instance() { return ExecEnv::GetInstance()->get_storage_engine(); }
 
     Status create_tablet(const TCreateTabletReq& request, RuntimeProfile* profile);
 

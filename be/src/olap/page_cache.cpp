@@ -28,7 +28,6 @@ StoragePageCache* StoragePageCache::create_global_cache(size_t capacity,
                                                         int32_t index_cache_percentage,
                                                         int64_t pk_index_cache_capacity,
                                                         uint32_t num_shards) {
-    DCHECK(GetGlobalStoragePageCache() == nullptr);
     StoragePageCache* res = new StoragePageCache(capacity, index_cache_percentage,
                                                  pk_index_cache_capacity, num_shards);
     return res;
