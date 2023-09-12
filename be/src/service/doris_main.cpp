@@ -556,7 +556,7 @@ int main(int argc, char** argv) {
     }
     LOG(INFO) << "Doris main exiting.";
     // For graceful shutdown, need to wait for all running queries to stop
-    // exec_env->wait_for_all_tasks_done();
+    exec_env->wait_for_all_tasks_done();
     daemon.stop();
     flight_server.reset();
     LOG(INFO) << "Flight server stopped.";
