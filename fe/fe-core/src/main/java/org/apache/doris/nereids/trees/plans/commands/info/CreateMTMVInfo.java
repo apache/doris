@@ -45,6 +45,9 @@ import java.util.Objects;
 import java.util.TreeMap;
 import java.util.stream.Collectors;
 
+/**
+ * MTMV info in creating MTMV.
+ */
 public class CreateMTMVInfo {
     private final boolean ifNotExists;
     private String dbName;
@@ -64,6 +67,9 @@ public class CreateMTMVInfo {
     private final List<TableIf> baseTables = Lists.newArrayList();
     private final List<ColumnDefinition> columns = Lists.newArrayList();
 
+    /**
+     * constructor for create MTMV
+     */
     public CreateMTMVInfo(boolean ifNotExists, String dbName, String tableName,
             List<String> keys, String comment,
             DistributionDescriptor distribution, Map<String, String> properties,
@@ -137,6 +143,9 @@ public class CreateMTMVInfo {
         }
     }
 
+    /**
+     * translate to catalog CreateMultiTableMaterializedViewStmt
+     */
     public CreateMultiTableMaterializedViewStmt translateToLegacyStmt() {
         TableName tableName = new TableName(Env.getCurrentEnv().getCurrentCatalog().getName(), dbName, this.tableName);
         KeysDesc keysDesc = new KeysDesc(KeysType.DUP_KEYS, keys);

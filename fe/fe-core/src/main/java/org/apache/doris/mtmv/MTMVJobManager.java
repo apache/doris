@@ -59,6 +59,7 @@ public class MTMVJobManager {
         String uid = UUID.randomUUID().toString();
         Job job = new Job();
         job.setCycleJob(false);
+        job.setBaseName(materializedView.getName());
         job.setDbName(materializedView.getQualifiedDbName());
         job.setJobName(materializedView.getId() + "_" + uid);
         job.setExecutor(sqlJobExecutor);
@@ -74,6 +75,7 @@ public class MTMVJobManager {
         String uid = UUID.randomUUID().toString();
         Job job = new Job();
         job.setCycleJob(true);
+        job.setBaseName(materializedView.getName());
         job.setDbName(materializedView.getQualifiedDbName());
         job.setJobName(materializedView.getId() + "_" + uid);
         job.setExecutor(sqlJobExecutor);
@@ -96,7 +98,10 @@ public class MTMVJobManager {
         List<Job> jobs = Env.getCurrentEnv().getJobRegister()
                 .getJobs(table.getQualifiedDbName(), null, JobCategory.MTMV, null);
         for (Job job : jobs) {
-            Env.getCurrentEnv().getJobRegister().stopJob(job.getJobId());
+            // TODO: 2023/9/12 JobRegister should provide interface filter by baseName
+            if (table.getName().equals(job.getBaseName())) {
+                Env.getCurrentEnv().getJobRegister().stopJob(job.getJobId());
+            }
         }
     }
 }
