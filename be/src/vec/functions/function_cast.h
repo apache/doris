@@ -575,7 +575,7 @@ struct ConvertImplGenericFromString {
                     continue;
                 }
                 Slice string_slice(val.data, val.size);
-                Status st = serde->deserialize_one_cell_from_text(*col_to, string_slice,
+                Status st = serde->deserialize_one_cell_from_json(*col_to, string_slice,
                                                                   format_options);
                 // if parsing failed, will return null
                 (*vec_null_map_to)[i] = !st.ok();
