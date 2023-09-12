@@ -63,7 +63,20 @@ statement
         (PARTITION partition=identifierList)?
         (USING relation (COMMA relation)*)
         whereClause                                                    #delete
-    | loadStmt                                                         #load
+    | (LOAD LABEL lableName=identifier
+        LEFT_PAREN dataDescs+=dataDesc (COMMA dataDescs+=dataDesc)* RIGHT_PAREN
+        (withRemoteStorageSystem)?
+        (PROPERTIES LEFT_PAREN properties=propertyItemList RIGHT_PAREN)?
+        (commentSpec)?
+    | LOAD LABEL lableName=identifier
+        LEFT_PAREN dataDescs+=dataDesc (COMMA dataDescs+=dataDesc)* RIGHT_PAREN
+        resourceDesc
+        (PROPERTIES LEFT_PAREN properties=propertyItemList RIGHT_PAREN)?
+        (commentSpec)?
+    | LOAD mysqlDataDesc
+        (PROPERTIES LEFT_PAREN properties=propertyItemList RIGHT_PAREN)?
+        (commentSpec)?
+    )                                                                  #load
     | EXPORT TABLE tableName=multipartIdentifier
         (PARTITION partition=identifierList)?
         (whereClause)?
@@ -71,6 +84,31 @@ statement
         (propertyClause)?
         (withRemoteStorageSystem)?                                     #export
     ;
+
+dataDesc
+    : ((WITH)? mergeType)? DATA INFILE LEFT_PAREN filePaths+=STRING_LITERAL (COMMA filePath+=STRING_LITERAL)* RIGHT_PAREN
+        INTO TABLE tableName=multipartIdentifier
+        (PARTITION partition=identifierList)?
+        (COLUMNS TERMINATED BY comma=STRING_LITERAL)?
+        (LINES TERMINATED BY separator=STRING_LITERAL)?
+        (FORMAT AS format=identifier)?
+        (columns=identifierList)?
+        (columnsFromPath=colFromPath)?
+        (columnMapping=colMappingList)?
+        (preFilter=preFilterClause)?
+        (where=whereClause)?
+        (deleteOn=deleteOnClause)?
+        (sequenceColumn=sequenceColClause)?
+        (propertyClause)?
+    | ((WITH)? mergeType)? DATA FROM TABLE tableName=multipartIdentifier
+        INTO TABLE tableName=multipartIdentifier
+        (PARTITION partition=identifierList)?
+        (columnMapping=colMappingList)?
+        (where=whereClause)?
+        (deleteOn=deleteOnClause)?
+        (propertyClause)?
+    ;
+
 // -----------------Command accessories-----------------
 
 identifierOrText
@@ -97,46 +135,6 @@ planType
     | SHAPE
     | MEMO
     | ALL // default type
-    ;
-
-loadStmt
-    : LOAD LABEL lableName=identifier
-        LEFT_PAREN dataDescs+=dataDesc (COMMA dataDescs+=dataDesc)* RIGHT_PAREN
-        (withRemoteStorageSystem)?
-        (PROPERTIES LEFT_PAREN properties=propertyItemList RIGHT_PAREN)?
-        (commentSpec)?
-    | LOAD LABEL lableName=identifier
-        LEFT_PAREN dataDescs+=dataDesc (COMMA dataDescs+=dataDesc)* RIGHT_PAREN
-        resourceDesc
-        (PROPERTIES LEFT_PAREN properties=propertyItemList RIGHT_PAREN)?
-        (commentSpec)?
-    | LOAD mysqlDataDesc
-        (PROPERTIES LEFT_PAREN properties=propertyItemList RIGHT_PAREN)?
-        (commentSpec)?
-    ;
-
-dataDesc
-    : ((WITH)? mergeType)? DATA INFILE LEFT_PAREN filePaths+=STRING_LITERAL (COMMA filePath+=STRING_LITERAL)* RIGHT_PAREN
-        INTO TABLE tableName=multipartIdentifier
-        (PARTITION partition=identifierList)?
-        (COLUMNS TERMINATED BY comma=STRING_LITERAL)?
-        (LINES TERMINATED BY separator=STRING_LITERAL)?
-        (FORMAT AS format=identifier)?
-        (columns=identifierList)?
-        (columnsFromPath=colFromPath)?
-        (columnMapping=colMappingList)?
-        (preFilter=preFilterClause)?
-        (where=whereClause)?
-        (deleteOn=deleteOnClause)?
-        (sequenceColumn=sequenceColClause)?
-        (PROPERTIES LEFT_PAREN propertyItemList RIGHT_PAREN)?
-    | ((WITH)? mergeType)? DATA FROM TABLE tableName=multipartIdentifier
-        INTO TABLE tableName=multipartIdentifier
-        (PARTITION partition=identifierList)?
-        (columnMapping=colMappingList)?
-        (where=whereClause)?
-        (deleteOn=deleteOnClause)?
-        (PROPERTIES LEFT_PAREN propertyItemList RIGHT_PAREN)?
     ;
 
 mergeType : APPEND | DELETE | MERGE ;
@@ -174,7 +172,7 @@ mysqlDataDesc
     (skipLines)?
     (columns=identifierList)?
     (colMappingList)?
-    (PROPERTIES LEFT_PAREN propertyItemList RIGHT_PAREN)?
+    (propertyClause)?
     ;
 
 skipLines : IGNORE lines=INTEGER_VALUE LINES | IGNORE lines=INTEGER_VALUE ROWS ;

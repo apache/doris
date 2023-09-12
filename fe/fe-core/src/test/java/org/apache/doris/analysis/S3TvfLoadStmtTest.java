@@ -219,7 +219,7 @@ public class S3TvfLoadStmtTest extends TestWithFeService {
     }
 
     private static List<Column> getBaseSchema() {
-        List<Column> columns = com.google.common.collect.Lists.newArrayList();
+        List<Column> columns = Lists.newArrayList();
 
         Column c1 = new Column("c1", PrimitiveType.BIGINT);
         c1.setIsKey(true);

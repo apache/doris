@@ -15,8 +15,9 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.analysis;
+package org.apache.doris.nereids.trees.plans.commands.info;
 
+import org.apache.doris.analysis.Separator;
 import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.load.loadv2.LoadTask;
@@ -62,9 +63,9 @@ import java.util.stream.Collectors;
  * It old way of transform will be removed gradually. It
  */
 public class BulkLoadDataDesc {
-    private static final Logger LOG = LogManager.getLogger(BulkLoadDataDesc.class);
     public static final String EXPECT_MERGE_DELETE_ON = "not support DELETE ON clause when merge type is not MERGE.";
     public static final String EXPECT_DELETE_ON = "Excepted DELETE ON clause when merge type is MERGE.";
+    private static final Logger LOG = LogManager.getLogger(BulkLoadDataDesc.class);
     private final List<String> nameParts;
     private final String tableName;
     private final String dbName;
@@ -89,6 +90,9 @@ public class BulkLoadDataDesc {
     private final Map<String, String> dataProperties;
     private boolean isMysqlLoad = false;
 
+    /**
+     * bulk load desc
+     */
     public BulkLoadDataDesc(List<String> fullTableName,
                             List<String> partitionNames,
                             List<String> filePaths,
@@ -123,6 +127,9 @@ public class BulkLoadDataDesc {
         this.dataProperties = dataProperties;
     }
 
+    /**
+     * bulk load file format desc
+     */
     public static class FileFormatDesc {
         private final Separator lineDelimiter;
         private final Separator columnSeparator;
@@ -136,6 +143,12 @@ public class BulkLoadDataDesc {
             this(lineDelimiter, columnSeparator, null);
         }
 
+        /**
+         * build bulk load format desc and check valid
+         * @param lineDelimiter text format line delimiter
+         * @param columnSeparator text format column separator
+         * @param fileFormat file format
+         */
         public FileFormatDesc(String lineDelimiter, String columnSeparator, String fileFormat) {
             this.lineDelimiter = new Separator(lineDelimiter);
             this.columnSeparator = new Separator(columnSeparator);
@@ -253,6 +266,10 @@ public class BulkLoadDataDesc {
         return toSql();
     }
 
+    /**
+     * print data desc load info
+     * @return bulk load sql
+     */
     public String toSql() {
         StringBuilder sb = new StringBuilder();
         if (isMysqlLoad) {

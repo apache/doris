@@ -17,8 +17,6 @@
 
 package org.apache.doris.nereids.trees.plans.commands;
 
-import org.apache.doris.analysis.BulkLoadDataDesc;
-import org.apache.doris.analysis.BulkStorageDesc;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.TableIf;
@@ -45,6 +43,8 @@ import org.apache.doris.nereids.trees.expressions.literal.TinyIntLiteral;
 import org.apache.doris.nereids.trees.plans.Explainable;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
+import org.apache.doris.nereids.trees.plans.commands.info.BulkLoadDataDesc;
+import org.apache.doris.nereids.trees.plans.commands.info.BulkStorageDesc;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCheckPolicy;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
@@ -60,7 +60,6 @@ import org.apache.doris.tablefunction.HdfsTableValuedFunction;
 import org.apache.doris.tablefunction.S3TableValuedFunction;
 
 import com.google.common.annotations.VisibleForTesting;
-import com.google.common.base.VerifyException;
 import com.google.common.collect.ImmutableList;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
@@ -154,7 +153,7 @@ public class LoadCommand extends Command implements ForwardWithSync, Explainable
                     // if not column, skip
                     continue;
                 }
-                String mappingColumn = equalTo.left().toSql();
+                String mappingColumn = ((UnboundSlot) equalTo.left()).getName();
                 if (originSinkToSourceMap.containsKey(mappingColumn)) {
                     Expression mappingExprAlias = equalTo.right();
                     originSinkToSourceMap.put(mappingColumn, new UnboundAlias(mappingExprAlias, mappingColumn));
@@ -178,7 +177,7 @@ public class LoadCommand extends Command implements ForwardWithSync, Explainable
         }
         Set<Expression> conjuncts = buildTvfFilter(dataDesc, originSinkToSourceMap);
         if (dataDesc.getFileFieldNames().isEmpty() && isCsvType(tvfProperties) && !conjuncts.isEmpty()) {
-            throw new VerifyException("Required property 'csv_schema' for csv file, "
+            throw new AnalysisException("Required property 'csv_schema' for csv file, "
                     + "when use PRECEDING FILTER, WHERE, ORDER BY AND DELETE ON clause.");
         }
         LogicalPlan tvfLogicalPlan = new LogicalProject<>(selectLists,                            // add select
@@ -229,7 +228,7 @@ public class LoadCommand extends Command implements ForwardWithSync, Explainable
                                          Map<String, NamedExpression> originSinkToSourceMap) throws AnalysisException {
         List<Column> fullSchema = olapTable.getFullSchema();
         if (dataDesc.getFileFieldNames().size() > fullSchema.size()) {
-            throw new VerifyException("Source columns size should less than sink columns size");
+            throw new AnalysisException("Source columns size should less than sink columns size");
         }
         checkDeleteOnConditions(dataDesc.getMergeType(), dataDesc.getDeleteCondition());
         Map<String, String> sourceProperties = dataDesc.getProperties();
@@ -246,42 +245,45 @@ public class LoadCommand extends Command implements ForwardWithSync, Explainable
             String sourceColumn = dataDesc.getFileFieldNames().get(i);
             if (targetColumn.equalsIgnoreCase(Column.VERSION_COL)) {
                 continue;
-            } else if (olapTable.hasDeleteSign()
+            }
+            if (olapTable.hasDeleteSign()
                     && targetColumn.equalsIgnoreCase(Column.DELETE_SIGN)
                     && dataDesc.getDeleteCondition() != null) {
                 sinkCols.add(targetColumn);
                 WhenClause deleteWhen = new WhenClause(dataDesc.getDeleteCondition(), new TinyIntLiteral((byte) 1));
                 CaseWhen deleteCase = new CaseWhen(ImmutableList.of(deleteWhen), new TinyIntLiteral((byte) 0));
                 originSinkToSourceMap.put(targetColumn, new UnboundAlias(deleteCase, targetColumn));
-                continue;
+            } else {
+                sinkCols.add(targetColumn);
+                originSinkToSourceMap.put(targetColumn, new UnboundSlot(sourceColumn));
             }
-            sinkCols.add(targetColumn);
-            originSinkToSourceMap.put(targetColumn, new UnboundSlot(sourceColumn));
         }
     }
 
-    private static void checkDeleteOnConditions(LoadTask.MergeType mergeType, Expression deleteCondition) {
+    private static void checkDeleteOnConditions(LoadTask.MergeType mergeType, Expression deleteCondition)
+                throws AnalysisException {
         if (mergeType != LoadTask.MergeType.MERGE && deleteCondition != null) {
-            throw new IllegalArgumentException(BulkLoadDataDesc.EXPECT_MERGE_DELETE_ON);
+            throw new AnalysisException(BulkLoadDataDesc.EXPECT_MERGE_DELETE_ON);
         }
         if (mergeType == LoadTask.MergeType.MERGE && deleteCondition == null) {
-            throw new IllegalArgumentException(BulkLoadDataDesc.EXPECT_DELETE_ON);
+            throw new AnalysisException(BulkLoadDataDesc.EXPECT_DELETE_ON);
         }
     }
 
     private static void checkAndAddSequenceCol(OlapTable olapTable, BulkLoadDataDesc dataDesc,
                                                List<String> sinkCols,
-                                               Map<String, NamedExpression> originSinkToSourceMap) {
+                                               Map<String, NamedExpression> originSinkToSourceMap)
+                throws AnalysisException {
         if (!dataDesc.hasSequenceCol() && !olapTable.hasSequenceCol()) {
             return;
         }
         // check olapTable schema and sequenceCol
         if (olapTable.hasSequenceCol() && !dataDesc.hasSequenceCol()) {
-            throw new VerifyException("Table " + olapTable.getName()
+            throw new AnalysisException("Table " + olapTable.getName()
                     + " has sequence column, need to specify the sequence column");
         }
         if (dataDesc.hasSequenceCol() && !olapTable.hasSequenceCol()) {
-            throw new VerifyException("There is no sequence column in the table " + olapTable.getName());
+            throw new AnalysisException("There is no sequence column in the table " + olapTable.getName());
         }
         String sequenceCol = dataDesc.getSequenceCol();
         // check source sequence column is in parsedColumnExprList or Table base schema
@@ -305,7 +307,7 @@ public class LoadCommand extends Command implements ForwardWithSync, Explainable
             }
         }
         if (!hasSourceSequenceCol) {
-            throw new VerifyException("There is no sequence column " + sequenceCol + " in the " + olapTable.getName()
+            throw new AnalysisException("There is no sequence column " + sequenceCol + " in the " + olapTable.getName()
                     + " or the COLUMNS and SET clause");
         } else {
             sinkCols.add(Column.SEQUENCE_COL);

@@ -19,8 +19,6 @@ package org.apache.doris.nereids.parser;
 
 import org.apache.doris.analysis.ArithmeticExpr.Operator;
 import org.apache.doris.analysis.BrokerDesc;
-import org.apache.doris.analysis.BulkLoadDataDesc;
-import org.apache.doris.analysis.BulkStorageDesc;
 import org.apache.doris.analysis.StorageBackend;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.AggregateType;
@@ -90,7 +88,6 @@ import org.apache.doris.nereids.DorisParser.JoinRelationContext;
 import org.apache.doris.nereids.DorisParser.LateralViewContext;
 import org.apache.doris.nereids.DorisParser.LessThanPartitionDefContext;
 import org.apache.doris.nereids.DorisParser.LimitClauseContext;
-import org.apache.doris.nereids.DorisParser.LoadContext;
 import org.apache.doris.nereids.DorisParser.LogicalBinaryContext;
 import org.apache.doris.nereids.DorisParser.LogicalNotContext;
 import org.apache.doris.nereids.DorisParser.MapLiteralContext;
@@ -290,6 +287,8 @@ import org.apache.doris.nereids.trees.plans.commands.ExportCommand;
 import org.apache.doris.nereids.trees.plans.commands.InsertIntoTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.LoadCommand;
 import org.apache.doris.nereids.trees.plans.commands.UpdateCommand;
+import org.apache.doris.nereids.trees.plans.commands.info.BulkLoadDataDesc;
+import org.apache.doris.nereids.trees.plans.commands.info.BulkStorageDesc;
 import org.apache.doris.nereids.trees.plans.commands.info.ColumnDefinition;
 import org.apache.doris.nereids.trees.plans.commands.info.CreateTableInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.DefaultValue;
@@ -543,27 +542,27 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     /**
      * Visit load-statements.
      */
-    public LogicalPlan visitLoad(LoadContext ctx) {
+    @Override
+    public LogicalPlan visitLoad(DorisParser.LoadContext ctx) {
 
         BulkStorageDesc bulkDesc = null;
-        DorisParser.LoadStmtContext loadStmt = ctx.loadStmt();
-        if (loadStmt.withRemoteStorageSystem() != null) {
+        if (ctx.withRemoteStorageSystem() != null) {
             Map<String, String> bulkProperties =
-                    new HashMap<>(visitPropertyItemList(loadStmt.withRemoteStorageSystem().brokerProperties));
-            if (loadStmt.withRemoteStorageSystem().S3() != null) {
+                    new HashMap<>(visitPropertyItemList(ctx.withRemoteStorageSystem().brokerProperties));
+            if (ctx.withRemoteStorageSystem().S3() != null) {
                 bulkDesc = new BulkStorageDesc("S3", BulkStorageDesc.StorageType.S3, bulkProperties);
-            } else if (loadStmt.withRemoteStorageSystem().HDFS() != null) {
+            } else if (ctx.withRemoteStorageSystem().HDFS() != null) {
                 bulkDesc = new BulkStorageDesc("HDFS", BulkStorageDesc.StorageType.HDFS, bulkProperties);
-            } else if (loadStmt.withRemoteStorageSystem().LOCAL() != null) {
+            } else if (ctx.withRemoteStorageSystem().LOCAL() != null) {
                 bulkDesc = new BulkStorageDesc("LOCAL_HDFS", BulkStorageDesc.StorageType.LOCAL, bulkProperties);
-            } else if (loadStmt.withRemoteStorageSystem().BROKER() != null
-                    && loadStmt.withRemoteStorageSystem().identifierOrText().getText() != null) {
-                bulkDesc = new BulkStorageDesc(loadStmt.withRemoteStorageSystem().identifierOrText().getText(),
+            } else if (ctx.withRemoteStorageSystem().BROKER() != null
+                    && ctx.withRemoteStorageSystem().identifierOrText().getText() != null) {
+                bulkDesc = new BulkStorageDesc(ctx.withRemoteStorageSystem().identifierOrText().getText(),
                         bulkProperties);
             }
         }
         List<BulkLoadDataDesc> dataDescriptions = new ArrayList<>();
-        for (DorisParser.DataDescContext ddc : ctx.loadStmt().dataDescs) {
+        for (DorisParser.DataDescContext ddc : ctx.dataDescs) {
             List<String> tableName = RelationUtil.getQualifierName(ConnectContext.get(),
                     visitMultipartIdentifier(ddc.tableName));
             List<String> colNames = (ddc.columns == null ? ImmutableList.of() : visitIdentifierList(ddc.columns));
@@ -587,8 +586,8 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                         .substring(1, ddc.separator.getText().length() - 1);
             String comma = ddc.comma == null ? null : ddc.comma.getText()
                         .substring(1, ddc.comma.getText().length() - 1);
-            Map<String, String> dataProperties = ddc.propertyItemList() == null ? new HashMap<>()
-                        : visitPropertyItemList(ddc.propertyItemList());
+            Map<String, String> dataProperties = ddc.propertyClause() == null ? new HashMap<>()
+                        : visitPropertyClause(ddc.propertyClause());
             dataDescriptions.add(new BulkLoadDataDesc(
                     tableName,
                     partitions,
@@ -605,9 +604,9 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                     ddc.sequenceColumn == null ? null : ddc.sequenceColumn.identifier().getText(),
                     dataProperties));
         }
-        String labelName = loadStmt.lableName.getText();
-        Map<String, String> properties = visitPropertyItemList(loadStmt.properties);
-        String commentSpec = loadStmt.commentSpec() == null ? "" : loadStmt.commentSpec().STRING_LITERAL().getText();
+        String labelName = ctx.lableName.getText();
+        Map<String, String> properties = visitPropertyItemList(ctx.properties);
+        String commentSpec = ctx.commentSpec() == null ? "" : ctx.commentSpec().STRING_LITERAL().getText();
         String comment = escapeBackSlash(commentSpec.substring(1, commentSpec.length() - 1));
         return new LoadCommand(labelName, dataDescriptions, bulkDesc, properties, comment);
     }
