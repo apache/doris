@@ -37,6 +37,8 @@ public class TaskEvent {
      */
     private Long id;
 
+    private Long taskId;
+
     private TaskType taskType;
 
     public static final EventFactory<TaskEvent> FACTORY = TaskEvent::new;

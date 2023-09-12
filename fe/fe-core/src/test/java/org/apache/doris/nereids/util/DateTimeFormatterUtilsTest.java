@@ -58,4 +58,25 @@ class DateTimeFormatterUtilsTest {
         Assertions.assertThrows(DateTimeParseException.class, () -> formatter.parse("20200219T010101."));
         Assertions.assertThrows(DateTimeParseException.class, () -> formatter.parse("20200219T010101.0000001"));
     }
+
+    @Test
+    void testTwoDigitalDate() {
+        DateTimeFormatter formatter = DateTimeFormatterUtils.DATE_FORMATTER;
+        // Year values in the range 00-69 become 2000-2069.
+        // Year values in the range 70-99 become 1970-199
+        for (int i = 0; i < 100; i++) {
+            String str;
+            if (i < 10) {
+                str = "0" + i + "-02-19";
+            } else {
+                str = i + "-02-19";
+            }
+            TemporalAccessor dateTime = formatter.parse(str);
+            if (i < 70) {
+                Assertions.assertEquals(2000 + i, dateTime.get(ChronoField.YEAR));
+            } else {
+                Assertions.assertEquals(1900 + i, dateTime.get(ChronoField.YEAR));
+            }
+        }
+    }
 }

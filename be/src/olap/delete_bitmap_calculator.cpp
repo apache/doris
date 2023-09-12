@@ -17,6 +17,7 @@
 
 #include "olap/delete_bitmap_calculator.h"
 
+#include "common/status.h"
 #include "olap/primary_key_index.h"
 #include "vec/data_types/data_type_factory.hpp"
 
@@ -192,7 +193,8 @@ Status MergeIndexDeleteBitmapCalculator::calculate_all(DeleteBitmapPtr delete_bi
             break;
         }
         RETURN_IF_ERROR(st);
-        delete_bitmap->add({_rowset_id, loc.segment_id, 0}, loc.row_id);
+        delete_bitmap->add({_rowset_id, loc.segment_id, DeleteBitmap::TEMP_VERSION_COMMON},
+                           loc.row_id);
     }
     return Status::OK();
 }
