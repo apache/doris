@@ -1468,26 +1468,10 @@ public class TypeCoercionUtils {
                             castIfNotSameType(left, DoubleType.INSTANCE),
                             castIfNotSameType(right, DoubleType.INSTANCE));
                 }
-                if (t1.isIntegralType()) {
-                    return binaryArithmetic
-                            .withChildren(unSafeCast(left, DecimalV3Type.forType(t1)), right);
-                }
-                if (t2.isIntegralType()) {
-                    return binaryArithmetic.withChildren(left,
-                            unSafeCast(right, DecimalV3Type.forType(t2)));
-                }
-                if (t1.isDecimalV2Type()) {
-                    return binaryArithmetic
-                            .withChildren(unSafeCast(left, DecimalV3Type.forType(t1)), right);
-                }
-                if (t2.isDecimalV2Type()) {
-                    return binaryArithmetic.withChildren(left,
-                            unSafeCast(right, DecimalV3Type.forType(t2)));
-                }
-                Preconditions.checkState(t1.isDecimalV2Type() || t1.isDecimalV3Type(),
-                        "t1 must be decimal type");
-                Preconditions.checkState(t2.isDecimalV2Type() || t2.isDecimalV3Type(),
-                        "t2 must be decimal type");
+
+                t1 = DecimalV3Type.forType(t1);
+                t2 = DecimalV3Type.forType(t2);
+
                 final int t1Precision = t1.isDecimalV2Type() ? ((DecimalV2Type) t1).getPrecision()
                         : ((DecimalV3Type) t1).getPrecision();
                 final int t2Precision = t2.isDecimalV2Type() ? ((DecimalV2Type) t2).getPrecision()
@@ -1577,6 +1561,7 @@ public class TypeCoercionUtils {
                         "Unknown arithmetic operation " + op + " in: " + binaryArithmetic.toSql());
                 break;
         }
-        return binaryArithmetic;
+        return binaryArithmetic.withChildren(castIfNotSameType(left, t1),
+                castIfNotSameType(right, t2));
     }
 }
