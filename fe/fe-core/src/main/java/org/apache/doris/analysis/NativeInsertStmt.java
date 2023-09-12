@@ -187,6 +187,12 @@ public class NativeInsertStmt extends InsertStmt {
         this.tableId = tableId;
     }
 
+    public NativeInsertStmt(long tableId, String label, List<String> cols, InsertSource source,
+            List<String> hints, boolean isInsertIgnore) {
+        this(new InsertTarget(new TableName(null, null, null), null), label, cols, source, hints, isInsertIgnore);
+        this.tableId = tableId;
+    }
+
     public NativeInsertStmt(InsertTarget target, String label, List<String> cols, InsertSource source,
             List<String> hints, boolean isInsertIgnore) {
         super(new LabelName(null, label), null, null);
