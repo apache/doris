@@ -759,8 +759,7 @@ T StringParser::string_to_decimal(const char* s, int len, int type_precision, in
     *result = StringParser::PARSE_SUCCESS;
     if (UNLIKELY(precision - scale > type_precision - type_scale)) {
         *result = StringParser::PARSE_OVERFLOW;
-        if constexpr (TYPE_DECIMALV2 == P) {
-        } else {
+        if constexpr (TYPE_DECIMALV2 != P) {
             // decimalv3 overflow will return max min value for type precision
             value = is_negative
                             ? vectorized::min_decimal_value<vectorized::Decimal<T>>(type_precision)
