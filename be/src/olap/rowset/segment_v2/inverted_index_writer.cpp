@@ -472,6 +472,9 @@ public:
                 if (data_out != nullptr && meta_out != nullptr && index_out != nullptr) {
                     _bkd_writer->meta_finish(meta_out, _bkd_writer->finish(data_out, index_out),
                                              int(field_type));
+                } else {
+                    LOG(WARNING) << "Inverted index writer create output error occurred: nullptr";
+                    _CLTHROWA(CL_ERR_IO, "Create output error with nullptr");
                 }
                 FINALIZE_OUTPUT(meta_out)
                 FINALIZE_OUTPUT(data_out)

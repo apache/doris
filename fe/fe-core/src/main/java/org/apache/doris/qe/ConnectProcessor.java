@@ -280,7 +280,9 @@ public class ConnectProcessor {
     // Process COM_QUERY statement,
     // only throw an exception when there is a problem interacting with the requesting client
     private void handleQuery(MysqlCommand mysqlCommand) {
-        MetricRepo.COUNTER_REQUEST_ALL.increase(1L);
+        if (MetricRepo.isInit) {
+            MetricRepo.COUNTER_REQUEST_ALL.increase(1L);
+        }
         // convert statement to Java string
         byte[] bytes = packetBuf.array();
         int ending = packetBuf.limit() - 1;

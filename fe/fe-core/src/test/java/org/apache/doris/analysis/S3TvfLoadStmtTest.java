@@ -33,11 +33,11 @@ import org.apache.doris.datasource.property.constants.S3Properties.Env;
 import org.apache.doris.load.loadv2.LoadTask.MergeType;
 import org.apache.doris.tablefunction.S3TableValuedFunction;
 
+import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 import mockit.Expectations;
 import mockit.Injectable;
-import org.apache.hadoop.util.Lists;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
