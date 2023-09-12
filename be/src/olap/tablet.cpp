@@ -2954,7 +2954,7 @@ Status Tablet::calc_segment_delete_bitmap(RowsetSharedPtr rowset,
                 continue;
             }
             if (UNLIKELY(is_unique_key_ignore_mode)) {
-                if (st.is<OK>() || st.is<ALREADY_EXIST>()) {
+                if (st.is<OK>() || st.is<KEY_ALREADY_EXISTS>()) {
                     delete_bitmap->add({rowset_id, seg->id(), DeleteBitmap::TEMP_VERSION_COMMON},
                                        row_id);
                 }
