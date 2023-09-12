@@ -26,6 +26,16 @@ import java.util.function.Consumer;
 
 class DateLiteralTest {
     @Test
+    void reject() {
+        // TODO: reject them.
+        // Now parse them as date + offset.
+        // PG parse them as date + offset, MySQL parse them as date + time (rubbish behavior!)
+        // So strange! reject these strange case.
+        // Assertions.assertThrows(AnalysisException.class, () -> new DateLiteral("2022-01-01-01"));
+        // Assertions.assertThrows(AnalysisException.class, () -> new DateLiteral("2022-01-01-1"));
+    }
+
+    @Test
     void testNormalize() {
         String s = DateLiteral.normalize("2021-5");
         Assertions.assertEquals("2021-05", s);
@@ -91,9 +101,6 @@ class DateLiteralTest {
         new DateLiteral("2022-01-01-01:00");
         new DateLiteral("2022-01-01-1:0:0");
         new DateLiteral("2022-01-01-1:0");
-
-        // Assertions.assertThrows(AnalysisException.class, () -> new DateLiteral("2022-01-01-01"));
-        // Assertions.assertThrows(AnalysisException.class, () -> new DateLiteral("2022-01-01-1"));
     }
 
     @Test

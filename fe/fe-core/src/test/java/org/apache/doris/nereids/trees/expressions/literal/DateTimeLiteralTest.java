@@ -164,8 +164,6 @@ class DateTimeLiteralTest {
         new DateTimeV2Literal("2022-05-01 01:02:55.123-02:30");
         new DateTimeV2Literal("2022-06-01T01:02:55+04:30");
         new DateTimeV2Literal("2022-06-01 01:02:55.123-07:30");
-        // new DateTimeV2Literal("20220701010255+07:00");
-        // new DateTimeV2Literal("20220701010255-05:00");
         new DateTimeV2Literal("2022-05-01 01:02:55+02:30");
 
         new DateTimeV2Literal("2022-05-01 01:02:55.123-02:30");

@@ -170,6 +170,13 @@ public class DateLiteral extends Literal {
             }
         }
 
+        len = sb.length();
+        int signIdx = sb.indexOf("+", 10); // from index:10, skip date part (it contains '-')
+        signIdx = signIdx == -1 ? sb.indexOf("-", 10) : signIdx;
+        if (signIdx != -1 && len - signIdx == 3) {
+            sb.append(":00");
+        }
+
         return sb.toString();
     }
 

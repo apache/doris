@@ -44,8 +44,6 @@ public class DateTimeFormatterUtils {
             // .appendZoneText(TextStyle.FULL)
             .appendZoneOrOffsetId()
             .optionalEnd()
-            .appendOptional(
-                    new DateTimeFormatterBuilder().appendOffset("+HH", "").toFormatter())
             .toFormatter()
             .withResolverStyle(ResolverStyle.STRICT);
     // yymmdd
