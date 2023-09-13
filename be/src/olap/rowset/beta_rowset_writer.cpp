@@ -118,15 +118,7 @@ Status BetaRowsetWriter::init(const RowsetWriterContext& rowset_writer_context) 
         _rowset_meta->set_newest_write_timestamp(_context.newest_write_timestamp);
     }
     _rowset_meta->set_tablet_uid(_context.tablet_uid);
-    LOG(INFO) << "[BetaRowsetWriter::init][_context.tablet_schema:"
-              << _context.tablet_schema->is_unique_key_ignore_mode() << "]";
-    if (_context.tablet_schema->is_unique_key_ignore_mode()) {
-        int a = 1;
-        (void)a;
-    }
     _rowset_meta->set_tablet_schema(_context.tablet_schema);
-    LOG(INFO) << "[BetaRowsetWriter::init][_rowset_meta.tablet_schema:"
-              << _rowset_meta->tablet_schema()->is_unique_key_ignore_mode() << "]";
     _context.schema_change_recorder =
             std::make_shared<vectorized::schema_util::LocalSchemaChangeRecorder>();
     _context.segment_collector = std::make_shared<SegmentCollectorT<BetaRowsetWriter>>(this);
@@ -629,10 +621,6 @@ RowsetSharedPtr BetaRowsetWriter::_build_tmp() {
     *rowset_meta_ = *_rowset_meta;
     _build_rowset_meta(rowset_meta_);
 
-    LOG(INFO) << "[BetaRowsetWriter::_build_tmp][_context.tablet_schema:"
-              << _context.tablet_schema->is_unique_key_ignore_mode()
-              << "][rowset_meta_.tablet_schema:"
-              << rowset_meta_->tablet_schema()->is_unique_key_ignore_mode() << "]";
     RowsetSharedPtr rowset;
     auto status = RowsetFactory::create_rowset(_context.tablet_schema, _context.rowset_dir,
                                                rowset_meta_, &rowset);
