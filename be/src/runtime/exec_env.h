@@ -266,7 +266,7 @@ public:
     }
 
 private:
-    ExecEnv() = default;
+    ExecEnv();
 
     [[nodiscard]] Status _init(const std::vector<StorePath>& store_paths);
     void _destroy();
