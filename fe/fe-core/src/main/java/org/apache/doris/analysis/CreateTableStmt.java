@@ -245,7 +245,7 @@ public class CreateTableStmt extends DdlStmt {
         this.extProperties = extProperties;
         this.columnDefs = Lists.newArrayList();
         this.comment = Strings.nullToEmpty(comment);
-        this.rollupAlterClauseList = rollupAlterClauseList;
+        this.rollupAlterClauseList = (rollupAlterClauseList == null) ? Lists.newArrayList() : rollupAlterClauseList;
     }
 
     public void addColumnDef(ColumnDef columnDef) {

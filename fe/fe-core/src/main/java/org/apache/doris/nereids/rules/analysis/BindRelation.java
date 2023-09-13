@@ -217,6 +217,7 @@ public class BindRelation extends OneAnalysisRuleFactory {
                                        CascadesContext cascadesContext) {
         switch (table.getType()) {
             case OLAP:
+            case MATERIALIZED_VIEW:
                 return makeOlapScan(table, unboundRelation, tableQualifier);
             case VIEW:
                 Plan viewPlan = parseAndAnalyzeView(((View) table).getDdlSql(), cascadesContext);

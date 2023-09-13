@@ -451,7 +451,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                 Integer.parseInt(ctx.INTEGER_VALUE().getText()),
                 ctx.HASH() != null ? visitIdentifierList(ctx.hashKeys) : null);
         Map<String, String> properties = ctx.propertyClause() != null
-                ? visitPropertyClause(ctx.propertyClause()) : null;
+                ? Maps.newHashMap(visitPropertyClause(ctx.propertyClause())) : null;
 
         return new CreateMTMVCommand(new CreateMTMVInfo(ctx.EXISTS() != null, dbName, tableName,
                 ctx.keys != null ? visitIdentifierList(ctx.keys) : ImmutableList.of(),

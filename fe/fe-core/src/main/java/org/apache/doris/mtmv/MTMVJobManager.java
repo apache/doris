@@ -55,13 +55,13 @@ public class MTMVJobManager {
     }
 
     private static void createOnceJob(MaterializedView materializedView) throws DdlException {
-        SqlJobExecutor sqlJobExecutor = new SqlJobExecutor(materializedView.getQuerySql());
-        String uid = UUID.randomUUID().toString();
+        SqlJobExecutor sqlJobExecutor = new SqlJobExecutor(generateSql(materializedView));
+        String uid = UUID.randomUUID().toString().replace("-", "_");
         Job job = new Job();
         job.setCycleJob(false);
         job.setBaseName(materializedView.getName());
         job.setDbName(materializedView.getQualifiedDbName());
-        job.setJobName(materializedView.getId() + "_" + uid);
+        job.setJobName(materializedView.getName() + "_" + uid);
         job.setExecutor(sqlJobExecutor);
         job.setImmediatelyStart(true);
         job.setUser(ConnectContext.get().getQualifiedUser());
@@ -71,13 +71,13 @@ public class MTMVJobManager {
     }
 
     private static void createCycleJob(MaterializedView materializedView) throws DdlException {
-        SqlJobExecutor sqlJobExecutor = new SqlJobExecutor(materializedView.getQuerySql());
-        String uid = UUID.randomUUID().toString();
+        SqlJobExecutor sqlJobExecutor = new SqlJobExecutor(generateSql(materializedView));
+        String uid = UUID.randomUUID().toString().replace("-", "_");
         Job job = new Job();
         job.setCycleJob(true);
         job.setBaseName(materializedView.getName());
         job.setDbName(materializedView.getQualifiedDbName());
-        job.setJobName(materializedView.getId() + "_" + uid);
+        job.setJobName(materializedView.getName() + "_" + uid);
         job.setExecutor(sqlJobExecutor);
         MVRefreshSchedule intervalTrigger = materializedView.getRefreshTriggerInfo().getIntervalTrigger();
         job.setIntervalUnit(intervalTrigger.getTimeUnit());
@@ -103,5 +103,18 @@ public class MTMVJobManager {
                 Env.getCurrentEnv().getJobRegister().stopJob(job.getJobId());
             }
         }
+    }
+
+    private static String generateSql(MaterializedView materializedView) {
+        StringBuilder builder = new StringBuilder();
+        builder.append("INSERT OVERWRITE TABLE ");
+        builder.append(materializedView.getDatabase().getCatalog().getName());
+        builder.append(".");
+        builder.append(materializedView.getQualifiedDbName());
+        builder.append(".");
+        builder.append(materializedView.getName());
+        builder.append(" ");
+        builder.append(materializedView.getQuerySql());
+        return builder.toString();
     }
 }

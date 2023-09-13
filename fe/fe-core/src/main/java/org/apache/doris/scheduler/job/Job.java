@@ -61,6 +61,7 @@ public class Job implements Writable {
 
     public Job() {
         this.jobId = Env.getCurrentEnv().getNextId();
+        this.jobStatus = JobStatus.RUNNING;
     }
 
     @SerializedName("jobId")
