@@ -44,8 +44,8 @@ namespace doris::vectorized {
  *  RowRefListWithFlags is a list of many RowRefWithFlags. This means each row will have different visited flags. It's used for join operation which has `other_conjuncts`.
  */
 struct RowRef {
-    uint32_t row_num : 24 = 0;
-    uint8_t block_offset : 8;
+    uint32_t row_num = 0;
+    uint8_t block_offset;
 
     RowRef() = default;
     RowRef(size_t row_num_count, uint8_t block_offset_)
@@ -63,7 +63,7 @@ struct RowRefWithFlag : public RowRef {
 /// Portion of RowRefs, 16 * (MAX_SIZE + 1) bytes sized.
 template <typename RowRefType>
 struct Batch {
-    static constexpr uint32_t MAX_SIZE = 6; /// Adequate values are 3, 7, 15, 31.
+    static constexpr uint32_t MAX_SIZE = 7; /// Adequate values are 3, 7, 15, 31.
 
     uint32_t size = 0; // It's smaller than uint32_t but keeps align in Arena.
     Batch<RowRefType>* next;
@@ -172,7 +172,7 @@ struct RowRefListWithFlag : RowRef {
     RowRefListWithFlag() = default;
     RowRefListWithFlag(size_t row_num_, uint8_t block_offset_) : RowRef(row_num_, block_offset_) {}
 
-    ForwardIterator<RowRefListWithFlag> const begin() {
+    ForwardIterator<RowRefListWithFlag> begin() {
         return ForwardIterator<RowRefListWithFlag>(this);
     }
 
@@ -206,7 +206,7 @@ struct RowRefListWithFlags : RowRefWithFlag {
     RowRefListWithFlags(size_t row_num_, uint8_t block_offset_)
             : RowRefWithFlag(row_num_, block_offset_) {}
 
-    ForwardIterator<RowRefListWithFlags> const begin() {
+    ForwardIterator<RowRefListWithFlags> begin() {
         return ForwardIterator<RowRefListWithFlags>(this);
     }
     static ForwardIterator<RowRefListWithFlags> end() {
