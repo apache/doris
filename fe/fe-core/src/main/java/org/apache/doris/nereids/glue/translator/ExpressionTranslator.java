@@ -472,6 +472,9 @@ public class ExpressionTranslator extends DefaultExpressionVisitor<Expr, PlanTra
                 "", TFunctionBinaryType.BUILTIN, true, true, nullableMode);
 
         // create catalog FunctionCallExpr without analyze again
+        if (org.apache.doris.analysis.LambdaFunctionCallExpr.LAMBDA_FUNCTION_SET.contains(function.getName())) {
+            return new LambdaFunctionCallExpr(catalogFunction, new FunctionParams(false, arguments));
+        }
         return new FunctionCallExpr(catalogFunction, new FunctionParams(false, arguments));
     }
 
