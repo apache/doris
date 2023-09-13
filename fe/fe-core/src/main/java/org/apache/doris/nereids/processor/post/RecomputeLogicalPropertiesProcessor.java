@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.processor.post;
 
 import org.apache.doris.nereids.CascadesContext;
+import org.apache.doris.nereids.trees.plans.AbstractPlan;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
 
@@ -28,6 +29,9 @@ public class RecomputeLogicalPropertiesProcessor extends PlanPostProcessor {
     @Override
     public Plan visit(Plan plan, CascadesContext ctx) {
         PhysicalPlan physicalPlan = (PhysicalPlan) visitChildren(this, plan, ctx);
+        physicalPlan = physicalPlan.resetLogicalProperties();
+        physicalPlan = physicalPlan.withPhysicalPropertiesAndStats(physicalPlan.getPhysicalProperties(),
+                ((AbstractPlan) plan).getStats());
         return physicalPlan.resetLogicalProperties();
     }
 }
