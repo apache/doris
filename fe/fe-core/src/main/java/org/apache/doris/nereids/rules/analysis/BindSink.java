@@ -112,6 +112,7 @@ public class BindSink implements AnalysisRuleFactory {
                             try {
                                 // generate slots not mentioned in sql, mv slots and shaded slots.
                                 for (Column column : boundSink.getTargetTable().getFullSchema()) {
+                                    maybeFallBackAggStateTypeColumn(column, ctx.connectContext);
                                     if (column.isMaterializedViewColumn()) {
                                         List<SlotRef> refs = column.getRefColumns();
                                         // now we have to replace the column to slots.
@@ -254,6 +255,17 @@ public class BindSink implements AnalysisRuleFactory {
                     }
                     return column;
                 }).collect(Collectors.toList());
+    }
+
+    private void maybeFallBackAggStateTypeColumn(Column column, ConnectContext ctx) {
+        if (column.getType().isAggStateType()) {
+            try {
+                ctx.getSessionVariable().enableFallbackToOriginalPlannerOnce();
+            } catch (Exception e) {
+                throw new AnalysisException("fall back failed");
+            }
+            throw new AnalysisException("Agg state type is unsupported");
+        }
     }
 
     private static class SlotReplacer extends DefaultExpressionRewriter<Map<String, NamedExpression>> {
