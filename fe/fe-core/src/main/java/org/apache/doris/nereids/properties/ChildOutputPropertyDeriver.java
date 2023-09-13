@@ -348,8 +348,21 @@ public class ChildOutputPropertyDeriver extends PlanVisitor<PhysicalProperties, 
     public PhysicalProperties visitPhysicalPartitionTopN(PhysicalPartitionTopN<? extends Plan> partitionTopN,
             PlanContext context) {
         Preconditions.checkState(childrenOutputProperties.size() == 1);
-        PhysicalProperties childOutputProperty = childrenOutputProperties.get(0);
-        return new PhysicalProperties(childOutputProperty.getDistributionSpec());
+        DistributionSpec childDistSpec = childrenOutputProperties.get(0).getDistributionSpec();
+
+        if (partitionTopN.getPhase().isTwoPhaseLocal() || partitionTopN.getPhase().isOnePhaseGlobal()) {
+            return new PhysicalProperties(childDistSpec);
+        } else {
+            Preconditions.checkState(partitionTopN.getPhase().isTwoPhaseGlobal(),
+                    "partition topn phase is not two phase global");
+            Preconditions.checkState(childDistSpec instanceof DistributionSpecHash,
+                    "child dist spec is not hash spec");
+
+            DistributionSpec distributionSpec = PhysicalProperties.createHash(partitionTopN.getPartitionKeys(),
+                    ((DistributionSpecHash) childDistSpec).getShuffleType()).getDistributionSpec();
+
+            return new PhysicalProperties(distributionSpec, new OrderSpec(partitionTopN.getOrderKeys()));
+        }
     }
 
     @Override
