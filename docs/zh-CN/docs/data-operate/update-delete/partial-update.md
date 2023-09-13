@@ -26,14 +26,23 @@ under the License.
 
 # 部分列更新 
 
-Doris默认的数据写入语义是整行Upsert，在2.0版本之前，用户想要更新某些行的一部分字段，只能通过`UPDATE`命令，但是`UPDATE`命令由于读写事务的锁粒度原因，并不适合高频的数据写入场景。因此我们在2.0版本引入了Unique Key模型的部分列更新支持。
+## 概述
+
+要实现部分列更新，在Doris中可以使用Unique Key模型或Aggregate Key模型
+
+### Unique Key模型
+
+Doris Unique Key表默认的数据写入语义是整行Upsert，在2.0版本之前，用户想要更新某些行的一部分字段，只能通过`UPDATE`命令，但是`UPDATE`命令由于读写事务的锁粒度原因，并不适合高频的数据写入场景。因此我们在2.0版本引入了Unique Key模型的部分列更新支持
 
 > 注意：
 >
 > 1. 2.0.0版本仅在Unique Key的Merge-on-Write实现中支持了部分列更新能力
 > 3. 2.0.2版本支持使用`INSERT INTO`进行部分列更新
-> 3. 2.1.0版本将支持Unique Key模型Merge-on-Read的部分列更新
-> 3. 2.1.0版本讲支持更为灵活的列更新，见下文“使用限制”部分的说明
+> 3. 2.1.0版本将支持更为灵活的列更新，见下文“使用限制”部分的说明
+
+### Aggregate Key模型
+
+Aggregate Key表主要在预聚合场景使用而非数据更新的场景使用，但也可以通过将聚合函数设置为`REPLACE_IF_NOT_NULL`来实现列更新效果
 
 ## 适用场景
 
@@ -43,15 +52,19 @@ Doris默认的数据写入语义是整行Upsert，在2.0版本之前，用户想
 
 ## 基本原理
 
-### Merge-on-Write实现
+关于Unique Key模型和Aggregate Key模型的原理，可以主要参考[数据模型](../../data-table/data-model.md)的介绍
 
-用户通过正常的导入方式将一部分列的数据写入Doris的Memtable，此时Memtable中并没有整行数据，在Memtable下刷的时候，会查找历史数据，用历史数据补齐一整行，并写入数据文件中，同时将历史数据文件中相同key的数据行标记删除。
+### Unique Key 模型
 
-当出现并发导入时，Doris会利用MVCC机制来保证数据的正确性。如果两批数据导入都更新了一个相同key的不同列，则其中系统版本较高的导入任务会在版本较低的导入任务成功后，使用版本较低的导入任务写入的相同key的数据行重新进行补齐。
+**Unique Key模型目前仅支持在Merge-on-Write实现上进行列更新**
 
-### Merge-on-Read实现
+用户通过正常的导入方式将一部分列的数据写入Doris的Memtable，此时Memtable中并没有整行数据，在Memtable下刷的时候，会查找历史数据，用历史数据补齐一整行，并写入数据文件中，同时将历史数据文件中相同key的数据行标记删除
 
-数据在写入过程中不做任何处理，在数据读取时通过REPLACE_IF_NOT_NULL聚合函数对不同数据文件的数据进行聚合。
+当出现并发导入时，Doris会利用MVCC机制来保证数据的正确性。如果两批数据导入都更新了一个相同key的不同列，则其中系统版本较高的导入任务会在版本较低的导入任务成功后，使用版本较低的导入任务写入的相同key的数据行重新进行补齐
+
+### Aggregate Key模型
+
+将聚合函数设置为`REPLACE_IF_NOT_NULL`即可实现部分列更新的支持，详细用法参考下文示例
 
 ## 并发写入和数据可见性
 
@@ -64,7 +77,7 @@ Doris默认的数据写入语义是整行Upsert，在2.0版本之前，用户想
 1. 对写入性能要求较高，查询性能要求较低的用户，建议使用merge-on-read实现
 2. 对查询性能要求较高，对写入性能要求不高（例如数据的写入和更新基本都在凌晨低峰期完成），或者写入频率不高的用户，建议使用merge-on-write实现
 
-### Merge-on-Write实现
+### Unique Key模型Merge-on-Write实现
 
 由于Merge-on-Write实现需要在数据写入的时候，进行整行数据的补齐，以保证最优的查询性能，因此使用Merge-on-Write实现进行部分列更新会有较为明显的导入性能下降。
 
@@ -77,17 +90,21 @@ Doris默认的数据写入语义是整行Upsert，在2.0版本之前，用户想
 "store_row_column" = "true"
 ```
 
-### Merge-on-Read实现
+### Aggregate Key模型
 
-Merge-on-Read实现在写入过程中不做任何额外处理，所以写入性能不受影响，与普通的数据导入相同。但是在查询时进行聚合的代价较大，典型的聚合查询性能相比Merge-on-Write实现会有5-10倍的下降。
+Aggregate Key模型在写入过程中不做任何额外处理，所以写入性能不受影响，与普通的数据导入相同。但是在查询时进行聚合的代价较大，典型的聚合查询性能相比Unique Key模型的Merge-on-Write实现会有5-10倍的下降。
 
-## 使用方式
+## 使用方式及示例
 
-由于实现方式差异较大，Merge-on-Write实现和Merge-on-Read实现无法在使用方式上实现完全的统一，用户需要根据自己的需求选择不同的实现和使用方式。
+### Unique Key模型
 
-> 注：本文档目前仅介绍Merge-on-Write的部分列更新的使用示例。待2.1.0版本正式发布后，将更新Merge-on-Read的使用示例。
+#### 建表
 
-### Merge-on-Write实现
+建表时需要指定如下property，以开启Merge-on-Write实现
+
+```
+enable_unique_key_merge_on_write = true
+```
 
 #### StreamLoad/BrokerLoad/RoutineLoad
 
@@ -107,7 +124,7 @@ partial_columns:true
 set enable_unique_key_partial_update=true
 ```
 
-## 使用示例
+#### 示例
 
 假设 Doris 中存在一张订单表order_tbl，其中 订单id 是 Key 列，订单状态，订单金额是 Value 列。数据状态如下：
 
@@ -139,7 +156,7 @@ $ curl  --location-trusted -u root: -H "partial_columns:true" -H "column_separat
 
 ```
 set enable_unique_key_partial_update=true;
-INSERT INTO order_tbl (order_id, order_status) values (1,'待付款');
+INSERT INTO order_tbl (order_id, order_status) values (1,'待发货');
 ```
 
 更新后结果如下
@@ -153,13 +170,53 @@ INSERT INTO order_tbl (order_id, order_status) values (1,'待付款');
 1 row in set (0.01 sec)
 ```
 
+### Aggregate Key模型
+
+#### 建表
+
+将需要进行列更新的字段对应的聚合函数设置为`REPLACE_IF_NOT_NULL`
+
+```
+CREATE TABLE `order_tbl` (
+  `order_id` int(11) NULL,
+  `order_amount` int(11) REPLACE_IF_NOT_NULL NULL,
+  `order_status` varchar(100) REPLACE_IF_NOT_NULL NULL
+) ENGINE=OLAP
+AGGREGATE KEY(`order_id`)
+COMMENT 'OLAP'
+DISTRIBUTED BY HASH(`order_id`) BUCKETS 1
+PROPERTIES (
+"replication_allocation" = "tag.location.default: 1"
+);
+```
+
+#### 数据写入
+
+无论是导入任务还是`INSERT INTO`, 直接写入要更新的字段的数据即可
+
+#### 示例
+
+与前面例子相同，对应的Stream Load命令为（不需要额外的header）：
+
+```
+curl  --location-trusted -u root: -H "column_separator:," -H "columns:order_id,order_status" -T /tmp/update.csv http://127.0.0.1:48037/api/db1/order_tbl/_stream_load
+```
+
+对应的INSERT INTO语句为（不需要额外设置session variable）：
+
+```
+INSERT INTO order_tbl (order_id, order_status) values (1,'待发货');
+```
+
 ## 使用限制
+
+### Unique Key模型Merge-on-Write实现
 
 在2.0版本中，同一批次数据写入任务（无论是导入任务还是`INSERT INTO`）的所有行只能更新相同的列，如果需要更新不同列的数据，则需要分不同的批次进行写入
 
 在2.1版本中，我们将支持灵活的列更新，用户可以在同一批导入中，每一行更新不同的列
 
-## 更多帮助
+### Aggregate Key模型
 
-关于Unique Key的Merge-on-Read实现和Merge-on-Write实现，请参考[数据模型](../../data-table/data-model.md)的介绍
+用户无法通过将某个字段由非NULL设置为NULL，写入的NULL值在`REPLACE_IF_NOT_NULL`聚合函数的处理中会自动忽略
 
