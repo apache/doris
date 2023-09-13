@@ -670,6 +670,12 @@ try (Connection conn = DriverManager.getConnection("jdbc:mysql://127.0.0.1:9030/
 
   用于 ClickHouse 的 ReplacingMergeTree 表引擎查询去重
 
+* `enable_unique_key_partial_update`
+
+  <version since="2.0.2">
+  是否在对insert into语句启用部分列更新的语义，默认为 false
+  </version>
+
 ***
 
 #### 关于语句执行超时控制的补充说明
