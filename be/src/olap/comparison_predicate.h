@@ -223,7 +223,7 @@ public:
         }
         if constexpr (PT == PredicateType::EQ || PT == PredicateType::NE) {
             auto q = static_cast<InvertedIndexPointQuery<Type, PT>*>(query_value.get());
-            q->add_value(&_value, InvertedIndexQueryType::EQUAL_QUERY);
+            q->add_value(_value, InvertedIndexQueryType::EQUAL_QUERY);
         } else {
             InvertedIndexQueryType query_type = InvertedIndexQueryType::UNKNOWN_QUERY;
             switch (PT) {

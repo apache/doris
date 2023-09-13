@@ -40,7 +40,7 @@ void Helper<Type, PT>::create_and_add_value(const TypeInfo* type_info, char* val
                                             std::unique_ptr<InvertedIndexPointQueryI>& result) {
     using CppType = typename PredicatePrimitiveTypeTraits<Type>::PredicateFieldType;
     auto query_ptr = std::make_unique<InvertedIndexPointQuery<Type, PT>>(type_info);
-    query_ptr->add_value(reinterpret_cast<CppType*>(value), t);
+    query_ptr->add_value(*reinterpret_cast<CppType*>(value), t);
     result = std::move(query_ptr);
 }
 
@@ -142,18 +142,18 @@ InvertedIndexPointQuery<Type, PT>::InvertedIndexPointQuery(const TypeInfo* type_
 }
 
 template <PrimitiveType Type, PredicateType PT>
-Status InvertedIndexPointQuery<Type, PT>::add_value(const T* value, InvertedIndexQueryType t) {
-    _values.emplace_back(value);
-    _type = t;
+Status InvertedIndexPointQuery<Type, PT>::add_value(const T& value, InvertedIndexQueryType t) {
     if constexpr (std::is_same_v<T, StringRef>) {
-        auto act_len = strnlen(value->data, value->size);
-        std::string value_str(value->data, act_len);
-        _values_encoded.emplace_back(value_str);
+        auto act_len = strnlen(value.data, value.size);
+        std::string value_str(value.data, act_len);
+        _values_encoded.push_back(value_str);
     } else {
         std::string tmp;
         _value_key_coder->full_encode_ascending(&value, &tmp);
-        _values_encoded.emplace_back(tmp);
+        _values_encoded.push_back(tmp);
     }
+    _values.push_back(&value);
+    _type = t;
     return Status::OK();
 }
 

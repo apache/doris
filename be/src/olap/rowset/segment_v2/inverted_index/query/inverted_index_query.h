@@ -108,7 +108,7 @@ public:
     using T = typename PredicatePrimitiveTypeTraits<Type>::PredicateFieldType;
     InvertedIndexPointQuery(const TypeInfo* type_info);
 
-    Status add_value(const T* value, InvertedIndexQueryType t);
+    Status add_value(const T& value, InvertedIndexQueryType t);
     std::string to_string() override {
         std::string result;
         if constexpr (std::is_same_v<T, StringRef>) {

@@ -232,7 +232,7 @@ public:
         while (iter->has_next()) {
             const T* value = reinterpret_cast<const T*>(iter->get_value());
             auto q = static_cast<InvertedIndexPointQuery<Type, PT>*>(query_value.get());
-            q->add_value(value, InvertedIndexQueryType::EQUAL_QUERY);
+            q->add_value(*value, InvertedIndexQueryType::EQUAL_QUERY);
             iter->next();
         }
     }

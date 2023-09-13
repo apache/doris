@@ -63,7 +63,7 @@ Status MatchPredicate::evaluate(const Schema& schema, InvertedIndexIterator* ite
         auto query_value =
                 std::make_unique<InvertedIndexPointQuery<TYPE_STRING, PredicateType::MATCH>>(
                         column_desc->type_info());
-        query_value->add_value(&match_value, inverted_index_query_type);
+        query_value->add_value(match_value, inverted_index_query_type);
 
         RETURN_IF_ERROR(iterator->read_from_inverted_index(column_desc->name(), query_value.get(),
                                                            num_rows, &roaring));
