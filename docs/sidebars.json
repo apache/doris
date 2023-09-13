@@ -706,7 +706,8 @@
                                 "sql-manual/sql-functions/encrypt-digest-functions/md5sum",
                                 "sql-manual/sql-functions/encrypt-digest-functions/sm4",
                                 "sql-manual/sql-functions/encrypt-digest-functions/sm3",
-                                "sql-manual/sql-functions/encrypt-digest-functions/sm3sum"
+                                "sql-manual/sql-functions/encrypt-digest-functions/sm3sum",
+                                "sql-manual/sql-functions/encrypt-digest-functions/sha2"
                             ]
                         },
                         {
