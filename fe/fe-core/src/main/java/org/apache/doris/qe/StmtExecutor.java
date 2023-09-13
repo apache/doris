@@ -665,14 +665,14 @@ public class StmtExecutor {
         context.setStmtId(STMT_ID_GENERATOR.incrementAndGet());
         context.setQueryId(queryId);
 
-        parseByLegacy();
-
         // set isQuery first otherwise this state will be lost if some error occurs
         if (parsedStmt instanceof QueryStmt) {
             context.getState().setIsQuery(true);
         }
 
         try {
+            // parsedStmt maybe null here, we parse it.
+            parseByLegacy();
             if (context.isTxnModel() && !(parsedStmt instanceof InsertStmt)
                     && !(parsedStmt instanceof TransactionStmt)) {
                 throw new TException("This is in a transaction, only insert, commit, rollback is acceptable.");
@@ -887,9 +887,7 @@ public class StmtExecutor {
                     context.getForwardedStmtId());
         }
 
-        // if (parsedStmt == null) {
-        //     parseByLegacy();
-        // }
+        parseByLegacy();
 
         boolean preparedStmtReanalyzed = false;
         PrepareStmtContext preparedStmtCtx = null;
@@ -2580,7 +2578,6 @@ public class StmtExecutor {
                         planner = null;
                         context.getState().setNereids(false);
                         analyzer = new Analyzer(context.getEnv(), context);
-                        parseByLegacy();
                         analyze(context.getSessionVariable().toThrift());
                     }
                 } else {
