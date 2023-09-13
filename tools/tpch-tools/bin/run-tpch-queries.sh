@@ -151,19 +151,19 @@ for i in {1..22}; do
     hot2=0
     echo -ne "q${i}\t" | tee -a result.csv
     start=$(date +%s%3N)
-    mysql -h"${FE_HOST}" -u "${USER}" -P"${FE_QUERY_PORT}" -D"${DB}" --comments <"${TPCH_QUERIES_DIR}/q${i}.sql" > ${RESULT_DIR}/result${i}.out 2>${RESULT_DIR}/result${i}.log
+    mysql -h"${FE_HOST}" -u "${USER}" -P"${FE_QUERY_PORT}" -D"${DB}" --comments <"${TPCH_QUERIES_DIR}"/q"${i}".sql >"${RESULT_DIR}"/result"${i}".out 2>"${RESULT_DIR}"/result"${i}".log
     end=$(date +%s%3N)
     cold=$((end - start))
     echo -ne "${cold}\t" | tee -a result.csv
 
     start=$(date +%s%3N)
-    mysql -h"${FE_HOST}" -u "${USER}" -P"${FE_QUERY_PORT}" -D"${DB}" --comments <"${TPCH_QUERIES_DIR}/q${i}.sql" > ${RESULT_DIR}/result${i}.out 2>${RESULT_DIR}/result${i}.log
+    mysql -h"${FE_HOST}" -u "${USER}" -P"${FE_QUERY_PORT}" -D"${DB}" --comments <"${TPCH_QUERIES_DIR}"/q"${i}".sql >"${RESULT_DIR}"/result"${i}".out 2>"${RESULT_DIR}"/result"${i}".log
     end=$(date +%s%3N)
     hot1=$((end - start))
     echo -ne "${hot1}\t" | tee -a result.csv
 
     start=$(date +%s%3N)
-    mysql -h"${FE_HOST}" -u "${USER}" -P"${FE_QUERY_PORT}" -D"${DB}" --comments <"${TPCH_QUERIES_DIR}/q${i}.sql" > ${RESULT_DIR}/result${i}.out 2>${RESULT_DIR}/result${i}.log
+    mysql -h"${FE_HOST}" -u "${USER}" -P"${FE_QUERY_PORT}" -D"${DB}" --comments <"${TPCH_QUERIES_DIR}"/q"${i}".sql >"${RESULT_DIR}"/result"${i}".out 2>"${RESULT_DIR}"/result"${i}".log
     end=$(date +%s%3N)
     hot2=$((end - start))
     echo -ne "${hot2}\t" | tee -a result.csv
