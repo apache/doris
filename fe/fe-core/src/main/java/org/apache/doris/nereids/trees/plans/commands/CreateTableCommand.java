@@ -21,6 +21,7 @@ import org.apache.doris.analysis.CreateTableStmt;
 import org.apache.doris.analysis.DropTableStmt;
 import org.apache.doris.analysis.TableName;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.analyzer.UnboundOlapTableSink;
@@ -36,6 +37,10 @@ import org.apache.doris.nereids.trees.plans.commands.info.ColumnDefinition;
 import org.apache.doris.nereids.trees.plans.commands.info.CreateTableInfo;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
+import org.apache.doris.nereids.types.DataType;
+import org.apache.doris.nereids.types.DecimalV2Type;
+import org.apache.doris.nereids.types.TinyIntType;
+import org.apache.doris.nereids.types.VarcharType;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.QueryState.MysqlStateType;
 import org.apache.doris.qe.StmtExecutor;
@@ -91,11 +96,20 @@ public class CreateTableCommand extends Command implements ForwardWithSync {
         if (slots.size() != ctasCols.size()) {
             throw new AnalysisException("ctas column size is not equal to the query's");
         }
-        List<ColumnDefinition> columnsOfQuery = slots.stream()
-                .map(s -> new ColumnDefinition(s.getName(), s.getDataType(), s.nullable()))
-                .collect(ImmutableList.toImmutableList());
-        createTableInfo.validateCreateTableAsSelect(columnsOfQuery, ctx);
-
+        ImmutableList.Builder<ColumnDefinition> columnsOfQuery = ImmutableList.builder();
+        for (int i = 0; i < slots.size(); i++) {
+            Slot s = slots.get(i);
+            DataType dataType = s.getDataType().conversion();
+            if (dataType.isNullType()) {
+                dataType = TinyIntType.INSTANCE;
+            } else if (dataType.isDecimalV2Type()) {
+                dataType = DecimalV2Type.SYSTEM_DEFAULT;
+            } else if (i == 0 && dataType.isStringType()) {
+                dataType = VarcharType.createVarcharType(ScalarType.MAX_VARCHAR_LENGTH);
+            }
+            columnsOfQuery.add(new ColumnDefinition(s.getName(), dataType, s.nullable()));
+        }
+        createTableInfo.validateCreateTableAsSelect(columnsOfQuery.build(), ctx);
         CreateTableStmt createTableStmt = createTableInfo.translateToLegacyStmt();
         LOG.debug("Nereids start to execute the ctas command, query id: {}, tableName: {}",
                 ctx.queryId(), createTableInfo.getTableName());
@@ -114,6 +128,7 @@ public class CreateTableCommand extends Command implements ForwardWithSync {
             }
         } catch (Exception e) {
             handleFallbackFailedCtas(ctx);
+            throw new AnalysisException("Failed to execute CTAS Reason: " + e.getMessage(), e);
         }
     }
 
@@ -123,7 +138,8 @@ public class CreateTableCommand extends Command implements ForwardWithSync {
                     new TableName(Env.getCurrentEnv().getCurrentCatalog().getName(),
                             createTableInfo.getDbName(), createTableInfo.getTableName()), true));
         } catch (Exception e) {
-            ctx.getState().setError(ErrorCode.ERR_UNKNOWN_ERROR, "Unexpected exception: " + e.getMessage());
+            // TODO: refactor it with normal error process.
+            ctx.getState().setError(ErrorCode.ERR_UNKNOWN_ERROR, e.getMessage());
         }
     }
 

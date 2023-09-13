@@ -139,7 +139,9 @@ FragmentMgr::FragmentMgr(ExecEnv* exec_env)
     CHECK(s.ok()) << s.to_string();
 }
 
-FragmentMgr::~FragmentMgr() {
+FragmentMgr::~FragmentMgr() {}
+
+void FragmentMgr::stop() {
     DEREGISTER_HOOK_METRIC(plan_fragment_count);
     DEREGISTER_HOOK_METRIC(fragment_thread_pool_queue_size);
     _stop_background_threads_latch.count_down();
