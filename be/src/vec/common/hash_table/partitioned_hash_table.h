@@ -113,10 +113,12 @@ public:
         size_t count = 0;
         if (_is_partitioned) {
             for (auto i = 0u; i < this->NUM_LEVEL1_SUB_TABLES; ++i) {
-                count += level1_sub_tables[i].size();
+                for (auto& v : this->level1_sub_tables[i]) {
+                    count += v.get_second().get_row_count();
+                }
             }
         } else {
-            count = level0_sub_table.size();
+            count = level0_sub_table.get_size();
         }
         return count;
     }

@@ -162,6 +162,8 @@ struct RowRefList : RowRef {
 
     bool is_single() const { return row_count == 1; }
 
+    uint32_t get_row_count() { return row_count; }
+
 private:
     friend class ForwardIterator<RowRefList>;
 
@@ -195,6 +197,8 @@ struct RowRefListWithFlag : RowRef {
     }
 
     bool is_single() const { return row_count == 1; }
+
+    uint32_t get_row_count() const { return row_count; }
 
     bool visited = false;
 
@@ -231,6 +235,8 @@ struct RowRefListWithFlags : RowRefWithFlag {
     }
 
     bool is_single() const { return row_count == 1; }
+
+    uint32_t get_row_count() const { return row_count; }
 
 private:
     friend class ForwardIterator<RowRefListWithFlags>;
