@@ -157,6 +157,21 @@ private:
     SortSharedState _sort_state;
 };
 
+struct UnionSharedState {
+public:
+    std::shared_ptr<DataQueue> _data_queue = std::make_shared<DataQueue>(3);
+};
+
+class UnionDependency final : public Dependency {
+public:
+    using SharedState = UnionSharedState;
+    UnionDependency(int id) : Dependency(id, "UnionDependency") {}
+    ~UnionDependency() override = default;
+    void* shared_state() override { return (void*)&_union_state; };
+
+private:
+    UnionSharedState _union_state;
+};
 struct AnalyticSharedState {
 public:
     AnalyticSharedState() = default;
