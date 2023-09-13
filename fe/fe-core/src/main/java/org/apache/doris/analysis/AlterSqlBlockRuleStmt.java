@@ -72,7 +72,8 @@ public class AlterSqlBlockRuleStmt extends DdlStmt {
     }
 
     private void setProperties(Map<String, String> properties) throws AnalysisException {
-        this.sql = properties.getOrDefault(CreateSqlBlockRuleStmt.SQL_PROPERTY, CreateSqlBlockRuleStmt.STRING_NOT_SET).trim();
+        this.sql = properties.getOrDefault(CreateSqlBlockRuleStmt.SQL_PROPERTY, CreateSqlBlockRuleStmt.STRING_NOT_SET);
+        this.sql = this.sql.trim();
         this.sqlHash = properties.getOrDefault(CreateSqlBlockRuleStmt.SQL_HASH_PROPERTY,
                 CreateSqlBlockRuleStmt.STRING_NOT_SET);
         String partitionNumString = properties.get(CreateSqlBlockRuleStmt.SCANNED_PARTITION_NUM);
