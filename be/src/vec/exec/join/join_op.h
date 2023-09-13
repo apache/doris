@@ -151,6 +151,7 @@ struct RowRefList : RowRef {
 
     /// insert element after current one
     void insert(RowRefType&& row_ref, Arena& pool) {
+        row_count++;
         if (!next) {
             next = pool.alloc<Batch<RowRefType>>();
             *next = Batch<RowRefType>(nullptr);
@@ -158,7 +159,7 @@ struct RowRefList : RowRef {
         next = next->insert(std::move(row_ref), pool);
     }
 
-    bool is_single() const { return next == nullptr; }
+    bool is_single() const { return row_count == 1; }
 
 private:
     friend class ForwardIterator<RowRefList>;
@@ -183,6 +184,7 @@ struct RowRefListWithFlag : RowRef {
 
     /// insert element after current one
     void insert(RowRef&& row_ref, Arena& pool) {
+        row_count++;
         if (!next) {
             next = pool.alloc<Batch<RowRefType>>();
             *next = Batch<RowRefType>(nullptr);
@@ -190,7 +192,7 @@ struct RowRefListWithFlag : RowRef {
         next = next->insert(std::move(row_ref), pool);
     }
 
-    bool is_single() const { return next == nullptr; }
+    bool is_single() const { return row_count == 1; }
 
     bool visited = false;
 
@@ -217,6 +219,7 @@ struct RowRefListWithFlags : RowRefWithFlag {
 
     /// insert element after current one
     void insert(RowRefWithFlag&& row_ref, Arena& pool) {
+        row_count++;
         if (!next) {
             next = pool.alloc<Batch<RowRefType>>();
             *next = Batch<RowRefType>(nullptr);
@@ -224,7 +227,7 @@ struct RowRefListWithFlags : RowRefWithFlag {
         next = next->insert(std::move(row_ref), pool);
     }
 
-    bool is_single() const { return next == nullptr; }
+    bool is_single() const { return row_count == 1; }
 
 private:
     friend class ForwardIterator<RowRefListWithFlags>;
