@@ -200,7 +200,8 @@ public class PartitionDesc {
                         if (partitionExprs.get(0) instanceof FunctionCallExpr) {
                             if (!columnDef.getType().isDateType()) {
                                 throw new AnalysisException(
-                                        "Auto range partition needs Date/DateV2/Datetime/DatetimeV2 column as partition column"
+                                        "Auto range partition needs Date/DateV2/"
+                                                + "Datetime/DatetimeV2 column as partition column"
                                                 + partitionExprs.get(0).toSql());
                             }
                         }
