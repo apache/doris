@@ -65,7 +65,9 @@ void DataTypeMapSerDe::serialize_one_cell_to_json(const IColumn& column, int row
 Status DataTypeMapSerDe::deserialize_one_cell_from_hive_text(IColumn& column, Slice& slice,
                                                              const FormatOptions& options,
                                                              int nesting_level) const {
-    DCHECK(!slice.empty());
+    if (slice.empty()) {
+        return Status::InvalidArgument("slice is empty!");
+    }
     auto& array_column = assert_cast<ColumnMap&>(column);
     auto& offsets = array_column.get_offsets();
     IColumn& nested_key_column = array_column.get_keys();
@@ -92,10 +94,11 @@ Status DataTypeMapSerDe::deserialize_one_cell_from_hive_text(IColumn& column, Sl
             kv = i;
             continue;
         }
-        if (i == slice.size || slice[i] == collection_delimiter) {
+        if ((i == slice.size || slice[i] == collection_delimiter) && i >= kv + 1) {
             key_slices.push_back({slice.data + from, kv - from});
             value_slices.push_back({slice.data + kv + 1, i - 1 - kv});
             from = i + 1;
+            kv = from;
         }
     }
 
@@ -169,7 +172,9 @@ Status DataTypeMapSerDe::deserialize_column_from_json_vector(IColumn& column,
 
 Status DataTypeMapSerDe::deserialize_one_cell_from_json(IColumn& column, Slice& slice,
                                                         const FormatOptions& options) const {
-    DCHECK(!slice.empty());
+    if (slice.empty()) {
+        return Status::InvalidArgument("slice is empty!");
+    }
     auto& array_column = assert_cast<ColumnMap&>(column);
     auto& offsets = array_column.get_offsets();
     IColumn& nested_key_column = array_column.get_keys();
