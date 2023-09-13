@@ -18,6 +18,7 @@
 
 suite("test_partial_update_native_insert_stmt", "p0") {
 
+    // sql 'set enable_fallback_to_original_planner=false'
     def tableName = "test_partial_update_native_insert_stmt"
     sql """ DROP TABLE IF EXISTS ${tableName} """
     sql """
@@ -182,10 +183,36 @@ suite("test_partial_update_native_insert_stmt", "p0") {
     "enable_unique_key_merge_on_write"="true",
     "disable_auto_compaction"="true"); """
     sql "insert into ${tableName6} values(1,1,3,4),(2,2,4,5),(3,3,2,3),(4,4,1,2);"
-    qt_5 "select * from ${tableName6} order by k;"
+    qt_6 "select * from ${tableName6} order by k;"
     sql "set enable_unique_key_partial_update=true;"
     sql "sync;"
     sql "insert into ${tableName6}(k,v) select v2,v3 from ${tableName6};"
-    qt_5 "select * from ${tableName6};"
+    qt_6 "select * from ${tableName6};"
+    sql "set enable_unique_key_partial_update=false;"
+    sql "set enable_insert_strict = false;"
+    sql "sync;"
     sql """ DROP TABLE IF EXISTS ${tableName6}; """
+
+    def tableName7 = "test_partial_update_native_insert_stmt7"
+    sql """ DROP TABLE IF EXISTS ${tableName7} """
+    sql """create table ${tableName7} (
+        k1 int null,
+        k2 int null,
+        k3 int null,
+        v1 int null,
+        v2 int null
+    ) unique key (k1,k2,k3) distributed by hash(k1,k2) buckets 4
+    properties("replication_num" = "1",
+    "enable_unique_key_merge_on_write"="true",
+    "disable_auto_compaction"="true"); """
+    sql "insert into ${tableName7} values(1,1,1,3,4),(2,2,2,4,5),(3,3,3,2,3),(4,4,4,1,2);"
+    qt_7 "select * from ${tableName7} order by k1;"
+    sql "set enable_unique_key_partial_update=true;"
+    sql "sync;"
+    test {
+        sql "insert into ${tableName7}(k1,k2,v2) select k2,k3,v1 from ${tableName7};"
+        exception "Partial update should include all key columns, missing: k3"
+    }
+    qt_7 "select * from ${tableName7};"
+    sql """ DROP TABLE IF EXISTS ${tableName7}; """
 }
