@@ -743,7 +743,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         for (int i = 1; i < exprsList.size(); i++) {
             relation = new LogicalUnion(Qualifier.ALL, ImmutableList.of(relation, exprsList.get(i)));
         }
-        return withTableAlias(relation, ctx.tableAlias());
+        return relation;
     }
 
     /**
