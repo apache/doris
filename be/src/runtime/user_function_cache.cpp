@@ -216,9 +216,10 @@ Status UserFunctionCache::_get_cache_entry(int64_t fid, const std::string& url,
     std::string file_name = _get_file_name_from_url(url);
     {
         std::lock_guard<std::mutex> l(_cache_lock);
-        for (const auto &item: _entry_map) {
+        for (const auto& item : _entry_map) {
             if (item.second->checksum == checksum) {
                 entry = item.second;
+                break;
             }
         }
         if (entry == nullptr) {
