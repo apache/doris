@@ -137,7 +137,7 @@ public class OlapTable extends Table {
     private PartitionInfo partitionInfo;
     @SerializedName("idToPartition")
     private Map<Long, Partition> idToPartition = new HashMap<>();
-    private Map<String, Partition> nameToPartition = Maps.newTreeMap(String.CASE_INSENSITIVE_ORDER);
+    private Map<String, Partition> nameToPartition = Maps.newTreeMap();
 
     @SerializedName(value = "distributionInfo")
     private DistributionInfo defaultDistributionInfo;
@@ -1132,24 +1132,39 @@ public class OlapTable extends Table {
         if (rowCount == 0) {
             return false;
         }
-        long updateRows = tblStats.updatedRows.get();
+        if (!tblStats.analyzeColumns().containsAll(getBaseSchema()
+                .stream()
+                .map(Column::getName)
+                .collect(Collectors.toSet()))) {
+            return true;
+        }
+        // long updateRows = tblStats.updatedRows.get();
+        long updateRows = Math.abs(tblStats.rowCount - rowCount);
         int tblHealth = StatisticsUtil.getTableHealth(rowCount, updateRows);
         return tblHealth < Config.table_stats_health_threshold;
     }
 
     @Override
-    public Set<String> findReAnalyzeNeededPartitions() {
-        TableStats tableStats = Env.getCurrentEnv().getAnalysisManager().findTableStatsStatus(getId());
-        if (tableStats == null) {
-            return getPartitionNames().stream().map(this::getPartition)
+    public Map<String, Set<String>> findReAnalyzeNeededPartitions() {
+        TableIf table = this;
+        TableStats tableStats = Env.getCurrentEnv().getAnalysisManager().findTableStatsStatus(table.getId());
+        Set<String> allPartitions = table.getPartitionNames().stream().map(table::getPartition)
                 .filter(Partition::hasData).map(Partition::getName).collect(Collectors.toSet());
+        if (tableStats == null) {
+            return table.getBaseSchema().stream().collect(Collectors.toMap(Column::getName, v -> allPartitions));
         }
-        return getPartitionNames().stream()
-            .map(this::getPartition)
-            .filter(Partition::hasData)
-            .filter(partition ->
-                partition.getVisibleVersionTime() >= tableStats.updatedTime).map(Partition::getName)
-            .collect(Collectors.toSet());
+        Map<String, Set<String>> colToPart = new HashMap<>();
+        for (Column col : table.getBaseSchema()) {
+            long lastUpdateTime = tableStats.findColumnLastUpdateTime(col.getName());
+            Set<String> partitions = table.getPartitionNames().stream()
+                    .map(table::getPartition)
+                    .filter(Partition::hasData)
+                    .filter(partition ->
+                            partition.getVisibleVersionTime() >= lastUpdateTime).map(Partition::getName)
+                    .collect(Collectors.toSet());
+            colToPart.put(col.getName(), partitions);
+        }
+        return colToPart;
     }
 
     @Override
@@ -1167,7 +1182,7 @@ public class OlapTable extends Table {
         long dataSize = 0;
         for (Map.Entry<Long, Partition> entry : idToPartition.entrySet()) {
             rowCount += entry.getValue().getBaseIndex().getRowCount();
-            dataSize += entry.getValue().getBaseIndex().getDataSize();
+            dataSize += entry.getValue().getBaseIndex().getDataSize(false);
         }
         if (rowCount > 0) {
             return dataSize / rowCount;
@@ -1180,7 +1195,7 @@ public class OlapTable extends Table {
     public long getDataLength() {
         long dataSize = 0;
         for (Map.Entry<Long, Partition> entry : idToPartition.entrySet()) {
-            dataSize += entry.getValue().getBaseIndex().getDataSize();
+            dataSize += entry.getValue().getBaseIndex().getDataSize(false);
         }
         return dataSize;
     }
@@ -1556,7 +1571,7 @@ public class OlapTable extends Table {
     public long getDataSize() {
         long dataSize = 0;
         for (Partition partition : getAllPartitions()) {
-            dataSize += partition.getDataSize();
+            dataSize += partition.getDataSize(false);
         }
         return dataSize;
     }

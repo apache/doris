@@ -25,14 +25,12 @@ namespace doris::pipeline {
 struct LocalStateInfo {
     const std::vector<TScanRangeParams> scan_ranges;
     Dependency* dependency;
-    std::shared_ptr<vectorized::VDataStreamRecvr> recvr;
 };
 
 // This struct is used only for initializing local sink state.
 struct LocalSinkStateInfo {
     const int sender_id;
     Dependency* dependency;
-    std::shared_ptr<BufferControlBlock> sender;
 };
 
 class PipelineXLocalStateBase {
@@ -62,7 +60,12 @@ public:
         return reinterpret_cast<const TARGET&>(*this);
     }
 
+    // Do initialization. This step should be executed only once and in bthread, so we can do some
+    // lightweight or non-idempotent operations (e.g. init profile, clone expr ctx from operatorX)
     virtual Status init(RuntimeState* state, LocalStateInfo& info) = 0;
+    // Do initialization. This step can be executed multiple times, so we should make sure it is
+    // idempotent (e.g. wait for runtime filters).
+    virtual Status open(RuntimeState* state) { return Status::OK(); }
     virtual Status close(RuntimeState* state) = 0;
 
     // If use projection, we should clear `_origin_block`.
@@ -86,6 +89,8 @@ public:
     [[nodiscard]] int64_t num_rows_returned() const { return _num_rows_returned; }
     void add_num_rows_returned(int64_t delta) { _num_rows_returned += delta; }
     void set_num_rows_returned(int64_t value) { _num_rows_returned = value; }
+
+    virtual std::string debug_string(int indentation_level = 0) const;
 
 protected:
     friend class OperatorXBase;
@@ -175,6 +180,13 @@ public:
         return Status::OK();
     }
 
+    bool runtime_filters_are_ready_or_timeout() override {
+        LOG(FATAL) << "should not reach here!";
+        return true;
+    }
+
+    virtual bool runtime_filters_are_ready_or_timeout(RuntimeState* state) const { return true; }
+
     virtual Status close(RuntimeState* state) override;
 
     virtual bool can_read(RuntimeState* state) { return true; }
@@ -185,7 +197,11 @@ public:
         return _row_descriptor;
     }
 
-    virtual std::string debug_string() const override;
+    std::string debug_string() const override { return ""; }
+
+    virtual std::string debug_string(int indentation_level = 0) const;
+
+    virtual std::string debug_string(RuntimeState* state, int indentation_level = 0) const;
 
     virtual Status setup_local_state(RuntimeState* state, LocalStateInfo& info) = 0;
 
@@ -218,7 +234,6 @@ public:
     }
 
     [[nodiscard]] virtual bool is_source() const override { return false; }
-    [[nodiscard]] virtual bool need_to_create_exch_recv() const { return false; }
 
     Status get_next_after_projects(RuntimeState* state, vectorized::Block* block,
                                    SourceState& source_state);
@@ -302,6 +317,7 @@ public:
                 "PeakMemoryUsage", TUnit::BYTES, "MemoryUsage");
         return Status::OK();
     }
+
     virtual Status close(RuntimeState* state) override {
         if (_closed) {
             return Status::OK();
@@ -313,6 +329,8 @@ public:
         _closed = true;
         return Status::OK();
     }
+
+    virtual std::string debug_string(int indentation_level = 0) const override;
 
 protected:
     DependencyType* _dependency;
@@ -327,8 +345,17 @@ public:
             : _parent(parent_), _state(state_) {}
     virtual ~PipelineXSinkLocalStateBase() {}
 
+    // Do initialization. This step should be executed only once and in bthread, so we can do some
+    // lightweight or non-idempotent operations (e.g. init profile, clone expr ctx from operatorX)
     virtual Status init(RuntimeState* state, LocalSinkStateInfo& info) = 0;
+
+    // Do initialization. This step can be executed multiple times, so we should make sure it is
+    // idempotent (e.g. wait for runtime filters).
+    virtual Status open(RuntimeState* state) { return Status::OK(); }
     virtual Status close(RuntimeState* state) = 0;
+
+    virtual std::string debug_string(int indentation_level) const;
+
     template <class TARGET>
     TARGET& cast() {
         DCHECK(dynamic_cast<TARGET*>(this))
@@ -371,18 +398,19 @@ protected:
 
 class DataSinkOperatorXBase : public OperatorBase {
 public:
-    DataSinkOperatorXBase(const int id) : OperatorBase(nullptr), _id(id) {}
+    DataSinkOperatorXBase(const int id) : OperatorBase(nullptr), _id(id), _dest_id(id) {}
+
+    DataSinkOperatorXBase(const int id, const int dest_id)
+            : OperatorBase(nullptr), _id(id), _dest_id(dest_id) {}
 
     virtual ~DataSinkOperatorXBase() override = default;
 
     // For agg/sort/join sink.
     virtual Status init(const TPlanNode& tnode, RuntimeState* state);
 
-    virtual Status init(const TDataSink& tsink) override { return Status::OK(); }
+    virtual Status init(const TDataSink& tsink) override;
 
     virtual Status setup_local_state(RuntimeState* state, LocalSinkStateInfo& info) = 0;
-
-    [[nodiscard]] virtual bool need_to_create_result_sender() const { return false; }
 
     template <class TARGET>
     TARGET& cast() {
@@ -424,7 +452,11 @@ public:
 
     virtual bool is_pending_finish(RuntimeState* state) const { return false; }
 
-    virtual std::string debug_string() const override;
+    std::string debug_string() const override { return ""; }
+
+    virtual std::string debug_string(int indentation_level) const;
+
+    virtual std::string debug_string(RuntimeState* state, int indentation_level) const;
 
     bool is_sink() const override { return true; }
 
@@ -436,6 +468,8 @@ public:
 
     [[nodiscard]] int id() const override { return _id; }
 
+    [[nodiscard]] int dest_id() const { return _dest_id; }
+
     [[nodiscard]] std::string get_name() const override { return _name; }
 
     Status finalize(RuntimeState* state) override { return Status::OK(); }
@@ -444,6 +478,7 @@ public:
 
 protected:
     const int _id;
+    const int _dest_id;
     std::string _name;
 
     // Maybe this will be transferred to BufferControlBlock.
@@ -459,7 +494,8 @@ class DataSinkOperatorX : public DataSinkOperatorXBase {
 public:
     DataSinkOperatorX(const int id) : DataSinkOperatorXBase(id) {}
 
-    virtual ~DataSinkOperatorX() override = default;
+    DataSinkOperatorX(const int id, const int source_id) : DataSinkOperatorXBase(id, source_id) {}
+    ~DataSinkOperatorX() override = default;
 
     Status setup_local_state(RuntimeState* state, LocalSinkStateInfo& info) override;
 
@@ -472,7 +508,7 @@ public:
     using Dependency = DependencyType;
     PipelineXSinkLocalState(DataSinkOperatorXBase* parent, RuntimeState* state)
             : PipelineXSinkLocalStateBase(parent, state) {}
-    virtual ~PipelineXSinkLocalState() {}
+    ~PipelineXSinkLocalState() override = default;
 
     virtual Status init(RuntimeState* state, LocalSinkStateInfo& info) override {
         _dependency = (DependencyType*)info.dependency;
@@ -484,13 +520,16 @@ public:
         _mem_tracker = std::make_unique<MemTracker>(_parent->get_name());
         return Status::OK();
     }
-    virtual Status close(RuntimeState* state) override {
+
+    Status close(RuntimeState* state) override {
         if (_closed) {
             return Status::OK();
         }
         _closed = true;
         return Status::OK();
     }
+
+    std::string debug_string(int indentation_level) const override;
 
 protected:
     DependencyType* _dependency;

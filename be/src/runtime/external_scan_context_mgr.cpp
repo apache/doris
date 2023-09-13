@@ -50,7 +50,7 @@ ExternalScanContextMgr::ExternalScanContextMgr(ExecEnv* exec_env)
     });
 }
 
-ExternalScanContextMgr::~ExternalScanContextMgr() {
+void ExternalScanContextMgr::stop() {
     DEREGISTER_HOOK_METRIC(active_scan_context_count);
     _stop_background_threads_latch.count_down();
     if (_keep_alive_reaper) {

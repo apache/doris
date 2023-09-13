@@ -39,9 +39,10 @@ class Thread;
 class LoadPathMgr {
 public:
     LoadPathMgr(ExecEnv* env);
-    ~LoadPathMgr();
+    ~LoadPathMgr() = default;
 
     Status init();
+    void stop();
 
     Status allocate_dir(const std::string& db, const std::string& label, std::string* prefix);
 
