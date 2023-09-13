@@ -44,13 +44,10 @@
 #include "io/fs/local_file_system.h"
 #include "io/fs/path.h"
 #include "io/fs/remote_file_system.h"
-#include "olap/data_dir.h"
 #include "olap/delta_writer.h"
 #include "olap/olap_common.h"
 #include "olap/options.h"
 #include "olap/rowset/beta_rowset.h"
-#include "olap/rowset/rowset.h"
-#include "olap/rowset/segment_v2/segment.h"
 #include "olap/storage_engine.h"
 #include "olap/storage_policy.h"
 #include "olap/tablet.h"
@@ -129,7 +126,8 @@ public:
     ~RemoteFileSystemMock() override = default;
 
 protected:
-    Status create_file_impl(const Path& path, io::FileWriterPtr* writer) override {
+    Status create_file_impl(const Path& path, io::FileWriterPtr* writer,
+                            const io::FileWriterOptions* opts = nullptr) override {
         Path fs_path = path;
         *writer = std::make_unique<FileWriterMock>(fs_path);
         return Status::OK();
@@ -200,11 +198,10 @@ protected:
         return Status::OK();
     }
 
-    Status open_file_internal(const io::FileDescription& fd, const Path& abs_path,
-                              io::FileReaderSPtr* reader) override {
-        io::FileDescription tmp_fd;
-        tmp_fd.path = get_remote_path(abs_path);
-        return _local_fs->open_file(tmp_fd, io::FileReaderOptions {}, reader);
+    Status open_file_internal(const Path& file, io::FileReaderSPtr* reader,
+                              const io::FileReaderOptions& opts) override {
+        auto path = get_remote_path(file);
+        return _local_fs->open_file(path, reader);
     }
 
     Status connect_impl() override { return Status::OK(); }
@@ -251,13 +248,17 @@ public:
 
         EngineOptions options;
         options.store_paths = paths;
-        doris::StorageEngine::open(options, &k_engine);
+        k_engine = std::make_unique<StorageEngine>(options);
+        auto st = k_engine->open();
+        EXPECT_TRUE(st.ok()) << st.to_string();
         ExecEnv* exec_env = doris::ExecEnv::GetInstance();
         exec_env->set_memtable_memory_limiter(new MemTableMemoryLimiter());
+        exec_env->set_storage_engine(k_engine.get());
     }
 
     static void TearDownTestSuite() {
         ExecEnv* exec_env = doris::ExecEnv::GetInstance();
+        exec_env->set_storage_engine(nullptr);
         exec_env->set_memtable_memory_limiter(nullptr);
         k_engine.reset();
     }

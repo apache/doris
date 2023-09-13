@@ -23,6 +23,7 @@
 #include <utility>
 
 #include "common/config.h"
+#include "olap/olap_define.h"
 #include "runtime/fragment_mgr.h"
 #include "runtime/frontend_info.h"
 #include "time.h"
@@ -31,10 +32,8 @@
 
 namespace doris {
 
-ExecEnv::ExecEnv() = default;
-
 ExecEnv::~ExecEnv() {
-    _destroy();
+    destroy();
 }
 
 const std::string& ExecEnv::token() const {

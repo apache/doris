@@ -38,13 +38,11 @@ public:
         _exec_env._fragment_mgr = fragment_mgr;
         _exec_env._result_queue_mgr = result_queue_mgr;
     }
-    virtual ~ExternalScanContextMgrTest() {
-        delete _exec_env._fragment_mgr;
-        delete _exec_env._result_queue_mgr;
-    }
+    ~ExternalScanContextMgrTest() = default;
 
 protected:
-    virtual void SetUp() {}
+    void SetUp() override { _exec_env.set_ready(); }
+    void TearDown() override { _exec_env.destroy(); }
 
 private:
     ExecEnv _exec_env;

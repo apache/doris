@@ -40,7 +40,6 @@
 #include "common/config.h"
 #include "common/logging.h"
 #include "gutil/strings/substitute.h"
-#include "io/fs/file_reader_writer_fwd.h"
 #include "io/fs/file_writer.h"
 #include "io/fs/local_file_system.h"
 #include "io/fs/path.h"
