@@ -361,6 +361,7 @@ template class PipelineXSinkLocalState<NestedLoopJoinDependency>;
 template class PipelineXSinkLocalState<AnalyticDependency>;
 template class PipelineXSinkLocalState<AggDependency>;
 template class PipelineXSinkLocalState<FakeDependency>;
+template class PipelineXSinkLocalState<UnionDependency>;
 
 template class PipelineXLocalState<HashJoinDependency>;
 template class PipelineXLocalState<SortDependency>;
@@ -368,5 +369,6 @@ template class PipelineXLocalState<NestedLoopJoinDependency>;
 template class PipelineXLocalState<AnalyticDependency>;
 template class PipelineXLocalState<AggDependency>;
 template class PipelineXLocalState<FakeDependency>;
+template class PipelineXLocalState<UnionDependency>;
 
 } // namespace doris::pipeline
