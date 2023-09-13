@@ -27,8 +27,8 @@ suite("test_javaudf_replace_jar") {
     def replace_jarPath = """${context.file.parent}/jars/java-udf-replace-jar-with-dependencies.jar"""
 
     try {
-        sql """ DROP FUNCTION IF EXISTS java_udf_bigint_test(bigint); """
-        sql """ DROP FUNCTION IF EXISTS java_udf_int_test(int); """
+        sql """ DROP FUNCTION IF EXISTS java_udf_replace_bigint_test(bigint); """
+        sql """ DROP FUNCTION IF EXISTS java_udf_replace_int_test(int); """
         sql """ DROP TABLE IF EXISTS ${tableName} """
         sql """
         CREATE TABLE IF NOT EXISTS ${tableName} (
@@ -63,51 +63,51 @@ suite("test_javaudf_replace_jar") {
         }
         log.info("replace Jar path: ${replace_jarPath}".toString())
 
-        sql """ CREATE FUNCTION java_udf_int_test(int) RETURNS int PROPERTIES (
+        sql """ CREATE FUNCTION java_udf_replace_int_test(int) RETURNS int PROPERTIES (
             "file"="file://${origin_jarPath}",
             "symbol"="org.apache.doris.udf.IntTest",
             "type"="JAVA_UDF"
         ); """
 
-        qt_select """ SELECT java_udf_int_test(user_id) result FROM ${tableName} ORDER BY result; """
-        qt_select """ SELECT java_udf_int_test(null) result ; """
+        qt_select """ SELECT java_udf_replace_int_test(user_id) result FROM ${tableName} ORDER BY result; """
+        qt_select """ SELECT java_udf_replace_int_test(null) result ; """
 
-        sql """ CREATE FUNCTION java_udf_bigint_test(bigint) RETURNS bigint PROPERTIES (
+        sql """ CREATE FUNCTION java_udf_replace_bigint_test(bigint) RETURNS bigint PROPERTIES (
             "file"="file://${origin_jarPath}",
             "symbol"="org.apache.doris.udf.BigintTest",
             "type"="JAVA_UDF"
         ); """
 
-        qt_select """ SELECT java_udf_bigint_test(bigint_col) result FROM ${tableName} ORDER BY result; """
-        qt_select """ SELECT java_udf_bigint_test(null) result ; """
+        qt_select """ SELECT java_udf_replace_bigint_test(bigint_col) result FROM ${tableName} ORDER BY result; """
+        qt_select """ SELECT java_udf_replace_bigint_test(null) result ; """
 
 
         // drop function
-        sql """ DROP FUNCTION IF EXISTS java_udf_bigint_test(bigint); """
-        sql """ DROP FUNCTION IF EXISTS java_udf_int_test(int); """
+        sql """ DROP FUNCTION IF EXISTS java_udf_replace_bigint_test(bigint); """
+        sql """ DROP FUNCTION IF EXISTS java_udf_replace_int_test(int); """
 
-        sql """ CREATE FUNCTION java_udf_int_test(int) RETURNS int PROPERTIES (
+        sql """ CREATE FUNCTION java_udf_replace_int_test(int) RETURNS int PROPERTIES (
             "file"="file://${replace_jarPath}",
             "symbol"="org.apache.doris.udf.IntTest",
             "type"="JAVA_UDF"
         ); """
 
-        qt_select """ SELECT java_udf_int_test(user_id) result FROM ${tableName} ORDER BY result; """
-        qt_select """ SELECT java_udf_int_test(null) result ; """
+        qt_select """ SELECT java_udf_replace_int_test(user_id) result FROM ${tableName} ORDER BY result; """
+        qt_select """ SELECT java_udf_replace_int_test(null) result ; """
 
 
-        sql """ CREATE FUNCTION java_udf_bigint_test(bigint) RETURNS bigint PROPERTIES (
+        sql """ CREATE FUNCTION java_udf_replace_bigint_test(bigint) RETURNS bigint PROPERTIES (
             "file"="file://${replace_jarPath}",
             "symbol"="org.apache.doris.udf.BigintTest",
             "type"="JAVA_UDF"
         ); """
 
-        qt_select """ SELECT java_udf_bigint_test(bigint_col) result FROM ${tableName} ORDER BY result; """
-        qt_select """ SELECT java_udf_bigint_test(null) result ; """
+        qt_select """ SELECT java_udf_replace_bigint_test(bigint_col) result FROM ${tableName} ORDER BY result; """
+        qt_select """ SELECT java_udf_replace_bigint_test(null) result ; """
 
     } finally {
-        try_sql("DROP FUNCTION IF EXISTS java_udf_bigint_test(bigint);")
-        try_sql("DROP FUNCTION IF EXISTS java_udf_int_test(int);")
+        try_sql("DROP FUNCTION IF EXISTS java_udf_replace_bigint_test(bigint);")
+        try_sql("DROP FUNCTION IF EXISTS java_udf_replace_int_test(int);")
         try_sql("DROP TABLE IF EXISTS ${tableName}")
     }
 }
