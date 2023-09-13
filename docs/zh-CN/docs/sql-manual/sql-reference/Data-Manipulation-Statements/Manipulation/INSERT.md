@@ -65,6 +65,8 @@ INSERT [IGNORE] INTO table_name
 > 2. SHUFFLE：当目标表是分区表，开启这个 hint 会进行 repartiiton。
 > 3. NOSHUFFLE：即使目标表是分区表，也不会进行 repartiiton，但会做一些其他操作以保证数据正确落到各个分区中。
 
+对于开启了merge-on-write的Unique表，还可以使用insert语句进行部分列更新的操作。要使用insert语句进行部分列更新，需要将会话变量enable_uniuqe_key_partial_update的值设置为true(该变量默认值为false，即默认无法通过insert语句进行部分列更新)。进行部分列更新时，插入的列必须至少包含所有的Key列，同时指定需要更新的列。在进行部分列更新时，如果插入了Key列的值在也原表中不存在的行，则insert语句中没有指定的列必须有默认值或可以为null，这些缺失列会首先尝试用默认值填充，如果该列没有默认值，则尝试使用null值填充，如果该列不能为null，则本次插入失败。
+
 注意：
 
 当前执行 `INSERT` 语句时，对于有不符合目标表格式的数据，默认的行为是过滤，比如字符串超长等。但是对于有要求数据不能够被过滤的业务场景，可以通过设置会话变量 `enable_insert_strict` 为 `true` 来确保当有数据被过滤掉的时候，`INSERT` 不会被执行成功。
