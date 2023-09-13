@@ -709,7 +709,6 @@ void PInternalServiceImpl::fetch_arrow_flight_schema(google::protobuf::RpcContro
                                                      const PFetchArrowFlightSchemaRequest* request,
                                                      PFetchArrowFlightSchemaResult* result,
                                                      google::protobuf::Closure* done) {
-    LOG(INFO) << "fetch_arrow_flight_schema";
     bool ret = _light_work_pool.try_offer([request, result, done]() {
         brpc::ClosureGuard closure_guard(done);
         RowDescriptor row_desc = ExecEnv::GetInstance()->result_mgr()->find_row_descriptor(
@@ -931,7 +930,6 @@ void PInternalServiceImpl::update_cache(google::protobuf::RpcController* control
 void PInternalServiceImpl::fetch_cache(google::protobuf::RpcController* controller,
                                        const PFetchCacheRequest* request, PFetchCacheResult* result,
                                        google::protobuf::Closure* done) {
-    LOG(INFO) << "fetch_cache";
     bool ret = _heavy_work_pool.try_offer([this, request, result, done]() {
         brpc::ClosureGuard closure_guard(done);
         _exec_env->result_cache()->fetch(request, result);

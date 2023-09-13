@@ -187,7 +187,6 @@ import org.apache.thrift.TException;
 import java.io.IOException;
 import java.io.StringReader;
 import java.nio.ByteBuffer;
-import java.sql.Statement;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
@@ -2599,7 +2598,8 @@ public class StmtExecutor {
                         planner = new NereidsPlanner(statementContext);
                         planner.plan(parsedStmt, context.getSessionVariable().toThrift());
                     } catch (Exception e) {
-                        LOG.warn("fall back to legacy planner, because: {}", e.getMessage(), e);
+                        LOG.warn("Arrow Flight SQL fall back to legacy planner, because: {}",
+                                e.getMessage(), e);
                         parsedStmt = null;
                         planner = null;
                         context.getState().setNereids(false);
@@ -2702,7 +2702,7 @@ public class StmtExecutor {
                 coord.exec();
             } catch (Exception e) {
                 queryScheduleSpan.recordException(e);
-                LOG.warn("Failed to coord exec, because: {}", e.getMessage(), e);
+                LOG.warn("Failed to coord exec Arrow Flight SQL, because: {}", e.getMessage(), e);
                 throw new InternalQueryExecutionException(e.getMessage() + Util.getRootCauseMessage(e), e);
             } finally {
                 queryScheduleSpan.end();

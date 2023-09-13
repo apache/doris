@@ -62,10 +62,11 @@ public class QeService {
             LOG.error("mysql server start failed");
             System.exit(-1);
         }
-        this.flightSqlService = new FlightSqlService(flightsqlPort);
-        if (!flightSqlService.start()) {
-            LOG.error("flightsql server start failed");
-            System.exit(-1);
+        if (flightsqlPort != -1) {
+            this.flightSqlService = new FlightSqlService(flightsqlPort);
+            if (!flightSqlService.start()) {
+                System.exit(-1);
+            }
         }
         LOG.info("QE service start.");
     }

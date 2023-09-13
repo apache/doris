@@ -85,7 +85,6 @@ Status ResultBufferMgr::create_sender(const TUniqueId& query_id, int buffer_size
 
     {
         std::unique_lock<std::shared_mutex> wlock(_buffer_map_lock);
-        LOG(INFO) << "11111111 9 " << query_id << ", " << print_id(query_id);
         _buffer_map.insert(std::make_pair(query_id, control_block));
         // BufferControlBlock should destroy after max_timeout
         // for exceed max_timeout FE will return timeout to client
@@ -101,7 +100,6 @@ Status ResultBufferMgr::create_sender(const TUniqueId& query_id, int buffer_size
 
 std::shared_ptr<BufferControlBlock> ResultBufferMgr::find_control_block(const TUniqueId& query_id) {
     std::shared_lock<std::shared_mutex> rlock(_buffer_map_lock);
-    LOG(INFO) << "11111111 8 " << query_id;
     BufferMap::iterator iter = _buffer_map.find(query_id);
 
     if (_buffer_map.end() != iter) {
@@ -144,9 +142,7 @@ void ResultBufferMgr::fetch_data(const PUniqueId& finst_id, GetResultBatchCtx* c
 Status ResultBufferMgr::fetch_arrow_data(const TUniqueId& finst_id,
                                          std::shared_ptr<arrow::RecordBatch>* result) {
     std::shared_ptr<BufferControlBlock> cb = find_control_block(finst_id);
-    LOG(INFO) << "11111111 7 " << finst_id;
     if (cb == nullptr) {
-        LOG(INFO) << "11111111 j " << finst_id;
         LOG(WARNING) << "no result for this query, id=" << print_id(finst_id);
         return Status::InternalError("no result for this query");
     }
@@ -173,13 +169,14 @@ Status ResultBufferMgr::cancel(const TUniqueId& query_id) {
             _row_descriptor_map.erase(row_desc_iter);
         }
     }
+
     return Status::OK();
 }
 
 Status ResultBufferMgr::cancel_at_time(time_t cancel_time, const TUniqueId& query_id) {
     std::lock_guard<std::mutex> l(_timeout_lock);
     TimeoutMap::iterator iter = _timeout_map.find(cancel_time);
-    LOG(INFO) << "11111111 3 " << query_id << ", " << cancel_time;
+
     if (_timeout_map.end() == iter) {
         _timeout_map.insert(
                 std::pair<time_t, std::vector<TUniqueId>>(cancel_time, std::vector<TUniqueId>()));
@@ -212,7 +209,6 @@ void ResultBufferMgr::cancel_thread() {
 
         // cancel query
         for (int i = 0; i < query_to_cancel.size(); ++i) {
-            LOG(INFO) << "11111111 4 " << query_to_cancel[i];
             cancel(query_to_cancel[i]);
         }
     } while (!_stop_background_threads_latch.wait_for(std::chrono::seconds(1)));

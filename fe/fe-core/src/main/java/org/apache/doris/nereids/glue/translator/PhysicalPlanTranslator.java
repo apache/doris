@@ -332,7 +332,8 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
     public PlanFragment visitPhysicalResultSink(PhysicalResultSink<? extends Plan> physicalResultSink,
             PlanTranslatorContext context) {
         PlanFragment planFragment = physicalResultSink.child().accept(this, context);
-        planFragment.setSink(new ResultSink(planFragment.getPlanRoot().getId()));
+        planFragment.setSink(new ResultSink(planFragment.getPlanRoot().getId(),
+                ConnectContext.get().getResultSinkType()));
         return planFragment;
     }
 

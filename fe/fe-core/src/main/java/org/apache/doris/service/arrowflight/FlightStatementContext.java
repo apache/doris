@@ -23,6 +23,7 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.common.Status;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.common.util.Util;
+import org.apache.doris.proto.InternalService;
 import org.apache.doris.proto.Types;
 import org.apache.doris.qe.AutoCloseConnectContext;
 import org.apache.doris.qe.ConnectContext;
@@ -132,7 +133,6 @@ public final class FlightStatementContext {
         ConnectContext connectContext = new ConnectContext();
         SessionVariable sessionVariable = connectContext.getSessionVariable();
         sessionVariable.internalSession = true;
-        sessionVariable.setEnableNereidsPlanner(false); // TODO
         sessionVariable.setEnablePipelineEngine(false); // TODO
         sessionVariable.setEnablePipelineXEngine(false); // TODO
         connectContext.setEnv(Env.getCurrentEnv());
