@@ -159,7 +159,7 @@ private:
 
 struct UnionSharedState {
 public:
-    std::shared_ptr<DataQueue> _data_queue = std::make_shared<DataQueue>(3);
+    std::shared_ptr<DataQueue> _data_queue;
 };
 
 class UnionDependency final : public Dependency {

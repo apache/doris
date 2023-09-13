@@ -398,10 +398,10 @@ protected:
 
 class DataSinkOperatorXBase : public OperatorBase {
 public:
-    DataSinkOperatorXBase(const int id) : OperatorBase(nullptr), _id(id), _source_id(id) {}
+    DataSinkOperatorXBase(const int id) : OperatorBase(nullptr), _id(id), _dest_id(id) {}
 
-    DataSinkOperatorXBase(const int id, const int source_id)
-            : OperatorBase(nullptr), _id(id), _source_id(source_id) {}
+    DataSinkOperatorXBase(const int id, const int dest_id)
+            : OperatorBase(nullptr), _id(id), _dest_id(dest_id) {}
 
     virtual ~DataSinkOperatorXBase() override = default;
 
@@ -468,7 +468,7 @@ public:
 
     [[nodiscard]] int id() const override { return _id; }
 
-    [[nodiscard]] int source_id() const { return _source_id; }
+    [[nodiscard]] int dest_id() const { return _dest_id; }
 
     [[nodiscard]] std::string get_name() const override { return _name; }
 
@@ -478,7 +478,7 @@ public:
 
 protected:
     const int _id;
-    const int _source_id;
+    const int _dest_id;
     std::string _name;
 
     // Maybe this will be transferred to BufferControlBlock.

@@ -79,8 +79,6 @@ public:
     Status init(RuntimeState* state, LocalStateInfo& info) override;
     friend class UnionSourceOperatorX;
     bool _need_read_for_const_expr {false};
-
-    void set(std::shared_ptr<DataQueue> que) { _shared_state->_data_queue = que; }
 };
 
 class UnionSourceOperatorX final : public OperatorX<UnionSourceLocalState> {
@@ -107,7 +105,6 @@ private:
     bool has_more_const(const RuntimeState* state) const {
         return state->per_fragment_instance_idx() == 0;
     }
-    Status pull_data(RuntimeState* state, vectorized::Block* output_block, bool* eos);
     friend class UnionSourceLocalState;
     const int _child_size;
 };

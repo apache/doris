@@ -110,21 +110,6 @@ Status UnionSourceOperatorX::get_block(RuntimeState* state, vectorized::Block* b
                                        SourceState& source_state) {
     auto& local_state = state->get_local_state(id())->cast<UnionSourceLocalState>();
     bool eos = false;
-    pull_data(state, block, &eos);
-    //have exectue const expr, queue have no data any more, and child could be colsed
-    if ((!_has_data(state) && local_state._shared_state->_data_queue->is_all_finish())) {
-        source_state = SourceState::FINISHED;
-    } else if (_has_data(state)) {
-        source_state = SourceState::MORE_DATA;
-    } else {
-        source_state = SourceState::DEPEND_ON_SOURCE;
-    }
-    return Status::OK();
-}
-
-Status UnionSourceOperatorX::pull_data(RuntimeState* state, vectorized::Block* block, bool* eos) {
-    // here we precess const expr firstly
-    auto& local_state = state->get_local_state(id())->cast<UnionSourceLocalState>();
     std::unique_ptr<vectorized::Block> output_block = vectorized::Block::create_unique();
     int child_idx = 0;
     local_state._shared_state->_data_queue->get_block_from_queue(&output_block, &child_idx);
@@ -135,7 +120,15 @@ Status UnionSourceOperatorX::pull_data(RuntimeState* state, vectorized::Block* b
     output_block->clear_column_data(row_desc().num_materialized_slots());
     local_state._shared_state->_data_queue->push_free_block(std::move(output_block), child_idx);
 
-    local_state.reached_limit(block, eos);
+    local_state.reached_limit(block, &eos);
+    //have exectue const expr, queue have no data any more, and child could be colsed
+    if ((!_has_data(state) && local_state._shared_state->_data_queue->is_all_finish())) {
+        source_state = SourceState::FINISHED;
+    } else if (_has_data(state)) {
+        source_state = SourceState::MORE_DATA;
+    } else {
+        source_state = SourceState::DEPEND_ON_SOURCE;
+    }
     return Status::OK();
 }
 

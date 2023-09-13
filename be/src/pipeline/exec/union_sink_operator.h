@@ -71,12 +71,11 @@ class UnionSinkLocalState final : public PipelineXSinkLocalState<UnionDependency
 public:
     ENABLE_FACTORY_CREATOR(UnionSinkLocalState);
     UnionSinkLocalState(DataSinkOperatorXBase* parent, RuntimeState* state)
-            : Base(parent, state), _child_idx(0), _child_row_idx(0) {}
+            : Base(parent, state), _child_row_idx(0) {}
     Status init(RuntimeState* state, LocalSinkStateInfo& info) override;
     friend class UnionSinkOperatorX;
     using Base = PipelineXSinkLocalState<UnionDependency>;
     using Parent = UnionSinkOperatorX;
-    void set(std::shared_ptr<DataQueue> que) { _shared_state->_data_queue = que; }
 
 private:
     std::unique_ptr<vectorized::Block> _output_block;
@@ -88,11 +87,8 @@ private:
     /// Exprs materialized by this node. The i-th result expr list refers to the i-th child.
     vectorized::VExprContextSPtrs _child_expr;
 
-    /// Index of current child.
-    [[maybe_unused]] int _child_idx;
-
     /// Index of current row in child_row_block_.
-    [[maybe_unused]] int _child_row_idx;
+    int _child_row_idx;
 };
 
 class UnionSinkOperatorX final : public DataSinkOperatorX<UnionSinkLocalState> {
@@ -117,18 +113,8 @@ public:
 
     bool can_write(RuntimeState* state) override { return true; }
 
-    Status alloc_resource(RuntimeState* state) {
-        // open const expr lists.
-        RETURN_IF_ERROR(vectorized::VExpr::open(_const_expr, state));
-
-        // open result expr lists.
-        RETURN_IF_ERROR(vectorized::VExpr::open(_child_expr, state));
-
-        return Status::OK();
-    }
-
 private:
-    int get_first_materialized_child_idx() const { return _first_materialized_child_idx; }
+    int _get_first_materialized_child_idx() const { return _first_materialized_child_idx; }
 
     /// Const exprs materialized by this node. These exprs don't refer to any children.
     /// Only materialized by the first fragment instance to avoid duplication.

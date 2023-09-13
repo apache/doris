@@ -95,17 +95,12 @@ Status UnionSinkOperator::close(RuntimeState* state) {
 }
 
 Status UnionSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& info) {
-    Base::init(state, info);
+    RETURN_IF_ERROR(Base::init(state, info));
     auto& p = _parent->cast<Parent>();
-    auto copy_expr_ctxs = [&](auto& _expr_ctxs, auto& _oth_expr_ctxs) {
-        _expr_ctxs.resize(_oth_expr_ctxs.size());
-        for (size_t i = 0; i < _expr_ctxs.size(); i++) {
-            RETURN_IF_ERROR(_oth_expr_ctxs[i]->clone(state, _expr_ctxs[i]));
-        }
-        return Status::OK();
-    };
-    // copy_expr_ctxs(_const_expr,p._const_expr);
-    copy_expr_ctxs(_child_expr, p._child_expr);
+    _child_expr.resize(p._child_expr.size());
+    for (size_t i = 0; i < p._child_expr.size(); i++) {
+        RETURN_IF_ERROR(p._child_expr[i]->clone(state, _child_expr[i]));
+    }
     return Status::OK();
 };
 
@@ -137,7 +132,12 @@ Status UnionSinkOperatorX::prepare(RuntimeState* state) {
 }
 
 Status UnionSinkOperatorX::open(RuntimeState* state) {
-    RETURN_IF_ERROR(alloc_resource(state));
+    // open const expr lists.
+    RETURN_IF_ERROR(vectorized::VExpr::open(_const_expr, state));
+
+    // open result expr lists.
+    RETURN_IF_ERROR(vectorized::VExpr::open(_child_expr, state));
+
     return Status::OK();
 }
 
@@ -148,19 +148,19 @@ Status UnionSinkOperatorX::sink(RuntimeState* state, vectorized::Block* in_block
         local_state._output_block =
                 local_state._shared_state->_data_queue->get_free_block(_cur_child_id);
     }
-    if (_cur_child_id < get_first_materialized_child_idx()) { //pass_through
+    if (_cur_child_id < _get_first_materialized_child_idx()) { //pass_through
         if (in_block->rows() > 0) {
             local_state._output_block->swap(*in_block);
             local_state._shared_state->_data_queue->push_block(std::move(local_state._output_block),
                                                                _cur_child_id);
         }
-    } else if (get_first_materialized_child_idx() != children_count() &&
+    } else if (_get_first_materialized_child_idx() != children_count() &&
                _cur_child_id < children_count()) { //need materialized
         RETURN_IF_ERROR(materialize_child_block(state, _cur_child_id, in_block,
                                                 local_state._output_block.get()));
     } else {
         return Status::InternalError("maybe can't reach here, execute const expr: {}, {}, {}",
-                                     _cur_child_id, get_first_materialized_child_idx(),
+                                     _cur_child_id, _get_first_materialized_child_idx(),
                                      children_count());
     }
     if (UNLIKELY(source_state == SourceState::FINISHED)) {

@@ -270,7 +270,7 @@ Status DataSinkOperatorX<LocalStateType>::setup_local_state(RuntimeState* state,
 
 template <typename LocalStateType>
 void DataSinkOperatorX<LocalStateType>::get_dependency(DependencySPtr& dependency) {
-    dependency.reset(new typename LocalStateType::Dependency(source_id()));
+    dependency.reset(new typename LocalStateType::Dependency(dest_id()));
 }
 
 template <typename LocalStateType>
