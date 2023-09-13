@@ -44,8 +44,8 @@ namespace doris::vectorized {
  *  RowRefListWithFlags is a list of many RowRefWithFlags. This means each row will have different visited flags. It's used for join operation which has `other_conjuncts`.
  */
 struct RowRef {
-    uint32_t row_num = 0;
-    uint8_t block_offset;
+    uint32_t row_num : 24 = 0;
+    uint8_t block_offset : 8;
 
     RowRef() = default;
     RowRef(size_t row_num_count, uint8_t block_offset_)
@@ -63,7 +63,7 @@ struct RowRefWithFlag : public RowRef {
 /// Portion of RowRefs, 16 * (MAX_SIZE + 1) bytes sized.
 template <typename RowRefType>
 struct Batch {
-    static constexpr uint32_t MAX_SIZE = 7; /// Adequate values are 3, 7, 15, 31.
+    static constexpr uint32_t MAX_SIZE = 6; /// Adequate values are 3, 7, 15, 31.
 
     uint32_t size = 0; // It's smaller than uint32_t but keeps align in Arena.
     Batch<RowRefType>* next;
@@ -151,7 +151,6 @@ struct RowRefList : RowRef {
 
     /// insert element after current one
     void insert(RowRefType&& row_ref, Arena& pool) {
-        row_count++;
         if (!next) {
             next = pool.alloc<Batch<RowRefType>>();
             *next = Batch<RowRefType>(nullptr);
@@ -159,13 +158,12 @@ struct RowRefList : RowRef {
         next = next->insert(std::move(row_ref), pool);
     }
 
-    bool is_single() const { return row_count == 1; }
+    bool is_single() const { return next == nullptr; }
 
 private:
     friend class ForwardIterator<RowRefList>;
 
     Batch<RowRefType>* next = nullptr;
-    uint32_t row_count = 1;
 };
 
 struct RowRefListWithFlag : RowRef {
@@ -184,7 +182,6 @@ struct RowRefListWithFlag : RowRef {
 
     /// insert element after current one
     void insert(RowRef&& row_ref, Arena& pool) {
-        row_count++;
         if (!next) {
             next = pool.alloc<Batch<RowRefType>>();
             *next = Batch<RowRefType>(nullptr);
@@ -192,7 +189,7 @@ struct RowRefListWithFlag : RowRef {
         next = next->insert(std::move(row_ref), pool);
     }
 
-    bool is_single() const { return row_count == 1; }
+    bool is_single() const { return next == nullptr; }
 
     bool visited = false;
 
@@ -200,7 +197,6 @@ private:
     friend class ForwardIterator<RowRefListWithFlag>;
 
     Batch<RowRefType>* next = nullptr;
-    uint32_t row_count = 1;
 };
 
 struct RowRefListWithFlags : RowRefWithFlag {
@@ -219,7 +215,6 @@ struct RowRefListWithFlags : RowRefWithFlag {
 
     /// insert element after current one
     void insert(RowRefWithFlag&& row_ref, Arena& pool) {
-        row_count++;
         if (!next) {
             next = pool.alloc<Batch<RowRefType>>();
             *next = Batch<RowRefType>(nullptr);
@@ -227,13 +222,12 @@ struct RowRefListWithFlags : RowRefWithFlag {
         next = next->insert(std::move(row_ref), pool);
     }
 
-    bool is_single() const { return row_count == 1; }
+    bool is_single() const { return next == nullptr; }
 
 private:
     friend class ForwardIterator<RowRefListWithFlags>;
 
     Batch<RowRefType>* next = nullptr;
-    uint32_t row_count = 1;
 };
 
 } // namespace doris::vectorized
