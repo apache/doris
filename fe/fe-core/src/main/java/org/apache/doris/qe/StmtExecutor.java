@@ -671,7 +671,7 @@ public class StmtExecutor {
         }
 
         try {
-            // parsedStmt maybe null here, we parse it.
+            // parsedStmt maybe null here, we parse it. Or the predicate will not work.
             parseByLegacy();
             if (context.isTxnModel() && !(parsedStmt instanceof InsertStmt)
                     && !(parsedStmt instanceof TransactionStmt)) {
