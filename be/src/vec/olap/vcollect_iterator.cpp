@@ -479,8 +479,16 @@ Status VCollectIterator::Level0Iterator::init(bool get_data_by_ref) {
 //     collect_iter->next(&_next_row);
 // }
 // so first child load first row and other child row_pos = -1
-void VCollectIterator::Level0Iterator::init_for_union(bool is_first_child, bool get_data_by_ref) {
+void VCollectIterator::Level0Iterator::init_for_union(bool get_data_by_ref) {
     _get_data_by_ref = get_data_by_ref && _rs_reader->support_return_data_by_ref();
+}
+
+Status VCollectIterator::Level0Iterator::ensure_first_row_ref() {
+    RETURN_IF_ERROR(refresh_current_row());
+    DCHECK(!_get_data_by_ref);
+    _ref = {_block, 0, false};
+
+    return Status::OK();
 }
 
 int64_t VCollectIterator::Level0Iterator::version() const {
@@ -668,7 +676,7 @@ Status VCollectIterator::Level1Iterator::init(bool get_data_by_ref) {
         _merge = false;
         _heap.reset(nullptr);
         _cur_child = std::move(*_children.begin());
-        dynamic_cast<Level0Iterator*>(_cur_child.get())->refresh_current_row();
+        RETURN_IF_ERROR(dynamic_cast<Level0Iterator*>(_cur_child.get())->ensure_first_row_ref());
         _children.pop_front();
     }
     _ref = *_cur_child->current_row_ref();
@@ -677,11 +685,9 @@ Status VCollectIterator::Level1Iterator::init(bool get_data_by_ref) {
 
 void VCollectIterator::Level1Iterator::init_level0_iterators_for_union() {
     bool have_multiple_child = false;
-    bool is_first_child = true;
     for (auto iter = _children.begin(); iter != _children.end();) {
-        (*iter)->init_for_union(is_first_child, have_multiple_child);
+        (*iter)->init_for_union(have_multiple_child);
         have_multiple_child = true;
-        is_first_child = false;
         ++iter;
     }
 }

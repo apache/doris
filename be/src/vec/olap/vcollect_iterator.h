@@ -122,7 +122,7 @@ private:
 
         virtual Status init(bool get_data_by_ref = false) = 0;
 
-        virtual void init_for_union(bool is_first_child, bool get_data_by_ref = false) {}
+        virtual void init_for_union(bool get_data_by_ref) {}
 
         virtual int64_t version() const = 0;
 
@@ -185,7 +185,17 @@ private:
 
         Status init(bool get_data_by_ref = false) override;
 
-        virtual void init_for_union(bool is_first_child, bool get_data_by_ref = false) override;
+        virtual void init_for_union(bool get_data_by_ref) override;
+
+        /* For unique and agg, rows is aggregated in block_reader, which access
+         * first row so we need prepare the first row ref while duplicated
+         * key does not need it.
+         *
+         * Here, we organize a lot state here, e.g. data model, order, data
+         * overlapping, we should split the iterators in the furure to make the
+         * logic simple and much more understandable.
+         */
+        [[nodiscard]] Status ensure_first_row_ref();
 
         int64_t version() const override;
 
