@@ -60,7 +60,7 @@ struct TSlotDescriptor {
   // materialize them.Used to optmize to read less data and less memory usage
   13: optional bool need_materialize = true
   14: optional bool is_auto_increment = false;
-  // `$.a.b.c` => ['$', 'a', 'b', 'c']
+  // subcolumn path info list for semi structure column(variant)
   15: optional list<string> column_paths
 }
 

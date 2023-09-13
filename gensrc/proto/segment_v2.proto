@@ -187,6 +187,7 @@ message ColumnMetaPB {
     // persist info for PathInData that represents path in document, e.g. JSON.
     optional ColumnPathInfo column_path_info = 13;
 
+    // Extra type info to be compatible with tabet schema
     optional bytes default_value = 14; // ColumnMessage.default_value ?
     optional int32 precision = 15; // ColumnMessage.precision
     optional int32 frac = 16; // ColumnMessag
