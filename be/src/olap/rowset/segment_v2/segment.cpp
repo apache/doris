@@ -72,9 +72,7 @@ Status Segment::open(io::FileSystemSPtr fs, const std::string& path, uint32_t se
                      const io::FileReaderOptions& reader_options,
                      std::shared_ptr<Segment>* output) {
     io::FileReaderSPtr file_reader;
-    io::FileDescription fd;
-    fd.path = path;
-    RETURN_IF_ERROR(fs->open_file(fd, reader_options, &file_reader));
+    RETURN_IF_ERROR(fs->open_file(path, &file_reader, &reader_options));
     std::shared_ptr<Segment> segment(new Segment(segment_id, rowset_id, tablet_schema));
     segment->_file_reader = std::move(file_reader);
     RETURN_IF_ERROR(segment->_open());
@@ -363,8 +361,11 @@ Status Segment::lookup_row_key(const Slice& key, bool with_seq_col, RowLocation*
     bool exact_match = false;
     std::unique_ptr<segment_v2::IndexedColumnIterator> index_iterator;
     RETURN_IF_ERROR(_pk_index_reader->new_iterator(&index_iterator));
-    RETURN_IF_ERROR(index_iterator->seek_at_or_after(&key_without_seq, &exact_match));
-    if (!has_seq_col && !exact_match) {
+    auto st = index_iterator->seek_at_or_after(&key_without_seq, &exact_match);
+    if (!st.ok() && !st.is<ErrorCode::ENTRY_NOT_FOUND>()) {
+        return st;
+    }
+    if (st.is<ErrorCode::ENTRY_NOT_FOUND>() || (!has_seq_col && !exact_match)) {
         return Status::Error<ErrorCode::KEY_NOT_FOUND>("Can't find key in the segment");
     }
     row_location->row_id = index_iterator->get_current_ordinal();
