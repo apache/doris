@@ -87,6 +87,8 @@ public class Job implements Writable {
      */
     @SerializedName("executor")
     private JobExecutor executor;
+    @SerializedName("baseName")
+    private String baseName;
 
     @SerializedName("user")
     private String user;
@@ -123,6 +125,9 @@ public class Job implements Writable {
     private Long originInterval;
     @SerializedName("nextExecuteTimeMs")
     private Long nextExecuteTimeMs = 0L;
+
+    @SerializedName("createTimeMs")
+    private Long createTimeMs = System.currentTimeMillis();
 
     @SerializedName("comment")
     private String comment;
@@ -209,7 +214,9 @@ public class Job implements Writable {
         if (endTimeMs != 0L && endTimeMs < System.currentTimeMillis()) {
             throw new DdlException("endTimeMs must be greater than current time");
         }
-
+        if (null != intervalUnit && null != originInterval) {
+            this.intervalMs = intervalUnit.getParameterValue(originInterval);
+        }
         if (isCycleJob && (intervalMs == null || intervalMs <= 0L)) {
             throw new DdlException("cycle job must set intervalMs");
         }
@@ -236,6 +243,9 @@ public class Job implements Writable {
         List<String> row = Lists.newArrayList();
         row.add(String.valueOf(jobId));
         row.add(dbName);
+        if (jobCategory.equals(JobCategory.MTMV)) {
+            row.add(baseName);
+        }
         row.add(jobName);
         row.add(user);
         row.add(timezone);
@@ -256,6 +266,7 @@ public class Job implements Writable {
         row.add(jobStatus.name());
         row.add(latestCompleteExecuteTimeMs <= 0L ? "null" : TimeUtils.longToTimeString(latestCompleteExecuteTimeMs));
         row.add(errMsg == null ? "null" : errMsg);
+        row.add(createTimeMs <= 0L ? "null" : TimeUtils.longToTimeString(createTimeMs));
         row.add(comment == null ? "null" : comment);
         return row;
     }

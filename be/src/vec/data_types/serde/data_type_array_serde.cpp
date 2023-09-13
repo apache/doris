@@ -71,7 +71,9 @@ Status DataTypeArraySerDe::deserialize_column_from_json_vector(IColumn& column,
 
 Status DataTypeArraySerDe::deserialize_one_cell_from_json(IColumn& column, Slice& slice,
                                                           const FormatOptions& options) const {
-    DCHECK(!slice.empty());
+    if (slice.empty()) {
+        return Status::InvalidArgument("slice is empty!");
+    }
     auto& array_column = assert_cast<ColumnArray&>(column);
     auto& offsets = array_column.get_offsets();
     IColumn& nested_column = array_column.get_data();
@@ -132,6 +134,9 @@ Status DataTypeArraySerDe::deserialize_one_cell_from_json(IColumn& column, Slice
 Status DataTypeArraySerDe::deserialize_one_cell_from_hive_text(IColumn& column, Slice& slice,
                                                                const FormatOptions& options,
                                                                int nesting_level) const {
+    if (slice.empty()) {
+        return Status::InvalidArgument("slice is empty!");
+    }
     auto& array_column = assert_cast<ColumnArray&>(column);
     auto& offsets = array_column.get_offsets();
     IColumn& nested_column = array_column.get_data();

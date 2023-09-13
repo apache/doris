@@ -131,7 +131,7 @@ public:
 
     bool no_schedule();
 
-    std::string debug_string();
+    virtual std::string debug_string();
 
     RuntimeState* state() { return _state; }
 

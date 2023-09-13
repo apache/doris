@@ -346,10 +346,11 @@ public class OlapTableSink extends DataSink {
                 }
                 ArrayList<Expr> exprs = partitionInfo.getPartitionExprs();
                 if (exprs != null && analyzer != null) {
+                    Analyzer funcAnalyzer = new Analyzer(analyzer.getEnv(), analyzer.getContext());
                     tupleDescriptor.setTable(table);
-                    analyzer.registerTupleDescriptor(tupleDescriptor);
+                    funcAnalyzer.registerTupleDescriptor(tupleDescriptor);
                     for (Expr e : exprs) {
-                        e.analyze(analyzer);
+                        e.analyze(funcAnalyzer);
                     }
                     partitionParam.setPartitionFunctionExprs(Expr.treesToThrift(exprs));
                 }
