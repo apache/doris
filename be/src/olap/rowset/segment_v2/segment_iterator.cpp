@@ -941,8 +941,13 @@ Status SegmentIterator::_apply_inverted_index_on_block_column_predicate(
             }
             return res;
         } else {
-            //TODO:mock until AndBlockColumnPredicate evaluate is ok.
-            if (res.code() == ErrorCode::NOT_IMPLEMENTED_ERROR) {
+            // because column predicate only process LE/LT/GT/GE predicate type, need_remaining_after_evaluate only support in_or_list
+            bool need_remaining_after_evaluate = false;
+            if (_downgrade_without_index(res, need_remaining_after_evaluate)) {
+                // downgrade without index query
+                no_need_to_pass_column_predicate_set.insert(predicate_set.begin(),
+                                                            predicate_set.end());
+                _not_apply_index_pred.insert(column_id);
                 return Status::OK();
             }
             LOG(WARNING) << "failed to evaluate index"

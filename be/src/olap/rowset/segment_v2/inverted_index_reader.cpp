@@ -52,6 +52,7 @@
 #include "olap/olap_common.h"
 #include "olap/rowset/segment_v2/inverted_index/char_filter/char_filter_factory.h"
 #include "olap/rowset/segment_v2/inverted_index/query/conjunction_query.h"
+#include "olap/rowset/segment_v2/inverted_index/query/disjunction_query.h"
 #include "olap/rowset/segment_v2/inverted_index_cache.h"
 #include "olap/rowset/segment_v2/inverted_index_compound_directory.h"
 #include "olap/types.h"
@@ -566,15 +567,6 @@ Status StringTypeInvertedIndexReader::handle_point_query(const std::string& colu
                                                          roaring::Roaring* bit_map) {
     std::wstring column_name_ws = std::wstring(column_name.begin(), column_name.end());
     auto values = query->get_values();
-    std::unique_ptr<lucene::search::BooleanQuery> lucene_query(new lucene::search::BooleanQuery);
-    std::unique_ptr<lucene::index::Term, void (*)(lucene::index::Term*)> term(
-            nullptr, [](lucene::index::Term* term) { _CLDECDELETE(term); });
-    for (auto& v : values) {
-        std::wstring search_ws = StringUtil::string_to_wstring(v);
-        term.reset(_CLNEW lucene::index::Term(column_name_ws.c_str(), search_ws.c_str()));
-        auto term_query = std::make_unique<lucene::search::TermQuery>(term.get());
-        lucene_query->add(term_query.release(), true, lucene::search::BooleanClause::SHOULD);
-    }
 
     InvertedIndexQueryCache::CacheKey cache_key {_file_full_path, column_name,
                                                  query->get_query_type(), query->to_string()};
@@ -590,26 +582,21 @@ Status StringTypeInvertedIndexReader::handle_point_query(const std::string& colu
     InvertedIndexSearcherCache::instance()->get_index_searcher(_fs, _file_dir, _file_name,
                                                                &inverted_index_cache_handle, stats);
     auto index_searcher = inverted_index_cache_handle.get_index_searcher();
-
-    // try to reuse index_searcher's directory to read null_bitmap to cache
-    // to avoid open directory additionally for null_bitmap
-    InvertedIndexQueryCacheHandle null_bitmap_cache_handle;
-    read_null_bitmap(&null_bitmap_cache_handle, index_searcher->getReader()->directory());
-
+    DisjunctionQuery dis_query(index_searcher->getReader());
+    dis_query.add(column_name_ws, values);
     try {
         SCOPED_RAW_TIMER(&stats->inverted_index_searcher_search_timer);
-        index_searcher->_search(lucene_query.get(), [&result](DocRange* doc_range) {
-            if (doc_range->type_ == DocRangeType::kMany) {
-                result.addMany(doc_range->doc_many_size_, doc_range->doc_many->data());
-            } else {
-                result.addRange(doc_range->doc_range.first, doc_range->doc_range.second);
-            }
-        });
+        dis_query.search(*bit_map);
     } catch (const CLuceneError& e) {
         return Status::Error<ErrorCode::INVERTED_INDEX_CLUCENE_ERROR>(
                 "CLuceneError occured, error msg: {}, column name: {}, search_str: {}", e.what(),
                 column_name, query->to_string());
     }
+
+    // try to reuse index_searcher's directory to read null_bitmap to cache
+    // to avoid open directory additionally for null_bitmap
+    InvertedIndexQueryCacheHandle null_bitmap_cache_handle;
+    read_null_bitmap(&null_bitmap_cache_handle, index_searcher->getReader()->directory());
 
     // add to cache
     std::shared_ptr<roaring::Roaring> term_match_bitmap =
