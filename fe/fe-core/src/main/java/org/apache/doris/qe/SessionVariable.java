@@ -1572,6 +1572,10 @@ public class SessionVariable implements Serializable, Writable {
         return enableNereidsDML;
     }
 
+    public void setEnableNereidsDML(boolean enableNereidsDML) {
+        this.enableNereidsDML = enableNereidsDML;
+    }
+
     public void setEnableFoldConstantByBe(boolean foldConstantByBe) {
         this.enableFoldConstantByBe = foldConstantByBe;
     }

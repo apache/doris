@@ -60,6 +60,8 @@ public class SqlJobExecutor implements JobExecutor {
         ctx.setCurrentUserIdentity(UserIdentity.createAnalyzedUserIdentWithIp(job.getUser(), "%"));
         ctx.getState().reset();
         ctx.setThreadLocalInfo();
+        // run insert overwrite table need this var
+        ctx.getSessionVariable().setEnableNereidsDML(true);
         String taskIdString = UUID.randomUUID().toString();
         UUID taskId = UUID.fromString(taskIdString);
         TUniqueId queryId = new TUniqueId(taskId.getMostSignificantBits(), taskId.getLeastSignificantBits());
