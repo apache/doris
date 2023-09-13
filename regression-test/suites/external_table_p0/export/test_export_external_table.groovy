@@ -143,14 +143,6 @@ suite("test_export_external_table", "p0,external,mysql,external_docker,external_
         );"""
 
         sql  """ use ${internal_db_name} """
-        sql  """ drop table if exists ${internal_db_name}.${inDorisTable} """
-        sql  """
-              CREATE TABLE ${internal_db_name}.${inDorisTable} (
-                `id` INT NULL COMMENT "主键id",
-                `name` string NULL COMMENT "名字"
-                ) DISTRIBUTED BY HASH(id) BUCKETS 10
-                PROPERTIES("replication_num" = "1");
-        """
 
         qt_sql """select current_catalog()"""
         sql """switch ${catalog_name}"""
