@@ -32,6 +32,6 @@ public class RecomputeLogicalPropertiesProcessor extends PlanPostProcessor {
         physicalPlan = physicalPlan.resetLogicalProperties();
         physicalPlan = physicalPlan.withPhysicalPropertiesAndStats(physicalPlan.getPhysicalProperties(),
                 ((AbstractPlan) plan).getStats());
-        return physicalPlan.resetLogicalProperties();
+        return physicalPlan;
     }
 }
