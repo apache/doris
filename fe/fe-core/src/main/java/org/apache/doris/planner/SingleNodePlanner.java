@@ -1648,6 +1648,11 @@ public class SingleNodePlanner {
                 }
                 unionNode.setTblRefIds(Lists.newArrayList(inlineViewRef.getId()));
                 unionNode.addConstExprList(selectStmt.getBaseTblResultExprs());
+                if (selectStmt.getValueList() != null) {
+                    for (List<Expr> row : selectStmt.getValueList().getRows()) {
+                        unionNode.addConstExprList(row);
+                    }
+                }
                 unionNode.init(analyzer);
                 //set outputSmap to substitute literal in outputExpr
                 unionNode.setWithoutTupleIsNullOutputSmap(inlineViewRef.getSmap());
