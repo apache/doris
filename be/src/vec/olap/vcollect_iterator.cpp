@@ -541,6 +541,9 @@ Status VCollectIterator::Level0Iterator::next(Block* block) {
         _ref.reset();
         return Status::OK();
     } else {
+        if (_rs_reader == nullptr) {
+            return Status::Error<END_OF_FILE>("");
+        }
         auto res = _rs_reader->next_block(block);
         if (!res.ok() && !res.is<END_OF_FILE>()) {
             return res;
