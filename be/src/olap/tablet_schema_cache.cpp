@@ -19,12 +19,7 @@
 
 namespace doris {
 
-TabletSchemaCache::~TabletSchemaCache() {
-    stop_and_join();
-}
-
 TabletSchemaSPtr TabletSchemaCache::insert(const std::string& key) {
-    DCHECK(_s_instance != nullptr);
     std::lock_guard guard(_mtx);
     auto iter = _cache.find(key);
     if (iter == _cache.end()) {
@@ -41,11 +36,18 @@ TabletSchemaSPtr TabletSchemaCache::insert(const std::string& key) {
     return iter->second;
 }
 
+void TabletSchemaCache::start() {
+    std::thread t(&TabletSchemaCache::_recycle, this);
+    t.detach();
+    LOG(INFO) << "TabletSchemaCache started";
+}
+
 void TabletSchemaCache::stop() {
     _should_stop = true;
     while (!_is_stopped) {
         std::this_thread::sleep_for(std::chrono::seconds(1));
     }
+    LOG(INFO) << "TabletSchemaCache stopped";
 }
 
 /**

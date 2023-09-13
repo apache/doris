@@ -720,8 +720,8 @@ BaseCompaction:546859:
 #### `enable_stream_load_record`
 
 * 类型: bool
-* 描述: 是否开启 stream load 操作记录，默认是不启用
-* 默认值: false
+* 描述: 是否开启 stream load 操作记录，默认开启
+* 默认值: true
 
 #### `load_data_reserve_hours`
 

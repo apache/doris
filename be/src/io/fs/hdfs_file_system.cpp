@@ -138,7 +138,7 @@ HdfsFileSystem::HdfsFileSystem(const THdfsParams& hdfs_params, const std::string
           _hdfs_params(hdfs_params),
           _fs_handle(nullptr),
           _profile(profile) {
-    if (_hdfs_params.__isset.fs_name) {
+    if (fs_name.empty() && _hdfs_params.__isset.fs_name) {
         _fs_name = _hdfs_params.fs_name;
     } else {
         _fs_name = fs_name;
@@ -509,11 +509,7 @@ Status HdfsFileSystemCache::get_connection(const THdfsParams& hdfs_params,
 uint64 HdfsFileSystemCache::_hdfs_hash_code(const THdfsParams& hdfs_params,
                                             const std::string& fs_name) {
     uint64 hash_code = 0;
-    if (hdfs_params.__isset.fs_name) {
-        hash_code += Fingerprint(hdfs_params.fs_name);
-    } else {
-        hash_code += Fingerprint(fs_name);
-    }
+    hash_code += Fingerprint(fs_name);
     if (hdfs_params.__isset.user) {
         hash_code += Fingerprint(hdfs_params.user);
     }

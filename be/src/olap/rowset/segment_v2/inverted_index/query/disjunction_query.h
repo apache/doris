@@ -17,14 +17,32 @@
 
 #pragma once
 
+#include <CLucene.h>
+#include <CLucene/index/IndexReader.h>
+#include <CLucene/index/IndexVersion.h>
+#include <CLucene/index/Term.h>
+#include <CLucene/search/query/TermIterator.h>
+
+#include "roaring/roaring.hh"
+
+CL_NS_USE(index)
+
 namespace doris {
 
-class TResourceInfo;
-class ResourceTls {
+class DisjunctionQuery {
 public:
-    static void init();
-    static TResourceInfo* get_resource_tls();
-    static int set_resource_tls(TResourceInfo*);
+    DisjunctionQuery(IndexReader* reader);
+    ~DisjunctionQuery();
+
+    void add(const std::wstring& field_name, const std::vector<std::string>& terms);
+    void search(roaring::Roaring& roaring);
+
+private:
+    IndexReader* _reader = nullptr;
+    std::vector<std::wstring*> _wsterms;
+    std::vector<Term*> _terms;
+    std::vector<TermDocs*> _term_docs;
+    std::vector<TermIterator> _term_iterators;
 };
 
 } // namespace doris

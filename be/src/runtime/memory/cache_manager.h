@@ -17,6 +17,7 @@
 
 #pragma once
 
+#include "runtime/exec_env.h"
 #include "runtime/memory/cache_policy.h"
 #include "util/runtime_profile.h"
 
@@ -25,12 +26,11 @@ namespace doris {
 // Hold the list of all caches, for prune when memory not enough or timing.
 class CacheManager {
 public:
-    static void create_global_instance() {
-        DCHECK(_s_instance == nullptr);
-        static CacheManager instance;
-        _s_instance = &instance;
+    static CacheManager* create_global_instance() {
+        CacheManager* res = new CacheManager();
+        return res;
     }
-    static CacheManager* instance() { return _s_instance; }
+    static CacheManager* instance() { return ExecEnv::GetInstance()->get_cache_manager(); }
 
     std::list<CachePolicy*>::iterator register_cache(CachePolicy* cache) {
         std::lock_guard<std::mutex> l(_caches_lock);
@@ -55,8 +55,6 @@ public:
     void clear_once(CachePolicy::CacheType type);
 
 private:
-    static inline CacheManager* _s_instance = nullptr;
-
     std::mutex _caches_lock;
     std::list<CachePolicy*> _caches;
 };
