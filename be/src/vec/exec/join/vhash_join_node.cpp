@@ -34,6 +34,7 @@
 #include <type_traits>
 #include <utility>
 
+// IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/config.h"
 #include "common/object_pool.h"
@@ -192,6 +193,32 @@ HashJoinBuildContext::HashJoinBuildContext(pipeline::HashJoinBuildSinkLocalState
           _inserted_rows(local_state->_inserted_rows),
           _arena(local_state->_shared_state->arena),
           _build_bf_cardinality(local_state->_build_bf_cardinality) {}
+
+template <class HashTableContext>
+Status ProcessRuntimeFilterBuild<HashTableContext>::operator()(RuntimeState* state,
+                                                               HashTableContext& hash_table_ctx) {
+    if (_context->_runtime_filter_descs.empty()) {
+        return Status::OK();
+    }
+    _context->_runtime_filter_slots = std::make_shared<VRuntimeFilterSlots>(
+            _context->_build_expr_ctxs, _context->_runtime_filter_descs);
+
+    RETURN_IF_ERROR(_context->_runtime_filter_slots->init(
+            state, hash_table_ctx.hash_table.get_size(), _context->_build_bf_cardinality));
+
+    if (!_context->_runtime_filter_slots->empty() && !_context->_inserted_rows.empty()) {
+        {
+            SCOPED_TIMER(_context->_push_compute_timer);
+            _context->_runtime_filter_slots->insert(_context->_inserted_rows);
+        }
+    }
+    {
+        SCOPED_TIMER(_context->_push_down_timer);
+        RETURN_IF_ERROR(_context->_runtime_filter_slots->publish());
+    }
+
+    return Status::OK();
+}
 
 HashJoinNode::HashJoinNode(ObjectPool* pool, const TPlanNode& tnode, const DescriptorTbl& descs)
         : VJoinNodeBase(pool, tnode, descs),
