@@ -73,13 +73,16 @@ LoadChannelMgr::LoadChannelMgr() : _stop_background_threads_latch(1) {
 }
 
 LoadChannelMgr::~LoadChannelMgr() {
+    delete _last_success_channel;
+}
+
+void LoadChannelMgr::stop() {
     DEREGISTER_HOOK_METRIC(load_channel_count);
     DEREGISTER_HOOK_METRIC(load_channel_mem_consumption);
     _stop_background_threads_latch.count_down();
     if (_load_channels_clean_thread) {
         _load_channels_clean_thread->join();
     }
-    delete _last_success_channel;
 }
 
 Status LoadChannelMgr::init(int64_t process_mem_limit) {
