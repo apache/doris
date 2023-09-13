@@ -400,7 +400,7 @@ tabletList
     
 
 inlineTable
-    : VALUES rowConstructor (COMMA rowConstructor)* tableAlias
+    : VALUES rowConstructor (COMMA rowConstructor)*
     ;
 
 // -----------------Expression-----------------
