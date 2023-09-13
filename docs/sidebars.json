@@ -632,6 +632,7 @@
                                 "sql-manual/sql-functions/json-functions/json-unquote",
                                 "sql-manual/sql-functions/json-functions/json-valid",
                                 "sql-manual/sql-functions/json-functions/json-contains",
+                                "sql-manual/sql-functions/json-functions/json-length",
                                 "sql-manual/sql-functions/json-functions/get-json-double",
                                 "sql-manual/sql-functions/json-functions/get-json-int",
                                 "sql-manual/sql-functions/json-functions/get-json-bigint",
