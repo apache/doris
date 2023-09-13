@@ -26,14 +26,23 @@ under the License.
 
 # Partial Update
 
-Doris's default data write semantics are whole-row Upsert. Before version 2.0, if users wanted to update certain columns of some rows, they could only use the `UPDATE` command. However, due to the granularity of locks in read-write transactions, the `UPDATE` command is not suitable for high-frequency data write scenarios. Therefore, in version 2.0, we introduced support for partial column updates in the Unique Key model.
+## Overview
+
+To perform partial column updates on your table, Doris provides two models: the Unique Key model and the Aggregate Key model.
+
+### Unique Key Model
+
+Doris's Unique Key Model provides default whole-row Upsert  semantics. Before version 2.0, if users wanted to update certain columns of some rows, they could only use the `UPDATE` command. However, due to the granularity of locks in read-write transactions, the `UPDATE` command is not suitable for high-frequency data write scenarios. Therefore, in version 2.0, we introduced support for partial column updates in the Unique Key model.
 
 > Note:
 >
 > 1. Partial update are only supported in the Unique Key Merge-on-Write implementation in version 2.0.0.
 > 2. Version 2.0.2 introduces support for performing partial column updates using `INSERT INTO`.
-> 3. Version 2.1.0 will bring support for partial column updates in the Unique Key model's Merge-on-Read implementation.
 > 4. Version 2.1.0 will offer more flexible column updates, as described in the "Usage Limitations" section below.
+
+### Aggregate Key Model
+
+Aggregate Key tables are primarily used in pre-aggregation scenarios rather than data update scenarios. However, column updates can also be achieved by setting the aggregation function to `REPLACE_IF_NOT_NULL`.
 
 ## Applicable scenarios
 
@@ -43,15 +52,19 @@ Doris's default data write semantics are whole-row Upsert. Before version 2.0, i
 
 ## Fundamentals
 
-### Merge-on-Write Implementation
+For more information about the principles of the Unique Key model and Aggregate Key model, please refer to the [Data Model](../../data-table/data-model.md) introduction.
+
+### Unique Key Model
+
+**The Unique Key model currently supports column updates only in the Merge-on-Write implementation.**
 
 Users write data for certain columns into Doris's Memtable through the regular load methods. At this point, the Memtable does not contain complete rows of data. When flushing the Memtable, Doris searches for historical data, fills in the entire row, then writes it to the data file, and marks the data rows with the same key in the historical data file as deleted.
 
 In the case of concurrent loads, Doris uses the MVCC mechanism to ensure data correctness. If two batches of loaded data update different columns with the same key, the load task with the higher system version will recomplete the data rows with the same key written by the lower version load task after the lower version load task succeeds.
 
-### Merge-on-Read Implementation
+### Aggregate Key Model
 
-No extra-processing is performed on the data during the write process. Data aggregation from different data files is done during data retrieval using the REPLACE_IF_NOT_NULL aggregation function.
+You can achieve partial column updates by setting the aggregation function to `REPLACE_IF_NOT_NULL`. For detailed usage examples, please refer to the following section.
 
 ## Concurrent Writes and Data Visibility
 
@@ -61,10 +74,10 @@ Partial column updates support high-frequency concurrent writes, and once the wr
 
 Usage Recommendations:
 
-1. For users with high write performance requirements and low query performance requirements, it is recommended to use the Merge-on-Read implementation.
-2. For users with high query performance requirements and lower write performance requirements (e.g., data writes and updates are mainly completed during off-peak hours in the early morning), or for users with low write frequency, it is recommended to use the Merge-on-Write implementation.
+1. For users with high write performance requirements and low query performance requirements, it is recommended to use the Aggregate Key Model.
+2. For users with high query performance requirements and lower write performance requirements (e.g., data writes and updates are mainly completed during off-peak hours in the early morning), or for users with low write frequency, it is recommended to use the Unique Key Merge-on-Write implementation.
 
-### Merge-on-Write Implementation
+### Unique Key Merge-on-Write Implementation
 
 Since the Merge-on-Write implementation requires filling in entire rows of data during data writes to ensure optimal query performance, performing partial column updates using the Merge-on-Write implementation may lead to noticeable load performance degradation.
 
@@ -77,17 +90,21 @@ Write Performance Optimization Recommendations:
 "store_row_column" = "true"
 ```
 
-### Merge-on-Read Implementation
+### Aggregate Key Model
 
-The Merge-on-Read implementation does not perform any additional processing during the write process, so write performance is not affected and is the same as regular data load jobs. However, the cost of aggregation during queries is relatively high, with typical aggregate query performance being 5-10 times lower compared to the Merge-on-Write implementation.
+The Aggregate Key model does not perform any additional processing during the write process, so its write performance is not affected and is the same as regular data ingestion. However, there is a significant cost associated with aggregation during query execution, with typical aggregation query performance being 5-10 times lower compared to the Merge-on-Write implementation of the Unique Key model.
 
- ## Usage Instructions
+ ## Usage Instructions and Examples
 
-Due to significant differences in implementation, Merge-on-Write and Merge-on-Read implementations cannot be completely unified in terms of usage. Users should choose different implementations and usage methods based on their own requirements.
+### Unique Key Model
 
-> Note: This document currently only provides a usage example for partial column updates with Merge-on-Write. After version 2.1.0 is officially released, we will update the usage examples for Merge-on-Read.
+#### Table Creation
 
-### Merge-on-Write Implementation
+When creating a table, you need to specify the following property to enable the Merge-on-Write implementation:
+
+```
+enable_unique_key_merge_on_write = true
+```
 
 #### StreamLoad/BrokerLoad/RoutineLoad
 
@@ -107,7 +124,7 @@ In all data models, by default, when you use `INSERT INTO` with a given set of c
 set enable_unique_key_partial_update=true
 ```
 
-## Usage Example
+#### Example
 
 Suppose there is an order table `order_tbl` in Doris, where the order ID is the Key column, and the order status and order amount are Value columns. The data status is as follows:
 
@@ -153,12 +170,52 @@ The updated result is as follows:
 1 row in set (0.01 sec)
 ```
 
+### Aggregate Key Model
+
+#### Table Creation
+
+Set the aggregation function for the columns that need column updates to `REPLACE_IF_NOT_NULL` as follows:
+
+```sql
+CREATE TABLE `order_tbl` (
+  `order_id` int(11) NULL,
+  `order_amount` int(11) REPLACE_IF_NOT_NULL NULL,
+  `order_status` varchar(100) REPLACE_IF_NOT_NULL NULL
+) ENGINE=OLAP
+AGGREGATE KEY(`order_id`)
+COMMENT 'OLAP'
+DISTRIBUTED BY HASH(`order_id`) BUCKETS 1
+PROPERTIES (
+"replication_allocation" = "tag.location.default: 1"
+);
+```
+
+#### Write Data
+
+Whether through load tasks or using `INSERT INTO`, you can directly write the data for the columns you want to update.
+
+#### Example
+
+Similar to the previous example, the corresponding Stream Load command (no additional header required) is:
+
+```shell
+curl  --location-trusted -u root: -H "column_separator:," -H "columns:order_id,order_status" -T /tmp/update.csv http://127.0.0.1:48037/api/db1/order_tbl/_stream_load
+```
+
+The corresponding `INSERT INTO` statement (no need to set additional session variables) is:
+
+```sql
+INSERT INTO order_tbl (order_id, order_status) values (1,'Pending Delivery');
+```
+
 ## Usage Limitations
+
+### Unique Key Merge-on-Write Implementation
 
 In version 2.0, all rows in the same batch of data write tasks (whether load tasks or `INSERT INTO`) can only update the same columns. If you need to update different columns of data, you will need to write them in separate batches.
 
 In version 2.1, we will support more flexible column updates, allowing users to update different columns for each row within the same batch load.
 
-## More Help
+### Aggregate Key Model
 
-For more information about the Merge-on-Read and Merge-on-Write implementations of the Unique Key, please refer to the introduction in the [Data Model](../../data-table/data-model.md).
+Users cannot change a field from non-NULL to NULL; any NULL values written with the `REPLACE_IF_NOT_NULL` aggregation function will be automatically ignored during processing.

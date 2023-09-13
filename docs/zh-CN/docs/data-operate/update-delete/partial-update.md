@@ -74,8 +74,8 @@ Aggregate Key表主要在预聚合场景使用而非数据更新的场景使用�
 
 使用建议：
 
-1. 对写入性能要求较高，查询性能要求较低的用户，建议使用merge-on-read实现
-2. 对查询性能要求较高，对写入性能要求不高（例如数据的写入和更新基本都在凌晨低峰期完成），或者写入频率不高的用户，建议使用merge-on-write实现
+1. 对写入性能要求较高，查询性能要求较低的用户，建议使用Aggregate Key模型
+2. 对查询性能要求较高，对写入性能要求不高（例如数据的写入和更新基本都在凌晨低峰期完成），或者写入频率不高的用户，建议使用Unique Key模型merge-on-write实现
 
 ### Unique Key模型Merge-on-Write实现
 
@@ -202,7 +202,7 @@ PROPERTIES (
 curl  --location-trusted -u root: -H "column_separator:," -H "columns:order_id,order_status" -T /tmp/update.csv http://127.0.0.1:48037/api/db1/order_tbl/_stream_load
 ```
 
-对应的INSERT INTO语句为（不需要额外设置session variable）：
+对应的`INSERT INTO`语句为（不需要额外设置session variable）：
 
 ```
 INSERT INTO order_tbl (order_id, order_status) values (1,'待发货');
