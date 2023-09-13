@@ -146,6 +146,8 @@ private:
 
         virtual Status current_block_row_locations(std::vector<RowLocation>* row_location) = 0;
 
+        [[nodiscard]] virtual Status ensure_first_row_ref() = 0;
+
         virtual bool update_profile(RuntimeProfile* profile) = 0;
 
     protected:
@@ -195,7 +197,7 @@ private:
          * overlapping, we should split the iterators in the furure to make the
          * logic simple and much more understandable.
          */
-        [[nodiscard]] Status ensure_first_row_ref();
+        [[nodiscard]] Status ensure_first_row_ref() override;
 
         int64_t version() const override;
 
@@ -282,6 +284,8 @@ private:
         RowLocation current_row_location() override { return _cur_child->current_row_location(); }
 
         Status current_block_row_locations(std::vector<RowLocation>* block_row_locations) override;
+
+        [[nodiscard]] Status ensure_first_row_ref() override;
 
         ~Level1Iterator() override;
 

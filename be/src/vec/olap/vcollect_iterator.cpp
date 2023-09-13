@@ -484,11 +484,11 @@ void VCollectIterator::Level0Iterator::init_for_union(bool get_data_by_ref) {
 }
 
 Status VCollectIterator::Level0Iterator::ensure_first_row_ref() {
-    RETURN_IF_ERROR(refresh_current_row());
     DCHECK(!_get_data_by_ref);
+    auto s = refresh_current_row();
     _ref = {_block, 0, false};
 
-    return Status::OK();
+    return s;
 }
 
 int64_t VCollectIterator::Level0Iterator::version() const {
@@ -675,11 +675,28 @@ Status VCollectIterator::Level1Iterator::init(bool get_data_by_ref) {
     } else {
         _merge = false;
         _heap.reset(nullptr);
+        RETURN_IF_ERROR(ensure_first_row_ref());
         _cur_child = std::move(*_children.begin());
-        RETURN_IF_ERROR(dynamic_cast<Level0Iterator*>(_cur_child.get())->ensure_first_row_ref());
         _children.pop_front();
     }
     _ref = *_cur_child->current_row_ref();
+    return Status::OK();
+}
+
+Status VCollectIterator::Level1Iterator::ensure_first_row_ref() {
+    for (auto iter = _children.begin(); iter != _children.end();) {
+        auto s = (*iter)->ensure_first_row_ref();
+        if (!s.ok()) {
+            iter = _children.erase(iter);
+            if (!s.is<END_OF_FILE>()) {
+                return s;
+            }
+        } else {
+            // we get a real row
+            break;
+        }
+    }
+
     return Status::OK();
 }
 
