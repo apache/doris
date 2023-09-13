@@ -1098,6 +1098,7 @@ DECLARE_mBool(enable_flatten_nested_for_variant);
 // Threshold of a column as sparse column
 // Notice: TEST ONLY
 DECLARE_mDouble(ratio_of_defaults_as_sparse_column);
+DECLARE_mInt64(threshold_rows_to_estimate_sparse_column);
 
 // enable window_funnel_function with different modes
 DECLARE_mBool(enable_window_funnel_function_v2);

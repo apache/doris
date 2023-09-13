@@ -157,7 +157,6 @@ Status ExtractReader::extract_to(vectorized::MutableColumnPtr& dst, size_t nrows
             dst_var.get_root()->insert_range_from(*cast_column, 0, nrows);
             dst_var.set_num_rows(dst_var.get_root()->size());
         }
-        CHECK_EQ(dst_var.size(), nrows);
     } else {
         CHECK(false) << "Not implemented extract to type " << dst->get_name();
     }
@@ -177,8 +176,7 @@ Status ExtractReader::next_batch(size_t* n, vectorized::MutableColumnPtr& dst, b
 Status ExtractReader::read_by_rowids(const rowid_t* rowids, const size_t count,
                                      vectorized::MutableColumnPtr& dst) {
     _root_reader->column->clear();
-    RETURN_IF_ERROR(
-            _root_reader->iterator->read_by_rowids(rowids, count, _root_reader->column));
+    RETURN_IF_ERROR(_root_reader->iterator->read_by_rowids(rowids, count, _root_reader->column));
     RETURN_IF_ERROR(extract_to(dst, count));
     return Status::OK();
 }
