@@ -80,10 +80,9 @@ namespace stream_load {
 class OlapTableBlockConvertor;
 class OlapTabletFinder;
 class VOlapTableSinkV2;
+class DeltaWriterV2Map;
 
-using DeltaWriterForTablet = std::unordered_map<int64_t, std::unique_ptr<DeltaWriterV2>>;
 using Streams = std::vector<std::shared_ptr<LoadStreamStub>>;
-using NodeToStreams = std::unordered_map<int64_t, Streams>;
 using NodeIdForStream = std::unordered_map<brpc::StreamId, int64_t>;
 using NodePartitionTabletMapping =
         std::unordered_map<int64_t, std::unordered_map<int64_t, std::unordered_set<int64_t>>>;
@@ -133,10 +132,7 @@ public:
     Status send(RuntimeState* state, vectorized::Block* block, bool eos = false) override;
 
 private:
-    Status _init_stream_pool(const NodeInfo& node_info, Streams& stream_pool,
-                             LoadStreamStub& stub_template);
-
-    Status _init_stream_pools();
+    Status _open_streams(int64_t src_id);
 
     void _build_tablet_node_mapping();
 
@@ -215,9 +211,9 @@ private:
     std::unordered_map<int64_t, std::vector<PTabletID>> _tablets_for_node;
     std::unordered_map<int64_t, std::vector<PTabletID>> _indexes_from_node;
 
-    std::shared_ptr<NodeToStreams> _stream_pool_for_node;
+    std::unordered_map<int64_t, std::shared_ptr<Streams>> _streams_for_node;
     size_t _stream_index = 0;
-    std::shared_ptr<DeltaWriterForTablet> _delta_writer_for_tablet;
+    std::shared_ptr<DeltaWriterV2Map> _delta_writer_for_tablet;
 
     std::atomic<int> _pending_streams {0};
 

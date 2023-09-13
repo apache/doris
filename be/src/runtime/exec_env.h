@@ -50,6 +50,10 @@ class TaskScheduler;
 namespace taskgroup {
 class TaskGroupManager;
 }
+namespace stream_load {
+class DeltaWriterV2Pool;
+class LoadStreamStubPool;
+} // namespace stream_load
 namespace io {
 class S3FileBufferPool;
 class FileCacheFactory;
@@ -234,6 +238,11 @@ public:
     vectorized::ZoneList& global_zone_cache() { return *_global_zone_cache; }
     std::shared_mutex& zone_cache_rw_lock() { return _zone_cache_rw_lock; }
 
+    stream_load::LoadStreamStubPool* load_stream_stub_pool() {
+        return _load_stream_stub_pool.get();
+    }
+    stream_load::DeltaWriterV2Pool* delta_writer_v2_pool() { return _delta_writer_v2_pool.get(); }
+
     void wait_for_all_tasks_done();
 
     void update_frontends(const std::vector<TFrontendInfo>& new_infos);
@@ -257,7 +266,7 @@ public:
     }
 
 private:
-    ExecEnv() = default;
+    ExecEnv();
 
     [[nodiscard]] Status _init(const std::vector<StorePath>& store_paths);
     void _destroy();
@@ -334,6 +343,8 @@ private:
     // To save meta info of external file, such as parquet footer.
     FileMetaCache* _file_meta_cache = nullptr;
     std::unique_ptr<MemTableMemoryLimiter> _memtable_memory_limiter;
+    std::unique_ptr<stream_load::LoadStreamStubPool> _load_stream_stub_pool;
+    std::unique_ptr<stream_load::DeltaWriterV2Pool> _delta_writer_v2_pool;
 
     std::unique_ptr<vectorized::ZoneList> _global_zone_cache;
     std::shared_mutex _zone_cache_rw_lock;
