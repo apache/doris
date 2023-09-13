@@ -243,7 +243,7 @@ VNodeChannel::~VNodeChannel() {
     if (_open_closure != nullptr) {
         delete _open_closure;
     }
-    _cur_add_block_request.release_id();
+    static_cast<void>(_cur_add_block_request.release_id());
 }
 
 void VNodeChannel::clear_all_blocks() {
@@ -336,8 +336,8 @@ void VNodeChannel::open() {
     }
     _stub->tablet_writer_open(&_open_closure->cntl, &request, &_open_closure->result,
                               _open_closure);
-    request.release_id();
-    request.release_schema();
+    static_cast<void>(request.release_id());
+    static_cast<void>(request.release_schema());
 }
 
 Status VNodeChannel::open_wait() {
@@ -821,7 +821,7 @@ void VNodeChannel::cancel(const std::string& cancel_msg) {
         closure->cntl.ignore_eovercrowded();
     }
     _stub->tablet_writer_cancel(&closure->cntl, &request, &closure->result, closure);
-    request.release_id();
+    static_cast<void>(request.release_id());
 }
 
 bool VNodeChannel::is_send_data_rpc_done() const {
