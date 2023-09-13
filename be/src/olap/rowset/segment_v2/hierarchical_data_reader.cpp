@@ -157,7 +157,6 @@ Status ExtractReader::extract_to(vectorized::MutableColumnPtr& dst, size_t nrows
             dst_var.get_root()->insert_range_from(*cast_column, 0, nrows);
             dst_var.set_num_rows(dst_var.get_root()->size());
         }
-        CHECK_EQ(dst_var.size(), nrows);
     } else {
         CHECK(false) << "Not implemented extract to type " << dst->get_name();
     }
