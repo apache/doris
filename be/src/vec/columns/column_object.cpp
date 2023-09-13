@@ -438,8 +438,7 @@ ColumnPtr ColumnObject::index(const IColumn& indexes, size_t limit) const {
 }
 
 bool ColumnObject::Subcolumn::check_if_sparse_column(size_t num_rows) {
-    constexpr static size_t s_threshold_rows_estimate_sparse_column = 1000;
-    if (num_rows < s_threshold_rows_estimate_sparse_column) {
+    if (num_rows < config::threshold_rows_to_estimate_sparse_column) {
         return false;
     }
     std::vector<double> defaults_ratio;
