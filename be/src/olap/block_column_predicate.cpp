@@ -19,8 +19,6 @@
 
 #include <string.h>
 
-#include "comparison_predicate.h"
-
 namespace roaring {
 class Roaring;
 } // namespace roaring

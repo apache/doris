@@ -30,7 +30,6 @@
 #include <vector>
 
 #include "common/status.h"
-#include "exec/olap_common.h"
 #include "exprs/function_filter.h"
 #include "gutil/strings/substitute.h"
 #include "io/io_common.h"
@@ -123,7 +122,6 @@ public:
         std::vector<std::pair<string, std::shared_ptr<BloomFilterFuncBase>>> bloom_filters;
         std::vector<std::pair<string, std::shared_ptr<BitmapFilterFuncBase>>> bitmap_filters;
         std::vector<std::pair<string, std::shared_ptr<HybridSetBase>>> in_filters;
-        std::vector<std::pair<string, ColumnValueRangeType>> range_filters;
 
         std::vector<TCondition> conditions_except_leafnode_of_andnode;
         std::vector<FunctionFilter> function_filters;

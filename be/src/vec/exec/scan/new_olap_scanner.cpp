@@ -348,10 +348,6 @@ Status NewOlapScanner::_init_tablet_reader_params(
               std::inserter(_tablet_reader_params.function_filters,
                             _tablet_reader_params.function_filters.begin()));
 
-    std::copy(filter_predicates.range_filters.cbegin(), filter_predicates.range_filters.cbegin(),
-              std::inserter(_tablet_reader_params.range_filters,
-                            _tablet_reader_params.range_filters.begin()));
-
     if (!_state->skip_delete_predicate()) {
         auto& delete_preds = _tablet->delete_predicates();
         std::copy(delete_preds.cbegin(), delete_preds.cend(),

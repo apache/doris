@@ -116,8 +116,6 @@ public:
 
     bool is_scope_value_range() const;
 
-    bool is_range_value_range() const;
-
     bool is_empty_value_range() const;
 
     bool is_fixed_value_convertible() const;
@@ -633,11 +631,6 @@ bool ColumnValueRange<primitive_type>::is_match_value_range() const {
 template <PrimitiveType primitive_type>
 bool ColumnValueRange<primitive_type>::is_scope_value_range() const {
     return _high_value > _low_value;
-}
-
-template <PrimitiveType primitive_type>
-bool ColumnValueRange<primitive_type>::is_range_value_range() const {
-    return _high_value != TYPE_MAX && _low_value != TYPE_MIN && _high_value > _low_value;
 }
 
 template <PrimitiveType primitive_type>

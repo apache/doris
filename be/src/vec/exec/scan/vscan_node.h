@@ -86,9 +86,6 @@ struct FilterPredicates {
     std::vector<std::pair<std::string, std::shared_ptr<BitmapFilterFuncBase>>> bitmap_filters;
 
     std::vector<std::pair<std::string, std::shared_ptr<HybridSetBase>>> in_filters;
-
-    // Save range filter predicates
-    std::vector<std::pair<std::string, ColumnValueRangeType>> range_filters;
 };
 
 class VScanNode : public ExecNode, public RuntimeFilterConsumer {
