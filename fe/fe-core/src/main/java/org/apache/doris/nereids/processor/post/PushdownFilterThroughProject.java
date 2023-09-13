@@ -54,8 +54,7 @@ public class PushdownFilterThroughProject extends PlanPostProcessor {
                 project.child()).withPhysicalPropertiesAndStats(properties, stats);
         PhysicalPlan newChild = (PhysicalPlan) newFilter.accept(this, context);
         newChild = newChild.withPhysicalPropertiesAndStats(properties, stats);
-        PhysicalPlan ret = ((PhysicalPlan) (project.withChildren(newChild)))
+        return ((PhysicalPlan) (project.withChildren(newChild)))
                 .withPhysicalPropertiesAndStats(properties, stats);
-        return ret;
     }
 }
