@@ -142,7 +142,8 @@ void PlainCsvTextFieldSplitter::_split_field_multi_char(const Slice& line,
             process_value_func(line.data, start, curpos - start, trimming_char, splitted_values);
 
             start = i + 1;
-            j = next[j];
+            // reset j, need find next whole sep
+            j = -1;
         }
     }
     process_value_func(line.data, start, line.size - start, trimming_char, splitted_values);
