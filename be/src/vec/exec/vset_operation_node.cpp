@@ -327,7 +327,8 @@ void VSetOperationNode<is_intersect>::hash_table_init() {
 
     bool use_fixed_key = true;
     bool has_null = false;
-    int key_byte_size = 0;
+    size_t key_byte_size = 0;
+    size_t bitmap_size = get_bitmap_size(_child_expr_lists[0].size());
 
     _build_key_sz.resize(_child_expr_lists[0].size());
     _probe_key_sz.resize(_child_expr_lists[0].size());
@@ -347,16 +348,15 @@ void VSetOperationNode<is_intersect>::hash_table_init() {
         key_byte_size += _probe_key_sz[i];
     }
 
-    if (std::tuple_size<KeysNullMap<UInt256>>::value + key_byte_size > sizeof(UInt256)) {
+    if (bitmap_size + key_byte_size > sizeof(UInt256)) {
         use_fixed_key = false;
     }
     if (use_fixed_key) {
         if (has_null) {
-            if (std::tuple_size<KeysNullMap<UInt64>>::value + key_byte_size <= sizeof(UInt64)) {
+            if (bitmap_size + key_byte_size <= sizeof(UInt64)) {
                 _hash_table_variants
                         ->emplace<I64FixedKeyHashTableContext<true, RowRefListWithFlags>>();
-            } else if (std::tuple_size<KeysNullMap<UInt128>>::value + key_byte_size <=
-                       sizeof(UInt128)) {
+            } else if (bitmap_size + key_byte_size <= sizeof(UInt128)) {
                 _hash_table_variants
                         ->emplace<I128FixedKeyHashTableContext<true, RowRefListWithFlags>>();
             } else {
@@ -682,7 +682,7 @@ void VSetOperationNode<is_intersect>::refresh_hash_table() {
                         HashTableCtxType tmp_hash_table;
                         bool is_need_shrink =
                                 arg.hash_table.should_be_shrink(_valid_element_in_hash_tbl);
-                        if (is_need_shrink) {
+                        if (is_intersect || is_need_shrink) {
                             tmp_hash_table.hash_table.init_buf_size(
                                     _valid_element_in_hash_tbl / arg.hash_table.get_factor() + 1);
                         }
@@ -690,39 +690,33 @@ void VSetOperationNode<is_intersect>::refresh_hash_table() {
                         arg.init_once();
                         auto& iter = arg.iter;
                         auto iter_end = arg.hash_table.end();
-                        while (iter != iter_end) {
-                            auto& mapped = iter->get_second();
-                            auto it = mapped.begin();
+                        std::visit(
+                                [&](auto is_need_shrink_const) {
+                                    while (iter != iter_end) {
+                                        auto& mapped = iter->get_second();
+                                        auto it = mapped.begin();
 
-                            if constexpr (is_intersect) { //intersected
-                                if (it->visited) {
-                                    it->visited = false;
-                                    if (is_need_shrink) {
-                                        tmp_hash_table.hash_table.insert(iter->get_value());
+                                        if constexpr (is_intersect) { //intersected
+                                            if (it->visited) {
+                                                it->visited = false;
+                                                tmp_hash_table.hash_table.insert(iter->get_value());
+                                            }
+                                            ++iter;
+                                        } else { //except
+                                            if constexpr (is_need_shrink_const) {
+                                                if (!it->visited) {
+                                                    tmp_hash_table.hash_table.insert(
+                                                            iter->get_value());
+                                                }
+                                            }
+                                            ++iter;
+                                        }
                                     }
-                                    ++iter;
-                                } else {
-                                    if (!is_need_shrink) {
-                                        arg.hash_table.delete_zero_key(iter->get_first());
-                                        // the ++iter would check if the current key is zero. if it does, the iterator will be moved to the container's head.
-                                        // so we do ++iter before set_zero to make the iterator move to next valid key correctly.
-                                        auto iter_prev = iter;
-                                        ++iter;
-                                        iter_prev->set_zero();
-                                    } else {
-                                        ++iter;
-                                    }
-                                }
-                            } else { //except
-                                if (!it->visited && is_need_shrink) {
-                                    tmp_hash_table.hash_table.insert(iter->get_value());
-                                }
-                                ++iter;
-                            }
-                        }
+                                },
+                                make_bool_variant(is_need_shrink));
 
                         arg.inited = false;
-                        if (is_need_shrink) {
+                        if (is_intersect || is_need_shrink) {
                             arg.hash_table = std::move(tmp_hash_table.hash_table);
                         }
                     } else {

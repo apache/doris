@@ -75,8 +75,8 @@ public:
                          const std::vector<bool>& nulls_first, size_t batch_size, int64_t limit,
                          size_t offset);
 
-    void add_block(const PBlock& pblock, int sender_id, int be_number, int64_t packet_seq,
-                   ::google::protobuf::Closure** done);
+    Status add_block(const PBlock& pblock, int sender_id, int be_number, int64_t packet_seq,
+                     ::google::protobuf::Closure** done);
 
     void add_block(Block* block, int sender_id, bool use_move);
 
@@ -102,14 +102,21 @@ public:
 
     void close();
 
+    // Careful: stream sender will call this function for a local receiver,
+    // accessing members of receiver that are allocated by Object pool
+    // in this function is not safe.
     bool exceeds_limit(int batch_size) {
-        return _blocks_memory_usage->current_value() + batch_size >
+        return _blocks_memory_usage_current_value + batch_size >
                config::exchg_node_buffer_size_bytes;
     }
 
     bool is_closed() const { return _is_closed; }
 
 private:
+    void update_blocks_memory_usage(int64_t size) {
+        _blocks_memory_usage->add(size);
+        _blocks_memory_usage_current_value = _blocks_memory_usage->current_value();
+    }
     class SenderQueue;
     class PipSenderQueue;
 
@@ -154,6 +161,7 @@ private:
     RuntimeProfile::Counter* _decompress_bytes;
     RuntimeProfile::Counter* _memory_usage_counter;
     RuntimeProfile::HighWaterMarkCounter* _blocks_memory_usage;
+    std::atomic<int64_t> _blocks_memory_usage_current_value = 0;
     RuntimeProfile::Counter* _peak_memory_usage_counter;
 
     // Number of rows received
@@ -185,8 +193,8 @@ public:
 
     virtual Status get_batch(Block* next_block, bool* eos);
 
-    void add_block(const PBlock& pblock, int be_number, int64_t packet_seq,
-                   ::google::protobuf::Closure** done);
+    Status add_block(const PBlock& pblock, int be_number, int64_t packet_seq,
+                     ::google::protobuf::Closure** done);
 
     virtual void add_block(Block* block, bool use_move);
 
@@ -237,7 +245,9 @@ public:
     }
 
     void add_block(Block* block, bool use_move) override {
-        if (block->rows() == 0) return;
+        if (block->rows() == 0) {
+            return;
+        }
         {
             std::unique_lock<std::mutex> l(_lock);
             if (_is_cancelled) {
@@ -266,7 +276,7 @@ public:
             }
             _block_queue.emplace_back(std::move(nblock), block_mem_size);
             COUNTER_UPDATE(_recvr->_local_bytes_received_counter, block_mem_size);
-            _recvr->_blocks_memory_usage->add(block_mem_size);
+            _recvr->update_blocks_memory_usage(block_mem_size);
             _data_arrival_cv.notify_one();
         }
     }

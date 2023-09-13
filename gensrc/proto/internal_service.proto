@@ -61,6 +61,12 @@ message PTabletWithPartition {
     required int64 tablet_id = 2;
 }
 
+message PTabletID {
+    optional int64 partition_id = 1;
+    optional int64 index_id = 2;
+    optional int64 tablet_id = 3;
+}
+
 message PTabletInfo {
     required int64 tablet_id = 1;
     required int32 schema_hash = 2;
@@ -88,6 +94,7 @@ message PTabletWriterOpenRequest {
     optional bool is_vectorized = 12 [default = false];
     optional int64 backend_id = 13 [default = -1];
     optional bool enable_profile = 14 [default = false];
+    optional bool is_incremental = 15 [default = false];
 };
 
 message PTabletWriterOpenResult {
@@ -295,6 +302,7 @@ message PCacheParam {
     required int64 partition_key = 1;
     optional int64 last_version = 2;
     optional int64 last_version_time = 3;
+    optional int64 partition_num = 4;
 };
 
 message PCacheValue {
@@ -684,12 +692,81 @@ message PGlobRequest {
 }
 
 message PGlobResponse {
-    message PFileInfo {
-        optional string file = 1;
-        optional int64 size = 2;
-    };
+  message PFileInfo {
+    optional string file = 1;
+    optional int64 size = 2;
+  };
+  required PStatus status = 1;
+  repeated PFileInfo files = 2;
+}
+
+message PGroupCommitInsertRequest {
+    optional int64 db_id = 1;
+    optional int64 table_id = 2;
+    //  Descriptors.TDescriptorTable
+    optional bytes desc_tbl = 3;
+    optional int64 base_schema_version = 4;
+
+    // TExecPlanFragmentParams -> TPlanFragment -> PlanNodes.TPlan
+    optional bytes plan_node = 5;
+    // TScanRangeParams
+    optional bytes scan_range_params = 6;
+
+    optional PUniqueId load_id = 7;
+    repeated PDataRow data = 8;
+}
+
+message PGroupCommitInsertResponse {
     required PStatus status = 1;
-    repeated PFileInfo files = 2;
+    optional string label = 2;
+    optional int64 txn_id = 3;
+    optional int64 loaded_rows = 4;
+    optional int64 filtered_rows = 5;
+}
+
+message POpenStreamSinkRequest {
+    optional PUniqueId load_id = 1;
+    optional int64 txn_id = 2;
+    optional int64 src_id = 3;
+    optional POlapTableSchemaParam schema = 4;
+    repeated PTabletID tablets = 5;
+    optional bool enable_profile = 6 [default = false];
+}
+
+message PTabletSchemaWithIndex {
+    optional int64 index_id = 1;
+    optional TabletSchemaPB tablet_schema = 2;
+    optional bool enable_unique_key_merge_on_write = 3;
+}
+
+message POpenStreamSinkResponse {
+    optional PStatus status = 1;
+    repeated PTabletSchemaWithIndex tablet_schemas = 2;
+}
+
+message PWriteStreamSinkResponse {
+    optional PStatus status = 1;
+    repeated int64 success_tablet_ids = 2;
+    repeated int64 failed_tablet_ids = 3;
+    optional bytes load_stream_profile = 4;
+}
+
+message PStreamHeader {
+    enum Opcode {
+        APPEND_DATA = 1;
+        CLOSE_LOAD = 2;
+        ADD_SEGMENT = 3;
+    }
+    optional PUniqueId load_id = 1;
+    optional int64 partition_id = 2;
+    optional int64 index_id = 3;
+    optional int64 tablet_id = 4;
+    optional int32 segment_id = 5;
+    optional Opcode opcode = 6;
+    optional bool segment_eos = 7;
+    optional int64 src_id = 8;
+    optional SegmentStatisticsPB segment_statistics = 9;
+    repeated PTabletID tablets_to_commit = 10;
 }
 
 service PBackendService {
@@ -703,6 +780,7 @@ service PBackendService {
     rpc cancel_plan_fragment(PCancelPlanFragmentRequest) returns (PCancelPlanFragmentResult);
     rpc fetch_data(PFetchDataRequest) returns (PFetchDataResult);
     rpc tablet_writer_open(PTabletWriterOpenRequest) returns (PTabletWriterOpenResult);
+    rpc open_stream_sink(POpenStreamSinkRequest) returns (POpenStreamSinkResponse);
     rpc tablet_writer_add_block(PTabletWriterAddBlockRequest) returns (PTabletWriterAddBlockResult);
     rpc tablet_writer_add_block_by_http(PEmptyRequest) returns (PTabletWriterAddBlockResult);
     rpc tablet_writer_cancel(PTabletWriterCancelRequest) returns (PTabletWriterCancelResult);
@@ -731,5 +809,6 @@ service PBackendService {
     rpc get_tablet_rowset_versions(PGetTabletVersionsRequest) returns (PGetTabletVersionsResponse);
     rpc report_stream_load_status(PReportStreamLoadStatusRequest) returns (PReportStreamLoadStatusResponse);
     rpc glob(PGlobRequest) returns (PGlobResponse);
+    rpc group_commit_insert(PGroupCommitInsertRequest) returns (PGroupCommitInsertResponse);
 };
 

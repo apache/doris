@@ -55,7 +55,6 @@ import java.util.Set;
  * Note:
  *    'a>0' could be push down, because 'a' is in group by keys;
  *    but 'b>0' could not push down, because 'b' is not in group by keys.
- *
  */
 
 public class PushdownFilterThroughRepeat extends OneRewriteRuleFactory {
@@ -79,17 +78,18 @@ public class PushdownFilterThroughRepeat extends OneRewriteRuleFactory {
                     notPushedPredicates.add(conjunct);
                 }
             }
-            return pushDownPredicate(filter, repeat, pushedPredicates, notPushedPredicates);
+            return pushDownPredicate(filter, pushedPredicates, notPushedPredicates);
         }).toRule(RuleType.PUSHDOWN_PREDICATE_THROUGH_REPEAT);
     }
 
-    private Plan pushDownPredicate(LogicalFilter filter, LogicalRepeat repeat,
-                                   Set<Expression> pushedPredicates, Set<Expression> notPushedPredicates) {
+    private Plan pushDownPredicate(LogicalFilter<LogicalRepeat<Plan>> filter, Set<Expression> pushedPredicates,
+            Set<Expression> notPushedPredicates) {
+        LogicalRepeat<Plan> repeat = filter.child();
         if (pushedPredicates.size() == 0) {
             // nothing pushed down, just return origin plan
             return filter;
         }
-        LogicalFilter bottomFilter = new LogicalFilter<>(pushedPredicates, repeat.child(0));
+        LogicalFilter<Plan> bottomFilter = new LogicalFilter<>(pushedPredicates, repeat.child(0));
 
         repeat = repeat.withChildren(ImmutableList.of(bottomFilter));
         return PlanUtils.filterOrSelf(notPushedPredicates, repeat);

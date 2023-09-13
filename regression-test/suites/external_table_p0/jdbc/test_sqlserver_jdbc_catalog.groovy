@@ -23,8 +23,8 @@ suite("test_sqlserver_jdbc_catalog", "p0,external,sqlserver,external_docker,exte
     String driver_url = "https://${bucket}.${s3_endpoint}/regression/jdbc_driver/mssql-jdbc-11.2.3.jre8.jar"
     if (enabled != null && enabled.equalsIgnoreCase("true")) {
         String catalog_name = "sqlserver_catalog";
-        String internal_db_name = "regression_test_jdbc_catalog_p0";
-        String ex_db_name = "doris_test";
+        String internal_db_name = "sqlserver_jdbc_catalog_p0";
+        String ex_db_name = "dbo";
         String sqlserver_port = context.config.otherConfigs.get("sqlserver_2022_port");
 
         String inDorisTable = "test_sqlserver_doris_in_tb";
@@ -33,12 +33,14 @@ suite("test_sqlserver_jdbc_catalog", "p0,external,sqlserver,external_docker,exte
 
         sql """ create catalog if not exists ${catalog_name} properties(
                     "type"="jdbc",
-                    "user"="SA",
+                    "user"="sa",
                     "password"="Doris123456",
-                    "jdbc_url" = "jdbc:sqlserver://${externalEnvIp}:${sqlserver_port};encrypt=false;DataBaseName=doris_test",
+                    "jdbc_url" = "jdbc:sqlserver://${externalEnvIp}:${sqlserver_port};encrypt=false;databaseName=doris_test;",
                     "driver_url" = "${driver_url}",
                     "driver_class" = "com.microsoft.sqlserver.jdbc.SQLServerDriver"
         );"""
+        sql """drop database if exists ${internal_db_name}"""
+        sql """create database if not exists ${internal_db_name}"""
         sql """use ${internal_db_name}"""
         sql  """ drop table if exists ${inDorisTable} """
         sql  """
@@ -68,7 +70,21 @@ suite("test_sqlserver_jdbc_catalog", "p0,external,sqlserver,external_docker,exte
         order_qt_filter1  """ select * from test_char where 1 = 1 order by id; """
         order_qt_filter2  """ select * from test_char where 1 = 1 and id = 1  order by id; """
         order_qt_filter3  """ select * from test_char where id = 1  order by id; """
+        order_qt_id """ select count(*) from (select * from t_id) as a; """
 
+
+        sql """ drop catalog if exists ${catalog_name} """
+
+        sql """ create catalog if not exists ${catalog_name} properties(
+                    "type"="jdbc",
+                    "user"="sa",
+                    "password"="Doris123456",
+                    "jdbc_url" = "jdbc:sqlserver://${externalEnvIp}:${sqlserver_port};encrypt=false;databaseName=doris_test;trustServerCertificate=false",
+                    "driver_url" = "${driver_url}",
+                    "driver_class" = "com.microsoft.sqlserver.jdbc.SQLServerDriver"
+        );"""
+
+        order_qt_sql """ show databases from ${catalog_name} """
 
         sql """ drop catalog if exists ${catalog_name} """
     }

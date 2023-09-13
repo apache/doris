@@ -20,6 +20,7 @@ namespace java org.apache.doris.thrift
 
 include "Types.thrift"
 include "Exprs.thrift"
+include "Partitions.thrift"
 
 struct TColumn {
     1: required string column_name
@@ -117,7 +118,9 @@ enum TSchemaTableType {
     SCH_ROWSETS,
     SCH_BACKENDS,
     SCH_COLUMN_STATISTICS,
-    SCH_PARAMETERS;
+    SCH_PARAMETERS,
+    SCH_METADATA_NAME_IDS,
+    SCH_PROFILING;
 }
 
 enum THdfsCompression {
@@ -189,6 +192,9 @@ struct TOlapTablePartitionParam {
     6: required list<TOlapTablePartition> partitions
 
     7: optional list<string> partition_columns
+    8: optional list<Exprs.TExpr> partition_function_exprs
+    9: optional bool enable_automatic_partition
+    10: optional Partitions.TPartitionType partition_type
 }
 
 struct TOlapTableIndex {
@@ -218,7 +224,7 @@ struct TOlapTableSchemaParam {
     4: required list<TSlotDescriptor> slot_descs
     5: required TTupleDescriptor tuple_desc
     6: required list<TOlapTableIndexSchema> indexes
-    7: optional bool is_dynamic_schema
+    7: optional bool is_dynamic_schema // deprecated
     8: optional bool is_partial_update
     9: optional list<string> partial_update_input_columns
     10: optional bool is_strict_mode = false;

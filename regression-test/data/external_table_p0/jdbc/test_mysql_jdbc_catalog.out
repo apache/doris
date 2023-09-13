@@ -288,6 +288,7 @@ information_schema
 init_db
 mysql
 performance_schema
+show_test_do_not_modify
 sys
 
 -- !specified_database_4 --

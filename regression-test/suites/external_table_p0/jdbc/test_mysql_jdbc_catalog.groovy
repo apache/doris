@@ -229,6 +229,7 @@ suite("test_mysql_jdbc_catalog", "p0,external,mysql,external_docker,external_doc
         sql """ drop catalog if exists ${catalog_name} """
 
         // test mysql view
+        sql """ drop catalog if exists view_catalog """
         sql """ CREATE CATALOG view_catalog PROPERTIES (
             "type"="jdbc",
             "jdbc.user"="root",

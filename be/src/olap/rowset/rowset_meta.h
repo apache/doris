@@ -265,6 +265,10 @@ public:
         return rowset_meta_pb;
     }
 
+    inline DeletePredicatePB* mutable_delete_pred_pb() {
+        return _rowset_meta_pb.mutable_delete_predicate();
+    }
+
     bool is_singleton_delta() const {
         return has_version() && _rowset_meta_pb.start_version() == _rowset_meta_pb.end_version();
     }

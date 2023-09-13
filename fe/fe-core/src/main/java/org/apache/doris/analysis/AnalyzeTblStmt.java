@@ -142,8 +142,11 @@ public class AnalyzeTblStmt extends AnalyzeStmt {
         }
         checkAnalyzePriv(tableName.getDb(), tableName.getTbl());
         if (columnNames == null) {
-            columnNames = table.getBaseSchema(false)
-                    .stream().map(Column::getName).collect(Collectors.toList());
+            // Filter unsupported type columns.
+            columnNames = table.getBaseSchema(false).stream()
+                .filter(c -> !StatisticsUtil.isUnsupportedType(c.getType()))
+                .map(Column::getName)
+                .collect(Collectors.toList());
         }
         table.readLock();
         try {
@@ -177,6 +180,9 @@ public class AnalyzeTblStmt extends AnalyzeStmt {
         if (analyzeProperties.isAutomatic() && analyzeProperties.getPeriodTimeInMs() != 0) {
             throw new AnalysisException("Automatic collection "
                     + "and period statistics collection cannot be set at same time");
+        }
+        if (analyzeProperties.isSample() && analyzeProperties.forceFull()) {
+            throw new AnalysisException("Impossible to analyze with sample and full simultaneously");
         }
     }
 

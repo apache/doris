@@ -39,7 +39,7 @@ public class NumericType extends PrimitiveType {
     }
 
     @Override
-    public boolean acceptsType(AbstractDataType other) {
+    public boolean acceptsType(DataType other) {
         return other instanceof NumericType;
     }
 

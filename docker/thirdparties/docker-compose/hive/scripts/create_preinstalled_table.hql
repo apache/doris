@@ -167,9 +167,16 @@ CREATE TABLE `delta_encoding_required_column`(
      c_email_address string,
      c_last_review_date  string
   )
-STORED AS parquet;
-
-load data inpath '/user/doris/preinstalled_data/different_types_parquet/delta_encoding_required_column/delta_encoding_required_column.parquet' into table default.delta_encoding_required_column;
+ROW FORMAT SERDE
+  'org.apache.hadoop.hive.ql.io.parquet.serde.ParquetHiveSerDe'
+STORED AS INPUTFORMAT
+  'org.apache.hadoop.hive.ql.io.parquet.MapredParquetInputFormat'
+OUTPUTFORMAT
+  'org.apache.hadoop.hive.ql.io.parquet.MapredParquetOutputFormat'
+LOCATION
+  '/user/doris/preinstalled_data/different_types_parquet/delta_encoding_required_column/'
+TBLPROPERTIES (
+  'transient_lastDdlTime'='1661955829');
 
 msck repair table delta_encoding_required_column;
 

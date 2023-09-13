@@ -42,13 +42,6 @@ MemTableMemoryLimiter::MemTableMemoryLimiter() {}
 
 MemTableMemoryLimiter::~MemTableMemoryLimiter() {
     DEREGISTER_HOOK_METRIC(memtable_memory_limiter_mem_consumption);
-    for (auto writer : _writers) {
-        if (writer != nullptr) {
-            delete writer;
-            writer = nullptr;
-        }
-    }
-    _writers.clear();
 }
 
 Status MemTableMemoryLimiter::init(int64_t process_mem_limit) {
@@ -61,14 +54,9 @@ Status MemTableMemoryLimiter::init(int64_t process_mem_limit) {
     return Status::OK();
 }
 
-void MemTableMemoryLimiter::register_writer(MemTableWriter* writer) {
+void MemTableMemoryLimiter::register_writer(std::weak_ptr<MemTableWriter> writer) {
     std::lock_guard<std::mutex> l(_lock);
-    _writers.insert(writer);
-}
-
-void MemTableMemoryLimiter::deregister_writer(MemTableWriter* writer) {
-    std::lock_guard<std::mutex> l(_lock);
-    _writers.erase(writer);
+    _writers.push_back(writer);
 }
 
 void MemTableMemoryLimiter::handle_memtable_flush() {
@@ -98,7 +86,9 @@ void MemTableMemoryLimiter::handle_memtable_flush() {
         while (_should_wait_flush) {
             _wait_flush_cond.wait(l);
         }
-        LOG(INFO) << "Reached the load hard limit " << _load_hard_mem_limit
+        LOG(INFO) << "Reached the one tenth of load hard limit " << _load_hard_mem_limit / 10
+                  << "and process remaining allocator cache " << proc_mem_no_allocator_cache
+                  << "reached process soft memory limit " << process_soft_mem_limit
                   << ", waited for flush, time_ns:" << timer.elapsed_time();
 #ifndef BE_TEST
         bool hard_limit_reached = _mem_tracker->consumption() >= _load_hard_mem_limit ||
@@ -115,18 +105,28 @@ void MemTableMemoryLimiter::handle_memtable_flush() {
         };
         std::priority_queue<WriterMemItem, std::vector<WriterMemItem>, decltype(cmp)> mem_heap(cmp);
 
-        for (auto& writer : _writers) {
-            int64_t active_memtable_mem = writer->active_memtable_mem_consumption();
-            mem_heap.emplace(writer, active_memtable_mem);
+        for (auto it = _writers.begin(); it != _writers.end();) {
+            if (auto writer = it->lock()) {
+                int64_t active_memtable_mem = writer->active_memtable_mem_consumption();
+                mem_heap.emplace(writer, active_memtable_mem);
+                ++it;
+            } else {
+                *it = std::move(_writers.back());
+                _writers.pop_back();
+            }
         }
         int64_t mem_to_flushed = _mem_tracker->consumption() / 10;
         int64_t mem_consumption_in_picked_writer = 0;
         while (!mem_heap.empty()) {
             WriterMemItem mem_item = mem_heap.top();
-            auto writer = mem_item.writer;
+            mem_heap.pop();
+            auto writer = mem_item.writer.lock();
+            if (!writer) {
+                continue;
+            }
             int64_t mem_size = mem_item.mem_size;
             writers_to_reduce_mem.emplace_back(writer, mem_size);
-            st = writer->flush_memtable_and_wait(false);
+            st = writer->flush_async();
             if (!st.ok()) {
                 auto err_msg = fmt::format(
                         "tablet writer failed to reduce mem consumption by flushing memtable, "
@@ -139,7 +139,6 @@ void MemTableMemoryLimiter::handle_memtable_flush() {
             if (mem_consumption_in_picked_writer > mem_to_flushed) {
                 break;
             }
-            mem_heap.pop();
         }
         if (writers_to_reduce_mem.empty()) {
             // should not happen, add log to observe
@@ -184,14 +183,18 @@ void MemTableMemoryLimiter::handle_memtable_flush() {
     for (auto item : writers_to_reduce_mem) {
         VLOG_NOTICE << "reducing memory, wait flush mem_size: "
                     << PrettyPrinter::print_bytes(item.mem_size);
-        st = item.writer->wait_flush();
+        auto writer = item.writer.lock();
+        if (!writer) {
+            continue;
+        }
+        st = writer->wait_flush();
         if (!st.ok()) {
             auto err_msg = fmt::format(
                     "tablet writer failed to reduce mem consumption by flushing memtable, "
                     "tablet_id={}, err={}",
-                    item.writer->tablet_id(), st.to_string());
+                    writer->tablet_id(), st.to_string());
             LOG(WARNING) << err_msg;
-            item.writer->cancel_with_status(st);
+            writer->cancel_with_status(st);
         }
     }
 
@@ -213,9 +216,16 @@ void MemTableMemoryLimiter::handle_memtable_flush() {
 
 void MemTableMemoryLimiter::_refresh_mem_tracker_without_lock() {
     _mem_usage = 0;
-    for (auto& writer : _writers) {
-        _mem_usage += writer->mem_consumption(MemType::ALL);
+    for (auto it = _writers.begin(); it != _writers.end();) {
+        if (auto writer = it->lock()) {
+            _mem_usage += writer->mem_consumption(MemType::ALL);
+            ++it;
+        } else {
+            *it = std::move(_writers.back());
+            _writers.pop_back();
+        }
     }
+    VLOG_DEBUG << "refreshed mem_tracker, num writers: " << _writers.size();
     THREAD_MEM_TRACKER_TRANSFER_TO(_mem_usage - _mem_tracker->consumption(), _mem_tracker.get());
 }
 

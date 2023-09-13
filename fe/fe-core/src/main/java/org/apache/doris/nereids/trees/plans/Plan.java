@@ -30,6 +30,7 @@ import org.apache.doris.nereids.util.MutableState;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
+import com.google.common.collect.Sets;
 
 import java.util.List;
 import java.util.Optional;
@@ -55,17 +56,12 @@ public interface Plan extends TreeNode<Plan> {
     boolean canBind();
 
     default boolean bound() {
+        // TODO: avoid to use getLogicalProperties()
         return !(getLogicalProperties() instanceof UnboundLogicalProperties);
     }
 
     default boolean hasUnboundExpression() {
         return getExpressions().stream().anyMatch(Expression::hasUnbound);
-    }
-
-    default boolean childrenBound() {
-        return children()
-                .stream()
-                .allMatch(Plan::bound);
     }
 
     default LogicalProperties computeLogicalProperties() {
@@ -117,6 +113,18 @@ public interface Plan extends TreeNode<Plan> {
 
     default List<Slot> computeOutput() {
         throw new IllegalStateException("Not support compute output for " + getClass().getName());
+    }
+
+    /**
+     * Get the input relation ids set of the plan.
+     * @return The result is collected from all inputs relations
+     */
+    default Set<RelationId> getInputRelations() {
+        Set<RelationId> relationIdSet = Sets.newHashSet();
+        children().forEach(
+                plan -> relationIdSet.addAll(plan.getInputRelations())
+        );
+        return relationIdSet;
     }
 
     String treeString();

@@ -27,7 +27,6 @@ using std::vector;
 
 #include "gutil/port.h" // for LANG_CXX11
 #include "gutil/strings/stringpiece.h"
-#include "gutil/template_util.h" // IWYU pragma: keep
 
 #ifdef LANG_CXX11
 // This must be included after "base/port.h", which defines LANG_CXX11.
@@ -178,6 +177,17 @@ struct IsNotInitializerList {
 template <typename T>
 struct IsNotInitializerList<std::initializer_list<T>> {};
 #endif // LANG_CXX11
+
+namespace base {
+
+// Types small_ and big_ are guaranteed such that sizeof(small_) <
+// sizeof(big_)
+using small_ = char;
+
+struct big_ {
+    char dummy[2];
+};
+}
 
 // This class implements the behavior of the split API by giving callers access
 // to the underlying split substrings in various convenient ways, such as

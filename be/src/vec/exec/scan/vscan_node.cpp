@@ -126,6 +126,11 @@ Status VScanNode::init(const TPlanNode& tnode, RuntimeState* state) {
     } else {
         _push_down_agg_type = TPushAggOp::type::NONE;
     }
+
+    if (tnode.__isset.push_down_count) {
+        _push_down_count = tnode.push_down_count;
+    }
+
     return Status::OK();
 }
 
@@ -221,6 +226,11 @@ Status VScanNode::alloc_resource(RuntimeState* state) {
 }
 
 Status VScanNode::get_next(RuntimeState* state, vectorized::Block* block, bool* eos) {
+    // debug case failure, to be removed
+    if (state->enable_profile()) {
+        LOG(WARNING) << "debug case failure " << print_id(state->query_id()) << " " << get_name()
+                     << ": VScanNode::get_next";
+    }
     SCOPED_TIMER(_get_next_timer);
     SCOPED_TIMER(_runtime_profile->total_time_counter());
     // in inverted index apply logic, in order to optimize query performance,
@@ -237,6 +247,11 @@ Status VScanNode::get_next(RuntimeState* state, vectorized::Block* block, bool* 
     }};
 
     if (state->is_cancelled()) {
+        // debug case failure, to be removed
+        if (state->enable_profile()) {
+            LOG(WARNING) << "debug case failure " << print_id(state->query_id()) << " "
+                         << get_name() << ": VScanNode::get_next canceled";
+        }
         // ISSUE: https://github.com/apache/doris/issues/16360
         // _scanner_ctx may be null here, see: `VScanNode::alloc_resource` (_eos == null)
         if (_scanner_ctx) {
@@ -249,6 +264,11 @@ Status VScanNode::get_next(RuntimeState* state, vectorized::Block* block, bool* 
 
     if (_eos) {
         *eos = true;
+        // debug case failure, to be removed
+        if (state->enable_profile()) {
+            LOG(WARNING) << "debug case failure " << print_id(state->query_id()) << " "
+                         << get_name() << ": VScanNode::get_next eos";
+        }
         return Status::OK();
     }
 
@@ -259,6 +279,10 @@ Status VScanNode::get_next(RuntimeState* state, vectorized::Block* block, bool* 
         return Status::OK();
     }
 
+    if (scan_block == nullptr) {
+        LOG(FATAL) << "Scan block nullptr error _context_queue_id:" << _context_queue_id
+                   << " context debug string:" << _scanner_ctx->debug_string();
+    }
     // get scanner's block memory
     block->swap(*scan_block);
     _scanner_ctx->return_free_block(std::move(scan_block));
@@ -544,7 +568,8 @@ Status VScanNode::_normalize_predicate(const VExprSPtr& conjunct_expr_root, VExp
                 return Status::OK();
             }
 
-            if (pdt == PushDownType::ACCEPTABLE && _is_key_column(slot->col_name())) {
+            if (pdt == PushDownType::ACCEPTABLE &&
+                (_is_key_column(slot->col_name()) || _storage_no_merge())) {
                 output_expr = nullptr;
                 return Status::OK();
             } else {
@@ -1147,7 +1172,7 @@ Status VScanNode::_normalize_match_predicate(VExpr* expr, VExprContext* expr_ctx
         if (temp_pdt != PushDownType::UNACCEPTABLE) {
             DCHECK(slot_ref_child >= 0);
             if (value.data != nullptr) {
-                using CppType = typename VecPrimitiveTypeTraits<T>::CppType;
+                using CppType = typename PrimitiveTypeTraits<T>::CppType;
                 if constexpr (T == TYPE_CHAR || T == TYPE_VARCHAR || T == TYPE_STRING ||
                               T == TYPE_HLL) {
                     auto val = StringRef(value.data, value.size);
@@ -1209,10 +1234,10 @@ Status VScanNode::_change_value_range(ColumnValueRange<PrimitiveType>& temp_rang
                          (PrimitiveType == TYPE_BOOLEAN) || (PrimitiveType == TYPE_DATEV2)) {
         if constexpr (IsFixed) {
             func(temp_range,
-                 reinterpret_cast<typename VecPrimitiveTypeTraits<PrimitiveType>::CppType*>(value));
+                 reinterpret_cast<typename PrimitiveTypeTraits<PrimitiveType>::CppType*>(value));
         } else {
             func(temp_range, to_olap_filter_type(fn_name, slot_ref_child),
-                 reinterpret_cast<typename VecPrimitiveTypeTraits<PrimitiveType>::CppType*>(value));
+                 reinterpret_cast<typename PrimitiveTypeTraits<PrimitiveType>::CppType*>(value));
         }
     } else {
         static_assert(always_false_v<PrimitiveType>);

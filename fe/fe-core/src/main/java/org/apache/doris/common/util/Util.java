@@ -550,6 +550,8 @@ public class Util {
             return TFileFormatType.FORMAT_CSV_LZO;
         } else if (lowerCasePath.endsWith(".deflate")) {
             return TFileFormatType.FORMAT_CSV_DEFLATE;
+        } else if (lowerCasePath.endsWith(".snappy")) {
+            return TFileFormatType.FORMAT_CSV_SNAPPYBLOCK;
         } else {
             return TFileFormatType.FORMAT_CSV_PLAIN;
         }
@@ -575,6 +577,8 @@ public class Util {
             return TFileCompressType.LZO;
         } else if (lowerCasePath.endsWith(".deflate")) {
             return TFileCompressType.DEFLATE;
+        } else if (lowerCasePath.endsWith(".snappy")) {
+            return TFileCompressType.SNAPPYBLOCK;
         } else {
             return TFileCompressType.PLAIN;
         }
@@ -599,6 +603,8 @@ public class Util {
                 || fileFormatType == TFileFormatType.FORMAT_CSV_DEFLATE
                 || fileFormatType == TFileFormatType.FORMAT_CSV_GZ
                 || fileFormatType == TFileFormatType.FORMAT_CSV_LZ4FRAME
+                || fileFormatType == TFileFormatType.FORMAT_CSV_LZ4BLOCK
+                || fileFormatType == TFileFormatType.FORMAT_CSV_SNAPPYBLOCK
                 || fileFormatType == TFileFormatType.FORMAT_CSV_LZO
                 || fileFormatType == TFileFormatType.FORMAT_CSV_LZOP
                 || fileFormatType == TFileFormatType.FORMAT_CSV_PLAIN;

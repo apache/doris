@@ -79,7 +79,7 @@ public class TableFunctionPlanTest {
                 explainString.contains("table function: explode_split(`default_cluster:db1`.`tbl1`.`k2`, ',')"));
         Assert.assertTrue(explainString.contains("tuple ids: 0 1"));
         Assert.assertTrue(explainString.contains("TupleDescriptor{id=1, tbl=tmp, byteSize=16}"));
-        Assert.assertTrue(explainString.contains("SlotDescriptor{id=1, col=e1, colUniqueId=-1, type=varchar(*)"));
+        Assert.assertTrue(explainString.contains("SlotDescriptor{id=1, col=e1, colUniqueId=-1, type=varchar"));
     }
 
     /* Case2 without output explode column
@@ -95,7 +95,7 @@ public class TableFunctionPlanTest {
                 explainString.contains("table function: explode_split(`default_cluster:db1`.`tbl1`.`k2`, ',')"));
         Assert.assertTrue(explainString.contains("tuple ids: 0 1"));
         Assert.assertTrue(explainString.contains("TupleDescriptor{id=1, tbl=tmp, byteSize=16}"));
-        Assert.assertTrue(explainString.contains("SlotDescriptor{id=1, col=e1, colUniqueId=-1, type=varchar(*)"));
+        Assert.assertTrue(explainString.contains("SlotDescriptor{id=1, col=e1, colUniqueId=-1, type=varchar"));
     }
 
     /* Case3 group by explode column
@@ -116,7 +116,7 @@ public class TableFunctionPlanTest {
                 explainString.contains("table function: explode_split(`default_cluster:db1`.`tbl1`.`k2`, ',')"));
         Assert.assertTrue(explainString.contains("tuple ids: 0 1"));
         Assert.assertTrue(explainString.contains("TupleDescriptor{id=1, tbl=tmp, byteSize=16}"));
-        Assert.assertTrue(explainString.contains("SlotDescriptor{id=1, col=e1, colUniqueId=-1, type=varchar(*)"));
+        Assert.assertTrue(explainString.contains("SlotDescriptor{id=1, col=e1, colUniqueId=-1, type=varchar"));
         // group by tuple
         Assert.assertTrue(explainString.contains("TupleDescriptor{id=2, tbl=null, byteSize=32}"));
     }
@@ -135,7 +135,7 @@ public class TableFunctionPlanTest {
         Assert.assertTrue(explainString.contains("PREDICATES: `e1` = '1'"));
         Assert.assertTrue(explainString.contains("tuple ids: 0 1"));
         Assert.assertTrue(explainString.contains("TupleDescriptor{id=1, tbl=tmp, byteSize=16}"));
-        Assert.assertTrue(explainString.contains("SlotDescriptor{id=1, col=e1, colUniqueId=-1, type=varchar(*)"));
+        Assert.assertTrue(explainString.contains("SlotDescriptor{id=1, col=e1, colUniqueId=-1, type=varchar"));
     }
 
     /* Case5 where normal column
@@ -151,7 +151,7 @@ public class TableFunctionPlanTest {
                 explainString.contains("table function: explode_split(`default_cluster:db1`.`tbl1`.`k2`, ',')"));
         Assert.assertTrue(explainString.contains("tuple ids: 0 1"));
         Assert.assertTrue(explainString.contains("TupleDescriptor{id=1, tbl=tmp, byteSize=16}"));
-        Assert.assertTrue(explainString.contains("SlotDescriptor{id=1, col=e1, colUniqueId=-1, type=varchar(*)"));
+        Assert.assertTrue(explainString.contains("SlotDescriptor{id=1, col=e1, colUniqueId=-1, type=varchar"));
         Assert.assertTrue(UtFrameUtils.checkPlanResultContainsNode(explainString, 0, "OlapScanNode"));
         Assert.assertTrue(explainString.contains("PREDICATES: `k1` = 1"));
     }
@@ -171,10 +171,10 @@ public class TableFunctionPlanTest {
         Assert.assertTrue(explainString.contains("lateral view tuple id: 1 2"));
         // lateral view 2 tuple
         Assert.assertTrue(explainString.contains("TupleDescriptor{id=1, tbl=tmp2, byteSize=16}"));
-        Assert.assertTrue(explainString.contains("SlotDescriptor{id=1, col=e2, colUniqueId=-1, type=varchar(*)"));
+        Assert.assertTrue(explainString.contains("SlotDescriptor{id=1, col=e2, colUniqueId=-1, type=varchar"));
         // lateral view 1 tuple
         Assert.assertTrue(explainString.contains("TupleDescriptor{id=2, tbl=tmp1, byteSize=16}"));
-        Assert.assertTrue(explainString.contains("SlotDescriptor{id=2, col=e1, colUniqueId=-1, type=varchar(*)"));
+        Assert.assertTrue(explainString.contains("SlotDescriptor{id=2, col=e1, colUniqueId=-1, type=varchar"));
     }
 
     // test explode_split function
@@ -202,7 +202,7 @@ public class TableFunctionPlanTest {
     public void tableFunctionInWhere() throws Exception {
         String sql = "explain select /*+ SET_VAR(enable_nereids_planner=false) */ k1 from db1.tbl1 where explode_split(k2, \",\");";
         String explainString = UtFrameUtils.getSQLPlanOrErrorMsg(ctx, sql);
-        Assert.assertTrue(
+        Assert.assertTrue(explainString,
                 explainString.contains("No matching function with signature: explode_split(varchar(1), varchar(*))."));
     }
 
@@ -311,13 +311,13 @@ public class TableFunctionPlanTest {
     public void invalidColumnInExplodeSplit() throws Exception {
         String sql = "explain select /*+ SET_VAR(enable_nereids_planner=false) */ a.k1 from db1.tbl1 a lateral view explode_split(tbl2.k1, \",\") tmp1 as e1";
         String explainString = UtFrameUtils.getSQLPlanOrErrorMsg(ctx, sql, true);
-        Assert.assertTrue(explainString.contains("The column k1 in lateral view must come from the origin table"));
+        Assert.assertTrue(explainString, explainString.contains("The column `tbl2`.`k1` in lateral view must come from the origin table `a`"));
         sql = "explain select /*+ SET_VAR(enable_nereids_planner=false) */ a.k1 from db1.tbl1 a lateral view explode_split(k100, \",\") tmp1 as e1";
         explainString = UtFrameUtils.getSQLPlanOrErrorMsg(ctx, sql, true);
-        Assert.assertTrue(explainString.contains("Unknown column 'k100'"));
+        Assert.assertTrue(explainString, explainString.contains("Unknown column 'k100'"));
         sql = "explain select /*+ SET_VAR(enable_nereids_planner=false) */ a.k1 from db1.tbl1 a lateral view explode_split(db2.tbl1.k2, \",\") tmp1 as e1";
         explainString = UtFrameUtils.getSQLPlanOrErrorMsg(ctx, sql, true);
-        Assert.assertTrue(explainString.contains("The column k2 in lateral view must come from the origin table"));
+        Assert.assertTrue(explainString, explainString.contains("The column `db2`.`tbl1`.`k2` in lateral view must come from the origin table"));
     }
 
     /*
@@ -368,7 +368,7 @@ public class TableFunctionPlanTest {
         Assert.assertTrue(explainString.contains("lateral view tuple id: 2"));
         Assert.assertTrue(explainString.contains("output slot id: 2"));
         Assert.assertTrue(explainString.contains("tuple ids: 0 2"));
-        Assert.assertTrue(explainString.contains("SlotDescriptor{id=2, col=e1, colUniqueId=-1, type=varchar(*)"));
+        Assert.assertTrue(explainString.contains("SlotDescriptor{id=2, col=e1, colUniqueId=-1, type=varchar"));
     }
 
     /*
@@ -384,7 +384,7 @@ public class TableFunctionPlanTest {
         Assert.assertTrue(explainString.contains("lateral view tuple id: 3"));
         Assert.assertTrue(explainString.contains("output slot id: 3"));
         Assert.assertTrue(explainString.contains("tuple ids: 1 3"));
-        Assert.assertTrue(explainString.contains("SlotDescriptor{id=3, col=e1, colUniqueId=-1, type=varchar(*)"));
+        Assert.assertTrue(explainString.contains("SlotDescriptor{id=3, col=e1, colUniqueId=-1, type=varchar"));
     }
 
     /*
@@ -412,10 +412,10 @@ public class TableFunctionPlanTest {
                 "SlotDescriptor{id=2,col=k1,colUniqueId=0,type=int"
         ));
         Assert.assertTrue(formatString.contains(
-                "SlotDescriptor{id=3,col=null,colUniqueId=null,type=varchar(*)"
+                "SlotDescriptor{id=3,col=null,colUniqueId=null,type=varchar"
         ));
         Assert.assertTrue(formatString.contains(
-                "SlotDescriptor{id=6,col=e1,colUniqueId=-1,type=varchar(*)"
+                "SlotDescriptor{id=6,col=e1,colUniqueId=-1,type=varchar"
         ));
     }
 

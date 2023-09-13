@@ -175,6 +175,10 @@ WITH BROKER broker_name
 
     Whether to impose strict restrictions on data. Defaults to false.
 
+  - `partial_columns`
+
+    Boolean type, True means that use partial column update, the default value is false, this parameter is only allowed to be set when the table model is Unique and Merge on Write is used.
+
   - `timezone`
 
     Specify the time zone for some functions that are affected by time zones, such as `strftime/alignment_timestamp/from_unixtime`, etc. Please refer to the [timezone](../../../../advanced/time-zone.md) documentation for details. If not specified, the "Asia/Shanghai" timezone is used
@@ -422,7 +426,7 @@ WITH BROKER broker_name
     )
     ````
 
-   `my_table` must be an Unqiue Key model table with Sequence Col specified. The data will be ordered according to the value of the `source_sequence` column in the source data.
+   `my_table` must be an Unique Key model table with Sequence Col specified. The data will be ordered according to the value of the `source_sequence` column in the source data.
 
 10. Import a batch of data from HDFS, specify the file format as `json`, and specify parameters of `json_root` and `jsonpaths`.
 

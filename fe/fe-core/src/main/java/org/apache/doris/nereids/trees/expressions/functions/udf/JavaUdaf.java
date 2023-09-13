@@ -32,7 +32,6 @@ import org.apache.doris.nereids.trees.expressions.functions.Udf;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.DataType;
-import org.apache.doris.nereids.types.coercion.AbstractDataType;
 import org.apache.doris.thrift.TFunctionBinaryType;
 
 import com.google.common.base.Preconditions;
@@ -50,7 +49,7 @@ public class JavaUdaf extends AggregateFunction implements ExplicitlyCastableSig
     private final String dbName;
     private final TFunctionBinaryType binaryType;
     private final FunctionSignature signature;
-    private final AbstractDataType intermediateType;
+    private final DataType intermediateType;
     private final NullableMode nullableMode;
     private final String objectFile;
     private final String symbol;
@@ -67,7 +66,7 @@ public class JavaUdaf extends AggregateFunction implements ExplicitlyCastableSig
      * Constructor of UDAF
      */
     public JavaUdaf(String name, String dbName, TFunctionBinaryType binaryType, FunctionSignature signature,
-            AbstractDataType intermediateType, NullableMode nullableMode,
+            DataType intermediateType, NullableMode nullableMode,
             String objectFile, String symbol,
             String initFn, String updateFn, String mergeFn,
             String serializeFn, String finalizeFn, String getValueFn, String removeFn,
@@ -176,7 +175,7 @@ public class JavaUdaf extends AggregateFunction implements ExplicitlyCastableSig
         try {
             org.apache.doris.catalog.AggregateFunction expr = new org.apache.doris.catalog.AggregateFunction(
                     new FunctionName(dbName, getName()),
-                    signature.argumentsTypes.stream().map(AbstractDataType::toCatalogDataType).toArray(Type[]::new),
+                    signature.argumentsTypes.stream().map(DataType::toCatalogDataType).toArray(Type[]::new),
                     signature.returnType.toCatalogDataType(),
                     signature.hasVarArgs,
                     intermediateType.toCatalogDataType(),

@@ -60,7 +60,7 @@ public:
 
     Status next_block_with_aggregation(Block* block, bool* eof) override {
         auto res = (this->*_next_block_func)(block, eof);
-        if (UNLIKELY(res.is_io_error())) {
+        if (UNLIKELY(res.is<ErrorCode::IO_ERROR>())) {
             _tablet->increase_io_error_times();
         }
         return res;

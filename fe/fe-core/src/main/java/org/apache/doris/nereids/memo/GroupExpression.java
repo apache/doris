@@ -62,7 +62,7 @@ public class GroupExpression {
 
     private double estOutputRowCount = -1;
 
-    //Record the rule that generate this plan. It's used for debugging
+    // Record the rule that generate this plan. It's used for debugging
     private Rule fromRule;
 
     // Mapping from output properties to the corresponding best cost, statistics, and child properties.
@@ -84,6 +84,7 @@ public class GroupExpression {
     }
 
     /**
+     * Notice!!!: children will use param `children` directly, So don't modify it after this constructor outside.
      * Constructor for GroupExpression.
      *
      * @param plan {@link Plan} to reference
@@ -92,7 +93,7 @@ public class GroupExpression {
     public GroupExpression(Plan plan, List<Group> children) {
         this.plan = Objects.requireNonNull(plan, "plan can not be null")
                 .withGroupExpression(Optional.of(this));
-        this.children = Lists.newArrayList(Objects.requireNonNull(children, "children can not be null"));
+        this.children = Objects.requireNonNull(children, "children can not be null");
         this.children.forEach(childGroup -> childGroup.addParentExpression(this));
         this.ruleMasks = new BitSet(RuleType.SENTINEL.ordinal());
         this.statDerived = false;
@@ -311,7 +312,7 @@ public class GroupExpression {
     }
 
     public Statistics childStatistics(int idx) {
-        return new Statistics(child(idx).getStatistics());
+        return child(idx).getStatistics();
     }
 
     public void setEstOutputRowCount(double estOutputRowCount) {

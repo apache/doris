@@ -52,9 +52,12 @@ TextConverter::TextConverter(char escape_char, char collection_delimiter, char m
 
 void TextConverter::write_string_column(const SlotDescriptor* slot_desc,
                                         vectorized::MutableColumnPtr* column_ptr, const char* data,
-                                        size_t len) {
+                                        size_t len, bool need_escape) {
     DCHECK(column_ptr->get()->is_nullable());
     auto* nullable_column = reinterpret_cast<vectorized::ColumnNullable*>(column_ptr->get());
+    if (need_escape) {
+        unescape_string_on_spot(data, &len);
+    }
     if ((len == 2 && data[0] == '\\' && data[1] == 'N') || len == SQL_NULL_DATA) {
         nullable_column->get_null_map_data().push_back(1);
         reinterpret_cast<vectorized::ColumnString&>(nullable_column->get_nested_column())
@@ -250,7 +253,7 @@ bool TextConverter::_write_data(const TypeDescriptor& type_desc,
     }
     case TYPE_DECIMAL32: {
         StringParser::ParseResult result = StringParser::PARSE_SUCCESS;
-        int32_t value = StringParser::string_to_decimal<TYPE_DECIMAL32, int32_t>(
+        int32_t value = StringParser::string_to_decimal<TYPE_DECIMAL32>(
                 data, len, type_desc.precision, type_desc.scale, &result);
         if (result != StringParser::PARSE_SUCCESS) {
             parse_result = StringParser::PARSE_FAILURE;
@@ -263,7 +266,7 @@ bool TextConverter::_write_data(const TypeDescriptor& type_desc,
     }
     case TYPE_DECIMAL64: {
         StringParser::ParseResult result = StringParser::PARSE_SUCCESS;
-        int64_t value = StringParser::string_to_decimal<TYPE_DECIMAL64, int64_t>(
+        int64_t value = StringParser::string_to_decimal<TYPE_DECIMAL64>(
                 data, len, type_desc.precision, type_desc.scale, &result);
         if (result != StringParser::PARSE_SUCCESS) {
             parse_result = StringParser::PARSE_FAILURE;
@@ -276,9 +279,8 @@ bool TextConverter::_write_data(const TypeDescriptor& type_desc,
     }
     case TYPE_DECIMAL128I: {
         StringParser::ParseResult result = StringParser::PARSE_SUCCESS;
-        vectorized::Int128 value =
-                StringParser::string_to_decimal<TYPE_DECIMAL128I, vectorized::Int128>(
-                        data, len, type_desc.precision, type_desc.scale, &result);
+        vectorized::Int128 value = StringParser::string_to_decimal<TYPE_DECIMAL128I>(
+                data, len, type_desc.precision, type_desc.scale, &result);
         if (result != StringParser::PARSE_SUCCESS) {
             parse_result = StringParser::PARSE_FAILURE;
             break;
@@ -328,9 +330,10 @@ bool TextConverter::_write_data(const TypeDescriptor& type_desc,
                 kv = i;
                 continue;
             }
-            if (i == len || data[i] == _collection_delimiter) {
+            if ((i == len || data[i] == _collection_delimiter) && i >= kv + 1) {
                 ranges.push_back({from, kv, i - 1});
                 from = i + 1;
+                kv = from;
             }
         }
 

@@ -72,6 +72,7 @@ import org.apache.doris.proto.Types.PUniqueId;
 import org.apache.doris.qe.QueryStatisticsItem.FragmentInstanceInfo;
 import org.apache.doris.rpc.BackendServiceProxy;
 import org.apache.doris.rpc.RpcException;
+import org.apache.doris.service.ExecuteEnv;
 import org.apache.doris.service.FrontendOptions;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.SystemInfoService;
@@ -244,6 +245,7 @@ public class Coordinator {
     private boolean enableShareHashTableForBroadcastJoin = false;
 
     private boolean enablePipelineEngine = false;
+    private boolean enablePipelineXEngine = false;
 
     // Runtime filter merge instance address and ID
     public TNetworkAddress runtimeFilterMergeAddr;
@@ -323,6 +325,9 @@ public class Coordinator {
         // Only enable pipeline query engine in query, not load
         this.enablePipelineEngine = context.getSessionVariable().getEnablePipelineEngine()
                 && (fragments.size() > 0 && fragments.get(0).getSink() instanceof ResultSink);
+        this.enablePipelineXEngine = context.getSessionVariable().getEnablePipelineXEngine()
+                && (fragments.size() > 0 && fragments.get(0).getSink() instanceof ResultSink);
+
         initQueryOptions(context);
 
         setFromUserProperty(context);
@@ -395,6 +400,7 @@ public class Coordinator {
         this.queryOptions.setQueryTimeout(context.getExecTimeout());
         this.queryOptions.setExecutionTimeout(context.getExecTimeout());
         this.queryOptions.setEnableScanNodeRunSerial(context.getSessionVariable().isEnableScanRunSerial());
+        this.queryOptions.setFeProcessUuid(ExecuteEnv.getInstance().getProcessUUID());
     }
 
     public ConnectContext getConnectContext() {
@@ -522,11 +528,12 @@ public class Coordinator {
 
         this.idToBackend = Env.getCurrentSystemInfo().getIdToBackend();
         if (LOG.isDebugEnabled()) {
-            LOG.debug("idToBackend size={}", idToBackend.size());
+            LOG.debug("Query {} idToBackend size={}", DebugUtil.printId(queryId), idToBackend.size());
             for (Map.Entry<Long, Backend> entry : idToBackend.entrySet()) {
                 Long backendID = entry.getKey();
                 Backend backend = entry.getValue();
-                LOG.debug("backend: {}-{}-{}", backendID, backend.getHost(), backend.getBePort());
+                LOG.debug("Query {}, backend: {}-{}-{}-{}", DebugUtil.printId(queryId),
+                                    backendID, backend.getHost(), backend.getBePort(), backend.getProcessEpoch());
             }
         }
     }
@@ -558,6 +565,33 @@ public class Coordinator {
         }
     }
 
+    private void processFragmentAssignmentAndParams() throws Exception {
+        // prepare information
+        prepare();
+        // compute Fragment Instance
+        computeScanRangeAssignment();
+
+        computeFragmentExecParams();
+    }
+
+
+    public TExecPlanFragmentParams getStreamLoadPlan() throws Exception {
+        processFragmentAssignmentAndParams();
+
+        // This is a load process.
+        List<Long> relatedBackendIds = Lists.newArrayList(addressToBackendID.values());
+        Env.getCurrentEnv().getLoadManager().initJobProgress(jobId, queryId, instanceIds,
+                relatedBackendIds);
+        Env.getCurrentEnv().getProgressManager().addTotalScanNums(String.valueOf(jobId), scanRangeNum);
+        LOG.info("dispatch load job: {} to {}", DebugUtil.printId(queryId), addressToBackendID.keySet());
+
+        executionProfile.markInstances(instanceIds);
+        List<TExecPlanFragmentParams> tExecPlanFragmentParams
+                = ((FragmentExecParams) this.fragmentExecParamsMap.values().toArray()[0]).toThrift(0);
+        TExecPlanFragmentParams fragmentParams = tExecPlanFragmentParams.get(0);
+        return fragmentParams;
+    }
+
     // Initiate asynchronous execution of query. Returns as soon as all plan fragments
     // have started executing at their respective backends.
     // 'Request' must contain at least a coordinator plan fragment (ie, can't
@@ -574,12 +608,7 @@ public class Coordinator {
                     DebugUtil.printId(queryId), fragments.get(0).toThrift());
         }
 
-        // prepare information
-        prepare();
-        // compute Fragment Instance
-        computeScanRangeAssignment();
-
-        computeFragmentExecParams();
+        processFragmentAssignmentAndParams();
 
         traceInstance();
 
@@ -733,7 +762,7 @@ public class Coordinator {
                     BackendExecStates states = beToExecStates.get(execState.backend.getId());
                     if (states == null) {
                         states = new BackendExecStates(execState.backend.getId(), execState.brpcAddress,
-                                twoPhaseExecution);
+                                twoPhaseExecution, execState.backend.getProcessEpoch());
                         beToExecStates.putIfAbsent(execState.backend.getId(), states);
                     }
                     states.addState(execState);
@@ -1224,6 +1253,70 @@ public class Coordinator {
         return resultBatch;
     }
 
+
+    // We use a very conservative cancel strategy.
+    // 0. If backends has zero process epoch, do not cancel. Zero process epoch usually arises in cluster upgrading.
+    // 1. If process epoch is same, do not cancel. Means backends does not restart or die.
+    public boolean shouldCancel(List<Backend> currentBackends) {
+        Map<Long, Backend> curBeMap = Maps.newHashMap();
+        for (Backend be : currentBackends) {
+            curBeMap.put(be.getId(), be);
+        }
+
+        try {
+            lock();
+
+            if (queryOptions.isEnablePipelineEngine()) {
+                for (PipelineExecContext pipelineExecContext : pipelineExecContexts.values()) {
+                    Backend be = curBeMap.get(pipelineExecContext.backend.getId());
+                    if (be == null || !be.isAlive()) {
+                        LOG.warn("Backend {} not exists or dead, query {} should be cancelled",
+                                pipelineExecContext.backend.toString(), DebugUtil.printId(queryId));
+                        return true;
+                    }
+
+                    // Backend process epoch changed, indicates that this be restarts, query should be cancelled.
+                    // Check zero since during upgrading, older version oplog will not persistent be start time
+                    // so newer version follower will get zero epoch when replaying oplog or snapshot
+                    if (pipelineExecContext.beProcessEpoch != be.getProcessEpoch() && be.getProcessEpoch() != 0) {
+                        LOG.warn("Backend process epoch changed, previous {} now {}, "
+                                        + "means this be has already restarted, should cancel this coordinator,"
+                                        + " query id {}",
+                                        pipelineExecContext.beProcessEpoch, be.getProcessEpoch(),
+                                        DebugUtil.printId(queryId));
+                        return true;
+                    } else if (be.getProcessEpoch() == 0) {
+                        LOG.warn("Backend {} has zero process epoch, maybe we are upgrading cluster?",
+                                be.toString());
+                    }
+                }
+            } else {
+                // beToExecStates will be updated only in non-pipeline query.
+                for (BackendExecStates beExecState : beToExecStates.values()) {
+                    Backend be = curBeMap.get(beExecState.beId);
+                    if (be == null || !be.isAlive()) {
+                        LOG.warn("Backend {} not exists or dead, query {} should be cancelled.",
+                                beExecState.beId, DebugUtil.printId(queryId));
+                        return true;
+                    }
+
+                    if (beExecState.beProcessEpoch != be.getProcessEpoch() && be.getProcessEpoch() != 0) {
+                        LOG.warn("Process epoch changed, previous {} now {}, means this be has already restarted, "
+                                        + "should cancel this coordinator, query id {}",
+                                beExecState.beProcessEpoch, be.getProcessEpoch(), DebugUtil.printId(queryId));
+                        return true;
+                    } else if (be.getProcessEpoch() == 0) {
+                        LOG.warn("Backend {} has zero process epoch, maybe we are upgrading cluster?", be.toString());
+                    }
+                }
+            }
+
+            return false;
+        } finally {
+            unlock();
+        }
+    }
+
     // Cancel execution of query. This includes the execution of the local plan
     // fragment,
     // if any, as well as all plan fragments on remote nodes.
@@ -1240,7 +1333,7 @@ public class Coordinator {
             } else {
                 queryStatus.setStatus(Status.CANCELLED);
             }
-            LOG.warn("cancel execution of query, this is outside invoke");
+            LOG.warn("Cancel execution of query {}, this is a outside invoke", DebugUtil.printId(queryId));
             cancelInternal(cancelReason);
         } finally {
             unlock();
@@ -1279,8 +1372,9 @@ public class Coordinator {
         instanceIds.clear();
         for (FragmentExecParams params : fragmentExecParamsMap.values()) {
             if (LOG.isDebugEnabled()) {
-                LOG.debug("fragment {} has instances {}",
-                        params.fragment.getFragmentId(), params.instanceExecParams.size());
+                LOG.debug("Query {} fragment {} has {} instances.",
+                        DebugUtil.printId(queryId), params.fragment.getFragmentId(),
+                        params.instanceExecParams.size());
             }
 
             for (int j = 0; j < params.instanceExecParams.size(); ++j) {
@@ -1759,7 +1853,7 @@ public class Coordinator {
                         }).findFirst();
 
                         // disable shared scan optimization if one of conditions below is met:
-                        // 1. Use non-pipeline engine
+                        // 1. Use non-pipeline or pipelineX engine
                         // 2. Number of scan ranges is larger than instances
                         // 3. This fragment has a colocated scan node
                         // 4. This fragment has a FileScanNode
@@ -1767,7 +1861,7 @@ public class Coordinator {
                         if (!enablePipelineEngine || perNodeScanRanges.size() > parallelExecInstanceNum
                                 || (node.isPresent() && node.get().getShouldColoScan())
                                 || (node.isPresent() && node.get() instanceof FileScanNode)
-                                || Config.disable_shared_scan) {
+                                || Config.disable_shared_scan || enablePipelineXEngine) {
                             int expectedInstanceNum = 1;
                             if (parallelExecInstanceNum > 1) {
                                 //the scan instance num should not larger than the tablets num
@@ -2795,6 +2889,7 @@ public class Coordinator {
         Backend backend;
         long lastMissingHeartbeatTime = -1;
         long profileReportProgress = 0;
+        long beProcessEpoch = 0;
         private final int numInstances;
 
         public PipelineExecContext(PlanFragmentId fragmentId, int profileFragmentId,
@@ -2814,6 +2909,7 @@ public class Coordinator {
             this.backend = idToBackend.get(backendId);
             this.address = new TNetworkAddress(backend.getHost(), backend.getBePort());
             this.brpcAddress = new TNetworkAddress(backend.getHost(), backend.getBrpcPort());
+            this.beProcessEpoch = backend.getProcessEpoch();
 
             this.hasCanceled = false;
             this.lastMissingHeartbeatTime = backend.getLastMissingHeartbeatTime();
@@ -2870,13 +2966,16 @@ public class Coordinator {
         // return true if cancel success. Otherwise, return false
         public synchronized boolean cancelFragmentInstance(Types.PPlanFragmentCancelReason cancelReason) {
             if (!this.initiated) {
+                LOG.warn("Query {}, ccancel before initiated", DebugUtil.printId(queryId));
                 return false;
             }
             // don't cancel if it is already finished
             if (this.done) {
+                LOG.warn("Query {}, cancel after finished", DebugUtil.printId(queryId));
                 return false;
             }
             if (this.hasCanceled) {
+                LOG.warn("Query {}, cancel after cancelled", DebugUtil.printId(queryId));
                 return false;
             }
             for (TPipelineInstanceParams localParam : rpcParams.local_params) {
@@ -2959,11 +3058,13 @@ public class Coordinator {
         List<BackendExecState> states = Lists.newArrayList();
         boolean twoPhaseExecution = false;
         ScopedSpan scopedSpan = new ScopedSpan();
+        long beProcessEpoch = 0;
 
-        public BackendExecStates(long beId, TNetworkAddress brpcAddr, boolean twoPhaseExecution) {
+        public BackendExecStates(long beId, TNetworkAddress brpcAddr, boolean twoPhaseExecution, long beProcessEpoch) {
             this.beId = beId;
             this.brpcAddr = brpcAddr;
             this.twoPhaseExecution = twoPhaseExecution;
+            this.beProcessEpoch = beProcessEpoch;
         }
 
         public void addState(BackendExecState state) {

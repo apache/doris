@@ -17,17 +17,18 @@
 
 package org.apache.doris.statistics;
 
-import org.apache.doris.nereids.stats.ExpressionEstimation;
 import org.apache.doris.nereids.stats.StatsMathUtil;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.Slot;
 
 import java.text.DecimalFormat;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Map.Entry;
+import java.util.Set;
 
 public class Statistics {
-    private static int K_BYTES = 1024;
+    private static final int K_BYTES = 1024;
 
     private final double rowCount;
 
@@ -35,12 +36,6 @@ public class Statistics {
 
     // the byte size of one tuple
     private double tupleSize;
-
-    @Deprecated
-    private double width;
-
-    @Deprecated
-    private double penalty;
 
     /**
      * after filter, compute the new ndv of a column
@@ -55,27 +50,22 @@ public class Statistics {
         }
         double selectOneTuple = newRowCount / StatsMathUtil.nonZeroDivisor(oldRowCount);
         double allTuplesOfSameDistinctValueNotSelected = Math.pow((1 - selectOneTuple), oldRowCount / ndv);
+        if (allTuplesOfSameDistinctValueNotSelected == 1.0) {
+            // avoid NaN
+            return ndv;
+        }
         return Math.min(ndv * (1 - allTuplesOfSameDistinctValueNotSelected), newRowCount);
     }
 
     public Statistics(Statistics another) {
         this.rowCount = another.rowCount;
         this.expressionToColumnStats = new HashMap<>(another.expressionToColumnStats);
-        this.width = another.width;
-        this.penalty = another.penalty;
+        this.tupleSize = another.tupleSize;
     }
 
     public Statistics(double rowCount, Map<Expression, ColumnStatistic> expressionToColumnStats) {
         this.rowCount = rowCount;
         this.expressionToColumnStats = expressionToColumnStats;
-    }
-
-    public Statistics(double rowCount, Map<Expression, ColumnStatistic> expressionToColumnStats, double width,
-            double penalty) {
-        this.rowCount = rowCount;
-        this.expressionToColumnStats = expressionToColumnStats;
-        this.width = width;
-        this.penalty = penalty;
     }
 
     public ColumnStatistic findColumnStatistics(Expression expression) {
@@ -97,7 +87,7 @@ public class Statistics {
         if (Double.isNaN(rowCount)) {
             return this;
         }
-        Statistics statistics = new Statistics(rowCount, new HashMap<>(expressionToColumnStats), width, penalty);
+        Statistics statistics = new Statistics(rowCount, new HashMap<>(expressionToColumnStats));
         statistics.fix(rowCount, StatsMathUtil.nonZeroDivisor(this.rowCount));
         return statistics;
     }
@@ -143,6 +133,12 @@ public class Statistics {
         return this;
     }
 
+    public boolean isInputSlotsUnknown(Set<Slot> inputs) {
+        return inputs.stream()
+                .allMatch(s -> expressionToColumnStats.containsKey(s)
+                        && expressionToColumnStats.get(s).isUnKnown);
+    }
+
     public Statistics merge(Statistics statistics) {
         expressionToColumnStats.putAll(statistics.expressionToColumnStats);
         return this;
@@ -182,22 +178,6 @@ public class Statistics {
         return format.format(rowCount);
     }
 
-    public void setWidth(double width) {
-        this.width = width;
-    }
-
-    public void setPenalty(double penalty) {
-        this.penalty = penalty;
-    }
-
-    public double getWidth() {
-        return width;
-    }
-
-    public double getPenalty() {
-        return penalty;
-    }
-
     public int getBENumber() {
         return 1;
     }
@@ -210,25 +190,8 @@ public class Statistics {
         return zero;
     }
 
-    public boolean almostUniqueExpression(Expression expr) {
-        ExpressionEstimation estimator = new ExpressionEstimation();
-        double ndvErrorThreshold = 0.9;
-        ColumnStatistic colStats = expr.accept(estimator, this);
-        if (colStats.ndv > colStats.count * ndvErrorThreshold) {
-            return true;
-        }
-        return false;
-    }
-
-    public boolean isStatsUnknown(Expression expr) {
-        ExpressionEstimation estimator = new ExpressionEstimation();
-        ColumnStatistic colStats = expr.accept(estimator, this);
-        return colStats.isUnKnown;
-    }
-
     /**
      * merge this and other colStats.ndv, choose min
-     * @param other
      */
     public void updateNdv(Statistics other) {
         for (Expression expr : expressionToColumnStats.keySet()) {

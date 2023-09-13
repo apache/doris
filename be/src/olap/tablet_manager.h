@@ -90,19 +90,15 @@ public:
     TabletSharedPtr get_tablet(TTabletId tablet_id, TabletUid tablet_uid,
                                bool include_deleted = false, std::string* err = nullptr);
 
-    std::vector<TabletSharedPtr> get_all_tablet(std::function<bool(Tablet*)>&& filter =
-                                                        [](Tablet* t) { return t->is_used(); }) {
-        std::vector<TabletSharedPtr> res;
-        for (const auto& tablets_shard : _tablets_shards) {
-            std::shared_lock rdlock(tablets_shard.lock);
-            for (auto& [id, tablet] : tablets_shard.tablet_map) {
-                if (filter(tablet.get())) {
-                    res.emplace_back(tablet);
-                }
-            }
-        }
-        return res;
-    }
+    std::vector<TabletSharedPtr> get_all_tablet(
+            std::function<bool(Tablet*)>&& filter = filter_used_tablets);
+
+    // Handler not hold the shard lock.
+    void for_each_tablet(std::function<void(const TabletSharedPtr&)>&& handler,
+                         std::function<bool(Tablet*)>&& filter = filter_used_tablets);
+
+    static bool filter_all_tablets(Tablet* tablet) { return true; }
+    static bool filter_used_tablets(Tablet* tablet) { return tablet->is_used(); }
 
     uint64_t get_rowset_nums();
     uint64_t get_segment_nums();

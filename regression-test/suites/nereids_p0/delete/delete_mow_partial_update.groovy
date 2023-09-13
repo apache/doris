@@ -48,9 +48,9 @@ suite('nereids_delete_mow_partial_update') {
             "replication_num" = "1"
         );"""
 
-    sql "insert into ${tableName1} values(1,1),(2,2),(3,3),(4,4),(5,5);"
+    sql "insert into ${tableName1} values(1, 1), (2, 2), (3, 3), (4, 4), (5, 5);"
     qt_sql "select * from ${tableName1} order by uid;"
-    sql "insert into ${tableName2} values(1),(2),(3);"
+    sql "insert into ${tableName2} values(1), (2), (3);"
     sql "delete from ${tableName1} A using ${tableName2} B where A.uid=B.uid;"
     qt_sql "select * from ${tableName1} order by uid;"
     // when using parital update insert stmt for delete stmt, it will use delete bitmap or delete sign rather than 
@@ -63,7 +63,7 @@ suite('nereids_delete_mow_partial_update') {
     sql "set skip_storage_engine_merge=true;"
     sql "set skip_delete_bitmap=true;"
     sql "sync"
-    qt_sql "select uid,v1,__DORIS_DELETE_SIGN__ from ${tableName1} order by uid,v1,__DORIS_DELETE_SIGN__;"
+    qt_sql "select uid, v1, __DORIS_DELETE_SIGN__ from ${tableName1} order by uid, v1, __DORIS_DELETE_SIGN__;"
     sql "drop table if exists ${tableName1};"
     sql "drop table if exists ${tableName2};"
 
@@ -86,8 +86,8 @@ suite('nereids_delete_mow_partial_update') {
             "disable_auto_compaction" = "true",
             "replication_num" = "1"
         );"""
-    sql "insert into ${tableName3} values(1,1,1,1,1),(2,2,2,2,2),(3,3,3,3,3),(4,4,4,4,4),(5,5,5,5,5);"
-    qt_sql "select k1,c1,c2,c3,c4 from ${tableName3} order by k1,c1,c2,c3,c4;"
+    sql "insert into ${tableName3} values(1, 1, 1, 1, 1), (2, 2, 2, 2, 2), (3, 3, 3, 3, 3), (4, 4, 4, 4, 4), (5, 5, 5, 5, 5);"
+    qt_sql "select k1, c1, c2, c3, c4 from ${tableName3} order by k1, c1, c2, c3, c4;"
     streamLoad {
         table "${tableName3}"
 
@@ -101,11 +101,11 @@ suite('nereids_delete_mow_partial_update') {
         time 10000
     }
     sql "sync"
-    qt_sql "select k1,c1,c2,c3,c4 from ${tableName3} order by k1,c1,c2,c3,c4;"
+    qt_sql "select k1, c1, c2, c3, c4 from ${tableName3} order by k1, c1, c2, c3, c4;"
     sql "set skip_delete_sign=true;"
     sql "set skip_storage_engine_merge=true;"
     sql "set skip_delete_bitmap=true;"
     sql "sync"
-    qt_sql "select k1,c1,c2,c3,c4,__DORIS_DELETE_SIGN__ from ${tableName3} order by k1,c1,c2,c3,c4,__DORIS_DELETE_SIGN__;"
+    qt_sql "select k1, c1, c2, c3, c4, __DORIS_DELETE_SIGN__ from ${tableName3} order by k1, c1, c2, c3, c4, __DORIS_DELETE_SIGN__;"
     sql "drop table if exists ${tableName3};"
 }

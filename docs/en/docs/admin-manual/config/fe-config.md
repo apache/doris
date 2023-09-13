@@ -504,7 +504,7 @@ The number of threads responsible for Task events.
 
 Default：4
 
-When FeEstarts the MySQL server based on NIO model, the number of threads responsible for IO events.
+When FE starts the MySQL server based on NIO model, the number of threads responsible for IO events.
 
 #### `mysql_nio_backlog_num`
 
@@ -547,7 +547,7 @@ MasterOnly：true
 
 #### `max_backend_down_time_second`
 
-Default：3600  （1 hours）
+Default：3600  （1 hour）
 
 IsMutable：true
 
@@ -613,7 +613,7 @@ max num of thread to handle agent task in agent task thread-pool.
 
 #### `remote_fragment_exec_timeout_ms`
 
-Default：5000  （ms）
+Default：30000  （ms）
 
 IsMutable：true
 
@@ -666,7 +666,7 @@ This is the maximum number of bytes of the file uploaded by the put or post meth
 
 Default：1048576  （1M）
 
-http header size configuration parameter, the default value is 10K
+http header size configuration parameter, the default value is 1M.
 
 #### `enable_tracing`
 
@@ -729,7 +729,7 @@ IsMutable：true
 
 MasterOnly：true
 
-Used to limit the maximum number of partitions that can be created when creating a dynamic partition table,  to avoid creating too many partitions at one time. The number is determined by "start" and "end" in the dynamic partition parameters..
+Used to limit the maximum number of partitions that can be created when creating a dynamic partition table,  to avoid creating too many partitions at one time. The number is determined by "start" and "end" in the dynamic partition parameters.
 
 #### `dynamic_partition_enable`
 
@@ -2761,3 +2761,15 @@ Default: 4
 
 This variable indicates the number of digits by which to increase the scale of the result of
 division operations performed with the `/` operator.
+
+#### `enable_convert_light_weight_schema_change`
+
+Default：true
+
+Temporary configuration option. After it is enabled, a background thread will be started to automatically modify all olap tables to light schema change. The modification results can be viewed through the command `show convert_light_schema_change [from db]`, and the conversion results of all non-light schema change tables will be displayed.
+
+#### `disable_local_deploy_manager_drop_node`
+
+Default：true
+
+Forbid LocalDeployManager drop nodes to prevent errors in the cluster.info file from causing nodes to be dropped.

@@ -34,125 +34,33 @@
 
 namespace doris::vectorized {
 
+inline size_t get_bitmap_size(size_t key_number) {
+    return (key_number + 7) / 8;
+}
+
 using Sizes = std::vector<size_t>;
 
-/// When packing the values of nullable columns at a given row, we have to
-/// store the fact that these values are nullable or not. This is achieved
-/// by encoding this information as a bitmap. Let S be the size in bytes of
-/// a packed values binary blob and T the number of bytes we may place into
-/// this blob, the size that the bitmap shall occupy in the blob is equal to:
-/// ceil(T/8). Thus we must have: S = T + ceil(T/8). Below we indicate for
-/// each value of S, the corresponding value of T, and the bitmap size:
-///
-/// 32,28,4
-/// 16,14,2
-/// 8,7,1
-/// 4,3,1
-/// 2,1,1
-///
-
-namespace {
-// clang-format off
-template <typename T>
-constexpr auto get_bitmap_size() {
-    return (sizeof(T) == 32)
-            ? 4: (sizeof(T) == 16)
-            ? 2: ((sizeof(T) == 8)
-            ? 1: ((sizeof(T) == 4) 
-            ? 1: ((sizeof(T) == 2) 
-            ? 1: 0)));
-}
-// clang-format on
-
-} // namespace
-
-template <typename T>
-using KeysNullMap = std::array<UInt8, get_bitmap_size<T>()>;
-
-/// Pack into a binary blob of type T a set of fixed-size keys. Granted that all the keys fit into the
-/// binary blob, they are disposed in it consecutively.
-template <typename T>
-T pack_fixed(size_t i, size_t keys_size, const ColumnRawPtrs& key_columns, const Sizes& key_sizes) {
-    union {
-        T key;
-        char bytes[sizeof(key)] = {};
-    };
-
-    size_t offset = 0;
-
-    for (size_t j = 0; j < keys_size; ++j) {
-        size_t index = i;
-        const IColumn* column = key_columns[j];
-
-        switch (key_sizes[j]) {
-        case 1:
-            memcpy(bytes + offset,
-                   static_cast<const ColumnVectorHelper*>(column)->get_raw_data_begin<1>() + index,
-                   1);
-            offset += 1;
-            break;
-        case 2:
-            memcpy(bytes + offset,
-                   static_cast<const ColumnVectorHelper*>(column)->get_raw_data_begin<2>() +
-                           index * 2,
-                   2);
-            offset += 2;
-            break;
-        case 4:
-            memcpy(bytes + offset,
-                   static_cast<const ColumnVectorHelper*>(column)->get_raw_data_begin<4>() +
-                           index * 4,
-                   4);
-            offset += 4;
-            break;
-        case 8:
-            memcpy(bytes + offset,
-                   static_cast<const ColumnVectorHelper*>(column)->get_raw_data_begin<8>() +
-                           index * 8,
-                   8);
-            offset += 8;
-            break;
-        default:
-            memcpy(bytes + offset,
-                   static_cast<const ColumnVectorHelper*>(column)->get_raw_data_begin<1>() +
-                           index * key_sizes[j],
-                   key_sizes[j]);
-            offset += key_sizes[j];
-        }
-    }
-
-    return key;
-}
-
-/// Similar as above but supports nullable values.
 template <typename T>
 T pack_fixed(size_t i, size_t keys_size, const ColumnRawPtrs& key_columns, const Sizes& key_sizes,
-             const KeysNullMap<T>& bitmap) {
+             const ColumnRawPtrs& nullmap_columns) {
     union {
         T key;
         char bytes[sizeof(key)] = {};
     };
 
-    size_t offset = 0;
-
-    static constexpr auto bitmap_size = std::tuple_size<KeysNullMap<T>>::value;
-    static constexpr bool has_bitmap = bitmap_size > 0;
-
-    if (has_bitmap) {
-        memcpy(bytes + offset, bitmap.data(), bitmap_size * sizeof(UInt8));
-        offset += bitmap_size;
-    }
+    size_t bitmap_size = get_bitmap_size(nullmap_columns.size());
+    size_t offset = bitmap_size;
 
     for (size_t j = 0; j < keys_size; ++j) {
         bool is_null = false;
 
-        if (has_bitmap) {
-            size_t bucket = j / 8;
-            size_t off = j % 8;
-            is_null = ((bitmap[bucket] >> off) & 1) == 1;
+        if (bitmap_size && nullmap_columns[j] != nullptr) {
+            is_null = nullmap_columns[j]->get_bool(i);
         }
 
         if (is_null) {
+            size_t bucket = j / 8;
+            bytes[bucket] |= (1 << (j - bucket * 8));
             offset += key_sizes[j];
             continue;
         }
@@ -199,10 +107,7 @@ T pack_fixed(size_t i, size_t keys_size, const ColumnRawPtrs& key_columns, const
 template <typename T>
 std::vector<T> pack_fixeds(size_t row_numbers, const ColumnRawPtrs& key_columns,
                            const Sizes& key_sizes, const ColumnRawPtrs& nullmap_columns) {
-    size_t bitmap_size = 0;
-    if (!nullmap_columns.empty()) {
-        bitmap_size = std::tuple_size<KeysNullMap<T>>::value;
-    }
+    size_t bitmap_size = get_bitmap_size(nullmap_columns.size());
 
     std::vector<T> result(row_numbers);
     size_t offset = 0;

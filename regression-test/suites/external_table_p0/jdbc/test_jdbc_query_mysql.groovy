@@ -918,7 +918,7 @@ suite("test_jdbc_query_mysql", "p0,external,mysql,external_docker,external_docke
         order_qt_sql93 """ SELECT CASE k8 WHEN 1 THEN CAST(1 AS decimal(4,1)) WHEN 2 THEN CAST(1 AS decimal(4,2)) 
                             ELSE CAST(1 AS decimal(4,3)) END FROM $jdbcMysql57Table1 limit 3"""
         order_qt_sql95 """ SELECT * from (SELECT k8 FROM $jdbcMysql57Table1 UNION (SELECT id as k8 FROM ${exMysqlTable}  UNION SELECT k7 as k8 FROM $jdbcMysql57Table1) 
-                            UNION ALL SELECT products_id as k8 FROM $exMysqlTable1 ORDER BY k8 limit 3) as a  limit 3"""
+                            UNION ALL SELECT products_id as k8 FROM $exMysqlTable1 ORDER BY k8 limit 3) as a  order by k8 limit 3"""
         order_qt_sql100 """ SELECT COUNT(*) FROM $jdbcMysql57Table1 WHERE EXISTS(SELECT max(id) FROM ${exMysqlTable}) """
         order_qt_sql103 """ SELECT count(*) FROM $jdbcMysql57Table1 n WHERE (SELECT count(*) FROM ${exMysqlTable} r WHERE n.k8 = r.id) > 1 """
         order_qt_sql105 """ SELECT count(*) AS numwait FROM $jdbcMysql57Table1 l1 WHERE

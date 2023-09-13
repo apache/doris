@@ -34,6 +34,8 @@ import org.apache.doris.nereids.types.LargeIntType;
 import org.apache.doris.nereids.types.StringType;
 import org.apache.doris.nereids.types.VarcharType;
 
+import com.google.common.collect.ImmutableList;
+
 import java.math.BigDecimal;
 import java.math.BigInteger;
 import java.util.Locale;
@@ -53,6 +55,7 @@ public abstract class Literal extends Expression implements LeafExpression, Comp
      * @param dataType logical data type in Nereids
      */
     public Literal(DataType dataType) {
+        super(ImmutableList.of());
         this.dataType = Objects.requireNonNull(dataType);
     }
 

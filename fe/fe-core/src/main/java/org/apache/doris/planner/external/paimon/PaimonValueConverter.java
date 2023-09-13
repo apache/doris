@@ -23,14 +23,15 @@ import org.apache.doris.analysis.DecimalLiteral;
 import org.apache.doris.analysis.FloatLiteral;
 import org.apache.doris.analysis.IntLiteral;
 import org.apache.doris.analysis.LiteralExpr;
+import org.apache.doris.analysis.StringLiteral;
 
+import com.google.common.base.Strings;
 import org.apache.paimon.data.BinaryString;
 import org.apache.paimon.data.Decimal;
 import org.apache.paimon.data.Timestamp;
-import org.apache.paimon.types.ArrayType;
 import org.apache.paimon.types.BigIntType;
-import org.apache.paimon.types.BinaryType;
 import org.apache.paimon.types.BooleanType;
+import org.apache.paimon.types.CharType;
 import org.apache.paimon.types.DataType;
 import org.apache.paimon.types.DataTypeDefaultVisitor;
 import org.apache.paimon.types.DateType;
@@ -38,18 +39,15 @@ import org.apache.paimon.types.DecimalType;
 import org.apache.paimon.types.DoubleType;
 import org.apache.paimon.types.FloatType;
 import org.apache.paimon.types.IntType;
-import org.apache.paimon.types.MapType;
-import org.apache.paimon.types.RowType;
 import org.apache.paimon.types.SmallIntType;
 import org.apache.paimon.types.TimestampType;
+import org.apache.paimon.types.TinyIntType;
 import org.apache.paimon.types.VarCharType;
 
 import java.math.BigDecimal;
-import java.time.LocalDateTime;
-import java.time.ZoneId;
-import java.time.format.DateTimeFormatter;
-import java.time.format.DateTimeParseException;
-import java.util.Date;
+import java.time.LocalDate;
+import java.util.Calendar;
+import java.util.TimeZone;
 
 /**
  * Convert LiteralExpr to paimon value.
@@ -65,15 +63,19 @@ public class PaimonValueConverter extends DataTypeDefaultVisitor<Object> {
         return BinaryString.fromString(expr.getStringValue());
     }
 
+    public BinaryString visit(CharType charType) {
+        if (expr instanceof StringLiteral) {
+            StringLiteral stringLiteral = (StringLiteral) expr;
+            return BinaryString.fromString(Strings.padEnd(stringLiteral.getStringValue(), charType.getLength(), ' '));
+        }
+        return null;
+    }
+
     public Boolean visit(BooleanType booleanType) {
         if (expr instanceof BoolLiteral) {
             BoolLiteral boolLiteral = (BoolLiteral) expr;
             return boolLiteral.getValue();
         }
-        return null;
-    }
-
-    public Object visit(BinaryType binaryType) {
         return null;
     }
 
@@ -94,6 +96,15 @@ public class PaimonValueConverter extends DataTypeDefaultVisitor<Object> {
         return null;
     }
 
+    public Byte visit(TinyIntType tinyIntType) {
+        if (expr instanceof IntLiteral) {
+            IntLiteral intLiteral = (IntLiteral) expr;
+            return (byte) intLiteral.getValue();
+        }
+        return null;
+    }
+
+
     public Integer visit(IntType intType) {
         if (expr instanceof IntLiteral) {
             IntLiteral intLiteral = (IntLiteral) expr;
@@ -110,11 +121,11 @@ public class PaimonValueConverter extends DataTypeDefaultVisitor<Object> {
         return null;
     }
 
+    // when a = 9.1,paimon can get data,doris can not get data
+    // when a > 9.1,paimon can not get data,doris can get data
+    // paimon is no problem,but we consistent with Doris internal table
+    // Therefore, comment out this code
     public Float visit(FloatType floatType) {
-        if (expr instanceof FloatLiteral) {
-            FloatLiteral floatLiteral = (FloatLiteral) expr;
-            return (float) floatLiteral.getValue();
-        }
         return null;
     }
 
@@ -126,40 +137,25 @@ public class PaimonValueConverter extends DataTypeDefaultVisitor<Object> {
         return null;
     }
 
-    public Object visit(DateType dateType) {
+    public Integer visit(DateType dateType) {
+        if (expr instanceof DateLiteral) {
+            DateLiteral dateLiteral = (DateLiteral) expr;
+            long l = LocalDate.of((int) dateLiteral.getYear(), (int) dateLiteral.getMonth(), (int) dateLiteral.getDay())
+                    .toEpochDay();
+            return (int) l;
+        }
         return null;
     }
 
     public Timestamp visit(TimestampType timestampType) {
-        DateLiteral dateLiteral = (DateLiteral) expr;
-        DateTimeFormatter formatter = DateTimeFormatter.ofPattern("yyyyMMddHHmmss")
-                .withZone(ZoneId.systemDefault());
-        StringBuilder sb = new StringBuilder();
-        sb.append(dateLiteral.getYear())
-                .append(dateLiteral.getMonth())
-                .append(dateLiteral.getDay())
-                .append(dateLiteral.getHour())
-                .append(dateLiteral.getMinute())
-                .append(dateLiteral.getSecond());
-        Date date;
-        try {
-            date = Date.from(
-                    LocalDateTime.parse(sb.toString(), formatter).atZone(ZoneId.systemDefault()).toInstant());
-        } catch (DateTimeParseException e) {
-            return null;
+        if (expr instanceof DateLiteral) {
+            DateLiteral dateLiteral = (DateLiteral) expr;
+            Calendar instance = Calendar.getInstance(TimeZone.getTimeZone("GMT"));
+            instance.set((int) dateLiteral.getYear(), (int) (dateLiteral.getMonth() - 1), (int) dateLiteral.getDay(),
+                    (int) dateLiteral.getHour(), (int) dateLiteral.getMinute(), (int) dateLiteral.getSecond());
+            return Timestamp
+                    .fromEpochMillis(instance.getTimeInMillis() / 1000 * 1000 + dateLiteral.getMicrosecond() / 1000);
         }
-        return Timestamp.fromEpochMillis(date.getTime());
-    }
-
-    public Object visit(ArrayType arrayType) {
-        return null;
-    }
-
-    public Object visit(MapType mapType) {
-        return null;
-    }
-
-    public Object visit(RowType rowType) {
         return null;
     }
 

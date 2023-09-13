@@ -396,28 +396,58 @@ public:
                                         const ColumnWithTypeAndName& arg_then,
                                         const ColumnWithTypeAndName& arg_else, size_t result,
                                         size_t input_rows_count) {
+        auto then_type_is_nullable = arg_then.type->is_nullable();
+        auto else_type_is_nullable = arg_else.type->is_nullable();
+        if (!then_type_is_nullable && !else_type_is_nullable) {
+            return false;
+        }
+
         auto* then_is_nullable = check_and_get_column<ColumnNullable>(*arg_then.column);
         auto* else_is_nullable = check_and_get_column<ColumnNullable>(*arg_else.column);
+        bool then_column_is_const_nullable = false;
+        bool else_column_is_const_nullable = false;
+        if (then_type_is_nullable == true && then_is_nullable == nullptr) {
+            //this case is a const(nullable column)
+            auto& const_column = assert_cast<const ColumnConst&>(*arg_then.column);
+            then_is_nullable =
+                    assert_cast<const ColumnNullable*>(const_column.get_data_column_ptr().get());
+            then_column_is_const_nullable = true;
+        }
 
-        if (!then_is_nullable && !else_is_nullable) {
-            return false;
+        if (else_type_is_nullable == true && else_is_nullable == nullptr) {
+            //this case is a const(nullable column)
+            auto& const_column = assert_cast<const ColumnConst&>(*arg_else.column);
+            else_is_nullable =
+                    assert_cast<const ColumnNullable*>(const_column.get_data_column_ptr().get());
+            else_column_is_const_nullable = true;
         }
 
         /** Calculate null mask of result and nested column separately.
           */
         ColumnPtr result_null_mask;
         {
-            Block temporary_block(
-                    {arg_cond,
-                     {then_is_nullable ? then_is_nullable->get_null_map_column_ptr()
-                                       : DataTypeUInt8().create_column_const_with_default_value(
-                                                 input_rows_count),
-                      std::make_shared<DataTypeUInt8>(), ""},
-                     {else_is_nullable ? else_is_nullable->get_null_map_column_ptr()
-                                       : DataTypeUInt8().create_column_const_with_default_value(
-                                                 input_rows_count),
-                      std::make_shared<DataTypeUInt8>(), ""},
-                     {nullptr, std::make_shared<DataTypeUInt8>(), ""}});
+            // get nullmap from column:
+            // a. get_null_map_column_ptr() : it's a real nullable column, so could get it from nullable column
+            // b. create a const_nullmap_column: it's a not nullable column or a const nullable column, contain a const value
+            Block temporary_block;
+            temporary_block.insert(arg_cond);
+            auto then_nested_null_map =
+                    (then_type_is_nullable == true && then_column_is_const_nullable == false)
+                            ? then_is_nullable->get_null_map_column_ptr()
+                            : DataTypeUInt8().create_column_const_with_default_value(
+                                      input_rows_count);
+            temporary_block.insert({then_nested_null_map, std::make_shared<DataTypeUInt8>(),
+                                    "then_column_null_map"});
+
+            auto else_nested_null_map =
+                    (else_type_is_nullable == true && else_column_is_const_nullable == false)
+                            ? else_is_nullable->get_null_map_column_ptr()
+                            : DataTypeUInt8().create_column_const_with_default_value(
+                                      input_rows_count);
+            temporary_block.insert({else_nested_null_map, std::make_shared<DataTypeUInt8>(),
+                                    "else_column_null_map"});
+            temporary_block.insert(
+                    {nullptr, std::make_shared<DataTypeUInt8>(), "result_column_null_map"});
 
             execute_impl(context, temporary_block, {0, 1, 2}, 3, temporary_block.rows());
 

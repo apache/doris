@@ -18,9 +18,10 @@ PhysicalResultSink
 ----------------------PhysicalDistribute
 ------------------------PhysicalProject
 --------------------------hashJoin[INNER_JOIN](catalog_sales.cs_sold_date_sk = d3.d_date_sk)
-----------------------------PhysicalProject
-------------------------------filter(d_year IN (1999, 2000, 2001))
---------------------------------PhysicalOlapScan[date_dim]
+----------------------------PhysicalDistribute
+------------------------------PhysicalProject
+--------------------------------filter(d_year IN (1999, 2000, 2001))
+----------------------------------PhysicalOlapScan[date_dim]
 ----------------------------PhysicalDistribute
 ------------------------------PhysicalProject
 --------------------------------hashJoin[INNER_JOIN](store_returns.sr_item_sk = catalog_sales.cs_item_sk)(store_returns.sr_customer_sk = catalog_sales.cs_bill_customer_sk)

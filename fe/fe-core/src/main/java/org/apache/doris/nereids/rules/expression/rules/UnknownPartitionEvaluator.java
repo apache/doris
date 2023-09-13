@@ -52,4 +52,9 @@ public class UnknownPartitionEvaluator implements OnePartitionEvaluator {
         // do not prune
         return expression;
     }
+
+    @Override
+    public boolean isDefaultPartition() {
+        return partitionItem.isDefaultPartition();
+    }
 }

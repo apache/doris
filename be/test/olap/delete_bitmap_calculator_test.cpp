@@ -29,6 +29,7 @@
 #include <vector>
 
 #include "gtest/gtest_pred_impl.h"
+#include "io/fs/file_reader.h"
 #include "io/fs/file_writer.h"
 #include "io/fs/local_file_system.h"
 #include "olap/primary_key_index.h"
@@ -39,6 +40,7 @@
 #include "olap/tablet_meta.h"
 #include "olap/tablet_schema.h"
 #include "olap/tablet_schema_helper.h"
+#include "runtime/exec_env.h"
 
 namespace doris {
 using namespace ErrorCode;
@@ -72,7 +74,7 @@ public:
         EXPECT_TRUE(io::global_local_filesystem()->delete_and_create_directory(kSegmentDir).ok());
         doris::EngineOptions options;
         k_engine = new StorageEngine(options);
-        StorageEngine::_s_instance = k_engine;
+        ExecEnv::GetInstance()->set_storage_engine(k_engine);
     }
 
     void TearDown() override {
@@ -81,6 +83,7 @@ public:
             k_engine->stop();
             delete k_engine;
             k_engine = nullptr;
+            ExecEnv::GetInstance()->set_storage_engine(nullptr);
         }
     }
 
@@ -132,10 +135,8 @@ public:
         EXPECT_NE("", writer.min_encoded_key().to_string());
         EXPECT_NE("", writer.max_encoded_key().to_string());
 
-        io::FileReaderOptions reader_options(io::FileCachePolicy::NO_CACHE,
-                                             io::SegmentCachePathPolicy());
         st = segment_v2::Segment::open(fs, path, segment_id, rowset_id, query_schema,
-                                       reader_options, res);
+                                       io::FileReaderOptions {}, res);
         EXPECT_TRUE(st.ok());
         EXPECT_EQ(nrows, (*res)->num_rows());
     }

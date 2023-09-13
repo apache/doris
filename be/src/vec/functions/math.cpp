@@ -179,9 +179,9 @@ struct AbsImpl {
 
     static inline ResultType apply(A a) {
         if constexpr (IsDecimalNumber<A>)
-            return a < 0 ? A(-a) : a;
+            return a < A(0) ? A(-a) : a;
         else if constexpr (std::is_integral_v<A> && std::is_signed_v<A>)
-            return a < 0 ? static_cast<ResultType>(~a) + 1 : a;
+            return a < A(0) ? static_cast<ResultType>(~a) + 1 : a;
         else if constexpr (std::is_integral_v<A> && std::is_unsigned_v<A>)
             return static_cast<ResultType>(a);
         else if constexpr (std::is_floating_point_v<A>)

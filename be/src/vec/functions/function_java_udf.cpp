@@ -121,9 +121,9 @@ Status JavaFunctionCall::open(FunctionContext* context, FunctionContext::Functio
     return Status::OK();
 }
 
-Status JavaFunctionCall::execute(FunctionContext* context, Block& block,
-                                 const ColumnNumbers& arguments, size_t result, size_t num_rows,
-                                 bool dry_run) {
+Status JavaFunctionCall::execute_impl(FunctionContext* context, Block& block,
+                                      const ColumnNumbers& arguments, size_t result,
+                                      size_t num_rows) const {
     JNIEnv* env = nullptr;
     RETURN_IF_ERROR(JniUtil::GetJNIEnv(&env));
     JniContext* jni_ctx = reinterpret_cast<JniContext*>(

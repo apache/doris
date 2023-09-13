@@ -49,27 +49,7 @@
 namespace doris {
 using namespace ErrorCode;
 
-MemTableWriter::MemTableWriter(const WriteRequest& req, RuntimeProfile* profile) : _req(req) {
-    _init_profile(profile);
-}
-
-void MemTableWriter::_init_profile(RuntimeProfile* profile) {
-    _profile = profile->create_child(fmt::format("MemTableWriter {}", _req.tablet_id), true, true);
-    _lock_timer = ADD_TIMER(_profile, "LockTime");
-    _sort_timer = ADD_TIMER(_profile, "MemTableSortTime");
-    _agg_timer = ADD_TIMER(_profile, "MemTableAggTime");
-    _memtable_duration_timer = ADD_TIMER(_profile, "MemTableDurationTime");
-    _segment_writer_timer = ADD_TIMER(_profile, "SegmentWriterTime");
-    _wait_flush_timer = ADD_TIMER(_profile, "MemTableWaitFlushTime");
-    _put_into_output_timer = ADD_TIMER(_profile, "MemTablePutIntoOutputTime");
-    _delete_bitmap_timer = ADD_TIMER(_profile, "DeleteBitmapTime");
-    _close_wait_timer = ADD_TIMER(_profile, "MemTableWriterCloseWaitTime");
-    _sort_times = ADD_COUNTER(_profile, "MemTableSortTimes", TUnit::UNIT);
-    _agg_times = ADD_COUNTER(_profile, "MemTableAggTimes", TUnit::UNIT);
-    _segment_num = ADD_COUNTER(_profile, "SegmentNum", TUnit::UNIT);
-    _raw_rows_num = ADD_COUNTER(_profile, "RawRowNum", TUnit::UNIT);
-    _merged_rows_num = ADD_COUNTER(_profile, "MergedRowNum", TUnit::UNIT);
-}
+MemTableWriter::MemTableWriter(const WriteRequest& req) : _req(req) {}
 
 MemTableWriter::~MemTableWriter() {
     if (!_is_init) {
@@ -150,11 +130,11 @@ Status MemTableWriter::_flush_memtable_async() {
     return _flush_token->submit(std::move(_mem_table));
 }
 
-Status MemTableWriter::flush_memtable_and_wait(bool need_wait) {
+Status MemTableWriter::flush_async() {
     std::lock_guard<std::mutex> l(_lock);
-    if (!_is_init) {
-        // This writer is not initialized before flushing. Do nothing
-        // But we return OK instead of Status::Error<ALREADY_CANCELLED>(),
+    if (!_is_init || _is_closed) {
+        // This writer is uninitialized or closed before flushing, do nothing.
+        // We return OK instead of NOT_INITIALIZED or ALREADY_CLOSED.
         // Because this method maybe called when trying to reduce mem consumption,
         // and at that time, the writer may not be initialized yet and that is a normal case.
         return Status::OK();
@@ -169,31 +149,22 @@ Status MemTableWriter::flush_memtable_and_wait(bool need_wait) {
                 << ", load id: " << print_id(_req.load_id);
     auto s = _flush_memtable_async();
     _reset_mem_table();
-    if (UNLIKELY(!s.ok())) {
-        return s;
-    }
-
-    if (need_wait) {
-        // wait all memtables in flush queue to be flushed.
-        SCOPED_TIMER(_wait_flush_timer);
-        RETURN_IF_ERROR(_flush_token->wait());
-    }
-    return Status::OK();
+    return s;
 }
 
 Status MemTableWriter::wait_flush() {
     {
         std::lock_guard<std::mutex> l(_lock);
-        if (!_is_init) {
-            // return OK instead of Status::Error<ALREADY_CANCELLED>() for same reason
-            // as described in flush_memtable_and_wait()
+        if (!_is_init || _is_closed) {
+            // return OK instead of NOT_INITIALIZED or ALREADY_CLOSED for same reason
+            // as described in flush_async()
             return Status::OK();
         }
         if (_is_cancelled) {
             return _cancel_status;
         }
     }
-    SCOPED_TIMER(_wait_flush_timer);
+    SCOPED_RAW_TIMER(&_wait_flush_time_ns);
     RETURN_IF_ERROR(_flush_token->wait());
     return Status::OK();
 }
@@ -227,7 +198,7 @@ void MemTableWriter::_reset_mem_table() {
                                   _unique_key_mow, mem_table_insert_tracker,
                                   mem_table_flush_tracker));
 
-    COUNTER_UPDATE(_segment_num, 1);
+    _segment_num++;
 }
 
 Status MemTableWriter::close() {
@@ -256,8 +227,8 @@ Status MemTableWriter::close() {
     }
 }
 
-Status MemTableWriter::close_wait() {
-    SCOPED_TIMER(_close_wait_timer);
+Status MemTableWriter::_do_close_wait() {
+    SCOPED_RAW_TIMER(&_close_wait_time_ns);
     std::lock_guard<std::mutex> l(_lock);
     DCHECK(_is_init)
             << "delta writer is supposed be to initialized before close_wait() being called";
@@ -269,7 +240,7 @@ Status MemTableWriter::close_wait() {
     Status st;
     // return error if previous flush failed
     {
-        SCOPED_TIMER(_wait_flush_timer);
+        SCOPED_RAW_TIMER(&_wait_flush_time_ns);
         st = _flush_token->wait();
     }
     if (UNLIKELY(!st.ok())) {
@@ -296,19 +267,44 @@ Status MemTableWriter::close_wait() {
                   << _wait_flush_timer->elapsed_time() << "(ns), stats: " << stat;
     }*/
 
-    COUNTER_UPDATE(_lock_timer, _lock_watch.elapsed_time() / 1000);
-    COUNTER_SET(_delete_bitmap_timer, _rowset_writer->delete_bitmap_ns());
-    COUNTER_SET(_segment_writer_timer, _rowset_writer->segment_writer_ns());
-    const auto& memtable_stat = _flush_token->memtable_stat();
-    COUNTER_SET(_sort_timer, memtable_stat.sort_ns);
-    COUNTER_SET(_agg_timer, memtable_stat.agg_ns);
-    COUNTER_SET(_memtable_duration_timer, memtable_stat.duration_ns);
-    COUNTER_SET(_put_into_output_timer, memtable_stat.put_into_output_ns);
-    COUNTER_SET(_sort_times, memtable_stat.sort_times);
-    COUNTER_SET(_agg_times, memtable_stat.agg_times);
-    COUNTER_SET(_raw_rows_num, memtable_stat.raw_rows);
-    COUNTER_SET(_merged_rows_num, memtable_stat.merged_rows);
     return Status::OK();
+}
+
+void MemTableWriter::_update_profile(RuntimeProfile* profile) {
+    // NOTE: MemTableWriter may be accessed when profile is out of scope, in MemTableMemoryLimiter.
+    // To avoid accessing dangling pointers, we cannot make profile as a member of MemTableWriter.
+    auto child =
+            profile->create_child(fmt::format("MemTableWriter {}", _req.tablet_id), true, true);
+    auto lock_timer = ADD_TIMER(child, "LockTime");
+    auto sort_timer = ADD_TIMER(child, "MemTableSortTime");
+    auto agg_timer = ADD_TIMER(child, "MemTableAggTime");
+    auto memtable_duration_timer = ADD_TIMER(child, "MemTableDurationTime");
+    auto segment_writer_timer = ADD_TIMER(child, "SegmentWriterTime");
+    auto wait_flush_timer = ADD_TIMER(child, "MemTableWaitFlushTime");
+    auto put_into_output_timer = ADD_TIMER(child, "MemTablePutIntoOutputTime");
+    auto delete_bitmap_timer = ADD_TIMER(child, "DeleteBitmapTime");
+    auto close_wait_timer = ADD_TIMER(child, "CloseWaitTime");
+    auto sort_times = ADD_COUNTER(child, "MemTableSortTimes", TUnit::UNIT);
+    auto agg_times = ADD_COUNTER(child, "MemTableAggTimes", TUnit::UNIT);
+    auto segment_num = ADD_COUNTER(child, "SegmentNum", TUnit::UNIT);
+    auto raw_rows_num = ADD_COUNTER(child, "RawRowNum", TUnit::UNIT);
+    auto merged_rows_num = ADD_COUNTER(child, "MergedRowNum", TUnit::UNIT);
+
+    COUNTER_UPDATE(lock_timer, _lock_watch.elapsed_time());
+    COUNTER_SET(delete_bitmap_timer, _rowset_writer->delete_bitmap_ns());
+    COUNTER_SET(segment_writer_timer, _rowset_writer->segment_writer_ns());
+    COUNTER_SET(wait_flush_timer, _wait_flush_time_ns);
+    COUNTER_SET(close_wait_timer, _close_wait_time_ns);
+    COUNTER_SET(segment_num, _segment_num);
+    const auto& memtable_stat = _flush_token->memtable_stat();
+    COUNTER_SET(sort_timer, memtable_stat.sort_ns);
+    COUNTER_SET(agg_timer, memtable_stat.agg_ns);
+    COUNTER_SET(memtable_duration_timer, memtable_stat.duration_ns);
+    COUNTER_SET(put_into_output_timer, memtable_stat.put_into_output_ns);
+    COUNTER_SET(sort_times, memtable_stat.sort_times);
+    COUNTER_SET(agg_times, memtable_stat.agg_times);
+    COUNTER_SET(raw_rows_num, memtable_stat.raw_rows);
+    COUNTER_SET(merged_rows_num, memtable_stat.merged_rows);
 }
 
 Status MemTableWriter::cancel() {
@@ -335,7 +331,7 @@ const FlushStatistic& MemTableWriter::get_flush_token_stats() {
 }
 
 int64_t MemTableWriter::mem_consumption(MemType mem) {
-    if (_flush_token == nullptr) {
+    if (!_is_init) {
         // This method may be called before this writer is initialized.
         // So _flush_token may be null.
         return 0;
@@ -344,12 +340,12 @@ int64_t MemTableWriter::mem_consumption(MemType mem) {
     {
         std::lock_guard<SpinLock> l(_mem_table_tracker_lock);
         if ((mem & MemType::WRITE) == MemType::WRITE) { // 3 & 2 = 2
-            for (auto mem_table_tracker : _mem_table_insert_trackers) {
+            for (const auto& mem_table_tracker : _mem_table_insert_trackers) {
                 mem_usage += mem_table_tracker->consumption();
             }
         }
         if ((mem & MemType::FLUSH) == MemType::FLUSH) { // 3 & 1 = 1
-            for (auto mem_table_tracker : _mem_table_flush_trackers) {
+            for (const auto& mem_table_tracker : _mem_table_flush_trackers) {
                 mem_usage += mem_table_tracker->consumption();
             }
         }

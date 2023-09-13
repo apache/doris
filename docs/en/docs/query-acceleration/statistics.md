@@ -58,17 +58,6 @@ Column Statistics:
 | `min`           | Column Minimum                        |
 | `max`           | Column Max Value                      |
 | `null_count`    | Number of columns null                |
-| `histogram`     | Column Histogram                      |
-
-Next, we will briefly introduce the histogram and other data structures, as well as the collection and maintenance of statistics information in detail.
-
-## Introduction to Histograms
-
-A histogram is a tool used to describe the distribution of data. It divides the data into several intervals (buckets) according to the size, and uses simple statistics to represent the characteristics of the data in each interval. Is an important statistic in a database that describes the distribution of data in a column. The most typical application scenario of histogram is to help the optimizer choose the optimal execution plan by estimating the selectivity of query predicates.
-
-In Doris, an equi-height Histogram is built for each table-specific column. The histogram comprises a series of buckets, wherein the statistics of each bucket comprises the upper and lower bounds of the bucket, the number of elements contained in the bucket, the number of all elements in the previous bucket, and the number of different values in the bucket. For details, please refer to the SQL function `histogram` or `hist` its instructions.
-
-> Using the bucket method of contour histogram, the sum of numerical frequency in each bucket should be close to the total number of `1/N` rows. However, if the principle of equal height is strictly followed, some values will fall on the boundary of the bucket, resulting in the same value appearing in two different buckets. This situation can interfere with the estimation of the selection rate. Therefore, in the implementation, Doris modifies the bucketting method of the contour histogram: if adding a value to a bucket causes the frequency of data in the bucket to exceed the total number `1/N` of rows, the value is put into the bucket or the next bucket, depending on which situation is closer `1/N`.
 
 ## Collect statistics
 
@@ -82,7 +71,7 @@ Column statistics collection syntax:
 ANALYZE < TABLE | DATABASE table_name | db_name >
     [ PARTITIONS (partition_name [, ...]) ]
     [ (column_name [, ...]) ]
-    [ [ WITH SYNC ] [ WITH INCREMENTAL ] [ WITH SAMPLE PERCENT | ROWS ] [ WITH PERIOD ] [WITH HISTOGRAM]]
+    [ [ WITH SYNC ] [ WITH INCREMENTAL ] [ WITH SAMPLE PERCENT | ROWS ] [ WITH PERIOD ]]
     [ PROPERTIES ("key" = "value", ...) ];
 ```
 
@@ -92,10 +81,10 @@ Explanation:
 - partition_name: The specified target partitions（for hive external table only）。Must be partitions exist in `table_name`. Multiple partition names are separated by commas. e.g. (nation=US/city=Washington)
 - Column_name: The specified target column. Must be `table_name` a column that exists in. Multiple column names are separated by commas.
 - Sync: Synchronizes the collection of statistics. Return after collection. If not specified, it will be executed asynchronously and the job ID will be returned.
-- Incremental: Incrementally gather statistics. Incremental collection of histogram statistics is not supported.
+- Incremental: Incrementally gather statistics.
 - Period: Collect statistics periodically. The unit is seconds, and when specified, the appropriate statistics are collected periodically.
 - Sample percent | rows: Sample collection statistics. You can specify a sampling ratio or the number of rows to sample.
-- Buckets: Specifies the maximum number of buckets generated when collecting histogram statistics. The default is 128 when not specified.
+
 - Properties: used to configure statistics job. Currently, only the following configuration items are supported
   - `"sync" = "true"`: Equivalent `with sync`
   - `"incremental" = "true"`: Equivalent `with incremental`
@@ -155,8 +144,6 @@ mysql> SELECT * FROM stats_test.example_tbl;
 +---------+------------+-----------+------+------+---------------------+------+----------------+----------------+
 ```
 
-For the convenience of description, column statistics information is hereinafter referred to as statistics information, which stores the number of rows, the maximum value, the minimum value, the number of NULL values, and the like of a column; and a column histogram is referred to as histogram statistics information.
-
 #### Full collection
 
 ##### Collect column statistic
@@ -189,56 +176,6 @@ mysql> ANALYZE TABLE stats_test.example_tbl(city, age, sex);
 +--------+
 ```
 
-##### Collect histogram information
-
-Column histogram information is used to describe the distribution of columns. It divides the data into several intervals (buckets) according to the size, and uses simple statistics to represent the characteristics of the data in each interval. Collected by `ANALYZE TABLE` statement fit `WITH HISTOGRAM`.
-
-Columns can be specified to collect their histogram information in the same way that normal statistics are collected. Collecting histogram information takes longer than normal statistics, so to reduce overhead, we can just collect histogram information for specific columns for the optimizer to use.
-
-Example:
-
-- Collects `example_tbl` histograms for all columns of a table, using the following syntax:
-
-```SQL
-mysql> ANALYZE TABLE stats_test.example_tbl WITH HISTOGRAM;
-+--------+
-| job_id |
-+--------+
-| 51838  |
-+--------+
-```
-
-- Collect `example_tbl` histograms for table `city` `age` `sex` columns, using the following syntax:
-
-```SQL
-mysql> ANALYZE TABLE stats_test.example_tbl(city, age, sex) WITH HISTOGRAM;
-+--------+
-| job_id |
-+--------+
-| 51889  |
-+--------+
-```
-
-- Collect `example_tbl` histograms for all columns of the table and set the maximum number of buckets, using the following syntax:
-
-```SQL
--- use with buckets
-mysql> ANALYZE TABLE stats_test.example_tbl WITH HISTOGRAM WITH BUCKETS 2;
-+--------+
-| job_id |
-+--------+
-| 52018  |
-+--------+
-
--- configure num.buckets
-mysql> ANALYZE TABLE stats_test.example_tbl WITH HISTOGRAM PROPERTIES("num.buckets" = "2");
-+--------+
-| job_id |
-+--------+
-| 52069  |
-+--------+
-```
-
 #### Incremental collection
 
 For partitioned tables, incremental collection can be used to improve the speed of statistics collection if partitions are added or deleted after full collection.
@@ -253,7 +190,6 @@ Incremental collection is appropriate for tables with monotonic non-decreasing c
 
 Notice：
 
-- Histogram statistics do not support incremental collection.
 - When using incremental collection, you must ensure that the statistics information of table inventory is available (that is, other historical partition data does not change). Otherwise, the statistics information will be inaccurate.
 
 Example:
@@ -331,17 +267,6 @@ mysql> ANALYZE TABLE stats_test.example_tbl PROPERTIES("sample.percent" = "50");
 +--------+
 ```
 
-- Samples collect `example_tbl` histogram information for a table, similar to normal statistics, using the following syntax:
-
-```SQL
-mysql> ANALYZE TABLE stats_test.example_tbl WITH HISTOGRAM WITH SAMPLE ROWS 5;
-+--------+
-| job_id |
-+--------+
-| 52357  |
-+--------+
-```
-
 #### Synchronous collection
 
 Generally, after executing `ANALYZE` the statement, the system will start an asynchronous job to collect statistics and return the statistics job ID immediately. If you want to wait for the statistics collection to finish and return, you can use synchronous collection.
@@ -356,12 +281,6 @@ mysql> ANALYZE TABLE stats_test.example_tbl WITH SYNC;
 
 -- configure sync
 mysql> ANALYZE TABLE stats_test.example_tbl PROPERTIES("sync" = "true");
-```
-
-- Samples collect `example_tbl` histogram information for a table, similar to normal statistics, using the following syntax:
-
-```SQL
-mysql> ANALYZE TABLE stats_test.example_tbl WITH HISTOGRAM WITH SYNC;
 ```
 
 ### Automatic collection
@@ -391,66 +310,6 @@ mysql> ANALYZE TABLE stats_test.example_tbl PROPERTIES("period.seconds" = "86400
 | job_id |
 +--------+
 | 52535  |
-+--------+
-```
-
-- Collects `example_tbl` histogram information for a table periodically (every other day), similar to normal statistics, using the following syntax:
-
-```SQL
-mysql> ANALYZE TABLE stats_test.example_tbl WITH HISTOGRAM WITH PERIOD 86400;
-+--------+
-| job_id |
-+--------+
-| 52684  |
-+--------+
-```
-
-#### Automatic collection
-
-Statistics can be "invalidated" when tables are changed, which can cause the optimizer to select the wrong execution plan.
-
-Table statistics may become invalid due to the following causes:
-
-- New field: The new field has no statistics
-- Field change: Original statistics are unavailable
-- Added zone: The new zone has no statistics
-- Zone change: The original statistics are invalid
-- data changes (insert data delete data | | change data) : the statistical information is error
-
-The main operations involved include:
-
-- update: updates the data
-- delete: deletes data
-- drop: deletes a partition
-- load: import data and add partitions
-- insert: inserts data and adds partitions
-- alter: Field change, partition change, or new partition
-
-Database, table, partition, field deletion, internal will automatically clear these invalid statistics. Adjusting the column order and changing the column type do not affect.
-
-The system determines whether to collect statistics again based on the health of the table (as defined above). By setting the health threshold, the system collects statistics about the table again when the health is lower than a certain value. To put it simply, if statistics are collected on a table and the data of a partition becomes more or less, or a partition is added or deleted, the statistics may be automatically collected. After the statistics are collected again, the statistics and health of the table are updated. 
-
-Currently, only tables that are configured by the user to automatically collect statistics will be collected, and statistics will not be automatically collected for other tables.
-
-Example:
-
-- Automatically analysis statistics for the 'example_tbl' table using the following syntax:
-
-```SQL
--- use with auto
-mysql> ANALYZE TABLE stats_test.example_tbl WITH AUTO;
-+--------+
-| job_id |
-+--------+
-| 52539  |
-+--------+
-
--- configure automatic
-mysql> ANALYZE TABLE stats_test.example_tbl PROPERTIES("automatic" = "true");
-+--------+
-| job_id |
-+--------+
-| 52565  |
 +--------+
 ```
 
@@ -702,92 +561,6 @@ mysql> SHOW COLUMN STATS stats_test.example_tbl(city, age, sex) PARTITION (p_201
 +-------------+-------+------+----------+--------------------+-------------------+-----------+------------+
 ```
 
-### View column histogram information
-
-To `SHOW COLUMN HISTOGRAM` view the information for each bucket of the histogram.
-
-The syntax is as follows:
-
-```SQL
-SHOW COLUMN HISTOGRAM table_name [ (column_name [, ...]) ];
-```
-
-Explanation:
-
-- Table_name: The table to which the data is imported. It can be a `db_name.table_name` form.
-- Column_name: Specified destination column. `table_name` Must be a column that exists in. Multiple column names are separated by commas.
-
-Currently `SHOW COLUMN HISTOGRAM`, 5 columns are output, and each bucket contains 5 attributes, as follows:
-
-| Column Name   | Explain                                                     |
-| :------------ | :---------------------------------------------------------- |
-| `column_name` | Column name                                                 |
-| `data_type`   | The data type of the column                                 |
-| `sample_rate` | Proportion is adopted. The default is 1 for full collection |
-| `num_buckets` | Number of buckets included                                  |
-| `buckets`     | Details of the bucket (Json format)                         |
-| `lower`       | The lower bound of the barrel                               |
-| `upper`       | The upper bound of the bucket                               |
-| `count`       | Number of elements contained in the bucket                  |
-| `pre_sum`     | Number of all elements in the previous bucket               |
-| `ndv`         | Number of distinct values in the bucket                     |
-
-Example:
-
-- To view `example_tbl` histogram information for all columns of a table, use the following syntax:
-
-```SQL
-mysql> SHOW COLUMN HISTOGRAM stats_test.example_tbl;
-+-----------------+-------------+-------------+-------------+---------------------------------------------------------------------------------------------------------------+
-| column_name     | data_type   | sample_rate | num_buckets | buckets                                                                                                       |
-+-----------------+-------------+-------------+-------------+---------------------------------------------------------------------------------------------------------------+
-| date            | DATE        | 1.0         | 1           | [{"lower_expr":"2017-10-01","upper_expr":"2017-10-03","count":6.0,"pre_sum":0.0,"ndv":3.0}]                   |
-| cost            | BIGINT      | 1.0         | 1           | [{"lower_expr":"2","upper_expr":"200","count":6.0,"pre_sum":0.0,"ndv":6.0}]                                   |
-| min_dwell_time  | INT         | 1.0         | 1           | [{"lower_expr":"2","upper_expr":"22","count":6.0,"pre_sum":0.0,"ndv":6.0}]                                    |
-| city            | VARCHAR(20) | 1.0         | 1           | [{"lower_expr":"Shanghai","upper_expr":"Shenzhen","count":6.0,"pre_sum":0.0,"ndv":4.0}]                       |
-| user_id         | LARGEINT    | 1.0         | 1           | [{"lower_expr":"10000","upper_expr":"10004","count":6.0,"pre_sum":0.0,"ndv":5.0}]                             |
-| sex             | TINYINT     | 1.0         | 1           | [{"lower_expr":"0","upper_expr":"1","count":6.0,"pre_sum":0.0,"ndv":2.0}]                                     |
-| max_dwell_time  | INT         | 1.0         | 1           | [{"lower_expr":"3","upper_expr":"22","count":6.0,"pre_sum":0.0,"ndv":6.0}]                                    |
-| last_visit_date | DATETIME    | 1.0         | 1           | [{"lower_expr":"2017-10-01 06:00:00","upper_expr":"2017-10-03 10:20:22","count":6.0,"pre_sum":0.0,"ndv":6.0}] |
-| age             | SMALLINT    | 1.0         | 1           | [{"lower_expr":"20","upper_expr":"35","count":6.0,"pre_sum":0.0,"ndv":4.0}]                                   |
-+-----------------+-------------+-------------+-------------+---------------------------------------------------------------------------------------------------------------+
-```
-
-- To view `example_tbl` histogram information for a table `city` `age` `sex` column, use the following syntax:
-
-```SQL
-mysql> SHOW COLUMN HISTOGRAM stats_test.example_tbl(city, age, sex);
-+-------------+-------------+-------------+-------------+----------------------------------------------------------------------------------------+
-| column_name | data_type   | sample_rate | num_buckets | buckets                                                                                |
-+-------------+-------------+-------------+-------------+----------------------------------------------------------------------------------------+
-| city        | VARCHAR(20) | 1.0         | 1           | [{"lower_expr":"Shanghai","upper_expr":"Shenzhen","count":6.0,"pre_sum":0.0,"ndv":4.0}]|
-| sex         | TINYINT     | 1.0         | 1           | [{"lower_expr":"0","upper_expr":"1","count":6.0,"pre_sum":0.0,"ndv":2.0}]              |
-| age         | SMALLINT    | 1.0         | 1           | [{"lower_expr":"20","upper_expr":"35","count":6.0,"pre_sum":0.0,"ndv":4.0}]            |
-+-------------+-------------+-------------+-------------+----------------------------------------------------------------------------------------+
-```
-
-Buckets description:
-
-> Buckets for each column are returned in JSON format. Buckets are arranged from small to large. Each Bucket contains the upper and lower bounds, the number of elements, the NDV of elements, and the number of elements of all previous buckets. Where the number of elements in a column (row _ count) = the last bucket element number (count) + the number of elements in all previous buckets (pre _ sum). The number of rows for the following columns is 17.
-
-```JSON
-[
-    {        "lower_expr": 2,
-        "upper_expr": 7,
-        "count": 6,
-        "pre_sum": 0,
-        "ndv": 6
-    },
-    {
-        "lower_expr": 10,
-        "upper_expr": 20,
-        "count": 11,
-        "pre_sum": 6,
-        "ndv": 11
-    }
-]
-```
-
 ## Modify the statistics
 
 Users can modify the statistics information through statements `ALTER`, and modify the corresponding statistics information of the column according to the provided parameters.
@@ -831,7 +604,7 @@ mysql> SHOW COLUMN STATS stats_test.example_tbl(age);
 
 ## Delete statistics
 
-The user deletes the statistics for the specified table, partition, or column based on the supplied parameters through the delete statistics statement `DROP`. Both column statistics and column histogram information are deleted.
+The user deletes the statistics for the specified table, partition, or column based on the supplied parameters through the delete statistics statement `DROP`.
 
 Grammar
 
@@ -886,5 +659,18 @@ User could use option `enable_full_auto_analyze` to determine if enable full aut
 | statistics_sql_mem_limit_in_bytes                                                                                                                                                                                                                                                                              | Control the amount of BE memory that each statistics SQL can occupy.                                                                                                                                                                                                                                | 2L * 1024 * 1024 * 1024 (2GiB) |
 | statistics_simultaneously_running_task_num                                                                                                                                                                                                                                                                     | The number of concurrent AnalyzeTasks that can be executed.                                                                                                                                                                                                                                         | 10                             |
 | analyze_task_timeout_in_minutes                         | Execution time limit for AnalyzeTask, timeout task would be cancelled                                                                                                                                                                                                                               | 2hours                         |
-| full_auto_analyze_start_time/full_auto_analyze_end_time | Full auto analyze execution time range，full auto analyze would only be trigger in this range                                                                                                                                                                                                        | 00:00:00-23:59:59              |
-|stats_cache_size|The actual memory size taken by stats cache highly depends on characteristics of data, since on the different dataset and scenarios the max/min literal's average size and buckets count of histogram would be highly different. Besides, JVM version etc. also has influence on it, though not much as data itself. Here I would give the mem size taken by stats cache with 10_0000 items.Each item's avg length of max/min literal is 32, and the avg column name length is 16, and each column has a histogram with 128 buckets In this case, stats cache takes total 911.954833984MiB mem. If without histogram, stats cache takes total 61.2777404785MiB mem. It's strongly discourage analyzing a column with a very large STRING value in the column, since it would cause FE OOM. | 10_0000                        |
+|stats_cache_size|The actual memory size taken by stats cache highly depends on characteristics of data, since on the different dataset and scenarios the max/min literal's average size would be highly different. Besides, JVM version etc. also has influence on it, though not much as data itself. Here I would give the mem size taken by stats cache with 100000 items.Each item's avg length of max/min literal is 32, and the avg column name length is 16, stats cache takes total 61.2777404785MiB mem. It's strongly discourage analyzing a column with a very large STRING value in the column, since it would cause FE OOM. | 100000                        |
+
+## Q&A
+
+### ANALYZE WITH SYNC Execution Failure: Failed to analyze following columns...
+
+The execution time of SQL is controlled by the query_timeout session variable, which has a default value of 300 seconds. Statements like ANALYZE DATABASE/TABLE usually take a longer time to execute and can easily exceed this time limit, leading to cancellation. It is recommended to increase the value of query_timeout based on the amount of data in the ANALYZE object.
+
+### ANALYZE Submission Error: Stats table not available...
+
+When executing ANALYZE, statistical data is written to the internal table __internal_schema.column_statistics. FE checks the tablet status of this table before executing ANALYZE, and if any unavailable tablet is found, the task is rejected. If this error occurs, please check the status of the BE cluster.
+
+### ANALYZE Failure for Large Tables
+
+Due to the strict resource limitations for ANALYZE, the ANALYZE operation for large tables might experience timeouts or exceed the memory limit of BE. In such cases, it's recommended to use ANALYZE ... WITH SAMPLE.... Additionally, for scenarios involving dynamic partitioned tables, it's highly recommended to use ANALYZE ... WITH INCREMENTAL.... This statement processes only the partitions with updated data incrementally, avoiding redundant computations and improving efficiency.

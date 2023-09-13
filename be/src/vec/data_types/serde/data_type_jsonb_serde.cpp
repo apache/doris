@@ -55,9 +55,15 @@ Status DataTypeJsonbSerDe::write_column_to_mysql(const IColumn& column,
     return _write_column_to_mysql(column, row_buffer, row_idx, col_const);
 }
 
-void DataTypeJsonbSerDe::serialize_one_cell_to_text(const IColumn& column, int row_num,
+void DataTypeJsonbSerDe::serialize_column_to_json(const IColumn& column, int start_idx, int end_idx,
+                                                  BufferWritable& bw,
+                                                  FormatOptions& options) const {
+    SERIALIZE_COLUMN_TO_JSON()
+}
+
+void DataTypeJsonbSerDe::serialize_one_cell_to_json(const IColumn& column, int row_num,
                                                     BufferWritable& bw,
-                                                    const FormatOptions& options) const {
+                                                    FormatOptions& options) const {
     auto result = check_column_const_set_readability(column, row_num);
     ColumnPtr ptr = result.first;
     row_num = result.second;
@@ -65,14 +71,21 @@ void DataTypeJsonbSerDe::serialize_one_cell_to_text(const IColumn& column, int r
     const StringRef& s = assert_cast<const ColumnString&>(*ptr).get_data_at(row_num);
     if (s.size > 0) {
         bw.write(s.data, s.size);
-        bw.commit();
     }
 }
 
-Status DataTypeJsonbSerDe::deserialize_one_cell_from_text(IColumn& column, ReadBuffer& rb,
+Status DataTypeJsonbSerDe::deserialize_column_from_json_vector(IColumn& column,
+                                                               std::vector<Slice>& slices,
+                                                               int* num_deserialized,
+                                                               const FormatOptions& options) const {
+    DESERIALIZE_COLUMN_FROM_JSON_VECTOR()
+    return Status::OK();
+}
+
+Status DataTypeJsonbSerDe::deserialize_one_cell_from_json(IColumn& column, Slice& slice,
                                                           const FormatOptions& options) const {
     JsonBinaryValue value;
-    RETURN_IF_ERROR(value.from_json_string(rb.position(), rb.count()));
+    RETURN_IF_ERROR(value.from_json_string(slice.data, slice.size));
 
     auto& column_string = assert_cast<ColumnString&>(column);
     column_string.insert_data(value.value(), value.size());

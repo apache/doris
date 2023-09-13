@@ -37,6 +37,7 @@ namespace doris {
 class ExecEnv;
 class PHandShakeRequest;
 class PHandShakeResponse;
+class LoadStreamMgr;
 
 class PInternalServiceImpl : public PBackendService {
 public:
@@ -85,6 +86,10 @@ public:
                             const PTabletWriterOpenRequest* request,
                             PTabletWriterOpenResult* response,
                             google::protobuf::Closure* done) override;
+
+    void open_stream_sink(google::protobuf::RpcController* controller,
+                          const POpenStreamSinkRequest* request, POpenStreamSinkResponse* response,
+                          google::protobuf::Closure* done) override;
 
     void tablet_writer_add_block(google::protobuf::RpcController* controller,
                                  const PTabletWriterAddBlockRequest* request,
@@ -189,6 +194,11 @@ public:
     void glob(google::protobuf::RpcController* controller, const PGlobRequest* request,
               PGlobResponse* response, google::protobuf::Closure* done) override;
 
+    void group_commit_insert(google::protobuf::RpcController* controller,
+                             const PGroupCommitInsertRequest* request,
+                             PGroupCommitInsertResponse* response,
+                             google::protobuf::Closure* done) override;
+
 private:
     void _exec_plan_fragment_in_pthread(google::protobuf::RpcController* controller,
                                         const PExecPlanFragmentRequest* request,
@@ -237,6 +247,8 @@ private:
     // otherwise as light interface
     FifoThreadPool _heavy_work_pool;
     FifoThreadPool _light_work_pool;
+
+    std::unique_ptr<LoadStreamMgr> _load_stream_mgr;
 };
 
 } // namespace doris

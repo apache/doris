@@ -32,8 +32,7 @@ suite("test_es_query_no_http_url", "p0,external,es,external_docker,external_dock
 
         // test old create-catalog syntax for compatibility
         sql """
-            create catalog es6
-            properties (
+            create catalog if not exists es6 properties (
                 "type"="es",
                 "elasticsearch.hosts"="${externalEnvIp}:$es_6_port",
                 "elasticsearch.nodes_discovery"="false",
@@ -42,19 +41,21 @@ suite("test_es_query_no_http_url", "p0,external,es,external_docker,external_dock
         """
 
         // test new create catalog syntax
-        sql """create catalog if not exists es7 properties(
-            "type"="es",
-            "hosts"="${externalEnvIp}:$es_7_port",
-            "nodes_discovery"="false",
-            "enable_keyword_sniff"="true"
+        sql """
+            create catalog if not exists es7 properties(
+                "type"="es",
+                "hosts"="${externalEnvIp}:$es_7_port",
+                "nodes_discovery"="false",
+                "enable_keyword_sniff"="true"
         );
         """
 
-        sql """create catalog if not exists es8 properties(
-            "type"="es",
-            "hosts"="${externalEnvIp}:$es_8_port",
-            "nodes_discovery"="false",
-            "enable_keyword_sniff"="true"
+        sql """
+            create catalog if not exists es8 properties(
+                "type"="es",
+                "hosts"="${externalEnvIp}:$es_8_port",
+                "nodes_discovery"="false",
+                "enable_keyword_sniff"="true"
         );
         """
 

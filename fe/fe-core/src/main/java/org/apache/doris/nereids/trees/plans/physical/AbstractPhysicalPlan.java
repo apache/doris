@@ -65,7 +65,7 @@ public abstract class AbstractPhysicalPlan extends AbstractPlan implements Physi
             Statistics statistics, Plan... children) {
         super(type, groupExpression,
                 logicalProperties == null ? Optional.empty() : Optional.of(logicalProperties),
-                statistics, children);
+                statistics, ImmutableList.copyOf(children));
         this.physicalProperties =
                 physicalProperties == null ? PhysicalProperties.ANY : physicalProperties;
     }

@@ -35,6 +35,13 @@ Once connected, Doris will ingest metadata of databases and tables from the exte
 
 Supported datas sources include MySQL, PostgreSQL, Oracle, SQLServer, Clickhouse, Doris, SAP HANA, Trino and OceanBase.
 
+## Syntax
+
+```sql
+CREATE CATALOG <catalog_name>
+PROPERTIES ("key"="value", ...)
+```
+
 ## Parameter Description
 
 | Parameter                 | Required or Not | Default Value | Description                                                                                                              |
@@ -277,6 +284,8 @@ As for data mapping from Oracle to Doris, one Database in Doris corresponds to o
 | Database |   User   |
 |  Table   |  Table   |
 
+**NOTE:** Synchronizing Oracle's SYNONYM TABLE is not currently supported.
+
 #### Type Mapping
 
 | ORACLE Type                       | Doris Type                           | Comment                                                                                                                                                                       |
@@ -344,6 +353,8 @@ As for data mapping from SQLServer to Doris, one Database in Doris corresponds t
 
 Jdbc Catalog also support to connect another Doris database:
 
+* mysql 5.7 Driver
+
 ```sql
 CREATE CATALOG jdbc_doris PROPERTIES (
     "type"="jdbc",
@@ -352,10 +363,21 @@ CREATE CATALOG jdbc_doris PROPERTIES (
     "jdbc_url" = "jdbc:mysql://127.0.0.1:9030?useSSL=false",
     "driver_url" = "mysql-connector-java-5.1.47.jar",
     "driver_class" = "com.mysql.jdbc.Driver"
-);
+)
 ```
 
-**Note:** Currently, Jdbc Catalog only support to use 5.x version of JDBC jar package to connect another Doris database. If you use 8.x version of JDBC jar package, the data type of column may not be matched.
+* mysql 8 Driver
+
+```sql
+CREATE CATALOG jdbc_doris PROPERTIES (
+    "type"="jdbc",
+    "user"="root",
+    "password"="123456",
+    "jdbc_url" = "jdbc:mysql://127.0.0.1:9030?useSSL=false",
+    "driver_url" = "mysql-connector-java-8.0.25.jar",
+    "driver_class" = "com.mysql.cj.jdbc.Driver"
+)
+```
 
 #### Type Mapping
 
@@ -377,6 +399,8 @@ CREATE CATALOG jdbc_doris PROPERTIES (
 | STRING     | STRING                 |                                                                                      |
 | TEXT       | STRING                 |                                                                                      |
 | HLL        | HLL                    | Query HLL needs to set `return_object_data_as_binary=true`                           |
+| Array      | Array                  | The internal type adaptation logic of Array refers to the above types, and nested complex types are not supported        |
+| BITMAP     | BITMAP                 | Query BITMAP needs to set `return_object_data_as_binary=true`                        |
 | Other      | UNSUPPORTED            |                                                                                      |
 
 ### Clickhouse
@@ -552,6 +576,74 @@ CREATE CATALOG jdbc_oceanbase PROPERTIES (
 When Doris connects to OceanBase, it will automatically recognize that OceanBase is in MySQL or Oracle mode. Hierarchical correspondence and type mapping refer to [MySQL](#MySQL) and [Oracle](#Oracle)
 :::
 
+### View the JDBC Catalog
+
+You can query all Catalogs in the current Doris cluster through SHOW CATALOGS:
+
+```sql
+SHOW CATALOGS;
+```
+
+Query the creation statement of a Catalog through SHOW CREATE CATALOG:
+
+```sql
+SHOW CREATE CATALOG <catalog_name>;
+```
+
+### Drop the JDBC Catalog
+
+A Catalog can be deleted via DROP CATALOG:
+
+```sql
+DROP CATALOG <catalog_name>;
+```
+
+### Query the JDBC Catalog
+
+1. Use SWITCH to switch the Catalog in effect for the current session:
+
+    ```sql
+    SWITCH <catalog_name>;
+    ```
+
+2. Query all libraries under the current Catalog through SHOW DATABASES:
+
+    ```sql
+    SHOW DATABASES FROM <catalog_name>;
+    ```
+
+    ```sql
+    SHOW DATABASES;
+    ```
+
+3. Use USE to switch the Database that takes effect in the current session:
+
+    ```sql
+    USE <database_name>;
+    ```
+
+   Or directly use `USE <catalog_name>.<database_name>;` to switch the Database that takes effect in the current session
+
+4. Query all tables under the current Catalog through SHOW TABLES:
+
+    ```sql
+    SHOW TABLES FROM <catalog_name>.<database_name>;
+    ```
+
+    ```sql
+    SHOW TABLES FROM <database_name>;
+    ```
+
+    ```sql
+    SHOW TABLES;
+    ```
+
+5. Query the data of a table under the current Catalog through SELECT:
+
+    ```sql
+    SELECT * FROM <table_name>;
+    ```
+
 ## FAQ
 
 1. Are there any other databases supported besides MySQL, Oracle, PostgreSQL, SQLServer, ClickHouse, SAP HANA, Trino and OceanBase?
@@ -699,7 +791,9 @@ When Doris connects to OceanBase, it will automatically recognize that OceanBase
 
 12. `Non supported character set (add orai18n.jar in your classpath): ZHS16GBK` exception occurs when reading Oracle
 
-    Download [orai18n.jar](https://www.oracle.com/database/technologies/appdev/jdbc-downloads.html) and put it in the lib directory of Doris FE and the lib/java_extensions directory of BE (Doris versions before 2.0 need to be placed in the lib directory of BE).
+    Download [orai18n.jar](https://www.oracle.com/database/technologies/appdev/jdbc-downloads.html) and put it in the lib directory of Doris FE and the `lib/java_extensions/` directory of BE (Doris versions before 2.0 need to be placed in the lib directory of BE).
+
+    Starting from version 2.0.2, this file can be placed in BE's `custom_lib/` directory (if it does not exist, just create it manually) to prevent the file from being lost due to the replacement of the lib directory when upgrading the cluster.
 
 13. `NoClassDefFoundError: net/jpountz/lz4/LZ4Factory` exception occurs when reading Clickhouse data via jdbc catalog.
 

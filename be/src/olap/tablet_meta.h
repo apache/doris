@@ -23,6 +23,7 @@
 
 #include <atomic>
 #include <cstddef>
+#include <limits>
 #include <map>
 #include <memory>
 #include <mutex>
@@ -335,6 +336,16 @@ public:
     using Version = uint64_t;
     using BitmapKey = std::tuple<RowsetId, SegmentId, Version>;
     std::map<BitmapKey, roaring::Roaring> delete_bitmap; // Ordered map
+    constexpr static inline uint32_t INVALID_SEGMENT_ID = std::numeric_limits<uint32_t>::max() - 1;
+    constexpr static inline uint32_t ROWSET_SENTINEL_MARK =
+            std::numeric_limits<uint32_t>::max() - 1;
+
+    // When a delete bitmap is merged into tablet's delete bitmap, the version of entries in the delete bitmap
+    // will be replaced to the correspoding correct version. So before we finally merge a delete bitmap into
+    // tablet's delete bitmap we can use arbitary version number in BitmapKey. Here we define some version numbers
+    // for specific usage during this periods to avoid conflicts
+    constexpr static inline uint64_t TEMP_VERSION_COMMON = 0;
+    constexpr static inline uint64_t TEMP_VERSION_FOR_DELETE_SIGN = 1;
 
     /**
      * 

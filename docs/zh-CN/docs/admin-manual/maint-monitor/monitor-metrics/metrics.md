@@ -313,7 +313,7 @@ curl http://be_host:webserver_port/metrics?type=json
 |`doris_be_disk_bytes_read`| |字节| 磁盘读取量累计值。从 `/proc/diskstats` 采集。会分别采集每块磁盘的数值。如 `{device="vdd"}` 表示 vvd 盘的数值 | | |
 |`doris_be_disk_bytes_written`| | 字节 | 磁盘写入量累计值。采集方式同上 | |
 |`doris_be_disk_io_time_ms`| |字节 | 采集方式同上| 可计算得出 IO Util | P0 |
-|`doris_be_disk_io_time_weigthed`| | 字节|采集方式同上| |
+|`doris_be_disk_io_time_weighted`| | 字节|采集方式同上| |
 |`doris_be_disk_reads_completed`| |字节 |采集方式同上 | |
 |`doris_be_disk_read_time_ms`| | 字节|采集方式同上| |
 |`doris_be_disk_writes_completed`| | 字节|采集方式同上| |

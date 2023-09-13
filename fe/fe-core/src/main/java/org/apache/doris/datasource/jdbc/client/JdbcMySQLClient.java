@@ -17,6 +17,8 @@
 
 package org.apache.doris.datasource.jdbc.client;
 
+import org.apache.doris.analysis.DefaultValueExprDef;
+import org.apache.doris.catalog.ArrayType;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.ScalarType;
@@ -37,11 +39,28 @@ import java.util.function.Consumer;
 
 public class JdbcMySQLClient extends JdbcClient {
 
-    private static boolean convertDateToNull = false;
+    private boolean convertDateToNull = false;
+    private boolean isDoris = false;
 
     protected JdbcMySQLClient(JdbcClientConfig jdbcClientConfig) {
         super(jdbcClientConfig);
         convertDateToNull = isConvertDatetimeToNull(jdbcClientConfig);
+        Connection conn = null;
+        Statement stmt = null;
+        ResultSet rs = null;
+        try {
+            conn = super.getConnection();
+            stmt = conn.createStatement();
+            rs = stmt.executeQuery("SHOW VARIABLES LIKE 'version_comment'");
+            if (rs.next()) {
+                String versionComment = rs.getString("Value");
+                isDoris = versionComment.toLowerCase().contains("doris");
+            }
+        } catch (SQLException e) {
+            throw new JdbcClientException("Failed to determine MySQL Version Comment", e);
+        } finally {
+            close(rs, stmt, conn);
+        }
     }
 
     @Override
@@ -91,37 +110,6 @@ public class JdbcMySQLClient extends JdbcClient {
     }
 
     /**
-     * get all columns like DatabaseMetaData.getColumns in mysql-jdbc-connector
-     */
-    private Map<String, String> getJdbcColumnsTypeInfo(String dbName, String tableName) {
-        Connection conn = getConnection();
-        ResultSet resultSet = null;
-        Map<String, String> fieldtoType = Maps.newHashMap();
-
-        StringBuilder queryBuf = new StringBuilder("SHOW FULL COLUMNS FROM ");
-        queryBuf.append(tableName);
-        queryBuf.append(" FROM ");
-        queryBuf.append(dbName);
-        try (Statement stmt = conn.createStatement()) {
-            resultSet = stmt.executeQuery(queryBuf.toString());
-            while (resultSet.next()) {
-                // get column name
-                String fieldName = resultSet.getString("Field");
-                // get original type name
-                String typeName = resultSet.getString("Type");
-                fieldtoType.put(fieldName, typeName);
-            }
-        } catch (SQLException e) {
-            throw new JdbcClientException("failed to get column list from jdbc for table %s:%s", tableName,
-                Util.getRootCauseMessage(e));
-        } finally {
-            close(resultSet, conn);
-        }
-
-        return fieldtoType;
-    }
-
-    /**
      * get all columns of one table
      */
     @Override
@@ -138,33 +126,23 @@ public class JdbcMySQLClient extends JdbcClient {
         try {
             DatabaseMetaData databaseMetaData = conn.getMetaData();
             String catalogName = getCatalogName(conn);
-            tableName = modifyTableNameIfNecessary(tableName);
             rs = getColumns(databaseMetaData, catalogName, dbName, tableName);
             List<String> primaryKeys = getPrimaryKeys(databaseMetaData, catalogName, dbName, tableName);
-            boolean needGetDorisColumns = true;
             Map<String, String> mapFieldtoType = null;
             while (rs.next()) {
-                if (isTableModified(tableName, rs.getString("TABLE_NAME"))) {
-                    continue;
-                }
                 JdbcFieldSchema field = new JdbcFieldSchema();
                 field.setColumnName(rs.getString("COLUMN_NAME"));
                 field.setDataType(rs.getInt("DATA_TYPE"));
 
                 // in mysql-jdbc-connector-8.0.*, TYPE_NAME of the HLL column in doris will be "UNKNOWN"
                 // in mysql-jdbc-connector-5.1.*, TYPE_NAME of the HLL column in doris will be "HLL"
+                // in mysql-jdbc-connector-8.0.*, TYPE_NAME of BITMAP column in doris will be "BIT"
+                // in mysql-jdbc-connector-5.1.*, TYPE_NAME of BITMAP column in doris will be "BITMAP"
                 field.setDataTypeName(rs.getString("TYPE_NAME"));
-                if (rs.getString("TYPE_NAME").equalsIgnoreCase("UNKNOWN")) {
-                    if (needGetDorisColumns) {
-                        mapFieldtoType = getJdbcColumnsTypeInfo(dbName, tableName);
-                        needGetDorisColumns = false;
-                    }
-
-                    if (mapFieldtoType != null) {
-                        field.setDataTypeName(mapFieldtoType.get(rs.getString("COLUMN_NAME")));
-                    }
+                if (isDoris) {
+                    mapFieldtoType = getColumnsDataTypeUseQuery(dbName, tableName);
+                    field.setDataTypeName(mapFieldtoType.get(rs.getString("COLUMN_NAME")));
                 }
-
                 field.setKey(primaryKeys.contains(field.getColumnName()));
                 field.setColumnSize(rs.getInt("COLUMN_SIZE"));
                 field.setDecimalDigits(rs.getInt("DECIMAL_DIGITS"));
@@ -197,10 +175,18 @@ public class JdbcMySQLClient extends JdbcClient {
         List<JdbcFieldSchema> jdbcTableSchema = getJdbcColumnsInfo(dbName, tableName);
         List<Column> dorisTableSchema = Lists.newArrayListWithCapacity(jdbcTableSchema.size());
         for (JdbcFieldSchema field : jdbcTableSchema) {
+            DefaultValueExprDef defaultValueExprDef = null;
+            if (field.getDefaultValue() != null
+                    && field.getDefaultValue().toLowerCase().startsWith("current_timestamp")) {
+                long precision = field.getDefaultValue().toLowerCase().contains("(")
+                        ? Long.parseLong(field.getDefaultValue().toLowerCase()
+                        .split("\\(")[1].split("\\)")[0]) : 0;
+                defaultValueExprDef = new DefaultValueExprDef("now", precision);
+            }
             dorisTableSchema.add(new Column(field.getColumnName(),
                     jdbcTypeToDoris(field), field.isKey(), null,
                     field.isAllowNull(), field.isAutoincrement(), field.getDefaultValue(), field.getRemarks(),
-                    true, null, -1, null));
+                    true, defaultValueExprDef, -1, null));
         }
         return dorisTableSchema;
     }
@@ -222,6 +208,10 @@ public class JdbcMySQLClient extends JdbcClient {
 
     @Override
     protected Type jdbcTypeToDoris(JdbcFieldSchema fieldSchema) {
+        // For Doris type
+        if (isDoris) {
+            return dorisTypeToDoris(fieldSchema.getDataTypeName().toUpperCase());
+        }
         // For mysql type: "INT UNSIGNED":
         // fieldSchema.getDataTypeName().split(" ")[0] == "INT"
         // fieldSchema.getDataTypeName().split(" ")[1] == "UNSIGNED"
@@ -269,15 +259,10 @@ public class JdbcMySQLClient extends JdbcClient {
                 return Type.INT;
             case "BIGINT":
                 return Type.BIGINT;
-            case "LARGEINT": // for jdbc catalog connecting Doris database
-                return Type.LARGEINT;
             case "DATE":
-            case "DATEV2":
                 return ScalarType.createDateV2Type();
             case "TIMESTAMP":
-            case "DATETIME":
-            // for jdbc catalog connecting Doris database
-            case "DATETIMEV2": {
+            case "DATETIME": {
                 // mysql can support microsecond
                 // use columnSize to calculate the precision of timestamp/datetime
                 int columnSize = fieldSchema.getColumnSize();
@@ -294,9 +279,7 @@ public class JdbcMySQLClient extends JdbcClient {
                 return Type.FLOAT;
             case "DOUBLE":
                 return Type.DOUBLE;
-            case "DECIMAL":
-            // for jdbc catalog connecting Doris database
-            case "DECIMALV3": {
+            case "DECIMAL": {
                 int precision = fieldSchema.getColumnSize();
                 int scale = fieldSchema.getDecimalDigits();
                 return createDecimalOrStringType(precision, scale);
@@ -330,8 +313,6 @@ public class JdbcMySQLClient extends JdbcClient {
             case "VARBINARY":
             case "ENUM":
                 return ScalarType.createStringType();
-            case "HLL":
-                return ScalarType.createHllType();
             default:
                 return Type.UNSUPPORTED;
         }
@@ -340,5 +321,109 @@ public class JdbcMySQLClient extends JdbcClient {
     private boolean isConvertDatetimeToNull(JdbcClientConfig jdbcClientConfig) {
         // Check if the JDBC URL contains "zeroDateTimeBehavior=convertToNull".
         return jdbcClientConfig.getJdbcUrl().contains("zeroDateTimeBehavior=convertToNull");
+    }
+
+    /**
+     * get all columns like DatabaseMetaData.getColumns in mysql-jdbc-connector
+     */
+    private Map<String, String> getColumnsDataTypeUseQuery(String dbName, String tableName) {
+        Connection conn = getConnection();
+        ResultSet resultSet = null;
+        Map<String, String> fieldtoType = Maps.newHashMap();
+
+        StringBuilder queryBuf = new StringBuilder("SHOW FULL COLUMNS FROM ");
+        queryBuf.append(tableName);
+        queryBuf.append(" FROM ");
+        queryBuf.append(dbName);
+        try (Statement stmt = conn.createStatement()) {
+            resultSet = stmt.executeQuery(queryBuf.toString());
+            while (resultSet.next()) {
+                // get column name
+                String fieldName = resultSet.getString("Field");
+                // get original type name
+                String typeName = resultSet.getString("Type");
+                fieldtoType.put(fieldName, typeName);
+            }
+        } catch (SQLException e) {
+            throw new JdbcClientException("failed to get column list from jdbc for table %s:%s", tableName,
+                Util.getRootCauseMessage(e));
+        } finally {
+            close(resultSet, conn);
+        }
+        return fieldtoType;
+    }
+
+    private Type dorisTypeToDoris(String type) {
+        if (type == null || type.isEmpty()) {
+            return Type.UNSUPPORTED;
+        }
+
+        String upperType = type.toUpperCase();
+
+        // For ARRAY type
+        if (upperType.startsWith("ARRAY")) {
+            String innerType = upperType.substring(6, upperType.length() - 1).trim();
+            Type arrayInnerType = dorisTypeToDoris(innerType);
+            return ArrayType.create(arrayInnerType, true);
+        }
+
+        int openParen = upperType.indexOf("(");
+        String baseType = (openParen == -1) ? upperType : upperType.substring(0, openParen);
+
+        switch (baseType) {
+            case "BOOL":
+            case "BOOLEAN":
+                return Type.BOOLEAN;
+            case "TINYINT":
+                return Type.TINYINT;
+            case "INT":
+                return Type.INT;
+            case "SMALLINT":
+                return Type.SMALLINT;
+            case "BIGINT":
+                return Type.BIGINT;
+            case "LARGEINT":
+                return Type.LARGEINT;
+            case "FLOAT":
+                return Type.FLOAT;
+            case "DOUBLE":
+                return Type.DOUBLE;
+            case "DECIMAL":
+            case "DECIMALV3": {
+                String[] params = upperType.substring(openParen + 1, upperType.length() - 1).split(",");
+                int precision = Integer.parseInt(params[0].trim());
+                int scale = Integer.parseInt(params[1].trim());
+                return createDecimalOrStringType(precision, scale);
+            }
+            case "DATE":
+            case "DATEV2":
+                return ScalarType.createDateV2Type();
+            case "DATETIME":
+            case "DATETIMEV2": {
+                int scale = (openParen == -1) ? 6
+                        : Integer.parseInt(upperType.substring(openParen + 1, upperType.length() - 1));
+                if (scale > 6) {
+                    scale = 6;
+                }
+                return ScalarType.createDatetimeV2Type(scale);
+            }
+            case "CHAR":
+            case "VARCHAR": {
+                int length = Integer.parseInt(upperType.substring(openParen + 1, upperType.length() - 1));
+                return baseType.equals("CHAR")
+                    ? ScalarType.createCharType(length) : ScalarType.createVarcharType(length);
+            }
+            case "STRING":
+            case "TEXT":
+                return ScalarType.createStringType();
+            case "JSON":
+                return ScalarType.createJsonbType();
+            case "HLL":
+                return ScalarType.createHllType();
+            case "BITMAP":
+                return Type.BITMAP;
+            default:
+                return Type.UNSUPPORTED;
+        }
     }
 }

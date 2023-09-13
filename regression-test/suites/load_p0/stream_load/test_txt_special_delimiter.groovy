@@ -35,8 +35,9 @@ suite("test_txt_special_delimiter", "p0") {
         streamLoad {
             table "${tableName}"
 
+            // should not start with the same prefix
             set 'column_separator', '01030204'
-            set 'line_delimiter', '04020301'
+            set 'line_delimiter', '14020301'
             set 'columns', 'k1, k2'
             set 'strict_mode', 'true'
 

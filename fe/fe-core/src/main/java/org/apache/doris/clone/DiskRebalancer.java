@@ -24,7 +24,6 @@ import org.apache.doris.clone.SchedException.Status;
 import org.apache.doris.clone.TabletSchedCtx.BalanceType;
 import org.apache.doris.clone.TabletSchedCtx.Priority;
 import org.apache.doris.clone.TabletScheduler.PathSlot;
-import org.apache.doris.common.Config;
 import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.thrift.TStorageMedium;
 
@@ -52,8 +51,9 @@ import java.util.Set;
 public class DiskRebalancer extends Rebalancer {
     private static final Logger LOG = LogManager.getLogger(DiskRebalancer.class);
 
-    public DiskRebalancer(SystemInfoService infoService, TabletInvertedIndex invertedIndex) {
-        super(infoService, invertedIndex);
+    public DiskRebalancer(SystemInfoService infoService, TabletInvertedIndex invertedIndex,
+            Map<Long, PathSlot> backendsWorkingSlots) {
+        super(infoService, invertedIndex, backendsWorkingSlots);
     }
 
     public List<BackendLoadStatistic> filterByPrioBackends(List<BackendLoadStatistic> bes) {
@@ -152,6 +152,10 @@ public class DiskRebalancer extends Rebalancer {
         Collections.shuffle(midBEs);
         for (int i = midBEs.size() - 1; i >= 0; i--) {
             BackendLoadStatistic beStat = midBEs.get(i);
+            PathSlot pathSlot = backendsWorkingSlots.get(beStat.getBeId());
+            if (pathSlot == null) {
+                continue;
+            }
 
             // classify the paths.
             Set<Long> pathLow = Sets.newHashSet();
@@ -171,7 +175,10 @@ public class DiskRebalancer extends Rebalancer {
             // for each path, we try to select at most BALANCE_SLOT_NUM_FOR_PATH tablets
             Map<Long, Integer> remainingPaths = Maps.newHashMap();
             for (Long pathHash : pathHigh) {
-                remainingPaths.put(pathHash, Config.balance_slot_num_per_path);
+                int availBalanceNum = pathSlot.getAvailableBalanceNum(pathHash);
+                if (availBalanceNum > 0) {
+                    remainingPaths.put(pathHash, availBalanceNum);
+                }
             }
 
             if (remainingPaths.isEmpty()) {
@@ -246,8 +253,7 @@ public class DiskRebalancer extends Rebalancer {
      * 3. Select a low load path from this backend as destination.
      */
     @Override
-    public void completeSchedCtx(TabletSchedCtx tabletCtx,
-            Map<Long, PathSlot> backendsWorkingSlots) throws SchedException {
+    public void completeSchedCtx(TabletSchedCtx tabletCtx) throws SchedException {
         LoadStatisticForTag clusterStat = statisticMap.get(tabletCtx.getTag());
         if (clusterStat == null) {
             throw new SchedException(Status.UNRECOVERABLE,
@@ -323,7 +329,7 @@ public class DiskRebalancer extends Rebalancer {
             }
             long destPathHash = slot.takeBalanceSlot(stat.getPathHash());
             if (destPathHash == -1) {
-                throw new SchedException(Status.UNRECOVERABLE, "unable to take dest slot");
+                continue;
             }
             tabletCtx.setDest(beStat.getBeId(), destPathHash, stat.getPath());
             setDest = true;

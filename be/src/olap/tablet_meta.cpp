@@ -30,7 +30,6 @@
 #include <utility>
 
 #include "common/config.h"
-#include "io/fs/file_reader_writer_fwd.h"
 #include "io/fs/file_writer.h"
 #include "olap/data_dir.h"
 #include "olap/file_header.h"
@@ -264,10 +263,6 @@ TabletMeta::TabletMeta(int64_t table_id, int64_t partition_id, int64_t tablet_id
     if (tablet_schema.__isset.enable_single_replica_compaction) {
         schema->set_enable_single_replica_compaction(
                 tablet_schema.enable_single_replica_compaction);
-    }
-
-    if (tablet_schema.__isset.is_dynamic_schema) {
-        schema->set_is_dynamic_schema(tablet_schema.is_dynamic_schema);
     }
 
     if (tablet_schema.__isset.delete_sign_idx) {

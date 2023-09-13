@@ -20,6 +20,9 @@
 #include <bthread/types.h>
 #include <butil/errno.h>
 #include <fmt/format.h>
+#include <gen_cpp/Exprs_types.h>
+#include <gen_cpp/FrontendService.h>
+#include <gen_cpp/FrontendService_types.h>
 #include <gen_cpp/PaloInternalService_types.h>
 #include <gen_cpp/Types_types.h>
 #include <gen_cpp/internal_service.pb.h>
@@ -32,6 +35,7 @@
 #include <atomic>
 // IWYU pragma: no_include <bits/chrono.h>
 #include <chrono> // IWYU pragma: keep
+#include <cstdint>
 #include <functional>
 #include <initializer_list>
 #include <map>
@@ -40,6 +44,7 @@
 #include <ostream>
 #include <queue>
 #include <set>
+#include <sstream>
 #include <string>
 #include <thread>
 #include <unordered_map>
@@ -154,6 +159,8 @@ public:
         cid = cntl.call_id();
     }
 
+    // if _packet_in_flight == false, set it to true. Return true.
+    // if _packet_in_flight == true, Return false.
     bool try_set_in_flight() {
         bool value = false;
         return _packet_in_flight.compare_exchange_strong(value, true);
@@ -211,31 +218,47 @@ public:
     int64_t append_node_channel_ns = 0;
 };
 
+// every NodeChannel keeps a data transmission channel with one BE. for multiple times open, it has a dozen of requests and corresponding closures.
 class VNodeChannel {
 public:
-    VNodeChannel(VOlapTableSink* parent, IndexChannel* index_channel, int64_t node_id);
+    VNodeChannel(VOlapTableSink* parent, IndexChannel* index_channel, int64_t node_id,
+                 bool is_incremental = false);
 
     ~VNodeChannel();
 
-    // called before open, used to add tablet located in this backend
+    // called before open, used to add tablet located in this backend. called by IndexChannel::init
     void add_tablet(const TTabletWithPartition& tablet) { _all_tablets.emplace_back(tablet); }
+    std::string debug_tablets() const {
+        std::stringstream ss;
+        for (auto& tab : _all_tablets) {
+            tab.printTo(ss);
+            ss << '\n';
+        }
+        return ss.str();
+    }
 
     void add_slave_tablet_nodes(int64_t tablet_id, const std::vector<int64_t>& slave_nodes) {
         _slave_tablet_nodes[tablet_id] = slave_nodes;
     }
 
+    // build a request and build corresponding connect to BE.
     void open();
+    // for auto partition, we use this to open more tablet.
+    void incremental_open();
 
     Status init(RuntimeState* state);
 
+    // this will block until all request transmission which were opened or incremental opened finished.
     Status open_wait();
 
     Status add_block(vectorized::Block* block, const Payload* payload, bool is_append = false);
 
+    // @return: unfinished running channels.
+    // @caller: VOlapTabletSink::_send_batch_process. it's a continual asynchronous process.
     int try_send_and_fetch_status(RuntimeState* state,
                                   std::unique_ptr<ThreadPoolToken>& thread_pool_token);
-
-    void try_send_block(RuntimeState* state);
+    // when there's pending block found by try_send_and_fetch_status(), we will awake a thread to send it.
+    void try_send_pending_block(RuntimeState* state);
 
     void clear_all_blocks();
 
@@ -299,9 +322,17 @@ public:
 
     size_t get_pending_bytes() { return _pending_batches_bytes; }
 
+    bool is_incremental() const { return _is_incremental; }
+
 protected:
+    // make a real open request for relative BE's load channel.
+    void _open_internal(bool is_incremental);
+
     void _close_check();
     void _cancel_with_msg(const std::string& msg);
+
+    void _add_block_success_callback(const PTabletWriterAddBlockResult& result, bool is_last_rpc);
+    void _add_block_failed_callback(bool is_last_rpc);
 
     VOlapTableSink* _parent = nullptr;
     IndexChannel* _index_channel = nullptr;
@@ -345,7 +376,8 @@ protected:
     std::atomic<int> _pending_batches_num {0}; // reuse for vectorized
 
     std::shared_ptr<PBackendService_Stub> _stub = nullptr;
-    RefCountClosure<PTabletWriterOpenResult>* _open_closure = nullptr;
+    // because we have incremantal open, we should keep one relative closure for one request. it's similarly for adding block.
+    std::vector<RefCountClosure<PTabletWriterOpenResult>*> _open_closures;
 
     std::vector<TTabletWithPartition> _all_tablets;
     // map from tablet_id to node_id where slave replicas locate in
@@ -372,7 +404,10 @@ protected:
     RuntimeState* _state;
     // rows number received per tablet, tablet_id -> rows_num
     std::vector<std::pair<int64_t, int64_t>> _tablets_received_rows;
+    // rows number filtered per tablet, tablet_id -> filtered_rows_num
+    std::vector<std::pair<int64_t, int64_t>> _tablets_filtered_rows;
 
+    // build a _cur_mutable_block and push into _pending_blocks. when not building, this block is empty.
     std::unique_ptr<vectorized::MutableBlock> _cur_mutable_block;
     PTabletWriterAddBlockRequest _cur_add_block_request;
 
@@ -380,91 +415,15 @@ protected:
             std::pair<std::unique_ptr<vectorized::MutableBlock>, PTabletWriterAddBlockRequest>;
     std::queue<AddBlockReq> _pending_blocks;
     ReusableClosure<PTabletWriterAddBlockResult>* _add_block_closure = nullptr;
-};
 
-class IndexChannel {
-public:
-    IndexChannel(VOlapTableSink* parent, int64_t index_id,
-                 const vectorized::VExprContextSPtr& where_clause)
-            : _parent(parent), _index_id(index_id), _where_clause(where_clause) {
-        _index_channel_tracker =
-                std::make_unique<MemTracker>("IndexChannel:indexID=" + std::to_string(_index_id));
-    }
-    ~IndexChannel();
-
-    Status init(RuntimeState* state, const std::vector<TTabletWithPartition>& tablets);
-
-    void for_each_node_channel(
-            const std::function<void(const std::shared_ptr<VNodeChannel>&)>& func) {
-        for (auto& it : _node_channels) {
-            func(it.second);
-        }
-    }
-
-    void mark_as_failed(int64_t node_id, const std::string& host, const std::string& err,
-                        int64_t tablet_id = -1);
-    Status check_intolerable_failure();
-
-    // set error tablet info in runtime state, so that it can be returned to FE.
-    void set_error_tablet_in_state(RuntimeState* state);
-
-    size_t num_node_channels() const { return _node_channels.size(); }
-
-    size_t get_pending_bytes() const {
-        size_t mem_consumption = 0;
-        for (auto& kv : _node_channels) {
-            mem_consumption += kv.second->get_pending_bytes();
-        }
-        return mem_consumption;
-    }
-
-    void set_tablets_received_rows(
-            const std::vector<std::pair<int64_t, int64_t>>& tablets_received_rows, int64_t node_id);
-
-    // check whether the rows num written by different replicas is consistent
-    Status check_tablet_received_rows_consistency();
-
-    vectorized::VExprContextSPtr get_where_clause() { return _where_clause; }
-
-private:
-    friend class VNodeChannel;
-    friend class VOlapTableSink;
-
-    VOlapTableSink* _parent;
-    int64_t _index_id;
-    vectorized::VExprContextSPtr _where_clause;
-
-    // from backend channel to tablet_id
-    // ATTN: must be placed before `_node_channels` and `_channels_by_tablet`.
-    // Because the destruct order of objects is opposite to the creation order.
-    // So NodeChannel will be destructured first.
-    // And the destructor function of NodeChannel waits for all RPCs to finish.
-    // This ensures that it is safe to use `_tablets_by_channel` in the callback function for the end of the RPC.
-    std::unordered_map<int64_t, std::unordered_set<int64_t>> _tablets_by_channel;
-    // BeId -> channel
-    std::unordered_map<int64_t, std::shared_ptr<VNodeChannel>> _node_channels;
-    // from tablet_id to backend channel
-    std::unordered_map<int64_t, std::vector<std::shared_ptr<VNodeChannel>>> _channels_by_tablet;
-
-    // lock to protect _failed_channels and _failed_channels_msgs
-    mutable doris::SpinLock _fail_lock;
-    // key is tablet_id, value is a set of failed node id
-    std::unordered_map<int64_t, std::unordered_set<int64_t>> _failed_channels;
-    // key is tablet_id, value is error message
-    std::unordered_map<int64_t, std::string> _failed_channels_msgs;
-    Status _intolerable_failure_status = Status::OK();
-
-    std::unique_ptr<MemTracker> _index_channel_tracker;
-    // rows num received by DeltaWriter per tablet, tablet_id -> <node_Id, rows_num>
-    // used to verify whether the rows num received by different replicas is consistent
-    std::map<int64_t, std::vector<std::pair<int64_t, int64_t>>> _tablets_received_rows;
+    bool _is_incremental;
 };
 
 // Write block data to Olap Table.
 // When OlapTableSink::open() called, there will be a consumer thread running in the background.
 // When you call VOlapTableSink::send(), you will be the producer who products pending batches.
 // Join the consumer thread in close().
-class VOlapTableSink final : public DataSink {
+class VOlapTableSink : public DataSink {
 public:
     // Construct from thrift struct which is generated by FE.
     VOlapTableSink(ObjectPool* pool, const RowDescriptor& row_desc,
@@ -486,15 +445,13 @@ public:
 
     size_t get_pending_bytes() const;
 
-    const RowDescriptor& row_desc() { return _input_row_desc; }
-
-    // Returns the runtime profile for the sink.
-    RuntimeProfile* profile() override { return _profile; }
-
     // the consumer func of sending pending batches in every NodeChannel.
     // use polling & NodeChannel::try_send_and_fetch_status() to achieve nonblocking sending.
     // only focus on pending batches and channel status, the internal errors of NodeChannels will be handled by the producer
     void _send_batch_process();
+
+    // handle block after data is filtered, only useful for GroupCommitVOlapTabletSink
+    virtual void handle_block(vectorized::Block* input_block, int64_t rows, int64_t filter_rows) {}
 
 private:
     friend class VNodeChannel;
@@ -516,10 +473,19 @@ private:
 
     void _cancel_all_channel(Status status);
 
+    std::pair<vectorized::VExprContextSPtr, vectorized::VExprSPtr> _get_partition_function();
+
+    void _save_missing_values(vectorized::ColumnPtr col, vectorized::DataTypePtr value_type,
+                              std::vector<int64_t> filter);
+
+    // create partitions when need for auto-partition table using #_partitions_need_create.
+    Status _automatic_create_partition();
+
+    Status _incremental_open_node_channel(const std::vector<TOlapTablePartition>& partitions);
+
     std::shared_ptr<MemTracker> _mem_tracker;
 
     ObjectPool* _pool;
-    const RowDescriptor& _input_row_desc;
 
     // unique load id
     PUniqueId _load_id;
@@ -545,15 +511,18 @@ private:
     OlapTableLocationParam* _slave_location = nullptr;
     DorisNodesInfo* _nodes_info = nullptr;
 
-    RuntimeProfile* _profile = nullptr;
-
     std::unique_ptr<OlapTabletFinder> _tablet_finder;
 
     // index_channel
+    std::mutex _stop_check_channel;
     std::vector<std::shared_ptr<IndexChannel>> _channels;
+    std::unordered_map<int64_t, std::shared_ptr<IndexChannel>> _index_id_to_channel;
 
     bthread_t _sender_thread = 0;
     std::unique_ptr<ThreadPoolToken> _send_batch_thread_pool_token;
+
+    // support only one partition column now
+    std::vector<std::vector<TStringLiteral>> _partitions_need_create;
 
     std::unique_ptr<OlapTableBlockConvertor> _block_convertor;
     // Stats for this
@@ -572,6 +541,7 @@ private:
     RuntimeProfile::Counter* _append_node_channel_timer = nullptr;
     RuntimeProfile::Counter* _filter_timer = nullptr;
     RuntimeProfile::Counter* _where_clause_timer = nullptr;
+    RuntimeProfile::Counter* _add_partition_request_timer = nullptr;
     RuntimeProfile::Counter* _wait_mem_limit_timer = nullptr;
     RuntimeProfile::Counter* _validate_data_timer = nullptr;
     RuntimeProfile::Counter* _open_timer = nullptr;

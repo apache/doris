@@ -67,10 +67,10 @@ suite("test_mysql_jdbc_catalog_nereids", "p0,external,mysql,external_docker,exte
             "driver_url" = "${driver_url}",
             "driver_class" = "com.mysql.cj.jdbc.Driver"
         );"""
-        sql """use ${internal_db_name}"""
-        sql  """ drop table if exists ${internal_db_name}.${inDorisTable} """
+        sql """use internal.${internal_db_name}"""
+        sql  """ drop table if exists ${inDorisTable} """
         sql  """
-              CREATE TABLE ${internal_db_name}.${inDorisTable} (
+              CREATE TABLE ${inDorisTable} (
                 `id` INT NULL COMMENT "主键id",
                 `name` string NULL COMMENT "名字"
                 ) DISTRIBUTED BY HASH(id) BUCKETS 10
@@ -80,12 +80,19 @@ suite("test_mysql_jdbc_catalog_nereids", "p0,external,mysql,external_docker,exte
         sql """switch ${catalog_name}"""
         sql """ use ${ex_db_name}"""
 
-        qt_ex_tb0_explain """explain select id from ${ex_tb0} where id = 111;"""
+        explain {
+            sql("""select id from ${ex_tb0} where id = 111;""")
+            contains "WHERE (id = 111)"
+        }
         qt_ex_tb0_where """select id from ${ex_tb0} where id = 111;"""
         order_qt_ex_tb0  """ select id, name from ${ex_tb0} order by id; """
         sql  """ insert into internal.${internal_db_name}.${inDorisTable} select id, name from ${ex_tb0}; """
-        order_qt_in_tb  """ select id, name from internal.${internal_db_name}.${inDorisTable} order by id; """
+        // order_qt_in_tb  """ select id, name from ${internal_db_name}.${inDorisTable} order by id; """
+        sql """switch internal;"""
+        order_qt_in_tb  """ select id, name from ${internal_db_name}.${inDorisTable} order by id; """
 
+        sql """switch ${catalog_name}"""
+        sql """ use ${ex_db_name}"""
         order_qt_ex_tb1  """ select * from ${ex_tb1} order by id; """
         order_qt_ex_tb2  """ select * from ${ex_tb2} order by id; """
         order_qt_ex_tb3  """ select * from ${ex_tb3} order by game_code; """

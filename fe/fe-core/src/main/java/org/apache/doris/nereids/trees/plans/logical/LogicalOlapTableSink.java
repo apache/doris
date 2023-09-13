@@ -22,8 +22,7 @@ import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.LogicalProperties;
-import org.apache.doris.nereids.trees.expressions.Expression;
-import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.algebra.Sink;
@@ -49,18 +48,19 @@ public class LogicalOlapTableSink<CHILD_TYPE extends Plan> extends LogicalSink<C
     private final boolean isPartialUpdate;
 
     public LogicalOlapTableSink(Database database, OlapTable targetTable, List<Column> cols, List<Long> partitionIds,
-            boolean isPartialUpdate, CHILD_TYPE child) {
-        this(database, targetTable, cols, partitionIds, isPartialUpdate, Optional.empty(), Optional.empty(), child);
+            List<NamedExpression> outputExprs, boolean isPartialUpdate, CHILD_TYPE child) {
+        this(database, targetTable, cols, partitionIds, outputExprs, isPartialUpdate,
+                Optional.empty(), Optional.empty(), child);
     }
 
     /**
      * constructor
      */
     public LogicalOlapTableSink(Database database, OlapTable targetTable, List<Column> cols,
-            List<Long> partitionIds, boolean isPartialUpdate, Optional<GroupExpression> groupExpression,
-            Optional<LogicalProperties> logicalProperties,
+            List<Long> partitionIds, List<NamedExpression> outputExprs, boolean isPartialUpdate,
+            Optional<GroupExpression> groupExpression, Optional<LogicalProperties> logicalProperties,
             CHILD_TYPE child) {
-        super(PlanType.LOGICAL_OLAP_TABLE_SINK, groupExpression, logicalProperties, child);
+        super(PlanType.LOGICAL_OLAP_TABLE_SINK, outputExprs, groupExpression, logicalProperties, child);
         this.database = Objects.requireNonNull(database, "database != null in LogicalOlapTableSink");
         this.targetTable = Objects.requireNonNull(targetTable, "targetTable != null in LogicalOlapTableSink");
         this.cols = Utils.copyRequiredList(cols);
@@ -68,10 +68,18 @@ public class LogicalOlapTableSink<CHILD_TYPE extends Plan> extends LogicalSink<C
         this.partitionIds = Utils.copyRequiredList(partitionIds);
     }
 
+    public Plan withChildAndUpdateOutput(Plan child) {
+        List<NamedExpression> output = child.getOutput().stream()
+                .map(NamedExpression.class::cast)
+                .collect(ImmutableList.toImmutableList());
+        return new LogicalOlapTableSink<>(database, targetTable, cols, partitionIds, output, isPartialUpdate,
+                Optional.empty(), Optional.empty(), child);
+    }
+
     @Override
     public Plan withChildren(List<Plan> children) {
         Preconditions.checkArgument(children.size() == 1, "LogicalOlapTableSink only accepts one child");
-        return new LogicalOlapTableSink<>(database, targetTable, cols, partitionIds, isPartialUpdate,
+        return new LogicalOlapTableSink<>(database, targetTable, cols, partitionIds, outputExprs, isPartialUpdate,
                 Optional.empty(), Optional.empty(), children.get(0));
     }
 
@@ -103,17 +111,18 @@ public class LogicalOlapTableSink<CHILD_TYPE extends Plan> extends LogicalSink<C
         if (o == null || getClass() != o.getClass()) {
             return false;
         }
-        LogicalOlapTableSink<?> sink = (LogicalOlapTableSink<?>) o;
-        return isPartialUpdate == sink.isPartialUpdate()
-                && Objects.equals(database, sink.database)
-                && Objects.equals(targetTable, sink.targetTable)
-                && Objects.equals(partitionIds, sink.partitionIds)
-                && Objects.equals(cols, sink.cols);
+        if (!super.equals(o)) {
+            return false;
+        }
+        LogicalOlapTableSink<?> that = (LogicalOlapTableSink<?>) o;
+        return isPartialUpdate == that.isPartialUpdate && Objects.equals(database, that.database)
+                && Objects.equals(targetTable, that.targetTable) && Objects.equals(cols, that.cols)
+                && Objects.equals(partitionIds, that.partitionIds);
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(database, targetTable, partitionIds, cols, isPartialUpdate);
+        return Objects.hash(super.hashCode(), database, targetTable, cols, partitionIds, isPartialUpdate);
     }
 
     @Override
@@ -122,25 +131,15 @@ public class LogicalOlapTableSink<CHILD_TYPE extends Plan> extends LogicalSink<C
     }
 
     @Override
-    public List<? extends Expression> getExpressions() {
-        return ImmutableList.of();
-    }
-
-    @Override
     public Plan withGroupExpression(Optional<GroupExpression> groupExpression) {
-        return new LogicalOlapTableSink<>(database, targetTable, cols, partitionIds, isPartialUpdate, groupExpression,
-                Optional.of(getLogicalProperties()), child());
+        return new LogicalOlapTableSink<>(database, targetTable, cols, partitionIds, outputExprs, isPartialUpdate,
+                groupExpression, Optional.of(getLogicalProperties()), child());
     }
 
     @Override
     public Plan withGroupExprLogicalPropChildren(Optional<GroupExpression> groupExpression,
             Optional<LogicalProperties> logicalProperties, List<Plan> children) {
-        return new LogicalOlapTableSink<>(database, targetTable, cols, partitionIds, isPartialUpdate, groupExpression,
-                logicalProperties, children.get(0));
-    }
-
-    @Override
-    public List<Slot> computeOutput() {
-        return child().getOutput();
+        return new LogicalOlapTableSink<>(database, targetTable, cols, partitionIds, outputExprs, isPartialUpdate,
+                groupExpression, logicalProperties, children.get(0));
     }
 }

@@ -50,12 +50,22 @@ suite("test_compaction_cumu_delete") {
         assert configList instanceof List
 
         boolean disableAutoCompaction = true
+        boolean allowDeleteWhenCumu = false
         for (Object ele in (List) configList) {
             assert ele instanceof List<String>
             if (((List<String>) ele)[0] == "disable_auto_compaction") {
                 disableAutoCompaction = Boolean.parseBoolean(((List<String>) ele)[2])
             }
+            if (((List<String>) ele)[0] == "enable_delete_when_cumu_compaction") {
+                allowDeleteWhenCumu = Boolean.parseBoolean(((List<String>) ele)[2])
+            }
         }
+
+        if (!allowDeleteWhenCumu) {
+            logger.info("Skip test compaction when cumu compaction because not enabled this config")
+            return
+        }
+
 
         def triggerCompaction = { be_host, be_http_port, compact_type ->
             // trigger compactions for all tablets in ${tableName}

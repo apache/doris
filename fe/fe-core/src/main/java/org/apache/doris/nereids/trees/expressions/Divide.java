@@ -27,6 +27,7 @@ import org.apache.doris.nereids.types.DecimalV3Type;
 import org.apache.doris.nereids.types.DoubleType;
 
 import com.google.common.base.Preconditions;
+import com.google.common.collect.ImmutableList;
 
 import java.util.List;
 
@@ -36,13 +37,17 @@ import java.util.List;
 public class Divide extends BinaryArithmetic implements AlwaysNullable {
 
     public Divide(Expression left, Expression right) {
-        super(left, right, Operator.DIVIDE);
+        super(ImmutableList.of(left, right), Operator.DIVIDE);
+    }
+
+    private Divide(List<Expression> children) {
+        super(children, Operator.DIVIDE);
     }
 
     @Override
     public Expression withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 2);
-        return new Divide(children.get(0), children.get(1));
+        return new Divide(children);
     }
 
     @Override
@@ -63,11 +68,11 @@ public class Divide extends BinaryArithmetic implements AlwaysNullable {
     @Override
     public DecimalV3Type getDataTypeForDecimalV3(DecimalV3Type t1, DecimalV3Type t2) {
         int retPercision = t1.getPrecision() + t2.getScale() + Config.div_precision_increment;
+        Preconditions.checkState(retPercision <= DecimalV3Type.MAX_DECIMAL128_PRECISION,
+                "target precision " + retPercision + " larger than precision "
+                        + DecimalV3Type.MAX_DECIMAL128_PRECISION + " in Divide return type");
         int retScale = t1.getScale() + t2.getScale()
                 + Config.div_precision_increment;
-        if (retPercision > DecimalV3Type.MAX_DECIMAL128_PRECISION) {
-            retPercision = DecimalV3Type.MAX_DECIMAL128_PRECISION;
-        }
         int targetPercision = retPercision;
         int targetScale = t1.getScale() + t2.getScale();
         Preconditions.checkState(targetPercision >= targetScale,

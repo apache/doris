@@ -20,6 +20,7 @@ package org.apache.doris.nereids.trees.expressions;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 
 import com.google.common.base.Preconditions;
+import com.google.common.collect.ImmutableList;
 
 import java.util.List;
 
@@ -35,13 +36,17 @@ public class Or extends CompoundPredicate {
      * @param right right child of comparison predicate
      */
     public Or(Expression left, Expression right) {
-        super(left, right, "OR");
+        super(ImmutableList.of(left, right), "OR");
+    }
+
+    private Or(List<Expression> children) {
+        super(children, "OR");
     }
 
     @Override
     public Expression withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 2);
-        return new Or(children.get(0), children.get(1));
+        return new Or(children);
     }
 
     @Override

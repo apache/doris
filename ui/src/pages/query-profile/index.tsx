@@ -83,7 +83,8 @@ export default function QueryProfile(params: any) {
                                                         .column_names
                                                 ) {
                                                     download(
-                                                        profileDetailRes.data
+                                                        profileDetailRes.data,
+                                                        row['Profile ID']
                                                     );
                                                 }
                                             }
@@ -125,13 +126,13 @@ export default function QueryProfile(params: any) {
         history.push('/QueryProfile/');
     }
 
-    function download(profile: string) {
+    function download(profile: string, profileId: string) {
         const profileTxt = replaceToTxt(profile);
         const blob = new Blob([profileTxt], {
             type: 'text/plain',
         });
         const tagA = document.createElement('a');
-        tagA.download = `profile_${new Date().valueOf()}.txt`;
+        tagA.download = `profile_${profileId}.txt`;
         tagA.style.display = 'none';
         tagA.href = URL.createObjectURL(blob);
         document.body.appendChild(tagA);
@@ -167,7 +168,8 @@ export default function QueryProfile(params: any) {
                             </Button>
                             <Button
                                 onClick={() => {
-                                    download(profile);
+                                    const path = getLastPath();
+                                    download(profile, path as string);
                                 }}
                             >
                                 Download

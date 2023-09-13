@@ -30,6 +30,7 @@ Broker 是 Doris 集群中一种可选进程，主要用于支持 Doris 读写�
 
 - Apache HDFS
 - 阿里云 OSS
+- 百度云 BOS
 - 腾讯云 CHDFS
 - 腾讯云 GFS (1.2.0 版本支持)
 - 华为云 OBS (1.2.0 版本后支持)
@@ -208,6 +209,17 @@ WITH BROKER "broker_name"
     "fs.oss.accessKeyId" = "",
     "fs.oss.accessKeySecret" = "",
     "fs.oss.endpoint" = ""
+)
+```
+
+#### 百度云 BOS
+当前使用BOS时需要将[bos-hdfs-sdk-1.0.3-community.jar.zip](https://sdk.bce.baidu.com/console-sdk/bos-hdfs-sdk-1.0.3-community.jar.zip)下载并解压后把jar包放到broker的lib目录下。
+
+```
+(
+    "fs.bos.access.key" = "xx",
+    "fs.bos.secret.access.key" = "xx",
+    "fs.bos.endpoint" = "xx"
 )
 ```
 

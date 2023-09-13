@@ -67,7 +67,7 @@ class OlapMeta;
 
 static const uint32_t MAX_PATH_LEN = 1024;
 
-static StorageEngine* k_engine = nullptr;
+static std::unique_ptr<StorageEngine> k_engine;
 
 static void set_up() {
     char buffer[MAX_PATH_LEN];
@@ -79,20 +79,21 @@ static void set_up() {
 
     doris::EngineOptions options;
     options.store_paths = paths;
-    Status s = doris::StorageEngine::open(options, &k_engine);
+    k_engine = std::make_unique<StorageEngine>(options);
+    Status s = k_engine->open();
     EXPECT_TRUE(s.ok()) << s.to_string();
 
     ExecEnv* exec_env = doris::ExecEnv::GetInstance();
-    exec_env->set_storage_engine(k_engine);
+    exec_env->set_memtable_memory_limiter(new MemTableMemoryLimiter());
+    exec_env->set_storage_engine(k_engine.get());
     k_engine->start_bg_threads();
 }
 
 static void tear_down() {
-    if (k_engine != nullptr) {
-        k_engine->stop();
-        delete k_engine;
-        k_engine = nullptr;
-    }
+    ExecEnv* exec_env = doris::ExecEnv::GetInstance();
+    exec_env->set_memtable_memory_limiter(nullptr);
+    exec_env->set_storage_engine(nullptr);
+    k_engine.reset();
     EXPECT_EQ(system("rm -rf ./data_test"), 0);
     io::global_local_filesystem()->delete_directory(std::string(getenv("DORIS_HOME")) + "/" +
                                                     UNUSED_PREFIX);
@@ -665,8 +666,8 @@ TEST_F(TestDeltaWriter, vec_write) {
         RowsetSharedPtr rowset = tablet_rs.second;
         TabletPublishStatistics stats;
         res = k_engine->txn_manager()->publish_txn(meta, write_req.partition_id, write_req.txn_id,
-                                                   write_req.tablet_id, write_req.schema_hash,
-                                                   tablet_rs.first.tablet_uid, version, &stats);
+                                                   write_req.tablet_id, tablet_rs.first.tablet_uid,
+                                                   version, &stats);
         ASSERT_TRUE(res.ok());
         std::cout << "start to add inc rowset:" << rowset->rowset_id()
                   << ", num rows:" << rowset->num_rows() << ", version:" << rowset->version().first
@@ -762,7 +763,7 @@ TEST_F(TestDeltaWriter, vec_sequence_col) {
     TabletPublishStatistics pstats;
     res = k_engine->txn_manager()->publish_txn(
             meta, write_req.partition_id, write_req.txn_id, write_req.tablet_id,
-            write_req.schema_hash, tablet_related_rs.begin()->first.tablet_uid, version, &pstats);
+            tablet_related_rs.begin()->first.tablet_uid, version, &pstats);
     ASSERT_TRUE(res.ok());
     std::cout << "start to add inc rowset:" << rowset->rowset_id()
               << ", num rows:" << rowset->num_rows() << ", version:" << rowset->version().first
@@ -911,10 +912,9 @@ TEST_F(TestDeltaWriter, vec_sequence_col_concurrent_write) {
         std::cout << "start to publish txn" << std::endl;
         rowset1 = tablet_related_rs.begin()->second;
         TabletPublishStatistics pstats;
-        res = k_engine->txn_manager()->publish_txn(meta, write_req.partition_id, write_req.txn_id,
-                                                   write_req.tablet_id, write_req.schema_hash,
-                                                   tablet_related_rs.begin()->first.tablet_uid,
-                                                   version, &pstats);
+        res = k_engine->txn_manager()->publish_txn(
+                meta, write_req.partition_id, write_req.txn_id, write_req.tablet_id,
+                tablet_related_rs.begin()->first.tablet_uid, version, &pstats);
         ASSERT_TRUE(res.ok());
         std::cout << "start to add inc rowset:" << rowset1->rowset_id()
                   << ", num rows:" << rowset1->num_rows()
@@ -965,10 +965,9 @@ TEST_F(TestDeltaWriter, vec_sequence_col_concurrent_write) {
         ASSERT_TRUE(delete_bitmap->contains({rowset2->rowset_id(), 0, 0}, 1));
 
         TabletPublishStatistics pstats;
-        res = k_engine->txn_manager()->publish_txn(meta, write_req.partition_id, write_req.txn_id,
-                                                   write_req.tablet_id, write_req.schema_hash,
-                                                   tablet_related_rs.begin()->first.tablet_uid,
-                                                   version, &pstats);
+        res = k_engine->txn_manager()->publish_txn(
+                meta, write_req.partition_id, write_req.txn_id, write_req.tablet_id,
+                tablet_related_rs.begin()->first.tablet_uid, version, &pstats);
         ASSERT_TRUE(res.ok());
         std::cout << "start to add inc rowset:" << rowset2->rowset_id()
                   << ", num rows:" << rowset2->num_rows()

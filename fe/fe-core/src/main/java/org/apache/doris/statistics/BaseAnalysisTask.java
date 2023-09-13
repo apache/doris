@@ -21,7 +21,11 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.TableIf;
+import org.apache.doris.common.Config;
 import org.apache.doris.datasource.CatalogIf;
+import org.apache.doris.qe.AuditLogHelper;
+import org.apache.doris.qe.QueryState;
+import org.apache.doris.qe.QueryState.MysqlStateType;
 import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.statistics.AnalysisInfo.AnalysisMethod;
 import org.apache.doris.statistics.AnalysisInfo.AnalysisType;
@@ -64,7 +68,7 @@ public abstract class BaseAnalysisTask {
     protected static final String INSERT_COL_STATISTICS = "INSERT INTO "
             + "${internalDB}.${columnStatTbl}"
             + "    SELECT id, catalog_id, db_id, tbl_id, idx_id, col_id, part_id, row_count, "
-            + "        ndv, null_count, min, max, data_size, update_time\n"
+            + "        ndv, null_count, CAST(min AS string), CAST(max AS string), data_size, update_time\n"
             + "    FROM \n"
             + "     (SELECT CONCAT(${tblId}, '-', ${idxId}, '-', '${colId}') AS id, "
             + "         ${catalogId} AS catalog_id, "
@@ -178,12 +182,15 @@ public abstract class BaseAnalysisTask {
     public abstract void doExecute() throws Exception;
 
     protected void afterExecution() {
+        if (killed) {
+            return;
+        }
         Env.getCurrentEnv().getStatisticsCache().syncLoadColStats(tbl.getId(), -1, col.getName());
     }
 
     protected void setTaskStateToRunning() {
         Env.getCurrentEnv().getAnalysisManager()
-            .updateTaskStatus(info, AnalysisState.RUNNING, "", System.currentTimeMillis());
+                .updateTaskStatus(info, AnalysisState.RUNNING, "", System.currentTimeMillis());
     }
 
     public void cancel() {
@@ -209,21 +216,48 @@ public abstract class BaseAnalysisTask {
     }
 
     protected String getSampleExpression() {
-        if (info.analysisMethod == AnalysisMethod.FULL) {
+        if (info.forceFull) {
             return "";
         }
-        // TODO Add sampling methods for external tables
+        int sampleRows = info.sampleRows;
+        if (info.analysisMethod == AnalysisMethod.FULL) {
+            if (Config.enable_auto_sample && tbl.getDataSize() > Config.huge_table_lower_bound_size_in_bytes) {
+                sampleRows = Config.huge_table_default_sample_rows;
+            } else {
+                return "";
+            }
+        }
         if (info.samplePercent > 0) {
             return String.format("TABLESAMPLE(%d PERCENT)", info.samplePercent);
         } else {
-            return String.format("TABLESAMPLE(%d ROWS)", info.sampleRows);
+            return String.format("TABLESAMPLE(%d ROWS)", sampleRows);
         }
     }
 
     @Override
     public String toString() {
         return String.format("Job id [%d], Task id [%d], catalog [%s], db [%s], table [%s], column [%s]",
-            info.jobId, info.taskId, catalog.getName(), db.getFullName(), tbl.getName(),
-            col == null ? "TableRowCount" : col.getName());
+                info.jobId, info.taskId, catalog.getName(), db.getFullName(), tbl.getName(),
+                col == null ? "TableRowCount" : col.getName());
+    }
+
+    protected void executeWithExceptionOnFail(StmtExecutor stmtExecutor) throws Exception {
+        if (killed) {
+            return;
+        }
+        LOG.debug("execute internal sql: {}", stmtExecutor.getOriginStmt());
+        try {
+            stmtExecutor.execute();
+            QueryState queryState = stmtExecutor.getContext().getState();
+            if (queryState.getStateType().equals(MysqlStateType.ERR)) {
+                throw new RuntimeException(String.format("Failed to analyze %s.%s.%s, error: %s sql: %s",
+                        info.catalogName, info.dbName, info.colName, stmtExecutor.getOriginStmt().toString(),
+                        queryState.getErrorMessage()));
+            }
+        } finally {
+            AuditLogHelper.logAuditLog(stmtExecutor.getContext(), stmtExecutor.getOriginStmt().toString(),
+                    stmtExecutor.getParsedStmt(), stmtExecutor.getQueryStatisticsForAuditLog(),
+                    true);
+        }
     }
 }

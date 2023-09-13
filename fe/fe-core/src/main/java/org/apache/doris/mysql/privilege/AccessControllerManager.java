@@ -59,7 +59,7 @@ public class AccessControllerManager {
         ctlToCtlAccessController.put(InternalCatalog.INTERNAL_CATALOG_NAME, internalAccessController);
     }
 
-    private CatalogAccessController getAccessControllerOrDefault(String ctl) {
+    public CatalogAccessController getAccessControllerOrDefault(String ctl) {
         CatalogAccessController catalogAccessController = ctlToCtlAccessController.get(ctl);
         if (catalogAccessController != null) {
             return catalogAccessController;
@@ -77,7 +77,7 @@ public class AccessControllerManager {
         if (ctlToCtlAccessController.containsKey(catalog.getName())) {
             return;
         }
-        catalog.initAccessController();
+        catalog.initAccessController(false);
         if (!ctlToCtlAccessController.containsKey(catalog.getName())) {
             ctlToCtlAccessController.put(catalog.getName(), internalAccessController);
         }
@@ -88,14 +88,17 @@ public class AccessControllerManager {
         return ctlToCtlAccessController.containsKey(ctl);
     }
 
-    public void createAccessController(String ctl, String acFactoryClassName, Map<String, String> prop) {
+    public void createAccessController(String ctl, String acFactoryClassName, Map<String, String> prop,
+            boolean isDryRun) {
         Class<?> factoryClazz = null;
         try {
             factoryClazz = Class.forName(acFactoryClassName);
             AccessControllerFactory factory = (AccessControllerFactory) factoryClazz.newInstance();
             CatalogAccessController accessController = factory.createAccessController(prop);
-            ctlToCtlAccessController.put(ctl, accessController);
-            LOG.info("create access controller {} for catalog {}", ctl, acFactoryClassName);
+            if (!isDryRun) {
+                ctlToCtlAccessController.put(ctl, accessController);
+                LOG.info("create access controller {} for catalog {}", ctl, acFactoryClassName);
+            }
         } catch (ClassNotFoundException e) {
             throw new RuntimeException(e);
         } catch (InstantiationException e) {
@@ -130,7 +133,10 @@ public class AccessControllerManager {
 
     public boolean checkCtlPriv(UserIdentity currentUser, String ctl, PrivPredicate wanted) {
         boolean hasGlobal = sysAccessController.checkGlobalPriv(currentUser, wanted);
-        return getAccessControllerOrDefault(ctl).checkCtlPriv(hasGlobal, currentUser, ctl, wanted);
+        // for checking catalog priv, always use InternalCatalogAccessController.
+        // because catalog priv is only saved in InternalCatalogAccessController.
+        return getAccessControllerOrDefault(InternalCatalog.INTERNAL_CATALOG_NAME).checkCtlPriv(hasGlobal, currentUser,
+                ctl, wanted);
     }
 
     // ==== Database ====

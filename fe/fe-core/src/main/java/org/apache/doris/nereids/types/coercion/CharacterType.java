@@ -44,7 +44,7 @@ public abstract class CharacterType extends PrimitiveType {
     }
 
     @Override
-    public boolean acceptsType(AbstractDataType other) {
+    public boolean acceptsType(DataType other) {
         return other instanceof CharacterType;
     }
 

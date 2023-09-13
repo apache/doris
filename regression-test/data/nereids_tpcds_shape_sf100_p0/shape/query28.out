@@ -26,7 +26,7 @@ PhysicalResultSink
 --------------------------------PhysicalDistribute
 ----------------------------------hashAgg[LOCAL]
 ------------------------------------PhysicalProject
---------------------------------------filter((store_sales.ss_quantity <= 10)((((store_sales.ss_list_price >= 145.00) AND (store_sales.ss_list_price <= 155.00)) OR ((store_sales.ss_coupon_amt >= 14792.00) AND (store_sales.ss_coupon_amt <= 15792.00))) OR ((store_sales.ss_wholesale_cost >= 46.00) AND (store_sales.ss_wholesale_cost <= 66.00)))(store_sales.ss_quantity >= 6))
+--------------------------------------filter(((((store_sales.ss_list_price >= 145.00) AND (store_sales.ss_list_price <= 155.00)) OR ((store_sales.ss_coupon_amt >= 14792.00) AND (store_sales.ss_coupon_amt <= 15792.00))) OR ((store_sales.ss_wholesale_cost >= 46.00) AND (store_sales.ss_wholesale_cost <= 66.00)))(store_sales.ss_quantity <= 10)(store_sales.ss_quantity >= 6))
 ----------------------------------------PhysicalOlapScan[store_sales]
 ----------------------PhysicalDistribute
 ------------------------PhysicalLimit
@@ -34,7 +34,7 @@ PhysicalResultSink
 ----------------------------PhysicalDistribute
 ------------------------------hashAgg[LOCAL]
 --------------------------------PhysicalProject
-----------------------------------filter(((((store_sales.ss_list_price >= 1.5E+2) AND (store_sales.ss_list_price <= 1.6E+2)) OR ((store_sales.ss_coupon_amt >= 6.6E+3) AND (store_sales.ss_coupon_amt <= 7.6E+3))) OR ((store_sales.ss_wholesale_cost >= 9.00) AND (store_sales.ss_wholesale_cost <= 29.00)))(store_sales.ss_quantity >= 11)(store_sales.ss_quantity <= 15))
+----------------------------------filter(((((store_sales.ss_list_price >= 150.00) AND (store_sales.ss_list_price <= 1.6E+2)) OR ((store_sales.ss_coupon_amt >= 6600.00) AND (store_sales.ss_coupon_amt <= 7.6E+3))) OR ((store_sales.ss_wholesale_cost >= 9.00) AND (store_sales.ss_wholesale_cost <= 29.00)))(store_sales.ss_quantity >= 11)(store_sales.ss_quantity <= 15))
 ------------------------------------PhysicalOlapScan[store_sales]
 ------------------PhysicalDistribute
 --------------------PhysicalLimit

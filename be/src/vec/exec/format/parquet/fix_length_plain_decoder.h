@@ -47,7 +47,7 @@ public:
     Status skip_values(size_t num_values) override;
 
 protected:
-    template <typename Numeric, bool has_filter>
+    template <typename Numeric, typename PhysicalType, bool has_filter>
     Status _decode_numeric(MutableColumnPtr& doris_column, ColumnSelectVector& select_vector);
 
     template <typename CppType, typename ColumnType, bool has_filter>

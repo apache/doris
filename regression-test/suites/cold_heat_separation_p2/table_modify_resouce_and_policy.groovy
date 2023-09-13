@@ -204,6 +204,7 @@ suite("table_modify_resouce") {
         tablets = sql """
         SHOW TABLETS FROM ${tableName}
         """
+        fetchDataSize(sizes, tablets[0])
         try_times -= 1
         assertTrue(try_times > 0)
     }
@@ -286,13 +287,16 @@ suite("table_modify_resouce") {
     log.info( "test tablets not empty")
     assertTrue(tablets.size() > 0)
     fetchDataSize(sizes, tablets[0])
+    try_times = 100
     while (sizes[0] != 0) {
-        log.info( "test local size not zero, sleep 10s")
+        log.info( "test local size is not zero, sleep 10s")
         sleep(10000)
         tablets = sql """
         SHOW TABLETS FROM ${tableName}
         """
         fetchDataSize(sizes, tablets[0])
+        try_times -= 1
+        assertTrue(try_times > 0)
     }
     // 所有的local data size为0
     log.info( "test all local size is zero")

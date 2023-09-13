@@ -17,9 +17,6 @@
 
 suite("test_materialized_view_load_open", "rollup") {
 
-    // because nereids cannot support rollup correctly forbid it temporary
-    sql """set enable_nereids_planner=false"""
-
     def tbName1 = "test_materialized_view_load_open"
     def tbName2 = "test_materialized_view_load_open_dynamic_partition"
     def tbName3 = "test_materialized_view_load_open_schema_change"

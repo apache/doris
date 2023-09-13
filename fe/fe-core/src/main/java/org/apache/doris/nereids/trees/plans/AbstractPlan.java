@@ -31,6 +31,7 @@ import org.apache.doris.statistics.Statistics;
 
 import com.google.common.base.Supplier;
 import com.google.common.base.Suppliers;
+import com.google.common.collect.ImmutableList;
 import org.json.JSONArray;
 import org.json.JSONObject;
 
@@ -58,29 +59,14 @@ public abstract class AbstractPlan extends AbstractTreeNode<Plan> implements Pla
     // difficult to locate.
     private MutableState mutableState = EmptyMutableState.INSTANCE;
 
-    public AbstractPlan(PlanType type, Plan... children) {
-        this(type, Optional.empty(), Optional.empty(), null, children);
+    protected AbstractPlan(PlanType type, List<Plan> children) {
+        this(type, Optional.empty(), Optional.empty(), null, ImmutableList.copyOf(children));
     }
 
     /**
      * all parameter constructor.
      */
-    public AbstractPlan(PlanType type, Optional<GroupExpression> groupExpression,
-            Optional<LogicalProperties> optLogicalProperties, @Nullable Statistics statistics,
-            Plan... children) {
-        super(groupExpression, children);
-        this.type = Objects.requireNonNull(type, "type can not be null");
-        this.groupExpression = Objects.requireNonNull(groupExpression, "groupExpression can not be null");
-        Objects.requireNonNull(optLogicalProperties, "logicalProperties can not be null");
-        this.logicalPropertiesSupplier = Suppliers.memoize(() -> optLogicalProperties.orElseGet(
-                this::computeLogicalProperties));
-        this.statistics = statistics;
-    }
-
-    /**
-     * all parameter constructor.
-     */
-    public AbstractPlan(PlanType type, Optional<GroupExpression> groupExpression,
+    protected AbstractPlan(PlanType type, Optional<GroupExpression> groupExpression,
             Optional<LogicalProperties> optLogicalProperties, @Nullable Statistics statistics,
             List<Plan> children) {
         super(groupExpression, children);
@@ -107,7 +93,7 @@ public abstract class AbstractPlan extends AbstractTreeNode<Plan> implements Pla
 
     @Override
     public boolean canBind() {
-        return !bound() && childrenBound();
+        return !bound() && children().stream().allMatch(Plan::bound);
     }
 
     /**
@@ -155,12 +141,8 @@ public abstract class AbstractPlan extends AbstractTreeNode<Plan> implements Pla
     }
 
     @Override
-    public Plan child(int index) {
-        return super.child(index);
-    }
-
-    @Override
     public LogicalProperties getLogicalProperties() {
+        // TODO: use bound()?
         if (this instanceof Unbound) {
             return UnboundLogicalProperties.INSTANCE;
         }
@@ -170,8 +152,7 @@ public abstract class AbstractPlan extends AbstractTreeNode<Plan> implements Pla
     @Override
     public LogicalProperties computeLogicalProperties() {
         boolean hasUnboundChild = children.stream()
-                .map(Plan::getLogicalProperties)
-                .anyMatch(UnboundLogicalProperties.class::isInstance);
+                .anyMatch(child -> !child.bound());
         if (hasUnboundChild || hasUnboundExpression()) {
             return UnboundLogicalProperties.INSTANCE;
         } else {

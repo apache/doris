@@ -267,8 +267,8 @@ struct literal_traits<TYPE_DECIMALV2> {
 };
 
 //======================== set literal ===================================
-template <PrimitiveType T, class U = typename literal_traits<T>::CXXType,
-          std::enable_if_t<std::is_integral<U>::value, bool> = true>
+template <PrimitiveType T, class U = typename literal_traits<T>::CXXType>
+    requires std::is_integral_v<U>
 void set_literal(TExprNode& node, const U& value) {
     TIntLiteral int_literal;
     int_literal.__set_value(value);
@@ -289,64 +289,64 @@ void set_literal<TYPE_LARGEINT, __int128_t>(TExprNode& node, const __int128_t& v
     node.__set_large_int_literal(largeIntLiteral);
 }
 // std::is_same<U, std::string>::value
-template <PrimitiveType T, class U = typename literal_traits<T>::CXXType,
-          std::enable_if_t<T == TYPE_DATETIME, bool> = true>
+template <PrimitiveType T, class U = typename literal_traits<T>::CXXType>
+    requires(T == TYPE_DATETIME)
 void set_literal(TExprNode& node, const U& value) {
     TDateLiteral date_literal;
     date_literal.__set_value(value);
     node.__set_date_literal(date_literal);
 }
 
-template <PrimitiveType T, class U = typename literal_traits<T>::CXXType,
-          std::enable_if_t<T == TYPE_DATETIMEV2, bool> = true>
+template <PrimitiveType T, class U = typename literal_traits<T>::CXXType>
+    requires(T == TYPE_DATETIMEV2)
 void set_literal(TExprNode& node, const U& value) {
     TDateLiteral date_literal;
     date_literal.__set_value(value);
     node.__set_date_literal(date_literal);
 }
 
-template <PrimitiveType T, class U = typename literal_traits<T>::CXXType,
-          std::enable_if_t<T == TYPE_DATE, bool> = true>
+template <PrimitiveType T, class U = typename literal_traits<T>::CXXType>
+    requires(T == TYPE_DATE)
 void set_literal(TExprNode& node, const U& value) {
     TDateLiteral date_literal;
     date_literal.__set_value(value);
     node.__set_date_literal(date_literal);
 }
 
-template <PrimitiveType T, class U = typename literal_traits<T>::CXXType,
-          std::enable_if_t<T == TYPE_DATEV2, bool> = true>
+template <PrimitiveType T, class U = typename literal_traits<T>::CXXType>
+    requires(T == TYPE_DATEV2)
 void set_literal(TExprNode& node, const U& value) {
     TDateLiteral date_literal;
     date_literal.__set_value(value);
     node.__set_date_literal(date_literal);
 }
 
-template <PrimitiveType T, class U = typename literal_traits<T>::CXXType,
-          std::enable_if_t<T == TYPE_JSONB, bool> = true>
+template <PrimitiveType T, class U = typename literal_traits<T>::CXXType>
+    requires(T == TYPE_JSONB)
 void set_literal(TExprNode& node, const U& value) {
     TJsonLiteral jsonb_literal;
     jsonb_literal.__set_value(value);
     node.__set_json_literal(jsonb_literal);
 }
 
-template <PrimitiveType T, class U = typename literal_traits<T>::CXXType,
-          std::enable_if_t<T == TYPE_STRING, bool> = true>
+template <PrimitiveType T, class U = typename literal_traits<T>::CXXType>
+    requires(T == TYPE_STRING)
 void set_literal(TExprNode& node, const U& value) {
     TStringLiteral string_literal;
     string_literal.__set_value(value);
     node.__set_string_literal(string_literal);
 }
 
-template <PrimitiveType T, class U = typename literal_traits<T>::CXXType,
-          std::enable_if_t<std::numeric_limits<U>::is_iec559, bool> = true>
+template <PrimitiveType T, class U = typename literal_traits<T>::CXXType>
+    requires std::numeric_limits<U>::is_iec559
 void set_literal(TExprNode& node, const U& value) {
     TFloatLiteral floatLiteral;
     floatLiteral.__set_value(value);
     node.__set_float_literal(floatLiteral);
 }
 
-template <PrimitiveType T, class U = typename literal_traits<T>::CXXType,
-          std::enable_if_t<T == TYPE_DECIMALV2, bool> = true>
+template <PrimitiveType T, class U = typename literal_traits<T>::CXXType>
+    requires(T == TYPE_DECIMALV2)
 void set_literal(TExprNode& node, const U& value) {
     TDecimalLiteral decimal_literal;
     decimal_literal.__set_value(value);

@@ -113,7 +113,7 @@ void StreamLoadAction::handle(HttpRequest* req) {
             _exec_env->stream_load_executor()->rollback_txn(ctx.get());
             ctx->need_rollback = false;
         }
-        if (ctx->body_sink.get() != nullptr) {
+        if (ctx->body_sink != nullptr) {
             ctx->body_sink->cancel(ctx->status.to_string());
         }
     }
@@ -194,7 +194,7 @@ int StreamLoadAction::on_header(HttpRequest* req) {
             _exec_env->stream_load_executor()->rollback_txn(ctx.get());
             ctx->need_rollback = false;
         }
-        if (ctx->body_sink.get() != nullptr) {
+        if (ctx->body_sink != nullptr) {
             ctx->body_sink->cancel(ctx->status.to_string());
         }
         auto str = ctx->to_json();
@@ -230,6 +230,10 @@ Status StreamLoadAction::_on_header(HttpRequest* http_req, std::shared_ptr<Strea
         iequal(format_str, BeConsts::CSV_WITH_NAMES_AND_TYPES)) {
         ctx->header_type = format_str;
         //treat as CSV
+        format_str = BeConsts::CSV;
+    }
+    if (iequal(format_str, "hive_text")) {
+        ctx->header_type = format_str;
         format_str = BeConsts::CSV;
     }
     LoadUtil::parse_format(format_str, http_req->header(HTTP_COMPRESS_TYPE), &ctx->format,
@@ -375,6 +379,12 @@ Status StreamLoadAction::_process_put(HttpRequest* http_req,
     if (!http_req->header(HTTP_LINE_DELIMITER).empty()) {
         request.__set_line_delimiter(http_req->header(HTTP_LINE_DELIMITER));
     }
+    if (!http_req->header(HTTP_ENCLOSE).empty() && http_req->header(HTTP_ENCLOSE).size() > 0) {
+        request.__set_enclose(http_req->header(HTTP_ENCLOSE)[0]);
+    }
+    if (!http_req->header(HTTP_ESCAPE).empty() && http_req->header(HTTP_ESCAPE).size() > 0) {
+        request.__set_escape(http_req->header(HTTP_ESCAPE)[0]);
+    }
     if (!http_req->header(HTTP_PARTITIONS).empty()) {
         request.__set_partitions(http_req->header(HTTP_PARTITIONS));
         request.__set_isTempPartition(false);
@@ -407,9 +417,6 @@ Status StreamLoadAction::_process_put(HttpRequest* http_req,
     }
     if (!http_req->header(HTTP_TIMEZONE).empty()) {
         request.__set_timezone(http_req->header(HTTP_TIMEZONE));
-    }
-    if (!http_req->header(HTTP_TIME_ZONE).empty()) {
-        request.__set_timezone(http_req->header(HTTP_TIME_ZONE));
     }
     if (!http_req->header(HTTP_EXEC_MEM_LIMIT).empty()) {
         try {
@@ -543,6 +550,10 @@ Status StreamLoadAction::_process_put(HttpRequest* http_req,
         } else {
             request.__set_partial_update(false);
         }
+    }
+    if (!http_req->header(HTTP_MEMTABLE_ON_SINKNODE).empty()) {
+        bool value = iequal(http_req->header(HTTP_MEMTABLE_ON_SINKNODE), "true");
+        request.__set_memtable_on_sink_node(value);
     }
 
 #ifndef BE_TEST

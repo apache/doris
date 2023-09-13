@@ -19,8 +19,11 @@ package org.apache.doris.nereids.trees.plans.physical;
 
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.DistributionInfo;
 import org.apache.doris.catalog.HashDistributionInfo;
 import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.catalog.RandomDistributionInfo;
+import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.DistributionSpecHash.ShuffleType;
 import org.apache.doris.nereids.properties.LogicalProperties;
@@ -190,22 +193,30 @@ public class PhysicalOlapTableSink<CHILD_TYPE extends Plan> extends PhysicalSink
      */
     public PhysicalProperties getRequirePhysicalProperties() {
         if (targetTable.isPartitioned()) {
-            HashDistributionInfo distributionInfo = ((HashDistributionInfo) targetTable.getDefaultDistributionInfo());
-            List<Column> distributedColumns = distributionInfo.getDistributionColumns();
-            List<Integer> columnIndexes = Lists.newArrayList();
-            int idx = 0;
-            for (int i = 0; i < targetTable.getFullSchema().size(); ++i) {
-                if (targetTable.getFullSchema().get(i).equals(distributedColumns.get(idx))) {
-                    columnIndexes.add(i);
-                    idx++;
-                    if (idx == distributedColumns.size()) {
-                        break;
+            DistributionInfo distributionInfo = targetTable.getDefaultDistributionInfo();
+            if (distributionInfo instanceof HashDistributionInfo) {
+                HashDistributionInfo hashDistributionInfo
+                        = ((HashDistributionInfo) targetTable.getDefaultDistributionInfo());
+                List<Column> distributedColumns = hashDistributionInfo.getDistributionColumns();
+                List<Integer> columnIndexes = Lists.newArrayList();
+                int idx = 0;
+                for (int i = 0; i < targetTable.getFullSchema().size(); ++i) {
+                    if (targetTable.getFullSchema().get(i).equals(distributedColumns.get(idx))) {
+                        columnIndexes.add(i);
+                        idx++;
+                        if (idx == distributedColumns.size()) {
+                            break;
+                        }
                     }
                 }
+                return PhysicalProperties.createHash(columnIndexes.stream()
+                        .map(colIdx -> child().getOutput().get(colIdx).getExprId())
+                        .collect(Collectors.toList()), ShuffleType.NATURAL);
+            } else if (distributionInfo instanceof RandomDistributionInfo) {
+                return PhysicalProperties.ANY;
+            } else {
+                throw new AnalysisException("Unknown distributionInfo for Nereids to calculate physical properties");
             }
-            return PhysicalProperties.createHash(columnIndexes.stream()
-                    .map(colIdx -> child().getOutput().get(colIdx).getExprId())
-                    .collect(Collectors.toList()), ShuffleType.NATURAL);
         } else {
             return PhysicalProperties.GATHER;
         }

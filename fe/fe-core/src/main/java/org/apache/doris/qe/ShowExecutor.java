@@ -40,6 +40,7 @@ import org.apache.doris.analysis.ShowCollationStmt;
 import org.apache.doris.analysis.ShowColumnHistStmt;
 import org.apache.doris.analysis.ShowColumnStatsStmt;
 import org.apache.doris.analysis.ShowColumnStmt;
+import org.apache.doris.analysis.ShowConvertLSCStmt;
 import org.apache.doris.analysis.ShowCreateCatalogStmt;
 import org.apache.doris.analysis.ShowCreateDbStmt;
 import org.apache.doris.analysis.ShowCreateFunctionStmt;
@@ -112,6 +113,7 @@ import org.apache.doris.backup.Repository;
 import org.apache.doris.backup.RestoreJob;
 import org.apache.doris.blockrule.SqlBlockRule;
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.ColumnIdFlushDaemon;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.DynamicPartitionProperty;
@@ -180,24 +182,24 @@ import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.HMSExternalCatalog;
 import org.apache.doris.external.iceberg.IcebergTableCreationRecord;
 import org.apache.doris.load.DeleteHandler;
-import org.apache.doris.load.ExportJob;
+import org.apache.doris.load.ExportJobState;
 import org.apache.doris.load.ExportMgr;
 import org.apache.doris.load.Load;
 import org.apache.doris.load.LoadJob;
 import org.apache.doris.load.LoadJob.JobState;
+import org.apache.doris.load.loadv2.LoadManager;
 import org.apache.doris.load.routineload.RoutineLoadJob;
 import org.apache.doris.mtmv.MTMVJobManager;
 import org.apache.doris.mtmv.metadata.MTMVJob;
 import org.apache.doris.mtmv.metadata.MTMVTask;
 import org.apache.doris.mysql.privilege.PrivPredicate;
-import org.apache.doris.scheduler.constants.JobCategory;
 import org.apache.doris.scheduler.job.Job;
 import org.apache.doris.scheduler.job.JobTask;
 import org.apache.doris.statistics.AnalysisInfo;
 import org.apache.doris.statistics.ColumnStatistic;
 import org.apache.doris.statistics.Histogram;
 import org.apache.doris.statistics.StatisticsRepository;
-import org.apache.doris.statistics.TableStatistic;
+import org.apache.doris.statistics.TableStats;
 import org.apache.doris.statistics.query.QueryStatsUtil;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.Diagnoser;
@@ -239,6 +241,7 @@ import java.util.Collections;
 import java.util.Comparator;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 import java.util.concurrent.TimeUnit;
@@ -433,6 +436,8 @@ public class ShowExecutor {
             handleShowJob();
         } else if (stmt instanceof ShowJobTaskStmt) {
             handleShowJobTask();
+        } else if (stmt instanceof ShowConvertLSCStmt) {
+            handleShowConvertLSC();
         } else {
             handleEmtpy();
         }
@@ -869,7 +874,8 @@ public class ShowExecutor {
 
                 // check tbl privs
                 if (!Env.getCurrentEnv().getAccessManager()
-                        .checkTblPriv(ConnectContext.get(), db.getFullName(), table.getName(), PrivPredicate.SHOW)) {
+                        .checkTblPriv(ConnectContext.get(), showStmt.getCatalog(),
+                                db.getFullName(), table.getName(), PrivPredicate.SHOW)) {
                     continue;
                 }
                 List<String> row = Lists.newArrayList();
@@ -1298,6 +1304,11 @@ public class ShowExecutor {
         }
 
         Database db = env.getInternalCatalog().getDbOrAnalysisException(showWarningsStmt.getDbName());
+        ShowResultSet showResultSet = handleShowLoadWarningV2(showWarningsStmt, db);
+        if (showResultSet != null) {
+            resultSet = showResultSet;
+            return;
+        }
 
         long dbId = db.getId();
         Load load = env.getLoadInstance();
@@ -1305,7 +1316,6 @@ public class ShowExecutor {
         LoadJob job = null;
         String label = null;
         if (showWarningsStmt.isFindByLabel()) {
-            label = showWarningsStmt.getLabel();
             jobId = load.getLatestJobIdByLabel(dbId, showWarningsStmt.getLabel());
             job = load.getLoadJob(jobId);
             if (job == null) {
@@ -1348,6 +1358,40 @@ public class ShowExecutor {
         }
 
         resultSet = new ShowResultSet(showWarningsStmt.getMetaData(), rows);
+    }
+
+    private ShowResultSet handleShowLoadWarningV2(ShowLoadWarningsStmt showWarningsStmt, Database db)
+            throws AnalysisException {
+        LoadManager loadManager = Env.getCurrentEnv().getLoadManager();
+        if (showWarningsStmt.isFindByLabel()) {
+            List<List<Comparable>> loadJobInfosByDb = loadManager.getLoadJobInfosByDb(db.getId(),
+                    showWarningsStmt.getLabel(),
+                    true, null);
+            if (CollectionUtils.isEmpty(loadJobInfosByDb)) {
+                return null;
+            }
+            List<List<String>> infoList = Lists.newArrayListWithCapacity(loadJobInfosByDb.size());
+            for (List<Comparable> comparables : loadJobInfosByDb) {
+                List<String> singleInfo = comparables.stream().map(Object::toString).collect(Collectors.toList());
+                infoList.add(singleInfo);
+            }
+            return new ShowResultSet(showWarningsStmt.getMetaData(), infoList);
+        }
+        org.apache.doris.load.loadv2.LoadJob loadJob = loadManager.getLoadJob(showWarningsStmt.getJobId());
+        if (loadJob == null) {
+            return null;
+        }
+        List<String> singleInfo;
+        try {
+            singleInfo = loadJob
+                    .getShowInfo()
+                    .stream()
+                    .map(Objects::toString)
+                    .collect(Collectors.toList());
+        } catch (DdlException e) {
+            throw new AnalysisException(e.getMessage());
+        }
+        return new ShowResultSet(showWarningsStmt.getMetaData(), Lists.newArrayList(Collections.singleton(singleInfo)));
     }
 
     private void handleShowLoadWarningsFromURL(ShowLoadWarningsStmt showWarningsStmt, URL url)
@@ -1396,7 +1440,7 @@ public class ShowExecutor {
         ShowJobTaskStmt showJobTaskStmt = (ShowJobTaskStmt) stmt;
         List<List<String>> rows = Lists.newArrayList();
         List<Job> jobs = Env.getCurrentEnv().getJobRegister()
-                .getJobs(showJobTaskStmt.getDbFullName(), showJobTaskStmt.getName(), JobCategory.SQL,
+                .getJobs(showJobTaskStmt.getDbFullName(), showJobTaskStmt.getName(), showJobTaskStmt.getJobCategory(),
                         null);
         if (CollectionUtils.isEmpty(jobs)) {
             resultSet = new ShowResultSet(showJobTaskStmt.getMetaData(), rows);
@@ -1425,7 +1469,7 @@ public class ShowExecutor {
                     CaseSensibility.JOB.getCaseSensibility());
         }
         jobList = Env.getCurrentEnv().getJobRegister()
-                .getJobs(showJobStmt.getDbFullName(), showJobStmt.getName(), JobCategory.SQL,
+                .getJobs(showJobStmt.getDbFullName(), showJobStmt.getName(), showJobStmt.getJobCategory(),
                         matcher);
 
         if (jobList.isEmpty()) {
@@ -1914,13 +1958,13 @@ public class ShowExecutor {
     private void handleShowExport() throws AnalysisException {
         ShowExportStmt showExportStmt = (ShowExportStmt) stmt;
         Env env = Env.getCurrentEnv();
-        Database db = env.getInternalCatalog().getDbOrAnalysisException(showExportStmt.getDbName());
+        DatabaseIf db = env.getCurrentCatalog().getDbOrAnalysisException(showExportStmt.getDbName());
         long dbId = db.getId();
 
         ExportMgr exportMgr = env.getExportMgr();
 
-        Set<ExportJob.JobState> states = null;
-        ExportJob.JobState state = showExportStmt.getJobState();
+        Set<ExportJobState> states = null;
+        ExportJobState state = showExportStmt.getJobState();
         if (state != null) {
             states = Sets.newHashSet(state);
         }
@@ -2410,18 +2454,16 @@ public class ShowExecutor {
     private void handleShowTableStats() {
         ShowTableStatsStmt showTableStatsStmt = (ShowTableStatsStmt) stmt;
         TableIf tableIf = showTableStatsStmt.getTable();
-        long partitionId = showTableStatsStmt.getPartitionId();
-        try {
-            if (partitionId > 0) {
-                TableStatistic partStats = StatisticsRepository.fetchTableLevelOfPartStats(partitionId);
-                resultSet = showTableStatsStmt.constructResultSet(partStats);
-            } else {
-                TableStatistic tableStats = StatisticsRepository.fetchTableLevelStats(tableIf.getId());
-                resultSet = showTableStatsStmt.constructResultSet(tableStats);
-            }
-        } catch (DdlException e) {
-            LOG.warn("Table statistics do not exist: {}", tableIf.getName());
-            resultSet = showTableStatsStmt.constructResultSet(TableStatistic.UNKNOWN);
+        TableStats tableStats = Env.getCurrentEnv().getAnalysisManager().findTableStatsStatus(tableIf.getId());
+        /*
+           HMSExternalTable table will fetch row count from HMS
+           or estimate with file size and schema if it's not analyzed.
+           tableStats == null means it's not analyzed, in this case show the estimated row count.
+         */
+        if (tableStats == null && tableIf instanceof HMSExternalTable) {
+            resultSet = showTableStatsStmt.constructResultSet(tableIf.estimatedRowCount());
+        } else {
+            resultSet = showTableStatsStmt.constructResultSet(tableStats);
         }
     }
 
@@ -2632,7 +2674,12 @@ public class ShowExecutor {
                     LocalDateTime.ofInstant(Instant.ofEpochMilli(analysisInfo.lastExecTimeInMs),
                             ZoneId.systemDefault())));
             row.add(analysisInfo.state.toString());
-            row.add(Env.getCurrentEnv().getAnalysisManager().getJobProgress(analysisInfo.jobId));
+            try {
+                row.add(Env.getCurrentEnv().getAnalysisManager().getJobProgress(analysisInfo.jobId));
+            } catch (Exception e) {
+                row.add("N/A");
+                LOG.warn("Failed to get progress for job: {}", analysisInfo, e);
+            }
             row.add(analysisInfo.scheduleType.toString());
             resultRows.add(row);
         }
@@ -2836,6 +2883,44 @@ public class ShowExecutor {
             row.add(String.valueOf(analysisInfo.timeCostInMs));
             row.add(analysisInfo.state.toString());
             rows.add(row);
+        }
+        resultSet = new ShowResultSet(showStmt.getMetaData(), rows);
+    }
+
+
+    private void handleShowConvertLSC() {
+        ShowConvertLSCStmt showStmt = (ShowConvertLSCStmt) stmt;
+        ColumnIdFlushDaemon columnIdFlusher = Env.getCurrentEnv().getColumnIdFlusher();
+        columnIdFlusher.readLock();
+        List<List<String>> rows;
+        try {
+            Map<String, Map<String, ColumnIdFlushDaemon.FlushStatus>> resultCollector =
+                    columnIdFlusher.getResultCollector();
+            rows = new ArrayList<>();
+            String db = ((ShowConvertLSCStmt) stmt).getDbName();
+            if (db != null) {
+                Map<String, ColumnIdFlushDaemon.FlushStatus> tblNameToStatus = resultCollector.get(db);
+                if (tblNameToStatus != null) {
+                    tblNameToStatus.forEach((tblName, status) -> {
+                        List<String> row = new ArrayList<>();
+                        row.add(db);
+                        row.add(tblName);
+                        row.add(status.getMsg());
+                        rows.add(row);
+                    });
+                }
+            } else {
+                resultCollector.forEach((dbName, tblNameToStatus) ->
+                        tblNameToStatus.forEach((tblName, status) -> {
+                            List<String> row = new ArrayList<>();
+                            row.add(dbName);
+                            row.add(tblName);
+                            row.add(status.getMsg());
+                            rows.add(row);
+                        }));
+            }
+        } finally {
+            columnIdFlusher.readUnlock();
         }
         resultSet = new ShowResultSet(showStmt.getMetaData(), rows);
     }

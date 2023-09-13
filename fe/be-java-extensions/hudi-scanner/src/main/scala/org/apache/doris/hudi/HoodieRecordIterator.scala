@@ -98,8 +98,9 @@ class HoodieMORRecordIterator(config: Configuration,
 
     case split => mergeType match {
       case DataSourceReadOptions.REALTIME_SKIP_MERGE_OPT_VAL =>
-        val reader = fileReaders.requiredSchemaReaderSkipMerging
-        new SkipMergeIterator(split, reader, tableSchema, requiredSchema, tableState, config)
+        // val reader = fileReaders.requiredSchemaReaderSkipMerging
+        // new SkipMergeIterator(split, reader, tableSchema, requiredSchema, tableState, config)
+        throw new UnsupportedOperationException("Skip merge is optimized by native read")
 
       case DataSourceReadOptions.REALTIME_PAYLOAD_COMBINE_OPT_VAL =>
         val reader = pickBaseFileReader()

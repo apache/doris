@@ -210,6 +210,10 @@ public:
         return scatter_impl<ColumnArray>(num_columns, selector);
     }
 
+    size_t ALWAYS_INLINE offset_at(ssize_t i) const { return get_offsets()[i - 1]; }
+    size_t ALWAYS_INLINE size_at(ssize_t i) const {
+        return get_offsets()[i] - get_offsets()[i - 1];
+    }
     void append_data_by_selector(MutableColumnPtr& res,
                                  const IColumn::Selector& selector) const override {
         return append_data_by_selector_impl<ColumnArray>(res, selector);
@@ -257,11 +261,6 @@ private:
     // [[[2,1,5],[9,1]], [[1,2]]] --> data column [3 column array], offset[-1] = 0, offset[0] = 2, offset[1] = 3
     WrappedPtr data;
     WrappedPtr offsets;
-
-    size_t ALWAYS_INLINE offset_at(ssize_t i) const { return get_offsets()[i - 1]; }
-    size_t ALWAYS_INLINE size_at(ssize_t i) const {
-        return get_offsets()[i] - get_offsets()[i - 1];
-    }
 
     /// Multiply values if the nested column is ColumnVector<T>.
     template <typename T>

@@ -25,34 +25,27 @@ import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.qe.ConnectContext;
 
+import com.google.common.collect.ImmutableList;
+
 import java.util.List;
 import java.util.Optional;
-import java.util.function.Supplier;
 
 /**
  * Abstract class for all concrete logical plan.
  */
 public abstract class AbstractLogicalPlan extends AbstractPlan implements LogicalPlan, Explainable {
-
-    private final Supplier<Boolean> hasUnboundExpressions = super::hasUnboundExpression;
-
-    public AbstractLogicalPlan(PlanType type, Plan... children) {
+    protected AbstractLogicalPlan(PlanType type, List<Plan> children) {
         super(type, children);
     }
 
-    public AbstractLogicalPlan(PlanType type, Optional<GroupExpression> groupExpression,
+    protected AbstractLogicalPlan(PlanType type, Optional<GroupExpression> groupExpression,
             Optional<LogicalProperties> logicalProperties, Plan... children) {
-        super(type, groupExpression, logicalProperties, null, children);
+        super(type, groupExpression, logicalProperties, null, ImmutableList.copyOf(children));
     }
 
-    public AbstractLogicalPlan(PlanType type, Optional<GroupExpression> groupExpression,
+    protected AbstractLogicalPlan(PlanType type, Optional<GroupExpression> groupExpression,
             Optional<LogicalProperties> logicalProperties, List<Plan> children) {
         super(type, groupExpression, logicalProperties, null, children);
-    }
-
-    @Override
-    public boolean hasUnboundExpression() {
-        return hasUnboundExpressions.get();
     }
 
     @Override
