@@ -404,6 +404,8 @@ protected:
     RuntimeState* _state;
     // rows number received per tablet, tablet_id -> rows_num
     std::vector<std::pair<int64_t, int64_t>> _tablets_received_rows;
+    // rows number filtered per tablet, tablet_id -> filtered_rows_num
+    std::vector<std::pair<int64_t, int64_t>> _tablets_filtered_rows;
 
     // build a _cur_mutable_block and push into _pending_blocks. when not building, this block is empty.
     std::unique_ptr<vectorized::MutableBlock> _cur_mutable_block;
