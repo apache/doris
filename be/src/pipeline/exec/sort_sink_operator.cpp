@@ -133,7 +133,6 @@ Status SortSinkOperatorX::prepare(RuntimeState* state) {
     } else {
         _algorithm = SortAlgorithm::FULL_SORT;
     }
-    _profile = state->obj_pool()->add(new RuntimeProfile("SortSinkOperatorX"));
     return _vsort_exec_exprs.prepare(state, _child_x->row_desc(), _row_descriptor);
 }
 
@@ -169,7 +168,7 @@ Status SortSinkOperatorX::sink(doris::RuntimeState* state, vectorized::Block* in
 
     if (source_state == SourceState::FINISHED) {
         RETURN_IF_ERROR(local_state._shared_state->sorter->prepare_for_read());
-        local_state._dependency->set_done();
+        local_state._dependency->set_ready_for_read();
     }
     return Status::OK();
 }

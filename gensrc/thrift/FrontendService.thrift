@@ -390,6 +390,12 @@ enum FrontendServiceVersion {
   V1
 }
 
+struct TDetailedReportParams {
+  1: optional Types.TUniqueId fragment_instance_id
+  2: optional RuntimeProfile.TRuntimeProfileTree profile
+  3: optional RuntimeProfile.TRuntimeProfileTree loadChannelProfile
+}
+
 // The results of an INSERT query, sent to the coordinator as part of
 // TReportExecStatusParams
 struct TReportExecStatusParams {
@@ -447,6 +453,8 @@ struct TReportExecStatusParams {
   21: optional RuntimeProfile.TRuntimeProfileTree loadChannelProfile
 
   22: optional i32 finished_scan_ranges
+
+  23: optional list<TDetailedReportParams> detailed_report
 }
 
 struct TFeResult {

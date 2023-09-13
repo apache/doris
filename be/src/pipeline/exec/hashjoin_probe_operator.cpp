@@ -436,6 +436,7 @@ Status HashJoinProbeOperatorX::prepare(RuntimeState* state) {
         RETURN_IF_ERROR(conjunct->prepare(state, *_intermediate_row_desc));
     }
     RETURN_IF_ERROR(vectorized::VExpr::prepare(_probe_expr_ctxs, state, _child_x->row_desc()));
+    DCHECK(_build_side_child != nullptr);
     // right table data types
     _right_table_data_types =
             vectorized::VectorizedUtils::get_data_types(_build_side_child->row_desc());
@@ -453,9 +454,9 @@ Status HashJoinProbeOperatorX::open(RuntimeState* state) {
     return Status::OK();
 }
 
-bool HashJoinProbeOperatorX::can_read(RuntimeState* state) {
+Dependency* HashJoinProbeOperatorX::wait_for_dependency(RuntimeState* state) {
     auto& local_state = state->get_local_state(id())->cast<HashJoinProbeLocalState>();
-    return local_state._dependency->done();
+    return local_state._dependency->read_blocked_by();
 }
 
 } // namespace pipeline
