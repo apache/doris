@@ -350,6 +350,7 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
         if (stmt.isPartialUpdate()) {
             this.isPartialUpdate = true;
         }
+        jobProperties.put(CreateRoutineLoadStmt.MAX_FILTER_RATIO_PROPERTY, String.valueOf(maxFilterRatio));
 
         if (Strings.isNullOrEmpty(stmt.getFormat()) || stmt.getFormat().equals("csv")) {
             jobProperties.put(PROPS_FORMAT, "csv");
@@ -1591,7 +1592,6 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
         }
         jobProperties.put(CreateRoutineLoadStmt.PARTIAL_COLUMNS, String.valueOf(isPartialUpdate));
         jobProperties.put("maxErrorNum", String.valueOf(maxErrorNum));
-        jobProperties.put("maxFilterRatio", String.valueOf(maxFilterRatio));
         jobProperties.put("maxBatchIntervalS", String.valueOf(maxBatchIntervalS));
         jobProperties.put("maxBatchRows", String.valueOf(maxBatchRows));
         jobProperties.put("maxBatchSizeBytes", String.valueOf(maxBatchSizeBytes));
@@ -1652,7 +1652,6 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
         out.writeInt(desireTaskConcurrentNum);
         Text.writeString(out, state.name());
         out.writeLong(maxErrorNum);
-        out.writeDouble(maxFilterRatio);
         out.writeLong(maxBatchIntervalS);
         out.writeLong(maxBatchRows);
         out.writeLong(maxBatchSizeBytes);
@@ -1703,7 +1702,6 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
         desireTaskConcurrentNum = in.readInt();
         state = JobState.valueOf(Text.readString(in));
         maxErrorNum = in.readLong();
-        maxFilterRatio = in.readDouble();
         maxBatchIntervalS = in.readLong();
         maxBatchRows = in.readLong();
         maxBatchSizeBytes = in.readLong();
