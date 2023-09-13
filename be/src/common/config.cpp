@@ -1061,6 +1061,8 @@ DEFINE_mBool(enable_merge_on_write_correctness_check, "true");
 // The secure path with user files, used in the `local` table function.
 DEFINE_mString(user_files_secure_path, "${DORIS_HOME}");
 
+DEFINE_mInt32(tablet_schema_cache_recycle_interval, "86400");
+
 #ifdef BE_TEST
 // test s3
 DEFINE_String(test_s3_resource, "resource");
