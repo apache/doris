@@ -567,7 +567,7 @@ Status ParquetReader::_process_page_index(const tparquet::RowGroup& row_group,
         std::vector<int> skipped_page_range;
         const FieldSchema* col_schema = schema_desc.get_column(read_col._file_slot_name);
         page_index.collect_skipped_page_range(&column_index, conjuncts, col_schema,
-                                              skipped_page_range);
+                                              skipped_page_range, *_ctz);
         if (skipped_page_range.empty()) {
             continue;
         }
@@ -648,8 +648,8 @@ Status ParquetReader::_process_column_stat_filter(const std::vector<tparquet::Co
         }
         const FieldSchema* col_schema = schema_desc.get_column(col_name);
         // Min-max of statistic is plain-encoded value
-        *filter_group = determine_filter_min_max(slot_iter->second, col_schema, statistic.min,
-                                                 statistic.max);
+        *filter_group = ParquetPredicate::filter_by_min_max(slot_iter->second, col_schema,
+                                                            statistic.min, statistic.max, *_ctz);
         if (*filter_group) {
             break;
         }
