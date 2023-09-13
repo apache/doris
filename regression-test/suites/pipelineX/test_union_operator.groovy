@@ -55,7 +55,7 @@ suite("test_union_operator") {
     (20, 16, 45);
     """
 
-    sql"""set enable_pipeline_engine = true,parallel_pipeline_task_num = 1; """
+    sql"""set enable_pipeline_engine = true,parallel_pipeline_task_num = 8; """
 
 
 
@@ -80,7 +80,7 @@ suite("test_union_operator") {
 
     """
     
-    sql"""set experimental_enable_pipeline_x_engine=true;    """
+    sql"""set experimental_enable_pipeline_x_engine=true,parallel_pipeline_task_num = 8;;    """
 
     qt_pipelineX """
         SELECT count(*)
