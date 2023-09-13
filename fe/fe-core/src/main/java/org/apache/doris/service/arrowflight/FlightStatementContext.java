@@ -14,6 +14,9 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
+// This file is copied from
+// https://github.com/apache/arrow/blob/main/java/flight/flight-sql/src/test/java/org/apache/arrow/flight/sql/example/StatementContext.java
+// and modified by Doris
 
 package org.apache.doris.service.arrowflight;
 
@@ -22,12 +25,10 @@ import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.Status;
 import org.apache.doris.common.util.DebugUtil;
-import org.apache.doris.common.util.Util;
 import org.apache.doris.proto.InternalService;
 import org.apache.doris.proto.Types;
 import org.apache.doris.qe.AutoCloseConnectContext;
 import org.apache.doris.qe.ConnectContext;
-import org.apache.doris.qe.InternalQueryExecutionException;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.rpc.BackendServiceProxy;
@@ -43,8 +44,6 @@ import org.apache.arrow.vector.FieldVector;
 import org.apache.arrow.vector.VectorSchemaRoot;
 import org.apache.arrow.vector.ipc.ArrowStreamReader;
 import org.apache.arrow.vector.types.pojo.Schema;
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
 
 import java.io.ByteArrayInputStream;
 import java.util.ArrayList;
@@ -57,8 +56,6 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 
 public final class FlightStatementContext {
-    private static final Logger LOG = LogManager.getLogger(FlightStatementContext.class);
-
     private AutoCloseConnectContext acConnectContext;
     private final String query;
     private TUniqueId queryId;
@@ -154,12 +151,11 @@ public final class FlightStatementContext {
             acConnectContext.connectContext.setExecutor(stmtExecutor);
             stmtExecutor.executeArrowFlightQuery(this);
         } catch (Exception e) {
-            LOG.warn("Failed to coord exec, because: {}", e.getMessage(), e);
-            throw new InternalQueryExecutionException(e.getMessage() + Util.getRootCauseMessage(e), e);
+            throw new RuntimeException("Failed to coord exec", e);
         }
     }
 
-    public Schema fetchArrowFlightSchema(int timeoutMs, Status status) {
+    public Schema fetchArrowFlightSchema(int timeoutMs) {
         TNetworkAddress address = getResultInternalServiceAddr();
         TUniqueId tid = getFinstId();
         ArrayList<Expr> resultOutputExprs = getResultOutputExprs();
@@ -175,14 +171,15 @@ public final class FlightStatementContext {
             InternalService.PFetchArrowFlightSchemaResult pResult;
             pResult = future.get(timeoutMs, TimeUnit.MILLISECONDS);
             if (pResult == null) {
-                LOG.warn("fetch arrow flight schema timeout, finstId={}", DebugUtil.printId(tid));
-                status.setStatus("fetch arrow flight schema timeout");
-                return null;
+                throw new RuntimeException(String.format("fetch arrow flight schema timeout, finstId: %s",
+                        DebugUtil.printId(tid)));
             }
             TStatusCode code = TStatusCode.findByValue(pResult.getStatus().getStatusCode());
             if (code != TStatusCode.OK) {
+                Status status = null;
                 status.setPstatus(pResult.getStatus());
-                return null;
+                throw new RuntimeException(String.format("fetch arrow flight schema failed, finstId: %s, errmsg: %s",
+                        DebugUtil.printId(tid), status));
             }
             if (pResult.hasSchema() && pResult.getSchema().size() > 0) {
                 RootAllocator rootAllocator = new RootAllocator(Integer.MAX_VALUE);
@@ -194,40 +191,34 @@ public final class FlightStatementContext {
                     VectorSchemaRoot root = arrowStreamReader.getVectorSchemaRoot();
                     List<FieldVector> fieldVectors = root.getFieldVectors();
                     if (fieldVectors.size() != resultOutputExprs.size()) {
-                        LOG.error("Schema size '{}' is not equal to arrow field size '{}'.",
-                                fieldVectors.size(), resultOutputExprs.size());
-                        status.setStatus(new Status(TStatusCode.INTERNAL_ERROR,
-                                "Load Doris data failed, schema size of fetch data is wrong."));
-                        return null;
+                        throw new RuntimeException(String.format(
+                                "Schema size %s' is not equal to arrow field size %s, finstId: %s.",
+                                fieldVectors.size(), resultOutputExprs.size(), DebugUtil.printId(tid)));
                     }
                     return root.getSchema();
                 } catch (Exception e) {
-                    LOG.error("Read Arrow Flight Schema failed because: ", e);
-                    status.setStatus(new Status(TStatusCode.INTERNAL_ERROR,
-                            "Read Arrow Flight Schema failed because."));
-                    return null;
+                    throw new RuntimeException("Read Arrow Flight Schema failed.", e);
                 }
             } else {
-                LOG.info("finistId={}, get empty arrow flight schema", DebugUtil.printId(tid));
-                return null;
+                throw new RuntimeException(String.format("get empty arrow flight schema, finstId: %s",
+                        DebugUtil.printId(tid)));
             }
         } catch (RpcException e) {
-            LOG.warn("arrow flight schema fetch catch rpc exception, finstId {} backend {}",
-                    DebugUtil.printId(tid), address.toString(), e);
-            status.setRpcStatus(e.getMessage());
+            throw new RuntimeException(String.format(
+                    "arrow flight schema fetch catch rpc exception, finstId: %s，backend: %s",
+                    DebugUtil.printId(tid), address), e);
         } catch (InterruptedException e) {
-            LOG.warn("arrow flight schema future get interrupted exception, finstId {} backend {}",
-                    DebugUtil.printId(tid), address.toString(), e);
-            status.setStatus("interrupted exception");
+            throw new RuntimeException(String.format(
+                    "arrow flight schema future get interrupted exception, finstId: %s，backend: %s",
+                    DebugUtil.printId(tid), address), e);
         } catch (ExecutionException e) {
-            LOG.warn("arrow flight schema future get execution exception, finstId {} backend {}",
-                    DebugUtil.printId(tid), address.toString(), e);
-            status.setStatus("execution exception");
+            throw new RuntimeException(String.format(
+                    "arrow flight schema future get execution exception, finstId: %s，backend: %s",
+                    DebugUtil.printId(tid), address), e);
         } catch (TimeoutException e) {
-            LOG.warn("arrow flight schema fetch timeout, finstId {} backend {}",
-                    DebugUtil.printId(tid), address.toString(), e);
-            status.setStatus("fetch timeout");
+            throw new RuntimeException(String.format(
+                    "arrow flight schema fetch timeout, finstId: %s，backend: %s",
+                    DebugUtil.printId(tid), address), e);
         }
-        return null;
     }
 }

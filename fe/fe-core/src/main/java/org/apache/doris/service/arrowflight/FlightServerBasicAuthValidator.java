@@ -14,6 +14,9 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
+// This file is copied from
+// https://github.com/dremio/dremio-oss/blob/master/services/arrow-flight/src/main/java/com/dremio/service/flight/ServerCookieMiddleware.java
+// and modified by Doris
 
 package org.apache.doris.service.arrowflight;
 
@@ -25,6 +28,7 @@ import java.util.Optional;
 /**
  * authentication specialized implementation of BasicAuthValidator. Authenticates with provided
  * credentials.
+ * TODO
  */
 public class FlightServerBasicAuthValidator implements BasicServerAuthHandler.BasicAuthValidator {
 

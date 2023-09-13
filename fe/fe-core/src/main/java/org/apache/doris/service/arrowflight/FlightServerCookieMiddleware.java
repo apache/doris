@@ -14,6 +14,9 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
+// This file is copied from
+// https://github.com/dremio/dremio-oss/blob/master/services/arrow-flight/src/main/java/com/dremio/service/flight/ServerCookieMiddleware.java
+// and modified by Doris
 
 package org.apache.doris.service.arrowflight;
 
@@ -30,16 +33,14 @@ import javax.validation.constraints.NotNull;
 
 /**
  * ServerCookieMiddleware allows a FlightServer to retrieve cookies from the request as well as set outgoing cookies
+ * TODO
  */
-public final class ServerCookieMiddleware implements FlightServerMiddleware {
+public final class FlightServerCookieMiddleware implements FlightServerMiddleware {
     private RequestContext requestContext;
     private Map<String, String> cookieValues;
     private final CallHeaders incomingHeaders;
 
-    /**
-    * Factory to construct @see com.dremio.service.flight.ServerCookieMiddlewares
-    */
-    public static class Factory implements FlightServerMiddleware.Factory<ServerCookieMiddleware> {
+    public static class Factory implements FlightServerMiddleware.Factory<FlightServerCookieMiddleware> {
         /**
         * Construct a factory for receiving call headers.
         */
@@ -47,14 +48,15 @@ public final class ServerCookieMiddleware implements FlightServerMiddleware {
         }
 
         @Override
-        public ServerCookieMiddleware onCallStarted(CallInfo callInfo, CallHeaders incomingHeaders,
+        public FlightServerCookieMiddleware onCallStarted(CallInfo callInfo, CallHeaders incomingHeaders,
                                                     RequestContext context) {
-            return new ServerCookieMiddleware(callInfo, incomingHeaders, context);
+            return new FlightServerCookieMiddleware(callInfo, incomingHeaders, context);
         }
     }
 
 
-    private ServerCookieMiddleware(CallInfo callInfo, CallHeaders incomingHeaders, RequestContext requestContext) {
+    private FlightServerCookieMiddleware(CallInfo callInfo, CallHeaders incomingHeaders,
+            RequestContext requestContext) {
         this.incomingHeaders = incomingHeaders;
         this.requestContext = requestContext;
         this.cookieValues = new HashMap<String, String>();

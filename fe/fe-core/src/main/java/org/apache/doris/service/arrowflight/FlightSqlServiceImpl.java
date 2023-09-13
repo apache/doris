@@ -14,10 +14,12 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
+// This file is copied from
+// https://github.com/apache/arrow/blob/main/java/flight/flight-sql/src/test/java/org/apache/arrow/flight/sql/example/FlightSqlExample.java
+// and modified by Doris
 
 package org.apache.doris.service.arrowflight;
 
-import org.apache.doris.common.Status;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.common.util.Util;
 
@@ -59,11 +61,14 @@ import org.apache.arrow.memory.BufferAllocator;
 import org.apache.arrow.memory.RootAllocator;
 import org.apache.arrow.util.AutoCloseables;
 import org.apache.arrow.vector.types.pojo.Schema;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.util.Collections;
 import java.util.List;
 
 public class FlightSqlServiceImpl implements FlightSqlProducer, AutoCloseable {
+    private static final Logger LOG = LogManager.getLogger(FlightSqlServiceImpl.class);
     private final Location location;
     private final BufferAllocator rootAllocator = new RootAllocator();
     private final SqlInfoBuilder sqlInfoBuilder;
@@ -85,19 +90,19 @@ public class FlightSqlServiceImpl implements FlightSqlProducer, AutoCloseable {
 
     @Override
     public void getStreamPreparedStatement(final CommandPreparedStatementQuery command, final CallContext context,
-                                           final ServerStreamListener listener) {
+            final ServerStreamListener listener) {
         throw CallStatus.UNIMPLEMENTED.withDescription("getStreamPreparedStatement unimplemented").toRuntimeException();
     }
 
     @Override
     public void closePreparedStatement(final ActionClosePreparedStatementRequest request, final CallContext context,
-                                       final StreamListener<Result> listener) {
+            final StreamListener<Result> listener) {
         throw CallStatus.UNIMPLEMENTED.withDescription("closePreparedStatement unimplemented").toRuntimeException();
     }
 
     @Override
     public FlightInfo getFlightInfoStatement(final CommandStatementQuery request, final CallContext context,
-                                             final FlightDescriptor descriptor) {
+            final FlightDescriptor descriptor) {
         try {
             final String query = request.getQuery();
             final FlightStatementContext flightStatementContext = new FlightStatementContext(query);
@@ -113,37 +118,29 @@ public class FlightSqlServiceImpl implements FlightSqlProducer, AutoCloseable {
                     flightStatementContext.getResultFlightServerAddr().port);
             List<FlightEndpoint> endpoints = Collections.singletonList(new FlightEndpoint(ticket, location));
 
-            Status status = new Status();
             Schema schema;
-            try {
-                schema = flightStatementContext.fetchArrowFlightSchema(5000, status);
-            } catch (Exception e) {
-                throw CallStatus.INTERNAL.withDescription("failed to fetch Arrow Flight SQL schema. "
-                        + Util.getRootCauseMessage(e)).toRuntimeException();
-            }
-            if (!status.ok()) {
-                throw CallStatus.INTERNAL.withDescription(status.toString()).toRuntimeException();
-            }
+            schema = flightStatementContext.fetchArrowFlightSchema(5000);
             if (schema == null) {
-                throw CallStatus.INTERNAL.withDescription("schema is null, status: " + status).toRuntimeException();
+                throw CallStatus.INTERNAL.withDescription("fetch arrow flight schema is null").toRuntimeException();
             }
             return new FlightInfo(schema, descriptor, endpoints, -1, -1);
         } catch (Exception e) {
-            throw CallStatus.INTERNAL.withCause(e).toRuntimeException();
+            LOG.warn("get flight info statement failed, " + e.getMessage(), e);
+            throw CallStatus.INTERNAL.withDescription(Util.getRootCauseMessage(e)).withCause(e).toRuntimeException();
         }
     }
 
     @Override
     public FlightInfo getFlightInfoPreparedStatement(final CommandPreparedStatementQuery command,
-                                                     final CallContext context,
-                                                     final FlightDescriptor descriptor) {
+            final CallContext context,
+            final FlightDescriptor descriptor) {
         throw CallStatus.UNIMPLEMENTED.withDescription("getFlightInfoPreparedStatement unimplemented")
                 .toRuntimeException();
     }
 
     @Override
     public SchemaResult getSchemaStatement(final CommandStatementQuery command, final CallContext context,
-                                           final FlightDescriptor descriptor) {
+            final FlightDescriptor descriptor) {
         throw CallStatus.UNIMPLEMENTED.withDescription("getSchemaStatement unimplemented").toRuntimeException();
     }
 
@@ -159,7 +156,7 @@ public class FlightSqlServiceImpl implements FlightSqlProducer, AutoCloseable {
 
     @Override
     public void createPreparedStatement(final ActionCreatePreparedStatementRequest request, final CallContext context,
-                                        final StreamListener<Result> listener) {
+            final StreamListener<Result> listener) {
         throw CallStatus.UNIMPLEMENTED.withDescription("createPreparedStatement unimplemented").toRuntimeException();
     }
 
@@ -170,52 +167,52 @@ public class FlightSqlServiceImpl implements FlightSqlProducer, AutoCloseable {
 
     @Override
     public Runnable acceptPutStatement(CommandStatementUpdate command,
-                                       CallContext context, FlightStream flightStream,
-                                       StreamListener<PutResult> ackStream) {
+            CallContext context, FlightStream flightStream,
+            StreamListener<PutResult> ackStream) {
         throw CallStatus.UNIMPLEMENTED.withDescription("acceptPutStatement unimplemented").toRuntimeException();
     }
 
     @Override
     public Runnable acceptPutPreparedStatementUpdate(CommandPreparedStatementUpdate command, CallContext context,
-                                                     FlightStream flightStream, StreamListener<PutResult> ackStream) {
+            FlightStream flightStream, StreamListener<PutResult> ackStream) {
         throw CallStatus.UNIMPLEMENTED.withDescription("acceptPutPreparedStatementUpdate unimplemented")
                 .toRuntimeException();
     }
 
     @Override
     public Runnable acceptPutPreparedStatementQuery(CommandPreparedStatementQuery command, CallContext context,
-                                                    FlightStream flightStream, StreamListener<PutResult> ackStream) {
+            FlightStream flightStream, StreamListener<PutResult> ackStream) {
         throw CallStatus.UNIMPLEMENTED.withDescription("acceptPutPreparedStatementQuery unimplemented")
                 .toRuntimeException();
     }
 
     @Override
     public FlightInfo getFlightInfoSqlInfo(final CommandGetSqlInfo request, final CallContext context,
-                                           final FlightDescriptor descriptor) {
+            final FlightDescriptor descriptor) {
         return getFlightInfoForSchema(request, descriptor, Schemas.GET_SQL_INFO_SCHEMA);
     }
 
     @Override
     public void getStreamSqlInfo(final CommandGetSqlInfo command, final CallContext context,
-                                 final ServerStreamListener listener) {
+            final ServerStreamListener listener) {
         this.sqlInfoBuilder.send(command.getInfoList(), listener);
     }
 
     @Override
     public FlightInfo getFlightInfoTypeInfo(CommandGetXdbcTypeInfo request, CallContext context,
-                                            FlightDescriptor descriptor) {
+            FlightDescriptor descriptor) {
         return getFlightInfoForSchema(request, descriptor, Schemas.GET_TYPE_INFO_SCHEMA);
     }
 
     @Override
     public void getStreamTypeInfo(CommandGetXdbcTypeInfo request, CallContext context,
-                                  ServerStreamListener listener) {
+            ServerStreamListener listener) {
         throw CallStatus.UNIMPLEMENTED.withDescription("getStreamTypeInfo unimplemented").toRuntimeException();
     }
 
     @Override
     public FlightInfo getFlightInfoCatalogs(final CommandGetCatalogs request, final CallContext context,
-                                            final FlightDescriptor descriptor) {
+            final FlightDescriptor descriptor) {
         return getFlightInfoForSchema(request, descriptor, Schemas.GET_CATALOGS_SCHEMA);
     }
 
@@ -226,19 +223,19 @@ public class FlightSqlServiceImpl implements FlightSqlProducer, AutoCloseable {
 
     @Override
     public FlightInfo getFlightInfoSchemas(final CommandGetDbSchemas request, final CallContext context,
-                                           final FlightDescriptor descriptor) {
+            final FlightDescriptor descriptor) {
         return getFlightInfoForSchema(request, descriptor, Schemas.GET_SCHEMAS_SCHEMA);
     }
 
     @Override
     public void getStreamSchemas(final CommandGetDbSchemas command, final CallContext context,
-                                 final ServerStreamListener listener) {
+            final ServerStreamListener listener) {
         throw CallStatus.UNIMPLEMENTED.withDescription("getStreamSchemas unimplemented").toRuntimeException();
     }
 
     @Override
     public FlightInfo getFlightInfoTables(final CommandGetTables request, final CallContext context,
-                                          final FlightDescriptor descriptor) {
+            final FlightDescriptor descriptor) {
         Schema schemaToUse = Schemas.GET_TABLES_SCHEMA;
         if (!request.getIncludeSchema()) {
             schemaToUse = Schemas.GET_TABLES_SCHEMA_NO_SCHEMA;
@@ -248,13 +245,13 @@ public class FlightSqlServiceImpl implements FlightSqlProducer, AutoCloseable {
 
     @Override
     public void getStreamTables(final CommandGetTables command, final CallContext context,
-                                final ServerStreamListener listener) {
+            final ServerStreamListener listener) {
         throw CallStatus.UNIMPLEMENTED.withDescription("getStreamTables unimplemented").toRuntimeException();
     }
 
     @Override
     public FlightInfo getFlightInfoTableTypes(final CommandGetTableTypes request, final CallContext context,
-                                              final FlightDescriptor descriptor) {
+            final FlightDescriptor descriptor) {
         return getFlightInfoForSchema(request, descriptor, Schemas.GET_TABLE_TYPES_SCHEMA);
     }
 
@@ -265,61 +262,61 @@ public class FlightSqlServiceImpl implements FlightSqlProducer, AutoCloseable {
 
     @Override
     public FlightInfo getFlightInfoPrimaryKeys(final CommandGetPrimaryKeys request, final CallContext context,
-                                               final FlightDescriptor descriptor) {
+            final FlightDescriptor descriptor) {
         return getFlightInfoForSchema(request, descriptor, Schemas.GET_PRIMARY_KEYS_SCHEMA);
     }
 
     @Override
     public void getStreamPrimaryKeys(final CommandGetPrimaryKeys command, final CallContext context,
-                                     final ServerStreamListener listener) {
+            final ServerStreamListener listener) {
 
         throw CallStatus.UNIMPLEMENTED.withDescription("getStreamPrimaryKeys unimplemented").toRuntimeException();
     }
 
     @Override
     public FlightInfo getFlightInfoExportedKeys(final CommandGetExportedKeys request, final CallContext context,
-                                                final FlightDescriptor descriptor) {
+            final FlightDescriptor descriptor) {
         return getFlightInfoForSchema(request, descriptor, Schemas.GET_EXPORTED_KEYS_SCHEMA);
     }
 
     @Override
     public void getStreamExportedKeys(final CommandGetExportedKeys command, final CallContext context,
-                                      final ServerStreamListener listener) {
+            final ServerStreamListener listener) {
         throw CallStatus.UNIMPLEMENTED.withDescription("getStreamExportedKeys unimplemented").toRuntimeException();
     }
 
     @Override
     public FlightInfo getFlightInfoImportedKeys(final CommandGetImportedKeys request, final CallContext context,
-                                                final FlightDescriptor descriptor) {
+            final FlightDescriptor descriptor) {
         return getFlightInfoForSchema(request, descriptor, Schemas.GET_IMPORTED_KEYS_SCHEMA);
     }
 
     @Override
     public void getStreamImportedKeys(final CommandGetImportedKeys command, final CallContext context,
-                                      final ServerStreamListener listener) {
+            final ServerStreamListener listener) {
         throw CallStatus.UNIMPLEMENTED.withDescription("getStreamImportedKeys unimplemented").toRuntimeException();
     }
 
     @Override
     public FlightInfo getFlightInfoCrossReference(CommandGetCrossReference request, CallContext context,
-                                                  FlightDescriptor descriptor) {
+            FlightDescriptor descriptor) {
         return getFlightInfoForSchema(request, descriptor, Schemas.GET_CROSS_REFERENCE_SCHEMA);
     }
 
     @Override
     public void getStreamCrossReference(CommandGetCrossReference command, CallContext context,
-                                        ServerStreamListener listener) {
+            ServerStreamListener listener) {
         throw CallStatus.UNIMPLEMENTED.withDescription("getStreamCrossReference unimplemented").toRuntimeException();
     }
 
     @Override
     public void getStreamStatement(final TicketStatementQuery ticketStatementQuery, final CallContext context,
-                                   final ServerStreamListener listener) {
+            final ServerStreamListener listener) {
         throw CallStatus.UNIMPLEMENTED.withDescription("getStreamStatement unimplemented").toRuntimeException();
     }
 
     private <T extends Message> FlightInfo getFlightInfoForSchema(final T request, final FlightDescriptor descriptor,
-                                                                  final Schema schema) {
+            final Schema schema) {
         final Ticket ticket = new Ticket(Any.pack(request).toByteArray());
         // TODO Support multiple endpoints.
         final List<FlightEndpoint> endpoints = Collections.singletonList(new FlightEndpoint(ticket, location));

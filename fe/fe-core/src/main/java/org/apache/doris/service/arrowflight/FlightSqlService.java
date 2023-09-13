@@ -36,7 +36,7 @@ public class FlightSqlService {
     private final FlightServer flightServer;
     private volatile boolean running;
     public static final String FLIGHT_CLIENT_PROPERTIES_MIDDLEWARE = "client-properties-middleware";
-    public static final FlightServerMiddleware.Key<ServerCookieMiddleware> FLIGHT_CLIENT_PROPERTIES_MIDDLEWARE_KEY
+    public static final FlightServerMiddleware.Key<FlightServerCookieMiddleware> FLIGHT_CLIENT_PROPERTIES_MIDDLEWARE_KEY
             = FlightServerMiddleware.Key.of(FLIGHT_CLIENT_PROPERTIES_MIDDLEWARE);
 
     public FlightSqlService(int port) {
@@ -44,19 +44,19 @@ public class FlightSqlService {
         Location location = Location.forGrpcInsecure("0.0.0.0", port);
         FlightSqlServiceImpl producer = new FlightSqlServiceImpl(location);
         flightServer = FlightServer.builder(allocator, location, producer)
-            .middleware(FLIGHT_CLIENT_PROPERTIES_MIDDLEWARE_KEY,
-                new ServerCookieMiddleware.Factory())
-            .authHandler(new BasicServerAuthHandler(new FlightServerBasicAuthValidator())).build();
+                .middleware(FLIGHT_CLIENT_PROPERTIES_MIDDLEWARE_KEY,
+                        new FlightServerCookieMiddleware.Factory())
+                .authHandler(new BasicServerAuthHandler(new FlightServerBasicAuthValidator())).build();
     }
 
-    // start Flightsql protocol service
-    // return true if success, otherwise false
+    // start Arrow Flight SQL service, return true if success, otherwise false
     public boolean start() {
         try {
             flightServer.start();
-            LOG.info("Flightsql network service is started.");
+            running = true;
+            LOG.info("Arrow Flight SQL service is started.");
         } catch (IOException e) {
-            LOG.warn("Open Flightsql network service failed.", e);
+            LOG.error("Start Arrow Flight SQL service failed.", e);
             return false;
         }
         return true;
@@ -65,11 +65,10 @@ public class FlightSqlService {
     public void stop() {
         if (running) {
             running = false;
-            // close server channel, make accept throw exception
             try {
                 flightServer.close();
             } catch (InterruptedException e) {
-                LOG.warn("close server channel failed.", e);
+                LOG.warn("close Arrow Flight SQL server failed.", e);
             }
         }
     }

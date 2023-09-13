@@ -2703,7 +2703,7 @@ public class StmtExecutor {
             } catch (Exception e) {
                 queryScheduleSpan.recordException(e);
                 LOG.warn("Failed to coord exec Arrow Flight SQL, because: {}", e.getMessage(), e);
-                throw new InternalQueryExecutionException(e.getMessage() + Util.getRootCauseMessage(e), e);
+                throw new RuntimeException(e.getMessage() + Util.getRootCauseMessage(e), e);
             } finally {
                 queryScheduleSpan.end();
             }
