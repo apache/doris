@@ -664,9 +664,9 @@ public class StmtExecutor {
         profile.getSummaryProfile().setQueryBeginTime();
         context.setStmtId(STMT_ID_GENERATOR.incrementAndGet());
         context.setQueryId(queryId);
-        if (parsedStmt == null) {
-            parseByLegacy();
-        }
+        // if (parsedStmt == null) {
+        //     parseByLegacy();
+        // }
         // set isQuery first otherwise this state will be lost if some error occurs
         if (parsedStmt instanceof QueryStmt) {
             context.getState().setIsQuery(true);
@@ -887,9 +887,9 @@ public class StmtExecutor {
                     context.getForwardedStmtId());
         }
 
-        if (parsedStmt == null) {
-            parseByLegacy();
-        }
+        // if (parsedStmt == null) {
+        //     parseByLegacy();
+        // }
 
         boolean preparedStmtReanalyzed = false;
         PrepareStmtContext preparedStmtCtx = null;
