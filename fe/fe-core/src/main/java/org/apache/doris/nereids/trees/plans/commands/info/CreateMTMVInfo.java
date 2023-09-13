@@ -34,15 +34,18 @@ import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.glue.LogicalPlanAdapter;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
+import org.apache.doris.nereids.util.Utils;
 import org.apache.doris.planner.ScanNode;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
+import com.google.common.collect.Sets;
 
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
 import java.util.TreeMap;
 import java.util.stream.Collectors;
 
@@ -80,7 +83,7 @@ public class CreateMTMVInfo {
         this.ifNotExists = Objects.requireNonNull(ifNotExists, "require ifNotExists object");
         this.dbName = dbName;
         this.tableName = Objects.requireNonNull(tableName, "require tableName object");
-        this.keys = keys;
+        this.keys = Utils.copyRequiredList(keys);
         this.comment = comment;
         this.distribution = Objects.requireNonNull(distribution, "require distribution object");
         this.properties = properties;
@@ -101,6 +104,12 @@ public class CreateMTMVInfo {
         if (columns.isEmpty()) {
             throw new AnalysisException("table should contain at least one column");
         }
+        // analyze column
+        final boolean finalEnableMergeOnWrite = false;
+        Set<String> keysSet = Sets.newTreeSet(String.CASE_INSENSITIVE_ORDER);
+        keysSet.addAll(keys);
+        columns.forEach(c -> c.validate(keysSet, finalEnableMergeOnWrite, KeysType.DUP_KEYS));
+
         if (distribution == null) {
             throw new AnalysisException("Create MTMV should contain distribution desc");
         }
@@ -138,12 +147,18 @@ public class CreateMTMVInfo {
     }
 
     private void getColumns(NereidsPlanner planner) {
+        Set<String> colNames = Sets.newHashSet();
         List<Slot> slots = planner.getOptimizedPlan().getOutput();
         for (Slot slot : slots) {
             try {
                 FeNameFormat.checkColumnName(slot.getName());
             } catch (org.apache.doris.common.AnalysisException e) {
                 throw new AnalysisException(e.getMessage() + ", please use alis.");
+            }
+            if (colNames.contains(slot.getName())) {
+                throw new AnalysisException("repeat cols:" + slot.getName());
+            } else {
+                colNames.add(slot.getName());
             }
             columns.add(new ColumnDefinition(slot.getName(), slot.getDataType(), true));
         }

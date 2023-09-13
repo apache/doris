@@ -447,8 +447,11 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         String querySql = getOriginSql(ctx.query());
         String originSql = getOriginSql(ctx);
 
+        // TODO: 2023/9/13  if auto ,set bucketNum is 0,but get error:
+        //  InternalCatalog.addPartitionLike(InternalCatalog.java:1383) Cannot assign hash distribution buckets less than 1
+        // so we set it is 2 temporary until `CreateTable` fix it
         DistributionDescriptor distributionDesc = new DistributionDescriptor(ctx.HASH() != null, ctx.AUTO() != null,
-                Integer.parseInt(ctx.INTEGER_VALUE().getText()),
+                ctx.INTEGER_VALUE() == null ? 2 : Integer.parseInt(ctx.INTEGER_VALUE().getText()),
                 ctx.HASH() != null ? visitIdentifierList(ctx.hashKeys) : null);
         Map<String, String> properties = ctx.propertyClause() != null
                 ? Maps.newHashMap(visitPropertyClause(ctx.propertyClause())) : null;
