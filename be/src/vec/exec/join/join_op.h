@@ -164,6 +164,7 @@ private:
     friend class ForwardIterator<RowRefList>;
 
     Batch<RowRefType>* next = nullptr;
+    uint32_t row_count = 1;
 };
 
 struct RowRefListWithFlag : RowRef {
@@ -197,6 +198,7 @@ private:
     friend class ForwardIterator<RowRefListWithFlag>;
 
     Batch<RowRefType>* next = nullptr;
+    uint32_t row_count = 1;
 };
 
 struct RowRefListWithFlags : RowRefWithFlag {
@@ -228,6 +230,7 @@ private:
     friend class ForwardIterator<RowRefListWithFlags>;
 
     Batch<RowRefType>* next = nullptr;
+    uint32_t row_count = 1;
 };
 
 } // namespace doris::vectorized
