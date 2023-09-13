@@ -26,6 +26,7 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.CascadesContext;
+import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.memo.Group;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.trees.expressions.Alias;
@@ -122,6 +123,7 @@ import org.apache.doris.statistics.StatisticConstants;
 import org.apache.doris.statistics.StatisticRange;
 import org.apache.doris.statistics.Statistics;
 import org.apache.doris.statistics.StatisticsBuilder;
+import org.apache.doris.statistics.util.StatisticsUtil;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Maps;
@@ -621,21 +623,46 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
                         .setAvgSizeByte(slotReference.getColumn().get().getType().getSlotSize())
                         .build();
             }
-            if (!cache.isUnKnown) {
-                rowCount = Math.max(rowCount, cache.count);
-                Histogram histogram = getColumnHistogram(table, colName);
-                if (histogram != null) {
-                    ColumnStatisticBuilder columnStatisticBuilder =
-                            new ColumnStatisticBuilder(cache).setHistogram(histogram);
-                    cache = columnStatisticBuilder.build();
-                    if (ConnectContext.get().getSessionVariable().isEnableMinidump()
-                            && !ConnectContext.get().getSessionVariable().isPlayNereidsDump()) {
-                        totalColumnStatisticMap.put(table.getName() + ":" + colName, cache);
-                        totalHistogramMap.put(table.getName() + colName, histogram);
+            if (cache.isUnKnown) {
+                if (forbidUnknownColStats && !shouldIgnoreThisCol) {
+                    if (StatisticsUtil.statsTblAvailable()) {
+                        throw new AnalysisException(String.format("Found unknown stats for column:%s.%s.\n"
+                                + "It may caused by:\n"
+                                + "\n"
+                                + "1. This column never got analyzed\n"
+                                + "2. This table is empty\n"
+                                + "3. Stats load failed caused by unstable of backends,"
+                                + "and FE cached the unknown stats by default in this scenario\n"
+                                + "4. There is a bug, please report it to Doris community\n"
+                                + "\n"
+                                + "If an unknown stats for this column is tolerable,"
+                                + "you could set session variable `forbid_unknown_col_stats` to false to make planner"
+                                + " ignore this error and keep planning.", table.getName(), colName));
+                    } else {
+                        throw new AnalysisException("BE is not available!");
                     }
+                }
+                columnStatisticMap.put(slotReference, cache);
+                continue;
+            }
+            rowCount = Math.max(rowCount, cache.count);
+            Histogram histogram = getColumnHistogram(table, colName);
+            if (histogram != null) {
+                ColumnStatisticBuilder columnStatisticBuilder =
+                        new ColumnStatisticBuilder(cache).setHistogram(histogram);
+                columnStatisticMap.put(slotReference, columnStatisticBuilder.build());
+                cache = columnStatisticBuilder.build();
+                if (ConnectContext.get().getSessionVariable().isEnableMinidump()
+                        && !ConnectContext.get().getSessionVariable().isPlayNereidsDump()) {
+                    totalHistogramMap.put(table.getName() + ":" + colName, histogram);
                 }
             }
             columnStatisticMap.put(slotReference, cache);
+            if (ConnectContext.get().getSessionVariable().isEnableMinidump()
+                    && !ConnectContext.get().getSessionVariable().isPlayNereidsDump()) {
+                totalColumnStatisticMap.put(table.getName() + ":" + colName, cache);
+                totalHistogramMap.put(table.getName() + colName, histogram);
+            }
         }
         return new Statistics(rowCount, columnStatisticMap);
     }
