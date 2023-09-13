@@ -66,7 +66,7 @@ public class ShowJobStmt extends ShowStmt {
 
     private static final String MTMV_NAME_TITLE = "mtmv_name";
 
-    private static final String NAME_TITLE = "name";
+    private static final String NAME_TITLE = "Name";
     private final LabelName labelName;
 
     @Getter

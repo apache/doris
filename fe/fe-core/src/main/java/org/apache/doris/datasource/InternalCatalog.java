@@ -1338,7 +1338,7 @@ public class InternalCatalog implements CatalogIf<Database> {
         try {
             Table table = db.getTableOrDdlException(tableName);
 
-            if (table.getType() != TableType.OLAP) {
+            if (table.getType() != TableType.OLAP && table.getType() != TableType.MATERIALIZED_VIEW) {
                 throw new DdlException("Only support create partition from a OLAP table");
             }
 
@@ -1658,7 +1658,8 @@ public class InternalCatalog implements CatalogIf<Database> {
 
     public void replayAddPartition(PartitionPersistInfo info) throws MetaNotFoundException {
         Database db = (Database) getDbOrMetaException(info.getDbId());
-        OlapTable olapTable = (OlapTable) db.getTableOrMetaException(info.getTableId(), TableType.OLAP);
+        OlapTable olapTable = (OlapTable) db.getTableOrMetaException(info.getTableId(),
+                Lists.newArrayList(TableType.OLAP, TableType.MATERIALIZED_VIEW));
         olapTable.writeLock();
         try {
             Partition partition = info.getPartition();

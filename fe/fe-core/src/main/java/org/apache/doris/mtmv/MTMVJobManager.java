@@ -24,6 +24,7 @@ import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.MaterializedView;
 import org.apache.doris.catalog.TableIf.TableType;
+import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.util.TimeUtils;
@@ -60,7 +61,7 @@ public class MTMVJobManager {
         Job job = new Job();
         job.setCycleJob(false);
         job.setBaseName(materializedView.getName());
-        job.setDbName(materializedView.getQualifiedDbName());
+        job.setDbName(ConnectContext.get().getDatabase());
         job.setJobName(materializedView.getName() + "_" + uid);
         job.setExecutor(sqlJobExecutor);
         job.setImmediatelyStart(true);
@@ -76,7 +77,7 @@ public class MTMVJobManager {
         Job job = new Job();
         job.setCycleJob(true);
         job.setBaseName(materializedView.getName());
-        job.setDbName(materializedView.getQualifiedDbName());
+        job.setDbName(ConnectContext.get().getDatabase());
         job.setJobName(materializedView.getName() + "_" + uid);
         job.setExecutor(sqlJobExecutor);
         MVRefreshSchedule intervalTrigger = materializedView.getRefreshTriggerInfo().getIntervalTrigger();
@@ -110,7 +111,7 @@ public class MTMVJobManager {
         builder.append("INSERT OVERWRITE TABLE ");
         builder.append(materializedView.getDatabase().getCatalog().getName());
         builder.append(".");
-        builder.append(materializedView.getQualifiedDbName());
+        builder.append(ClusterNamespace.getNameFromFullName(materializedView.getQualifiedDbName()));
         builder.append(".");
         builder.append(materializedView.getName());
         builder.append(" ");

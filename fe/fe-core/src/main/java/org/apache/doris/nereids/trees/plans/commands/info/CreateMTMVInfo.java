@@ -28,6 +28,7 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.cluster.ClusterNamespace;
+import org.apache.doris.common.FeNameFormat;
 import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.glue.LogicalPlanAdapter;
@@ -139,6 +140,11 @@ public class CreateMTMVInfo {
     private void getColumns(NereidsPlanner planner) {
         List<Slot> slots = planner.getOptimizedPlan().getOutput();
         for (Slot slot : slots) {
+            try {
+                FeNameFormat.checkColumnName(slot.getName());
+            } catch (org.apache.doris.common.AnalysisException e) {
+                throw new AnalysisException(e.getMessage() + ", please use alis.");
+            }
             columns.add(new ColumnDefinition(slot.getName(), slot.getDataType(), true));
         }
     }
