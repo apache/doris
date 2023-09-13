@@ -89,7 +89,7 @@ public:
 
     Status start();
 
-    void shutdown();
+    void stop();
 
     TaskQueue* task_queue() const { return _task_queue.get(); }
 

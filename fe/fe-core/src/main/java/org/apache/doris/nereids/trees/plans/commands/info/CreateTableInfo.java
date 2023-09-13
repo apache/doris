@@ -202,7 +202,7 @@ public class CreateTableInfo {
                     keyLength += catalogType.getIndexSize();
                     if (keys.size() >= FeConstants.shortkey_max_column_count
                             || keyLength > FeConstants.shortkey_maxsize_bytes) {
-                        if (keys.size() == 0 && type.isStringLikeType()) {
+                        if (keys.isEmpty() && type.isStringLikeType()) {
                             keys.add(column.getName());
                         }
                         break;
@@ -326,6 +326,7 @@ public class CreateTableInfo {
         }
 
         // analyze distribution descriptor
+        distribution.updateCols(columns.get(0).getName());
         distribution.validate(columnMap, keysType);
 
         // analyze key set.
