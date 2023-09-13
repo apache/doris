@@ -144,7 +144,7 @@ suite("test_full_compaction_by_table_id") {
                 do {
                     Thread.sleep(1000)
                     tablet_id = tablets[i][0]
-                    backend_id = tablets[0][2]
+                    backend_id = tablets[i][2]
                     (code, out, err) = be_get_compaction_status(backendId_to_backendIP.get(backend_id), backendId_to_backendHttpPort.get(backend_id), tablet_id)
                     logger.info("Get compaction status: code=" + code + ", out=" + out + ", err=" + err)
                     assertEquals(code, 0)
