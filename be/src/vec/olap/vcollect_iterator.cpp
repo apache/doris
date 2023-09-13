@@ -489,14 +489,15 @@ int64_t VCollectIterator::Level0Iterator::version() const {
 
 Status VCollectIterator::Level0Iterator::refresh_current_row() {
     do {
+        if (_block == nullptr && !_get_data_by_ref) {
+            _block = std::make_shared<Block>(_schema.create_block(
+                    _reader->_return_columns, _reader->_tablet_columns_convert_to_null_set));
+        }
+
         if (!_is_empty() && _current_valid()) {
             return Status::OK();
         } else {
             _reset();
-            if (_block == nullptr && !_get_data_by_ref) {
-                _block = std::make_shared<Block>(_schema.create_block(
-                        _reader->_return_columns, _reader->_tablet_columns_convert_to_null_set));
-            }
             auto res = _refresh();
             if (!res.ok() && !res.is<END_OF_FILE>()) {
                 return res;
