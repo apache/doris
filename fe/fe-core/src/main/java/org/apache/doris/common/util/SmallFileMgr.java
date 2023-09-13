@@ -437,8 +437,8 @@ public class SmallFileMgr implements Writable {
 
     private boolean checkMd5(File file, String expectedMd5) throws DdlException {
         String md5sum = null;
-        try {
-            md5sum = DigestUtils.md5Hex(new FileInputStream(file));
+        try (FileInputStream fis = new FileInputStream(file)) {
+            md5sum = DigestUtils.md5Hex(fis);
         } catch (FileNotFoundException e) {
             throw new DdlException("File " + file.getName() + " does not exist");
         } catch (IOException e) {
