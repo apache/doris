@@ -1164,6 +1164,8 @@ DECLARE_mInt32(group_commit_insert_threads);
 // Default is 0, which is default value of thread nice value, increase this value
 // to lower the priority of scan threads
 DECLARE_Int32(scan_thread_nice_value);
+// Used to modify the recycle interval of tablet schema cache
+DECLARE_mInt32(tablet_schema_cache_recycle_interval);
 
 #ifdef BE_TEST
 // test s3
