@@ -121,7 +121,7 @@ Status ScannerContext::init() {
     _block_per_scanner = (doris_scanner_row_num + (real_block_size - 1)) / real_block_size;
     _free_blocks_capacity = _max_thread_num * _block_per_scanner;
     auto block = get_free_block();
-    _estimated_block_bytes = std::max(block->allocated_bytes(), 16);
+    _estimated_block_bytes = std::max(block->allocated_bytes(), (size_t)16);
     return_free_block(std::move(block));
 
 #ifndef BE_TEST
