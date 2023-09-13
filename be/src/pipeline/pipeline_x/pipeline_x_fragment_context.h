@@ -69,7 +69,7 @@ public:
 
     ~PipelineXFragmentContext() override;
 
-    void instance_ids(std::vector<TUniqueId>& ins_ids) const {
+    void instance_ids(std::vector<TUniqueId>& ins_ids) const override {
         ins_ids.resize(_runtime_states.size());
         for (size_t i = 0; i < _runtime_states.size(); i++) {
             ins_ids[i] = _runtime_states[i]->fragment_instance_id();

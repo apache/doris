@@ -86,6 +86,9 @@ public class HudiJniScanner extends JniScanner {
 
     static {
         int numThreads = Math.max(Runtime.getRuntime().availableProcessors() * 2 + 1, 4);
+        if (numThreads > 32) {
+            numThreads = Runtime.getRuntime().availableProcessors();
+        }
         avroReadPool = Executors.newFixedThreadPool(numThreads,
                 new ThreadFactoryBuilder().setNameFormat("avro-log-reader-%d").build());
         LOG.info("Create " + numThreads + " daemon threads to load avro logs");
@@ -176,10 +179,15 @@ public class HudiJniScanner extends JniScanner {
                 if (ugi != null) {
                     recordIterator = ugi.doAs(
                             (PrivilegedExceptionAction<Iterator<InternalRow>>) () -> new MORSnapshotSplitReader(
-                                    split).buildScanIterator(split.requiredFields(), new Filter[0]));
+                                    split).buildScanIterator(new Filter[0]));
                 } else {
                     recordIterator = new MORSnapshotSplitReader(split)
-                            .buildScanIterator(split.requiredFields(), new Filter[0]);
+                            .buildScanIterator(new Filter[0]);
+                }
+                if (AVRO_RESOLVER_CACHE != null && AVRO_RESOLVER_CACHE.get() != null) {
+                    cachedResolvers.computeIfAbsent(Thread.currentThread().getId(),
+                            threadId -> AVRO_RESOLVER_CACHE.get());
+                    AVRO_RESOLVER_CACHE.get().clear();
                 }
             } catch (Exception e) {
                 LOG.error("Failed to open hudi scanner, split params:\n" + debugString, e);
@@ -189,10 +197,6 @@ public class HudiJniScanner extends JniScanner {
             }
             isKilled.set(true);
             executorService.shutdownNow();
-            if (AVRO_RESOLVER_CACHE != null && AVRO_RESOLVER_CACHE.get() != null) {
-                cachedResolvers.computeIfAbsent(Thread.currentThread().getId(),
-                        threadId -> AVRO_RESOLVER_CACHE.get());
-            }
             getRecordReaderTimeNs += System.nanoTime() - startTime;
         });
         try {

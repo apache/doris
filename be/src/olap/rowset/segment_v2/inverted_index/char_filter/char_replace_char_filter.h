@@ -17,14 +17,32 @@
 
 #pragma once
 
+#include <CLucene.h>
+#include <CLucene/analysis/CharFilter.h>
+
+#include <bitset>
+
 namespace doris {
 
-class TResourceInfo;
-class ResourceTls {
+class CharReplaceCharFilter : public lucene::analysis::CharFilter {
 public:
-    static void init();
-    static TResourceInfo* get_resource_tls();
-    static int set_resource_tls(TResourceInfo*);
+    CharReplaceCharFilter(lucene::util::Reader* in, const std::string& pattern,
+                          const std::string& replacement);
+    virtual ~CharReplaceCharFilter() = default;
+
+    void init(const void* _value, int32_t _length, bool copyData) override;
+    int32_t read(const void** start, int32_t min, int32_t max) override;
+    int32_t readCopy(void* start, int32_t off, int32_t len) override;
+
+private:
+    void fill();
+    void process_pattern(std::string& buf);
+
+    std::bitset<256> _patterns;
+    std::string _replacement;
+
+    std::string _buf;
+    lucene::util::SStringReader<char> _transformed_input;
 };
 
 } // namespace doris

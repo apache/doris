@@ -34,6 +34,7 @@
 #include "olap/storage_policy.h"
 #include "olap/tablet_meta.h"
 #include "olap/utils.h"
+#include "runtime/exec_env.h"
 #include "testutil/mock_rowset.h"
 #include "util/time.h"
 #include "util/uid_util.h"
@@ -86,7 +87,7 @@ public:
 
         doris::EngineOptions options;
         k_engine = new StorageEngine(options);
-        StorageEngine::_s_instance = k_engine;
+        ExecEnv::GetInstance()->set_storage_engine(k_engine);
     }
 
     void TearDown() override {
@@ -95,6 +96,7 @@ public:
             k_engine->stop();
             delete k_engine;
             k_engine = nullptr;
+            ExecEnv::GetInstance()->set_storage_engine(nullptr);
         }
     }
 

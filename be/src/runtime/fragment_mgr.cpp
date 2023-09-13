@@ -139,7 +139,9 @@ FragmentMgr::FragmentMgr(ExecEnv* exec_env)
     CHECK(s.ok()) << s.to_string();
 }
 
-FragmentMgr::~FragmentMgr() {
+FragmentMgr::~FragmentMgr() {}
+
+void FragmentMgr::stop() {
     DEREGISTER_HOOK_METRIC(plan_fragment_count);
     DEREGISTER_HOOK_METRIC(fragment_thread_pool_queue_size);
     _stop_background_threads_latch.count_down();
@@ -344,7 +346,7 @@ void FragmentMgr::_exec_actual(std::shared_ptr<PlanFragmentExecutor> fragment_ex
     bool all_done = false;
     if (query_ctx != nullptr) {
         // decrease the number of unfinished fragments
-        all_done = query_ctx->countdown();
+        all_done = query_ctx->countdown(1);
     }
 
     // remove exec state after this fragment finished
@@ -452,18 +454,6 @@ Status FragmentMgr::start_query_execution(const PExecPlanFragmentStartRequest* r
 
 void FragmentMgr::remove_pipeline_context(
         std::shared_ptr<pipeline::PipelineFragmentContext> f_context) {
-    std::lock_guard<std::mutex> lock(_lock);
-    auto query_id = f_context->get_query_id();
-    auto* q_context = f_context->get_query_context();
-    bool all_done = q_context->countdown();
-    _pipeline_map.erase(f_context->get_fragment_instance_id());
-    if (all_done) {
-        _query_ctx_map.erase(query_id);
-    }
-}
-
-void FragmentMgr::remove_pipeline_context(
-        std::shared_ptr<pipeline::PipelineXFragmentContext> f_context) {
     std::lock_guard<std::mutex> lock(_lock);
     auto query_id = f_context->get_query_id();
     auto* q_context = f_context->get_query_context();
