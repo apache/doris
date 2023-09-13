@@ -397,13 +397,6 @@ public abstract class Type {
         return isScalarType(PrimitiveType.DATETIMEV2);
     }
 
-    public boolean isDateLike() {
-        return isScalarType(PrimitiveType.DATETIME)
-                || isScalarType(PrimitiveType.DATETIMEV2)
-                || isScalarType(PrimitiveType.DATE)
-                || isScalarType(PrimitiveType.DATEV2);
-    }
-
     public boolean isTimeV2() {
         return isScalarType(PrimitiveType.TIMEV2);
     }

@@ -524,7 +524,7 @@ public class FEFunctions {
 
     @FEFunction(name = "date_trunc", argTypes = {"DATETIME", "VARCHAR"}, returnType = "DATETIME")
     public static DateLiteral dateTruncDatetime(LiteralExpr date, LiteralExpr truncate) {
-        if (date.getType().isDateLike()) {
+        if (date.getType().isDateType()) {
             DateLiteral dateLiteral = ((DateLiteral) date);
             LocalDateTime localDate = dateTruncHelper(LocalDateTime.of(
                             (int) dateLiteral.getYear(), (int) dateLiteral.getMonth(), (int) dateLiteral.getDay(),
@@ -539,7 +539,7 @@ public class FEFunctions {
 
     @FEFunction(name = "date_trunc", argTypes = {"DATETIMEV2", "VARCHAR"}, returnType = "DATETIMEV2")
     public static DateLiteral dateTruncDatetimeV2(LiteralExpr date, LiteralExpr truncate) {
-        if (date.getType().isDateLike()) {
+        if (date.getType().isDateType()) {
             DateLiteral dateLiteral = ((DateLiteral) date);
             LocalDateTime localDate = dateTruncHelper(LocalDateTime.of(
                             (int) dateLiteral.getYear(), (int) dateLiteral.getMonth(), (int) dateLiteral.getDay(),
@@ -554,7 +554,7 @@ public class FEFunctions {
 
     @FEFunction(name = "date_trunc", argTypes = { "DATE", "VARCHAR" }, returnType = "DATE")
     public static DateLiteral dateTruncDate(LiteralExpr date, LiteralExpr truncate) {
-        if (date.getType().isDateLike()) {
+        if (date.getType().isDateType()) {
             DateLiteral dateLiteral = ((DateLiteral) date);
             LocalDateTime localDate = dateTruncHelper(LocalDateTime.of(
                     (int) dateLiteral.getYear(), (int) dateLiteral.getMonth(), (int) dateLiteral.getDay(), 0, 0, 0),
@@ -568,7 +568,7 @@ public class FEFunctions {
 
     @FEFunction(name = "date_trunc", argTypes = { "DATEV2", "VARCHAR" }, returnType = "DATEV2")
     public static DateLiteral dateTruncDateV2(LiteralExpr date, LiteralExpr truncate) {
-        if (date.getType().isDateLike()) {
+        if (date.getType().isDateType()) {
             DateLiteral dateLiteral = ((DateLiteral) date);
             LocalDateTime localDate = dateTruncHelper(LocalDateTime.of(
                     (int) dateLiteral.getYear(), (int) dateLiteral.getMonth(), (int) dateLiteral.getDay(), 0, 0, 0),
