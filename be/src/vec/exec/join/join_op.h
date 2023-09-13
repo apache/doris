@@ -160,8 +160,6 @@ struct RowRefList : RowRef {
         next = next->insert(std::move(row_ref), pool);
     }
 
-    bool is_single() const { return row_count == 1; }
-
     uint32_t get_row_count() { return row_count; }
 
 private:
@@ -196,9 +194,7 @@ struct RowRefListWithFlag : RowRef {
         next = next->insert(std::move(row_ref), pool);
     }
 
-    bool is_single() const { return row_count == 1; }
-
-    uint32_t get_row_count() const { return row_count; }
+    uint32_t get_row_count() { return row_count; }
 
     bool visited = false;
 
@@ -234,9 +230,7 @@ struct RowRefListWithFlags : RowRefWithFlag {
         next = next->insert(std::move(row_ref), pool);
     }
 
-    bool is_single() const { return row_count == 1; }
-
-    uint32_t get_row_count() const { return row_count; }
+    uint32_t get_row_count() { return row_count; }
 
 private:
     friend class ForwardIterator<RowRefListWithFlags>;
