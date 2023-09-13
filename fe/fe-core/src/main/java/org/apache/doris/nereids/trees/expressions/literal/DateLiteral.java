@@ -96,23 +96,88 @@ public class DateLiteral extends Literal {
         this.day = other.day;
     }
 
-    // replace 'T' with ' '
-    private static String replaceDelimiterT(String s) {
-        // Matcher matcher = Pattern.compile("^(\\d{2,4}-\\d{1,2}-\\d{1,2})T").matcher(s);
-        // if (matcher.find()) {
-        //     return matcher.group(1) + " " + s.substring(matcher.end());
-        // }
-        // return s;
-        if (s.length() <= 10) {
-            return s;
+    static String normalize(String s) {
+        StringBuilder sb = new StringBuilder();
+
+        int i = 0;
+
+        // handle two digit year
+        if (s.charAt(2) != '-' && s.charAt(4) != '-') {
+            throw new AnalysisException("date/datetime literal [" + s + "] is invalid");
         }
-        if (s.charAt(10) == 'T') {
-            return s.substring(0, 10) + " " + s.substring(11);
-        } else if (s.charAt(8) == 'T') {
-            return s.substring(0, 8) + " " + s.substring(9);
-        } else {
-            return s;
+        if (s.charAt(2) == '-') {
+            String yy = s.substring(0, 2);
+            int year = Integer.parseInt(yy);
+            if (year >= 0 && year <= 69) {
+                sb.append("20");
+            } else if (year >= 70 && year <= 99) {
+                sb.append("19");
+            }
+            sb.append(yy);
+            i = 2;
         }
+
+        // normalized leading 0
+        while (i < s.length()) {
+            char c = s.charAt(i);
+
+            if (c == '.') {
+                // skip .microsecond, such as .0001 .000001
+                sb.append(c);  // Append the dot itself
+                i += 1;  // Skip the dot
+
+                // skip the microsecond part
+                while (i < s.length() && Character.isDigit(s.charAt(i))) {
+                    sb.append(s.charAt(i));
+                    i += 1;
+                }
+            } else if (Character.isDigit(c)) {
+                // find consecutive digit
+                int j = i + 1;
+                while (j < s.length() && Character.isDigit(s.charAt(j))) {
+                    j += 1;
+                }
+                int len = j - i;
+                if (len == 4 || len == 2) {
+                    for (int k = i; k < j; k++) {
+                        sb.append(s.charAt(k));
+                    }
+                } else if (len == 1) {
+                    sb.append('0');
+                    sb.append(c);
+                } else {
+                    throw new AnalysisException("date/datetime literal [" + s + "] is invalid");
+                }
+                i = j;
+            } else {
+                sb.append(c);
+                i += 1;
+            }
+        }
+
+        int len = sb.length();
+        // Replace delimiter 'T' with ' '
+        if (len > 10 && sb.charAt(10) == 'T') {
+            sb.setCharAt(10, ' ');
+        }
+
+        // add missing Minute Second in Time part
+        if (len > 10 && sb.charAt(10) == ' ') {
+            if (len == 13 || len > 13 && sb.charAt(13) != ':') {
+                sb.insert(13, ":00:00");
+            } else if (len == 16 || (len > 16 && sb.charAt(16) != ':')) {
+                sb.insert(16, ":00");
+            }
+        }
+
+        len = sb.length();
+        int signIdx = sb.indexOf("+", 10); // from index:10, skip date part (it contains '-')
+        signIdx = signIdx == -1 ? sb.indexOf("-", 10) : signIdx;
+        if (signIdx != -1 && len - signIdx == 3) {
+            sb.append(":00");
+        }
+
+        return sb.toString();
     }
 
     protected static TemporalAccessor parse(String s) {
@@ -135,8 +200,8 @@ public class DateLiteral extends Literal {
                 return dateTime;
             }
 
-            // replace first 'T' with ' '
-            s = replaceDelimiterT(s);
+            s = normalize(s);
+
             if (!s.contains(" ")) {
                 dateTime = DateTimeFormatterUtils.ZONE_DATE_FORMATTER.parse(s);
             } else {
@@ -145,12 +210,12 @@ public class DateLiteral extends Literal {
 
             // if Year is not present, throw exception
             if (!dateTime.isSupported(ChronoField.YEAR)) {
-                throw new AnalysisException("datetime literal [" + originalString + "] is invalid");
+                throw new AnalysisException("date/datetime literal [" + originalString + "] is invalid");
             }
 
             return dateTime;
         } catch (Exception ex) {
-            throw new AnalysisException("datetime literal [" + originalString + "] is invalid");
+            throw new AnalysisException("date/datetime literal [" + originalString + "] is invalid");
         }
     }
 
@@ -161,7 +226,7 @@ public class DateLiteral extends Literal {
         day = DateUtils.getOrDefault(dateTime, ChronoField.DAY_OF_MONTH);
 
         if (checkRange() || checkDate()) {
-            throw new AnalysisException("datetime literal [" + s + "] is out of range");
+            throw new AnalysisException("date/datetime literal [" + s + "] is out of range");
         }
     }
 
