@@ -96,7 +96,9 @@ public class InlineViewRef extends TableRef {
 
     public InlineViewRef(String alias, QueryStmt queryStmt, List<String> colLabels) {
         this(alias, queryStmt);
-        explicitColLabels = Lists.newArrayList(colLabels);
+        if (colLabels != null) {
+            explicitColLabels = Lists.newArrayList(colLabels);
+        }
     }
 
     /**

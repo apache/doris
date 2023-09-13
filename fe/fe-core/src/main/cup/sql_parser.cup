@@ -738,7 +738,7 @@ nonterminal ArrayList<LiteralExpr> literal_values, args_list;
 nonterminal ArrayList<Expr> func_arg_list;
 nonterminal ArrayList<Expr> expr_pipe_list;
 nonterminal String select_alias, opt_table_alias, lock_alias, opt_alias;
-nonterminal ArrayList<String> ident_list;
+nonterminal ArrayList<String> ident_list, opt_ident_list;
 nonterminal PartitionNames opt_partition_names, partition_names;
 nonterminal ArrayList<Long> opt_tablet_list, tablet_list;
 nonterminal TableSample opt_table_sample, table_sample;
@@ -5728,9 +5728,12 @@ table_valued_function_ref ::=
   ;
 
 inline_view_ref ::=
-    LPAREN query_stmt:query RPAREN opt_table_alias:alias
+    LPAREN query_stmt:query RPAREN opt_table_alias:alias opt_ident_list:l
     {:
-        RESULT = new InlineViewRef(alias, query);
+        if (alias == null && l != null) {
+            throw new AnalysisException("Invalid column name for inline view, need view name");
+        }
+        RESULT = new InlineViewRef(alias, query, l);
     :}
     ;
 
@@ -6010,6 +6013,13 @@ opt_sort_hints ::=
   |
   {: RESULT = null; :}
   ;
+  
+opt_ident_list ::=
+    ident_list:l
+    {: RESULT = l; :}
+    | /* empty */
+    {: RESULT = null; :}
+    ;
 
 ident_list ::=
     ident:ident
