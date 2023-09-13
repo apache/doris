@@ -37,6 +37,7 @@
 #include "io/fs/path.h"
 #include "olap/lru_cache.h"
 #include "olap/rowset/segment_v2/inverted_index_query_type.h"
+#include "runtime/exec_env.h"
 #include "runtime/memory/lru_cache_policy.h"
 #include "runtime/memory/mem_tracker.h"
 #include "util/slice.h"
@@ -72,7 +73,8 @@ public:
 
     // Create global instance of this class.
     // "capacity" is the capacity of lru cache.
-    static void create_global_instance(size_t capacity, uint32_t num_shards = 16);
+    static InvertedIndexSearcherCache* create_global_instance(size_t capacity,
+                                                              uint32_t num_shards = 16);
 
     void reset() {
         _cache.reset();
@@ -80,15 +82,11 @@ public:
         // Reset or clear the state of the object.
     }
 
-    static void reset_global_instance() {
-        if (_s_instance != nullptr) {
-            _s_instance->reset();
-        }
-    }
-
     // Return global instance.
     // Client should call create_global_cache before.
-    static InvertedIndexSearcherCache* instance() { return _s_instance; }
+    static InvertedIndexSearcherCache* instance() {
+        return ExecEnv::GetInstance()->get_inverted_index_searcher_cache();
+    }
 
     static IndexSearcherPtr build_index_searcher(const io::FileSystemSPtr& fs,
                                                  const std::string& index_dir,
@@ -123,7 +121,6 @@ private:
     Cache::Handle* _insert(const InvertedIndexSearcherCache::CacheKey& key, CacheValue* value);
 
 private:
-    static InvertedIndexSearcherCache* _s_instance;
     std::unique_ptr<MemTracker> _mem_tracker = nullptr;
 };
 
@@ -223,15 +220,16 @@ public:
     };
 
     // Create global instance of this class
-    static void create_global_cache(size_t capacity, uint32_t num_shards = 16) {
-        DCHECK(_s_instance == nullptr);
-        static InvertedIndexQueryCache instance(capacity, num_shards);
-        _s_instance = &instance;
+    static InvertedIndexQueryCache* create_global_cache(size_t capacity, uint32_t num_shards = 16) {
+        InvertedIndexQueryCache* res = new InvertedIndexQueryCache(capacity, num_shards);
+        return res;
     }
 
     // Return global instance.
     // Client should call create_global_cache before.
-    static InvertedIndexQueryCache* instance() { return _s_instance; }
+    static InvertedIndexQueryCache* instance() {
+        return ExecEnv::GetInstance()->get_inverted_index_query_cache();
+    }
 
     InvertedIndexQueryCache() = delete;
 
@@ -246,9 +244,6 @@ public:
                 InvertedIndexQueryCacheHandle* handle);
 
     int64_t mem_consumption();
-
-private:
-    static InvertedIndexQueryCache* _s_instance;
 };
 
 class InvertedIndexQueryCacheHandle {
