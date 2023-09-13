@@ -62,6 +62,7 @@ import org.apache.doris.thrift.THdfsParams;
 import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TPrimitiveType;
 import org.apache.doris.thrift.TStatusCode;
+import org.apache.doris.thrift.TTextSerdeType;
 
 import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableSet;
@@ -88,7 +89,7 @@ import java.util.stream.Collectors;
  */
 public abstract class ExternalFileTableValuedFunction extends TableValuedFunctionIf {
     public static final Logger LOG = LogManager.getLogger(ExternalFileTableValuedFunction.class);
-    protected static final String DEFAULT_COLUMN_SEPARATOR = ",";
+    protected static String DEFAULT_COLUMN_SEPARATOR = ",";
     protected static final String DEFAULT_LINE_DELIMITER = "\n";
     public static final String FORMAT = "format";
     public static final String COLUMN_SEPARATOR = "column_separator";
@@ -122,6 +123,8 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
             .add(TRIM_DOUBLE_QUOTES)
             .add(SKIP_LINES)
             .add(CSV_SCHEMA)
+            .add(COMPRESS_TYPE)
+            .add(PATH_PARTITION_KEYS)
             .build();
 
     // Columns got from file and path(if has)
@@ -134,11 +137,14 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
 
     protected List<TBrokerFileStatus> fileStatuses = Lists.newArrayList();
     protected Map<String, String> locationProperties;
+    protected String filePath;
+
 
     private TFileFormatType fileFormatType;
     private TFileCompressType compressionType;
     private String headerType = "";
 
+    private TTextSerdeType textSerdeType = TTextSerdeType.JSON_TEXT_SERDE;
     private String columnSeparator = DEFAULT_COLUMN_SEPARATOR;
     private String lineDelimiter = DEFAULT_LINE_DELIMITER;
     private String jsonRoot = "";
@@ -196,11 +202,17 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
         }
     }
 
+    //The keys in the passed validParams map need to be lowercase.
     protected void parseProperties(Map<String, String> validParams) throws AnalysisException {
-        String formatString = validParams.getOrDefault(FORMAT, "").toLowerCase();
+        String formatString = validParams.getOrDefault(FORMAT, "");
         switch (formatString) {
             case "csv":
                 this.fileFormatType = TFileFormatType.FORMAT_CSV_PLAIN;
+                break;
+            case "hive_text":
+                this.fileFormatType = TFileFormatType.FORMAT_CSV_PLAIN;
+                this.DEFAULT_COLUMN_SEPARATOR = "\001";
+                this.textSerdeType = TTextSerdeType.HIVE_TEXT_SERDE;
                 break;
             case "csv_with_names":
                 this.headerType = FeConstants.csv_with_names;
@@ -226,15 +238,6 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
                 throw new AnalysisException("format:" + formatString + " is not supported.");
         }
 
-        // TODO Support is needed in the future
-        if (getTFileType() == TFileType.FILE_STREAM && (formatString.equals("csv_with_names")
-                || formatString.equals("csv_with_names_and_types")
-                || formatString.equals("parquet")
-                || formatString.equals("avro")
-                || formatString.equals("orc"))) {
-            throw new AnalysisException("current http_stream does not yet support csv_with_names, "
-                    + "csv_with_names_and_types, parquet, avro and orc");
-        }
         columnSeparator = validParams.getOrDefault(COLUMN_SEPARATOR, DEFAULT_COLUMN_SEPARATOR);
         lineDelimiter = validParams.getOrDefault(LINE_DELIMITER, DEFAULT_LINE_DELIMITER);
         jsonRoot = validParams.getOrDefault(JSON_ROOT, "");
@@ -493,6 +496,7 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
         TFileScanRangeParams fileScanRangeParams = new TFileScanRangeParams();
         fileScanRangeParams.setFormatType(fileFormatType);
         fileScanRangeParams.setProperties(locationProperties);
+        fileScanRangeParams.setTextSerdeType(textSerdeType);
         fileScanRangeParams.setFileAttributes(getFileAttributes());
         ConnectContext ctx = ConnectContext.get();
         fileScanRangeParams.setLoadId(ctx.queryId());

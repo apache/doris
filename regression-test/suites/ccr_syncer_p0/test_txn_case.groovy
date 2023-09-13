@@ -39,6 +39,10 @@ suite("test_txn_case") {
     }
 
     def syncer = getSyncer()
+    if (!syncer.checkEnableFeatureBinlog()) {
+        logger.info("fe enable_feature_binlog is false, skip case test_txn_case")
+        return
+    }
     def txnTableName = "tbl_txn_case"
     def test_num = 0
     sql "DROP TABLE IF EXISTS ${txnTableName}"
@@ -141,8 +145,7 @@ suite("test_txn_case") {
                     "replication_allocation" = "tag.location.default: 1"
                 )
             """
-    target_sql """DROP USER IF EXISTS ${noPrivUser}"""
-    target_sql """CREATE USER ${noPrivUser} IDENTIFIED BY '123456'"""
+    target_sql """CREATE USER IF NOT EXISTS ${noPrivUser} IDENTIFIED BY '123456'"""
     target_sql """GRANT ALL ON ${context.config.defaultDb}.* TO ${noPrivUser}"""
     target_sql """GRANT ALL ON TEST_${context.dbName}.${emptyTable} TO ${noPrivUser}"""
     syncer.context.user = "${noPrivUser}"
@@ -154,8 +157,7 @@ suite("test_txn_case") {
     // if not all privileges are obtained, txn should not be began
     logger.info("=== Test 3.3: Begin a txn with low priv user case ===")
     def lowPrivUser = "low_priv_user"
-    target_sql """DROP USER IF EXISTS ${lowPrivUser}"""
-    target_sql """CREATE USER ${lowPrivUser} IDENTIFIED BY '123456'"""
+    target_sql """CREATE USER IF NOT EXISTS ${lowPrivUser} IDENTIFIED BY '123456'"""
     target_sql """GRANT ALL ON ${context.config.defaultDb}.* TO ${lowPrivUser}"""
     syncer.context.user = "${lowPrivUser}"
     syncer.context.passwd = "123456"
@@ -172,8 +174,7 @@ suite("test_txn_case") {
 
     logger.info("=== Test 3.4: Complete the txn with SHOW_PRIV user case ===")
     def showPrivUser = "show_priv_user"
-    target_sql """DROP USER IF EXISTS ${showPrivUser}"""
-    target_sql """CREATE USER ${showPrivUser} IDENTIFIED BY '123456'"""
+    target_sql """CREATE USER IF NOT EXISTS ${showPrivUser} IDENTIFIED BY '123456'"""
     target_sql """GRANT ALL ON ${context.config.defaultDb}.* TO ${showPrivUser}"""
     target_sql """
                   GRANT 

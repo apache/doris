@@ -84,6 +84,7 @@ public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
     public static final String AGG_MERGE_SUFFIX = "_merge";
 
     protected boolean disableTableName = false;
+    protected boolean needToMysql = false;
 
     // to be used where we can't come up with a better estimate
     public static final double DEFAULT_SELECTIVITY = 0.1;
@@ -956,6 +957,13 @@ public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
         }
     }
 
+    public void setNeedToMysql(boolean value) {
+        needToMysql = value;
+        for (Expr child : children) {
+            child.setNeedToMysql(value);
+        }
+    }
+
     public String toSqlWithoutTbl() {
         setDisableTableName(true);
         String result = toSql();
@@ -983,7 +991,10 @@ public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
     }
 
     public String toMySql() {
-        return toSql();
+        setNeedToMysql(true);
+        String result =  toSql();
+        setNeedToMysql(false);
+        return result;
     }
 
     /**
@@ -1832,6 +1843,11 @@ public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
         if (this instanceof SlotRef) {
             SlotRef slot = (SlotRef) this;
             if (slot.getColumnName() != null && slot.getColumnName().equals(colName)) {
+                return true;
+            }
+        } else if (this instanceof ColumnRefExpr) {
+            ColumnRefExpr slot = (ColumnRefExpr) this;
+            if (slot.getName() != null && slot.getName().equals(colName)) {
                 return true;
             }
         }

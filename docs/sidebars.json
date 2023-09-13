@@ -210,8 +210,8 @@
                 "lakehouse/file",
                 "lakehouse/filecache",
                 "lakehouse/external-statistics",
-                "lakehouse/faq",
-                "lakehouse/fs-benchmark-tool"
+                "lakehouse/fs-benchmark-tool",
+                "lakehouse/faq"
             ]
         },
         {
@@ -760,6 +760,16 @@
                                 "sql-manual/sql-functions/ip-functions/inet-ntoa"
                             ]
                         },
+                        {
+                            "type": "category",
+                            "label": "Vector Distance Functions",
+                            "items": [
+                                "sql-manual/sql-functions/distance-functions/cosine-distance",
+                                "sql-manual/sql-functions/distance-functions/inner-product",
+                                "sql-manual/sql-functions/distance-functions/l1-distance",
+                                "sql-manual/sql-functions/distance-functions/l2-distance"
+                            ]
+                        },
                         "sql-manual/sql-functions/cast",
                         "sql-manual/sql-functions/digital-masking",
                         "sql-manual/sql-functions/width-bucket"
@@ -1288,7 +1298,9 @@
             "type": "category",
             "label": "Release notes",
             "items": [
+                "releasenotes/release-2.0.1",
                 "releasenotes/release-2.0.0",
+                "releasenotes/release-1.2.7",
                 "releasenotes/release-1.2.6",
                 "releasenotes/release-1.2.5",
                 "releasenotes/release-1.2.4",

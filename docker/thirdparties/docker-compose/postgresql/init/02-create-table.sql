@@ -178,3 +178,55 @@ CREATE TABLE catalog_pg_test.jsonb_test (
     type varchar(10),
     value jsonb
 );
+
+CREATE TABLE catalog_pg_test.person_r (
+    age int not null,
+    city varchar not null
+)
+    PARTITION BY RANGE (age);
+
+
+create table catalog_pg_test.person_r1 partition of catalog_pg_test.person_r for values from (MINVALUE) to (10);
+create table catalog_pg_test.person_r2 partition of catalog_pg_test.person_r for values from (11) to (20);
+create table catalog_pg_test.person_r3 partition of catalog_pg_test.person_r for values from (21) to (30);
+create table catalog_pg_test.person_r4 partition of catalog_pg_test.person_r for values from (31) to (MAXVALUE);
+
+CREATE TABLE catalog_pg_test.tb_test_alarm (
+    id varchar(64) NOT NULL,
+    alarm_type varchar(10) NOT NULL,
+    happen_time timestamptz NOT NULL,
+    CONSTRAINT tb_test_pk PRIMARY KEY (id)
+);
+
+create table catalog_pg_test.tb_test_alarm_2020_12 () inherits (catalog_pg_test.tb_test_alarm);
+create table catalog_pg_test.tb_test_alarm_2020_11 () inherits (catalog_pg_test.tb_test_alarm);
+create table catalog_pg_test.tb_test_alarm_2020_10 () inherits (catalog_pg_test.tb_test_alarm);
+create table catalog_pg_test.tb_test_alarm_2020_09 () inherits (catalog_pg_test.tb_test_alarm);
+
+
+--创建分区函数
+CREATE OR REPLACE FUNCTION alarm_partition_trigger()
+RETURNS TRIGGER AS $$
+BEGIN
+    IF NEW.happen_time >= '2020-09-01 00:00:00' and NEW.happen_time <= '2020-09-30 23:59:59'
+    THEN
+        INSERT INTO catalog_pg_test.tb_test_alarm_2020_09 VALUES (NEW.*);
+    ELSIF NEW.happen_time >= '2020-10-01 00:00:00' and NEW.happen_time <= '2020-10-31 23:59:59'
+    THEN
+        INSERT INTO catalog_pg_test.tb_test_alarm_2020_10 VALUES (NEW.*);
+    ELSIF NEW.happen_time >= '2020-11-01 00:00:00' and NEW.happen_time <= '2020-11-30 23:59:59'
+    THEN
+        INSERT INTO catalog_pg_test.tb_test_alarm_2020_11 VALUES (NEW.*);
+    ELSIF NEW.happen_time >= '2020-12-01 00:00:00' and NEW.happen_time <= '2020-12-31 23:59:59'
+    THEN
+        INSERT INTO catalog_pg_test.tb_test_alarm_2020_12 VALUES (NEW.*);
+END IF;
+RETURN NULL;
+END;
+$$
+LANGUAGE plpgsql;
+
+--挂载分区Trigger
+CREATE TRIGGER insert_almart_partition_trigger
+    BEFORE INSERT ON catalog_pg_test.tb_test_alarm
+    FOR EACH ROW EXECUTE PROCEDURE alarm_partition_trigger();

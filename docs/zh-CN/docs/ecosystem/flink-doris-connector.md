@@ -416,7 +416,7 @@ insert into doris_sink select id,name from cdc_mysql_source;
 ## 使用FlinkCDC接入多表或整库示例
 ### 语法
 ```shell
-<FLINK_HOME>/bin/flink run \
+<FLINK_HOME>bin/flink run \
     -c org.apache.doris.flink.tools.cdc.CdcTools \
     lib/flink-doris-connector-1.16-1.4.0-SNAPSHOT.jar \
     <mysql-sync-database|oracle-sync-database|postgres-sync-database|sqlserver-sync-database> \
@@ -449,7 +449,7 @@ insert into doris_sink select id,name from cdc_mysql_source;
 
 ### MySQL同步示例
 ```shell
-<FLINK_HOME>/bin/flink run \
+<FLINK_HOME>bin/flink run \
     -Dexecution.checkpointing.interval=10s \
     -Dparallelism.default=1 \
     -c org.apache.doris.flink.tools.cdc.CdcTools \
@@ -472,7 +472,7 @@ insert into doris_sink select id,name from cdc_mysql_source;
 ### Oracle同步示例
 
 ```shell
-<FLINK_HOME>/bin/flink run \
+<FLINK_HOME>bin/flink run \
      -Dexecution.checkpointing.interval=10s \
      -Dparallelism.default=1 \
      -c org.apache.doris.flink.tools.cdc.CdcTools \
@@ -674,3 +674,10 @@ Flink在数据导入时，如果有脏数据，比如字段格式、长度等问
 11. **源表和Doris表应如何对应？**
 使用Flink Connector导入数据时，要注意两个方面，第一是源表的列和类型跟flink sql中的列和类型要对应上；第二个是flink sql中的列和类型要跟doris表的列和类型对应上，具体可以参考上面的"Doris 和 Flink 列类型映射关系"
 
+12. **TApplicationException: get_next failed: out of sequence response: expected 4 but got 3**
+
+这是由于 Thrift 框架存在并发 bug 导致的，建议你使用尽可能新的 connector 以及与之兼容的 flink 版本。
+
+13. **DorisRuntimeException: Fail to abort transaction 26153 with url http://192.168.0.1:8040/api/table_name/_stream_load_2pc**
+
+你可以在 TaskManager 中搜索日志 `abort transaction response`，根据 http 返回码确定是 client 的问题还是 server 的问题。

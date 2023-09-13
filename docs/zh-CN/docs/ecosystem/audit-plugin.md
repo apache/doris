@@ -54,6 +54,10 @@ Doris 的审计日志插件是在 FE 的插件框架基础上开发的。是一�
     * plugin.properties：插件属性文件。
     * plugin.conf：插件配置文件。
 
+您可以将这个文件放置在一个 http 服务器上，或者拷贝`auditloader.zip`(或者解压`auditloader.zip`)到所有 FE 的指定目录下。这里我们使用后者。  
+该插件的安装可以参阅 [INSTALL](../sql-manual/sql-reference/Database-Administration-Statements/INSTALL-PLUGIN.md)  
+执行install后会自动生成AuditLoader目录
+
 3. 修改 plugin.conf 
 
     以下配置可供修改：

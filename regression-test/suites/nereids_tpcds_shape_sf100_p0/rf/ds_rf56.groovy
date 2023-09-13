@@ -101,7 +101,7 @@ where i_color in ('powder','green','cyan'))
 
     '''
     String plan = sql "${stmt}"
-    println plan
+    log.info(plan)
     def getRuntimeFilters = { plantree ->
         {
             def lst = []
