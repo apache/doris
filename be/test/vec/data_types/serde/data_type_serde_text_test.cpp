@@ -375,7 +375,7 @@ TEST(TextSerde, ComplexTypeSerdeTextTest) {
                 std::string expect_str_1 = std::get<3>(type_pair)[i];
                 std::cout << "rand_str:" << rand_str << std::endl;
                 std::cout << "expect_str:" << expect_str << std::endl;
-                std::cout << "expect_str_can_format_from_string:" << expect_str << std::endl;
+                std::cout << "expect_str_can_format_from_string:" << expect_str_1 << std::endl;
                 {
                     Slice slice(rand_str.data(), rand_str.size());
                     formatOptions.converted_from_string = false;
@@ -416,7 +416,7 @@ TEST(TextSerde, ComplexTypeSerdeTextTest) {
                     auto ser_col = ColumnString::create();
                     ser_col->reserve(1);
                     VectorBufferWriter buffer_writer(*ser_col.get());
-                    serde->serialize_one_cell_to_json(*col, i, buffer_writer, formatOptions);
+                    serde->serialize_one_cell_to_json(*col2, i, buffer_writer, formatOptions);
                     buffer_writer.commit();
                     StringRef rand_s_d = ser_col->get_data_at(0);
                     std::cout << "test from string: " << rand_s_d << std::endl;

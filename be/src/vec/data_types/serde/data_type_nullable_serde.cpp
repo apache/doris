@@ -124,7 +124,7 @@ Status DataTypeNullableSerDe::deserialize_one_cell_from_json(IColumn& column, Sl
     // sure slice is from string parse , we can parse this "null" literal as string "null" to
     // nested column , otherwise we insert null to null column
     if (!(options.converted_from_string && slice.trim_quote())) {
-        if (Slice::mem_equal("null", slice.data, 4)) {
+        if (slice.size == 4 && Slice::mem_equal("null", slice.data, 4)) {
             null_column.insert_data(nullptr, 0);
             return Status::OK();
         } else if (slice.size == 2 && slice[0] == '\\' && slice[1] == 'N') {
