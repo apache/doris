@@ -19,8 +19,7 @@
 
 namespace doris {
 
-DisjunctionQuery::DisjunctionQuery(IndexReader* reader)
-        : _reader(reader) {}
+DisjunctionQuery::DisjunctionQuery(IndexReader* reader) : _reader(reader) {}
 
 DisjunctionQuery::~DisjunctionQuery() {
     for (auto& term : _terms) {
@@ -35,8 +34,7 @@ DisjunctionQuery::~DisjunctionQuery() {
     }
 }
 
-void DisjunctionQuery::add(const std::wstring& field_name,
-                           const std::vector<std::string>& terms) {
+void DisjunctionQuery::add(const std::wstring& field_name, const std::vector<std::string>& terms) {
     if (terms.size() < 1) {
         _CLTHROWA(CL_ERR_IllegalArgument, "ConjunctionQuery::add: terms.size() < 1");
     }
@@ -70,7 +68,7 @@ void DisjunctionQuery::search(roaring::Roaring& roaring) {
             roaring |= result;
         }
     };
-    for (int i = 0; i<_term_iterators.size();i++) {
+    for (int i = 0; i < _term_iterators.size(); i++) {
         auto& iter = _term_iterators[i];
         if (i == 0) {
             func(iter, true);
