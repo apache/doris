@@ -185,7 +185,7 @@ public:
         _free_blocks_memory_usage->add(free_blocks_memory_usage);
     }
 
-    bool should_be_schedule() const override {
+    bool should_be_scheduled() const override {
         return (_current_used_bytes < _max_bytes_in_queue / 2 * _num_parallel_instances) &&
                (_serving_blocks_num < allowed_blocks_num());
     }

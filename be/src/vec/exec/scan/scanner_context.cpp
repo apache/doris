@@ -176,7 +176,7 @@ void ScannerContext::return_free_block(std::unique_ptr<vectorized::Block> block)
     if (block->mem_reuse()) {
         // Only put blocks with schema to free blocks, because colocate blocks
         // need schema.
-        _estimated_block_bytes = block->allocated_bytes();
+        _estimated_block_bytes = std::max(block->allocated_bytes(), (size_t)16);
         block->clear_column_data();
         _free_blocks_memory_usage->add(block->allocated_bytes());
         _free_blocks.enqueue(std::move(block));
@@ -209,7 +209,7 @@ Status ScannerContext::get_block_from_queue(RuntimeState* state, vectorized::Blo
     // (if the scheduler continues to schedule, it will cause a lot of busy running).
     // At this point, consumers are required to trigger new scheduling to ensure that
     // data can be continuously fetched.
-    if (should_be_schedule() && _num_running_scanners == 0) {
+    if (should_be_scheduled() && _num_running_scanners == 0) {
         auto state = _scanner_scheduler->submit(this);
         if (state.ok()) {
             _num_scheduling_ctx++;
@@ -398,7 +398,7 @@ void ScannerContext::push_back_scanner_and_reschedule(VScannerSPtr scanner) {
     // schedule does not woring due to _num_running_scanners.
     _num_running_scanners--;
 
-    if (should_be_schedule()) {
+    if (should_be_scheduled()) {
         auto state = _scanner_scheduler->submit(this);
         if (state.ok()) {
             _num_scheduling_ctx++;
