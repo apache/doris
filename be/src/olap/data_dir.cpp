@@ -531,6 +531,12 @@ Status DataDir::load() {
                              << " txn id:" << rowset_meta->txn_id()
                              << " start_version: " << rowset_meta->version().first
                              << " end_version: " << rowset_meta->version().second;
+            } else {
+                LOG(WARNING) << "add visible rowset to tablet successfull rowset_id:"
+                             << rowset->rowset_id() << " tablet id: " << rowset_meta->tablet_id()
+                             << " txn id:" << rowset_meta->txn_id()
+                             << " start_version: " << rowset_meta->version().first
+                             << " end_version: " << rowset_meta->version().second;
             }
         } else {
             LOG(WARNING) << "find invalid rowset: " << rowset_meta->rowset_id()
