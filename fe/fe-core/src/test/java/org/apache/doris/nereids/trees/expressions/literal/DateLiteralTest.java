@@ -33,6 +33,8 @@ class DateLiteralTest {
         // So strange! reject these strange case.
         // Assertions.assertThrows(AnalysisException.class, () -> new DateLiteral("2022-01-01-01"));
         // Assertions.assertThrows(AnalysisException.class, () -> new DateLiteral("2022-01-01-1"));
+        // Assertions.assertThrows(AnalysisException.class, () -> new DateLiteral("2022-01-01+01"));
+        // Assertions.assertThrows(AnalysisException.class, () -> new DateLiteral("2022-01-01+1"));
     }
 
     @Test
