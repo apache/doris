@@ -37,6 +37,7 @@ import org.apache.doris.nereids.rules.expression.rules.FunctionBinder;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
+import org.apache.doris.nereids.trees.expressions.functions.udf.AliasUdfBuilder.SlotReplacer;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionRewriter;
@@ -223,6 +224,11 @@ public class BindSink implements AnalysisRuleFactory {
         Pair<DatabaseIf, TableIf> pair = RelationUtil.getDbAndTable(tableQualifier,
                 cascadesContext.getConnectContext().getEnv());
         if (!(pair.second instanceof OlapTable)) {
+            try {
+                cascadesContext.getConnectContext().getSessionVariable().enableFallbackToOriginalPlannerOnce();
+            } catch (Exception e) {
+                throw new AnalysisException("fall back failed");
+            }
             throw new AnalysisException("the target table of insert into is not an OLAP table");
         }
         return Pair.of(((Database) pair.first), (OlapTable) pair.second);
