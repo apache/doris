@@ -1265,7 +1265,7 @@ inline unsigned int JsonbValue::length() const {
 }
 
 inline bool JsonbValue::contains(JsonbValue* rhs) const {
-    if(rhs == nullptr) return false;
+    if (rhs == nullptr) return false;
     switch (type_) {
     case JsonbType::T_Int8:
     case JsonbType::T_Int16:
