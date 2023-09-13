@@ -31,8 +31,9 @@ Doris's default data write semantics are whole-row Upsert. Before version 2.0, i
 > Note:
 >
 > 1. Partial update are only supported in the Unique Key Merge-on-Write implementation in version 2.0.0.
-> 2. Version 2.0.2 (coming soon) will support partial column updates for the Unique Key Merge-on-Read model.
-> 3. Version 2.0.2 (coming soon) will support partial column updates using `INSERT INTO`.
+> 2. Version 2.0.2 introduces support for performing partial column updates using `INSERT INTO`.
+> 3. Version 2.1.0 will bring support for partial column updates in the Unique Key model's Merge-on-Read implementation.
+> 4. Version 2.1.0 will offer more flexible column updates, as described in the "Usage Limitations" section below.
 
 ## Applicable scenarios
 
@@ -65,103 +66,99 @@ Usage Recommendations:
 
 ### Merge-on-Write Implementation
 
-Since the Merge-on-Write implementation requires filling in entire rows of data during data writes to ensure optimal query performance, performing partial column updates using the Merge-on-Write implementation may lead to noticeable import performance degradation.
+Since the Merge-on-Write implementation requires filling in entire rows of data during data writes to ensure optimal query performance, performing partial column updates using the Merge-on-Write implementation may lead to noticeable load performance degradation.
 
 Write Performance Optimization Recommendations:
 
- 
+1. Use SSDs equipped with NVMe or high-speed SSD cloud disks. Because reading historical data in large quantities occurs when filling in row data, might results in higher read IOPS and read throughput.
+2. Enabling row storage can significantly reduce the IOPS generated when filling in row data, leading to a noticeable improvement in load performance. Users can enable row storage when creating tables using the following property:
 
+```
+"store_row_column" = "true"
+```
 
+### Merge-on-Read Implementation
 
+The Merge-on-Read implementation does not perform any additional processing during the write process, so write performance is not affected and is the same as regular data load jobs. However, the cost of aggregation during queries is relatively high, with typical aggregate query performance being 5-10 times lower compared to the Merge-on-Write implementation.
 
+ ## Usage Instructions
 
+Due to significant differences in implementation, Merge-on-Write and Merge-on-Read implementations cannot be completely unified in terms of usage. Users should choose different implementations and usage methods based on their own requirements.
 
+> Note: This document currently only provides a usage example for partial column updates with Merge-on-Write. After version 2.1.0 is officially released, we will update the usage examples for Merge-on-Read.
 
+### Merge-on-Write Implementation
 
+#### StreamLoad/BrokerLoad/RoutineLoad
 
-The performance of the Update statement is closely related to the number of rows to be updated and the retrieval efficiency of the condition.
+If you are using StreamLoad/BrokerLoad/RoutineLoad, add the following header when loading:
 
-+ Number of rows to be updated: The more rows to be updated, the slower the Update statement will be. This is consistent with the principle of importing.
-        Doris updates are more suitable for occasional update scenarios, such as changing the values of individual rows.
-        Doris is not suitable for large batches of data changes. Large modifications can make Update statements take a long time to run.
+```
+partial_columns:true
+```
 
-+ Condition retrieval efficiency: Doris Update implements the principle of reading the rows that satisfy the condition first, so if the condition retrieval efficiency is high, the Update will be faster.
-        The condition column should ideally be hit, indexed, or bucket clipped. This way Doris does not need to scan the entire table and can quickly locate the rows that need to be updated. This improves update efficiency.
-        It is strongly discouraged to include the UNIQUE model value column in the condition column.
+Also, specify the columns to be loaded in the `columns` header (it must include all key columns, or else updates cannot be performed).
 
-### Concurrency Control
+#### INSERT INTO
 
-By default, multiple concurrent Update operations on the same table are not allowed at the same time.
+In all data models, by default, when you use `INSERT INTO` with a given set of columns, the default behavior is to insert the entire row. To enable partial column updates in the Merge-on-Write implementation, you need to set the following session variable:
 
-The main reason for this is that Doris currently supports row updates, which means that even if the user declares ``SET v2 = 1``, virtually all other Value columns will be overwritten (even though the values are not changed).
+```
+set enable_unique_key_partial_update=true
+```
 
-This presents a problem in that if two Update operations update the same row at the same time, the behavior may be indeterminate. That is, there may be dirty data.
+## Usage Example
 
-However, in practice, the concurrency limit can be turned on manually if the user himself can guarantee that even if concurrent updates are performed, they will not operate on the same row at the same time. This is done by modifying the FE configuration ``enable_concurrent_update``. When the configuration value is true, there is no limit on concurrent updates.
-> Note: After enabling the configuration, there will be certain performance risks. You can refer to the performance section above to improve update efficiency.
+Suppose there is an order table `order_tbl` in Doris, where the order ID is the Key column, and the order status and order amount are Value columns. The data status is as follows:
 
-## Risks of Use
-
-Since Doris currently supports row updates and uses a two-step read-and-write operation, there is uncertainty about the outcome of an Update statement if it modifies the same row as another Import or Delete statement.
-
-Therefore, when using Doris, you must be careful to control the concurrency of Update statements and other DML statements on the **user side itself**.
-
-## Usage Examples
-
-Suppose there is an order table in Doris, where the order id is the Key column, the order status and the order amount are the Value column. The data status is as follows:
-
-| order id | order amount | order status    |
+| Order ID | Order Amount | Order Status    |
 | -------- | ------------ | --------------- |
 | 1        | 100          | Pending Payment |
 
 ```sql
-+----------+--------------+--------------+
-| order_id | order_amount | order_status |
-+----------+--------------+--------------+
-| 1        |          100 | 待付款       |
-+----------+--------------+--------------+
++----------+--------------+-----------------+
+| order_id | order_amount | order_status    |
++----------+--------------+-----------------+
+| 1        | 100          | Pending Payment |
++----------+--------------+-----------------+
 1 row in set (0.01 sec)
 ```
 
-At this time, after the user clicks to pay, the Doris system needs to change the status of the order with the order id '1' to 'Pending Shipping', and the Update function needs to be used.
+Now, when a user clicks to make a payment, he needs to change the order status of the order with Order ID '1' to 'Pending Delivery'.
+
+If you are using StreamLoad, you can perform the update as follows:
 
 ```sql
-mysql> UPDATE test_order SET order_status = 'Pending Shipping' WHERE order_id = 1;
-Query OK, 1 row affected (0.11 sec)
-{'label':'update_20ae22daf0354fe0-b5aceeaaddc666c5', 'status':'VISIBLE', 'txnId':'33', 'queryId':'20ae22daf0354fe0-b5aceeaaddc666c5'}
+$ cat update.csv
+1,Pending Delivery
+
+$ curl  --location-trusted -u root: -H "partial_columns:true" -H "column_separator:," -H "columns:order_id,order_status" -T /tmp/update.csv http://127.0.0.1:48037/api/db1/order_tbl/_stream_load
 ```
 
-The result after the update is as follows
+If you are using `INSERT INTO`, you can perform the update as follows:
+
+```sql
+set enable_unique_key_partial_update=true;
+INSERT INTO order_tbl (order_id, order_status) values (1,'Pending Delivery');
+```
+
+The updated result is as follows:
 
 ```sql
 +----------+--------------+------------------+
 | order_id | order_amount | order_status     |
 +----------+--------------+------------------+
-| 1        |          100 | Pending Shipping |
+| 1        | 100          | Pending Delivery |
 +----------+--------------+------------------+
 1 row in set (0.01 sec)
 ```
 
-After the user executes the UPDATE command, the system performs the following three steps.
+## Usage Limitations
 
- Step 1: Read the rows that satisfy WHERE order id=1 (1, 100, 'pending payment')
- Step 2: Change the order status of the row from 'Pending Payment' to 'Pending Shipping' (1, 100, 'Pending shipment')
- Step 3: Insert the updated row back into the table to achieve the updated effect. 
+In version 2.0, all rows in the same batch of data write tasks (whether load tasks or `INSERT INTO`) can only update the same columns. If you need to update different columns of data, you will need to write them in separate batches.
 
-  | order id | order amount | order status | 
-  | ---| ---| ---| 
-  | 1 | 100| Pending Payment | 
-  | 1 | 100 | Pending shipments | 
-
-Since the table order is a UNIQUE model, the rows with the same Key, after which the latter will take effect, so the final effect is as follows. 
-
-  | order id | order amount | order status | 
-  |---|---|---| 
-  | 1 | 100 | Pending shipments |
-
-## Update Primary Key Column
-Currently, the Update operation only supports updating the Value column, and the update of the Key column can refer to [Using FlinkCDC to update key column](../../ecosystem/flink-doris-connector.md#Use-FlinkCDC-to-update-Key-column)
+In version 2.1, we will support more flexible column updates, allowing users to update different columns for each row within the same batch load.
 
 ## More Help
 
-For more detailed syntax used by **data update**, please refer to the [update](../../sql-manual/sql-reference/Data-Manipulation-Statements/Manipulation/UPDATE.md) command manual , you can also enter `HELP UPDATE` in the Mysql client command line to get more help information.
+For more information about the Merge-on-Read and Merge-on-Write implementations of the Unique Key, please refer to the introduction in the [Data Model](../../data-table/data-model.md).
