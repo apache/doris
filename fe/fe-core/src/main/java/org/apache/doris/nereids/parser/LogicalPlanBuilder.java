@@ -277,7 +277,6 @@ import org.apache.doris.nereids.trees.expressions.literal.SmallIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.TinyIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
-import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.trees.plans.JoinHint;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.LimitPhase;
@@ -737,17 +736,12 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
 
     @Override
     public LogicalPlan visitInlineTable(InlineTableContext ctx) {
-        List<List<Expression>> exprsList = ctx.rowConstructor().stream()
-                .map(e -> visitRowConstructor(e).children())
+        List<UnboundOneRowRelation> exprsList = ctx.rowConstructor().stream()
+                .map(this::visitRowConstructor)
                 .collect(ImmutableList.toImmutableList());
-        LogicalPlan relation = new UnboundOneRowRelation(
-                StatementScopeIdGenerator.newRelationId(),
-                exprsList.get(0).stream().map(e -> new Alias(e, e.toSql())).collect(ImmutableList.toImmutableList()));
+        LogicalPlan relation = exprsList.get(0);
         for (int i = 1; i < exprsList.size(); i++) {
-            relation = new LogicalUnion(Qualifier.ALL, ImmutableList.of(relation, new UnboundOneRowRelation(
-                    StatementScopeIdGenerator.newRelationId(),
-                    exprsList.get(i).stream().map(e -> new Alias(e, e.toSql()))
-                            .collect(ImmutableList.toImmutableList()))));
+            relation = new LogicalUnion(Qualifier.ALL, ImmutableList.of(relation, exprsList.get(i)));
         }
         return withTableAlias(relation, ctx.tableAlias());
     }
@@ -1696,9 +1690,11 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     }
 
     @Override
-    public Expression visitRowConstructor(RowConstructorContext ctx) {
-        return new Row(ctx.namedExpression().stream()
-                .map(e -> visitNamedExpression(e))
+    public UnboundOneRowRelation visitRowConstructor(RowConstructorContext ctx) {
+        return new UnboundOneRowRelation(
+                StatementScopeIdGenerator.newRelationId(),
+                ctx.namedExpression().stream()
+                .map(this::visitNamedExpression)
                 .map(e -> (e instanceof NamedExpression)
                         ? ((NamedExpression) e)
                         : new Alias(e, e.toSql()))
@@ -2613,21 +2609,5 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     @Override
     public Object visitCollate(CollateContext ctx) {
         return visit(ctx.primaryExpression());
-    }
-
-    private static class Row extends Expression {
-        public Row(List<NamedExpression> children) {
-            super(children.stream().map(Expression.class::cast).collect(Collectors.toList()));
-        }
-
-        @Override
-        public <R, C> R accept(ExpressionVisitor<R, C> visitor, C context) {
-            throw new UnsupportedOperationException("Unsupported for Row");
-        }
-
-        @Override
-        public boolean nullable() {
-            throw new UnsupportedOperationException("Unsupported for Row");
-        }
     }
 }
