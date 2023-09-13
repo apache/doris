@@ -301,7 +301,6 @@ relationPrimary
     | tvfName=identifier LEFT_PAREN
       (properties=propertyItemList)?
       RIGHT_PAREN tableAlias                                       #tableValuedFunction
-    | inlineTable                                                  #inlineTableDefault
     ;
 
 propertyClause
