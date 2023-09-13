@@ -126,7 +126,8 @@ public class CreateSqlBlockRuleStmt extends DdlStmt {
     }
 
     private void setProperties(Map<String, String> properties) throws UserException {
-        this.sql = properties.getOrDefault(SQL_PROPERTY, STRING_NOT_SET);
+        //Here the SQL must go to the last space, otherwise there will be no match.
+        this.sql = properties.getOrDefault(SQL_PROPERTY, STRING_NOT_SET).trim();
         this.sqlHash = properties.getOrDefault(SQL_HASH_PROPERTY, STRING_NOT_SET);
         String partitionNumString = properties.get(SCANNED_PARTITION_NUM);
         String tabletNumString = properties.get(SCANNED_TABLET_NUM);
