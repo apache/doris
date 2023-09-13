@@ -88,7 +88,7 @@ public class UpdateCommand extends Command implements ForwardWithSync, Explainab
 
     @Override
     public void run(ConnectContext ctx, StmtExecutor executor) throws Exception {
-        new InsertIntoTableCommand(completeQueryPlan(ctx, logicalQuery), Optional.empty()).run(ctx, executor);
+        new InsertIntoTableCommand(completeQueryPlan(ctx, logicalQuery), Optional.empty(), false).run(ctx, executor);
     }
 
     /**
@@ -112,7 +112,7 @@ public class UpdateCommand extends Command implements ForwardWithSync, Explainab
                 Expression expr = colNameToExpression.get(column.getName());
                 selectItems.add(expr instanceof UnboundSlot
                         ? ((NamedExpression) expr)
-                        : new Alias(expr, expr.toSql()));
+                        : new Alias(expr));
             } else {
                 selectItems.add(new UnboundSlot(tableName, column.getName()));
             }

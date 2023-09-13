@@ -84,7 +84,7 @@ suite("ds_rf31") {
 
     '''
     String plan = sql "${stmt}"
-    println plan
+    log.info(plan)
     def getRuntimeFilters = { plantree ->
         {
             def lst = []

@@ -125,6 +125,11 @@ $ USE_AVX2=0 sh build.sh
 
 If supported, execute `sh build.sh` directly.
 
+To build debug version for BE, add BUILD_TYPE=Debug.
+```
+$ BUILD_TYPE=Debug sh build.sh
+```
+
 This script will compile the third-party libraries first and then the Doris components (FE, BE) later. The compiled output will be in the `output/` directory.
 
 ## Precompile the Third-Party Binaries

@@ -425,7 +425,7 @@ WITH BROKER broker_name
    )
    ```
 
-   `my_table` 必须是 Unqiue Key 模型表，并且指定了 Sequcence Col。数据会按照源数据中 `source_sequence` 列的值来保证顺序性。
+   `my_table` 必须是 Unique Key 模型表，并且指定了 Sequcence Col。数据会按照源数据中 `source_sequence` 列的值来保证顺序性。
 
 10. 从 HDFS 导入一批数据，指定文件格式为 `json` 并指定 `json_root`、`jsonpaths`
 

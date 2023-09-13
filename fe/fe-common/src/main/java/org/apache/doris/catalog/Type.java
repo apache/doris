@@ -637,6 +637,10 @@ public abstract class Type {
         return -1;
     }
 
+    public int getRawLength() {
+        return -1;
+    }
+
     /**
      * Indicates whether we support partitioning tables on columns of this type.
      */

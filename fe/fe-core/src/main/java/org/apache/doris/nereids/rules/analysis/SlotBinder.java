@@ -118,7 +118,7 @@ class SlotBinder extends SubExprAnalyzer {
         } else if (child instanceof NamedExpression) {
             return new Alias(child, ((NamedExpression) child).getName());
         } else {
-            return new Alias(child, child.toSql());
+            return new Alias(child);
         }
     }
 

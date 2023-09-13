@@ -131,7 +131,7 @@ public:
 
     bool no_schedule();
 
-    std::string debug_string();
+    virtual std::string debug_string();
 
     RuntimeState* state() { return _state; }
 
@@ -139,7 +139,7 @@ public:
     void incr_ctx_scheduling_time(int64_t num) { _scanner_ctx_sched_time->update(num); }
     void incr_num_scanner_scheduling(int64_t num) { _scanner_sched_counter->update(num); }
 
-    VScanNode* parent() { return _parent; }
+    std::string parent_name();
 
     virtual bool empty_in_queue(int id);
 
@@ -164,7 +164,7 @@ public:
     // the unique id of this context
     std::string ctx_id;
     int32_t queue_idx = -1;
-    ThreadPoolToken* thread_token;
+    ThreadPoolToken* thread_token = nullptr;
     std::vector<bthread_t> _btids;
 
 private:

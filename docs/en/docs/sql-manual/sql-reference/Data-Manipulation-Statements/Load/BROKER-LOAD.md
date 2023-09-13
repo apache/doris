@@ -426,7 +426,7 @@ WITH BROKER broker_name
     )
     ````
 
-   `my_table` must be an Unqiue Key model table with Sequence Col specified. The data will be ordered according to the value of the `source_sequence` column in the source data.
+   `my_table` must be an Unique Key model table with Sequence Col specified. The data will be ordered according to the value of the `source_sequence` column in the source data.
 
 10. Import a batch of data from HDFS, specify the file format as `json`, and specify parameters of `json_root` and `jsonpaths`.
 

@@ -17,7 +17,6 @@
 
 package org.apache.doris.datasource;
 
-
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.AnalysisException;
@@ -34,6 +33,7 @@ import java.util.Collection;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.Function;
 import javax.annotation.Nullable;
 
@@ -172,4 +172,6 @@ public interface CatalogIf<T extends DatabaseIf> {
     public Collection<DatabaseIf> getAllDbs();
 
     public boolean enableAutoAnalyze();
+
+    public ConcurrentHashMap<Long, DatabaseIf> getIdToDb();
 }

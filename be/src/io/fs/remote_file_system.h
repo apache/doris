@@ -25,13 +25,11 @@
 #include <vector>
 
 #include "common/status.h"
-#include "io/fs/file_reader_writer_fwd.h"
 #include "io/fs/file_system.h"
 #include "io/fs/path.h"
 
 namespace doris {
 namespace io {
-class FileReaderOptions;
 
 class RemoteFileSystem : public FileSystem {
 public:
@@ -54,9 +52,8 @@ protected:
     /// connect to remote file system
     virtual Status connect_impl() = 0;
 
-    virtual Status open_file_impl(const FileDescription& fd, const Path& abs_path,
-                                  const FileReaderOptions& reader_options,
-                                  FileReaderSPtr* reader) override;
+    Status open_file_impl(const Path& file, FileReaderSPtr* reader,
+                          const FileReaderOptions* opts) override;
     /// upload load_file to remote remote_file
     /// local_file should be an absolute path on local filesystem.
     virtual Status upload_impl(const Path& local_file, const Path& remote_file) = 0;
@@ -84,8 +81,8 @@ protected:
 
     // The derived class should implement this method.
     // if file_size < 0, the file size should be fetched from file system
-    virtual Status open_file_internal(const FileDescription& fd, const Path& abs_path,
-                                      FileReaderSPtr* reader) = 0;
+    virtual Status open_file_internal(const Path& file, FileReaderSPtr* reader,
+                                      const FileReaderOptions& opts) = 0;
 };
 
 using RemoteFileSystemSPtr = std::shared_ptr<RemoteFileSystem>;

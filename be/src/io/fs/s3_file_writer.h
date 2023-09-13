@@ -17,11 +17,9 @@
 
 #pragma once
 
-#include <aws/core/utils/memory/stl/AWSStringStream.h>
 #include <bthread/countdown_event.h>
 
 #include <cstddef>
-#include <list>
 #include <memory>
 #include <string>
 
@@ -29,8 +27,6 @@
 #include "io/fs/file_system.h"
 #include "io/fs/file_writer.h"
 #include "io/fs/path.h"
-#include "util/s3_util.h"
-#include "util/slice.h"
 
 namespace Aws::S3 {
 namespace Model {
@@ -42,11 +38,11 @@ class S3Client;
 namespace doris {
 namespace io {
 struct S3FileBuffer;
+class S3FileSystem;
 
 class S3FileWriter final : public FileWriter {
 public:
-    S3FileWriter(Path path, std::shared_ptr<Aws::S3::S3Client> client, const S3Conf& s3_conf,
-                 FileSystemSPtr fs);
+    S3FileWriter(std::string key, std::shared_ptr<S3FileSystem> fs, const FileWriterOptions* opts);
     ~S3FileWriter() override;
 
     Status close() override;
@@ -57,8 +53,6 @@ public:
     Status write_at(size_t offset, const Slice& data) override {
         return Status::NotSupported("not support");
     }
-
-    [[nodiscard]] int64_t upload_cost_ms() const { return *_upload_cost_ms; }
 
 private:
     void _wait_until_finish(std::string_view task_name);
@@ -71,8 +65,6 @@ private:
     std::string _key;
     bool _closed = false;
     bool _aborted = false;
-
-    std::unique_ptr<int64_t> _upload_cost_ms;
 
     std::shared_ptr<Aws::S3::S3Client> _client;
     std::string _upload_id;

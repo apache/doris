@@ -77,6 +77,7 @@ public:
               _serializer(this) {}
 
     Status init(RuntimeState* state, LocalSinkStateInfo& info) override;
+    Status open(RuntimeState* state) override;
     Status close(RuntimeState* state) override;
 
     Status serialize_block(vectorized::Block* src, PBlock* dest, int num_receivers = 1);

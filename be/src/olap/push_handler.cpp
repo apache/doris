@@ -384,7 +384,7 @@ Status PushBrokerReader::init() {
 
     auto slot_descs = desc_tbl->get_tuple_descriptor(0)->slots();
     for (int i = 0; i < slot_descs.size(); i++) {
-        _all_col_names.push_back(slot_descs[i]->col_name());
+        _all_col_names.push_back(to_lower((slot_descs[i]->col_name())));
     }
 
     RETURN_IF_ERROR(_init_expr_ctxes());

@@ -342,5 +342,72 @@ suite("test_unique_table_auto_inc") {
     sql "drop table if exists ${table8};"
     sql "drop table if exists ${table9};"
     sql "drop table if exists ${table10};"
+
+
+    def table11 = "test_unique_tab_auto_inc_col_insert_select"
+    sql "drop table if exists ${table11}"
+    sql """CREATE TABLE ${table11} (
+        `r_regionkey` bigint(20) NOT NULL AUTO_INCREMENT,
+        `r_name` varchar(25) NOT NULL,
+        `r_comment` varchar(152) NULL
+        ) ENGINE=OLAP
+        UNIQUE KEY(`r_regionkey`)
+        COMMENT 'OLAP'
+        DISTRIBUTED BY HASH(`r_regionkey`) BUCKETS 10
+        PROPERTIES (
+        "replication_allocation" = "tag.location.default: 1"
+        ); """
+    sql """ INSERT INTO ${table11} values 
+ (0,'AFRICA','lar deposits. blithely final packages cajole. regular waters are final requests. regular accounts are according to')
+,(1,'AMERICA','hs use ironic, even requests. s')
+,(2,'ASIA','ges. thinly even pinto beans ca')
+,(3,'EUROPE','ly final courts cajole furiously final excuse')
+,(4,'MIDDLE EAST','uickly special accounts cajole carefully blithely close requests. carefully final asymptotes haggle furiousl');"""
+    qt_sql "select * from ${table11} order by r_regionkey;"
+    sql 'set enable_nereids_planner=true'
+    sql "set experimental_enable_nereids_planner=true;"
+    sql 'set enable_nereids_dml=true'
+    sql "update ${table11} set r_comment = 'foobar' where  r_regionkey <= 10;"
+    qt_sql "select * from ${table11} order by r_regionkey;"
+
+    sql 'set enable_nereids_planner=false'
+    sql "set experimental_enable_nereids_planner=false;"
+    sql 'set enable_nereids_dml=false'
+    sql "update ${table11} set r_comment = 'barfoo' where  r_regionkey <= 10;"
+    qt_sql "select * from ${table11} order by r_regionkey;"
+    sql "drop table if exists ${table11};"
+
+
+    def table12 = "test_unique_tab_auto_inc_col_insert_select2"
+    sql "drop table if exists ${table12}"
+    sql """CREATE TABLE ${table12} (
+        `r_regionkey` bigint(20) NOT NULL AUTO_INCREMENT,
+        `r_name` varchar(25) NOT NULL,
+        `r_comment` varchar(152) NULL
+        ) ENGINE=OLAP
+        UNIQUE KEY(`r_regionkey`)
+        COMMENT 'OLAP'
+        DISTRIBUTED BY HASH(`r_regionkey`) BUCKETS 10
+        PROPERTIES (
+        "replication_allocation" = "tag.location.default: 1"
+        ); """
+    sql """ INSERT INTO ${table12} values 
+ (0,'AFRICA','lar deposits. blithely final packages cajole. regular waters are final requests. regular accounts are according to')
+,(1,'AMERICA','hs use ironic, even requests. s')
+,(2,'ASIA','ges. thinly even pinto beans ca')
+,(3,'EUROPE','ly final courts cajole furiously final excuse')
+,(4,'MIDDLE EAST','uickly special accounts cajole carefully blithely close requests. carefully final asymptotes haggle furiousl');"""
+    qt_sql "select * from ${table12} order by r_regionkey;"
+    sql 'set enable_nereids_planner=true'
+    sql "set experimental_enable_nereids_planner=true;"
+    sql 'set enable_nereids_dml=true'
+    sql """insert into ${table12} select r_regionkey, "test1", "test2" from ${table12} where r_regionkey=3;"""
+    qt_sql "select * from ${table12} order by r_regionkey;"
+    sql 'set enable_nereids_planner=false'
+    sql "set experimental_enable_nereids_planner=false;"
+    sql 'set enable_nereids_dml=false'
+    sql """insert into ${table12} select r_regionkey, "test3", "test4" from ${table12} where r_regionkey=4;"""
+    qt_sql "select * from ${table12} order by r_regionkey;"
+    sql "drop table if exists ${table12};"
 }
 

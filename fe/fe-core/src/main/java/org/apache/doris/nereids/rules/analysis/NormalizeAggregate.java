@@ -149,7 +149,7 @@ public class NormalizeAggregate extends OneRewriteRuleFactory implements Normali
                             if (aliasCache.containsKey(child)) {
                                 alias = aliasCache.get(child);
                             } else {
-                                alias = new Alias(child, child.toSql());
+                                alias = new Alias(child);
                                 aliasCache.put(child, alias);
                             }
                             bottomProjects.add(alias);

@@ -115,7 +115,20 @@ public class LambdaFunctionExpr extends Expr {
 
     @Override
     protected String toSqlImpl() {
-        return String.format("%s -> %s", names.toString(), getChild(0).toSql());
+        String nameStr = "";
+        Expr lambdaExpr = slotExpr.get(0);
+        int exprSize = names.size();
+        for (int i = 0; i < exprSize; ++i) {
+            nameStr = nameStr + names.get(i);
+            if (i != exprSize - 1) {
+                nameStr = nameStr + ",";
+            }
+        }
+        if (exprSize > 1) {
+            nameStr = "(" + nameStr + ")";
+        }
+        String res = String.format("%s -> %s", nameStr, lambdaExpr.toSql());
+        return res;
     }
 
     @Override

@@ -96,6 +96,9 @@ struct RowsetWriterContext {
     std::shared_ptr<MowContext> mow_context;
     std::shared_ptr<FileWriterCreator> file_writer_creator;
     std::shared_ptr<SegmentCollector> segment_collector;
+
+    // segcompaction for this RowsetWriter, disable it for some transient writers
+    bool enable_segcompaction = true;
 };
 
 } // namespace doris

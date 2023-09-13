@@ -35,6 +35,7 @@ suite("h_rf{--}") {
     {query}
     '''
     String plan = sql "${stmt}"
+    log.info(plan)
     def getRuntimeFilters = { plantree ->
         {
             def lst = []

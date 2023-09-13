@@ -60,11 +60,14 @@ public class JoinUtils {
         return !(join.getJoinType().isRightJoin() || join.getJoinType().isFullOuterJoin());
     }
 
-    private static final class JoinSlotCoverageChecker {
+    /**
+     * for a given equation, judge if it can be used as hash join condition
+     */
+    public static final class JoinSlotCoverageChecker {
         Set<ExprId> leftExprIds;
         Set<ExprId> rightExprIds;
 
-        JoinSlotCoverageChecker(List<Slot> left, List<Slot> right) {
+        public JoinSlotCoverageChecker(List<Slot> left, List<Slot> right) {
             leftExprIds = left.stream().map(Slot::getExprId).collect(Collectors.toSet());
             rightExprIds = right.stream().map(Slot::getExprId).collect(Collectors.toSet());
         }
@@ -96,7 +99,7 @@ public class JoinUtils {
          * @param equalTo a conjunct in on clause condition
          * @return true if the equal can be used as hash join condition
          */
-        boolean isHashJoinCondition(EqualTo equalTo) {
+        public boolean isHashJoinCondition(EqualTo equalTo) {
             Set<Slot> equalLeft = equalTo.left().collect(Slot.class::isInstance);
             if (equalLeft.isEmpty()) {
                 return false;

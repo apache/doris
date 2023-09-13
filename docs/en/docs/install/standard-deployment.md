@@ -177,7 +177,7 @@ See the `lower_case_table_names` section in [Variables](../advanced/variables.md
 
      **Note: For production environments, it is better not to put the directory under the Doris installation directory but in a separate disk (SSD would be the best); for test and development environments, you may use the default configuration.**
 
-  2. The default maximum Java heap memory of JAVA_OPTS in fe.conf is 4GB. For production environments, we recommend that it be adjusted to more than 8G.
+  2. The default maximum Java heap memory of JAVA_OPTS in fe.conf is 8GB.
 
 * Start FE
 
