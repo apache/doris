@@ -148,6 +148,7 @@ public class PublishVersionDaemon extends MasterDaemon {
                                 }
                                 TabletMeta tabletMeta = tabletInvertedIndex.getTabletMeta(tabletId);
                                 if (tabletMeta == null) {
+                                    // for delete, drop, schema change etc. here may be a null value
                                     return;
                                 }
                                 long tableId = tabletMeta.getTableId();
