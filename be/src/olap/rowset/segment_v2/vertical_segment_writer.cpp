@@ -304,8 +304,8 @@ Status VerticalSegmentWriter::_append_block_with_partial_content(RowsInBlock& da
     for (auto i : including_cids) {
         full_block.replace_by_position(i, data.block->get_by_position(input_id++).column);
     }
-    _olap_data_convertor->set_source_content_with_specifid_columns(&full_block, data.row_pos, data.num_rows,
-                                                                   including_cids);
+    _olap_data_convertor->set_source_content_with_specifid_columns(&full_block, data.row_pos,
+                                                                   data.num_rows, including_cids);
 
     bool have_input_seq_column = false;
     // write including columns
@@ -327,8 +327,7 @@ Status VerticalSegmentWriter::_append_block_with_partial_content(RowsInBlock& da
             seq_column = column;
             have_input_seq_column = true;
         }
-        RETURN_IF_ERROR(_column_writers[cid]->append(column->get_nullmap(),
-                                                     column->get_data(),
+        RETURN_IF_ERROR(_column_writers[cid]->append(column->get_nullmap(), column->get_data(),
                                                      data.num_rows));
     }
 
@@ -454,8 +453,8 @@ Status VerticalSegmentWriter::_append_block_with_partial_content(RowsInBlock& da
 
     // convert missing columns and send to column writer
     std::vector<uint32_t> missing_cids = _tablet_schema->get_missing_cids();
-    _olap_data_convertor->set_source_content_with_specifid_columns(&full_block, data.row_pos, data.num_rows,
-                                                                   missing_cids);
+    _olap_data_convertor->set_source_content_with_specifid_columns(&full_block, data.row_pos,
+                                                                   data.num_rows, missing_cids);
     for (auto cid : missing_cids) {
         auto [status, column] = _olap_data_convertor->convert_column_data(cid);
         if (!status.ok()) {
@@ -466,8 +465,7 @@ Status VerticalSegmentWriter::_append_block_with_partial_content(RowsInBlock& da
             DCHECK_EQ(seq_column, nullptr);
             seq_column = column;
         }
-        RETURN_IF_ERROR(_column_writers[cid]->append(column->get_nullmap(),
-                                                     column->get_data(),
+        RETURN_IF_ERROR(_column_writers[cid]->append(column->get_nullmap(), column->get_data(),
                                                      data.num_rows));
     }
 
@@ -486,7 +484,8 @@ Status VerticalSegmentWriter::_append_block_with_partial_content(RowsInBlock& da
                     "index builder num rows: {}",
                     _num_rows_written, data.row_pos, _primary_key_index_builder->num_rows());
         }
-        for (size_t block_pos = data.row_pos; block_pos < data.row_pos + data.num_rows; block_pos++) {
+        for (size_t block_pos = data.row_pos; block_pos < data.row_pos + data.num_rows;
+             block_pos++) {
             std::string key = _full_encode_keys(key_columns, block_pos - data.row_pos);
             _encode_seq_column(seq_column, block_pos - data.row_pos, &key);
             RETURN_IF_ERROR(_primary_key_index_builder->add_item(key));
