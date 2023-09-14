@@ -44,8 +44,8 @@ namespace doris::vectorized {
  *  RowRefListWithFlags is a list of many RowRefWithFlags. This means each row will have different visited flags. It's used for join operation which has `other_conjuncts`.
  */
 struct RowRef {
-    uint32_t row_num = 0;
-    uint8_t block_offset;
+    uint32_t row_num : 24 = 0;
+    uint8_t block_offset : 8;
 
     RowRef() = default;
     RowRef(size_t row_num_count, uint8_t block_offset_)
