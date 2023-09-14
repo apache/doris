@@ -21,6 +21,7 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.util.MasterDaemon;
 import org.apache.doris.metric.MetricRepo;
+import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.task.AgentBatchTask;
 import org.apache.doris.task.AgentTaskExecutor;
 import org.apache.doris.task.AgentTaskQueue;
@@ -28,14 +29,12 @@ import org.apache.doris.task.PublishVersionTask;
 import org.apache.doris.thrift.TPartitionVersionInfo;
 import org.apache.doris.thrift.TTaskType;
 
-import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Map;
 import java.util.Set;
 
 public class PublishVersionDaemon extends MasterDaemon {
@@ -55,15 +54,6 @@ public class PublishVersionDaemon extends MasterDaemon {
         }
     }
 
-    private boolean isAllBackendsOfUnfinishedTasksDead(List<PublishVersionTask> unfinishedTasks) {
-        for (PublishVersionTask unfinishedTask : unfinishedTasks) {
-            if (Env.getCurrentSystemInfo().checkBackendAlive(unfinishedTask.getBackendId())) {
-                return false;
-            }
-        }
-        return true;
-    }
-
     private void publishVersion() {
         GlobalTransactionMgr globalTransactionMgr = Env.getCurrentGlobalTransactionMgr();
         List<TransactionState> readyTransactionStates = globalTransactionMgr.getReadyToPublishTransactions();
@@ -73,7 +63,8 @@ public class PublishVersionDaemon extends MasterDaemon {
 
         // ATTN, we publish transaction state to all backends including dead backend, if not publish to dead backend
         // then transaction manager will treat it as success
-        List<Long> allBackends = Env.getCurrentSystemInfo().getAllBackendIds(false);
+        SystemInfoService infoService = Env.getCurrentSystemInfo();
+        List<Long> allBackends = infoService.getAllBackendIds(false);
         if (allBackends.isEmpty()) {
             LOG.warn("some transaction state need to publish, but no backend exists");
             return;
@@ -132,16 +123,10 @@ public class PublishVersionDaemon extends MasterDaemon {
 
         // try to finish the transaction, if failed just retry in next loop
         for (TransactionState transactionState : readyTransactionStates) {
-            Map<Long, PublishVersionTask> transTasks = transactionState.getPublishVersionTasks();
-            List<PublishVersionTask> unfinishedTasks = Lists.newArrayList();
-            for (PublishVersionTask publishVersionTask : transTasks.values()) {
-                if (!publishVersionTask.isFinished()) {
-                    unfinishedTasks.add(publishVersionTask);
-                }
-            }
+            boolean hasBackendAliveAndUnfinishTask = transactionState.getPublishVersionTasks().values().stream()
+                    .anyMatch(task -> !task.isFinished() && infoService.checkBackendAlive(task.getBackendId()));
 
-            boolean shouldFinishTxn = isAllBackendsOfUnfinishedTasksDead(unfinishedTasks)
-                    || transactionState.isPublishTimeout();
+            boolean shouldFinishTxn = !hasBackendAliveAndUnfinishTask || transactionState.isPublishTimeout();
             if (shouldFinishTxn) {
                 try {
                     // one transaction exception should not affect other transaction
