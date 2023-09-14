@@ -17,10 +17,13 @@
 
 package org.apache.doris.nereids.trees.plans.physical;
 
+import org.apache.doris.common.IdGenerator;
+import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.properties.OrderKey;
 import org.apache.doris.nereids.properties.PhysicalProperties;
+import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
@@ -28,9 +31,11 @@ import org.apache.doris.nereids.trees.plans.SortPhase;
 import org.apache.doris.nereids.trees.plans.algebra.TopN;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.nereids.util.Utils;
+import org.apache.doris.planner.RuntimeFilterId;
 import org.apache.doris.statistics.Statistics;
 
 import com.google.common.base.Preconditions;
+import org.apache.doris.thrift.TRuntimeFilterType;
 
 import java.util.List;
 import java.util.Objects;
@@ -167,6 +172,13 @@ public class PhysicalTopN<CHILD_TYPE extends Plan> extends AbstractPhysicalSort<
     public PhysicalTopN<Plan> resetLogicalProperties() {
         return new PhysicalTopN<>(orderKeys, limit, offset, phase, enableRuntimeFilter, groupExpression,
                 null, physicalProperties, statistics, child());
+    }
+
+    public boolean pushDownRuntimeFilter(CascadesContext context, IdGenerator<RuntimeFilterId> generator,
+                                         AbstractPhysicalJoin<?, ?> builderNode,
+                                         Expression src, Expression probeExpr,
+                                         TRuntimeFilterType type, long buildSideNdv, int exprOrder) {
+        return false;
     }
 
 }

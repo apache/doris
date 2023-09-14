@@ -255,24 +255,7 @@ public class PhysicalHashJoin<
             return false;
         }
 
-        // TODO: if can't push down into join's chidren, try to
-        // find possible chance in upper layer
-        if (pushedDown) {
-            return true;
-        }
-
-        // in-filter is not friendly to pipeline
-        if (type == TRuntimeFilterType.IN_OR_BLOOM
-                && ctx.getSessionVariable().getEnablePipelineEngine()
-                && RuntimeFilterGenerator.hasRemoteTarget(this, scan)) {
-            type = TRuntimeFilterType.BLOOM;
-        }
-        RuntimeFilter filter = new RuntimeFilter(generator.getNextId(),
-                srcExpr, ImmutableList.of(olapScanSlot), type, exprOrder, this, buildSideNdv);
-        ctx.addJoinToTargetMap(this, olapScanSlot.getExprId());
-        ctx.setTargetExprIdToFilter(olapScanSlot.getExprId(), filter);
-        ctx.setTargetsOnScanNode(aliasTransferMap.get(probeSlot).first.getRelationId(), olapScanSlot);
-        return true;
+        return pushedDown;
     }
 
     private class ExprComparator implements Comparator<Expression> {

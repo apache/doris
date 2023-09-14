@@ -255,4 +255,18 @@ public class RuntimeFilterTest extends SSBTestBase {
                     filter.getTargetExprs().get(0).getName())));
         }
     }
+
+    @Test
+    public void testRuntimeFilterBlockByWindow() {
+        String sql = "SELECT * FROM (select rank() over(partition by lo_custkey), lo_custkey from lineorder) t JOIN customer on lo_custkey = c_custkey";
+        List<RuntimeFilter> filters = getRuntimeFilters(sql).get();
+        Assertions.assertEquals(0, filters.size());
+    }
+
+    @Test
+    public void testRuntimeFilterBlockByTopN() {
+        String sql = "SELECT * FROM (select lo_custkey from lineorder order by lo_custkey limit 10) t JOIN customer on lo_custkey = c_custkey";
+        List<RuntimeFilter> filters = getRuntimeFilters(sql).get();
+        Assertions.assertEquals(0, filters.size());
+    }
 }
