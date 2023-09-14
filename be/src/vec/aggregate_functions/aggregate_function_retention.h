@@ -21,13 +21,6 @@
 
 #pragma once
 
-#include <stddef.h>
-#include <stdint.h>
-
-#include <algorithm>
-#include <boost/iterator/iterator_facade.hpp>
-#include <memory>
-
 #include "gutil/integral_types.h"
 #include "vec/aggregate_functions/aggregate_function.h"
 #include "vec/columns/column.h"
@@ -123,29 +116,29 @@ public:
         return std::make_shared<DataTypeArray>(make_nullable(std::make_shared<DataTypeUInt8>()));
     }
 
-    void reset(AggregateDataPtr __restrict place) const override { this->data(place).reset(); }
+    void reset(AggregateDataPtr __restrict place) const override { data(place).reset(); }
     void add(AggregateDataPtr __restrict place, const IColumn** columns, const size_t row_num,
              Arena*) const override {
         for (int i = 0; i < get_argument_types().size(); i++) {
             auto event = assert_cast<const ColumnVector<UInt8>*>(columns[i])->get_data()[row_num];
             if (event) {
-                this->data(place).set(i);
+                data(place).set(i);
             }
         }
     }
 
     void merge(AggregateDataPtr __restrict place, ConstAggregateDataPtr rhs,
                Arena*) const override {
-        this->data(place).merge(this->data(rhs));
+        data(place).merge(data(rhs));
     }
 
     void serialize(ConstAggregateDataPtr __restrict place, BufferWritable& buf) const override {
-        this->data(place).write(buf);
+        data(place).write(buf);
     }
 
     void deserialize(AggregateDataPtr __restrict place, BufferReadable& buf,
                      Arena*) const override {
-        this->data(place).read(buf);
+        data(place).read(buf);
     }
 
     void insert_result_into(ConstAggregateDataPtr __restrict place, IColumn& to) const override {
@@ -153,13 +146,12 @@ public:
         auto& to_nested_col = to_arr.get_data();
         if (to_nested_col.is_nullable()) {
             auto col_null = reinterpret_cast<ColumnNullable*>(&to_nested_col);
-            this->data(place).insert_result_into(col_null->get_nested_column(),
-                                                 get_argument_types().size(),
-                                                 this->data(place).events);
+            data(place).insert_result_into(col_null->get_nested_column(),
+                                           get_argument_types().size(), data(place).events);
             col_null->get_null_map_data().resize_fill(col_null->get_nested_column().size(), 0);
         } else {
-            this->data(place).insert_result_into(to_nested_col, get_argument_types().size(),
-                                                 this->data(place).events);
+            data(place).insert_result_into(to_nested_col, get_argument_types().size(),
+                                           data(place).events);
         }
         to_arr.get_offsets().push_back(to_nested_col.size());
     }
