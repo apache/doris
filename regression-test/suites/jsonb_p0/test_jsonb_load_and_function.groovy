@@ -22,6 +22,8 @@ suite("test_jsonb_load_and_function", "p0") {
     def testTable = "tbl_test_jsonb"
     def dataFile = "test_jsonb.csv"
 
+    sql """ set experimental_enable_nereids_planner = false """
+
     sql "DROP TABLE IF EXISTS ${testTable}"
 
     sql """
