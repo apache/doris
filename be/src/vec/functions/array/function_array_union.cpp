@@ -37,7 +37,7 @@ struct UnionAction {
     // True if current has null element
     bool current_null_flag = false;
     // True if result_set has null element
-    bool result_null_flag = true;
+    bool result_null_flag = false;
     // True if it should execute the left array first.
     typename Map::mapped_type* value = nullptr;
 
@@ -67,7 +67,7 @@ struct UnionAction {
 
     void reset() {
         current_null_flag = false;
-        result_null_flag = true;
+        result_null_flag = false;
     }
 };
 
