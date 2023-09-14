@@ -2011,7 +2011,8 @@ public class SingleNodePlanner {
                 break;
         }
         if (scanNode instanceof OlapScanNode || scanNode instanceof EsScanNode || scanNode instanceof HiveScanNode
-                || scanNode instanceof ExternalFileScanNode) {
+                || scanNode instanceof OdbcScanNode || scanNode instanceof JdbcScanNode
+                || scanNode instanceof ExternalFileScanNode || scanNode instanceof MysqlScanNode) {
             if (analyzer.enableInferPredicate()) {
                 PredicatePushDown.visitScanNode(scanNode, tblRef.getJoinOp(), analyzer);
             }
