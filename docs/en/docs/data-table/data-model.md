@@ -350,7 +350,7 @@ If you do not want the final aggregation result, you can use 'union' to combine 
 ```sql
 insert into aggstate select 3,sum_union(k2),group_concat_union(k3) from aggstate ;
 ```
-此时的表结构为
+The table's structure at this moment is...
 | k1      | k2        | k3 |               
 | --------------- | ----------- | --------------- | 
 | 1         | sum(1,2,3)    |   group_concat_state(a,b,c)              | 
