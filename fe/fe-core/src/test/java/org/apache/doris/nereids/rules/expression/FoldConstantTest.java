@@ -611,6 +611,7 @@ class FoldConstantTest extends ExpressionRewriteTestHelper {
         assertRewriteExpression("cast('2021-01-01' as datetime)", "2021-01-01 00:00:00");
         assertRewriteExpression("cast('20210101' as datetime)", "2021-01-01 00:00:00");
         assertRewriteExpression("cast('2021-01-01T00:00:00' as datetime)", "2021-01-01 00:00:00");
+        assertRewriteExpression("cast ('2022-12-02 22:23:24.999999' as datetimev2(3))", "2022-12-02 22:23:24.999");
     }
 
     @Test
