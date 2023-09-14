@@ -1859,7 +1859,7 @@ Status VOlapTableSink::close(RuntimeState* state, Status exec_status) {
             // Due to the non-determinism of compaction, the rowsets of each replica may be different from each other on different
             // BE nodes. The number of rows filtered in SegmentWriter depends on the historical rowsets located in the correspoding
             // BE node. So we check the number of rows filtered on each succeccful BE to ensure the consistency of the current load
-            if (!_write_single_replica && _schema->is_strict_mode() &&
+            if (status.ok() && !_write_single_replica && _schema->is_strict_mode() &&
                 _schema->is_partial_update()) {
                 if (Status st = index_channel->check_tablet_filtered_rows_consistency(); !st.ok()) {
                     status = st;
