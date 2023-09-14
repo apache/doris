@@ -181,7 +181,7 @@ private:
 
     // subcolumn tree of each subcolumn's unique id
     SubcolumnColumnReaders _sub_column_tree;
-    
+
     // used to guarantee that short key index will be loaded at most once in a thread-safe way
     DorisCallOnce<Status> _load_index_once;
     // used to guarantee that primary key bloom filter will be loaded at most once in a thread-safe way
