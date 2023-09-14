@@ -1,7 +1,7 @@
 ---
 {
     "title": "uuid_numeric",
-    "language": "en"
+    "language": "zh-CN"
 }
 ---
 
