@@ -64,4 +64,6 @@ suite("test_subquery") {
     qt_uncorrelated_scalar_with_sort_and_limit """
             select * from nereids_test_query_db.baseall where k1 = (select k1 from nereids_test_query_db.baseall order by k1 desc limit 1)
         """
+    
+    qt_sql_one_row_relation """select (select 1);"""
 }
