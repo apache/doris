@@ -48,7 +48,6 @@ public class DeepCopy {
                 DataOutputStream out = new DataOutputStream(byteArrayOutputStream)) {
             orig.write(out);
             out.flush();
-            out.close();
 
             try (DataInputStream in = new DataInputStream(byteArrayOutputStream.getInputStream())) {
                 Method readMethod = c.getDeclaredMethod(READ_FIELDS_METHOD_NAME, DataInput.class);
@@ -76,7 +75,6 @@ public class DeepCopy {
                 DataOutputStream out = new DataOutputStream(byteArrayOutputStream)) {
             orig.write(out);
             out.flush();
-            out.close();
 
             try (DataInputStream in = new DataInputStream(byteArrayOutputStream.getInputStream())) {
                 Method readMethod = c.getDeclaredMethod(READ_METHOD_NAME, DataInput.class);
