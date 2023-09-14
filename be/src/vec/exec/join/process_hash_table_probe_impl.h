@@ -263,8 +263,8 @@ Status ProcessHashTableProbe<JoinOpType>::do_process(HashTableType& hash_table_c
                         _build_block_rows[current_offset] = probe_row_match_iter->row_num;
                         _probe_indexs[current_offset] = probe_index;
                     } else {
-                        _build_block_offsets.emplace_back(probe_row_match_iter->block_offset);
-                        _build_block_rows.emplace_back(probe_row_match_iter->row_num);
+                        _build_block_offsets.push_back(probe_row_match_iter->block_offset);
+                        _build_block_rows.push_back(probe_row_match_iter->row_num);
                         _probe_indexs.template emplace_back(probe_index);
                     }
                     ++current_offset;
@@ -381,8 +381,8 @@ Status ProcessHashTableProbe<JoinOpType>::do_process(HashTableType& hash_table_c
                                     _build_block_offsets[current_offset] = mapped.block_offset;
                                     _build_block_rows[current_offset] = mapped.row_num;
                                 } else {
-                                    _build_block_offsets.emplace_back(mapped.block_offset);
-                                    _build_block_rows.emplace_back(mapped.row_num);
+                                    _build_block_offsets.push_back(mapped.block_offset);
+                                    _build_block_rows.push_back(mapped.row_num);
                                 }
                                 ++current_offset;
                             }
@@ -395,8 +395,8 @@ Status ProcessHashTableProbe<JoinOpType>::do_process(HashTableType& hash_table_c
                                         _build_block_offsets[current_offset] = it->block_offset;
                                         _build_block_rows[current_offset] = it->row_num;
                                     } else {
-                                        _build_block_offsets.emplace_back(it->block_offset);
-                                        _build_block_rows.emplace_back(it->row_num);
+                                        _build_block_offsets.push_back(it->block_offset);
+                                        _build_block_rows.push_back(it->row_num);
                                     }
                                     ++current_offset;
                                 }
@@ -531,8 +531,8 @@ Status ProcessHashTableProbe<JoinOpType>::do_process_with_other_join_conjuncts(
                     _build_block_rows[current_offset] = probe_row_match_iter->row_num;
                 } else {
                     _probe_indexs.template emplace_back(probe_index);
-                    _build_block_offsets.emplace_back(probe_row_match_iter->block_offset);
-                    _build_block_rows.emplace_back(probe_row_match_iter->row_num);
+                    _build_block_offsets.push_back(probe_row_match_iter->block_offset);
+                    _build_block_rows.push_back(probe_row_match_iter->row_num);
                 }
                 ++current_offset;
                 visited_map.emplace_back(&probe_row_match_iter->visited);
@@ -631,8 +631,8 @@ Status ProcessHashTableProbe<JoinOpType>::do_process_with_other_join_conjuncts(
                             _build_block_offsets[current_offset] = mapped.block_offset;
                             _build_block_rows[current_offset] = mapped.row_num;
                         } else {
-                            _build_block_offsets.emplace_back(mapped.block_offset);
-                            _build_block_rows.emplace_back(mapped.row_num);
+                            _build_block_offsets.push_back(mapped.block_offset);
+                            _build_block_rows.push_back(mapped.row_num);
                         }
                         ++current_offset;
                         visited_map.emplace_back(&mapped.visited);
@@ -648,8 +648,8 @@ Status ProcessHashTableProbe<JoinOpType>::do_process_with_other_join_conjuncts(
                                     _build_block_offsets[current_offset] = it->block_offset;
                                     _build_block_rows[current_offset] = it->row_num;
                                 } else {
-                                    _build_block_offsets.emplace_back(it->block_offset);
-                                    _build_block_rows.emplace_back(it->row_num);
+                                    _build_block_offsets.push_back(it->block_offset);
+                                    _build_block_rows.push_back(it->row_num);
                                 }
                                 ++current_offset;
                                 visited_map.emplace_back(&it->visited);
@@ -664,8 +664,8 @@ Status ProcessHashTableProbe<JoinOpType>::do_process_with_other_join_conjuncts(
                                     _build_block_offsets[current_offset] = it->block_offset;
                                     _build_block_rows[current_offset] = it->row_num;
                                 } else {
-                                    _build_block_offsets.emplace_back(it->block_offset);
-                                    _build_block_rows.emplace_back(it->row_num);
+                                    _build_block_offsets.push_back(it->block_offset);
+                                    _build_block_rows.push_back(it->row_num);
                                 }
                                 ++current_offset;
                                 visited_map.emplace_back(&it->visited);
