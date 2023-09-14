@@ -96,7 +96,7 @@ suite("nereids_partial_update_native_insert_stmt_complex", "p0") {
         (5, 5, '5', 5.0, '2000-01-05');"""
     sql """insert into ${tbName3} values(1), (3), (5);"""
 
-    qt_select_result "select ${tbName2}.id,1 from ${tbName2} inner join ${tbName3} on ${tbName2}.id = ${tbName3}.id;"
+    qt_select_result "select ${tbName2}.id,1 from ${tbName2} inner join ${tbName3} on ${tbName2}.id = ${tbName3}.id order by ${tbName2}.id;"
 
     sql "set enable_unique_key_partial_update=true;"
     sql "set enable_insert_strict = false;"
@@ -109,4 +109,9 @@ suite("nereids_partial_update_native_insert_stmt_complex", "p0") {
     sql "DROP TABLE IF EXISTS ${tbName1}"
     sql "DROP TABLE IF EXISTS ${tbName2}"
     sql "DROP TABLE IF EXISTS ${tbName3}"
+
+    sql "set enable_unique_key_partial_update=false;"
+    sql "set enable_insert_strict = false;"
+    sql "set enable_fallback_to_original_planner=true;"
+    sql "sync;"
 }
