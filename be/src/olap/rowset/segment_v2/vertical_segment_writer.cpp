@@ -235,8 +235,7 @@ Status VerticalSegmentWriter::init() {
             seq_col_length =
                     _tablet_schema->column(_tablet_schema->sequence_col_idx()).length() + 1;
         }
-        _primary_key_index_builder.reset(
-                new PrimaryKeyIndexBuilder(_file_writer, seq_col_length));
+        _primary_key_index_builder.reset(new PrimaryKeyIndexBuilder(_file_writer, seq_col_length));
         RETURN_IF_ERROR(_primary_key_index_builder->init());
     } else {
         _short_key_index_builder.reset(
@@ -458,7 +457,7 @@ Status VerticalSegmentWriter::_append_block_with_partial_content(const vectorize
     // read and fill block
     auto mutable_full_columns = full_block.mutate_columns();
     RETURN_IF_ERROR(_fill_missing_columns(mutable_full_columns, use_default_or_null_flag,
-                                         has_default_or_nullable, segment_start_pos));
+                                          has_default_or_nullable, segment_start_pos));
     // row column should be filled here
     if (_tablet_schema->store_row_column()) {
         // convert block to row store format
@@ -623,7 +622,8 @@ Status VerticalSegmentWriter::batch_block(const vectorized::Block* block, size_t
 Status VerticalSegmentWriter::write_batch() {
     if (_tablet_schema->is_partial_update() && _opts.write_type == DataWriteType::TYPE_DIRECT) {
         for (auto& data : _batched_blocks) {
-            RETURN_IF_ERROR(_append_block_with_partial_content(data.block, data.row_pos, data.num_rows));
+            RETURN_IF_ERROR(
+                    _append_block_with_partial_content(data.block, data.row_pos, data.num_rows));
         }
         return Status::OK();
     }
@@ -649,8 +649,8 @@ Status VerticalSegmentWriter::write_batch() {
     vectorized::IOlapColumnDataAccessor* seq_column = nullptr;
     for (uint32_t cid = 0; cid < _tablet_schema->num_columns(); ++cid) {
         for (auto& data : _batched_blocks) {
-            _olap_data_convertor->set_source_content_with_specifid_columns(data.block, data.row_pos,
-                                                                           data.num_rows, std::vector<uint32_t>{cid});
+            _olap_data_convertor->set_source_content_with_specifid_columns(
+                    data.block, data.row_pos, data.num_rows, std::vector<uint32_t> {cid});
 
             // convert column data from engine format to storage layer format
             auto [status, column] = _olap_data_convertor->convert_column_data(cid);
@@ -723,7 +723,7 @@ Status VerticalSegmentWriter::write_batch() {
 }
 
 void VerticalSegmentWriter::_handle_delete_sign_col(const vectorized::Block* block, size_t row_pos,
-                                                  size_t num_rows) {
+                                                    size_t num_rows) {
     const vectorized::ColumnWithTypeAndName& delete_sign_column =
             block->get_by_position(_tablet_schema->delete_sign_idx());
     auto& delete_sign_col =
@@ -899,7 +899,8 @@ Status VerticalSegmentWriter::finalize(uint64_t* segment_file_size, uint64_t* in
     MonotonicStopWatch timer;
     timer.start();
     // check disk capacity
-    if (_data_dir != nullptr && _data_dir->reach_capacity_limit((int64_t)_estimated_segment_size())) {
+    if (_data_dir != nullptr &&
+        _data_dir->reach_capacity_limit((int64_t)_estimated_segment_size())) {
         return Status::Error<DISK_REACH_CAPACITY_LIMIT>("disk {} exceed capacity limit.",
                                                         _data_dir->path_hash());
     }
