@@ -39,42 +39,68 @@ import java.time.temporal.ChronoField;
  *      Note incomplete times 'hh:mm:ss', 'hh:mm', 'D hh:mm', 'D hh', or 'ss'
  */
 public class DateTimeFormatterUtils {
-    // Date: %Y-%m-%d
-    public static DateTimeFormatter DATE_FORMATTER = new DateTimeFormatterBuilder()
-            .appendOptional(
-                    new DateTimeFormatterBuilder().appendValue(ChronoField.YEAR, 4).toFormatter())
-            .appendOptional(
-                    new DateTimeFormatterBuilder().appendValueReduced(ChronoField.YEAR, 2, 2, 1970).toFormatter())
+    public static final DateTimeFormatter ZONE_FORMATTER = new DateTimeFormatterBuilder()
+            .optionalStart()
+            // .appendZoneText(TextStyle.FULL)
+            .appendZoneOrOffsetId()
+            .optionalEnd()
+            .toFormatter()
+            .withResolverStyle(ResolverStyle.STRICT);
+    public static final DateTimeFormatter DATE_FORMATTER = new DateTimeFormatterBuilder()
+            .appendValue(ChronoField.YEAR, 4)
             .appendLiteral('-').appendValue(ChronoField.MONTH_OF_YEAR, 2)
             .appendLiteral('-').appendValue(ChronoField.DAY_OF_MONTH, 2)
             .toFormatter().withResolverStyle(ResolverStyle.STRICT);
-    // Date without delimiter: %Y%m%d
-    public static DateTimeFormatter BASIC_DATE_FORMATTER = new DateTimeFormatterBuilder()
-            .appendValue(ChronoField.YEAR, 4)
-            .appendValue(ChronoField.MONTH_OF_YEAR, 2)
-            .appendValue(ChronoField.DAY_OF_MONTH, 2)
-            .toFormatter().withResolverStyle(ResolverStyle.STRICT);
-    // Time: %H:%i:%s
-    public static DateTimeFormatter TIME_FORMATTER = new DateTimeFormatterBuilder()
+    // HH[:mm][:ss][.microsecond]
+    public static final DateTimeFormatter TIME_FORMATTER = new DateTimeFormatterBuilder()
             .appendValue(ChronoField.HOUR_OF_DAY, 2)
             .appendLiteral(':').appendValue(ChronoField.MINUTE_OF_HOUR, 2)
             .appendLiteral(':').appendValue(ChronoField.SECOND_OF_MINUTE, 2)
+            .appendOptional(new DateTimeFormatterBuilder()
+                    .appendFraction(ChronoField.MICRO_OF_SECOND, 1, 6, true).toFormatter())
             .toFormatter().withResolverStyle(ResolverStyle.STRICT);
-    // Time without delimiter: HHmmss[microsecond]
-    public static DateTimeFormatter BASIC_TIME_FORMATTER = new DateTimeFormatterBuilder()
+    // Time without delimiter: HHmmss[.microsecond]
+    private static final DateTimeFormatter BASIC_TIME_FORMATTER = new DateTimeFormatterBuilder()
             .appendValue(ChronoField.HOUR_OF_DAY, 2)
             .appendValue(ChronoField.MINUTE_OF_HOUR, 2)
             .appendValue(ChronoField.SECOND_OF_MINUTE, 2)
             .appendOptional(new DateTimeFormatterBuilder()
                     .appendFraction(ChronoField.MICRO_OF_SECOND, 1, 6, true).toFormatter())
             .toFormatter().withResolverStyle(ResolverStyle.STRICT);
-
+    // yyyymmdd
+    private static final DateTimeFormatter BASIC_DATE_FORMATTER = new DateTimeFormatterBuilder()
+            .appendValue(ChronoField.YEAR, 4)
+            .appendValue(ChronoField.MONTH_OF_YEAR, 2)
+            .appendValue(ChronoField.DAY_OF_MONTH, 2)
+            .toFormatter().withResolverStyle(ResolverStyle.STRICT);
     // Date without delimiter
-    public static DateTimeFormatter BASIC_DATE_TIME_FORMATTER = new DateTimeFormatterBuilder()
+    public static final DateTimeFormatter BASIC_DATE_TIME_FORMATTER = new DateTimeFormatterBuilder()
             .append(BASIC_DATE_FORMATTER)
-            .optionalStart()
-            .appendOptional(new DateTimeFormatterBuilder().appendLiteral('T').toFormatter())
+            .appendLiteral('T')
             .append(BASIC_TIME_FORMATTER)
-            .optionalEnd()
+            .toFormatter().withResolverStyle(ResolverStyle.STRICT);
+    // Date without delimiter
+    public static final DateTimeFormatter BASIC_FORMATTER_WITHOUT_T = new DateTimeFormatterBuilder()
+            .append(BASIC_DATE_FORMATTER)
+            .appendOptional(BASIC_TIME_FORMATTER)
+            .toFormatter().withResolverStyle(ResolverStyle.STRICT);
+
+    // Datetime
+    public static final DateTimeFormatter DATE_TIME_FORMATTER = new DateTimeFormatterBuilder()
+            .append(DATE_FORMATTER)
+            .appendLiteral(' ')
+            .append(TIME_FORMATTER)
+            .toFormatter().withResolverStyle(ResolverStyle.STRICT);
+    public static final DateTimeFormatter ZONE_DATE_FORMATTER = new DateTimeFormatterBuilder()
+            .appendValue(ChronoField.YEAR, 4)
+            .appendLiteral('-').appendValue(ChronoField.MONTH_OF_YEAR, 2)
+            .appendLiteral('-').appendValue(ChronoField.DAY_OF_MONTH, 2)
+            .append(ZONE_FORMATTER)
+            .toFormatter().withResolverStyle(ResolverStyle.STRICT);
+    public static final DateTimeFormatter ZONE_DATE_TIME_FORMATTER = new DateTimeFormatterBuilder()
+            .append(DATE_FORMATTER)
+            .appendLiteral(' ')
+            .append(TIME_FORMATTER)
+            .append(ZONE_FORMATTER)
             .toFormatter().withResolverStyle(ResolverStyle.STRICT);
 }

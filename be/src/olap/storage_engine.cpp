@@ -93,8 +93,6 @@ using namespace ErrorCode;
 
 DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(unused_rowsets_count, MetricUnit::ROWSETS);
 
-StorageEngine* StorageEngine::_s_instance = nullptr;
-
 static Status _validate_options(const EngineOptions& options) {
     if (options.store_paths.empty()) {
         return Status::InternalError("store paths is empty");
@@ -102,14 +100,11 @@ static Status _validate_options(const EngineOptions& options) {
     return Status::OK();
 }
 
-Status StorageEngine::open(const EngineOptions& options,
-                           std::unique_ptr<StorageEngine>* engine_ptr) {
-    RETURN_IF_ERROR(_validate_options(options));
-    LOG(INFO) << "starting backend using uid:" << options.backend_uid.to_string();
-    std::unique_ptr<StorageEngine> engine(new StorageEngine(options));
-    RETURN_NOT_OK_STATUS_WITH_WARN(engine->_open(), "open engine failed");
+Status StorageEngine::open() {
+    RETURN_IF_ERROR(_validate_options(_options));
+    LOG(INFO) << "starting backend using uid:" << _options.backend_uid.to_string();
+    RETURN_NOT_OK_STATUS_WITH_WARN(_open(), "open engine failed");
     LOG(INFO) << "success to init storage engine.";
-    *engine_ptr = std::move(engine);
     return Status::OK();
 }
 
@@ -130,7 +125,6 @@ StorageEngine::StorageEngine(const EngineOptions& options)
           _default_rowset_type(BETA_ROWSET),
           _heartbeat_flags(nullptr),
           _stream_load_recorder(nullptr) {
-    _s_instance = this;
     REGISTER_HOOK_METRIC(unused_rowsets_count, [this]() {
         // std::lock_guard<std::mutex> lock(_gc_mutex);
         return _unused_rowsets.size();
@@ -139,30 +133,7 @@ StorageEngine::StorageEngine(const EngineOptions& options)
 
 StorageEngine::~StorageEngine() {
     stop();
-
-    DEREGISTER_HOOK_METRIC(unused_rowsets_count);
-
-    if (_base_compaction_thread_pool) {
-        _base_compaction_thread_pool->shutdown();
-    }
-    if (_cumu_compaction_thread_pool) {
-        _cumu_compaction_thread_pool->shutdown();
-    }
-    if (_single_replica_compaction_thread_pool) {
-        _single_replica_compaction_thread_pool->shutdown();
-    }
-
-    if (_seg_compaction_thread_pool) {
-        _seg_compaction_thread_pool->shutdown();
-    }
-    if (_tablet_meta_checkpoint_thread_pool) {
-        _tablet_meta_checkpoint_thread_pool->shutdown();
-    }
-    if (_cold_data_compaction_thread_pool) {
-        _cold_data_compaction_thread_pool->shutdown();
-    }
     _clear();
-    _s_instance = nullptr;
 }
 
 Status StorageEngine::load_data_dirs(const std::vector<DataDir*>& data_dirs) {
@@ -543,7 +514,10 @@ void StorageEngine::_exit_if_too_many_disks_are_failed() {
 }
 
 void StorageEngine::stop() {
-    if (_stopped) return;
+    if (_stopped) {
+        LOG(WARNING) << "Storage engine is stopped twice.";
+        return;
+    }
     // trigger the waiting threads
     notify_listeners();
 
@@ -582,7 +556,32 @@ void StorageEngine::stop() {
     THREADS_JOIN(_path_gc_threads);
     THREADS_JOIN(_path_scan_threads);
 #undef THREADS_JOIN
+
+    if (_base_compaction_thread_pool) {
+        _base_compaction_thread_pool->shutdown();
+    }
+    if (_cumu_compaction_thread_pool) {
+        _cumu_compaction_thread_pool->shutdown();
+    }
+    if (_single_replica_compaction_thread_pool) {
+        _single_replica_compaction_thread_pool->shutdown();
+    }
+
+    if (_seg_compaction_thread_pool) {
+        _seg_compaction_thread_pool->shutdown();
+    }
+    if (_tablet_meta_checkpoint_thread_pool) {
+        _tablet_meta_checkpoint_thread_pool->shutdown();
+    }
+    if (_cold_data_compaction_thread_pool) {
+        _cold_data_compaction_thread_pool->shutdown();
+    }
+
+    _memtable_flush_executor.reset(nullptr);
+    _calc_delete_bitmap_executor.reset(nullptr);
+
     _stopped = true;
+    LOG(INFO) << "Storage engine is stopped.";
 }
 
 void StorageEngine::_clear() {

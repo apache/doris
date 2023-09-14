@@ -27,6 +27,7 @@ import org.apache.doris.statistics.util.StatisticsUtil;
 import com.google.gson.Gson;
 import com.google.gson.annotations.SerializedName;
 import com.google.gson.reflect.TypeToken;
+import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.quartz.CronExpression;
@@ -167,13 +168,16 @@ public class AnalysisInfo implements Writable {
 
     public CronExpression cronExpression;
 
+    @SerializedName("forceFull")
+    public final boolean forceFull;
+
     public AnalysisInfo(long jobId, long taskId, List<Long> taskIds, String catalogName, String dbName, String tblName,
             Map<String, Set<String>> colToPartitions, Set<String> partitionNames, String colName, Long indexId,
             JobType jobType, AnalysisMode analysisMode, AnalysisMethod analysisMethod, AnalysisType analysisType,
             int samplePercent, int sampleRows, int maxBucketNum, long periodTimeInMs, String message,
             long lastExecTimeInMs, long timeCostInMs, AnalysisState state, ScheduleType scheduleType,
             boolean isExternalTableLevelTask, boolean partitionOnly, boolean samplingPartition,
-            CronExpression cronExpression) {
+            CronExpression cronExpression, boolean forceFull) {
         this.jobId = jobId;
         this.taskId = taskId;
         this.taskIds = taskIds;
@@ -204,6 +208,7 @@ public class AnalysisInfo implements Writable {
         if (cronExpression != null) {
             this.cronExprStr = cronExpression.getCronExpression();
         }
+        this.forceFull = forceFull;
     }
 
     @Override
@@ -214,11 +219,11 @@ public class AnalysisInfo implements Writable {
         sj.add("DBName: " + dbName);
         sj.add("TableName: " + tblName);
         sj.add("ColumnName: " + colName);
-        sj.add("TaskType: " + analysisType.toString());
-        sj.add("TaskMode: " + analysisMode.toString());
-        sj.add("TaskMethod: " + analysisMethod.toString());
+        sj.add("TaskType: " + analysisType);
+        sj.add("TaskMode: " + analysisMode);
+        sj.add("TaskMethod: " + analysisMethod);
         sj.add("Message: " + message);
-        sj.add("CurrentState: " + state.toString());
+        sj.add("CurrentState: " + state);
         if (samplePercent > 0) {
             sj.add("SamplePercent: " + samplePercent);
         }
@@ -240,6 +245,10 @@ public class AnalysisInfo implements Writable {
         if (periodTimeInMs > 0) {
             sj.add("periodTimeInMs: " + StatisticsUtil.getReadableTime(periodTimeInMs));
         }
+        if (StringUtils.isNotEmpty(cronExprStr)) {
+            sj.add("cronExpr: " + cronExprStr);
+        }
+        sj.add("forceFull: " + forceFull);
         return sj.toString();
     }
 

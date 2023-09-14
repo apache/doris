@@ -47,21 +47,23 @@ CachedRemoteFileReader::CachedRemoteFileReader(FileReaderSPtr remote_file_reader
     _is_doris_table = opts.is_doris_table;
     if (_is_doris_table) {
         _cache_key = IFileCache::hash(path().filename().native());
-        _cache = FileCacheFactory::instance().get_by_path(_cache_key);
+        _cache = FileCacheFactory::instance()->get_by_path(_cache_key);
     } else {
         // Use path and modification time to build cache key
         std::string unique_path = fmt::format("{}:{}", path().native(), opts.mtime);
         _cache_key = IFileCache::hash(unique_path);
-        if (!opts.cache_base_path.empty()) {
+        if (opts.cache_base_path.empty()) {
+            // if cache path is not specified by session variable, chose randomly.
+            _cache = FileCacheFactory::instance()->get_by_path(_cache_key);
+        } else {
             // from query session variable: file_cache_base_path
-            _cache = FileCacheFactory::instance().get_by_path(opts.cache_base_path);
+            _cache = FileCacheFactory::instance()->get_by_path(opts.cache_base_path);
             if (_cache == nullptr) {
                 LOG(WARNING) << "Can't get cache from base path: " << opts.cache_base_path
                              << ", using random instead.";
-                _cache = FileCacheFactory::instance().get_by_path(_cache_key);
+                _cache = FileCacheFactory::instance()->get_by_path(_cache_key);
             }
         }
-        _cache = FileCacheFactory::instance().get_by_path(path().native());
     }
 }
 
@@ -91,6 +93,7 @@ std::pair<size_t, size_t> CachedRemoteFileReader::_align_size(size_t offset,
 Status CachedRemoteFileReader::_read_from_cache(size_t offset, Slice result, size_t* bytes_read,
                                                 const IOContext* io_ctx) {
     size_t bytes_req = result.size;
+    bytes_req = std::min(bytes_req, size() - offset);
     ReadStatistics stats;
     auto [align_left, align_size] = _align_size(offset, bytes_req);
     CacheContext cache_context(io_ctx);

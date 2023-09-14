@@ -113,7 +113,7 @@ void StreamLoadAction::handle(HttpRequest* req) {
             _exec_env->stream_load_executor()->rollback_txn(ctx.get());
             ctx->need_rollback = false;
         }
-        if (ctx->body_sink.get() != nullptr) {
+        if (ctx->body_sink != nullptr) {
             ctx->body_sink->cancel(ctx->status.to_string());
         }
     }
@@ -194,7 +194,7 @@ int StreamLoadAction::on_header(HttpRequest* req) {
             _exec_env->stream_load_executor()->rollback_txn(ctx.get());
             ctx->need_rollback = false;
         }
-        if (ctx->body_sink.get() != nullptr) {
+        if (ctx->body_sink != nullptr) {
             ctx->body_sink->cancel(ctx->status.to_string());
         }
         auto str = ctx->to_json();
