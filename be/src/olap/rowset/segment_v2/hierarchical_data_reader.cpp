@@ -177,8 +177,7 @@ Status ExtractReader::next_batch(size_t* n, vectorized::MutableColumnPtr& dst, b
 Status ExtractReader::read_by_rowids(const rowid_t* rowids, const size_t count,
                                      vectorized::MutableColumnPtr& dst) {
     _root_reader->column->clear();
-    RETURN_IF_ERROR(
-            _root_reader->iterator->read_by_rowids(rowids, count, _root_reader->column));
+    RETURN_IF_ERROR(_root_reader->iterator->read_by_rowids(rowids, count, _root_reader->column));
     RETURN_IF_ERROR(extract_to(dst, count));
     return Status::OK();
 }

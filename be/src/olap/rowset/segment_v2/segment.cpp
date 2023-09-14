@@ -313,7 +313,7 @@ Status Segment::_create_column_readers(const SegmentFooterPB& footer) {
             column_path_to_footer_ordinal.emplace(path, ordinal);
         }
         if (column_pb.unique_id() >= 0) {
-            _column_id_to_footer_ordinal.emplace(column_pb.unique_id(), ordinal);
+            column_id_to_footer_ordinal.emplace(column_pb.unique_id(), ordinal);
         }
     }
     // init by unique_id
@@ -342,8 +342,8 @@ Status Segment::_create_column_readers(const SegmentFooterPB& footer) {
         ColumnReaderOptions opts;
         opts.kept_in_memory = _tablet_schema->is_in_memory();
         std::unique_ptr<ColumnReader> reader;
-        RETURN_IF_ERROR(ColumnReader::create(opts, footer.columns(iter->second),
-                                             footer.num_rows(), _file_reader, &reader));
+        RETURN_IF_ERROR(ColumnReader::create(opts, footer.columns(iter->second), footer.num_rows(),
+                                             _file_reader, &reader));
         _sub_column_tree.add(
                 iter->first,
                 SubcolumnReader {std::move(reader),

@@ -19,7 +19,6 @@ package org.apache.doris.service;
 
 import org.apache.doris.analysis.AddPartitionClause;
 import org.apache.doris.analysis.Analyzer;
-import org.apache.doris.analysis.InsertStmt;
 import org.apache.doris.analysis.LabelName;
 import org.apache.doris.analysis.NativeInsertStmt;
 import org.apache.doris.analysis.PartitionExprUtil;
@@ -27,7 +26,6 @@ import org.apache.doris.analysis.RestoreStmt;
 import org.apache.doris.analysis.SetType;
 import org.apache.doris.analysis.SqlParser;
 import org.apache.doris.analysis.SqlScanner;
-import org.apache.doris.analysis.StatementBase;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.backup.Snapshot;
 import org.apache.doris.catalog.AutoIncrementGenerator;
