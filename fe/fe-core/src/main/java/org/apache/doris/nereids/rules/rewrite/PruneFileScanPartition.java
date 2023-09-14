@@ -55,22 +55,26 @@ public class PruneFileScanPartition extends OneRewriteRuleFactory {
 
     @Override
     public Rule build() {
-        return logicalFilter(logicalFileScan()).when(p -> p.child().getSelectedPartitions() == null).thenApply(ctx -> {
-            LogicalFilter<LogicalFileScan> filter = ctx.root;
-            LogicalFileScan scan = filter.child();
-            ExternalTable tbl = scan.getTable();
-            SelectedPartitions selectedPartitions = new SelectedPartitions(0, Maps.newHashMap(), false);
+        return logicalFilter(logicalFileScan()).when(p -> !p.child().getSelectedPartitions().isPartitionPruned())
+                .thenApply(ctx -> {
+                    LogicalFilter<LogicalFileScan> filter = ctx.root;
+                    LogicalFileScan scan = filter.child();
+                    ExternalTable tbl = scan.getTable();
+                    SelectedPartitions selectedPartitions = new SelectedPartitions(0, Maps.newHashMap(), false);
 
-            // TODO(cmy): support other external table
-            if (tbl instanceof HMSExternalTable && ((HMSExternalTable) tbl).getDlaType() == DLAType.HIVE) {
-                HMSExternalTable hiveTbl = (HMSExternalTable) tbl;
-                selectedPartitions = pruneHivePartitions(hiveTbl, filter, scan, ctx.cascadesContext);
-            }
+                    // TODO(cmy): support other external table
+                    if (tbl instanceof HMSExternalTable && ((HMSExternalTable) tbl).getDlaType() == DLAType.HIVE) {
+                        HMSExternalTable hiveTbl = (HMSExternalTable) tbl;
+                        selectedPartitions = pruneHivePartitions(hiveTbl, filter, scan, ctx.cascadesContext);
+                    } else {
+                        // set isPartitionPruned so that it won't go pass the partition prune again
+                        selectedPartitions.isPartitionPruned = true;
+                    }
 
-            LogicalFileScan rewrittenScan = scan.withConjuncts(filter.getConjuncts())
-                    .withSelectedPartitions(selectedPartitions);
-            return new LogicalFilter<>(filter.getConjuncts(), rewrittenScan);
-        }).toRule(RuleType.FILE_SCAN_PARTITION_PRUNE);
+                    LogicalFileScan rewrittenScan = scan.withConjuncts(filter.getConjuncts())
+                            .withSelectedPartitions(selectedPartitions);
+                    return new LogicalFilter<>(filter.getConjuncts(), rewrittenScan);
+                }).toRule(RuleType.FILE_SCAN_PARTITION_PRUNE);
     }
 
     private SelectedPartitions pruneHivePartitions(HMSExternalTable hiveTbl,
@@ -104,3 +108,4 @@ public class PruneFileScanPartition extends OneRewriteRuleFactory {
         return new SelectedPartitions(idToPartitionItem.size(), selectedPartitionItems, true);
     }
 }
+
