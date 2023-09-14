@@ -676,6 +676,7 @@ Status VerticalSegmentWriter::write_batch() {
     }
 
     for (auto& data : _batched_blocks) {
+        _olap_data_convertor->set_source_content(data.block, data.row_pos, data.num_rows);
         // find all row pos for short key indexes
         std::vector<size_t> short_key_pos;
         // We build a short key index every `_opts.num_rows_per_block` rows. Specifically, we
@@ -714,6 +715,7 @@ Status VerticalSegmentWriter::write_batch() {
                 RETURN_IF_ERROR(_short_key_index_builder->add_item(_encode_keys(key_columns, pos)));
             }
         }
+        _olap_data_convertor->clear_source_content();
         _num_rows_written += data.num_rows;
     }
 
