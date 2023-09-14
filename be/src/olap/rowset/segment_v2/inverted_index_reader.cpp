@@ -586,7 +586,7 @@ Status StringTypeInvertedIndexReader::handle_point_query(const std::string& colu
     dis_query.add(column_name_ws, values);
     try {
         SCOPED_RAW_TIMER(&stats->inverted_index_searcher_search_timer);
-        dis_query.search(*bit_map);
+        dis_query.search(result);
     } catch (const CLuceneError& e) {
         return Status::Error<ErrorCode::INVERTED_INDEX_CLUCENE_ERROR>(
                 "CLuceneError occured, error msg: {}, column name: {}, search_str: {}", e.what(),
@@ -637,6 +637,10 @@ InvertedIndexReaderType StringTypeInvertedIndexReader::type() {
 BkdIndexReader::BkdIndexReader(io::FileSystemSPtr fs, const std::string& path,
                                const TabletIndex* index_meta)
         : InvertedIndexReader(fs, path, index_meta), _compoundReader(nullptr) {
+    if (!indexExists(_file_full_path)) {
+        LOG(WARNING) << "bkd index: " << _file_full_path.string() << " not exist.";
+        return;
+    }
     _compoundReader = std::make_unique<DorisCompoundReader>(
             DorisCompoundDirectory::getDirectory(fs, _file_dir.c_str()), _file_name.c_str(),
             config::inverted_index_read_buffer_size);
