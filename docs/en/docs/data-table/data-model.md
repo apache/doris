@@ -88,12 +88,17 @@ As you can see, this is a typical fact table of user information and visit behav
 
 The columns in the table are divided into Key (dimension) columns and Value (indicator columns) based on whether they are set with an `AggregationType`. **Key** columns are not set with an  `AggregationType`, such as `user_id`, `date`, and  `age`, while **Value** columns are.
 
-When data are imported, rows with the same contents in the Key columns will be aggregated into one row, and their values in the Value columns will be aggregated as their `AggregationType` specify. Currently, their are four aggregation types:
+When data are imported, rows with the same contents in the Key columns will be aggregated into one row, and their values in the Value columns will be aggregated as their `AggregationType` specify. Currently, there are several aggregation methods and "agg_state" options available:
 
 1. SUM: Accumulate the values in multiple rows.
 2. REPLACE: The newly imported value will replace the previous value.
 3. MAX: Keep the maximum value.
 4. MIN: Keep the minimum value.
+5. REPLACE_IF_NOT_NULL: Non-null value replacement. Unlike REPLACE, it does not replace null values.
+6. HLL_UNION: Aggregation method for columns of HLL type, using the HyperLogLog algorithm for aggregation.
+7. BITMAP_UNION: Aggregation method for columns of BITMAP type, performing a union aggregation of bitmaps.
+
+If these aggregation methods cannot meet the requirements, you can choose to use the "agg_state" type.
 
 Suppose that you have the following import data (raw data):
 
@@ -267,6 +272,110 @@ In Doris, data aggregation happens in the following 3 stages:
 3. The data query stage. The data involved in the query will be aggregated accordingly.
 
 At different stages, data will be aggregated to varying degrees. For example, when a batch of data is just imported, it may not be aggregated with the existing data. But for users, they **can only query aggregated data**. That is, what users see are the aggregated data, and they **should not assume that what they have seen are not or partly aggregated**. (See the [Limitations of Aggregate Model](#Limitations of Aggregate Model) section for more details.)
+
+### agg_state
+
+    AGG_STATE cannot be used as a key column, and when creating a table, you need to declare the signature of the aggregation function. Users do not need to specify a length or default value. The actual storage size of the data depends on the function implementation.
+
+CREATE TABLE
+```sql
+set enable_agg_state=true;
+create table aggstate(
+    k1 int null,
+    k2 agg_state sum(int),
+    k3 agg_state group_concat(string)
+)
+aggregate key (k1)
+distributed BY hash(k1) buckets 3
+properties("replication_num" = "1");
+```
+
+
+"agg_state" is used to declare the data type as "agg_state," and "max_by/group_concat" are the signatures of aggregation functions.
+
+Please note that "agg_state" is a data type, similar to "int," "array," or "string."
+
+
+"agg_state" can only be used in conjunction with the [state](../sql-manual/sql-functions/combinators/state.md)/[merge](../sql-manual/sql-functions/combinators/merge.md)/[union](../sql-manual/sql-functions/combinators/union.md) function combinators.
+
+"agg_state" represents an intermediate result of an aggregation function. For example, with the aggregation function "sum," "agg_state" can represent the intermediate state of summing values like sum(1, 2, 3, 4, 5), rather than the final result.
+
+The "agg_state" type needs to be generated using the "state" function. For the current table, it would be "sum_state" and "group_concat_state" for the "sum" and "group_concat" aggregation functions, respectively.
+
+```sql
+insert into aggstate values(1,sum_state(1),group_concat_state('a'));
+insert into aggstate values(1,sum_state(2),group_concat_state('b'));
+insert into aggstate values(1,sum_state(3),group_concat_state('c'));
+```
+
+At this point, the table contains only one row. Please note that the table below is for illustrative purposes and cannot be selected/displayed directly:
+| k1      | k2        | k3 |               
+| --------------- | ----------- | --------------- | 
+| 1         | sum(1,2,3)    |   group_concat_state(a,b,c)              | 
+
+Insert another record.
+
+```sql
+insert into aggstate values(2,sum_state(4),group_concat_state('d'));
+```
+The table's structure at this moment is...
+| k1      | k2        | k3 |               
+| --------------- | ----------- | --------------- | 
+| 1         | sum(1,2,3)    |   group_concat_state(a,b,c)              | 
+| 2         | sum(4)    |   group_concat_state(d)              |
+
+We can use the 'merge' operation to combine multiple states and return the final result calculated by the aggregation function.
+
+```
+mysql> select sum_merge(k2) from aggstate;
++---------------+
+| sum_merge(k2) |
++---------------+
+|            10 |
++---------------+
+```
+`sum_merge` will first combine sum(1,2,3) and sum(4) into sum(1,2,3,4), and return the calculated result.
+
+Because `group_concat` has a specific order requirement, the result is not stable.
+```
+mysql> select group_concat_merge(k3) from aggstate;
++------------------------+
+| group_concat_merge(k3) |
++------------------------+
+| c,b,a,d                |
++------------------------+
+```
+
+If you do not want the final aggregation result, you can use 'union' to combine multiple intermediate aggregation results and generate a new intermediate result.
+```sql
+insert into aggstate select 3,sum_union(k2),group_concat_union(k3) from aggstate ;
+```
+此时的表结构为
+| k1      | k2        | k3 |               
+| --------------- | ----------- | --------------- | 
+| 1         | sum(1,2,3)    |   group_concat_state(a,b,c)              | 
+| 2         | sum(4)    |   group_concat_state(d)              |
+| 3         | sum(1,2,3,4)    |   group_concat_state(a,b,c,d)              |
+
+You can achieve this through a query.
+```
+mysql> select sum_merge(k2) , group_concat_merge(k3)from aggstate;
++---------------+------------------------+
+| sum_merge(k2) | group_concat_merge(k3) |
++---------------+------------------------+
+|            20 | c,b,a,d,c,b,a,d        |
++---------------+------------------------+
+
+mysql> select sum_merge(k2) , group_concat_merge(k3)from aggstate where k1 != 2;
++---------------+------------------------+
+| sum_merge(k2) | group_concat_merge(k3) |
++---------------+------------------------+
+|            16 | c,b,a,d,c,b,a          |
++---------------+------------------------+
+```
+Users can perform more detailed aggregation function operations using `agg_state`.
+
+Please note that `agg_state` comes with a certain performance overhead.
 
 ## Unique Model
 

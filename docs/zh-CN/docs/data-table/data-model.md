@@ -90,14 +90,17 @@ PROPERTIES (
 
 表中的列按照是否设置了 `AggregationType`，分为 Key (维度列) 和 Value（指标列）。没有设置 `AggregationType` 的，如 `user_id`、`date`、`age` ... 等称为 **Key**，而设置了 `AggregationType` 的称为 **Value**。
 
-当我们导入数据时，对于 Key 列相同的行会聚合成一行，而 Value 列会按照设置的 `AggregationType` 进行聚合。 `AggregationType` 目前有以下四种聚合方式和agg_state：
+当我们导入数据时，对于 Key 列相同的行会聚合成一行，而 Value 列会按照设置的 `AggregationType` 进行聚合。 `AggregationType` 目前有以下几种聚合方式和agg_state：
 
 1. SUM：求和，多行的 Value 进行累加。
 2. REPLACE：替代，下一批数据中的 Value 会替换之前导入过的行中的 Value。
 3. MAX：保留最大值。
 4. MIN：保留最小值。
+5. REPLACE_IF_NOT_NULL：非空值替换。和 REPLACE 的区别在于对于null值，不做替换。
+6. HLL_UNION：HLL 类型的列的聚合方式，通过 HyperLogLog 算法聚合。
+7. BITMAP_UNION：BIMTAP 类型的列的聚合方式，进行位图的并集聚合。
 
-如果SUM，REPLACE，MAX，MIN 无法满足需求，则可以选择使用agg_state类型。
+如果这几种聚合方式无法满足需求，则可以选择使用agg_state类型。
 
 
 假设我们有以下导入数据（原始数据）：
