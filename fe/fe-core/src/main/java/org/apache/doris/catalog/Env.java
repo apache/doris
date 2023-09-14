@@ -1658,7 +1658,8 @@ public class Env {
      * frontend log is deleted because of checkpoint.
      */
     private void checkCurrentNodeExist() {
-        if (Config.metadata_failure_recovery.equals("true")) {
+        boolean metadataFailureRecovery = null != System.getProperty(FeConstants.METADATA_FAILURE_RECOVERY_KEY);
+        if (metadataFailureRecovery) {
             return;
         }
 
