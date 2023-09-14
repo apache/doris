@@ -390,8 +390,8 @@ public class DorisFE {
 
     private static boolean createAndLockPidFile(String pidFilePath) throws IOException {
         File pid = new File(pidFilePath);
-        RandomAccessFile file = new RandomAccessFile(pid, "rws");
-        try {
+
+        try (RandomAccessFile file = new RandomAccessFile(pid, "rws")) {
             FileLock lock = file.getChannel().tryLock();
             if (lock == null) {
                 return false;
@@ -405,10 +405,8 @@ public class DorisFE {
 
             return true;
         } catch (OverlappingFileLockException e) {
-            file.close();
             return false;
         } catch (IOException e) {
-            file.close();
             throw e;
         }
     }
