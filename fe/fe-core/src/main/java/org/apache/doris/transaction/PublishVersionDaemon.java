@@ -17,10 +17,7 @@
 
 package org.apache.doris.transaction;
 
-import org.apache.commons.collections.CollectionUtils;
 import org.apache.doris.catalog.Env;
-import org.apache.doris.catalog.TabletInvertedIndex;
-import org.apache.doris.catalog.TabletMeta;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.util.MasterDaemon;
 import org.apache.doris.metric.MetricRepo;
@@ -32,9 +29,9 @@ import org.apache.doris.task.PublishVersionTask;
 import org.apache.doris.thrift.TPartitionVersionInfo;
 import org.apache.doris.thrift.TTaskType;
 
-import com.google.common.base.Preconditions;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
+import org.apache.commons.collections.CollectionUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -128,138 +125,27 @@ public class PublishVersionDaemon extends MasterDaemon {
             AgentTaskExecutor.submit(batchTask);
         }
 
-        TabletInvertedIndex tabletInvertedIndex = Env.getCurrentEnv().getTabletInvertedIndex();
-        Set<Long> tabletIdFilter = Sets.newHashSet();
         Map<Long, Long> tableIdToNumDeltaRows = Maps.newHashMap();
         // try to finish the transaction, if failed just retry in next loop
         for (TransactionState transactionState : readyTransactionStates) {
-<<<<<<< HEAD
             Stream<PublishVersionTask> publishVersionTaskStream = transactionState
                     .getPublishVersionTasks()
                     .values()
                     .stream()
                     .peek(task -> {
                         if (task.isFinished() && CollectionUtils.isEmpty(task.getErrorTablets())) {
-                            Map<Long, Long> tabletIdToDeltaNumRows =
-                                    task.getTabletIdToDeltaNumRows();
-                            tabletIdToDeltaNumRows.forEach((tabletId, numRows) -> {
-                                if (!tabletIdFilter.add(tabletId)) {
-                                    // means the delta num rows for this tablet id has been collected
-                                    return;
-=======
-            Map<Long, PublishVersionTask> transTasks = transactionState.getPublishVersionTasks();
-            Set<Long> publishErrorReplicaIds = Sets.newHashSet();
-            List<PublishVersionTask> unfinishedTasks = Lists.newArrayList();
-            Map<Long, Long> tableIdToNumDeltaRows = Maps.newHashMap();
-            Set<Long> tabletIdFilter = Sets.newHashSet();
-            for (PublishVersionTask publishVersionTask : transTasks.values()) {
-                if (publishVersionTask.isFinished()) {
-                    // sometimes backend finish publish version task,
-                    // but it maybe failed to change transactionid to version for some tablets
-                    // and it will upload the failed tabletinfo to fe and fe will deal with them
-                    List<Long> errorTablets = publishVersionTask.getErrorTablets();
-                    if (errorTablets == null || errorTablets.isEmpty()) {
-                        Map<Long, Long> tabletIdToDeltaNumRows =
-                                publishVersionTask.getTabletIdToDeltaNumRows();
-                        tabletIdToDeltaNumRows.forEach((tabletId, numRows) -> {
-                            if (!tabletIdFilter.add(tabletId)) {
-                                // means the delta num rows for this tablet id has been collected
-                                return;
-                            }
-                            TabletMeta tabletMeta = tabletInvertedIndex.getTabletMeta(tabletId);
-                            if (tabletMeta == null) {
-                                // for delete, here may be a null value
-                                return;
-                            }
-                            long tableId = tabletMeta.getTableId();
-                            tableIdToNumDeltaRows.computeIfPresent(tableId, (tblId, orgNum) -> orgNum + numRows);
-                            tableIdToNumDeltaRows.putIfAbsent(tableId, numRows);
-                        });
-                        continue;
-                    } else {
-                        for (long tabletId : errorTablets) {
-                            // tablet inverted index also contains rollingup index
-                            // if tablet meta not contains the tablet, skip this tablet because this tablet is dropped
-                            // from fe
-                            if (tabletInvertedIndex.getTabletMeta(tabletId) == null) {
-                                continue;
-                            }
-                            Replica replica = tabletInvertedIndex.getReplica(
-                                    tabletId, publishVersionTask.getBackendId());
-                            if (replica != null) {
-                                publishErrorReplicaIds.add(replica.getId());
-                            } else {
-                                LOG.info("could not find related replica with tabletid={}, backendid={}",
-                                        tabletId, publishVersionTask.getBackendId());
-                            }
-                        }
-                    }
-                } else {
-                    unfinishedTasks.add(publishVersionTask);
-                }
-            }
-            transactionState.setTableIdToNumDeltaRows(tableIdToNumDeltaRows);
-
-            boolean shouldFinishTxn = false;
-            if (!unfinishedTasks.isEmpty()) {
-                shouldFinishTxn = isAllBackendsOfUnfinishedTasksDead(unfinishedTasks);
-                if (transactionState.isPublishTimeout() || shouldFinishTxn) {
-                    // transaction's publish is timeout, but there still has unfinished tasks.
-                    // we need to collect all error replicas, and try to finish this txn.
-                    for (PublishVersionTask unfinishedTask : unfinishedTasks) {
-                        // set all replicas in the backend to error state
-                        List<TPartitionVersionInfo> versionInfos = unfinishedTask.getPartitionVersionInfos();
-                        Set<Long> errorPartitionIds = Sets.newHashSet();
-                        for (TPartitionVersionInfo versionInfo : versionInfos) {
-                            errorPartitionIds.add(versionInfo.getPartitionId());
-                        }
-                        if (errorPartitionIds.isEmpty()) {
-                            continue;
-                        }
-
-                        Database db = Env.getCurrentInternalCatalog()
-                                .getDbNullable(transactionState.getDbId());
-                        if (db == null) {
-                            LOG.warn("Database [{}] has been dropped.", transactionState.getDbId());
-                            continue;
-                        }
-
-                        for (long tableId : transactionState.getTableIdList()) {
-                            Table table = db.getTableNullable(tableId);
-                            if (table == null || table.getType() != Table.TableType.OLAP) {
-                                LOG.warn("Table [{}] in database [{}] has been dropped.", tableId, db.getFullName());
-                                continue;
-                            }
-                            OlapTable olapTable = (OlapTable) table;
-                            olapTable.readLock();
-                            try {
-                                for (Long errorPartitionId : errorPartitionIds) {
-                                    Partition partition = olapTable.getPartition(errorPartitionId);
-                                    if (partition != null) {
-                                        List<MaterializedIndex> materializedIndexList
-                                                = partition.getMaterializedIndices(MaterializedIndex.IndexExtState.ALL);
-                                        for (MaterializedIndex materializedIndex : materializedIndexList) {
-                                            for (Tablet tablet : materializedIndex.getTablets()) {
-                                                Replica replica = tablet.getReplicaByBackendId(
-                                                        unfinishedTask.getBackendId());
-                                                if (replica != null) {
-                                                    publishErrorReplicaIds.add(replica.getId());
-                                                }
-                                            }
-                                        }
-                                    }
->>>>>>> d4517cf722 (fix table not found in tablet inverted index)
-                                }
-                                TabletMeta tabletMeta = tabletInvertedIndex.getTabletMeta(tabletId);
-                                Preconditions.checkNotNull(tabletMeta, "tablet id: %s, doesn't match a table", tabletId);
-                                long tableId = tabletMeta.getTableId();
-                                tableIdToNumDeltaRows.computeIfPresent(tableId, (tblId, orgNum) -> orgNum + numRows);
+                            Map<Long, Long> tableIdToDeltaNumRows =
+                                    task.getTableIdToDeltaNumRows();
+                            tableIdToDeltaNumRows.forEach((tableId, numRows) -> {
+                                tableIdToDeltaNumRows
+                                        .computeIfPresent(tableId, (id, orgNumRows) -> orgNumRows + numRows);
                                 tableIdToNumDeltaRows.putIfAbsent(tableId, numRows);
                             });
                         }
                     });
             boolean hasBackendAliveAndUnfinishedTask = publishVersionTaskStream
                     .anyMatch(task -> !task.isFinished() && infoService.checkBackendAlive(task.getBackendId()));
+            transactionState.setTableIdToTotalNumDeltaRows(tableIdToNumDeltaRows);
 
             boolean shouldFinishTxn = !hasBackendAliveAndUnfinishedTask || transactionState.isPublishTimeout();
             if (shouldFinishTxn) {

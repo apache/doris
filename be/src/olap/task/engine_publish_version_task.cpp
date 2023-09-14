@@ -72,12 +72,12 @@ EnginePublishVersionTask::EnginePublishVersionTask(
         const TPublishVersionRequest& publish_version_req, std::set<TTabletId>* error_tablet_ids,
         std::map<TTabletId, TVersion>* succ_tablets,
         std::vector<std::tuple<int64_t, int64_t, int64_t>>* discontinuous_version_tablets,
-        std::map<TTabletId, int64_t>* tablet_id_to_num_delta_rows)
+        std::map<TTableId, int64_t>* table_id_to_num_delta_rows)
         : _publish_version_req(publish_version_req),
           _error_tablet_ids(error_tablet_ids),
           _succ_tablets(succ_tablets),
           _discontinuous_version_tablets(discontinuous_version_tablets),
-          _tablet_id_to_num_delta_rows(tablet_id_to_num_delta_rows) {}
+          _table_id_to_num_delta_rows(table_id_to_num_delta_rows) {}
 
 void EnginePublishVersionTask::add_error_tablet_id(int64_t tablet_id) {
     std::lock_guard<std::mutex> lck(_tablet_ids_mutex);
@@ -189,8 +189,11 @@ Status EnginePublishVersionTask::finish() {
                 }
             }
             auto rowset_meta_ptr = rowset->rowset_meta();
-            _tablet_id_to_num_delta_rows->insert(
-                    {rowset_meta_ptr->tablet_id(), rowset_meta_ptr->num_rows()});
+            auto table_id = StorageEngine::instance()
+                                    ->tablet_manager()
+                                    ->get_tablet(rowset_meta_ptr->tablet_id())
+                                    ->get_table_id();
+            (*_table_id_to_num_delta_rows)[table_id] += rowset_meta_ptr->num_rows();
             auto tablet_publish_txn_ptr = std::make_shared<TabletPublishTxnTask>(
                     this, tablet, rowset, partition_id, transaction_id, version, tablet_info);
             auto submit_st = token->submit_func([=]() { tablet_publish_txn_ptr->handle(); });
