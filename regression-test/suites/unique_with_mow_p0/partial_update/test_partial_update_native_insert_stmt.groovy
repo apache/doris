@@ -219,4 +219,9 @@ suite("test_partial_update_native_insert_stmt", "p0") {
     }
     qt_7 "select * from ${tableName7} order by k1;"
     sql """ DROP TABLE IF EXISTS ${tableName7}; """
+
+    sql "set enable_unique_key_partial_update=false;"
+    sql "set enable_insert_strict = false;"
+    sql "set experimental_enable_nereids_planner=true;"
+    sql "sync;"
 }
