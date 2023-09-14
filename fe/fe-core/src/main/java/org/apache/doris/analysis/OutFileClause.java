@@ -158,7 +158,7 @@ public class OutFileClause {
     private TFileFormatType fileFormatType;
     private long maxFileSizeBytes = DEFAULT_MAX_FILE_SIZE_BYTES;
     private boolean deleteExistingFiles = false;
-    private String fileSuffix = null;
+    private String fileSuffix = "";
     private BrokerDesc brokerDesc = null;
     // True if result is written to local disk.
     // If set to true, the brokerDesc must be null.
