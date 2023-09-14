@@ -440,33 +440,74 @@ Status StorageEngine::set_cluster_id(int32_t cluster_id) {
 
 std::vector<DataDir*> StorageEngine::get_stores_for_create_tablet(
         TStorageMedium::type storage_medium) {
-    std::vector<DataDir*> stores;
+    struct DirInfo {
+        DataDir* data_dir;
+        int tablet_size;
+        int used_pct_level;
+
+        bool operator<(const DirInfo& other) {
+            if (used_pct_level != other.used_pct_level) {
+                return used_pct_level < other.used_pct_level;
+            }
+            if (tablet_size != other.tablet_size) {
+                return tablet_size < other.tablet_size;
+            }
+            return data_dir->path_hash() < other.data_dir->path_hash();
+        }
+    };
+    std::vector<DirInfo> dir_infos;
+    int next_index = 0;
     {
         std::lock_guard<std::mutex> l(_store_lock);
+        next_index = _store_next_index[storage_medium]++;
+        if (next_index < 0) {
+            next_index = 0;
+            _store_next_index[storage_medium] = 0;
+        }
         for (auto& it : _store_map) {
-            if (it.second->is_used()) {
+            DataDir* data_dir = it.second;
+            if (data_dir->is_used()) {
                 if (_available_storage_medium_type_count == 1 ||
-                    it.second->storage_medium() == storage_medium) {
-                    stores.push_back(it.second);
+                    data_dir->storage_medium() == storage_medium) {
+                    DirInfo dir_info;
+                    dir_info.data_dir = data_dir;
+                    dir_info.tablet_size = data_dir->tablet_size();
+                    dir_info.used_pct_level =
+                            data_dir->get_used_percent() < config::storage_flood_stage_usage_percent
+                                    ? 0
+                                    : 1;
+                    dir_infos.push_back(dir_info);
                 }
             }
         }
     }
-    std::random_device rd;
-    std::mt19937 g(rd());
-    std::shuffle(stores.begin(), stores.end(), g);
-    // Two random choices
-    for (int i = 0; i < stores.size(); i++) {
-        int j = i + 1;
-        if (j < stores.size()) {
-            if (stores[i]->tablet_size() > stores[j]->tablet_size()) {
-                std::swap(stores[i], stores[j]);
-            }
-            std::shuffle(stores.begin() + j, stores.end(), g);
-        } else {
-            break;
+
+    std::sort(dir_infos.begin(), dir_infos.end());
+
+    // Suppose there are five data dirs (D1, D2, D3, D4, D5).
+    // D1/D2/D3 contain 1 tablet,  D4/D5 contain 2 tablets.
+    // If three creating tablets threads simultaneously invoke this function to get stores,
+    // then the return stores will be as below:
+    // thread 1: (D1, D2, D3, D4, D5)
+    // thread 2: (D2, D3, D1, D5, D4)
+    // thread 3: (D3, D1, D2, D4, D5)
+    std::vector<DataDir*> stores;
+    stores.reserve(dir_infos.size());
+    for (size_t i = 0; i < dir_infos.size();) {
+        size_t end = i + 1;
+        while (end < dir_infos.size() && dir_infos[i].tablet_size == dir_infos[end].tablet_size &&
+               dir_infos[i].used_pct_level == dir_infos[end].used_pct_level) {
+            end++;
         }
+        // data dirs [i, end) have the same tablet size, round robin range [i, end)
+        size_t count = end - i;
+        for (size_t k = 0; k < count; k++) {
+            size_t index = i + (k + next_index) % count;
+            stores.push_back(dir_infos[index].data_dir);
+        }
+        i = end;
     }
+
     return stores;
 }
 

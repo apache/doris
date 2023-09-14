@@ -133,6 +133,8 @@ public:
 
     void update_trash_capacity();
 
+    double get_used_percent() const;
+
     void update_local_data_size(int64_t size);
 
     void update_remote_data_size(int64_t size);

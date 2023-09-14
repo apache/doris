@@ -849,6 +849,12 @@ void DataDir::update_trash_capacity() {
     LOG(INFO) << "path: " << _path << " trash capacity: " << _trash_used_bytes;
 }
 
+double DataDir::get_used_percent() const {
+    return _disk_capacity_bytes == 0
+                   ? 1.0
+                   : (_disk_capacity_bytes - _available_bytes) / (double)_disk_capacity_bytes;
+}
+
 void DataDir::update_local_data_size(int64_t size) {
     disks_local_used_capacity->set_value(size);
 }
