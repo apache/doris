@@ -371,7 +371,7 @@ struct AggregateFunctionArrayAggData<StringRef> {
                 assert_cast<ColumnNullable&>(*column_data).get_nested_column_ptr().get());
     }
 
-    void add(const IColumn& column, size_t row_num) {
+    void add(const IColumn& column, size_t row_num) const {
         const auto& col = assert_cast<const ColumnNullable&>(column);
         const auto& vec = assert_cast<const ColVecType&>(col.get_nested_column());
         null_map->push_back(col.get_null_map_data()[row_num]);
@@ -379,7 +379,7 @@ struct AggregateFunctionArrayAggData<StringRef> {
         DCHECK(null_map->size() == nested_column->size());
     }
 
-    void deserialize_and_merge(const IColumn& column, size_t row_num) {
+    void deserialize_and_merge(const IColumn& column, size_t row_num) const {
         auto& to_arr = assert_cast<const ColumnArray&>(column);
         auto& to_nested_col = to_arr.get_data();
         auto col_null = reinterpret_cast<const ColumnNullable*>(&to_nested_col);
@@ -392,7 +392,7 @@ struct AggregateFunctionArrayAggData<StringRef> {
         }
     }
 
-    void reset() {
+    void reset() const {
         null_map->clear();
         nested_column->clear();
     }
