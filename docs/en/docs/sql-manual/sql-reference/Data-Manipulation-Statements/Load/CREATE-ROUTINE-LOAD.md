@@ -251,6 +251,13 @@ FROM data_source [data_source_properties]
 
   12. `partial_columns`
       Boolean type, True means that use partial column update, the default value is false, this parameter is only allowed to be set when the table model is Unique and Merge on Write is used. Multi-table does not support this parameter.
+
+  13. `max_filter_ratio`
+      The maximum allowed filtering rate within the sampling window. Must be between 0 and 1. The default value is 1.0.
+
+      The sampling window is `max_batch_rows * 10`. That is, if the number of error lines / total lines is greater than `max_filter_ratio` within the sampling window, the routine operation will be suspended, requiring manual intervention to check data quality problems.
+
+      Rows that are filtered out by where conditions are not considered error rows.
   
 - `FROM data_source [data_source_properties]`
 
