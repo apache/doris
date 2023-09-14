@@ -9,7 +9,7 @@
 ["a", "2.0", NULL, NULL, "2.0"]
 
 -- !sql_1 --
-[1, 2, NULL, NULL, 2]
+[1.0, 2.0, NULL, NULL, 2.0]
 
 -- !sql_2 --
 [NULL, NULL, 1.0, 2.0, 2.0]
