@@ -71,7 +71,7 @@ function pytest_execute ()
 
 function case_execute ()
 {
-    for case_file in $@
+    for case_file in "$@"
     do
         read -r -u3
         {
