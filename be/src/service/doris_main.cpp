@@ -60,7 +60,7 @@
 #include "common/signal_handler.h"
 #include "common/status.h"
 #include "io/cache/block/block_file_cache_factory.h"
-#include "io/fs/s3_file_write_bufferpool.h"
+#include "io/fs/s3_file_bufferpool.h"
 #include "olap/options.h"
 #include "olap/storage_engine.h"
 #include "runtime/exec_env.h"

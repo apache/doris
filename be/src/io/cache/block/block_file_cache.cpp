@@ -65,6 +65,8 @@ std::string IFileCache::cache_type_to_string(CacheType type) {
         return "_disposable";
     case CacheType::NORMAL:
         return "";
+    case CacheType::TTL:
+        return "_ttl";
     }
     return "";
 }

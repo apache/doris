@@ -196,6 +196,36 @@ Status FileBlock::read_at(Slice buffer, size_t read_offset) {
     return st;
 }
 
+bool FileBlock::change_cache_type(CacheType new_type) {
+    std::unique_lock segment_lock(_mutex);
+    if (new_type == _cache_type) {
+        return true;
+    }
+    if (_download_state == State::DOWNLOADED) {
+        std::error_code ec;
+        std::filesystem::rename(get_path_in_local_cache(),
+                                _cache->get_path_in_local_cache(key(), offset(), new_type), ec);
+        if (ec) {
+            LOG(ERROR) << ec.message();
+            return false;
+        }
+    }
+    _cache_type = new_type;
+    return true;
+}
+
+Status FileBlock::change_cache_type_self(CacheType new_type) {
+    std::lock_guard cache_lock(_cache->_mutex);
+    std::unique_lock segment_lock(_mutex);
+    Status st = Status::OK();
+    if (_cache_type == CacheType::TTL || new_type == _cache_type) {
+        return st;
+    }
+    _cache_type = new_type;
+    _cache->change_cache_type(_file_key, _segment_range.left, new_type, cache_lock);
+    return st;
+}
+
 Status FileBlock::finalize_write() {
     std::lock_guard segment_lock(_mutex);
 
