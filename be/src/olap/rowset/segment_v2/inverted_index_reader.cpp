@@ -268,7 +268,8 @@ Status FullTextIndexReader::query(OlapReaderStatistics* stats, RuntimeState* run
         roaring::Roaring query_match_bitmap;
         bool null_bitmap_already_read = false;
         if (query_type == InvertedIndexQueryType::MATCH_PHRASE_QUERY ||
-            query_type == InvertedIndexQueryType::MATCH_ALL_QUERY) {
+            query_type == InvertedIndexQueryType::MATCH_ALL_QUERY ||
+            query_type == InvertedIndexQueryType::EQUAL_QUERY) {
             std::wstring wstr_tokens;
             for (auto& token : analyse_result) {
                 wstr_tokens += token;
@@ -367,11 +368,6 @@ Status FullTextIndexReader::query(OlapReaderStatistics* stats, RuntimeState* run
                 case InvertedIndexQueryType::MATCH_ANY_QUERY: {
                     SCOPED_RAW_TIMER(&stats->inverted_index_query_bitmap_op_timer);
                     query_match_bitmap |= *term_match_bitmap;
-                    break;
-                }
-                case InvertedIndexQueryType::EQUAL_QUERY: {
-                    SCOPED_RAW_TIMER(&stats->inverted_index_query_bitmap_op_timer);
-                    query_match_bitmap &= *term_match_bitmap;
                     break;
                 }
                 default: {
