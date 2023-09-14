@@ -6074,6 +6074,13 @@ with_analysis_properties ::=
             put("period.cron", cron_expr);
         }};
     :}
+    | KW_FULL
+    {:
+        RESULT = new HashMap<String, String>() {{
+             put(AnalyzeProperties.PROPERTY_FORCE_FULL, "true");
+        }};
+    :}
+
     ;
 
 opt_with_analysis_properties ::=

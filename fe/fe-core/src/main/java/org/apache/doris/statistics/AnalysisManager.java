@@ -29,7 +29,6 @@ import org.apache.doris.analysis.TableName;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
-import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.View;
@@ -113,7 +112,7 @@ public class AnalysisManager extends Daemon implements Writable {
     // Tracking and control sync analyze tasks, keep in mem only
     private final ConcurrentMap<ConnectContext, SyncTaskCollection> ctxToSyncTask = new ConcurrentHashMap<>();
 
-    private final Map<Long, TableStats> idToTblStatsStatus = new ConcurrentHashMap<>();
+    private final Map<Long, TableStats> idToTblStats = new ConcurrentHashMap<>();
 
     private final Function<TaskStatusWrapper, Void> userJobStatusUpdater = w -> {
         AnalysisInfo info = w.info;
@@ -174,7 +173,6 @@ public class AnalysisManager extends Daemon implements Writable {
         }
         return null;
     };
-
 
     private final Function<TaskStatusWrapper, Void> systemJobStatusUpdater = w -> {
         AnalysisInfo info = w.info;
@@ -407,8 +405,7 @@ public class AnalysisManager extends Daemon implements Writable {
      * TODO Supports incremental collection of statistics from materialized views
      */
     private Map<String, Set<String>> validateAndGetPartitions(TableIf table, Set<String> columnNames,
-            Set<String> partitionNames, AnalysisType analysisType,
-            AnalysisMode analysisMode) throws DdlException {
+            Set<String> partitionNames, AnalysisType analysisType) throws DdlException {
         long tableId = table.getId();
 
         Map<String, Set<String>> columnToPartitions = columnNames.stream()
@@ -452,8 +449,7 @@ public class AnalysisManager extends Daemon implements Writable {
         }
 
         if (analysisType == AnalysisType.FUNDAMENTALS) {
-            Set<String> reAnalyzeNeededPartitions = findReAnalyzeNeededPartitions(table);
-            columnToPartitions.replaceAll((k, v) -> reAnalyzeNeededPartitions);
+            return table.findReAnalyzeNeededPartitions();
         }
 
         return columnToPartitions;
@@ -502,7 +498,7 @@ public class AnalysisManager extends Daemon implements Writable {
         infoBuilder.setScheduleType(scheduleType);
         infoBuilder.setLastExecTimeInMs(0);
         infoBuilder.setCronExpression(cronExpression);
-
+        infoBuilder.setForceFull(stmt.forceFull());
         if (analysisMethod == AnalysisMethod.SAMPLE) {
             infoBuilder.setSamplePercent(samplePercent);
             infoBuilder.setSampleRows(sampleRows);
@@ -519,7 +515,7 @@ public class AnalysisManager extends Daemon implements Writable {
         infoBuilder.setPeriodTimeInMs(periodTimeInMs);
 
         Map<String, Set<String>> colToPartitions = validateAndGetPartitions(table, columnNames,
-                partitionNames, analysisType, analysisMode);
+                partitionNames, analysisType);
         infoBuilder.setColToPartitions(colToPartitions);
         infoBuilder.setTaskIds(Lists.newArrayList());
 
@@ -685,17 +681,24 @@ public class AnalysisManager extends Daemon implements Writable {
             Env.getCurrentEnv().getStatisticsCleaner().clear();
             return;
         }
+
         Set<String> cols = dropStatsStmt.getColumnNames();
         long tblId = dropStatsStmt.getTblId();
         TableStats tableStats = findTableStatsStatus(dropStatsStmt.getTblId());
-        if (tableStats != null) {
-            tableStats.updatedTime = 0;
-            replayUpdateTableStatsStatus(tableStats);
+        if (tableStats == null) {
+            return;
         }
+        if (cols == null) {
+            tableStats.reset();
+        } else {
+            dropStatsStmt.getColumnNames().forEach(tableStats::removeColumn);
+            for (String col : cols) {
+                Env.getCurrentEnv().getStatisticsCache().invalidate(tblId, -1L, col);
+            }
+        }
+        logCreateTableStats(tableStats);
         StatisticsRepository.dropStatistics(tblId, cols);
-        for (String col : cols) {
-            Env.getCurrentEnv().getStatisticsCache().invalidate(tblId, -1L, col);
-        }
+
     }
 
     public void handleKillAnalyzeStmt(KillAnalysisJobStmt killAnalysisJobStmt) throws DdlException {
@@ -875,7 +878,7 @@ public class AnalysisManager extends Daemon implements Writable {
         AnalysisManager analysisManager = new AnalysisManager();
         readAnalysisInfo(in, analysisManager.analysisJobInfoMap, true);
         readAnalysisInfo(in, analysisManager.analysisTaskInfoMap, false);
-        readIdToTblStats(in, analysisManager.idToTblStatsStatus);
+        readIdToTblStats(in, analysisManager.idToTblStats);
         return analysisManager;
     }
 
@@ -910,8 +913,8 @@ public class AnalysisManager extends Daemon implements Writable {
     }
 
     private void writeTableStats(DataOutput out) throws IOException {
-        out.writeInt(idToTblStatsStatus.size());
-        for (Entry<Long, TableStats> entry : idToTblStatsStatus.entrySet()) {
+        out.writeInt(idToTblStats.size());
+        for (Entry<Long, TableStats> entry : idToTblStats.entrySet()) {
             entry.getValue().write(out);
         }
     }
@@ -922,12 +925,12 @@ public class AnalysisManager extends Daemon implements Writable {
     }
 
     public TableStats findTableStatsStatus(long tblId) {
-        return idToTblStatsStatus.get(tblId);
+        return idToTblStats.get(tblId);
     }
 
     // Invoke this when load transaction finished.
     public void updateUpdatedRows(long tblId, long rows) {
-        TableStats statsStatus = idToTblStatsStatus.get(tblId);
+        TableStats statsStatus = idToTblStats.get(tblId);
         if (statsStatus != null) {
             statsStatus.updatedRows.addAndGet(rows);
         }
@@ -939,7 +942,7 @@ public class AnalysisManager extends Daemon implements Writable {
     }
 
     public void replayUpdateTableStatsStatus(TableStats tableStats) {
-        idToTblStatsStatus.put(tableStats.tblId, tableStats);
+        idToTblStats.put(tableStats.tblId, tableStats);
     }
 
     public void logCreateTableStats(TableStats tableStats) {
@@ -951,20 +954,4 @@ public class AnalysisManager extends Daemon implements Writable {
         systemJobInfoMap.put(jobInfo.jobId, jobInfo);
         analysisJobIdToTaskMap.put(jobInfo.jobId, taskInfos);
     }
-
-    @VisibleForTesting
-    protected Set<String> findReAnalyzeNeededPartitions(TableIf table) {
-        TableStats tableStats = findTableStatsStatus(table.getId());
-        if (tableStats == null) {
-            return table.getPartitionNames().stream().map(table::getPartition)
-                    .filter(Partition::hasData).map(Partition::getName).collect(Collectors.toSet());
-        }
-        return table.getPartitionNames().stream()
-                .map(table::getPartition)
-                .filter(Partition::hasData)
-                .filter(partition ->
-                        partition.getVisibleVersionTime() >= tableStats.updatedTime).map(Partition::getName)
-                .collect(Collectors.toSet());
-    }
-
 }
