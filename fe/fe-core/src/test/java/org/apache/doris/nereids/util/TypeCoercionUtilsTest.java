@@ -701,25 +701,25 @@ public class TypeCoercionUtilsTest {
     public void testDecimalArithmetic() {
         Multiply multiply = new Multiply(new DecimalLiteral(new BigDecimal("987654.321")),
                 new DecimalV3Literal(new BigDecimal("123.45")));
-        Expression expression = TypeCoercionUtils.processBinaryArithmetic(multiply);
+        Expression expression = TypeCoercionUtils.processBinaryArithmetic(multiply, multiply.left(), multiply.right());
         Assertions.assertEquals(expression.child(0),
                 new Cast(multiply.child(0), DecimalV3Type.createDecimalV3Type(9, 3)));
 
         Divide divide = new Divide(new DecimalLiteral(new BigDecimal("987654.321")),
                 new DecimalV3Literal(new BigDecimal("123.45")));
-        expression = TypeCoercionUtils.processBinaryArithmetic(divide);
+        expression = TypeCoercionUtils.processBinaryArithmetic(divide, divide.left(), divide.right());
         Assertions.assertEquals(expression.child(0),
                 new Cast(multiply.child(0), DecimalV3Type.createDecimalV3Type(9, 3)));
 
         Add add = new Add(new DecimalLiteral(new BigDecimal("987654.321")),
                 new DecimalV3Literal(new BigDecimal("123.45")));
-        expression = TypeCoercionUtils.processBinaryArithmetic(add);
+        expression = TypeCoercionUtils.processBinaryArithmetic(add, add.left(), add.right());
         Assertions.assertEquals(expression.child(0),
                 new Cast(multiply.child(0), DecimalV3Type.createDecimalV3Type(9, 3)));
 
         Subtract sub = new Subtract(new DecimalLiteral(new BigDecimal("987654.321")),
                 new DecimalV3Literal(new BigDecimal("123.45")));
-        expression = TypeCoercionUtils.processBinaryArithmetic(sub);
+        expression = TypeCoercionUtils.processBinaryArithmetic(sub, sub.left(), sub.right());
         Assertions.assertEquals(expression.child(0),
                 new Cast(multiply.child(0), DecimalV3Type.createDecimalV3Type(9, 3)));
     }
