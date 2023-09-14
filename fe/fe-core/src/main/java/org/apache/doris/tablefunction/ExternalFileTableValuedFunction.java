@@ -240,12 +240,17 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
         }
 
         columnSeparator = validParams.getOrDefault(COLUMN_SEPARATOR, DEFAULT_COLUMN_SEPARATOR);
-        if (columnSeparator.isEmpty()) {
+        if (Strings.isNullOrEmpty(columnSeparator)) {
             throw new AnalysisException("column_separator can not be empty.");
         }
         columnSeparator = Separator.convertSeparator(columnSeparator);
 
         lineDelimiter = validParams.getOrDefault(LINE_DELIMITER, DEFAULT_LINE_DELIMITER);
+        if (Strings.isNullOrEmpty(lineDelimiter)) {
+            throw new AnalysisException("line_delimiter can not be empty.");
+        }
+        lineDelimiter = Separator.convertSeparator(lineDelimiter);
+
         jsonRoot = validParams.getOrDefault(JSON_ROOT, "");
         jsonPaths = validParams.getOrDefault(JSON_PATHS, "");
         readJsonByLine = Boolean.valueOf(validParams.get(READ_JSON_BY_LINE)).booleanValue();
