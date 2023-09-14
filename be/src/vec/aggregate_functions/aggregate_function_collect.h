@@ -122,8 +122,8 @@ struct AggregateFunctionCollectSetData<StringRef, HasLimit> {
     size_t size() const { return data_set.size(); }
 
     void add(const IColumn& column, size_t row_num, Arena* arena) {
-        Set::LookupResult it;
-        bool inserted;
+        Set::LookupResult it = nullptr;
+        bool inserted = false;
         auto key_holder = get_key_holder<true>(column, row_num, *arena);
         data_set.emplace(key_holder, it, inserted);
     }
