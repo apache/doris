@@ -15,16 +15,21 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#pragma once
+package org.apache.doris.scheduler.job;
 
-namespace doris {
+import lombok.AllArgsConstructor;
+import lombok.Data;
 
-class TResourceInfo;
-class ResourceTls {
-public:
-    static void init();
-    static TResourceInfo* get_resource_tls();
-    static int set_resource_tls(TResourceInfo*);
-};
+@Data
+@AllArgsConstructor
+public class ExecutorResult<T> {
 
-} // namespace doris
+    private T result;
+
+    private boolean success;
+
+    private String errorMsg;
+
+    private String executorSql;
+
+}

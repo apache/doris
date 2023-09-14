@@ -62,6 +62,17 @@ ScannerScheduler::~ScannerScheduler() {
     }
 
     for (int i = 0; i < QUEUE_NUM; i++) {
+        delete _pending_queues[i];
+    }
+    delete[] _pending_queues;
+}
+
+void ScannerScheduler::stop() {
+    if (!_is_init) {
+        return;
+    }
+
+    for (int i = 0; i < QUEUE_NUM; i++) {
         _pending_queues[i]->shutdown();
     }
 
@@ -80,13 +91,10 @@ ScannerScheduler::~ScannerScheduler() {
     _limited_scan_thread_pool->wait();
     _group_local_scan_thread_pool->wait();
 
-    for (int i = 0; i < QUEUE_NUM; i++) {
-        delete _pending_queues[i];
-    }
-    delete[] _pending_queues;
+    LOG(INFO) << "ScannerScheduler stopped";
 }
 
-Status ScannerScheduler::init(ExecEnv* env) {
+Status ScannerScheduler::init() {
     // 1. scheduling thread pool and scheduling queues
     ThreadPoolBuilder("SchedulingThreadPool")
             .set_min_threads(QUEUE_NUM)

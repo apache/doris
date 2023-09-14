@@ -123,7 +123,7 @@ public class InsertIntoTableCommand extends Command implements ForwardWithSync, 
         LogicalPlanAdapter logicalPlanAdapter = new LogicalPlanAdapter(logicalQuery, ctx.getStatementContext());
         planner = new NereidsPlanner(ctx.getStatementContext());
         planner.plan(logicalPlanAdapter, ctx.getSessionVariable().toThrift());
-
+        executor.checkBlockRules();
         if (ctx.getMysqlChannel() != null) {
             ctx.getMysqlChannel().reset();
         }

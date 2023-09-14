@@ -60,6 +60,13 @@ public class StructField {
         return comment;
     }
 
+    public StructField conversion() {
+        if (this.dataType.equals(dataType.conversion())) {
+            return this;
+        }
+        return withDataType(dataType.conversion());
+    }
+
     public StructField withDataType(DataType dataType) {
         return new StructField(name, dataType, nullable, comment);
     }

@@ -44,6 +44,9 @@ void DataTypeStructSerDe::write_one_cell_to_jsonb(const IColumn& column, JsonbWr
 Status DataTypeStructSerDe::deserialize_one_cell_from_hive_text(IColumn& column, Slice& slice,
                                                                 const FormatOptions& options,
                                                                 int nesting_level) const {
+    if (slice.empty()) {
+        return Status::InvalidArgument("slice is empty!");
+    }
     char struct_delimiter = options.get_collection_delimiter(nesting_level);
 
     std::vector<Slice> slices;

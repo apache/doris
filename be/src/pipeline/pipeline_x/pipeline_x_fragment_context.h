@@ -156,6 +156,7 @@ private:
 
     std::map<UniqueId, RuntimeState*> _instance_id_to_runtime_state;
     std::mutex _state_map_lock;
+    std::map<int, std::vector<PipelinePtr>> _union_child_pipelines;
 };
 
 } // namespace pipeline
