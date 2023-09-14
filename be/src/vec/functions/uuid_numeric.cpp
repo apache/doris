@@ -15,32 +15,18 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include <fmt/core.h>
-#include <fmt/format.h>
-#include <glog/logging.h>
-#include <stddef.h>
-
-#include <boost/random.hpp>
-#include <boost/random/linear_congruential.hpp>
-#include <cstdint>
-#include <cstdlib>
 #include <memory>
 #include <string>
 #include <utility>
 
 #include "common/status.h"
 #include "runtime/large_int_value.h"
-#include "util/time.h"
-#include "vec/aggregate_functions/aggregate_function.h"
-#include "vec/columns/column_array.h"
-#include "vec/columns/column_string.h"
 #include "vec/columns/column_vector.h"
 #include "vec/columns/columns_number.h"
-#include "vec/common/hash_table/hash.h"
 #include "vec/common/sip_hash.h"
+#include "vec/common/hash_table/hash.h"
 #include "vec/common/uint128.h"
 #include "vec/core/block.h"
-#include "vec/core/column_numbers.h"
 #include "vec/core/types.h"
 #include "vec/data_types/data_type_number.h"
 #include "vec/functions/function.h"
@@ -51,6 +37,10 @@ class FunctionContext;
 } // namespace doris
 
 namespace doris::vectorized {
+
+// NOTE:
+// The implementatin of random generator is inspired by the RandImpl::execute of ClickHouse.
+// The ClickHouse RandImpl::execute function provided valuable insights and ideas for the development process.
 
 struct LinearCongruentialGenerator {
     /// Constants from `man lrand48_r`.
