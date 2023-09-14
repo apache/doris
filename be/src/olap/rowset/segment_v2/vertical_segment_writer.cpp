@@ -649,8 +649,7 @@ Status VerticalSegmentWriter::write_batch() {
     vectorized::IOlapColumnDataAccessor* seq_column = nullptr;
     for (uint32_t cid = 0; cid < _tablet_schema->num_columns(); ++cid) {
         for (auto& data : _batched_blocks) {
-            _olap_data_convertor->set_source_content_with_specifid_columns(
-                    data.block, data.row_pos, data.num_rows, std::vector<uint32_t> {cid});
+            _olap_data_convertor->set_source_content(data.block, data.row_pos, data.num_rows);
 
             // convert column data from engine format to storage layer format
             auto [status, column] = _olap_data_convertor->convert_column_data(cid);
