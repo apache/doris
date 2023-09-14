@@ -89,7 +89,9 @@ public:
 
     Status init();
 
-    // add one block to batch, the batched blocks will be appended in write_batch
+    // Add one block to batch, memory is owned by the caller.
+    // The batched blocks will be flushed in write_batch.
+    // Once write_batch is called, no more blocks shoud be added.
     Status batch_block(const vectorized::Block* block, size_t row_pos, size_t num_rows);
     Status write_batch();
 
