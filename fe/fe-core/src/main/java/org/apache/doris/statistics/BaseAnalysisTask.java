@@ -21,7 +21,9 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.TableIf;
+import org.apache.doris.common.Config;
 import org.apache.doris.datasource.CatalogIf;
+import org.apache.doris.qe.AuditLogHelper;
 import org.apache.doris.qe.QueryState;
 import org.apache.doris.qe.QueryState.MysqlStateType;
 import org.apache.doris.qe.StmtExecutor;
@@ -113,7 +115,7 @@ public abstract class BaseAnalysisTask {
         init(info);
     }
 
-    private void init(AnalysisInfo info) {
+    protected void init(AnalysisInfo info) {
         catalog = Env.getCurrentEnv().getCatalogMgr().getCatalog(info.catalogName);
         if (catalog == null) {
             Env.getCurrentEnv().getAnalysisManager().updateTaskStatus(info, AnalysisState.FAILED,
@@ -188,7 +190,7 @@ public abstract class BaseAnalysisTask {
 
     protected void setTaskStateToRunning() {
         Env.getCurrentEnv().getAnalysisManager()
-            .updateTaskStatus(info, AnalysisState.RUNNING, "", System.currentTimeMillis());
+                .updateTaskStatus(info, AnalysisState.RUNNING, "", System.currentTimeMillis());
     }
 
     public void cancel() {
@@ -214,22 +216,29 @@ public abstract class BaseAnalysisTask {
     }
 
     protected String getSampleExpression() {
-        if (info.analysisMethod == AnalysisMethod.FULL) {
+        if (info.forceFull) {
             return "";
         }
-        // TODO Add sampling methods for external tables
+        int sampleRows = info.sampleRows;
+        if (info.analysisMethod == AnalysisMethod.FULL) {
+            if (Config.enable_auto_sample && tbl.getDataSize() > Config.huge_table_lower_bound_size_in_bytes) {
+                sampleRows = Config.huge_table_default_sample_rows;
+            } else {
+                return "";
+            }
+        }
         if (info.samplePercent > 0) {
             return String.format("TABLESAMPLE(%d PERCENT)", info.samplePercent);
         } else {
-            return String.format("TABLESAMPLE(%d ROWS)", info.sampleRows);
+            return String.format("TABLESAMPLE(%d ROWS)", sampleRows);
         }
     }
 
     @Override
     public String toString() {
         return String.format("Job id [%d], Task id [%d], catalog [%s], db [%s], table [%s], column [%s]",
-            info.jobId, info.taskId, catalog.getName(), db.getFullName(), tbl.getName(),
-            col == null ? "TableRowCount" : col.getName());
+                info.jobId, info.taskId, catalog.getName(), db.getFullName(), tbl.getName(),
+                col == null ? "TableRowCount" : col.getName());
     }
 
     protected void executeWithExceptionOnFail(StmtExecutor stmtExecutor) throws Exception {
@@ -237,12 +246,18 @@ public abstract class BaseAnalysisTask {
             return;
         }
         LOG.debug("execute internal sql: {}", stmtExecutor.getOriginStmt());
-        stmtExecutor.execute();
-        QueryState queryState = stmtExecutor.getContext().getState();
-        if (queryState.getStateType().equals(MysqlStateType.ERR)) {
-            throw new RuntimeException(String.format("Failed to analyze %s.%s.%s, error: %s sql: %s",
-                    info.catalogName, info.dbName, info.colName, stmtExecutor.getOriginStmt().toString(),
-                    queryState.getErrorMessage()));
+        try {
+            stmtExecutor.execute();
+            QueryState queryState = stmtExecutor.getContext().getState();
+            if (queryState.getStateType().equals(MysqlStateType.ERR)) {
+                throw new RuntimeException(String.format("Failed to analyze %s.%s.%s, error: %s sql: %s",
+                        info.catalogName, info.dbName, info.colName, stmtExecutor.getOriginStmt().toString(),
+                        queryState.getErrorMessage()));
+            }
+        } finally {
+            AuditLogHelper.logAuditLog(stmtExecutor.getContext(), stmtExecutor.getOriginStmt().toString(),
+                    stmtExecutor.getParsedStmt(), stmtExecutor.getQueryStatisticsForAuditLog(),
+                    true);
         }
     }
 }

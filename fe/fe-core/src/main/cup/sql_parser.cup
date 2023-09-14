@@ -855,7 +855,7 @@ nonterminal MultiPartitionDesc multi_partition_desc;
 
 nonterminal List<AccessPrivilegeWithCols> privilege_list;
 nonterminal List<String> string_list;
-nonterminal List<Long> integer_list, cancel_rollup_job_id_list;
+nonterminal List<Long> integer_list, job_id_list;
 nonterminal AccessPrivilegeWithCols privilege_type;
 
 nonterminal DataDescription data_desc, mysql_data_desc;
@@ -887,7 +887,7 @@ nonterminal ParseNode load_property;
 nonterminal List<ParseNode> opt_load_property_list;
 
 // Boolean
-nonterminal Boolean opt_negative, opt_is_allow_null, opt_is_key, opt_read_only, opt_aggregate, opt_local, opt_is_auto_inc;
+nonterminal Boolean opt_negative, opt_is_allow_null, opt_is_key, opt_read_only, opt_aggregate, opt_local, opt_is_auto_inc, opt_is_insert_ignore;
 nonterminal String opt_from_rollup, opt_to_rollup;
 nonterminal ColumnPosition opt_col_pos;
 
@@ -2689,15 +2689,15 @@ resume_job_stmt ::=
 show_job_stmt ::=
     KW_SHOW KW_JOBS
     {:
-        RESULT = new ShowJobStmt(null,null);
+        RESULT = new ShowJobStmt(null,null,null);
     :}
     | KW_SHOW  KW_JOB KW_FOR job_label:jobLabel
     {:
-        RESULT = new ShowJobStmt(jobLabel,null);
+        RESULT = new ShowJobStmt(null,jobLabel,null);
     :}
     | KW_SHOW KW_JOB KW_TASKS KW_FOR job_label:jobLabel
     {:
-        RESULT = new ShowJobTaskStmt(jobLabel);
+        RESULT = new ShowJobTaskStmt(null,jobLabel);
     :}    
     ;
 pause_job_stmt ::=
@@ -3228,7 +3228,28 @@ opt_partition ::=
     | KW_PARTITION KW_BY KW_LIST LPAREN ident_list:columns RPAREN
             LPAREN opt_all_partition_desc_list:list RPAREN
     {:
-        RESULT = new ListPartitionDesc(columns, list);
+         RESULT = new ListPartitionDesc(columns, list);
+    :}
+    /* expr range partition */
+    | KW_AUTO KW_PARTITION KW_BY KW_RANGE function_call_expr:fnExpr
+            LPAREN opt_all_partition_desc_list:list RPAREN
+    {:
+        ArrayList<Expr> exprs = new ArrayList<Expr>();
+        exprs.add(fnExpr);
+        RESULT = RangePartitionDesc.createRangePartitionDesc(exprs, list);
+    :}
+    /* expr list partition */
+    | KW_AUTO KW_PARTITION KW_BY KW_LIST LPAREN expr_list:exprs RPAREN
+            LPAREN opt_all_partition_desc_list:list RPAREN
+    {:
+        RESULT = ListPartitionDesc.createListPartitionDesc(exprs, list);
+    :}
+    | KW_AUTO KW_PARTITION KW_BY KW_LIST function_call_expr:fnExpr
+            LPAREN opt_all_partition_desc_list:list RPAREN
+    {:
+        ArrayList<Expr> exprs = new ArrayList<Expr>();
+        exprs.add(fnExpr);
+        RESULT = ListPartitionDesc.createListPartitionDesc(exprs, list);
     :}
     ;
 
@@ -3697,6 +3718,17 @@ opt_is_auto_inc ::=
         RESULT = true;
     :}
     ;
+
+opt_is_insert_ignore ::=
+    {:
+        RESULT = false;
+    :}
+    | KW_IGNORE
+    {:
+        RESULT = true;
+    :}
+    ;
+
 opt_comment ::=
     /* empty */
     {:
@@ -4216,13 +4248,17 @@ show_param ::=
         RESULT = new ShowCreateMaterializedViewStmt(mvName, tableName);
     :}
     /* show analyze job */
-    | KW_ANALYZE opt_table_name:tbl opt_wild_where order_by_clause:orderByClause limit_clause:limitClause
+    | KW_ANALYZE opt_table_name:tbl opt_wild_where
     {:
-        RESULT = new ShowAnalyzeStmt(tbl, parser.where, orderByClause, limitClause);
+        RESULT = new ShowAnalyzeStmt(tbl, parser.where, false);
     :}
-    | KW_ANALYZE INTEGER_LITERAL:jobId opt_wild_where order_by_clause:orderByClause limit_clause:limitClause
+    | KW_ANALYZE INTEGER_LITERAL:jobId opt_wild_where
     {:
-        RESULT = new ShowAnalyzeStmt(jobId, parser.where, orderByClause, limitClause);
+        RESULT = new ShowAnalyzeStmt(jobId, parser.where);
+    :}
+    | KW_AUTO KW_ANALYZE opt_table_name:tbl opt_wild_where
+    {:
+        RESULT = new ShowAnalyzeStmt(tbl, parser.where, true);
     :}
     | KW_ANALYZE KW_TASK KW_STATUS INTEGER_LITERAL:jobId
     {:
@@ -4484,7 +4520,7 @@ cancel_stmt ::=
     :}
     ;
 
-cancel_rollup_job_id_list ::=
+job_id_list ::=
     {:
         RESULT = null;
     :}
@@ -4503,9 +4539,13 @@ cancel_param ::=
     {:
         RESULT = new CancelExportStmt(db, parser.where);
     :}
-    | KW_ALTER KW_TABLE opt_alter_type:type KW_FROM table_name:table cancel_rollup_job_id_list:list
+    | KW_ALTER KW_TABLE opt_alter_type:type KW_FROM table_name:table job_id_list:list
     {:
         RESULT = new CancelAlterTableStmt(type, table, list);
+    :}
+    | KW_BUILD KW_INDEX KW_ON table_name:table job_id_list:list
+    {:
+        RESULT = new CancelAlterTableStmt(ShowAlterStmt.AlterType.INDEX, table, list);
     :}
     | KW_DECOMMISSION KW_BACKEND string_list:hostPorts
     {:
@@ -4776,12 +4816,17 @@ insert_overwrite_stmt ::=
 
 // Insert statement
 insert_stmt ::=
-    KW_INSERT KW_INTO insert_target:target opt_with_label:label opt_col_list:cols opt_plan_hints:hints insert_source:source
+    KW_INSERT opt_is_insert_ignore:is_insert_ignore KW_INTO insert_target:target opt_with_label:label opt_col_list:cols opt_plan_hints:hints insert_source:source
     {:
-        RESULT = new NativeInsertStmt(target, label, cols, source, hints);
+        RESULT = new NativeInsertStmt(target, label, cols, source, hints, is_insert_ignore);
     :}
     // TODO(zc) add default value for SQL-2003
     // | KW_INSERT KW_INTO insert_target:target KW_DEFAULT KW_VALUES
+    | /* used for group commit */
+    KW_INSERT opt_is_insert_ignore:is_insert_ignore KW_INTO INTEGER_LITERAL:table_id opt_with_label:label opt_col_list:cols opt_plan_hints:hints insert_source:source
+    {:
+        RESULT = new NativeInsertStmt(table_id, label, cols, source, hints, is_insert_ignore);
+    :}
     ;
 
 insert_target ::=
@@ -6044,6 +6089,13 @@ with_analysis_properties ::=
             put("period.cron", cron_expr);
         }};
     :}
+    | KW_FULL
+    {:
+        RESULT = new HashMap<String, String>() {{
+             put(AnalyzeProperties.PROPERTY_FORCE_FULL, "true");
+        }};
+    :}
+
     ;
 
 opt_with_analysis_properties ::=
@@ -6400,7 +6452,7 @@ cast_expr ::=
   KW_CAST LPAREN expr:e KW_AS type_def:targetType RPAREN
   {:
     CastExpr castExpr = new CastExpr(targetType, e);
-    if (targetType.getType().getLength() != -1
+    if (targetType.getType().getRawLength() != -1
         && (targetType.getType().getPrimitiveType() == PrimitiveType.VARCHAR
         || targetType.getType().getPrimitiveType() == PrimitiveType.CHAR)) {
         // transfer cast(xx as char(N)/varchar(N)) to substr(cast(xx as char), 1, N)
@@ -7184,6 +7236,10 @@ admin_stmt ::=
     {:
         RESULT = new AdminSetReplicaStatusStmt(prop);
     :}
+    | KW_ADMIN KW_SET KW_REPLICA KW_VERSION KW_PROPERTIES LPAREN key_value_map:prop RPAREN
+    {:
+        RESULT = new AdminSetReplicaVersionStmt(prop);
+    :}
     | KW_ADMIN KW_REPAIR KW_TABLE base_table_ref:table_ref
     {:
         RESULT = new AdminRepairTableStmt(table_ref);
@@ -7588,8 +7644,6 @@ keyword ::=
     | KW_OPEN:id
     {: RESULT = id; :}
     | KW_PARAMETER:id
-    {: RESULT = id; :}
-    | KW_PARTITIONS:id
     {: RESULT = id; :}
     | KW_PASSWORD:id
     {: RESULT = id; :}

@@ -123,7 +123,9 @@ Status ScannerContext::init() {
 
 #ifndef BE_TEST
     // 3. get thread token
-    thread_token = _state->get_query_ctx()->get_token();
+    if (_state->get_query_ctx()) {
+        thread_token = _state->get_query_ctx()->get_token();
+    }
 #endif
 
     // 4. This ctx will be submitted to the scanner scheduler right after init.
@@ -143,6 +145,10 @@ Status ScannerContext::init() {
     }
 
     return Status::OK();
+}
+
+std::string ScannerContext::parent_name() {
+    return _parent ? _parent->get_name() : _local_state->get_name();
 }
 
 vectorized::BlockUPtr ScannerContext::get_free_block(bool* has_free_block,
@@ -188,11 +194,6 @@ bool ScannerContext::empty_in_queue(int id) {
 Status ScannerContext::get_block_from_queue(RuntimeState* state, vectorized::BlockUPtr* block,
                                             bool* eos, int id, bool wait) {
     std::unique_lock l(_transfer_lock);
-    // debug case failure, to be removed
-    if (state->enable_profile()) {
-        LOG(WARNING) << "debug case failure " << print_id(state->query_id()) << " "
-                     << _parent->get_name() << ": ScannerContext::get_block_from_queue";
-    }
     // Normally, the scanner scheduler will schedule ctx.
     // But when the amount of data in the blocks queue exceeds the upper limit,
     // the scheduler will stop scheduling.

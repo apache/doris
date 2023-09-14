@@ -22,6 +22,7 @@ import org.apache.doris.common.DdlException;
 import org.apache.doris.persist.EditLog;
 import org.apache.doris.scheduler.constants.JobCategory;
 import org.apache.doris.scheduler.executor.JobExecutor;
+import org.apache.doris.scheduler.job.ExecutorResult;
 import org.apache.doris.scheduler.job.Job;
 import org.apache.doris.scheduler.manager.TimerJobManager;
 import org.apache.doris.scheduler.manager.TransientTaskManager;
@@ -60,6 +61,7 @@ public class TimerJobManagerTest {
         TransientTaskManager transientTaskManager = new TransientTaskManager();
         TaskDisruptor taskDisruptor = new TaskDisruptor(this.timerJobManager, transientTaskManager);
         this.timerJobManager.setDisruptor(taskDisruptor);
+        timerJobManager.start();
     }
 
     @Test
@@ -166,9 +168,9 @@ public class TimerJobManagerTest {
 
     class TestExecutor implements JobExecutor<Boolean> {
         @Override
-        public Boolean execute(Job job) {
+        public ExecutorResult execute(Job job) {
             log.info("test execute count:{}", testExecuteCount.incrementAndGet());
-            return true;
+            return new ExecutorResult<>(true, true, null, "");
         }
     }
 }

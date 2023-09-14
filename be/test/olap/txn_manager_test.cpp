@@ -113,6 +113,7 @@ public:
         if (k_engine == nullptr) {
             k_engine = new StorageEngine(options);
         }
+        ExecEnv::GetInstance()->set_storage_engine(k_engine);
 
         std::string meta_path = "./meta";
         std::filesystem::remove_all("./meta");

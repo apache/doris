@@ -26,18 +26,21 @@ import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.UserException;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ShowResultSetMetaData;
+import org.apache.doris.scheduler.constants.JobCategory;
 
 import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableList;
+import lombok.Getter;
+import org.apache.commons.lang3.StringUtils;
 
 import java.util.List;
 
 /**
  * SHOW JOB [FOR JobName]
  * eg: show event
- *     return all job in connection db
+ * return all job in connection db
  * eg: show event for test
- *     return job named test in connection db
+ * return job named test in connection db
  */
 public class ShowJobStmt extends ShowStmt {
 
@@ -57,29 +60,32 @@ public class ShowJobStmt extends ShowStmt {
                     .add("Status")
                     .add("LastExecuteFinishTime")
                     .add("ErrorMsg")
+                    .add("CreateTime")
                     .add("Comment")
                     .build();
 
+    private static final String MTMV_NAME_TITLE = "mtmv_name";
+
+    private static final String NAME_TITLE = "name";
     private final LabelName labelName;
+
+    @Getter
     private String dbFullName; // optional
+
+    @Getter
+    private JobCategory jobCategory; // optional
+
+    private String jobCategoryName; // optional
+
+    @Getter
     private String name; // optional
+    @Getter
     private String pattern; // optional
 
-    public ShowJobStmt(LabelName labelName, String pattern) {
+    public ShowJobStmt(String category, LabelName labelName, String pattern) {
         this.labelName = labelName;
         this.pattern = pattern;
-    }
-
-    public String getDbFullName() {
-        return dbFullName;
-    }
-
-    public String getName() {
-        return name;
-    }
-
-    public String getPattern() {
-        return pattern;
+        this.jobCategoryName = category;
     }
 
     @Override
@@ -87,6 +93,11 @@ public class ShowJobStmt extends ShowStmt {
         super.analyze(analyzer);
         checkAuth();
         checkLabelName(analyzer);
+        if (StringUtils.isBlank(jobCategoryName)) {
+            this.jobCategory = JobCategory.SQL;
+        } else {
+            this.jobCategory = JobCategory.valueOf(jobCategoryName.toUpperCase());
+        }
     }
 
     private void checkAuth() throws AnalysisException {
@@ -118,6 +129,9 @@ public class ShowJobStmt extends ShowStmt {
         ShowResultSetMetaData.Builder builder = ShowResultSetMetaData.builder();
 
         for (String title : TITLE_NAMES) {
+            if (this.jobCategory.equals(JobCategory.MTMV) && title.equals(NAME_TITLE)) {
+                builder.addColumn(new Column(MTMV_NAME_TITLE, ScalarType.createVarchar(30)));
+            }
             builder.addColumn(new Column(title, ScalarType.createVarchar(30)));
         }
         return builder.build();

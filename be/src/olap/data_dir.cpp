@@ -40,7 +40,6 @@
 #include "common/config.h"
 #include "common/logging.h"
 #include "gutil/strings/substitute.h"
-#include "io/fs/file_reader_writer_fwd.h"
 #include "io/fs/file_writer.h"
 #include "io/fs/local_file_system.h"
 #include "io/fs/path.h"
@@ -75,6 +74,7 @@ DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(disks_total_capacity, MetricUnit::BYTES);
 DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(disks_avail_capacity, MetricUnit::BYTES);
 DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(disks_local_used_capacity, MetricUnit::BYTES);
 DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(disks_remote_used_capacity, MetricUnit::BYTES);
+DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(disks_trash_used_capacity, MetricUnit::BYTES);
 DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(disks_state, MetricUnit::BYTES);
 DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(disks_compaction_score, MetricUnit::NOUNIT);
 DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(disks_compaction_num, MetricUnit::NOUNIT);
@@ -88,6 +88,7 @@ DataDir::DataDir(const std::string& path, int64_t capacity_bytes,
           _fs(io::LocalFileSystem::create(path)),
           _available_bytes(0),
           _disk_capacity_bytes(0),
+          _trash_used_bytes(0),
           _storage_medium(storage_medium),
           _is_used(false),
           _tablet_manager(tablet_manager),
@@ -103,6 +104,7 @@ DataDir::DataDir(const std::string& path, int64_t capacity_bytes,
     INT_GAUGE_METRIC_REGISTER(_data_dir_metric_entity, disks_avail_capacity);
     INT_GAUGE_METRIC_REGISTER(_data_dir_metric_entity, disks_local_used_capacity);
     INT_GAUGE_METRIC_REGISTER(_data_dir_metric_entity, disks_remote_used_capacity);
+    INT_GAUGE_METRIC_REGISTER(_data_dir_metric_entity, disks_trash_used_capacity);
     INT_GAUGE_METRIC_REGISTER(_data_dir_metric_entity, disks_state);
     INT_GAUGE_METRIC_REGISTER(_data_dir_metric_entity, disks_compaction_score);
     INT_GAUGE_METRIC_REGISTER(_data_dir_metric_entity, disks_compaction_num);
@@ -122,6 +124,7 @@ Status DataDir::init() {
                                        "check file exist failed");
     }
 
+    update_trash_capacity();
     RETURN_NOT_OK_STATUS_WITH_WARN(update_capacity(), "update_capacity failed");
     RETURN_NOT_OK_STATUS_WITH_WARN(_init_cluster_id(), "_init_cluster_id failed");
     RETURN_NOT_OK_STATUS_WITH_WARN(_init_capacity_and_create_shards(),
@@ -487,7 +490,7 @@ Status DataDir::load() {
         PendingPublishInfoPB pending_publish_info_pb;
         bool parsed = pending_publish_info_pb.ParseFromString(info);
         if (!parsed) {
-            LOG(WARNING) << "parse pending publish info failed, tablt_id: " << tablet_id
+            LOG(WARNING) << "parse pending publish info failed, tablet_id: " << tablet_id
                          << " publish_version: " << publish_version;
         }
         StorageEngine::instance()->add_async_publish_task(
@@ -837,6 +840,13 @@ Status DataDir::update_capacity() {
               << ", available capacity: " << _available_bytes;
 
     return Status::OK();
+}
+
+void DataDir::update_trash_capacity() {
+    auto trash_path = fmt::format("{}/{}", _path, TRASH_PREFIX);
+    _trash_used_bytes = StorageEngine::instance()->get_file_or_directory_size(trash_path);
+    disks_trash_used_capacity->set_value(_trash_used_bytes);
+    LOG(INFO) << "path: " << _path << " trash capacity: " << _trash_used_bytes;
 }
 
 void DataDir::update_local_data_size(int64_t size) {

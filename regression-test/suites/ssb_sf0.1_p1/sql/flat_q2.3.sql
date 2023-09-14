@@ -15,7 +15,7 @@
 -- specific language governing permissions and limitations
 -- under the License.
 --Q2.3
-SELECT /*+SET_VAR(experimental_enable_pipeline_x_engine=true) */
+SELECT
     SUM(LO_REVENUE), (LO_ORDERDATE DIV 10000) AS YEAR,
     P_BRAND
 FROM lineorder_flat

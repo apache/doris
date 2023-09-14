@@ -36,10 +36,12 @@ enum TDataSinkType {
     RESULT_FILE_SINK,
     JDBC_TABLE_SINK,
     MULTI_CAST_DATA_STREAM_SINK,
+    GROUP_COMMIT_OLAP_TABLE_SINK,
 }
 
 enum TResultSinkType {
     MYSQL_PROTOCAL,
+    ARROW_FLIGHT_PROTOCAL,
     FILE,    // deprecated, should not be used any more. FileResultSink is covered by TRESULT_FILE_SINK for concurrent purpose.
 }
 

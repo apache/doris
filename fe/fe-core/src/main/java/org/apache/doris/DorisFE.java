@@ -20,6 +20,7 @@ package org.apache.doris;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.CommandLineOptions;
 import org.apache.doris.common.Config;
+import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.LdapConfig;
 import org.apache.doris.common.Log4jConfig;
 import org.apache.doris.common.ThreadPoolManager;
@@ -255,6 +256,8 @@ public class DorisFE {
         options.addOption("f", "from", true, "Specify the start scan key");
         options.addOption("t", "to", true, "Specify the end scan key");
         options.addOption("m", "metaversion", true, "Specify the meta version to decode log value");
+        options.addOption("r", FeConstants.METADATA_FAILURE_RECOVERY_KEY, false,
+                "Check if the specified metadata recover is valid");
 
         CommandLine cmd = null;
         try {
@@ -287,6 +290,9 @@ public class DorisFE {
                 System.exit(-1);
             }
             return new CommandLineOptions(false, "", null, imagePath);
+        }
+        if (cmd.hasOption('r') || cmd.hasOption(FeConstants.METADATA_FAILURE_RECOVERY_KEY)) {
+            System.setProperty(FeConstants.METADATA_FAILURE_RECOVERY_KEY, "true");
         }
         if (cmd.hasOption('b') || cmd.hasOption("bdb")) {
             if (cmd.hasOption('l') || cmd.hasOption("listdb")) {
@@ -384,8 +390,8 @@ public class DorisFE {
 
     private static boolean createAndLockPidFile(String pidFilePath) throws IOException {
         File pid = new File(pidFilePath);
-        RandomAccessFile file = new RandomAccessFile(pid, "rws");
-        try {
+
+        try (RandomAccessFile file = new RandomAccessFile(pid, "rws")) {
             FileLock lock = file.getChannel().tryLock();
             if (lock == null) {
                 return false;
@@ -399,10 +405,8 @@ public class DorisFE {
 
             return true;
         } catch (OverlappingFileLockException e) {
-            file.close();
             return false;
         } catch (IOException e) {
-            file.close();
             throw e;
         }
     }

@@ -50,10 +50,7 @@ class PriorityTaskQueue;
 class PipelineXTask : public PipelineTask {
 public:
     PipelineXTask(PipelinePtr& pipeline, uint32_t index, RuntimeState* state,
-                  PipelineFragmentContext* fragment_context, RuntimeProfile* parent_profile,
-                  const std::vector<TScanRangeParams>& scan_ranges, const int sender_id,
-                  std::shared_ptr<BufferControlBlock>& sender,
-                  std::shared_ptr<vectorized::VDataStreamRecvr>& recvr);
+                  PipelineFragmentContext* fragment_context, RuntimeProfile* parent_profile);
 
     Status prepare(RuntimeState* state) override;
 
@@ -67,7 +64,7 @@ public:
     Status close() override;
 
     bool source_can_read() override {
-        if (_pipeline->_always_can_read) {
+        if (_dry_run) {
             return true;
         }
         for (auto& op : _operators) {
@@ -79,16 +76,12 @@ public:
     }
 
     bool runtime_filters_are_ready_or_timeout() override {
-        return _source->runtime_filters_are_ready_or_timeout();
+        return _source->runtime_filters_are_ready_or_timeout(_state);
     }
 
-    bool sink_can_write() override {
-        return _sink->can_write(_state) || _pipeline->_always_can_write;
-    }
+    bool sink_can_write() override { return _sink->can_write(_state); }
 
     Status finalize() override;
-
-    OperatorXPtr get_rootx() { return _root; }
 
     std::string debug_string() override;
 
@@ -111,26 +104,32 @@ public:
 
     DependencySPtr& get_downstream_dependency() { return _downstream_dependency; }
     void set_upstream_dependency(DependencySPtr& upstream_dependency) {
-        _upstream_dependency.insert({upstream_dependency->id(), upstream_dependency});
+        if (_upstream_dependency.contains(upstream_dependency->id())) {
+            upstream_dependency = _upstream_dependency[upstream_dependency->id()];
+        } else {
+            _upstream_dependency.insert({upstream_dependency->id(), upstream_dependency});
+        }
+    }
+
+    Dependency* get_upstream_dependency(int id) {
+        return _upstream_dependency.find(id) == _upstream_dependency.end()
+                       ? (Dependency*)nullptr
+                       : _upstream_dependency.find(id)->second.get();
     }
 
 private:
     using DependencyMap = std::map<int, DependencySPtr>;
     Status _open() override;
 
-    const std::vector<TScanRangeParams> _scan_ranges;
-
     OperatorXs _operators; // left is _source, right is _root
     OperatorXPtr _source;
     OperatorXPtr _root;
     DataSinkOperatorXPtr _sink;
 
-    const int _sender_id;
-
     DependencyMap _upstream_dependency;
     DependencySPtr _downstream_dependency;
 
-    std::shared_ptr<BufferControlBlock> _sender;
-    std::shared_ptr<vectorized::VDataStreamRecvr> _recvr;
+    bool _dry_run = false;
 };
+
 } // namespace doris::pipeline

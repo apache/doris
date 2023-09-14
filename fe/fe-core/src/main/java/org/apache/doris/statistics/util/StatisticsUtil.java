@@ -25,10 +25,12 @@ import org.apache.doris.analysis.FloatLiteral;
 import org.apache.doris.analysis.IntLiteral;
 import org.apache.doris.analysis.LargeIntLiteral;
 import org.apache.doris.analysis.LiteralExpr;
+import org.apache.doris.analysis.SetType;
 import org.apache.doris.analysis.StatementBase;
 import org.apache.doris.analysis.StringLiteral;
 import org.apache.doris.analysis.TableName;
 import org.apache.doris.analysis.UserIdentity;
+import org.apache.doris.analysis.VariableExpr;
 import org.apache.doris.catalog.ArrayType;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.DatabaseIf;
@@ -42,13 +44,14 @@ import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.StructType;
 import org.apache.doris.catalog.TableIf;
-import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.catalog.VariantType;
+import org.apache.doris.catalog.external.ExternalTable;
 import org.apache.doris.catalog.external.HMSExternalTable;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
+import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.HMSExternalCatalog;
@@ -62,6 +65,7 @@ import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.QueryState;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.qe.StmtExecutor;
+import org.apache.doris.qe.VariableMgr;
 import org.apache.doris.statistics.ColumnStatistic;
 import org.apache.doris.statistics.ColumnStatisticBuilder;
 import org.apache.doris.statistics.Histogram;
@@ -87,6 +91,9 @@ import org.apache.logging.log4j.Logger;
 
 import java.net.InetSocketAddress;
 import java.text.SimpleDateFormat;
+import java.time.LocalTime;
+import java.time.format.DateTimeFormatter;
+import java.time.format.DateTimeParseException;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
@@ -158,6 +165,10 @@ public class StatisticsUtil {
     }
 
     public static AutoCloseConnectContext buildConnectContext() {
+        return buildConnectContext(false);
+    }
+
+    public static AutoCloseConnectContext buildConnectContext(boolean limitScan) {
         ConnectContext connectContext = new ConnectContext();
         SessionVariable sessionVariable = connectContext.getSessionVariable();
         sessionVariable.internalSession = true;
@@ -168,6 +179,7 @@ public class StatisticsUtil {
         sessionVariable.parallelPipelineTaskNum = Config.statistics_sql_parallel_exec_instance_num;
         sessionVariable.setEnableNereidsPlanner(false);
         sessionVariable.enableProfile = false;
+        sessionVariable.enableScanRunSerial = limitScan;
         sessionVariable.queryTimeoutS = Config.analyze_task_timeout_in_hours * 60 * 60;
         sessionVariable.insertTimeoutS = Config.analyze_task_timeout_in_hours * 60 * 60;
         sessionVariable.enableFileCache = false;
@@ -388,11 +400,12 @@ public class StatisticsUtil {
                             .findTable(InternalCatalog.INTERNAL_CATALOG_NAME,
                                     dbName,
                                     StatisticConstants.STATISTIC_TBL_NAME));
-            statsTbls.add(
-                    (OlapTable) StatisticsUtil
-                            .findTable(InternalCatalog.INTERNAL_CATALOG_NAME,
-                                    dbName,
-                                    StatisticConstants.HISTOGRAM_TBL_NAME));
+            // uncomment it when hist is available for user.
+            // statsTbls.add(
+            //         (OlapTable) StatisticsUtil
+            //                 .findTable(InternalCatalog.INTERNAL_CATALOG_NAME,
+            //                         dbName,
+            //                         StatisticConstants.HISTOGRAM_TBL_NAME));
         } catch (Throwable t) {
             return false;
         }
@@ -704,6 +717,53 @@ public class StatisticsUtil {
             LOG.warn(e.getMessage());
             return false;
         }
-        return table.getType().equals(TableType.HMS_EXTERNAL_TABLE);
+        return table instanceof ExternalTable;
+    }
+
+    public static boolean checkAnalyzeTime(LocalTime now) {
+        try {
+            Pair<LocalTime, LocalTime> range = findRangeFromGlobalSessionVar();
+            DateTimeFormatter timeFormatter = DateTimeFormatter.ofPattern("HH:mm:ss");
+            LocalTime start = range == null
+                    ? LocalTime.parse(Config.full_auto_analyze_start_time, timeFormatter) : range.first;
+            LocalTime end = range == null
+                    ? LocalTime.parse(Config.full_auto_analyze_end_time, timeFormatter) : range.second;
+
+            if (start.isAfter(end) && (now.isAfter(start) || now.isBefore(end))) {
+                return true;
+            } else {
+                return now.isAfter(start) && now.isBefore(end);
+            }
+        } catch (DateTimeParseException e) {
+            LOG.warn("Parse analyze start/end time format fail", e);
+            return true;
+        }
+    }
+
+    private static Pair<LocalTime, LocalTime> findRangeFromGlobalSessionVar() {
+        try {
+            String startTime =
+                    findRangeFromGlobalSessionVar(SessionVariable.FULL_AUTO_ANALYZE_START_TIME)
+                            .fullAutoAnalyzeStartTime;
+            if (StringUtils.isEmpty(startTime)) {
+                return null;
+            }
+            String endTime = findRangeFromGlobalSessionVar(SessionVariable.FULL_AUTO_ANALYZE_END_TIME)
+                    .fullAutoAnalyzeEndTime;
+            if (StringUtils.isEmpty(startTime)) {
+                return null;
+            }
+            DateTimeFormatter timeFormatter = DateTimeFormatter.ofPattern("HH:mm:ss");
+            return Pair.of(LocalTime.parse(startTime, timeFormatter), LocalTime.parse(endTime, timeFormatter));
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    private static SessionVariable findRangeFromGlobalSessionVar(String varName) throws Exception {
+        SessionVariable sessionVariable =  VariableMgr.newSessionVariable();
+        VariableExpr variableExpr = new VariableExpr(varName, SetType.GLOBAL);
+        VariableMgr.getValue(sessionVariable, variableExpr);
+        return sessionVariable;
     }
 }

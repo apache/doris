@@ -83,7 +83,6 @@ suite("test_csv_split_line", "p0") {
                         process_pparent_path,process_parent_path,process_parent_command_line,
                         process_path,process_command_line,file_dna,icon_dna,client_ip,assetid,
                         product_ver,clientid,process_file_size,client_id,rule_hit_all """ 
-                
         file 'test_csv_split_line1.csv'
     }
 
@@ -114,6 +113,7 @@ suite("test_csv_split_line", "p0") {
     streamLoad {
         table "${tableName}2"
         set 'column_separator', '114455'
+        set 'trim_double_quotes', 'true'
         file 'test_csv_split_line3.csv'
     }
     
@@ -122,9 +122,6 @@ suite("test_csv_split_line", "p0") {
     
     
     
-    
-    
-
     sql """ drop table ${tableName}2; """ 
 
 }

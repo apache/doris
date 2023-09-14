@@ -367,6 +367,7 @@ public class EditLog {
                 case OperationType.OP_EXPORT_CREATE: {
                     ExportJob job = (ExportJob) journal.getData();
                     ExportMgr exportMgr = env.getExportMgr();
+                    job.cancelReplayedExportJob();
                     exportMgr.replayCreateExportJob(job);
                     break;
                 }
@@ -820,6 +821,11 @@ public class EditLog {
                     env.replaySetReplicaStatus(log);
                     break;
                 }
+                case OperationType.OP_SET_REPLICA_VERSION: {
+                    SetReplicaVersionOperationLog log = (SetReplicaVersionOperationLog) journal.getData();
+                    env.replaySetReplicaVersion(log);
+                    break;
+                }
                 case OperationType.OP_REMOVE_ALTER_JOB_V2: {
                     RemoveAlterJobV2OperationLog log = (RemoveAlterJobV2OperationLog) journal.getData();
                     switch (log.getType()) {
@@ -1105,6 +1111,10 @@ public class EditLog {
                 }
                 case OperationType.OP_UPDATE_TABLE_STATS: {
                     env.getAnalysisManager().replayUpdateTableStatsStatus((TableStats) journal.getData());
+                    break;
+                }
+                case OperationType.OP_PERSIST_AUTO_JOB: {
+                    env.getAnalysisManager().replayPersistSysJob((AnalysisInfo) journal.getData());
                     break;
                 }
                 default: {
@@ -1747,6 +1757,10 @@ public class EditLog {
         logEdit(OperationType.OP_SET_REPLICA_STATUS, log);
     }
 
+    public void logSetReplicaVersion(SetReplicaVersionOperationLog log) {
+        logEdit(OperationType.OP_SET_REPLICA_VERSION, log);
+    }
+
     public void logRemoveExpiredAlterJobV2(RemoveAlterJobV2OperationLog log) {
         logEdit(OperationType.OP_REMOVE_ALTER_JOB_V2, log);
     }
@@ -1944,4 +1958,9 @@ public class EditLog {
     public void logCreateTableStats(TableStats tableStats) {
         logEdit(OperationType.OP_UPDATE_TABLE_STATS, tableStats);
     }
+
+    public void logAutoJob(AnalysisInfo analysisInfo) {
+        logEdit(OperationType.OP_PERSIST_AUTO_JOB, analysisInfo);
+    }
+
 }

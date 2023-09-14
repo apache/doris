@@ -36,6 +36,7 @@ public class Alias extends NamedExpression implements UnaryExpression {
     private final ExprId exprId;
     private final String name;
     private final List<String> qualifier;
+    private final boolean nameFromChild;
 
     /**
      * constructor of Alias.
@@ -44,21 +45,27 @@ public class Alias extends NamedExpression implements UnaryExpression {
      * @param name alias name
      */
     public Alias(Expression child, String name) {
-        this(StatementScopeIdGenerator.newExprId(), child, name);
+        this(StatementScopeIdGenerator.newExprId(), child, name, false);
+    }
+
+    public Alias(Expression child) {
+        this(StatementScopeIdGenerator.newExprId(), child, child.toSql(), true);
     }
 
     public Alias(ExprId exprId, Expression child, String name) {
-        super(ImmutableList.of(child));
-        this.exprId = exprId;
-        this.name = name;
-        this.qualifier = ImmutableList.of();
+        this(exprId, ImmutableList.of(child), name, ImmutableList.of(), false);
     }
 
-    public Alias(ExprId exprId, List<Expression> child, String name, List<String> qualifier) {
+    public Alias(ExprId exprId, Expression child, String name, boolean nameFromChild) {
+        this(exprId, ImmutableList.of(child), name, ImmutableList.of(), nameFromChild);
+    }
+
+    public Alias(ExprId exprId, List<Expression> child, String name, List<String> qualifier, boolean nameFromChild) {
         super(child);
         this.exprId = exprId;
         this.name = name;
         this.qualifier = qualifier;
+        this.nameFromChild = nameFromChild;
     }
 
     @Override
@@ -127,7 +134,11 @@ public class Alias extends NamedExpression implements UnaryExpression {
     @Override
     public Alias withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new Alias(exprId, children, name, qualifier);
+        if (nameFromChild) {
+            return new Alias(exprId, children, children.get(0).toSql(), qualifier, nameFromChild);
+        } else {
+            return new Alias(exprId, children, name, qualifier, nameFromChild);
+        }
     }
 
     public <R, C> R accept(ExpressionVisitor<R, C> visitor, C context) {

@@ -142,9 +142,9 @@ public class PhysicalCTEConsumer extends PhysicalRelation {
 
     @Override
     public boolean pushDownRuntimeFilter(CascadesContext context, IdGenerator<RuntimeFilterId> generator,
-                                         AbstractPhysicalJoin builderNode,
-                                         Expression src, Expression probeExpr,
-                                         TRuntimeFilterType type, long buildSideNdv, int exprOrder) {
+            AbstractPhysicalJoin<?, ?> builderNode,
+            Expression src, Expression probeExpr,
+            TRuntimeFilterType type, long buildSideNdv, int exprOrder) {
         // push down rf on cte sender
         // TODO: refactor pushing down into cte internal here
         return super.pushDownRuntimeFilter(context, generator, builderNode,

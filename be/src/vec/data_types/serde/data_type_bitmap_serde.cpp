@@ -33,6 +33,25 @@ namespace doris {
 namespace vectorized {
 class IColumn;
 
+Status DataTypeBitMapSerDe::deserialize_column_from_json_vector(
+        IColumn& column, std::vector<Slice>& slices, int* num_deserialized,
+        const FormatOptions& options) const {
+    DESERIALIZE_COLUMN_FROM_JSON_VECTOR()
+    return Status::OK();
+}
+Status DataTypeBitMapSerDe::deserialize_one_cell_from_json(IColumn& column, Slice& slice,
+                                                           const FormatOptions& options) const {
+    auto& data_column = assert_cast<ColumnBitmap&>(column);
+    auto& data = data_column.get_data();
+
+    BitmapValue value;
+    if (!value.deserialize(slice.data)) {
+        return Status::InternalError("deserialize BITMAP from string fail!");
+    }
+    data.push_back(std::move(value));
+    return Status::OK();
+}
+
 Status DataTypeBitMapSerDe::write_column_to_pb(const IColumn& column, PValues& result, int start,
                                                int end) const {
     auto ptype = result.mutable_type();
@@ -50,6 +69,7 @@ Status DataTypeBitMapSerDe::write_column_to_pb(const IColumn& column, PValues& r
     }
     return Status::OK();
 }
+
 Status DataTypeBitMapSerDe::read_column_from_pb(IColumn& column, const PValues& arg) const {
     auto& col = reinterpret_cast<ColumnBitmap&>(column);
     for (int i = 0; i < arg.bytes_value_size(); ++i) {

@@ -27,7 +27,6 @@
 #include "common/config.h"
 #include "common/status.h"
 #include "io/fs/broker_file_system.h"
-#include "io/fs/file_reader_options.h"
 #include "io/fs/hdfs_file_system.h"
 #include "io/fs/local_file_system.h"
 #include "io/fs/multi_table_pipe.h"
@@ -47,26 +46,22 @@ namespace io {
 class FileWriter;
 } // namespace io
 
-static io::FileBlockCachePathPolicy BLOCK_CACHE_POLICY;
-static std::string RANDOM_CACHE_BASE_PATH = "random";
+constexpr std::string_view RANDOM_CACHE_BASE_PATH = "random";
 
-io::FileReaderOptions FileFactory::get_reader_options(RuntimeState* state) {
-    io::FileCachePolicy cache_policy = io::FileCachePolicy::NO_CACHE;
+io::FileReaderOptions FileFactory::get_reader_options(RuntimeState* state,
+                                                      const io::FileDescription& fd) {
+    io::FileReaderOptions opts {.file_size = fd.file_size, .mtime = fd.mtime};
     if (config::enable_file_cache && state != nullptr &&
         state->query_options().__isset.enable_file_cache &&
         state->query_options().enable_file_cache) {
-        cache_policy = io::FileCachePolicy::FILE_BLOCK_CACHE;
+        opts.cache_type = io::FileCachePolicy::FILE_BLOCK_CACHE;
     }
-    io::FileReaderOptions reader_options(cache_policy, BLOCK_CACHE_POLICY);
     if (state != nullptr && state->query_options().__isset.file_cache_base_path &&
         state->query_options().file_cache_base_path != RANDOM_CACHE_BASE_PATH) {
-        reader_options.specify_cache_path(state->query_options().file_cache_base_path);
+        opts.cache_base_path = state->query_options().file_cache_base_path;
     }
-    return reader_options;
+    return opts;
 }
-
-io::FileReaderOptions FileFactory::NO_CACHE_READER_OPTIONS =
-        FileFactory::get_reader_options(nullptr);
 
 Status FileFactory::create_file_writer(TFileType::type type, ExecEnv* env,
                                        const std::vector<TNetworkAddress>& broker_addresses,
@@ -115,10 +110,11 @@ Status FileFactory::create_file_reader(const io::FileSystemProperties& system_pr
                                        std::shared_ptr<io::FileSystem>* file_system,
                                        io::FileReaderSPtr* file_reader, RuntimeProfile* profile) {
     TFileType::type type = system_properties.system_type;
+    // FIXME(plat1ko): Maybe we can create reader without filesystem?
     switch (type) {
     case TFileType::FILE_LOCAL: {
-        RETURN_IF_ERROR(io::global_local_filesystem()->open_file(file_description, reader_options,
-                                                                 file_reader));
+        RETURN_IF_ERROR(io::global_local_filesystem()->open_file(file_description.path, file_reader,
+                                                                 &reader_options));
         break;
     }
     case TFileType::FILE_S3: {
@@ -193,7 +189,7 @@ Status FileFactory::create_hdfs_reader(const THdfsParams& hdfs_params,
                                        io::FileReaderSPtr* reader, RuntimeProfile* profile) {
     std::shared_ptr<io::HdfsFileSystem> fs;
     RETURN_IF_ERROR(io::HdfsFileSystem::create(hdfs_params, fd.fs_name, profile, &fs));
-    RETURN_IF_ERROR(fs->open_file(fd, reader_options, reader));
+    RETURN_IF_ERROR(fs->open_file(fd.path, reader, &reader_options));
     *hdfs_file_system = std::move(fs);
     return Status::OK();
 }
@@ -209,7 +205,7 @@ Status FileFactory::create_s3_reader(const std::map<std::string, std::string>& p
     RETURN_IF_ERROR(S3ClientFactory::convert_properties_to_s3_conf(prop, s3_uri, &s3_conf));
     std::shared_ptr<io::S3FileSystem> fs;
     RETURN_IF_ERROR(io::S3FileSystem::create(std::move(s3_conf), "", &fs));
-    RETURN_IF_ERROR(fs->open_file(fd, reader_options, reader));
+    RETURN_IF_ERROR(fs->open_file(fd.path, reader, &reader_options));
     *s3_file_system = std::move(fs);
     return Status::OK();
 }
@@ -222,7 +218,7 @@ Status FileFactory::create_broker_reader(const TNetworkAddress& broker_addr,
                                          io::FileReaderSPtr* reader) {
     std::shared_ptr<io::BrokerFileSystem> fs;
     RETURN_IF_ERROR(io::BrokerFileSystem::create(broker_addr, prop, &fs));
-    RETURN_IF_ERROR(fs->open_file(fd, reader_options, reader));
+    RETURN_IF_ERROR(fs->open_file(fd.path, reader, &reader_options));
     *broker_file_system = std::move(fs);
     return Status::OK();
 }
