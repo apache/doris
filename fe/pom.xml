@@ -284,7 +284,7 @@ under the License.
 
         <parquet.version>1.13.1</parquet.version>
         <commons-collections.version>3.2.2</commons-collections.version>
-        <commons-compress.version>1.22</commons-compress.version>
+        <commons-compress.version>1.24.0</commons-compress.version>
         <scala.version>2.12.10</scala.version>
         <kryo.version>4.0.2</kryo.version>
         <lombok.version>1.18.24</lombok.version>
