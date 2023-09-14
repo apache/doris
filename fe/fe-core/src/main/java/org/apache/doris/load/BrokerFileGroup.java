@@ -213,6 +213,14 @@ public class BrokerFileGroup implements Writable {
         escape = dataDescription.getEscape();
 
         fileFormat = dataDescription.getFileFormat();
+        columnSeparator = dataDescription.getColumnSeparator();
+        if (columnSeparator == null) {
+            if (fileFormat != null && fileFormat.equalsIgnoreCase("hive_text")) {
+                columnSeparator = "\001";
+            } else {
+                columnSeparator = "\t";
+            }
+        }
         compressType = dataDescription.getCompressType();
         isNegative = dataDescription.isNegative();
 

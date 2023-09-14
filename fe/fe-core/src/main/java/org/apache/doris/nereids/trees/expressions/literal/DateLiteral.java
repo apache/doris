@@ -96,6 +96,48 @@ public class DateLiteral extends Literal {
         this.day = other.day;
     }
 
+    // normalize yymmdd -> yyyymmdd
+    static String normalizeBasic(String s) {
+        java.util.function.UnaryOperator<String> normalizeTwoDigit = (input) -> {
+            String yy = input.substring(0, 2);
+            int year = Integer.parseInt(yy);
+            if (year >= 0 && year <= 69) {
+                input = "20" + input;
+            } else if (year >= 70 && year <= 99) {
+                input = "19" + input;
+            }
+            return input;
+        };
+
+        // s.len == 6, assume it is "yymmdd"
+        // 'T' exists, assume it is "yymmddT......"
+        if (s.length() == 6
+                || (s.length() > 6 && s.charAt(6) == 'T')) {
+            // check s index 0 - 6 all is digit char
+            for (int i = 0; i < 6; i++) {
+                if (!Character.isDigit(s.charAt(i))) {
+                    return s;
+                }
+            }
+            return normalizeTwoDigit.apply(s);
+        }
+
+        // handle yymmddHHMMSS
+        if (s.length() >= 12) {
+            // check s index 0 - 11 all is digit char
+            for (int i = 0; i < 12; i++) {
+                if (!Character.isDigit(s.charAt(i))) {
+                    return s;
+                }
+            }
+            if (s.length() == 12 || !Character.isDigit(s.charAt(12))) {
+                return normalizeTwoDigit.apply(s);
+            }
+        }
+
+        return s;
+    }
+
     static String normalize(String s) {
         StringBuilder sb = new StringBuilder();
 
@@ -187,13 +229,10 @@ public class DateLiteral extends Literal {
 
             // parse condition without '-' and ':'
             if (!s.contains("-") && !s.contains(":")) {
+                s = normalizeBasic(s);
                 // mysql reject "20200219 010101" "200219 010101", can't use ' ' spilt basic date time.
                 if (!s.contains("T")) {
-                    if (s.length() == 6) {
-                        dateTime = DateTimeFormatterUtils.BASIC_TWO_DIGIT_DATE_FORMATTER.parse(s);
-                    } else {
-                        dateTime = DateTimeFormatterUtils.BASIC_FORMATTER_WITHOUT_T.parse(s);
-                    }
+                    dateTime = DateTimeFormatterUtils.BASIC_FORMATTER_WITHOUT_T.parse(s);
                 } else {
                     dateTime = DateTimeFormatterUtils.BASIC_DATE_TIME_FORMATTER.parse(s);
                 }

@@ -295,14 +295,15 @@ public class FileGroupInfo {
     }
 
     private TFileFormatType formatType(String fileFormat, String path) throws UserException {
-        if (fileFormat != null) {
-            TFileFormatType formatType = Util.getFileFormatTypeFromName(fileFormat);
-            if (formatType == TFileFormatType.FORMAT_UNKNOWN) {
-                throw new UserException("Not supported file format: " + fileFormat);
-            }
+        if (fileFormat == null) {
+            // get file format by the file path
+            return Util.getFileFormatTypeFromPath(path);
         }
-        // get file format by the file path
-        return Util.getFileFormatTypeFromPath(path);
+        TFileFormatType formatType = Util.getFileFormatTypeFromName(fileFormat);
+        if (formatType == TFileFormatType.FORMAT_UNKNOWN) {
+            throw new UserException("Not supported file format: " + fileFormat);
+        }
+        return formatType;
     }
 
     private TFileRangeDesc createFileRangeDesc(long curFileOffset, TBrokerFileStatus fileStatus, long rangeBytes,

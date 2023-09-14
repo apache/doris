@@ -88,7 +88,7 @@ public class LoadScanProvider {
         ctx.timezone = analyzer.getTimezone();
 
         TFileScanRangeParams params = new TFileScanRangeParams();
-        params.setFormatType(formatType(fileGroupInfo.getFileGroup().getFileFormat(), ""));
+        params.setFormatType(formatType(fileGroupInfo.getFileGroup().getFileFormat()));
         params.setCompressType(fileGroupInfo.getFileGroup().getCompressType());
         params.setStrictMode(fileGroupInfo.isStrictMode());
         if (fileGroupInfo.getFileGroup().getFileFormat() != null
@@ -211,7 +211,7 @@ public class LoadScanProvider {
         List<Integer> srcSlotIds = Lists.newArrayList();
         Load.initColumns(fileGroupInfo.getTargetTable(), columnDescs, context.fileGroup.getColumnToHadoopFunction(),
                 context.exprMap, analyzer, context.srcTupleDescriptor, context.srcSlotDescByName, srcSlotIds,
-                formatType(context.fileGroup.getFileFormat(), ""), fileGroupInfo.getHiddenColumns(),
+                formatType(context.fileGroup.getFileFormat()), fileGroupInfo.getHiddenColumns(),
                 fileGroupInfo.isPartialUpdate());
 
         int columnCountFromPath = 0;
@@ -242,15 +242,16 @@ public class LoadScanProvider {
                 .equalsIgnoreCase(Column.DELETE_SIGN);
     }
 
-    private TFileFormatType formatType(String fileFormat, String path) throws UserException {
-        if (fileFormat != null) {
-            TFileFormatType formatType = Util.getFileFormatTypeFromName(fileFormat);
-            if (formatType == TFileFormatType.FORMAT_UNKNOWN) {
-                throw new UserException("Not supported file format: " + fileFormat);
-            }
+    private TFileFormatType formatType(String fileFormat) throws UserException {
+        if (fileFormat == null) {
+            // get file format by the file path
+            return TFileFormatType.FORMAT_CSV_PLAIN;
         }
-        // get file format by the file path
-        return Util.getFileFormatTypeFromPath(path);
+        TFileFormatType formatType = Util.getFileFormatTypeFromName(fileFormat);
+        if (formatType == TFileFormatType.FORMAT_UNKNOWN) {
+            throw new UserException("Not supported file format: " + fileFormat);
+        }
+        return formatType;
     }
 
     public TableIf getTargetTable() {

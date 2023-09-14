@@ -610,13 +610,13 @@ Status SegmentIterator::_execute_predicates_except_leafnode_of_andnode(
         } else {
             _column_predicate_info->query_op = expr->fn().name.function_name;
         }
-        // get child condition result in compound condtions
+        // get child condition result in compound conditions
         auto pred_result_sign = _gen_predicate_result_sign(_column_predicate_info.get());
         _column_predicate_info.reset(new ColumnPredicateInfo());
         if (_rowid_result_for_index.count(pred_result_sign) > 0 &&
             _rowid_result_for_index[pred_result_sign].first) {
-            auto apply_reuslt = _rowid_result_for_index[pred_result_sign].second;
-            _pred_except_leafnode_of_andnode_evaluate_result.push_back(apply_reuslt);
+            auto apply_result = _rowid_result_for_index[pred_result_sign].second;
+            _pred_except_leafnode_of_andnode_evaluate_result.push_back(apply_result);
         }
     } else if (node_type == TExprNodeType::COMPOUND_PRED) {
         auto function_name = expr->fn().name.function_name;
@@ -655,9 +655,18 @@ Status SegmentIterator::_execute_compound_fn(const std::string& function_name) {
 }
 
 bool SegmentIterator::_can_filter_by_preds_except_leafnode_of_andnode() {
+    // no compound predicates push down, so no need to filter
+    if (_col_preds_except_leafnode_of_andnode.size() == 0) {
+        return false;
+    }
     for (auto pred : _col_preds_except_leafnode_of_andnode) {
         if (_not_apply_index_pred.count(pred->column_id()) ||
             (!_check_apply_by_bitmap_index(pred) && !_check_apply_by_inverted_index(pred, true))) {
+            return false;
+        }
+        // all predicates are evaluated by index, then true, else false
+        std::string pred_result_sign = _gen_predicate_result_sign(pred);
+        if (_rowid_result_for_index.count(pred_result_sign) == 0) {
             return false;
         }
     }
