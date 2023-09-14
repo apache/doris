@@ -5732,13 +5732,6 @@ inline_view_ref ::=
     {:
         RESULT = new InlineViewRef(alias, query);
     :}
-    | LPAREN query_stmt:query RPAREN opt_table_alias LPAREN ident_list:l RPAREN
-    {:
-        if (alias == null) {
-            throw new AnalysisException("need table alias name in inlineViewRef");
-        }
-        RESULT = new InlineViewRef(alias, query, l);
-    :}
     ;
 
 base_table_ref_list ::=
