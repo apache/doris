@@ -667,6 +667,13 @@ Status VerticalSegmentWriter::write_batch() {
                                                          data.num_rows));
             _olap_data_convertor->clear_source_content();
         }
+        if (_data_dir != nullptr &&
+            _data_dir->reach_capacity_limit(_column_writers[cid]->estimate_buffer_size())) {
+            return Status::Error<DISK_REACH_CAPACITY_LIMIT>("disk {} exceed capacity limit.",
+                                                            _data_dir->path_hash());
+        }
+        RETURN_IF_ERROR(_column_writers[cid]->finish());
+        RETURN_IF_ERROR(_column_writers[cid]->write_data());
     }
 
     for (auto& data : _batched_blocks) {
@@ -846,30 +853,6 @@ size_t VerticalSegmentWriter::_calculate_inverted_index_file_size() {
     return total_size;
 }
 
-Status VerticalSegmentWriter::finalize_columns_data() {
-    if (_has_key) {
-        _row_count = _num_rows_written;
-    } else {
-        DCHECK(_row_count == _num_rows_written)
-                << "_row_count != _num_rows_written:" << _row_count << " vs. " << _num_rows_written;
-        if (_row_count != _num_rows_written) {
-            std::stringstream ss;
-            ss << "_row_count != _num_rows_written:" << _row_count << " vs. " << _num_rows_written;
-            LOG(WARNING) << ss.str();
-            return Status::InternalError(ss.str());
-        }
-    }
-    _num_rows_written = 0;
-
-    for (auto& column_writer : _column_writers) {
-        RETURN_IF_ERROR(column_writer->finish());
-    }
-    for (auto& column_writer : _column_writers) {
-        RETURN_IF_ERROR(column_writer->write_data());
-    }
-    return Status::OK();
-}
-
 Status VerticalSegmentWriter::finalize_columns_index(uint64_t* index_size) {
     uint64_t index_start = _file_writer->bytes_appended();
     RETURN_IF_ERROR(_write_ordinal_index());
@@ -916,8 +899,8 @@ Status VerticalSegmentWriter::finalize(uint64_t* segment_file_size, uint64_t* in
         return Status::Error<DISK_REACH_CAPACITY_LIMIT>("disk {} exceed capacity limit.",
                                                         _data_dir->path_hash());
     }
-    // write data
-    RETURN_IF_ERROR(finalize_columns_data());
+    _row_count = _num_rows_written;
+    _num_rows_written = 0;
     // write index
     RETURN_IF_ERROR(finalize_columns_index(index_size));
     // write footer

@@ -107,7 +107,6 @@ public:
 
     uint32_t segment_id() { return _segment_id; }
 
-    Status finalize_columns_data();
     Status finalize_columns_index(uint64_t* index_size);
     Status finalize_footer(uint64_t* segment_file_size);
 
