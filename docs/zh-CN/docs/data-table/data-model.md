@@ -269,6 +269,109 @@ insert into example_db.example_tbl values
 
 数据在不同时间，可能聚合的程度不一致。比如一批数据刚导入时，可能还未与之前已存在的数据进行聚合。但是对于用户而言，用户**只能查询到**聚合后的数据。即不同的聚合程度对于用户查询而言是透明的。用户需始终认为数据以**最终的完成的聚合程度**存在，而**不应假设某些聚合还未发生**。（可参阅**聚合模型的局限性**一节获得更多详情。）
 
+### agg_state
+如果SUM，REPLACE，MAX，MIN 无法满足需求，则可以选择使用agg_state类型。
+
+    AGG_STATE不能作为key列使用，建表时需要同时声明聚合函数的签名。
+    用户不需要指定长度和默认值。实际存储的数据大小与函数实现有关。
+
+建表
+```sql
+set enable_agg_state=true;
+create table aggstate(
+    k1 int null,
+    k2 agg_state sum(int),
+    k3 agg_state group_concat(string)
+)
+aggregate key (k1)
+distributed BY hash(k1) buckets 3
+properties("replication_num" = "1");
+```
+
+其中agg_state用于声明数据类型为agg_state，max_by/group_concat为聚合函数的签名。
+注意agg_state是一种数据类型，同int/array/string
+
+agg_state只能配合[state](../sql-manual/sql-functions/combinators/state.md)
+    /[merge](../sql-manual/sql-functions/combinators/merge.md)/[union](../sql-manual/sql-functions/combinators/union.md)函数组合器使用。
+
+agg_state是聚合函数的中间结果，例如，聚合函数sum ， 则agg_state可以表示sum(1,2,3,4,5)的这个中间状态，而不是最终的结果。
+
+agg_state类型需要使用state函数来生成，对于当前的这个表，则为`sum_state`,`group_concat_state`。
+
+```sql
+insert into aggstate values(1,sum_state(1),group_concat_state('a'));
+insert into aggstate values(1,sum_state(2),group_concat_state('b'));
+insert into aggstate values(1,sum_state(3),group_concat_state('c'));
+```
+此时表只有一行 ( 注意，下面的表只是示意图，不是真的可以select显示出来)
+| k1      | k2        | k3 |               
+| --------------- | ----------- | --------------- | 
+| 1         | sum(1,2,3)    |   group_concat_state(a,b,c)              | 
+
+再插入一条数据
+
+```sql
+insert into aggstate values(2,sum_state(4),group_concat_state('d'));
+```
+此时表的结构为
+| k1      | k2        | k3 |               
+| --------------- | ----------- | --------------- | 
+| 1         | sum(1,2,3)    |   group_concat_state(a,b,c)              | 
+| 2         | sum(4)    |   group_concat_state(d)              |
+
+我们可以通过merge操作来合并多个state，并且返回最终聚合函数计算的结果
+
+```
+mysql> select sum_merge(k2) from aggstate;
++---------------+
+| sum_merge(k2) |
++---------------+
+|            10 |
++---------------+
+```
+`sum_merge` 会先把sum(1,2,3) 和 sum(4) 合并成 sum(1,2,3,4) ，并返回计算的结果。
+
+因为group_concat对于顺序有要求，所以结果是不稳定的。
+```
+mysql> select group_concat_merge(k3) from aggstate;
++------------------------+
+| group_concat_merge(k3) |
++------------------------+
+| c,b,a,d                |
++------------------------+
+```
+
+如果不想要聚合的最终结果，可以使用union来合并多个聚合的中间结果，生成一个新的中间结果。
+```sql
+insert into aggstate select 3,sum_union(k2),group_concat_union(k3) from aggstate ;
+```
+此时的表结构为
+| k1      | k2        | k3 |               
+| --------------- | ----------- | --------------- | 
+| 1         | sum(1,2,3)    |   group_concat_state(a,b,c)              | 
+| 2         | sum(4)    |   group_concat_state(d)              |
+| 3         | sum(1,2,3,4)    |   group_concat_state(a,b,c,d)              |
+
+可以通过查询
+```
+mysql> select sum_merge(k2) , group_concat_merge(k3)from aggstate;
++---------------+------------------------+
+| sum_merge(k2) | group_concat_merge(k3) |
++---------------+------------------------+
+|            20 | c,b,a,d,c,b,a,d        |
++---------------+------------------------+
+
+mysql> select sum_merge(k2) , group_concat_merge(k3)from aggstate where k1 != 2;
++---------------+------------------------+
+| sum_merge(k2) | group_concat_merge(k3) |
++---------------+------------------------+
+|            16 | c,b,a,d,c,b,a          |
++---------------+------------------------+
+```
+用户可以通过agg_state做出跟细致的聚合函数操作。
+
+注意 agg_state 存在一定的性能开销
+
 ## Unique 模型
 
 在某些多维分析场景下，用户更关注的是如何保证 Key 的唯一性，即如何获得 Primary Key 唯一性约束。因此，我们引入了 Unique 数据模型。在1.2版本之前，该模型本质上是聚合模型的一个特例，也是一种简化的表结构表示方式。由于聚合模型的实现方式是读时合并（merge on read)，因此在一些聚合查询上性能不佳（参考后续章节[聚合模型的局限性](#聚合模型的局限性)的描述），在1.2版本我们引入了Unique模型新的实现方式，写时合并（merge on write），通过在写入时做一些额外的工作，实现了最优的查询性能。写时合并将在未来替换读时合并成为Unique模型的默认实现方式，两者将会短暂的共存一段时间。下面将对两种实现方式分别举例进行说明。
