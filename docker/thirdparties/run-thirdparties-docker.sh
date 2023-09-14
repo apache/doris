@@ -260,6 +260,8 @@ fi
 
 if [[ "${RUN_HIVE}" -eq 1 ]]; then
     # hive
+    eth0_num=$(ifconfig -a|grep flags=|grep -n ^eth0|awk -F ':' '{print $1}')
+    IP_HOST=$(ifconfig -a|grep inet|grep -v 127.0.0.1|grep -v inet6|awk '{print $2}'|tr -d "addr:"|tail -n +${eth0_num}|head -n 1)
     # before start it, you need to download parquet file package, see "README" in "docker-compose/hive/scripts/"
     cp "${ROOT}"/docker-compose/hive/gen_env.sh.tpl "${ROOT}"/docker-compose/hive/gen_env.sh
     sed -i "s/doris--/${CONTAINER_UID}/g" "${ROOT}"/docker-compose/hive/gen_env.sh
@@ -267,12 +269,12 @@ if [[ "${RUN_HIVE}" -eq 1 ]]; then
     cp "${ROOT}"/docker-compose/hive/hadoop-hive.env.tpl.tpl "${ROOT}"/docker-compose/hive/hadoop-hive.env.tpl
     sed -i "s/doris--/${CONTAINER_UID}/g" "${ROOT}"/docker-compose/hive/hive-2x.yaml
     sed -i "s/doris--/${CONTAINER_UID}/g" "${ROOT}"/docker-compose/hive/hadoop-hive.env.tpl
+    sed -i "s/externalEnvIp/${IP_HOST}/g" "${ROOT}"/docker-compose/hive/hive-2x.yaml
+    sed -i "s/externalEnvIp/${IP_HOST}/g" "${ROOT}"/docker-compose/hive/hadoop-hive.env.tpl
     sudo bash "${ROOT}"/docker-compose/hive/gen_env.sh
     sudo docker compose -f "${ROOT}"/docker-compose/hive/hive-2x.yaml --env-file "${ROOT}"/docker-compose/hive/hadoop-hive.env down
-    sudo sed -i '/${CONTAINER_UID}namenode/d' /etc/hosts
     if [[ "${STOP}" -ne 1 ]]; then
         sudo docker compose -f "${ROOT}"/docker-compose/hive/hive-2x.yaml --env-file "${ROOT}"/docker-compose/hive/hadoop-hive.env up --build --remove-orphans -d
-        sudo echo "127.0.0.1 ${CONTAINER_UID}namenode" >> /etc/hosts
     fi
 fi
 

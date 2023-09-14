@@ -23,9 +23,11 @@
 set -eo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" &>/dev/null && pwd)"
-
-FS_PORT=8120
-HMS_PORT=9183
+eth0_num=$(ifconfig -a|grep flags=|grep -n ^eth0|awk -F ':' '{print $1}')
+IP_HOST=$(ifconfig -a|grep inet|grep -v 127.0.0.1|grep -v inet6|awk '{print $2}'|tr -d "addr:"|tail -n +${eth0_num}|head -n 1)
+externalEnvIp="${IP_HOST}"
+FS_PORT=8020
+HMS_PORT=9083
 
 cp "${ROOT}"/hadoop-hive.env.tpl "${ROOT}"/hadoop-hive.env
 # Need to set hostname of container to same as host machine's.
@@ -35,6 +37,8 @@ HOST_NAME="doris--"
 {
     echo "FS_PORT=${FS_PORT}"
     echo "HMS_PORT=${HMS_PORT}"
-    echo "CORE_CONF_fs_defaultFS=hdfs://doris--namenode:${FS_PORT}"
+    echo "CORE_CONF_fs_defaultFS=hdfs://${externalEnvIp}:${FS_PORT}"
     echo "HOST_NAME=${HOST_NAME}"
+    echo "externalEnvIp=${externalEnvIp}"
+
 } >>"${ROOT}"/hadoop-hive.env
