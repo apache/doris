@@ -48,9 +48,6 @@ class IOlapColumnDataAccessor;
 class OlapBlockDataConvertor;
 } // namespace vectorized
 
-// TODO(lingbin): Should be a conf that can be dynamically adjusted, or a member in the context
-const uint32_t MAX_SEGMENT_SIZE2 = static_cast<uint32_t>(OLAP_MAX_COLUMN_SEGMENT_FILE_SIZE *
-                                                        OLAP_COLUMN_FILE_SEGMENT_SIZE_SCALE);
 class DataDir;
 class MemTracker;
 class ShortKeyIndexBuilder;

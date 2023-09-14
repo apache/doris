@@ -745,13 +745,17 @@ void VerticalSegmentWriter::_handle_delete_sign_col(const vectorized::Block* blo
     }
 }
 
+// TODO(lingbin): Should be a conf that can be dynamically adjusted, or a member in the context
+static const uint32_t MAX_SEGMENT_SIZE = static_cast<uint32_t>(OLAP_MAX_COLUMN_SEGMENT_FILE_SIZE *
+                                                               OLAP_COLUMN_FILE_SEGMENT_SIZE_SCALE);
+
 int64_t VerticalSegmentWriter::max_row_to_add(size_t row_avg_size_in_bytes) {
     auto segment_size = _estimated_segment_size();
-    if (PREDICT_FALSE(segment_size >= MAX_SEGMENT_SIZE2 ||
+    if (PREDICT_FALSE(segment_size >= MAX_SEGMENT_SIZE ||
                       _num_rows_written >= _max_row_per_segment)) {
         return 0;
     }
-    int64_t size_rows = ((int64_t)MAX_SEGMENT_SIZE2 - (int64_t)segment_size) / row_avg_size_in_bytes;
+    int64_t size_rows = ((int64_t)MAX_SEGMENT_SIZE - (int64_t)segment_size) / row_avg_size_in_bytes;
     int64_t count_rows = (int64_t)_max_row_per_segment - _num_rows_written;
 
     return std::min(size_rows, count_rows);
