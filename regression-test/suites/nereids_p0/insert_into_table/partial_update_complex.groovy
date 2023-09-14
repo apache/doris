@@ -15,16 +15,16 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_partial_update_native_insert_stmt_complex", "p0") {
-    sql "set enable_nereids_dml=false;"
-    sql "set experimental_enable_nereids_planner=false;"
-    sql "set enable_fallback_to_original_planner=true;"
+suite("nereids_partial_update_native_insert_stmt_complex", "p0") {
+    sql "set enable_nereids_dml=true;"
+    sql "set experimental_enable_nereids_planner=true;"
+    sql "set enable_fallback_to_original_planner=false;"
     sql "sync;"
 
     // test complex partial update
-    def tbName1 = "test_partial_update_native_insert_stmt_complex1"
-    def tbName2 = "test_partial_update_native_insert_stmt_complex2"
-    def tbName3 = "test_partial_update_native_insert_stmt_complex3"
+    def tbName1 = "nereids_partial_update_native_insert_stmt_complex1"
+    def tbName2 = "nereids_partial_update_native_insert_stmt_complex2"
+    def tbName3 = "nereids_partial_update_native_insert_stmt_complex3"
 
     sql "DROP TABLE IF EXISTS ${tbName1}"
     sql "DROP TABLE IF EXISTS ${tbName2}"
@@ -96,7 +96,7 @@ suite("test_partial_update_native_insert_stmt_complex", "p0") {
         (5, 5, '5', 5.0, '2000-01-05');"""
     sql """insert into ${tbName3} values(1), (3), (5);"""
 
-    qt_select_result "select ${tbName2}.id,1 from ${tbName2} inner join ${tbName3} on ${tbName2}.id = ${tbName3}.id order by ${tbName2}.id;"
+    qt_select_result "select ${tbName2}.id,1 from ${tbName2} inner join ${tbName3} on ${tbName2}.id = ${tbName3}.id;"
 
     sql "set enable_unique_key_partial_update=true;"
     sql "set enable_insert_strict = false;"

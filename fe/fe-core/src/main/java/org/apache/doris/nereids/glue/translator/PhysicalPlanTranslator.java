@@ -367,10 +367,37 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
                 olapTableSink.getPartitionIds().isEmpty() ? null : olapTableSink.getPartitionIds(),
                 olapTableSink.isSingleReplicaLoad()
         );
-        if (olapTableSink.isPartialUpdate()) {
+        if (olapTableSink.isPartialUpdate() || (olapTableSink.isFromNativeInsertStmt() &&
+                ConnectContext.get().getSessionVariable().isEnableUniqueKeyPartialUpdate())) {
+            OlapTable olapTable = (OlapTable) olapTableSink.getTargetTable();
+            if (!olapTable.getEnableUniqueKeyMergeOnWrite()) {
+                throw new AnalysisException("Partial update is only allowed in"
+                        + "unique table with merge-on-write enabled.");
+            }
             HashSet<String> partialUpdateCols = new HashSet<>();
+            for (Column col : olapTable.getFullSchema()) {
+                boolean exists = false;
+                for (Column insertCol : olapTableSink.getCols()) {
+                    if (insertCol.getName() != null && insertCol.getName().equals(col.getName())) {
+                        if (!col.isVisible() && !Column.DELETE_SIGN.equals(col.getName())) {
+                            throw new AnalysisException("Partial update should not include invisible column except"
+                                        + " delete sign column: " + col.getName());
+                        }
+                        exists = true;
+                        break;
+                    }
+                }
+                if (col.isKey() && !exists) {
+                    throw new AnalysisException("Partial update should include all key columns, missing: "
+                            + col.getName());
+                }
+            }
             for (Column col : olapTableSink.getCols()) {
                 partialUpdateCols.add(col.getName());
+            }
+            if (olapTable.hasSequenceCol() && olapTable.getSequenceMapCol() != null
+                        && partialUpdateCols.contains(olapTable.getSequenceMapCol())) {
+                partialUpdateCols.add(Column.SEQUENCE_COL);
             }
             sink.setPartialUpdateInputColumns(true, partialUpdateCols);
         }
