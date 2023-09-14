@@ -17,11 +17,13 @@
 
 package org.apache.doris.datasource.paimon;
 
+import org.apache.doris.common.DdlException;
 import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.datasource.InitCatalogLog;
 import org.apache.doris.datasource.SessionContext;
 import org.apache.doris.datasource.property.constants.PaimonProperties;
 
+import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.hdfs.HdfsConfiguration;
@@ -44,6 +46,10 @@ public abstract class PaimonExternalCatalog extends ExternalCatalog {
     public static final String PAIMON_HMS = "hms";
     protected String catalogType;
     protected Catalog catalog;
+
+    private static final List<String> REQUIRED_PROPERTIES = Lists.newArrayList(
+            PaimonProperties.WAREHOUSE
+    );
 
     public PaimonExternalCatalog(long catalogId, String name, String comment) {
         super(catalogId, name, InitCatalogLog.Type.PAIMON, comment);
@@ -139,6 +145,16 @@ public abstract class PaimonExternalCatalog extends ExternalCatalog {
         for (Map.Entry<String, String> kv : properties.entrySet()) {
             if (kv.getKey().startsWith(PaimonProperties.PAIMON_PREFIX)) {
                 options.put(kv.getKey().substring(PaimonProperties.PAIMON_PREFIX.length()), kv.getValue());
+            }
+        }
+    }
+
+    @Override
+    public void checkProperties() throws DdlException {
+        super.checkProperties();
+        for (String requiredProperty : REQUIRED_PROPERTIES) {
+            if (!catalogProperty.getProperties().containsKey(requiredProperty)) {
+                throw new DdlException("Required property '" + requiredProperty + "' is missing");
             }
         }
     }
