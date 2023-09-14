@@ -204,13 +204,6 @@ public class ColumnStatistic {
         return rowCount * 0.9 < ndv && ndv < rowCount * 1.1;
     }
 
-    public ColumnStatistic copy() {
-        return new ColumnStatisticBuilder().setCount(count).setNdv(ndv).setAvgSizeByte(avgSizeByte)
-                .setNumNulls(numNulls).setDataSize(dataSize).setMinValue(minValue)
-                .setMaxValue(maxValue).setMinExpr(minExpr).setMaxExpr(maxExpr)
-                .setIsUnknown(isUnKnown).build();
-    }
-
     public ColumnStatistic updateByLimit(long limit, double rowCount) {
         double ratio = 0;
         if (rowCount != 0) {
