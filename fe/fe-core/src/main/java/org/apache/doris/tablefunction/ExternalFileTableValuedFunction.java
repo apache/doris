@@ -18,6 +18,7 @@
 package org.apache.doris.tablefunction;
 
 import org.apache.doris.analysis.BrokerDesc;
+import org.apache.doris.analysis.Separator;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.catalog.ArrayType;
 import org.apache.doris.catalog.Column;
@@ -239,6 +240,11 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
         }
 
         columnSeparator = validParams.getOrDefault(COLUMN_SEPARATOR, DEFAULT_COLUMN_SEPARATOR);
+        if (columnSeparator.isEmpty()) {
+            throw new AnalysisException("column_separator can not be empty.");
+        }
+        columnSeparator = Separator.convertSeparator(columnSeparator);
+
         lineDelimiter = validParams.getOrDefault(LINE_DELIMITER, DEFAULT_LINE_DELIMITER);
         jsonRoot = validParams.getOrDefault(JSON_ROOT, "");
         jsonPaths = validParams.getOrDefault(JSON_PATHS, "");
@@ -248,6 +254,7 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
         fuzzyParse = Boolean.valueOf(validParams.get(FUZZY_PARSE)).booleanValue();
         trimDoubleQuotes = Boolean.valueOf(validParams.get(TRIM_DOUBLE_QUOTES)).booleanValue();
         skipLines = Integer.valueOf(validParams.getOrDefault(SKIP_LINES, "0")).intValue();
+
         try {
             compressionType = Util.getFileCompressType(validParams.getOrDefault(COMPRESS_TYPE, "UNKNOWN"));
         } catch (IllegalArgumentException e) {
