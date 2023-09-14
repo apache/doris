@@ -42,12 +42,13 @@ import org.junit.jupiter.api.Test;
 
 import java.util.List;
 
-public class PushdowFilterThroughWindowTest implements MemoPatternMatchSupported {
-    private final LogicalOlapScan scan = new LogicalOlapScan(StatementScopeIdGenerator.newRelationId(), PlanConstructor.student,
+class PushdownFilterThroughWindowTest implements MemoPatternMatchSupported {
+    private final LogicalOlapScan scan = new LogicalOlapScan(StatementScopeIdGenerator.newRelationId(),
+            PlanConstructor.student,
             ImmutableList.of(""));
 
     @Test
-    public void pushDownFilterThroughWindowTest() {
+    void pushDownFilterThroughWindowTest() {
         ConnectContext context = MemoTestUtils.createConnectContext();
         NamedExpression age = scan.getOutput().get(3).toSlot();
         List<Expression> partitionKeyList = ImmutableList.of(age);
