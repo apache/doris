@@ -143,7 +143,7 @@ Status UnionSinkOperatorX::open(RuntimeState* state) {
 
 Status UnionSinkOperatorX::sink(RuntimeState* state, vectorized::Block* in_block,
                                 SourceState source_state) {
-    auto& local_state = state->get_sink_local_state(id())->cast<UnionSinkLocalState>();
+    CREATE_SINK_LOCAL_STATE_RETURN_IF_ERROR(local_state);
     if (local_state._output_block == nullptr) {
         local_state._output_block =
                 local_state._shared_state->_data_queue->get_free_block(_cur_child_id);

@@ -78,7 +78,7 @@ StreamingAggSourceOperatorX::StreamingAggSourceOperatorX(ObjectPool* pool, const
 
 Status StreamingAggSourceOperatorX::get_block(RuntimeState* state, vectorized::Block* block,
                                               SourceState& source_state) {
-    auto& local_state = state->get_local_state(id())->cast<AggLocalState>();
+    CREATE_LOCAL_STATE_RETURN_IF_ERROR(local_state);
     if (!local_state._shared_state->data_queue->data_exhausted()) {
         std::unique_ptr<vectorized::Block> agg_block;
         RETURN_IF_ERROR(local_state._shared_state->data_queue->get_block_from_queue(&agg_block));

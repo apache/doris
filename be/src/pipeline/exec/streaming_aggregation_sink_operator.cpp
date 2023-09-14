@@ -362,7 +362,7 @@ bool StreamingAggSinkOperatorX::can_write(RuntimeState* state) {
 
 Status StreamingAggSinkOperatorX::sink(RuntimeState* state, vectorized::Block* in_block,
                                        SourceState source_state) {
-    auto& local_state = state->get_sink_local_state(id())->cast<StreamingAggSinkLocalState>();
+    CREATE_SINK_LOCAL_STATE_RETURN_IF_ERROR(local_state);
     local_state._shared_state->input_num_rows += in_block->rows();
     Status ret = Status::OK();
     if (in_block && in_block->rows() > 0) {

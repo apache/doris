@@ -436,7 +436,7 @@ Status HashJoinBuildSinkOperatorX::open(RuntimeState* state) {
 
 Status HashJoinBuildSinkOperatorX::sink(RuntimeState* state, vectorized::Block* in_block,
                                         SourceState source_state) {
-    auto& local_state = state->get_sink_local_state(id())->cast<HashJoinBuildSinkLocalState>();
+    CREATE_SINK_LOCAL_STATE_RETURN_IF_ERROR(local_state);
     SCOPED_TIMER(local_state._build_timer);
 
     // make one block for each 4 gigabytes

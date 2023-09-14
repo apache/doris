@@ -346,6 +346,7 @@ public:
     using DataSinkOperatorX<LocalStateType>::id;
 
 protected:
+    using LocalState = LocalStateType;
     template <typename Derived>
     friend class AggSinkLocalState;
     friend class StreamingAggSinkLocalState;

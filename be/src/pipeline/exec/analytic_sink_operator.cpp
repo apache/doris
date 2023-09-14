@@ -138,7 +138,7 @@ Status AnalyticSinkOperatorX::open(RuntimeState* state) {
 
 Status AnalyticSinkOperatorX::sink(doris::RuntimeState* state, vectorized::Block* input_block,
                                    SourceState source_state) {
-    auto& local_state = state->get_sink_local_state(id())->cast<AnalyticSinkLocalState>();
+    CREATE_SINK_LOCAL_STATE_RETURN_IF_ERROR(local_state);
     local_state._shared_state->input_eos = source_state == SourceState::FINISHED;
     if (local_state._shared_state->input_eos && input_block->rows() == 0) {
         local_state._shared_state->need_more_input = false;

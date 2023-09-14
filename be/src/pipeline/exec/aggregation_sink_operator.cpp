@@ -877,7 +877,7 @@ template <typename LocalStateType>
 Status AggSinkOperatorX<LocalStateType>::sink(doris::RuntimeState* state,
                                               vectorized::Block* in_block,
                                               SourceState source_state) {
-    auto& local_state = state->get_sink_local_state(id())->template cast<LocalStateType>();
+    CREATE_SINK_LOCAL_STATE_RETURN_IF_ERROR(local_state);
     local_state._shared_state->input_num_rows += in_block->rows();
     if (in_block->rows() > 0) {
         RETURN_IF_ERROR(local_state._executor.execute(in_block));

@@ -368,6 +368,7 @@ public:
     using OperatorX<LocalStateType>::id;
 
 protected:
+    using LocalState = LocalStateType;
     ScanOperatorX(ObjectPool* pool, const TPlanNode& tnode, const DescriptorTbl& descs);
     virtual ~ScanOperatorX() = default;
     template <typename Derived>

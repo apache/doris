@@ -143,7 +143,7 @@ Status SortSinkOperatorX::open(RuntimeState* state) {
 
 Status SortSinkOperatorX::sink(doris::RuntimeState* state, vectorized::Block* in_block,
                                SourceState source_state) {
-    auto& local_state = state->get_sink_local_state(id())->cast<SortSinkLocalState>();
+    CREATE_SINK_LOCAL_STATE_RETURN_IF_ERROR(local_state);
     if (in_block->rows() > 0) {
         RETURN_IF_ERROR(local_state._shared_state->sorter->append_block(in_block));
         RETURN_IF_CANCELLED(state);

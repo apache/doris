@@ -389,7 +389,7 @@ Status AnalyticSourceOperatorX::init(const TPlanNode& tnode, RuntimeState* state
 
 Status AnalyticSourceOperatorX::get_block(RuntimeState* state, vectorized::Block* block,
                                           SourceState& source_state) {
-    auto& local_state = state->get_local_state(id())->cast<AnalyticLocalState>();
+    CREATE_LOCAL_STATE_RETURN_IF_ERROR(local_state);
     if (local_state._shared_state->input_eos &&
         (local_state._output_block_index == local_state._shared_state->input_blocks.size() ||
          local_state._shared_state->input_total_rows == 0)) {
