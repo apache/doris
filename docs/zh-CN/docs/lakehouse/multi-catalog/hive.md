@@ -94,6 +94,28 @@ CREATE CATALOG hive PROPERTIES (
 请在所有的 `BE`、`FE` 节点下放置 `krb5.conf` 文件和 `keytab` 认证文件，`keytab` 认证文件路径和配置保持一致，`krb5.conf` 文件默认放置在 `/etc/krb5.conf` 路径。
 `hive.metastore.kerberos.principal` 的值需要和所连接的 hive metastore 的同名属性保持一致，可从 `hive-site.xml` 中获取。
 
+### Hive On VIEWFS
+
+```sql
+CREATE CATALOG hive PROPERTIES (
+    'type'='hms',
+    'hive.metastore.uris' = 'thrift://172.0.0.1:9083',
+    'hadoop.username' = 'hive',
+    'dfs.nameservices'='your-nameservice',
+    'dfs.ha.namenodes.your-nameservice'='nn1,nn2',
+    'dfs.namenode.rpc-address.your-nameservice.nn1'='172.21.0.2:8088',
+    'dfs.namenode.rpc-address.your-nameservice.nn2'='172.21.0.3:8088',
+    'dfs.client.failover.proxy.provider.your-nameservice'='org.apache.hadoop.hdfs.server.namenode.ha.ConfiguredFailoverProxyProvider',
+    'fs.defaultFS' = 'viewfs://your-cluster',
+    'fs.viewfs.mounttable.your-cluster.link./ns1' = 'hdfs://your-nameservice/',
+    'fs.viewfs.mounttable.your-cluster.homedir' = '/ns1'
+);
+```
+
+viewfs 相关参数可以如上面一样添加到 catalog 配置中，也可以添加到 `conf/core-site.xml` 中。
+
+viewfs 工作原理和参数配置可以参考 hadoop 相关文档，比如 https://hadoop.apache.org/docs/stable/hadoop-project-dist/hadoop-hdfs/ViewFs.html
+
 ### Hive On JuiceFS
 
 数据存储在JuiceFS，示例如下：
