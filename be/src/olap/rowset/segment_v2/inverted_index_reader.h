@@ -144,10 +144,21 @@ protected:
 class FullTextIndexReader : public InvertedIndexReader {
     ENABLE_FACTORY_CREATOR(FullTextIndexReader);
 
+private:
+    InvertedIndexCtxSPtr _inverted_index_ctx {};
+
 public:
     explicit FullTextIndexReader(io::FileSystemSPtr fs, const std::string& path,
                                  const TabletIndex* index_meta)
-            : InvertedIndexReader(fs, path, index_meta) {}
+            : InvertedIndexReader(fs, path, index_meta) {
+        _inverted_index_ctx = std::make_shared<InvertedIndexCtx>();
+        _inverted_index_ctx->parser_type = get_inverted_index_parser_type_from_string(
+                get_parser_string_from_properties(_index_meta.properties()));
+        _inverted_index_ctx->parser_mode =
+                get_parser_mode_string_from_properties(_index_meta.properties());
+        _inverted_index_ctx->char_filter_map =
+                get_parser_char_filter_map_from_properties(_index_meta.properties());
+    }
     ~FullTextIndexReader() override = default;
 
     Status new_iterator(OlapReaderStatistics* stats, RuntimeState* runtime_state,
@@ -177,6 +188,9 @@ private:
                                   const std::shared_ptr<roaring::Roaring>& term_match_bitmap);
 
     void check_null_bitmap(const IndexSearcherPtr& index_searcher, bool& null_bitmap_already_read);
+    Status _query(OlapReaderStatistics* stats, RuntimeState* runtime_state,
+                  const std::string& column_name, std::string& search_str,
+                  InvertedIndexQueryType query_type, roaring::Roaring* bit_map);
 };
 
 class StringTypeInvertedIndexReader : public InvertedIndexReader {
