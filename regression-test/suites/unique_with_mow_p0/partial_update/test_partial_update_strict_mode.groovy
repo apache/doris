@@ -30,7 +30,7 @@ suite("test_partial_update_strict_mode", "p0") {
                 `last_access_time` datetime NULL 
             ) ENGINE = OLAP UNIQUE KEY(`id`) 
             COMMENT 'OLAP' DISTRIBUTED BY HASH(`id`) 
-            BUCKETS AUTO PROPERTIES ( 
+            BUCKETS 4 PROPERTIES ( 
                 "replication_allocation" = "tag.location.default: 1", 
                 "storage_format" = "V2", 
                 "enable_unique_key_merge_on_write" = "true", 
@@ -65,7 +65,7 @@ suite("test_partial_update_strict_mode", "p0") {
     }
     sql "sync"
     qt_sql """select * from ${tableName} order by id;"""
-    sql """ DROP TABLE IF EXISTS ${tableName} """
+    sql """ DROP TABLE IF EXISTS ${tableName}; """
 
 
     def tableName2 = "test_partial_update_strict_mode2"
@@ -80,7 +80,7 @@ suite("test_partial_update_strict_mode", "p0") {
                 `last_access_time` datetime NULL 
             ) ENGINE = OLAP UNIQUE KEY(`id`) 
             COMMENT 'OLAP' DISTRIBUTED BY HASH(`id`) 
-            BUCKETS AUTO PROPERTIES ( 
+            BUCKETS 4 PROPERTIES ( 
                 "replication_allocation" = "tag.location.default: 1", 
                 "storage_format" = "V2", 
                 "enable_unique_key_merge_on_write" = "true", 
@@ -116,6 +116,7 @@ suite("test_partial_update_strict_mode", "p0") {
     }
     sql "sync"
     qt_sql """select * from ${tableName2} order by id;"""
+    sql """ DROP TABLE IF EXISTS ${tableName2}; """
 
     def tableName3 = "test_partial_update_strict_mode3";
     sql """ DROP TABLE IF EXISTS ${tableName3} """
@@ -129,7 +130,7 @@ suite("test_partial_update_strict_mode", "p0") {
                 `last_access_time` datetime NULL 
             ) ENGINE = OLAP UNIQUE KEY(`id`) 
             COMMENT 'OLAP' DISTRIBUTED BY HASH(`id`) 
-            BUCKETS AUTO PROPERTIES ( 
+            BUCKETS 4 PROPERTIES ( 
                 "replication_allocation" = "tag.location.default: 1", 
                 "storage_format" = "V2", 
                 "enable_unique_key_merge_on_write" = "true", 
@@ -165,6 +166,7 @@ suite("test_partial_update_strict_mode", "p0") {
     }
     sql "sync"
     qt_sql """select * from ${tableName3} order by id;"""
+    sql """ DROP TABLE IF EXISTS ${tableName3}; """
 
     // all columns valid, partial columns do not exist in file
     def tableName4 = "test_partial_update_strict_mode4"
@@ -179,7 +181,7 @@ suite("test_partial_update_strict_mode", "p0") {
                 `last_access_time` datetime NULL 
             ) ENGINE = OLAP UNIQUE KEY(`id`) 
             COMMENT 'OLAP' DISTRIBUTED BY HASH(`id`) 
-            BUCKETS AUTO PROPERTIES ( 
+            BUCKETS 4 PROPERTIES ( 
                 "replication_allocation" = "tag.location.default: 1", 
                 "storage_format" = "V2", 
                 "enable_unique_key_merge_on_write" = "true", 
@@ -211,4 +213,5 @@ suite("test_partial_update_strict_mode", "p0") {
 
     sql "sync"
     qt_sql """select * from ${tableName4} order by id;"""
+    sql """ DROP TABLE IF EXISTS ${tableName4}; """
 }

@@ -47,9 +47,12 @@ class Thread;
 class ResultBufferMgr {
 public:
     ResultBufferMgr();
-    ~ResultBufferMgr();
+    ~ResultBufferMgr() = default;
     // init Result Buffer Mgr, start cancel thread
     Status init();
+
+    void stop();
+
     // create one result sender for this query_id
     // the returned sender do not need release
     // sender is not used when call cancel or unregister

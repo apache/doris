@@ -212,9 +212,10 @@ Status ParquetReader::_open_file() {
     if (_file_reader == nullptr) {
         SCOPED_RAW_TIMER(&_statistics.open_file_time);
         ++_statistics.open_file_num;
-        io::FileReaderOptions reader_options = FileFactory::get_reader_options(_state);
         _file_description.mtime =
                 _scan_range.__isset.modification_time ? _scan_range.modification_time : 0;
+        io::FileReaderOptions reader_options =
+                FileFactory::get_reader_options(_state, _file_description);
         RETURN_IF_ERROR(io::DelegateReader::create_file_reader(
                 _profile, _system_properties, _file_description, reader_options, &_file_system,
                 &_file_reader, io::DelegateReader::AccessMode::RANDOM, _io_ctx));
@@ -287,8 +288,7 @@ void ParquetReader::_init_system_properties() {
 
 void ParquetReader::_init_file_description() {
     _file_description.path = _scan_range.path;
-    _file_description.start_offset = _scan_range.start_offset;
-    _file_description.file_size = _scan_range.__isset.file_size ? _scan_range.file_size : 0;
+    _file_description.file_size = _scan_range.__isset.file_size ? _scan_range.file_size : -1;
     if (_scan_range.__isset.fs_name) {
         _file_description.fs_name = _scan_range.fs_name;
     }

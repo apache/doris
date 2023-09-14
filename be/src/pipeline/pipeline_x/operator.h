@@ -60,7 +60,11 @@ public:
         return reinterpret_cast<const TARGET&>(*this);
     }
 
+    // Do initialization. This step should be executed only once and in bthread, so we can do some
+    // lightweight or non-idempotent operations (e.g. init profile, clone expr ctx from operatorX)
     virtual Status init(RuntimeState* state, LocalStateInfo& info) = 0;
+    // Do initialization. This step can be executed multiple times, so we should make sure it is
+    // idempotent (e.g. wait for runtime filters).
     virtual Status open(RuntimeState* state) { return Status::OK(); }
     virtual Status close(RuntimeState* state) = 0;
 
@@ -341,8 +345,12 @@ public:
             : _parent(parent_), _state(state_) {}
     virtual ~PipelineXSinkLocalStateBase() {}
 
+    // Do initialization. This step should be executed only once and in bthread, so we can do some
+    // lightweight or non-idempotent operations (e.g. init profile, clone expr ctx from operatorX)
     virtual Status init(RuntimeState* state, LocalSinkStateInfo& info) = 0;
 
+    // Do initialization. This step can be executed multiple times, so we should make sure it is
+    // idempotent (e.g. wait for runtime filters).
     virtual Status open(RuntimeState* state) { return Status::OK(); }
     virtual Status close(RuntimeState* state) = 0;
 
@@ -390,7 +398,10 @@ protected:
 
 class DataSinkOperatorXBase : public OperatorBase {
 public:
-    DataSinkOperatorXBase(const int id) : OperatorBase(nullptr), _id(id) {}
+    DataSinkOperatorXBase(const int id) : OperatorBase(nullptr), _id(id), _dest_id(id) {}
+
+    DataSinkOperatorXBase(const int id, const int dest_id)
+            : OperatorBase(nullptr), _id(id), _dest_id(dest_id) {}
 
     virtual ~DataSinkOperatorXBase() override = default;
 
@@ -457,6 +468,8 @@ public:
 
     [[nodiscard]] int id() const override { return _id; }
 
+    [[nodiscard]] int dest_id() const { return _dest_id; }
+
     [[nodiscard]] std::string get_name() const override { return _name; }
 
     Status finalize(RuntimeState* state) override { return Status::OK(); }
@@ -465,6 +478,7 @@ public:
 
 protected:
     const int _id;
+    const int _dest_id;
     std::string _name;
 
     // Maybe this will be transferred to BufferControlBlock.
@@ -480,7 +494,8 @@ class DataSinkOperatorX : public DataSinkOperatorXBase {
 public:
     DataSinkOperatorX(const int id) : DataSinkOperatorXBase(id) {}
 
-    virtual ~DataSinkOperatorX() override = default;
+    DataSinkOperatorX(const int id, const int source_id) : DataSinkOperatorXBase(id, source_id) {}
+    ~DataSinkOperatorX() override = default;
 
     Status setup_local_state(RuntimeState* state, LocalSinkStateInfo& info) override;
 
@@ -493,7 +508,7 @@ public:
     using Dependency = DependencyType;
     PipelineXSinkLocalState(DataSinkOperatorXBase* parent, RuntimeState* state)
             : PipelineXSinkLocalStateBase(parent, state) {}
-    virtual ~PipelineXSinkLocalState() {}
+    ~PipelineXSinkLocalState() override = default;
 
     virtual Status init(RuntimeState* state, LocalSinkStateInfo& info) override {
         _dependency = (DependencyType*)info.dependency;
@@ -506,7 +521,7 @@ public:
         return Status::OK();
     }
 
-    virtual Status close(RuntimeState* state) override {
+    Status close(RuntimeState* state) override {
         if (_closed) {
             return Status::OK();
         }
@@ -514,7 +529,7 @@ public:
         return Status::OK();
     }
 
-    virtual std::string debug_string(int indentation_level) const override;
+    std::string debug_string(int indentation_level) const override;
 
 protected:
     DependencyType* _dependency;

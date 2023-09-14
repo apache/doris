@@ -52,7 +52,9 @@ public:
 class ExternalScanContextMgr {
 public:
     ExternalScanContextMgr(ExecEnv* exec_env);
-    ~ExternalScanContextMgr();
+    ~ExternalScanContextMgr() = default;
+
+    void stop();
 
     Status create_scan_context(std::shared_ptr<ScanContext>* p_context);
 

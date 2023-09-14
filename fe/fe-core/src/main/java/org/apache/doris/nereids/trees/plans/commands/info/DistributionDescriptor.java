@@ -24,10 +24,13 @@ import org.apache.doris.catalog.AggregateType;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 
+import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
+import org.apache.commons.collections.CollectionUtils;
 
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 
 /**
@@ -37,7 +40,7 @@ public class DistributionDescriptor {
     private final boolean isHash;
     private final boolean isAutoBucket;
     private final int bucketNum;
-    private final List<String> cols;
+    private List<String> cols;
 
     public DistributionDescriptor(boolean isHash, boolean isAutoBucket, int bucketNum, List<String> cols) {
         this.isHash = isHash;
@@ -48,6 +51,13 @@ public class DistributionDescriptor {
 
     public boolean isHash() {
         return isHash;
+    }
+
+    public void updateCols(String col) {
+        Objects.requireNonNull(col, "col should not be null");
+        if (CollectionUtils.isEmpty(cols)) {
+            cols = Lists.newArrayList(col);
+        }
     }
 
     /**

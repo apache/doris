@@ -23,6 +23,7 @@ import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.scheduler.exception.JobException;
+import org.apache.doris.scheduler.job.ExecutorResult;
 import org.apache.doris.scheduler.job.Job;
 import org.apache.doris.thrift.TUniqueId;
 
@@ -36,10 +37,9 @@ import java.util.UUID;
 /**
  * we use this executor to execute sql job
  *
- * @param <QueryState> the state of sql job, we can record the state of sql job
  */
 @Slf4j
-public class SqlJobExecutor<QueryState> implements JobExecutor {
+public class SqlJobExecutor implements JobExecutor {
 
     @Getter
     @Setter
@@ -51,7 +51,7 @@ public class SqlJobExecutor<QueryState> implements JobExecutor {
     }
 
     @Override
-    public String execute(Job job) throws JobException {
+    public ExecutorResult<String> execute(Job job) throws JobException {
         ConnectContext ctx = new ConnectContext();
         ctx.setEnv(Env.getCurrentEnv());
         ctx.setCluster(ClusterNamespace.getClusterNameFromFullName(job.getDbName()));
@@ -67,9 +67,12 @@ public class SqlJobExecutor<QueryState> implements JobExecutor {
         try {
             StmtExecutor executor = new StmtExecutor(ctx, sql);
             executor.execute(queryId);
-            return convertExecuteResult(ctx, taskIdString);
+            String result = convertExecuteResult(ctx, taskIdString);
+
+            return new ExecutorResult<>(result, true, null, sql);
         } catch (Exception e) {
-            throw new JobException("execute sql job failed, sql: " + sql + ", error: " + e.getMessage());
+            log.warn("execute sql job failed, sql: {}, error: {}", sql, e.getMessage());
+            return new ExecutorResult<>(null, false, e.getMessage(), sql);
         }
 
     }
@@ -82,6 +85,7 @@ public class SqlJobExecutor<QueryState> implements JobExecutor {
             throw new JobException("error code: " + ctx.getState().getErrorCode() + ", error msg: "
                     + ctx.getState().getErrorMessage());
         }
+
         return "queryId:" + queryId + ",affectedRows : " + ctx.getState().getAffectedRows() + ", warningRows: "
                 + ctx.getState().getWarningRows() + ",infoMsg" + ctx.getState().getInfoMessage();
     }

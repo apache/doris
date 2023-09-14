@@ -20,6 +20,7 @@ package org.apache.doris.maxcompute;
 import org.apache.doris.common.jni.vec.ColumnValue;
 
 import org.apache.arrow.vector.BigIntVector;
+import org.apache.arrow.vector.BitVector;
 import org.apache.arrow.vector.DateDayVector;
 import org.apache.arrow.vector.DateMilliVector;
 import org.apache.arrow.vector.DecimalVector;
@@ -83,8 +84,8 @@ public class MaxComputeColumnValue implements ColumnValue {
     @Override
     public boolean getBoolean() {
         skippedIfNull();
-        TinyIntVector tinyIntCol = (TinyIntVector) column;
-        return tinyIntCol.get(idx++) > 0;
+        BitVector bitCol = (BitVector) column;
+        return bitCol.get(idx++) != 0;
     }
 
     @Override
