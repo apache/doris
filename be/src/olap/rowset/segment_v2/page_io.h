@@ -74,6 +74,15 @@ struct PageReadOptions {
     }
 };
 
+inline ostream& operator<<(ostream& os, const PageReadOptions& opt) {
+    return os << "PageReadOptions { verify_checksum=" << opt.verify_checksum
+              << " use_page_cache=" << opt.use_page_cache
+              << " kept_in_memory=" << opt.kept_in_memory << " pre_decode=" << opt.pre_decode
+              << " type=" << opt.type << " page_pointer=" << opt.page_pointer
+              << " has_codec=" << (opt.codec != nullptr)
+              << " has_encoding_info=" << (opt.encoding_info != nullptr) << " }";
+}
+
 // Utility class for read and write page. All types of page share the same general layout:
 //     Page := PageBody, PageFooter, FooterSize(4), Checksum(4)
 //     - PageBody is defined by page type and may be compressed
