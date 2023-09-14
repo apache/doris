@@ -30,12 +30,11 @@ suite("test_outfile_file_suffix", "p0") {
         sql """ DROP TABLE IF EXISTS ${table_name} """
         sql """
             CREATE TABLE IF NOT EXISTS ${table_name} (
-                `id` int NOT NULL COMMENT "用户id",
                 `name` varchar(128) NOT NULL COMMENT ""
                 )
-            DISTRIBUTED BY HASH(id) PROPERTIES("replication_num" = "1");
+            DISTRIBUTED BY HASH(name) PROPERTIES("replication_num" = "1");
         """
-        sql """ INSERT INTO ${table_name} values(1,'zhangsan');"""
+        sql """ INSERT INTO ${table_name} values('zhangsan');"""
     }
 
     def table_name = "test_outfile_file_suffix"
