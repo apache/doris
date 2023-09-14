@@ -70,7 +70,7 @@ public class ProfileManager {
 
         private final RuntimeProfile profile;
         // cache the result of getProfileContent method
-        private String profileContent = null;
+        private volatile String profileContent = null;
         public Map<String, String> infoStrings = Maps.newHashMap();
         public MultiProfileTreeBuilder builder = null;
         public String errMsg = "";
