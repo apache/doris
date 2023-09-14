@@ -147,7 +147,9 @@ public class PublishVersionDaemon extends MasterDaemon {
                                     return;
                                 }
                                 TabletMeta tabletMeta = tabletInvertedIndex.getTabletMeta(tabletId);
-                                Preconditions.checkNotNull(tabletMeta, "tablet id: %s, doesn't match a table", tabletId);
+                                if (tabletMeta == null) {
+                                    return;
+                                }
                                 long tableId = tabletMeta.getTableId();
                                 tableIdToNumDeltaRows.computeIfPresent(tableId, (tblId, orgNum) -> orgNum + numRows);
                                 tableIdToNumDeltaRows.putIfAbsent(tableId, numRows);
