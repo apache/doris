@@ -2480,7 +2480,8 @@ public class StmtExecutor {
                     analyze(context.getSessionVariable().toThrift());
                 }
             } catch (Exception e) {
-                throw new RuntimeException("Failed to execute internal SQL. " + Util.getRootCauseMessage(e), e);
+                throw new RuntimeException("Failed to execute internal SQL. "
+                        + Util.getRootCauseMessage(e) + " " + originStmt.toString(), e);
             }
             planner.getFragments();
             RowBatch batch;
@@ -2490,7 +2491,8 @@ public class StmtExecutor {
                 QeProcessorImpl.INSTANCE.registerQuery(context.queryId(),
                         new QeProcessorImpl.QueryInfo(context, originStmt.originStmt, coord));
             } catch (UserException e) {
-                throw new RuntimeException("Failed to execute internal SQL. " + Util.getRootCauseMessage(e), e);
+                throw new RuntimeException("Failed to execute internal SQL. "
+                        + " " + Util.getRootCauseMessage(e) + originStmt.toString(), e);
             }
 
             Span queryScheduleSpan = context.getTracer()
@@ -2499,7 +2501,8 @@ public class StmtExecutor {
                 coord.exec();
             } catch (Exception e) {
                 queryScheduleSpan.recordException(e);
-                throw new RuntimeException("Failed to execute internal SQL. " + Util.getRootCauseMessage(e), e);
+                throw new RuntimeException("Failed to execute internal SQL. "
+                        + Util.getRootCauseMessage(e) + " " + originStmt.toString(), e);
             } finally {
                 queryScheduleSpan.end();
             }
@@ -2516,7 +2519,8 @@ public class StmtExecutor {
                 }
             } catch (Exception e) {
                 fetchResultSpan.recordException(e);
-                throw new RuntimeException("Failed to execute internal SQL. " + Util.getRootCauseMessage(e), e);
+                throw new RuntimeException("Failed to execute internal SQL. " + Util.getRootCauseMessage(e) + " "
+                        + originStmt.toString(), e);
             } finally {
                 fetchResultSpan.end();
             }
