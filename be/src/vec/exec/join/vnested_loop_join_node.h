@@ -260,7 +260,6 @@ private:
     std::stack<uint16_t> _probe_offset_stack;
     VExprContextSPtrs _join_conjuncts;
     RuntimeProfile::Counter* _loop_join_timer;
-    template <typename Parent>
     friend struct RuntimeFilterBuild;
 };
 
