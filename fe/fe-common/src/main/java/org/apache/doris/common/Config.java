@@ -2190,4 +2190,11 @@ public class Config extends ConfigBase {
             + "统计信息", "Whether to enable automatic sampling for large tables, which, when enabled, automatically"
             + "collects statistics through sampling for tables larger than 'huge_table_lower_bound_size_in_bytes'"})
     public static boolean enable_auto_sample = false;
+
+    @ConfField(description = {
+            "控制统计信息的自动触发作业执行记录的持久化行数",
+            "Determine the persist number of automatic triggered analyze job execution status"
+    })
+    public static long auto_analyze_job_record_count = 20000;
+
 }
