@@ -169,7 +169,7 @@ public:
     void set_tablets_filtered_rows(
             const std::vector<std::pair<int64_t, int64_t>>& tablets_filtered_rows, int64_t node_id);
     int64_t num_rows_filtered() {
-        CHECK(!_tablets_filtered_rows.empty());
+        DCHECK(!_tablets_filtered_rows.empty());
         // the Unique table has no roll up or materilized view
         // we just add up filtered rows from all partitions
         return std::accumulate(_tablets_filtered_rows.cbegin(), _tablets_filtered_rows.cend(), 0,
@@ -1860,7 +1860,7 @@ Status VOlapTableSink::close(RuntimeState* state, Status exec_status) {
             // Due to the non-determinism of compaction, the rowsets of each replica may be different from each other on different
             // BE nodes. The number of rows filtered in SegmentWriter depends on the historical rowsets located in the correspoding
             // BE node. So we check the number of rows filtered on each succeccful BE to ensure the consistency of the current load
-            if (!_write_single_replica && _schema->is_strict_mode() &&
+            if (status.ok() && !_write_single_replica && _schema->is_strict_mode() &&
                 _schema->is_partial_update()) {
                 if (Status st = index_channel->check_tablet_filtered_rows_consistency(); !st.ok()) {
                     status = st;
