@@ -367,8 +367,8 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
                 olapTableSink.getPartitionIds().isEmpty() ? null : olapTableSink.getPartitionIds(),
                 olapTableSink.isSingleReplicaLoad()
         );
-        if (olapTableSink.isPartialUpdate() || (olapTableSink.isFromNativeInsertStmt() &&
-                ConnectContext.get().getSessionVariable().isEnableUniqueKeyPartialUpdate())) {
+        if (olapTableSink.isPartialUpdate() || (olapTableSink.isFromNativeInsertStmt()
+                && ConnectContext.get().getSessionVariable().isEnableUniqueKeyPartialUpdate())) {
             OlapTable olapTable = (OlapTable) olapTableSink.getTargetTable();
             if (!olapTable.getEnableUniqueKeyMergeOnWrite()) {
                 throw new AnalysisException("Partial update is only allowed in"
