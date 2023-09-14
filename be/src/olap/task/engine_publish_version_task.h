@@ -23,7 +23,9 @@
 
 #include <atomic>
 #include <condition_variable>
+#include <map>
 #include <mutex>
+#include <set>
 #include <vector>
 
 #include "common/status.h"
@@ -83,23 +85,22 @@ private:
 class EnginePublishVersionTask : public EngineTask {
 public:
     EnginePublishVersionTask(
-            const TPublishVersionRequest& publish_version_req, vector<TTabletId>* error_tablet_ids,
-            std::vector<TTabletId>* succ_tablet_ids,
+            const TPublishVersionRequest& publish_version_req,
+            std::set<TTabletId>* error_tablet_ids, std::map<TTabletId, TVersion>* succ_tablets,
             std::vector<std::tuple<int64_t, int64_t, int64_t>>* discontinous_version_tablets);
     ~EnginePublishVersionTask() {}
 
     virtual Status finish() override;
 
     void add_error_tablet_id(int64_t tablet_id);
-    void add_succ_tablet_id(int64_t tablet_id);
 
     int64_t finish_task();
 
 private:
     const TPublishVersionRequest& _publish_version_req;
     std::mutex _tablet_ids_mutex;
-    vector<TTabletId>* _error_tablet_ids;
-    vector<TTabletId>* _succ_tablet_ids;
+    std::set<TTabletId>* _error_tablet_ids;
+    std::map<TTabletId, TVersion>* _succ_tablets;
     std::vector<std::tuple<int64_t, int64_t, int64_t>>* _discontinuous_version_tablets;
 };
 
