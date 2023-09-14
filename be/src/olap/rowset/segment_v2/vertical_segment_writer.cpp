@@ -297,12 +297,9 @@ void VerticalSegmentWriter::_serialize_block_to_row_column(vectorized::Block& bl
 Status VerticalSegmentWriter::_append_block_with_partial_content(RowsInBlock& data) {
     DCHECK(_tablet_schema->keys_type() == UNIQUE_KEYS && _opts.enable_unique_key_merge_on_write);
 
-    // find missing column cids
-    std::vector<uint32_t> missing_cids = _tablet_schema->get_missing_cids();
-    std::vector<uint32_t> including_cids = _tablet_schema->get_update_cids();
-
     // create full block and fill with input columns
     auto full_block = _tablet_schema->create_block();
+    std::vector<uint32_t> including_cids = _tablet_schema->get_update_cids();
     size_t input_id = 0;
     for (auto i : including_cids) {
         full_block.replace_by_position(i, data.block->get_by_position(input_id++).column);
@@ -319,19 +316,19 @@ Status VerticalSegmentWriter::_append_block_with_partial_content(RowsInBlock& da
         // here we get segment column row num before append data.
         segment_start_pos = _column_writers[cid]->get_next_rowid();
         // olap data convertor alway start from id = 0
-        auto converted_result = _olap_data_convertor->convert_column_data(cid);
-        if (!converted_result.first.ok()) {
-            return converted_result.first;
+        auto [status, column] = _olap_data_convertor->convert_column_data(cid);
+        if (!status.ok()) {
+            return status;
         }
         if (cid < _num_key_columns) {
-            key_columns.push_back(converted_result.second);
+            key_columns.push_back(column);
         } else if (_tablet_schema->has_sequence_col() &&
                    cid == _tablet_schema->sequence_col_idx()) {
-            seq_column = converted_result.second;
+            seq_column = column;
             have_input_seq_column = true;
         }
-        RETURN_IF_ERROR(_column_writers[cid]->append(converted_result.second->get_nullmap(),
-                                                     converted_result.second->get_data(),
+        RETURN_IF_ERROR(_column_writers[cid]->append(column->get_nullmap(),
+                                                     column->get_data(),
                                                      data.num_rows));
     }
 
@@ -456,21 +453,21 @@ Status VerticalSegmentWriter::_append_block_with_partial_content(RowsInBlock& da
     }
 
     // convert missing columns and send to column writer
-    auto cids_missing = _tablet_schema->get_missing_cids();
+    std::vector<uint32_t> missing_cids = _tablet_schema->get_missing_cids();
     _olap_data_convertor->set_source_content_with_specifid_columns(&full_block, data.row_pos, data.num_rows,
-                                                                   cids_missing);
-    for (auto cid : cids_missing) {
-        auto converted_result = _olap_data_convertor->convert_column_data(cid);
-        if (!converted_result.first.ok()) {
-            return converted_result.first;
+                                                                   missing_cids);
+    for (auto cid : missing_cids) {
+        auto [status, column] = _olap_data_convertor->convert_column_data(cid);
+        if (!status.ok()) {
+            return status;
         }
         if (_tablet_schema->has_sequence_col() && !have_input_seq_column &&
             cid == _tablet_schema->sequence_col_idx()) {
             DCHECK_EQ(seq_column, nullptr);
-            seq_column = converted_result.second;
+            seq_column = column;
         }
-        RETURN_IF_ERROR(_column_writers[cid]->append(converted_result.second->get_nullmap(),
-                                                     converted_result.second->get_data(),
+        RETURN_IF_ERROR(_column_writers[cid]->append(column->get_nullmap(),
+                                                     column->get_data(),
                                                      data.num_rows));
     }
 
