@@ -452,6 +452,7 @@ public class StmtExecutor {
                     }
                     LOG.debug("fall back to legacy planner on statement:\n{}", originStmt.originStmt);
                     parsedStmt = null;
+                    planner = null;
                     context.getState().setNereids(false);
                     executeByLegacy(queryId);
                 }
@@ -2581,6 +2582,7 @@ public class StmtExecutor {
                     analyze(context.getSessionVariable().toThrift());
                 }
             } catch (Exception e) {
+                LOG.warn("Failed to run internal SQL: {}", originStmt, e);
                 throw new RuntimeException("Failed to execute internal SQL. " + Util.getRootCauseMessage(e), e);
             }
             planner.getFragments();

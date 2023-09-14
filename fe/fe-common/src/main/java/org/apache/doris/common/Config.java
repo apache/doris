@@ -271,16 +271,6 @@ public class Config extends ConfigBase {
                     + "each element is a CIDR representation of the network address"})
     public static String priority_networks = "";
 
-    @ConfField(description = {"是否重置 BDBJE 的复制组，如果所有的可选节点都无法启动，"
-            + "可以将元数据拷贝到另一个节点，并将这个配置设置为 true，尝试重启 FE。更多信息请参阅官网的元数据故障恢复文档。",
-            "If true, FE will reset bdbje replication group(that is, to remove all electable nodes info) "
-                    + "and is supposed to start as Master. "
-                    + "If all the electable nodes can not start, we can copy the meta data "
-                    + "to another node and set this config to true to try to restart the FE. "
-                    + "For more information, please refer to the metadata failure recovery document "
-                    + "on the official website."})
-    public static String metadata_failure_recovery = "false";
-
     @ConfField(mutable = true, description = {"是否忽略元数据延迟，如果 FE 的元数据延迟超过这个阈值，"
             + "则非 Master FE 仍然提供读服务。这个配置可以用于当 Master FE 因为某些原因停止了较长时间，"
             + "但是仍然希望非 Master FE 可以提供读服务。",
@@ -2200,4 +2190,11 @@ public class Config extends ConfigBase {
             + "统计信息", "Whether to enable automatic sampling for large tables, which, when enabled, automatically"
             + "collects statistics through sampling for tables larger than 'huge_table_lower_bound_size_in_bytes'"})
     public static boolean enable_auto_sample = false;
+
+    @ConfField(description = {
+            "控制统计信息的自动触发作业执行记录的持久化行数",
+            "Determine the persist number of automatic triggered analyze job execution status"
+    })
+    public static long auto_analyze_job_record_count = 20000;
+
 }
