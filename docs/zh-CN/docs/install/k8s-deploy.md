@@ -84,6 +84,13 @@ under the License.
 
   doris_follower.yml的环境变量 statefulSetName和serviceName必须成对出现，比如配置了CN_SERVICE，就必须配置CN_STATEFULSET
 
+- FE启动报错"Service account may have been revoked. statefulsets.apps "doris-follower-cluster1" is forbidden: User "system:serviceaccount:default:default" cannot get resource "statefulsets" in API group "apps" in the namespace "default"
 
+  说明在k8s集群中该命名空间下没有默认`default`服务用户，需要创建并绑定权限
+
+  ```sh
+  kubectl create serviceaccount -n default default
+  kubectl create clusterrolebinding doris-cluster-admin-binding --clusterrole=cluster-admin --serviceaccount=default:default
+  ```
 
 
