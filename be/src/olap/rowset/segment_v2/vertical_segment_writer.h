@@ -146,8 +146,7 @@ private:
     void _set_min_key(const Slice& key);
     void _set_max_key(const Slice& key);
     void _serialize_block_to_row_column(vectorized::Block& block);
-    Status _append_block_with_partial_content(const vectorized::Block* block, size_t row_pos,
-                                              size_t num_rows);
+    Status _append_block_with_partial_content(RowsInBlock& data);
     Status _fill_missing_columns(vectorized::MutableColumns& mutable_full_columns,
                                  const std::vector<bool>& use_default_or_null_flag,
                                  bool has_default_or_nullable, const size_t& segment_start_pos);

@@ -294,16 +294,7 @@ void VerticalSegmentWriter::_serialize_block_to_row_column(vectorized::Block& bl
 //       2.2 build read plan to read by batch
 //       2.3 fill block
 // 3. set columns to data convertor and then write all columns
-Status VerticalSegmentWriter::_append_block_with_partial_content(const vectorized::Block* block,
-                                                                 size_t row_pos, size_t num_rows) {
-    if (block->columns() <= _tablet_schema->num_key_columns() ||
-        block->columns() >= _tablet_schema->num_columns()) {
-        return Status::InternalError(
-                fmt::format("illegal partial update block columns: {}, num key columns: {}, total "
-                            "schema columns: {}",
-                            block->columns(), _tablet_schema->num_key_columns(),
-                            _tablet_schema->num_columns()));
-    }
+Status VerticalSegmentWriter::_append_block_with_partial_content(RowsInBlock& data) {
     DCHECK(_tablet_schema->keys_type() == UNIQUE_KEYS && _opts.enable_unique_key_merge_on_write);
 
     // find missing column cids
@@ -314,9 +305,9 @@ Status VerticalSegmentWriter::_append_block_with_partial_content(const vectorize
     auto full_block = _tablet_schema->create_block();
     size_t input_id = 0;
     for (auto i : including_cids) {
-        full_block.replace_by_position(i, block->get_by_position(input_id++).column);
+        full_block.replace_by_position(i, data.block->get_by_position(input_id++).column);
     }
-    _olap_data_convertor->set_source_content_with_specifid_columns(&full_block, row_pos, num_rows,
+    _olap_data_convertor->set_source_content_with_specifid_columns(&full_block, data.row_pos, data.num_rows,
                                                                    including_cids);
 
     bool have_input_seq_column = false;
@@ -341,19 +332,19 @@ Status VerticalSegmentWriter::_append_block_with_partial_content(const vectorize
         }
         RETURN_IF_ERROR(_column_writers[cid]->append(converted_result.second->get_nullmap(),
                                                      converted_result.second->get_data(),
-                                                     num_rows));
+                                                     data.num_rows));
     }
 
     bool has_default_or_nullable = false;
     std::vector<bool> use_default_or_null_flag;
-    use_default_or_null_flag.reserve(num_rows);
+    use_default_or_null_flag.reserve(data.num_rows);
     const vectorized::Int8* delete_sign_column_data = nullptr;
     if (const vectorized::ColumnWithTypeAndName* delete_sign_column =
                 full_block.try_get_by_name(DELETE_SIGN);
         delete_sign_column != nullptr) {
         auto& delete_sign_col =
                 reinterpret_cast<const vectorized::ColumnInt8&>(*(delete_sign_column->column));
-        if (delete_sign_col.size() >= row_pos + num_rows) {
+        if (delete_sign_col.size() >= data.row_pos + data.num_rows) {
             delete_sign_column_data = delete_sign_col.get_data().data();
         }
     }
@@ -367,14 +358,14 @@ Status VerticalSegmentWriter::_append_block_with_partial_content(const vectorize
     // locate rows in base data
 
     int64_t num_rows_filtered = 0;
-    for (size_t block_pos = row_pos; block_pos < row_pos + num_rows; block_pos++) {
+    for (size_t block_pos = data.row_pos; block_pos < data.row_pos + data.num_rows; block_pos++) {
         // block   segment
         //   2   ->   0
         //   3   ->   1
         //   4   ->   2
         //   5   ->   3
         // here row_pos = 2, num_rows = 4.
-        size_t delta_pos = block_pos - row_pos;
+        size_t delta_pos = block_pos - data.row_pos;
         size_t segment_pos = segment_start_pos + delta_pos;
         std::string key = _full_encode_keys(key_columns, delta_pos);
         if (have_input_seq_column) {
@@ -447,7 +438,7 @@ Status VerticalSegmentWriter::_append_block_with_partial_content(const vectorize
                     {loc.rowset_id, loc.segment_id, DeleteBitmap::TEMP_VERSION_COMMON}, loc.row_id);
         }
     }
-    CHECK(use_default_or_null_flag.size() == num_rows);
+    CHECK(use_default_or_null_flag.size() == data.num_rows);
 
     if (config::enable_merge_on_write_correctness_check) {
         _tablet->add_sentinel_mark_to_delete_bitmap(_mow_context->delete_bitmap.get(),
@@ -466,7 +457,7 @@ Status VerticalSegmentWriter::_append_block_with_partial_content(const vectorize
 
     // convert missing columns and send to column writer
     auto cids_missing = _tablet_schema->get_missing_cids();
-    _olap_data_convertor->set_source_content_with_specifid_columns(&full_block, row_pos, num_rows,
+    _olap_data_convertor->set_source_content_with_specifid_columns(&full_block, data.row_pos, data.num_rows,
                                                                    cids_missing);
     for (auto cid : cids_missing) {
         auto converted_result = _olap_data_convertor->convert_column_data(cid);
@@ -480,32 +471,32 @@ Status VerticalSegmentWriter::_append_block_with_partial_content(const vectorize
         }
         RETURN_IF_ERROR(_column_writers[cid]->append(converted_result.second->get_nullmap(),
                                                      converted_result.second->get_data(),
-                                                     num_rows));
+                                                     data.num_rows));
     }
 
     _num_rows_filtered += num_rows_filtered;
     if (_tablet_schema->has_sequence_col() && !have_input_seq_column) {
         DCHECK_NE(seq_column, nullptr);
-        DCHECK_EQ(_num_rows_written, row_pos)
-                << "_num_rows_written: " << _num_rows_written << ", row_pos" << row_pos;
+        DCHECK_EQ(_num_rows_written, data.row_pos)
+                << "_num_rows_written: " << _num_rows_written << ", row_pos" << data.row_pos;
         DCHECK_EQ(_primary_key_index_builder->num_rows(), _num_rows_written)
                 << "primary key index builder num rows(" << _primary_key_index_builder->num_rows()
                 << ") not equal to segment writer's num rows written(" << _num_rows_written << ")";
-        if (_num_rows_written != row_pos ||
+        if (_num_rows_written != data.row_pos ||
             _primary_key_index_builder->num_rows() != _num_rows_written) {
             return Status::InternalError(
                     "Correctness check failed, _num_rows_written: {}, row_pos: {}, primary key "
                     "index builder num rows: {}",
-                    _num_rows_written, row_pos, _primary_key_index_builder->num_rows());
+                    _num_rows_written, data.row_pos, _primary_key_index_builder->num_rows());
         }
-        for (size_t block_pos = row_pos; block_pos < row_pos + num_rows; block_pos++) {
-            std::string key = _full_encode_keys(key_columns, block_pos - row_pos);
-            _encode_seq_column(seq_column, block_pos - row_pos, &key);
+        for (size_t block_pos = data.row_pos; block_pos < data.row_pos + data.num_rows; block_pos++) {
+            std::string key = _full_encode_keys(key_columns, block_pos - data.row_pos);
+            _encode_seq_column(seq_column, block_pos - data.row_pos, &key);
             RETURN_IF_ERROR(_primary_key_index_builder->add_item(key));
         }
     }
 
-    _num_rows_written += num_rows;
+    _num_rows_written += data.num_rows;
     DCHECK_EQ(_primary_key_index_builder->num_rows(), _num_rows_written)
             << "primary key index builder num rows(" << _primary_key_index_builder->num_rows()
             << ") not equal to segment writer's num rows written(" << _num_rows_written << ")";
@@ -607,13 +598,19 @@ Status VerticalSegmentWriter::_fill_missing_columns(
 
 Status VerticalSegmentWriter::batch_block(const vectorized::Block* block, size_t row_pos,
                                           size_t num_rows) {
-    // check columns size if not partial update
-    if (!(_tablet_schema->is_partial_update() && _opts.write_type == DataWriteType::TYPE_DIRECT)) {
-        if (block->columns() < _tablet_schema->columns().size()) {
-            return Status::DataQualityError(
-                    "not enough columns in block, block columns = {}, tablet_schema columns = {}",
-                    block->columns(), _tablet_schema->columns().size());
+    if (_tablet_schema->is_partial_update() && _opts.write_type == DataWriteType::TYPE_DIRECT) {
+        if (block->columns() <= _tablet_schema->num_key_columns() ||
+            block->columns() >= _tablet_schema->num_columns()) {
+            return Status::InternalError(fmt::format(
+                    "illegal partial update block columns: {}, num key columns: {}, total "
+                    "schema columns: {}",
+                    block->columns(), _tablet_schema->num_key_columns(),
+                    _tablet_schema->num_columns()));
         }
+    } else if (block->columns() != _tablet_schema->num_columns()) {
+        return Status::InternalError(
+                "illegal block columns, block columns = {}, tablet_schema columns = {}",
+                block->columns(), _tablet_schema->num_columns());
     }
     _batched_blocks.emplace_back(block, row_pos, num_rows);
     return Status::OK();
@@ -622,8 +619,7 @@ Status VerticalSegmentWriter::batch_block(const vectorized::Block* block, size_t
 Status VerticalSegmentWriter::write_batch() {
     if (_tablet_schema->is_partial_update() && _opts.write_type == DataWriteType::TYPE_DIRECT) {
         for (auto& data : _batched_blocks) {
-            RETURN_IF_ERROR(
-                    _append_block_with_partial_content(data.block, data.row_pos, data.num_rows));
+            RETURN_IF_ERROR(_append_block_with_partial_content(data));
         }
         return Status::OK();
     }
