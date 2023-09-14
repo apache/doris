@@ -71,6 +71,7 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 
@@ -110,7 +111,7 @@ public class SparkLoadPendingTask extends LoadTask {
     void toLowCaseForFileGroups() {
         aggKeyToBrokerFileGroups.values().forEach(fgs -> {
             fgs.forEach(fg -> {
-                fg .getColumnExprList()
+                fg.getColumnExprList()
                         .forEach(expr -> expr.setColumnName(expr.getColumnName().toLowerCase(Locale.ROOT)));
             });
         });
