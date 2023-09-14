@@ -370,6 +370,8 @@ protected:
     RuntimeState* _state;
     // rows number received per tablet, tablet_id -> rows_num
     std::vector<std::pair<int64_t, int64_t>> _tablets_received_rows;
+    // rows number filtered per tablet, tablet_id -> filtered_rows_num
+    std::vector<std::pair<int64_t, int64_t>> _tablets_filtered_rows;
 
     std::unique_ptr<vectorized::MutableBlock> _cur_mutable_block;
     PTabletWriterAddBlockRequest _cur_add_block_request;
@@ -418,9 +420,20 @@ public:
 
     void set_tablets_received_rows(
             const std::vector<std::pair<int64_t, int64_t>>& tablets_received_rows, int64_t node_id);
+    void set_tablets_filtered_rows(
+            const std::vector<std::pair<int64_t, int64_t>>& tablets_filtered_rows, int64_t node_id);
+    int64_t num_rows_filtered() {
+        CHECK(!_tablets_filtered_rows.empty());
+        // the Unique table has no roll up or materilized view
+        // we just add up filtered rows from all partitions
+        return std::accumulate(_tablets_filtered_rows.cbegin(), _tablets_filtered_rows.cend(), 0,
+                               [](int64_t sum, const auto& a) { return sum + a.second[0].second; });
+    }
 
     // check whether the rows num written by different replicas is consistent
     Status check_tablet_received_rows_consistency();
+    // check whether the rows num filtered by different replicas is consistent
+    Status check_tablet_filtered_rows_consistency();
 
     vectorized::VExprContextSPtr get_where_clause() { return _where_clause; }
 
@@ -456,6 +469,9 @@ private:
     // rows num received by DeltaWriter per tablet, tablet_id -> <node_Id, rows_num>
     // used to verify whether the rows num received by different replicas is consistent
     std::map<int64_t, std::vector<std::pair<int64_t, int64_t>>> _tablets_received_rows;
+    // rows num filtered by DeltaWriter per tablet, tablet_id -> <node_Id, filtered_rows_num>
+    // used to verify whether the rows num filtered by different replicas is consistent
+    std::map<int64_t, std::vector<std::pair<int64_t, int64_t>>> _tablets_filtered_rows;
 };
 
 // Write block data to Olap Table.

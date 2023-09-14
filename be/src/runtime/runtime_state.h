@@ -269,8 +269,8 @@ public:
         _num_rows_load_unselected.fetch_add(num_rows);
     }
 
-    void update_num_rows_filtered_in_strict_mode_partial_update(int64_t num_rows) {
-        _num_rows_filtered_in_strict_mode_partial_update += num_rows;
+    void set_num_rows_filtered_in_strict_mode_partial_update(int64_t num_rows) {
+        _num_rows_filtered_in_strict_mode_partial_update = num_rows;
     }
 
     void set_per_fragment_instance_idx(int idx) { _per_fragment_instance_idx = idx; }
