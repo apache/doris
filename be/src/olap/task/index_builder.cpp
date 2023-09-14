@@ -85,8 +85,8 @@ Status IndexBuilder::update_inverted_index_info() {
                             "request's index id, , exist index id: {}, request's index id: {}, "
                             "remove exist index in new output_rs_tablet_schema",
                             column_uid, exist_index->index_id(), index.index_id());
-                    output_rs_tablet_schema->remove_index(exist_index->index_id());
                     without_index_uids.insert(exist_index->index_id());
+                    output_rs_tablet_schema->remove_index(exist_index->index_id());
                 }
                 output_rs_tablet_schema->append_index(index);
             }
