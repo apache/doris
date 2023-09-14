@@ -33,9 +33,9 @@ import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.nereids.util.Utils;
 import org.apache.doris.planner.RuntimeFilterId;
 import org.apache.doris.statistics.Statistics;
+import org.apache.doris.thrift.TRuntimeFilterType;
 
 import com.google.common.base.Preconditions;
-import org.apache.doris.thrift.TRuntimeFilterType;
 
 import java.util.List;
 import java.util.Objects;
