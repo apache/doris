@@ -169,6 +169,7 @@ public:
     void set_tablets_filtered_rows(
             const std::vector<std::pair<int64_t, int64_t>>& tablets_filtered_rows, int64_t node_id);
     int64_t num_rows_filtered() {
+        DCHECK(!_tablets_filtered_rows.empty());
         // the Unique table has no roll up or materilized view
         // we just add up filtered rows from all partitions
         return std::accumulate(_tablets_filtered_rows.cbegin(), _tablets_filtered_rows.cend(), 0,
