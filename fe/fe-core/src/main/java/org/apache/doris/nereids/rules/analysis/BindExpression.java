@@ -76,6 +76,7 @@ import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableList.Builder;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Sets;
 import org.apache.commons.lang3.StringUtils;
@@ -500,15 +501,22 @@ public class BindExpression implements AnalysisRuleFactory {
                     // we need to do cast before set operation, because we maybe use these slot to do shuffle
                     // so, we must cast it before shuffle to get correct hash code.
                     List<List<NamedExpression>> childrenProjections = setOperation.collectChildrenProjections();
-                    ImmutableList.Builder<Plan> newChildren = ImmutableList.builder();
+                    ImmutableList.Builder<List<SlotReference>> childrenOutputs = ImmutableList.builder();
+                    Builder<Plan> newChildren = ImmutableList.builder();
                     for (int i = 0; i < childrenProjections.size(); i++) {
+                        Plan newChild;
                         if (childrenProjections.stream().allMatch(SlotReference.class::isInstance)) {
-                            newChildren.add(setOperation.child(i));
+                            newChild = setOperation.child(i);
                         } else {
-                            newChildren.add(new LogicalProject<>(childrenProjections.get(i), setOperation.child(i)));
+                            newChild = new LogicalProject<>(childrenProjections.get(i), setOperation.child(i));
                         }
+                        newChildren.add(newChild);
+                        childrenOutputs.add(newChild.getOutput().stream()
+                                .map(SlotReference.class::cast)
+                                .collect(ImmutableList.toImmutableList()));
                     }
-                    setOperation = (LogicalSetOperation) setOperation.withChildren(newChildren.build());
+                    setOperation = setOperation.withChildrenAndTheirOutputs(
+                            newChildren.build(), childrenOutputs.build());
                     List<NamedExpression> newOutputs = setOperation.buildNewOutputs();
                     return setOperation.withNewOutputs(newOutputs);
                 })
@@ -521,7 +529,7 @@ public class BindExpression implements AnalysisRuleFactory {
                     List<Function> boundFunctionGenerators = boundSlotGenerators.stream()
                             .map(f -> bindTableGeneratingFunction((UnboundFunction) f, ctx.root, ctx.cascadesContext))
                             .collect(Collectors.toList());
-                    ImmutableList.Builder<Slot> slotBuilder = ImmutableList.builder();
+                    Builder<Slot> slotBuilder = ImmutableList.builder();
                     for (int i = 0; i < generate.getGeneratorOutput().size(); i++) {
                         Function generator = boundFunctionGenerators.get(i);
                         UnboundSlot slot = (UnboundSlot) generate.getGeneratorOutput().get(i);
