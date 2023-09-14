@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.glue.translator;
 
+import org.apache.doris.analysis.ColumnRefExpr;
 import org.apache.doris.analysis.DescriptorTable;
 import org.apache.doris.analysis.SlotDescriptor;
 import org.apache.doris.analysis.SlotId;
@@ -76,6 +77,13 @@ public class PlanTranslatorContext {
      * Inverted index from legacy slot to Nereids' slot.
      */
     private final Map<SlotId, ExprId> slotIdToExprId = Maps.newHashMap();
+
+    /**
+     * For each lambda argument (ArrayItemReference),
+     * we create a ColumnRef representing it and
+     * then translate it based on the ExprId of the ArrayItemReference.
+     */
+    private final Map<ExprId, ColumnRefExpr> exprIdToColumnRef = Maps.newHashMap();
 
     private final List<ScanNode> scanNodes = Lists.newArrayList();
 
@@ -187,6 +195,10 @@ public class PlanTranslatorContext {
         slotIdToExprId.put(slotRef.getDesc().getId(), exprId);
     }
 
+    public void addExprIdColumnRefPair(ExprId exprId, ColumnRefExpr columnRefExpr) {
+        exprIdToColumnRef.put(exprId, columnRefExpr);
+    }
+
     public void mergePlanFragment(PlanFragment srcFragment, PlanFragment targetFragment) {
         srcFragment.getTargetRuntimeFilterIds().forEach(targetFragment::setTargetRuntimeFilterIds);
         srcFragment.getBuilderRuntimeFilterIds().forEach(targetFragment::setBuilderRuntimeFilterIds);
@@ -195,6 +207,10 @@ public class PlanTranslatorContext {
 
     public SlotRef findSlotRef(ExprId exprId) {
         return exprIdToSlotRef.get(exprId);
+    }
+
+    public ColumnRefExpr findColumnRef(ExprId exprId) {
+        return exprIdToColumnRef.get(exprId);
     }
 
     public void addScanNode(ScanNode scanNode) {

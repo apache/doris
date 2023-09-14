@@ -694,8 +694,8 @@ BaseCompaction:546859:
 #### `enable_stream_load_record`
 
 * Type: bool
-* Description:Whether to enable stream load record function, the default is false.
-* Default value: false
+* Description: Whether to enable stream load record function, the default is true.
+* Default value: true
 
 #### `load_data_reserve_hours`
 

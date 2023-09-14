@@ -85,15 +85,23 @@ protected:
 
         doris::EngineOptions options;
         options.store_paths = paths;
-        Status s = doris::StorageEngine::open(options, &_engine);
+        _engine = std::make_unique<StorageEngine>(options);
+        Status st = _engine->open();
+        EXPECT_TRUE(st.ok()) << st.to_string();
+
         ExecEnv* exec_env = doris::ExecEnv::GetInstance();
-        _engine->start_bg_threads();
+        // ExecEnv's storage_engine will be read by storage_engine's other operations.
+        // So we must do this before storage engine's other operation.
+        exec_env->set_storage_engine(_engine.get());
         exec_env->set_memtable_memory_limiter(new MemTableMemoryLimiter());
+        _engine->start_bg_threads();
     }
 
     void TearDown() override {
         ExecEnv* exec_env = doris::ExecEnv::GetInstance();
         exec_env->set_memtable_memory_limiter(nullptr);
+        exec_env->set_storage_engine(nullptr);
+        _engine.reset(nullptr);
         EXPECT_EQ(system("rm -rf ./data_test"), 0);
         io::global_local_filesystem()->delete_directory(std::string(getenv("DORIS_HOME")) + "/" +
                                                         UNUSED_PREFIX);
