@@ -20,6 +20,7 @@ package org.apache.doris.common.util;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.Reference;
 import org.apache.doris.common.profile.SummaryProfile;
+import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.thrift.TCounter;
 import org.apache.doris.thrift.TRuntimeProfileNode;
 import org.apache.doris.thrift.TRuntimeProfileTree;
@@ -48,8 +49,6 @@ public class RuntimeProfile {
     private static final Logger LOG = LogManager.getLogger(RuntimeProfile.class);
     public static String ROOT_COUNTER = "";
     public static int FRAGMENT_DEPTH = 3;
-    public static int HIGH_PROFILE_LEVEL = 2;
-    public static int LOW_PROFILE_LEVEL = 1;
     public static String MAX_TIME_PRE = "max: ";
     public static String MIN_TIME_PRE = "min: ";
     public static String AVG_TIME_PRE = "avg: ";
@@ -75,6 +74,7 @@ public class RuntimeProfile {
 
     private Boolean isDone = false;
     private Boolean isCancel = false;
+    private boolean enableSimplyProfile = false;
 
     public RuntimeProfile(String name) {
         this();
@@ -487,8 +487,8 @@ public class RuntimeProfile {
         return builder.toString();
     }
 
-    public String getSimpleString(int profileLevel) {
-        if (profileLevel == RuntimeProfile.HIGH_PROFILE_LEVEL) {
+    public String getSimpleString() {
+        if (!this.enableSimplyProfile) {
             return toString();
         }
         StringBuilder builder = new StringBuilder();
@@ -640,6 +640,10 @@ public class RuntimeProfile {
 
     public void computeTimeInProfile() {
         computeTimeInProfile(this.counterTotalTime.getValue());
+    }
+
+    public void setProfileLevel() {
+        this.enableSimplyProfile = ConnectContext.get().getSessionVariable().getEnableSimplyProfile();
     }
 
     private void computeTimeInProfile(long total) {
