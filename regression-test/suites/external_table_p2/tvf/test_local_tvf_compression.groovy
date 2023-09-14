@@ -123,5 +123,30 @@ suite("test_local_tvf_compression", "p2,external,tvf,external_remote,external_re
         "format" = "csv",
         "compress_type" ="${compress_type}block") where c2="abcd" order by c3 limit 22 ;            
     """
+
+    // test error case
+    test {
+        sql """
+        select count(*) from local(
+            "file_path" = "../be.out",
+            "backend_id" = "${be_id}",
+            "format" = "csv")
+        where c1 like "%FE type%";
+        """
+        // check exception message contains
+        exception "can not contain '..' in path"
+    }
+
+    test {
+        sql """
+        select count(*) from local(
+            "file_path" = "./xx.out",
+            "backend_id" = "${be_id}",
+            "format" = "csv")
+        where c1 like "%FE type%";
+        """
+        // check exception message contains
+        exception "No matches found"
+    }
     
 }
