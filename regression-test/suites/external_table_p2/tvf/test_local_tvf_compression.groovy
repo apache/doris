@@ -32,6 +32,8 @@ suite("test_local_tvf_compression", "p2,external,tvf,external_remote,external_re
 
     String filename = "test_tvf.csv"
 
+    sql """set enable_nereids_planner=true"""
+    sql """set enable_fallback_to_original_planner=false"""
 
     String compress_type = "gz" 
     qt_gz_1 """

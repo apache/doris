@@ -162,9 +162,12 @@ public class ExpressionEstimation extends ExpressionVisitor<ColumnStatistic, Sta
         if (stats != null) {
             return stats;
         }
-        ColumnStatistic childColStats = cast.child().accept(this, context);
-
-        return castMinMax(childColStats, cast.getDataType());
+        stats = cast.child().accept(this, context);
+        if (stats != null) {
+            return castMinMax(stats, cast.getDataType());
+        }
+        // Some column may not have column stats, eg, column in tvf
+        return ColumnStatistic.UNKNOWN;
     }
 
     private ColumnStatistic castMinMax(ColumnStatistic colStats, DataType targetType) {
@@ -842,3 +845,4 @@ public class ExpressionEstimation extends ExpressionVisitor<ColumnStatistic, Sta
         return dateDiff(1, secondsDiff, context);
     }
 }
+
