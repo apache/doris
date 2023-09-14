@@ -21,6 +21,7 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.TableIf;
+import org.apache.doris.common.Config;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.qe.AuditLogHelper;
 import org.apache.doris.qe.QueryState;
@@ -215,14 +216,21 @@ public abstract class BaseAnalysisTask {
     }
 
     protected String getSampleExpression() {
-        if (info.analysisMethod == AnalysisMethod.FULL) {
+        if (info.forceFull) {
             return "";
         }
-        // TODO Add sampling methods for external tables
+        int sampleRows = info.sampleRows;
+        if (info.analysisMethod == AnalysisMethod.FULL) {
+            if (Config.enable_auto_sample && tbl.getDataSize() > Config.huge_table_lower_bound_size_in_bytes) {
+                sampleRows = Config.huge_table_default_sample_rows;
+            } else {
+                return "";
+            }
+        }
         if (info.samplePercent > 0) {
             return String.format("TABLESAMPLE(%d PERCENT)", info.samplePercent);
         } else {
-            return String.format("TABLESAMPLE(%d ROWS)", info.sampleRows);
+            return String.format("TABLESAMPLE(%d ROWS)", sampleRows);
         }
     }
 

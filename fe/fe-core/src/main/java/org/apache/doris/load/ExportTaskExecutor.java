@@ -24,6 +24,7 @@ import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
+import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.catalog.TabletMeta;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.load.ExportFailMsg.CancelType;
@@ -84,47 +85,49 @@ public class ExportTaskExecutor implements TransientTaskExecutor {
                 throw new JobException("Export executor has been canceled, task id: {}", taskId);
             }
             // check the version of tablets
-            try {
-                Database db = Env.getCurrentEnv().getInternalCatalog().getDbOrAnalysisException(
-                        exportJob.getTableName().getDb());
-                OlapTable table = db.getOlapTableOrAnalysisException(exportJob.getTableName().getTbl());
-                table.readLock();
+            if (exportJob.getExportTable().getType() == TableType.OLAP) {
                 try {
-                    List<Long> tabletIds;
-                    if (exportJob.getSessionVariables().isEnableNereidsPlanner()) {
-                        LogicalPlanAdapter logicalPlanAdapter = (LogicalPlanAdapter) selectStmtLists.get(idx);
-                        Optional<UnboundRelation> unboundRelation = findUnboundRelation(
-                                logicalPlanAdapter.getLogicalPlan());
-                        tabletIds = unboundRelation.get().getTabletIds();
-                    } else {
-                        SelectStmt selectStmt = (SelectStmt) selectStmtLists.get(idx);
-                        tabletIds = selectStmt.getTableRefs().get(0).getSampleTabletIds();
-                    }
-
-                    for (Long tabletId : tabletIds) {
-                        TabletMeta tabletMeta = Env.getCurrentEnv().getTabletInvertedIndex().getTabletMeta(
-                                tabletId);
-                        Partition partition = table.getPartition(tabletMeta.getPartitionId());
-                        long nowVersion = partition.getVisibleVersion();
-                        long oldVersion = exportJob.getPartitionToVersion().get(partition.getName());
-                        if (nowVersion != oldVersion) {
-                            exportJob.updateExportJobState(ExportJobState.CANCELLED, taskId, null,
-                                    CancelType.RUN_FAIL, "The version of tablet {" + tabletId + "} has changed");
-                            throw new JobException("Export Job[{}]: Tablet {} has changed version, old version = {}, "
-                                    + "now version = {}", exportJob.getId(), tabletId, oldVersion, nowVersion);
+                    Database db = Env.getCurrentEnv().getInternalCatalog().getDbOrAnalysisException(
+                            exportJob.getTableName().getDb());
+                    OlapTable table = db.getOlapTableOrAnalysisException(exportJob.getTableName().getTbl());
+                    table.readLock();
+                    try {
+                        List<Long> tabletIds;
+                        if (exportJob.getSessionVariables().isEnableNereidsPlanner()) {
+                            LogicalPlanAdapter logicalPlanAdapter = (LogicalPlanAdapter) selectStmtLists.get(idx);
+                            Optional<UnboundRelation> unboundRelation = findUnboundRelation(
+                                    logicalPlanAdapter.getLogicalPlan());
+                            tabletIds = unboundRelation.get().getTabletIds();
+                        } else {
+                            SelectStmt selectStmt = (SelectStmt) selectStmtLists.get(idx);
+                            tabletIds = selectStmt.getTableRefs().get(0).getSampleTabletIds();
                         }
+
+                        for (Long tabletId : tabletIds) {
+                            TabletMeta tabletMeta = Env.getCurrentEnv().getTabletInvertedIndex().getTabletMeta(
+                                    tabletId);
+                            Partition partition = table.getPartition(tabletMeta.getPartitionId());
+                            long nowVersion = partition.getVisibleVersion();
+                            long oldVersion = exportJob.getPartitionToVersion().get(partition.getName());
+                            if (nowVersion != oldVersion) {
+                                exportJob.updateExportJobState(ExportJobState.CANCELLED, taskId, null,
+                                        CancelType.RUN_FAIL, "The version of tablet {" + tabletId + "} has changed");
+                                throw new JobException("Export Job[{}]: Tablet {} has changed version, old version = {}"
+                                        + ", now version = {}", exportJob.getId(), tabletId, oldVersion, nowVersion);
+                            }
+                        }
+                    } catch (Exception e) {
+                        exportJob.updateExportJobState(ExportJobState.CANCELLED, taskId, null,
+                                ExportFailMsg.CancelType.RUN_FAIL, e.getMessage());
+                        throw new JobException(e);
+                    } finally {
+                        table.readUnlock();
                     }
-                } catch (Exception e) {
+                } catch (AnalysisException e) {
                     exportJob.updateExportJobState(ExportJobState.CANCELLED, taskId, null,
                             ExportFailMsg.CancelType.RUN_FAIL, e.getMessage());
                     throw new JobException(e);
-                } finally {
-                    table.readUnlock();
                 }
-            } catch (AnalysisException e) {
-                exportJob.updateExportJobState(ExportJobState.CANCELLED, taskId, null,
-                        ExportFailMsg.CancelType.RUN_FAIL, e.getMessage());
-                throw new JobException(e);
             }
 
             try (AutoCloseConnectContext r = buildConnectContext()) {
