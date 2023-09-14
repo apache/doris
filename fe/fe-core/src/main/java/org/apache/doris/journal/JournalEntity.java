@@ -143,6 +143,7 @@ public class JournalEntity implements Writable {
 
     private short opCode;
     private Writable data;
+    private long dataSize;
 
     public short getOpCode() {
         return this.opCode;
@@ -162,6 +163,14 @@ public class JournalEntity implements Writable {
 
     public String toString() {
         return " opCode=" + opCode + " " + data;
+    }
+
+    public void setDataSize(long dataSize) {
+        this.dataSize = dataSize;
+    }
+
+    public long getDataSize() {
+        return this.dataSize;
     }
 
     @Override
