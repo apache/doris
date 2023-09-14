@@ -114,6 +114,7 @@ public:
         if constexpr (std::is_same_v<TypeId<T>, TypeId<Float64>>) {
             return TPrimitiveType::DOUBLE;
         }
+        LOG(FATAL) << "__builtin_unreachable";
         __builtin_unreachable();
     }
     Field get_default() const override;

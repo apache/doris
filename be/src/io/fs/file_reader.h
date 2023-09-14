@@ -51,9 +51,16 @@ struct FileReaderOptions {
     FileCachePolicy cache_type {FileCachePolicy::NO_CACHE};
     bool is_doris_table = false;
     std::string cache_base_path;
+    // Length of the file in bytes, -1 means unset.
+    // If the file length is not set, the file length will be fetched from the file system.
+    int64_t file_size = -1;
     // Use modification time to determine whether the file is changed
-    int64_t modification_time = 0;
+    int64_t mtime = 0;
+
+    static const FileReaderOptions DEFAULT;
 };
+
+inline const FileReaderOptions FileReaderOptions::DEFAULT;
 
 class FileReader {
 public:

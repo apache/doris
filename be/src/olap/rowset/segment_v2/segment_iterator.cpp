@@ -37,7 +37,6 @@
 #include "common/logging.h"
 #include "common/object_pool.h"
 #include "common/status.h"
-#include "io/fs/file_reader_writer_fwd.h"
 #include "io/io_common.h"
 #include "olap/bloom_filter_predicate.h"
 #include "olap/column_predicate.h"
@@ -611,13 +610,13 @@ Status SegmentIterator::_execute_predicates_except_leafnode_of_andnode(
         } else {
             _column_predicate_info->query_op = expr->fn().name.function_name;
         }
-        // get child condition result in compound condtions
+        // get child condition result in compound conditions
         auto pred_result_sign = _gen_predicate_result_sign(_column_predicate_info.get());
         _column_predicate_info.reset(new ColumnPredicateInfo());
         if (_rowid_result_for_index.count(pred_result_sign) > 0 &&
             _rowid_result_for_index[pred_result_sign].first) {
-            auto apply_reuslt = _rowid_result_for_index[pred_result_sign].second;
-            _pred_except_leafnode_of_andnode_evaluate_result.push_back(apply_reuslt);
+            auto apply_result = _rowid_result_for_index[pred_result_sign].second;
+            _pred_except_leafnode_of_andnode_evaluate_result.push_back(apply_result);
         }
     } else if (node_type == TExprNodeType::COMPOUND_PRED) {
         auto function_name = expr->fn().name.function_name;
@@ -632,21 +631,21 @@ Status SegmentIterator::_execute_compound_fn(const std::string& function_name) {
     auto size = _pred_except_leafnode_of_andnode_evaluate_result.size();
     if (function_name == "and") {
         if (size < 2) {
-            return Status::InternalError("execute and logic compute error.");
+            return Status::Uninitialized("execute and logic compute error.");
         }
         _pred_except_leafnode_of_andnode_evaluate_result.at(size - 2) &=
                 _pred_except_leafnode_of_andnode_evaluate_result.at(size - 1);
         _pred_except_leafnode_of_andnode_evaluate_result.pop_back();
     } else if (function_name == "or") {
         if (size < 2) {
-            return Status::InternalError("execute or logic compute error.");
+            return Status::Uninitialized("execute or logic compute error.");
         }
         _pred_except_leafnode_of_andnode_evaluate_result.at(size - 2) |=
                 _pred_except_leafnode_of_andnode_evaluate_result.at(size - 1);
         _pred_except_leafnode_of_andnode_evaluate_result.pop_back();
     } else if (function_name == "not") {
         if (size < 1) {
-            return Status::InternalError("execute not logic compute error.");
+            return Status::Uninitialized("execute not logic compute error.");
         }
         roaring::Roaring tmp = _row_bitmap;
         tmp -= _pred_except_leafnode_of_andnode_evaluate_result.at(size - 1);
@@ -656,9 +655,18 @@ Status SegmentIterator::_execute_compound_fn(const std::string& function_name) {
 }
 
 bool SegmentIterator::_can_filter_by_preds_except_leafnode_of_andnode() {
+    // no compound predicates push down, so no need to filter
+    if (_col_preds_except_leafnode_of_andnode.size() == 0) {
+        return false;
+    }
     for (auto pred : _col_preds_except_leafnode_of_andnode) {
         if (_not_apply_index_pred.count(pred->column_id()) ||
             (!_check_apply_by_bitmap_index(pred) && !_check_apply_by_inverted_index(pred, true))) {
+            return false;
+        }
+        // all predicates are evaluated by index, then true, else false
+        std::string pred_result_sign = _gen_predicate_result_sign(pred);
+        if (_rowid_result_for_index.count(pred_result_sign) == 0) {
             return false;
         }
     }
@@ -1076,7 +1084,7 @@ Status SegmentIterator::_init_inverted_index_iterators() {
         if (_inverted_index_iterators[cid] == nullptr) {
             RETURN_IF_ERROR(_segment->new_inverted_index_iterator(
                     _opts.tablet_schema->column(cid), _opts.tablet_schema->get_inverted_index(cid),
-                    _opts.stats, &_inverted_index_iterators[cid]));
+                    _opts, &_inverted_index_iterators[cid]));
         }
     }
     return Status::OK();
@@ -1185,7 +1193,7 @@ Status SegmentIterator::_lookup_ordinal_from_pk_index(const RowCursor& key, bool
     Status status = index_iterator->seek_at_or_after(&index_key, &exact_match);
     if (UNLIKELY(!status.ok())) {
         *rowid = num_rows();
-        if (status.is<NOT_FOUND>()) {
+        if (status.is<ENTRY_NOT_FOUND>()) {
             return Status::OK();
         }
         return status;

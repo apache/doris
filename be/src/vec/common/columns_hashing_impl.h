@@ -187,15 +187,15 @@ public:
     }
 
     template <typename Data>
-    ALWAYS_INLINE void prefetch(Data& data, size_t row, Arena& pool) {
+    ALWAYS_INLINE void prefetch_by_key(Data& data, size_t row, Arena& pool) {
         auto key_holder = static_cast<Derived&>(*this).get_key_holder(row, pool);
-        data.prefetch(key_holder);
+        data.prefetch_by_key(key_holder);
     }
 
     template <bool READ, typename Data>
-    ALWAYS_INLINE void prefetch(Data& data, size_t row, Arena& pool) {
+    ALWAYS_INLINE void prefetch_by_key(Data& data, size_t row, Arena& pool) {
         auto key_holder = static_cast<Derived&>(*this).get_key_holder(row, pool);
-        data.template prefetch<READ>(key_holder);
+        data.template prefetch_by_key<READ>(key_holder);
     }
 
     template <bool READ, typename Data>
@@ -282,7 +282,7 @@ protected:
 
         typename Data::LookupResult it;
         bool inserted = false;
-        data.emplace(key_holder, it, hash_value, inserted);
+        data.emplace(key_holder, it, inserted, hash_value);
 
         [[maybe_unused]] Mapped* cached = nullptr;
         if constexpr (has_mapped) cached = lookup_result_get_mapped(it);

@@ -31,7 +31,7 @@ using DependencySPtr = std::shared_ptr<Dependency>;
 
 class Dependency {
 public:
-    Dependency(int id) : _id(id), _done(false) {}
+    Dependency(int id, std::string name) : _id(id), _name(name), _done(false) {}
     virtual ~Dependency() = default;
 
     [[nodiscard]] bool done() const { return _done; }
@@ -40,15 +40,18 @@ public:
     virtual void* shared_state() = 0;
     [[nodiscard]] int id() const { return _id; }
 
+    virtual std::string debug_string(int indentation_level = 0) const;
+
 private:
     int _id;
+    std::string _name;
     std::atomic<bool> _done;
 };
 
 struct FakeSharedState {};
 struct FakeDependency : public Dependency {
 public:
-    FakeDependency(int id) : Dependency(0) {}
+    FakeDependency(int id) : Dependency(0, "FakeDependency") {}
     using SharedState = FakeSharedState;
     void* shared_state() override { return nullptr; }
 };
@@ -82,7 +85,7 @@ public:
 class AggDependency final : public Dependency {
 public:
     using SharedState = AggSharedState;
-    AggDependency(int id) : Dependency(id) {
+    AggDependency(int id) : Dependency(id, "AggDependency") {
         _mem_tracker = std::make_unique<MemTracker>("AggregateOperator:");
     }
     ~AggDependency() override = default;
@@ -146,7 +149,7 @@ public:
 class SortDependency final : public Dependency {
 public:
     using SharedState = SortSharedState;
-    SortDependency(int id) : Dependency(id) {}
+    SortDependency(int id) : Dependency(id, "SortDependency") {}
     ~SortDependency() override = default;
     void* shared_state() override { return (void*)&_sort_state; };
 
@@ -154,6 +157,21 @@ private:
     SortSharedState _sort_state;
 };
 
+struct UnionSharedState {
+public:
+    std::shared_ptr<DataQueue> _data_queue;
+};
+
+class UnionDependency final : public Dependency {
+public:
+    using SharedState = UnionSharedState;
+    UnionDependency(int id) : Dependency(id, "UnionDependency") {}
+    ~UnionDependency() override = default;
+    void* shared_state() override { return (void*)&_union_state; };
+
+private:
+    UnionSharedState _union_state;
+};
 struct AnalyticSharedState {
 public:
     AnalyticSharedState() = default;
@@ -180,7 +198,7 @@ public:
 class AnalyticDependency final : public Dependency {
 public:
     using SharedState = AnalyticSharedState;
-    AnalyticDependency(int id) : Dependency(id) {}
+    AnalyticDependency(int id) : Dependency(id, "AnalyticDependency") {}
     ~AnalyticDependency() override = default;
 
     void* shared_state() override { return (void*)&_analytic_state; };
@@ -227,7 +245,7 @@ struct HashJoinSharedState : public JoinSharedState {
 class HashJoinDependency final : public Dependency {
 public:
     using SharedState = HashJoinSharedState;
-    HashJoinDependency(int id) : Dependency(id) {}
+    HashJoinDependency(int id) : Dependency(id, "HashJoinDependency") {}
     ~HashJoinDependency() override = default;
 
     void* shared_state() override { return (void*)&_join_state; }
@@ -259,7 +277,7 @@ struct NestedLoopJoinSharedState : public JoinSharedState {
 class NestedLoopJoinDependency final : public Dependency {
 public:
     using SharedState = NestedLoopJoinSharedState;
-    NestedLoopJoinDependency(int id) : Dependency(id) {}
+    NestedLoopJoinDependency(int id) : Dependency(id, "NestedLoopJoinDependency") {}
     ~NestedLoopJoinDependency() override = default;
 
     void* shared_state() override { return (void*)&_join_state; }

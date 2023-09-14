@@ -48,8 +48,9 @@ class FileWriter;
 
 constexpr std::string_view RANDOM_CACHE_BASE_PATH = "random";
 
-io::FileReaderOptions FileFactory::get_reader_options(RuntimeState* state) {
-    io::FileReaderOptions opts;
+io::FileReaderOptions FileFactory::get_reader_options(RuntimeState* state,
+                                                      const io::FileDescription& fd) {
+    io::FileReaderOptions opts {.file_size = fd.file_size, .mtime = fd.mtime};
     if (config::enable_file_cache && state != nullptr &&
         state->query_options().__isset.enable_file_cache &&
         state->query_options().enable_file_cache) {
@@ -109,10 +110,11 @@ Status FileFactory::create_file_reader(const io::FileSystemProperties& system_pr
                                        std::shared_ptr<io::FileSystem>* file_system,
                                        io::FileReaderSPtr* file_reader, RuntimeProfile* profile) {
     TFileType::type type = system_properties.system_type;
+    // FIXME(plat1ko): Maybe we can create reader without filesystem?
     switch (type) {
     case TFileType::FILE_LOCAL: {
-        RETURN_IF_ERROR(io::global_local_filesystem()->open_file(file_description, reader_options,
-                                                                 file_reader));
+        RETURN_IF_ERROR(io::global_local_filesystem()->open_file(file_description.path, file_reader,
+                                                                 &reader_options));
         break;
     }
     case TFileType::FILE_S3: {
@@ -139,12 +141,12 @@ Status FileFactory::create_file_reader(const io::FileSystemProperties& system_pr
 
 // file scan node/stream load pipe
 Status FileFactory::create_pipe_reader(const TUniqueId& load_id, io::FileReaderSPtr* file_reader,
-                                       RuntimeState* runtime_state) {
+                                       RuntimeState* runtime_state, bool need_schema) {
     auto stream_load_ctx = ExecEnv::GetInstance()->new_load_stream_mgr()->get(load_id);
     if (!stream_load_ctx) {
         return Status::InternalError("unknown stream load id: {}", UniqueId(load_id).to_string());
     }
-    if (stream_load_ctx->need_schema == true) {
+    if (need_schema == true) {
         auto pipe = std::make_shared<io::StreamLoadPipe>(
                 io::kMaxPipeBufferedBytes /* max_buffered_bytes */, 64 * 1024 /* min_chunk_size */,
                 stream_load_ctx->schema_buffer->pos /* total_length */);
@@ -152,7 +154,6 @@ Status FileFactory::create_pipe_reader(const TUniqueId& load_id, io::FileReaderS
         pipe->append(stream_load_ctx->schema_buffer);
         pipe->finish();
         *file_reader = std::move(pipe);
-        stream_load_ctx->need_schema = false;
     } else {
         *file_reader = stream_load_ctx->pipe;
     }
@@ -187,7 +188,7 @@ Status FileFactory::create_hdfs_reader(const THdfsParams& hdfs_params,
                                        io::FileReaderSPtr* reader, RuntimeProfile* profile) {
     std::shared_ptr<io::HdfsFileSystem> fs;
     RETURN_IF_ERROR(io::HdfsFileSystem::create(hdfs_params, fd.fs_name, profile, &fs));
-    RETURN_IF_ERROR(fs->open_file(fd, reader_options, reader));
+    RETURN_IF_ERROR(fs->open_file(fd.path, reader, &reader_options));
     *hdfs_file_system = std::move(fs);
     return Status::OK();
 }
@@ -203,7 +204,7 @@ Status FileFactory::create_s3_reader(const std::map<std::string, std::string>& p
     RETURN_IF_ERROR(S3ClientFactory::convert_properties_to_s3_conf(prop, s3_uri, &s3_conf));
     std::shared_ptr<io::S3FileSystem> fs;
     RETURN_IF_ERROR(io::S3FileSystem::create(std::move(s3_conf), "", &fs));
-    RETURN_IF_ERROR(fs->open_file(fd, reader_options, reader));
+    RETURN_IF_ERROR(fs->open_file(fd.path, reader, &reader_options));
     *s3_file_system = std::move(fs);
     return Status::OK();
 }
@@ -216,7 +217,7 @@ Status FileFactory::create_broker_reader(const TNetworkAddress& broker_addr,
                                          io::FileReaderSPtr* reader) {
     std::shared_ptr<io::BrokerFileSystem> fs;
     RETURN_IF_ERROR(io::BrokerFileSystem::create(broker_addr, prop, &fs));
-    RETURN_IF_ERROR(fs->open_file(fd, reader_options, reader));
+    RETURN_IF_ERROR(fs->open_file(fd.path, reader, &reader_options));
     *broker_file_system = std::move(fs);
     return Status::OK();
 }

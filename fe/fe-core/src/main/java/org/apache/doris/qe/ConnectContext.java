@@ -40,7 +40,7 @@ import org.apache.doris.plugin.AuditEvent.AuditEventBuilder;
 import org.apache.doris.resource.Tag;
 import org.apache.doris.statistics.ColumnStatistic;
 import org.apache.doris.statistics.Histogram;
-import org.apache.doris.task.LoadTaskInfo;
+import org.apache.doris.system.Backend;
 import org.apache.doris.thrift.TUniqueId;
 import org.apache.doris.transaction.TransactionEntry;
 import org.apache.doris.transaction.TransactionStatus;
@@ -77,9 +77,7 @@ public class ConnectContext {
     protected volatile long forwardedStmtId;
 
     // set for http_stream
-    protected volatile TUniqueId loadId;
     protected volatile long backendId;
-    protected volatile LoadTaskInfo streamLoadInfo;
 
     protected volatile TUniqueId queryId;
     protected volatile String traceId;
@@ -173,6 +171,7 @@ public class ConnectContext {
     private Map<String, String> resultAttachedInfo;
 
     private String workloadGroupName = "";
+    private Map<Long, Backend> insertGroupCommitTableToBeMap = new HashMap<>();
 
     public void setUserQueryTimeout(int queryTimeout) {
         if (queryTimeout > 0) {
@@ -334,22 +333,6 @@ public class ConnectContext {
 
     public void setBackendId(long backendId) {
         this.backendId = backendId;
-    }
-
-    public TUniqueId getLoadId() {
-        return loadId;
-    }
-
-    public void setLoadId(TUniqueId loadId) {
-        this.loadId = loadId;
-    }
-
-    public void setStreamLoadInfo(LoadTaskInfo streamLoadInfo) {
-        this.streamLoadInfo = streamLoadInfo;
-    }
-
-    public LoadTaskInfo getStreamLoadInfo() {
-        return streamLoadInfo;
     }
 
     public void setStmtId(long stmtId) {
@@ -820,5 +803,12 @@ public class ConnectContext {
         return this.workloadGroupName;
     }
 
+    public void setInsertGroupCommit(long tableId, Backend backend) {
+        insertGroupCommitTableToBeMap.put(tableId, backend);
+    }
+
+    public Backend getInsertGroupCommit(long tableId) {
+        return insertGroupCommitTableToBeMap.get(tableId);
+    }
 }
 

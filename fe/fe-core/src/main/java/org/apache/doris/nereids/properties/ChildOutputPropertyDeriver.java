@@ -125,17 +125,27 @@ public class ChildOutputPropertyDeriver extends PlanVisitor<PhysicalProperties, 
 
     @Override
     public PhysicalProperties visitPhysicalEsScan(PhysicalEsScan esScan, PlanContext context) {
-        return PhysicalProperties.ANY;
+        return PhysicalProperties.STORAGE_ANY;
     }
 
     @Override
     public PhysicalProperties visitPhysicalFileScan(PhysicalFileScan fileScan, PlanContext context) {
-        return PhysicalProperties.ANY;
+        return PhysicalProperties.STORAGE_ANY;
     }
 
+    /**
+     * TODO return ANY after refactor coordinator
+     * return STORAGE_ANY not ANY, in order to generate distribute on jdbc scan.
+     * select * from (select * from external.T) as A union all (select * from external.T)
+     * if visitPhysicalJdbcScan returns ANY, the plan is
+     * union
+     *  |--- JDBCSCAN
+     *  +--- JDBCSCAN
+     *  this breaks coordinator assumption that one fragment has at most only one scan.
+     */
     @Override
     public PhysicalProperties visitPhysicalJdbcScan(PhysicalJdbcScan jdbcScan, PlanContext context) {
-        return PhysicalProperties.ANY;
+        return PhysicalProperties.STORAGE_ANY;
     }
 
     @Override
@@ -363,9 +373,9 @@ public class ChildOutputPropertyDeriver extends PlanVisitor<PhysicalProperties, 
             }
             DistributionSpecHash distributionSpecHash = (DistributionSpecHash) childDistribution;
             int[] offsetsOfCurrentChild = new int[distributionSpecHash.getOrderedShuffledColumns().size()];
-            for (int j = 0; j < setOperation.getChildOutput(i).size(); j++) {
+            for (int j = 0; j < setOperation.getRegularChildOutput(i).size(); j++) {
                 int offset = distributionSpecHash.getExprIdToEquivalenceSet()
-                        .getOrDefault(setOperation.getChildOutput(i).get(j).getExprId(), -1);
+                        .getOrDefault(setOperation.getRegularChildOutput(i).get(j).getExprId(), -1);
                 if (offset >= 0) {
                     offsetsOfCurrentChild[offset] = j;
                 } else {

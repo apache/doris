@@ -42,27 +42,28 @@ namespace doris {
 namespace io {
 
 CachedRemoteFileReader::CachedRemoteFileReader(FileReaderSPtr remote_file_reader,
-                                               const FileReaderOptions* opts)
+                                               const FileReaderOptions& opts)
         : _remote_file_reader(std::move(remote_file_reader)) {
-    DCHECK(opts) << remote_file_reader->path().native();
-    _is_doris_table = opts->is_doris_table;
+    _is_doris_table = opts.is_doris_table;
     if (_is_doris_table) {
         _cache_key = IFileCache::hash(path().filename().native());
-        _cache = FileCacheFactory::instance().get_by_path(_cache_key);
+        _cache = FileCacheFactory::instance()->get_by_path(_cache_key);
     } else {
         // Use path and modification time to build cache key
-        std::string unique_path = fmt::format("{}:{}", path().native(), opts->modification_time);
+        std::string unique_path = fmt::format("{}:{}", path().native(), opts.mtime);
         _cache_key = IFileCache::hash(unique_path);
-        if (!opts->cache_base_path.empty()) {
+        if (opts.cache_base_path.empty()) {
+            // if cache path is not specified by session variable, chose randomly.
+            _cache = FileCacheFactory::instance()->get_by_path(_cache_key);
+        } else {
             // from query session variable: file_cache_base_path
-            _cache = FileCacheFactory::instance().get_by_path(opts->cache_base_path);
+            _cache = FileCacheFactory::instance()->get_by_path(opts.cache_base_path);
             if (_cache == nullptr) {
-                LOG(WARNING) << "Can't get cache from base path: " << opts->cache_base_path
+                LOG(WARNING) << "Can't get cache from base path: " << opts.cache_base_path
                              << ", using random instead.";
-                _cache = FileCacheFactory::instance().get_by_path(_cache_key);
+                _cache = FileCacheFactory::instance()->get_by_path(_cache_key);
             }
         }
-        _cache = FileCacheFactory::instance().get_by_path(path().native());
     }
 }
 
@@ -89,21 +90,10 @@ std::pair<size_t, size_t> CachedRemoteFileReader::_align_size(size_t offset,
     return std::make_pair(align_left, align_size);
 }
 
-Status CachedRemoteFileReader::read_at_impl(size_t offset, Slice result, size_t* bytes_read,
-                                            const IOContext* io_ctx) {
-    DCHECK(!closed());
-    DCHECK(io_ctx);
-    if (offset > size()) {
-        return Status::IOError(
-                fmt::format("offset exceeds file size(offset: {), file size: {}, path: {})", offset,
-                            size(), path().native()));
-    }
+Status CachedRemoteFileReader::_read_from_cache(size_t offset, Slice result, size_t* bytes_read,
+                                                const IOContext* io_ctx) {
     size_t bytes_req = result.size;
     bytes_req = std::min(bytes_req, size() - offset);
-    if (UNLIKELY(bytes_req == 0)) {
-        *bytes_read = 0;
-        return Status::OK();
-    }
     ReadStatistics stats;
     auto [align_left, align_size] = _align_size(offset, bytes_req);
     CacheContext cache_context(io_ctx);
@@ -222,6 +212,41 @@ Status CachedRemoteFileReader::read_at_impl(size_t offset, Slice result, size_t*
     _update_state(stats, io_ctx->file_cache_stats);
     DorisMetrics::instance()->s3_bytes_read_total->increment(*bytes_read);
     return Status::OK();
+}
+
+Status CachedRemoteFileReader::read_at_impl(size_t offset, Slice result, size_t* bytes_read,
+                                            const IOContext* io_ctx) {
+    DCHECK(!closed());
+    DCHECK(io_ctx);
+    if (offset > size()) {
+        return Status::IOError(
+                fmt::format("offset exceeds file size(offset: {), file size: {}, path: {})", offset,
+                            size(), path().native()));
+    }
+    size_t bytes_req = result.size;
+    bytes_req = std::min(bytes_req, size() - offset);
+    if (UNLIKELY(bytes_req == 0)) {
+        *bytes_read = 0;
+        return Status::OK();
+    }
+    Status cache_st = _read_from_cache(offset, result, bytes_read, io_ctx);
+    if (UNLIKELY(!cache_st.ok())) {
+        if (config::file_cache_wait_sec_after_fail > 0) {
+            // only for debug, wait and retry to load data from file cache
+            // return error if failed again
+            LOG(WARNING) << "Failed to read data from file cache, and wait "
+                         << config::file_cache_wait_sec_after_fail
+                         << " seconds to reload data: " << cache_st.to_string();
+            sleep(config::file_cache_wait_sec_after_fail);
+            cache_st = _read_from_cache(offset, result, bytes_read, io_ctx);
+        } else {
+            // fail over to remote file reader, and return the status of remote read
+            LOG(WARNING) << "Failed to read data from file cache, and fail over to remote file: "
+                         << cache_st.to_string();
+            return _remote_file_reader->read_at(offset, result, bytes_read, io_ctx);
+        }
+    }
+    return cache_st;
 }
 
 void CachedRemoteFileReader::_update_state(const ReadStatistics& read_stats,

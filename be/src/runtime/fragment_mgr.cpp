@@ -139,7 +139,9 @@ FragmentMgr::FragmentMgr(ExecEnv* exec_env)
     CHECK(s.ok()) << s.to_string();
 }
 
-FragmentMgr::~FragmentMgr() {
+FragmentMgr::~FragmentMgr() {}
+
+void FragmentMgr::stop() {
     DEREGISTER_HOOK_METRIC(plan_fragment_count);
     DEREGISTER_HOOK_METRIC(fragment_thread_pool_queue_size);
     _stop_background_threads_latch.count_down();
@@ -344,7 +346,7 @@ void FragmentMgr::_exec_actual(std::shared_ptr<PlanFragmentExecutor> fragment_ex
     bool all_done = false;
     if (query_ctx != nullptr) {
         // decrease the number of unfinished fragments
-        all_done = query_ctx->countdown();
+        all_done = query_ctx->countdown(1);
     }
 
     // remove exec state after this fragment finished
@@ -452,18 +454,6 @@ Status FragmentMgr::start_query_execution(const PExecPlanFragmentStartRequest* r
 
 void FragmentMgr::remove_pipeline_context(
         std::shared_ptr<pipeline::PipelineFragmentContext> f_context) {
-    std::lock_guard<std::mutex> lock(_lock);
-    auto query_id = f_context->get_query_id();
-    auto* q_context = f_context->get_query_context();
-    bool all_done = q_context->countdown();
-    _pipeline_map.erase(f_context->get_fragment_instance_id());
-    if (all_done) {
-        _query_ctx_map.erase(query_id);
-    }
-}
-
-void FragmentMgr::remove_pipeline_context(
-        std::shared_ptr<pipeline::PipelineXFragmentContext> f_context) {
     std::lock_guard<std::mutex> lock(_lock);
     auto query_id = f_context->get_query_id();
     auto* q_context = f_context->get_query_context();
@@ -700,7 +690,8 @@ Status FragmentMgr::exec_plan_fragment(const TPipelineFragmentParams& params,
                 std::make_shared<pipeline::PipelineXFragmentContext>(
                         query_ctx->query_id(), params.fragment_id, query_ctx, _exec_env, cb,
                         std::bind<void>(std::mem_fn(&FragmentMgr::coordinator_callback), this,
-                                        std::placeholders::_1));
+                                        std::placeholders::_1),
+                        params.group_commit);
         {
             SCOPED_RAW_TIMER(&duration_ns);
             auto prepare_st = context->prepare(params);

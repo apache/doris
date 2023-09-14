@@ -168,6 +168,7 @@ public:
         if constexpr (std::is_same_v<TypeId<T>, TypeId<Decimal128I>>) {
             return TPrimitiveType::DECIMAL128I;
         }
+        LOG(FATAL) << "__builtin_unreachable";
         __builtin_unreachable();
     }
 
