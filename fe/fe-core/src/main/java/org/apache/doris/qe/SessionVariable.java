@@ -334,6 +334,10 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String ENABLE_MINIDUMP = "enable_minidump";
 
+    public static final String ENABLE_PAGE_CACHE = "enable_page_cache";
+
+    public static final String MINIDUMP_PATH = "minidump_path";
+
     public static final String TRACE_NEREIDS = "trace_nereids";
 
     public static final String PLAN_NEREIDS_DUMP = "plan_nereids_dump";
@@ -1014,6 +1018,15 @@ public class SessionVariable implements Serializable, Writable {
 
     @VariableMgr.VarAttr(name = ENABLE_MINIDUMP)
     public boolean enableMinidump = false;
+
+
+    @VariableMgr.VarAttr(
+            name = ENABLE_PAGE_CACHE,
+            description = {"控制是否启用page cache。默认为 true。",
+                "Controls whether to use page cache. "
+                    + "The default value is true."},
+            needForward = true)
+    public boolean enablePageCache = true;
 
     @VariableMgr.VarAttr(name = ENABLE_FOLD_NONDETERMINISTIC_FN)
     public boolean enableFoldNondeterministicFn = false;
@@ -2178,6 +2191,8 @@ public class SessionVariable implements Serializable, Writable {
         tResult.setExternalAggPartitionBits(externalAggPartitionBits);
 
         tResult.setEnableFileCache(enableFileCache);
+
+        tResult.setEnablePageCache(enablePageCache);
 
         tResult.setFileCacheBasePath(fileCacheBasePath);
 
