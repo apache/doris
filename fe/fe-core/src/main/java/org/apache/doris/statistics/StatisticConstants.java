@@ -77,7 +77,7 @@ public class StatisticConstants {
 
     public static final int STATISTIC_INTERNAL_TABLE_REPLICA_NUM = 3;
 
-    public static int ANALYZE_TASK_RETRY_TIMES = 5;
+    public static int ANALYZE_TASK_RETRY_TIMES = 3;
 
     static {
         STATISTICS_DB_BLACK_LIST.add(SystemInfoService.DEFAULT_CLUSTER
