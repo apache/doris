@@ -333,7 +333,7 @@ public class BDBJEJournal implements Journal { // CHECKSTYLE IGNORE THIS LINE: B
                         Env.getServingEnv().isElectable());
             } catch (Exception e) {
                 if (e instanceof DatabaseNotFoundException) {
-                    LOG.error("It is not allowed to set metadata_failure_recovery to true "
+                    LOG.error("It is not allowed to set metadata_failure_recovery"
                             + "when meta dir or bdbje dir is empty， which may mean it is "
                             + "the first time to start this node");
                 }

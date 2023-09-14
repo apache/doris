@@ -29,8 +29,12 @@
 #include "time.h"
 #include "util/debug_util.h"
 #include "util/time.h"
+#include "vec/sink/delta_writer_v2_pool.h"
+#include "vec/sink/load_stream_stub_pool.h"
 
 namespace doris {
+
+ExecEnv::ExecEnv() = default;
 
 ExecEnv::~ExecEnv() {
     destroy();

@@ -83,6 +83,7 @@ public class PartitionPruner {
                 .collect(ImmutableList.toImmutableList());
 
         PartitionPruner partitionPruner = new PartitionPruner(evaluators, partitionPredicate);
+        //TODO: we keep default partition because it's too hard to prune it, we return false in canPrune().
         return partitionPruner.prune();
     }
 
@@ -110,7 +111,7 @@ public class PartitionPruner {
     private boolean canPrune(OnePartitionEvaluator evaluator) {
         List<Map<Slot, PartitionSlotInput>> onePartitionInputs = evaluator.getOnePartitionInputs();
         for (Map<Slot, PartitionSlotInput> currentInputs : onePartitionInputs) {
-            Expression result = evaluator.evaluate(partitionPredicate, currentInputs);
+            Expression result = evaluator.evaluateWithDefaultPartition(partitionPredicate, currentInputs);
             if (!result.equals(BooleanLiteral.FALSE)) {
                 return false;
             }

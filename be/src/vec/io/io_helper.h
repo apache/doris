@@ -379,7 +379,8 @@ bool read_datetime_v2_text_impl(T& x, ReadBuffer& buf, const cctz::time_zone& lo
 }
 
 template <PrimitiveType P, typename T>
-bool read_decimal_text_impl(T& x, ReadBuffer& buf, UInt32 precision, UInt32 scale) {
+StringParser::ParseResult read_decimal_text_impl(T& x, ReadBuffer& buf, UInt32 precision,
+                                                 UInt32 scale) {
     static_assert(IsDecimalNumber<T>);
     if constexpr (!std::is_same_v<Decimal128, T>) {
         StringParser::ParseResult result = StringParser::PARSE_SUCCESS;
@@ -388,7 +389,7 @@ bool read_decimal_text_impl(T& x, ReadBuffer& buf, UInt32 precision, UInt32 scal
                                                      precision, scale, &result);
         // only to match the is_all_read() check to prevent return null
         buf.position() = buf.end();
-        return result == StringParser::PARSE_SUCCESS || result == StringParser::PARSE_UNDERFLOW;
+        return result;
     } else {
         StringParser::ParseResult result = StringParser::PARSE_SUCCESS;
 
@@ -399,7 +400,7 @@ bool read_decimal_text_impl(T& x, ReadBuffer& buf, UInt32 precision, UInt32 scal
         // only to match the is_all_read() check to prevent return null
         buf.position() = buf.end();
 
-        return result == StringParser::PARSE_SUCCESS || result == StringParser::PARSE_UNDERFLOW;
+        return result;
     }
 }
 
@@ -449,7 +450,8 @@ bool try_read_float_text(T& x, ReadBuffer& in) {
 }
 
 template <PrimitiveType P, typename T>
-bool try_read_decimal_text(T& x, ReadBuffer& in, UInt32 precision, UInt32 scale) {
+StringParser::ParseResult try_read_decimal_text(T& x, ReadBuffer& in, UInt32 precision,
+                                                UInt32 scale) {
     return read_decimal_text_impl<P, T>(x, in, precision, scale);
 }
 

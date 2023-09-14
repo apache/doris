@@ -92,6 +92,8 @@
 #include "util/timezone_utils.h"
 #include "vec/exec/scan/scanner_scheduler.h"
 #include "vec/runtime/vdata_stream_mgr.h"
+#include "vec/sink/delta_writer_v2_pool.h"
+#include "vec/sink/load_stream_stub_pool.h"
 
 #if !defined(__SANITIZE_ADDRESS__) && !defined(ADDRESS_SANITIZER) && !defined(LEAK_SANITIZER) && \
         !defined(THREAD_SANITIZER) && !defined(USE_JEMALLOC)
@@ -207,6 +209,8 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths) {
     _group_commit_mgr = new GroupCommitMgr(this);
     _file_meta_cache = new FileMetaCache(config::max_external_file_meta_cache_num);
     _memtable_memory_limiter = std::make_unique<MemTableMemoryLimiter>();
+    _load_stream_stub_pool = std::make_unique<stream_load::LoadStreamStubPool>();
+    _delta_writer_v2_pool = std::make_unique<stream_load::DeltaWriterV2Pool>();
 
     _backend_client_cache->init_metrics("backend");
     _frontend_client_cache->init_metrics("frontend");
@@ -543,6 +547,8 @@ void ExecEnv::destroy() {
     _deregister_metrics();
     SAFE_DELETE(_load_channel_mgr);
     _memtable_memory_limiter.reset(nullptr);
+    _load_stream_stub_pool.reset();
+    _delta_writer_v2_pool.reset();
 
     // shared_ptr maybe no need to be reset
     // _brpc_iobuf_block_memory_tracker.reset();

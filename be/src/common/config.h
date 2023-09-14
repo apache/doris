@@ -789,7 +789,11 @@ DECLARE_mInt32(mem_tracker_consume_min_size_bytes);
 // In most cases, it does not need to be modified.
 DECLARE_mDouble(tablet_version_graph_orphan_vertex_ratio);
 
-// number of brpc stream per OlapTableSinkV2
+// share brpc streams when memtable_on_sink_node = true
+DECLARE_Bool(share_load_streams);
+// share delta writers when memtable_on_sink_node = true
+DECLARE_Bool(share_delta_writers);
+// number of brpc stream per OlapTableSinkV2 (per load if share_load_streams = true)
 DECLARE_Int32(num_streams_per_sink);
 // timeout for open stream sink rpc in ms
 DECLARE_Int64(open_stream_sink_timeout_ms);
