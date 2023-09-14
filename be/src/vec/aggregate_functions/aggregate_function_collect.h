@@ -154,7 +154,7 @@ struct AggregateFunctionCollectSetData<StringRef, HasLimit> {
     }
 
     void read(BufferReadable& buf) {
-        UInt64 size;
+        UInt64 size = 0;
         read_var_uint(size, buf);
         StringRef ref;
         for (size_t i = 0; i < size; ++i) {
