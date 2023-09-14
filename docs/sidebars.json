@@ -635,8 +635,10 @@
                                 "sql-manual/sql-functions/json-functions/get-json-double",
                                 "sql-manual/sql-functions/json-functions/get-json-int",
                                 "sql-manual/sql-functions/json-functions/get-json-bigint",
-                                "sql-manual/sql-functions/json-functions/get-json-string"
-                                
+                                "sql-manual/sql-functions/json-functions/get-json-string",
+                                "sql-manual/sql-functions/json-functions/get-json-insert",
+                                "sql-manual/sql-functions/json-functions/get-json-replace",
+                                "sql-manual/sql-functions/json-functions/get-json-set"
                             ]
                         },
                         {
