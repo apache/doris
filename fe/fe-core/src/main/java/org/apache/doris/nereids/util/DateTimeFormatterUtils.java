@@ -46,13 +46,6 @@ public class DateTimeFormatterUtils {
             .optionalEnd()
             .toFormatter()
             .withResolverStyle(ResolverStyle.STRICT);
-    // yymmdd
-    public static final DateTimeFormatter BASIC_TWO_DIGIT_DATE_FORMATTER = new DateTimeFormatterBuilder()
-            .appendValueReduced(ChronoField.YEAR, 2, 2, 1970)
-            .appendValue(ChronoField.MONTH_OF_YEAR, 2)
-            .appendValue(ChronoField.DAY_OF_MONTH, 2)
-            .toFormatter().withResolverStyle(ResolverStyle.STRICT);
-    // yyyy-mm-dd
     public static final DateTimeFormatter DATE_FORMATTER = new DateTimeFormatterBuilder()
             .appendValue(ChronoField.YEAR, 4)
             .appendLiteral('-').appendValue(ChronoField.MONTH_OF_YEAR, 2)
@@ -82,8 +75,7 @@ public class DateTimeFormatterUtils {
             .toFormatter().withResolverStyle(ResolverStyle.STRICT);
     // Date without delimiter
     public static final DateTimeFormatter BASIC_DATE_TIME_FORMATTER = new DateTimeFormatterBuilder()
-            .appendOptional(BASIC_DATE_FORMATTER)
-            .appendOptional(BASIC_TWO_DIGIT_DATE_FORMATTER)
+            .append(BASIC_DATE_FORMATTER)
             .appendLiteral('T')
             .append(BASIC_TIME_FORMATTER)
             .toFormatter().withResolverStyle(ResolverStyle.STRICT);
@@ -103,9 +95,6 @@ public class DateTimeFormatterUtils {
             .appendValue(ChronoField.YEAR, 4)
             .appendLiteral('-').appendValue(ChronoField.MONTH_OF_YEAR, 2)
             .appendLiteral('-').appendValue(ChronoField.DAY_OF_MONTH, 2)
-            // .optionalStart()
-            // .appendZoneOrOffsetId()
-            // .optionalEnd()
             .append(ZONE_FORMATTER)
             .toFormatter().withResolverStyle(ResolverStyle.STRICT);
     public static final DateTimeFormatter ZONE_DATE_TIME_FORMATTER = new DateTimeFormatterBuilder()
