@@ -393,7 +393,9 @@ TEST(TextSerde, ComplexTypeSerdeTextTest) {
                     if (expect_str == "[]") {
                         if (st.ok()) {
                             auto& item_column = assert_cast<ColumnNullable&>(
-                                    assert_cast<ColumnArray&>(*col).get_data());
+                                    assert_cast<ColumnArray&>(
+                                            assert_cast<ColumnNullable&>(*col).get_nested_column())
+                                            .get_data());
                             for (auto ix = 0; ix < item_column.size(); ++ix) {
                                 if (item_column.is_null_at(ix)) {
                                     std::cout << "idx null:" << ix << std::endl;
@@ -440,7 +442,7 @@ TEST(TextSerde, ComplexTypeSerdeTextTest) {
                     Status st =
                             serde_1->deserialize_one_cell_from_json(*col3, slice, formatOptions);
                     if (expect_str == "[]") {
-                        EXPECT_EQ(st.ok(), false);
+                        EXPECT_EQ(st.ok(), true);
                         std::cout << st.to_json() << std::endl;
                     } else {
                         EXPECT_EQ(st.ok(), true);

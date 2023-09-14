@@ -122,17 +122,11 @@ public:
 
     Status deserialize_one_cell_from_json(IColumn& column, Slice& slice,
                                           const FormatOptions& options,
-                                          int nesting_level = 1) const override {
-        return Status::NotSupported("deserialize_one_cell_from_text with type " +
-                                    column.get_name());
-    }
+                                          int nesting_level = 1) const override;
 
     Status deserialize_column_from_json_vector(IColumn& column, std::vector<Slice>& slices,
                                                int* num_deserialized, const FormatOptions& options,
-                                               int nesting_level = 1) const override {
-        return Status::NotSupported("deserialize_column_from_text_vector with type " +
-                                    column.get_name());
-    }
+                                               int nesting_level = 1) const override;
 
     Status deserialize_one_cell_from_hive_text(IColumn& column, Slice& slice,
                                                const FormatOptions& options,
