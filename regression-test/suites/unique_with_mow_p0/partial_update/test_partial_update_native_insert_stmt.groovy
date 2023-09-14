@@ -187,7 +187,7 @@ suite("test_partial_update_native_insert_stmt", "p0") {
     sql "set enable_unique_key_partial_update=true;"
     sql "sync;"
     sql "insert into ${tableName6}(k,v) select v2,v3 from ${tableName6};"
-    qt_6 "select * from ${tableName6};"
+    qt_6 "select * from ${tableName6} order by k;"
     sql "set enable_unique_key_partial_update=false;"
     sql "set enable_insert_strict = false;"
     sql "sync;"
@@ -213,6 +213,6 @@ suite("test_partial_update_native_insert_stmt", "p0") {
         sql "insert into ${tableName7}(k1,k2,v2) select k2,k3,v1 from ${tableName7};"
         exception "Partial update should include all key columns, missing: k3"
     }
-    qt_7 "select * from ${tableName7};"
+    qt_7 "select * from ${tableName7} order by k1;"
     sql """ DROP TABLE IF EXISTS ${tableName7}; """
 }
