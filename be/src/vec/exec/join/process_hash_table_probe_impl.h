@@ -285,7 +285,7 @@ Status ProcessHashTableProbe<JoinOpType>::do_process(HashTableType& hash_table_c
                 _probe_side_hash_values.resize(probe_rows);
                 for (size_t k = *(_join_context->_ready_probe_index); k < probe_rows; ++k) {
                     if constexpr (ignore_null && need_null_map_for_probe) {
-                        if ((*null_map)[probe_index]) {
+                        if ((*null_map)[k]) {
                             continue;
                         }
                     }
@@ -560,7 +560,7 @@ Status ProcessHashTableProbe<JoinOpType>::do_process_with_other_join_conjuncts(
                 _probe_side_hash_values.resize(probe_rows);
                 for (size_t k = *(_join_context->_ready_probe_index); k < probe_rows; ++k) {
                     if constexpr (ignore_null && need_null_map_for_probe) {
-                        if ((*null_map)[probe_index]) {
+                        if ((*null_map)[k]) {
                             continue;
                         }
                     }
