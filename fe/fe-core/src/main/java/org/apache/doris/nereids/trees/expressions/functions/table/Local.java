@@ -41,7 +41,7 @@ public class Local extends TableValuedFunction {
 
     @Override
     public FunctionSignature customSignature() {
-        return FunctionSignature.of(AnyDataType.INSTANCE_WITHOUT_INDEX, (List) getArgumentsTypes());
+        return FunctionSignature.of(AnyDataType.INSTANCE_WITHOUT_INDEX, getArgumentsTypes());
     }
 
     @Override

@@ -35,11 +35,11 @@ public interface TableValuedFunctionVisitor<R, C> {
         return visitTableValuedFunction(hdfs, context);
     }
 
-    default R visitS3(S3 s3, C context) {
-        return visitTableValuedFunction(s3, context);
-    }
-
     default R visitLocal(Local local, C context) {
         return visitTableValuedFunction(local, context);
+    }
+
+    default R visitS3(S3 s3, C context) {
+        return visitTableValuedFunction(s3, context);
     }
 }
