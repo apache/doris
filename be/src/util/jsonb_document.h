@@ -1292,7 +1292,8 @@ inline bool JsonbValue::contains(JsonbValue* rhs) const {
             auto str_value1 = (JsonbStringVal*)this;
             auto str_value2 = (JsonbStringVal*)rhs;
             return str_value1->length() == str_value2->length() &&
-                   std::memcmp(str_value1->getBlob(), str_value2->getBlob(), str_value1->length());
+                   std::memcmp(str_value1->getBlob(), str_value2->getBlob(),
+                               str_value1->length()) == 0;
         }
         return false;
     }
