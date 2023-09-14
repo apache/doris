@@ -628,6 +628,7 @@ struct TStreamLoadPutRequest {
     // only valid when file type is CSV
     52: optional i8 escape
     53: optional bool memtable_on_sink_node;
+    54: optional bool ignore_mode = false
 }
 
 struct TStreamLoadPutResult {
@@ -644,15 +645,6 @@ struct TStreamLoadMultiTablePutResult {
     // valid when status is OK
     2: optional list<PaloInternalService.TExecPlanFragmentParams> params
     3: optional list<PaloInternalService.TPipelineFragmentParams> pipeline_params
-}
-
-struct TStreamLoadWithLoadStatusResult {
-    1: optional Status.TStatus status
-    2: optional i64 txn_id
-    3: optional i64 total_rows
-    4: optional i64 loaded_rows
-    5: optional i64 filtered_rows
-    6: optional i64 unselected_rows
 }
 
 struct TKafkaRLTaskProgress {

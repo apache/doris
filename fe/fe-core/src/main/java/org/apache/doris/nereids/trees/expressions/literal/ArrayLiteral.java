@@ -22,6 +22,7 @@ import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.ArrayType;
 import org.apache.doris.nereids.types.DataType;
+import org.apache.doris.nereids.types.NullType;
 
 import com.google.common.collect.ImmutableList;
 
@@ -33,9 +34,19 @@ public class ArrayLiteral extends Literal {
 
     private final List<Literal> items;
 
+    /**
+     * construct array literal
+     */
     public ArrayLiteral(List<Literal> items) {
         super(computeDataType(items));
-        this.items = ImmutableList.copyOf(items);
+        this.items = items.stream()
+                .map(i -> {
+                    if (i instanceof NullLiteral) {
+                        DataType type = ((ArrayType) (this.getDataType())).getItemType();
+                        return new NullLiteral(type);
+                    }
+                    return i;
+                }).collect(ImmutableList.toImmutableList());
     }
 
     @Override
@@ -64,7 +75,7 @@ public class ArrayLiteral extends Literal {
         String items = this.items.stream()
                 .map(Literal::toString)
                 .collect(Collectors.joining(", "));
-        return "array(" + items + ")";
+        return "[" + items + "]";
     }
 
     @Override
@@ -72,7 +83,7 @@ public class ArrayLiteral extends Literal {
         String items = this.items.stream()
                 .map(Literal::toSql)
                 .collect(Collectors.joining(", "));
-        return "array(" + items + ")";
+        return "[" + items + "]";
     }
 
     @Override
@@ -84,6 +95,12 @@ public class ArrayLiteral extends Literal {
         if (items.isEmpty()) {
             return ArrayType.SYSTEM_DEFAULT;
         }
-        return ArrayType.of(items.get(0).dataType);
+        DataType dataType = NullType.INSTANCE;
+        for (Literal item : items) {
+            if (!item.dataType.isNullType()) {
+                dataType = item.dataType;
+            }
+        }
+        return ArrayType.of(dataType);
     }
 }

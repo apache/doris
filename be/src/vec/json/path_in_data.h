@@ -27,6 +27,7 @@
 #include <string_view>
 #include <vector>
 
+#include "gen_cpp/segment_v2.pb.h"
 #include "vec/common/uint128.h"
 #include "vec/core/field.h"
 #include "vec/core/types.h"
@@ -59,6 +60,7 @@ public:
     PathInData() = default;
     explicit PathInData(std::string_view path_);
     explicit PathInData(const Parts& parts_);
+    explicit PathInData(const std::vector<std::string>& paths);
     PathInData(const PathInData& other);
     PathInData& operator=(const PathInData& other);
     static UInt128 get_parts_hash(const Parts& parts_);
@@ -71,6 +73,11 @@ public:
     struct Hash {
         size_t operator()(const PathInData& value) const;
     };
+    std::string to_jsonpath() const;
+
+    PathInData pop_front() const;
+    void to_protobuf(segment_v2::ColumnPathInfo* pb, int32_t parent_col_unique_id) const;
+    void from_protobuf(const segment_v2::ColumnPathInfo& pb);
 
 private:
     /// Creates full path from parts.
@@ -90,8 +97,10 @@ public:
     const PathInData::Parts& get_parts() const { return parts; }
     PathInDataBuilder& append(std::string_view key, bool is_array);
     PathInDataBuilder& append(const PathInData::Parts& path, bool is_array);
+    PathInDataBuilder& append(const std::vector<std::string>& parts);
     void pop_back();
     void pop_back(size_t n);
+    PathInData build() { return PathInData(parts); }
 
 private:
     PathInData::Parts parts;
