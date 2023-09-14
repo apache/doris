@@ -583,7 +583,7 @@ public class DateLiteral extends LiteralExpr {
             return -1;
         }
         // date time will not overflow when doing addition and subtraction
-        return Long.signum(getLongValue() - expr.getLongValue());
+        return getStringValue().compareTo(expr.getStringValue());
     }
 
     @Override
