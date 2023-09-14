@@ -68,8 +68,7 @@ Status RuntimeFilterMgr::get_producer_filter(const int filter_id, IRuntimeFilter
     std::lock_guard<std::mutex> l(_lock);
     auto iter = _producer_map.find(key);
     if (iter == _producer_map.end()) {
-        LOG(WARNING) << "unknown runtime filter: " << key << ", role: PRODUCER";
-        return Status::InvalidArgument("unknown filter");
+        return Status::InvalidArgument("unknown filter: {}, role: PRODUCER", key);
     }
 
     *target = iter->second;
@@ -80,20 +79,17 @@ Status RuntimeFilterMgr::get_consume_filter(const int filter_id, const int node_
                                             IRuntimeFilter** consumer_filter) {
     std::lock_guard<std::mutex> l(_lock);
     auto iter = _consumer_map.find(filter_id);
-    if (iter == _consumer_map.cend()) {
-        LOG(WARNING) << "unknown runtime filter: " << filter_id << ", role: consumer";
-        return Status::InvalidArgument("unknown filter");
-    }
-
-    for (auto& item : iter->second) {
-        if (item.node_id == node_id) {
-            *consumer_filter = item.filter;
-            return Status::OK();
+    if (iter != _consumer_map.cend()) {
+        for (auto& item : iter->second) {
+            if (item.node_id == node_id) {
+                *consumer_filter = item.filter;
+                return Status::OK();
+            }
         }
     }
 
-    return Status::InvalidArgument(
-            fmt::format("unknown filter, filter_id: {}, node_id: {}", filter_id, node_id));
+    return Status::InvalidArgument("unknown filter, filter_id: {}, node_id: {}, role: CONSUMER",
+                                   filter_id, node_id);
 }
 
 Status RuntimeFilterMgr::get_consume_filters(const int filter_id,
@@ -102,8 +98,7 @@ Status RuntimeFilterMgr::get_consume_filters(const int filter_id,
     std::lock_guard<std::mutex> l(_lock);
     auto iter = _consumer_map.find(key);
     if (iter == _consumer_map.end()) {
-        LOG(WARNING) << "unknown runtime filter: " << key << ", role: consumer";
-        return Status::InvalidArgument("unknown filter");
+        return Status::InvalidArgument("unknown filter: {}, role: CONSUMER", key);
     }
     for (auto& holder : iter->second) {
         consumer_filters.emplace_back(holder.filter);
