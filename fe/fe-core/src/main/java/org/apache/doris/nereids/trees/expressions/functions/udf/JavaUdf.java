@@ -60,7 +60,8 @@ public class JavaUdf extends ScalarFunction implements ExplicitlyCastableSignatu
     /**
      * Constructor of UDF
      */
-    public JavaUdf(String name, long functionId,String dbName, TFunctionBinaryType binaryType, FunctionSignature signature,
+    public JavaUdf(String name, long functionId, String dbName, TFunctionBinaryType binaryType,
+            FunctionSignature signature,
             NullableMode nullableMode, String objectFile, String symbol, String prepareFn, String closeFn,
             String checkSum, Expression... args) {
         super(name, args);
