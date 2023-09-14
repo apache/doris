@@ -269,6 +269,7 @@ Status ColumnReader::read_page(const ColumnIteratorOptions& iter_opts, const Pag
             .page_pointer = pp,
             .codec = codec,
             .stats = iter_opts.stats,
+            .encoding_info = _encoding_info,
             .io_ctx = iter_opts.io_ctx,
     };
     // index page should not pre decode
