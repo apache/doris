@@ -201,6 +201,13 @@ void IndexChannel::set_tablets_received_rows(
     }
 }
 
+void IndexChannel::set_tablets_filtered_rows(
+        const std::vector<std::pair<int64_t, int64_t>>& tablets_filtered_rows, int64_t node_id) {
+    for (const auto& [tablet_id, rows_num] : tablets_filtered_rows) {
+        _tablets_filtered_rows[tablet_id].emplace_back(node_id, rows_num);
+    }
+}
+
 Status IndexChannel::check_tablet_received_rows_consistency() {
     for (auto& tablet : _tablets_received_rows) {
         for (size_t i = 0; i < tablet.second.size(); i++) {
@@ -215,6 +222,30 @@ Status IndexChannel::check_tablet_received_rows_consistency() {
             if (tablet.second[i].second != tablet.second[0].second) {
                 return Status::InternalError(
                         "rows num written by multi replicas doest't match, load_id={}, txn_id={}, "
+                        "tablt_id={}, node_id={}, rows_num={}, node_id={}, rows_num={}",
+                        print_id(_parent->_load_id), _parent->_txn_id, tablet.first,
+                        tablet.second[i].first, tablet.second[i].second, tablet.second[0].first,
+                        tablet.second[0].second);
+            }
+        }
+    }
+    return Status::OK();
+}
+
+Status IndexChannel::check_tablet_filtered_rows_consistency() {
+    for (auto& tablet : _tablets_filtered_rows) {
+        for (size_t i = 0; i < tablet.second.size(); i++) {
+            VLOG_NOTICE << "check_tablet_filtered_rows_consistency, load_id: " << _parent->_load_id
+                        << ", txn_id: " << std::to_string(_parent->_txn_id)
+                        << ", tablet_id: " << tablet.first
+                        << ", node_id: " << tablet.second[i].first
+                        << ", rows_num: " << tablet.second[i].second;
+            if (i == 0) {
+                continue;
+            }
+            if (tablet.second[i].second != tablet.second[0].second) {
+                return Status::InternalError(
+                        "rows num filtered by multi replicas doest't match, load_id={}, txn_id={}, "
                         "tablt_id={}, node_id={}, rows_num={}, node_id={}, rows_num={}",
                         print_id(_parent->_load_id), _parent->_txn_id, tablet.first,
                         tablet.second[i].first, tablet.second[i].second, tablet.second[0].first,
@@ -432,8 +463,8 @@ Status VNodeChannel::open_wait() {
                                                             tablet.received_rows());
                     }
                     if (tablet.has_num_rows_filtered()) {
-                        _state->update_num_rows_filtered_in_strict_mode_partial_update(
-                                tablet.num_rows_filtered());
+                        _tablets_filtered_rows.emplace_back(tablet.tablet_id(),
+                                                            tablet.num_rows_filtered());
                     }
                     VLOG_CRITICAL << "master replica commit info: tabletId=" << tablet.tablet_id()
                                   << ", backendId=" << _node_id
@@ -866,6 +897,7 @@ Status VNodeChannel::close_wait(RuntimeState* state) {
 
         _index_channel->set_error_tablet_in_state(state);
         _index_channel->set_tablets_received_rows(_tablets_received_rows, _node_id);
+        _index_channel->set_tablets_filtered_rows(_tablets_filtered_rows, _node_id);
         return Status::OK();
     }
 
@@ -1398,6 +1430,8 @@ Status VOlapTableSink::_cancel_channel_and_check_intolerable_failure(
         status = index_st;
     } else if (Status st = ich->check_tablet_received_rows_consistency(); !st.ok()) {
         status = st;
+    } else if (Status st = ich->check_tablet_filtered_rows_consistency(); !st.ok()) {
+        status = st;
     }
     return status;
 }
@@ -1521,6 +1555,21 @@ Status VOlapTableSink::close(RuntimeState* state, Status exec_status) {
                                             &total_wait_exec_time_ns, &wait_exec_time,
                                             &total_add_batch_num);
                         });
+
+                // Due to the non-determinism of compaction, the rowsets of each replica may be different from each other on different
+                // BE nodes. The number of rows filtered in SegmentWriter depends on the historical rowsets located in the correspoding
+                // BE node. So we check the number of rows filtered on each succeccful BE to ensure the consistency of the current load
+                if (!_write_single_replica && _schema->is_strict_mode() &&
+                    _schema->is_partial_update()) {
+                    if (Status st = index_channel->check_tablet_filtered_rows_consistency();
+                        !st.ok()) {
+                        status = st;
+                    } else {
+                        state->set_num_rows_filtered_in_strict_mode_partial_update(
+                                index_channel->num_rows_filtered());
+                    }
+                }
+
                 num_node_channels += index_channel->num_node_channels();
                 if (add_batch_exec_time > max_add_batch_exec_time_ns) {
                     max_add_batch_exec_time_ns = add_batch_exec_time;
