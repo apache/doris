@@ -16,14 +16,14 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_partial_update_native_insert_stmt", "p0") {
-    sql "set enable_nereids_dml=false;"
-    sql "set experimental_enable_nereids_planner=false;"
-    sql "set enable_fallback_to_original_planner=true;"
+suite("nereids_partial_update_native_insert_stmt", "p0") {
+    sql "set enable_nereids_dml=true;"
+    sql "set experimental_enable_nereids_planner=true;"
+    sql "set enable_fallback_to_original_planner=false;"
     sql "sync;"
 
     // sql 'set enable_fallback_to_original_planner=false'
-    def tableName = "test_partial_update_native_insert_stmt"
+    def tableName = "nereids_partial_update_native_insert_stmt"
     sql """ DROP TABLE IF EXISTS ${tableName} """
     sql """
             CREATE TABLE ${tableName} (
@@ -49,7 +49,7 @@ suite("test_partial_update_native_insert_stmt", "p0") {
     sql """ DROP TABLE IF EXISTS ${tableName} """
 
 
-    def tableName2 = "test_partial_update_native_insert_stmt2" 
+    def tableName2 = "nereids_partial_update_native_insert_stmt2" 
     sql """ DROP TABLE IF EXISTS ${tableName2} """
     sql """
             CREATE TABLE ${tableName2} (
@@ -85,7 +85,7 @@ suite("test_partial_update_native_insert_stmt", "p0") {
     sql """ DROP TABLE IF EXISTS ${tableName2}; """
 
 
-    def tableName3 = "test_partial_update_native_insert_stmt3"
+    def tableName3 = "nereids_partial_update_native_insert_stmt3"
     sql """ DROP TABLE IF EXISTS ${tableName3}; """
     sql """
             CREATE TABLE ${tableName3} (
@@ -113,7 +113,7 @@ suite("test_partial_update_native_insert_stmt", "p0") {
     sql """ DROP TABLE IF EXISTS ${tableName3} """
 
 
-    def tableName4 = "test_partial_update_native_insert_stmt4"
+    def tableName4 = "nereids_partial_update_native_insert_stmt4"
     sql """ DROP TABLE IF EXISTS ${tableName4} """
     sql """
             CREATE TABLE ${tableName4} (
@@ -138,7 +138,7 @@ suite("test_partial_update_native_insert_stmt", "p0") {
     sql """ DROP TABLE IF EXISTS ${tableName4} """
 
 
-    def tableName5 = "test_partial_update_native_insert_stmt5"
+    def tableName5 = "nereids_partial_update_native_insert_stmt5"
     sql """ DROP TABLE IF EXISTS ${tableName5} """
     sql """
             CREATE TABLE ${tableName5} ( 
@@ -175,7 +175,7 @@ suite("test_partial_update_native_insert_stmt", "p0") {
     sql "sync;"
     sql """ DROP TABLE IF EXISTS ${tableName5}; """
 
-    def tableName6 = "test_partial_update_native_insert_stmt6"
+    def tableName6 = "nereids_partial_update_native_insert_stmt6"
     sql """ DROP TABLE IF EXISTS ${tableName6} """
     sql """create table ${tableName6} (
         k int null,
@@ -197,7 +197,7 @@ suite("test_partial_update_native_insert_stmt", "p0") {
     sql "sync;"
     sql """ DROP TABLE IF EXISTS ${tableName6}; """
 
-    def tableName7 = "test_partial_update_native_insert_stmt7"
+    def tableName7 = "nereids_partial_update_native_insert_stmt7"
     sql """ DROP TABLE IF EXISTS ${tableName7} """
     sql """create table ${tableName7} (
         k1 int null,
