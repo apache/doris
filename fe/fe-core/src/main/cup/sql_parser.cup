@@ -303,6 +303,7 @@ terminal String
     KW_COMMITTED,
     KW_COMPACT,
     KW_COMPLETE,
+    KW_COMPRESS_TYPE,
     KW_CONFIG,
     KW_CONNECTION,
     KW_CONNECTION_ID,
@@ -891,8 +892,8 @@ nonterminal GroupByClause group_by_clause, grouping_elements;
 //
 nonterminal String keyword, ident, ident_or_text, variable_name,
         charset_name_or_default, old_or_new_charset_name_or_default, opt_collate,
-        collation_name_or_default, type_func_name_keyword, type_function_name, opt_file_format, time_unit,
-        literal_or_ident;
+        collation_name_or_default, type_func_name_keyword, type_function_name, opt_file_format, opt_file_compress_type,
+        time_unit, literal_or_ident;
 nonterminal PassVar text_or_password;
 
 // sync job
@@ -2407,6 +2408,7 @@ data_desc ::=
     opt_field_term:colSep
     opt_line_term:lineDelimiter
     opt_file_format:fileFormat
+    opt_file_compress_type:fileCompressType
     opt_col_list:colList
     opt_columns_from_path:columnsFromPath
     opt_col_mapping_list:colMappingList
@@ -2416,7 +2418,7 @@ data_desc ::=
     sequence_col_clause:sequenceColName
     opt_properties:properties
     {:
-         RESULT = new DataDescription(tableName, partitionNames, files, colList, colSep, lineDelimiter, fileFormat,
+        RESULT = new DataDescription(tableName, partitionNames, files, colList, colSep, lineDelimiter, fileFormat, fileCompressType,
         columnsFromPath, isNeg, colMappingList, preFilterExpr, whereExpr, mergeType, deleteExpr, sequenceColName, properties);
     :}
     | opt_merge_type:mergeType KW_DATA KW_FROM KW_TABLE ident:srcTableName
@@ -2521,6 +2523,13 @@ opt_file_format ::=
     {: RESULT = null; :}
     | KW_FORMAT KW_AS ident_or_text:format
     {: RESULT = format; :}
+    ;
+
+opt_file_compress_type ::=
+    /* Empty */
+    {: RESULT = null; :}
+    | KW_COMPRESS_TYPE KW_AS ident_or_text:compress_type
+    {: RESULT = compress_type; :}
     ;
 
 opt_columns_from_path ::=
