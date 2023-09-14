@@ -145,45 +145,15 @@ separated by commas.
            The system will use the order specified by user. in case above, data should be ended
            with __DORIS_SEQUENCE_COL__.
        ```
-23. load_to_single_tablet: Boolean type, True means that one task can only load data to one tablet in the corresponding partition at a time. The default value is false. This parameter can only be set when loading data into the OLAP table with random partition.
-    
-    RETURN VALUES
-        After the import is complete, the related content of this import will be returned in Json format. Currently includes the following fields
-        Status: Import the last status.
-            Success: Indicates that the import is successful and the data is already visible;
-            Publish Timeout: Indicates that the import job has been successfully committed, but is not immediately visible for some reason. The user can consider the import to be successful and not have to retry the import
-            Label Already Exists: Indicates that the Label has been occupied by other jobs. It may be imported successfully or it may be being imported.
-            The user needs to determine the subsequent operation through the get label state command
-            Others: The import failed, the user can specify the Label to retry the job
-        Message: Detailed description of the import status. On failure, the specific failure reason is returned.
-        NumberTotalRows: The total number of rows read from the data stream
-        NumberLoadedRows: The number of data rows imported this time, only valid in Success
-        NumberFilteredRows: The number of rows filtered out by this import, that is, the number of rows with unqualified data quality
-        NumberUnselectedRows: This import, the number of rows filtered out by the where condition
-        LoadBytes: The size of the source file data imported this time
-        LoadTimeMs: The time taken for this import
-        BeginTxnTimeMs: The time it takes to request Fe to start a transaction, in milliseconds.
-        StreamLoadPutTimeMs: The time it takes to request Fe to obtain the execution plan for importing data, in milliseconds.
-        ReadDataTimeMs: Time spent reading data, in milliseconds.
-        WriteDataTimeMs: The time taken to perform the write data operation, in milliseconds.
-        CommitAndPublishTimeMs: The time it takes to submit a request to Fe and publish the transaction, in milliseconds.
-        ErrorURL: The specific content of the filtered data, only the first 1000 items are retained
+24. load_to_single_tablet: Boolean type, True means that one task can only load data to one tablet in the corresponding partition at a time. The default value is false. This parameter can only be set when loading data into the OLAP table with random bucketing.
 
-ERRORS:
-        Import error details can be viewed with the following statement:
-        ````
-        SHOW LOAD WARNINGS ON 'url'
-        ````
-        where url is the url given by ErrorURL.
+25. compress_type: Specify compress type file. Only support compressed csv file now. Support gz, lzo, bz2, lz4, lzop, deflate.
 
-24. compress_type
+26. trim_double_quotes: Boolean type, The default value is false. True means that the outermost double quotes of each field in the csv file are trimmed.
 
-    Specify compress type file. Only support compressed csv file now. Support gz, lzo, bz2, lz4, lzop, deflate.
+27. skip_lines: <version since="dev" type="inline"> Integer type, the default value is 0. It will skip some lines in the head of csv file. It will be disabled when format is `csv_with_names` or `csv_with_names_and_types`. </version>
 
-25. trim_double_quotes: Boolean type, The default value is false. True means that the outermost double quotes of each field in the csv file are trimmed.
-
-26. skip_lines: <version since="dev" type="inline"> Integer type, the default value is 0. It will skip some lines in the head of csv file. It will be disabled when format is `csv_with_names` or `csv_with_names_and_types`. </version>
-27. comment: <version since="1.2.3" type="inline"> String type, the default value is "". </version>
+28. comment: <version since="1.2.3" type="inline"> String type, the default value is "". </version>
 
 ### Example
 
