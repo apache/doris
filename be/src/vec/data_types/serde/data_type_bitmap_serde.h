@@ -45,11 +45,7 @@ public:
                                "write_column_to_pb with type " + column.get_name());
     }
 
-    Status deserialize_one_cell_from_json(IColumn& column, Slice& slice,
-                                          const FormatOptions& options) const override {
-        return Status::NotSupported("deserialize_one_cell_from_text with type " +
-                                    column.get_name());
-    }
+
 
     Status deserialize_column_from_json_vector(IColumn& column, std::vector<Slice>& slices,
                                                int* num_deserialized,
@@ -86,6 +82,11 @@ public:
                                  int row_idx, bool col_const) const override;
 
 private:
+    Status deserialize_one_cell_from_json(IColumn& column, Slice& slice,
+                                          const FormatOptions& options) const  {
+        return Status::NotSupported("deserialize_one_cell_from_text with type " +
+                                    column.get_name());
+    }
     // Bitmap is binary data which is not shown by mysql.
     template <bool is_binary_format>
     Status _write_column_to_mysql(const IColumn& column, MysqlRowBuffer<is_binary_format>& result,

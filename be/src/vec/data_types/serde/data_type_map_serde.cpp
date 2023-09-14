@@ -208,7 +208,8 @@ Status DataTypeMapSerDe::deserialize_one_cell_from_json(IColumn& column, Slice& 
     size_t slice_size = slice.size;
     bool key_added = false;
     int idx = 0;
-    int elem_deserialized = 0;
+//    int elem_deserialized = 0;
+    std::vector<Slice> key_slices,value_slices;
     for (; idx < slice_size; ++idx) {
         char c = slice[idx];
         if (c == '"' || c == '\'') {
@@ -233,13 +234,14 @@ Status DataTypeMapSerDe::deserialize_one_cell_from_json(IColumn& column, Slice& 
             if (options.converted_from_string && (next.ends_with("\"") || next.ends_with("'"))) {
                 next.remove_suffix(1);
             }
-            if (Status st =
-                        key_serde->deserialize_one_cell_from_json(nested_key_column, next, options);
-                !st.ok()) {
-                nested_key_column.pop_back(elem_deserialized);
-                nested_val_column.pop_back(elem_deserialized);
-                return st;
-            }
+            key_slices.push_back(next);
+//            if (Status st =
+//                        key_serde->deserialize_one_cell_from_json(nested_key_column, next, options);
+//                !st.ok()) {
+//                nested_key_column.pop_back(elem_deserialized);
+//                nested_val_column.pop_back(elem_deserialized);
+//                return st;
+//            }
             // skip delimiter
             start_pos = idx + 1;
             key_added = true;
@@ -250,37 +252,41 @@ Status DataTypeMapSerDe::deserialize_one_cell_from_json(IColumn& column, Slice& 
             }
             Slice next(slice.data + start_pos, idx - start_pos);
             next.trim_prefix();
-
-            if (Status st = value_serde->deserialize_one_cell_from_json(nested_val_column, next,
-                                                                        options);
-                !st.ok()) {
-                nested_key_column.pop_back(elem_deserialized + 1);
-                nested_val_column.pop_back(elem_deserialized);
-                return st;
-            }
+            value_slices.push_back(next);
+//            if (Status st = value_serde->deserialize_one_cell_from_json(nested_val_column, next,
+//                                                                        options);
+//                !st.ok()) {
+//                nested_key_column.pop_back(elem_deserialized + 1);
+//                nested_val_column.pop_back(elem_deserialized);
+//                return st;
+//            }
             // skip delimiter
             start_pos = idx + 1;
             // reset key_added
             key_added = false;
-            ++elem_deserialized;
+//            ++elem_deserialized;
         }
     }
     // for last value elem
     if (!has_quote && nested_level == 0 && idx == slice_size && idx != start_pos && key_added) {
         Slice next(slice.data + start_pos, idx - start_pos);
         next.trim_prefix();
-
-        if (Status st =
-                    value_serde->deserialize_one_cell_from_json(nested_val_column, next, options);
-            !st.ok()) {
-            nested_key_column.pop_back(elem_deserialized + 1);
-            nested_val_column.pop_back(elem_deserialized);
-            return st;
-        }
-        ++elem_deserialized;
+        value_slices.push_back(next);
+//        if (Status st =
+//                    value_serde->deserialize_one_cell_from_json(nested_val_column, next, options);
+//            !st.ok()) {
+//            nested_key_column.pop_back(elem_deserialized + 1);
+//            nested_val_column.pop_back(elem_deserialized);
+//            return st;
+//        }
+//        ++elem_deserialized;
     }
 
-    offsets.emplace_back(offsets.back() + elem_deserialized);
+//    offsets.emplace_back(offsets.back() + elem_deserialized);
+
+
+
+
     return Status::OK();
 }
 

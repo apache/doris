@@ -56,11 +56,11 @@ Status DataTypeStructSerDe::deserialize_one_cell_from_hive_text(IColumn& column,
     }
     auto& struct_column = static_cast<ColumnStruct&>(column);
     for (size_t loc = 0; loc < struct_column.get_columns().size(); loc++) {
-        Status st = elemSerDeSPtrs[loc]->deserialize_one_cell_from_hive_text(
-                struct_column.get_column(loc), slices[loc], options, nesting_level + 1);
-        if (st != Status::OK()) {
-            return st;
-        }
+//        Status st = elemSerDeSPtrs[loc]->deserialize_one_cell_from_hive_text(
+//                struct_column.get_column(loc), slices[loc], options, nesting_level + 1);
+//        if (st != Status::OK()) {
+//            return st;
+//        }
     }
     return Status::OK();
 }

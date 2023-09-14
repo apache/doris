@@ -65,7 +65,14 @@ Status DataTypeArraySerDe::deserialize_column_from_json_vector(IColumn& column,
                                                                std::vector<Slice>& slices,
                                                                int* num_deserialized,
                                                                const FormatOptions& options) const {
-    DESERIALIZE_COLUMN_FROM_JSON_VECTOR();
+//    DESERIALIZE_COLUMN_FROM_JSON_VECTOR();
+    for (int i = 0; i < slices.size(); ++i) {
+        if (Status st = deserialize_one_cell_from_json(column, slices[i], options);
+            st != Status::OK()) {
+            return st;
+        }
+        ++*num_deserialized;
+    }
     return Status::OK();
 }
 

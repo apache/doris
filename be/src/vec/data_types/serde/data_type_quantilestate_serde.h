@@ -50,11 +50,7 @@ public:
         throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
                                "serialize_column_to_text with type " + column.get_name());
     }
-    Status deserialize_one_cell_from_json(IColumn& column, Slice& slice,
-                                          const FormatOptions& options) const override {
-        return Status::NotSupported("deserialize_one_cell_from_text with type " +
-                                    column.get_name());
-    }
+
 
     Status deserialize_column_from_json_vector(IColumn& column, std::vector<Slice>& slices,
                                                int* num_deserialized,
@@ -121,6 +117,11 @@ public:
     }
 
 private:
+    Status deserialize_one_cell_from_json(IColumn& column, Slice& slice,
+                                          const FormatOptions& options) const  {
+        return Status::NotSupported("deserialize_one_cell_from_text with type " +
+                                    column.get_name());
+    }
     template <bool is_binary_format>
     Status _write_column_to_mysql(const IColumn& column, MysqlRowBuffer<is_binary_format>& result,
                                   int row_idx, bool col_const) const;

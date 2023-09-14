@@ -44,7 +44,7 @@ public:
     ~NewPlainBinaryLineReader() override;
 
     Status read_line(const uint8_t** ptr, size_t* size, bool* eof,
-                     const io::IOContext* io_ctx) override;
+                     const io::IOContext* io_ctx,bool = true) override;
 
     void close() override;
 

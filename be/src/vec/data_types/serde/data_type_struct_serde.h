@@ -51,11 +51,7 @@ public:
                                "serialize_column_to_json with type " + column.get_name());
     }
 
-    Status deserialize_one_cell_from_json(IColumn& column, Slice& slice,
-                                          const FormatOptions& options) const override {
-        return Status::NotSupported("deserialize_one_cell_from_text with type " +
-                                    column.get_name());
-    }
+
 
     Status deserialize_column_from_json_vector(IColumn& column, std::vector<Slice>& slices,
                                                int* num_deserialized,
@@ -64,9 +60,7 @@ public:
                                     column.get_name());
     }
 
-    Status deserialize_one_cell_from_hive_text(IColumn& column, Slice& slice,
-                                               const FormatOptions& options,
-                                               int nesting_level = 1) const override;
+
     Status deserialize_column_from_hive_text_vector(IColumn& column, std::vector<Slice>& slices,
                                                     int* num_deserialized,
                                                     const FormatOptions& options,
@@ -106,6 +100,14 @@ public:
     }
 
 private:
+    Status deserialize_one_cell_from_json(IColumn& column, Slice& slice,
+                                          const FormatOptions& options) const  {
+        return Status::NotSupported("deserialize_one_cell_from_text with type " +
+                                    column.get_name());
+    }
+    Status deserialize_one_cell_from_hive_text(IColumn& column, Slice& slice,
+                                               const FormatOptions& options,
+                                               int nesting_level = 1) const ;
     template <bool is_binary_format>
     Status _write_column_to_mysql(const IColumn& column, bool return_object_data_as_binary,
                                   std::vector<MysqlRowBuffer<is_binary_format>>& result,

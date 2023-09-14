@@ -203,8 +203,8 @@ public:
 private:
     // used for stream/broker load of csv file.
     Status _create_decompressor();
-    Status _fill_dest_columns(const Slice& line, Block* block,
-                              std::vector<MutableColumnPtr>& columns, size_t* rows);
+    Status _fill_dest_columns( std::vector<std::vector<Slice>>& lines, Block* block,
+                              std::vector<MutableColumnPtr>& columns, int rows);
     Status _line_split_to_values(const Slice& line, bool* success);
     void _split_line(const Slice& line);
     Status _check_array_format(std::vector<Slice>& split_values, bool* is_success);
@@ -286,6 +286,10 @@ private:
     std::vector<Slice> _split_values;
     std::unique_ptr<LineFieldSplitterIf> _fields_splitter;
     TTextSerdeType::type _text_serde_type;
+    std::vector<std::vector<Slice>> lines;
+    std::vector<std::string> vs;
+
+
 };
 } // namespace vectorized
 } // namespace doris

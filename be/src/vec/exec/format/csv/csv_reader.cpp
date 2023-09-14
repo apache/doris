@@ -462,10 +462,29 @@ Status CsvReader::get_next_block(Block* block, size_t* read_rows, bool* eof) {
 
     } else {
         auto columns = block->mutate_columns();
+//        std::vector<std::vector<std::string>> lines;
+//        lines.reserve(batch_size);
+
+        lines.resize(_file_slot_descs.size());
+        for(auto& i : lines){
+            i.resize( batch_size );
+        }
+        vs.resize(batch_size);
+        bool fg = true;
+        std::vector<int> v;
+        v.reserve(batch_size);
+        const uint8_t *ptr = nullptr;
         while (rows < batch_size && !_line_reader_eof) {
-            const uint8_t* ptr = nullptr;
             size_t size = 0;
-            RETURN_IF_ERROR(_line_reader->read_line(&ptr, &size, &_line_reader_eof, _io_ctx));
+
+            RETURN_IF_ERROR(_line_reader->read_line(&ptr, &size, &_line_reader_eof, _io_ctx, fg));
+            fg = false;
+//            printf("%p\n",(void*)ptr);
+//            vs[rows] = std::string((char*)ptr,size);
+//            ptr = (uint8_t*)vs[rows].data();
+//            printf("%p\n",(void*)ptr);
+
+//            std::cout << ptr <<"\n";
             if (_skip_lines > 0) {
                 _skip_lines--;
                 continue;
@@ -474,13 +493,51 @@ Status CsvReader::get_next_block(Block* block, size_t* read_rows, bool* eof) {
                 // Read empty row, just continue
                 continue;
             }
-
+            //success???
             RETURN_IF_ERROR(_validate_line(Slice(ptr, size), &success));
             if (!success) {
                 continue;
             }
-            RETURN_IF_ERROR(_fill_dest_columns(Slice(ptr, size), block, columns, &rows));
+
+//            RETURN_IF_ERROR(_fill_dest_columns(Slice(ptr, size), block, columns, &rows));
+//            bool is_success = false;
+
+//            if (UNLIKELY(!is_success)) {
+//                // If not success, which means we met an invalid row, filter this row .
+//                continue;
+//            }
+            v.push_back(size);
+            rows++;
+
         }
+        if (rows != batch_size){
+            ptr--;
+            ptr-=v.back();
+        }
+
+        for(int j=rows-1;j>=0;j--)
+        {
+            int size = v[j];
+
+            bool is_success = true;
+            RETURN_IF_ERROR(_line_split_to_values(Slice(ptr, size), &is_success));
+            for(auto i =0;i<_file_slot_descs.size();i++){
+                int col_idx = _col_idxs[i];
+                // col idx is out of range, fill with null.
+                const Slice value =
+                        col_idx < _split_values.size() ? _split_values[col_idx] : _s_null_slice;
+                //std::string s(value.data,value.size);
+                //lines[i].push_back(s);
+                lines[i][j] = {value.data,value.size};
+
+            }
+            if (j-1>=0){
+                ptr--;
+                ptr-=v[j-1];
+            }
+        }
+        int x=0;
+        RETURN_IF_ERROR(_fill_dest_columns(lines , block, columns, x));
     }
 
     *eof = (rows == 0);
@@ -593,22 +650,20 @@ Status CsvReader::_create_decompressor() {
     return Status::OK();
 }
 
-Status CsvReader::_fill_dest_columns(const Slice& line, Block* block,
-                                     std::vector<MutableColumnPtr>& columns, size_t* rows) {
-    bool is_success = false;
+Status CsvReader::_fill_dest_columns( std::vector<std::vector<Slice>>& lines, Block* block,
+                                     std::vector<MutableColumnPtr>& columns,int rows) {
 
-    RETURN_IF_ERROR(_line_split_to_values(line, &is_success));
-    if (UNLIKELY(!is_success)) {
-        // If not success, which means we met an invalid row, filter this row and return.
-        return Status::OK();
-    }
+
+
+
 
     for (int i = 0; i < _file_slot_descs.size(); ++i) {
-        int col_idx = _col_idxs[i];
-        // col idx is out of range, fill with null.
-        const Slice& value =
-                col_idx < _split_values.size() ? _split_values[col_idx] : _s_null_slice;
-        Slice slice {value.data, value.size};
+
+//        std::vector<Slice> v;
+//        for(auto& tt:lines[i]){
+//            std::cout << tt <<"<0000000>";
+//        }
+//        std::cout <<"\n";
 
         if (!_is_load) {
             IColumn* col_ptr = const_cast<IColumn*>(
@@ -616,10 +671,10 @@ Status CsvReader::_fill_dest_columns(const Slice& line, Block* block,
 
             switch (_text_serde_type) {
             case TTextSerdeType::JSON_TEXT_SERDE:
-                _serdes[i]->deserialize_one_cell_from_json(*col_ptr, slice, _options);
+                RETURN_IF_ERROR(_serdes[i]->deserialize_column_from_json_vector(*col_ptr, lines[i] ,&rows , _options));
                 break;
             case TTextSerdeType::HIVE_TEXT_SERDE:
-                _serdes[i]->deserialize_one_cell_from_hive_text(*col_ptr, slice, _options);
+                RETURN_IF_ERROR(_serdes[i]->deserialize_column_from_hive_text_vector(*col_ptr, lines[i] ,&rows , _options));
                 break;
             default:
                 break;
@@ -628,18 +683,16 @@ Status CsvReader::_fill_dest_columns(const Slice& line, Block* block,
             // For load task, we always read "string" from file.
             switch (_text_serde_type) {
             case TTextSerdeType::JSON_TEXT_SERDE:
-                _serdes[i]->deserialize_one_cell_from_json(*columns[i], slice, _options);
+                RETURN_IF_ERROR(_serdes[i]->deserialize_column_from_json_vector(*columns[i], lines[i],&rows , _options));
                 break;
             case TTextSerdeType::HIVE_TEXT_SERDE:
-                _serdes[i]->deserialize_one_cell_from_hive_text(*columns[i], slice, _options);
+                RETURN_IF_ERROR(_serdes[i]->deserialize_column_from_hive_text_vector(*columns[i], lines[i] ,&rows , _options));
                 break;
             default:
                 break;
             }
         }
     }
-    ++(*rows);
-
     return Status::OK();
 }
 

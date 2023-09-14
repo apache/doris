@@ -276,8 +276,16 @@ void NewPlainTextLineReader::extend_input_buf() {
     } while (false);
 }
 
-void NewPlainTextLineReader::extend_output_buf() {
+void NewPlainTextLineReader::extend_output_buf(bool fg) {
     // left capacity
+    if(fg){
+            // move the read remaining to the beginning of the current output buf,
+        memmove(_output_buf, _output_buf + _output_buf_pos, output_buf_read_remaining());
+        _output_buf_limit -= _output_buf_pos;
+        _output_buf_pos = 0;
+
+    }
+
     size_t capacity = _output_buf_size - _output_buf_limit;
     // we want at least 1024 bytes capacity left
     size_t target = std::max<size_t>(1024, capacity + _more_output_bytes);
@@ -287,22 +295,37 @@ void NewPlainTextLineReader::extend_output_buf() {
         if (capacity >= target) {
             break;
         }
+//        if (fg){
+//            // 2. try reuse buf
+//            capacity = capacity + _output_buf_pos;
+//            if (capacity >= target) {
+//                // move the read remaining to the beginning of the current output buf,
+//                memmove(_output_buf, _output_buf + _output_buf_pos, output_buf_read_remaining());
+//                _output_buf_limit -= _output_buf_pos;
+//                _output_buf_pos = 0;
+//                break;
+//            }
+//        }
 
-        // 2. try reuse buf
-        capacity = capacity + _output_buf_pos;
-        if (capacity >= target) {
-            // move the read remaining to the beginning of the current output buf,
-            memmove(_output_buf, _output_buf + _output_buf_pos, output_buf_read_remaining());
-            _output_buf_limit -= _output_buf_pos;
-            _output_buf_pos = 0;
-            break;
-        }
 
         // 3. extend buf size to meet the target
+
+        if (!fg){
+            size_t old =_output_buf_limit;
+            while (_output_buf_size - _output_buf_limit < target) {
+                _output_buf_size = _output_buf_size * 2;
+            }
+            uint8_t* new_output_buf = new uint8_t[_output_buf_size];
+            memmove(new_output_buf, _output_buf ,old);
+            delete[] _output_buf;
+            _output_buf = new_output_buf;
+            std::cout <<"b->"<<_output_buf_size<<"\n";
+
+            break;
+        }
         while (_output_buf_size - output_buf_read_remaining() < target) {
             _output_buf_size = _output_buf_size * 2;
         }
-
         uint8_t* new_output_buf = new uint8_t[_output_buf_size];
         memmove(new_output_buf, _output_buf + _output_buf_pos, output_buf_read_remaining());
         delete[] _output_buf;
@@ -310,17 +333,22 @@ void NewPlainTextLineReader::extend_output_buf() {
         _output_buf = new_output_buf;
         _output_buf_limit -= _output_buf_pos;
         _output_buf_pos = 0;
+        std::cout <<"a->"<<_output_buf_size<<"\n";
+
+
+
     } while (false);
 }
 
 Status NewPlainTextLineReader::read_line(const uint8_t** ptr, size_t* size, bool* eof,
-                                         const io::IOContext* io_ctx) {
+                                         const io::IOContext* io_ctx,bool fg) {
     if (_eof || update_eof()) {
         *size = 0;
         *eof = true;
         return Status::OK();
     }
     _line_reader_ctx->refresh();
+    if(fg)extend_output_buf(fg);
     int found_line_delimiter = 0;
     size_t offset = 0;
     bool stream_end = true;
@@ -335,7 +363,7 @@ Status NewPlainTextLineReader::read_line(const uint8_t** ptr, size_t* size, bool
             // delimiter
             // read from file reader
             offset = output_buf_read_remaining();
-            extend_output_buf();
+            extend_output_buf(fg);
             if ((_input_buf_limit > _input_buf_pos) && _more_input_bytes == 0) {
                 // we still have data in input which is not decompressed.
                 // and no more data is required for input

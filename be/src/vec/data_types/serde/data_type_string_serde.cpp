@@ -54,6 +54,12 @@ Status DataTypeStringSerDe::deserialize_column_from_json_vector(
         IColumn& column, std::vector<Slice>& slices, int* num_deserialized,
         const FormatOptions& options) const {
     DESERIALIZE_COLUMN_FROM_JSON_VECTOR()
+
+//    for(auto i =0;i<slices.size();i++){
+//        std::cout <<slices[i]<<"<2222222>";
+//    }
+//    std::cout <<"\n";
+
     return Status::OK();
 }
 static void escape_string(const char* src, size_t& len, char escape_char) {

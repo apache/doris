@@ -167,18 +167,11 @@ public:
     virtual void serialize_column_to_json(const IColumn& column, int start_idx, int end_idx,
                                           BufferWritable& bw, FormatOptions& options) const = 0;
 
-    virtual Status deserialize_one_cell_from_json(IColumn& column, Slice& slice,
-                                                  const FormatOptions& options) const = 0;
     // deserialize text vector is to avoid virtual function call in complex type nested loop
     virtual Status deserialize_column_from_json_vector(IColumn& column, std::vector<Slice>& slices,
                                                        int* num_deserialized,
                                                        const FormatOptions& options) const = 0;
 
-    virtual Status deserialize_one_cell_from_hive_text(IColumn& column, Slice& slice,
-                                                       const FormatOptions& options,
-                                                       int nesting_level = 1) const {
-        return deserialize_one_cell_from_json(column, slice, options);
-    };
     virtual Status deserialize_column_from_hive_text_vector(IColumn& column,
                                                             std::vector<Slice>& slices,
                                                             int* num_deserialized,

@@ -63,7 +63,27 @@ void DataTypeNullableSerDe::serialize_one_cell_to_json(const IColumn& column, in
 Status DataTypeNullableSerDe::deserialize_column_from_json_vector(
         IColumn& column, std::vector<Slice>& slices, int* num_deserialized,
         const FormatOptions& options) const {
-    DESERIALIZE_COLUMN_FROM_JSON_VECTOR()
+//    for(int i  =0;i<slices.size() ;i++){
+//        std::cout << slices[i] <<"<3333333>";
+//    }
+//    std::cout << std::endl;
+    auto& null_column = assert_cast<ColumnNullable&>(column);
+    for (int i = 0; i < slices.size(); ++i) {
+        if (Status st = deserialize_one_cell_from_json(column, slices[i], options);
+            st != Status::OK()) {
+            return st;
+        }
+
+        ++*num_deserialized;
+    }
+    int x = 0;
+//    for(int i  =0;i<slices.size() ;i++){
+//        std::cout << slices[i] <<"<1111111>";
+//    }
+//    std::cout << std::endl;
+    nested_serde->deserialize_column_from_json_vector(null_column.get_nested_column(), slices,&x,
+                                                           options);
+//    std::cout <<x << std::endl;
     return Status::OK();
 }
 
@@ -90,17 +110,18 @@ Status DataTypeNullableSerDe::deserialize_one_cell_from_hive_text(IColumn& colum
     auto& null_column = assert_cast<ColumnNullable&>(column);
     // TODO(Amory) make null literal configurable
     if (slice.size == 2 && slice[0] == '\\' && slice[1] == 'N') {
-        null_column.insert_data(nullptr, 0);
+//        null_column.insert_data(nullptr, 0);
+        null_column.get_null_map_data().push_back(1);
         return Status::OK();
     }
 
-    auto st = nested_serde->deserialize_one_cell_from_hive_text(null_column.get_nested_column(),
-                                                                slice, options, nesting_level);
-    if (!st.ok()) {
-        // fill null if fail
-        null_column.insert_data(nullptr, 0); // 0 is meaningless here
-        return Status::OK();
-    }
+//    auto st = nested_serde->deserialize_one_cell_from_hive_text(null_column.get_nested_column(),
+//                                                                slice, options, nesting_level);
+//    if (!st.ok()) {
+//        // fill null if fail
+//        null_column.insert_data(nullptr, 0); // 0 is meaningless here
+//        return Status::OK();
+//    }
 
     // fill not null if success
     null_column.get_null_map_data().push_back(0);
@@ -112,7 +133,7 @@ Status DataTypeNullableSerDe::deserialize_column_from_hive_text_vector(IColumn& 
                                                                        int* num_deserialized,
                                                                        const FormatOptions& options,
                                                                        int nesting_level) const {
-    DESERIALIZE_COLUMN_FROM_HIVE_TEXT_VECTOR();
+//    DESERIALIZE_COLUMN_FROM_HIVE_TEXT_VECTOR();
     return Status::OK();
 }
 
@@ -121,25 +142,19 @@ Status DataTypeNullableSerDe::deserialize_one_cell_from_json(IColumn& column, Sl
     auto& null_column = assert_cast<ColumnNullable&>(column);
     // TODO(Amory) make null literal configurable
 
-    if (!(options.converted_from_string && slice.trim_quote())) {
-        //for map<string,string> type : {"abc","NULL"} , the NULL is string , instead of null values
-        if (slice.size == 4 && slice[0] == 'N' && slice[1] == 'U' && slice[2] == 'L' &&
-            slice[3] == 'L') {
-            null_column.insert_data(nullptr, 0);
-            return Status::OK();
-        } else if (slice.size == 2 && slice[0] == '\\' && slice[1] == 'N') {
-            null_column.insert_data(nullptr, 0);
-            return Status::OK();
-        }
-    }
+//    if (slice.size == 2 && slice[0] == '\\' && slice[1] == 'N') {
+//            null_column.insert_data(nullptr, 0);
+//        null_column.get_null_map_data().push_back(1);
+//            return Status::OK();
+//    }
 
-    auto st = nested_serde->deserialize_one_cell_from_json(null_column.get_nested_column(), slice,
-                                                           options);
-    if (!st.ok()) {
-        // fill null if fail
-        null_column.insert_data(nullptr, 0); // 0 is meaningless here
-        return Status::OK();
-    }
+//    auto st = nested_serde->deserialize_one_cell_from_json(null_column.get_nested_column(), slice,
+//                                                           options);
+//    if (!st.ok()) {
+//        // fill null if fail
+//        null_column.insert_data(nullptr, 0); // 0 is meaningless here
+//        return Status::OK();
+//    }
     // fill not null if success
     null_column.get_null_map_data().push_back(0);
     return Status::OK();

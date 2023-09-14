@@ -46,8 +46,7 @@ class DataTypeDate64SerDe : public DataTypeNumberSerDe<Int64> {
                                     FormatOptions& options) const override;
     void serialize_column_to_json(const IColumn& column, int start_idx, int end_idx,
                                   BufferWritable& bw, FormatOptions& options) const override;
-    Status deserialize_one_cell_from_json(IColumn& column, Slice& slice,
-                                          const FormatOptions& options) const override;
+
 
     Status deserialize_column_from_json_vector(IColumn& column, std::vector<Slice>& slices,
                                                int* num_deserialized,
@@ -64,6 +63,8 @@ class DataTypeDate64SerDe : public DataTypeNumberSerDe<Int64> {
                                  int row_idx, bool col_const) const override;
 
 private:
+    Status deserialize_one_cell_from_json(IColumn& column, Slice& slice,
+                                          const FormatOptions& options) const ;
     template <bool is_binary_format>
     Status _write_column_to_mysql(const IColumn& column, MysqlRowBuffer<is_binary_format>& result,
                                   int row_idx, bool col_const) const;
@@ -77,7 +78,7 @@ class DataTypeDateTimeSerDe : public DataTypeDate64SerDe {
                                     FormatOptions& options) const override;
 
     Status deserialize_one_cell_from_json(IColumn& column, Slice& slice,
-                                          const FormatOptions& options) const override;
+                                          const FormatOptions& options) const ;
     Status deserialize_column_from_json_vector(IColumn& column, std::vector<Slice>& slices,
                                                int* num_deserialized,
                                                const FormatOptions& options) const override;

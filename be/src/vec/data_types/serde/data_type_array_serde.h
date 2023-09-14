@@ -44,15 +44,12 @@ public:
     void serialize_column_to_json(const IColumn& column, int start_idx, int end_idx,
                                   BufferWritable& bw, FormatOptions& options) const override;
 
-    Status deserialize_one_cell_from_json(IColumn& column, Slice& slice,
-                                          const FormatOptions& options) const override;
+
 
     Status deserialize_column_from_json_vector(IColumn& column, std::vector<Slice>& slices,
                                                int* num_deserialized,
                                                const FormatOptions& options) const override;
-    Status deserialize_one_cell_from_hive_text(IColumn& column, Slice& slice,
-                                               const FormatOptions& options,
-                                               int nesting_level = 1) const override;
+
 
     Status deserialize_column_from_hive_text_vector(IColumn& column, std::vector<Slice>& slices,
                                                     int* num_deserialized,
@@ -93,6 +90,11 @@ public:
     }
 
 private:
+    Status deserialize_one_cell_from_json(IColumn& column, Slice& slice,
+                                          const FormatOptions& options) const ;
+    Status deserialize_one_cell_from_hive_text(IColumn& column, Slice& slice,
+                                               const FormatOptions& options,
+                                               int nesting_level = 1) const ;
     template <bool is_binary_format>
     Status _write_column_to_mysql(const IColumn& column, MysqlRowBuffer<is_binary_format>& result,
                                   int row_idx, bool col_const) const;

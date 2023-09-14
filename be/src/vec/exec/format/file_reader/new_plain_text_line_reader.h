@@ -46,7 +46,7 @@ public:
     /// @brief find line delimiter from 'start' to 'start' + len,
     // info about the current line may be record to the ctx, like column seprator pos.
     /// @return line delimiter pos if found, otherwise return nullptr.
-    virtual const uint8_t* read_line(const uint8_t* start, const size_t len) = 0;
+    virtual const uint8_t* read_line(const uint8_t* start, const size_t len,bool = true) = 0;
 
     /// @return length of line delimiter
     [[nodiscard]] virtual size_t line_delimiter_length() const = 0;
@@ -65,7 +65,7 @@ public:
                                        const size_t line_delimiter_len_)
             : line_delimiter(line_delimiter_), line_delimiter_len(line_delimiter_len_) {}
 
-    inline const uint8_t* read_line(const uint8_t* start, const size_t len) final {
+    inline const uint8_t* read_line(const uint8_t* start, const size_t len,bool = true) final {
         return static_cast<Ctx*>(this)->read_line_impl(start, len);
     }
 
@@ -188,7 +188,7 @@ public:
     ~NewPlainTextLineReader() override;
 
     Status read_line(const uint8_t** ptr, size_t* size, bool* eof,
-                     const io::IOContext* io_ctx) override;
+                     const io::IOContext* io_ctx,bool = true) override;
 
     inline TextLineReaderCtxPtr text_line_reader_ctx() { return _line_reader_ctx; }
 
@@ -208,7 +208,7 @@ private:
     bool done() { return _file_eof && output_buf_read_remaining() == 0; }
 
     void extend_input_buf();
-    void extend_output_buf();
+    void extend_output_buf(bool fg = true);
 
     RuntimeProfile* _profile;
     io::FileReaderSPtr _file_reader;

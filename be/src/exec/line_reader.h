@@ -29,7 +29,7 @@ class LineReader {
 public:
     virtual ~LineReader() = default;
     virtual Status read_line(const uint8_t** ptr, size_t* size, bool* eof,
-                             const io::IOContext* io_ctx) = 0;
+                             const io::IOContext* io_ctx,bool = true) = 0;
 
     virtual void close() = 0;
 };
