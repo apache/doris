@@ -205,8 +205,8 @@ Status VerticalBlockReader::init(const ReaderParams& read_params) {
 
     auto status = _init_collect_iter(read_params);
     if (!status.ok()) {
-        if (status.is<IO_ERROR>()) {
-            _tablet->increase_io_error_times();
+        if (UNLIKELY(!res.ok() && !res.is<ErrorCode::END_OF_FILE>())) {
+            _tablet->report_error(res);
         }
         return status;
     }
