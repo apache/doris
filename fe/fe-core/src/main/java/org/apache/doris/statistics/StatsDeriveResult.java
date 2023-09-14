@@ -144,13 +144,6 @@ public class StatsDeriveResult {
         return statsDeriveResult;
     }
 
-    public StatsDeriveResult merge(StatsDeriveResult other) {
-        for (Entry<Id, ColumnStatistic> entry : other.getSlotIdToColumnStats().entrySet()) {
-            this.slotIdToColumnStats.put(entry.getKey(), entry.getValue().copy());
-        }
-        return this;
-    }
-
     public StatsDeriveResult copy() {
         return new StatsDeriveResult(this);
     }
