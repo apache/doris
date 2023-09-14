@@ -22,7 +22,7 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-## MD5
+## SHA2
 
 ### description
 
