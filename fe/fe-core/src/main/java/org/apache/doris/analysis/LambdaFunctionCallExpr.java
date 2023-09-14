@@ -61,6 +61,11 @@ public class LambdaFunctionCallExpr extends FunctionCallExpr {
         super(other);
     }
 
+    // nereids high order function call expr constructor without finalize/analyze
+    public LambdaFunctionCallExpr(Function function, FunctionParams functionParams) {
+        super(function, functionParams, null, false, functionParams.exprs());
+    }
+
     @Override
     public Expr clone() {
         return new LambdaFunctionCallExpr(this);
@@ -262,5 +267,38 @@ public class LambdaFunctionCallExpr extends FunctionCallExpr {
         } else {
             msg.node_type = TExprNodeType.LAMBDA_FUNCTION_CALL_EXPR;
         }
+    }
+
+    @Override
+    public String toSqlImpl() {
+        StringBuilder sb = new StringBuilder();
+        sb.append(getFnName().getFunction());
+        sb.append("(");
+        int childSize = children.size();
+        Expr lastExpr = getChild(childSize - 1);
+        // eg: select array_map(x->x>10, k1) from table,
+        // but we need analyze each param, so change the function like this in parser
+        // array_map(x->x>10, k1) ---> array_map(k1, x->x>10),
+        // so maybe the lambda expr is the end position. and need this check.
+        boolean lastIsLambdaExpr = (lastExpr instanceof LambdaFunctionExpr);
+        if (lastIsLambdaExpr) {
+            sb.append(lastExpr.toSql());
+            sb.append(", ");
+        }
+        for (int i = 0; i < childSize - 1; ++i) {
+            sb.append(getChild(i).toSql());
+            if (i != childSize - 2) {
+                sb.append(", ");
+            }
+        }
+        // and some functions is only implement as a normal array function;
+        // but also want use as lambda function, select array_sortby(x->x,['b','a','c']);
+        // so we convert to: array_sortby(array('b', 'a', 'c'), array_map(x -> `x`, array('b', 'a', 'c')))
+        if (lastIsLambdaExpr == false) {
+            sb.append(", ");
+            sb.append(lastExpr.toSql());
+        }
+        sb.append(")");
+        return sb.toString();
     }
 }

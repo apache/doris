@@ -16,6 +16,11 @@
 // under the License.
 
 suite("test_export_with_hdfs", "p2") {
+    // open nereids
+    sql """ set enable_nereids_planner=true """
+    sql """ set enable_fallback_to_original_planner=false """
+
+
     String nameNodeHost = context.config.otherConfigs.get("extHiveHmsHost")
     String hdfsPort = context.config.otherConfigs.get("extHdfsPort")
     String fs = "hdfs://${nameNodeHost}:${hdfsPort}"

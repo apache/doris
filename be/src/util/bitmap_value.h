@@ -76,10 +76,14 @@ struct BitmapTypeCode {
         //
         // added in 0.12
         BITMAP64 = 4,
-        SET = 5
+        SET = 5, // V1
+        SET_V2 = 10,
+        BITMAP32_V2 = 12,
+        BITMAP64_V2 = 13,
+        TYPE_MAX
     };
     Status static inline validate(int bitmap_type) {
-        if (UNLIKELY(bitmap_type < type::EMPTY || bitmap_type > type::SET)) {
+        if (UNLIKELY(bitmap_type < type::EMPTY || bitmap_type >= type::TYPE_MAX)) {
             std::string err_msg =
                     fmt::format("BitmapTypeCode invalid, should between: {} and {} actrual is {}",
                                 BitmapTypeCode::EMPTY, BitmapTypeCode::BITMAP64, bitmap_type);
@@ -699,29 +703,35 @@ public:
      * write a bitmap to a char buffer.
      * Returns how many bytes were written which should be getSizeInBytes().
      */
-    size_t write(char* buf) const {
+    size_t write(char* buf, int serialize_version) const {
+        bool is_v1 = serialize_version == 1;
+        BitmapTypeCode::type type_bitmap32 =
+                is_v1 ? BitmapTypeCode::type::BITMAP32 : BitmapTypeCode::type::BITMAP32_V2;
+        BitmapTypeCode::type type_bitmap64 =
+                is_v1 ? BitmapTypeCode::type::BITMAP64 : BitmapTypeCode::type::BITMAP64_V2;
+
         if (is32BitsEnough()) {
-            *(buf++) = BitmapTypeCode::type::BITMAP32;
+            *(buf++) = type_bitmap32;
             auto it = roarings.find(0);
             if (it == roarings.end()) { // empty bitmap
                 roaring::Roaring r;
-                return r.write(buf) + 1;
+                return r.write(buf, is_v1) + 1;
             }
-            return it->second.write(buf) + 1;
+            return it->second.write(buf, is_v1) + 1;
         }
 
         const char* orig = buf;
         // put type code
-        *(buf++) = BitmapTypeCode::type::BITMAP64;
+        *(buf++) = type_bitmap64;
         // push map size
         buf = (char*)encode_varint64((uint8_t*)buf, roarings.size());
         std::for_each(roarings.cbegin(), roarings.cend(),
-                      [&buf](const std::pair<const uint32_t, roaring::Roaring>& map_entry) {
+                      [&buf, is_v1](const std::pair<const uint32_t, roaring::Roaring>& map_entry) {
                           // push map key
                           encode_fixed32_le((uint8_t*)buf, map_entry.first);
                           buf += sizeof(uint32_t);
                           // push map value Roaring
-                          buf += map_entry.second.write(buf);
+                          buf += map_entry.second.write(buf, is_v1);
                       });
         return buf - orig;
     }
@@ -735,13 +745,16 @@ public:
     static Roaring64Map read(const char* buf) {
         Roaring64Map result;
 
-        if (*buf == BitmapTypeCode::BITMAP32) {
-            roaring::Roaring read = roaring::Roaring::read(buf + 1);
+        bool is_v1 = BitmapTypeCode::BITMAP32 == *buf || BitmapTypeCode::BITMAP64 == *buf;
+        bool is_bitmap32 = BitmapTypeCode::BITMAP32 == *buf || BitmapTypeCode::BITMAP32_V2 == *buf;
+        bool is_bitmap64 = BitmapTypeCode::BITMAP64 == *buf || BitmapTypeCode::BITMAP64_V2 == *buf;
+        if (is_bitmap32) {
+            roaring::Roaring read = roaring::Roaring::read(buf + 1, is_v1);
             result.emplaceOrInsert(0, std::move(read));
             return result;
         }
 
-        DCHECK_EQ(BitmapTypeCode::BITMAP64, *buf);
+        DCHECK(is_bitmap64);
         buf++;
 
         // get map size (varint64 took 1~10 bytes)
@@ -755,9 +768,9 @@ public:
             uint32_t key = decode_fixed32_le(reinterpret_cast<const uint8_t*>(buf));
             buf += sizeof(uint32_t);
             // read map value Roaring
-            roaring::Roaring read_var = roaring::Roaring::read(buf);
+            roaring::Roaring read_var = roaring::Roaring::read(buf, is_v1);
             // forward buffer past the last Roaring Bitmap
-            buf += read_var.getSizeInBytes();
+            buf += read_var.getSizeInBytes(is_v1);
             result.emplaceOrInsert(key, std::move(read_var));
         }
         return result;
@@ -766,14 +779,15 @@ public:
     /**
      * How many bytes are required to serialize this bitmap
      */
-    size_t getSizeInBytes() const {
+    size_t getSizeInBytes(int serialize_version) const {
+        bool is_v1 = serialize_version == 1;
         if (is32BitsEnough()) {
             auto it = roarings.find(0);
             if (it == roarings.end()) { // empty bitmap
                 roaring::Roaring r;
-                return r.getSizeInBytes() + 1;
+                return r.getSizeInBytes(is_v1) + 1;
             }
-            return it->second.getSizeInBytes() + 1;
+            return it->second.getSizeInBytes(is_v1) + 1;
         }
         // start with type code, map size and size of keys for each map entry
         size_t init = 1 + varint_length(roarings.size()) + roarings.size() * sizeof(uint32_t);
@@ -781,7 +795,7 @@ public:
                 roarings.cbegin(), roarings.cend(), init,
                 [=](size_t previous, const std::pair<const uint32_t, roaring::Roaring>& map_entry) {
                     // add in bytes used by each Roaring
-                    return previous + map_entry.second.getSizeInBytes();
+                    return previous + map_entry.second.getSizeInBytes(is_v1);
                 });
     }
 
@@ -1314,10 +1328,11 @@ public:
         case SET:
             return BitmapTypeCode::SET;
         case BITMAP:
+            bool is_v1 = (config::bitmap_serialize_version == 1);
             if (_bitmap->is32BitsEnough()) {
-                return BitmapTypeCode::BITMAP32;
+                return is_v1 ? BitmapTypeCode::type::BITMAP32 : BitmapTypeCode::type::BITMAP32_V2;
             } else {
-                return BitmapTypeCode::BITMAP64;
+                return is_v1 ? BitmapTypeCode::type::BITMAP64 : BitmapTypeCode::type::BITMAP64_V2;
             }
         }
     }
@@ -2167,7 +2182,7 @@ public:
         case BITMAP:
             _bitmap->runOptimize();
             _bitmap->shrinkToFit();
-            res = _bitmap->getSizeInBytes();
+            res = _bitmap->getSizeInBytes(config::bitmap_serialize_version);
             break;
         case SET:
             /// 1 byte for type, 1 byte for count
@@ -2205,7 +2220,7 @@ public:
             }
             break;
         case BITMAP:
-            _bitmap->write(dst);
+            _bitmap->write(dst, config::bitmap_serialize_version);
             break;
         }
     }
@@ -2235,6 +2250,8 @@ public:
             break;
         case BitmapTypeCode::BITMAP32:
         case BitmapTypeCode::BITMAP64:
+        case BitmapTypeCode::BITMAP32_V2:
+        case BitmapTypeCode::BITMAP64_V2:
             _type = BITMAP;
             _prepare_bitmap_for_write();
             *_bitmap = detail::Roaring64Map::read(src);
@@ -2257,6 +2274,34 @@ public:
                 }
                 _type = BITMAP;
                 _set.clear();
+            }
+            break;
+        }
+        case BitmapTypeCode::SET_V2: {
+            uint32_t size = 0;
+            memcpy(&size, src + 1, sizeof(uint32_t));
+            src += sizeof(uint32_t) + 1;
+
+            if (!config::enable_set_in_bitmap_value || size > SET_TYPE_THRESHOLD) {
+                _type = BITMAP;
+                _prepare_bitmap_for_write();
+
+                for (int i = 0; i < size; ++i) {
+                    uint64_t key {};
+                    memcpy(&key, src, sizeof(uint64_t));
+                    _bitmap->add(key);
+                    src += sizeof(uint64_t);
+                }
+            } else {
+                _type = SET;
+                _set.reserve(size);
+
+                for (int i = 0; i < size; ++i) {
+                    uint64_t key {};
+                    memcpy(&key, src, sizeof(uint64_t));
+                    _set.insert(key);
+                    src += sizeof(uint64_t);
+                }
             }
             break;
         }

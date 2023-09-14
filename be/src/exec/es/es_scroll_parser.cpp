@@ -347,7 +347,16 @@ template <typename T>
 Status insert_int_value(const rapidjson::Value& col, PrimitiveType type,
                         vectorized::IColumn* col_ptr, bool pure_doc_value, bool nullable) {
     if (col.IsNumber()) {
-        T value = (T)(sizeof(T) < 8 ? col.GetInt() : col.GetInt64());
+        T value;
+        // ES allows inserting float and double in int/long types.
+        // To parse these numbers in Doris, we direct cast them to int types.
+        if (col.IsDouble()) {
+            value = static_cast<T>(col.GetDouble());
+        } else if (col.IsFloat()) {
+            value = static_cast<T>(col.GetFloat());
+        } else {
+            value = (T)(sizeof(T) < 8 ? col.GetInt() : col.GetInt64());
+        }
         col_ptr->insert_data(const_cast<const char*>(reinterpret_cast<char*>(&value)), 0);
         return Status::OK();
     }
@@ -363,8 +372,14 @@ Status insert_int_value(const rapidjson::Value& col, PrimitiveType type,
     RETURN_ERROR_IF_COL_IS_NOT_STRING(col, type);
 
     StringParser::ParseResult result;
-    const std::string& val = col.GetString();
-    size_t len = col.GetStringLength();
+    std::string val = col.GetString();
+    // ES allows inserting numbers and characters containing decimals in numeric types.
+    // To parse these numbers in Doris, we remove the decimals here.
+    size_t pos = val.find(".");
+    if (pos != std::string::npos) {
+        val = val.substr(0, pos);
+    }
+    size_t len = val.length();
     T v = StringParser::string_to_int<T>(val.c_str(), len, &result);
     RETURN_ERROR_IF_PARSING_FAILED(result, col, type);
 

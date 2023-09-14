@@ -113,7 +113,7 @@ void StreamLoadAction::handle(HttpRequest* req) {
             _exec_env->stream_load_executor()->rollback_txn(ctx.get());
             ctx->need_rollback = false;
         }
-        if (ctx->body_sink.get() != nullptr) {
+        if (ctx->body_sink != nullptr) {
             ctx->body_sink->cancel(ctx->status.to_string());
         }
     }
@@ -194,7 +194,7 @@ int StreamLoadAction::on_header(HttpRequest* req) {
             _exec_env->stream_load_executor()->rollback_txn(ctx.get());
             ctx->need_rollback = false;
         }
-        if (ctx->body_sink.get() != nullptr) {
+        if (ctx->body_sink != nullptr) {
             ctx->body_sink->cancel(ctx->status.to_string());
         }
         auto str = ctx->to_json();
@@ -230,6 +230,10 @@ Status StreamLoadAction::_on_header(HttpRequest* http_req, std::shared_ptr<Strea
         iequal(format_str, BeConsts::CSV_WITH_NAMES_AND_TYPES)) {
         ctx->header_type = format_str;
         //treat as CSV
+        format_str = BeConsts::CSV;
+    }
+    if (iequal(format_str, "hive_text")) {
+        ctx->header_type = format_str;
         format_str = BeConsts::CSV;
     }
     LoadUtil::parse_format(format_str, http_req->header(HTTP_COMPRESS_TYPE), &ctx->format,

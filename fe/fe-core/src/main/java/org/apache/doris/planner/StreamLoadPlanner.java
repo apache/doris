@@ -212,6 +212,11 @@ public class StreamLoadPlanner {
             }
         }
 
+        scanTupleDesc.setTable(destTable);
+        analyzer.registerTupleDescriptor(scanTupleDesc);
+        if (null != taskInfo.getWhereExpr()) {
+            taskInfo.getWhereExpr().analyze(analyzer);
+        }
         // create scan node
         FileLoadScanNode fileScanNode = new FileLoadScanNode(new PlanNodeId(0), scanTupleDesc);
         // 1. create file group
@@ -416,7 +421,11 @@ public class StreamLoadPlanner {
                 throw new DdlException("Column is not SUM AggregateType. column:" + col.getName());
             }
         }
-
+        scanTupleDesc.setTable(destTable);
+        analyzer.registerTupleDescriptor(scanTupleDesc);
+        if (null != taskInfo.getWhereExpr()) {
+            taskInfo.getWhereExpr().analyze(analyzer);
+        }
         // create scan node
         FileLoadScanNode fileScanNode = new FileLoadScanNode(new PlanNodeId(0), scanTupleDesc);
         // 1. create file group
@@ -567,6 +576,10 @@ public class StreamLoadPlanner {
             return partitionIds;
         }
         return null;
+    }
+
+    public DescriptorTable getDescTable() {
+        return descTable;
     }
 }
 

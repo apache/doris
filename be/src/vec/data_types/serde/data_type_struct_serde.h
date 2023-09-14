@@ -36,33 +36,108 @@ class Arena;
 
 class DataTypeStructSerDe : public DataTypeSerDe {
 public:
-    DataTypeStructSerDe(const DataTypeSerDeSPtrs& _elemSerDeSPtrs)
-            : elemSerDeSPtrs(_elemSerDeSPtrs) {}
+    static bool next_slot_from_string(ReadBuffer& rb, StringRef& output, bool& is_name,
+                                      bool& has_quota) {
+        StringRef element(rb.position(), 0);
+        has_quota = false;
+        is_name = false;
+        if (rb.eof()) {
+            return false;
+        }
 
-    void serialize_one_cell_to_text(const IColumn& column, int row_num, BufferWritable& bw,
+        // ltrim
+        while (!rb.eof() && isspace(*rb.position())) {
+            ++rb.position();
+            element.data = rb.position();
+        }
+
+        // parse string
+        if (*rb.position() == '"' || *rb.position() == '\'') {
+            const char str_sep = *rb.position();
+            size_t str_len = 1;
+            // search until next '"' or '\''
+            while (str_len < rb.count() && *(rb.position() + str_len) != str_sep) {
+                ++str_len;
+            }
+            // invalid string
+            if (str_len >= rb.count()) {
+                rb.position() = rb.end();
+                return false;
+            }
+            has_quota = true;
+            rb.position() += str_len + 1;
+            element.size += str_len + 1;
+        }
+
+        // parse element until separator ':' or ',' or end '}'
+        while (!rb.eof() && (*rb.position() != ':') && (*rb.position() != ',') &&
+               (rb.count() != 1 || *rb.position() != '}')) {
+            if (has_quota && !isspace(*rb.position())) {
+                return false;
+            }
+            ++rb.position();
+            ++element.size;
+        }
+        // invalid element
+        if (rb.eof()) {
+            return false;
+        }
+
+        if (*rb.position() == ':') {
+            is_name = true;
+        }
+
+        // adjust read buffer position to first char of next element
+        ++rb.position();
+
+        // rtrim
+        while (element.size > 0 && isspace(element.data[element.size - 1])) {
+            --element.size;
+        }
+
+        // trim '"' and '\'' for string
+        if (element.size >= 2 && (element.data[0] == '"' || element.data[0] == '\'') &&
+            element.data[0] == element.data[element.size - 1]) {
+            ++element.data;
+            element.size -= 2;
+        }
+        output = element;
+        return true;
+    }
+
+    DataTypeStructSerDe(const DataTypeSerDeSPtrs& _elemSerDeSPtrs, const Strings names)
+            : elemSerDeSPtrs(_elemSerDeSPtrs), elemNames(names) {}
+
+    void serialize_one_cell_to_json(const IColumn& column, int row_num, BufferWritable& bw,
                                     FormatOptions& options) const override {
         throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
-                               "serialize_one_cell_to_text with type " + column.get_name());
+                               "serialize_one_cell_to_json with type " + column.get_name());
     }
 
-    void serialize_column_to_text(const IColumn& column, int start_idx, int end_idx,
+    void serialize_column_to_json(const IColumn& column, int start_idx, int end_idx,
                                   BufferWritable& bw, FormatOptions& options) const override {
         throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
-                               "serialize_column_to_text with type " + column.get_name());
+                               "serialize_column_to_json with type " + column.get_name());
     }
 
-    Status deserialize_one_cell_from_text(IColumn& column, Slice& slice,
-                                          const FormatOptions& options) const override {
-        return Status::NotSupported("deserialize_one_cell_from_text with type " +
-                                    column.get_name());
-    }
+    Status deserialize_one_cell_from_json(IColumn& column, Slice& slice,
+                                          const FormatOptions& options) const override;
 
-    Status deserialize_column_from_text_vector(IColumn& column, std::vector<Slice>& slices,
+    Status deserialize_column_from_json_vector(IColumn& column, std::vector<Slice>& slices,
                                                int* num_deserialized,
-                                               const FormatOptions& options) const override {
-        return Status::NotSupported("deserialize_column_from_text_vector with type " +
-                                    column.get_name());
-    }
+                                               const FormatOptions& options) const override;
+
+    Status deserialize_one_cell_from_hive_text(IColumn& column, Slice& slice,
+                                               const FormatOptions& options,
+                                               int nesting_level = 1) const override;
+    Status deserialize_column_from_hive_text_vector(IColumn& column, std::vector<Slice>& slices,
+                                                    int* num_deserialized,
+                                                    const FormatOptions& options,
+                                                    int nesting_level = 1) const override;
+    void serialize_one_cell_to_hive_text(const IColumn& column, int row_num, BufferWritable& bw,
+                                         FormatOptions& options,
+                                         int nesting_level = 1) const override;
+
     Status write_column_to_pb(const IColumn& column, PValues& result, int start,
                               int end) const override {
         return Status::NotSupported("write_column_to_pb with type " + column.get_name());
@@ -94,6 +169,8 @@ public:
     }
 
 private:
+    std::optional<size_t> try_get_position_by_name(const String& name) const;
+
     template <bool is_binary_format>
     Status _write_column_to_mysql(const IColumn& column, bool return_object_data_as_binary,
                                   std::vector<MysqlRowBuffer<is_binary_format>>& result,
@@ -103,6 +180,7 @@ private:
                                   int row_idx, bool col_const) const;
 
     DataTypeSerDeSPtrs elemSerDeSPtrs;
+    Strings elemNames;
 };
 } // namespace vectorized
 } // namespace doris

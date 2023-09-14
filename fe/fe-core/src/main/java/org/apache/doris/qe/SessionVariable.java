@@ -49,6 +49,8 @@ import java.io.DataOutput;
 import java.io.IOException;
 import java.io.Serializable;
 import java.lang.reflect.Field;
+import java.time.format.DateTimeFormatter;
+import java.time.format.DateTimeParseException;
 import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
@@ -374,6 +376,7 @@ public class SessionVariable implements Serializable, Writable {
     public static final String EXTERNAL_TABLE_ANALYZE_PART_NUM = "external_table_analyze_part_num";
 
     public static final String ENABLE_STRONG_CONSISTENCY = "enable_strong_consistency_read";
+    public static final String ENABLE_INSERT_GROUP_COMMIT = "enable_insert_group_commit";
 
     public static final String PARALLEL_SYNC_ANALYZE_TASK_NUM = "parallel_sync_analyze_task_num";
 
@@ -393,6 +396,12 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String ENABLE_MEMTABLE_ON_SINK_NODE =
             "enable_memtable_on_sink_node";
+
+    public static final String INVERTED_INDEX_CONJUNCTION_OPT_THRESHOLD = "inverted_index_conjunction_opt_threshold";
+
+    public static final String FULL_AUTO_ANALYZE_START_TIME = "full_auto_analyze_start_time";
+
+    public static final String FULL_AUTO_ANALYZE_END_TIME = "full_auto_analyze_end_time";
 
     public static final List<String> DEBUG_VARIABLES = ImmutableList.of(
             SKIP_DELETE_PREDICATE,
@@ -1143,6 +1152,30 @@ public class SessionVariable implements Serializable, Writable {
 
     @VariableMgr.VarAttr(name = ENABLE_MEMTABLE_ON_SINK_NODE, needForward = true)
     public boolean enableMemtableOnSinkNode = false;
+
+    @VariableMgr.VarAttr(name = ENABLE_INSERT_GROUP_COMMIT)
+    public boolean enableInsertGroupCommit = false;
+
+    @VariableMgr.VarAttr(name = INVERTED_INDEX_CONJUNCTION_OPT_THRESHOLD,
+            description = {"在match_all中求取多个倒排索引的交集时,如果最大的倒排索引中的总数是最小倒排索引中的总数的整数倍,"
+                    + "则使用跳表来优化交集操作。",
+                    "When intersecting multiple inverted indexes in match_all,"
+                    + " if the maximum total count of the largest inverted index"
+                    + " is a multiple of the minimum total count of the smallest inverted index,"
+                    + " use a skiplist to optimize the intersection."})
+    public int invertedIndexConjunctionOptThreshold = 1000;
+
+    @VariableMgr.VarAttr(name = FULL_AUTO_ANALYZE_START_TIME, needForward = true, checker = "checkAnalyzeTimeFormat",
+            description = {"该参数定义自动ANALYZE例程的开始时间",
+                    "This parameter defines the start time for the automatic ANALYZE routine."},
+            flag = VariableMgr.GLOBAL)
+    public String fullAutoAnalyzeStartTime = "";
+
+    @VariableMgr.VarAttr(name = FULL_AUTO_ANALYZE_END_TIME, needForward = true, checker = "checkAnalyzeTimeFormat",
+            description = {"该参数定义自动ANALYZE例程的结束时间",
+                    "This parameter defines the end time for the automatic ANALYZE routine."},
+            flag = VariableMgr.GLOBAL)
+    public String fullAutoAnalyzeEndTime = "";
 
     // If this fe is in fuzzy mode, then will use initFuzzyModeVariables to generate some variables,
     // not the default value set in the code.
@@ -2166,7 +2199,13 @@ public class SessionVariable implements Serializable, Writable {
         tResult.setBufferPoolLimit(maxExecMemByte);
 
         tResult.setQueryTimeout(queryTimeoutS);
-        tResult.setIsReportSuccess(enableProfile);
+        tResult.setEnableProfile(enableProfile);
+        if (enableProfile) {
+            // If enable profile == true, then also set report success to true
+            // be need report success to start report thread. But it is very tricky
+            // we should modify BE in the future.
+            tResult.setIsReportSuccess(true);
+        }
         tResult.setCodegenLevel(codegenLevel);
         tResult.setBeExecVersion(Config.be_exec_version);
         tResult.setEnablePipelineEngine(enablePipelineEngine);
@@ -2238,6 +2277,8 @@ public class SessionVariable implements Serializable, Writable {
         tResult.setEnableDeleteSubPredicateV2(enableDeleteSubPredicateV2);
         tResult.setTruncateCharOrVarcharColumns(truncateCharOrVarcharColumns);
         tResult.setEnableMemtableOnSinkNode(enableMemtableOnSinkNode);
+
+        tResult.setInvertedIndexConjunctionOptThreshold(invertedIndexConjunctionOptThreshold);
 
         return tResult;
     }
@@ -2554,6 +2595,16 @@ public class SessionVariable implements Serializable, Writable {
             return true;
         }
         return connectContext.getSessionVariable().enableAggState;
+    }
+
+    public void checkAnalyzeTimeFormat(String time) {
+        try {
+            DateTimeFormatter timeFormatter = DateTimeFormatter.ofPattern("HH:mm:ss");
+            timeFormatter.parse(time);
+        } catch (DateTimeParseException e) {
+            LOG.warn("Parse analyze start/end time format fail", e);
+            throw new UnsupportedOperationException("Expect format: HH:mm:ss");
+        }
     }
 }
 

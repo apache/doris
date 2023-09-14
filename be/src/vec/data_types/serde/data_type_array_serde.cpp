@@ -31,13 +31,13 @@ namespace doris {
 namespace vectorized {
 class Arena;
 
-void DataTypeArraySerDe::serialize_column_to_text(const IColumn& column, int start_idx, int end_idx,
+void DataTypeArraySerDe::serialize_column_to_json(const IColumn& column, int start_idx, int end_idx,
                                                   BufferWritable& bw,
                                                   FormatOptions& options) const {
-    SERIALIZE_COLUMN_TO_TEXT()
+    SERIALIZE_COLUMN_TO_JSON()
 }
 
-void DataTypeArraySerDe::serialize_one_cell_to_text(const IColumn& column, int row_num,
+void DataTypeArraySerDe::serialize_one_cell_to_json(const IColumn& column, int row_num,
                                                     BufferWritable& bw,
                                                     FormatOptions& options) const {
     auto result = check_column_const_set_readability(column, row_num);
@@ -57,30 +57,23 @@ void DataTypeArraySerDe::serialize_one_cell_to_text(const IColumn& column, int r
     //  add ' ' to keep same with origin format with array
     options.field_delim = options.collection_delim;
     options.field_delim += " ";
-    nested_serde->serialize_column_to_text(nested_column, offset, next_offset, bw, options);
+    nested_serde->serialize_column_to_json(nested_column, offset, next_offset, bw, options);
     bw.write("]", 1);
 }
 
-Status DataTypeArraySerDe::deserialize_column_from_text_vector(IColumn& column,
+Status DataTypeArraySerDe::deserialize_column_from_json_vector(IColumn& column,
                                                                std::vector<Slice>& slices,
                                                                int* num_deserialized,
                                                                const FormatOptions& options) const {
-    DCHECK(!slices.empty());
-    int end = num_deserialized && *num_deserialized > 0 ? *num_deserialized : slices.size();
-
-    for (int i = 0; i < end; ++i) {
-        if (Status st = deserialize_one_cell_from_text(column, slices[i], options);
-            st != Status::OK()) {
-            *num_deserialized = i + 1;
-            return st;
-        }
-    }
+    DESERIALIZE_COLUMN_FROM_JSON_VECTOR();
     return Status::OK();
 }
 
-Status DataTypeArraySerDe::deserialize_one_cell_from_text(IColumn& column, Slice& slice,
+Status DataTypeArraySerDe::deserialize_one_cell_from_json(IColumn& column, Slice& slice,
                                                           const FormatOptions& options) const {
-    DCHECK(!slice.empty());
+    if (slice.empty()) {
+        return Status::InvalidArgument("slice is empty!");
+    }
     auto& array_column = assert_cast<ColumnArray&>(column);
     auto& offsets = array_column.get_offsets();
     IColumn& nested_column = array_column.get_data();
@@ -123,22 +116,87 @@ Status DataTypeArraySerDe::deserialize_one_cell_from_text(IColumn& column, Slice
         } else if (!has_quote && nested_level == 0 && c == options.collection_delim) {
             // if meet collection_delimiter and not in quote, we can make it as an item.
             slices.back().remove_suffix(slice_size - idx);
+            // we do not handle item in array is empty,just return error
+            if (slices.back().empty()) {
+                return Status::InvalidArgument("here has item in Array({}) is empty!",
+                                               slice.to_string());
+            }
             // add next total slice.(slice data will not change, so we can use slice directly)
             // skip delimiter
             Slice next(slice.data + idx + 1, slice_size - idx - 1);
             next.trim_prefix();
-            if (options.converted_from_string) slices.back().trim_quote();
             slices.emplace_back(next);
         }
     }
 
-    if (options.converted_from_string) slices.back().trim_quote();
-
     int elem_deserialized = 0;
-    Status st = nested_serde->deserialize_column_from_text_vector(nested_column, slices,
+    Status st = nested_serde->deserialize_column_from_json_vector(nested_column, slices,
                                                                   &elem_deserialized, options);
     offsets.emplace_back(offsets.back() + elem_deserialized);
     return st;
+}
+
+Status DataTypeArraySerDe::deserialize_one_cell_from_hive_text(IColumn& column, Slice& slice,
+                                                               const FormatOptions& options,
+                                                               int nesting_level) const {
+    if (slice.empty()) {
+        return Status::InvalidArgument("slice is empty!");
+    }
+    auto& array_column = assert_cast<ColumnArray&>(column);
+    auto& offsets = array_column.get_offsets();
+    IColumn& nested_column = array_column.get_data();
+    DCHECK(nested_column.is_nullable());
+
+    char collection_delimiter = options.get_collection_delimiter(nesting_level);
+
+    std::vector<Slice> slices;
+    for (int idx = 0, start = 0; idx <= slice.size; idx++) {
+        char c = (idx == slice.size) ? collection_delimiter : slice[idx];
+        if (c == collection_delimiter) {
+            slices.emplace_back(slice.data + start, idx - start);
+            start = idx + 1;
+        }
+    }
+
+    int elem_deserialized = 0;
+    Status status = nested_serde->deserialize_column_from_hive_text_vector(
+            nested_column, slices, &elem_deserialized, options, nesting_level + 1);
+    offsets.emplace_back(offsets.back() + elem_deserialized);
+    return status;
+}
+
+Status DataTypeArraySerDe::deserialize_column_from_hive_text_vector(IColumn& column,
+                                                                    std::vector<Slice>& slices,
+                                                                    int* num_deserialized,
+                                                                    const FormatOptions& options,
+                                                                    int nesting_level) const {
+    DESERIALIZE_COLUMN_FROM_HIVE_TEXT_VECTOR();
+    return Status::OK();
+}
+
+void DataTypeArraySerDe::serialize_one_cell_to_hive_text(const IColumn& column, int row_num,
+                                                         BufferWritable& bw, FormatOptions& options,
+                                                         int nesting_level) const {
+    auto result = check_column_const_set_readability(column, row_num);
+    ColumnPtr ptr = result.first;
+    row_num = result.second;
+
+    auto& data_column = assert_cast<const ColumnArray&>(*ptr);
+    auto& offsets = data_column.get_offsets();
+
+    size_t start = offsets[row_num - 1];
+    size_t end = offsets[row_num];
+
+    const IColumn& nested_column = data_column.get_data();
+
+    char delimiter = options.get_collection_delimiter(nesting_level);
+    for (size_t i = start; i < end; ++i) {
+        if (i != start) {
+            bw.write(delimiter);
+        }
+        nested_serde->serialize_one_cell_to_hive_text(nested_column, i, bw, options,
+                                                      nesting_level + 1);
+    }
 }
 
 void DataTypeArraySerDe::write_one_cell_to_jsonb(const IColumn& column, JsonbWriter& result,

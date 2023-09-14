@@ -55,7 +55,7 @@ from ((select distinct c_last_name, c_first_name, d_date
 
     '''
     String plan = sql "${stmt}"
-    println plan
+    log.info(plan)
     def getRuntimeFilters = { plantree ->
         {
             def lst = []

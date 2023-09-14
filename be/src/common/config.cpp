@@ -39,7 +39,6 @@
 #include "common/config.h"
 #include "common/logging.h"
 #include "common/status.h"
-#include "io/fs/file_reader_writer_fwd.h"
 #include "io/fs/file_writer.h"
 #include "io/fs/local_file_system.h"
 
@@ -60,7 +59,7 @@ DEFINE_Int32(be_port, "9060");
 // port for brpc
 DEFINE_Int32(brpc_port, "8060");
 
-DEFINE_Int32(arrow_flight_port, "8070");
+DEFINE_Int32(arrow_flight_port, "-1");
 
 // the number of bthreads for brpc, the default value is set to -1,
 // which means the number of bthreads is #cpu-cores
@@ -480,9 +479,9 @@ DEFINE_Int32(tablet_writer_open_rpc_timeout_sec, "60");
 DEFINE_mBool(tablet_writer_ignore_eovercrowded, "true");
 DEFINE_mBool(exchange_sink_ignore_eovercrowded, "true");
 DEFINE_mInt32(slave_replica_writer_rpc_timeout_sec, "60");
-// Whether to enable stream load record function, the default is false.
+// Whether to enable stream load record function, the default is true.
 // False: disable stream load record
-DEFINE_mBool(enable_stream_load_record, "false");
+DEFINE_mBool(enable_stream_load_record, "true");
 // batch size of stream load record reported to FE
 DEFINE_mInt32(stream_load_record_batch_size, "50");
 // expire time of stream load record in rocksdb.
@@ -731,7 +730,11 @@ DEFINE_mInt32(mem_tracker_consume_min_size_bytes, "1048576");
 // In most cases, it does not need to be modified.
 DEFINE_mDouble(tablet_version_graph_orphan_vertex_ratio, "0.1");
 
-// number of brpc stream per OlapTableSinkV2
+// share brpc streams when memtable_on_sink_node = true
+DEFINE_Bool(share_load_streams, "true");
+// share delta writers when memtable_on_sink_node = true
+DEFINE_Bool(share_delta_writers, "true");
+// number of brpc stream per OlapTableSinkV2 (per load if share_load_streams = true)
 DEFINE_Int32(num_streams_per_sink, "5");
 // timeout for open stream sink rpc in ms
 DEFINE_Int64(open_stream_sink_timeout_ms, "500");
@@ -882,20 +885,14 @@ DEFINE_mInt32(remove_unused_remote_files_interval_sec, "21600"); // 6h
 DEFINE_mInt32(confirm_unused_remote_files_interval_sec, "60");
 DEFINE_Int32(cold_data_compaction_thread_num, "2");
 DEFINE_mInt32(cold_data_compaction_interval_sec, "1800");
-DEFINE_mInt64(generate_cache_cleaner_task_interval_sec, "43200"); // 12 h
 DEFINE_Int32(concurrency_per_dir, "2");
-DEFINE_mInt64(cooldown_lag_time_sec, "10800");       // 3h
-DEFINE_mInt64(max_sub_cache_file_size, "104857600"); // 100MB
-DEFINE_mInt64(file_cache_alive_time_sec, "604800");  // 1 week
 // file_cache_type is used to set the type of file cache for remote files.
 // "": no cache, "sub_file_cache": split sub files from remote file.
 // "whole_file_cache": the whole file.
 DEFINE_mString(file_cache_type, "file_block_cache");
-DEFINE_Validator(file_cache_type, [](const std::string config) -> bool {
-    return config == "sub_file_cache" || config == "whole_file_cache" || config == "" ||
-           config == "file_block_cache";
+DEFINE_Validator(file_cache_type, [](std::string_view config) -> bool {
+    return config == "" || config == "file_block_cache";
 });
-DEFINE_mInt64(file_cache_max_size_per_disk, "0"); // zero for no limit
 
 DEFINE_Int32(s3_transfer_executor_pool_size, "2");
 
@@ -980,6 +977,7 @@ DEFINE_Validator(file_cache_min_file_segment_size, [](const int64_t config) -> b
 });
 DEFINE_Bool(clear_file_cache, "false");
 DEFINE_Bool(enable_file_cache_query_limit, "false");
+DEFINE_mInt32(file_cache_wait_sec_after_fail, "0"); // // zero for no waiting and retrying
 
 DEFINE_mInt32(index_cache_entry_stay_time_after_lookup_s, "1800");
 DEFINE_mInt32(inverted_index_cache_stale_sweep_time_sec, "600");
@@ -1085,6 +1083,13 @@ DEFINE_mString(user_files_secure_path, "${DORIS_HOME}");
 DEFINE_Int32(partition_topn_partition_threshold, "1024");
 
 DEFINE_Int32(fe_expire_duration_seconds, "60");
+
+DEFINE_Int32(grace_shutdown_wait_seconds, "120");
+
+DEFINE_Int16(bitmap_serialize_version, "1");
+
+// the count of thread to group commit insert
+DEFINE_Int32(group_commit_insert_threads, "10");
 
 #ifdef BE_TEST
 // test s3

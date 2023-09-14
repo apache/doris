@@ -123,7 +123,7 @@ public:
 
     // Find the largest index entry whose key is <= search_key.
     // Return OK status when such entry exists.
-    // Return NotFound when no such entry is found (all keys > search_key).
+    // Return ENTRY_NOT_FOUND when no such entry is found (all keys > search_key).
     // Return other error status otherwise.
     Status seek_at_or_before(const Slice& search_key);
 

@@ -52,10 +52,18 @@ bool ResultSinkOperator::can_write() {
 
 Status ResultSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& info) {
     RETURN_IF_ERROR(PipelineXSinkLocalState<>::init(state, info));
-    auto& p = _parent->cast<ResultSinkOperatorX>();
     auto fragment_instance_id = state->fragment_instance_id();
     // create sender
-    _sender = info.sender;
+    std::shared_ptr<BufferControlBlock> sender = nullptr;
+    RETURN_IF_ERROR(state->exec_env()->result_mgr()->create_sender(
+            state->fragment_instance_id(), vectorized::RESULT_SINK_BUFFER_SIZE, &_sender, true,
+            state->execution_timeout()));
+    return Status::OK();
+}
+
+Status ResultSinkLocalState::open(RuntimeState* state) {
+    RETURN_IF_ERROR(PipelineXSinkLocalState<>::open(state));
+    auto& p = _parent->cast<ResultSinkOperatorX>();
     _output_vexpr_ctxs.resize(p._output_vexpr_ctxs.size());
     for (size_t i = 0; i < _output_vexpr_ctxs.size(); i++) {
         RETURN_IF_ERROR(p._output_vexpr_ctxs[i]->clone(state, _output_vexpr_ctxs[i]));

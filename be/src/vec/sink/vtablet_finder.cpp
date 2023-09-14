@@ -18,6 +18,9 @@
 #include "vec/sink/vtablet_finder.h"
 
 #include <fmt/format.h>
+#include <gen_cpp/Exprs_types.h>
+#include <gen_cpp/FrontendService_types.h>
+#include <glog/logging.h>
 
 #include <memory>
 #include <string>
@@ -28,37 +31,48 @@
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/status.h"
 #include "exec/tablet_info.h"
+#include "exprs/runtime_filter.h"
+#include "gutil/integral_types.h"
 #include "runtime/descriptors.h"
 #include "runtime/runtime_state.h"
 #include "vec/core/block.h"
+#include "vec/core/columns_with_type_and_name.h"
+#include "vec/data_types/data_type.h"
+#include "vec/functions/simple_function_factory.h"
 
 namespace doris {
 namespace stream_load {
 
 Status OlapTabletFinder::find_tablet(RuntimeState* state, vectorized::Block* block, int row_index,
                                      const VOlapTablePartition** partition, uint32_t& tablet_index,
-                                     bool& stop_processing, bool& is_continue) {
+                                     bool& stop_processing, bool& is_continue,
+                                     bool* missing_partition) {
     Status status = Status::OK();
     *partition = nullptr;
     tablet_index = 0;
     BlockRow block_row;
     block_row = {block, row_index};
     if (!_vpartition->find_partition(&block_row, partition)) {
-        RETURN_IF_ERROR(state->append_error_msg_to_file(
-                []() -> std::string { return ""; },
-                [&]() -> std::string {
-                    fmt::memory_buffer buf;
-                    fmt::format_to(buf, "no partition for this tuple. tuple={}",
-                                   block->dump_data(row_index, 1));
-                    return fmt::to_string(buf);
-                },
-                &stop_processing));
-        _num_filtered_rows++;
-        if (stop_processing) {
-            return Status::EndOfFile("Encountered unqualified data, stop processing");
+        if (missing_partition != nullptr) { // auto partition table
+            *missing_partition = true;
+            return status;
+        } else {
+            RETURN_IF_ERROR(state->append_error_msg_to_file(
+                    []() -> std::string { return ""; },
+                    [&]() -> std::string {
+                        fmt::memory_buffer buf;
+                        fmt::format_to(buf, "no partition for this tuple. tuple=\n{}",
+                                       block->dump_data(row_index, 1));
+                        return fmt::to_string(buf);
+                    },
+                    &stop_processing));
+            _num_filtered_rows++;
+            if (stop_processing) {
+                return Status::EndOfFile("Encountered unqualified data, stop processing");
+            }
+            is_continue = true;
+            return status;
         }
-        is_continue = true;
-        return status;
     }
     if (!(*partition)->is_mutable) {
         _num_immutable_partition_filtered_rows++;

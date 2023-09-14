@@ -37,7 +37,7 @@ Usage: $0 <options>
      --stop             stop the specified components
 
   All valid components:
-    mysql,pg,oracle,sqlserver,clickhouse,es,hive,iceberg,hudi,trino
+    mysql,pg,oracle,sqlserver,clickhouse,es,hive,iceberg,hudi,trino,kafka
   "
     exit 1
 }
@@ -60,7 +60,7 @@ STOP=0
 
 if [[ "$#" == 1 ]]; then
     # default
-    COMPONENTS="mysql,pg,oracle,sqlserver,clickhouse,hive,iceberg,hudi,trino"
+    COMPONENTS="mysql,pg,oracle,sqlserver,clickhouse,hive,iceberg,hudi,trino,kafka"
 else
     while true; do
         case "$1" in
@@ -92,7 +92,7 @@ else
     done
     if [[ "${COMPONENTS}"x == ""x ]]; then
         if [[ "${STOP}" -eq 1 ]]; then
-            COMPONENTS="mysql,es,pg,oracle,sqlserver,clickhouse,hive,iceberg,hudi,trino"
+            COMPONENTS="mysql,es,pg,oracle,sqlserver,clickhouse,hive,iceberg,hudi,trino,kafka"
         fi
     fi
 fi
@@ -130,6 +130,7 @@ RUN_ES=0
 RUN_ICEBERG=0
 RUN_HUDI=0
 RUN_TRINO=0
+RUN_KAFKA=0
 
 for element in "${COMPONENTS_ARR[@]}"; do
     if [[ "${element}"x == "mysql"x ]]; then
@@ -146,6 +147,8 @@ for element in "${COMPONENTS_ARR[@]}"; do
         RUN_ES=1
     elif [[ "${element}"x == "hive"x ]]; then
         RUN_HIVE=1
+    elif [[ "${element}"x == "kafka"x ]]; then
+        RUN_KAFKA=1
     elif [[ "${element}"x == "iceberg"x ]]; then
         RUN_ICEBERG=1
     elif [[ "${element}"x == "hudi"x ]]; then
@@ -232,6 +235,26 @@ if [[ "${RUN_CLICKHOUSE}" -eq 1 ]]; then
         sudo mkdir -p "${ROOT}"/docker-compose/clickhouse/data/
         sudo rm "${ROOT}"/docker-compose/clickhouse/data/* -rf
         sudo docker compose -f "${ROOT}"/docker-compose/clickhouse/clickhouse.yaml --env-file "${ROOT}"/docker-compose/clickhouse/clickhouse.env up -d
+    fi
+fi
+
+if [[ "${RUN_KAFKA}" -eq 1 ]]; then
+    # kafka
+    KAFKA_CONTAINER_ID="${CONTAINER_UID}kafka"
+    eth0_num=$(ifconfig -a|grep flags=|grep -n ^eth0|awk -F ':' '{print $1}')
+    IP_HOST=$(ifconfig -a|grep inet|grep -v 127.0.0.1|grep -v inet6|awk '{print $2}'|tr -d "addr:"|tail -n +${eth0_num}|head -n 1)
+    cp "${ROOT}"/docker-compose/kafka/kafka.yaml.tpl "${ROOT}"/docker-compose/kafka/kafka.yaml
+    sed -i "s/doris--/${CONTAINER_UID}/g" "${ROOT}"/docker-compose/kafka/kafka.yaml
+    sed -i "s/localhost/${IP_HOST}/g" "${ROOT}"/docker-compose/kafka/kafka.yaml
+    sudo docker compose -f "${ROOT}"/docker-compose/kafka/kafka.yaml --env-file "${ROOT}"/docker-compose/kafka/kafka.env down
+    if [[ "${STOP}" -ne 1 ]]; then
+        sudo docker compose -f "${ROOT}"/docker-compose/kafka/kafka.yaml --env-file "${ROOT}"/docker-compose/kafka/kafka.env up --build --remove-orphans -d
+        sleep 30s
+        while IFS= read -r line
+            do
+                docker exec -i ${KAFKA_CONTAINER_ID} bash -c "echo "$line" | /opt/kafka/bin/kafka-console-producer.sh --broker-list '${IP_HOST}:19193' --topic test"
+                sleep 1
+            done < ""${ROOT}"/docker-compose/kafka/scripts/test.csv"
     fi
 fi
 

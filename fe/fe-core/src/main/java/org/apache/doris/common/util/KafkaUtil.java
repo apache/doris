@@ -41,6 +41,7 @@ import java.util.stream.Collectors;
 
 public class KafkaUtil {
     private static final Logger LOG = LogManager.getLogger(KafkaUtil.class);
+    private static final int MAX_KAFKA_PARTITION_TIMEOUT_SECOND = 60;
 
     public static List<Integer> getAllKafkaPartitions(String brokerList, String topic,
             Map<String, String> convertedCustomProperties) throws UserException {
@@ -70,7 +71,7 @@ public class KafkaUtil {
 
             // get info
             Future<InternalService.PProxyResult> future = BackendServiceProxy.getInstance().getInfo(address, request);
-            InternalService.PProxyResult result = future.get(5, TimeUnit.SECONDS);
+            InternalService.PProxyResult result = future.get(MAX_KAFKA_PARTITION_TIMEOUT_SECOND, TimeUnit.SECONDS);
             TStatusCode code = TStatusCode.findByValue(result.getStatus().getStatusCode());
             if (code != TStatusCode.OK) {
                 throw new UserException("failed to get kafka partition info: " + result.getStatus().getErrorMsgsList());

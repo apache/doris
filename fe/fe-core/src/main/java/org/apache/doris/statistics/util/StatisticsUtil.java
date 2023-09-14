@@ -42,9 +42,9 @@ import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.StructType;
 import org.apache.doris.catalog.TableIf;
-import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.catalog.VariantType;
+import org.apache.doris.catalog.external.ExternalTable;
 import org.apache.doris.catalog.external.HMSExternalTable;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
@@ -158,6 +158,10 @@ public class StatisticsUtil {
     }
 
     public static AutoCloseConnectContext buildConnectContext() {
+        return buildConnectContext(false);
+    }
+
+    public static AutoCloseConnectContext buildConnectContext(boolean limitScan) {
         ConnectContext connectContext = new ConnectContext();
         SessionVariable sessionVariable = connectContext.getSessionVariable();
         sessionVariable.internalSession = true;
@@ -168,6 +172,7 @@ public class StatisticsUtil {
         sessionVariable.parallelPipelineTaskNum = Config.statistics_sql_parallel_exec_instance_num;
         sessionVariable.setEnableNereidsPlanner(false);
         sessionVariable.enableProfile = false;
+        sessionVariable.enableScanRunSerial = limitScan;
         sessionVariable.queryTimeoutS = Config.analyze_task_timeout_in_hours * 60 * 60;
         sessionVariable.insertTimeoutS = Config.analyze_task_timeout_in_hours * 60 * 60;
         sessionVariable.enableFileCache = false;
@@ -704,6 +709,6 @@ public class StatisticsUtil {
             LOG.warn(e.getMessage());
             return false;
         }
-        return table.getType().equals(TableType.HMS_EXTERNAL_TABLE);
+        return table instanceof ExternalTable;
     }
 }
