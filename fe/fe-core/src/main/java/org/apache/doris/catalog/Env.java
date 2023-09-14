@@ -2612,6 +2612,7 @@ public class Env {
         long startTime = System.currentTimeMillis();
         boolean hasLog = false;
         while (true) {
+            long entityStartTime = System.currentTimeMillis();
             Pair<Long, JournalEntity> kv = cursor.next();
             if (kv == null) {
                 break;
@@ -2623,6 +2624,7 @@ public class Env {
             }
             hasLog = true;
             EditLog.loadJournal(this, logId, entity);
+            long loadJournalEndTime = System.currentTimeMillis();
             replayedJournalId.incrementAndGet();
             LOG.debug("journal {} replayed.", replayedJournalId);
             if (feType != FrontendNodeType.MASTER) {
@@ -2631,6 +2633,14 @@ public class Env {
             if (MetricRepo.isInit) {
                 // Metric repo may not init after this replay thread start
                 MetricRepo.COUNTER_EDIT_LOG_READ.increase(1L);
+            }
+
+            long entityCost = System.currentTimeMillis() - entityStartTime;
+            if (entityCost >= 1000) {
+                long loadJournalCost = loadJournalEndTime - entityStartTime;
+                LOG.warn("entityCost:{} loadJournalCost:{} logId:{} replayedJournalId:{} code:{} size:{}",
+                        entityCost, loadJournalCost, logId, replayedJournalId, entity.getOpCode(),
+                        entity.getDataSize());
             }
         }
         long cost = System.currentTimeMillis() - startTime;
