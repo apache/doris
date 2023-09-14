@@ -80,7 +80,7 @@ public class ExplainCommand extends Command implements NoForward {
         planner.plan(logicalPlanAdapter, ctx.getSessionVariable().toThrift());
         executor.setPlanner(planner);
         executor.checkBlockRules();
-        executor.handleExplainStmt(planner.getExplainString(new ExplainOptions(level)));
+        executor.handleExplainStmt(planner.getExplainString(new ExplainOptions(level)), true);
     }
 
     @Override
