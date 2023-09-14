@@ -93,4 +93,8 @@ public class AnalyzeStmt extends StatementBase {
     public CronExpression getCron() {
         return analyzeProperties.getCron();
     }
+
+    public boolean forceFull() {
+        return analyzeProperties.forceFull();
+    }
 }

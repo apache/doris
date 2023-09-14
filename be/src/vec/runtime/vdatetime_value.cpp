@@ -3059,9 +3059,48 @@ bool DateV2Value<T>::datetime_trunc() {
         default:
             return false;
         }
-        return true;
+    } else { // is_datev2
+        if (!is_valid_date()) {
+            return false;
+        }
+        switch (unit) {
+        case SECOND:
+        case MINUTE:
+        case HOUR:
+        case DAY:
+            break;
+        case WEEK: {
+            TimeInterval interval(DAY, weekday(), true);
+            date_add_interval<DAY>(interval);
+            break;
+        }
+        case MONTH: {
+            date_v2_value_.day_ = 1;
+            break;
+        }
+        case QUARTER: {
+            date_v2_value_.day_ = 1;
+            if (date_v2_value_.month_ <= 3) {
+                date_v2_value_.month_ = 1;
+            } else if (date_v2_value_.month_ <= 6) {
+                date_v2_value_.month_ = 4;
+            } else if (date_v2_value_.month_ <= 9) {
+                date_v2_value_.month_ = 7;
+            } else {
+                date_v2_value_.month_ = 10;
+            }
+            break;
+        }
+        case YEAR: {
+            date_v2_value_.day_ = 1;
+            date_v2_value_.month_ = 1;
+            break;
+        }
+        default:
+            return false;
+        }
     }
-    return false;
+    return true;
 }
 
 template <typename T>
