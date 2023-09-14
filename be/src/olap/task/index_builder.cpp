@@ -116,9 +116,9 @@ Status IndexBuilder::update_inverted_index_info() {
         }
 
         // build output rowset
-        RETURN_IF_ERROR(input_rowset->link_files_to(_tablet->tablet_path(),
-                            output_rs_writer->rowset_id(), 0,
-                            without_index_uids.empty() ? &_alter_index_ids: &without_index_uids));
+        RETURN_IF_ERROR(input_rowset->link_files_to(
+                _tablet->tablet_path(), output_rs_writer->rowset_id(), 0,
+                without_index_uids.empty() ? &_alter_index_ids : &without_index_uids));
 
         auto input_rowset_meta = input_rowset->rowset_meta();
         RowsetMetaSharedPtr rowset_meta = std::make_shared<RowsetMeta>();
