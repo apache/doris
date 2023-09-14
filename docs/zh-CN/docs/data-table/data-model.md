@@ -90,12 +90,15 @@ PROPERTIES (
 
 表中的列按照是否设置了 `AggregationType`，分为 Key (维度列) 和 Value（指标列）。没有设置 `AggregationType` 的，如 `user_id`、`date`、`age` ... 等称为 **Key**，而设置了 `AggregationType` 的称为 **Value**。
 
-当我们导入数据时，对于 Key 列相同的行会聚合成一行，而 Value 列会按照设置的 `AggregationType` 进行聚合。 `AggregationType` 目前有以下四种聚合方式：
+当我们导入数据时，对于 Key 列相同的行会聚合成一行，而 Value 列会按照设置的 `AggregationType` 进行聚合。 `AggregationType` 目前有以下四种聚合方式和agg_state：
 
 1. SUM：求和，多行的 Value 进行累加。
 2. REPLACE：替代，下一批数据中的 Value 会替换之前导入过的行中的 Value。
 3. MAX：保留最大值。
 4. MIN：保留最小值。
+
+如果SUM，REPLACE，MAX，MIN 无法满足需求，则可以选择使用agg_state类型。
+
 
 假设我们有以下导入数据（原始数据）：
 
@@ -270,7 +273,6 @@ insert into example_db.example_tbl values
 数据在不同时间，可能聚合的程度不一致。比如一批数据刚导入时，可能还未与之前已存在的数据进行聚合。但是对于用户而言，用户**只能查询到**聚合后的数据。即不同的聚合程度对于用户查询而言是透明的。用户需始终认为数据以**最终的完成的聚合程度**存在，而**不应假设某些聚合还未发生**。（可参阅**聚合模型的局限性**一节获得更多详情。）
 
 ### agg_state
-如果SUM，REPLACE，MAX，MIN 无法满足需求，则可以选择使用agg_state类型。
 
     AGG_STATE不能作为key列使用，建表时需要同时声明聚合函数的签名。
     用户不需要指定长度和默认值。实际存储的数据大小与函数实现有关。
