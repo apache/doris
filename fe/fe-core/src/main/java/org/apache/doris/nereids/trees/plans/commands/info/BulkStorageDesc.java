@@ -31,39 +31,49 @@ import java.io.DataOutput;
 import java.io.IOException;
 import java.util.Map;
 
-// Broker descriptor
-//
-// Broker example:
-// WITH S3/HDFS
-// (
-//   "username" = "user0",
-//   "password" = "password0"
-// )
+/**
+ * Broker descriptor
+ * Broker example:
+ * WITH S3/HDFS
+ * (
+ *   "username" = "user0",
+ *   "password" = "password0"
+ * )
+ */
 public class BulkStorageDesc implements Writable {
-    @SerializedName(value = "name")
-    private String name;
     @SerializedName(value = "storageType")
     protected StorageType storageType;
     @SerializedName(value = "properties")
     protected Map<String, String> properties;
+    @SerializedName(value = "name")
+    private String name;
 
+    /**
+     * Bulk Storage Type
+     */
     public enum StorageType {
         BROKER,
         S3,
         HDFS,
         LOCAL;
+
     }
 
+    /**
+     * BulkStorageDesc
+     * @param name bulk load name
+     * @param properties properties
+     */
     public BulkStorageDesc(String name, Map<String, String> properties) {
-        this.name = name;
-        this.properties = properties;
-        if (this.properties == null) {
-            this.properties = Maps.newHashMap();
-        }
-        this.storageType = StorageType.BROKER;
-        this.properties.putAll(S3ClientBEProperties.getBeFSProperties(this.properties));
+        this(name, StorageType.BROKER, properties);
     }
 
+    /**
+     * BulkStorageDesc
+     * @param name bulk load name
+     * @param type bulk load type
+     * @param properties properties
+     */
     public BulkStorageDesc(String name, StorageType type, Map<String, String> properties) {
         this.name = name;
         this.properties = properties;
@@ -93,6 +103,10 @@ public class BulkStorageDesc implements Writable {
         return GsonUtils.GSON.fromJson(json, BulkStorageDesc.class);
     }
 
+    /**
+     * bulk load to sql string
+     * @return bulk load sql
+     */
     public String toSql() {
         StringBuilder sb = new StringBuilder();
         if (storageType == StorageType.BROKER) {

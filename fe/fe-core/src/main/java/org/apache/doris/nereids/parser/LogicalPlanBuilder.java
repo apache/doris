@@ -575,8 +575,15 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                 multiFilePaths.add(filePath.getText().substring(1, filePath.getText().length() - 1));
             }
             List<String> filePaths = ddc.filePath == null ? ImmutableList.of() : multiFilePaths;
-            List<Expression> colMappingList = (ddc.columnMapping == null ? ImmutableList.of()
-                        : visit(ddc.columnMapping.mappingSet, Expression.class));
+            Map<String, Expression> colMappings;
+            if (ddc.columnMapping == null) {
+                colMappings = ImmutableMap.of();
+            } else {
+                colMappings = new HashMap<>();
+                for (DorisParser.MappingExprContext mappingExpr : ddc.columnMapping.mappingSet) {
+                    colMappings.put(mappingExpr.mappingCol.getText(), getExpression(mappingExpr.expression()));
+                }
+            }
 
             LoadTask.MergeType mergeType = ddc.mergeType() == null ? LoadTask.MergeType.APPEND
                         : LoadTask.MergeType.valueOf(ddc.mergeType().getText());
@@ -594,7 +601,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                     filePaths,
                     colNames,
                     columnsFromPath,
-                    colMappingList,
+                    colMappings,
                     new BulkLoadDataDesc.FileFormatDesc(separator, comma, fileFormat),
                     false,
                     ddc.preFilter == null ? null : getExpression(ddc.preFilter.expression()),

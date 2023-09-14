@@ -33,7 +33,6 @@ import org.apache.doris.nereids.analyzer.UnboundSlot;
 import org.apache.doris.nereids.analyzer.UnboundStar;
 import org.apache.doris.nereids.analyzer.UnboundTVFRelation;
 import org.apache.doris.nereids.trees.expressions.ComparisonPredicate;
-import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Properties;
@@ -73,6 +72,7 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
+import java.util.stream.Collectors;
 
 /**
  * load OLAP table data from external bulk file
@@ -147,12 +147,33 @@ public class LoadCommand extends Command implements ForwardWithSync, Explainable
         }
         boolean scanAllTvfCol = (tvfProjects.get(0) instanceof UnboundStar);
 
+        OlapTable olapTable = getOlapTable(ctx, dataDesc);
+        List<Column> olapSchema = olapTable.getBaseSchema();
+        // map column index to mapping expr
+        Map<String, Expression> mappingExpressions = dataDesc.getColumnMappings();
         // 2. build sink where
         Set<Expression> conjuncts = new HashSet<>();
         if (dataDesc.getWhereExpr() != null) {
             Set<Expression> whereParts = ExpressionUtils.extractConjunctionToSet(dataDesc.getWhereExpr());
-            conjuncts.addAll(whereParts);
+            for (Expression wherePart : whereParts) {
+                if (!(wherePart instanceof ComparisonPredicate)) {
+                    throw new AnalysisException("WHERE clause must be comparison expression");
+                }
+                ComparisonPredicate comparison = ((ComparisonPredicate) wherePart);
+                if (!(comparison.left() instanceof UnboundSlot)) {
+                    throw new AnalysisException("Invalid predicate column " + comparison.left().toSql());
+                }
+                conjuncts.add(comparison.rewriteUp(e -> {
+                    if (!(e instanceof UnboundSlot)) {
+                        return e;
+                    }
+                    UnboundSlot slot = (UnboundSlot) e;
+                    String colName = getUnquotedName(slot);
+                    return mappingExpressions.getOrDefault(colName, e);
+                }));
+            }
         }
+
         if (dataDesc.getFileFieldNames().isEmpty() && isCsvType(tvfProperties) && !conjuncts.isEmpty()) {
             throw new AnalysisException("Required property 'csv_schema' for csv file, "
                     + "when no column list specified and use WHERE");
@@ -160,26 +181,29 @@ public class LoadCommand extends Command implements ForwardWithSync, Explainable
         tvfLogicalPlan = new LogicalFilter<>(conjuncts, tvfLogicalPlan);
 
         // 3. build sink project
-        OlapTable olapTable = getOlapTable(ctx, dataDesc);
         List<String> sinkCols = new ArrayList<>();
         List<NamedExpression> selectLists = new ArrayList<>();
+        List<String> olapColumns = olapSchema.stream().map(Column::getDisplayName).collect(Collectors.toList());
         if (!scanAllTvfCol) {
+            int numSinkCol = Math.min(tvfProjects.size(), olapColumns.size());
             // if not scan all tvf column, try to treat each tvfColumn as olapColumn
-            for (NamedExpression tvfColumn : tvfProjects) {
-                String olapColumnName = tvfColumn.getName();
-                fillSinkAndSourceCols(dataDesc, olapTable, tvfColumn, olapColumnName, sinkCols, selectLists);
+            for (int i = 0; i < numSinkCol; i++) {
+                UnboundSlot sourceCol = (UnboundSlot) tvfProjects.get(i);
+                // check sourceCol is slot and check olapColumn beyond index.
+                String olapColumn = olapColumns.get(i);
+                fillSinkBySourceCols(dataDesc, olapTable, mappingExpressions, olapColumn,
+                        sourceCol, sinkCols, selectLists);
+            }
+        } else {
+            for (String olapColumn : olapColumns) {
+                if (olapColumn.equalsIgnoreCase(Column.VERSION_COL)
+                        || olapColumn.equalsIgnoreCase(Column.SEQUENCE_COL)) {
+                    continue;
+                }
+                fillSinkBySourceCols(dataDesc, olapTable, mappingExpressions, olapColumn,
+                        new UnboundSlot(olapColumn), sinkCols, selectLists);
             }
         }
-        List<Column> olapSchema = olapTable.getBaseSchema();
-        for (Column olapColumn : olapSchema) {
-            String olapColumnName = olapColumn.getName();
-            if (olapColumnName.equalsIgnoreCase(Column.VERSION_COL)) {
-                continue;
-            }
-            fillSinkAndSourceCols(dataDesc, olapTable, new UnboundSlot(olapColumnName),
-                    olapColumnName, sinkCols, selectLists);
-        }
-
         if (sinkCols.isEmpty() && selectLists.isEmpty()) {
             // build 'insert into tgt_tbl select * from src_tbl'
             selectLists.add(new UnboundStar(new ArrayList<>()));
@@ -198,20 +222,39 @@ public class LoadCommand extends Command implements ForwardWithSync, Explainable
                 dataDesc.getPartitionNames(), isPartialUpdate, tvfLogicalPlan);
     }
 
-    private static void fillSinkAndSourceCols(BulkLoadDataDesc dataDesc, OlapTable olapTable,
-                                              NamedExpression tvfColumn, String olapColumnName,
-                                              List<String> sinkCols, List<NamedExpression> selectLists)
+    /**
+     * use to get unquoted column name
+     * @return unquoted slot name
+     */
+    public static String getUnquotedName(NamedExpression slot) {
+        if (slot instanceof UnboundAlias) {
+            return slot.getName();
+        } else if (slot instanceof UnboundSlot) {
+            List<String> slotNameParts = ((UnboundSlot) slot).getNameParts();
+            return slotNameParts.get(slotNameParts.size() - 1);
+        }
+        return slot.getName();
+    }
+
+    private static void fillSinkBySourceCols(BulkLoadDataDesc dataDesc, OlapTable olapTable,
+                                             Map<String, Expression> mappingExpressions,
+                                             String olapColumn, UnboundSlot tvfColumn,
+                                             List<String> sinkCols, List<NamedExpression> selectLists)
                 throws AnalysisException {
         if (olapTable.hasDeleteSign() && dataDesc.getDeleteCondition() != null) {
             checkDeleteOnConditions(dataDesc.getMergeType(), dataDesc.getDeleteCondition());
-            Optional<If> deleteIf = createDeleteOnIfCall(olapTable, olapColumnName, dataDesc);
+            Optional<If> deleteIf = createDeleteOnIfCall(olapTable, olapColumn, dataDesc);
             if (deleteIf.isPresent()) {
-                sinkCols.add(olapColumnName);
-                selectLists.add(new UnboundAlias(deleteIf.get(), olapColumnName));
+                sinkCols.add(olapColumn);
+                selectLists.add(new UnboundAlias(deleteIf.get(), olapColumn));
+                return;
             }
+        }
+        sinkCols.add(olapColumn);
+        if (mappingExpressions.containsKey(olapColumn)) {
+            selectLists.add(new UnboundAlias(mappingExpressions.get(olapColumn), olapColumn));
         } else {
-            sinkCols.add(olapColumnName);
-            selectLists.add(tvfColumn);
+            selectLists.add(new UnboundAlias(tvfColumn, olapColumn));
         }
     }
 
@@ -239,6 +282,7 @@ public class LoadCommand extends Command implements ForwardWithSync, Explainable
                 tvfLogicalPlan = new LogicalFilter<>(preConjuncts, tvfLogicalPlan);
             }
         }
+
         Map<String, String> sourceProperties = dataDesc.getProperties();
         if (dataDesc.getFileFieldNames().isEmpty() && isCsvType(tvfProperties)) {
             String csvSchemaStr = sourceProperties.get(ExternalFileTableValuedFunction.CSV_SCHEMA);
@@ -251,6 +295,9 @@ public class LoadCommand extends Command implements ForwardWithSync, Explainable
                     csvColumns.add(new UnboundSlot(csvColumn.getName()));
                 }
                 if (!csvColumns.isEmpty()) {
+                    for (String columnFromPath : dataDesc.getColumnsFromPath()) {
+                        csvColumns.add(new UnboundSlot(columnFromPath));
+                    }
                     return new LogicalProject<>(csvColumns, tvfLogicalPlan);
                 }
             }
@@ -279,7 +326,6 @@ public class LoadCommand extends Command implements ForwardWithSync, Explainable
     private static Optional<If> createDeleteOnIfCall(OlapTable olapTable, String olapColName,
                                                      BulkLoadDataDesc dataDesc) throws AnalysisException {
         if (olapTable.hasDeleteSign()
-                && olapColName.equalsIgnoreCase(Column.DELETE_SIGN)
                 && dataDesc.getDeleteCondition() != null) {
             if (!(dataDesc.getDeleteCondition() instanceof ComparisonPredicate)) {
                 throw new AnalysisException("DELETE ON clause must be comparison expression.");
@@ -288,6 +334,9 @@ public class LoadCommand extends Command implements ForwardWithSync, Explainable
             Expression deleteOnCol = deleteOn.left();
             if (!(deleteOnCol instanceof UnboundSlot)) {
                 throw new AnalysisException("DELETE ON column must be an undecorated OLAP column.");
+            }
+            if (!olapColName.equalsIgnoreCase(getUnquotedName((UnboundSlot) deleteOnCol))) {
+                return Optional.empty();
             }
             If deleteIf = new If(deleteOn, new TinyIntLiteral((byte) 1), new TinyIntLiteral((byte) 0));
             return Optional.of(deleteIf);

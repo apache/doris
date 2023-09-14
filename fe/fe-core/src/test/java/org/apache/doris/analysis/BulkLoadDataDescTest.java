@@ -32,11 +32,13 @@ import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.stats.ExpressionEstimation;
 import org.apache.doris.nereids.trees.expressions.Add;
 import org.apache.doris.nereids.trees.expressions.BinaryArithmetic;
+import org.apache.doris.nereids.trees.expressions.CaseWhen;
 import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.GreaterThan;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
+import org.apache.doris.nereids.trees.expressions.WhenClause;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.TinyIntLiteral;
@@ -142,9 +144,9 @@ public class BulkLoadDataDescTest extends TestWithFeService {
                 + "     COLUMNS TERMINATED BY \"|\""
                 + "     LINES TERMINATED BY \"\n\""
                 + "     (c_custkey, c_name, c_address, c_nationkey, c_phone, c_acctbal, c_mktsegment, c_comment) "
-                + "     SET ( custkey=c_custkey+1 )   "
+                + "     SET ( custkey=case when c_custkey=-8 then -3 when c_custkey=-1 then 11 else c_custkey end )   "
                 + "     PRECEDING FILTER c_nationkey=\"CHINA\"     "
-                + "     WHERE c_custkey > 100"
+                + "     WHERE custkey > 100"
                 + "     ORDER BY c_custkey "
                 + "  ) "
                 + "  WITH S3(  "
@@ -159,32 +161,46 @@ public class BulkLoadDataDescTest extends TestWithFeService {
 
         List<String> expectedSinkColumns = new ArrayList<>(sinkCols1);
         expectedSinkColumns.add(Column.SEQUENCE_COL);
+
+        CaseWhen caseWhen = new CaseWhen(new ArrayList<WhenClause>() {
+            {
+                add(new WhenClause(
+                        new EqualTo(
+                                new UnboundSlot("c_custkey"),
+                                new TinyIntLiteral((byte) -8)),
+                        new TinyIntLiteral((byte) -3)));
+                add(new WhenClause(
+                        new EqualTo(
+                                new UnboundSlot("c_custkey"),
+                                new TinyIntLiteral((byte) -1)),
+                        new TinyIntLiteral((byte) 11)));
+            }
+        }, new UnboundSlot("c_custkey"));
+
         List<NamedExpression> expectedProjects = new ArrayList<NamedExpression>() {
             {
-                add(new UnboundAlias(new Add(
-                        new UnboundSlot("c_custkey"), new TinyIntLiteral((byte) 1)), "custkey"));
-                add(new UnboundSlot("c_name"));
-                add(new UnboundSlot("c_address"));
-                add(new UnboundSlot("c_nationkey"));
-                add(new UnboundSlot("c_phone"));
-                add(new UnboundSlot("c_acctbal"));
-                add(new UnboundSlot("c_mktsegment"));
-                add(new UnboundSlot("c_comment"));
+                add(new UnboundAlias(caseWhen, "custkey"));
+                add(new UnboundAlias(new UnboundSlot("c_address"), "c_address"));
+                add(new UnboundAlias(new UnboundSlot("c_nationkey"), "c_nationkey"));
+                add(new UnboundAlias(new UnboundSlot("c_phone"), "c_phone"));
+                add(new UnboundAlias(new UnboundSlot("c_acctbal"), "c_acctbal"));
+                add(new UnboundAlias(new UnboundSlot("c_mktsegment"), "c_mktsegment"));
+                add(new UnboundAlias(new UnboundSlot("c_comment"), "c_comment"));
             }
         };
         List<Expression> expectedConjuncts = new ArrayList<Expression>() {
             {
-                add(new GreaterThan(new UnboundSlot("c_custkey"), new IntegerLiteral(100)));
-                add(new EqualTo(new UnboundSlot("c_nationkey"), new StringLiteral("CHINA")));
+                add(new GreaterThan(caseWhen, new IntegerLiteral(100)));
             }
         };
-        assertInsertIntoPlan(statements, expectedSinkColumns, expectedProjects, expectedConjuncts);
+        assertInsertIntoPlan(statements, expectedSinkColumns, expectedProjects, expectedConjuncts, true);
     }
 
     private void assertInsertIntoPlan(List<Pair<LogicalPlan, StatementContext>> statements,
                                       List<String> expectedSinkColumns,
                                       List<NamedExpression> expectedProjects,
-                                      List<Expression> expectedConjuncts) throws AnalysisException {
+                                      List<Expression> expectedConjuncts,
+                                      boolean expectedPreFilter) throws AnalysisException {
         Assertions.assertTrue(statements.get(0).first instanceof LoadCommand);
         List<LogicalPlan> plans = ((LoadCommand) statements.get(0).first).parseToInsertIntoPlan(connectContext);
         Assertions.assertTrue(plans.get(0) instanceof UnboundOlapTableSink);
@@ -209,8 +225,18 @@ public class BulkLoadDataDescTest extends TestWithFeService {
         for (Expression expectedConjunct : expectedConjuncts) {
             Assertions.assertTrue(filterConjuncts.contains(expectedConjunct.toString()));
         }
-        Assertions.assertTrue(filter.child(0) instanceof LogicalCheckPolicy);
-        Assertions.assertTrue(filter.child(0).child(0) instanceof UnboundTVFRelation);
+
+        Assertions.assertTrue(filter.child(0) instanceof LogicalProject);
+        LogicalProject<?> tvfProject = (LogicalProject<?>) filter.child(0);
+        if (expectedPreFilter) {
+            Assertions.assertTrue(tvfProject.child(0) instanceof LogicalFilter);
+            LogicalFilter<?> tvfFilter = (LogicalFilter<?>) tvfProject.child(0);
+            Assertions.assertTrue(tvfFilter.child(0) instanceof LogicalCheckPolicy);
+            Assertions.assertTrue(tvfFilter.child(0).child(0) instanceof UnboundTVFRelation);
+        } else {
+            Assertions.assertTrue(tvfProject.child(0) instanceof LogicalCheckPolicy);
+            Assertions.assertTrue(tvfProject.child(0).child(0) instanceof UnboundTVFRelation);
+        }
     }
 
     @Test
@@ -222,6 +248,7 @@ public class BulkLoadDataDescTest extends TestWithFeService {
                 + "     COLUMNS TERMINATED BY \"|\""
                 + "     LINES TERMINATED BY \"\n\""
                 + "     (c_custkey, c_name, c_address, c_nationkey, c_phone, c_acctbal, c_mktsegment, c_comment, dt) "
+                + "     COLUMNS FROM PATH AS (dt)"
                 + "     ORDER BY c_custkey "
                 + "  ) "
                 + "  WITH S3(  "
@@ -235,22 +262,22 @@ public class BulkLoadDataDescTest extends TestWithFeService {
 
         List<String> expectedSinkColumns = new ArrayList<>(sinkCols1);
         expectedSinkColumns.add(Column.SEQUENCE_COL);
-        expectedSinkColumns.add(Column.DELETE_SIGN);
+        expectedSinkColumns.add("dt");
         List<NamedExpression> expectedProjects = new ArrayList<NamedExpression>() {
             {
-                add(new UnboundSlot("c_custkey"));
-                add(new UnboundSlot("c_name"));
-                add(new UnboundSlot("c_address"));
-                add(new UnboundSlot("c_nationkey"));
-                add(new UnboundSlot("c_phone"));
-                add(new UnboundSlot("c_acctbal"));
-                add(new UnboundSlot("c_mktsegment"));
-                add(new UnboundSlot("c_comment"));
+                add(new UnboundAlias(new UnboundSlot("c_custkey"), "custkey"));
+                add(new UnboundAlias(new UnboundSlot("c_name"), "c_name"));
+                add(new UnboundAlias(new UnboundSlot("c_address"), "c_address"));
+                add(new UnboundAlias(new UnboundSlot("c_nationkey"), "c_nationkey"));
+                add(new UnboundAlias(new UnboundSlot("c_phone"), "c_phone"));
+                add(new UnboundAlias(new UnboundSlot("c_acctbal"), "c_acctbal"));
+                add(new UnboundAlias(new UnboundSlot("c_mktsegment"), "c_mktsegment"));
+                add(new UnboundAlias(new UnboundSlot("c_comment"), "c_comment"));
                 add(new UnboundSlot("dt"));
             }
         };
         List<Expression> expectedConjuncts = new ArrayList<>();
-        assertInsertIntoPlan(statements, expectedSinkColumns, expectedProjects, expectedConjuncts);
+        assertInsertIntoPlan(statements, expectedSinkColumns, expectedProjects, expectedConjuncts, false);
     }
 
     @Test
@@ -265,7 +292,7 @@ public class BulkLoadDataDescTest extends TestWithFeService {
                 + "     COLUMNS FROM PATH AS (pt)   "
                 + "     SET ( custkey=c_custkey+1 )   "
                 + "     PRECEDING FILTER c_nationkey=\"CHINA\"     "
-                + "     WHERE c_custkey > 100"
+                + "     WHERE custkey > 100"
                 + "     ORDER BY c_custkey "
                 + "  ) "
                 + "  WITH S3(  "
@@ -279,29 +306,28 @@ public class BulkLoadDataDescTest extends TestWithFeService {
 
         List<String> expectedSinkColumns = new ArrayList<>(sinkCols1);
         expectedSinkColumns.add(Column.SEQUENCE_COL);
-        expectedSinkColumns.add(Column.DELETE_SIGN);
         expectedSinkColumns.add("pt");
         List<NamedExpression> expectedProjects = new ArrayList<NamedExpression>() {
             {
                 add(new UnboundAlias(new Add(
                         new UnboundSlot("c_custkey"), new TinyIntLiteral((byte) 1)), "custkey"));
-                add(new UnboundSlot("c_name"));
-                add(new UnboundSlot("c_address"));
-                add(new UnboundSlot("c_nationkey"));
-                add(new UnboundSlot("c_phone"));
-                add(new UnboundSlot("c_acctbal"));
-                add(new UnboundSlot("c_mktsegment"));
-                add(new UnboundSlot("c_comment"));
+                add(new UnboundAlias(new UnboundSlot("c_name"), "c_name"));
+                add(new UnboundAlias(new UnboundSlot("c_address"), "c_address"));
+                add(new UnboundAlias(new UnboundSlot("c_nationkey"), "c_nationkey"));
+                add(new UnboundAlias(new UnboundSlot("c_phone"), "c_phone"));
+                add(new UnboundAlias(new UnboundSlot("c_acctbal"), "c_acctbal"));
+                add(new UnboundAlias(new UnboundSlot("c_mktsegment"), "c_mktsegment"));
+                add(new UnboundAlias(new UnboundSlot("c_comment"), "c_comment"));
                 add(new UnboundSlot("pt"));
             }
         };
         List<Expression> expectedConjuncts = new ArrayList<Expression>() {
             {
-                add(new GreaterThan(new UnboundSlot("c_custkey"), new IntegerLiteral(100)));
-                add(new EqualTo(new UnboundSlot("c_nationkey"), new StringLiteral("CHINA")));
+                add(new GreaterThan(new Add(new UnboundSlot("c_custkey"), new TinyIntLiteral((byte) 1)),
+                        new IntegerLiteral(100)));
             }
         };
-        assertInsertIntoPlan(statements, expectedSinkColumns, expectedProjects, expectedConjuncts);
+        assertInsertIntoPlan(statements, expectedSinkColumns, expectedProjects, expectedConjuncts, true);
     }
 
     @Test
@@ -321,14 +347,23 @@ public class BulkLoadDataDescTest extends TestWithFeService {
 
         List<Pair<LogicalPlan, StatementContext>> statements = new NereidsParser().parseMultiple(loadSql1);
         Assertions.assertFalse(statements.isEmpty());
-        List<String> expectedSinkColumns = new ArrayList<>();
+        List<String> expectedSinkColumns = new ArrayList<>(sinkCols1);
+        expectedSinkColumns.add(Column.SEQUENCE_COL);
         List<NamedExpression> expectedProjects = new ArrayList<NamedExpression>() {
             {
-                add(new UnboundStar(ImmutableList.of()));
+                // when no specified columns, tvf columns equals to olap columns
+                add(new UnboundAlias(new UnboundSlot("custkey"), "custkey"));
+                add(new UnboundAlias(new UnboundSlot("c_name"), "c_name"));
+                add(new UnboundAlias(new UnboundSlot("c_address"), "c_address"));
+                add(new UnboundAlias(new UnboundSlot("c_nationkey"), "c_nationkey"));
+                add(new UnboundAlias(new UnboundSlot("c_phone"), "c_phone"));
+                add(new UnboundAlias(new UnboundSlot("c_acctbal"), "c_acctbal"));
+                add(new UnboundAlias(new UnboundSlot("c_mktsegment"), "c_mktsegment"));
+                add(new UnboundAlias(new UnboundSlot("c_comment"), "c_comment"));
             }
         };
         List<Expression> expectedConjuncts = new ArrayList<>();
-        assertInsertIntoPlan(statements, expectedSinkColumns, expectedProjects, expectedConjuncts);
+        assertInsertIntoPlan(statements, expectedSinkColumns, expectedProjects, expectedConjuncts, false);
 
         // k1:int;k2:bigint;k3:varchar(20);k4:datetime(6)
         String loadSql2 = "LOAD LABEL customer_no_col2( "
@@ -361,18 +396,18 @@ public class BulkLoadDataDescTest extends TestWithFeService {
         expectedSinkColumns2.add(Column.SEQUENCE_COL);
         List<NamedExpression> expectedProjects2 = new ArrayList<NamedExpression>() {
             {
-                add(new UnboundSlot("custkey"));
-                add(new UnboundSlot("c_name"));
-                add(new UnboundSlot("c_address"));
-                add(new UnboundSlot("c_nationkey"));
-                add(new UnboundSlot("c_phone"));
-                add(new UnboundSlot("c_acctbal"));
-                add(new UnboundSlot("c_mktsegment"));
-                add(new UnboundSlot("c_comment"));
+                add(new UnboundAlias(new UnboundSlot("custkey"), "custkey"));
+                add(new UnboundAlias(new UnboundSlot("c_name"), "c_name"));
+                add(new UnboundAlias(new UnboundSlot("c_address"), "c_address"));
+                add(new UnboundAlias(new UnboundSlot("c_nationkey"), "c_nationkey"));
+                add(new UnboundAlias(new UnboundSlot("c_phone"), "c_phone"));
+                add(new UnboundAlias(new UnboundSlot("c_acctbal"), "c_acctbal"));
+                add(new UnboundAlias(new UnboundSlot("c_mktsegment"), "c_mktsegment"));
+                add(new UnboundAlias(new UnboundSlot("c_comment"), "c_comment"));
             }
         };
         List<Expression> expectedConjuncts2 = new ArrayList<>();
-        assertInsertIntoPlan(statements2, expectedSinkColumns2, expectedProjects2, expectedConjuncts2);
+        assertInsertIntoPlan(statements2, expectedSinkColumns2, expectedProjects2, expectedConjuncts2, false);
     }
 
     @Test
@@ -384,7 +419,7 @@ public class BulkLoadDataDescTest extends TestWithFeService {
                 + "     (c_custkey, c_name, c_address, c_nationkey, c_phone, c_acctbal, c_mktsegment, c_comment) "
                 + "     SET ( custkey=c_custkey+1, address=c_address+'_base')   "
                 + "     PRECEDING FILTER c_nationkey=\"CHINA\"     "
-                + "     WHERE c_custkey = 100"
+                + "     WHERE custkey = 100"
                 + "  ) "
                 + "  WITH S3(  "
                 + "     \"s3.access_key\" = \"AK\", "
@@ -399,24 +434,23 @@ public class BulkLoadDataDescTest extends TestWithFeService {
             {
                 add(new UnboundAlias(new Add(
                         new UnboundSlot("c_custkey"), new TinyIntLiteral((byte) 1)), "custkey"));
-                add(new UnboundSlot("c_name"));
+                add(new UnboundAlias(new UnboundSlot("c_name"), "c_name"));
                 add(new UnboundAlias(new Add(
                         new UnboundSlot("c_address"), new StringLiteral("_base")), "address"));
-                add(new UnboundSlot("c_nationkey"));
-                add(new UnboundSlot("c_phone"));
-                add(new UnboundSlot("c_acctbal"));
-                add(new UnboundSlot("c_mktsegment"));
-                add(new UnboundSlot("c_comment"));
+                add(new UnboundAlias(new UnboundSlot("c_nationkey"), "c_nationkey"));
+                add(new UnboundAlias(new UnboundSlot("c_phone"), "c_phone"));
+                add(new UnboundAlias(new UnboundSlot("c_acctbal"), "c_acctbal"));
+                add(new UnboundAlias(new UnboundSlot("c_mktsegment"), "c_mktsegment"));
+                add(new UnboundAlias(new UnboundSlot("c_comment"), "c_comment"));
             }
         };
         List<Expression> expectedConjuncts = new ArrayList<Expression>() {
             {
-                add(new EqualTo(new UnboundSlot("c_custkey"), new IntegerLiteral(100)));
-                add(new EqualTo(new UnboundSlot("c_nationkey"), new StringLiteral("CHINA")));
-
+                add(new EqualTo(new Add(
+                        new UnboundSlot("c_custkey"), new TinyIntLiteral((byte) 1)), new IntegerLiteral(100)));
             }
         };
-        assertInsertIntoPlan(statements, expectedSinkColumns, expectedProjects, expectedConjuncts);
+        assertInsertIntoPlan(statements, expectedSinkColumns, expectedProjects, expectedConjuncts, true);
     }
 
     @Test
@@ -428,7 +462,7 @@ public class BulkLoadDataDescTest extends TestWithFeService {
                 + "     (c_custkey, c_name, c_address, c_nationkey, c_phone, c_acctbal, c_mktsegment, c_comment) "
                 + "     SET ( custkey=c_custkey+1 )   "
                 + "     PRECEDING FILTER c_nationkey=\"CHINA\"     "
-                + "     WHERE c_custkey > 100"
+                + "     WHERE custkey > 100"
                 + "     DELETE ON c_custkey < 120     "
                 + "     ORDER BY c_custkey "
                 + "  ) "
@@ -439,10 +473,13 @@ public class BulkLoadDataDescTest extends TestWithFeService {
                 + "     \"s3.region\" = \"ap-beijing\") "
                 + "PROPERTIES( \"exec_mem_limit\" = \"8589934592\") COMMENT \"test\";";
         try {
-            new StmtExecutor(connectContext, loadSqlWithDeleteOnErr1).execute();
+            List<Pair<LogicalPlan, StatementContext>> statements =
+                    new NereidsParser().parseMultiple(loadSqlWithDeleteOnErr1);
+            Assertions.assertFalse(statements.isEmpty());
+            Assertions.assertTrue(statements.get(0).first instanceof LoadCommand);
+            ((LoadCommand) statements.get(0).first).parseToInsertIntoPlan(connectContext);
         } catch (AnalysisException e) {
-            Assertions.assertTrue(e.getCause() instanceof IllegalArgumentException);
-            Assertions.assertEquals(BulkLoadDataDesc.EXPECT_MERGE_DELETE_ON, e.getCause().getMessage());
+            Assertions.assertTrue(e.getMessage().contains(BulkLoadDataDesc.EXPECT_MERGE_DELETE_ON));
         }
 
         String loadSqlWithDeleteOnErr2 = "LOAD LABEL customer_label1( "
@@ -452,7 +489,7 @@ public class BulkLoadDataDescTest extends TestWithFeService {
                 + "     (c_custkey, c_name, c_address, c_nationkey, c_phone, c_acctbal, c_mktsegment, c_comment) "
                 + "     SET ( custkey=c_custkey+1 )   "
                 + "     PRECEDING FILTER c_nationkey=\"CHINA\"     "
-                + "     WHERE c_custkey > 100"
+                + "     WHERE custkey > 100"
                 + "     ORDER BY c_custkey "
                 + "  ) "
                 + "  WITH S3(  "
@@ -462,10 +499,13 @@ public class BulkLoadDataDescTest extends TestWithFeService {
                 + "     \"s3.region\" = \"ap-beijing\") "
                 + "PROPERTIES( \"exec_mem_limit\" = \"8589934592\") COMMENT \"test\";";
         try {
-            new StmtExecutor(connectContext, loadSqlWithDeleteOnErr2).execute();
+            List<Pair<LogicalPlan, StatementContext>> statements =
+                    new NereidsParser().parseMultiple(loadSqlWithDeleteOnErr2);
+            Assertions.assertFalse(statements.isEmpty());
+            Assertions.assertTrue(statements.get(0).first instanceof LoadCommand);
+            ((LoadCommand) statements.get(0).first).parseToInsertIntoPlan(connectContext);
         } catch (AnalysisException e) {
-            Assertions.assertTrue(e.getCause() instanceof IllegalArgumentException);
-            Assertions.assertEquals(BulkLoadDataDesc.EXPECT_DELETE_ON, e.getCause().getMessage());
+            Assertions.assertTrue(e.getMessage().contains(BulkLoadDataDesc.EXPECT_DELETE_ON));
         }
 
         String loadSqlWithDeleteOnOk = "LOAD LABEL customer_label2( "
@@ -476,8 +516,8 @@ public class BulkLoadDataDescTest extends TestWithFeService {
                 + "     SET ( custkey=c_custkey+1 )   "
                 + "     PRECEDING FILTER c_nationkey=\"CHINA\"     "
                 + "     WHERE custkey > 100"
-                + "     DELETE ON c_custkey < 120     "
-                + "     ORDER BY c_custkey "
+                + "     DELETE ON custkey < 120     "
+                + "     ORDER BY custkey "
                 + "  ) "
                 + "  WITH S3(  "
                 + "     \"s3.access_key\" = \"AK\", "
@@ -517,7 +557,7 @@ public class BulkLoadDataDescTest extends TestWithFeService {
         expectedSinkColumns.add(Column.SEQUENCE_COL);
         List<NamedExpression> expectedProjects = new ArrayList<>();
         List<Expression> expectedConjuncts = new ArrayList<>();
-        assertInsertIntoPlan(statements, expectedSinkColumns, expectedProjects, expectedConjuncts);
+        assertInsertIntoPlan(statements, expectedSinkColumns, expectedProjects, expectedConjuncts, true);
         // new StmtExecutor(connectContext, loadSqlWithDeleteOnOk).execute();
     }
 
@@ -594,7 +634,7 @@ public class BulkLoadDataDescTest extends TestWithFeService {
                 + "     FORMAT AS PARQUET"
                 + "     (c_custkey, c_name, c_address, c_nationkey, c_phone, c_acctbal, c_mktsegment, c_comment) "
                 + "     SET ( custkey=c_custkey+1, address=c_address+'_base')   "
-                + "     WHERE c_custkey < 50"
+                + "     WHERE custkey < 50"
                 + "     ,"
                 + "     DATA INFILE("
                 + "         \"s3://bucket/customer/p\") "
@@ -605,7 +645,7 @@ public class BulkLoadDataDescTest extends TestWithFeService {
                 + "     (c_custkey, c_name, c_address, c_nationkey, c_phone, c_acctbal, c_mktsegment, c_comment, dt)"
                 + "     SET ( custkey=c_custkey+1 )   "
                 + "     PRECEDING FILTER c_nationkey=\"CHINA\"     "
-                + "     WHERE c_custkey > 100"
+                + "     WHERE custkey > 100"
                 + "     ORDER BY c_custkey "
                 + "  ) "
                 + "  WITH S3(  "

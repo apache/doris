@@ -141,8 +141,8 @@ preFilterClause : PRECEDING FILTER expression ;
 deleteOnClause : DELETE ON expression ;
 sequenceColClause : ORDER BY identifier ;
 colFromPath : COLUMNS FROM PATH AS identifierList ;
-colMappingList : SET LEFT_PAREN mappingSet+= (COMMA mappingSet+=expression)* RIGHT_PAREN ;
-mappingExpr: (s=identifier EQ expression)
+colMappingList : SET LEFT_PAREN mappingSet+=mappingExpr (COMMA mappingSet+=mappingExpr)* RIGHT_PAREN ;
+mappingExpr: (mappingCol=identifier EQ expression) ;
 
 withRemoteStorageSystem
     : WITH S3 LEFT_PAREN

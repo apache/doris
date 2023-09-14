@@ -75,7 +75,7 @@ public class BulkLoadDataDesc {
     // column names in the path
     private final List<String> columnsFromPath;
     // save column mapping in SET(xxx = xxx) clause
-    private final List<Expression> columnMappingList;
+    private final Map<String, Expression> columnMappings;
     private final Expression precedingFilterExpr;
     private final Expression whereExpr;
     private final LoadTask.MergeType mergeType;
@@ -98,7 +98,7 @@ public class BulkLoadDataDesc {
                             List<String> filePaths,
                             List<String> columns,
                             List<String> columnsFromPath,
-                            List<Expression> columnMappingList,
+                            Map<String, Expression> columnMappings,
                             FileFormatDesc formatDesc,
                             boolean isNegative,
                             Expression fileFilterExpr,
@@ -116,7 +116,7 @@ public class BulkLoadDataDesc {
         this.fileFieldNames = columnsNameToLowerCase(Objects.requireNonNull(columns, "columns should not null"));
         this.columnsFromPath = columnsNameToLowerCase(columnsFromPath);
         this.isNegative = isNegative;
-        this.columnMappingList = columnMappingList;
+        this.columnMappings = columnMappings;
         this.precedingFilterExpr = fileFilterExpr;
         this.whereExpr = whereExpr;
         this.mergeType = mergeType;
@@ -212,8 +212,8 @@ public class BulkLoadDataDesc {
         return columnsFromPath;
     }
 
-    public List<Expression> getColumnMappingList() {
-        return columnMappingList;
+    public Map<String, Expression> getColumnMappings() {
+        return columnMappings;
     }
 
     public Expression getPrecedingFilterExpr() {
@@ -310,10 +310,10 @@ public class BulkLoadDataDesc {
             sb.append(" COLUMNS FROM PATH AS (");
             Joiner.on(", ").appendTo(sb, columnsFromPath).append(")");
         }
-        if (columnMappingList != null && !columnMappingList.isEmpty()) {
+        if (columnMappings != null && !columnMappings.isEmpty()) {
             sb.append(" SET (");
-            Joiner.on(", ").appendTo(sb, columnMappingList.stream()
-                    .map(Expression::toSql).collect(Collectors.toList())).append(")");
+            Joiner.on(", ").appendTo(sb, columnMappings.entrySet().stream()
+                    .map(e -> e.getKey() + "=" + e.getValue().toSql()).collect(Collectors.toList())).append(")");
         }
         if (whereExpr != null) {
             sb.append(" WHERE ").append(whereExpr.toSql());
