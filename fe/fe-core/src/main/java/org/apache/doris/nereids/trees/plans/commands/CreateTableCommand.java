@@ -107,7 +107,7 @@ public class CreateTableCommand extends Command implements ForwardWithSync {
             } else if (i == 0 && dataType.isStringType()) {
                 dataType = VarcharType.createVarcharType(ScalarType.MAX_VARCHAR_LENGTH);
             }
-            columnsOfQuery.add(new ColumnDefinition(s.getName(), dataType, s.nullable()));
+            columnsOfQuery.add(new ColumnDefinition(s.getName(), dataType, true));
         }
         createTableInfo.validateCreateTableAsSelect(columnsOfQuery.build(), ctx);
         CreateTableStmt createTableStmt = createTableInfo.translateToLegacyStmt();
