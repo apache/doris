@@ -37,7 +37,8 @@ suite("flink_connector") {
         assertEquals(fileSize, 167461032)
         logger.info("finish download spark doris demo ...")
     } else {
-        logger.info("flink-doris-demo.jar 文件不存在")
+        logger.info("flink-doris-demo.jar 文件不存在, 忽略")
+        return
     }
 
     def run_cmd = "java -cp flink-doris-demo.jar com.doris.DorisFlinkDfSinkDemo $context.config.feHttpAddress regression_test_flink_connector_p0.$tableName $context.config.feHttpUser"
