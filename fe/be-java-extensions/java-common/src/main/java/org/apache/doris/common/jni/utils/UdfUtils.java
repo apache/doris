@@ -99,7 +99,7 @@ public class UdfUtils {
         private final int len;
         private int precision;
         private int scale;
-        private Type itemType;
+        private Type itemType = null;
         private Type keyType;
         private Type valueType;
         private int keyScale;
@@ -192,8 +192,15 @@ public class UdfUtils {
             return itemType;
         }
 
-        public void setItemType(Type type) {
-            this.itemType = type;
+        public void setItemType(Type type) throws InternalException {
+            if (this.itemType == null) {
+                this.itemType = type;
+            } else {
+                if (!this.itemType.matchesType(type)) {
+                    throw new InternalException("udf type not matches origin type :" + this.itemType.toSql()
+                            + " set type :" + type.toSql());
+                }
+            }
         }
 
         public Type getKeyType() {
@@ -313,9 +320,10 @@ public class UdfUtils {
      * Sets the argument types of a Java UDF or UDAF. Returns true if the argument types specified
      * in the UDF are compatible with the argument types of the evaluate() function loaded
      * from the associated JAR file.
+     * @throws InternalException
      */
     public static Pair<Boolean, JavaUdfDataType[]> setArgTypes(Type[] parameterTypes, Class<?>[] udfArgTypes,
-            boolean isUdaf) {
+            boolean isUdaf) throws InternalException {
         JavaUdfDataType[] inputArgTypes = new JavaUdfDataType[parameterTypes.length];
         int firstPos = isUdaf ? 1 : 0;
         for (int i = 0; i < parameterTypes.length; ++i) {
