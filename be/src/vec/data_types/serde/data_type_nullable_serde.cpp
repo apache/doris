@@ -139,13 +139,15 @@ Status DataTypeNullableSerDe::deserialize_one_cell_from_json(IColumn& column, Sl
          *      1,\N,{"cmake":2,"null":11}
          *      9,"\N",{"\N":null,null:0}
          *      \N,"null",{null:null}
+         *      null,null,null
          *
          * if you set trim_double_quotes = true
          * you will get :
          *      NULL,hello world,NULL
-         *      1,NULL,{cmake:2,null:11}
-         *      9,\N,{\N:NULL,NULL:0}
+         *      1,NULL,{"cmake":2,"null":11}
+         *      9,\N,{"\N":NULL,NULL:0}
          *      NULL,null,{NULL:NULL}
+         *      NULL,null,NULL
          *
          * if you set trim_double_quotes = false
          * you will get :
@@ -153,6 +155,13 @@ Status DataTypeNullableSerDe::deserialize_one_cell_from_json(IColumn& column, Sl
          *      1,\N,{"cmake":2,"null":11}
          *      9,"\N",{"\N":NULL,NULL:0}
          *      NULL,"null",{NULL:NULL}
+         *      NULL,null,NULL
+         *
+         * in csv(text) for normal type: we only recognize \N for null , so
+         * for not char family type, like int, if we put null literal ,
+         * it will parse fail, and make result null，not just because it equals \N.
+         * for char family type, like string, if we put null literal, it will parse success,
+         * and "null" literal will be stored in doris.
          *
          */
         if (nesting_level >= 2 && slice.size == 4 && slice[0] == 'n' && slice[1] == 'u' &&

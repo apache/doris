@@ -85,6 +85,21 @@ Status DataTypeStringSerDe::deserialize_one_cell_from_json(IColumn& column, Slic
                                                            const FormatOptions& options,
                                                            int nesting_level) const {
     auto& column_data = assert_cast<ColumnString&>(column);
+
+    /*
+     * For strings in the json complex type, we remove double quotes by default.
+     *
+     * Because when querying complex types, such as selecting complexColumn from table,
+     * we will add double quotes to the strings in the complex type.
+     *
+     * For the map<string,int> column, insert { "abc" : 1, "hello",2 }.
+     * If you do not remove the double quotes, it will display {""abc"":1,""hello"": 2 },
+     * remove the double quotes to display { "abc" : 1, "hello",2 }.
+     *
+     */
+    if (nesting_level >= 2) {
+        slice.trim_quote();
+    }
     if (options.escape_char != 0) {
         escape_string(slice.data, slice.size, options.escape_char);
     }
