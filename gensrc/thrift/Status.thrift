@@ -69,7 +69,7 @@ enum TStatusCode {
     NOT_AUTHORIZED      = 38,
     ABORTED             = 39,
     REMOTE_ERROR        = 40,
-    SERVICE_UNAVAILABLE = 41,
+    //SERVICE_UNAVAILABLE = 41, // Not used any more
     UNINITIALIZED       = 42,
     CONFIGURATION_ERROR = 43,
     INCOMPLETE          = 44,

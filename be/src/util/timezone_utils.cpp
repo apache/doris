@@ -98,6 +98,7 @@ T next_from_charstream(int8_t*& src) {
     } else {
         LOG(FATAL) << "Unknown endianess";
     }
+    LOG(FATAL) << "__builtin_unreachable";
     __builtin_unreachable();
 }
 

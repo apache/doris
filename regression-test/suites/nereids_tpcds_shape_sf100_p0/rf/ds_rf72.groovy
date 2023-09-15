@@ -61,7 +61,7 @@ limit 100;
 
     '''
     String plan = sql "${stmt}"
-    println plan
+    log.info(plan)
     def getRuntimeFilters = { plantree ->
         {
             def lst = []
@@ -78,6 +78,6 @@ limit 100;
     // def outFile = "regression-test/suites/nereids_tpcds_shape_sf100_p0/ddl/rf/rf.72"
     // File file = new File(outFile)
     // file.write(getRuntimeFilters(plan))
-    
-     assertEquals("RF9[cs_item_sk->[cr_item_sk],RF10[cs_order_number->[cr_order_number],RF8[w_warehouse_sk->[inv_warehouse_sk],RF7[cs_item_sk->[i_item_sk],RF5[d_week_seq->[d_week_seq],RF6[d_date_sk->[inv_date_sk],RF4[cs_item_sk->[inv_item_sk],RF3[d_date_sk->[cs_ship_date_sk],RF2[cd_demo_sk->[cs_bill_cdemo_sk],RF1[d_date_sk->[cs_sold_date_sk],RF0[hd_demo_sk->[cs_bill_hdemo_sk]", getRuntimeFilters(plan))
+
+     assertEquals("RF8[w_warehouse_sk->[inv_warehouse_sk],RF6[d_week_seq->[d_week_seq],RF7[d_date_sk->[inv_date_sk],RF5[cs_item_sk->[inv_item_sk],RF4[i_item_sk->[cs_item_sk],RF3[d_date_sk->[cs_ship_date_sk],RF2[cd_demo_sk->[cs_bill_cdemo_sk],RF1[d_date_sk->[cs_sold_date_sk],RF0[hd_demo_sk->[cs_bill_hdemo_sk]", getRuntimeFilters(plan))
 }

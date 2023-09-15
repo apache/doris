@@ -17,6 +17,8 @@
 
 #include "operator.h"
 
+#include <string>
+
 #include "pipeline/exec/aggregation_sink_operator.h"
 #include "pipeline/exec/aggregation_source_operator.h"
 #include "pipeline/exec/analytic_sink_operator.h"
@@ -37,19 +39,56 @@
 #include "pipeline/exec/sort_source_operator.h"
 #include "pipeline/exec/streaming_aggregation_sink_operator.h"
 #include "pipeline/exec/streaming_aggregation_source_operator.h"
+#include "pipeline/exec/union_sink_operator.h"
+#include "pipeline/exec/union_source_operator.h"
 #include "util/debug_util.h"
 
 namespace doris::pipeline {
 
-std::string OperatorXBase::debug_string() const {
-    std::stringstream ss;
-    ss << _op_name << ": is_source: " << is_source();
-    ss << ", is_closed: " << _is_closed;
-    return ss.str();
+std::string PipelineXLocalStateBase::debug_string(int indentation_level) const {
+    return _parent->debug_string(indentation_level);
+}
+
+template <typename DependencyType>
+std::string PipelineXLocalState<DependencyType>::debug_string(int indentation_level) const {
+    fmt::memory_buffer debug_string_buffer;
+    fmt::format_to(debug_string_buffer, "{}",
+                   PipelineXLocalStateBase::debug_string(indentation_level));
+    if (_dependency) {
+        fmt::format_to(debug_string_buffer, "\nDependency: \n {}",
+                       _dependency->debug_string(indentation_level + 1));
+    }
+    return fmt::to_string(debug_string_buffer);
+}
+
+template <typename DependencyType>
+std::string PipelineXSinkLocalState<DependencyType>::debug_string(int indentation_level) const {
+    fmt::memory_buffer debug_string_buffer;
+    fmt::format_to(debug_string_buffer, "{}",
+                   PipelineXSinkLocalStateBase::debug_string(indentation_level));
+    if (_dependency) {
+        fmt::format_to(debug_string_buffer, "\n{}Dependency: \n {}",
+                       std::string(indentation_level * 2, ' '),
+                       _dependency->debug_string(indentation_level + 1));
+    }
+    return fmt::to_string(debug_string_buffer);
+}
+
+std::string OperatorXBase::debug_string(int indentation_level) const {
+    fmt::memory_buffer debug_string_buffer;
+    fmt::format_to(debug_string_buffer, "{}{}: id={}", std::string(indentation_level * 2, ' '),
+                   _op_name, _id);
+    return fmt::to_string(debug_string_buffer);
+}
+
+std::string OperatorXBase::debug_string(RuntimeState* state, int indentation_level) const {
+    return state->get_local_state(id())->debug_string(indentation_level);
 }
 
 Status OperatorXBase::init(const TPlanNode& tnode, RuntimeState* /*state*/) {
-    _op_name = print_plan_node_type(tnode.node_type) + "OperatorX";
+    std::string node_name = print_plan_node_type(tnode.node_type);
+    auto substr = node_name.substr(0, node_name.find("_NODE"));
+    _op_name = substr + "_OPERATOR";
     _init_runtime_profile();
 
     if (tnode.__isset.vconjunct) {
@@ -185,14 +224,39 @@ void PipelineXLocalStateBase::reached_limit(vectorized::Block* block, SourceStat
     COUNTER_SET(_rows_returned_counter, _num_rows_returned);
 }
 
-std::string DataSinkOperatorXBase::debug_string() const {
-    std::stringstream ss;
-    ss << _name << ", is_closed: " << _is_closed;
-    return ss.str();
+std::string DataSinkOperatorXBase::debug_string(int indentation_level) const {
+    fmt::memory_buffer debug_string_buffer;
+
+    fmt::format_to(debug_string_buffer, "{}{}: id={}", std::string(indentation_level * 2, ' '),
+                   _name, _id);
+    return fmt::to_string(debug_string_buffer);
+}
+
+std::string PipelineXSinkLocalStateBase::debug_string(int indentation_level) const {
+    return _parent->debug_string(indentation_level);
+}
+
+std::string DataSinkOperatorXBase::debug_string(RuntimeState* state, int indentation_level) const {
+    return state->get_sink_local_state(id())->debug_string(indentation_level);
+}
+
+Status DataSinkOperatorXBase::init(const TDataSink& tsink) {
+    std::string op_name = "UNKNOWN_SINK";
+    std::map<int, const char*>::const_iterator it = _TDataSinkType_VALUES_TO_NAMES.find(tsink.type);
+
+    if (it != _TDataSinkType_VALUES_TO_NAMES.end()) {
+        op_name = it->second;
+    }
+    _name = op_name + "_OPERATOR";
+    return Status::OK();
 }
 
 Status DataSinkOperatorXBase::init(const TPlanNode& tnode, RuntimeState* state) {
-    _name = print_plan_node_type(tnode.node_type) + "SinkOperatorX";
+    std::string op_name = print_plan_node_type(tnode.node_type);
+
+    auto substr = op_name.substr(0, op_name.find("_NODE"));
+
+    _name = substr + "_SINK_OPERATOR";
     return Status::OK();
 }
 
@@ -206,7 +270,7 @@ Status DataSinkOperatorX<LocalStateType>::setup_local_state(RuntimeState* state,
 
 template <typename LocalStateType>
 void DataSinkOperatorX<LocalStateType>::get_dependency(DependencySPtr& dependency) {
-    dependency.reset(new typename LocalStateType::Dependency(id()));
+    dependency.reset(new typename LocalStateType::Dependency(dest_id()));
 }
 
 template <typename LocalStateType>
@@ -265,6 +329,7 @@ DECLARE_OPERATOR_X(BlockingAggSinkLocalState)
 DECLARE_OPERATOR_X(StreamingAggSinkLocalState)
 DECLARE_OPERATOR_X(ExchangeSinkLocalState)
 DECLARE_OPERATOR_X(NestedLoopJoinBuildSinkLocalState)
+DECLARE_OPERATOR_X(UnionSinkLocalState)
 
 #undef DECLARE_OPERATOR_X
 
@@ -279,6 +344,7 @@ DECLARE_OPERATOR_X(RepeatLocalState)
 DECLARE_OPERATOR_X(NestedLoopJoinProbeLocalState)
 DECLARE_OPERATOR_X(AssertNumRowsLocalState)
 DECLARE_OPERATOR_X(EmptySetLocalState)
+DECLARE_OPERATOR_X(UnionSourceLocalState)
 
 #undef DECLARE_OPERATOR_X
 
@@ -288,5 +354,21 @@ template class StreamingOperatorX<SelectLocalState>;
 template class StatefulOperatorX<HashJoinProbeLocalState>;
 template class StatefulOperatorX<RepeatLocalState>;
 template class StatefulOperatorX<NestedLoopJoinProbeLocalState>;
+
+template class PipelineXSinkLocalState<HashJoinDependency>;
+template class PipelineXSinkLocalState<SortDependency>;
+template class PipelineXSinkLocalState<NestedLoopJoinDependency>;
+template class PipelineXSinkLocalState<AnalyticDependency>;
+template class PipelineXSinkLocalState<AggDependency>;
+template class PipelineXSinkLocalState<FakeDependency>;
+template class PipelineXSinkLocalState<UnionDependency>;
+
+template class PipelineXLocalState<HashJoinDependency>;
+template class PipelineXLocalState<SortDependency>;
+template class PipelineXLocalState<NestedLoopJoinDependency>;
+template class PipelineXLocalState<AnalyticDependency>;
+template class PipelineXLocalState<AggDependency>;
+template class PipelineXLocalState<FakeDependency>;
+template class PipelineXLocalState<UnionDependency>;
 
 } // namespace doris::pipeline

@@ -57,7 +57,6 @@
 #include "common/daemon.h"
 #include "common/logging.h"
 #include "common/phdr_cache.h"
-#include "common/resource_tls.h"
 #include "common/signal_handler.h"
 #include "common/status.h"
 #include "io/cache/block/block_file_cache_factory.h"
@@ -167,6 +166,7 @@ auto instruction_fail_to_string(InstructionFail fail) {
     case InstructionFail::ARM_NEON:
         ret("ARM_NEON");
     }
+    LOG(FATAL) << "__builtin_unreachable";
     __builtin_unreachable();
 }
 
@@ -307,7 +307,6 @@ struct Checker {
 
 int main(int argc, char** argv) {
     doris::signal::InstallFailureSignalHandler();
-    doris::init_signals();
     // create StackTraceCache Instance, at the beginning, other static destructors may use.
     StackTrace::createCache();
 
@@ -440,51 +439,15 @@ int main(int argc, char** argv) {
         if (!status.ok()) {
             LOG(WARNING) << "Failed to initialize JNI: " << status;
             exit(1);
+        } else {
+            LOG(INFO) << "Doris backend JNI is initialized.";
         }
     }
 
-    // Load file cache before starting up daemon threads to make sure StorageEngine is read.
-    if (doris::config::enable_file_cache) {
-        doris::io::IFileCache::init();
-        std::unordered_set<std::string> cache_path_set;
-        std::vector<doris::CachePath> cache_paths;
-        olap_res = doris::parse_conf_cache_paths(doris::config::file_cache_path, cache_paths);
-        if (!olap_res) {
-            LOG(FATAL) << "parse config file cache path failed, path="
-                       << doris::config::file_cache_path;
-            exit(-1);
-        }
-
-        std::unique_ptr<doris::ThreadPool> file_cache_init_pool;
-        doris::ThreadPoolBuilder("FileCacheInitThreadPool")
-                .set_min_threads(cache_paths.size())
-                .set_max_threads(cache_paths.size())
-                .build(&file_cache_init_pool);
-
-        std::list<doris::Status> cache_status;
-        for (auto& cache_path : cache_paths) {
-            if (cache_path_set.find(cache_path.path) != cache_path_set.end()) {
-                LOG(WARNING) << fmt::format("cache path {} is duplicate", cache_path.path);
-                continue;
-            }
-
-            RETURN_IF_ERROR(file_cache_init_pool->submit_func(
-                    std::bind(&doris::io::FileCacheFactory::create_file_cache,
-                              &(doris::io::FileCacheFactory::instance()), cache_path.path,
-                              cache_path.init_settings(), &(cache_status.emplace_back()))));
-
-            cache_path_set.emplace(cache_path.path);
-        }
-
-        file_cache_init_pool->wait();
-        for (const auto& status : cache_status) {
-            if (!status.ok()) {
-                LOG(FATAL) << "failed to init file cache, err: " << status;
-                exit(-1);
-            }
-        }
-    }
-
+    // Doris own signal handler must be register after jvm is init.
+    // Or our own sig-handler for SIGINT & SIGTERM will not be chained ...
+    // https://www.oracle.com/java/technologies/javase/signals.html
+    doris::init_signals();
     // ATTN: MUST init before `ExecEnv`, `StorageEngine` and other daemon services
     //
     //       Daemon ───┬──► StorageEngine ──► ExecEnv ──► Disk/Mem/CpuInfo
@@ -494,7 +457,6 @@ int main(int argc, char** argv) {
     doris::CpuInfo::init();
     doris::DiskInfo::init();
     doris::MemInfo::init();
-    doris::UserFunctionCache::instance()->init(doris::config::user_function_dir);
 
     LOG(INFO) << doris::CpuInfo::debug_string();
     LOG(INFO) << doris::DiskInfo::debug_string();
@@ -504,41 +466,17 @@ int main(int argc, char** argv) {
     // will work only after additional call of this function.
     // rewrites dl_iterate_phdr will cause Jemalloc to fail to run after enable profile. see #
     // updatePHDRCache();
-
-    doris::ResourceTls::init();
     if (!doris::BackendOptions::init()) {
         exit(-1);
     }
 
     // init exec env
-    auto exec_env = doris::ExecEnv::GetInstance();
-    doris::ExecEnv::init(exec_env, paths);
-    doris::TabletSchemaCache::create_global_schema_cache();
-
-    // init s3 write buffer pool
-    doris::io::S3FileBufferPool* s3_buffer_pool = doris::io::S3FileBufferPool::GetInstance();
-    s3_buffer_pool->init(doris::config::s3_write_buffer_whole_size,
-                         doris::config::s3_write_buffer_size,
-                         exec_env->buffered_reader_prefetch_thread_pool());
-
-    // init and open storage engine
-    doris::EngineOptions options;
-    options.store_paths = paths;
-    options.backend_uid = doris::UniqueId::gen_uid();
-    std::unique_ptr<doris::StorageEngine> engine;
-    auto st = doris::StorageEngine::open(options, &engine);
-    if (!st.ok()) {
-        LOG(FATAL) << "fail to open StorageEngine, res=" << st;
+    auto exec_env(doris::ExecEnv::GetInstance());
+    status = doris::ExecEnv::init(doris::ExecEnv::GetInstance(), paths);
+    if (status != Status::OK()) {
+        LOG(FATAL) << "failed to init doris storage engine, res=" << status;
         exit(-1);
     }
-    engine->set_heartbeat_flags(exec_env->heartbeat_flags());
-
-    // start all background threads of storage engine.
-    // SHOULD be called after exec env is initialized.
-    EXIT_IF_ERROR(engine->start_bg_threads());
-
-    doris::Daemon daemon;
-    daemon.start();
 
     doris::telemetry::init_tracer();
 
@@ -556,8 +494,9 @@ int main(int argc, char** argv) {
     }
 
     // 2. bprc service
-    doris::BRpcService brpc_service(exec_env);
-    status = brpc_service.start(doris::config::brpc_port, doris::config::brpc_num_threads);
+    std::unique_ptr<doris::BRpcService> brpc_service =
+            std::make_unique<doris::BRpcService>(exec_env);
+    status = brpc_service->start(doris::config::brpc_port, doris::config::brpc_num_threads);
     if (!status.ok()) {
         LOG(ERROR) << "BRPC service did not start correctly, exiting";
         doris::shutdown_logging();
@@ -565,9 +504,9 @@ int main(int argc, char** argv) {
     }
 
     // 3. http service
-    doris::HttpService http_service(exec_env, doris::config::webserver_port,
-                                    doris::config::webserver_num_workers);
-    status = http_service.start();
+    std::unique_ptr<doris::HttpService> http_service = std::make_unique<doris::HttpService>(
+            exec_env, doris::config::webserver_port, doris::config::webserver_num_workers);
+    status = http_service->start();
     if (!status.ok()) {
         LOG(ERROR) << "Doris Be http service did not start correctly, exiting";
         doris::shutdown_logging();
@@ -598,6 +537,10 @@ int main(int argc, char** argv) {
     std::shared_ptr<doris::flight::FlightSqlServer> flight_server =
             std::move(doris::flight::FlightSqlServer::create()).ValueOrDie();
     status = flight_server->init(doris::config::arrow_flight_port);
+
+    // 6. start daemon thread to do clean or gc jobs
+    doris::Daemon daemon;
+    daemon.start();
     if (!status.ok()) {
         LOG(ERROR) << "Arrow Flight Service did not start correctly, exiting, "
                    << status.to_string();
@@ -611,10 +554,26 @@ int main(int argc, char** argv) {
 #endif
         sleep(3);
     }
-
+    LOG(INFO) << "Doris main exiting.";
     // For graceful shutdown, need to wait for all running queries to stop
     exec_env->wait_for_all_tasks_done();
-
+    daemon.stop();
+    flight_server.reset();
+    LOG(INFO) << "Flight server stopped.";
+    heartbeat_thrift_server->stop();
+    heartbeat_thrift_server.reset(nullptr);
+    LOG(INFO) << "Heartbeat server stopped";
+    // TODO(zhiqiang): http_service
+    http_service->stop();
+    http_service.reset(nullptr);
+    LOG(INFO) << "Http service stopped";
+    be_server->stop();
+    be_server.reset(nullptr);
+    LOG(INFO) << "Be server stopped";
+    brpc_service.reset(nullptr);
+    LOG(INFO) << "Brpc service stopped";
+    exec_env->destroy();
+    LOG(INFO) << "Doris main exited.";
     return 0;
 }
 

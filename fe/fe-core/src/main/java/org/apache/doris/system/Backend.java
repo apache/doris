@@ -325,6 +325,12 @@ public class Backend implements Writable {
         return lastMissingHeartbeatTime;
     }
 
+    // Backend process epoch, is uesd to tag a beckend process
+    // Currently it is always equal to be start time, even during oplog replay.
+    public long getProcessEpoch() {
+        return lastStartTime;
+    }
+
     public boolean isAlive() {
         return this.isAlive.get();
     }
@@ -627,7 +633,8 @@ public class Backend implements Writable {
     @Override
     public String toString() {
         return "Backend [id=" + id + ", host=" + host + ", heartbeatPort=" + heartbeatPort + ", alive=" + isAlive.get()
-                + ", lastStartTime=" + TimeUtils.longToTimeString(lastStartTime) + ", tags: " + tagMap + "]";
+                + ", lastStartTime=" + TimeUtils.longToTimeString(lastStartTime) + ", process epoch=" + lastStartTime
+                + ", tags: " + tagMap + "]";
     }
 
     public String getHealthyStatus() {
@@ -678,13 +685,21 @@ public class Backend implements Writable {
             this.lastUpdateMs = hbResponse.getHbTime();
             if (!isAlive.get()) {
                 isChanged = true;
+                LOG.info("{} is back to alive, update start time from {} to {}, "
+                        + "update be epoch from {} to {}.", this.toString(),
+                        TimeUtils.longToTimeString(lastStartTime),
+                        TimeUtils.longToTimeString(hbResponse.getBeStartTime()),
+                        lastStartTime, hbResponse.getBeStartTime());
                 this.lastStartTime = hbResponse.getBeStartTime();
-                LOG.info("{} is back to alive", this.toString());
                 this.isAlive.set(true);
             }
 
             if (this.lastStartTime != hbResponse.getBeStartTime() && hbResponse.getBeStartTime() > 0) {
-                LOG.info("{} update last start time to {}", this.toString(), hbResponse.getBeStartTime());
+                LOG.info("{} update last start time from {} to {}, "
+                        + "update be epoch from {} to {}.", this.toString(),
+                        TimeUtils.longToTimeString(lastStartTime),
+                        TimeUtils.longToTimeString(hbResponse.getBeStartTime()),
+                        lastStartTime, hbResponse.getBeStartTime());
                 this.lastStartTime = hbResponse.getBeStartTime();
                 isChanged = true;
             }

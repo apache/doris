@@ -23,8 +23,7 @@ import org.apache.doris.scheduler.manager.TimerJobManager;
 import org.apache.doris.scheduler.manager.TransientTaskManager;
 
 import com.lmax.disruptor.BlockingWaitStrategy;
-import com.lmax.disruptor.EventTranslatorOneArg;
-import com.lmax.disruptor.EventTranslatorTwoArg;
+import com.lmax.disruptor.EventTranslatorThreeArg;
 import com.lmax.disruptor.TimeoutException;
 import com.lmax.disruptor.WorkHandler;
 import com.lmax.disruptor.dsl.Disruptor;
@@ -65,12 +64,13 @@ public class TaskDisruptor implements Closeable {
     private boolean isClosed = false;
 
     /**
-     * The default {@link EventTranslatorOneArg} to use for {@link #tryPublish(Long)}.
+     * The default {@link EventTranslatorThreeArg} to use for {@link #tryPublish(Long, Long)}.
      * This is used to avoid creating a new object for each publish.
      */
-    private static final EventTranslatorTwoArg<TaskEvent, Long, TaskType> TRANSLATOR
-            = (event, sequence, jobId, taskType) -> {
+    private static final EventTranslatorThreeArg<TaskEvent, Long, Long, TaskType> TRANSLATOR
+            = (event, sequence, jobId, taskId, taskType) -> {
                 event.setId(jobId);
+                event.setTaskId(taskId);
                 event.setTaskType(taskType);
             };
 
@@ -89,15 +89,15 @@ public class TaskDisruptor implements Closeable {
     /**
      * Publishes a job to the disruptor.
      *
-     * @param jobId  job id
+     * @param jobId job id
      */
-    public void tryPublish(Long jobId) {
+    public void tryPublish(Long jobId, Long taskId) {
         if (isClosed) {
             log.info("tryPublish failed, disruptor is closed, jobId: {}", jobId);
             return;
         }
         try {
-            disruptor.publishEvent(TRANSLATOR, jobId, TaskType.TimerJobTask);
+            disruptor.publishEvent(TRANSLATOR, jobId, taskId, TaskType.TimerJobTask);
         } catch (Exception e) {
             log.error("tryPublish failed, jobId: {}", jobId, e);
         }
@@ -106,7 +106,7 @@ public class TaskDisruptor implements Closeable {
     /**
      * Publishes a task to the disruptor.
      *
-     * @param taskId  task id
+     * @param taskId task id
      */
     public void tryPublishTask(Long taskId) {
         if (isClosed) {
@@ -114,7 +114,7 @@ public class TaskDisruptor implements Closeable {
             return;
         }
         try {
-            disruptor.publishEvent(TRANSLATOR, taskId, TaskType.TransientTask);
+            disruptor.publishEvent(TRANSLATOR, taskId, 0L, TaskType.TransientTask);
         } catch (Exception e) {
             log.error("tryPublish failed, taskId: {}", taskId, e);
         }

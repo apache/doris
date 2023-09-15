@@ -23,6 +23,7 @@
 #include "pipeline/exec/hashjoin_probe_operator.h"
 #include "pipeline/exec/operator.h"
 #include "vec/common/aggregation_common.h"
+#include "vec/exec/join/vhash_join_node.h"
 #include "vec/utils/template_helpers.hpp"
 
 namespace doris::pipeline {
@@ -112,6 +113,13 @@ Status HashJoinBuildSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo
         RETURN_IF_ERROR(state->runtime_filter_mgr()->get_producer_filter(
                 p._runtime_filter_descs[i].filter_id, &_runtime_filters[i]));
     }
+
+    return Status::OK();
+}
+
+Status HashJoinBuildSinkLocalState::open(RuntimeState* state) {
+    RETURN_IF_ERROR(JoinBuildSinkLocalState::open(state));
+    auto& p = _parent->cast<HashJoinBuildSinkOperatorX>();
 
     for (size_t i = 0; i < p._runtime_filter_descs.size(); i++) {
         if (auto bf = _runtime_filters[i]->get_bloomfilter()) {
@@ -563,7 +571,7 @@ Status HashJoinBuildSinkOperatorX::sink(RuntimeState* state, vectorized::Block* 
                                                 _build_expr_ctxs, _runtime_filter_descs);
 
                                 RETURN_IF_ERROR(local_state._runtime_filter_slots->init(
-                                        state, arg.hash_table.get_size(), 0));
+                                        state, arg.hash_table.size(), 0));
                                 RETURN_IF_ERROR(
                                         local_state._runtime_filter_slots->copy_from_shared_context(
                                                 _shared_hash_table_context));

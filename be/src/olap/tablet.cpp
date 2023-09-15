@@ -107,6 +107,7 @@
 #include "olap/txn_manager.h"
 #include "olap/types.h"
 #include "olap/utils.h"
+#include "runtime/define_primitive_type.h"
 #include "segment_loader.h"
 #include "service/point_query_executor.h"
 #include "util/bvar_helper.h"
@@ -2638,16 +2639,9 @@ void Tablet::update_max_version_schema(const TabletSchemaSPtr& tablet_schema) {
     }
 }
 
-// fetch value by row column
-Status Tablet::fetch_value_through_row_column(RowsetSharedPtr input_rowset, uint32_t segid,
-                                              const std::vector<uint32_t>& rowids,
-                                              const std::vector<uint32_t>& cids,
-                                              vectorized::Block& block) {
-    // read row data
-    BetaRowsetSharedPtr rowset = std::static_pointer_cast<BetaRowset>(input_rowset);
-    CHECK(rowset);
-
-    const TabletSchemaSPtr tablet_schema = rowset->tablet_schema();
+Status Tablet::_get_segment_column_iterator(
+        const BetaRowsetSharedPtr& rowset, uint32_t segid, const TabletColumn& target_column,
+        std::unique_ptr<segment_v2::ColumnIterator>* column_iterator, OlapReaderStatistics* stats) {
     SegmentCacheHandle segment_cache;
     RETURN_IF_ERROR(SegmentLoader::instance()->load_segments(rowset, &segment_cache, true));
     // find segment
@@ -2658,26 +2652,38 @@ Status Tablet::fetch_value_through_row_column(RowsetSharedPtr input_rowset, uint
         return Status::NotFound(fmt::format("rowset {} 's segemnt not found, seg_id {}",
                                             rowset->rowset_id().to_string(), segid));
     }
-    // read from segment column by column, row by row
     segment_v2::SegmentSharedPtr segment = *it;
+    RETURN_IF_ERROR(segment->new_column_iterator(target_column, column_iterator));
+    segment_v2::ColumnIteratorOptions opt;
+    opt.file_reader = segment->file_reader().get();
+    opt.stats = stats;
+    opt.use_page_cache = !config::disable_storage_page_cache;
+    opt.io_ctx.reader_type = ReaderType::READER_QUERY;
+    (*column_iterator)->init(opt);
+    return Status::OK();
+}
+
+// fetch value by row column
+Status Tablet::fetch_value_through_row_column(RowsetSharedPtr input_rowset, uint32_t segid,
+                                              const std::vector<uint32_t>& rowids,
+                                              const std::vector<uint32_t>& cids,
+                                              vectorized::Block& block) {
     MonotonicStopWatch watch;
     watch.start();
     Defer _defer([&]() {
         LOG_EVERY_N(INFO, 500) << "fetch_value_by_rowids, cost(us):" << watch.elapsed_time() / 1000
                                << ", row_batch_size:" << rowids.size();
     });
+
+    BetaRowsetSharedPtr rowset = std::static_pointer_cast<BetaRowset>(input_rowset);
+    CHECK(rowset);
+    const TabletSchemaSPtr tablet_schema = rowset->tablet_schema();
     CHECK(tablet_schema->store_row_column());
-    // create _source column
     std::unique_ptr<segment_v2::ColumnIterator> column_iterator;
-    RETURN_IF_ERROR(segment->new_column_iterator(tablet_schema->column(BeConsts::ROW_STORE_COL),
-                                                 &column_iterator));
-    segment_v2::ColumnIteratorOptions opt;
     OlapReaderStatistics stats;
-    opt.file_reader = segment->file_reader().get();
-    opt.stats = &stats;
-    opt.use_page_cache = !config::disable_storage_page_cache;
-    opt.io_ctx.reader_type = ReaderType::READER_QUERY;
-    column_iterator->init(opt);
+    RETURN_IF_ERROR(_get_segment_column_iterator(rowset, segid,
+                                                 tablet_schema->column(BeConsts::ROW_STORE_COL),
+                                                 &column_iterator, &stats));
     // get and parse tuple row
     vectorized::MutableColumnPtr column_ptr = vectorized::ColumnString::create();
     RETURN_IF_ERROR(column_iterator->read_by_rowids(rowids.data(), rowids.size(), column_ptr));
@@ -2701,38 +2707,20 @@ Status Tablet::fetch_value_by_rowids(RowsetSharedPtr input_rowset, uint32_t segi
                                      const std::vector<uint32_t>& rowids,
                                      const TabletColumn& tablet_column,
                                      vectorized::MutableColumnPtr& dst) {
-    // read row data
-    BetaRowsetSharedPtr rowset = std::static_pointer_cast<BetaRowset>(input_rowset);
-    CHECK(rowset);
-
-    SegmentCacheHandle segment_cache;
-    RETURN_IF_ERROR(SegmentLoader::instance()->load_segments(rowset, &segment_cache, true));
-    // find segment
-    auto it = std::find_if(
-            segment_cache.get_segments().begin(), segment_cache.get_segments().end(),
-            [&segid](const segment_v2::SegmentSharedPtr& seg) { return seg->id() == segid; });
-    if (it == segment_cache.get_segments().end()) {
-        return Status::NotFound(fmt::format("rowset {} 's segemnt not found, seg_id {}",
-                                            rowset->rowset_id().to_string(), segid));
-    }
-    // read from segment column by column, row by row
-    segment_v2::SegmentSharedPtr segment = *it;
     MonotonicStopWatch watch;
     watch.start();
     Defer _defer([&]() {
         LOG_EVERY_N(INFO, 500) << "fetch_value_by_rowids, cost(us):" << watch.elapsed_time() / 1000
                                << ", row_batch_size:" << rowids.size();
     });
-    // create _source column
-    std::unique_ptr<segment_v2::ColumnIterator> column_iterator = nullptr;
-    RETURN_IF_ERROR(segment->new_column_iterator(tablet_column, &column_iterator));
-    segment_v2::ColumnIteratorOptions opt;
+
+    // read row data
+    BetaRowsetSharedPtr rowset = std::static_pointer_cast<BetaRowset>(input_rowset);
+    CHECK(rowset);
+    std::unique_ptr<segment_v2::ColumnIterator> column_iterator;
     OlapReaderStatistics stats;
-    opt.file_reader = segment->file_reader().get();
-    opt.stats = &stats;
-    opt.use_page_cache = !config::disable_storage_page_cache;
-    opt.io_ctx.reader_type = ReaderType::READER_QUERY;
-    column_iterator->init(opt);
+    RETURN_IF_ERROR(
+            _get_segment_column_iterator(rowset, segid, tablet_column, &column_iterator, &stats));
     RETURN_IF_ERROR(column_iterator->read_by_rowids(rowids.data(), rowids.size(), dst));
     return Status::OK();
 }
@@ -2741,45 +2729,22 @@ Status Tablet::lookup_row_data(const Slice& encoded_key, const RowLocation& row_
                                RowsetSharedPtr input_rowset, const TupleDescriptor* desc,
                                OlapReaderStatistics& stats, std::string& values,
                                bool write_to_cache) {
-    // read row data
-    BetaRowsetSharedPtr rowset = std::static_pointer_cast<BetaRowset>(input_rowset);
-    if (!rowset) {
-        return Status::NotFound(
-                fmt::format("rowset {} not found", row_location.rowset_id.to_string()));
-    }
-
-    const TabletSchemaSPtr tablet_schema = rowset->tablet_schema();
-    SegmentCacheHandle segment_cache;
-    RETURN_IF_ERROR(SegmentLoader::instance()->load_segments(rowset, &segment_cache, true));
-    // find segment
-    auto it = std::find_if(segment_cache.get_segments().begin(), segment_cache.get_segments().end(),
-                           [&row_location](const segment_v2::SegmentSharedPtr& seg) {
-                               return seg->id() == row_location.segment_id;
-                           });
-    if (it == segment_cache.get_segments().end()) {
-        return Status::NotFound(fmt::format("rowset {} 's segemnt not found, seg_id {}",
-                                            row_location.rowset_id.to_string(),
-                                            row_location.segment_id));
-    }
-    // read from segment column by column, row by row
-    segment_v2::SegmentSharedPtr segment = *it;
-    size_t row_size = 0;
     MonotonicStopWatch watch;
+    size_t row_size = 1;
     watch.start();
     Defer _defer([&]() {
         LOG_EVERY_N(INFO, 500) << "get a single_row, cost(us):" << watch.elapsed_time() / 1000
                                << ", row_size:" << row_size;
     });
+
+    BetaRowsetSharedPtr rowset = std::static_pointer_cast<BetaRowset>(input_rowset);
+    CHECK(rowset);
+    const TabletSchemaSPtr tablet_schema = rowset->tablet_schema();
     CHECK(tablet_schema->store_row_column());
-    // create _source column
     std::unique_ptr<segment_v2::ColumnIterator> column_iterator;
-    RETURN_IF_ERROR(segment->new_column_iterator(tablet_schema->column(BeConsts::ROW_STORE_COL),
-                                                 &column_iterator));
-    segment_v2::ColumnIteratorOptions opt;
-    opt.file_reader = segment->file_reader().get();
-    opt.stats = &stats;
-    opt.use_page_cache = !config::disable_storage_page_cache;
-    column_iterator->init(opt);
+    RETURN_IF_ERROR(_get_segment_column_iterator(rowset, row_location.segment_id,
+                                                 tablet_schema->column(BeConsts::ROW_STORE_COL),
+                                                 &column_iterator, &stats));
     // get and parse tuple row
     vectorized::MutableColumnPtr column_ptr = vectorized::ColumnString::create();
     std::vector<segment_v2::rowid_t> rowids {static_cast<segment_v2::rowid_t>(row_location.row_id)};
@@ -2920,6 +2885,7 @@ Status Tablet::calc_segment_delete_bitmap(RowsetSharedPtr rowset,
     Version dummy_version(end_version + 1, end_version + 1);
     auto rowset_schema = rowset->tablet_schema();
     bool is_partial_update = rowset_schema->is_partial_update();
+    bool is_unique_key_ignore_mode = rowset_schema->is_unique_key_ignore_mode();
     // use for partial update
     PartialUpdateReadPlan read_plan_ori;
     PartialUpdateReadPlan read_plan_update;
@@ -2971,7 +2937,8 @@ Status Tablet::calc_segment_delete_bitmap(RowsetSharedPtr rowset,
             Slice key = Slice(index_column->get_data_at(i).data, index_column->get_data_at(i).size);
             RowLocation loc;
             // same row in segments should be filtered
-            if (delete_bitmap->contains({rowset_id, seg->id(), 0}, row_id)) {
+            if (delete_bitmap->contains({rowset_id, seg->id(), DeleteBitmap::TEMP_VERSION_COMMON},
+                                        row_id)) {
                 continue;
             }
 
@@ -2986,37 +2953,50 @@ Status Tablet::calc_segment_delete_bitmap(RowsetSharedPtr rowset,
             if (st.is<KEY_NOT_FOUND>()) {
                 continue;
             }
-
-            // sequence id smaller than the previous one, so delete current row
-            if (st.is<KEY_ALREADY_EXISTS>()) {
-                delete_bitmap->add({rowset_id, seg->id(), 0}, row_id);
-                continue;
-            } else if (is_partial_update && rowset_writer != nullptr) {
-                // In publish version, record rows to be deleted for concurrent update
-                // For example, if version 5 and 6 update a row, but version 6 only see
-                // version 4 when write, and when publish version, version 5's value will
-                // be marked as deleted and it's update is losed.
-                // So here we should read version 5's columns and build a new row, which is
-                // consists of version 6's update columns and version 5's origin columns
-                // here we build 2 read plan for ori values and update values
-                prepare_to_read(loc, pos, &read_plan_ori);
-                prepare_to_read(RowLocation {rowset_id, seg->id(), row_id}, pos, &read_plan_update);
-                rsid_to_rowset[rowset_find->rowset_id()] = rowset_find;
-                ++pos;
-                // delete bitmap will be calculate when memtable flush and
-                // publish. The two stages may see different versions.
-                // When there is sequence column, the currently imported data
-                // of rowset may be marked for deletion at memtablet flush or
-                // publish because the seq column is smaller than the previous
-                // rowset.
-                // just set 0 as a unified temporary version number, and update to
-                // the real version number later.
-                delete_bitmap->add({loc.rowset_id, loc.segment_id, 0}, loc.row_id);
-                delete_bitmap->add({rowset_id, seg->id(), 0}, row_id);
-                continue;
+            if (UNLIKELY(is_unique_key_ignore_mode)) {
+                if (st.is<OK>() || st.is<KEY_ALREADY_EXISTS>()) {
+                    delete_bitmap->add({rowset_id, seg->id(), DeleteBitmap::TEMP_VERSION_COMMON},
+                                       row_id);
+                }
+            } else {
+                // sequence id smaller than the previous one, so delete current row
+                if (st.is<KEY_ALREADY_EXISTS>()) {
+                    delete_bitmap->add({rowset_id, seg->id(), DeleteBitmap::TEMP_VERSION_COMMON},
+                                       row_id);
+                    continue;
+                } else if (is_partial_update && rowset_writer != nullptr) {
+                    // In publish version, record rows to be deleted for concurrent update
+                    // For example, if version 5 and 6 update a row, but version 6 only see
+                    // version 4 when write, and when publish version, version 5's value will
+                    // be marked as deleted and it's update is losed.
+                    // So here we should read version 5's columns and build a new row, which is
+                    // consists of version 6's update columns and version 5's origin columns
+                    // here we build 2 read plan for ori values and update values
+                    prepare_to_read(loc, pos, &read_plan_ori);
+                    prepare_to_read(RowLocation {rowset_id, seg->id(), row_id}, pos,
+                                    &read_plan_update);
+                    rsid_to_rowset[rowset_find->rowset_id()] = rowset_find;
+                    ++pos;
+                    // delete bitmap will be calculate when memtable flush and
+                    // publish. The two stages may see different versions.
+                    // When there is sequence column, the currently imported data
+                    // of rowset may be marked for deletion at memtablet flush or
+                    // publish because the seq column is smaller than the previous
+                    // rowset.
+                    // just set 0 as a unified temporary version number, and update to
+                    // the real version number later.
+                    delete_bitmap->add(
+                            {loc.rowset_id, loc.segment_id, DeleteBitmap::TEMP_VERSION_COMMON},
+                            loc.row_id);
+                    delete_bitmap->add({rowset_id, seg->id(), DeleteBitmap::TEMP_VERSION_COMMON},
+                                       row_id);
+                    continue;
+                }
+                // when st = ok
+                delete_bitmap->add(
+                        {loc.rowset_id, loc.segment_id, DeleteBitmap::TEMP_VERSION_COMMON},
+                        loc.row_id);
             }
-            // when st = ok
-            delete_bitmap->add({loc.rowset_id, loc.segment_id, 0}, loc.row_id);
         }
         remaining -= num_read;
     }
@@ -3239,6 +3219,12 @@ Status Tablet::update_delete_bitmap_without_lock(const RowsetSharedPtr& rowset) 
     std::vector<segment_v2::SegmentSharedPtr> segments;
     _load_rowset_segments(rowset, &segments);
 
+    // If this rowset does not have a segment, there is no need for an update.
+    if (segments.empty()) {
+        LOG(INFO) << "[Schema Change or Clone] skip to construct delete bitmap tablet: "
+                  << tablet_id() << " cur max_version: " << cur_version;
+        return Status::OK();
+    }
     RowsetIdUnorderedSet cur_rowset_ids = all_rs_id(cur_version - 1);
     DeleteBitmapPtr delete_bitmap = std::make_shared<DeleteBitmap>(tablet_id());
     RETURN_IF_ERROR(calc_delete_bitmap_between_segments(rowset, segments, delete_bitmap));
@@ -3507,6 +3493,7 @@ RowsetIdUnorderedSet Tablet::all_rs_id(int64_t max_version) const {
 }
 
 bool Tablet::check_all_rowset_segment() {
+    std::shared_lock rdlock(_meta_lock);
     for (auto& version_rowset : _rs_version_map) {
         RowsetSharedPtr rowset = version_rowset.second;
         if (!rowset->check_rowset_segment()) {
@@ -3710,8 +3697,9 @@ Status Tablet::calc_delete_bitmap_between_segments(
 void Tablet::add_sentinel_mark_to_delete_bitmap(DeleteBitmap* delete_bitmap,
                                                 const RowsetIdUnorderedSet& rowsetids) {
     for (const auto& rowsetid : rowsetids) {
-        delete_bitmap->add({rowsetid, DeleteBitmap::INVALID_SEGMENT_ID, 0},
-                           DeleteBitmap::ROWSET_SENTINEL_MARK);
+        delete_bitmap->add(
+                {rowsetid, DeleteBitmap::INVALID_SEGMENT_ID, DeleteBitmap::TEMP_VERSION_COMMON},
+                DeleteBitmap::ROWSET_SENTINEL_MARK);
     }
 }
 
@@ -3732,8 +3720,8 @@ Status Tablet::check_delete_bitmap_correctness(DeleteBitmapPtr delete_bitmap, in
                                                std::vector<RowsetSharedPtr>* rowsets) {
     RowsetIdUnorderedSet missing_ids;
     for (const auto& rowsetid : rowset_ids) {
-        if (!delete_bitmap->delete_bitmap.contains(
-                    {rowsetid, DeleteBitmap::INVALID_SEGMENT_ID, 0})) {
+        if (!delete_bitmap->delete_bitmap.contains({rowsetid, DeleteBitmap::INVALID_SEGMENT_ID,
+                                                    DeleteBitmap::TEMP_VERSION_COMMON})) {
             missing_ids.insert(rowsetid);
         }
     }

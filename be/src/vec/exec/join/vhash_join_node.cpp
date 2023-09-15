@@ -88,7 +88,7 @@ RuntimeFilterContext::RuntimeFilterContext(HashJoinNode* join_node)
         : _runtime_filter_descs(join_node->_runtime_filter_descs),
           _runtime_filter_slots(join_node->_runtime_filter_slots),
           _build_expr_ctxs(join_node->_build_expr_ctxs),
-          _build_bf_cardinality(join_node->_build_bf_cardinality),
+          _build_rf_cardinality(join_node->_build_rf_cardinality),
           _inserted_rows(join_node->_inserted_rows),
           _push_down_timer(join_node->_push_down_timer),
           _push_compute_timer(join_node->_push_compute_timer) {}
@@ -97,7 +97,7 @@ RuntimeFilterContext::RuntimeFilterContext(pipeline::HashJoinBuildSinkLocalState
         : _runtime_filter_descs(local_state->join_build()->_runtime_filter_descs),
           _runtime_filter_slots(local_state->_runtime_filter_slots),
           _build_expr_ctxs(local_state->_build_expr_ctxs),
-          _build_bf_cardinality(local_state->_build_bf_cardinality),
+          _build_rf_cardinality(local_state->_build_rf_cardinality),
           _inserted_rows(local_state->_inserted_rows),
           _push_down_timer(local_state->_push_down_timer),
           _push_compute_timer(local_state->_push_compute_timer) {}
@@ -125,6 +125,7 @@ HashJoinProbeContext::HashJoinProbeContext(HashJoinNode* join_node)
           _probe_block(&join_node->_probe_block),
           _probe_columns(&join_node->_probe_columns),
           _probe_index(&join_node->_probe_index),
+          _ready_probe_index(&join_node->_ready_probe_index),
           _probe_key_sz(join_node->_probe_key_sz),
           _left_output_slot_flags(&join_node->_left_output_slot_flags),
           _right_output_slot_flags(&join_node->_right_output_slot_flags),
@@ -153,6 +154,7 @@ HashJoinProbeContext::HashJoinProbeContext(pipeline::HashJoinProbeLocalState* lo
           _probe_block(&local_state->_probe_block),
           _probe_columns(&local_state->_probe_columns),
           _probe_index(&local_state->_probe_index),
+          _ready_probe_index(&local_state->_ready_probe_index),
           _probe_key_sz(local_state->_shared_state->probe_key_sz),
           _left_output_slot_flags(&local_state->join_probe()->_left_output_slot_flags),
           _right_output_slot_flags(&local_state->join_probe()->_right_output_slot_flags),
@@ -174,7 +176,7 @@ HashJoinBuildContext::HashJoinBuildContext(HashJoinNode* join_node)
           _runtime_filter_descs(join_node->_runtime_filter_descs),
           _inserted_rows(join_node->_inserted_rows),
           _arena(join_node->_arena),
-          _build_bf_cardinality(join_node->_build_bf_cardinality) {}
+          _build_rf_cardinality(join_node->_build_rf_cardinality) {}
 
 HashJoinBuildContext::HashJoinBuildContext(pipeline::HashJoinBuildSinkLocalState* local_state)
         : _hash_table_memory_usage(local_state->_hash_table_memory_usage),
@@ -192,33 +194,7 @@ HashJoinBuildContext::HashJoinBuildContext(pipeline::HashJoinBuildSinkLocalState
           _runtime_filter_descs(local_state->join_build()->_runtime_filter_descs),
           _inserted_rows(local_state->_inserted_rows),
           _arena(local_state->_shared_state->arena),
-          _build_bf_cardinality(local_state->_build_bf_cardinality) {}
-
-template <class HashTableContext>
-Status ProcessRuntimeFilterBuild<HashTableContext>::operator()(RuntimeState* state,
-                                                               HashTableContext& hash_table_ctx) {
-    if (_context->_runtime_filter_descs.empty()) {
-        return Status::OK();
-    }
-    _context->_runtime_filter_slots = std::make_shared<VRuntimeFilterSlots>(
-            _context->_build_expr_ctxs, _context->_runtime_filter_descs);
-
-    RETURN_IF_ERROR(_context->_runtime_filter_slots->init(
-            state, hash_table_ctx.hash_table.get_size(), _context->_build_bf_cardinality));
-
-    if (!_context->_runtime_filter_slots->empty() && !_context->_inserted_rows.empty()) {
-        {
-            SCOPED_TIMER(_context->_push_compute_timer);
-            _context->_runtime_filter_slots->insert(_context->_inserted_rows);
-        }
-    }
-    {
-        SCOPED_TIMER(_context->_push_down_timer);
-        RETURN_IF_ERROR(_context->_runtime_filter_slots->publish());
-    }
-
-    return Status::OK();
-}
+          _build_rf_cardinality(local_state->_build_rf_cardinality) {}
 
 HashJoinNode::HashJoinNode(ObjectPool* pool, const TPlanNode& tnode, const DescriptorTbl& descs)
         : VJoinNodeBase(pool, tnode, descs),
@@ -439,21 +415,55 @@ Status HashJoinNode::close(RuntimeState* state) {
 
 bool HashJoinNode::need_more_input_data() const {
     return (_probe_block.rows() == 0 || _probe_index == _probe_block.rows()) && !_probe_eos &&
-           !_short_circuit_for_probe;
+           (!_short_circuit_for_probe || _is_mark_join);
 }
 
 void HashJoinNode::prepare_for_next() {
     _probe_index = 0;
+    _ready_probe_index = 0;
     _prepare_probe_block();
 }
 
 Status HashJoinNode::pull(doris::RuntimeState* state, vectorized::Block* output_block, bool* eos) {
     SCOPED_TIMER(_probe_timer);
     if (_short_circuit_for_probe) {
+        /// If `_short_circuit_for_probe` is true, this indicates no rows
+        /// match the join condition, and this is 'mark join', so we need to create a column as mark
+        /// with all rows set to 0.
+        if (_is_mark_join) {
+            auto block_rows = _probe_block.rows();
+            if (block_rows == 0) {
+                *eos = _probe_eos;
+                return Status::OK();
+            }
+
+            Block temp_block;
+            //get probe side output column
+            for (int i = 0; i < _left_output_slot_flags.size(); ++i) {
+                if (_left_output_slot_flags[i]) {
+                    temp_block.insert(_probe_block.get_by_position(i));
+                }
+            }
+            auto mark_column = ColumnUInt8::create(block_rows, 0);
+            temp_block.insert({std::move(mark_column), std::make_shared<DataTypeUInt8>(), ""});
+
+            {
+                SCOPED_TIMER(_join_filter_timer);
+                RETURN_IF_ERROR(
+                        VExprContext::filter_block(_conjuncts, &temp_block, temp_block.columns()));
+            }
+
+            RETURN_IF_ERROR(_build_output_block(&temp_block, output_block, false));
+            temp_block.clear();
+            release_block_memory(_probe_block);
+            reached_limit(output_block, eos);
+            return Status::OK();
+        }
         // If we use a short-circuit strategy, should return empty block directly.
         *eos = true;
         return Status::OK();
     }
+
     //TODO: this short circuit maybe could refactor, no need to check at here.
     if (_short_circuit_for_probe_and_additional_data) {
         // when build table rows is 0 and not have other_join_conjunct and join type is one of LEFT_OUTER_JOIN/FULL_OUTER_JOIN/LEFT_ANTI_JOIN
@@ -483,17 +493,21 @@ Status HashJoinNode::pull(doris::RuntimeState* state, vectorized::Block* output_
             temp_block.insert({std::move(nullable_column), make_nullable(type),
                                _right_table_column_names[i]});
         }
-
-        {
-            SCOPED_TIMER(_join_filter_timer);
-            RETURN_IF_ERROR(
-                    VExprContext::filter_block(_conjuncts, &temp_block, temp_block.columns()));
+        if (_is_outer_join) {
+            reinterpret_cast<ColumnUInt8*>(_tuple_is_null_left_flag_column.get())
+                    ->get_data()
+                    .resize_fill(block_rows, 0);
+            reinterpret_cast<ColumnUInt8*>(_tuple_is_null_right_flag_column.get())
+                    ->get_data()
+                    .resize_fill(block_rows, 1);
         }
 
-        RETURN_IF_ERROR(_build_output_block(&temp_block, output_block, false));
+        /// No need to check the block size in `_filter_data_and_build_output` because here dose not
+        /// increase the output rows count(just same as `_probe_block`'s rows count).
+        RETURN_IF_ERROR(
+                _filter_data_and_build_output(state, output_block, eos, &temp_block, false));
         temp_block.clear();
         release_block_memory(_probe_block);
-        reached_limit(output_block, eos);
         return Status::OK();
     }
     _join_block.clear_column_data();
@@ -570,22 +584,29 @@ Status HashJoinNode::pull(doris::RuntimeState* state, vectorized::Block* output_
     if (!st) {
         return st;
     }
-
-    if (_is_outer_join) {
-        _add_tuple_is_null_column(&temp_block);
-    }
-    auto output_rows = temp_block.rows();
-    DCHECK(output_rows <= state->batch_size());
-    {
-        SCOPED_TIMER(_join_filter_timer);
-        RETURN_IF_ERROR(VExprContext::filter_block(_conjuncts, &temp_block, temp_block.columns()));
-    }
-
+    RETURN_IF_ERROR(_filter_data_and_build_output(state, output_block, eos, &temp_block));
     // Here make _join_block release the columns' ptr
     _join_block.set_columns(_join_block.clone_empty_columns());
     mutable_join_block.clear();
-    RETURN_IF_ERROR(_build_output_block(&temp_block, output_block, false));
+    return Status::OK();
+}
 
+Status HashJoinNode::_filter_data_and_build_output(RuntimeState* state,
+                                                   vectorized::Block* output_block, bool* eos,
+                                                   Block* temp_block, bool check_rows_count) {
+    if (_is_outer_join) {
+        _add_tuple_is_null_column(temp_block);
+    }
+    auto output_rows = temp_block->rows();
+    if (check_rows_count) { // If the join node does not increase the number of output rows, no need to check.
+        DCHECK(output_rows <= state->batch_size());
+    }
+    {
+        SCOPED_TIMER(_join_filter_timer);
+        RETURN_IF_ERROR(VExprContext::filter_block(_conjuncts, temp_block, temp_block->columns()));
+    }
+
+    RETURN_IF_ERROR(_build_output_block(temp_block, output_block, false));
     _reset_tuple_is_null_column();
     reached_limit(output_block, eos);
     return Status::OK();
@@ -634,7 +655,7 @@ Status HashJoinNode::get_next(RuntimeState* state, Block* output_block, bool* eo
         return Status::OK();
     }
 
-    if (_short_circuit_for_probe) {
+    if (_short_circuit_for_probe && !_is_mark_join) {
         // If we use a short-circuit strategy, should return empty block directly.
         *eos = true;
         return Status::OK();
@@ -943,7 +964,7 @@ Status HashJoinNode::sink(doris::RuntimeState* state, vectorized::Block* in_bloc
                                           _build_expr_ctxs, _runtime_filter_descs);
 
                                   RETURN_IF_ERROR(_runtime_filter_slots->init(
-                                          state, arg.hash_table.get_size(), 0));
+                                          state, arg.hash_table.size(), 0));
                                   RETURN_IF_ERROR(_runtime_filter_slots->copy_from_shared_context(
                                           _shared_hash_table_context));
                                   RETURN_IF_ERROR(_runtime_filter_slots->publish());
