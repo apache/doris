@@ -120,7 +120,8 @@ public class EsExternalCatalog extends ExternalCatalog {
     protected void initLocalObjectsImpl() {
         esRestClient = new EsRestClient(getNodes(), getUsername(), getPassword(), enableSsl());
         if (!esRestClient.health()) {
-            throw new DorisEsException("Failed to connect to ES cluster, please check your ES cluster or your ES catalog configuration.");
+            throw new DorisEsException("Failed to connect to ES cluster,"
+                    + " please check your ES cluster or your ES catalog configuration.");
         }
     }
 
