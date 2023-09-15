@@ -529,30 +529,18 @@ Status HashJoinNode::pull(doris::RuntimeState* state, vectorized::Block* output_
                         if constexpr (!std::is_same_v<HashTableProbeType, std::monostate>) {
                             using HashTableCtxType = std::decay_t<decltype(arg)>;
                             if constexpr (!std::is_same_v<HashTableCtxType, std::monostate>) {
-                                if (_have_other_join_conjunct) {
-                                    st = process_hashtable_ctx
-                                                 .template do_process_with_other_join_conjuncts<
-                                                         need_null_map_for_probe, ignore_null>(
-                                                         arg,
-                                                         need_null_map_for_probe
-                                                                 ? &_null_map_column->get_data()
-                                                                 : nullptr,
-                                                         mutable_join_block, &temp_block,
-                                                         _probe_block.rows(), _is_mark_join);
-                                } else {
-                                    st = process_hashtable_ctx.template do_process<
-                                            need_null_map_for_probe, ignore_null>(
-                                            arg,
-                                            need_null_map_for_probe ? &_null_map_column->get_data()
-                                                                    : nullptr,
-                                            mutable_join_block, &temp_block, _probe_block.rows(),
-                                            _is_mark_join);
-                                }
+                                st = process_hashtable_ctx.template process<need_null_map_for_probe,
+                                                                            ignore_null>(
+                                        arg,
+                                        need_null_map_for_probe ? &_null_map_column->get_data()
+                                                                : nullptr,
+                                        mutable_join_block, &temp_block, _probe_block.rows(),
+                                        _is_mark_join, _have_other_join_conjunct);
                             } else {
-                                LOG(FATAL) << "FATAL: uninited hash table";
+                                st = Status::InternalError("uninited hash table");
                             }
                         } else {
-                            LOG(FATAL) << "FATAL: uninited hash table probe";
+                            st = Status::InternalError("uninited hash table probe");
                         }
                     },
                     *_hash_table_variants, *_process_hashtable_ctx_variants,
@@ -570,10 +558,10 @@ Status HashJoinNode::pull(doris::RuntimeState* state, vectorized::Block* output_
                                 st = process_hashtable_ctx.process_data_in_hashtable(
                                         arg, mutable_join_block, &temp_block, eos);
                             } else {
-                                LOG(FATAL) << "FATAL: uninited hash table";
+                                st = Status::InternalError("uninited hash table");
                             }
                         } else {
-                            LOG(FATAL) << "FATAL: uninited hash table probe";
+                            st = Status::InternalError("uninited hash table probe");
                         }
                     },
                     *_hash_table_variants, *_process_hashtable_ctx_variants);
