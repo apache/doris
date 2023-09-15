@@ -1073,8 +1073,8 @@ Status SegmentIterator::_init_return_column_iterators() {
 
         // int32_t unique_id = _opts.tablet_schema->column(cid).unique_id();
         if (_column_iterators.count(cid) < 1) {
-            RETURN_IF_ERROR(_segment->new_column_iterator(
-                    _opts.tablet_schema->column(cid), &_column_iterators[cid], &_opts));
+            RETURN_IF_ERROR(_segment->new_column_iterator(_opts.tablet_schema->column(cid),
+                                                          &_column_iterators[cid], &_opts));
             ColumnIteratorOptions iter_opts;
             iter_opts.stats = _opts.stats;
             iter_opts.use_page_cache = _opts.use_page_cache;
@@ -2244,7 +2244,7 @@ Status SegmentIterator::_next_batch_internal(vectorized::Block* block) {
     // shrink char_type suffix zero data
     block->shrink_char_type_column_suffix_zero(_char_type_idx);
 
-//#ifndef NDEBUG
+    //#ifndef NDEBUG
     size_t rows = block->rows();
     for (const auto& entry : *block) {
         if (entry.column->size() != rows) {
@@ -2252,7 +2252,7 @@ Status SegmentIterator::_next_batch_internal(vectorized::Block* block) {
                                    entry.column->size(), rows);
         }
     }
-// #endif
+    // #endif
     VLOG_DEBUG << "dump block: " << block->dump_data();
     // #ifndef NDEBUG
     //     size_t rows = block->rows();
