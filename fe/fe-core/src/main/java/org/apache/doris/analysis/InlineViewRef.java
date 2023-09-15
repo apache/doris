@@ -231,12 +231,13 @@ public class InlineViewRef extends TableRef {
             String colName = getColLabels().get(i);
             SlotDescriptor slotDesc = analyzer.registerColumnRef(getAliasAsName(), colName);
             Expr colExpr = queryStmt.getResultExprs().get(i);
-            slotDesc.setSourceExpr(colExpr);
             if (queryStmt instanceof SelectStmt && ((SelectStmt) queryStmt).getValueList() != null) {
                 ValueList valueList = ((SelectStmt) queryStmt).getValueList();
-                for (int j = 1; j < valueList.getRows().size(); ++j) {
+                for (int j = 0; j < valueList.getRows().size(); ++j) {
                     slotDesc.addSourceExpr(valueList.getRows().get(j).get(i));
                 }
+            } else {
+                slotDesc.setSourceExpr(colExpr);
             }
             slotDesc.setIsNullable(slotDesc.getIsNullable() || colExpr.isNullable());
             SlotRef slotRef = new SlotRef(slotDesc);
