@@ -105,6 +105,7 @@ public class UpdateCommand extends Command implements ForwardWithSync, Explainab
         List<NamedExpression> selectItems = Lists.newArrayList();
         String tableName = tableAlias != null ? tableAlias : targetTable.getName();
         for (Column column : targetTable.getFullSchema()) {
+            // if it sets sequence column in stream load phase, the sequence map column is null, we query it.
             if (!column.isVisible() && !column.isSequenceColumn()) {
                 continue;
             }

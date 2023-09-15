@@ -25,6 +25,7 @@ import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionVisit
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.visitor.CustomRewriter;
+import org.apache.doris.nereids.types.AggStateType;
 import org.apache.doris.nereids.types.ArrayType;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.JsonType;
@@ -42,7 +43,7 @@ import java.util.Set;
 public class CheckDataTypes implements CustomRewriter {
 
     private static final Set<Class<? extends DataType>> UNSUPPORTED_TYPE = ImmutableSet.of(
-            JsonType.class, UnsupportedType.class);
+            JsonType.class, UnsupportedType.class, AggStateType.class);
 
     @Override
     public Plan rewriteRoot(Plan rootPlan, JobContext jobContext) {
