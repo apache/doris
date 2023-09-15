@@ -67,7 +67,7 @@ public class SqlBlockUtil {
     }
 
     public static Boolean isSqlBlockLimitationsDefault(Long partitionNum, Long tabletNum, Long cardinality) {
-        return partitionNum == LONG_ZERO && tabletNum == LONG_ZERO && cardinality == LONG_ZERO;
+        return partitionNum.equals(LONG_ZERO) && tabletNum.equals(LONG_ZERO) && cardinality.equals(LONG_ZERO);
     }
 
     public static Boolean isSqlBlockLimitationsNull(Long partitionNum, Long tabletNum, Long cardinality) {
