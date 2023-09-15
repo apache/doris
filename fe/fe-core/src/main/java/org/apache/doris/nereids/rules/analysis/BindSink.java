@@ -32,6 +32,8 @@ import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
+import org.apache.doris.nereids.rules.expression.ExpressionRewriteContext;
+import org.apache.doris.nereids.rules.expression.rules.FunctionBinder;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
@@ -106,8 +108,8 @@ public class BindSink implements AnalysisRuleFactory {
                             if (ConnectContext.get() != null) {
                                 ConnectContext.get().getState().setIsQuery(true);
                             }
-                            // generate slots not mentioned in sql, mv slots and shaded slots.
                             try {
+                                // generate slots not mentioned in sql, mv slots and shaded slots.
                                 for (Column column : boundSink.getTargetTable().getFullSchema()) {
                                     if (column.isMaterializedViewColumn()) {
                                         List<SlotRef> refs = column.getRefColumns();
@@ -116,8 +118,13 @@ public class BindSink implements AnalysisRuleFactory {
                                                 "mv column's ref column cannot be null");
                                         Expression parsedExpression = expressionParser.parseExpression(
                                                 column.getDefineExpr().toSql());
-                                        Expression boundExpression = SlotReplacer.INSTANCE
+                                        Expression boundSlotExpression = SlotReplacer.INSTANCE
                                                 .replace(parsedExpression, columnToOutput);
+                                        // the boundSlotExpression is an expression whose slots are bound but function
+                                        // may not be bound, we have to bind it again.
+                                        // for example: to_bitmap.
+                                        Expression boundExpression = FunctionBinder.INSTANCE.rewrite(
+                                                boundSlotExpression, new ExpressionRewriteContext(ctx.cascadesContext));
 
                                         NamedExpression slot = boundExpression instanceof NamedExpression
                                                 ? ((NamedExpression) boundExpression)
@@ -140,10 +147,31 @@ public class BindSink implements AnalysisRuleFactory {
                                                     column.getName()
                                             ));
                                         } else {
-                                            columnToOutput.put(column.getName(),
-                                                    new Alias(Literal.of(column.getDefaultValue())
-                                                            .checkedCastTo(DataType.fromCatalogType(column.getType())),
-                                                            column.getName()));
+                                            try {
+                                                // it comes from the original planner, if default value expression is
+                                                // null, we use the literal string of the default value, or it may be
+                                                // default value function, like CURRENT_TIMESTAMP.
+                                                if (column.getDefaultValueExpr() == null) {
+                                                    columnToOutput.put(column.getName(),
+                                                            new Alias(Literal.of(column.getDefaultValue())
+                                                                    .checkedCastTo(
+                                                                            DataType.fromCatalogType(column.getType())),
+                                                                    column.getName()));
+                                                } else {
+                                                    Expression defualtValueExpression = FunctionBinder.INSTANCE.rewrite(
+                                                            new NereidsParser().parseExpression(
+                                                                    column.getDefaultValueExpr().toSql()),
+                                                            new ExpressionRewriteContext(ctx.cascadesContext));
+                                                    NamedExpression slot =
+                                                            defualtValueExpression instanceof NamedExpression
+                                                                    ? ((NamedExpression) defualtValueExpression)
+                                                                    : new Alias(defualtValueExpression);
+
+                                                    columnToOutput.put(column.getName(), slot);
+                                                }
+                                            } catch (Exception e) {
+                                                throw new AnalysisException(e.getMessage(), e.getCause());
+                                            }
                                         }
                                     }
                                 }
