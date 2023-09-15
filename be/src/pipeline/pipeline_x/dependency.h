@@ -254,6 +254,7 @@ public:
     size_t input_num_rows = 0;
     std::vector<vectorized::AggregateDataPtr> values;
     std::unique_ptr<vectorized::Arena> agg_profile_arena;
+    std::unique_ptr<DataQueue> data_queue;
 };
 
 class AggDependency : public Dependency {
@@ -261,6 +262,7 @@ public:
     using SharedState = AggSharedState;
     AggDependency(int id) : Dependency(id, "AggDependency") {
         _mem_tracker = std::make_unique<MemTracker>("AggregateOperator:");
+        _agg_state.data_queue = std::make_unique<DataQueue>(1, this);
     }
     ~AggDependency() override = default;
 
@@ -315,26 +317,6 @@ protected:
 
 private:
     AggSharedState _agg_state;
-};
-
-struct StreamingAggSharedState final : public AggSharedState {
-public:
-    StreamingAggSharedState() : AggSharedState() {}
-    ~StreamingAggSharedState() = default;
-    std::unique_ptr<DataQueue> data_queue;
-};
-
-class StreamingAggDependency final : public AggDependency {
-public:
-    using SharedState = StreamingAggSharedState;
-    StreamingAggDependency(int id) : AggDependency(id) {
-        _streaming_agg_state.data_queue = std::make_unique<DataQueue>(1, this);
-    }
-
-    void* shared_state() override { return (void*)&_streaming_agg_state; }
-
-private:
-    StreamingAggSharedState _streaming_agg_state;
 };
 
 struct SortSharedState {

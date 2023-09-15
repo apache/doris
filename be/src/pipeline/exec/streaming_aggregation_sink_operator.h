@@ -74,10 +74,10 @@ private:
 class StreamingAggSinkOperatorX;
 
 class StreamingAggSinkLocalState final
-        : public AggSinkLocalState<StreamingAggDependency, StreamingAggSinkLocalState> {
+        : public AggSinkLocalState<AggDependency, StreamingAggSinkLocalState> {
 public:
     using Parent = StreamingAggSinkOperatorX;
-    using Base = AggSinkLocalState<StreamingAggDependency, StreamingAggSinkLocalState>;
+    using Base = AggSinkLocalState<AggDependency, StreamingAggSinkLocalState>;
     ENABLE_FACTORY_CREATOR(StreamingAggSinkLocalState);
     StreamingAggSinkLocalState(DataSinkOperatorXBase* parent, RuntimeState* state);
 

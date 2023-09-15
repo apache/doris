@@ -50,10 +50,9 @@ public:
 
 class AggSourceOperatorX;
 
-template <typename DependencyType, typename Derived>
-class AggLocalState : public PipelineXLocalState<DependencyType> {
+class AggLocalState : public PipelineXLocalState<AggDependency> {
 public:
-    using Base = PipelineXLocalState<DependencyType>;
+    using Base = PipelineXLocalState<AggDependency>;
     ENABLE_FACTORY_CREATOR(AggLocalState);
     AggLocalState(RuntimeState* state, OperatorXBase* parent);
 
@@ -110,19 +109,9 @@ protected:
     bool _agg_data_created_without_key = false;
 };
 
-class BlockingAggLocalState final : public AggLocalState<AggDependency, BlockingAggLocalState> {
+class AggSourceOperatorX : public OperatorX<AggLocalState> {
 public:
-    ENABLE_FACTORY_CREATOR(BlockingAggLocalState);
-    using Parent = AggSourceOperatorX;
-
-    BlockingAggLocalState(RuntimeState* state, OperatorXBase* parent)
-            : AggLocalState<AggDependency, BlockingAggLocalState>(state, parent) {}
-    ~BlockingAggLocalState() = default;
-};
-
-class AggSourceOperatorX final : public OperatorX<BlockingAggLocalState> {
-public:
-    using Base = OperatorX<BlockingAggLocalState>;
+    using Base = OperatorX<AggLocalState>;
     AggSourceOperatorX(ObjectPool* pool, const TPlanNode& tnode, const DescriptorTbl& descs);
     ~AggSourceOperatorX() = default;
     Dependency* wait_for_dependency(RuntimeState* state) override;
@@ -133,7 +122,6 @@ public:
     bool is_source() const override { return true; }
 
 private:
-    template <typename DependencyType, typename Derived>
     friend class AggLocalState;
 
     bool _needs_finalize;

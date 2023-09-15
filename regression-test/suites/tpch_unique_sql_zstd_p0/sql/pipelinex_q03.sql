@@ -1,5 +1,5 @@
 -- tables: customer,orders,lineitem
-SELECT /*+SET_VAR(experimental_enable_pipeline_x_engine=true, disable_streaming_preaggregations=true) */
+SELECT /*+SET_VAR(experimental_enable_pipeline_x_engine=true) */
   l_orderkey,
   sum(l_extendedprice * (1 - l_discount)) AS revenue,
   o_orderdate,

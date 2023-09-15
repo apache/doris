@@ -1,5 +1,5 @@
 -- tables: orders,lineitem
-SELECT /*+SET_VAR(experimental_enable_pipeline_x_engine=true, disable_streaming_preaggregations=true) */
+SELECT /*+SET_VAR(experimental_enable_pipeline_x_engine=true) */
   l_shipmode,
   sum(CASE
       WHEN o_orderpriority = '1-URGENT'
