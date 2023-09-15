@@ -18,7 +18,6 @@
 #include <rapidjson/allocators.h>
 #include <rapidjson/document.h>
 #include <rapidjson/encodings.h>
-#include <rapidjson/error/error.h>
 #include <rapidjson/pointer.h>
 #include <rapidjson/rapidjson.h>
 #include <rapidjson/stringbuffer.h>
@@ -32,7 +31,6 @@
 #include <boost/iterator/iterator_facade.hpp>
 #include <boost/token_functions.hpp>
 #include <boost/tokenizer.hpp>
-#include <cstddef>
 #include <memory>
 #include <string>
 #include <string_view>
