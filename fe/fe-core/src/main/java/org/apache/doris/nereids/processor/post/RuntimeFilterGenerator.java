@@ -30,7 +30,6 @@ import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Not;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
-import org.apache.doris.nereids.trees.expressions.WindowExpression;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.BitmapContains;
 import org.apache.doris.nereids.trees.plans.AbstractPlan;
 import org.apache.doris.nereids.trees.plans.JoinType;
@@ -157,18 +156,10 @@ public class RuntimeFilterGenerator extends PlanPostProcessor {
     @Override
     public PhysicalPlan visitPhysicalWindow(PhysicalWindow<? extends Plan> window, CascadesContext context) {
         window.child().accept(this, context);
-        Set<Slot> notMapped = window.child().getOutputSet().stream().collect(Collectors.toSet());
-        for (NamedExpression expr : window.getWindowExpressions()) {
-            if (expr instanceof Alias && expr.child(0) instanceof WindowExpression) {
-                WindowExpression winExpr = (WindowExpression) expr.child(0);
-                for (Expression partitionKey : winExpr.getPartitionKeys()) {
-                    notMapped.remove(partitionKey);
-                }
-            }
-        }
-        for (Slot slot : notMapped) {
-            context.getRuntimeFilterContext().getAliasTransferMap().remove(slot);
-        }
+        Set<SlotReference> commonPartitionKeys = window.getCommonPartitionKeyFromWindowExpressions();
+        window.child().getOutput().stream().filter(slot -> !commonPartitionKeys.contains(slot)).forEach(
+                slot -> context.getRuntimeFilterContext().getAliasTransferMap().remove(slot)
+        );
         return window;
     }
 
