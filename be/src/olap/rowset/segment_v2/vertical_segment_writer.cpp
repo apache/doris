@@ -617,6 +617,10 @@ Status VerticalSegmentWriter::write_batch() {
         for (auto& data : _batched_blocks) {
             RETURN_IF_ERROR(_append_block_with_partial_content(data));
         }
+        for (auto& column_writer : _column_writers) {
+            RETURN_IF_ERROR(column_writer->finish());
+            RETURN_IF_ERROR(column_writer->write_data());
+        }
         return Status::OK();
     }
     // Row column should be filled here when it's a directly write from memtable
