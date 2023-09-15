@@ -35,7 +35,7 @@ suite("test_es_query", "p0,external,es,external_docker,external_docker_es") {
             create catalog es6
             properties (
                 "type"="es",
-                "elasticsearch.hosts"="http://${externalEnvIp}:$es_6_port",
+                "elasticsearch.hosts"="http://${externalEnvIp}:$es_6_port/",
                 "elasticsearch.nodes_discovery"="false",
                 "elasticsearch.keyword_sniff"="true"
             );
