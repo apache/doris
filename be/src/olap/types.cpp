@@ -97,8 +97,8 @@ const TypeInfo* get_scalar_type_info(FieldType field_type) {
             get_scalar_type_info<FieldType::OLAP_FIELD_TYPE_DECIMAL128I>(),
             get_scalar_type_info<FieldType::OLAP_FIELD_TYPE_JSONB>(),
             get_scalar_type_info<FieldType::OLAP_FIELD_TYPE_VARIANT>(),
-            nullptr,
-            get_scalar_type_info<FieldType::OLAP_FIELD_TYPE_AGG_STATE>()};
+            get_scalar_type_info<FieldType::OLAP_FIELD_TYPE_AGG_STATE>(),
+            nullptr};
     return field_type_array[int(field_type)];
 }
 
