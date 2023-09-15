@@ -677,7 +677,7 @@ public class HyperGraphBuilder {
                 lv = right.get(slots.get(0)).get(rightIndex);
                 rv = left.get(slots.get(1)).get(leftIndex);
             }
-            Boolean res = (lv == rv) && (lv != null) && (rv != null);
+            Boolean res = lv.equals(rv) && (lv != null) && (rv != null);
             if (joinType.isNullAwareLeftAntiJoin()) {
                 res |= (lv == null);
             }
