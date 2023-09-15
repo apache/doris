@@ -30,12 +30,14 @@
 namespace doris {
 namespace pipeline {
 
-class Dependency;
+class StreamingAggDependency;
+class UnionDependency;
 
 class DataQueue {
 public:
     //always one is enough, but in union node it's has more children
-    DataQueue(int child_count = 1, Dependency* dependency = nullptr);
+    DataQueue(int child_count = 1, StreamingAggDependency* agg_dependency = nullptr,
+              UnionDependency* union_dependency = nullptr);
     ~DataQueue() = default;
 
     Status get_block_from_queue(std::unique_ptr<vectorized::Block>* block,
@@ -86,7 +88,8 @@ private:
     int64_t _max_size_of_queue = 0;
     static constexpr int64_t MAX_BYTE_OF_QUEUE = 1024l * 1024 * 1024 / 10;
 
-    Dependency* _dependency = nullptr;
+    StreamingAggDependency* _agg_dependency = nullptr;
+    UnionDependency* _union_dependency = nullptr;
 };
 } // namespace pipeline
 } // namespace doris

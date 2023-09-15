@@ -101,7 +101,7 @@ Status UnionSourceOperator::get_block(RuntimeState* state, vectorized::Block* bl
 Status UnionSourceLocalState::init(RuntimeState* state, LocalStateInfo& info) {
     RETURN_IF_ERROR(Base::init(state, info));
     auto& p = _parent->cast<Parent>();
-    std::shared_ptr<DataQueue> data_queue = std::make_shared<DataQueue>(p._child_size);
+    std::shared_ptr<DataQueue> data_queue = std::make_shared<DataQueue>(p._child_size, _dependency);
     _shared_state->_data_queue.swap(data_queue);
     return Status::OK();
 }

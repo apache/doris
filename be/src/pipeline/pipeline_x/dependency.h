@@ -368,6 +368,7 @@ public:
 private:
     UnionSharedState _union_state;
 };
+
 struct AnalyticSharedState {
 public:
     AnalyticSharedState() = default;
