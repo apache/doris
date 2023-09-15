@@ -76,7 +76,7 @@ ANALYZE < TABLE | DATABASE table_name | db_name >
 
 自动采样默认采样200000行，但由于实现方式的原因实际采样数可能大于该值。如果希望采样更多的行以获得更准备的数据分布信息，可通过FE参数`auto_analyze_job_record_count`配置。
 
-### 管理任务
+### 任务管理
 
 #### 查看统计任务
 
@@ -157,7 +157,7 @@ mysql> KILL ANALYZE 52357;
 语法如下：
 
 ```SQL
-SHOW TABLE STATS table_name [ PARTITION ];
+SHOW TABLE STATS table_name;
 ```
 
 其中：
@@ -168,12 +168,12 @@ SHOW TABLE STATS table_name [ PARTITION ];
 
 | 列名                | 说明                   |
 | :------------------ | :--------------------- |
-| `row_count`         | 行数                   |
-| `update_rows`       | 更新的行数             |
-| `data_size`         | 数据大小。单位 byte    |
-| `healthy`           | 健康度                 |
-| `update_time`       | 更新时间               |
-| `last_analyze_time` | 上次收集统计信息的时间 |
+| `row_count`         | 行数（不反映命令执行时的准确行数）                  |
+| `method`       | 收集方式（全量/采样）            |
+| `type`         | 统计数据的类型    |
+| `updated_time`           | 上次更新时间                 |
+| `columns`       | 收集过统计信息的列               |
+| `trigger` | 统计信息收集触发方式（系统自动触发/用户触发） |
 
 
 #### 查看列统计信息
@@ -183,7 +183,7 @@ SHOW TABLE STATS table_name [ PARTITION ];
 语法如下：
 
 ```SQL
-SHOW COLUMN [cached] STATS table_name [ (column_name [, ...]) ] [ PARTITION (partition_name) ];
+SHOW COLUMN [cached] STATS table_name [ (column_name [, ...]) ];
 ```
 
 其中：
@@ -191,21 +191,6 @@ SHOW COLUMN [cached] STATS table_name [ (column_name [, ...]) ] [ PARTITION (par
 - cached: 展示当前FE内存缓存中的统计信息。
 - table_name: 收集统计信息的目标表。可以是  `db_name.table_name`  形式。
 - column_name: 指定的目标列，必须是  `table_name`  中存在的列，多个列名称用逗号分隔。
-- partition_name: 指定的目标分区，必须是  `table_name`  中存在的分区，只能指定一个分区。
-
-目前 `SHOW COLUMN STATS` 会输出 10 列，具体如下：
-
-| 列名            | 说明                       |
-| :-------------- | :------------------------- |
-| `column_name`   | 列名称                     |
-| `count`         | 列的总行数                 |
-| `ndv`           | 不同值的个数               |
-| `num_null`      | 空值的个数                 |
-| `data_size`     | 列的总⻓度（单位 bytes）   |
-| `avg_size_byte` | 列的平均⻓度（单位 bytes） |
-| `min`           | 列最小值                   |
-| `max`           | 列最⼤值                   |
-
 
 #### 修改统计信息
 
@@ -220,33 +205,6 @@ ALTER TABLE table_name MODIFY COLUMN column_name SET STATS ('stat_name' = 'stat_
 - table_name: 删除统计信息的目标表。可以是 `db_name.table_name` 形式。
 - column_name: 指定的目标列，必须是 `table_name` 中存在的列，每次只能修改一列的统计信息。
 - stat_name 和 stat_value: 相应的统计信息名称和统计信息信息的值，多个统计信息逗号分隔。可以修改的统计信息包括 `row_count`, `ndv`, `num_nulls`, `min_value`, `max_value`, `data_size`。
-- partition_name: 指定的目标分区。必须是 `table_name` 中存在的分区，多个分区使用逗号分割。
-
-示例：
-
-- 修改 `example_tbl` 表 `age` 列 `row_count` 统计信息，使用以下语法：
-
-```SQL
-mysql> ALTER TABLE stats_test.example_tbl MODIFY COLUMN age SET STATS ('row_count'='6001215');
-mysql> SHOW COLUMN STATS stats_test.example_tbl(age);
-+-------------+-----------+------+----------+-----------+---------------+------+------+
-| column_name | count     | ndv  | num_null | data_size | avg_size_byte | min  | max  |
-+-------------+-----------+------+----------+-----------+---------------+------+------+
-| age         | 6001215.0 | 0.0  | 0.0      | 0.0       | 0.0           | N/A  | N/A  |
-+-------------+-----------+------+----------+-----------+---------------+------+------+
-```
-
-- 修改 `example_tbl` 表 `age` 列 `row_count`, `num_nulls`, `data_size` 统计信息，使用以下语法：
-
-```SQL
-mysql> ALTER TABLE stats_test.example_tbl MODIFY COLUMN age SET STATS ('row_count'='6001215', 'num_nulls'='2023', 'data_size'='600121522');
-mysql> SHOW COLUMN STATS stats_test.example_tbl(age);
-+-------------+-----------+------+----------+-----------+---------------+------+------+
-| column_name | count     | ndv  | num_null | data_size | avg_size_byte | min  | max  |
-+-------------+-----------+------+----------+-----------+---------------+------+------+
-| age         | 6001215.0 | 0.0  | 2023.0   | 600121522 | 0.0           | N/A  | N/A  |
-+-------------+-----------+------+----------+-----------+---------------+------+------+
-```
 
 #### 删除统计信息
 
@@ -258,31 +216,6 @@ mysql> SHOW COLUMN STATS stats_test.example_tbl(age);
 DROP [ EXPIRED ] STATS [ table_name [ (column_name [, ...]) ] ];
 ```
 
-其中：
-
-- table_name: 要删除统计信息的目标表。可以是  `db_name.table_name`  形式。
-- column_name: 指定的目标列。必须是  `table_name`  中存在的列，多个列名称用逗号分隔。
-- expired：统计信息清理。不能指定表，会删除系统中无效的统计信息以及过期的统计任务信息。
-
-示例：
-
-- 清理统计信息，使用以下语法：
-
-```SQL
-mysql> DROP EXPIRED STATS;
-```
-
-- 删除 `example_tbl` 表的统计信息，使用以下语法：
-
-```SQL
-mysql> DROP STATS stats_test.example_tbl;
-```
-
-- 删除 `example_tbl` 表 `city`, `age`, `sex` 列的统计信息，使用以下语法：
-
-```SQL
-mysql> DROP STATS stats_test.example_tbl(city, age, sex);
-```
 
 #### 删除Analyze Job
 
@@ -292,16 +225,54 @@ mysql> DROP STATS stats_test.example_tbl(city, age, sex);
 DROP ANALYZE JOB [JOB_ID]
 ```
 
+### 查看自动收集任务执行情况
+
+此命令用于打开自动收集功能后，查看自动收集任务的完成状态。
+
+```sql
+SHOW AUTO ANALYZE [ptable_name]
+    [ WHERE [ STATE = [ "PENDING" | "RUNNING" | "FINISHED" | "FAILED" ] ] ];
+```
+
+自动收集任务不支持查看每个列的具完成情况及失败原因。默认只保存过去20000个执行完毕的自动收集任务的状态。
 
 ## 配置项
 
-|conf                                                    | comment                                                                                                                                                                                                                                                                                             | default value                  |
+|fe conf option                                                    | comment                                                                                                                                                                                                                                                                                             | default value                  |
 |---------------------------------------------------------|-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|--------------------------------|
 | statistics_sql_parallel_exec_instance_num               | 控制每个统计信息收集SQL在BE侧的并发实例数/pipeline task num                                                                                                                                                                                                                                                           | 1                              |
 | statistics_sql_mem_limit_in_bytes                       | 控制每个统计信息SQL可占用的BE内存                                                                                                                                                                                                                                                                                 | 2L * 1024 * 1024 * 1024 (2GiB) |
 | statistics_simultaneously_running_task_num              | 通过`ANALYZE TABLE[DATABASE]`提交异步作业后，可同时analyze的列的数量，所有异步任务共同受到该参数约束                                                                                                                                                                                                                                  | 5                              |
 | analyze_task_timeout_in_minutes                         | AnalyzeTask执行超时时间                                                                                                                                                                                                                                                                                   | 12 hours                       |
 |stats_cache_size| 统计信息缓存的实际内存占用大小高度依赖于数据的特性，因为在不同的数据集和场景中，最大/最小值的平均大小和直方图的桶数量会有很大的差异。此外，JVM版本等因素也会对其产生影响。下面给出统计信息缓存在包含100000个项目时所占用的内存大小。每个项目的最大/最小值的平均长度为32，列名的平均长度为16，统计信息缓存总共占用了61.2777404785MiB的内存。强烈不建议分析具有非常大字符串值的列，因为这可能导致FE内存溢出。 | 100000                        |
+|full_auto_analyze_start_time|自动统计信息收集开始时间|00:00:00|
+|full_auto_analyze_end_time|自动统计信息收集结束时间|02:00:00|
+|enable_auto_sample|是否开启大表自动sample，开启后对于大小超过huge_table_lower_bound_size_in_bytes会自动通过采样收集| false|
+|auto_analyze_job_record_count|控制统计信息的自动触发作业执行记录的持久化行数|20000|
+|huge_table_default_sample_rows|定义开启开启大表自动sample后，对大表的采样行数|200000|
+|huge_table_lower_bound_size_in_bytes|定义大表的大小下界，在开启enable_auto_sample的情况下，大小超过该值的表将会自动通过采样收集统计信息|5368 709120|
+|huge_table_auto_analyze_interval_in_millis|控制对大表的自动ANALYZE的最小时间间隔，在该时间间隔内大小超过huge_table_lower_bound_size_in_bytes的表仅ANALYZE一次|43200000|
+|table_stats_health_threshold|取值在0-100之间，当自上次统计信息收集操作之后，数据更新量达到 (100 - table_stats_health_threshold)% ，认为该表的统计信息已过时|80|
+|enable_full_auto_analyze|开启自动收集功能|true|
+
+|会话变量|说明|默认值|
+|---|---|---|
+|full_auto_analyze_start_time|自动统计信息收集开始时间|00:00:00|
+|full_auto_analyze_end_time|自动统计信息收集结束时间|02:00:00|
+
+注意，对于fe配置和全局会话变量中均可配置的参数都设置的情况下，优先使用全局会话变量参数值。
+
+## 使用建议
+
+根据我们的测试，在数据量（这里指实际存储占用的空间）为128GiB以下的表上，除自动收集功能执行时间段之外无须改动默认配置。
+
+依据集群配置情况，自动收集任务通常会占用20%左右的CPU资源，因此用户需要根据自己的业务情况，适当调整自动收集功能执行时间段以避开业务高峰期资源抢占。
+
+由于ANALYZE是资源密集型操作，因此最好尽可能不要在业务高峰期执行此类操作，从而避免对业务造成干扰，集群负载较高的情况下，ANALYZE操作也更容易失败。此外，基于相同的原因，我们建议用户避免全量的ANALYZE整库整表。通常来讲，只需要对经常作为谓词条件，JOIN条件，聚合字段以及ID字段的列进行ANALYZE就足够了。如果用户提交的SQL涉及到大量此类操作，并且表上也没有统计信息或者统计信息非常陈旧，那么我们建议：
+
+* 在提交复杂查询之前先对涉及到的表列进行ANALYZE，因为规划不当的复杂查询将占用非常多的系统资源，非荣容易资源耗尽或超时而失败
+* 如果用户为Doris配置了周期性数据导入例程，那么建议在导入完毕后，执行ANALYZE从而保证后续查询规划能够利用到最新的统计数据。可以利用Doris已有的作业调度框架自动化完成此类设置
+* 当表的数据发生显著变化后，比如新建表并完成数据导入后，ANALYZE对应的表。
 
 ## 常见问题
 
