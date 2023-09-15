@@ -736,9 +736,11 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
 
     @Override
     public LogicalPlan visitInlineTable(InlineTableContext ctx) {
-        List<UnboundOneRowRelation> exprsList = ctx.rowConstructor().stream()
+        List<LogicalPlan> exprsList = ctx.rowConstructor().stream()
                 .map(this::visitRowConstructor)
+                .map(LogicalPlan.class::cast)
                 .collect(ImmutableList.toImmutableList());
+        reduceToLogicalPlanTree(0, exprsList.size(), exprsList, Qualifier.ALL);
         LogicalPlan relation = exprsList.get(0);
         for (int i = 1; i < exprsList.size(); i++) {
             relation = new LogicalUnion(Qualifier.ALL, ImmutableList.of(relation, exprsList.get(i)));
