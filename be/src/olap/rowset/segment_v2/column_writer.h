@@ -230,7 +230,6 @@ private:
         // use vector for easier management for lifetime of OwnedSlice
         std::vector<OwnedSlice> data;
         PageFooterPB footer;
-        Page* next = nullptr;
     };
 
     void _push_back_page(std::unique_ptr<Page> page) {
