@@ -149,6 +149,9 @@ public class BindSink implements AnalysisRuleFactory {
                                             ));
                                         } else {
                                             try {
+                                                // it comes from the original planner, if default value expression is
+                                                // null, we use the literal string of the default value, or it may be
+                                                // default value function, like CURRENT_TIMESTAMP.
                                                 if (column.getDefaultValueExpr() == null) {
                                                     columnToOutput.put(column.getName(),
                                                             new Alias(Literal.of(column.getDefaultValue())
