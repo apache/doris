@@ -46,10 +46,12 @@
 #include "http/http_client.h"
 #include "olap/olap_common.h"
 #include "olap/olap_define.h"
+#include "olap/rowset/beta_rowset.h"
 #include "olap/rowset/rowset_factory.h"
 #include "olap/rowset/rowset_meta.h"
 #include "olap/storage_engine.h"
 #include "olap/tablet_manager.h"
+#include "olap/tablet_meta.h"
 #include "olap/txn_manager.h"
 #include "runtime/exec_env.h"
 #include "runtime/external_scan_context_mgr.h"
@@ -85,7 +87,8 @@ using apache::thrift::concurrency::ThreadFactory;
 BackendService::BackendService(ExecEnv* exec_env)
         : _exec_env(exec_env), _agent_server(new AgentServer(exec_env, *exec_env->master_info())) {}
 
-Status BackendService::create_service(ExecEnv* exec_env, int port, ThriftServer** server) {
+Status BackendService::create_service(ExecEnv* exec_env, int port,
+                                      std::unique_ptr<ThriftServer>* server) {
     std::shared_ptr<BackendService> handler(new BackendService(exec_env));
     // TODO: do we want a BoostThreadFactory?
     // TODO: we want separate thread factories here, so that fe requests can't starve
@@ -94,7 +97,8 @@ Status BackendService::create_service(ExecEnv* exec_env, int port, ThriftServer*
 
     std::shared_ptr<TProcessor> be_processor(new BackendServiceProcessor(handler));
 
-    *server = new ThriftServer("backend", be_processor, port, config::be_service_threads);
+    *server = std::make_unique<ThriftServer>("backend", be_processor, port,
+                                             config::be_service_threads);
 
     LOG(INFO) << "Doris BackendService listening on " << port;
 
@@ -118,7 +122,8 @@ Status BackendService::start_plan_fragment_execution(const TExecPlanFragmentPara
 void BackendService::cancel_plan_fragment(TCancelPlanFragmentResult& return_val,
                                           const TCancelPlanFragmentParams& params) {
     LOG(INFO) << "cancel_plan_fragment(): instance_id=" << params.fragment_instance_id;
-    _exec_env->fragment_mgr()->cancel(params.fragment_instance_id);
+    _exec_env->fragment_mgr()->cancel_instance(params.fragment_instance_id,
+                                               PPlanFragmentCancelReason::INTERNAL_ERROR);
 }
 
 void BackendService::transmit_data(TTransmitDataResult& return_val,
@@ -219,10 +224,13 @@ int64_t BackendService::get_trash_used_capacity() {
     std::vector<DataDirInfo> data_dir_infos;
     StorageEngine::instance()->get_all_data_dir_info(&data_dir_infos, false /*do not update */);
 
+    // uses excute sql `show trash`, then update backend trash capacity too.
+    StorageEngine::instance()->notify_listener(TaskWorkerPool::TaskWorkerType::REPORT_DISK_STATE);
+
     for (const auto& root_path_info : data_dir_infos) {
-        auto trash_path = fmt::format("{}/{}", root_path_info.path, TRASH_PREFIX);
-        result += StorageEngine::instance()->get_file_or_directory_size(trash_path);
+        result += root_path_info.trash_used_capacity;
     }
+
     return result;
 }
 
@@ -230,17 +238,14 @@ void BackendService::get_disk_trash_used_capacity(std::vector<TDiskTrashInfo>& d
     std::vector<DataDirInfo> data_dir_infos;
     StorageEngine::instance()->get_all_data_dir_info(&data_dir_infos, false /*do not update */);
 
+    // uses excute sql `show trash on <be>`, then update backend trash capacity too.
+    StorageEngine::instance()->notify_listener(TaskWorkerPool::TaskWorkerType::REPORT_DISK_STATE);
+
     for (const auto& root_path_info : data_dir_infos) {
         TDiskTrashInfo diskTrashInfo;
-
         diskTrashInfo.__set_root_path(root_path_info.path);
-
         diskTrashInfo.__set_state(root_path_info.is_used ? "ONLINE" : "OFFLINE");
-
-        auto trash_path = fmt::format("{}/{}", root_path_info.path, TRASH_PREFIX);
-        diskTrashInfo.__set_trash_used_capacity(
-                StorageEngine::instance()->get_file_or_directory_size(trash_path));
-
+        diskTrashInfo.__set_trash_used_capacity(root_path_info.trash_used_capacity);
         diskTrashInfos.push_back(diskTrashInfo);
     }
 }
@@ -376,6 +381,7 @@ void BackendService::get_stream_load_record(TStreamLoadRecordResult& result,
 
 void BackendService::clean_trash() {
     StorageEngine::instance()->start_trash_sweep(nullptr, true);
+    StorageEngine::instance()->notify_listener(TaskWorkerPool::TaskWorkerType::REPORT_DISK_STATE);
 }
 
 void BackendService::check_storage_format(TCheckStorageFormatResult& result) {
@@ -558,6 +564,7 @@ void BackendService::ingest_binlog(TIngestBinlogResult& result,
             RETURN_IF_ERROR(client->head());
             return client->get_content_length(&segment_file_size);
         };
+
         status = HttpClient::execute_with_retry(max_retry, 1, get_segment_file_size_cb);
         if (!status.ok()) {
             LOG(WARNING) << "failed to get segment file size from " << get_segment_file_size_url
@@ -565,6 +572,7 @@ void BackendService::ingest_binlog(TIngestBinlogResult& result,
             status.to_thrift(&tstatus);
             return;
         }
+
         segment_file_sizes.push_back(segment_file_size);
         segment_file_urls.push_back(std::move(get_segment_file_size_url));
     }
@@ -590,9 +598,8 @@ void BackendService::ingest_binlog(TIngestBinlogResult& result,
             estimate_timeout = config::download_low_speed_time;
         }
 
-        std::string local_segment_path =
-                fmt::format("{}/{}_{}.dat", local_tablet->tablet_path(),
-                            rowset_meta->rowset_id().to_string(), segment_index);
+        auto local_segment_path = BetaRowset::segment_file_path(
+                local_tablet->tablet_path(), rowset_meta->rowset_id(), segment_index);
         LOG(INFO) << fmt::format("download segment file from {} to {}", get_segment_file_url,
                                  local_segment_path);
         auto get_segment_file_cb = [&get_segment_file_url, &local_segment_path, segment_file_size,
@@ -629,7 +636,7 @@ void BackendService::ingest_binlog(TIngestBinlogResult& result,
         }
     }
 
-    // Step 6: create rowset && commit
+    // Step 6: create rowset && calculate delete bitmap && commit
     // Step 6.1: create rowset
     RowsetSharedPtr rowset;
     status = RowsetFactory::create_rowset(local_tablet->tablet_schema(),
@@ -645,11 +652,48 @@ void BackendService::ingest_binlog(TIngestBinlogResult& result,
         return;
     }
 
-    // Step 6.2: commit txn
+    // Step 6.2 calculate delete bitmap before commit
+    auto calc_delete_bitmap_token =
+            StorageEngine::instance()->calc_delete_bitmap_executor()->create_token();
+    DeleteBitmapPtr delete_bitmap = std::make_shared<DeleteBitmap>(local_tablet_id);
+    RowsetIdUnorderedSet pre_rowset_ids;
+    if (local_tablet->enable_unique_key_merge_on_write()) {
+        auto beta_rowset = reinterpret_cast<BetaRowset*>(rowset.get());
+        std::vector<segment_v2::SegmentSharedPtr> segments;
+        status = beta_rowset->load_segments(&segments);
+        if (!status) {
+            LOG(WARNING) << "failed to load segments from rowset"
+                         << ". rowset_id: " << beta_rowset->rowset_id() << ", txn_id=" << txn_id
+                         << ", status=" << status.to_string();
+            status.to_thrift(&tstatus);
+            return;
+        }
+        if (segments.size() > 1) {
+            // calculate delete bitmap between segments
+            status = local_tablet->calc_delete_bitmap_between_segments(rowset, segments,
+                                                                       delete_bitmap);
+            if (!status) {
+                LOG(WARNING) << "failed to calculate delete bitmap"
+                             << ". tablet_id: " << local_tablet->tablet_id()
+                             << ". rowset_id: " << rowset->rowset_id() << ", txn_id=" << txn_id
+                             << ", status=" << status.to_string();
+                status.to_thrift(&tstatus);
+                return;
+            }
+        }
+
+        local_tablet->commit_phase_update_delete_bitmap(rowset, pre_rowset_ids, delete_bitmap,
+                                                        segments, txn_id,
+                                                        calc_delete_bitmap_token.get(), nullptr);
+        calc_delete_bitmap_token->wait();
+        calc_delete_bitmap_token->get_delete_bitmap(delete_bitmap);
+    }
+
+    // Step 6.3: commit txn
     Status commit_txn_status = StorageEngine::instance()->txn_manager()->commit_txn(
             local_tablet->data_dir()->get_meta(), rowset_meta->partition_id(),
-            rowset_meta->txn_id(), rowset_meta->tablet_id(), rowset_meta->tablet_schema_hash(),
-            local_tablet->tablet_uid(), rowset_meta->load_id(), rowset, true);
+            rowset_meta->txn_id(), rowset_meta->tablet_id(), local_tablet->tablet_uid(),
+            rowset_meta->load_id(), rowset, true);
     if (!commit_txn_status && !commit_txn_status.is<ErrorCode::PUSH_TRANSACTION_ALREADY_EXIST>()) {
         auto err_msg = fmt::format(
                 "failed to commit txn for remote tablet. rowset_id: {}, remote_tablet_id={}, "
@@ -659,6 +703,12 @@ void BackendService::ingest_binlog(TIngestBinlogResult& result,
         LOG(WARNING) << err_msg;
         set_tstatus(TStatusCode::RUNTIME_ERROR, std::move(err_msg));
         return;
+    }
+
+    if (local_tablet->enable_unique_key_merge_on_write()) {
+        StorageEngine::instance()->txn_manager()->set_txn_related_delete_bitmap(
+                partition_id, txn_id, local_tablet_id, local_tablet->tablet_uid(), true,
+                delete_bitmap, pre_rowset_ids);
     }
 
     tstatus.__set_status_code(TStatusCode::OK);

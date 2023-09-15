@@ -416,19 +416,6 @@ build_thrift() {
 build_protobuf() {
     check_if_source_exist "${PROTOBUF_SOURCE}"
     cd "${TP_SOURCE_DIR}/${PROTOBUF_SOURCE}"
-    rm -fr gmock
-
-    # NOTE(amos): -Wl,--undefined=pthread_create force searching for pthread symbols.
-    # See https://stackoverflow.com/a/65348893/1329147 for detailed explanation.
-    mkdir gmock
-    cd gmock
-    tar xf "${TP_SOURCE_DIR}/${GTEST_NAME}"
-
-    mv "${GTEST_SOURCE}" gtest
-
-    cd "${TP_SOURCE_DIR}/${PROTOBUF_SOURCE}"
-
-    ./autogen.sh
 
     if [[ "${KERNEL}" == 'Darwin' ]]; then
         ldflags="-L${TP_LIB_DIR}"
@@ -436,21 +423,20 @@ build_protobuf() {
         ldflags="-L${TP_LIB_DIR} -static-libstdc++ -static-libgcc -Wl,--undefined=pthread_create"
     fi
 
-    CXXFLAGS="-fPIC -O2 -I${TP_INCLUDE_DIR}" \
+    mkdir -p cmake/build
+    cd cmake/build
+
+    CXXFLAGS="-O2 -I${TP_INCLUDE_DIR}" \
         LDFLAGS="${ldflags}" \
-        ./configure --prefix="${TP_INSTALL_DIR}" --disable-shared --enable-static --with-zlib="${TP_INSTALL_DIR}/include"
-
-    # ATTN: If protoc is not built fully statically the linktime libc may newer than runtime.
-    #       This will casue protoc cannot run
-    #       If you really need to dynamically link protoc, please set the environment variable DYN_LINK_PROTOC=1
-
-    if [[ "${DYN_LINK_PROTOC:-0}" == "1" || "${KERNEL}" == 'Darwin' ]]; then
-        echo "link protoc dynamiclly"
-    else
-        cd src
-        sed -i 's/^AM_LDFLAGS\(.*\)$/AM_LDFLAGS\1 -all-static/' Makefile
-        cd -
-    fi
+        "${CMAKE_CMD}" -DCMAKE_BUILD_TYPE=Release \
+        -DCMAKE_PREFIX_PATH="${TP_INSTALL_DIR}" \
+        -Dprotobuf_USE_EXTERNAL_GTEST=ON \
+        -DCMAKE_POSITION_INDEPENDENT_CODE=ON \
+        -Dprotobuf_BUILD_SHARED_LIBS=OFF \
+        -Dprotobuf_BUILD_TESTS=OFF \
+        -Dprotobuf_WITH_ZLIB_DEFAULT=ON \
+        -Dprotobuf_ABSL_PROVIDER=package \
+        -DCMAKE_INSTALL_PREFIX="${TP_INSTALL_DIR}" ../..
 
     make -j "${PARALLEL}"
     make install
@@ -481,16 +467,28 @@ build_glog() {
     check_if_source_exist "${GLOG_SOURCE}"
     cd "${TP_SOURCE_DIR}/${GLOG_SOURCE}"
 
-    # to generate config.guess and config.sub to support aarch64
-    rm -rf config.*
-    autoreconf -i
+    if [[ "${GLOG_SOURCE}" == "glog-0.4.0" ]]; then
+        # to generate config.guess and config.sub to support aarch64
+        rm -rf config.*
+        autoreconf -i
 
-    CPPFLAGS="-I${TP_INCLUDE_DIR} -fpermissive -fPIC" \
+        CPPFLAGS="-I${TP_INCLUDE_DIR} -fpermissive -fPIC" \
+            LDFLAGS="-L${TP_LIB_DIR}" \
+            ./configure --prefix="${TP_INSTALL_DIR}" --enable-frame-pointers --disable-shared --enable-static
+
+        make -j "${PARALLEL}"
+        make install
+    elif [[ "${GLOG_SOURCE}" == "glog-0.6.0" ]]; then
         LDFLAGS="-L${TP_LIB_DIR}" \
-        ./configure --prefix="${TP_INSTALL_DIR}" --enable-frame-pointers --disable-shared --enable-static
+            "${CMAKE_CMD}" -S . -B build -G "Unix Makefiles" -DCMAKE_INSTALL_PREFIX="${TP_INSTALL_DIR}" \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_POSITION_INDEPENDENT_CODE=ON \
+            -DWITH_UNWIND=OFF \
+            -DBUILD_SHARED_LIBS=OFF
 
-    make -j "${PARALLEL}"
-    make install
+        cmake --build build --target install
+    fi
+
     strip_lib libglog.a
 }
 
@@ -581,7 +579,7 @@ build_zlib() {
     CFLAGS="-O3 -fPIC" \
         CPPFLAGS="-I${TP_INCLUDE_DIR}" \
         LDFLAGS="-L${TP_LIB_DIR}" \
-        ./configure --prefix="${TP_INSTALL_DIR}" --static
+        ./configure --prefix="${TP_INSTALL_DIR}"
 
     make -j "${PARALLEL}"
     make install
@@ -656,12 +654,12 @@ build_curl() {
         libs='-lcrypto -lssl -lcrypto -ldl'
     fi
 
-    CPPFLAGS="-I${TP_INCLUDE_DIR} -DNGHTTP2_STATICLIB" \
+    CPPFLAGS="-I${TP_INCLUDE_DIR} " \
         LDFLAGS="-L${TP_LIB_DIR}" LIBS="${libs}" \
         PKG_CONFIG="pkg-config --static" \
         ./configure --prefix="${TP_INSTALL_DIR}" --disable-shared --enable-static \
         --without-librtmp --with-ssl="${TP_INSTALL_DIR}" --without-libidn2 --disable-ldap --enable-ipv6 \
-        --without-libssh2 --without-brotli
+        --without-libssh2 --without-brotli --without-nghttp2
 
     make curl_LDFLAGS=-all-static -j "${PARALLEL}"
     make curl_LDFLAGS=-all-static install
@@ -673,7 +671,8 @@ build_re2() {
     check_if_source_exist "${RE2_SOURCE}"
     cd "${TP_SOURCE_DIR}/${RE2_SOURCE}"
 
-    "${CMAKE_CMD}" -DCMAKE_BUILD_TYPE=Release -G "${GENERATOR}" -DBUILD_SHARED_LIBS=0 -DCMAKE_INSTALL_PREFIX="${TP_INSTALL_DIR}"
+    "${CMAKE_CMD}" -DCMAKE_BUILD_TYPE=Release -G "${GENERATOR}" -DBUILD_SHARED_LIBS=0 -DCMAKE_POSITION_INDEPENDENT_CODE=ON \
+        -DCMAKE_PREFIX_PATH="${TP_INSTALL_DIR}" -DCMAKE_INSTALL_PREFIX="${TP_INSTALL_DIR}"
     "${BUILD_SYSTEM}" -j "${PARALLEL}" install
     strip_lib libre2.a
 }
@@ -813,8 +812,12 @@ build_brpc() {
 
     # Currently, BRPC can't be built for static libraries only (without .so). Therefore, we should add `-fPIC`
     # to the dependencies which are required by BRPC. Dependencies: zlib, glog, protobuf, leveldb
+    # If BUILD_SHARED_LIBS=OFF, on centos 5.4 will error: `undefined reference to `google::FlagRegisterer`, no error on MacOS.
+    # If glog is compiled before gflags, the above error will not exist, this works in glog 0.4,
+    # but glog 0.6 enforces dependency on gflags.
+    # glog must be enabled, otherwise error: `flag 'v' was defined more than once` (in files 'glog-0.6.0/src/vlog_is_on.cc' and 'brpc-1.6.0/src/butil/logging.cc')
     LDFLAGS="${ldflags}" \
-        "${CMAKE_CMD}" -G "${GENERATOR}" -DBUILD_SHARED_LIBS=1 -DWITH_GLOG=ON -DCMAKE_INSTALL_PREFIX="${TP_INSTALL_DIR}" \
+        "${CMAKE_CMD}" -G "${GENERATOR}" -DBUILD_SHARED_LIBS=ON -DWITH_GLOG=ON -DCMAKE_INSTALL_PREFIX="${TP_INSTALL_DIR}" \
         -DCMAKE_LIBRARY_PATH="${TP_INSTALL_DIR}/lib64" -DCMAKE_INCLUDE_PATH="${TP_INSTALL_DIR}/include" \
         -DBUILD_BRPC_TOOLS=OFF \
         -DPROTOBUF_PROTOC_EXECUTABLE="${TP_INSTALL_DIR}/bin/protoc" ..
@@ -939,6 +942,56 @@ build_flatbuffers() {
     cp libflatbuffers.a ../../../installed/lib/libflatbuffers.a
 }
 
+# c-ares
+build_cares() {
+    check_if_source_exist "${CARES_SOURCE}"
+    cd "${TP_SOURCE_DIR}/${CARES_SOURCE}"
+
+    mkdir -p build
+    cd build
+    cmake -DCMAKE_BUILD_TYPE=Release \
+        -DCARES_STATIC=ON \
+        -DCARES_SHARED=OFF \
+        -DCARES_STATIC_PIC=ON \
+        -DCMAKE_INSTALL_PREFIX="${TP_INSTALL_DIR}" ..
+    make
+    make install
+}
+
+# grpc
+build_grpc() {
+    check_if_source_exist "${GRPC_SOURCE}"
+    cd "${TP_SOURCE_DIR}/${GRPC_SOURCE}"
+
+    mkdir -p cmake/build
+    cd cmake/build
+
+    cmake -DgRPC_INSTALL=ON \
+        -DgRPC_BUILD_TESTS=OFF \
+        -DCMAKE_BUILD_TYPE=Release \
+        -DCMAKE_INSTALL_PREFIX="${TP_INSTALL_DIR}" \
+        -DgRPC_CARES_PROVIDER=package \
+        -Dc-ares_DIR="${TP_INSTALL_DIR}" \
+        -DgRPC_ABSL_PROVIDER=package \
+        -Dabsl_DIR="${TP_INSTALL_DIR}" \
+        -DgRPC_PROTOBUF_PROVIDER=package \
+        -DProtobuf_DIR="${TP_INSTALL_DIR}" \
+        -DgRPC_RE2_PROVIDER=package \
+        -Dre2_DIR:STRING="${TP_INSTALL_DIR}" \
+        -DgRPC_SSL_PROVIDER=package \
+        -DOPENSSL_ROOT_DIR="${TP_INSTALL_DIR}" \
+        -DgRPC_ZLIB_PROVIDER=package \
+        -DZLIB_ROOT="${TP_INSTALL_DIR}" \
+        -DCMAKE_POSITION_INDEPENDENT_CODE=ON \
+        ../..
+
+    make -j "${PARALLEL}"
+    make install
+
+    # for grpc > v1.55, cmake 2.22 does not support find_dependency, delete this line after cmake version upgrade.
+    # sed -i 's/find_dependency/find_package/g' "${TP_INSTALL_DIR}"/lib64/cmake/grpc/gRPCConfig.cmake
+}
+
 # arrow
 build_arrow() {
     check_if_source_exist "${ARROW_SOURCE}"
@@ -958,6 +1011,8 @@ build_arrow() {
     export ARROW_ZLIB_URL="${TP_SOURCE_DIR}/${ZLIB_NAME}"
     export ARROW_XSIMD_URL="${TP_SOURCE_DIR}/${XSIMD_NAME}"
     export ARROW_ORC_URL="${TP_SOURCE_DIR}/${ORC_NAME}"
+    export ARROW_GRPC_URL="${TP_SOURCE_DIR}/${GRPC_NAME}"
+    export ARROW_PROTOBUF_URL="${TP_SOURCE_DIR}/${PROTOBUF_NAME}"
 
     if [[ "${KERNEL}" != 'Darwin' ]]; then
         ldflags="-L${TP_LIB_DIR} -static-libstdc++ -static-libgcc"
@@ -973,22 +1028,38 @@ build_arrow() {
         -DCMAKE_INSTALL_PREFIX="${TP_INSTALL_DIR}" \
         -DCMAKE_INSTALL_LIBDIR=lib64 \
         -DARROW_BOOST_USE_SHARED=OFF \
+        -DARROW_WITH_GRPC=ON \
+        -DgRPC_SOURCE=SYSTEM \
+        -DgRPC_ROOT="${TP_INSTALL_DIR}" \
+        -DARROW_WITH_PROTOBUF=ON \
+        -DProtobuf_SOURCE=SYSTEM \
+        -DProtobuf_LIB="${TP_INSTALL_DIR}/lib/libprotoc.a" -DProtobuf_INCLUDE_DIR="${TP_INSTALL_DIR}/include" \
+        -DARROW_FLIGHT=ON \
+        -DARROW_FLIGHT_SQL=ON \
         -DBoost_USE_STATIC_RUNTIME=ON \
         -DARROW_GFLAGS_USE_SHARED=OFF \
         -Dgflags_ROOT="${TP_INSTALL_DIR}" \
         -DGLOG_ROOT="${TP_INSTALL_DIR}" \
         -DRE2_ROOT="${TP_INSTALL_DIR}" \
+        -DZLIB_SOURCE=SYSTEM \
         -DZLIB_LIBRARY="${TP_INSTALL_DIR}/lib/libz.a" -DZLIB_INCLUDE_DIR="${TP_INSTALL_DIR}/include" \
+        -DRapidJSON_SOURCE=SYSTEM \
         -DRapidJSON_ROOT="${TP_INSTALL_DIR}" \
         -DORC_ROOT="${TP_INSTALL_DIR}" \
+        -Dxsimd_SOURCE=BUNDLED \
         -DBrotli_SOURCE=BUNDLED \
+        -DARROW_LZ4_USE_SHARED=OFF \
         -DLZ4_LIB="${TP_INSTALL_DIR}/lib/liblz4.a" -DLZ4_INCLUDE_DIR="${TP_INSTALL_DIR}/include/lz4" \
         -DLz4_SOURCE=SYSTEM \
+        -DARROW_ZSTD_USE_SHARED=OFF \
         -DZSTD_LIB="${TP_INSTALL_DIR}/lib/libzstd.a" -DZSTD_INCLUDE_DIR="${TP_INSTALL_DIR}/include" \
         -Dzstd_SOURCE=SYSTEM \
         -DSnappy_LIB="${TP_INSTALL_DIR}/lib/libsnappy.a" -DSnappy_INCLUDE_DIR="${TP_INSTALL_DIR}/include" \
         -DSnappy_SOURCE=SYSTEM \
         -DBOOST_ROOT="${TP_INSTALL_DIR}" --no-warn-unused-cli \
+        -Djemalloc_SOURCE=BUNDLED \
+        -DARROW_THRIFT_USE_SHARED=OFF \
+        -DThrift_SOURCE=SYSTEM \
         -DThrift_ROOT="${TP_INSTALL_DIR}" ..
 
     "${BUILD_SYSTEM}" -j "${PARALLEL}"
@@ -1014,8 +1085,9 @@ build_abseil() {
         -DABSL_ENABLE_INSTALL=ON \
         -DBUILD_DEPS=ON \
         -DCMAKE_BUILD_TYPE=Release \
-        -DBUILD_SHARED_LIBS=OFF \
-        -DCMAKE_CXX_STANDARD=11
+        -DCMAKE_POSITION_INDEPENDENT_CODE=ON \
+        -DABSL_PROPAGATE_CXX_STD=ON \
+        -DBUILD_SHARED_LIBS=OFF
 
     cmake --build "${BUILD_DIR}" -j "${PARALLEL}"
     cmake --install "${BUILD_DIR}" --prefix "${TP_INSTALL_DIR}"
@@ -1527,8 +1599,19 @@ build_opentelemetry() {
     mkdir -p "${BUILD_DIR}"
     cd "${BUILD_DIR}"
 
-    "${CMAKE_CMD}" -G "${GENERATOR}" -DCMAKE_INSTALL_PREFIX="${TP_INSTALL_DIR}" -DCMAKE_PREFIX_PATH="${TP_INSTALL_DIR}" -DBUILD_TESTING=OFF \
-        -DWITH_OTLP=ON -DWITH_OTLP_GRPC=OFF -DWITH_OTLP_HTTP=ON -DWITH_ZIPKIN=ON -DWITH_EXAMPLES=OFF ..
+    CXXFLAGS="-O2 -I${TP_INCLUDE_DIR}" \
+        LDFLAGS="-L${TP_LIB_DIR}" \
+        "${CMAKE_CMD}" -G "${GENERATOR}" -DCMAKE_INSTALL_PREFIX="${TP_INSTALL_DIR}" \
+        -DCMAKE_PREFIX_PATH="${TP_INSTALL_DIR}" \
+        -DBUILD_TESTING=OFF \
+        -DWITH_OTLP_GRPC=ON \
+        -DBUILD_SHARED_LIBS=OFF \
+        -DWITH_OTLP_HTTP=ON \
+        -DWITH_ABSEIL=ON \
+        -DWITH_FUNC_TESTS=OFF \
+        -DWITH_ZIPKIN=ON \
+        -DCMAKE_POSITION_INDEPENDENT_CODE=ON \
+        -DWITH_EXAMPLES=OFF ..
 
     "${BUILD_SYSTEM}" -j "${PARALLEL}"
     "${BUILD_SYSTEM}" install
@@ -1629,10 +1712,11 @@ if [[ "${#packages[@]}" -eq 0 ]]; then
         lzo2
         zstd
         boost # must before thrift
-        protobuf
+        abseil
         gflags
         gtest
         glog
+        protobuf # after gtest
         rapidjson
         snappy
         gperftools
@@ -1649,8 +1733,9 @@ if [[ "${#packages[@]}" -eq 0 ]]; then
         librdkafka
         flatbuffers
         orc
+        cares
+        grpc # after cares, protobuf
         arrow
-        abseil
         s2
         bitshuffle
         croaringbitmap

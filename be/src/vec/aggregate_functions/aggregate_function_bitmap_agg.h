@@ -190,7 +190,7 @@ public:
         auto& col = assert_cast<const ColumnBitmap&>(*assert_cast<const IColumn*>(column));
         auto* data = col.get_data().data();
         for (size_t i = 0; i != num_rows; ++i) {
-            this->data(places[i]).value |= data[i];
+            this->data(places[i] + offset).value |= data[i];
         }
     }
 
@@ -201,7 +201,7 @@ public:
         auto* data = col.get_data().data();
         for (size_t i = 0; i != num_rows; ++i) {
             if (places[i]) {
-                this->data(places[i]).value |= data[i];
+                this->data(places[i] + offset).value |= data[i];
             }
         }
     }

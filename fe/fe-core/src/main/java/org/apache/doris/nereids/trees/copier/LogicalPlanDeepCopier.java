@@ -17,7 +17,10 @@
 
 package org.apache.doris.nereids.trees.copier;
 
+import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.exceptions.AnalysisException;
+import org.apache.doris.nereids.hint.Hint;
+import org.apache.doris.nereids.hint.LeadingHint;
 import org.apache.doris.nereids.properties.OrderKey;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
@@ -30,6 +33,7 @@ import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
 import org.apache.doris.nereids.trees.expressions.SubqueryExpr;
 import org.apache.doris.nereids.trees.expressions.functions.Function;
 import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.RelationId;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalApply;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAssertNumRows;
@@ -63,6 +67,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalTopN;
 import org.apache.doris.nereids.trees.plans.logical.LogicalUnion;
 import org.apache.doris.nereids.trees.plans.logical.LogicalWindow;
 import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanRewriter;
+import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
@@ -168,6 +173,7 @@ public class LogicalPlanDeepCopier extends DefaultPlanRewriter<DeepCopierContext
                     olapScan.getManuallySpecifiedPartitions(), olapScan.getSelectedTabletIds(),
                     olapScan.getHints());
         }
+        updateLeadingRelationIdMap(newOlapScan.getRelationId(), newOlapScan.getTable().getName(), newOlapScan);
         newOlapScan.getOutput();
         context.putRelation(olapScan.getRelationId(), newOlapScan);
         updateReplaceMapWithOutput(olapScan, newOlapScan, context.exprIdReplaceMap);
@@ -194,6 +200,7 @@ public class LogicalPlanDeepCopier extends DefaultPlanRewriter<DeepCopierContext
         }
         LogicalSchemaScan newSchemaScan = new LogicalSchemaScan(StatementScopeIdGenerator.newRelationId(),
                 schemaScan.getTable(), schemaScan.getQualifier());
+        updateLeadingRelationIdMap(newSchemaScan.getRelationId(), newSchemaScan.getTable().getName(), newSchemaScan);
         updateReplaceMapWithOutput(schemaScan, newSchemaScan, context.exprIdReplaceMap);
         context.putRelation(schemaScan.getRelationId(), newSchemaScan);
         return newSchemaScan;
@@ -206,6 +213,7 @@ public class LogicalPlanDeepCopier extends DefaultPlanRewriter<DeepCopierContext
         }
         LogicalFileScan newFileScan = new LogicalFileScan(StatementScopeIdGenerator.newRelationId(),
                 fileScan.getTable(), fileScan.getQualifier());
+        updateLeadingRelationIdMap(newFileScan.getRelationId(), fileScan.getTable().getName(), newFileScan);
         updateReplaceMapWithOutput(fileScan, newFileScan, context.exprIdReplaceMap);
         context.putRelation(fileScan.getRelationId(), newFileScan);
         Set<Expression> conjuncts = fileScan.getConjuncts().stream()
@@ -233,6 +241,7 @@ public class LogicalPlanDeepCopier extends DefaultPlanRewriter<DeepCopierContext
         }
         LogicalJdbcScan newJdbcScan = new LogicalJdbcScan(StatementScopeIdGenerator.newRelationId(),
                 jdbcScan.getTable(), jdbcScan.getQualifier());
+        updateLeadingRelationIdMap(newJdbcScan.getRelationId(), jdbcScan.getTable().getName(), newJdbcScan);
         updateReplaceMapWithOutput(jdbcScan, newJdbcScan, context.exprIdReplaceMap);
         context.putRelation(jdbcScan.getRelationId(), newJdbcScan);
         return newJdbcScan;
@@ -246,6 +255,7 @@ public class LogicalPlanDeepCopier extends DefaultPlanRewriter<DeepCopierContext
         LogicalEsScan newEsScan = new LogicalEsScan(StatementScopeIdGenerator.newRelationId(),
                 esScan.getTable(), esScan.getQualifier());
         updateReplaceMapWithOutput(esScan, newEsScan, context.exprIdReplaceMap);
+        updateLeadingRelationIdMap(newEsScan.getRelationId(), esScan.getTable().getName(), newEsScan);
         context.putRelation(esScan.getRelationId(), newEsScan);
         return newEsScan;
     }
@@ -356,7 +366,13 @@ public class LogicalPlanDeepCopier extends DefaultPlanRewriter<DeepCopierContext
         List<NamedExpression> outputs = union.getOutputs().stream()
                 .map(o -> (NamedExpression) ExpressionDeepCopier.INSTANCE.deepCopy(o, context))
                 .collect(ImmutableList.toImmutableList());
-        return new LogicalUnion(union.getQualifier(), outputs, constantExprsList, union.hasPushedFilter(), children);
+        List<List<SlotReference>> childrenOutputs = union.getRegularChildrenOutputs().stream()
+                .map(childOutputs -> childOutputs.stream()
+                        .map(o -> (SlotReference) ExpressionDeepCopier.INSTANCE.deepCopy(o, context))
+                        .collect(ImmutableList.toImmutableList()))
+                .collect(ImmutableList.toImmutableList());
+        return new LogicalUnion(union.getQualifier(), outputs, childrenOutputs,
+                constantExprsList, union.hasPushedFilter(), children);
     }
 
     @Override
@@ -367,7 +383,12 @@ public class LogicalPlanDeepCopier extends DefaultPlanRewriter<DeepCopierContext
         List<NamedExpression> outputs = except.getOutputs().stream()
                 .map(o -> (NamedExpression) ExpressionDeepCopier.INSTANCE.deepCopy(o, context))
                 .collect(ImmutableList.toImmutableList());
-        return new LogicalExcept(except.getQualifier(), outputs, children);
+        List<List<SlotReference>> childrenOutputs = except.getRegularChildrenOutputs().stream()
+                .map(childOutputs -> childOutputs.stream()
+                        .map(o -> (SlotReference) ExpressionDeepCopier.INSTANCE.deepCopy(o, context))
+                        .collect(ImmutableList.toImmutableList()))
+                .collect(ImmutableList.toImmutableList());
+        return new LogicalExcept(except.getQualifier(), outputs, childrenOutputs, children);
     }
 
     @Override
@@ -378,7 +399,12 @@ public class LogicalPlanDeepCopier extends DefaultPlanRewriter<DeepCopierContext
         List<NamedExpression> outputs = intersect.getOutputs().stream()
                 .map(o -> (NamedExpression) ExpressionDeepCopier.INSTANCE.deepCopy(o, context))
                 .collect(ImmutableList.toImmutableList());
-        return new LogicalIntersect(intersect.getQualifier(), outputs, children);
+        List<List<SlotReference>> childrenOutputs = intersect.getRegularChildrenOutputs().stream()
+                .map(childOutputs -> childOutputs.stream()
+                        .map(o -> (SlotReference) ExpressionDeepCopier.INSTANCE.deepCopy(o, context))
+                        .collect(ImmutableList.toImmutableList()))
+                .collect(ImmutableList.toImmutableList());
+        return new LogicalIntersect(intersect.getQualifier(), outputs, childrenOutputs, children);
     }
 
     @Override
@@ -429,6 +455,7 @@ public class LogicalPlanDeepCopier extends DefaultPlanRewriter<DeepCopierContext
                 StatementScopeIdGenerator.newRelationId(),
                 cteConsumer.getCteId(), cteConsumer.getName(),
                 consumerToProducerOutputMap, producerToConsumerOutputMap);
+        updateLeadingRelationIdMap(newCTEConsumer.getRelationId(), cteConsumer.getName(), newCTEConsumer);
         context.putRelation(cteConsumer.getRelationId(), newCTEConsumer);
         return newCTEConsumer;
     }
@@ -445,5 +472,14 @@ public class LogicalPlanDeepCopier extends DefaultPlanRewriter<DeepCopierContext
         for (int i = 0; i < newOutput.size(); i++) {
             replaceMap.put(oldOutput.get(i).getExprId(), newOutput.get(i).getExprId());
         }
+    }
+
+    private void updateLeadingRelationIdMap(RelationId id, String tableName, LogicalPlan plan) {
+        if (!ConnectContext.get().getStatementContext().isLeadingJoin()) {
+            return;
+        }
+        Hint leading = ConnectContext.get().getStatementContext().getHintMap().get("Leading");
+        ((LeadingHint) leading).updateRelationIdByTableName(Pair.of(id, tableName));
+        ((LeadingHint) leading).getRelationIdToScanMap().put(id, plan);
     }
 }

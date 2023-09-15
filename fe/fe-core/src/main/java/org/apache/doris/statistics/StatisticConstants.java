@@ -28,18 +28,13 @@ import java.util.concurrent.TimeUnit;
 public class StatisticConstants {
 
     public static final String STATISTIC_TBL_NAME = "column_statistics";
-
     public static final String HISTOGRAM_TBL_NAME = "histogram_statistics";
 
     public static final int MAX_NAME_LEN = 64;
 
     public static final int ID_LEN = 4096;
 
-    public static final int STATISTICS_CACHE_VALID_DURATION_IN_HOURS = 24 * 2;
-
     public static final int STATISTICS_CACHE_REFRESH_INTERVAL = 24 * 2;
-
-    public static final int ROW_COUNT_CACHE_VALID_DURATION_IN_HOURS = 12;
 
     /**
      * Bucket count fot column_statistics and analysis_job table.
@@ -62,12 +57,6 @@ public class StatisticConstants {
 
     public static final int HISTOGRAM_MAX_BUCKET_NUM = 128;
 
-    /**
-     * The health of the table indicates the health of the table statistics, rang in [0, 100].
-     * Below this threshold will automatically re-collect statistics. TODO make it in fe.conf
-     */
-    public static final int TABLE_STATS_HEALTH_THRESHOLD = 80;
-
     public static final int ANALYZE_MANAGER_INTERVAL_IN_SECS = 60;
 
     public static List<String> STATISTICS_DB_BLACK_LIST = new ArrayList<>();
@@ -75,6 +64,8 @@ public class StatisticConstants {
     public static int ANALYZE_TASK_RETRY_TIMES = 5;
 
     public static final String DB_NAME = SystemInfoService.DEFAULT_CLUSTER + ":" + FeConstants.INTERNAL_DB_NAME;
+
+    public static final String FULL_QUALIFIED_STATS_TBL_NAME = FeConstants.INTERNAL_DB_NAME + "." + STATISTIC_TBL_NAME;
 
     public static final int STATISTIC_INTERNAL_TABLE_REPLICA_NUM = 3;
 

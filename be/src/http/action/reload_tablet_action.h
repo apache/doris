@@ -39,7 +39,6 @@ public:
 private:
     void reload(const std::string& path, int64_t tablet_id, int32_t schema_hash, HttpRequest* req);
 
-    ExecEnv* _exec_env;
 }; // end class ReloadTabletAction
 
 } // end namespace doris

@@ -45,6 +45,7 @@ class ConfigOptions {
     static Option dataOpt
     static Option realDataOpt
     static Option cacheDataOpt
+    static Option enableCacheDataOpt
     static Option pluginOpt
     static Option sslCertificateOpt
     static Option suiteOpt
@@ -145,7 +146,14 @@ class ConfigOptions {
                 .longOpt("cacheDataPath")
                 .desc("the cache data path caches data for stream load from s3")
                 .build()
-
+       enableCacheDataOpt = Option.builder("ECD")
+                .argName("enableCacheData")
+                .required(false)
+                .hasArg(true)
+                .type(String.class)
+                .longOpt("enableCacheData")
+                .desc("enable caches data for stream load from s3")
+                .build()
         pluginOpt = Option.builder("plugin")
                 .argName("pluginPath")
                 .required(false)

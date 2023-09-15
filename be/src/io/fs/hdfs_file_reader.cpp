@@ -133,19 +133,33 @@ Status HdfsFileReader::read_at_impl(size_t offset, Slice result, size_t* bytes_r
         return Status::OK();
     }
 
-    tSize r = hdfsPread(_handle->fs(), _handle->file(), offset, to, bytes_req);
-    if (r == -1) {
-        return Status::InternalError(
-                "Read hdfs file failed. (BE: {}) namenode:{}, path:{}, err: {}",
-                BackendOptions::get_localhost(), _name_node, _path.string(), hdfs_error());
+    size_t has_read = 0;
+    while (has_read < bytes_req) {
+        tSize loop_read = hdfsPread(_handle->fs(), _handle->file(), offset + has_read,
+                                    to + has_read, bytes_req - has_read);
+        if (loop_read < 0) {
+            // invoker maybe just skip Status.NotFound and continue
+            // so we need distinguish between it and other kinds of errors
+            std::string _err_msg = hdfs_error();
+            if (_err_msg.find("No such file or directory") != std::string::npos) {
+                return Status::NotFound(_err_msg);
+            }
+            return Status::InternalError(
+                    "Read hdfs file failed. (BE: {}) namenode:{}, path:{}, err: {}",
+                    BackendOptions::get_localhost(), _name_node, _path.string(), _err_msg);
+        }
+        if (loop_read == 0) {
+            break;
+        }
+        has_read += loop_read;
     }
-    *bytes_read = bytes_req;
+    *bytes_read = has_read;
     return Status::OK();
 }
 
 #else
 // The hedged read only support hdfsPread().
-// TODO: rethink here to see if there are some difference betwenn hdfsPread() and hdfsRead()
+// TODO: rethink here to see if there are some difference between hdfsPread() and hdfsRead()
 Status HdfsFileReader::read_at_impl(size_t offset, Slice result, size_t* bytes_read,
                                     const IOContext* /*io_ctx*/) {
     DCHECK(!closed());
@@ -156,8 +170,14 @@ Status HdfsFileReader::read_at_impl(size_t offset, Slice result, size_t* bytes_r
 
     int res = hdfsSeek(_handle->fs(), _handle->file(), offset);
     if (res != 0) {
+        // invoker maybe just skip Status.NotFound and continue
+        // so we need distinguish between it and other kinds of errors
+        std::string _err_msg = hdfs_error();
+        if (_err_msg.find("No such file or directory") != std::string::npos) {
+            return Status::NotFound(_err_msg);
+        }
         return Status::InternalError("Seek to offset failed. (BE: {}) offset={}, err: {}",
-                                     BackendOptions::get_localhost(), offset, hdfs_error());
+                                     BackendOptions::get_localhost(), offset, _err_msg);
     }
 
     size_t bytes_req = result.size;
@@ -173,9 +193,15 @@ Status HdfsFileReader::read_at_impl(size_t offset, Slice result, size_t* bytes_r
         int64_t loop_read =
                 hdfsRead(_handle->fs(), _handle->file(), to + has_read, bytes_req - has_read);
         if (loop_read < 0) {
+            // invoker maybe just skip Status.NotFound and continue
+            // so we need distinguish between it and other kinds of errors
+            std::string _err_msg = hdfs_error();
+            if (_err_msg.find("No such file or directory") != std::string::npos) {
+                return Status::NotFound(_err_msg);
+            }
             return Status::InternalError(
                     "Read hdfs file failed. (BE: {}) namenode:{}, path:{}, err: {}",
-                    BackendOptions::get_localhost(), _name_node, _path.string(), hdfs_error());
+                    BackendOptions::get_localhost(), _name_node, _path.string(), _err_msg);
         }
         if (loop_read == 0) {
             break;

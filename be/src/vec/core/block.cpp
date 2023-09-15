@@ -84,7 +84,8 @@ Block::Block(const std::vector<SlotDescriptor*>& slots, size_t block_size,
     }
 }
 
-Block::Block(const PBlock& pblock) {
+Status Block::deserialize(const PBlock& pblock) {
+    swap(Block());
     int be_exec_version = pblock.has_be_exec_version() ? pblock.be_exec_version() : 0;
     CHECK(BeExecVersionManager::check_be_exec_version(be_exec_version));
 
@@ -98,11 +99,12 @@ Block::Block(const PBlock& pblock) {
         size_t uncompressed_size = 0;
         if (pblock.has_compression_type() && pblock.has_uncompressed_size()) {
             BlockCompressionCodec* codec;
-            get_block_compression_codec(pblock.compression_type(), &codec);
+            RETURN_IF_ERROR(get_block_compression_codec(pblock.compression_type(), &codec));
             uncompressed_size = pblock.uncompressed_size();
             compression_scratch.resize(uncompressed_size);
             Slice decompressed_slice(compression_scratch);
-            codec->decompress(Slice(compressed_data, compressed_size), &decompressed_slice);
+            RETURN_IF_ERROR(codec->decompress(Slice(compressed_data, compressed_size),
+                                              &decompressed_slice));
             DCHECK(uncompressed_size == decompressed_slice.size);
         } else {
             bool success = snappy::GetUncompressedLength(compressed_data, compressed_size,
@@ -126,6 +128,8 @@ Block::Block(const PBlock& pblock) {
         data.emplace_back(data_column->get_ptr(), type, pcol_meta.name());
     }
     initialize_index_by_name();
+
+    return Status::OK();
 }
 
 void Block::reserve(size_t count) {
@@ -400,6 +404,15 @@ void Block::skip_num_rows(int64_t& length) {
 size_t Block::bytes() const {
     size_t res = 0;
     for (const auto& elem : data) {
+        if (!elem.column) {
+            std::stringstream ss;
+            for (const auto& e : data) {
+                ss << e.name + " ";
+            }
+            LOG(FATAL) << fmt::format(
+                    "Column {} in block is nullptr, in method bytes. All Columns are {}", elem.name,
+                    ss.str());
+        }
         res += elem.column->byte_size();
     }
 
@@ -409,6 +422,15 @@ size_t Block::bytes() const {
 size_t Block::allocated_bytes() const {
     size_t res = 0;
     for (const auto& elem : data) {
+        if (!elem.column) {
+            std::stringstream ss;
+            for (const auto& e : data) {
+                ss << e.name + " ";
+            }
+            LOG(FATAL) << fmt::format(
+                    "Column {} in block is nullptr, in method allocated_bytes. All Columns are {}",
+                    elem.name, ss.str());
+        }
         res += elem.column->allocated_bytes();
     }
 
@@ -735,10 +757,14 @@ Block Block::copy_block(const std::vector<int>& column_offset) const {
     return columns_with_type_and_name;
 }
 
-void Block::append_block_by_selector(MutableBlock* dst, const IColumn::Selector& selector) const {
+void Block::append_to_block_by_selector(MutableBlock* dst,
+                                        const IColumn::Selector& selector) const {
     DCHECK_EQ(data.size(), dst->mutable_columns().size());
     for (size_t i = 0; i < data.size(); i++) {
-        data[i].column->append_data_by_selector(dst->mutable_columns()[i], selector);
+        // FIXME: this is a quickfix. we assume that only partition functions make there some
+        if (!is_column_const(*data[i].column)) {
+            data[i].column->append_data_by_selector(dst->mutable_columns()[i], selector);
+        }
     }
 }
 

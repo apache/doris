@@ -50,8 +50,8 @@ public abstract class TableValuedFunctionIf {
                 return new S3TableValuedFunction(params);
             case HdfsTableValuedFunction.NAME:
                 return new HdfsTableValuedFunction(params);
-            case StreamTableValuedFunction.NAME:
-                return new StreamTableValuedFunction(params);
+            case HttpStreamTableValuedFunction.NAME:
+                return new HttpStreamTableValuedFunction(params);
             case LocalTableValuedFunction.NAME:
                 return new LocalTableValuedFunction(params);
             case IcebergTableValuedFunction.NAME:
@@ -66,6 +66,8 @@ public abstract class TableValuedFunctionIf {
                 return new WorkloadGroupsTableValuedFunction(params);
             case CatalogsTableValuedFunction.NAME:
                 return new CatalogsTableValuedFunction(params);
+            case GroupCommitTableValuedFunction.NAME:
+                return new GroupCommitTableValuedFunction(params);
             default:
                 throw new AnalysisException("Could not find table function " + funcName);
         }

@@ -55,6 +55,8 @@ suite("test_complex_types", "p2,external,hive,external_remote,external_remote_hi
 
         qt_map_with_nullable_key """select * from parquet_all_types limit 1"""
 
+        qt_date_dict """select max(date1), max(date2), max(date3) from date_dict"""
+
         sql """drop catalog ${catalog_name};"""
     }
 }

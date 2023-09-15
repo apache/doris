@@ -54,11 +54,9 @@ import org.apache.doris.catalog.OdbcTable;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.PartitionInfo;
-import org.apache.doris.catalog.Replica;
 import org.apache.doris.catalog.ReplicaAllocation;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.TableIf.TableType;
-import org.apache.doris.catalog.Tablet;
 import org.apache.doris.catalog.View;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
@@ -189,20 +187,21 @@ public class Alter {
         boolean needProcessOutsideTableLock = false;
         if (currentAlterOps.checkTableStoragePolicy(alterClauses)) {
             String tableStoragePolicy = olapTable.getStoragePolicy();
-            if (!tableStoragePolicy.isEmpty()) {
+            String currentStoragePolicy = currentAlterOps.getTableStoragePolicy(alterClauses);
+
+            // If the two policy has one same resource, then it's safe for the table to change policy
+            // There would only be the cooldown ttl or cooldown time would be affected
+            if (!Env.getCurrentEnv().getPolicyMgr()
+                    .checkStoragePolicyIfSameResource(tableStoragePolicy, currentStoragePolicy)
+                    && !tableStoragePolicy.isEmpty()) {
                 for (Partition partition : olapTable.getAllPartitions()) {
-                    for (Tablet tablet : partition.getBaseIndex().getTablets()) {
-                        for (Replica replica : tablet.getReplicas()) {
-                            if (replica.getRowCount() > 0 || replica.getDataSize() > 0) {
-                                throw new DdlException("Do not support alter table's storage policy , this table ["
-                                        + olapTable.getName() + "] has storage policy " + tableStoragePolicy
-                                        + ", the table need to be empty.");
-                            }
-                        }
+                    if (Partition.PARTITION_INIT_VERSION < partition.getVisibleVersion()) {
+                        throw new DdlException("Do not support alter table's storage policy , this table ["
+                                + olapTable.getName() + "] has storage policy " + tableStoragePolicy
+                                + ", the table need to be empty.");
                     }
                 }
             }
-            String currentStoragePolicy = currentAlterOps.getTableStoragePolicy(alterClauses);
             // check currentStoragePolicy resource exist.
             Env.getCurrentEnv().getPolicyMgr().checkStoragePolicyExist(currentStoragePolicy);
 
@@ -210,14 +209,6 @@ public class Alter {
             needProcessOutsideTableLock = true;
         } else if (currentAlterOps.checkIsBeingSynced(alterClauses)) {
             olapTable.setIsBeingSynced(currentAlterOps.isBeingSynced(alterClauses));
-            needProcessOutsideTableLock = true;
-        } else if (currentAlterOps.checkCompactionPolicy(alterClauses)) {
-            needProcessOutsideTableLock = true;
-        } else if (currentAlterOps.checkTimeSeriesCompactionGoalSizeMbytes(alterClauses)) {
-            needProcessOutsideTableLock = true;
-        } else if (currentAlterOps.checkTimeSeriesCompactionFileCountThreshold(alterClauses)) {
-            needProcessOutsideTableLock = true;
-        } else if (currentAlterOps.checkTimeSeriesCompactionTimeThresholdSeconds(alterClauses)) {
             needProcessOutsideTableLock = true;
         } else if (currentAlterOps.checkBinlogConfigChange(alterClauses)) {
             if (!Config.enable_feature_binlog) {
@@ -528,7 +519,11 @@ public class Alter {
                         || properties
                             .containsKey(PropertyAnalyzer.PROPERTIES_TIME_SERIES_COMPACTION_FILE_COUNT_THRESHOLD)
                         || properties
-                            .containsKey(PropertyAnalyzer.PROPERTIES_TIME_SERIES_COMPACTION_TIME_THRESHOLD_SECONDS));
+                            .containsKey(PropertyAnalyzer.PROPERTIES_TIME_SERIES_COMPACTION_TIME_THRESHOLD_SECONDS)
+                        || properties
+                            .containsKey(PropertyAnalyzer.PROPERTIES_ENABLE_SINGLE_REPLICA_COMPACTION)
+                        || properties
+                            .containsKey(PropertyAnalyzer.PROPERTIES_SKIP_WRITE_INDEX_ON_LOAD));
                 ((SchemaChangeHandler) schemaChangeHandler).updateTableProperties(db, tableName, properties);
             } else {
                 throw new DdlException("Invalid alter operation: " + alterClause.getOpType());
@@ -803,6 +798,9 @@ public class Alter {
         // get value from properties here
         // 1. replica allocation
         ReplicaAllocation replicaAlloc = PropertyAnalyzer.analyzeReplicaAllocation(properties, "");
+        if (!replicaAlloc.isNotSet()) {
+            olapTable.checkChangeReplicaAllocation();
+        }
         Env.getCurrentSystemInfo().checkReplicaAllocation(replicaAlloc);
         // 2. in memory
         boolean newInMemory = PropertyAnalyzer.analyzeBooleanProp(properties,

@@ -112,5 +112,22 @@ suite("view_p0") {
         ) c;
     """
     qt_sql "select * from test_element_at_view;"
-    
+
+    sql "drop view if exists test_element_at_view"
+
+    sql "drop view if exists test_time_diff"
+
+    sql "create view test_time_diff as select minutes_diff('2023-01-16 10:05:04', '2023-01-15 18:05:04')"
+
+    qt_sql "select * from test_time_diff"
+
+    sql "drop view if exists test_time_diff"
+
+    sql "drop view if exists test_vv1;"
+
+    sql "create view test_vv1 as select char(field2) from test_array_tbl_2;"
+
+    qt_sql2 "select * from test_vv1;"
+
+    sql "drop view if exists test_vv1;"
 }

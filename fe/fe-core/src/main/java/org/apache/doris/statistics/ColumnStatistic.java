@@ -21,9 +21,9 @@ import org.apache.doris.analysis.LiteralExpr;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.PartitionInfo;
 import org.apache.doris.catalog.Type;
+import org.apache.doris.common.AnalysisException;
 import org.apache.doris.statistics.util.StatisticsUtil;
 
-import com.google.common.base.Preconditions;
 import com.google.common.collect.Sets;
 import com.google.gson.annotations.SerializedName;
 import org.apache.logging.log4j.LogManager;
@@ -36,6 +36,8 @@ import java.util.Map;
 import java.util.Set;
 
 public class ColumnStatistic {
+
+    public static final double STATS_ERROR = 0.1D;
 
     public static final StatsType NDV = StatsType.NDV;
     public static final StatsType AVG_SIZE = StatsType.AVG_SIZE;
@@ -133,7 +135,9 @@ public class ColumnStatistic {
             LOG.debug("Failed to deserialize column stats", t);
             return ColumnStatistic.UNKNOWN;
         }
-        Preconditions.checkState(columnStatistic != null, "Column stats is null");
+        if (columnStatistic == null) {
+            return ColumnStatistic.UNKNOWN;
+        }
         columnStatistic.partitionIdToColStats.putAll(partitionIdToColStats);
         return columnStatistic;
     }
@@ -160,7 +164,7 @@ public class ColumnStatistic {
             String colName = row.get(5);
             Column col = StatisticsUtil.findColumn(catalogId, dbID, tblId, idxId, colName);
             if (col == null) {
-                LOG.warn("Failed to deserialize column statistics, ctlId: {} dbId: {}"
+                LOG.debug("Failed to deserialize column statistics, ctlId: {} dbId: {}"
                                 + "tblId: {} column: {} not exists",
                         catalogId, dbID, tblId, colName);
                 return ColumnStatistic.UNKNOWN;
@@ -168,34 +172,37 @@ public class ColumnStatistic {
             String min = row.get(10);
             String max = row.get(11);
             if (min != null && !min.equalsIgnoreCase("NULL")) {
-                columnStatisticBuilder.setMinValue(StatisticsUtil.convertToDouble(col.getType(), min));
-                columnStatisticBuilder.setMinExpr(StatisticsUtil.readableValue(col.getType(), min));
+                try {
+                    columnStatisticBuilder.setMinValue(StatisticsUtil.convertToDouble(col.getType(), min));
+                    columnStatisticBuilder.setMinExpr(StatisticsUtil.readableValue(col.getType(), min));
+                } catch (AnalysisException e) {
+                    LOG.warn("Failed to deserialize column {} min value {}.", col, min, e);
+                    columnStatisticBuilder.setMinValue(Double.MIN_VALUE);
+                }
             } else {
                 columnStatisticBuilder.setMinValue(Double.MIN_VALUE);
             }
             if (max != null && !max.equalsIgnoreCase("NULL")) {
-                columnStatisticBuilder.setMaxValue(StatisticsUtil.convertToDouble(col.getType(), max));
-                columnStatisticBuilder.setMaxExpr(StatisticsUtil.readableValue(col.getType(), max));
+                try {
+                    columnStatisticBuilder.setMaxValue(StatisticsUtil.convertToDouble(col.getType(), max));
+                    columnStatisticBuilder.setMaxExpr(StatisticsUtil.readableValue(col.getType(), max));
+                } catch (AnalysisException e) {
+                    LOG.warn("Failed to deserialize column {} max value {}.", col, max, e);
+                    columnStatisticBuilder.setMaxValue(Double.MAX_VALUE);
+                }
             } else {
                 columnStatisticBuilder.setMaxValue(Double.MAX_VALUE);
             }
             columnStatisticBuilder.setUpdatedTime(row.get(13));
             return columnStatisticBuilder.build();
         } catch (Exception e) {
-            LOG.warn("Failed to deserialize column statistics, column not exists", e);
+            LOG.warn("Failed to deserialize column statistics.", e);
             return ColumnStatistic.UNKNOWN;
         }
     }
 
     public static boolean isAlmostUnique(double ndv, double rowCount) {
         return rowCount * 0.9 < ndv && ndv < rowCount * 1.1;
-    }
-
-    public ColumnStatistic copy() {
-        return new ColumnStatisticBuilder().setCount(count).setNdv(ndv).setAvgSizeByte(avgSizeByte)
-                .setNumNulls(numNulls).setDataSize(dataSize).setMinValue(minValue)
-                .setMaxValue(maxValue).setMinExpr(minExpr).setMaxExpr(maxExpr)
-                .setIsUnknown(isUnKnown).build();
     }
 
     public ColumnStatistic updateByLimit(long limit, double rowCount) {

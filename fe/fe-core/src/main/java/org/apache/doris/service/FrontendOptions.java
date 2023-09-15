@@ -27,6 +27,7 @@ import com.google.common.net.InetAddresses;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.net.Inet4Address;
 import java.net.Inet6Address;
 import java.net.InetAddress;
 import java.net.UnknownHostException;
@@ -57,35 +58,43 @@ public class FrontendOptions {
         }
     }
 
-
+    // 1. If priority_networks is configured . Obtain the IP that complies with the rules,
+    // and stop the process if it is not obtained
+    // 2. If the priority_networks is not configured, priority should be given to obtaining non loopback IPv4 addresses.
+    // If not, use loopback
     static void initAddrUseIp(List<InetAddress> hosts) {
         useFqdn = false;
         analyzePriorityCidrs();
-        // if not set frontend_address, get a non-loopback ip
-        InetAddress loopBack = null;
         boolean hasMatchedIp = false;
-        for (InetAddress addr : hosts) {
-            LOG.debug("check ip address: {}", addr);
-            if (addr.isLoopbackAddress()) {
-                loopBack = addr;
-            } else if (!priorityCidrs.isEmpty()) {
+        if (!priorityCidrs.isEmpty()) {
+            for (InetAddress addr : hosts) {
+                LOG.debug("check ip address: {}", addr);
                 if (isInPriorNetwork(addr.getHostAddress())) {
                     localAddr = addr;
                     hasMatchedIp = true;
                     break;
                 }
-            } else {
-                localAddr = addr;
-                break;
             }
-        }
-        //if all ips not match the priority_networks then print the warning log
-        if (!priorityCidrs.isEmpty() && !hasMatchedIp) {
-            LOG.warn("ip address range configured for priority_networks does not include the current IP address");
-        }
-        // nothing found, use loopback addr
-        if (localAddr == null) {
-            localAddr = loopBack;
+            //if all ips not match the priority_networks then print the err log and exit
+            if (!hasMatchedIp) {
+                LOG.error("ip address range configured for priority_networks does not include the current IP address");
+                System.exit(-1);
+            }
+        } else {
+            // if not set frontend_address, get a non-loopback ip
+            InetAddress loopBack = null;
+            for (InetAddress addr : hosts) {
+                if (addr.isLoopbackAddress()) {
+                    loopBack = addr;
+                } else if (addr instanceof Inet4Address) {
+                    localAddr = addr;
+                    break;
+                }
+            }
+            // nothing found, use loopback addr
+            if (localAddr == null) {
+                localAddr = loopBack;
+            }
         }
         LOG.info("local address: {}.", localAddr);
     }

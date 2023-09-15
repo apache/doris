@@ -24,6 +24,7 @@
 #include "aggregation_sink_operator.h"
 #include "common/status.h"
 #include "operator.h"
+#include "pipeline/pipeline_x/operator.h"
 #include "util/runtime_profile.h"
 #include "vec/core/block.h"
 #include "vec/exec/vaggregation_node.h"
@@ -72,11 +73,13 @@ private:
 
 class StreamingAggSinkOperatorX;
 
-class StreamingAggSinkLocalState final : public AggSinkLocalState {
-    ENABLE_FACTORY_CREATOR(StreamingAggSinkLocalState);
-
+class StreamingAggSinkLocalState final
+        : public AggSinkLocalState<AggDependency, StreamingAggSinkLocalState> {
 public:
-    StreamingAggSinkLocalState(DataSinkOperatorX* parent, RuntimeState* state);
+    using Parent = StreamingAggSinkOperatorX;
+    using Base = AggSinkLocalState<AggDependency, StreamingAggSinkLocalState>;
+    ENABLE_FACTORY_CREATOR(StreamingAggSinkLocalState);
+    StreamingAggSinkLocalState(DataSinkOperatorXBase* parent, RuntimeState* state);
 
     Status init(RuntimeState* state, LocalSinkStateInfo& info) override;
     Status close(RuntimeState* state) override;
@@ -102,19 +105,14 @@ private:
     int64_t _num_rows_returned = 0;
 };
 
-class StreamingAggSinkOperatorX final : public AggSinkOperatorX {
+class StreamingAggSinkOperatorX final : public AggSinkOperatorX<StreamingAggSinkLocalState> {
 public:
     StreamingAggSinkOperatorX(ObjectPool* pool, const TPlanNode& tnode, const DescriptorTbl& descs);
-    Status setup_local_state(RuntimeState* state, LocalSinkStateInfo& info) override;
-
+    Status init(const TPlanNode& tnode, RuntimeState* state) override;
     Status sink(RuntimeState* state, vectorized::Block* in_block,
                 SourceState source_state) override;
 
     bool can_write(RuntimeState* state) override;
-
-    void get_dependency(DependencySPtr& dependency) override {
-        dependency.reset(new AggDependency(id()));
-    }
 };
 
 } // namespace pipeline

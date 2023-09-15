@@ -31,6 +31,7 @@ import org.apache.doris.nereids.util.JoinUtils;
 import org.apache.doris.statistics.Statistics;
 
 import com.google.common.base.Preconditions;
+import com.google.common.collect.ImmutableList;
 
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -432,7 +433,7 @@ public class GraphSimplifier {
     private Cost calCost(Edge edge, Statistics stats,
             Statistics leftStats, Statistics rightStats) {
         LogicalJoin join = edge.getJoin();
-        PlanContext planContext = new PlanContext(stats, leftStats, rightStats);
+        PlanContext planContext = new PlanContext(stats, ImmutableList.of(leftStats, rightStats));
         Cost cost;
         if (JoinUtils.shouldNestedLoopJoin(join)) {
             PhysicalNestedLoopJoin nestedLoopJoin = new PhysicalNestedLoopJoin<>(

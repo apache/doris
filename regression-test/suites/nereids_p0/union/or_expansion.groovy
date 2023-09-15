@@ -45,11 +45,6 @@ suite("or_expansion") {
         )
     """
 
-    for (int i = 0; i < 10; i++) {
-        sql "insert into oe1 values(${i}, ${i})"
-        sql "insert into oe2 values(${i+20}, ${i+20})"
-    }
-
     sql """
     alter table oe1 modify column k0 set stats ('row_count'='1000', 'ndv'='1000', 'min_value'='1', 'max_value'='1000', 'avg_size'='1000', 'max_size'='1000' )
     """
@@ -97,6 +92,11 @@ suite("or_expansion") {
             on oe1.k0 = oe2.k0 or oe1.k1 + 1 = oe2.k1 * 2
         """)
         contains "VHASH JOIN"
+    }
+
+    for (int i = 0; i < 10; i++) {
+        sql "insert into oe1 values(${i}, ${i})"
+        sql "insert into oe2 values(${i+20}, ${i+20})"
     }
 
     qt_order_ij """

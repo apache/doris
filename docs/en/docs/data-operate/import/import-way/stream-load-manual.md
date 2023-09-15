@@ -239,22 +239,25 @@ Stream load uses HTTP protocol, so all parameters related to import tasks are se
 
   Build MemTable on DataSink node, and send segments to other backends through brpc streaming.
   It reduces duplicate work among replicas, and saves time in data serialization & deserialization.
+- partial_columns
+   <version since="2.0">
+   Whether to enable partial column updates，Boolean type, True means that use partial column update, the default value is false, this parameter is only allowed to be set when the table model is Unique and Merge on Write is used.
+
+   eg: `curl  --location-trusted -u root: -H "partial_columns:true" -H "column_separator:," -H "columns:id,balance,last_access_time" -T /tmp/test.csv http://127.0.0.1:48037/api/db1/user_profile/_stream_load`
+  </version>
 
 ### Use stream load with SQL
 
 You can add a `sql` parameter to the `Header` to replace the `column_separator`, `line_delimiter`, `where`, `columns` in the previous parameter, which is convenient to use.
 
 ```
-curl --location-trusted -u user:passwd 
-[-H "sql: ${load_sql}"...] 
--T data.file 
--XPUT http://fe_host:http_port/api/{db}/{table}/_stream_load_with_sql
+curl --location-trusted -u user:passwd [-H "sql: ${load_sql}"...] -T data.file -XPUT http://fe_host:http_port/api/_http_stream
 
 
 # -- load_sql
-# insert into db.table (col, ...) select stream_col, ... from stream("property1"="value1");
+# insert into db.table (col, ...) select stream_col, ... from http_stream("property1"="value1");
 
-# stream
+# http_stream
 # (
 #     "column_separator" = ",",
 #     "format" = "CSV",
@@ -265,7 +268,7 @@ curl --location-trusted -u user:passwd
 Examples：
 
 ```
-curl  --location-trusted -u root: -T test.csv  -H "sql:insert into demo.example_tbl_1(user_id, age, cost) select c1, c4, c7 * 2 from stream("format" = "CSV", "column_separator" = "," ) where age >= 30"  http://127.0.0.1:28030/api/demo/example_tbl_1/_stream_load_with_sql
+curl  --location-trusted -u root: -T test.csv  -H "sql:insert into demo.example_tbl_1(user_id, age, cost) select c1, c4, c7 * 2 from http_stream("format" = "CSV", "column_separator" = "," ) where age >= 30"  http://127.0.0.1:28030/api/_http_stream
 ```
 
 ### Return results

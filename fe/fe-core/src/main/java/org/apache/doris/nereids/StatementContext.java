@@ -18,9 +18,9 @@
 package org.apache.doris.nereids;
 
 import org.apache.doris.analysis.StatementBase;
-import org.apache.doris.catalog.View;
 import org.apache.doris.common.IdGenerator;
 import org.apache.doris.common.Pair;
+import org.apache.doris.nereids.hint.Hint;
 import org.apache.doris.nereids.memo.Group;
 import org.apache.doris.nereids.rules.analysis.ColumnAliasGenerator;
 import org.apache.doris.nereids.trees.expressions.CTEId;
@@ -72,6 +72,8 @@ public class StatementContext {
     private boolean isDpHyp = false;
     private boolean isOtherJoinReorder = false;
 
+    private boolean isLeadingJoin = false;
+
     private final IdGenerator<ExprId> exprIdGenerator = ExprId.createGenerator();
     private final IdGenerator<ObjectId> objectIdGenerator = ObjectId.createGenerator();
     private final IdGenerator<RelationId> relationIdGenerator = RelationId.createGenerator();
@@ -84,7 +86,8 @@ public class StatementContext {
     // Used to update consumer's stats
     private final Map<CTEId, List<Pair<Map<Slot, Slot>, Group>>> cteIdToConsumerGroup = new HashMap<>();
     private final Map<CTEId, LogicalPlan> rewrittenCtePlan = new HashMap<>();
-    private final Set<View> views = Sets.newHashSet();
+    private final Map<String, Hint> hintMap = Maps.newLinkedHashMap();
+    private final Set<String> viewDdlSqlSet = Sets.newHashSet();
 
     public StatementContext() {
         this.connectContext = ConnectContext.get();
@@ -143,6 +146,14 @@ public class StatementContext {
         isDpHyp = dpHyp;
     }
 
+    public boolean isLeadingJoin() {
+        return isLeadingJoin;
+    }
+
+    public void setLeadingJoin(boolean leadingJoin) {
+        isLeadingJoin = leadingJoin;
+    }
+
     public boolean isOtherJoinReorder() {
         return isOtherJoinReorder;
     }
@@ -179,6 +190,10 @@ public class StatementContext {
             supplier = cacheSupplier;
         }
         return supplier.get();
+    }
+
+    public Map<String, Hint> getHintMap() {
+        return hintMap;
     }
 
     public ColumnAliasGenerator getColumnAliasGenerator() {
@@ -219,11 +234,11 @@ public class StatementContext {
         return rewrittenCtePlan;
     }
 
-    public void addView(View view) {
-        this.views.add(view);
+    public void addViewDdlSql(String ddlSql) {
+        this.viewDdlSqlSet.add(ddlSql);
     }
 
-    public List<View> getViews() {
-        return ImmutableList.copyOf(views);
+    public List<String> getViewDdlSqls() {
+        return ImmutableList.copyOf(viewDdlSqlSet);
     }
 }

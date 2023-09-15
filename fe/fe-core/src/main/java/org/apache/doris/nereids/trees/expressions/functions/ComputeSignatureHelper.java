@@ -73,7 +73,8 @@ public class ComputeSignatureHelper {
                 collectAnyDataType(((MapType) sigType).getKeyType(), NullType.INSTANCE, indexToArgumentTypes);
                 collectAnyDataType(((MapType) sigType).getValueType(), NullType.INSTANCE, indexToArgumentTypes);
             } else if (sigType instanceof StructType) {
-                throw new AnalysisException("do not support struct type now");
+                // TODO: do not support struct type now
+                // throw new AnalysisException("do not support struct type now");
             } else {
                 if (sigType instanceof AnyDataType && ((AnyDataType) sigType).getIndex() >= 0) {
                     List<DataType> dataTypes = indexToArgumentTypes.computeIfAbsent(
@@ -90,7 +91,8 @@ public class ComputeSignatureHelper {
             collectAnyDataType(((MapType) sigType).getValueType(),
                     ((MapType) expressionType).getValueType(), indexToArgumentTypes);
         } else if (sigType instanceof StructType && expressionType instanceof StructType) {
-            throw new AnalysisException("do not support struct type now");
+            // TODO: do not support struct type now
+            // throw new AnalysisException("do not support struct type now");
         } else {
             if (sigType instanceof AnyDataType && ((AnyDataType) sigType).getIndex() >= 0) {
                 List<DataType> dataTypes = indexToArgumentTypes.computeIfAbsent(
@@ -112,7 +114,8 @@ public class ComputeSignatureHelper {
                 collectFollowToAnyDataType(((MapType) sigType).getValueType(),
                         NullType.INSTANCE, indexToArgumentTypes, allNullTypeIndex);
             } else if (sigType instanceof StructType) {
-                throw new AnalysisException("do not support struct type now");
+                // TODO: do not support struct type now
+                // throw new AnalysisException("do not support struct type now");
             } else {
                 if (sigType instanceof FollowToAnyDataType
                         && allNullTypeIndex.contains(((FollowToAnyDataType) sigType).getIndex())) {
@@ -130,7 +133,8 @@ public class ComputeSignatureHelper {
             collectFollowToAnyDataType(((MapType) sigType).getValueType(),
                     ((MapType) expressionType).getValueType(), indexToArgumentTypes, allNullTypeIndex);
         } else if (sigType instanceof StructType && expressionType instanceof StructType) {
-            throw new AnalysisException("do not support struct type now");
+            // TODO: do not support struct type now
+            // throw new AnalysisException("do not support struct type now");
         } else {
             if (sigType instanceof FollowToAnyDataType
                     && allNullTypeIndex.contains(((FollowToAnyDataType) sigType).getIndex())) {
@@ -149,7 +153,9 @@ public class ComputeSignatureHelper {
             return MapType.of(replaceAnyDataType(((MapType) dataType).getKeyType(), indexToCommonTypes),
                     replaceAnyDataType(((MapType) dataType).getValueType(), indexToCommonTypes));
         } else if (dataType instanceof StructType) {
-            throw new AnalysisException("do not support struct type now");
+            // TODO: do not support struct type now
+            // throw new AnalysisException("do not support struct type now");
+            return dataType;
         } else {
             if (dataType instanceof AnyDataType && ((AnyDataType) dataType).getIndex() >= 0) {
                 Optional<DataType> optionalDataType = indexToCommonTypes.get(((AnyDataType) dataType).getIndex());
@@ -177,7 +183,7 @@ public class ComputeSignatureHelper {
             DataType sigType;
             if (i >= signature.argumentsTypes.size()) {
                 sigType = signature.getVarArgType().orElseThrow(
-                        () -> new IllegalStateException("function arity not match with signature"));
+                        () -> new AnalysisException("function arity not match with signature"));
             } else {
                 sigType = signature.argumentsTypes.get(i);
             }

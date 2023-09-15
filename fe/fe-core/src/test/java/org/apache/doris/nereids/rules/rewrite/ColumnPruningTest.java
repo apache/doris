@@ -299,15 +299,16 @@ public class ColumnPruningTest extends TestWithFeService implements MemoPatternM
                 .matches(
                         logicalProject(
                             logicalSubQueryAlias(
-                                logicalAggregate(
                                     logicalProject(
-                                        logicalOlapScan()
-                                    ).when(p -> getOutputQualifiedNames(p).equals(
-                                            ImmutableList.of("default_cluster:test.student.id")
-                                    ))
-                                ).when(agg -> getOutputQualifiedNames(agg.getOutputs()).equals(
-                                        ImmutableList.of("default_cluster:test.student.id")
-                                ))
+                                        logicalAggregate(
+                                            logicalProject(
+                                                logicalOlapScan()
+                                            ).when(p -> getOutputQualifiedNames(p).equals(
+                                                    ImmutableList.of("default_cluster:test.student.id")
+                                            ))
+                                        ).when(agg -> getOutputQualifiedNames(agg.getOutputs()).equals(
+                                                ImmutableList.of("default_cluster:test.student.id")
+                                )))
                             )
                         )
                 );

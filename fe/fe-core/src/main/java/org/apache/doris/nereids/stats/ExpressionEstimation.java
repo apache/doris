@@ -59,6 +59,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.FromDays;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Hour;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.HoursDiff;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.HoursSub;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.If;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Least;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Minute;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MinutesAdd;
@@ -134,13 +135,25 @@ public class ExpressionEstimation extends ExpressionVisitor<ColumnStatistic, Sta
     //TODO: case-when need to re-implemented
     @Override
     public ColumnStatistic visitCaseWhen(CaseWhen caseWhen, Statistics context) {
-        ColumnStatisticBuilder columnStat = new ColumnStatisticBuilder();
-        columnStat.setNdv(caseWhen.getWhenClauses().size() + 1);
-        columnStat.setMinValue(0);
-        columnStat.setMaxValue(Double.MAX_VALUE);
-        columnStat.setAvgSizeByte(8);
-        columnStat.setNumNulls(0);
-        return columnStat.build();
+        return new ColumnStatisticBuilder()
+                .setNdv(caseWhen.getWhenClauses().size() + 1)
+                .setMinValue(0)
+                .setMaxValue(Double.MAX_VALUE)
+                .setAvgSizeByte(8)
+                .setNumNulls(0)
+                .build();
+    }
+
+    @Override
+    public ColumnStatistic visitIf(If function, Statistics context) {
+        // TODO: copy from visitCaseWhen, polish them.
+        return new ColumnStatisticBuilder()
+                .setNdv(2)
+                .setMinValue(0)
+                .setMaxValue(Double.MAX_VALUE)
+                .setAvgSizeByte(8)
+                .setNumNulls(0)
+                .build();
     }
 
     @Override
@@ -155,26 +168,33 @@ public class ExpressionEstimation extends ExpressionVisitor<ColumnStatistic, Sta
     }
 
     private ColumnStatistic castMinMax(ColumnStatistic colStats, DataType targetType) {
-        if (colStats.minExpr instanceof StringLiteral && targetType.isDateLikeType()) {
-            ColumnStatisticBuilder builder = new ColumnStatisticBuilder(colStats);
-            if (colStats.minExpr != null && colStats.maxExpr != null) {
-                String strMin = colStats.minExpr.getStringValue();
-                try {
-                    DateLiteral dateMinLiteral = new DateLiteral(strMin);
-                    long min = dateMinLiteral.getValue();
-                    builder.setMinValue(min);
-                    builder.setMinExpr(dateMinLiteral.toLegacyLiteral());
-
-                    String strMax = colStats.maxExpr.getStringValue();
-                    DateLiteral dateMaxLiteral = new DateLiteral(strMax);
-                    long max = dateMaxLiteral.getValue();
-                    builder.setMaxValue(max);
-                    builder.setMaxExpr(dateMaxLiteral.toLegacyLiteral());
-                } catch (AnalysisException e) {
-                    // ignore exception. do not convert min max
+        if (colStats.minExpr instanceof StringLiteral || colStats.maxExpr instanceof StringLiteral) {
+            if (targetType.isDateLikeType()) {
+                ColumnStatisticBuilder builder = new ColumnStatisticBuilder(colStats);
+                if (colStats.minExpr != null) {
+                    try {
+                        String strMin = colStats.minExpr.getStringValue();
+                        DateLiteral dateMinLiteral = new DateLiteral(strMin);
+                        long min = dateMinLiteral.getValue();
+                        builder.setMinValue(min);
+                        builder.setMinExpr(dateMinLiteral.toLegacyLiteral());
+                    } catch (AnalysisException e) {
+                        // ignore exception. do not convert min
+                    }
                 }
+                if (colStats.maxExpr != null) {
+                    try {
+                        String strMax = colStats.maxExpr.getStringValue();
+                        DateLiteral dateMaxLiteral = new DateLiteral(strMax);
+                        long max = dateMaxLiteral.getValue();
+                        builder.setMaxValue(max);
+                        builder.setMaxExpr(dateMaxLiteral.toLegacyLiteral());
+                    } catch (AnalysisException e) {
+                        // ignore exception. do not convert max
+                    }
+                }
+                return builder.build();
             }
-            return builder.build();
         }
         return colStats;
     }

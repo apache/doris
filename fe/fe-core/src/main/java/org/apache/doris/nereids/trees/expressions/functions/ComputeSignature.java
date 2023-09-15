@@ -19,7 +19,6 @@ package org.apache.doris.nereids.trees.expressions.functions;
 
 import org.apache.doris.catalog.FunctionSignature;
 import org.apache.doris.nereids.annotation.Developing;
-import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.functions.ComputeSignatureHelper.ComputeSignatureChain;
 import org.apache.doris.nereids.trees.expressions.typecoercion.ImplicitCastInputTypes;
 import org.apache.doris.nereids.types.ArrayType;
@@ -117,7 +116,7 @@ public interface ComputeSignature extends FunctionTrait, ImplicitCastInputTypes 
                 .get();
     }
 
-    /** default computeSignature */
+    /** use processor to process computeSignature */
     static boolean processComplexType(DataType signatureType, DataType realType,
             BiFunction<DataType, DataType, Boolean> processor) {
         if (signatureType instanceof ArrayType && realType instanceof ArrayType) {
@@ -127,7 +126,9 @@ public interface ComputeSignature extends FunctionTrait, ImplicitCastInputTypes 
             return processor.apply(((MapType) signatureType).getKeyType(), ((MapType) realType).getKeyType())
                     && processor.apply(((MapType) signatureType).getValueType(), ((MapType) realType).getValueType());
         } else if (signatureType instanceof StructType && realType instanceof StructType) {
-            throw new AnalysisException("do not support struct type now");
+            // TODO: do not support struct type now
+            // throw new AnalysisException("do not support struct type now");
+            return true;
         } else {
             return processor.apply(signatureType, realType);
         }

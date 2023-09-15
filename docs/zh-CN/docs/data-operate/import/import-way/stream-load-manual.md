@@ -251,18 +251,28 @@ Stream Load 由于使用的是 HTTP 协议，所以所有导入任务有关的�
   在 DataSink 节点上构建 MemTable，并通过 brpc streaming 发送 segment 到其他 BE。
   该方法减少了多副本之间的重复工作，并且节省了数据序列化和反序列化的时间。
 
+- partial_columns
+
+  <version since="2.0">
+
+  是否启用部分列更新，布尔类型，为 true 表示使用部分列更新，默认值为 false，该参数只允许在表模型为 Unique 且采用 Merge on Write 时设置。
+  
+  eg: `curl  --location-trusted -u root: -H "partial_columns:true" -H "column_separator:," -H "columns:id,balance,last_access_time" -T /tmp/test.csv http://127.0.0.1:48037/api/db1/user_profile/_stream_load`
+
+  </version>
+
 ### 使用SQL表达Stream Load的参数
 
-可以在Header中添加一个`sql`的参数，去替代之前参数中的`column_separator`、`line_delimiter`、`where`、`columns`参数，方便使用。
+可以在Header中添加一个`sql`的参数，去替代之前参数中的`column_separator`、`line_delimiter`、`where`、`columns`等参数，方便使用。
 
 ```
-curl --location-trusted -u user:passwd [-H "sql: ${load_sql}"...] -T data.file -XPUT http://fe_host:http_port/api/{db}/{table}/_stream_load_with_sql
+curl --location-trusted -u user:passwd [-H "sql: ${load_sql}"...] -T data.file -XPUT http://fe_host:http_port/api/_http_stream
 
 
 # -- load_sql
-# insert into db.table (col, ...) select stream_col, ... from stream("property1"="value1");
+# insert into db.table (col, ...) select stream_col, ... from http_stream("property1"="value1");
 
-# stream
+# http_stream
 # (
 #     "column_separator" = ",",
 #     "format" = "CSV",
@@ -273,7 +283,7 @@ curl --location-trusted -u user:passwd [-H "sql: ${load_sql}"...] -T data.file -
 示例：
 
 ```
-curl  --location-trusted -u root: -T test.csv  -H "sql:insert into demo.example_tbl_1(user_id, age, cost) select c1, c4, c7 * 2 from stream("format" = "CSV", "column_separator" = "," ) where age >= 30"  http://127.0.0.1:28030/api/demo/example_tbl_1/_stream_load_with_sql
+curl  --location-trusted -u root: -T test.csv  -H "sql:insert into demo.example_tbl_1(user_id, age, cost) select c1, c4, c7 * 2 from http_stream("format" = "CSV", "column_separator" = "," ) where age >= 30"  http://127.0.0.1:28030/api/_http_stream
 ```
 
 

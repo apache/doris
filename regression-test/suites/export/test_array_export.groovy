@@ -65,7 +65,7 @@ suite("test_array_export", "export") {
     def create_test_table = {testTablex ->
         sql """ DROP TABLE IF EXISTS ${tableName} """
 
-        result1 = sql """
+        def result1 = sql """
             CREATE TABLE IF NOT EXISTS ${tableName} (
               `k1` INT(11) NULL COMMENT "",
               `k2` ARRAY<SMALLINT> NOT NULL COMMENT "",

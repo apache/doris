@@ -42,7 +42,9 @@ class RuntimeState;
 class TupleDescriptor;
 
 namespace pipeline {
-class ScanLocalState;
+class ScanLocalStateBase;
+struct ScannerDoneDependency;
+struct DataReadyDependency;
 } // namespace pipeline
 
 namespace taskgroup {
@@ -71,7 +73,7 @@ public:
                    const TupleDescriptor* output_tuple_desc,
                    const std::list<VScannerSPtr>& scanners_, int64_t limit_,
                    int64_t max_bytes_in_blocks_queue_, const int num_parallel_instances = 0,
-                   pipeline::ScanLocalState* local_state = nullptr);
+                   pipeline::ScanLocalStateBase* local_state = nullptr);
 
     virtual ~ScannerContext() = default;
     virtual Status init();
@@ -100,13 +102,13 @@ public:
         return _process_status;
     }
 
+    virtual void set_dependency(
+            std::shared_ptr<pipeline::DataReadyDependency> dependency,
+            std::shared_ptr<pipeline::ScannerDoneDependency> scanner_done_dependency) {}
+
     // Called by ScanNode.
     // Used to notify the scheduler that this ScannerContext can stop working.
-    void set_should_stop() {
-        std::lock_guard l(_transfer_lock);
-        _should_stop = true;
-        _blocks_queue_added_cv.notify_one();
-    }
+    void set_should_stop();
 
     // Return true if this ScannerContext need no more process
     virtual bool done() { return _is_finished || _should_stop; }
@@ -131,7 +133,7 @@ public:
 
     bool no_schedule();
 
-    std::string debug_string();
+    virtual std::string debug_string();
 
     RuntimeState* state() { return _state; }
 
@@ -139,7 +141,7 @@ public:
     void incr_ctx_scheduling_time(int64_t num) { _scanner_ctx_sched_time->update(num); }
     void incr_num_scanner_scheduling(int64_t num) { _scanner_sched_counter->update(num); }
 
-    VScanNode* parent() { return _parent; }
+    std::string parent_name();
 
     virtual bool empty_in_queue(int id);
 
@@ -164,7 +166,7 @@ public:
     // the unique id of this context
     std::string ctx_id;
     int32_t queue_idx = -1;
-    ThreadPoolToken* thread_token;
+    ThreadPoolToken* thread_token = nullptr;
     std::vector<bthread_t> _btids;
 
 private:
@@ -176,7 +178,7 @@ protected:
 
     RuntimeState* _state;
     VScanNode* _parent;
-    pipeline::ScanLocalState* _local_state;
+    pipeline::ScanLocalStateBase* _local_state;
 
     // the comment of same fields in VScanNode
     const TupleDescriptor* _output_tuple_desc;
@@ -264,6 +266,8 @@ protected:
     RuntimeProfile::HighWaterMarkCounter* _queued_blocks_memory_usage = nullptr;
     RuntimeProfile::Counter* _newly_create_free_blocks_num = nullptr;
     RuntimeProfile::Counter* _scanner_wait_batch_timer = nullptr;
+
+    std::shared_ptr<pipeline::ScannerDoneDependency> _scanner_done_dependency = nullptr;
 };
 } // namespace vectorized
 } // namespace doris

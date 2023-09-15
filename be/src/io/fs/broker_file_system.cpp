@@ -95,23 +95,24 @@ Status BrokerFileSystem::connect_impl() {
     return status;
 }
 
-Status BrokerFileSystem::create_file_impl(const Path& path, FileWriterPtr* writer) {
+Status BrokerFileSystem::create_file_impl(const Path& path, FileWriterPtr* writer,
+                                          const FileWriterOptions* opts) {
     *writer = std::make_unique<BrokerFileWriter>(ExecEnv::GetInstance(), _broker_addr, _broker_prop,
                                                  path, 0 /* offset */, getSPtr());
     return Status::OK();
 }
 
-Status BrokerFileSystem::open_file_internal(const FileDescription& fd, const Path& abs_path,
-                                            FileReaderSPtr* reader) {
-    int64_t fsize = fd.file_size;
+Status BrokerFileSystem::open_file_internal(const Path& file, FileReaderSPtr* reader,
+                                            const FileReaderOptions& opts) {
+    int64_t fsize = opts.file_size;
     if (fsize <= 0) {
-        RETURN_IF_ERROR(file_size_impl(abs_path, &fsize));
+        RETURN_IF_ERROR(file_size_impl(file, &fsize));
     }
 
     CHECK_BROKER_CLIENT(_client);
     TBrokerOpenReaderRequest request;
     request.__set_version(TBrokerVersion::VERSION_ONE);
-    request.__set_path(abs_path);
+    request.__set_path(file);
     request.__set_startOffset(0);
     request.__set_clientId(client_id(_broker_addr));
     request.__set_properties(_broker_prop);
@@ -127,16 +128,15 @@ Status BrokerFileSystem::open_file_internal(const FileDescription& fd, const Pat
             (*_client)->openReader(*response, request);
         }
     } catch (apache::thrift::TException& e) {
-        return Status::RpcError("failed to open file {}: {}", abs_path.native(),
-                                error_msg(e.what()));
+        return Status::RpcError("failed to open file {}: {}", file.native(), error_msg(e.what()));
     }
 
     if (response->opStatus.statusCode != TBrokerOperationStatusCode::OK) {
-        return Status::IOError("failed to open file {}: {}", abs_path.native(),
+        return Status::IOError("failed to open file {}: {}", file.native(),
                                error_msg(response->opStatus.message));
     }
     *reader = std::make_shared<BrokerFileReader>(
-            _broker_addr, abs_path, fsize, response->fd,
+            _broker_addr, file, fsize, response->fd,
             std::static_pointer_cast<BrokerFileSystem>(shared_from_this()));
     return Status::OK();
 }
@@ -356,7 +356,7 @@ Status BrokerFileSystem::upload_impl(const Path& local_file, const Path& remote_
 
     // NOTICE: broker writer must be closed before calling rename
     FileWriterPtr broker_writer = nullptr;
-    RETURN_IF_ERROR(create_file_impl(remote_file, &broker_writer));
+    RETURN_IF_ERROR(create_file_impl(remote_file, &broker_writer, nullptr));
 
     constexpr size_t buf_sz = 1024 * 1024;
     char read_buf[buf_sz];
@@ -391,7 +391,7 @@ Status BrokerFileSystem::batch_upload_impl(const std::vector<Path>& local_files,
 
 Status BrokerFileSystem::direct_upload_impl(const Path& remote_file, const std::string& content) {
     FileWriterPtr broker_writer = nullptr;
-    RETURN_IF_ERROR(create_file_impl(remote_file, &broker_writer));
+    RETURN_IF_ERROR(create_file_impl(remote_file, &broker_writer, nullptr));
     RETURN_IF_ERROR(broker_writer->append({content}));
     return broker_writer->close();
 }
@@ -407,9 +407,7 @@ Status BrokerFileSystem::upload_with_checksum_impl(const Path& local_file, const
 Status BrokerFileSystem::download_impl(const Path& remote_file, const Path& local_file) {
     // 1. open remote file for read
     FileReaderSPtr broker_reader = nullptr;
-    FileDescription fd;
-    fd.path = remote_file.native();
-    RETURN_IF_ERROR(open_file_internal(fd, remote_file, &broker_reader));
+    RETURN_IF_ERROR(open_file_internal(remote_file, &broker_reader, FileReaderOptions::DEFAULT));
 
     // 2. remove the existing local file if exist
     if (std::filesystem::remove(local_file)) {
@@ -446,9 +444,7 @@ Status BrokerFileSystem::download_impl(const Path& remote_file, const Path& loca
 Status BrokerFileSystem::direct_download_impl(const Path& remote_file, std::string* content) {
     // 1. open remote file for read
     FileReaderSPtr broker_reader = nullptr;
-    FileDescription fd;
-    fd.path = remote_file.native();
-    RETURN_IF_ERROR(open_file_internal(fd, remote_file, &broker_reader));
+    RETURN_IF_ERROR(open_file_internal(remote_file, &broker_reader, FileReaderOptions::DEFAULT));
 
     constexpr size_t buf_sz = 1024 * 1024;
     std::unique_ptr<char[]> read_buf(new char[buf_sz]);

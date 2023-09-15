@@ -60,6 +60,7 @@ public:
         if constexpr (std::is_same_v<TypeId<T>, TypeId<Decimal128>>) {
             return TYPE_DECIMALV2;
         }
+        LOG(FATAL) << "__builtin_unreachable";
         __builtin_unreachable();
     }
 
@@ -68,16 +69,16 @@ public:
               precision(precision_),
               scale_multiplier(decimal_scale_multiplier<typename T::NativeType>(scale)) {}
 
-    void serialize_one_cell_to_text(const IColumn& column, int row_num, BufferWritable& bw,
+    void serialize_one_cell_to_json(const IColumn& column, int row_num, BufferWritable& bw,
                                     FormatOptions& options) const override;
 
-    void serialize_column_to_text(const IColumn& column, int start_idx, int end_idx,
+    void serialize_column_to_json(const IColumn& column, int start_idx, int end_idx,
                                   BufferWritable& bw, FormatOptions& options) const override;
 
-    Status deserialize_one_cell_from_text(IColumn& column, Slice& slice,
+    Status deserialize_one_cell_from_json(IColumn& column, Slice& slice,
                                           const FormatOptions& options) const override;
 
-    Status deserialize_column_from_text_vector(IColumn& column, std::vector<Slice>& slices,
+    Status deserialize_column_from_json_vector(IColumn& column, std::vector<Slice>& slices,
                                                int* num_deserialized,
                                                const FormatOptions& options) const override;
 
@@ -172,7 +173,8 @@ void DataTypeDecimalSerDe<T>::write_one_cell_to_jsonb(const IColumn& column, Jso
         Decimal64::NativeType val = *reinterpret_cast<const Decimal64::NativeType*>(data_ref.data);
         result.writeInt64(val);
     } else {
-        LOG(FATAL) << "unknown Column " << column.get_name() << " for writing to jsonb";
+        throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
+                               "write_one_cell_to_jsonb with type " + column.get_name());
     }
 }
 
@@ -189,7 +191,8 @@ void DataTypeDecimalSerDe<T>::read_one_cell_from_jsonb(IColumn& column,
     } else if constexpr (std::is_same_v<T, Decimal<Int64>>) {
         col.insert_value(static_cast<const JsonbInt64Val*>(arg)->val());
     } else {
-        LOG(FATAL) << "unknown jsonb " << arg->typeName() << " for writing to column";
+        throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
+                               "read_one_cell_from_jsonb with type " + column.get_name());
     }
 }
 } // namespace vectorized

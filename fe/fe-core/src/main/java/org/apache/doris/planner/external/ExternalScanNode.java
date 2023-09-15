@@ -55,14 +55,14 @@ public abstract class ExternalScanNode extends ScanNode {
     public void init(Analyzer analyzer) throws UserException {
         super.init(analyzer);
         computeStats(analyzer);
-        computeColumnFilter();
+        computeColumnsFilter();
         initBackendPolicy();
     }
 
     // For Nereids
     @Override
     public void init() throws UserException {
-        computeColumnFilter();
+        computeColumnsFilter();
         initBackendPolicy();
     }
 

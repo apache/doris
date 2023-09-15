@@ -45,7 +45,6 @@
 #include <unordered_set>
 #include <utility>
 
-#include "agent/task_worker_pool.h"
 #include "common/config.h"
 #include "common/logging.h"
 #include "gutil/strings/substitute.h"
@@ -94,8 +93,6 @@ using namespace ErrorCode;
 
 DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(unused_rowsets_count, MetricUnit::ROWSETS);
 
-StorageEngine* StorageEngine::_s_instance = nullptr;
-
 static Status _validate_options(const EngineOptions& options) {
     if (options.store_paths.empty()) {
         return Status::InternalError("store paths is empty");
@@ -103,12 +100,10 @@ static Status _validate_options(const EngineOptions& options) {
     return Status::OK();
 }
 
-Status StorageEngine::open(const EngineOptions& options, StorageEngine** engine_ptr) {
-    RETURN_IF_ERROR(_validate_options(options));
-    LOG(INFO) << "starting backend using uid:" << options.backend_uid.to_string();
-    std::unique_ptr<StorageEngine> engine(new StorageEngine(options));
-    RETURN_NOT_OK_STATUS_WITH_WARN(engine->_open(), "open engine failed");
-    *engine_ptr = engine.release();
+Status StorageEngine::open() {
+    RETURN_IF_ERROR(_validate_options(_options));
+    LOG(INFO) << "starting backend using uid:" << _options.backend_uid.to_string();
+    RETURN_NOT_OK_STATUS_WITH_WARN(_open(), "open engine failed");
     LOG(INFO) << "success to init storage engine.";
     return Status::OK();
 }
@@ -130,7 +125,6 @@ StorageEngine::StorageEngine(const EngineOptions& options)
           _default_rowset_type(BETA_ROWSET),
           _heartbeat_flags(nullptr),
           _stream_load_recorder(nullptr) {
-    _s_instance = this;
     REGISTER_HOOK_METRIC(unused_rowsets_count, [this]() {
         // std::lock_guard<std::mutex> lock(_gc_mutex);
         return _unused_rowsets.size();
@@ -138,46 +132,33 @@ StorageEngine::StorageEngine(const EngineOptions& options)
 }
 
 StorageEngine::~StorageEngine() {
-    DEREGISTER_HOOK_METRIC(unused_rowsets_count);
-
-    if (_base_compaction_thread_pool) {
-        _base_compaction_thread_pool->shutdown();
-    }
-    if (_cumu_compaction_thread_pool) {
-        _cumu_compaction_thread_pool->shutdown();
-    }
-    if (_single_replica_compaction_thread_pool) {
-        _single_replica_compaction_thread_pool->shutdown();
-    }
-
-    if (_seg_compaction_thread_pool) {
-        _seg_compaction_thread_pool->shutdown();
-    }
-    if (_tablet_meta_checkpoint_thread_pool) {
-        _tablet_meta_checkpoint_thread_pool->shutdown();
-    }
-    if (_cold_data_compaction_thread_pool) {
-        _cold_data_compaction_thread_pool->shutdown();
-    }
+    stop();
     _clear();
-    _s_instance = nullptr;
 }
 
-void StorageEngine::load_data_dirs(const std::vector<DataDir*>& data_dirs) {
+Status StorageEngine::load_data_dirs(const std::vector<DataDir*>& data_dirs) {
     std::vector<std::thread> threads;
-    for (auto data_dir : data_dirs) {
-        threads.emplace_back([data_dir] {
-            auto res = data_dir->load();
-            if (!res.ok()) {
-                LOG(WARNING) << "io error when init load tables. res=" << res
-                             << ", data dir=" << data_dir->path();
-                // TODO(lingbin): why not exit progress, to force OP to change the conf
-            }
-        });
+    std::vector<Status> results(data_dirs.size());
+    for (size_t i = 0; i < data_dirs.size(); ++i) {
+        threads.emplace_back(
+                [&results, data_dir = data_dirs[i]](size_t index) {
+                    results[index] = data_dir->load();
+                    if (!results[index].ok()) {
+                        LOG(WARNING) << "io error when init load tables. res=" << results[index]
+                                     << ", data dir=" << data_dir->path();
+                    }
+                },
+                i);
     }
     for (auto& thread : threads) {
         thread.join();
     }
+    for (const auto& result : results) {
+        if (!result.ok()) {
+            return result;
+        }
+    }
+    return Status::OK();
 }
 
 Status StorageEngine::_open() {
@@ -192,7 +173,7 @@ Status StorageEngine::_open() {
     RETURN_NOT_OK_STATUS_WITH_WARN(_check_file_descriptor_number(), "check fd number failed");
 
     auto dirs = get_stores<false>();
-    load_data_dirs(dirs);
+    RETURN_IF_ERROR(load_data_dirs(dirs));
 
     _memtable_flush_executor.reset(new MemTableFlushExecutor());
     _memtable_flush_executor->init(dirs);
@@ -459,33 +440,103 @@ Status StorageEngine::set_cluster_id(int32_t cluster_id) {
 
 std::vector<DataDir*> StorageEngine::get_stores_for_create_tablet(
         TStorageMedium::type storage_medium) {
-    std::vector<DataDir*> stores;
+    struct DirInfo {
+        DataDir* data_dir;
+
+        size_t disk_available;
+        //if disk_available is high, then available_level is small
+        int available_level;
+
+        int tablet_num;
+
+        bool operator<(const DirInfo& other) {
+            if (available_level != other.available_level) {
+                return available_level < other.available_level;
+            }
+            if (tablet_num != other.tablet_num) {
+                return tablet_num < other.tablet_num;
+            }
+            return data_dir->path_hash() < other.data_dir->path_hash();
+        }
+    };
+    std::map<size_t, int> available_levels;
+    std::vector<DirInfo> dir_infos;
+    int next_index = 0;
+    size_t max_disk_capacity = 0;
     {
         std::lock_guard<std::mutex> l(_store_lock);
+        next_index = _store_next_index[storage_medium]++;
+        if (next_index < 0) {
+            next_index = 0;
+            _store_next_index[storage_medium] = next_index + 1;
+        }
         for (auto& it : _store_map) {
-            if (it.second->is_used()) {
+            DataDir* data_dir = it.second;
+            if (data_dir->is_used()) {
                 if (_available_storage_medium_type_count == 1 ||
-                    it.second->storage_medium() == storage_medium) {
-                    stores.push_back(it.second);
+                    data_dir->storage_medium() == storage_medium) {
+                    size_t disk_available = data_dir->disk_available();
+                    DirInfo dir_info;
+                    dir_info.data_dir = data_dir;
+                    dir_info.available_level = disk_available;
+                    dir_infos.push_back(dir_info);
+                    available_levels[disk_available] = 0;
+                    size_t disk_capacity = data_dir->disk_capacity();
+                    if (max_disk_capacity < disk_capacity) {
+                        max_disk_capacity = disk_capacity;
+                    }
                 }
             }
         }
     }
-    std::random_device rd;
-    std::mt19937 g(rd());
-    std::shuffle(stores.begin(), stores.end(), g);
-    // Two random choices
-    for (int i = 0; i < stores.size(); i++) {
-        int j = i + 1;
-        if (j < stores.size()) {
-            if (stores[i]->tablet_size() > stores[j]->tablet_size()) {
-                std::swap(stores[i], stores[j]);
-            }
-            std::shuffle(stores.begin() + j, stores.end(), g);
-        } else {
-            break;
-        }
+
+    std::vector<DataDir*> stores;
+    if (dir_infos.empty()) {
+        return stores;
     }
+
+    // if two disk available diff not exceeds 20% capacity, then they are the same available level.
+    size_t same_level_available_diff = std::max<size_t>(max_disk_capacity / 5, 1);
+    int level = 0;
+    size_t level_start_available = available_levels.rbegin()->first;
+    for (auto rit = available_levels.rbegin(); rit != available_levels.rend(); rit++) {
+        if (level_start_available - rit->first >= same_level_available_diff) {
+            level_start_available = rit->first;
+            level++;
+        }
+        rit->second = level;
+    }
+
+    for (auto& dir_info : dir_infos) {
+        dir_info.tablet_num = dir_info.data_dir->tablet_num();
+        dir_info.available_level = available_levels[dir_info.disk_available];
+    }
+
+    std::sort(dir_infos.begin(), dir_infos.end());
+
+    // Suppose there are five data dirs (D1, D2, D3, D4, D5).
+    // D1/D2/D3 contain 1 tablet,  D4/D5 contain 2 tablets.
+    // If three creating tablets threads simultaneously invoke this function to get stores,
+    // then the return stores will be as below:
+    // thread 1: (D1, D2, D3, D4, D5)
+    // thread 2: (D2, D3, D1, D5, D4)
+    // thread 3: (D3, D1, D2, D4, D5)
+    stores.reserve(dir_infos.size());
+    for (size_t i = 0; i < dir_infos.size();) {
+        size_t end = i + 1;
+        while (end < dir_infos.size() && dir_infos[i].tablet_num == dir_infos[end].tablet_num &&
+               dir_infos[i].available_level == dir_infos[end].available_level) {
+            end++;
+        }
+        // data dirs [i, end) have the same tablet size, round robin range [i, end)
+        size_t count = end - i;
+        for (size_t k = 0; k < count; k++) {
+            size_t index = i + (k + next_index) % count;
+            stores.push_back(dir_infos[index].data_dir);
+        }
+        i = end;
+    }
+
     return stores;
 }
 
@@ -533,6 +584,10 @@ void StorageEngine::_exit_if_too_many_disks_are_failed() {
 }
 
 void StorageEngine::stop() {
+    if (_stopped) {
+        LOG(WARNING) << "Storage engine is stopped twice.";
+        return;
+    }
     // trigger the waiting threads
     notify_listeners();
 
@@ -571,7 +626,32 @@ void StorageEngine::stop() {
     THREADS_JOIN(_path_gc_threads);
     THREADS_JOIN(_path_scan_threads);
 #undef THREADS_JOIN
+
+    if (_base_compaction_thread_pool) {
+        _base_compaction_thread_pool->shutdown();
+    }
+    if (_cumu_compaction_thread_pool) {
+        _cumu_compaction_thread_pool->shutdown();
+    }
+    if (_single_replica_compaction_thread_pool) {
+        _single_replica_compaction_thread_pool->shutdown();
+    }
+
+    if (_seg_compaction_thread_pool) {
+        _seg_compaction_thread_pool->shutdown();
+    }
+    if (_tablet_meta_checkpoint_thread_pool) {
+        _tablet_meta_checkpoint_thread_pool->shutdown();
+    }
+    if (_cold_data_compaction_thread_pool) {
+        _cold_data_compaction_thread_pool->shutdown();
+    }
+
+    _memtable_flush_executor.reset(nullptr);
+    _calc_delete_bitmap_executor.reset(nullptr);
+
     _stopped = true;
+    LOG(INFO) << "Storage engine is stopped.";
 }
 
 void StorageEngine::_clear() {
@@ -623,10 +703,13 @@ Status StorageEngine::start_trash_sweep(double* usage, bool ignore_guard) {
     std::unique_lock<std::mutex> l(_trash_sweep_lock, std::defer_lock);
     if (!l.try_lock()) {
         LOG(INFO) << "trash and snapshot sweep is running.";
+        if (ignore_guard) {
+            _need_clean_trash.store(true, std::memory_order_relaxed);
+        }
         return res;
     }
 
-    LOG(INFO) << "start trash and snapshot sweep.";
+    LOG(INFO) << "start trash and snapshot sweep. is_clean=" << ignore_guard;
 
     const int32_t snapshot_expire = config::snapshot_expire_time_sec;
     const int32_t trash_expire = config::trash_file_expire_time_sec;
@@ -702,6 +785,7 @@ Status StorageEngine::start_trash_sweep(double* usage, bool ignore_guard) {
     for (auto data_dir : get_stores()) {
         data_dir->perform_remote_rowset_gc();
         data_dir->perform_remote_tablet_gc();
+        data_dir->update_trash_capacity();
     }
 
     return res;
@@ -882,7 +966,6 @@ void StorageEngine::_clean_unused_txns() {
             // currently just remove them from memory
             // nullptr to indicate not remove them from meta store
             _txn_manager->force_rollback_tablet_related_txns(nullptr, tablet_info.tablet_id,
-                                                             tablet_info.schema_hash,
                                                              tablet_info.tablet_uid);
         }
     }
@@ -1002,8 +1085,7 @@ void StorageEngine::add_unused_rowset(RowsetSharedPtr rowset) {
     }
 
     VLOG_NOTICE << "add unused rowset, rowset id:" << rowset->rowset_id()
-                << ", version:" << rowset->version().first << "-" << rowset->version().second
-                << ", unique id:" << rowset->unique_id();
+                << ", version:" << rowset->version();
 
     auto rowset_id = rowset->rowset_id().to_string();
 
@@ -1032,7 +1114,7 @@ Status StorageEngine::create_tablet(const TCreateTabletReq& request, RuntimeProf
     return _tablet_manager->create_tablet(request, stores, profile);
 }
 
-Status StorageEngine::obtain_shard_path(TStorageMedium::type storage_medium,
+Status StorageEngine::obtain_shard_path(TStorageMedium::type storage_medium, int64_t path_hash,
                                         std::string* shard_path, DataDir** store) {
     LOG(INFO) << "begin to process obtain root path. storage_medium=" << storage_medium;
 
@@ -1047,18 +1129,30 @@ Status StorageEngine::obtain_shard_path(TStorageMedium::type storage_medium,
                 "no available disk can be used to create tablet.");
     }
 
+    *store = nullptr;
+    if (path_hash != -1) {
+        for (auto data_dir : stores) {
+            if (data_dir->path_hash() == path_hash) {
+                *store = data_dir;
+                break;
+            }
+        }
+    }
+    if (*store == nullptr) {
+        *store = stores[0];
+    }
+
     Status res = Status::OK();
     uint64_t shard = 0;
-    res = stores[0]->get_shard(&shard);
+    res = (*store)->get_shard(&shard);
     if (!res.ok()) {
         LOG(WARNING) << "fail to get root path shard. res=" << res;
         return res;
     }
 
     std::stringstream root_path_stream;
-    root_path_stream << stores[0]->path() << "/" << DATA_PREFIX << "/" << shard;
+    root_path_stream << (*store)->path() << "/" << DATA_PREFIX << "/" << shard;
     *shard_path = root_path_stream.str();
-    *store = stores[0];
 
     LOG(INFO) << "success to process obtain root path. path=" << shard_path;
     return res;
@@ -1118,6 +1212,15 @@ void StorageEngine::notify_listeners() {
     std::lock_guard<std::mutex> l(_report_mtx);
     for (auto& listener : _report_listeners) {
         listener->notify_thread();
+    }
+}
+
+void StorageEngine::notify_listener(TaskWorkerPool::TaskWorkerType task_worker_type) {
+    std::lock_guard<std::mutex> l(_report_mtx);
+    for (auto& listener : _report_listeners) {
+        if (listener->task_worker_type() == task_worker_type) {
+            listener->notify_thread();
+        }
     }
 }
 

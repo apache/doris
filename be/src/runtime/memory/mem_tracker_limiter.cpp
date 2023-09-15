@@ -87,7 +87,7 @@ MemTrackerLimiter::~MemTrackerLimiter() {
     // nor can it guarantee that the memory alloc and free are recorded in a one-to-one correspondence.
     // In order to ensure `consumption of all limiter trackers` + `orphan tracker consumption` = `process tracker consumption`
     // in real time. Merge its consumption into orphan when parent is process, to avoid repetition.
-    if (ExecEnv::GetInstance()->initialized()) {
+    if (ExecEnv::ready()) {
         ExecEnv::GetInstance()->orphan_mem_tracker()->consume(_consumption->current_value());
     }
     _consumption->set(0);

@@ -135,6 +135,7 @@ public class AnalysisJobTest extends TestWithFeService {
                 .setAnalysisMethod(AnalysisMethod.FULL)
                 .setAnalysisType(AnalysisType.FUNDAMENTALS)
                 .setColToPartitions(colToPartitions)
+                .setState(AnalysisState.RUNNING)
                 .build();
         new OlapAnalysisTask(analysisJobInfo).doExecute();
         new Expectations() {

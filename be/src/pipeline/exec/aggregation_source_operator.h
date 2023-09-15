@@ -21,6 +21,7 @@
 #include "common/status.h"
 #include "operator.h"
 #include "pipeline/pipeline_x/dependency.h"
+#include "pipeline/pipeline_x/operator.h"
 #include "vec/exec/vaggregation_node.h"
 
 namespace doris {
@@ -48,8 +49,10 @@ public:
 };
 
 class AggSourceOperatorX;
-class AggLocalState final : public PipelineXLocalState {
+
+class AggLocalState : public PipelineXLocalState<AggDependency> {
 public:
+    using Base = PipelineXLocalState<AggDependency>;
     ENABLE_FACTORY_CREATOR(AggLocalState);
     AggLocalState(RuntimeState* state, OperatorXBase* parent);
 
@@ -58,7 +61,7 @@ public:
 
     void make_nullable_output_key(vectorized::Block* block);
 
-private:
+protected:
     friend class AggSourceOperatorX;
     friend class StreamingAggSourceOperatorX;
 
@@ -102,22 +105,19 @@ private:
 
     executor _executor;
 
-    AggDependency* _dependency;
-    AggSharedState* _shared_state;
     vectorized::AggregatedDataVariants* _agg_data;
     bool _agg_data_created_without_key = false;
 };
 
-class AggSourceOperatorX : public OperatorXBase {
+class AggSourceOperatorX : public OperatorX<AggLocalState> {
 public:
-    AggSourceOperatorX(ObjectPool* pool, const TPlanNode& tnode, const DescriptorTbl& descs,
-                       std::string op_name);
-    virtual bool can_read(RuntimeState* state) override;
+    using Base = OperatorX<AggLocalState>;
+    AggSourceOperatorX(ObjectPool* pool, const TPlanNode& tnode, const DescriptorTbl& descs);
+    ~AggSourceOperatorX() = default;
+    Dependency* wait_for_dependency(RuntimeState* state) override;
 
-    Status setup_local_state(RuntimeState* state, LocalStateInfo& info) override;
-
-    virtual Status get_block(RuntimeState* state, vectorized::Block* block,
-                             SourceState& source_state) override;
+    Status get_block(RuntimeState* state, vectorized::Block* block,
+                     SourceState& source_state) override;
 
     bool is_source() const override { return true; }
 

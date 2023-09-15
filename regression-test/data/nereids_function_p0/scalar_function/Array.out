@@ -9541,6 +9541,7 @@ true
 2
 
 -- !sql_split_by_string_Char --
+\N
 ["char11"]
 ["char11"]
 ["char11"]
@@ -9553,7 +9554,6 @@ true
 ["char13"]
 ["char13"]
 ["char13"]
-["null"]
 
 -- !sql_split_by_string_Char_notnull --
 ["char11"]
@@ -9570,7 +9570,7 @@ true
 ["char13"]
 
 -- !sql_split_by_string_VarChar --
-["null"]
+\N
 ["varchar11"]
 ["varchar11"]
 ["varchar11"]
@@ -9599,7 +9599,7 @@ true
 ["varchar13"]
 
 -- !sql_split_by_string_String --
-["null"]
+\N
 ["string1"]
 ["string1"]
 ["string1"]
@@ -9628,6 +9628,7 @@ true
 ["string3"]
 
 -- !sql_tokenize_Char --
+\N
 ["char11"]
 ["char11"]
 ["char11"]
@@ -9640,7 +9641,6 @@ true
 ["char13"]
 ["char13"]
 ["char13"]
-["null"]
 
 -- !sql_tokenize_Char_notnull --
 ["char11"]
@@ -9686,7 +9686,7 @@ true
 ["varchar13"]
 
 -- !sql_tokenize_String --
-["null"]
+\N
 ["string1"]
 ["string1"]
 ["string1"]

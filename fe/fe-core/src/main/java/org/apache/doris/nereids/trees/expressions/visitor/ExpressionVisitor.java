@@ -26,6 +26,7 @@ import org.apache.doris.nereids.trees.expressions.Add;
 import org.apache.doris.nereids.trees.expressions.AggregateExpression;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.And;
+import org.apache.doris.nereids.trees.expressions.ArrayItemReference;
 import org.apache.doris.nereids.trees.expressions.AssertNumRowsElement;
 import org.apache.doris.nereids.trees.expressions.BinaryArithmetic;
 import org.apache.doris.nereids.trees.expressions.BinaryOperator;
@@ -82,6 +83,7 @@ import org.apache.doris.nereids.trees.expressions.functions.BoundFunction;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
 import org.apache.doris.nereids.trees.expressions.functions.generator.TableGeneratingFunction;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.GroupingScalarFunction;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Lambda;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ScalarFunction;
 import org.apache.doris.nereids.trees.expressions.functions.table.TableValuedFunction;
 import org.apache.doris.nereids.trees.expressions.functions.window.WindowFunction;
@@ -101,6 +103,7 @@ import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.Interval;
 import org.apache.doris.nereids.trees.expressions.literal.LargeIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
+import org.apache.doris.nereids.trees.expressions.literal.MapLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.SmallIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
@@ -120,6 +123,10 @@ public abstract class ExpressionVisitor<R, C>
     @Override
     public R visitAggregateFunction(AggregateFunction aggregateFunction, C context) {
         return visitBoundFunction(aggregateFunction, context);
+    }
+
+    public R visitLambda(Lambda lambda, C context) {
+        return visit(lambda, context);
     }
 
     @Override
@@ -210,6 +217,10 @@ public abstract class ExpressionVisitor<R, C>
         return visitSlot(slotReference, context);
     }
 
+    public R visitArrayItemSlot(SlotReference arrayItemSlot, C context) {
+        return visit(arrayItemSlot, context);
+    }
+
     public R visitMarkJoinReference(MarkJoinSlotReference markJoinSlotReference, C context) {
         return visitSlotReference(markJoinSlotReference, context);
     }
@@ -292,6 +303,10 @@ public abstract class ExpressionVisitor<R, C>
 
     public R visitArrayLiteral(ArrayLiteral arrayLiteral, C context) {
         return visitLiteral(arrayLiteral, context);
+    }
+
+    public R visitMapLiteral(MapLiteral mapLiteral, C context) {
+        return visitLiteral(mapLiteral, context);
     }
 
     public R visitCompoundPredicate(CompoundPredicate compoundPredicate, C context) {
@@ -404,6 +419,10 @@ public abstract class ExpressionVisitor<R, C>
 
     public R visitVirtualReference(VirtualSlotReference virtualSlotReference, C context) {
         return visit(virtualSlotReference, context);
+    }
+
+    public R visitArrayItemReference(ArrayItemReference arrayItemReference, C context) {
+        return visit(arrayItemReference, context);
     }
 
     public R visitVariableDesc(VariableDesc variableDesc, C context) {

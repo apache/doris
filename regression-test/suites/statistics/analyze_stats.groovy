@@ -20,6 +20,14 @@ suite("test_analyze") {
     String tbl = "analyzetestlimited_duplicate_all"
 
     sql """
+        DROP DATABASE IF EXISTS `${db}`
+    """
+
+    sql """
+        CREATE DATABASE `${db}`
+    """
+
+    sql """
         DROP TABLE IF EXISTS `${tbl}`
     """
 
@@ -109,7 +117,7 @@ suite("test_analyze") {
 
     try {
         sql """
-            SELECT COUNT(*) FROM ${tbl};
+            SELECT * FROM ${tbl};
         """
     } catch (Exception e) {
         exception = e
@@ -143,99 +151,99 @@ suite("test_analyze") {
         ANALYZE DATABASE ${db} WITH SYNC WITH SAMPLE PERCENT 10
     """
 
-//    a_result_2 = sql """
-//        ANALYZE DATABASE ${db} WITH SYNC WITH SAMPLE PERCENT 5
-//    """
-//
-//    a_result_3 = sql """
-//        ANALYZE DATABASE ${db} WITH SAMPLE PERCENT 5
-//    """
-//
-//    show_result = sql """
-//        SHOW ANALYZE
-//    """
-//
-//    def contains_expected_table = { r ->
-//        for (int i = 0; i < r.size; i++) {
-//            if (r[i][3] == "${tbl}") {
-//                return true
-//            }
-//        }
-//        return false
-//    }
-//
-//    def stats_job_removed = { r, id ->
-//        for (int i = 0; i < r.size; i++) {
-//            if (r[i][0] == id) {
-//                return false
-//            }
-//        }
-//        return true
-//    }
-//
-//    assert contains_expected_table(show_result)
-//
-//    sql """
-//        DROP ANALYZE JOB ${a_result_3[0][4]}
-//    """
-//
-//    show_result = sql """
-//        SHOW ANALYZE
-//    """
-//
-//    assert stats_job_removed(show_result, a_result_3[0][4])
-//
-//    sql """
-//        ANALYZE DATABASE ${db} WITH SAMPLE ROWS 5 WITH PERIOD 100000
-//    """
-//
-//    sql """
-//        DROP TABLE IF EXISTS analyze_partitioned_tbl_test
-//    """
+    a_result_2 = sql """
+        ANALYZE DATABASE ${db} WITH SYNC WITH SAMPLE PERCENT 5
+    """
 
-//    sql """
-//        CREATE TABLE analyze_partitioned_tbl_test (col1 int, col2 int, col3 int)
-//        PARTITION BY RANGE(`col2`) (
-//            PARTITION `p1` VALUES LESS THAN ('5'),
-//            PARTITION `p2` VALUES LESS THAN ('10'),
-//            PARTITION `P3` VALUES LESS THAN ('15'),
-//            PARTITION `P4` VALUES LESS THAN ('20'),
-//            PARTITION `P5` VALUES LESS THAN ('25'),
-//            PARTITION `P6` VALUES LESS THAN ('30'))
-//        DISTRIBUTED BY HASH(col3)
-//        BUCKETS 3
-//        PROPERTIES(
-//            "replication_num"="1"
-//        )
-//    """
-//
-//    sql """insert into analyze_partitioned_tbl_test values(1,3,1) """
-//    sql """insert into analyze_partitioned_tbl_test values(6,6,6) """
-//    sql """insert into analyze_partitioned_tbl_test values(11,6,6) """
-//    sql """insert into analyze_partitioned_tbl_test values(16,6,6) """
-//    sql """insert into analyze_partitioned_tbl_test values(21,6,6) """
-//    sql """insert into analyze_partitioned_tbl_test values(26,6,6) """
-//
-//    sql """
-//        ANALYZE TABLE analyze_partitioned_tbl_test WITH SYNC
-//    """
-//
-//    part_tbl_analyze_result = sql """
-//        SHOW COLUMN CACHED STATS analyze_partitioned_tbl_test(col1)
-//    """
-//
-//    def expected_result = { r ->
-//        for (int i = 0; i < r.size; i++) {
-//            if ((int) Double.parseDouble(r[i][1]) == 6) {
-//                return true
-//            } else {
-//                return false
-//            }
-//        }
-//        return false
-//    }
-//
-//    assert expected_result(part_tbl_analyze_result)
+    a_result_3 = sql """
+        ANALYZE DATABASE ${db} WITH SAMPLE PERCENT 5
+    """
+
+    show_result = sql """
+        SHOW ANALYZE
+    """
+
+    def contains_expected_table = { r ->
+        for (int i = 0; i < r.size; i++) {
+            if (r[i][3] == "${tbl}") {
+                return true
+            }
+        }
+        return false
+    }
+
+    def stats_job_removed = { r, id ->
+        for (int i = 0; i < r.size; i++) {
+            if (r[i][0] == id) {
+                return false
+            }
+        }
+        return true
+    }
+
+    assert contains_expected_table(show_result)
+
+    sql """
+        DROP ANALYZE JOB ${a_result_3[0][4]}
+    """
+
+    show_result = sql """
+        SHOW ANALYZE
+    """
+
+    assert stats_job_removed(show_result, a_result_3[0][4])
+
+    sql """
+        ANALYZE DATABASE ${db} WITH SAMPLE ROWS 5 WITH PERIOD 100000
+    """
+
+    sql """
+        DROP TABLE IF EXISTS analyze_partitioned_tbl_test
+    """
+
+    sql """
+        CREATE TABLE analyze_partitioned_tbl_test (col1 int, col2 int, col3 int)
+        PARTITION BY RANGE(`col2`) (
+            PARTITION `p1` VALUES LESS THAN ('5'),
+            PARTITION `p2` VALUES LESS THAN ('10'),
+            PARTITION `P3` VALUES LESS THAN ('15'),
+            PARTITION `P4` VALUES LESS THAN ('20'),
+            PARTITION `P5` VALUES LESS THAN ('25'),
+            PARTITION `P6` VALUES LESS THAN ('30'))
+        DISTRIBUTED BY HASH(col3)
+        BUCKETS 3
+        PROPERTIES(
+            "replication_num"="1"
+        )
+    """
+
+    sql """insert into analyze_partitioned_tbl_test values(1,3,1) """
+    sql """insert into analyze_partitioned_tbl_test values(6,6,6) """
+    sql """insert into analyze_partitioned_tbl_test values(11,6,6) """
+    sql """insert into analyze_partitioned_tbl_test values(16,6,6) """
+    sql """insert into analyze_partitioned_tbl_test values(21,6,6) """
+    sql """insert into analyze_partitioned_tbl_test values(26,6,6) """
+
+    sql """
+        ANALYZE TABLE analyze_partitioned_tbl_test WITH SYNC
+    """
+
+    part_tbl_analyze_result = sql """
+        SHOW COLUMN CACHED STATS analyze_partitioned_tbl_test(col1)
+    """
+
+    def expected_result = { r ->
+        for (int i = 0; i < r.size; i++) {
+            if ((int) Double.parseDouble(r[i][1]) == 6) {
+                return true
+            } else {
+                return false
+            }
+        }
+        return false
+    }
+
+    assert expected_result(part_tbl_analyze_result)
 
     sql """
         DROP TABLE IF EXISTS test_600_partition_table_analyze;
@@ -870,11 +878,162 @@ PARTITION `p599` VALUES IN (599)
         SHOW COLUMN CACHED STATS test_600_partition_table_analyze(id);
     """
 
-    def expected_id_col_stats = { r, expected_value, idx ->
+    def expected_col_stats = { r, expected_value, idx ->
         return (int) Double.parseDouble(r[0][idx]) == expected_value
     }
 
-    assert expected_id_col_stats(id_col_stats, 600, 1)
-    assert expected_id_col_stats(id_col_stats, 599, 7)
-    assert expected_id_col_stats(id_col_stats, 0, 6)
+    assert expected_col_stats(id_col_stats, 600, 1)
+    assert expected_col_stats(id_col_stats, 599, 7)
+    assert expected_col_stats(id_col_stats, 0, 6)
+
+    sql """DROP TABLE IF EXISTS increment_analyze_test"""
+    sql """
+        CREATE TABLE increment_analyze_test (
+            id BIGINT
+        ) DUPLICATE KEY(`id`)
+        PARTITION BY RANGE(`id`)
+        (
+            PARTITION `p1` VALUES LESS THAN ('5')
+        )
+        
+        DISTRIBUTED BY HASH(`id`) BUCKETS 3
+        PROPERTIES (
+            "replication_num"="1"
+        );
+    """
+
+    sql """INSERT INTO increment_analyze_test VALUES(1),(2),(3)"""
+    sql """ANALYZE TABLE increment_analyze_test WITH SYNC"""
+    sql """ALTER TABLE increment_analyze_test ADD PARTITION p2 VALUES LESS THAN('10')"""
+
+    sql """INSERT INTO increment_analyze_test VALUES(6),(7),(8)"""
+    sql """ANALYZE TABLE increment_analyze_test WITH SYNC WITH INCREMENTAL"""
+    def inc_res = sql """
+        SHOW COLUMN CACHED STATS increment_analyze_test(id)
+    """
+
+    expected_col_stats(inc_res, 6, 1)
+
+    sql """
+        DROP TABLE regression_test_statistics.increment_analyze_test;
+    """
+
+    sql """
+        CREATE TABLE a_partitioned_table_for_analyze_test (
+            id BIGINT,
+            val BIGINT,
+            str VARCHAR(114)
+        ) DUPLICATE KEY(`id`)
+        PARTITION BY RANGE(`id`)
+        (
+            PARTITION `p1` VALUES LESS THAN ('5'),
+            PARTITION `p2` VALUES LESS THAN ('10'),
+            PARTITION `p3` VALUES LESS THAN ('15')
+        )
+        DISTRIBUTED BY HASH(`id`) BUCKETS 3
+        PROPERTIES (
+        "replication_num"="1"
+        );
+    """
+
+    sql """
+        INSERT INTO a_partitioned_table_for_analyze_test VALUES(1, 5, 11),(6,1,5),(11,8,5);
+    """
+
+    sql """
+        ANALYZE TABLE a_partitioned_table_for_analyze_test(id) WITH SYNC
+    """
+
+    sql """
+        ANALYZE TABLE a_partitioned_table_for_analyze_test(val) WITH SYNC
+    """
+
+    def col_val_res = sql """
+        SHOW COLUMN CACHED STATS a_partitioned_table_for_analyze_test(val)
+    """
+
+    expected_col_stats(col_val_res, 3, 1)
+
+    def col_id_res = sql """
+        SHOW COLUMN CACHED STATS a_partitioned_table_for_analyze_test(id)
+    """
+    expected_col_stats(col_id_res, 3, 1)
+
+    sql """DROP TABLE IF EXISTS `some_complex_type_test`"""
+
+    sql """
+       CREATE TABLE `some_complex_type_test` (
+          `id` int(11) NULL COMMENT "",
+          `c_array` ARRAY<int(11)> NULL COMMENT ""
+        ) ENGINE=OLAP
+        DUPLICATE KEY(`id`)
+        COMMENT "OLAP"
+        DISTRIBUTED BY HASH(`id`) BUCKETS 1
+        PROPERTIES (
+        "replication_allocation" = "tag.location.default: 1",
+        "in_memory" = "false",
+        "storage_format" = "V2"
+        );
+    """
+
+    sql """INSERT INTO `some_complex_type_test` VALUES (1, [1,2,3,4,5]);"""
+    sql """INSERT INTO `some_complex_type_test` VALUES (2, [6,7,8]), (3, []), (4, null);"""
+
+    sql """
+        ANALYZE TABLE `some_complex_type_test` WITH SYNC;
+
+    """
+
+    sql """
+        SELECT COUNT(1) FROM `some_complex_type_test`
+    """
+
+    sql """DROP TABLE IF EXISTS `analyze_test_with_schema_update`"""
+
+    sql """
+        CREATE TABLE `analyze_test_with_schema_update` (
+        col1 varchar(11451) not null, col2 int not null, col3 int not null)
+        DUPLICATE KEY(col1)
+        DISTRIBUTED BY HASH(col1)
+        BUCKETS 3
+        PROPERTIES(
+            "replication_num"="1"
+        );
+    """
+
+    sql """insert into analyze_test_with_schema_update values(1, 2, 3);"""
+    sql """insert into analyze_test_with_schema_update values(4, 5, 6);"""
+    sql """insert into analyze_test_with_schema_update values(7, 1, 9);"""
+    sql """insert into analyze_test_with_schema_update values(3, 8, 2);"""
+    sql """insert into analyze_test_with_schema_update values(5, 2, 1);"""
+
+    sql """
+        ANALYZE TABLE analyze_test_with_schema_update WITH SYNC
+    """
+
+    sql """
+        ALTER TABLE analyze_test_with_schema_update ADD COLUMN tbl_name VARCHAR(256) DEFAULT NULL;
+    """
+
+    sql """
+        ANALYZE TABLE analyze_test_with_schema_update WITH SYNC
+    """
+
+    sql """
+        SELECT * FROM analyze_test_with_schema_update;
+    """
+
+    sql """
+        DROP STATS analyze_test_with_schema_update(col3);
+    """
+
+    sql """
+        ANALYZE TABLE analyze_test_with_schema_update WITH SYNC
+    """
+
+    sql """
+        SELECT * FROM analyze_test_with_schema_update;
+    """
+
+
 }

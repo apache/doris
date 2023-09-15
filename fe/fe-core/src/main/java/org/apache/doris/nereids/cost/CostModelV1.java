@@ -149,14 +149,14 @@ class CostModelV1 extends PlanVisitor<Cost, PlanContext> {
         // TODO: consider two-phase sort and enforcer.
         Statistics statistics = context.getStatisticsWithCheck();
         Statistics childStatistics = context.getChildStatistics(0);
+
+        double childRowCount = childStatistics.getRowCount();
+        double rowCount = statistics.getRowCount();
         if (physicalQuickSort.getSortPhase().isGather()) {
             // Now we do more like two-phase sort, so penalise one-phase sort
-            statistics = statistics.withRowCount(statistics.getRowCount() * 100);
+            rowCount *= 100;
         }
-        return CostV1.of(
-                childStatistics.getRowCount(),
-                statistics.getRowCount(),
-                childStatistics.getRowCount());
+        return CostV1.of(childRowCount, rowCount, childRowCount);
     }
 
     @Override
@@ -164,14 +164,14 @@ class CostModelV1 extends PlanVisitor<Cost, PlanContext> {
         // TODO: consider two-phase sort and enforcer.
         Statistics statistics = context.getStatisticsWithCheck();
         Statistics childStatistics = context.getChildStatistics(0);
+
+        double childRowCount = childStatistics.getRowCount();
+        double rowCount = statistics.getRowCount();
         if (topN.getSortPhase().isGather()) {
             // Now we do more like two-phase sort, so penalise one-phase sort
-            statistics = statistics.withRowCount(statistics.getRowCount() * 100);
+            rowCount *= 100;
         }
-        return CostV1.of(
-                childStatistics.getRowCount(),
-                statistics.getRowCount(),
-                childStatistics.getRowCount());
+        return CostV1.of(childRowCount, rowCount, childRowCount);
     }
 
     @Override

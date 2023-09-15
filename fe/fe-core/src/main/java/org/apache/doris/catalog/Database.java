@@ -611,6 +611,12 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table> 
         }
     }
 
+    public void analyze() {
+        for (Table table : nameToTable.values()) {
+            table.analyze(getFullName());
+        }
+    }
+
     @Override
     public void readFields(DataInput in) throws IOException {
         super.readFields(in);
@@ -845,7 +851,8 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table> 
         return null;
     }
 
-    public Map<Long, Table> getIdToTable() {
+    @Override
+    public Map<Long, TableIf> getIdToTable() {
         return new HashMap<>(idToTable);
     }
 

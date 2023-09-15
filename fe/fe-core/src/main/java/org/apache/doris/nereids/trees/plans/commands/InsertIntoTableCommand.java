@@ -17,11 +17,23 @@
 
 package org.apache.doris.nereids.trees.plans.commands;
 
+import org.apache.doris.analysis.AddPartitionLikeClause;
+import org.apache.doris.analysis.AlterClause;
+import org.apache.doris.analysis.AlterTableStmt;
 import org.apache.doris.analysis.Analyzer;
+import org.apache.doris.analysis.DropPartitionClause;
+import org.apache.doris.analysis.PartitionNames;
+import org.apache.doris.analysis.ReplacePartitionClause;
+import org.apache.doris.analysis.TableName;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.common.DdlException;
+import org.apache.doris.common.ErrorCode;
+import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.ProfileManager.ProfileType;
+import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.nereids.NereidsPlanner;
+import org.apache.doris.nereids.analyzer.UnboundOlapTableSink;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.glue.LogicalPlanAdapter;
 import org.apache.doris.nereids.trees.TreeNode;
@@ -34,26 +46,34 @@ import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.nereids.txn.Transaction;
 import org.apache.doris.planner.OlapTableSink;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.DdlExecutor;
 import org.apache.doris.qe.QueryState.MysqlStateType;
 import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.transaction.TransactionState;
 
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
+import com.google.common.collect.Lists;
+import org.apache.commons.collections.CollectionUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
+import java.util.UUID;
 
 /**
  * insert into select command implementation
  * insert into select command support the grammer: explain? insert into table columns? partitions? hints? query
  * InsertIntoTableCommand is a command to represent insert the answer of a query into a table.
  * class structure's:
- *  InsertIntoTableCommand(Query())
- *  ExplainCommand(Query())
+ * InsertIntoTableCommand(Query())
+ * ExplainCommand(Query())
  */
 public class InsertIntoTableCommand extends Command implements ForwardWithSync, Explainable {
 
@@ -62,16 +82,18 @@ public class InsertIntoTableCommand extends Command implements ForwardWithSync, 
     private final LogicalPlan logicalQuery;
     private final Optional<String> labelName;
     private NereidsPlanner planner;
+    private boolean isOverwrite;
     private boolean isTxnBegin = false;
 
     /**
      * constructor
      */
-    public InsertIntoTableCommand(LogicalPlan logicalQuery, Optional<String> labelName) {
+    public InsertIntoTableCommand(LogicalPlan logicalQuery, Optional<String> labelName, boolean isOverwrite) {
         super(PlanType.INSERT_INTO_TABLE_COMMAND);
         this.logicalQuery = Objects.requireNonNull(logicalQuery,
                 "logicalQuery cannot be null in InsertIntoTableCommand");
         this.labelName = labelName;
+        this.isOverwrite = isOverwrite;
     }
 
     public NereidsPlanner getPlanner() {
@@ -88,6 +110,7 @@ public class InsertIntoTableCommand extends Command implements ForwardWithSync, 
             }
             throw new AnalysisException("Nereids DML is disabled, will try to fall back to the original planner");
         }
+
         if (ctx.isTxnModel()) {
             // in original planner, if is in txn model, insert into select command and tableRef >= 1 will be refused.
             // we can just run select a one-row-relation like select 1, 2, 3
@@ -100,7 +123,7 @@ public class InsertIntoTableCommand extends Command implements ForwardWithSync, 
         LogicalPlanAdapter logicalPlanAdapter = new LogicalPlanAdapter(logicalQuery, ctx.getStatementContext());
         planner = new NereidsPlanner(ctx.getStatementContext());
         planner.plan(logicalPlanAdapter, ctx.getSessionVariable().toThrift());
-
+        executor.checkBlockRules();
         if (ctx.getMysqlChannel() != null) {
             ctx.getMysqlChannel().reset();
         }
@@ -110,6 +133,11 @@ public class InsertIntoTableCommand extends Command implements ForwardWithSync, 
                 .collect(node -> node instanceof PhysicalOlapTableSink)).stream().findAny();
         Preconditions.checkArgument(plan.isPresent(), "insert into command must contain OlapTableSinkNode");
         PhysicalOlapTableSink<?> physicalOlapTableSink = ((PhysicalOlapTableSink) plan.get());
+
+        if (isOverwrite) {
+            dealOverwrite(ctx, executor, physicalOlapTableSink);
+            return;
+        }
 
         OlapTableSink sink = ((OlapTableSink) planner.getFragments().get(0).getSink());
 
@@ -122,7 +150,7 @@ public class InsertIntoTableCommand extends Command implements ForwardWithSync, 
         sink.init(ctx.queryId(), txn.getTxnId(),
                 physicalOlapTableSink.getDatabase().getId(),
                 ctx.getExecTimeout(),
-                ctx.getSessionVariable().getSendBatchParallelism(), false, false);
+                ctx.getSessionVariable().getSendBatchParallelism(), false, false, false);
 
         sink.complete(new Analyzer(Env.getCurrentEnv(), ctx));
         TransactionState state = Env.getCurrentGlobalTransactionMgr().getTransactionState(
@@ -148,6 +176,153 @@ public class InsertIntoTableCommand extends Command implements ForwardWithSync, 
             } catch (Exception abortTxnException) {
                 LOG.warn("errors when abort txn. {}", ctx.getQueryIdentifier(), abortTxnException);
             }
+        }
+    }
+
+    /**
+     * when `isOverwrite` is true, use this logic
+     *
+     * @param ctx ctx
+     * @param executor executor
+     * @param physicalOlapTableSink physicalOlapTableSink
+     * @throws Exception Exception
+     */
+    public void dealOverwrite(ConnectContext ctx, StmtExecutor executor, PhysicalOlapTableSink<?> physicalOlapTableSink)
+            throws Exception {
+        OlapTable targetTable = physicalOlapTableSink.getTargetTable();
+        TableName tableName = new TableName(InternalCatalog.INTERNAL_CATALOG_NAME, targetTable.getQualifiedDbName(),
+                targetTable.getName());
+        List partitionNames = ((UnboundOlapTableSink) logicalQuery).getPartitions();
+        if (CollectionUtils.isEmpty(partitionNames)) {
+            partitionNames = Lists.newArrayList(targetTable.getPartitionNames());
+        }
+        List<String> tempPartitionNames = addTempPartition(ctx, tableName, partitionNames);
+        boolean insertRes = insertInto(ctx, executor, tempPartitionNames, tableName);
+        if (!insertRes) {
+            return;
+        }
+        replacePartition(ctx, tableName, partitionNames, tempPartitionNames);
+    }
+
+    /**
+     * replacing partitionNames with tempPartitionNames
+     *
+     * @param ctx ctx
+     * @param tableName tableName
+     * @param partitionNames partitionNames
+     * @param tempPartitionNames tempPartitionNames
+     * @throws UserException UserException
+     */
+    private void replacePartition(ConnectContext ctx, TableName tableName, List<String> partitionNames,
+            List<String> tempPartitionNames)
+            throws UserException {
+        // overwrite old partition with tmp partition
+        try {
+            List<AlterClause> ops = new ArrayList<>();
+            Map<String, String> properties = new HashMap<>();
+            properties.put("use_temp_partition_name", "false");
+            ops.add(new ReplacePartitionClause(new PartitionNames(false, partitionNames),
+                    new PartitionNames(true, tempPartitionNames), properties));
+            AlterTableStmt alterTableStmt = new AlterTableStmt(tableName, ops);
+            Env.getCurrentEnv().alterTable(alterTableStmt);
+        } catch (Exception e) {
+            LOG.warn("IOT overwrite table partitions error", e);
+            handleIotPartitionRollback(ctx, tableName, tempPartitionNames);
+            throw e;
+        }
+    }
+
+    /**
+     * insert into select
+     *
+     * @param ctx ctx
+     * @param executor executor
+     * @param tempPartitionNames tempPartitionNames
+     * @param tableName tableName
+     * @throws Exception Exception
+     */
+    private boolean insertInto(ConnectContext ctx, StmtExecutor executor, List<String> tempPartitionNames,
+            TableName tableName) {
+        try {
+            UnboundOlapTableSink sink = (UnboundOlapTableSink) logicalQuery;
+            UnboundOlapTableSink<?> copySink = new UnboundOlapTableSink<>(
+                    sink.getNameParts(),
+                    sink.getColNames(),
+                    sink.getHints(),
+                    tempPartitionNames,
+                    (LogicalPlan) (sink.child(0)));
+            new InsertIntoTableCommand(copySink, labelName, false).run(ctx, executor);
+            if (ctx.getState().getStateType() == MysqlStateType.ERR) {
+                String errMsg = Strings.emptyToNull(ctx.getState().getErrorMessage());
+                LOG.warn("InsertInto state error:{}", errMsg);
+                handleIotPartitionRollback(ctx, tableName, tempPartitionNames);
+                return false;
+            }
+            return true;
+        } catch (Exception e) {
+            LOG.warn("InsertInto error", e);
+            handleIotPartitionRollback(ctx, tableName, tempPartitionNames);
+            return false;
+        }
+    }
+
+    /**
+     * add some tempPartitions
+     *
+     * @param ctx ctx
+     * @param tableName tableName
+     * @param partitionNames partitionNames
+     * @return tempPartitionNames
+     * @throws Exception Exception
+     */
+    private List<String> addTempPartition(ConnectContext ctx, TableName tableName, List<String> partitionNames)
+            throws Exception {
+        List<String> tempPartitionNames = new ArrayList<>();
+        try {
+            // create tmp partitions with uuid
+            for (String partitionName : partitionNames) {
+                UUID uuid = UUID.randomUUID();
+                // to comply with naming rules
+                String tempPartName = "tmp_partition_" + uuid.toString().replace('-', '_');
+                List<AlterClause> ops = new ArrayList<>();
+                ops.add(new AddPartitionLikeClause(tempPartName, partitionName, true));
+
+                AlterTableStmt alterTableStmt = new AlterTableStmt(tableName, ops);
+                Analyzer tempAnalyzer = new Analyzer(Env.getCurrentEnv(), ctx);
+                alterTableStmt.analyze(tempAnalyzer);
+                DdlExecutor.execute(ctx.getEnv(), alterTableStmt);
+                // only when execution succeeded, put the temp partition name into list
+                tempPartitionNames.add(tempPartName);
+            }
+            return tempPartitionNames;
+        } catch (Exception e) {
+            LOG.warn("IOT create tmp table partitions error", e);
+            handleIotPartitionRollback(ctx, tableName, tempPartitionNames);
+            throw e;
+        }
+    }
+
+    /**
+     * delete temp partitions
+     *
+     * @param ctx ctx
+     * @param targetTableName targetTableName
+     * @param tempPartitionNames tempPartitionNames
+     */
+    private void handleIotPartitionRollback(ConnectContext ctx, TableName targetTableName,
+            List<String> tempPartitionNames) {
+        try {
+            for (String partitionName : tempPartitionNames) {
+                List<AlterClause> ops = new ArrayList<>();
+                ops.add(new DropPartitionClause(true, partitionName, true, true));
+                AlterTableStmt dropTablePartitionStmt = new AlterTableStmt(targetTableName, ops);
+                Analyzer tempAnalyzer = new Analyzer(Env.getCurrentEnv(), ctx);
+                dropTablePartitionStmt.analyze(tempAnalyzer);
+                DdlExecutor.execute(ctx.getEnv(), dropTablePartitionStmt);
+            }
+        } catch (Exception ex) {
+            LOG.warn("IOT drop partitions error", ex);
+            ctx.getState().setError(ErrorCode.ERR_UNKNOWN_ERROR, "Unexpected exception: " + ex.getMessage());
         }
     }
 

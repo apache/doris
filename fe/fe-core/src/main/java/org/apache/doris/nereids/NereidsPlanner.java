@@ -29,6 +29,7 @@ import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.glue.LogicalPlanAdapter;
 import org.apache.doris.nereids.glue.translator.PhysicalPlanTranslator;
 import org.apache.doris.nereids.glue.translator.PlanTranslatorContext;
+import org.apache.doris.nereids.hint.Hint;
 import org.apache.doris.nereids.jobs.executor.Optimizer;
 import org.apache.doris.nereids.jobs.executor.Rewriter;
 import org.apache.doris.nereids.memo.Group;
@@ -69,10 +70,8 @@ import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
-import java.util.concurrent.Executors;
-import java.util.concurrent.ScheduledExecutorService;
-import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 
 /**
@@ -82,7 +81,7 @@ public class NereidsPlanner extends Planner {
     public static final Logger LOG = LogManager.getLogger(NereidsPlanner.class);
     private CascadesContext cascadesContext;
     private final StatementContext statementContext;
-    private List<ScanNode> scanNodeList = null;
+    private final List<ScanNode> scanNodeList = Lists.newArrayList();
     private DescriptorTable descTable;
 
     private Plan parsedPlan;
@@ -133,7 +132,7 @@ public class NereidsPlanner extends Planner {
         }
         PlanFragment root = physicalPlanTranslator.translatePlan(physicalPlan);
 
-        scanNodeList = planTranslatorContext.getScanNodes();
+        scanNodeList.addAll(planTranslatorContext.getScanNodes());
         descTable = planTranslatorContext.getDescTable();
         fragments = new ArrayList<>(planTranslatorContext.getPlanFragments());
         for (int seq = 0; seq < fragments.size(); seq++) {
@@ -144,7 +143,7 @@ public class NereidsPlanner extends Planner {
         ArrayList<String> columnLabelList = physicalPlan.getOutput().stream().map(NamedExpression::getName)
                 .collect(Collectors.toCollection(ArrayList::new));
         logicalPlanAdapter.setColLabels(columnLabelList);
-        logicalPlanAdapter.setViews(statementContext.getViews());
+        logicalPlanAdapter.setViewDdlSqls(statementContext.getViewDdlSqls());
     }
 
     @VisibleForTesting
@@ -333,40 +332,69 @@ public class NereidsPlanner extends Planner {
                     groupExpression.getOwnerGroup().getStatistics());
             return physicalPlan;
         } catch (Exception e) {
-            String memo = cascadesContext.getMemo().toString();
-            LOG.warn("Failed to choose best plan, memo structure:{}", memo, e);
-            throw new AnalysisException("Failed to choose best plan", e);
+            if (e instanceof AnalysisException && e.getMessage().contains("Failed to choose best plan")) {
+                throw e;
+            }
+            LOG.warn("Failed to choose best plan, memo structure:{}", cascadesContext.getMemo(), e);
+            throw new AnalysisException("Failed to choose best plan: " + e.getMessage(), e);
         }
     }
 
-    private ScheduledExecutorService runTimeoutExecutor() {
-        ScheduledExecutorService executor = Executors.newSingleThreadScheduledExecutor();
-        Runnable task = () -> cascadesContext.setIsTimeout(true);
-        executor.schedule(task, 5, TimeUnit.SECONDS);
-
-        return executor;
+    /**
+     * getting hints explain string, which specified by enumerate and show in lists
+     * @param hintMap hint map recorded in statement context
+     * @return explain string shows using of hint
+     */
+    public String getHintExplainString(Map<String, Hint> hintMap) {
+        String used = "";
+        String unUsed = "";
+        String syntaxError = "";
+        for (Map.Entry<String, Hint> entry : hintMap.entrySet()) {
+            switch (entry.getValue().getStatus()) {
+                case UNUSED:
+                    unUsed = unUsed + " " + entry.getValue().getExplainString();
+                    break;
+                case SYNTAX_ERROR:
+                    syntaxError = syntaxError + " " + entry.getValue().getExplainString()
+                        + " Msg:" + entry.getValue().getErrorMessage();
+                    break;
+                case SUCCESS:
+                    used = used + " " + entry.getValue().getExplainString();
+                    break;
+                default:
+                    break;
+            }
+        }
+        return "\nUsed:" + used + "\nUnUsed:" + unUsed + "\nSyntaxError:" + syntaxError;
     }
 
     @Override
     public String getExplainString(ExplainOptions explainOptions) {
         ExplainLevel explainLevel = getExplainLevel(explainOptions);
+        String plan = "";
         switch (explainLevel) {
             case PARSED_PLAN:
-                return parsedPlan.treeString();
+                plan = parsedPlan.treeString();
+                break;
             case ANALYZED_PLAN:
-                return analyzedPlan.treeString();
+                plan = analyzedPlan.treeString();
+                break;
             case REWRITTEN_PLAN:
-                return rewrittenPlan.treeString();
+                plan = rewrittenPlan.treeString();
+                break;
             case OPTIMIZED_PLAN:
-                return "cost = " + cost + "\n" + optimizedPlan.treeString();
+                plan = "cost = " + cost + "\n" + optimizedPlan.treeString();
+                break;
             case SHAPE_PLAN:
-                return optimizedPlan.shape("");
+                plan = optimizedPlan.shape("");
+                break;
             case MEMO_PLAN:
-                return cascadesContext.getMemo().toString()
+                plan = cascadesContext.getMemo().toString()
                     + "\n\n========== OPTIMIZED PLAN ==========\n"
                     + optimizedPlan.treeString();
+                break;
             case ALL_PLAN:
-                return "========== PARSED PLAN ==========\n"
+                plan = "========== PARSED PLAN ==========\n"
                         + parsedPlan.treeString() + "\n\n"
                         + "========== ANALYZED PLAN ==========\n"
                         + analyzedPlan.treeString() + "\n\n"
@@ -374,9 +402,15 @@ public class NereidsPlanner extends Planner {
                         + rewrittenPlan.treeString() + "\n\n"
                         + "========== OPTIMIZED PLAN ==========\n"
                         + optimizedPlan.treeString();
+                break;
             default:
-                return super.getExplainString(explainOptions);
+                plan = super.getExplainString(explainOptions);
         }
+        if (!statementContext.getHintMap().isEmpty()) {
+            String hint = getHintExplainString(cascadesContext.getStatementContext().getHintMap());
+            return plan + hint;
+        }
+        return plan;
     }
 
     @Override

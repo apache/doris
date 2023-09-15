@@ -607,7 +607,7 @@ bool is_scalar_type(FieldType field_type);
 
 const TypeInfo* get_scalar_type_info(FieldType field_type);
 
-TypeInfoPtr get_type_info(segment_v2::ColumnMetaPB* column_meta_pb);
+TypeInfoPtr get_type_info(const segment_v2::ColumnMetaPB* column_meta_pb);
 
 TypeInfoPtr get_type_info(const TabletColumn* col);
 
@@ -728,6 +728,10 @@ struct CppTypeTraits<FieldType::OLAP_FIELD_TYPE_STRING> {
 };
 template <>
 struct CppTypeTraits<FieldType::OLAP_FIELD_TYPE_JSONB> {
+    using CppType = Slice;
+};
+template <>
+struct CppTypeTraits<FieldType::OLAP_FIELD_TYPE_VARIANT> {
     using CppType = Slice;
 };
 template <>
@@ -1382,6 +1386,15 @@ struct FieldTypeTraits<FieldType::OLAP_FIELD_TYPE_JSONB>
     static void set_to_max(void* buf) {
         auto slice = reinterpret_cast<Slice*>(buf);
         slice->size = 0;
+    }
+};
+
+template <>
+struct FieldTypeTraits<FieldType::OLAP_FIELD_TYPE_VARIANT>
+        : public FieldTypeTraits<FieldType::OLAP_FIELD_TYPE_JSONB> {
+    static int cmp(const void* left, const void* right) {
+        LOG(WARNING) << "can not compare VARIANT values";
+        return -1; // always update ?
     }
 };
 

@@ -17,6 +17,7 @@
 
 suite("test_array_functions_by_literal") {
     // array_nested function
+    sql """ set enable_nereids_planner = false; """
     qt_sql "select a from (select array(1, 1, 2, 2, 2, 2) as a) t"
 
     // array with decimal and other types

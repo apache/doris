@@ -47,7 +47,7 @@ ScannerContext::ScannerContext(doris::RuntimeState* state_, doris::vectorized::V
                                const doris::TupleDescriptor* output_tuple_desc,
                                const std::list<VScannerSPtr>& scanners_, int64_t limit_,
                                int64_t max_bytes_in_blocks_queue_, const int num_parallel_instances,
-                               pipeline::ScanLocalState* local_state)
+                               pipeline::ScanLocalStateBase* local_state)
         : _state(state_),
           _parent(parent),
           _local_state(local_state),
@@ -123,7 +123,9 @@ Status ScannerContext::init() {
 
 #ifndef BE_TEST
     // 3. get thread token
-    thread_token = _state->get_query_ctx()->get_token();
+    if (_state->get_query_ctx()) {
+        thread_token = _state->get_query_ctx()->get_token();
+    }
 #endif
 
     // 4. This ctx will be submitted to the scanner scheduler right after init.
@@ -143,6 +145,10 @@ Status ScannerContext::init() {
     }
 
     return Status::OK();
+}
+
+std::string ScannerContext::parent_name() {
+    return _parent ? _parent->get_name() : _local_state->get_name();
 }
 
 vectorized::BlockUPtr ScannerContext::get_free_block(bool* has_free_block,
@@ -204,6 +210,7 @@ Status ScannerContext::get_block_from_queue(RuntimeState* state, vectorized::Blo
     }
     // Wait for block from queue
     if (wait) {
+        // scanner batch wait time
         SCOPED_TIMER(_scanner_wait_batch_timer);
         while (!(!_blocks_queue.empty() || _is_finished || !status().ok() ||
                  state->is_cancelled())) {
@@ -232,6 +239,15 @@ Status ScannerContext::get_block_from_queue(RuntimeState* state, vectorized::Blo
     return Status::OK();
 }
 
+void ScannerContext::set_should_stop() {
+    if (_scanner_done_dependency) {
+        _scanner_done_dependency->set_ready_for_read();
+    }
+    std::lock_guard l(_transfer_lock);
+    _should_stop = true;
+    _blocks_queue_added_cv.notify_one();
+}
+
 bool ScannerContext::set_status_on_error(const Status& status, bool need_lock) {
     std::unique_lock l(_transfer_lock, std::defer_lock);
     if (need_lock) {
@@ -241,6 +257,9 @@ bool ScannerContext::set_status_on_error(const Status& status, bool need_lock) {
         _process_status = status;
         _status_error = true;
         _blocks_queue_added_cv.notify_one();
+        if (_scanner_done_dependency) {
+            _scanner_done_dependency->set_ready_for_read();
+        }
         _should_stop = true;
         return true;
     }
@@ -308,7 +327,9 @@ void ScannerContext::clear_and_join(Parent* parent, RuntimeState* state) {
         if (_num_running_scanners == 0 && _num_scheduling_ctx == 0) {
             break;
         } else {
-            DCHECK(!state->enable_pipeline_exec());
+            DCHECK(!state->enable_pipeline_exec())
+                    << " _num_running_scanners: " << _num_running_scanners
+                    << " _num_scheduling_ctx: " << _num_scheduling_ctx;
             while (!(_num_running_scanners == 0 && _num_scheduling_ctx == 0)) {
                 _ctx_finish_cv.wait(l);
             }
@@ -378,6 +399,9 @@ void ScannerContext::push_back_scanner_and_reschedule(VScannerSPtr scanner) {
         (--_num_unfinished_scanners) == 0) {
         _dispose_coloate_blocks_not_in_queue();
         _is_finished = true;
+        if (_scanner_done_dependency) {
+            _scanner_done_dependency->set_ready_for_read();
+        }
         _blocks_queue_added_cv.notify_one();
     }
     // In pipeline engine, doris will close scanners when `no_schedule`.
@@ -419,7 +443,8 @@ taskgroup::TaskGroup* ScannerContext::get_task_group() const {
     return _state->get_query_ctx()->get_task_group();
 }
 
-template void ScannerContext::clear_and_join(pipeline::ScanLocalState* parent, RuntimeState* state);
+template void ScannerContext::clear_and_join(pipeline::ScanLocalStateBase* parent,
+                                             RuntimeState* state);
 template void ScannerContext::clear_and_join(VScanNode* parent, RuntimeState* state);
 
 } // namespace doris::vectorized

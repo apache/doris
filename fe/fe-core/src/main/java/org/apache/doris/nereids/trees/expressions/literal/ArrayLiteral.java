@@ -19,11 +19,10 @@ package org.apache.doris.nereids.trees.expressions.literal;
 
 import org.apache.doris.analysis.LiteralExpr;
 import org.apache.doris.nereids.exceptions.AnalysisException;
-import org.apache.doris.nereids.trees.expressions.Expression;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.Array;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.ArrayType;
 import org.apache.doris.nereids.types.DataType;
+import org.apache.doris.nereids.types.NullType;
 
 import com.google.common.collect.ImmutableList;
 
@@ -32,11 +31,22 @@ import java.util.stream.Collectors;
 
 /** ArrayLiteral */
 public class ArrayLiteral extends Literal {
+
     private final List<Literal> items;
 
+    /**
+     * construct array literal
+     */
     public ArrayLiteral(List<Literal> items) {
         super(computeDataType(items));
-        this.items = ImmutableList.copyOf(items);
+        this.items = items.stream()
+                .map(i -> {
+                    if (i instanceof NullLiteral) {
+                        DataType type = ((ArrayType) (this.getDataType())).getItemType();
+                        return new NullLiteral(type);
+                    }
+                    return i;
+                }).collect(ImmutableList.toImmutableList());
     }
 
     @Override
@@ -63,9 +73,9 @@ public class ArrayLiteral extends Literal {
     @Override
     public String toString() {
         String items = this.items.stream()
-                .map(item -> item.toString())
+                .map(Literal::toString)
                 .collect(Collectors.joining(", "));
-        return "array(" + items + ")";
+        return "[" + items + "]";
     }
 
     @Override
@@ -73,7 +83,7 @@ public class ArrayLiteral extends Literal {
         String items = this.items.stream()
                 .map(Literal::toSql)
                 .collect(Collectors.joining(", "));
-        return "array(" + items + ")";
+        return "[" + items + "]";
     }
 
     @Override
@@ -85,6 +95,12 @@ public class ArrayLiteral extends Literal {
         if (items.isEmpty()) {
             return ArrayType.SYSTEM_DEFAULT;
         }
-        return new Array(items.toArray(new Expression[0])).getDataType();
+        DataType dataType = NullType.INSTANCE;
+        for (Literal item : items) {
+            if (!item.dataType.isNullType()) {
+                dataType = item.dataType;
+            }
+        }
+        return ArrayType.of(dataType);
     }
 }

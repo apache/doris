@@ -70,7 +70,7 @@ suite("analyze_agg") {
     """
 
     test {
-        sql "select count(distinct t2.id), max(distinct t2.c) from t2"
-        exception "max(DISTINCT c#2) can't support multi distinct."
+        sql "select count(distinct t2.b), variance(distinct t2.c) from t2"
+        exception "variance(DISTINCT c#2) can't support multi distinct."
     }
 }

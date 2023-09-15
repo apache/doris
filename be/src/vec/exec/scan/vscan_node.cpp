@@ -264,6 +264,10 @@ Status VScanNode::get_next(RuntimeState* state, vectorized::Block* block, bool* 
         return Status::OK();
     }
 
+    if (scan_block == nullptr) {
+        LOG(FATAL) << "Scan block nullptr error _context_queue_id:" << _context_queue_id
+                   << " context debug string:" << _scanner_ctx->debug_string();
+    }
     // get scanner's block memory
     block->swap(*scan_block);
     _scanner_ctx->return_free_block(std::move(scan_block));
@@ -806,8 +810,9 @@ Status VScanNode::_normalize_in_and_eq_predicate(VExpr* expr, VExprContext* expr
             } else {
                 if (sizeof(typename PrimitiveTypeTraits<T>::CppType) != value.size) {
                     return Status::InternalError(
-                            "PrimitiveType {} meet invalid input value size {}, expect size {}", T,
-                            value.size, sizeof(typename PrimitiveTypeTraits<T>::CppType));
+                            "PrimitiveType {} meet invalid input value_size={}, expect_size={}, "
+                            "node_id={}",
+                            T, value.size, sizeof(typename PrimitiveTypeTraits<T>::CppType), _id);
                 }
                 RETURN_IF_ERROR(_change_value_range<true>(
                         temp_range, reinterpret_cast<void*>(const_cast<char*>(value.data)),

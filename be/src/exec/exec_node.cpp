@@ -47,6 +47,7 @@
 #include "vec/exec/distinct_vaggregation_node.h"
 #include "vec/exec/join/vhash_join_node.h"
 #include "vec/exec/join/vnested_loop_join_node.h"
+#include "vec/exec/scan/group_commit_scan_node.h"
 #include "vec/exec/scan/new_es_scan_node.h"
 #include "vec/exec/scan/new_file_scan_node.h"
 #include "vec/exec/scan/new_jdbc_scan_node.h"
@@ -324,6 +325,7 @@ Status ExecNode::create_node(RuntimeState* state, ObjectPool* pool, const TPlanN
     case TPlanNodeType::JDBC_SCAN_NODE:
     case TPlanNodeType::META_SCAN_NODE:
     case TPlanNodeType::PARTITION_SORT_NODE:
+    case TPlanNodeType::GROUP_COMMIT_SCAN_NODE:
         break;
     default: {
         const auto& i = _TPlanNodeType_VALUES_TO_NAMES.find(tnode.node_type);
@@ -451,6 +453,11 @@ Status ExecNode::create_node(RuntimeState* state, ObjectPool* pool, const TPlanN
     case TPlanNodeType::PARTITION_SORT_NODE:
         *node = pool->add(new vectorized::VPartitionSortNode(pool, tnode, descs));
         return Status::OK();
+
+    case TPlanNodeType::GROUP_COMMIT_SCAN_NODE:
+        *node = pool->add(new vectorized::GroupCommitScanNode(pool, tnode, descs));
+        return Status::OK();
+
     default:
         std::map<int, const char*>::const_iterator i =
                 _TPlanNodeType_VALUES_TO_NAMES.find(tnode.node_type);

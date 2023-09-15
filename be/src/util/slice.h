@@ -80,6 +80,12 @@ public:
               data(const_cast<char*>(s)),
               size(strlen(s)) {}
 
+    /// default copy/move constructor and assignment
+    Slice(const Slice&) = default;
+    Slice& operator=(const Slice&) = default;
+    Slice(Slice&&) noexcept = default;
+    Slice& operator=(Slice&&) noexcept = default;
+
     /// @return A pointer to the beginning of the referenced data.
     const char* get_data() const { return data; }
 
@@ -159,13 +165,16 @@ public:
     ///
     /// @param [in] n
     ///   Number of bytes of space that should be dropped from the beginning.
-    void trim_quote() {
+    bool trim_quote() {
         int32_t begin = 0;
+        bool change = false;
         if (size > 2 && ((data[begin] == '"' && data[size - 1] == '"') ||
                          (data[begin] == '\'' && data[size - 1] == '\''))) {
             data += 1;
             size -= 2;
+            change = true;
         }
+        return change;
     }
     /// Truncate the slice to the given number of bytes.
     ///

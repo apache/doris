@@ -22,6 +22,7 @@ import org.apache.doris.common.DdlException;
 import org.apache.doris.persist.EditLog;
 import org.apache.doris.scheduler.constants.JobCategory;
 import org.apache.doris.scheduler.executor.JobExecutor;
+import org.apache.doris.scheduler.job.ExecutorResult;
 import org.apache.doris.scheduler.job.Job;
 import org.apache.doris.scheduler.manager.TimerJobManager;
 import org.apache.doris.scheduler.manager.TransientTaskManager;
@@ -60,6 +61,7 @@ public class TimerJobManagerTest {
         TransientTaskManager transientTaskManager = new TransientTaskManager();
         TaskDisruptor taskDisruptor = new TaskDisruptor(this.timerJobManager, transientTaskManager);
         this.timerJobManager.setDisruptor(taskDisruptor);
+        timerJobManager.start();
     }
 
     @Test
@@ -133,6 +135,18 @@ public class TimerJobManagerTest {
     }
 
     @Test
+    public void testCycleSchedulerWithImmediatelyStart(@Mocked Env env) throws DdlException {
+        setContext(env);
+        long startTimestamp = System.currentTimeMillis();
+        job.setImmediatelyStart(true);
+        timerJobManager.registerJob(job);
+        //consider the time of the first execution and give some buffer time
+        Awaitility.await().atMost(16, TimeUnit.SECONDS).until(() -> System.currentTimeMillis()
+                >= startTimestamp + 15000L);
+        Assertions.assertEquals(3, testExecuteCount.get());
+    }
+
+    @Test
     public void testOneTimeJob(@Mocked Env env) throws DdlException {
         setContext(env);
 
@@ -154,9 +168,9 @@ public class TimerJobManagerTest {
 
     class TestExecutor implements JobExecutor<Boolean> {
         @Override
-        public Boolean execute(Job job) {
+        public ExecutorResult execute(Job job) {
             log.info("test execute count:{}", testExecuteCount.incrementAndGet());
-            return true;
+            return new ExecutorResult<>(true, true, null, "");
         }
     }
 }

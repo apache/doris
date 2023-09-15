@@ -18,7 +18,7 @@
 package org.apache.doris.tablefunction;
 
 import org.apache.doris.analysis.BrokerDesc;
-import org.apache.doris.analysis.ExportStmt;
+import org.apache.doris.analysis.StorageBackend;
 import org.apache.doris.analysis.StorageBackend.StorageType;
 import org.apache.doris.catalog.HdfsResource;
 import org.apache.doris.common.AnalysisException;
@@ -56,35 +56,33 @@ public class HdfsTableValuedFunction extends ExternalFileTableValuedFunction {
             .build();
 
     private URI hdfsUri;
-    private String filePath;
 
     public HdfsTableValuedFunction(Map<String, String> params) throws AnalysisException {
         Map<String, String> fileParams = new CaseInsensitiveMap();
         locationProperties = Maps.newHashMap();
         for (String key : params.keySet()) {
-            if (FILE_FORMAT_PROPERTIES.contains(key.toLowerCase())) {
-                fileParams.put(key, params.get(key));
-            } else {
+            String lowerKey = key.toLowerCase();
+            if (FILE_FORMAT_PROPERTIES.contains(lowerKey)) {
+                fileParams.put(lowerKey, params.get(key));
+            } else if (LOCATION_PROPERTIES.contains(lowerKey)) {
+                locationProperties.put(lowerKey, params.get(key));
+            } else if (HdfsResource.HADOOP_FS_NAME.equalsIgnoreCase(key)) {
                 // because HADOOP_FS_NAME contains upper and lower case
-                if (HdfsResource.HADOOP_FS_NAME.equalsIgnoreCase(key)) {
-                    locationProperties.put(HdfsResource.HADOOP_FS_NAME, params.get(key));
-                } else {
-                    locationProperties.put(key, params.get(key));
-                }
+                locationProperties.put(HdfsResource.HADOOP_FS_NAME, params.get(key));
+            } else {
+                throw new AnalysisException(key + " is invalid property");
             }
-        }
-        if (params.containsKey(PATH_PARTITION_KEYS)) {
-            fileParams.put(PATH_PARTITION_KEYS, params.get(PATH_PARTITION_KEYS));
         }
 
         if (!locationProperties.containsKey(HDFS_URI)) {
             throw new AnalysisException(String.format("Configuration '%s' is required.", HDFS_URI));
         }
-        ExportStmt.checkPath(locationProperties.get(HDFS_URI), StorageType.HDFS);
+        StorageBackend.checkPath(locationProperties.get(HDFS_URI), StorageType.HDFS);
         hdfsUri = URI.create(locationProperties.get(HDFS_URI));
         filePath = locationProperties.get(HdfsResource.HADOOP_FS_NAME) + hdfsUri.getPath();
 
-        parseProperties(fileParams);
+        super.parseProperties(fileParams);
+
         parseFile();
     }
 

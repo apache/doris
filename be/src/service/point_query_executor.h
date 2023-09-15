@@ -46,6 +46,7 @@
 #include "olap/tablet.h"
 #include "olap/utils.h"
 #include "runtime/descriptors.h"
+#include "runtime/exec_env.h"
 #include "util/mysql_global.h"
 #include "util/runtime_profile.h"
 #include "util/slice.h"
@@ -161,7 +162,7 @@ public:
     };
 
     // Create global instance of this class
-    static void create_global_cache(int64_t capacity, uint32_t num_shards = kDefaultNumShards);
+    static RowCache* create_global_cache(int64_t capacity, uint32_t num_shards = kDefaultNumShards);
 
     static RowCache* instance();
 
@@ -183,7 +184,6 @@ public:
 private:
     static constexpr uint32_t kDefaultNumShards = 128;
     RowCache(int64_t capacity, int num_shards = kDefaultNumShards);
-    static RowCache* _s_instance;
     std::unique_ptr<Cache> _cache = nullptr;
 };
 
@@ -191,15 +191,17 @@ private:
 // One connection per stmt perf uuid
 class LookupConnectionCache : public LRUCachePolicy {
 public:
-    static LookupConnectionCache* instance() { return _s_instance; }
+    static LookupConnectionCache* instance() {
+        return ExecEnv::GetInstance()->get_lookup_connection_cache();
+    }
 
-    static void create_global_instance(size_t capacity);
+    static LookupConnectionCache* create_global_instance(size_t capacity);
 
 private:
     friend class PointQueryExecutor;
     LookupConnectionCache(size_t capacity)
-            : LRUCachePolicy("LookupConnectionCache", capacity, LRUCacheType::SIZE,
-                             config::tablet_lookup_cache_clean_interval) {}
+            : LRUCachePolicy(CachePolicy::CacheType::LOOKUP_CONNECTION_CACHE, capacity,
+                             LRUCacheType::SIZE, config::tablet_lookup_cache_clean_interval) {}
 
     std::string encode_key(__int128_t cache_id) {
         fmt::memory_buffer buffer;
@@ -240,8 +242,6 @@ private:
     struct CacheValue : public LRUCacheValueBase {
         std::shared_ptr<Reusable> item = nullptr;
     };
-
-    static LookupConnectionCache* _s_instance;
 };
 
 struct Metrics {
@@ -282,7 +282,7 @@ private:
 
     static void release_rowset(RowsetSharedPtr* r) {
         if (r && *r) {
-            VLOG_DEBUG << "release rowset " << (*r)->unique_id();
+            VLOG_DEBUG << "release rowset " << (*r)->rowset_id();
             (*r)->release();
         }
         delete r;

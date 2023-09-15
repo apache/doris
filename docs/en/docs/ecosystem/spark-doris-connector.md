@@ -199,11 +199,31 @@ mockDataDF.write.format("doris")
   .save()
 
 ## stream sink(StructuredStreaming)
+
+### Result DataFrame with structured data, the configuration method is the same as the batch mode.
+val sourceDf = spark.readStream.
+       .format("your_own_stream_source")
+       .load()
+
+val resultDf = sourceDf.<transformations>
+
+resultDf.writeStream
+      .format("doris")
+      .option("checkpointLocation", "$YOUR_CHECKPOINT_LOCATION")
+      .option("doris.table.identifier", "$YOUR_DORIS_DATABASE_NAME.$YOUR_DORIS_TABLE_NAME")
+      .option("doris.fenodes", "$YOUR_DORIS_FE_HOSTNAME:$YOUR_DORIS_FE_RESFUL_PORT")
+      .option("user", "$YOUR_DORIS_USERNAME")
+      .option("password", "$YOUR_DORIS_PASSWORD")
+      .start()
+      .awaitTermination()
+
+### There is a column value in the Result DataFrame that can be written directly, such as the value in the kafka message that conforms to the import format
+
 val kafkaSource = spark.readStream
+  .format("kafka")
   .option("kafka.bootstrap.servers", "$YOUR_KAFKA_SERVERS")
   .option("startingOffsets", "latest")
   .option("subscribe", "$YOUR_KAFKA_TOPICS")
-  .format("kafka")
   .load()
 kafkaSource.selectExpr("CAST(key AS STRING)", "CAST(value as STRING)")
   .writeStream
@@ -213,9 +233,10 @@ kafkaSource.selectExpr("CAST(key AS STRING)", "CAST(value as STRING)")
   .option("doris.fenodes", "$YOUR_DORIS_FE_HOSTNAME:$YOUR_DORIS_FE_RESFUL_PORT")
   .option("user", "$YOUR_DORIS_USERNAME")
   .option("password", "$YOUR_DORIS_PASSWORD")
+  // Set this option to true, and the value column in the Kafka message will be written directly without processing.
+  .option("doris.sink.streaming.passthrough", "true")
+  .option("doris.sink.properties.format", "json")
   //other options
-  //specify the fields to write
-  .option("doris.write.fields", "$YOUR_FIELDS_TO_WRITE")
   .start()
   .awaitTermination()
 ```
@@ -241,7 +262,7 @@ kafkaSource.selectExpr("CAST(key AS STRING)", "CAST(value as STRING)")
 | doris.write.fields               | --                | Specifies the fields (or the order of the fields) to write to the Doris table, fileds separated by commas.<br/>By default, all fields are written in the order of Doris table fields.                                                                                                                                                                                                                                                                                           |
 | sink.batch.size                  | 10000             | Maximum number of lines in a single write BE                                                                                                                                                                                                                                                                                                                                                                                                                                    |
 | sink.max-retries                 | 1                 | Number of retries after writing BE failed                                                                                                                                                                                                                                                                                                                                                                                                                                       |
-| sink.properties.*                | --                | The stream load parameters.<br /> <br /> eg:<br /> sink.properties.column_separator' = ','<br /> <br />                                                                                                                                                                                                                                                                                                                                                                         |
+| sink.properties.*                | --                | Import parameters for Stream Load. <br/>For example:<br/>Specify column separator: `'sink.properties.column_separator' = ','`, specify write data format: `'sink.properties.format' = 'json'` [More Multi-parameter details](https://doris.apache.org/zh-CN/docs/dev/data-operate/import/import-way/stream-load-manual#%E5%88%9B%E5%BB% BA%E5%AF%BC%E5%85%A5)                                                                                                                   |
 | doris.sink.task.partition.size   | --                | The number of partitions corresponding to the Writing task. After filtering and other operations, the number of partitions written in Spark RDD may be large, but the number of records corresponding to each Partition is relatively small, resulting in increased writing frequency and waste of computing resources. The smaller this value is set, the less Doris write frequency and less Doris merge pressure. It is generally used with doris.sink.task.use.repartition. |
 | doris.sink.task.use.repartition  | false             | Whether to use repartition mode to control the number of partitions written by Doris. The default value is false, and coalesce is used (note: if there is no Spark action before the write, the whole computation will be less parallel). If it is set to true, then repartition is used (note: you can set the final number of partitions at the cost of shuffle).                                                                                                             |
 | doris.sink.batch.interval.ms     | 50                | The interval time of each batch sink, unit ms.                                                                                                                                                                                                                                                                                                                                                                                                                                  |
@@ -283,6 +304,12 @@ kafkaSource.selectExpr("CAST(key AS STRING)", "CAST(value as STRING)")
 > );
 > ```
 
+### Structured Streaming Configuration
+
+| Key                              | Default Value | Comment                                                          |
+| -------------------------------- | ------------- | ---------------------------------------------------------------- |
+| doris.sink.streaming.passthrough | false         | Write the value of the first column directly without processing. |
+
 ### RDD Configuration
 
 | Key                         | Default Value | Comment                                                                                                                                         |
@@ -303,15 +330,14 @@ kafkaSource.selectExpr("CAST(key AS STRING)", "CAST(value as STRING)")
 | BIGINT     | DataTypes.LongType               |
 | FLOAT      | DataTypes.FloatType              |
 | DOUBLE     | DataTypes.DoubleType             |
-| DATE       | DataTypes.StringType<sup>1</sup> |
+| DATE       | DataTypes.DateType               |
 | DATETIME   | DataTypes.StringType<sup>1</sup> |
 | DECIMAL    | DecimalType                      |
 | CHAR       | DataTypes.StringType             |
-| LARGEINT   | DataTypes.StringType             |
+| LARGEINT   | DecimalType                      |
 | VARCHAR    | DataTypes.StringType             |
-| DECIMAL    | DecimalType                      |
 | TIME       | DataTypes.DoubleType             |
 | HLL        | Unsupported datatype             |
 | Bitmap     | Unsupported datatype             |
 
-* Note: In Connector, `DATE` and` DATETIME` are mapped to `String`. Due to the processing logic of the Doris underlying storage engine, when the time type is used directly, the time range covered cannot meet the demand. So use `String` type to directly return the corresponding time readable text.
+* Note: In Connector, ` DATETIME` is mapped to `String`. Due to the processing logic of the Doris underlying storage engine, when the time type is used directly, the time range covered cannot meet the demand. So use `String` type to directly return the corresponding time readable text.

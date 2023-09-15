@@ -88,7 +88,7 @@ NewOlapScanner::NewOlapScanner(RuntimeState* state, NewOlapScanNode* parent, int
     _is_init = false;
 }
 
-NewOlapScanner::NewOlapScanner(RuntimeState* state, pipeline::ScanLocalState* local_state,
+NewOlapScanner::NewOlapScanner(RuntimeState* state, pipeline::ScanLocalStateBase* local_state,
                                int64_t limit, bool aggregation, const TPaloScanRange& scan_range,
                                const std::vector<OlapScanRange*>& key_ranges,
                                RuntimeProfile* profile)
@@ -101,7 +101,7 @@ NewOlapScanner::NewOlapScanner(RuntimeState* state, pipeline::ScanLocalState* lo
     _is_init = false;
 }
 
-NewOlapScanner::NewOlapScanner(RuntimeState* state, pipeline::ScanLocalState* local_state,
+NewOlapScanner::NewOlapScanner(RuntimeState* state, pipeline::ScanLocalStateBase* local_state,
                                int64_t limit, bool aggregation, const TPaloScanRange& scan_range,
                                const std::vector<OlapScanRange*>& key_ranges,
                                const std::vector<RowSetSplits>& rs_splits, RuntimeProfile* profile)
@@ -291,10 +291,11 @@ Status NewOlapScanner::_init_tablet_reader_params(
         _tablet_reader_params.direct_mode = true;
         _aggregation = true;
     } else {
-        _tablet_reader_params.direct_mode =
-                _aggregation || single_version ||
-                (_parent ? _parent->get_push_down_agg_type()
-                         : _local_state->get_push_down_agg_type()) != TPushAggOp::NONE;
+        auto push_down_agg_type = _parent ? _parent->get_push_down_agg_type()
+                                          : _local_state->get_push_down_agg_type();
+        _tablet_reader_params.direct_mode = _aggregation || single_version ||
+                                            (push_down_agg_type != TPushAggOp::NONE &&
+                                             push_down_agg_type != TPushAggOp::COUNT_ON_INDEX);
     }
 
     RETURN_IF_ERROR(_init_return_columns());
@@ -411,9 +412,7 @@ Status NewOlapScanner::_init_tablet_reader_params(
         }
     }
 
-    if (!config::disable_storage_page_cache) {
-        _tablet_reader_params.use_page_cache = true;
-    }
+    _tablet_reader_params.use_page_cache = _state->enable_page_cache();
 
     if (_tablet->enable_unique_key_merge_on_write() && !_state->skip_delete_bitmap()) {
         _tablet_reader_params.delete_bitmap = &_tablet->tablet_meta()->delete_bitmap();
@@ -472,10 +471,9 @@ Status NewOlapScanner::_init_return_columns() {
                                 : _tablet_schema->field_index(slot->col_name());
 
         if (index < 0) {
-            std::stringstream ss;
-            ss << "field name is invalid. field=" << slot->col_name()
-               << ", field_name_to_index=" << _tablet_schema->get_all_field_names();
-            return Status::InternalError(ss.str());
+            return Status::InternalError(
+                    "field name is invalid. field={}, field_name_to_index={}, col_unique_id={}",
+                    slot->col_name(), _tablet_schema->get_all_field_names(), slot->col_unique_id());
         }
         _return_columns.push_back(index);
         if (slot->is_nullable() && !_tablet_schema->column(index).is_nullable()) {

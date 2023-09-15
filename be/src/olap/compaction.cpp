@@ -385,6 +385,7 @@ Status Compaction::do_compaction_impl(int64_t permits) {
                 });
         // now version in delete_predicate is deprecated
         if (!delete_predicate.in_predicates().empty() ||
+            !delete_predicate.sub_predicates_v2().empty() ||
             !delete_predicate.sub_predicates().empty()) {
             _output_rowset->rowset_meta()->set_delete_predicate(std::move(delete_predicate));
         }
@@ -434,7 +435,7 @@ Status Compaction::do_compaction_impl(int64_t permits) {
 
         // create index_writer to compaction indexes
         auto& fs = _output_rowset->rowset_meta()->fs();
-        auto tablet_path = _output_rowset->tablet_path();
+        auto& tablet_path = _tablet->tablet_path();
 
         DCHECK(dest_index_files.size() > 0);
         // we choose the first destination segment name as the temporary index writer path
@@ -668,8 +669,7 @@ Status Compaction::modify_rowsets(const Merger::Statistics* stats) {
                     it.rowset_ids.insert(_output_rowset->rowset_id());
                     StorageEngine::instance()->txn_manager()->set_txn_related_delete_bitmap(
                             it.partition_id, it.transaction_id, _tablet->tablet_id(),
-                            _tablet->schema_hash(), _tablet->tablet_uid(), true, it.delete_bitmap,
-                            it.rowset_ids);
+                            _tablet->tablet_uid(), true, it.delete_bitmap, it.rowset_ids);
                 }
             }
 
@@ -697,6 +697,12 @@ Status Compaction::modify_rowsets(const Merger::Statistics* stats) {
     } else {
         std::lock_guard<std::shared_mutex> wrlock(_tablet->get_header_lock());
         RETURN_IF_ERROR(_tablet->modify_rowsets(output_rowsets, _input_rowsets, true));
+    }
+
+    if (config::tablet_rowset_stale_sweep_by_size &&
+        _tablet->tablet_meta()->all_stale_rs_metas().size() >=
+                config::tablet_rowset_stale_sweep_threshold_size) {
+        _tablet->delete_expired_stale_rowset();
     }
 
     int64_t cur_max_version = 0;

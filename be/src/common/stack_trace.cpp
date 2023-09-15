@@ -299,7 +299,7 @@ StackTrace::StackTrace(const ucontext_t& signal_context) {
 void StackTrace::tryCapture() {
     // When unw_backtrace is not available, fall back on the standard
     // `backtrace` function from execinfo.h.
-#if USE_UNWIND
+#if USE_UNWIND && defined(__x86_64__) // TODO
     size = unw_backtrace(frame_pointers.data(), capacity);
 #else
     size = backtrace(frame_pointers.data(), capacity);
@@ -472,6 +472,11 @@ std::string StackTrace::toString(void** frame_pointers_raw, size_t offset, size_
     std::copy_n(frame_pointers_raw, size, frame_pointers.begin());
 
     return toStringCached(frame_pointers, offset, size);
+}
+
+void StackTrace::createCache() {
+    std::lock_guard lock {stacktrace_cache_mutex};
+    cacheInstance();
 }
 
 void StackTrace::dropCache() {

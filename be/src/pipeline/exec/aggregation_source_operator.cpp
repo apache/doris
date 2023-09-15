@@ -20,6 +20,7 @@
 #include <string>
 
 #include "pipeline/exec/operator.h"
+#include "pipeline/exec/streaming_aggregation_source_operator.h"
 #include "vec//utils/util.hpp"
 
 namespace doris {
@@ -28,7 +29,7 @@ namespace pipeline {
 OPERATOR_CODE_GENERATOR(AggSourceOperator, SourceOperator)
 
 AggLocalState::AggLocalState(RuntimeState* state, OperatorXBase* parent)
-        : PipelineXLocalState(state, parent),
+        : Base(state, parent),
           _get_results_timer(nullptr),
           _serialize_result_timer(nullptr),
           _hash_table_iterate_timer(nullptr),
@@ -37,17 +38,16 @@ AggLocalState::AggLocalState(RuntimeState* state, OperatorXBase* parent)
           _hash_table_size_counter(nullptr) {}
 
 Status AggLocalState::init(RuntimeState* state, LocalStateInfo& info) {
-    RETURN_IF_ERROR(PipelineXLocalState::init(state, info));
-    _dependency = (AggDependency*)info.dependency;
-    _shared_state = (AggSharedState*)_dependency->shared_state();
+    RETURN_IF_ERROR(Base::init(state, info));
+    SCOPED_TIMER(Base::profile()->total_time_counter());
     _agg_data = _shared_state->agg_data.get();
-    _get_results_timer = ADD_TIMER(profile(), "GetResultsTime");
-    _serialize_result_timer = ADD_TIMER(profile(), "SerializeResultTime");
-    _hash_table_iterate_timer = ADD_TIMER(profile(), "HashTableIterateTime");
-    _insert_keys_to_column_timer = ADD_TIMER(profile(), "InsertKeysToColumnTime");
-    _serialize_data_timer = ADD_TIMER(profile(), "SerializeDataTime");
-    _hash_table_size_counter = ADD_COUNTER(profile(), "HashTableSize", TUnit::UNIT);
-    auto& p = _parent->cast<AggSourceOperatorX>();
+    _get_results_timer = ADD_TIMER(Base::profile(), "GetResultsTime");
+    _serialize_result_timer = ADD_TIMER(Base::profile(), "SerializeResultTime");
+    _hash_table_iterate_timer = ADD_TIMER(Base::profile(), "HashTableIterateTime");
+    _insert_keys_to_column_timer = ADD_TIMER(Base::profile(), "InsertKeysToColumnTime");
+    _serialize_data_timer = ADD_TIMER(Base::profile(), "SerializeDataTime");
+    _hash_table_size_counter = ADD_COUNTER(Base::profile(), "HashTableSize", TUnit::UNIT);
+    auto& p = _parent->template cast<AggSourceOperatorX>();
     if (p._without_key) {
         if (p._needs_finalize) {
             _executor.get_result = std::bind<Status>(&AggLocalState::_get_without_key_result, this,
@@ -83,16 +83,16 @@ void AggLocalState::_close_with_serialized_key() {
                 auto& data = agg_method.data;
                 data.for_each_mapped([&](auto& mapped) {
                     if (mapped) {
-                        _dependency->destroy_agg_status(mapped);
+                        Base::_dependency->destroy_agg_status(mapped);
                         mapped = nullptr;
                     }
                 });
                 if (data.has_null_key_data()) {
-                    _dependency->destroy_agg_status(data.get_null_key_data());
+                    Base::_dependency->destroy_agg_status(data.get_null_key_data());
                 }
             },
             _agg_data->method_variant);
-    _dependency->release_tracker();
+    Base::_dependency->release_tracker();
 }
 
 void AggLocalState::_close_without_key() {
@@ -100,10 +100,10 @@ void AggLocalState::_close_without_key() {
     //but finally call close to destory agg data, if agg data has bitmapValue
     //will be core dump, it's not initialized
     if (_agg_data_created_without_key) {
-        _dependency->destroy_agg_status(_agg_data->without_key);
+        Base::_dependency->destroy_agg_status(_agg_data->without_key);
         _agg_data_created_without_key = false;
     }
-    _dependency->release_tracker();
+    Base::_dependency->release_tracker();
 }
 
 Status AggLocalState::_serialize_with_serialized_key_result(RuntimeState* state,
@@ -128,8 +128,8 @@ Status AggLocalState::_serialize_with_serialized_key_result_with_spilt_data(
             _shared_state->spill_partition_helper->partition_count) {
             break;
         }
-        RETURN_IF_ERROR(_dependency->reset_hash_table());
-        RETURN_IF_ERROR(_dependency->merge_spilt_data());
+        RETURN_IF_ERROR(Base::_dependency->reset_hash_table());
+        RETURN_IF_ERROR(Base::_dependency->merge_spilt_data());
         _shared_state->aggregate_data_container->init_once();
     }
 
@@ -143,6 +143,7 @@ Status AggLocalState::_serialize_with_serialized_key_result_with_spilt_data(
     CHECK(!block->empty() || source_state == SourceState::FINISHED);
     return Status::OK();
 }
+
 Status AggLocalState::_serialize_with_serialized_key_result_non_spill(RuntimeState* state,
                                                                       vectorized::Block* block,
                                                                       SourceState& source_state) {
@@ -153,7 +154,7 @@ Status AggLocalState::_serialize_with_serialized_key_result_non_spill(RuntimeSta
     vectorized::DataTypes value_data_types(agg_size);
 
     // non-nullable column(id in `_make_nullable_keys`) will be converted to nullable.
-    bool mem_reuse = _dependency->make_nullable_keys().empty() && block->mem_reuse();
+    bool mem_reuse = Base::_dependency->make_nullable_keys().empty() && block->mem_reuse();
 
     vectorized::MutableColumns key_columns;
     for (int i = 0; i < key_size; ++i) {
@@ -185,7 +186,7 @@ Status AggLocalState::_serialize_with_serialized_key_result_non_spill(RuntimeSta
                     SCOPED_TIMER(_hash_table_iterate_timer);
                     while (iter != _shared_state->aggregate_data_container->end() &&
                            num_rows < state->batch_size()) {
-                        keys[num_rows] = iter.get_key<KeyType>();
+                        keys[num_rows] = iter.template get_key<KeyType>();
                         _shared_state->values[num_rows] = iter.get_aggregate_data();
                         ++iter;
                         ++num_rows;
@@ -232,8 +233,8 @@ Status AggLocalState::_serialize_with_serialized_key_result_non_spill(RuntimeSta
                         }
                         _shared_state->aggregate_evaluators[i]->function()->serialize_to_column(
                                 _shared_state->values,
-                                _dependency->offsets_of_aggregate_states()[i], value_columns[i],
-                                num_rows);
+                                Base::_dependency->offsets_of_aggregate_states()[i],
+                                value_columns[i], num_rows);
                     }
                 }
             },
@@ -277,8 +278,8 @@ Status AggLocalState::_get_result_with_spilt_data(RuntimeState* state, vectorize
             _shared_state->spill_partition_helper->partition_count) {
             break;
         }
-        RETURN_IF_ERROR(_dependency->reset_hash_table());
-        RETURN_IF_ERROR(_dependency->merge_spilt_data());
+        RETURN_IF_ERROR(Base::_dependency->reset_hash_table());
+        RETURN_IF_ERROR(Base::_dependency->merge_spilt_data());
         _shared_state->aggregate_data_container->init_once();
     }
 
@@ -297,7 +298,7 @@ Status AggLocalState::_get_result_with_serialized_key_non_spill(RuntimeState* st
                                                                 vectorized::Block* block,
                                                                 SourceState& source_state) {
     // non-nullable column(id in `_make_nullable_keys`) will be converted to nullable.
-    bool mem_reuse = _dependency->make_nullable_keys().empty() && block->mem_reuse();
+    bool mem_reuse = Base::_dependency->make_nullable_keys().empty() && block->mem_reuse();
 
     auto columns_with_schema = vectorized::VectorizedUtils::create_columns_with_type_and_name(
             _parent->cast<AggSourceOperatorX>()._row_descriptor);
@@ -340,7 +341,7 @@ Status AggLocalState::_get_result_with_serialized_key_non_spill(RuntimeState* st
                     SCOPED_TIMER(_hash_table_iterate_timer);
                     while (iter != _shared_state->aggregate_data_container->end() &&
                            num_rows < state->batch_size()) {
-                        keys[num_rows] = iter.get_key<KeyType>();
+                        keys[num_rows] = iter.template get_key<KeyType>();
                         _shared_state->values[num_rows] = iter.get_aggregate_data();
                         ++iter;
                         ++num_rows;
@@ -355,7 +356,8 @@ Status AggLocalState::_get_result_with_serialized_key_non_spill(RuntimeState* st
 
                 for (size_t i = 0; i < _shared_state->aggregate_evaluators.size(); ++i) {
                     _shared_state->aggregate_evaluators[i]->insert_result_info_vec(
-                            _shared_state->values, _dependency->offsets_of_aggregate_states()[i],
+                            _shared_state->values,
+                            Base::_dependency->offsets_of_aggregate_states()[i],
                             value_columns[i].get(), num_rows);
                 }
 
@@ -370,7 +372,8 @@ Status AggLocalState::_get_result_with_serialized_key_non_spill(RuntimeState* st
                             auto mapped = agg_method.data.get_null_key_data();
                             for (size_t i = 0; i < _shared_state->aggregate_evaluators.size(); ++i)
                                 _shared_state->aggregate_evaluators[i]->insert_result_info(
-                                        mapped + _dependency->offsets_of_aggregate_states()[i],
+                                        mapped +
+                                                Base::_dependency->offsets_of_aggregate_states()[i],
                                         value_columns[i].get());
                             source_state = SourceState::FINISHED;
                         }
@@ -423,7 +426,7 @@ Status AggLocalState::_serialize_without_key(RuntimeState* state, vectorized::Bl
 
     for (int i = 0; i < _shared_state->aggregate_evaluators.size(); ++i) {
         _shared_state->aggregate_evaluators[i]->function()->serialize_without_key_to_column(
-                _agg_data->without_key + _dependency->offsets_of_aggregate_states()[i],
+                _agg_data->without_key + Base::_dependency->offsets_of_aggregate_states()[i],
                 *value_columns[i]);
     }
 
@@ -460,7 +463,8 @@ Status AggLocalState::_get_without_key_result(RuntimeState* state, vectorized::B
     for (int i = 0; i < _shared_state->aggregate_evaluators.size(); ++i) {
         auto column = columns[i].get();
         _shared_state->aggregate_evaluators[i]->insert_result_info(
-                _agg_data->without_key + _dependency->offsets_of_aggregate_states()[i], column);
+                _agg_data->without_key + Base::_dependency->offsets_of_aggregate_states()[i],
+                column);
     }
 
     const auto& block_schema = block->get_columns_with_type_and_name();
@@ -493,27 +497,26 @@ Status AggLocalState::_get_without_key_result(RuntimeState* state, vectorized::B
 }
 
 AggSourceOperatorX::AggSourceOperatorX(ObjectPool* pool, const TPlanNode& tnode,
-                                       const DescriptorTbl& descs, std::string op_name)
-        : OperatorXBase(pool, tnode, descs, op_name),
+                                       const DescriptorTbl& descs)
+        : Base(pool, tnode, descs),
           _needs_finalize(tnode.agg_node.need_finalize),
           _without_key(tnode.agg_node.grouping_exprs.empty()) {}
 
 Status AggSourceOperatorX::get_block(RuntimeState* state, vectorized::Block* block,
                                      SourceState& source_state) {
     auto& local_state = state->get_local_state(id())->cast<AggLocalState>();
+    SCOPED_TIMER(local_state.profile()->total_time_counter());
     RETURN_IF_ERROR(local_state._executor.get_result(state, block, source_state));
     local_state.make_nullable_output_key(block);
     // dispose the having clause, should not be execute in prestreaming agg
     RETURN_IF_ERROR(vectorized::VExprContext::filter_block(_conjuncts, block, block->columns()));
-    bool eos = false;
-    local_state.reached_limit(block, &eos);
-    source_state = eos ? SourceState::FINISHED : source_state;
+    local_state.reached_limit(block, source_state);
     return Status::OK();
 }
 
 void AggLocalState::make_nullable_output_key(vectorized::Block* block) {
     if (block->rows() != 0) {
-        for (auto cid : _dependency->make_nullable_keys()) {
+        for (auto cid : Base::_dependency->make_nullable_keys()) {
             block->get_by_position(cid).column = make_nullable(block->get_by_position(cid).column);
             block->get_by_position(cid).type = make_nullable(block->get_by_position(cid).type);
         }
@@ -521,7 +524,8 @@ void AggLocalState::make_nullable_output_key(vectorized::Block* block) {
 }
 
 Status AggLocalState::close(RuntimeState* state) {
-    if (_closed) {
+    SCOPED_TIMER(Base::profile()->total_time_counter());
+    if (Base::_closed) {
         return Status::OK();
     }
     for (auto* aggregate_evaluator : _shared_state->aggregate_evaluators) {
@@ -547,17 +551,11 @@ Status AggLocalState::close(RuntimeState* state) {
 
     std::vector<vectorized::AggregateDataPtr> tmp_values;
     _shared_state->values.swap(tmp_values);
-    return PipelineXLocalState::close(state);
+    return Base::close(state);
 }
 
-Status AggSourceOperatorX::setup_local_state(RuntimeState* state, LocalStateInfo& info) {
-    auto local_state = AggLocalState::create_shared(state, this);
-    state->emplace_local_state(id(), local_state);
-    return local_state->init(state, info);
-}
-
-bool AggSourceOperatorX::can_read(RuntimeState* state) {
-    return state->get_local_state(id())->cast<AggLocalState>()._dependency->done();
+Dependency* AggSourceOperatorX::wait_for_dependency(RuntimeState* state) {
+    return state->get_local_state(Base::id())->cast<AggLocalState>()._dependency->read_blocked_by();
 }
 
 } // namespace pipeline

@@ -27,13 +27,13 @@
 namespace doris {
 namespace vectorized {
 
-void DataTypeDateV2SerDe::serialize_column_to_text(const IColumn& column, int start_idx,
+void DataTypeDateV2SerDe::serialize_column_to_json(const IColumn& column, int start_idx,
                                                    int end_idx, BufferWritable& bw,
                                                    FormatOptions& options) const {
-    SERIALIZE_COLUMN_TO_TEXT()
+    SERIALIZE_COLUMN_TO_JSON()
 }
 
-void DataTypeDateV2SerDe::serialize_one_cell_to_text(const IColumn& column, int row_num,
+void DataTypeDateV2SerDe::serialize_one_cell_to_json(const IColumn& column, int row_num,
                                                      BufferWritable& bw,
                                                      FormatOptions& options) const {
     auto result = check_column_const_set_readability(column, row_num);
@@ -49,14 +49,14 @@ void DataTypeDateV2SerDe::serialize_one_cell_to_text(const IColumn& column, int 
     bw.write(buf, pos - buf - 1);
 }
 
-Status DataTypeDateV2SerDe::deserialize_column_from_text_vector(
+Status DataTypeDateV2SerDe::deserialize_column_from_json_vector(
         IColumn& column, std::vector<Slice>& slices, int* num_deserialized,
         const FormatOptions& options) const {
-    DESERIALIZE_COLUMN_FROM_TEXT_VECTOR()
+    DESERIALIZE_COLUMN_FROM_JSON_VECTOR()
     return Status::OK();
 }
 
-Status DataTypeDateV2SerDe::deserialize_one_cell_from_text(IColumn& column, Slice& slice,
+Status DataTypeDateV2SerDe::deserialize_one_cell_from_json(IColumn& column, Slice& slice,
                                                            const FormatOptions& options) const {
     auto& column_data = assert_cast<ColumnUInt32&>(column);
     UInt32 val = 0;
