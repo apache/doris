@@ -351,7 +351,7 @@ void ExchangeSinkBuffer<Parent>::get_max_min_rpc_time(int64_t* max_time, int64_t
         }
     }
     *max_time = local_max_time;
-    *min_time = local_min_time;
+    *min_time = local_min_time == INT64_MAX ? 0 : local_min_time;
 }
 
 template <typename Parent>
