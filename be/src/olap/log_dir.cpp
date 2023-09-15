@@ -53,7 +53,7 @@ void LogDir::health_check() {
     Status res = _read_and_write_test_file();
     if (!res) {
         LOG(WARNING) << "log read/write test file occur IO Error. path=" << _path
-                      << ", err: " << res;
+                     << ", err: " << res;
         _is_used = !res.is<IO_ERROR>();
     }
 }

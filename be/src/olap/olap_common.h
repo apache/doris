@@ -64,8 +64,8 @@ struct DataDirInfo {
 
 struct LogDirInfo {
     std::string path;
-    int64_t capacity = 1; // actual disk capacity
-    int64_t available = 0;     // available space, in bytes unit
+    int64_t capacity = 1;  // actual disk capacity
+    int64_t available = 0; // available space, in bytes unit
     bool is_used = false;
 };
 

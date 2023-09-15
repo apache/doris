@@ -18,7 +18,6 @@
 package org.apache.doris.common.proc;
 
 import org.apache.doris.catalog.DiskInfo;
-import org.apache.doris.catalog.DiskInfo.DiskState;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Pair;
@@ -226,28 +225,26 @@ public class BackendsProcDir implements ProcDirInterface {
 
             ImmutableMap<String, DiskInfo> disksRef = backend.getDisks();
             for (DiskInfo disk : disksRef.values()) {
-                if (disk.getState() == DiskState.ONLINE) {
-                    List<Comparable> backendsDiskInfo = Lists.newArrayList();
-                    backendsDiskInfo.add(String.valueOf(backendId));
-                    backendsDiskInfo.add(backend.getHost());
-                    // add disk info to backendsDiskInfo
-                    backendsDiskInfo.add(disk.getRootPath());
-                    backendsDiskInfo.add(disk.getState());
-                    long totalCapacityB = disk.getTotalCapacityB();
-                    Pair<Double, String> totalCapacity = DebugUtil.getByteUint(totalCapacityB);
-                    backendsDiskInfo.add(DebugUtil.DECIMAL_FORMAT_SCALE_3.format(
-                            totalCapacity.first) + " " + totalCapacity.second);
-                    long diskUsedCapacityB = disk.getDiskUsedCapacityB();
-                    Pair<Double, String> diskUsedCapacity = DebugUtil.getByteUint(diskUsedCapacityB);
-                    backendsDiskInfo.add(DebugUtil.DECIMAL_FORMAT_SCALE_3.format(
-                            diskUsedCapacity.first) + " " + diskUsedCapacity.second);
-                    long availableCapacityB = disk.getAvailableCapacityB();
-                    Pair<Double, String> availableCapacity = DebugUtil.getByteUint(availableCapacityB);
-                    backendsDiskInfo.add(DebugUtil.DECIMAL_FORMAT_SCALE_3.format(
-                            availableCapacity.first) + " " + availableCapacity.second);
-                    backendsDiskInfo.add(String.format("%.2f", disk.getUsedPct() * 100) + " %");
-                    comparableBackendsDiskInfos.add(backendsDiskInfo);
-                }
+                List<Comparable> backendsDiskInfo = Lists.newArrayList();
+                backendsDiskInfo.add(String.valueOf(backendId));
+                backendsDiskInfo.add(backend.getHost());
+                // add disk info to backendsDiskInfo
+                backendsDiskInfo.add(disk.getRootPath());
+                backendsDiskInfo.add(disk.getState());
+                long totalCapacityB = disk.getTotalCapacityB();
+                Pair<Double, String> totalCapacity = DebugUtil.getByteUint(totalCapacityB);
+                backendsDiskInfo.add(DebugUtil.DECIMAL_FORMAT_SCALE_3.format(
+                        totalCapacity.first) + " " + totalCapacity.second);
+                long diskUsedCapacityB = disk.getDiskUsedCapacityB();
+                Pair<Double, String> diskUsedCapacity = DebugUtil.getByteUint(diskUsedCapacityB);
+                backendsDiskInfo.add(DebugUtil.DECIMAL_FORMAT_SCALE_3.format(
+                        diskUsedCapacity.first) + " " + diskUsedCapacity.second);
+                long availableCapacityB = disk.getAvailableCapacityB();
+                Pair<Double, String> availableCapacity = DebugUtil.getByteUint(availableCapacityB);
+                backendsDiskInfo.add(DebugUtil.DECIMAL_FORMAT_SCALE_3.format(
+                        availableCapacity.first) + " " + availableCapacity.second);
+                backendsDiskInfo.add(String.format("%.2f", disk.getUsedPct() * 100) + " %");
+                comparableBackendsDiskInfos.add(backendsDiskInfo);
             }
         }
 

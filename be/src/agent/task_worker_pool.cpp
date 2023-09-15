@@ -684,7 +684,7 @@ void TaskWorkerPool::_report_disk_state_worker_thread_callback() {
         LogDirInfo log_dir_info;
         StorageEngine::instance()->get_log_dir_info(&log_dir_info);
         LOG(INFO) << "path: " << log_dir_info.path << " total capacity: " << log_dir_info.capacity
-              << ", available capacity: " << log_dir_info.available;
+                  << ", available capacity: " << log_dir_info.available;
 
         TDisk disk;
         disk.__set_root_path(log_dir_info.path);
