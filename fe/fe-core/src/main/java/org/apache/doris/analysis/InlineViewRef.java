@@ -241,8 +241,10 @@ public class InlineViewRef extends TableRef {
             }
             slotDesc.setIsNullable(slotDesc.getIsNullable() || colExpr.isNullable());
             SlotRef slotRef = new SlotRef(slotDesc);
-            sMap.put(slotRef, colExpr);
-            baseTblSmap.put(slotRef, queryStmt.getBaseTblResultExprs().get(i));
+            if (slotDesc.getSourceExprs().size() == 1) {
+                sMap.put(slotRef, colExpr);
+                baseTblSmap.put(slotRef, queryStmt.getBaseTblResultExprs().get(i));
+            }
             // to solve select * from (values(1, 2, 3), (4, 5, 6)) a returns only one row.
             /*
             if (!(queryStmt instanceof SelectStmt
