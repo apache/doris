@@ -404,10 +404,7 @@ Status AnalyticSourceOperatorX::get_block(RuntimeState* state, vectorized::Block
             local_state._shared_state->found_partition_end =
                     local_state._dependency->get_partition_by_end();
         }
-        local_state._shared_state->need_more_input =
-                local_state._dependency->whether_need_next_partition(
-                        local_state._shared_state->found_partition_end);
-        if (local_state._shared_state->need_more_input) {
+        if (local_state._dependency->refresh_need_more_input()) {
             return Status::OK();
         }
         local_state._next_partition =
@@ -427,12 +424,9 @@ Status AnalyticSourceOperatorX::get_block(RuntimeState* state, vectorized::Block
     return Status::OK();
 }
 
-bool AnalyticSourceOperatorX::can_read(RuntimeState* state) {
+Dependency* AnalyticSourceOperatorX::wait_for_dependency(RuntimeState* state) {
     auto& local_state = state->get_local_state(id())->cast<AnalyticLocalState>();
-    if (local_state._shared_state->need_more_input) {
-        return false;
-    }
-    return true;
+    return local_state._dependency->read_blocked_by();
 }
 
 Status AnalyticLocalState::close(RuntimeState* state) {

@@ -901,6 +901,8 @@ visible_functions = {
         [['date_ceil'], 'DATETIMEV2', ['DATETIMEV2', 'INT'], 'ALWAYS_NULLABLE'],
         [['date_trunc'], 'DATETIMEV2', ['DATETIMEV2', 'VARCHAR'], 'ALWAYS_NULLABLE'],
         [['date_trunc'], 'DATETIME', ['DATETIME', 'VARCHAR'], 'ALWAYS_NULLABLE'],
+        [['date_trunc'], 'DATEV2', ['DATEV2', 'VARCHAR'], 'ALWAYS_NULLABLE'],
+        [['date_trunc'], 'DATE', ['DATE', 'VARCHAR'], 'ALWAYS_NULLABLE'],
 
         [['year'], 'SMALLINT', ['DATETIME'], 'ALWAYS_NULLABLE'],
         [['month'], 'TINYINT', ['DATETIME'], 'ALWAYS_NULLABLE'],
@@ -1414,6 +1416,7 @@ visible_functions = {
         [['if'], 'DECIMAL128', ['BOOLEAN', 'DECIMAL128', 'DECIMAL128'], 'CUSTOM'],
         [['if'], 'BITMAP', ['BOOLEAN', 'BITMAP', 'BITMAP'], 'CUSTOM'],
         [['if'], 'HLL', ['BOOLEAN', 'HLL', 'HLL'], 'CUSTOM'],
+        [['if'], 'JSONB', ['BOOLEAN', 'JSONB', 'JSONB'], 'CUSTOM'],
         # The priority of varchar should be lower than decimal in IS_SUPERTYPE_OF mode.
         [['if'], 'VARCHAR', ['BOOLEAN', 'VARCHAR', 'VARCHAR'], 'CUSTOM'],
         [['if'], 'STRING', ['BOOLEAN', 'STRING', 'STRING'], 'CUSTOM'],

@@ -47,16 +47,14 @@ Status SortSourceOperatorX::get_block(RuntimeState* state, vectorized::Block* bl
             local_state._shared_state->sorter->get_next(state, block, &eos));
     local_state.reached_limit(block, &eos);
     if (eos) {
-        _runtime_profile->add_info_string(
-                "Spilled", local_state._shared_state->sorter->is_spilled() ? "true" : "false");
         source_state = SourceState::FINISHED;
     }
     return Status::OK();
 }
 
-bool SortSourceOperatorX::can_read(RuntimeState* state) {
+Dependency* SortSourceOperatorX::wait_for_dependency(RuntimeState* state) {
     auto& local_state = state->get_local_state(id())->cast<SortLocalState>();
-    return local_state._dependency->done();
+    return local_state._dependency->read_blocked_by();
 }
 
 Status SortLocalState::close(RuntimeState* state) {

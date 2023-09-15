@@ -249,8 +249,8 @@ Status VJoinNodeBase::open(RuntimeState* state) {
                     this->_probe_side_open_thread(state, thread_status_p);
                 });
     } catch (const std::system_error& e) {
-        LOG(WARNING) << "In VJoinNodeBase::open create thread fail, " << e.what();
-        return Status::InternalError(e.what());
+        return Status::InternalError("In VJoinNodeBase::open create thread fail, reason={}",
+                                     e.what());
     }
 
     // Open the probe-side child so that it may perform any initialisation in parallel.

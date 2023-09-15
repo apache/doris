@@ -88,7 +88,7 @@ RuntimeFilterContext::RuntimeFilterContext(HashJoinNode* join_node)
         : _runtime_filter_descs(join_node->_runtime_filter_descs),
           _runtime_filter_slots(join_node->_runtime_filter_slots),
           _build_expr_ctxs(join_node->_build_expr_ctxs),
-          _build_bf_cardinality(join_node->_build_bf_cardinality),
+          _build_rf_cardinality(join_node->_build_rf_cardinality),
           _inserted_rows(join_node->_inserted_rows),
           _push_down_timer(join_node->_push_down_timer),
           _push_compute_timer(join_node->_push_compute_timer) {}
@@ -97,7 +97,7 @@ RuntimeFilterContext::RuntimeFilterContext(pipeline::HashJoinBuildSinkLocalState
         : _runtime_filter_descs(local_state->join_build()->_runtime_filter_descs),
           _runtime_filter_slots(local_state->_runtime_filter_slots),
           _build_expr_ctxs(local_state->_build_expr_ctxs),
-          _build_bf_cardinality(local_state->_build_bf_cardinality),
+          _build_rf_cardinality(local_state->_build_rf_cardinality),
           _inserted_rows(local_state->_inserted_rows),
           _push_down_timer(local_state->_push_down_timer),
           _push_compute_timer(local_state->_push_compute_timer) {}
@@ -125,6 +125,7 @@ HashJoinProbeContext::HashJoinProbeContext(HashJoinNode* join_node)
           _probe_block(&join_node->_probe_block),
           _probe_columns(&join_node->_probe_columns),
           _probe_index(&join_node->_probe_index),
+          _ready_probe_index(&join_node->_ready_probe_index),
           _probe_key_sz(join_node->_probe_key_sz),
           _left_output_slot_flags(&join_node->_left_output_slot_flags),
           _right_output_slot_flags(&join_node->_right_output_slot_flags),
@@ -153,6 +154,7 @@ HashJoinProbeContext::HashJoinProbeContext(pipeline::HashJoinProbeLocalState* lo
           _probe_block(&local_state->_probe_block),
           _probe_columns(&local_state->_probe_columns),
           _probe_index(&local_state->_probe_index),
+          _ready_probe_index(&local_state->_ready_probe_index),
           _probe_key_sz(local_state->_shared_state->probe_key_sz),
           _left_output_slot_flags(&local_state->join_probe()->_left_output_slot_flags),
           _right_output_slot_flags(&local_state->join_probe()->_right_output_slot_flags),
@@ -174,7 +176,7 @@ HashJoinBuildContext::HashJoinBuildContext(HashJoinNode* join_node)
           _runtime_filter_descs(join_node->_runtime_filter_descs),
           _inserted_rows(join_node->_inserted_rows),
           _arena(join_node->_arena),
-          _build_bf_cardinality(join_node->_build_bf_cardinality) {}
+          _build_rf_cardinality(join_node->_build_rf_cardinality) {}
 
 HashJoinBuildContext::HashJoinBuildContext(pipeline::HashJoinBuildSinkLocalState* local_state)
         : _hash_table_memory_usage(local_state->_hash_table_memory_usage),
@@ -192,33 +194,7 @@ HashJoinBuildContext::HashJoinBuildContext(pipeline::HashJoinBuildSinkLocalState
           _runtime_filter_descs(local_state->join_build()->_runtime_filter_descs),
           _inserted_rows(local_state->_inserted_rows),
           _arena(local_state->_shared_state->arena),
-          _build_bf_cardinality(local_state->_build_bf_cardinality) {}
-
-template <class HashTableContext>
-Status ProcessRuntimeFilterBuild<HashTableContext>::operator()(RuntimeState* state,
-                                                               HashTableContext& hash_table_ctx) {
-    if (_context->_runtime_filter_descs.empty()) {
-        return Status::OK();
-    }
-    _context->_runtime_filter_slots = std::make_shared<VRuntimeFilterSlots>(
-            _context->_build_expr_ctxs, _context->_runtime_filter_descs);
-
-    RETURN_IF_ERROR(_context->_runtime_filter_slots->init(
-            state, hash_table_ctx.hash_table.get_size(), _context->_build_bf_cardinality));
-
-    if (!_context->_runtime_filter_slots->empty() && !_context->_inserted_rows.empty()) {
-        {
-            SCOPED_TIMER(_context->_push_compute_timer);
-            _context->_runtime_filter_slots->insert(_context->_inserted_rows);
-        }
-    }
-    {
-        SCOPED_TIMER(_context->_push_down_timer);
-        RETURN_IF_ERROR(_context->_runtime_filter_slots->publish());
-    }
-
-    return Status::OK();
-}
+          _build_rf_cardinality(local_state->_build_rf_cardinality) {}
 
 HashJoinNode::HashJoinNode(ObjectPool* pool, const TPlanNode& tnode, const DescriptorTbl& descs)
         : VJoinNodeBase(pool, tnode, descs),
@@ -444,6 +420,7 @@ bool HashJoinNode::need_more_input_data() const {
 
 void HashJoinNode::prepare_for_next() {
     _probe_index = 0;
+    _ready_probe_index = 0;
     _prepare_probe_block();
 }
 
@@ -987,7 +964,7 @@ Status HashJoinNode::sink(doris::RuntimeState* state, vectorized::Block* in_bloc
                                           _build_expr_ctxs, _runtime_filter_descs);
 
                                   RETURN_IF_ERROR(_runtime_filter_slots->init(
-                                          state, arg.hash_table.get_size(), 0));
+                                          state, arg.hash_table.size(), 0));
                                   RETURN_IF_ERROR(_runtime_filter_slots->copy_from_shared_context(
                                           _shared_hash_table_context));
                                   RETURN_IF_ERROR(_runtime_filter_slots->publish());

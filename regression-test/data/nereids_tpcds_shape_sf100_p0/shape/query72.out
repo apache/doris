@@ -8,24 +8,20 @@ PhysicalResultSink
 ----------PhysicalDistribute
 ------------hashAgg[LOCAL]
 --------------PhysicalProject
-----------------hashJoin[RIGHT_OUTER_JOIN](catalog_returns.cr_item_sk = catalog_sales.cs_item_sk)(catalog_returns.cr_order_number = catalog_sales.cs_order_number)
-------------------PhysicalProject
---------------------PhysicalOlapScan[catalog_returns]
+----------------hashJoin[LEFT_OUTER_JOIN](catalog_returns.cr_item_sk = catalog_sales.cs_item_sk)(catalog_returns.cr_order_number = catalog_sales.cs_order_number)
 ------------------PhysicalDistribute
 --------------------PhysicalProject
-----------------------hashJoin[LEFT_OUTER_JOIN](catalog_sales.cs_promo_sk = promotion.p_promo_sk)
+----------------------hashJoin[INNER_JOIN](warehouse.w_warehouse_sk = inventory.inv_warehouse_sk)
 ------------------------PhysicalProject
---------------------------hashJoin[INNER_JOIN](warehouse.w_warehouse_sk = inventory.inv_warehouse_sk)
+--------------------------hashJoin[INNER_JOIN](inventory.inv_date_sk = d2.d_date_sk)(d1.d_week_seq = d2.d_week_seq)
 ----------------------------PhysicalProject
-------------------------------hashJoin[INNER_JOIN](item.i_item_sk = catalog_sales.cs_item_sk)
---------------------------------PhysicalProject
-----------------------------------PhysicalOlapScan[item]
+------------------------------hashJoin[INNER_JOIN](catalog_sales.cs_item_sk = inventory.inv_item_sk)(inventory.inv_quantity_on_hand < catalog_sales.cs_quantity)
+--------------------------------PhysicalOlapScan[inventory]
 --------------------------------PhysicalDistribute
 ----------------------------------PhysicalProject
-------------------------------------hashJoin[INNER_JOIN](inventory.inv_date_sk = d2.d_date_sk)(d1.d_week_seq = d2.d_week_seq)
+------------------------------------hashJoin[LEFT_OUTER_JOIN](catalog_sales.cs_promo_sk = promotion.p_promo_sk)
 --------------------------------------PhysicalProject
-----------------------------------------hashJoin[INNER_JOIN](catalog_sales.cs_item_sk = inventory.inv_item_sk)(inventory.inv_quantity_on_hand < catalog_sales.cs_quantity)
-------------------------------------------PhysicalOlapScan[inventory]
+----------------------------------------hashJoin[INNER_JOIN](item.i_item_sk = catalog_sales.cs_item_sk)
 ------------------------------------------PhysicalDistribute
 --------------------------------------------PhysicalProject
 ----------------------------------------------hashJoin[INNER_JOIN](catalog_sales.cs_ship_date_sk = d3.d_date_sk)(d3.d_date > cast((cast(d_date as BIGINT) + 5) as DATEV2))
@@ -51,13 +47,19 @@ PhysicalResultSink
 ------------------------------------------------PhysicalDistribute
 --------------------------------------------------PhysicalProject
 ----------------------------------------------------PhysicalOlapScan[date_dim]
+------------------------------------------PhysicalDistribute
+--------------------------------------------PhysicalProject
+----------------------------------------------PhysicalOlapScan[item]
 --------------------------------------PhysicalDistribute
 ----------------------------------------PhysicalProject
-------------------------------------------PhysicalOlapScan[date_dim]
+------------------------------------------PhysicalOlapScan[promotion]
 ----------------------------PhysicalDistribute
 ------------------------------PhysicalProject
---------------------------------PhysicalOlapScan[warehouse]
+--------------------------------PhysicalOlapScan[date_dim]
 ------------------------PhysicalDistribute
 --------------------------PhysicalProject
-----------------------------PhysicalOlapScan[promotion]
+----------------------------PhysicalOlapScan[warehouse]
+------------------PhysicalDistribute
+--------------------PhysicalProject
+----------------------PhysicalOlapScan[catalog_returns]
 

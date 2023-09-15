@@ -112,7 +112,7 @@ Status NestedLoopJoinBuildSinkOperatorX::sink(doris::RuntimeState* state, vector
                                            !local_state._shared_state->build_blocks.empty()))) {
             local_state._shared_state->left_side_eos = true;
         }
-        local_state._dependency->set_done();
+        local_state._dependency->set_ready_for_read();
     }
 
     return Status::OK();

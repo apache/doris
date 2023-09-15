@@ -68,8 +68,6 @@ Status RepeatOperatorX::init(const TPlanNode& tnode, RuntimeState* state) {
 
 Status RepeatOperatorX::prepare(RuntimeState* state) {
     VLOG_CRITICAL << "VRepeatNode::prepare";
-    SCOPED_TIMER(_runtime_profile->total_time_counter());
-
     RETURN_IF_ERROR(OperatorXBase::prepare(state));
     _output_tuple_desc = state->desc_tbl().get_tuple_descriptor(_output_tuple_id);
     if (_output_tuple_desc == nullptr) {
@@ -85,7 +83,6 @@ Status RepeatOperatorX::prepare(RuntimeState* state) {
 
 Status RepeatOperatorX::open(RuntimeState* state) {
     VLOG_CRITICAL << "VRepeatNode::open";
-    SCOPED_TIMER(_runtime_profile->total_time_counter());
     RETURN_IF_ERROR(OperatorXBase::open(state));
     RETURN_IF_ERROR(vectorized::VExpr::open(_expr_ctxs, state));
     return Status::OK();
