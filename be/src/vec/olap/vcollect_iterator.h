@@ -121,13 +121,12 @@ private:
                   _compare_columns(reader->_reader_context.read_orderby_key_columns) {}
 
         virtual Status init(bool get_data_by_ref = false) = 0;
-        virtual Status init_for_union(bool is_first_child, bool get_data_by_ref = false) {
-            return Status::OK();
-        }
+
+        virtual void init_for_union(bool get_data_by_ref) {}
 
         virtual int64_t version() const = 0;
 
-        const IteratorRowRef* current_row_ref() const { return &_ref; }
+        virtual const IteratorRowRef* current_row_ref() const { return &_ref; }
 
         virtual Status next(IteratorRowRef* ref) = 0;
 
@@ -146,6 +145,8 @@ private:
         virtual RowLocation current_row_location() = 0;
 
         virtual Status current_block_row_locations(std::vector<RowLocation>* row_location) = 0;
+
+        [[nodiscard]] virtual Status ensure_first_row_ref() = 0;
 
         virtual bool update_profile(RuntimeProfile* profile) = 0;
 
@@ -185,7 +186,18 @@ private:
         ~Level0Iterator() override = default;
 
         Status init(bool get_data_by_ref = false) override;
-        Status init_for_union(bool is_first_child, bool get_data_by_ref = false) override;
+
+        virtual void init_for_union(bool get_data_by_ref) override;
+
+        /* For unique and agg, rows is aggregated in block_reader, which access
+         * first row so we need prepare the first row ref while duplicated
+         * key does not need it.
+         *
+         * Here, we organize a lot state here, e.g. data model, order, data
+         * overlapping, we should split the iterators in the furure to make the
+         * logic simple and much more understandable.
+         */
+        [[nodiscard]] Status ensure_first_row_ref() override;
 
         int64_t version() const override;
 
@@ -204,10 +216,10 @@ private:
             return false;
         }
 
+        Status refresh_current_row();
+
     private:
-        Status _refresh_current_row();
         Status _next_by_ref(IteratorRowRef* ref);
-        Status _refresh_current_row_by_ref();
 
         bool _is_empty() {
             if (_get_data_by_ref) {
@@ -273,6 +285,8 @@ private:
 
         Status current_block_row_locations(std::vector<RowLocation>* block_row_locations) override;
 
+        [[nodiscard]] Status ensure_first_row_ref() override;
+
         ~Level1Iterator() override;
 
         bool update_profile(RuntimeProfile* profile) override {
@@ -282,7 +296,7 @@ private:
             return false;
         }
 
-        Status init_level0_iterators_for_union();
+        void init_level0_iterators_for_union();
 
     private:
         Status _merge_next(IteratorRowRef* ref);
