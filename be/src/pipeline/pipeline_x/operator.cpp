@@ -39,6 +39,8 @@
 #include "pipeline/exec/sort_source_operator.h"
 #include "pipeline/exec/streaming_aggregation_sink_operator.h"
 #include "pipeline/exec/streaming_aggregation_source_operator.h"
+#include "pipeline/exec/union_sink_operator.h"
+#include "pipeline/exec/union_source_operator.h"
 #include "util/debug_util.h"
 
 namespace doris::pipeline {
@@ -268,7 +270,7 @@ Status DataSinkOperatorX<LocalStateType>::setup_local_state(RuntimeState* state,
 
 template <typename LocalStateType>
 void DataSinkOperatorX<LocalStateType>::get_dependency(DependencySPtr& dependency) {
-    dependency.reset(new typename LocalStateType::Dependency(id()));
+    dependency.reset(new typename LocalStateType::Dependency(dest_id()));
 }
 
 template <typename LocalStateType>
@@ -327,6 +329,7 @@ DECLARE_OPERATOR_X(BlockingAggSinkLocalState)
 DECLARE_OPERATOR_X(StreamingAggSinkLocalState)
 DECLARE_OPERATOR_X(ExchangeSinkLocalState)
 DECLARE_OPERATOR_X(NestedLoopJoinBuildSinkLocalState)
+DECLARE_OPERATOR_X(UnionSinkLocalState)
 
 #undef DECLARE_OPERATOR_X
 
@@ -341,6 +344,7 @@ DECLARE_OPERATOR_X(RepeatLocalState)
 DECLARE_OPERATOR_X(NestedLoopJoinProbeLocalState)
 DECLARE_OPERATOR_X(AssertNumRowsLocalState)
 DECLARE_OPERATOR_X(EmptySetLocalState)
+DECLARE_OPERATOR_X(UnionSourceLocalState)
 
 #undef DECLARE_OPERATOR_X
 
@@ -357,6 +361,7 @@ template class PipelineXSinkLocalState<NestedLoopJoinDependency>;
 template class PipelineXSinkLocalState<AnalyticDependency>;
 template class PipelineXSinkLocalState<AggDependency>;
 template class PipelineXSinkLocalState<FakeDependency>;
+template class PipelineXSinkLocalState<UnionDependency>;
 
 template class PipelineXLocalState<HashJoinDependency>;
 template class PipelineXLocalState<SortDependency>;
@@ -364,5 +369,6 @@ template class PipelineXLocalState<NestedLoopJoinDependency>;
 template class PipelineXLocalState<AnalyticDependency>;
 template class PipelineXLocalState<AggDependency>;
 template class PipelineXLocalState<FakeDependency>;
+template class PipelineXLocalState<UnionDependency>;
 
 } // namespace doris::pipeline

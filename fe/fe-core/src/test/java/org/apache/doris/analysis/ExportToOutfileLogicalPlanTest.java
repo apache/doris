@@ -25,6 +25,7 @@ import org.apache.doris.nereids.glue.LogicalPlanAdapter;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.trees.plans.commands.ExportCommand;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
+import org.apache.doris.nereids.util.RelationUtil;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.utframe.TestWithFeService;
 
@@ -412,9 +413,6 @@ public class ExportToOutfileLogicalPlanTest extends TestWithFeService {
         ExportCommand exportCommand = (ExportCommand) parseSql(exportSql);
         List<List<StatementBase>> selectStmtListPerParallel = Lists.newArrayList();
         try {
-            Method getTableName = exportCommand.getClass().getDeclaredMethod("getTableName", ConnectContext.class);
-            getTableName.setAccessible(true);
-
             Method checkAllParameters = exportCommand.getClass().getDeclaredMethod("checkAllParameters",
                     ConnectContext.class, TableName.class, Map.class);
             checkAllParameters.setAccessible(true);
@@ -423,7 +421,10 @@ public class ExportToOutfileLogicalPlanTest extends TestWithFeService {
                     ConnectContext.class, Map.class, TableName.class);
             generateExportJob.setAccessible(true);
 
-            TableName tblName = (TableName) getTableName.invoke(exportCommand, connectContext);
+            // get tblName
+            List<String> qualifiedTableName = RelationUtil.getQualifierName(connectContext, exportCommand.getNameParts());
+            TableName tblName = new TableName(qualifiedTableName.get(0), qualifiedTableName.get(1),
+                    qualifiedTableName.get(2));
             checkAllParameters.invoke(exportCommand, connectContext, tblName, exportCommand.getFileProperties());
 
             ExportJob job = (ExportJob) generateExportJob.invoke(

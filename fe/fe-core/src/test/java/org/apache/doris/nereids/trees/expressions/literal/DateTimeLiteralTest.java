@@ -20,12 +20,31 @@ package org.apache.doris.nereids.trees.expressions.literal;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
+import java.util.function.Consumer;
+
 class DateTimeLiteralTest {
     @Test
     void reject() {
         // Assertions.assertThrows(IllegalArgumentException.class, () -> {
         //     new DateTimeV2Literal("2022-08-01T01:01:01-00:00");
         // });
+    }
+
+    @Test
+    void testBasic() {
+        Consumer<DateTimeV2Literal> assertFunc = (datetime) -> {
+            Assertions.assertEquals(2022, datetime.year);
+            Assertions.assertEquals(8, datetime.month);
+            Assertions.assertEquals(1, datetime.day);
+            Assertions.assertEquals(1, datetime.hour);
+            Assertions.assertEquals(1, datetime.minute);
+            Assertions.assertEquals(1, datetime.second);
+        };
+
+        assertFunc.accept(new DateTimeV2Literal("20220801010101"));
+        assertFunc.accept(new DateTimeV2Literal("20220801T010101"));
+        assertFunc.accept(new DateTimeV2Literal("220801010101"));
+        assertFunc.accept(new DateTimeV2Literal("220801T010101"));
     }
 
     @Test

@@ -333,6 +333,8 @@ public class OperationType {
 
     public static final short OP_UPDATE_TABLE_STATS = 455;
 
+    public static final short OP_PERSIST_AUTO_JOB = 456;
+
     /**
      * Get opcode name by op code.
      **/
@@ -354,4 +356,5 @@ public class OperationType {
         }
         return "Not Found";
     }
+
 }
