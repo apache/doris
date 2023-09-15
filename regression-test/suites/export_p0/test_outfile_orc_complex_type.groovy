@@ -22,6 +22,9 @@ import java.nio.file.Files
 import java.nio.file.Paths
 
 suite("test_outfile_orc_complex_type", "p0") {
+    // open nereids
+    sql """ set enable_nereids_planner=true """
+    sql """ set enable_fallback_to_original_planner=false """
 
     String ak = getS3AK()
     String sk = getS3SK()
