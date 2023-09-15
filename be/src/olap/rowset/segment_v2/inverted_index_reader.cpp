@@ -139,7 +139,8 @@ std::vector<std::wstring> InvertedIndexReader::get_analyse_result(
     lucene::analysis::Token token;
 
     while (token_stream->next(&token)) {
-        if (analyser_type == InvertedIndexParserType::PARSER_UNICODE) {
+        if (analyser_type == InvertedIndexParserType::PARSER_UNICODE ||
+            analyser_type == InvertedIndexParserType::PARSER_CHINESE) {
             if (token.termLength<char>() != 0) {
                 std::string_view term(token.termBuffer<char>(), token.termLength<char>());
                 std::wstring ws_term = StringUtil::string_to_wstring(term);
