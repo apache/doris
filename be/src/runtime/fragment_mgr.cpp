@@ -212,15 +212,30 @@ void FragmentMgr::coordinator_callback(const ReportStatusRequest& req) {
             params.__set_loaded_rows(req.runtime_state->num_rows_load_total());
             params.__set_loaded_bytes(req.runtime_state->num_bytes_load_total());
         }
-        if (req.profile == nullptr) {
-            params.__isset.profile = false;
-        } else {
+        params.__isset.detailed_report = req.is_pipeline_x;
+        if (req.profile != nullptr) {
             req.profile->to_thrift(&params.profile);
             if (req.load_channel_profile) {
                 req.load_channel_profile->to_thrift(&params.loadChannelProfile);
             }
             params.__isset.profile = true;
             params.__isset.loadChannelProfile = true;
+        } else if (!req.runtime_states.empty()) {
+            params.__isset.detailed_report = true;
+            for (auto* rs : req.runtime_states) {
+                TDetailedReportParams detailed_param;
+                detailed_param.__set_fragment_instance_id(rs->fragment_instance_id());
+                detailed_param.__isset.fragment_instance_id = true;
+                detailed_param.__isset.profile = true;
+                detailed_param.__isset.loadChannelProfile = true;
+
+                rs->runtime_profile()->to_thrift(&detailed_param.profile);
+                rs->load_channel_profile()->to_thrift(&detailed_param.loadChannelProfile);
+
+                params.detailed_report.push_back(detailed_param);
+            }
+        } else {
+            params.__isset.profile = false;
         }
 
         if (!req.runtime_state->output_files().empty()) {

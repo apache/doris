@@ -117,7 +117,6 @@ Status AnalyticSinkOperatorX::prepare(RuntimeState* state) {
                     vectorized::VExpr::prepare(_order_by_eq_expr_ctxs, state, cmp_row_desc));
         }
     }
-    _profile = state->obj_pool()->add(new RuntimeProfile("AnalyticSinkOperatorX"));
     return Status::OK();
 }
 
@@ -142,6 +141,7 @@ Status AnalyticSinkOperatorX::sink(doris::RuntimeState* state, vectorized::Block
     local_state._shared_state->input_eos = source_state == SourceState::FINISHED;
     if (local_state._shared_state->input_eos && input_block->rows() == 0) {
         local_state._shared_state->need_more_input = false;
+        local_state._dependency->set_ready_for_read();
         return Status::OK();
     }
 
@@ -197,9 +197,7 @@ Status AnalyticSinkOperatorX::sink(doris::RuntimeState* state, vectorized::Block
         local_state._shared_state->found_partition_end =
                 local_state._dependency->get_partition_by_end();
     }
-    local_state._shared_state->need_more_input =
-            local_state._dependency->whether_need_next_partition(
-                    local_state._shared_state->found_partition_end);
+    local_state._dependency->refresh_need_more_input();
     return Status::OK();
 }
 

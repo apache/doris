@@ -585,7 +585,7 @@ Status HashJoinBuildSinkOperatorX::sink(RuntimeState* state, vectorized::Block* 
 
     local_state.init_short_circuit_for_probe();
     if (source_state == SourceState::FINISHED) {
-        local_state._dependency->set_done();
+        local_state._dependency->set_ready_for_read();
     }
 
     return Status::OK();

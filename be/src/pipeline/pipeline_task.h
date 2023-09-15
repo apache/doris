@@ -236,7 +236,7 @@ public:
         }
     }
 
-    void set_close_pipeline_time() {
+    virtual void set_close_pipeline_time() {
         if (!_is_close_pipeline) {
             _close_pipeline_time = _pipeline_task_watcher.elapsed_time();
             _is_close_pipeline = true;
@@ -254,8 +254,8 @@ protected:
     }
 
     virtual Status _open();
-    void _init_profile();
-    void _fresh_profile_counter();
+    virtual void _init_profile();
+    virtual void _fresh_profile_counter();
 
     uint32_t _index;
     PipelinePtr _pipeline;
