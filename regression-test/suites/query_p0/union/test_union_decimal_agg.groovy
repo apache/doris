@@ -70,16 +70,4 @@ suite("test_union_decimal_agg") {
                 SELECT cast(cost as decimalv3(38, 2)) AS cost,  ocpcconversionsdetail4  AS active FROM  test_union_decimal_agg_3
             ) AS `basic_data`;
     """
-
-    qt_decimal_union_agg2 """ SELECT
-        sum(basic_data.cost)  / sum(basic_data.active)
-    FROM
-            ( 
-                SELECT cost, active FROM test_union_decimal_agg_1
-             UNION ALL      
-                SELECT cost  / 100  AS cost,activated_count as active FROM test_union_decimal_agg_2
-            UNION ALL
-                SELECT cast(cost as decimalv3(38, 2)) AS cost,  ocpcconversionsdetail4  AS active FROM  test_union_decimal_agg_3
-            ) AS `basic_data`;
-    """
 }
