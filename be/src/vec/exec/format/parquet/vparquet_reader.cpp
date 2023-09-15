@@ -57,7 +57,7 @@ class RuntimeState;
 class SlotDescriptor;
 class TupleDescriptor;
 namespace io {
-class IOContext;
+struct IOContext;
 enum class FileCachePolicy : uint8_t;
 } // namespace io
 namespace vectorized {
