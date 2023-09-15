@@ -95,6 +95,7 @@ import org.apache.doris.statistics.ColumnStatistic;
 import org.apache.doris.statistics.ColumnStatisticBuilder;
 import org.apache.doris.statistics.Statistics;
 
+import com.google.common.base.Preconditions;
 import org.apache.commons.collections.CollectionUtils;
 
 import java.time.Instant;
@@ -162,12 +163,9 @@ public class ExpressionEstimation extends ExpressionVisitor<ColumnStatistic, Sta
         if (stats != null) {
             return stats;
         }
-        stats = cast.child().accept(this, context);
-        if (stats != null) {
-            return castMinMax(stats, cast.getDataType());
-        }
-        // Some column may not have column stats, eg, column in tvf
-        return ColumnStatistic.UNKNOWN;
+        ColumnStatistic childColStats = cast.child().accept(this, context);
+        Preconditions.checkNotNull(childColStats, "childColStats is null");
+        return castMinMax(childColStats, cast.getDataType());
     }
 
     private ColumnStatistic castMinMax(ColumnStatistic colStats, DataType targetType) {
