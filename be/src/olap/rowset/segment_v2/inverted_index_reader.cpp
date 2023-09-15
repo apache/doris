@@ -396,11 +396,6 @@ Status FullTextIndexReader::query(OlapReaderStatistics* stats, RuntimeState* run
                     query_match_bitmap |= *term_match_bitmap;
                     break;
                 }
-                case InvertedIndexQueryType::EQUAL_QUERY: {
-                    SCOPED_RAW_TIMER(&stats->inverted_index_query_bitmap_op_timer);
-                    query_match_bitmap &= *term_match_bitmap;
-                    break;
-                }
                 default: {
                     return Status::Error<ErrorCode::INVERTED_INDEX_NOT_SUPPORTED>(
                             "fulltext query do not support query type other than match.");
