@@ -26,14 +26,14 @@ suite("test_local_tvf") {
 
         List<List<Object>> doris_log = sql """ ADMIN SHOW FRONTEND CONFIG like "sys_log_dir"; """
         assertTrue(doris_log.size() > 0)
-        def doris_log_path = "log/"
+        def doris_log_path = doris_log[0][1]
 
         table = sql """
             select count(*) from local(
-                "file_path" = "${doris_log_path}/be.out",
+                "file_path" = "${doris_log_path}/fe.out",
                 "backend_id" = "${be_id}",
                 "format" = "csv")
-            where c1 like "%start time%";"""
+            where c1 like "%FE type%";"""
 
         assertTrue(table.size() > 0)
         assertTrue(Long.valueOf(table[0][0]) > 0)
@@ -43,7 +43,7 @@ suite("test_local_tvf") {
                 "file_path" = "${doris_log_path}/*.out",
                 "backend_id" = "${be_id}",
                 "format" = "csv")
-            where c1 like "%start time%";"""
+            where c1 like "%FE type%";"""
 
         assertTrue(table.size() > 0)
         assertTrue(Long.valueOf(table[0][0]) > 0)
@@ -51,7 +51,7 @@ suite("test_local_tvf") {
         test {
             sql """
             select count(*) from local(
-                "file_path" = "../be.out",
+                "file_path" = "../fe.out",
                 "backend_id" = "${be_id}",
                 "format" = "csv")
             where c1 like "%FE type%";

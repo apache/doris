@@ -149,13 +149,6 @@ public class LogicalFileScan extends LogicalCatalogRelation {
             }
         }
 
-        /**
-         * Return true means this relation is partition prunned
-         */
-        public boolean isPartitionPruned() {
-            return this.totalPartitionNum > 0 || isPartitionPruned;
-        }
-
         @Override
         public boolean equals(Object o) {
             return isPartitionPruned == ((SelectedPartitions) o).isPartitionPruned && Objects.equals(
@@ -163,5 +156,4 @@ public class LogicalFileScan extends LogicalCatalogRelation {
         }
     }
 }
-
 
