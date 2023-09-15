@@ -15,7 +15,7 @@
 -- specific language governing permissions and limitations
 -- under the License.
 --Q3.1
-SELECT /*+SET_VAR(experimental_enable_pipeline_x_engine=true, disable_streaming_preaggregations=true) */
+SELECT /*+SET_VAR(experimental_enable_pipeline_x_engine=true) */
     C_NATION,
     S_NATION, (LO_ORDERDATE DIV 10000) AS YEAR,
     SUM(LO_REVENUE) AS revenue

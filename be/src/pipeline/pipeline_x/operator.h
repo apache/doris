@@ -313,7 +313,6 @@ public:
         for (size_t i = 0; i < _projections.size(); i++) {
             RETURN_IF_ERROR(_parent->_projections[i]->clone(state, _projections[i]));
         }
-        DCHECK(_runtime_profile.get() != nullptr);
         _rows_returned_counter = ADD_COUNTER(_runtime_profile, "RowsReturned", TUnit::UNIT);
         _rows_input_counter = ADD_COUNTER(_runtime_profile, "InputRows", TUnit::UNIT);
         _projection_timer = ADD_TIMER(_runtime_profile, "ProjectionTime");
