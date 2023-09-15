@@ -31,7 +31,7 @@ namespace doris {
 namespace io {
 
 class FileSystem;
-class IOContext;
+struct IOContext;
 
 enum class FileCachePolicy : uint8_t {
     NO_CACHE,

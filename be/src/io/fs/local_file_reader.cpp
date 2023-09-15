@@ -38,7 +38,7 @@
 
 namespace doris {
 namespace io {
-class IOContext;
+struct IOContext;
 
 LocalFileReader::LocalFileReader(Path path, size_t file_size, int fd,
                                  std::shared_ptr<LocalFileSystem> fs)
