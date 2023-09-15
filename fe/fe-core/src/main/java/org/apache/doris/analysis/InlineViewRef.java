@@ -241,19 +241,11 @@ public class InlineViewRef extends TableRef {
             }
             slotDesc.setIsNullable(slotDesc.getIsNullable() || colExpr.isNullable());
             SlotRef slotRef = new SlotRef(slotDesc);
+            // to solve select * from (values(1, 2, 3), (4, 5, 6)) a returns only one row.
             if (slotDesc.getSourceExprs().size() == 1) {
                 sMap.put(slotRef, colExpr);
                 baseTblSmap.put(slotRef, queryStmt.getBaseTblResultExprs().get(i));
             }
-            // to solve select * from (values(1, 2, 3), (4, 5, 6)) a returns only one row.
-            /*
-            if (!(queryStmt instanceof SelectStmt
-                    && ((SelectStmt) queryStmt).getValueList() != null
-                    && ((SelectStmt) queryStmt).getValueList().getRows().size() > 1)) {
-                sMap.put(slotRef, colExpr);
-                baseTblSmap.put(slotRef, queryStmt.getBaseTblResultExprs().get(i));
-            }
-             */
             if (createAuxPredicate(colExpr)) {
                 analyzer.createAuxEquivPredicate(new SlotRef(slotDesc), colExpr.clone());
             }
