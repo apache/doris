@@ -510,3 +510,6 @@ true
 -- !sql_orthogonal_bitmap_intersect_count --
 1	1
 
+-- !sql --
+
+
