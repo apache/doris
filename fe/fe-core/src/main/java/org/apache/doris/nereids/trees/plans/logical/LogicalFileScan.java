@@ -159,8 +159,8 @@ public class LogicalFileScan extends LogicalCatalogRelation {
                 return false;
             }
             SelectedPartitions that = (SelectedPartitions) o;
-            return isPruned == ((SelectedPartitions) o).isPruned && Objects.equals(
-                    selectedPartitions.keySet(), ((SelectedPartitions) o).selectedPartitions.keySet());
+            return isPruned == that.isPruned && Objects.equals(
+                    selectedPartitions.keySet(), that.selectedPartitions.keySet());
         }
 
         @Override

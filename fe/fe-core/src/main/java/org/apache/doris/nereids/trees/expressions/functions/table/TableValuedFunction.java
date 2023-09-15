@@ -63,9 +63,14 @@ public abstract class TableValuedFunction extends BoundFunction implements Unary
 
     protected abstract TableValuedFunctionIf toCatalogFunction();
 
+    /**
+     * For most of tvf, eg, s3/local/hdfs, the column stats is unknown.
+     * The derived tvf can override this method to compute the column stats.
+     *
+     * @param slots the slots of the tvf
+     * @return the column stats of the tvf
+     */
     public Statistics computeStats(List<Slot> slots) {
-        // For most of tvf, eg, s3/local/hdfs, the column stats is unknown.
-        // The derived tvf can override this method to compute the column stats.
         Map<Expression, ColumnStatistic> columnToStatistics = Maps.newHashMap();
         for (Slot slot : slots) {
             columnToStatistics.put(slot, ColumnStatistic.UNKNOWN);
