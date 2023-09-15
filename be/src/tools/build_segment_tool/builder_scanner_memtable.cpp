@@ -399,7 +399,7 @@ void BuilderScannerMemtable::build_scan_ranges(
     }
 }
 
-void BuilderScannerMemtable::doSegmentBuild(
+RowsetSharedPtr BuilderScannerMemtable::doSegmentBuild(
         const std::vector<std::filesystem::directory_entry>& files) {
     vectorized::NewFileScanNode scan_node(&_obj_pool, _tnode, *_desc_tbl);
     scan_node.init(_tnode, &_runtime_state);
@@ -516,10 +516,8 @@ void BuilderScannerMemtable::doSegmentBuild(
         LOG(FATAL) << "delta_writer close_wait error: " << status.to_string();
     }
 
-    RowsetMetaSharedPtr rowset_meta = delta_writer->get_cur_rowset()->rowset_meta();
-    std::vector<RowsetMetaSharedPtr> metas {rowset_meta};
+    RowsetSharedPtr rowset = delta_writer->get_cur_rowset();
 
-    _tablet->tablet_meta()->revise_rs_metas(std::move(metas));
     if (!status.ok()) {
         LOG(FATAL) << "cannot add new rowset: " << status.to_string();
     }
@@ -530,6 +528,7 @@ void BuilderScannerMemtable::doSegmentBuild(
         scan_node.runtime_profile()->pretty_print(&ss);
         LOG(INFO) << ss.str();
     }
+    return rowset;
 }
 
 } // namespace doris

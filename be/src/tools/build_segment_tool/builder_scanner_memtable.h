@@ -62,7 +62,7 @@ public:
                            const std::string& file_type);
     ~BuilderScannerMemtable() = default;
     void init();
-    void doSegmentBuild(const std::vector<std::filesystem::directory_entry>& files);
+    RowsetSharedPtr doSegmentBuild(const std::vector<std::filesystem::directory_entry>& files);
 
 private:
     TDescriptorTable create_descriptor_tablet();

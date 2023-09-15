@@ -17,6 +17,7 @@
 
 #include "tools/build_segment_tool/build_helper.h"
 
+#include <cstddef>
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
@@ -80,7 +81,8 @@ void BuildHelper::initial_build_env() {
 }
 
 void BuildHelper::open(const std::string& meta_file, const std::string& build_dir,
-                       const std::string& data_path, const std::string& file_type) {
+                       const std::string& data_path, const std::string& file_type, 
+                       const bool& enable_post_compaction) {
     _meta_file = meta_file;
     _build_dir = build_dir;
     if (data_path.at(data_path.size() - 1) != '/') {
@@ -90,6 +92,7 @@ void BuildHelper::open(const std::string& meta_file, const std::string& build_di
     }
 
     _file_type = file_type;
+    _enable_post_compaction = enable_post_compaction;
 
     std::filesystem::path dir_path(std::filesystem::absolute(std::filesystem::path(build_dir)));
     if (!std::filesystem::is_directory(std::filesystem::status(dir_path))) {
@@ -161,8 +164,74 @@ Status BuildHelper::build() {
     }
 
     BuilderScannerMemtable scanner(new_tablet, _build_dir, _file_type);
-    scanner.doSegmentBuild(files);
+    RowsetSharedPtr rowset = scanner.doSegmentBuild(files);
+    if (rowset == nullptr) {
+         LOG(FATAL) << "invaild return rowset, build failed";
+    }
+    // do compaction
+    do {
+        if (!_enable_post_compaction) {
+            LOG(INFO) << "post compaction is disabled, skip";
+            break;
+        }
 
+        if (!rowset->is_segments_overlapping()) {
+            LOG(INFO) << "segment is not overlapping, skip compaction";
+            break;
+        }
+
+        auto t0 = std::chrono::steady_clock::now();
+        std::vector<RowsetReaderSharedPtr> _input_rs_readers;
+        std::unique_ptr<RowsetWriter> _output_rs_writer;
+        Merger::Statistics stats;
+
+        // create input reader
+        RowsetReaderSharedPtr rs_reader;
+        rowset->create_reader(&rs_reader);
+        _input_rs_readers.push_back(std::move(rs_reader));
+        Version _output_version = Version(rowset->start_version(), rowset->end_version());
+        RowsetWriterContext ctx;
+        ctx.version = _output_version;
+        ctx.rowset_state = VISIBLE;
+        ctx.segments_overlap = NONOVERLAPPING;
+        ctx.tablet_schema = new_tablet->tablet_schema();
+        ctx.newest_write_timestamp = rowset->newest_write_timestamp();
+        
+        // create output writer
+        new_tablet->create_rowset_writer(ctx, &_output_rs_writer);
+        std::filesystem::path segment_path(
+            std::filesystem::path(_build_dir + "/output/" +
+            std::to_string(new_tablet->tablet_id()) + "/" + std::to_string(new_tablet->schema_hash())));
+        _output_rs_writer->set_writer_path(segment_path.string());
+        Status res = Merger::vmerge_rowsets(new_tablet, ReaderType::READER_CUMULATIVE_COMPACTION, new_tablet->tablet_schema(),
+                                         _input_rs_readers, _output_rs_writer.get(), &stats);
+        if (!res.ok()) {
+             LOG(WARNING) << "fail to do compaction. res=" << res
+                     << ", tablet=" << new_tablet->full_name()
+                     << ", output_version=" << _output_version;
+            break;
+        }
+        RowsetSharedPtr _output_rowset = _output_rs_writer->build();
+        // remove origin rowset
+        rowset->remove();
+        rowset = _output_rowset;
+        auto t1 = std::chrono::steady_clock::now();
+        std::chrono::duration<double, std::milli> d {t1 - t0};
+        LOG(INFO) << "finish compaction:"
+                     << "tablet=" << new_tablet->full_name() 
+                     << ", output_version=" << _output_version
+                     << ", merged_row_num=" << stats.merged_rows
+                     << ", filtered_row_num=" << stats.filtered_rows
+                     << ", output_row_num=" << _output_rowset->num_rows()
+                     << ", spend time=" << d.count() << "ms";
+
+
+    } while(false);
+
+    // reset new tablet rs_metas
+    std::vector<RowsetMetaSharedPtr> metas {rowset->rowset_meta()};
+        new_tablet->tablet_meta()->revise_rs_metas(std::move(metas));
+    
     std::string new_header_path = _build_dir + "/output/" + 
                                   std::to_string(new_tablet->tablet_id()) + "/" +
                                   std::to_string(new_tablet->schema_hash()) + "/" +
@@ -172,7 +241,7 @@ Status BuildHelper::build() {
     auto st = new_tablet_meta->save(new_header_path);
     // post check
     if (!st.ok()) {
-        LOG(WARNING) << " save meta file error..., need retry...";
+        LOG(WARNING) << "save meta file error..., need retry...";
         std::filesystem::remove(new_header_path);
         int reTry = 3;
         while (--reTry >= 0 && !st.ok()) {
@@ -180,16 +249,16 @@ Status BuildHelper::build() {
         }
 
         if (reTry < 0) {
-            LOG(WARNING) << " save meta fail...";
+            LOG(WARNING) << "save meta fail...";
             std::exit(1);
         }
     }
     size_t header_size = std::filesystem::file_size(new_header_path);
     if (header_size <= 0) {
-        LOG(WARNING) << " header size abnormal ..." << new_header_path;
+        LOG(WARNING) << "header size abnormal ..." << new_header_path;
         std::exit(1);
     }
-    LOG(INFO) << " got header size:" << header_size;
+    LOG(INFO) << "got header size: " << header_size;
     return Status::OK();
 }
 

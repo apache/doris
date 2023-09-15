@@ -29,7 +29,8 @@ public:
 
     void initial_build_env();
     void open(const std::string& meta_file, const std::string& build_dir,
-              const std::string& data_path, const std::string& file_type);
+              const std::string& data_path, const std::string& file_type, 
+              const bool& enable_post_compaction);
     Status build();
 
 private:
@@ -38,6 +39,7 @@ private:
     std::string _build_dir;
     std::string _data_path;
     std::string _file_type;
+    bool _enable_post_compaction;
 };
 
 } // namespace doris
