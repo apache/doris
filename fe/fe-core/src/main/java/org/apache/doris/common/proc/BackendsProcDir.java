@@ -55,9 +55,8 @@ public class BackendsProcDir implements ProcDirInterface {
             .build();
 
     public static final ImmutableList<String> DISK_TITLE_NAMES = new ImmutableList.Builder<String>()
-            .add("BackendId").add("Host").add("RootPath").add("TotalCapacity").add("DataUsedCapacity")
-            .add("RemoteUsedCapacity").add("TrashUsedCapacity").add("DiskUsedCapacity").add("AvailableCapacity")
-            .add("UsedPct").add("StorageMedium")
+            .add("BackendId").add("Host").add("RootPath").add("DiskState").add("TotalCapacity")
+            .add("UsedCapacity").add("AvailableCapacity").add("UsedPct")
             .build();
 
     public static final int HOSTNAME_INDEX = 3;
@@ -230,25 +229,14 @@ public class BackendsProcDir implements ProcDirInterface {
                 if (disk.getState() == DiskState.ONLINE) {
                     List<Comparable> backendsDiskInfo = Lists.newArrayList();
                     backendsDiskInfo.add(String.valueOf(backendId));
-                    // add disk info to backendsDiskInfo
                     backendsDiskInfo.add(backend.getHost());
+                    // add disk info to backendsDiskInfo
                     backendsDiskInfo.add(disk.getRootPath());
+                    backendsDiskInfo.add(disk.getState());
                     long totalCapacityB = disk.getTotalCapacityB();
                     Pair<Double, String> totalCapacity = DebugUtil.getByteUint(totalCapacityB);
                     backendsDiskInfo.add(DebugUtil.DECIMAL_FORMAT_SCALE_3.format(
                             totalCapacity.first) + " " + totalCapacity.second);
-                    long dataUsedCapacityB = disk.getDataUsedCapacityB();
-                    Pair<Double, String> dataUsedCapacity = DebugUtil.getByteUint(dataUsedCapacityB);
-                    backendsDiskInfo.add(DebugUtil.DECIMAL_FORMAT_SCALE_3.format(
-                            dataUsedCapacity.first) + " " + dataUsedCapacity.second);
-                    long remoteUsedCapacityB = disk.getRemoteUsedCapacity();
-                    Pair<Double, String> remoteUsedCapacity = DebugUtil.getByteUint(remoteUsedCapacityB);
-                    backendsDiskInfo.add(DebugUtil.DECIMAL_FORMAT_SCALE_3.format(
-                            remoteUsedCapacity.first) + " " + remoteUsedCapacity.second);
-                    long trashUsedCapacityB = disk.getTrashUsedCapacityB();
-                    Pair<Double, String> trashUsedCapacity = DebugUtil.getByteUint(trashUsedCapacityB);
-                    backendsDiskInfo.add(DebugUtil.DECIMAL_FORMAT_SCALE_3.format(
-                            trashUsedCapacity.first) + " " + trashUsedCapacity.second);
                     long diskUsedCapacityB = disk.getDiskUsedCapacityB();
                     Pair<Double, String> diskUsedCapacity = DebugUtil.getByteUint(diskUsedCapacityB);
                     backendsDiskInfo.add(DebugUtil.DECIMAL_FORMAT_SCALE_3.format(
@@ -258,7 +246,6 @@ public class BackendsProcDir implements ProcDirInterface {
                     backendsDiskInfo.add(DebugUtil.DECIMAL_FORMAT_SCALE_3.format(
                             availableCapacity.first) + " " + availableCapacity.second);
                     backendsDiskInfo.add(String.format("%.2f", disk.getUsedPct() * 100) + " %");
-                    backendsDiskInfo.add(disk.getStorageMedium());
                     comparableBackendsDiskInfos.add(backendsDiskInfo);
                 }
             }

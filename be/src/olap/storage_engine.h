@@ -40,6 +40,7 @@
 #include "gutil/ref_counted.h"
 #include "olap/calc_delete_bitmap_executor.h"
 #include "olap/compaction_permit_limiter.h"
+#include "olap/log_dir.h"
 #include "olap/olap_common.h"
 #include "olap/options.h"
 #include "olap/rowset/rowset.h"
@@ -54,6 +55,7 @@
 namespace doris {
 
 class DataDir;
+class LogDir;
 class EngineTask;
 class MemTableFlushExecutor;
 class SegcompactionWorker;
@@ -101,6 +103,7 @@ public:
 
     // get all info of root_path
     Status get_all_data_dir_info(std::vector<DataDirInfo>* data_dir_infos, bool need_update);
+    Status get_log_dir_info(LogDirInfo* log_dir_infos);
 
     int64_t get_file_or_directory_size(const std::string& file_path);
 
@@ -471,6 +474,7 @@ private:
     std::condition_variable _compaction_producer_sleep_cv;
 
     std::shared_ptr<StreamLoadRecorder> _stream_load_recorder;
+    std::unique_ptr<LogDir> _log_dir;
 
     // we use unordered_map to store all cumulative compaction policy sharded ptr
     std::unordered_map<std::string_view, std::shared_ptr<CumulativeCompactionPolicy>>

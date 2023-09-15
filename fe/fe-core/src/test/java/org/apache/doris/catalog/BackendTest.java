@@ -91,9 +91,9 @@ public class BackendTest {
     public void diskInfoTest() {
         Map<String, TDisk> diskInfos = new HashMap<String, TDisk>();
 
-        TDisk disk1 = new TDisk("/data1/", 1000, 800, true);
-        TDisk disk2 = new TDisk("/data2/", 2000, 700, true);
-        TDisk disk3 = new TDisk("/data3/", 3000, 600, false);
+        TDisk disk1 = new TDisk("/data1/", 1000, true);
+        TDisk disk2 = new TDisk("/data2/", 2000, true);
+        TDisk disk3 = new TDisk("/data3/", 3000, false);
 
         diskInfos.put(disk1.getRootPath(), disk1);
         diskInfos.put(disk2.getRootPath(), disk2);

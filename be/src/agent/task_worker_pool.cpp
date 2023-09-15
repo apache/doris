@@ -52,6 +52,7 @@
 #include "io/fs/path.h"
 #include "io/fs/s3_file_system.h"
 #include "olap/data_dir.h"
+#include "olap/log_dir.h"
 #include "olap/olap_common.h"
 #include "olap/rowset/rowset_meta.h"
 #include "olap/snapshot_manager.h"
@@ -679,6 +680,19 @@ void TaskWorkerPool::_report_disk_state_worker_thread_callback() {
             disk.__set_used(root_path_info.is_used);
             request.disks[root_path_info.path] = disk;
         }
+
+        LogDirInfo log_dir_info;
+        StorageEngine::instance()->get_log_dir_info(&log_dir_info);
+        LOG(INFO) << "path: " << log_dir_info.path << " total capacity: " << log_dir_info.capacity
+              << ", available capacity: " << log_dir_info.available;
+
+        TDisk disk;
+        disk.__set_root_path(log_dir_info.path);
+        disk.__set_disk_total_capacity(log_dir_info.capacity);
+        disk.__set_disk_available_capacity(log_dir_info.available);
+        disk.__set_used(log_dir_info.is_used);
+        request.disks[log_dir_info.path] = disk;
+
         request.__set_num_cores(CpuInfo::num_cores());
         request.__set_pipeline_executor_size(config::pipeline_executor_size > 0
                                                      ? config::pipeline_executor_size

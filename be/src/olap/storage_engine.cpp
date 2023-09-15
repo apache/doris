@@ -125,7 +125,8 @@ StorageEngine::StorageEngine(const EngineOptions& options)
           _calc_delete_bitmap_executor(nullptr),
           _default_rowset_type(BETA_ROWSET),
           _heartbeat_flags(nullptr),
-          _stream_load_recorder(nullptr) {
+          _stream_load_recorder(nullptr),
+          _log_dir(new LogDir(config::sys_log_dir)) {
     REGISTER_HOOK_METRIC(unused_rowsets_count, [this]() {
         // std::lock_guard<std::mutex> lock(_gc_mutex);
         return _unused_rowsets.size();
@@ -357,6 +358,15 @@ Status StorageEngine::get_all_data_dir_info(std::vector<DataDirInfo>* data_dir_i
     LOG(INFO) << "get root path info cost: " << timer.elapsed_time() / 1000000
               << " ms. tablet counter: " << tablet_count;
 
+    return res;
+}
+
+Status StorageEngine::get_log_dir_info(LogDirInfo* log_dir_infos) {
+    Status res = Status::OK();
+    _log_dir->health_check();
+    _log_dir->update_capacity();
+    LogDirInfo dir_info = _log_dir->get_dir_info();
+    *log_dir_infos = dir_info;
     return res;
 }
 

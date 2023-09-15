@@ -42,26 +42,23 @@ SHOW BACKENDS DISKS;
 1. Name indicates id of BE node.
 2. Host indicates ip of BE node.
 3. RootPath indicates data directory of BE node.
-4. TotalCapacity indicates total capacity of the disk.
-5. DataUsedCapacity indicates space occupied by user data.
-6. RemoteUsedCapacity indicates the size that is uploaded to object storage.
-7. TrashUsedCapacity indicates space occupied by junk data.
-8. DiskUsedCapacity indicates used space of the disk.
-9. AvailableCapacity indicates available space of the disk.
-10. UsedPct indicates percentage of the disk used.
-11. StorageMedium indicates storage medium of the disk.
+4. DiskState indicates state of disk.
+5. TotalCapacity indicates total capacity of the disk.
+6. UsedCapacity indicates used space of the disk.
+7. AvailableCapacity indicates available space of the disk.
+8. UsedPct indicates percentage of the disk used.
 
 ### Example
 `
 mysql> show backends disks; 
-+-----------+-------------+--------------------------------+---------------+------------------+--------------------+-------------------+------------------+-------------------+---------+---------------+
-| BackendId | Host        | RootPath                       | TotalCapacity | DataUsedCapacity | RemoteUsedCapacity | TrashUsedCapacity | DiskUsedCapacity | AvailableCapacity | UsedPct | StorageMedium |
-+-----------+-------------+--------------------------------+---------------+------------------+--------------------+-------------------+------------------+-------------------+---------+---------------+
-| 10004     | 10.xx.xx.90 | /home/disk1/storage            | 7.049 TB      | 0.000            | 0.000              | 0.000             | 2.465 TB         | 4.585 TB          | 34.96 % | HDD           |
-| 10005     | 10.xx.xx.91 | /home/disk1/storage            | 7.049 TB      | 0.000            | 0.000              | 0.000             | 1.858 TB         | 5.192 TB          | 26.35 % | HDD           |
-+-----------+-------------+--------------------------------+---------------+------------------+--------------------+-------------------+------------------+-------------------+---------+---------------+
++-----------+-------------+-------------------------------+-----------+---------------+--------------+-------------------+---------+
+| BackendId | Host        | RootPath                      | DiskState | TotalCapacity | UsedCapacity | AvailableCapacity | UsedPct |
++-----------+-------------+-------------------------------+-----------+---------------+--------------+-------------------+---------+
+| 10004     | 10.xx.xx.90 | /home/disk5/output/be/storage | ONLINE    | 7.049 TB      | 2.471 TB     | 4.578 TB          | 35.06 % |
+| 10004     | 10.xx.xx.90 | /home/disk5/output/be/log     | ONLINE    | 7.049 TB      | 2.471 TB     | 4.578 TB          | 35.06 % |
++-----------+-------------+-------------------------------+-----------+---------------+--------------+-------------------+---------+
 2 rows in set (0.00 sec)
 `
 ### Keywords
 
-    SHOW, BACKENDS
+    SHOW, BACKENDS, DISK, DISKS

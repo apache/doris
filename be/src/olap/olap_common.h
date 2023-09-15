@@ -61,11 +61,20 @@ struct DataDirInfo {
     bool is_used = false;                                      // whether available mark
     TStorageMedium::type storage_medium = TStorageMedium::HDD; // Storage medium type: SSD|HDD
 };
+
+struct LogDirInfo {
+    std::string path;
+    int64_t capacity = 1; // actual disk capacity
+    int64_t available = 0;     // available space, in bytes unit
+    bool is_used = false;
+};
+
 struct PredicateFilterInfo {
     int type = 0;
     uint64_t input_row = 0;
     uint64_t filtered_row = 0;
 };
+
 // Sort DataDirInfo by available space.
 struct DataDirInfoLessAvailability {
     bool operator()(const DataDirInfo& left, const DataDirInfo& right) const {
