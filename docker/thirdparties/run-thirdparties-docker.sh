@@ -247,14 +247,24 @@ if [[ "${RUN_KAFKA}" -eq 1 ]]; then
     sed -i "s/doris--/${CONTAINER_UID}/g" "${ROOT}"/docker-compose/kafka/kafka.yaml
     sed -i "s/localhost/${IP_HOST}/g" "${ROOT}"/docker-compose/kafka/kafka.yaml
     sudo docker compose -f "${ROOT}"/docker-compose/kafka/kafka.yaml --env-file "${ROOT}"/docker-compose/kafka/kafka.env down
+    start_kafka_producers() {
+        local container_id="$1"
+        local ip_host="$2"
+
+        declare -a topics=("basic_data" "basic_array_data" "basic_data_with_errors" "basic_array_data_with_errors" "basic_data_timezone" "basic_array_data_timezone")
+
+        for topic in "${topics[@]}"; do
+            while IFS= read -r line; do
+                docker exec -i "${container_id}" bash -c "echo '$line' | /opt/kafka/bin/kafka-console-producer.sh --broker-list '${ip_host}:19193' --topic '${topic}'"
+                sleep 1
+            done < "${ROOT}/docker-compose/kafka/scripts/${topic}.csv"
+        done
+    }
+
     if [[ "${STOP}" -ne 1 ]]; then
         sudo docker compose -f "${ROOT}"/docker-compose/kafka/kafka.yaml --env-file "${ROOT}"/docker-compose/kafka/kafka.env up --build --remove-orphans -d
         sleep 30s
-        while IFS= read -r line
-            do
-                docker exec -i ${KAFKA_CONTAINER_ID} bash -c "echo "$line" | /opt/kafka/bin/kafka-console-producer.sh --broker-list '${IP_HOST}:19193' --topic test"
-                sleep 1
-            done < ""${ROOT}"/docker-compose/kafka/scripts/test.csv"
+        start_kafka_producers "${KAFKA_CONTAINER_ID}" "${IP_HOST}"
     fi
 fi
 
