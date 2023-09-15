@@ -132,7 +132,7 @@ The build environment directory is as follows:
 
    You can refer to [init_fe.sh](https://github.com/apache/doris/tree/master/docker/runtime/fe/resource/init_fe.sh).
 
-   After writing, name it `init_fe.sh` and save it to the `./docker-build/fe/resouce` directory.
+   After writing, name it `init_fe.sh` and save it to the `./docker-build/fe/resource` directory.
 
 5. Execute the build
 
@@ -194,7 +194,7 @@ mkdir -p ./docker-build/be/resource
 
    You can refer to [init_be.sh](https://github.com/apache/doris/tree/master/docker/runtime/be/resource/init_be.sh).
 
-   After writing, name it `init_be.sh` and save it to the `./docker-build/be/resouce` directory.
+   After writing, name it `init_be.sh` and save it to the `./docker-build/be/resource` directory.
 
 5. Execute the build
 
@@ -263,7 +263,7 @@ mkdir -p ./docker-build/broker/resource
 
    You can refer to [init_broker.sh](https://github.com/apache/doris/tree/master/docker/runtime/broker/resource/init_broker.sh).
 
-   After writing, name it `init_broker.sh` and save it to the `./docker-build/broker/resouce` directory.
+   After writing, name it `init_broker.sh` and save it to the `./docker-build/broker/resource` directory.
 
 5. Execute the build
 
