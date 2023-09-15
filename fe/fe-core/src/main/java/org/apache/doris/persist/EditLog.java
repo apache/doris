@@ -809,11 +809,6 @@ public class EditLog {
                     env.getAlterInstance().replayModifyComment(operation);
                     break;
                 }
-                case OperationType.OP_SET_PARTITION_VERSION: {
-                    SetPartitionVersionOperationLog log = (SetPartitionVersionOperationLog) journal.getData();
-                    env.replaySetPartitionVersion(log);
-                    break;
-                }
                 case OperationType.OP_ALTER_ROUTINE_LOAD_JOB: {
                     AlterRoutineLoadJobOperationLog log = (AlterRoutineLoadJobOperationLog) journal.getData();
                     env.getRoutineLoadManager().replayAlterRoutineLoadJob(log);
@@ -1695,10 +1690,6 @@ public class EditLog {
 
     public void logAlterRoutineLoadJob(AlterRoutineLoadJobOperationLog log) {
         logEdit(OperationType.OP_ALTER_ROUTINE_LOAD_JOB, log);
-    }
-
-    public void logSetPartitionVersion(SetPartitionVersionOperationLog log) {
-        logEdit(OperationType.OP_SET_PARTITION_VERSION, log);
     }
 
     public void logGlobalVariableV2(GlobalVarPersistInfo info) {
