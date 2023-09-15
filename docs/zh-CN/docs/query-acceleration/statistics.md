@@ -29,25 +29,25 @@ under the License.
 
 通过收集统计信息有助于优化器了解数据分布特性，在进行CBO（基于成本优化）时优化器会利用这些统计信息来计算谓词的选择性，并估算每个执行计划的成本。从而选择更优的计划以大幅提升查询效率。
 
-列统计信息：
+当前收集列的如下信息：
 
 | 信息            | 描述                       |
 | :-------------- | :------------------------- |
-| `row_count`     | 列的总行数                 |
-| `data_size`     | 列的总⻓度（单位 byte）    |
-| `avg_size_byte` | 列的平均⻓度（单位 bytes） |
-| `ndv`           | 列 num distinct value      |
-| `min`           | 列最小值                   |
-| `max`           | 列最⼤值                   |
-| `null_count`    | 列 null 个数               |
+| `row_count`     | 总行数                 |
+| `data_size`     | 总数据量    |
+| `avg_size_byte` | 值的平均⻓度 |
+| `ndv`           | 不同值数量      |
+| `min`           | 最小值                   |
+| `max`           | 最⼤值                   |
+| `null_count`    | 空值数量               |
 
 ## 收集统计信息
 
 ### 使用ANALYZE语句
 
-⽤户通过 `ANALYZE` 语句触发手动收集任务，根据提供的参数，收集指定的表或列的统计信息。
+Doris支持用户通过提交ANALYZE语句来触发统计信息的收集和更新。
 
-列统计信息收集语法：
+语法：
 
 ```SQL
 ANALYZE < TABLE | DATABASE table_name | db_name > 
@@ -68,8 +68,13 @@ ANALYZE < TABLE | DATABASE table_name | db_name >
 
 ### 自动收集
 
-// TODO
+用户可以通过设置FE配置项`enable_full_auto_analyze = true`来启用本功能。开启后，将在指定的时间段内自动收集满足条件的库表上的统计信息。用户可以通过设置参数`full_auto_analyze_start_time`（默认为00:00:00）和参数`full_auto_analyze_end_time`（默认为02:00:00）来指定自动收集的时间段。
 
+此功能仅对没有统计信息或者统计信息过时的库表进行收集。当一个表的数据更新了20%（该值可通过参数`table_stats_health_threshold`（默认为80）配置）以上时，Doris会认为该表的统计信息已经过时。
+
+对于数据量较大（默认为5GiB）的表，Doris会自动采取采样的方式去收集，以尽可能降低对系统造成的负担并尽快完成收集作业，用户可通过设置FE参数`huge_table_lower_bound_size_in_bytes`来调节此行为。如果希望对所有的表都采取全量收集，可配置FE参数`enable_auto_sample`为false。同时对于数据量大于`huge_table_lower_bound_size_in_bytes`的表，Doris保证其收集时间间隔不小于12小时（该时间可通过FE参数`huge_table_auto_analyze_interval_in_millis`控制）。
+
+自动采样默认采样200000行，但由于实现方式的原因实际采样数可能大于该值。如果希望采样更多的行以获得更准备的数据分布信息，可通过FE参数`auto_analyze_job_record_count`配置。
 
 ### 管理任务
 
