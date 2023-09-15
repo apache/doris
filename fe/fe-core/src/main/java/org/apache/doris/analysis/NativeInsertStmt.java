@@ -406,7 +406,8 @@ public class NativeInsertStmt extends InsertStmt {
             OlapTableSink sink = (OlapTableSink) dataSink;
             TUniqueId loadId = analyzer.getContext().queryId();
             int sendBatchParallelism = analyzer.getContext().getSessionVariable().getSendBatchParallelism();
-            boolean isInsertStrict = analyzer.getContext().getSessionVariable().getEnableInsertStrict();
+            boolean isInsertStrict = analyzer.getContext().getSessionVariable().getEnableInsertStrict()
+                    && !isFromDeleteOrUpdateStmt; 
             sink.init(loadId, transactionId, db.getId(), timeoutSecond,
                     sendBatchParallelism, false, isInsertStrict, isInsertIgnore);
         }
