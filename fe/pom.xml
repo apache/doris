@@ -311,7 +311,7 @@ under the License.
         <jettison.version>1.5.4</jettison.version>
         <vesoft.client.version>3.0.0</vesoft.client.version>
         <!-- paimon -->
-        <paimon.version>0.4.0-incubating</paimon.version>
+        <paimon.version>0.5.0-incubating</paimon.version>
         <disruptor.version>3.4.4</disruptor.version>
     </properties>
     <profiles>
