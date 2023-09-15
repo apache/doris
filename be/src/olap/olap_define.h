@@ -149,6 +149,7 @@ static const std::string END_ROWSET_ID = "end_rowset_id";
 static const std::string CONVERTED_FLAG = "true";
 static const std::string TABLET_CONVERT_FINISHED = "tablet_convert_finished";
 const std::string TABLET_ID_KEY = "tablet_id";
+const std::string TABLE_ID_KEY = "table_id";
 const std::string ENABLE_BYTE_TO_BASE64 = "byte_to_base64";
 const std::string TABLET_ID_PREFIX = "t_";
 const std::string ROWSET_ID_PREFIX = "s_";
@@ -176,6 +177,20 @@ const std::string REMOTE_TABLET_GC_PREFIX = "tgc_";
             delete[] ptr;      \
             ptr = nullptr;     \
         }                      \
+    } while (0)
+
+#define SAFE_STOP(ptr)        \
+    do {                      \
+        if (nullptr != ptr) { \
+            ptr->stop();      \
+        }                     \
+    } while (0)
+
+#define SAFE_SHUTDOWN(ptr)    \
+    do {                      \
+        if (nullptr != ptr) { \
+            ptr->shutdown();  \
+        }                     \
     } while (0)
 
 #ifndef BUILD_VERSION

@@ -45,6 +45,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.util.RelationUtil;
 import org.apache.doris.nereids.util.TypeCoercionUtils;
+import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
@@ -100,44 +101,57 @@ public class BindSink implements AnalysisRuleFactory {
                             Map<String, NamedExpression> columnToOutput = Maps.newLinkedHashMap();
                             NereidsParser expressionParser = new NereidsParser();
 
+                            // this is a trick way to avoid legacy planner's slotRef toSql output include label.
+                            // see more in org.apache.doris.analysis.SlotRef.toSqlImpl
+                            if (ConnectContext.get() != null) {
+                                ConnectContext.get().getState().setIsQuery(true);
+                            }
                             // generate slots not mentioned in sql, mv slots and shaded slots.
-                            for (Column column : boundSink.getTargetTable().getFullSchema()) {
-                                if (column.isMaterializedViewColumn()) {
-                                    List<SlotRef> refs = column.getRefColumns();
-                                    // now we have to replace the column to slots.
-                                    Preconditions.checkArgument(refs != null,
-                                            "mv column's ref column cannot be null");
-                                    Expression parsedExpression = expressionParser.parseExpression(
-                                            column.getDefineExpr().toSql());
-                                    Expression boundExpression = SlotReplacer.INSTANCE
-                                            .replace(parsedExpression, columnToOutput);
+                            try {
+                                for (Column column : boundSink.getTargetTable().getFullSchema()) {
+                                    if (column.isMaterializedViewColumn()) {
+                                        List<SlotRef> refs = column.getRefColumns();
+                                        // now we have to replace the column to slots.
+                                        Preconditions.checkArgument(refs != null,
+                                                "mv column's ref column cannot be null");
+                                        Expression parsedExpression = expressionParser.parseExpression(
+                                                column.getDefineExpr().toSql());
+                                        Expression boundExpression = SlotReplacer.INSTANCE
+                                                .replace(parsedExpression, columnToOutput);
 
-                                    NamedExpression slot = boundExpression instanceof NamedExpression
-                                            ? ((NamedExpression) boundExpression)
-                                            : new Alias(boundExpression, boundExpression.toSql());
+                                        NamedExpression slot = boundExpression instanceof NamedExpression
+                                                ? ((NamedExpression) boundExpression)
+                                                : new Alias(boundExpression);
 
-                                    columnToOutput.put(column.getName(), slot);
-                                } else if (columnToChildOutput.containsKey(column)) {
-                                    columnToOutput.put(column.getName(), columnToChildOutput.get(column));
-                                } else {
-                                    if (table.hasSequenceCol()
-                                            && column.getName().equals(Column.SEQUENCE_COL)
-                                            && table.getSequenceMapCol() != null) {
-                                        Column seqCol = table.getFullSchema().stream()
-                                                .filter(col -> col.getName().equals(table.getSequenceMapCol()))
-                                                .findFirst().get();
-                                        columnToOutput.put(column.getName(), columnToOutput.get(seqCol.getName()));
-                                    } else if (column.getDefaultValue() == null) {
-                                        columnToOutput.put(column.getName(), new Alias(
-                                                new NullLiteral(DataType.fromCatalogType(column.getType())),
-                                                column.getName()
-                                        ));
+                                        columnToOutput.put(column.getName(), slot);
+                                    } else if (columnToChildOutput.containsKey(column)) {
+                                        columnToOutput.put(column.getName(), columnToChildOutput.get(column));
                                     } else {
-                                        columnToOutput.put(column.getName(),
-                                                new Alias(Literal.of(column.getDefaultValue())
-                                                        .checkedCastTo(DataType.fromCatalogType(column.getType())),
-                                                        column.getName()));
+                                        if (table.hasSequenceCol()
+                                                && column.getName().equals(Column.SEQUENCE_COL)
+                                                && table.getSequenceMapCol() != null) {
+                                            Column seqCol = table.getFullSchema().stream()
+                                                    .filter(col -> col.getName().equals(table.getSequenceMapCol()))
+                                                    .findFirst().get();
+                                            columnToOutput.put(column.getName(), columnToOutput.get(seqCol.getName()));
+                                        } else if (column.getDefaultValue() == null) {
+                                            columnToOutput.put(column.getName(), new Alias(
+                                                    new NullLiteral(DataType.fromCatalogType(column.getType())),
+                                                    column.getName()
+                                            ));
+                                        } else {
+                                            columnToOutput.put(column.getName(),
+                                                    new Alias(Literal.of(column.getDefaultValue())
+                                                            .checkedCastTo(DataType.fromCatalogType(column.getType())),
+                                                            column.getName()));
+                                        }
                                     }
+                                }
+                            } finally {
+                                if (ConnectContext.get() != null) {
+                                    // this is a trick way to avoid legacy planner's slotRef toSql output include label
+                                    // set back to original value.
+                                    ConnectContext.get().getState().setIsQuery(false);
                                 }
                             }
                             List<NamedExpression> fullOutputExprs = ImmutableList.copyOf(columnToOutput.values());
@@ -153,7 +167,7 @@ public class BindSink implements AnalysisRuleFactory {
                                 if (castExpr instanceof NamedExpression) {
                                     castExprs.add(((NamedExpression) castExpr));
                                 } else {
-                                    castExprs.add(new Alias(castExpr, castExpr.toSql()));
+                                    castExprs.add(new Alias(castExpr));
                                 }
                             }
                             if (!castExprs.equals(fullOutputExprs)) {

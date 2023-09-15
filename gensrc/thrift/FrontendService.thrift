@@ -308,12 +308,15 @@ struct TGetDbsParams {
   3: optional string user_ip    // deprecated
   4: optional Types.TUserIdentity current_user_ident // to replace the user and user ip
   5: optional string catalog
+  6: optional bool get_null_catalog  //if catalog is empty , get dbName ="NULL" and dbId = -1.
 }
 
-// getDbNames returns a list of database names and catalog names
+// getDbNames returns a list of database names , database ids and catalog names ,catalog ids
 struct TGetDbsResult {
   1: optional list<string> dbs
   2: optional list<string> catalogs
+  3: optional list<i64> db_ids
+  4: optional list<i64> catalog_ids
 }
 
 // Arguments to getTableNames, which returns a list of tables that match an
@@ -349,6 +352,15 @@ struct TTableStatus {
 
 struct TListTableStatusResult {
     1: required list<TTableStatus> tables
+}
+
+struct TTableMetadataNameIds {
+    1: optional string name
+    2: optional i64 id 
+}
+
+struct TListTableMetadataNameIdsResult {
+    1: optional list<TTableMetadataNameIds> tables 
 }
 
 // getTableNames returns a list of unqualified table names
@@ -470,6 +482,7 @@ struct TMasterOpRequest {
     23: optional i32 clientNodePort
     24: optional bool syncJournalOnly // if set to true, this request means to do nothing but just sync max journal id of master
     25: optional string defaultCatalog
+    26: optional string defaultDatabase
 }
 
 struct TColumnDefinition {
@@ -614,6 +627,8 @@ struct TStreamLoadPutRequest {
     51: optional i8 enclose
     // only valid when file type is CSV
     52: optional i8 escape
+    53: optional bool memtable_on_sink_node;
+    54: optional bool ignore_mode = false
 }
 
 struct TStreamLoadPutResult {
@@ -621,6 +636,8 @@ struct TStreamLoadPutResult {
     // valid when status is OK
     2: optional PaloInternalService.TExecPlanFragmentParams params
     3: optional PaloInternalService.TPipelineFragmentParams pipeline_params
+    // used for group commit
+    4: optional i64 base_schema_version
 }
 
 struct TStreamLoadMultiTablePutResult {
@@ -628,11 +645,6 @@ struct TStreamLoadMultiTablePutResult {
     // valid when status is OK
     2: optional list<PaloInternalService.TExecPlanFragmentParams> params
     3: optional list<PaloInternalService.TPipelineFragmentParams> pipeline_params
-}
-
-// StreamLoadWith request status
-struct TStreamLoadWithLoadStatusRequest {
-    1: optional Types.TUniqueId loadId
 }
 
 struct TStreamLoadWithLoadStatusResult {
@@ -684,6 +696,7 @@ struct TLoadTxnCommitRequest {
     13: optional string token
     14: optional i64 db_id
     15: optional list<string> tbls
+    16: optional i64 table_id
 }
 
 struct TLoadTxnCommitResult {
@@ -802,6 +815,7 @@ struct TFrontendPingFrontendResult {
     6: required string version
     7: optional i64 lastStartupTime
     8: optional list<TDiskInfo> diskInfos
+    9: optional i64 processUUID
 }
 
 struct TPropertyVal {
@@ -1003,6 +1017,8 @@ enum TBinlogType {
   ALTER_DATABASE_PROPERTY = 8,
   MODIFY_TABLE_PROPERTY = 9,
   BARRIER = 10,
+  MODIFY_PARTITIONS = 11,
+  REPLACE_PARTITIONS = 12,
 }
 
 struct TBinlog {
@@ -1101,7 +1117,7 @@ struct TGetBinlogLagResult {
 
 struct TUpdateFollowerStatsCacheRequest {
     1: optional string key;
-    2: optional string colStats;
+    2: list<string> statsRows;
 }
 
 struct TAutoIncrementRangeRequest {
@@ -1116,6 +1132,21 @@ struct TAutoIncrementRangeResult {
     1: optional Status.TStatus status
     2: optional i64 start
     3: optional i64 length
+}
+
+struct TCreatePartitionRequest {
+    1: optional i64 txn_id
+    2: optional i64 db_id
+    3: optional i64 table_id
+    // for each partition column's partition values. [missing_rows, partition_keys]->Left bound(for range) or Point(for list)
+    4: optional list<list<Exprs.TStringLiteral>> partitionValues
+}
+
+struct TCreatePartitionResult {
+    1: optional Status.TStatus status
+    2: optional list<Descriptors.TOlapTablePartition> partitions
+    3: optional list<Descriptors.TTabletLocation> tablets
+    4: optional list<Descriptors.TNodeInfo> nodes
 }
 
 service FrontendService {
@@ -1134,6 +1165,7 @@ service FrontendService {
     TMasterOpResult forward(1: TMasterOpRequest params)
 
     TListTableStatusResult listTableStatus(1: TGetTablesParams params)
+    TListTableMetadataNameIdsResult listTableMetadataNameIds(1: TGetTablesParams params)
     TListPrivilegesResult listTablePrivilegeStatus(1: TGetTablesParams params)
     TListPrivilegesResult listSchemaPrivilegeStatus(1: TGetTablesParams params)
     TListPrivilegesResult listUserPrivilegeStatus(1: TGetTablesParams params)
@@ -1156,7 +1188,6 @@ service FrontendService {
     TWaitingTxnStatusResult waitingTxnStatus(1: TWaitingTxnStatusRequest request)
 
     TStreamLoadPutResult streamLoadPut(1: TStreamLoadPutRequest request)
-    TStreamLoadWithLoadStatusResult streamLoadWithLoadStatus(1: TStreamLoadWithLoadStatusRequest request)
 
     TStreamLoadMultiTablePutResult streamLoadMultiTablePut(1: TStreamLoadPutRequest request)
 
@@ -1187,4 +1218,6 @@ service FrontendService {
     Status.TStatus updateStatsCache(1: TUpdateFollowerStatsCacheRequest request)
 
     TAutoIncrementRangeResult getAutoIncrementRange(1: TAutoIncrementRangeRequest request)
+
+    TCreatePartitionResult createPartition(1: TCreatePartitionRequest request)
 }

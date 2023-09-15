@@ -23,11 +23,15 @@
 
 #include <map>
 #include <memory>
+#include <mutex>
+#include <shared_mutex>
 #include <string>
 #include <type_traits>
 #include <utility>
 
 #include "common/status.h"
+#include "runtime/exec_env.h"
+#include "runtime/runtime_state.h"
 #include "udf/udf.h"
 #include "util/binary_cast.hpp"
 #include "util/timezone_utils.h"
@@ -65,9 +69,7 @@ class DateV2Value;
 
 namespace doris::vectorized {
 
-struct ConvertTzCtx {
-    ZoneList time_zone_cache;
-};
+using ZoneList = std::unordered_map<std::string, cctz::time_zone>;
 
 template <typename DateValueType, typename ArgType>
 struct ConvertTZImpl {
@@ -90,10 +92,8 @@ struct ConvertTZImpl {
                         const ColumnString* from_tz_column, const ColumnString* to_tz_column,
                         ReturnColumnType* result_column, NullMap& result_null_map,
                         size_t input_rows_count) {
-        auto convert_ctx = reinterpret_cast<ConvertTzCtx*>(
-                context->get_function_state(FunctionContext::FunctionStateScope::THREAD_LOCAL));
-        ZoneList time_zone_cache_;
-        auto& time_zone_cache = convert_ctx ? convert_ctx->time_zone_cache : time_zone_cache_;
+        ZoneList& time_zone_cache = context->state()->exec_env()->global_zone_cache();
+        std::shared_mutex& cache_lock = context->state()->exec_env()->zone_cache_rw_lock();
         for (size_t i = 0; i < input_rows_count; i++) {
             if (result_null_map[i]) {
                 result_column->insert_default();
@@ -101,8 +101,8 @@ struct ConvertTZImpl {
             }
             auto from_tz = from_tz_column->get_data_at(i).to_string();
             auto to_tz = to_tz_column->get_data_at(i).to_string();
-            execute_inner_loop(date_column, time_zone_cache, from_tz, to_tz, result_column,
-                               result_null_map, i);
+            execute_inner_loop(date_column, time_zone_cache, cache_lock, from_tz, to_tz,
+                               result_column, result_null_map, i);
         }
     }
 
@@ -110,10 +110,8 @@ struct ConvertTZImpl {
                                  const ColumnString* from_tz_column,
                                  const ColumnString* to_tz_column, ReturnColumnType* result_column,
                                  NullMap& result_null_map, size_t input_rows_count) {
-        auto convert_ctx = reinterpret_cast<ConvertTzCtx*>(
-                context->get_function_state(FunctionContext::FunctionStateScope::THREAD_LOCAL));
-        ZoneList time_zone_cache_;
-        auto& time_zone_cache = convert_ctx ? convert_ctx->time_zone_cache : time_zone_cache_;
+        ZoneList& time_zone_cache = context->state()->exec_env()->global_zone_cache();
+        std::shared_mutex& cache_lock = context->state()->exec_env()->zone_cache_rw_lock();
 
         auto from_tz = from_tz_column->get_data_at(0).to_string();
         auto to_tz = to_tz_column->get_data_at(0).to_string();
@@ -122,33 +120,46 @@ struct ConvertTZImpl {
                 result_column->insert_default();
                 continue;
             }
-            execute_inner_loop(date_column, time_zone_cache, from_tz, to_tz, result_column,
-                               result_null_map, i);
+            execute_inner_loop(date_column, time_zone_cache, cache_lock, from_tz, to_tz,
+                               result_column, result_null_map, i);
         }
     }
 
     static void execute_inner_loop(const ColumnType* date_column, ZoneList& time_zone_cache,
-                                   const std::string& from_tz, const std::string& to_tz,
-                                   ReturnColumnType* result_column, NullMap& result_null_map,
-                                   const size_t index_now) {
+                                   std::shared_mutex& cache_lock, const std::string& from_tz,
+                                   const std::string& to_tz, ReturnColumnType* result_column,
+                                   NullMap& result_null_map, const size_t index_now) {
         DateValueType ts_value =
                 binary_cast<NativeType, DateValueType>(date_column->get_element(index_now));
         int64_t timestamp;
 
+        cache_lock.lock_shared();
         if (time_zone_cache.find(from_tz) == time_zone_cache.cend()) {
+            cache_lock.unlock_shared();
+            std::unique_lock<std::shared_mutex> lock_(cache_lock);
+            //TODO: the lock upgrade could be done in find_... function only when we push value into the hashmap
             if (!TimezoneUtils::find_cctz_time_zone(from_tz, time_zone_cache[from_tz])) {
+                time_zone_cache.erase(to_tz);
                 result_null_map[index_now] = true;
                 result_column->insert_default();
                 return;
             }
+        } else {
+            cache_lock.unlock_shared();
         }
 
+        cache_lock.lock_shared();
         if (time_zone_cache.find(to_tz) == time_zone_cache.cend()) {
+            cache_lock.unlock_shared();
+            std::unique_lock<std::shared_mutex> lock_(cache_lock);
             if (!TimezoneUtils::find_cctz_time_zone(to_tz, time_zone_cache[to_tz])) {
+                time_zone_cache.erase(to_tz);
                 result_null_map[index_now] = true;
                 result_column->insert_default();
                 return;
             }
+        } else {
+            cache_lock.unlock_shared();
         }
 
         if (!ts_value.unix_timestamp(&timestamp, time_zone_cache[from_tz])) {
@@ -200,14 +211,6 @@ public:
     }
 
     bool use_default_implementation_for_nulls() const override { return false; }
-
-    Status open(FunctionContext* context, FunctionContext::FunctionStateScope scope) override {
-        if (scope != FunctionContext::THREAD_LOCAL) {
-            return Status::OK();
-        }
-        context->set_function_state(scope, std::make_unique<ConvertTzCtx>());
-        return Status::OK();
-    }
 
     Status close(FunctionContext* context, FunctionContext::FunctionStateScope scope) override {
         return Status::OK();

@@ -25,10 +25,12 @@ import org.apache.doris.analysis.FloatLiteral;
 import org.apache.doris.analysis.IntLiteral;
 import org.apache.doris.analysis.LargeIntLiteral;
 import org.apache.doris.analysis.LiteralExpr;
+import org.apache.doris.analysis.SetType;
 import org.apache.doris.analysis.StatementBase;
 import org.apache.doris.analysis.StringLiteral;
 import org.apache.doris.analysis.TableName;
 import org.apache.doris.analysis.UserIdentity;
+import org.apache.doris.analysis.VariableExpr;
 import org.apache.doris.catalog.ArrayType;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.DatabaseIf;
@@ -44,10 +46,12 @@ import org.apache.doris.catalog.StructType;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.catalog.VariantType;
+import org.apache.doris.catalog.external.ExternalTable;
 import org.apache.doris.catalog.external.HMSExternalTable;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
+import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.HMSExternalCatalog;
@@ -61,12 +65,13 @@ import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.QueryState;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.qe.StmtExecutor;
-import org.apache.doris.statistics.AnalysisInfo;
+import org.apache.doris.qe.VariableMgr;
 import org.apache.doris.statistics.ColumnStatistic;
 import org.apache.doris.statistics.ColumnStatisticBuilder;
 import org.apache.doris.statistics.Histogram;
+import org.apache.doris.statistics.ResultRow;
 import org.apache.doris.statistics.StatisticConstants;
-import org.apache.doris.statistics.util.InternalQueryResult.ResultRow;
+import org.apache.doris.system.Frontend;
 import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.thrift.TUniqueId;
 
@@ -83,9 +88,12 @@ import org.apache.iceberg.TableScan;
 import org.apache.iceberg.types.Types;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
-import org.apache.thrift.TException;
 
+import java.net.InetSocketAddress;
 import java.text.SimpleDateFormat;
+import java.time.LocalTime;
+import java.time.format.DateTimeFormatter;
+import java.time.format.DateTimeParseException;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
@@ -104,7 +112,6 @@ public class StatisticsUtil {
     private static final Logger LOG = LogManager.getLogger(StatisticsUtil.class);
 
     private static final String ID_DELIMITER = "-";
-    private static final String VALUES_DELIMITER = ",";
 
     private static final String TOTAL_SIZE = "totalSize";
     private static final String NUM_ROWS = "numRows";
@@ -144,16 +151,6 @@ public class StatisticsUtil {
         }
     }
 
-    public static List<AnalysisInfo> deserializeToAnalysisJob(List<ResultRow> resultBatches)
-            throws TException {
-        if (CollectionUtils.isEmpty(resultBatches)) {
-            return Collections.emptyList();
-        }
-        return resultBatches.stream()
-                .map(AnalysisInfo::fromResultRow)
-                .collect(Collectors.toList());
-    }
-
     public static ColumnStatistic deserializeToColumnStatistics(List<ResultRow> resultBatches)
             throws Exception {
         if (CollectionUtils.isEmpty(resultBatches)) {
@@ -168,6 +165,10 @@ public class StatisticsUtil {
     }
 
     public static AutoCloseConnectContext buildConnectContext() {
+        return buildConnectContext(false);
+    }
+
+    public static AutoCloseConnectContext buildConnectContext(boolean limitScan) {
         ConnectContext connectContext = new ConnectContext();
         SessionVariable sessionVariable = connectContext.getSessionVariable();
         sessionVariable.internalSession = true;
@@ -178,8 +179,10 @@ public class StatisticsUtil {
         sessionVariable.parallelPipelineTaskNum = Config.statistics_sql_parallel_exec_instance_num;
         sessionVariable.setEnableNereidsPlanner(false);
         sessionVariable.enableProfile = false;
+        sessionVariable.enableScanRunSerial = limitScan;
         sessionVariable.queryTimeoutS = Config.analyze_task_timeout_in_hours * 60 * 60;
         sessionVariable.insertTimeoutS = Config.analyze_task_timeout_in_hours * 60 * 60;
+        sessionVariable.enableFileCache = false;
         connectContext.setEnv(Env.getCurrentEnv());
         connectContext.setDatabase(FeConstants.INTERNAL_DB_NAME);
         connectContext.setQualifiedUser(UserIdentity.ROOT.getQualifiedUser());
@@ -221,7 +224,7 @@ public class StatisticsUtil {
             case DOUBLE:
                 return new FloatLiteral(columnValue);
             case DECIMALV2:
-                //no need to check precision and scale, since V2 is fixed point
+                // no need to check precision and scale, since V2 is fixed point
                 return new DecimalLiteral(columnValue);
             case DECIMAL32:
             case DECIMAL64:
@@ -397,11 +400,12 @@ public class StatisticsUtil {
                             .findTable(InternalCatalog.INTERNAL_CATALOG_NAME,
                                     dbName,
                                     StatisticConstants.STATISTIC_TBL_NAME));
-            statsTbls.add(
-                    (OlapTable) StatisticsUtil
-                            .findTable(InternalCatalog.INTERNAL_CATALOG_NAME,
-                                    dbName,
-                                    StatisticConstants.HISTOGRAM_TBL_NAME));
+            // uncomment it when hist is available for user.
+            // statsTbls.add(
+            //         (OlapTable) StatisticsUtil
+            //                 .findTable(InternalCatalog.INTERNAL_CATALOG_NAME,
+            //                         dbName,
+            //                         StatisticConstants.HISTOGRAM_TBL_NAME));
         } catch (Throwable t) {
             return false;
         }
@@ -480,9 +484,9 @@ public class StatisticsUtil {
      * when update_rows < row_count, the health degree is 100 (1 - update_rows row_count).
      *
      * @param updatedRows The number of rows updated by the table
-     * @return Health, the value range is [0, 100], the larger the value,
      * @param totalRows The current number of rows in the table
-     * the healthier the statistics of the table
+     *         the healthier the statistics of the table
+     * @return Health, the value range is [0, 100], the larger the value,
      */
     public static int getTableHealth(long totalRows, long updatedRows) {
         if (updatedRows >= totalRows) {
@@ -496,10 +500,12 @@ public class StatisticsUtil {
     /**
      * Estimate hive table row count.
      * First get it from remote table parameters. If not found, estimate it : totalSize/estimatedRowSize
+     *
      * @param table Hive HMSExternalTable to estimate row count.
+     * @param isInit Flag to indicate if this is called during init. To avoid recursively get schema.
      * @return estimated row count
      */
-    public static long getHiveRowCount(HMSExternalTable table) {
+    public static long getHiveRowCount(HMSExternalTable table, boolean isInit) {
         Map<String, String> parameters = table.getRemoteTable().getParameters();
         if (parameters == null) {
             return -1;
@@ -508,7 +514,7 @@ public class StatisticsUtil {
         if (parameters.containsKey(NUM_ROWS)) {
             return Long.parseLong(parameters.get(NUM_ROWS));
         }
-        if (!parameters.containsKey(TOTAL_SIZE)) {
+        if (!parameters.containsKey(TOTAL_SIZE) || isInit) {
             return -1;
         }
         // Table parameters doesn't contain row count but contain total size. Estimate row count : totalSize/rowSize
@@ -526,6 +532,7 @@ public class StatisticsUtil {
     /**
      * Estimate iceberg table row count.
      * Get the row count by adding all task file recordCount.
+     *
      * @param table Iceberg HMSExternalTable to estimate row count.
      * @return estimated row count
      */
@@ -549,6 +556,7 @@ public class StatisticsUtil {
 
     /**
      * Estimate hive table row count : totalFileSize/estimatedRowSize
+     *
      * @param table Hive HMSExternalTable to estimate row count.
      * @return estimated row count
      */
@@ -623,6 +631,7 @@ public class StatisticsUtil {
 
     /**
      * Get Iceberg column statistics.
+     *
      * @param colName
      * @param table Iceberg table.
      * @return Optional Column statistic for the given column.
@@ -682,5 +691,79 @@ public class StatisticsUtil {
         } catch (InterruptedException ignore) {
             // IGNORE
         }
+    }
+
+    public static String quote(String str) {
+        return "'" + str + "'";
+    }
+
+    public static boolean isMaster(Frontend frontend) {
+        InetSocketAddress socketAddress = new InetSocketAddress(frontend.getHost(), frontend.getEditLogPort());
+        return Env.getCurrentEnv().getHaProtocol().getLeader().equals(socketAddress);
+    }
+
+    public static String escapeSQL(String str) {
+        if (str == null) {
+            return null;
+        }
+        return org.apache.commons.lang3.StringUtils.replace(str, "'", "''");
+    }
+
+    public static boolean isExternalTable(String catalogName, String dbName, String tblName) {
+        TableIf table;
+        try {
+            table = StatisticsUtil.findTable(catalogName, dbName, tblName);
+        } catch (Throwable e) {
+            LOG.warn(e.getMessage());
+            return false;
+        }
+        return table instanceof ExternalTable;
+    }
+
+    public static boolean checkAnalyzeTime(LocalTime now) {
+        try {
+            Pair<LocalTime, LocalTime> range = findRangeFromGlobalSessionVar();
+            DateTimeFormatter timeFormatter = DateTimeFormatter.ofPattern("HH:mm:ss");
+            LocalTime start = range == null
+                    ? LocalTime.parse(Config.full_auto_analyze_start_time, timeFormatter) : range.first;
+            LocalTime end = range == null
+                    ? LocalTime.parse(Config.full_auto_analyze_end_time, timeFormatter) : range.second;
+
+            if (start.isAfter(end) && (now.isAfter(start) || now.isBefore(end))) {
+                return true;
+            } else {
+                return now.isAfter(start) && now.isBefore(end);
+            }
+        } catch (DateTimeParseException e) {
+            LOG.warn("Parse analyze start/end time format fail", e);
+            return true;
+        }
+    }
+
+    private static Pair<LocalTime, LocalTime> findRangeFromGlobalSessionVar() {
+        try {
+            String startTime =
+                    findRangeFromGlobalSessionVar(SessionVariable.FULL_AUTO_ANALYZE_START_TIME)
+                            .fullAutoAnalyzeStartTime;
+            if (StringUtils.isEmpty(startTime)) {
+                return null;
+            }
+            String endTime = findRangeFromGlobalSessionVar(SessionVariable.FULL_AUTO_ANALYZE_END_TIME)
+                    .fullAutoAnalyzeEndTime;
+            if (StringUtils.isEmpty(startTime)) {
+                return null;
+            }
+            DateTimeFormatter timeFormatter = DateTimeFormatter.ofPattern("HH:mm:ss");
+            return Pair.of(LocalTime.parse(startTime, timeFormatter), LocalTime.parse(endTime, timeFormatter));
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    private static SessionVariable findRangeFromGlobalSessionVar(String varName) throws Exception {
+        SessionVariable sessionVariable =  VariableMgr.newSessionVariable();
+        VariableExpr variableExpr = new VariableExpr(varName, SetType.GLOBAL);
+        VariableMgr.getValue(sessionVariable, variableExpr);
+        return sessionVariable;
     }
 }

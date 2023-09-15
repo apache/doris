@@ -190,7 +190,8 @@ public final class HiveUtil {
             return true;
         }
 
-        // use reflection to get isSplittable method on FileInputFormat
+        // use reflection to get isSplitable method on FileInputFormat
+        // ATTN: the method name is actually "isSplitable", but the right spell is "isSplittable"
         Method method = null;
         for (Class<?> clazz = inputFormat.getClass(); clazz != null; clazz = clazz.getSuperclass()) {
             try {

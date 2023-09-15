@@ -108,7 +108,7 @@ std::unique_ptr<segment_v2::SegmentWriter> SegcompactionWorker::_create_segcompa
     Status status;
     std::unique_ptr<segment_v2::SegmentWriter> writer = nullptr;
     status = _create_segment_writer_for_segcompaction(&writer, begin, end);
-    if (status != Status::OK() || writer == nullptr) {
+    if (!status.ok() || writer == nullptr) {
         LOG(ERROR) << "failed to create segment writer for begin:" << begin << " end:" << end
                    << " path:" << writer->get_data_dir()->path() << " status:" << status;
         return nullptr;

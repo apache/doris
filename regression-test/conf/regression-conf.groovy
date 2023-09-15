@@ -85,6 +85,7 @@ pg_14_port=5442
 oracle_11_port=1521
 sqlserver_2022_port=1433
 clickhouse_22_port=8123
+doris_port=9030
 
 // hive catalog test config
 // To enable hive test, you need first start hive container.
@@ -92,6 +93,12 @@ clickhouse_22_port=8123
 enableHiveTest=false
 hms_port=9183
 hdfs_port=8120
+
+// kafka test config
+// to enable kafka test, you need firstly to start kafka container
+// See `docker/thirdparties/start-thirdparties-docker.sh`
+enableKafkaTest=false
+kafka_port=19193
 
 // elasticsearch catalog test config
 // See `docker/thirdparties/start-thirdparties-docker.sh`

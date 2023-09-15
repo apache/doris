@@ -53,7 +53,7 @@ BrokerMgr::BrokerMgr(ExecEnv* exec_env) : _exec_env(exec_env), _stop_background_
     });
 }
 
-BrokerMgr::~BrokerMgr() {
+void BrokerMgr::stop() {
     DEREGISTER_HOOK_METRIC(broker_count);
     _stop_background_threads_latch.count_down();
     if (_ping_thread) {

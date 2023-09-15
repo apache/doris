@@ -96,14 +96,6 @@ protected:
         _self_profile->add_info_string("EosHost", fmt::format("{}", request.backend_id()));
         bool finished = false;
         auto index_id = request.index_id();
-        // close will reset deltawriter memtable and should deregister writer before it.
-        {
-            std::lock_guard<SpinLock> l(_tablets_channels_lock);
-            auto tablet_channel_it = _tablets_channels.find(index_id);
-            if (tablet_channel_it != _tablets_channels.end()) {
-                tablet_channel_it->second->deregister_memtable_memory_limiter();
-            }
-        }
 
         RETURN_IF_ERROR(channel->close(
                 this, request.sender_id(), request.backend_id(), &finished, request.partition_ids(),
@@ -128,6 +120,7 @@ protected:
 private:
     UniqueId _load_id;
 
+    SpinLock _profile_serialize_lock;
     std::unique_ptr<RuntimeProfile> _profile;
     RuntimeProfile* _self_profile;
     RuntimeProfile::Counter* _add_batch_number_counter = nullptr;
@@ -141,7 +134,6 @@ private:
     // lock protect the tablets channel map
     std::mutex _lock;
     // index id -> tablets channel
-    // when you erase, you should call deregister_writer method in MemTableMemoryLimiter;
     std::unordered_map<int64_t, std::shared_ptr<TabletsChannel>> _tablets_channels;
     SpinLock _tablets_channels_lock;
     // This is to save finished channels id, to handle the retry request.

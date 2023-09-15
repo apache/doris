@@ -19,6 +19,7 @@ package org.apache.doris.nereids.rules.rewrite;
 
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
+import org.apache.doris.nereids.trees.expressions.WindowExpression;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalLimit;
@@ -40,26 +41,27 @@ public class PushdownFilterThroughProject implements RewriteRuleFactory {
     @Override
     public List<Rule> buildRules() {
         return ImmutableList.of(
-            RuleType.PUSHDOWN_FILTER_THROUGH_PROJECT.build(
-                    logicalFilter(logicalProject())
-                            .then(PushdownFilterThroughProject::pushdownFilterThroughProject)
-            ),
+            RuleType.PUSHDOWN_FILTER_THROUGH_PROJECT.build(logicalFilter(logicalProject())
+                    .whenNot(filter -> filter.child().getProjects().stream().anyMatch(
+                            expr -> expr.anyMatch(WindowExpression.class::isInstance)))
+                    .then(PushdownFilterThroughProject::pushdownFilterThroughProject)),
             // filter(project(limit)) will change to filter(limit(project)) by PushdownProjectThroughLimit,
             // then we should change filter(limit(project)) to project(filter(limit))
-            RuleType.PUSHDOWN_FILTER_THROUGH_PROJECT_UNDER_LIMIT.build(
-                    logicalFilter(logicalLimit(logicalProject())).then(filter -> {
-                        LogicalLimit<LogicalProject<Plan>> limit = filter.child();
-                        LogicalProject<Plan> project = limit.child();
+            RuleType.PUSHDOWN_FILTER_THROUGH_PROJECT_UNDER_LIMIT
+                    .build(logicalFilter(logicalLimit(logicalProject()))
+                            .whenNot(filter -> filter.child().child().getProjects().stream()
+                                    .anyMatch(expr -> expr
+                                            .anyMatch(WindowExpression.class::isInstance)))
+                            .then(filter -> {
+                                LogicalLimit<LogicalProject<Plan>> limit = filter.child();
+                                LogicalProject<Plan> project = limit.child();
 
-                        return project.withProjectsAndChild(
-                                project.getProjects(),
-                                new LogicalFilter<>(
-                                        ExpressionUtils.replace(filter.getConjuncts(), project.getAliasToProducer()),
-                                        limit.withChildren(project.child())
-                                )
-                        );
-                    })
-            )
+                                return project.withProjectsAndChild(project.getProjects(),
+                                        new LogicalFilter<>(
+                                                ExpressionUtils.replace(filter.getConjuncts(),
+                                                        project.getAliasToProducer()),
+                                                limit.withChildren(project.child())));
+                            }))
         );
     }
 

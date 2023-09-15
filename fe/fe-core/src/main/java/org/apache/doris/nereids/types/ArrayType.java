@@ -33,7 +33,7 @@ public class ArrayType extends DataType {
     private final DataType itemType;
     private final boolean containsNull;
 
-    public ArrayType(DataType itemType, boolean containsNull) {
+    private ArrayType(DataType itemType, boolean containsNull) {
         this.itemType = Objects.requireNonNull(itemType, "itemType can not be null");
         this.containsNull = containsNull;
     }
@@ -47,6 +47,11 @@ public class ArrayType extends DataType {
             return SYSTEM_DEFAULT;
         }
         return new ArrayType(itemType, containsNull);
+    }
+
+    @Override
+    public DataType conversion() {
+        return new ArrayType(itemType.conversion(), containsNull);
     }
 
     public DataType getItemType() {
@@ -65,11 +70,6 @@ public class ArrayType extends DataType {
     @Override
     public String simpleString() {
         return "array";
-    }
-
-    @Override
-    public DataType defaultConcreteType() {
-        return SYSTEM_DEFAULT;
     }
 
     @Override

@@ -84,9 +84,12 @@ public class StreamLoadTask implements LoadTaskInfo {
     private List<String> hiddenColumns;
     private boolean trimDoubleQuotes = false;
     private boolean isPartialUpdate = false;
+    private boolean isIgnoreMode = false;
 
     private int skipLines = 0;
     private boolean enableProfile = false;
+
+    private boolean memtableOnSinkNode = false;
 
     private byte enclose = 0;
 
@@ -297,6 +300,19 @@ public class StreamLoadTask implements LoadTaskInfo {
         return isPartialUpdate;
     }
 
+    @Override
+    public boolean isMemtableOnSinkNode() {
+        return memtableOnSinkNode;
+    }
+
+    public void setMemtableOnSinkNode(boolean memtableOnSinkNode) {
+        this.memtableOnSinkNode = memtableOnSinkNode;
+    }
+
+    public boolean isIgnoreMode() {
+        return isIgnoreMode;
+    }
+
     public static StreamLoadTask fromTStreamLoadPutRequest(TStreamLoadPutRequest request) throws UserException {
         StreamLoadTask streamLoadTask = new StreamLoadTask(request.getLoadId(), request.getTxnId(),
                 request.getFileType(), request.getFormatType(),
@@ -429,6 +445,12 @@ public class StreamLoadTask implements LoadTaskInfo {
         }
         if (request.isSetPartialUpdate()) {
             isPartialUpdate = request.isPartialUpdate();
+        }
+        if (request.isSetMemtableOnSinkNode()) {
+            this.memtableOnSinkNode = request.isMemtableOnSinkNode();
+        }
+        if (request.isSetIgnoreMode()) {
+            isIgnoreMode = request.isIgnoreMode();
         }
     }
 

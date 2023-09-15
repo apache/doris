@@ -41,6 +41,10 @@ class ThreadPoolToken;
 class RuntimeState;
 class TupleDescriptor;
 
+namespace pipeline {
+class ScanLocalStateBase;
+} // namespace pipeline
+
 namespace taskgroup {
 class TaskGroup;
 } // namespace taskgroup
@@ -66,7 +70,8 @@ public:
     ScannerContext(RuntimeState* state_, VScanNode* parent,
                    const TupleDescriptor* output_tuple_desc,
                    const std::list<VScannerSPtr>& scanners_, int64_t limit_,
-                   int64_t max_bytes_in_blocks_queue_, const int num_parallel_instances = 0);
+                   int64_t max_bytes_in_blocks_queue_, const int num_parallel_instances = 0,
+                   pipeline::ScanLocalStateBase* local_state = nullptr);
 
     virtual ~ScannerContext() = default;
     virtual Status init();
@@ -121,11 +126,12 @@ public:
 
     void get_next_batch_of_scanners(std::list<VScannerSPtr>* current_run);
 
-    void clear_and_join(VScanNode* node, RuntimeState* state);
+    template <typename Parent>
+    void clear_and_join(Parent* parent, RuntimeState* state);
 
     bool no_schedule();
 
-    std::string debug_string();
+    virtual std::string debug_string();
 
     RuntimeState* state() { return _state; }
 
@@ -133,7 +139,7 @@ public:
     void incr_ctx_scheduling_time(int64_t num) { _scanner_ctx_sched_time->update(num); }
     void incr_num_scanner_scheduling(int64_t num) { _scanner_sched_counter->update(num); }
 
-    VScanNode* parent() { return _parent; }
+    std::string parent_name();
 
     virtual bool empty_in_queue(int id);
 
@@ -158,19 +164,19 @@ public:
     // the unique id of this context
     std::string ctx_id;
     int32_t queue_idx = -1;
-    ThreadPoolToken* thread_token;
+    ThreadPoolToken* thread_token = nullptr;
     std::vector<bthread_t> _btids;
 
 private:
-    Status _close_and_clear_scanners(VScanNode* node, RuntimeState* state);
+    template <typename Parent>
+    Status _close_and_clear_scanners(Parent* parent, RuntimeState* state);
 
 protected:
     virtual void _dispose_coloate_blocks_not_in_queue() {}
 
-    void _init_free_block(int pre_alloc_block_count, int real_block_size);
-
     RuntimeState* _state;
     VScanNode* _parent;
+    pipeline::ScanLocalStateBase* _local_state;
 
     // the comment of same fields in VScanNode
     const TupleDescriptor* _output_tuple_desc;

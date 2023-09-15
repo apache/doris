@@ -282,9 +282,20 @@ update_submodule() {
     exit_code=$?
     set -e
     if [[ "${exit_code}" -ne 0 ]]; then
-        echo "Update ${submodule_name} submodule failed, start to download and extract ${submodule_name} package ..."
+        set +e
+        # try to get submodule's current commit
+        submodule_commit=$(git ls-tree HEAD "${submodule_path}" | awk '{print $3}')
+        exit_code=$?
+        if [[ "${exit_code}" = "0" ]]; then
+            commit_specific_url=$(echo "${archive_url}" | sed "s/refs\/heads/${submodule_commit}/")
+        else
+            commit_specific_url="${archive_url}"
+        fi
+        set -e
+        echo "Update ${submodule_name} submodule failed, start to download and extract ${commit_specific_url}"
+
         mkdir -p "${DORIS_HOME}/${submodule_path}"
-        curl -L "${archive_url}" | tar -xz -C "${DORIS_HOME}/${submodule_path}" --strip-components=1
+        curl -L "${commit_specific_url}" | tar -xz -C "${DORIS_HOME}/${submodule_path}" --strip-components=1
     fi
 }
 
@@ -457,6 +468,7 @@ if [[ "${BUILD_BE_JAVA_EXTENSIONS}" -eq 1 ]]; then
     modules+=("be-java-extensions/paimon-scanner")
     modules+=("be-java-extensions/max-compute-scanner")
     modules+=("be-java-extensions/avro-scanner")
+    modules+=("be-java-extensions/preload-extensions")
 fi
 FE_MODULES="$(
     IFS=','
@@ -627,6 +639,10 @@ if [[ "${OUTPUT_BE_BINARY}" -eq 1 ]]; then
         cp -r -p "${DORIS_THIRDPARTY}/installed/lib/hadoop_hdfs/" "${DORIS_OUTPUT}/be/lib/"
     fi
 
+    if [[ -f "${DORIS_THIRDPARTY}/installed/lib/libz.so" ]]; then
+        cp -r -p "${DORIS_THIRDPARTY}/installed/lib/libz.so"* "${DORIS_OUTPUT}/be/lib/"
+    fi
+
     if [[ "${BUILD_BE_JAVA_EXTENSIONS_FALSE_IN_CONF}" -eq 1 ]]; then
         echo -e "\033[33;1mWARNNING: \033[37;1mDisable Java UDF support in be.conf due to the BE was built without Java UDF.\033[0m"
         cat >>"${DORIS_OUTPUT}/be/conf/be.conf" <<EOF
@@ -673,6 +689,7 @@ EOF
     extensions_modules+=("paimon-scanner")
     extensions_modules+=("max-compute-scanner")
     extensions_modules+=("avro-scanner")
+    extensions_modules+=("preload-extensions")
 
     BE_JAVA_EXTENSIONS_DIR="${DORIS_OUTPUT}/be/lib/java_extensions/"
     rm -rf "${BE_JAVA_EXTENSIONS_DIR}"

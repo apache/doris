@@ -500,14 +500,20 @@ public class DeleteHandler implements Writable {
         TransactionStatus status = null;
         try {
             unprotectedCommitJob(job, db, table, timeoutMs);
-            status = Env.getCurrentGlobalTransactionMgr()
-                    .getTransactionState(db.getId(), job.getTransactionId()).getTransactionStatus();
+            GlobalTransactionMgr transactionMgr = Env.getCurrentGlobalTransactionMgr();
+            long dbId = db.getId();
+            long transactionId = job.getTransactionId();
+            TransactionState transactionState = transactionMgr.getTransactionState(dbId, transactionId);
+            Preconditions.checkNotNull(transactionState,
+                    "got null txn state with: dbId=%s, txnId=%s", dbId, transactionId);
+            status = transactionState.getTransactionStatus();
         } catch (UserException e) {
             if (cancelJob(job, CancelType.COMMIT_FAIL, e.getMessage())) {
                 throw new DdlException(e.getMessage(), e);
             }
         }
 
+        Preconditions.checkNotNull(status, "got null txn status, jobId=%s", job.getId());
         StringBuilder sb = new StringBuilder();
         sb.append("{'label':'").append(job.getLabel()).append("', 'status':'").append(status.name());
         sb.append("', 'txnId':'").append(job.getTransactionId()).append("'");
@@ -688,11 +694,19 @@ public class DeleteHandler implements Writable {
             // Due to rounding errors, most floating-point numbers end up being slightly imprecise,
             // it also means that numbers expected to be equal often differ slightly, so we do not allow compare with
             // floating-point numbers, floating-point number not allowed in where clause
-            if (!column.isKey() && table.getKeysType() != KeysType.DUP_KEYS
-                    || column.getDataType().isFloatingPointType()) {
-                // ErrorReport.reportDdlException(ErrorCode.ERR_NOT_KEY_COLUMN, columnName);
-                throw new DdlException("Column[" + columnName + "] is not key column or storage model "
-                        + "is not duplicate or column type is float or double.");
+            if (column.getDataType().isFloatingPointType()) {
+                throw new DdlException("Column[" + columnName + "] type is float or double.");
+            }
+            if (!column.isKey()) {
+                if (table.getKeysType() == KeysType.AGG_KEYS) {
+                    throw new DdlException("delete predicate on value column only supports Unique table with"
+                            + " merge-on-write enabled and Duplicate table, but " + "Table[" + table.getName()
+                                    + "] is an Aggregate table.");
+                } else if (table.getKeysType() == KeysType.UNIQUE_KEYS && !table.getEnableUniqueKeyMergeOnWrite()) {
+                    throw new DdlException("delete predicate on value column only supports Unique table with"
+                            + " merge-on-write enabled and Duplicate table, but " + "Table[" + table.getName()
+                                    + "] is an Aggregate table.");
+                }
             }
 
             if (condition instanceof BinaryPredicate) {

@@ -112,7 +112,7 @@ Note that the comment must start with /*+ and can only follow the SELECT.
     
 * `auto_increment_increment`
 
-    Used for compatibility with MySQL clients. No practical effect.
+    Used for compatibility with MySQL clients. No practical effect. Although Doris already has [AUTO_INCREMENT](../sql-manual/sql-reference/Data-Definition-Statements/Create/CREATE-TABLE#column_definition_list) feature, but this parameter does not affect the behavior of 'AUTO_INCREMENT'. Same as auto_increment_offset.
     
 * `autocommit`
 
@@ -390,7 +390,7 @@ Translated with www.DeepL.com/Translator (free version)
     
 * `sql_select_limit`
 
-    Used for compatibility with MySQL clients. No practical effect.
+    Used to limit return rows of select stmt, including select clause of insert stmt.
 
 * `system_time_zone`
 
@@ -646,7 +646,7 @@ Translated with www.DeepL.com/Translator (free version)
 
     <version since="dev"></version>
 
-    If set to true, for query requests, the actual result set will no longer be returned, but only the number of rows. The default is false.
+    If set to true, for query requests, the actual result set will no longer be returned, but only the number of rows, while for load and insert, the data is discarded by sink node, no writing happens. The default is false.
 
     This parameter can be used to avoid the time-consuming result set transmission when testing a large number of data sets, and focus on the time-consuming underlying query execution.
 
@@ -676,6 +676,21 @@ Translated with www.DeepL.com/Translator (free version)
   Whether to truncate char or varchar columns according to the table's schema. The default is false.
 
   Because the maximum length of the char or varchar column in the schema of the table is inconsistent with the schema in the underlying parquet or orc file. At this time, if the option is turned on, it will be truncated according to the maximum length in the schema of the table.
+
+* `jdbc_clickhouse_query_final`
+
+  Whether to add the final keyword when using the JDBC Catalog function to query ClickHouse,default is false.
+  
+  It is used for the ReplacingMergeTree table engine of ClickHouse to deduplicate queries.
+
+* `enable_memtable_on_sink_node`
+
+  <version since="2.1.0">
+  Whether to enable MemTable on DataSink node when loading data, default is false.
+  </version>
+
+  Build MemTable on DataSink node, and send segments to other backends through brpc streaming.
+  It reduces duplicate work among replicas, and saves time in data serialization & deserialization.
 
 ***
 

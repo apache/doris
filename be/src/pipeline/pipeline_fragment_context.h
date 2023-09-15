@@ -63,38 +63,48 @@ public:
                             const int fragment_id, int backend_num,
                             std::shared_ptr<QueryContext> query_ctx, ExecEnv* exec_env,
                             const std::function<void(RuntimeState*, Status*)>& call_back,
-                            const report_status_callback& report_status_cb);
+                            const report_status_callback& report_status_cb,
+                            bool group_commit = false);
 
-    ~PipelineFragmentContext();
+    virtual ~PipelineFragmentContext();
 
     PipelinePtr add_pipeline();
 
     TUniqueId get_fragment_instance_id() { return _fragment_instance_id; }
 
-    RuntimeState* get_runtime_state() { return _runtime_state.get(); }
+    virtual RuntimeState* get_runtime_state(UniqueId /*fragment_instance_id*/) {
+        return _runtime_state.get();
+    }
 
     // should be protected by lock?
-    bool is_canceled() const { return _runtime_state->is_cancelled(); }
+    [[nodiscard]] bool is_canceled() const { return _runtime_state->is_cancelled(); }
 
     int32_t next_operator_builder_id() { return _next_operator_builder_id++; }
 
     Status prepare(const doris::TPipelineFragmentParams& request, const size_t idx);
 
-    Status submit();
+    virtual Status prepare(const doris::TPipelineFragmentParams& request) {
+        return Status::InternalError("Pipeline fragment context do not implement prepare");
+    }
 
-    void close_if_prepare_failed();
-    void close_sink();
+    virtual Status submit();
+
+    virtual void close_if_prepare_failed();
+    virtual void close_sink();
 
     void set_is_report_success(bool is_report_success) { _is_report_success = is_report_success; }
 
-    void cancel(const PPlanFragmentCancelReason& reason = PPlanFragmentCancelReason::INTERNAL_ERROR,
-                const std::string& msg = "");
+    virtual void cancel(
+            const PPlanFragmentCancelReason& reason = PPlanFragmentCancelReason::INTERNAL_ERROR,
+            const std::string& msg = "");
 
     // TODO: Support pipeline runtime filter
 
     QueryContext* get_query_context() { return _query_ctx.get(); }
 
     TUniqueId get_query_id() const { return _query_id; }
+
+    [[nodiscard]] int get_fragment_id() const { return _fragment_id; }
 
     void close_a_pipeline();
 
@@ -105,29 +115,38 @@ public:
         _merge_controller_handler = handler;
     }
 
+    virtual void add_merge_controller_handler(
+            std::shared_ptr<RuntimeFilterMergeControllerEntity>& handler) {}
+
     void send_report(bool);
 
-    void report_profile();
+    virtual void report_profile();
 
     Status update_status(Status status) {
         std::lock_guard<std::mutex> l(_status_lock);
-        if (!status.ok() && _exec_status.ok()) {
-            _exec_status = status;
+        if (!status.ok() && _query_ctx->exec_status().ok()) {
+            _query_ctx->set_exec_status(status);
         }
-        return _exec_status;
+        return _query_ctx->exec_status();
     }
 
     taskgroup::TaskGroupPipelineTaskEntity* get_task_group_entity() const {
         return _task_group_entity;
     }
 
-private:
+    bool is_group_commit() { return _group_commit; }
+    virtual void instance_ids(std::vector<TUniqueId>& ins_ids) const {
+        ins_ids.resize(1);
+        ins_ids[0] = _fragment_instance_id;
+    }
+
+protected:
     Status _create_sink(int sender_id, const TDataSink& t_data_sink, RuntimeState* state);
     Status _build_pipelines(ExecNode*, PipelinePtr);
-    Status _build_pipeline_tasks(const doris::TPipelineFragmentParams& request);
+    virtual Status _build_pipeline_tasks(const doris::TPipelineFragmentParams& request);
     template <bool is_intersect>
     Status _build_operators_for_set_operation_node(ExecNode*, PipelinePtr);
-    void _close_action();
+    virtual void _close_action();
     void _stop_report_thread();
     void _set_is_report_on_cancel(bool val) { _is_report_on_cancel = val; }
 
@@ -144,9 +163,6 @@ private:
     bool _submitted = false;
 
     std::mutex _status_lock;
-    Status _exec_status;
-    PPlanFragmentCancelReason _cancel_reason;
-    std::string _cancel_msg;
 
     Pipelines _pipelines;
     PipelineId _next_pipeline_id = 0;
@@ -155,7 +171,6 @@ private:
     // After prepared, `_total_tasks` is equal to the size of `_tasks`.
     // When submit fail, `_total_tasks` is equal to the number of tasks submitted.
     int _total_tasks = 0;
-    std::vector<std::unique_ptr<PipelineTask>> _tasks;
 
     int32_t _next_operator_builder_id = 10000;
 
@@ -200,6 +215,10 @@ private:
     // If this is set to false, and '_is_report_success' is false as well,
     // This executor will not report status to FE on being cancelled.
     bool _is_report_on_cancel;
+
+private:
+    std::vector<std::unique_ptr<PipelineTask>> _tasks;
+    bool _group_commit;
 };
 } // namespace pipeline
 } // namespace doris

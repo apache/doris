@@ -21,6 +21,7 @@ package org.apache.doris.datasource.jdbc.client;
 import java.util.Map;
 
 public class JdbcClientConfig {
+    private String catalog;
     private String user;
     private String password;
     private String jdbcUrl;
@@ -30,6 +31,15 @@ public class JdbcClientConfig {
     private String isLowerCaseTableNames;
     private Map<String, Boolean> includeDatabaseMap;
     private Map<String, Boolean> excludeDatabaseMap;
+
+    public String getCatalog() {
+        return catalog;
+    }
+
+    public JdbcClientConfig setCatalog(String catalog) {
+        this.catalog = catalog;
+        return this;
+    }
 
     public String getUser() {
         return user;

@@ -21,16 +21,21 @@
 
 #include <type_traits>
 
-#include "gutil/casts.h"
 #include "vec/columns/column_const.h"
 #include "vec/io/io_helper.h"
 
 namespace doris {
 namespace vectorized {
 
-void DataTypeDateV2SerDe::serialize_one_cell_to_text(const IColumn& column, int row_num,
+void DataTypeDateV2SerDe::serialize_column_to_json(const IColumn& column, int start_idx,
+                                                   int end_idx, BufferWritable& bw,
+                                                   FormatOptions& options) const {
+    SERIALIZE_COLUMN_TO_JSON()
+}
+
+void DataTypeDateV2SerDe::serialize_one_cell_to_json(const IColumn& column, int row_num,
                                                      BufferWritable& bw,
-                                                     const FormatOptions& options) const {
+                                                     FormatOptions& options) const {
     auto result = check_column_const_set_readability(column, row_num);
     ColumnPtr ptr = result.first;
     row_num = result.second;
@@ -42,22 +47,28 @@ void DataTypeDateV2SerDe::serialize_one_cell_to_text(const IColumn& column, int 
     char* pos = val.to_string(buf);
     // DateTime to_string the end is /0
     bw.write(buf, pos - buf - 1);
-    bw.commit();
 }
 
-Status DataTypeDateV2SerDe::deserialize_one_cell_from_text(IColumn& column, ReadBuffer& rb,
+Status DataTypeDateV2SerDe::deserialize_column_from_json_vector(
+        IColumn& column, std::vector<Slice>& slices, int* num_deserialized,
+        const FormatOptions& options) const {
+    DESERIALIZE_COLUMN_FROM_JSON_VECTOR()
+    return Status::OK();
+}
+
+Status DataTypeDateV2SerDe::deserialize_one_cell_from_json(IColumn& column, Slice& slice,
                                                            const FormatOptions& options) const {
     auto& column_data = assert_cast<ColumnUInt32&>(column);
     UInt32 val = 0;
     if (options.date_olap_format) {
         tm time_tm;
-        char* res = strptime(rb.position(), "%Y-%m-%d", &time_tm);
+        char* res = strptime(slice.data, "%Y-%m-%d", &time_tm);
         if (nullptr != res) {
             val = ((time_tm.tm_year + 1900) << 9) | ((time_tm.tm_mon + 1) << 5) | time_tm.tm_mday;
         } else {
             val = doris::vectorized::MIN_DATE_V2;
         }
-    } else if (!read_date_v2_text_impl<UInt32>(val, rb)) {
+    } else if (ReadBuffer rb(slice.data, slice.size); !read_date_v2_text_impl<UInt32>(val, rb)) {
         return Status::InvalidArgument("parse date fail, string: '{}'",
                                        std::string(rb.position(), rb.count()).c_str());
     }
@@ -89,7 +100,7 @@ void DataTypeDateV2SerDe::read_column_from_arrow(IColumn& column, const arrow::A
                                                  int start, int end,
                                                  const cctz::time_zone& ctz) const {
     auto& col_data = static_cast<ColumnVector<UInt32>&>(column).get_data();
-    auto concrete_array = down_cast<const arrow::Date64Array*>(arrow_array);
+    auto concrete_array = dynamic_cast<const arrow::Date64Array*>(arrow_array);
     int64_t divisor = 1;
     int64_t multiplier = 1;
 

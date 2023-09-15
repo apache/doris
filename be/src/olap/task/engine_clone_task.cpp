@@ -179,7 +179,8 @@ Status EngineCloneTask::_do_clone() {
         string local_shard_root_path;
         DataDir* store = nullptr;
         RETURN_IF_ERROR(StorageEngine::instance()->obtain_shard_path(
-                _clone_req.storage_medium, &local_shard_root_path, &store));
+                _clone_req.storage_medium, _clone_req.dest_path_hash, &local_shard_root_path,
+                &store));
         auto tablet_dir = fmt::format("{}/{}/{}", local_shard_root_path, _clone_req.tablet_id,
                                       _clone_req.schema_hash);
 
@@ -734,7 +735,22 @@ Status EngineCloneTask::_finish_full_clone(Tablet* tablet,
         RETURN_IF_ERROR(tablet->create_rowset(rs_meta, &rs));
         to_add.push_back(std::move(rs));
     }
-    tablet->tablet_meta()->set_cooldown_meta_id(cloned_tablet_meta->cooldown_meta_id());
+    {
+        std::shared_lock cooldown_conf_rlock(tablet->get_cooldown_conf_lock());
+        if (tablet->cooldown_conf_unlocked().first == tablet->replica_id()) {
+            // If this replica is cooldown replica, MUST generate a new `cooldown_meta_id` to avoid use `cooldown_meta_id`
+            // generated in old cooldown term which may lead to such situation:
+            // Replica A is cooldown replica, cooldown_meta_id=2,
+            // Replica B: cooldown_replica=A, cooldown_meta_id=1
+            // Replica A: full clone Replica A, cooldown_meta_id=1, but remote cooldown_meta is still with cooldown_meta_id=2
+            // After tablet report. FE finds all replicas' cooldowned data is consistent
+            // Replica A: confirm_unused_remote_files, delete some cooldowned data of cooldown_meta_id=2
+            // Replica B: follow_cooldown_data, cooldown_meta_id=2, data lost
+            tablet->tablet_meta()->set_cooldown_meta_id(UniqueId::gen_uid());
+        } else {
+            tablet->tablet_meta()->set_cooldown_meta_id(cloned_tablet_meta->cooldown_meta_id());
+        }
+    }
     if (tablet->enable_unique_key_merge_on_write()) {
         tablet->tablet_meta()->delete_bitmap() = cloned_tablet_meta->delete_bitmap();
     }

@@ -78,6 +78,13 @@ public class HMSExternalCatalog extends ExternalCatalog {
         catalogProperty = new CatalogProperty(resource, props);
     }
 
+    public HMSExternalCatalog(long catalogId, String name, String resource, Map<String, String> props,
+            String comment, InitCatalogLog.Type type) {
+        super(catalogId, name, type, comment);
+        props = PropertyConverter.convertToMetaProperties(props);
+        catalogProperty = new CatalogProperty(resource, props);
+    }
+
     @Override
     public void checkProperties() throws DdlException {
         super.checkProperties();
@@ -289,7 +296,10 @@ public class HMSExternalCatalog extends ExternalCatalog {
     }
 
     @Override
-    public void setDefaultProps() {
+    public void setDefaultPropsWhenCreating(boolean isReplay) {
+        if (isReplay) {
+            return;
+        }
         if (catalogProperty.getOrDefault(PROP_ALLOW_FALLBACK_TO_SIMPLE_AUTH, "").isEmpty()) {
             // always allow fallback to simple auth, so to support both kerberos and simple auth
             catalogProperty.addProperty(PROP_ALLOW_FALLBACK_TO_SIMPLE_AUTH, "true");

@@ -192,7 +192,7 @@ under the License.
 
 # 其他升级注意事项
 
-- 1.2-lts 可以滚动升级到 2.0-beta，2.0-alpha 可以停机升级到 2.0-beta
+- 1.2-lts 需要停机升级到 2.0.0，2.0-alpha 需要停机升级到 2.0.0
 - 查询优化器开关默认开启 `enable_nereids_planner=true`；
 - 系统中移除了非向量化代码，所以 `enable_vectorized_engine` 参数将不再生效；
 - 新增参数 `enable_single_replica_compaction`；

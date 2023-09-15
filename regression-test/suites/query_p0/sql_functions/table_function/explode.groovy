@@ -49,4 +49,25 @@ suite("explode") {
     qt_test1 """select e1 from (select k1 from d_table) as t lateral view explode_numbers(5) tmp1 as e1;"""
     qt_test2 """select e1 from (select k1 from d_table) as t lateral view explode_numbers(5) tmp1 as e1 where e1=k1;"""
     qt_test3 """select e1,k1 from (select k1 from d_table) as t lateral view explode_numbers(5) tmp1 as e1;"""
+
+    sql """ DROP TABLE IF EXISTS baseall_explode_numbers; """
+    sql """
+            CREATE TABLE `baseall_explode_numbers` (
+            `k3` int(11) NULL
+            ) ENGINE=OLAP
+            duplicate KEY(`k3`)
+            COMMENT 'OLAP'
+            DISTRIBUTED BY HASH(`k3`) BUCKETS 5
+            PROPERTIES (
+            "replication_allocation" = "tag.location.default: 1",
+            "is_being_synced" = "false",
+            "storage_format" = "V2",
+            "light_schema_change" = "true",
+            "disable_auto_compaction" = "false",
+            "enable_single_replica_compaction" = "false"
+            );
+        """
+    sql "insert into baseall_explode_numbers values(1),(2),(3),(4),(5),(6),(7),(8),(9),(10),(11),(12),(13),(14),(15);"
+    qt_test4 """select k3,e from baseall_explode_numbers as U lateral view explode_numbers(5) tmp1 as e order by k3,e;"""
+    qt_test5 """select k3,e from baseall_explode_numbers as U lateral view explode_numbers(10) tmp1 as e order by k3,e;"""
 }

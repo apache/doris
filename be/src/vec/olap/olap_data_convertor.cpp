@@ -22,6 +22,8 @@
 // IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/config.h"
+#include "common/exception.h"
+#include "common/status.h"
 #include "olap/hll.h"
 #include "olap/olap_common.h"
 #include "olap/tablet_schema.h"
@@ -189,6 +191,10 @@ void OlapBlockDataConvertor::set_source_content(const vectorized::Block* block, 
            block->columns() == _convertors.size());
     size_t cid = 0;
     for (const auto& typed_column : *block) {
+        if (typed_column.column->size() != block->rows()) {
+            throw Exception(ErrorCode::INTERNAL_ERROR, "input invalid block, block={}",
+                            block->dump_structure());
+        }
         _convertors[cid]->set_source_column(typed_column, row_pos, num_rows);
         ++cid;
     }
@@ -349,22 +355,22 @@ Status OlapBlockDataConvertor::OlapColumnDataConvertorBitMap::convert_to_olap() 
 Status OlapBlockDataConvertor::OlapColumnDataConvertorQuantileState::convert_to_olap() {
     assert(_typed_column.column);
 
-    const vectorized::ColumnQuantileStateDouble* column_quantile_state = nullptr;
+    const vectorized::ColumnQuantileState* column_quantile_state = nullptr;
     if (_nullmap) {
         auto nullable_column =
                 assert_cast<const vectorized::ColumnNullable*>(_typed_column.column.get());
-        column_quantile_state = assert_cast<const vectorized::ColumnQuantileStateDouble*>(
+        column_quantile_state = assert_cast<const vectorized::ColumnQuantileState*>(
                 nullable_column->get_nested_column_ptr().get());
     } else {
-        column_quantile_state = assert_cast<const vectorized::ColumnQuantileStateDouble*>(
-                _typed_column.column.get());
+        column_quantile_state =
+                assert_cast<const vectorized::ColumnQuantileState*>(_typed_column.column.get());
     }
 
     assert(column_quantile_state);
-    QuantileStateDouble* quantile_state =
-            const_cast<QuantileStateDouble*>(column_quantile_state->get_data().data() + _row_pos);
-    QuantileStateDouble* quantile_state_cur = quantile_state;
-    QuantileStateDouble* quantile_state_end = quantile_state_cur + _num_rows;
+    QuantileState* quantile_state =
+            const_cast<QuantileState*>(column_quantile_state->get_data().data() + _row_pos);
+    QuantileState* quantile_state_cur = quantile_state;
+    QuantileState* quantile_state_end = quantile_state_cur + _num_rows;
 
     size_t total_size = 0;
     if (_nullmap) {
@@ -925,58 +931,35 @@ Status OlapBlockDataConvertor::OlapColumnDataConvertorArray::convert_to_olap() {
     assert(column_array);
     assert(data_type_array);
 
-    return convert_to_olap(_nullmap, column_array, data_type_array);
+    return convert_to_olap(column_array, data_type_array);
 }
 
 Status OlapBlockDataConvertor::OlapColumnDataConvertorArray::convert_to_olap(
-        const UInt8* null_map, const ColumnArray* column_array,
-        const DataTypeArray* data_type_array) {
-    const UInt8* item_null_map = nullptr;
+        const ColumnArray* column_array, const DataTypeArray* data_type_array) {
     ColumnPtr item_data = column_array->get_data_ptr();
-    if (column_array->get_data().is_nullable()) {
-        const auto& data_nullable_column =
-                assert_cast<const ColumnNullable&>(column_array->get_data());
-        item_null_map = data_nullable_column.get_null_map_data().data();
-        item_data = data_nullable_column.get_nested_column_ptr();
+
+    auto start_offset = column_array->offset_at(_row_pos);
+    auto end_offset = column_array->offset_at(_row_pos + _num_rows);
+    auto elem_size = end_offset - start_offset;
+
+    _offsets.clear();
+    // we need all offsets, so reserve num_rows + 1 to make sure last offset can be got in offset column, instead of according to nested item column
+    _offsets.reserve(_num_rows + 1);
+    for (int i = 0; i <= _num_rows; ++i) {
+        _offsets.push_back(column_array->offset_at(i + _row_pos) - start_offset + _base_offset);
     }
 
-    const auto& offsets = column_array->get_offsets();
-    int64_t start_index = _row_pos - 1;
-    int64_t end_index = _row_pos + _num_rows - 1;
-    auto start = offsets[start_index];
-    auto size = offsets[end_index] - start;
+    _base_offset += elem_size;
 
-    ColumnWithTypeAndName item_typed_column = {
-            item_data, remove_nullable(data_type_array->get_nested_type()), ""};
-    _item_convertor->set_source_column(item_typed_column, start, size);
+    ColumnWithTypeAndName item_typed_column = {item_data, data_type_array->get_nested_type(),
+                                               "array.item"};
+    _item_convertor->set_source_column(item_typed_column, start_offset, elem_size);
     RETURN_IF_ERROR(_item_convertor->convert_to_olap());
 
-    CollectionValue* collection_value = _values.data();
-    for (size_t i = 0; i < _num_rows; ++i, ++collection_value) {
-        int64_t cur_pos = _row_pos + i;
-        int64_t prev_pos = cur_pos - 1;
-        if (_nullmap && _nullmap[cur_pos]) {
-            continue;
-        }
-        auto offset = offsets[prev_pos];
-        auto size = offsets[cur_pos] - offsets[prev_pos];
-        new (collection_value) CollectionValue(size);
-
-        if (size == 0) {
-            continue;
-        }
-
-        if (column_array->get_data().is_nullable()) {
-            collection_value->set_has_null(true);
-            collection_value->set_null_signs(
-                    const_cast<bool*>(reinterpret_cast<const bool*>(item_null_map + offset)));
-        }
-        // get_data_at should use offset - offsets[start_index] since
-        // start_index may be changed after OlapColumnDataConvertorArray::set_source_column.
-        // Using just offset may access the memory out of _item_convertor's data range,
-        collection_value->set_data(
-                const_cast<void*>(_item_convertor->get_data_at(offset - offsets[start_index])));
-    }
+    _results[0] = (void*)elem_size;
+    _results[1] = _offsets.data();
+    _results[2] = _item_convertor->get_data();
+    _results[3] = _item_convertor->get_nullmap();
     return Status::OK();
 }
 
@@ -1029,8 +1012,9 @@ Status OlapBlockDataConvertor::OlapColumnDataConvertorMap::convert_to_olap(
     auto elem_size = end_offset - start_offset;
 
     _offsets.clear();
-    _offsets.reserve(_num_rows);
-    for (int i = 0; i < _num_rows; ++i) {
+    // we need all offsets, so reserve num_rows + 1 to make sure last offset can be got in offset column, instead of according to nested item column
+    _offsets.reserve(_num_rows + 1);
+    for (int i = 0; i <= _num_rows; ++i) {
         _offsets.push_back(column_map->offset_at(i + _row_pos) - start_offset + _base_offset);
     }
     _base_offset += elem_size;

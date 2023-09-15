@@ -62,9 +62,11 @@ public class FileSystemFactory {
             if (S3Util.isHdfsOnOssEndpoint(location)) {
                 // if hdfs service is enabled on oss, use hdfs lib to access oss.
                 fsType = FileSystemType.DFS;
+            } else {
+                fsType = FileSystemType.S3;
             }
-            fsType = FileSystemType.S3;
-        } else if (location.startsWith(FeConstants.FS_PREFIX_HDFS) || location.startsWith(FeConstants.FS_PREFIX_GFS)) {
+        } else if (location.startsWith(FeConstants.FS_PREFIX_HDFS) || location.startsWith(FeConstants.FS_PREFIX_GFS)
+                 || location.startsWith(FeConstants.FS_PREFIX_VIEWFS)) {
             fsType = FileSystemType.DFS;
         } else if (location.startsWith(FeConstants.FS_PREFIX_OFS) || location.startsWith(FeConstants.FS_PREFIX_COSN)) {
             // ofs:// and cosn:// use the same underlying file system: Tencent Cloud HDFS, aka CHDFS)) {

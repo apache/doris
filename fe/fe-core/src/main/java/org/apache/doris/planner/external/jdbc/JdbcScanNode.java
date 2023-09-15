@@ -205,6 +205,10 @@ public class JdbcScanNode extends ExternalScanNode {
             sql.append(" LIMIT ").append(limit);
         }
 
+        if (jdbcType == TOdbcTableType.CLICKHOUSE
+                && ConnectContext.get().getSessionVariable().jdbcClickhouseQueryFinal) {
+            sql.append(" SETTINGS final = 1");
+        }
         return sql.toString();
     }
 
@@ -216,6 +220,10 @@ public class JdbcScanNode extends ExternalScanNode {
             return output.toString();
         }
         output.append(prefix).append("QUERY: ").append(getJdbcQueryStr()).append("\n");
+        if (!conjuncts.isEmpty()) {
+            Expr expr = convertConjunctsToAndCompoundPredicate(conjuncts);
+            output.append(prefix).append("PREDICATES: ").append(expr.toSql()).append("\n");
+        }
         return output.toString();
     }
 
@@ -305,7 +313,7 @@ public class JdbcScanNode extends ExternalScanNode {
             // oracle datetime push down is different: https://github.com/apache/doris/discussions/15069
             if (children.get(1).isConstant() && (children.get(1).getType().equals(Type.DATETIME) || children
                     .get(1).getType().equals(Type.DATETIMEV2))) {
-                String filter = children.get(0).toSql();
+                String filter = children.get(0).toMySql();
                 filter += ((BinaryPredicate) expr).getOp().toString();
                 filter += "to_date('" + children.get(1).getStringValue() + "','yyyy-mm-dd hh24:mi:ss')";
                 return filter;
@@ -316,14 +324,14 @@ public class JdbcScanNode extends ExternalScanNode {
             ArrayList<Expr> children = expr.getChildren();
             if (children.get(1).isConstant() && (children.get(1).getType().isDate()) || children
                     .get(1).getType().isDateV2()) {
-                String filter = children.get(0).toSql();
+                String filter = children.get(0).toMySql();
                 filter += ((BinaryPredicate) expr).getOp().toString();
                 filter += "date '" + children.get(1).getStringValue() + "'";
                 return filter;
             }
             if (children.get(1).isConstant() && (children.get(1).getType().isDatetime() || children
                     .get(1).getType().isDatetimeV2())) {
-                String filter = children.get(0).toSql();
+                String filter = children.get(0).toMySql();
                 filter += ((BinaryPredicate) expr).getOp().toString();
                 filter += "timestamp '" + children.get(1).getStringValue() + "'";
                 return filter;

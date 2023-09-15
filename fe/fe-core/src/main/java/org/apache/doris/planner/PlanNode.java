@@ -1191,6 +1191,10 @@ public abstract class PlanNode extends TreeNode<PlanNode> implements PlanStats {
         this.pushDownAggNoGroupingOp = pushDownAggNoGroupingOp;
     }
 
+    public TPushAggOp getPushDownAggNoGroupingOp() {
+        return pushDownAggNoGroupingOp;
+    }
+
     public boolean pushDownAggNoGrouping(FunctionCallExpr aggExpr) {
         return false;
     }

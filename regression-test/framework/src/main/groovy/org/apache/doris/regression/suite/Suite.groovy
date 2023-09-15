@@ -512,6 +512,7 @@ class Suite implements GroovyInterceptable {
     }
 
     PreparedStatement prepareStatement(String sql) {
+        logger.info("Execute sql: ${sql}".toString())
         return JdbcUtils.prepareStatement(context.getConnection(), sql)
     } 
 
@@ -626,6 +627,21 @@ class Suite implements GroovyInterceptable {
         logger.info("Now row is ${row}")
 
         return (row[4] as String) == "FINISHED"
+    }
+
+    String getServerPrepareJdbcUrl(String jdbcUrl, String database) {
+        String urlWithoutSchema = jdbcUrl.substring(jdbcUrl.indexOf("://") + 3)
+        def sql_ip = urlWithoutSchema.substring(0, urlWithoutSchema.indexOf(":"))
+        def sql_port
+        if (urlWithoutSchema.indexOf("/") >= 0) {
+            // e.g: jdbc:mysql://locahost:8080/?a=b
+            sql_port = urlWithoutSchema.substring(urlWithoutSchema.indexOf(":") + 1, urlWithoutSchema.indexOf("/"))
+        } else {
+            // e.g: jdbc:mysql://locahost:8080
+            sql_port = urlWithoutSchema.substring(urlWithoutSchema.indexOf(":") + 1)
+        }
+        // set server side prepared statement url
+        return "jdbc:mysql://" + sql_ip + ":" + sql_port + "/" + database + "?&useServerPrepStmts=true"
     }
 }
 

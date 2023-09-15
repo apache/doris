@@ -19,7 +19,9 @@ package org.apache.doris.nereids;
 
 import org.apache.doris.analysis.DescriptorTable;
 import org.apache.doris.analysis.ExplainOptions;
+import org.apache.doris.analysis.LiteralExpr;
 import org.apache.doris.analysis.StatementBase;
+import org.apache.doris.catalog.Column;
 import org.apache.doris.common.NereidsException;
 import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.CascadesContext.Lock;
@@ -27,6 +29,7 @@ import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.glue.LogicalPlanAdapter;
 import org.apache.doris.nereids.glue.translator.PhysicalPlanTranslator;
 import org.apache.doris.nereids.glue.translator.PlanTranslatorContext;
+import org.apache.doris.nereids.hint.Hint;
 import org.apache.doris.nereids.jobs.executor.Optimizer;
 import org.apache.doris.nereids.jobs.executor.Rewriter;
 import org.apache.doris.nereids.memo.Group;
@@ -38,15 +41,22 @@ import org.apache.doris.nereids.minidump.NereidsTracer;
 import org.apache.doris.nereids.processor.post.PlanPostProcessors;
 import org.apache.doris.nereids.processor.pre.PlanPreprocessors;
 import org.apache.doris.nereids.properties.PhysicalProperties;
+import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
+import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.commands.ExplainCommand.ExplainLevel;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalOneRowRelation;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalResultSink;
 import org.apache.doris.planner.PlanFragment;
 import org.apache.doris.planner.Planner;
 import org.apache.doris.planner.RuntimeFilter;
 import org.apache.doris.planner.ScanNode;
+import org.apache.doris.qe.CommonResultSet;
+import org.apache.doris.qe.ResultSet;
+import org.apache.doris.qe.ResultSetMetaData;
 
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.Lists;
@@ -58,12 +68,10 @@ import org.apache.logging.log4j.Logger;
 
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
-import java.util.concurrent.ScheduledExecutorService;
-import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 
 /**
@@ -73,7 +81,7 @@ public class NereidsPlanner extends Planner {
     public static final Logger LOG = LogManager.getLogger(NereidsPlanner.class);
     private CascadesContext cascadesContext;
     private final StatementContext statementContext;
-    private List<ScanNode> scanNodeList = null;
+    private final List<ScanNode> scanNodeList = Lists.newArrayList();
     private DescriptorTable descTable;
 
     private Plan parsedPlan;
@@ -105,7 +113,9 @@ public class NereidsPlanner extends Planner {
         NereidsTracer.logImportantTime("EndParsePlan");
         setParsedPlan(parsedPlan);
         PhysicalProperties requireProperties = buildInitRequireProperties();
+        statementContext.getStopwatch().start();
         Plan resultPlan = plan(parsedPlan, requireProperties, explainLevel);
+        statementContext.getStopwatch().stop();
         setOptimizedPlan(resultPlan);
         if (explainLevel.isPlanLevel) {
             return;
@@ -122,7 +132,7 @@ public class NereidsPlanner extends Planner {
         }
         PlanFragment root = physicalPlanTranslator.translatePlan(physicalPlan);
 
-        scanNodeList = planTranslatorContext.getScanNodes();
+        scanNodeList.addAll(planTranslatorContext.getScanNodes());
         descTable = planTranslatorContext.getDescTable();
         fragments = new ArrayList<>(planTranslatorContext.getPlanFragments());
         for (int seq = 0; seq < fragments.size(); seq++) {
@@ -133,6 +143,7 @@ public class NereidsPlanner extends Planner {
         ArrayList<String> columnLabelList = physicalPlan.getOutput().stream().map(NamedExpression::getName)
                 .collect(Collectors.toCollection(ArrayList::new));
         logicalPlanAdapter.setColLabels(columnLabelList);
+        logicalPlanAdapter.setViewDdlSqls(statementContext.getViewDdlSqls());
     }
 
     @VisibleForTesting
@@ -171,7 +182,6 @@ public class NereidsPlanner extends Planner {
 
         try (Lock lock = new Lock(plan, cascadesContext)) {
             // resolve column, table and function
-
             Span queryAnalysisSpan =
                     statementContext.getConnectContext().getTracer()
                             .spanBuilder("query analysis").setParent(Context.current()).startSpan();
@@ -201,11 +211,6 @@ public class NereidsPlanner extends Planner {
                 if (explainLevel == ExplainLevel.ANALYZED_PLAN) {
                     return analyzedPlan;
                 }
-            }
-
-            Optional<ScheduledExecutorService> timeoutExecutor = Optional.empty();
-            if (statementContext.getConnectContext().getSessionVariable().enableNereidsTimeout) {
-                timeoutExecutor = Optional.of(runTimeoutExecutor());
             }
 
             // rule-based optimize
@@ -241,7 +246,6 @@ public class NereidsPlanner extends Planner {
             // serialize optimized plan to dumpfile, dumpfile do not have this part means optimize failed
             MinidumpUtils.serializeOutputToDumpFile(physicalPlan);
             NereidsTracer.output(statementContext.getConnectContext());
-            timeoutExecutor.ifPresent(ExecutorService::shutdown);
 
             return physicalPlan;
         }
@@ -328,40 +332,69 @@ public class NereidsPlanner extends Planner {
                     groupExpression.getOwnerGroup().getStatistics());
             return physicalPlan;
         } catch (Exception e) {
-            String memo = cascadesContext.getMemo().toString();
-            LOG.warn("Failed to choose best plan, memo structure:{}", memo, e);
-            throw new AnalysisException("Failed to choose best plan", e);
+            if (e instanceof AnalysisException && e.getMessage().contains("Failed to choose best plan")) {
+                throw e;
+            }
+            LOG.warn("Failed to choose best plan, memo structure:{}", cascadesContext.getMemo(), e);
+            throw new AnalysisException("Failed to choose best plan: " + e.getMessage(), e);
         }
     }
 
-    private ScheduledExecutorService runTimeoutExecutor() {
-        ScheduledExecutorService executor = Executors.newSingleThreadScheduledExecutor();
-        Runnable task = () -> cascadesContext.setIsTimeout(true);
-        executor.schedule(task, 5, TimeUnit.SECONDS);
-
-        return executor;
+    /**
+     * getting hints explain string, which specified by enumerate and show in lists
+     * @param hintMap hint map recorded in statement context
+     * @return explain string shows using of hint
+     */
+    public String getHintExplainString(Map<String, Hint> hintMap) {
+        String used = "";
+        String unUsed = "";
+        String syntaxError = "";
+        for (Map.Entry<String, Hint> entry : hintMap.entrySet()) {
+            switch (entry.getValue().getStatus()) {
+                case UNUSED:
+                    unUsed = unUsed + " " + entry.getValue().getExplainString();
+                    break;
+                case SYNTAX_ERROR:
+                    syntaxError = syntaxError + " " + entry.getValue().getExplainString()
+                        + " Msg:" + entry.getValue().getErrorMessage();
+                    break;
+                case SUCCESS:
+                    used = used + " " + entry.getValue().getExplainString();
+                    break;
+                default:
+                    break;
+            }
+        }
+        return "\nUsed:" + used + "\nUnUsed:" + unUsed + "\nSyntaxError:" + syntaxError;
     }
 
     @Override
     public String getExplainString(ExplainOptions explainOptions) {
         ExplainLevel explainLevel = getExplainLevel(explainOptions);
+        String plan = "";
         switch (explainLevel) {
             case PARSED_PLAN:
-                return parsedPlan.treeString();
+                plan = parsedPlan.treeString();
+                break;
             case ANALYZED_PLAN:
-                return analyzedPlan.treeString();
+                plan = analyzedPlan.treeString();
+                break;
             case REWRITTEN_PLAN:
-                return rewrittenPlan.treeString();
+                plan = rewrittenPlan.treeString();
+                break;
             case OPTIMIZED_PLAN:
-                return "cost = " + cost + "\n" + optimizedPlan.treeString();
+                plan = "cost = " + cost + "\n" + optimizedPlan.treeString();
+                break;
             case SHAPE_PLAN:
-                return optimizedPlan.shape("");
+                plan = optimizedPlan.shape("");
+                break;
             case MEMO_PLAN:
-                return cascadesContext.getMemo().toString()
+                plan = cascadesContext.getMemo().toString()
                     + "\n\n========== OPTIMIZED PLAN ==========\n"
                     + optimizedPlan.treeString();
+                break;
             case ALL_PLAN:
-                return "========== PARSED PLAN ==========\n"
+                plan = "========== PARSED PLAN ==========\n"
                         + parsedPlan.treeString() + "\n\n"
                         + "========== ANALYZED PLAN ==========\n"
                         + analyzedPlan.treeString() + "\n\n"
@@ -369,9 +402,15 @@ public class NereidsPlanner extends Planner {
                         + rewrittenPlan.treeString() + "\n\n"
                         + "========== OPTIMIZED PLAN ==========\n"
                         + optimizedPlan.treeString();
+                break;
             default:
-                return super.getExplainString(explainOptions);
+                plan = super.getExplainString(explainOptions);
         }
+        if (!statementContext.getHintMap().isEmpty()) {
+            String hint = getHintExplainString(cascadesContext.getStatementContext().getHintMap());
+            return plan + hint;
+        }
+        return plan;
     }
 
     @Override
@@ -392,6 +431,37 @@ public class NereidsPlanner extends Planner {
     @Override
     public List<RuntimeFilter> getRuntimeFilters() {
         return cascadesContext.getRuntimeFilterContext().getLegacyFilters();
+    }
+
+    @Override
+    public Optional<ResultSet> handleQueryInFe(StatementBase parsedStmt) {
+        if (!(parsedStmt instanceof LogicalPlanAdapter)) {
+            return Optional.empty();
+        }
+        if (!(physicalPlan instanceof PhysicalResultSink)) {
+            return Optional.empty();
+        }
+        if (!(((PhysicalResultSink<?>) physicalPlan).child() instanceof PhysicalOneRowRelation)) {
+            return Optional.empty();
+        }
+        PhysicalOneRowRelation physicalOneRowRelation
+                = (PhysicalOneRowRelation) ((PhysicalResultSink<?>) physicalPlan).child();
+        List<Column> columns = Lists.newArrayList();
+        List<String> data = Lists.newArrayList();
+        for (int i = 0; i < physicalOneRowRelation.getProjects().size(); i++) {
+            NamedExpression item = physicalOneRowRelation.getProjects().get(i);
+            Expression expr = item.child(0);
+            if (expr instanceof Literal) {
+                LiteralExpr legacyExpr = ((Literal) expr).toLegacyLiteral();
+                columns.add(new Column(item.getName(), item.getDataType().toCatalogDataType()));
+                super.handleLiteralInFe(legacyExpr, data);
+            } else {
+                return Optional.empty();
+            }
+        }
+        ResultSetMetaData metadata = new CommonResultSet.CommonResultSetMetaData(columns);
+        ResultSet resultSet = new CommonResultSet(metadata, Collections.singletonList(data));
+        return Optional.of(resultSet);
     }
 
     @VisibleForTesting

@@ -17,7 +17,7 @@
 # under the License.
 
 ##############################################################
-# This script is used to run TPC-DS 103 queries
+# This script is used to run TPC-DS 99 queries
 ##############################################################
 
 set -eo pipefail
@@ -42,6 +42,7 @@ Usage: $0
 OPTS=$(getopt \
     -n "$0" \
     -o '' \
+    -o 'hs:' \
     -- "$@")
 
 eval set -- "${OPTS}"
@@ -79,10 +80,20 @@ fi
 
 if [[ ${SCALE_FACTOR} -eq 1 ]]; then
     echo "Running tpcds sf 1 queries"
-    TPCDS_QUERIES_DIR="${CURDIR}/../queries_1"
+    TPCDS_QUERIES_DIR="${CURDIR}/../queries/sf1"
+    TPCDS_OPT_CONF="${CURDIR}/../conf/opt/opt_sf1.sql"
 elif [[ ${SCALE_FACTOR} -eq 100 ]]; then
     echo "Running tpcds sf 100 queries"
-    TPCDS_QUERIES_DIR="${CURDIR}/../queries_100"
+    TPCDS_QUERIES_DIR="${CURDIR}/../queries/sf100"
+    TPCDS_OPT_CONF="${CURDIR}/../conf/opt/opt_sf100.sql"
+elif [[ ${SCALE_FACTOR} -eq 1000 ]]; then
+    echo "Running tpcds sf 1000 queries"
+    TPCDS_QUERIES_DIR="${CURDIR}/../queries/sf1000"
+    TPCDS_OPT_CONF="${CURDIR}/../conf/opt/opt_sf1000.sql"
+elif [[ ${SCALE_FACTOR} -eq 10000 ]]; then
+    echo "Running tpcds sf 10000 queries"
+    TPCDS_QUERIES_DIR="${CURDIR}/../queries/sf10000"
+    TPCDS_OPT_CONF="${CURDIR}/../conf/opt/opt_sf10000.sql"
 else
     echo "${SCALE_FACTOR} scale is NOT support currently."
     exit 1
@@ -114,37 +125,45 @@ run_sql() {
 }
 
 echo '============================================'
+run_sql "source ${TPCDS_OPT_CONF};"
+echo '============================================'
 run_sql "show variables;"
 echo '============================================'
 run_sql "show table status;"
 echo '============================================'
-run_sql "analyze database ${DB};"
+start=$(date +%s)
+run_sql "analyze database ${DB} with sync;"
+end=$(date +%s)
+totalTime=$((end - start))
+echo "analyze database ${DB} with sync total time: ${totalTime} s"
 echo '============================================'
 echo "Time Unit: ms"
 
+RESULT_DIR="${CURDIR}/result"
+rm "${RESULT_DIR}"
+mkdir -p "${RESULT_DIR}"
 touch result.csv
 cold_run_sum=0
 best_hot_run_sum=0
-i=1
 for i in {1..99}; do
     cold=0
     hot1=0
     hot2=0
     echo -ne "query${i}\t" | tee -a result.csv
     start=$(date +%s%3N)
-    mysql -h"${FE_HOST}" -u"${USER}" -P"${FE_QUERY_PORT}" -D"${DB}" --comments <"${TPCDS_QUERIES_DIR}"/query"${i}".sql >/dev/null
+    mysql -h"${FE_HOST}" -u"${USER}" -P"${FE_QUERY_PORT}" -D"${DB}" --comments <"${TPCDS_QUERIES_DIR}"/query"${i}".sql >"${RESULT_DIR}"/result"${i}".out 2>"${RESULT_DIR}"/result"${i}".log
     end=$(date +%s%3N)
     cold=$((end - start))
     echo -ne "${cold}\t" | tee -a result.csv
 
     start=$(date +%s%3N)
-    mysql -h"${FE_HOST}" -u"${USER}" -P"${FE_QUERY_PORT}" -D"${DB}" --comments <"${TPCDS_QUERIES_DIR}"/query"${i}".sql >/dev/null
+    mysql -h"${FE_HOST}" -u"${USER}" -P"${FE_QUERY_PORT}" -D"${DB}" --comments <"${TPCDS_QUERIES_DIR}"/query"${i}".sql >"${RESULT_DIR}"/result"${i}".out 2>"${RESULT_DIR}"/result"${i}".log
     end=$(date +%s%3N)
     hot1=$((end - start))
     echo -ne "${hot1}\t" | tee -a result.csv
 
     start=$(date +%s%3N)
-    mysql -h"${FE_HOST}" -u"${USER}" -P"${FE_QUERY_PORT}" -D"${DB}" --comments <"${TPCDS_QUERIES_DIR}"/query"${i}".sql >/dev/null
+    mysql -h"${FE_HOST}" -u"${USER}" -P"${FE_QUERY_PORT}" -D"${DB}" --comments <"${TPCDS_QUERIES_DIR}"/query"${i}".sql >"${RESULT_DIR}"/result"${i}".out 2>"${RESULT_DIR}"/result"${i}".log
     end=$(date +%s%3N)
     hot2=$((end - start))
     echo -ne "${hot2}\t" | tee -a result.csv

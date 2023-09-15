@@ -176,6 +176,9 @@ public class AggregationNode extends PlanNode {
         // to our input; our conjuncts don't get substituted because they already
         // refer to our output
         outputSmap = getCombinedChildSmap();
+        if (aggInfo.isMerge()) {
+            aggInfo.substitute(aggInfo.getIntermediateSmap(), analyzer);
+        }
         aggInfo.substitute(outputSmap, analyzer);
 
         // assert consistent aggregate expr and slot materialization

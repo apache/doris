@@ -23,6 +23,7 @@
 #include <iostream>
 
 #include "runtime/jsonb_value.h"
+#include "runtime/runtime_state.h"
 #include "util/binary_cast.hpp"
 #include "util/bitmap_value.h"
 #include "vec/data_types/data_type_array.h"
@@ -341,8 +342,9 @@ Block* process_table_function(TableFunction* fn, Block* input_block,
         return nullptr;
     }
 
+    RuntimeState runtime_state((TQueryGlobals()));
     // process table function init
-    if (fn->process_init(input_block) != Status::OK()) {
+    if (fn->process_init(input_block, &runtime_state) != Status::OK()) {
         LOG(WARNING) << "TableFunction process_init failed";
         return nullptr;
     }
