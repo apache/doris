@@ -740,7 +740,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                 .map(this::visitRowConstructor)
                 .map(LogicalPlan.class::cast)
                 .collect(ImmutableList.toImmutableList());
-        return reduceToLogicalPlanTree(0, exprsList.size(), exprsList, Qualifier.ALL);
+        return reduceToLogicalPlanTree(0, exprsList.size() - 1, exprsList, Qualifier.ALL);
     }
 
     /**
