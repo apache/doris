@@ -17,9 +17,7 @@
 
 package org.apache.doris.statistics;
 
-import org.apache.doris.analysis.SetType;
 import org.apache.doris.analysis.TableName;
-import org.apache.doris.analysis.VariableExpr;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
@@ -27,23 +25,19 @@ import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.external.ExternalTable;
 import org.apache.doris.common.Config;
-import org.apache.doris.common.Pair;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.datasource.CatalogIf;
-import org.apache.doris.qe.SessionVariable;
-import org.apache.doris.qe.VariableMgr;
 import org.apache.doris.statistics.AnalysisInfo.AnalysisMethod;
 import org.apache.doris.statistics.AnalysisInfo.JobType;
+import org.apache.doris.statistics.AnalysisInfo.ScheduleType;
 import org.apache.doris.statistics.util.StatisticsUtil;
 
-import org.apache.commons.lang3.StringUtils;
+import com.google.common.collect.Maps;
 import org.apache.hudi.common.util.VisibleForTesting;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.time.LocalTime;
-import java.time.format.DateTimeFormatter;
-import java.time.format.DateTimeParseException;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
@@ -64,7 +58,8 @@ public class StatisticsAutoCollector extends StatisticsCollector {
 
     @Override
     protected void collect() {
-        if (!checkAnalyzeTime(LocalTime.now(TimeUtils.getTimeZone().toZoneId()))) {
+        if (!StatisticsUtil.checkAnalyzeTime(LocalTime.now(TimeUtils.getTimeZone().toZoneId()))) {
+            analysisTaskExecutor.clear();
             return;
         }
         if (Config.enable_full_auto_analyze) {
@@ -147,7 +142,7 @@ public class StatisticsAutoCollector extends StatisticsCollector {
                 .setAnalysisMode(AnalysisInfo.AnalysisMode.INCREMENTAL)
                 .setAnalysisMethod(analysisMethod)
                 .setSamplePercent(Config.huge_table_default_sample_rows)
-                .setScheduleType(AnalysisInfo.ScheduleType.ONCE)
+                .setScheduleType(ScheduleType.AUTOMATIC)
                 .setState(AnalysisState.PENDING)
                 .setTaskIds(new ArrayList<>())
                 .setLastExecTimeInMs(System.currentTimeMillis())
@@ -175,51 +170,27 @@ public class StatisticsAutoCollector extends StatisticsCollector {
         return new AnalysisInfoBuilder(jobInfo).setColToPartitions(needRunPartitions).build();
     }
 
-
-    private boolean checkAnalyzeTime(LocalTime now) {
-        try {
-            Pair<LocalTime, LocalTime> range = findRangeFromGlobalSessionVar();
-            DateTimeFormatter timeFormatter = DateTimeFormatter.ofPattern("HH:mm:ss");
-            LocalTime start = range == null
-                    ? LocalTime.parse(Config.full_auto_analyze_start_time, timeFormatter) : range.first;
-            LocalTime end = range == null
-                    ? LocalTime.parse(Config.full_auto_analyze_end_time, timeFormatter) : range.second;
-
-            if (start.isAfter(end) && (now.isAfter(start) || now.isBefore(end))) {
-                return true;
-            } else {
-                return now.isAfter(start) && now.isBefore(end);
+    @VisibleForTesting
+    protected AnalysisInfo getAnalysisJobInfo(AnalysisInfo jobInfo, TableIf table,
+            Set<String> needRunPartitions) {
+        Map<String, Set<String>> newColToPartitions = Maps.newHashMap();
+        Map<String, Set<String>> colToPartitions = jobInfo.colToPartitions;
+        if (colToPartitions == null) {
+            for (Column c : table.getColumns()) {
+                if (StatisticsUtil.isUnsupportedType(c.getType())) {
+                    continue;
+                }
+                newColToPartitions.put(c.getName(), needRunPartitions);
             }
-        } catch (DateTimeParseException e) {
-            LOG.warn("Parse analyze start/end time format fail", e);
-            return true;
+        } else {
+            colToPartitions.keySet().forEach(colName -> {
+                Column column = table.getColumn(colName);
+                if (column != null) {
+                    newColToPartitions.put(colName, needRunPartitions);
+                }
+            });
         }
-    }
-
-    private Pair<LocalTime, LocalTime> findRangeFromGlobalSessionVar() {
-        try {
-            String startTime =
-                    findRangeFromGlobalSessionVar(SessionVariable.FULL_AUTO_ANALYZE_START_TIME)
-                            .fullAutoAnalyzeStartTime;
-            if (StringUtils.isEmpty(startTime)) {
-                return null;
-            }
-            String endTime = findRangeFromGlobalSessionVar(SessionVariable.FULL_AUTO_ANALYZE_END_TIME)
-                    .fullAutoAnalyzeEndTime;
-            if (StringUtils.isEmpty(startTime)) {
-                return null;
-            }
-            DateTimeFormatter timeFormatter = DateTimeFormatter.ofPattern("HH:mm:ss");
-            return Pair.of(LocalTime.parse(startTime, timeFormatter), LocalTime.parse(endTime, timeFormatter));
-        } catch (Exception e) {
-            return null;
-        }
-    }
-
-    private SessionVariable findRangeFromGlobalSessionVar(String varName) throws Exception {
-        SessionVariable sessionVariable = VariableMgr.newSessionVariable();
-        VariableExpr variableExpr = new VariableExpr(varName, SetType.GLOBAL);
-        VariableMgr.getValue(sessionVariable, variableExpr);
-        return sessionVariable;
+        return new AnalysisInfoBuilder(jobInfo)
+                .setColToPartitions(newColToPartitions).build();
     }
 }

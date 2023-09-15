@@ -17,6 +17,16 @@
 
 package org.apache.doris.nereids.types.coercion;
 
+import org.apache.doris.nereids.exceptions.AnalysisException;
+import org.apache.doris.nereids.trees.expressions.literal.DateLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.DateTimeLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.DateTimeV2Literal;
+import org.apache.doris.nereids.trees.expressions.literal.DateV2Literal;
+import org.apache.doris.nereids.types.DateTimeType;
+import org.apache.doris.nereids.types.DateTimeV2Type;
+import org.apache.doris.nereids.types.DateType;
+import org.apache.doris.nereids.types.DateV2Type;
+
 import java.time.temporal.ChronoUnit;
 import java.util.Calendar;
 
@@ -42,5 +52,22 @@ public abstract class DateLikeType extends PrimitiveType {
         Calendar to = toCalendar(high);
         Calendar from = toCalendar(low);
         return ChronoUnit.DAYS.between(from.toInstant(), to.toInstant());
+    }
+
+    /**
+     * parse string to date like literal.
+     */
+    public DateLiteral fromString(String s) {
+        if (this instanceof DateType) {
+            return new DateLiteral(s);
+        } else if (this instanceof DateV2Type) {
+            return new DateV2Literal(s);
+        } else if (this instanceof DateTimeType) {
+            return new DateTimeLiteral(s);
+        } else if (this instanceof DateTimeV2Type) {
+            return new DateTimeV2Literal((DateTimeV2Type) this, s);
+        } else {
+            throw new AnalysisException("unknown date like type");
+        }
     }
 }

@@ -452,6 +452,7 @@ public class StmtExecutor {
                     }
                     LOG.debug("fall back to legacy planner on statement:\n{}", originStmt.originStmt);
                     parsedStmt = null;
+                    planner = null;
                     context.getState().setNereids(false);
                     executeByLegacy(queryId);
                 }
@@ -1336,7 +1337,7 @@ public class StmtExecutor {
 
         if (queryStmt.isExplain()) {
             String explainString = planner.getExplainString(queryStmt.getExplainOptions());
-            handleExplainStmt(explainString);
+            handleExplainStmt(explainString, false);
             return;
         }
 
@@ -1736,7 +1737,7 @@ public class StmtExecutor {
             ExplainOptions explainOptions = insertStmt.getQueryStmt().getExplainOptions();
             insertStmt.setIsExplain(explainOptions);
             String explainString = planner.getExplainString(explainOptions);
-            handleExplainStmt(explainString);
+            handleExplainStmt(explainString, false);
             return;
         }
 
@@ -2197,11 +2198,11 @@ public class StmtExecutor {
     private void handleLockTablesStmt() {
     }
 
-    public void handleExplainStmt(String result) throws IOException {
-        ShowResultSetMetaData metaData =
-                ShowResultSetMetaData.builder()
-                        .addColumn(new Column("Explain String", ScalarType.createVarchar(20)))
-                        .build();
+    public void handleExplainStmt(String result, boolean isNereids) throws IOException {
+        ShowResultSetMetaData metaData = ShowResultSetMetaData.builder()
+                .addColumn(new Column("Explain String" + (isNereids ? "(Nereids Planner)" : "(Old Planner)"),
+                        ScalarType.createVarchar(20)))
+                .build();
         sendMetaData(metaData);
 
         // Send result set.
@@ -2581,6 +2582,7 @@ public class StmtExecutor {
                     analyze(context.getSessionVariable().toThrift());
                 }
             } catch (Exception e) {
+                LOG.warn("Failed to run internal SQL: {}", originStmt, e);
                 throw new RuntimeException("Failed to execute internal SQL. " + Util.getRootCauseMessage(e), e);
             }
             planner.getFragments();

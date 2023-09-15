@@ -209,7 +209,7 @@ public class StatisticsAutoCollectorTest {
                 .setDbName("db")
                 .setTblName("tbl").build();
         Assertions.assertNotNull(statisticsAutoCollector.getReAnalyzeRequiredPart(analysisInfo2));
-        // uncomment it when updatedRows get ready
+        // uncomment it when updatedRows gets ready
         // Assertions.assertNull(statisticsAutoCollector.getReAnalyzeRequiredPart(analysisInfo2));
         Assertions.assertNotNull(statisticsAutoCollector.getReAnalyzeRequiredPart(analysisInfo2));
     }
