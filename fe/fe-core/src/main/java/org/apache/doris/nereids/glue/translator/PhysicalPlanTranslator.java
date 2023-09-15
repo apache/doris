@@ -379,10 +379,6 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
                 boolean exists = false;
                 for (Column insertCol : olapTableSink.getCols()) {
                     if (insertCol.getName() != null && insertCol.getName().equals(col.getName())) {
-                        if (!col.isVisible() && !Column.DELETE_SIGN.equals(col.getName())) {
-                            throw new AnalysisException("Partial update should not include invisible column except"
-                                        + " delete sign column: " + col.getName());
-                        }
                         exists = true;
                         break;
                     }
