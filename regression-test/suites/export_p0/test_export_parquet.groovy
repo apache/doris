@@ -74,7 +74,7 @@ suite("test_export_parquet", "p0") {
         """
     def insert_res = sql "show last insert;"
     logger.info("insert result: " + insert_res.toString())
-    qt_select_export1 """ SELECT * FROM ${table_export_name} t ORDER BY user_id; """
+    order_qt_select_export1 """ SELECT * FROM ${table_export_name} t ORDER BY user_id; """
 
 
     def check_path_exists = { dir_path ->
@@ -145,7 +145,7 @@ suite("test_export_parquet", "p0") {
         """
         def outfile_url = waiting_export.call(label)
         
-        qt_select_load1 """ select * from s3(
+        order_qt_select_load1 """ select * from s3(
                 "uri" = "http://${s3_endpoint}${outfile_url.substring(4)}0.parquet",
                 "s3.access_key"= "${ak}",
                 "s3.secret_key" = "${sk}",
