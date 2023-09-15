@@ -292,6 +292,9 @@ public:
             if (check_column<ColumnInt8>(nested_column)) {
                 Impl::template vector<ColumnInt8>(offset_column_data, nested_column,
                                                   nested_null_map, res, null_map);
+            } else if (check_column<ColumnUInt8>(nested_column)) {
+                Impl::template vector<ColumnInt8>(offset_column_data, nested_column,
+                                                  nested_null_map, res, null_map);
             } else if (check_column<ColumnInt16>(nested_column)) {
                 Impl::template vector<ColumnInt16>(offset_column_data, nested_column,
                                                    nested_null_map, res, null_map);
@@ -301,6 +304,10 @@ public:
             } else if (check_column<ColumnInt64>(nested_column)) {
                 Impl::template vector<ColumnInt64>(offset_column_data, nested_column,
                                                    nested_null_map, res, null_map);
+            } else {
+                return Status::RuntimeError("Illegal column {} of argument of function {}",
+                                            block.get_by_position(arguments[0]).column->get_name(),
+                                            get_name());
             }
         } else {
             return Status::RuntimeError("Illegal column {} of argument of function {}",

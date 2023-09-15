@@ -762,4 +762,7 @@ suite("test_bitmap_function") {
         select count(distinct tag) as count1,
             orthogonal_bitmap_intersect_count(id_bitmap, tag, 0) as count2_bitmap from test_orthog_bitmap_intersect;
     """
+
+     // BITMAP_FROM_ARRAY
+    qt_sql """ select bitmap_to_string(BITMAP_FROM_ARRAY([]));"""
 }
