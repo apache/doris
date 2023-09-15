@@ -18,28 +18,27 @@
 package org.apache.doris.nereids.trees.plans;
 
 /**
- * Represents different phase of sort and map it to the
- * enum of sort phase definition of stale optimizer.
+ * Represents different phase of partition topn and map it to the
+ * enum of partition topn phase definition of stale optimizer.
  */
-public enum SortPhase {
-    MERGE_SORT("MergeSort"),
-    GATHER_SORT("GatherSort"),
-    LOCAL_SORT("LocalSort");
+public enum PartitionTopnPhase {
+    ONE_PHASE_GLOBAL_PTOPN("OnePhaseGlobalPartitionTopn"),
+    TWO_PHASE_LOCAL_PTOPN("TwoPhaseLocalPartitionTopn"),
+    TWO_PHASE_GLOBAL_PTOPN("TwoPhaseGlobalPartitionTopn");
     private final String name;
-
-    SortPhase(String name) {
+    PartitionTopnPhase(String name) {
         this.name = name;
     }
 
-    public boolean isLocal() {
-        return this == LOCAL_SORT;
+    public boolean isOnePhaseGlobal() {
+        return this == ONE_PHASE_GLOBAL_PTOPN;
     }
 
-    public boolean isMerge() {
-        return this == MERGE_SORT;
+    public boolean isTwoPhaseLocal() {
+        return this == TWO_PHASE_LOCAL_PTOPN;
     }
 
-    public boolean isGather() {
-        return this == GATHER_SORT;
+    public boolean isTwoPhaseGlobal() {
+        return this == TWO_PHASE_GLOBAL_PTOPN;
     }
 }
