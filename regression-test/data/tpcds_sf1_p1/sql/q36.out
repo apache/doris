@@ -11,7 +11,7 @@
 -0.432785608	Women	\N	1	8
 -0.428839261	Jewelry	\N	1	9
 -0.428396777	Music	\N	1	10
--0.40836402	\N	\N	1	11
+-0.408364020	\N	\N	1	11
 -0.575062298	\N	swimwear	0	1
 -0.524775588	\N	pants	0	2
 -0.516348007	\N	sports-apparel	0	3
@@ -27,11 +27,11 @@
 -0.493138491	Books		0	1
 -0.459059632	Books	self-help	0	2
 -0.453614155	Books	romance	0	3
--0.45309724	Books	parenting	0	4
+-0.453097240	Books	parenting	0	4
 -0.452428503	Books	home repair	0	5
 -0.439811066	Books	arts	0	6
 -0.437716966	Books	computers	0	7
--0.4361708	Books	entertainments	0	8
+-0.436170800	Books	entertainments	0	8
 -0.433510686	Books	business	0	9
 -0.429332478	Books	cooking	0	10
 -0.427766981	Books	history	0	11
@@ -47,7 +47,7 @@
 -0.439389125	Children	newborn	0	4
 -0.431534436	Children	school-uniforms	0	5
 -0.481111155	Electronics	scanners	0	1
--0.47476244	Electronics	wireless	0	2
+-0.474762440	Electronics	wireless	0	2
 -0.468813667	Electronics	musical	0	3
 -0.459643617	Electronics	audio	0	4
 -0.459285455	Electronics	portable	0	5
@@ -63,14 +63,14 @@
 -0.427484826	Electronics	cameras	0	15
 -0.417896406	Electronics	memory	0	16
 -0.458206712	Home	wallpaper	0	1
--0.45812351	Home	rugs	0	2
+-0.458123510	Home	rugs	0	2
 -0.453908866	Home	blinds/shades	0	3
 -0.450804773	Home	tables	0	4
 -0.450005816	Home	bedding	0	5
 -0.444429209	Home	paint	0	6
--0.44290016	Home	kids	0	7
+-0.442900160	Home	kids	0	7
 -0.441956665	Home	decor	0	8
--0.44027	Home	curtains/drapes	0	9
+-0.440270000	Home	curtains/drapes	0	9
 -0.436733143	Home	accent	0	10
 -0.429605526	Home	glassware	0	11
 -0.421292745	Home	flatware	0	12
@@ -86,7 +86,7 @@
 -0.437528221	Jewelry		0	5
 -0.435690529	Jewelry	bracelets	0	6
 -0.434631362	Jewelry	birdal	0	7
--0.43452651	Jewelry	loose stones	0	8
+-0.434526510	Jewelry	loose stones	0	8
 -0.433406895	Jewelry	rings	0	9
 -0.430754575	Jewelry	estate	0	10
 -0.429735921	Jewelry	pendants	0	11
@@ -95,7 +95,7 @@
 -0.412603535	Jewelry	jewelry boxes	0	14
 -0.412515477	Jewelry	mens watch	0	15
 -0.405425768	Jewelry	custom	0	16
--0.40366859	Jewelry	diamonds	0	17
+-0.403668590	Jewelry	diamonds	0	17
 -0.440736451	Men	sports-apparel	0	1
 -0.437900911	Men	accessories	0	2
 -0.435914368	Men	pants	0	3
