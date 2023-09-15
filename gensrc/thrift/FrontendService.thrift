@@ -647,6 +647,15 @@ struct TStreamLoadMultiTablePutResult {
     3: optional list<PaloInternalService.TPipelineFragmentParams> pipeline_params
 }
 
+struct TStreamLoadWithLoadStatusResult {
+    1: optional Status.TStatus status
+    2: optional i64 txn_id
+    3: optional i64 total_rows
+    4: optional i64 loaded_rows
+    5: optional i64 filtered_rows
+    6: optional i64 unselected_rows
+}
+
 struct TKafkaRLTaskProgress {
     1: required map<i32,i64> partitionCmtOffset
 }
