@@ -54,8 +54,10 @@ import java.io.File;
 import java.io.IOException;
 import java.io.RandomAccessFile;
 import java.lang.management.ManagementFactory;
+import java.nio.channels.FileChannel;
 import java.nio.channels.FileLock;
 import java.nio.channels.OverlappingFileLockException;
+import java.nio.file.StandardOpenOption;
 
 public class DorisFE {
     private static final Logger LOG = LogManager.getLogger(DorisFE.class);
@@ -66,6 +68,11 @@ public class DorisFE {
 
     public static final String DORIS_HOME_DIR = System.getenv("DORIS_HOME");
     public static final String PID_DIR = System.getenv("PID_DIR");
+
+
+    private static final String LOCK_FILE_PATH = Config.meta_dir + "/.process.lock";
+    private static FileChannel processLockFileChannel;
+    private static FileLock processFileLock;
 
     public static void main(String[] args) {
         StartupOptions options = new StartupOptions();
@@ -87,6 +94,12 @@ public class DorisFE {
         if (Strings.isNullOrEmpty(pidDir)) {
             System.err.println("env PID_DIR is not set.");
             return;
+        }
+        try {
+            tryLockProcess();
+        } catch (Exception e) {
+            LOG.error("start doris failed.", e);
+            System.exit(-1);
         }
 
         CommandLineOptions cmdLineOpts = parseArgs(args);
@@ -409,6 +422,51 @@ public class DorisFE {
         } catch (IOException e) {
             throw e;
         }
+    }
+
+    /**
+     * When user starts multiple FE processes at the same time and uses one metadata directory,
+     * the metadata directory will be damaged. Therefore, we will bind the process by creating a file lock to ensure
+     * that only one FE process can occupy a metadata directory, and other processes will fail to start.
+     */
+    private static void tryLockProcess() {
+
+        try {
+            processLockFileChannel = FileChannel.open(new File(LOCK_FILE_PATH).toPath(), StandardOpenOption.WRITE,
+                    StandardOpenOption.CREATE);
+            processFileLock = processLockFileChannel.tryLock();
+            if (processFileLock != null) {
+                // we need bind the lock file with the process
+                Runtime.getRuntime().addShutdownHook(new Thread(DorisFE::releaseFileLockAndCloseFileChannel));
+                return;
+            }
+            releaseFileLockAndCloseFileChannel();
+        } catch (IOException e) {
+            releaseFileLockAndCloseFileChannel();
+            throw new RuntimeException("Try to lock process failed", e);
+        }
+        throw new RuntimeException("FE process has been started，please do not start multiple FE processes at the"
+                + "same time");
+    }
+
+
+    private static void releaseFileLockAndCloseFileChannel() {
+
+        if (processFileLock != null && processFileLock.isValid()) {
+            try {
+                processFileLock.release();
+            } catch (IOException ioException) {
+                LOG.warn("release process lock file failed", ioException);
+            }
+        }
+        if (processLockFileChannel != null && processLockFileChannel.isOpen()) {
+            try {
+                processLockFileChannel.close();
+            } catch (IOException ignored) {
+                LOG.warn("release process lock file failed", ignored);
+            }
+        }
+
     }
 
     public static class StartupOptions {
