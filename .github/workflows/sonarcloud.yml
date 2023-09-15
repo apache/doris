@@ -16,10 +16,8 @@
 # under the License.
 #
 ---
-name: Code Quality Analysis
-on:
-  schedule:
-    - cron: '30 3,14 * * *'
+name: SonarClout Analysis
+on: [push]
 
 jobs:
   sonar-cloud-java:
