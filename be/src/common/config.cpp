@@ -1010,7 +1010,7 @@ DEFINE_Bool(enable_parse_multi_dimession_array, "false");
 DEFINE_Int32(max_depth_of_expr_tree, "600");
 
 // Report a tablet as bad when io errors occurs more than this value.
-DEFINE_mInt64(max_tablet_io_errors, "1");
+DEFINE_mInt64(max_tablet_io_errors, "-1");
 
 // Report a tablet as bad when its path not found
 DEFINE_Int32(tablet_path_check_interval_seconds, "-1");
