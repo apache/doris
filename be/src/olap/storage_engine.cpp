@@ -469,33 +469,103 @@ Status StorageEngine::set_cluster_id(int32_t cluster_id) {
 
 std::vector<DataDir*> StorageEngine::get_stores_for_create_tablet(
         TStorageMedium::type storage_medium) {
-    std::vector<DataDir*> stores;
+    struct DirInfo {
+        DataDir* data_dir;
+
+        size_t disk_available;
+        //if disk_available is high, then available_level is small
+        int available_level;
+
+        int tablet_num;
+
+        bool operator<(const DirInfo& other) {
+            if (available_level != other.available_level) {
+                return available_level < other.available_level;
+            }
+            if (tablet_num != other.tablet_num) {
+                return tablet_num < other.tablet_num;
+            }
+            return data_dir->path_hash() < other.data_dir->path_hash();
+        }
+    };
+    std::map<size_t, int> available_levels;
+    std::vector<DirInfo> dir_infos;
+    int next_index = 0;
+    size_t max_disk_capacity = 0;
     {
         std::lock_guard<std::mutex> l(_store_lock);
+        next_index = _store_next_index[storage_medium]++;
+        if (next_index < 0) {
+            next_index = 0;
+            _store_next_index[storage_medium] = next_index + 1;
+        }
         for (auto& it : _store_map) {
-            if (it.second->is_used()) {
+            DataDir* data_dir = it.second;
+            if (data_dir->is_used()) {
                 if (_available_storage_medium_type_count == 1 ||
-                    it.second->storage_medium() == storage_medium) {
-                    stores.push_back(it.second);
+                    data_dir->storage_medium() == storage_medium) {
+                    size_t disk_available = data_dir->disk_available();
+                    DirInfo dir_info;
+                    dir_info.data_dir = data_dir;
+                    dir_info.available_level = disk_available;
+                    dir_infos.push_back(dir_info);
+                    available_levels[disk_available] = 0;
+                    size_t disk_capacity = data_dir->disk_capacity();
+                    if (max_disk_capacity < disk_capacity) {
+                        max_disk_capacity = disk_capacity;
+                    }
                 }
             }
         }
     }
-    std::random_device rd;
-    std::mt19937 g(rd());
-    std::shuffle(stores.begin(), stores.end(), g);
-    // Two random choices
-    for (int i = 0; i < stores.size(); i++) {
-        int j = i + 1;
-        if (j < stores.size()) {
-            if (stores[i]->tablet_size() > stores[j]->tablet_size()) {
-                std::swap(stores[i], stores[j]);
-            }
-            std::shuffle(stores.begin() + j, stores.end(), g);
-        } else {
-            break;
-        }
+
+    std::vector<DataDir*> stores;
+    if (dir_infos.empty()) {
+        return stores;
     }
+
+    // if two disk available diff not exceeds 20% capacity, then they are the same available level.
+    size_t same_level_available_diff = std::max<size_t>(max_disk_capacity / 5, 1);
+    int level = 0;
+    size_t level_start_available = available_levels.rbegin()->first;
+    for (auto rit = available_levels.rbegin(); rit != available_levels.rend(); rit++) {
+        if (level_start_available - rit->first >= same_level_available_diff) {
+            level_start_available = rit->first;
+            level++;
+        }
+        rit->second = level;
+    }
+
+    for (auto& dir_info : dir_infos) {
+        dir_info.tablet_num = dir_info.data_dir->tablet_num();
+        dir_info.available_level = available_levels[dir_info.disk_available];
+    }
+
+    std::sort(dir_infos.begin(), dir_infos.end());
+
+    // Suppose there are five data dirs (D1, D2, D3, D4, D5).
+    // D1/D2/D3 contain 1 tablet,  D4/D5 contain 2 tablets.
+    // If three creating tablets threads simultaneously invoke this function to get stores,
+    // then the return stores will be as below:
+    // thread 1: (D1, D2, D3, D4, D5)
+    // thread 2: (D2, D3, D1, D5, D4)
+    // thread 3: (D3, D1, D2, D4, D5)
+    stores.reserve(dir_infos.size());
+    for (size_t i = 0; i < dir_infos.size();) {
+        size_t end = i + 1;
+        while (end < dir_infos.size() && dir_infos[i].tablet_num == dir_infos[end].tablet_num &&
+               dir_infos[i].available_level == dir_infos[end].available_level) {
+            end++;
+        }
+        // data dirs [i, end) have the same tablet size, round robin range [i, end)
+        size_t count = end - i;
+        for (size_t k = 0; k < count; k++) {
+            size_t index = i + (k + next_index) % count;
+            stores.push_back(dir_infos[index].data_dir);
+        }
+        i = end;
+    }
+
     return stores;
 }
 
