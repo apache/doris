@@ -1,6 +1,6 @@
 ---
 {
-"title": "Paimon",
+"title": "Apache Paimon",
 "language": "zh-CN"
 }
 ---
@@ -25,7 +25,7 @@ under the License.
 -->
 
 
-# Paimon
+# Apache Paimon
 
 <version since="dev">
 </version>
@@ -33,11 +33,11 @@ under the License.
 ## 使用须知
 
 1. 数据放在hdfs时，需要将 core-site.xml，hdfs-site.xml 和 hive-site.xml  放到 FE 和 BE 的 conf 目录下。优先读取 conf 目录下的 hadoop 配置文件，再读取环境变量 `HADOOP_CONF_DIR` 的相关配置文件。
-2. 当前适配的paimon版本为0.4.0
+2. 当前适配的Apache Paimon版本为0.5.0-incubating
 
 ## 创建 Catalog
 
-Paimon Catalog 当前支持两种类型的Metastore创建Catalog:
+Apache Paimon Catalog 当前支持两种类型的Metastore创建Catalog:
 * filesystem（默认），同时存储元数据和数据在filesystem。
 * hive metastore，它还将元数据存储在Hive metastore中。用户可以直接从Hive访问这些表。
 
@@ -62,7 +62,7 @@ CREATE CATALOG `paimon_hdfs` PROPERTIES (
 
 > 注意：
 >
-> 用户需要手动下载[paimon-s3-0.4.0-incubating.jar](https://repo.maven.apache.org/maven2/org/apache/paimon/paimon-s3/0.4.0-incubating/paimon-s3-0.4.0-incubating.jar)
+> 用户需要手动下载[paimon-s3-0.5.0-incubating.jar](https://repo.maven.apache.org/maven2/org/apache/paimon/paimon-s3/0.5.0-incubating/paimon-s3-0.5.0-incubating.jar)
 
 > 放在${DORIS_HOME}/be/lib/java_extensions/preload-extensions目录下并重启be。
 >
@@ -83,7 +83,7 @@ CREATE CATALOG `paimon_s3` PROPERTIES (
 
 >注意：
 >
-> 用户需要手动下载[paimon-oss-0.4.0-incubating.jar](https://repo.maven.apache.org/maven2/org/apache/paimon/paimon-oss/0.4.0-incubating/paimon-oss-0.4.0-incubating.jar)
+> 用户需要手动下载[paimon-oss-0.5.0-incubating.jar](https://repo.maven.apache.org/maven2/org/apache/paimon/paimon-oss/0.5.0-incubating/paimon-oss-0.5.0-incubating.jar)
 > 放在${DORIS_HOME}/be/lib/java_extensions/preload-extensions目录下并重启be
 
 ```sql

@@ -1,6 +1,6 @@
 ---
 {
-"title": "Paimon",
+"title": "Apache Paimon",
 "language": "en"
 }
 ---
@@ -25,7 +25,7 @@ under the License.
 -->
 
 
-# Paimon
+# Apache Paimon
 
 <version since="dev">
 </version>
@@ -33,11 +33,11 @@ under the License.
 ## Instructions for use
 
 1. When data in hdfs,need to put core-site.xml, hdfs-site.xml and hive-site.xml in the conf directory of FE and BE. First read the hadoop configuration file in the conf directory, and then read the related to the environment variable `HADOOP_CONF_DIR` configuration file.
-2. The currently adapted version of the payment is 0.4.0
+2. The currently adapted version of the payment is 0.5.0-incubating
 
 ## Create Catalog
 
-Paimon Catalog Currently supports two types of Metastore creation catalogs:
+Apache Paimon catalog currently supports two types of metastore creation catalogs:
 * filesystem(default),Store both metadata and data in the file system.
 * hive metastore,It also stores metadata in Hive metastore. Users can access these tables directly from Hive.
 
@@ -62,7 +62,7 @@ CREATE CATALOG `paimon_hdfs` PROPERTIES (
 
 > Note that.
 >
-> user need download [paimon-s3-0.4.0-incubating.jar](https://repo.maven.apache.org/maven2/org/apache/paimon/paimon-s3/0.4.0-incubating/paimon-s3-0.4.0-incubating.jar)
+> user need download [paimon-s3-0.5.0-incubating.jar](https://repo.maven.apache.org/maven2/org/apache/paimon/paimon-s3/0.5.0-incubating/paimon-s3-0.5.0-incubating.jar)
 >
 > Place it in directory ${DORIS_HOME}/be/lib/java_extensions/preload-extensions and restart be
 >
@@ -83,7 +83,7 @@ CREATE CATALOG `paimon_s3` PROPERTIES (
 
 >Note that.
 >
-> user need download [paimon-oss-0.4.0-incubating.jar](https://repo.maven.apache.org/maven2/org/apache/paimon/paimon-oss/0.4.0-incubating/paimon-oss-0.4.0-incubating.jar)
+> user need download [paimon-oss-0.5.0-incubating.jar](https://repo.maven.apache.org/maven2/org/apache/paimon/paimon-oss/0.5.0-incubating/paimon-oss-0.5.0-incubating.jar)
 > Place it in directory ${DORIS_HOME}/be/lib/java_extensions/preload-extensions and restart be
 
 
