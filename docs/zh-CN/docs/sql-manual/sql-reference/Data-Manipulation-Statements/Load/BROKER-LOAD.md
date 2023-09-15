@@ -67,6 +67,7 @@ WITH BROKER broker_name
   [COLUMNS TERMINATED BY "column_separator"]
   [LINES TERMINATED BY "line_delimiter"]
   [FORMAT AS "file_type"]
+  [COMPRESS_TYPE AS "compress_type"]
   [(column_list)]
   [COLUMNS FROM PATH AS (c1, c2, ...)]
   [SET (column_mapping)]
@@ -104,6 +105,9 @@ WITH BROKER broker_name
   - `FORMAT AS`
 
     指定文件类型，支持 CSV、PARQUET 和 ORC 格式。默认为 CSV。
+
+  - `COMPRESS_TYPE AS`
+    指定文件压缩类型, 支持GZ/BZ2/LZ4FRAME。
 
   - `column list`
 

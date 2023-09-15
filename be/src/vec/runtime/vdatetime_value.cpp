@@ -1608,9 +1608,11 @@ bool VecDateTimeValue::from_date_format_str(const char* format, int format_len, 
     return check_range_and_set_time(year, month, day, hour, minute, second, _type);
 }
 
-template <TimeUnit unit>
+template <TimeUnit unit, bool need_check>
 bool VecDateTimeValue::date_add_interval(const TimeInterval& interval) {
-    if (!is_valid_date()) return false;
+    if constexpr (need_check) {
+        if (!is_valid_date()) return false;
+    }
 
     int sign = interval.is_neg ? -1 : 1;
 
@@ -2879,9 +2881,11 @@ bool DateV2Value<T>::date_add_interval(const TimeInterval& interval, DateV2Value
 }
 
 template <typename T>
-template <TimeUnit unit>
+template <TimeUnit unit, bool need_check>
 bool DateV2Value<T>::date_add_interval(const TimeInterval& interval) {
-    if (!is_valid_date()) return false;
+    if constexpr (need_check) {
+        if (!is_valid_date()) return false;
+    }
 
     int sign = interval.is_neg ? -1 : 1;
 
@@ -3059,9 +3063,48 @@ bool DateV2Value<T>::datetime_trunc() {
         default:
             return false;
         }
-        return true;
+    } else { // is_datev2
+        if (!is_valid_date()) {
+            return false;
+        }
+        switch (unit) {
+        case SECOND:
+        case MINUTE:
+        case HOUR:
+        case DAY:
+            break;
+        case WEEK: {
+            TimeInterval interval(DAY, weekday(), true);
+            date_add_interval<DAY>(interval);
+            break;
+        }
+        case MONTH: {
+            date_v2_value_.day_ = 1;
+            break;
+        }
+        case QUARTER: {
+            date_v2_value_.day_ = 1;
+            if (date_v2_value_.month_ <= 3) {
+                date_v2_value_.month_ = 1;
+            } else if (date_v2_value_.month_ <= 6) {
+                date_v2_value_.month_ = 4;
+            } else if (date_v2_value_.month_ <= 9) {
+                date_v2_value_.month_ = 7;
+            } else {
+                date_v2_value_.month_ = 10;
+            }
+            break;
+        }
+        case YEAR: {
+            date_v2_value_.day_ = 1;
+            date_v2_value_.month_ = 1;
+            break;
+        }
+        default:
+            return false;
+        }
     }
-    return false;
+    return true;
 }
 
 template <typename T>
@@ -3713,6 +3756,23 @@ template bool VecDateTimeValue::date_add_interval<TimeUnit::YEAR>(const TimeInte
 template bool VecDateTimeValue::date_add_interval<TimeUnit::QUARTER>(const TimeInterval& interval);
 template bool VecDateTimeValue::date_add_interval<TimeUnit::WEEK>(const TimeInterval& interval);
 
+template bool VecDateTimeValue::date_add_interval<TimeUnit::SECOND, false>(
+        const TimeInterval& interval);
+template bool VecDateTimeValue::date_add_interval<TimeUnit::MINUTE, false>(
+        const TimeInterval& interval);
+template bool VecDateTimeValue::date_add_interval<TimeUnit::HOUR, false>(
+        const TimeInterval& interval);
+template bool VecDateTimeValue::date_add_interval<TimeUnit::DAY, false>(
+        const TimeInterval& interval);
+template bool VecDateTimeValue::date_add_interval<TimeUnit::MONTH, false>(
+        const TimeInterval& interval);
+template bool VecDateTimeValue::date_add_interval<TimeUnit::YEAR, false>(
+        const TimeInterval& interval);
+template bool VecDateTimeValue::date_add_interval<TimeUnit::QUARTER, false>(
+        const TimeInterval& interval);
+template bool VecDateTimeValue::date_add_interval<TimeUnit::WEEK, false>(
+        const TimeInterval& interval);
+
 template bool DateV2Value<DateV2ValueType>::date_add_interval<TimeUnit::MICROSECOND>(
         const TimeInterval& interval);
 template bool DateV2Value<DateV2ValueType>::date_add_interval<TimeUnit::SECOND>(
@@ -3749,6 +3809,44 @@ template bool DateV2Value<DateTimeV2ValueType>::date_add_interval<TimeUnit::YEAR
 template bool DateV2Value<DateTimeV2ValueType>::date_add_interval<TimeUnit::QUARTER>(
         const TimeInterval& interval);
 template bool DateV2Value<DateTimeV2ValueType>::date_add_interval<TimeUnit::WEEK>(
+        const TimeInterval& interval);
+
+template bool DateV2Value<DateV2ValueType>::date_add_interval<TimeUnit::MICROSECOND, false>(
+        const TimeInterval& interval);
+template bool DateV2Value<DateV2ValueType>::date_add_interval<TimeUnit::SECOND, false>(
+        const TimeInterval& interval);
+template bool DateV2Value<DateV2ValueType>::date_add_interval<TimeUnit::MINUTE, false>(
+        const TimeInterval& interval);
+template bool DateV2Value<DateV2ValueType>::date_add_interval<TimeUnit::HOUR, false>(
+        const TimeInterval& interval);
+template bool DateV2Value<DateV2ValueType>::date_add_interval<TimeUnit::DAY, false>(
+        const TimeInterval& interval);
+template bool DateV2Value<DateV2ValueType>::date_add_interval<TimeUnit::MONTH, false>(
+        const TimeInterval& interval);
+template bool DateV2Value<DateV2ValueType>::date_add_interval<TimeUnit::YEAR, false>(
+        const TimeInterval& interval);
+template bool DateV2Value<DateV2ValueType>::date_add_interval<TimeUnit::QUARTER, false>(
+        const TimeInterval& interval);
+template bool DateV2Value<DateV2ValueType>::date_add_interval<TimeUnit::WEEK, false>(
+        const TimeInterval& interval);
+
+template bool DateV2Value<DateTimeV2ValueType>::date_add_interval<TimeUnit::MICROSECOND, false>(
+        const TimeInterval& interval);
+template bool DateV2Value<DateTimeV2ValueType>::date_add_interval<TimeUnit::SECOND, false>(
+        const TimeInterval& interval);
+template bool DateV2Value<DateTimeV2ValueType>::date_add_interval<TimeUnit::MINUTE, false>(
+        const TimeInterval& interval);
+template bool DateV2Value<DateTimeV2ValueType>::date_add_interval<TimeUnit::HOUR, false>(
+        const TimeInterval& interval);
+template bool DateV2Value<DateTimeV2ValueType>::date_add_interval<TimeUnit::DAY, false>(
+        const TimeInterval& interval);
+template bool DateV2Value<DateTimeV2ValueType>::date_add_interval<TimeUnit::MONTH, false>(
+        const TimeInterval& interval);
+template bool DateV2Value<DateTimeV2ValueType>::date_add_interval<TimeUnit::YEAR, false>(
+        const TimeInterval& interval);
+template bool DateV2Value<DateTimeV2ValueType>::date_add_interval<TimeUnit::QUARTER, false>(
+        const TimeInterval& interval);
+template bool DateV2Value<DateTimeV2ValueType>::date_add_interval<TimeUnit::WEEK, false>(
         const TimeInterval& interval);
 
 template bool VecDateTimeValue::date_set_interval<TimeUnit::SECOND>(const TimeInterval& interval);

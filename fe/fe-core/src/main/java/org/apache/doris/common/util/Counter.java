@@ -33,6 +33,10 @@ public class Counter {
         this.value = value;
     }
 
+    public void setValue(long value) {
+        this.value = value;
+    }
+
     public TUnit getType() {
         return TUnit.findByValue(type);
     }
@@ -44,5 +48,21 @@ public class Counter {
     public Counter(TUnit type, long value) {
         this.value = value;
         this.type = type.getValue();
+    }
+
+    public void addValue(Counter other) {
+        this.value += other.value;
+    }
+
+    public void divValue(long div) {
+        if (div <= 0) {
+            return;
+        }
+        value /= div;
+    }
+
+    public boolean isTimeType() {
+        TUnit ttype = TUnit.findByValue(type);
+        return ttype == TUnit.TIME_MS || ttype == TUnit.TIME_NS || ttype == TUnit.TIME_S;
     }
 }

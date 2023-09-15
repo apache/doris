@@ -566,9 +566,9 @@ Status NestedLoopJoinProbeOperatorX::pull(RuntimeState* state, vectorized::Block
     return Status::OK();
 }
 
-bool NestedLoopJoinProbeOperatorX::can_read(RuntimeState* state) {
+Dependency* NestedLoopJoinProbeOperatorX::wait_for_dependency(RuntimeState* state) {
     auto& local_state = state->get_local_state(id())->cast<NestedLoopJoinProbeLocalState>();
-    return local_state._dependency->done();
+    return local_state._dependency->read_blocked_by();
 }
 
 } // namespace doris::pipeline
