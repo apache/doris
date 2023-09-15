@@ -73,9 +73,11 @@ private:
 
 class StreamingAggSinkOperatorX;
 
-class StreamingAggSinkLocalState final : public AggSinkLocalState<StreamingAggSinkLocalState> {
+class StreamingAggSinkLocalState final
+        : public AggSinkLocalState<StreamingAggDependency, StreamingAggSinkLocalState> {
 public:
     using Parent = StreamingAggSinkOperatorX;
+    using Base = AggSinkLocalState<StreamingAggDependency, StreamingAggSinkLocalState>;
     ENABLE_FACTORY_CREATOR(StreamingAggSinkLocalState);
     StreamingAggSinkLocalState(DataSinkOperatorXBase* parent, RuntimeState* state);
 
@@ -106,6 +108,7 @@ private:
 class StreamingAggSinkOperatorX final : public AggSinkOperatorX<StreamingAggSinkLocalState> {
 public:
     StreamingAggSinkOperatorX(ObjectPool* pool, const TPlanNode& tnode, const DescriptorTbl& descs);
+    Status init(const TPlanNode& tnode, RuntimeState* state) override;
     Status sink(RuntimeState* state, vectorized::Block* in_block,
                 SourceState source_state) override;
 

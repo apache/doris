@@ -60,14 +60,43 @@ private:
     std::shared_ptr<DataQueue> _data_queue;
 };
 
-class StreamingAggSourceOperatorX final : public AggSourceOperatorX {
+class StreamingAggSourceOperatorX;
+
+class StreamingAggLocalState final
+        : public AggLocalState<StreamingAggDependency, StreamingAggLocalState> {
 public:
+    using Parent = StreamingAggSourceOperatorX;
+    ENABLE_FACTORY_CREATOR(StreamingAggLocalState);
+    StreamingAggLocalState(RuntimeState* state, OperatorXBase* parent)
+            : AggLocalState<StreamingAggDependency, StreamingAggLocalState>(state, parent) {}
+    ~StreamingAggLocalState() = default;
+};
+
+class StreamingAggSourceOperatorX final : public OperatorX<StreamingAggLocalState> {
+public:
+    using Base = OperatorX<StreamingAggLocalState>;
     StreamingAggSourceOperatorX(ObjectPool* pool, const TPlanNode& tnode,
                                 const DescriptorTbl& descs);
-    bool can_read(RuntimeState* state) override;
+    ~StreamingAggSourceOperatorX() = default;
+
+    Status init(const TPlanNode& tnode, RuntimeState* state) override;
+
+    Dependency* wait_for_dependency(RuntimeState* state) override;
 
     Status get_block(RuntimeState* state, vectorized::Block* block,
                      SourceState& source_state) override;
+
+    bool is_source() const override { return true; }
+
+private:
+    template <typename DependencyType, typename Derived>
+    friend class AggLocalState;
+
+    bool _needs_finalize;
+    bool _without_key;
+    // left / full join will change the key nullable make output/input solt
+    // nullable diff. so we need make nullable of it.
+    std::vector<size_t> _make_nullable_keys;
 };
 
 } // namespace pipeline

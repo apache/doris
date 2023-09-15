@@ -99,8 +99,6 @@ Status ResultSinkOperatorX::prepare(RuntimeState* state) {
     auto fragment_instance_id = state->fragment_instance_id();
     auto title = fmt::format("VDataBufferSender (dst_fragment_instance_id={:x}-{:x})",
                              fragment_instance_id.hi, fragment_instance_id.lo);
-    // create profile
-    _profile = state->obj_pool()->add(new RuntimeProfile(title));
     // prepare output_expr
     // From the thrift expressions create the real exprs.
     RETURN_IF_ERROR(vectorized::VExpr::create_expr_trees(_t_output_expr, _output_vexpr_ctxs));

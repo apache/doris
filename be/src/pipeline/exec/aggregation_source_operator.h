@@ -49,8 +49,11 @@ public:
 };
 
 class AggSourceOperatorX;
-class AggLocalState final : public PipelineXLocalState<AggDependency> {
+
+template <typename DependencyType, typename Derived>
+class AggLocalState : public PipelineXLocalState<DependencyType> {
 public:
+    using Base = PipelineXLocalState<DependencyType>;
     ENABLE_FACTORY_CREATOR(AggLocalState);
     AggLocalState(RuntimeState* state, OperatorXBase* parent);
 
@@ -59,7 +62,7 @@ public:
 
     void make_nullable_output_key(vectorized::Block* block);
 
-private:
+protected:
     friend class AggSourceOperatorX;
     friend class StreamingAggSourceOperatorX;
 
@@ -107,18 +110,30 @@ private:
     bool _agg_data_created_without_key = false;
 };
 
-class AggSourceOperatorX : public OperatorX<AggLocalState> {
+class BlockingAggLocalState final : public AggLocalState<AggDependency, BlockingAggLocalState> {
 public:
-    AggSourceOperatorX(ObjectPool* pool, const TPlanNode& tnode, const DescriptorTbl& descs);
-    virtual ~AggSourceOperatorX() = default;
-    virtual bool can_read(RuntimeState* state) override;
+    ENABLE_FACTORY_CREATOR(BlockingAggLocalState);
+    using Parent = AggSourceOperatorX;
 
-    virtual Status get_block(RuntimeState* state, vectorized::Block* block,
-                             SourceState& source_state) override;
+    BlockingAggLocalState(RuntimeState* state, OperatorXBase* parent)
+            : AggLocalState<AggDependency, BlockingAggLocalState>(state, parent) {}
+    ~BlockingAggLocalState() = default;
+};
+
+class AggSourceOperatorX final : public OperatorX<BlockingAggLocalState> {
+public:
+    using Base = OperatorX<BlockingAggLocalState>;
+    AggSourceOperatorX(ObjectPool* pool, const TPlanNode& tnode, const DescriptorTbl& descs);
+    ~AggSourceOperatorX() = default;
+    Dependency* wait_for_dependency(RuntimeState* state) override;
+
+    Status get_block(RuntimeState* state, vectorized::Block* block,
+                     SourceState& source_state) override;
 
     bool is_source() const override { return true; }
 
 private:
+    template <typename DependencyType, typename Derived>
     friend class AggLocalState;
 
     bool _needs_finalize;

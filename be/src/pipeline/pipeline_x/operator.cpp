@@ -89,7 +89,6 @@ Status OperatorXBase::init(const TPlanNode& tnode, RuntimeState* /*state*/) {
     std::string node_name = print_plan_node_type(tnode.node_type);
     auto substr = node_name.substr(0, node_name.find("_NODE"));
     _op_name = substr + "_OPERATOR";
-    _init_runtime_profile();
 
     if (tnode.__isset.vconjunct) {
         vectorized::VExprContextSPtr context;
@@ -134,13 +133,6 @@ Status OperatorXBase::open(RuntimeState* state) {
         RETURN_IF_ERROR(_child_x->open(state));
     }
     return Status::OK();
-}
-
-void OperatorXBase::_init_runtime_profile() {
-    std::stringstream ss;
-    ss << get_name() << " (id=" << _id << ")";
-    _runtime_profile.reset(new RuntimeProfile(ss.str()));
-    _runtime_profile->set_metadata(_id);
 }
 
 Status OperatorXBase::close(RuntimeState* state) {
@@ -270,7 +262,11 @@ Status DataSinkOperatorX<LocalStateType>::setup_local_state(RuntimeState* state,
 
 template <typename LocalStateType>
 void DataSinkOperatorX<LocalStateType>::get_dependency(DependencySPtr& dependency) {
-    dependency.reset(new typename LocalStateType::Dependency(dest_id()));
+    if constexpr (!std::is_same_v<typename LocalStateType::Dependency, FakeDependency>) {
+        dependency.reset(new typename LocalStateType::Dependency(dest_id()));
+    } else {
+        dependency.reset((typename LocalStateType::Dependency*)nullptr);
+    }
 }
 
 template <typename LocalStateType>
@@ -285,6 +281,8 @@ Status StreamingOperatorX<LocalStateType>::get_block(RuntimeState* state, vector
                                                      SourceState& source_state) {
     RETURN_IF_ERROR(OperatorX<LocalStateType>::_child_x->get_next_after_projects(state, block,
                                                                                  source_state));
+    COUNTER_UPDATE(state->get_local_state(OperatorX<LocalStateType>::id())->rows_input_counter(),
+                   (int64_t)block->rows());
     return pull(state, block, source_state);
 }
 
@@ -297,6 +295,7 @@ Status StatefulOperatorX<LocalStateType>::get_block(RuntimeState* state, vectori
         local_state._child_block->clear_column_data();
         RETURN_IF_ERROR(OperatorX<LocalStateType>::_child_x->get_next_after_projects(
                 state, local_state._child_block.get(), local_state._child_source_state));
+        COUNTER_UPDATE(local_state.rows_input_counter(), (int64_t)local_state._child_block->rows());
         source_state = local_state._child_source_state;
         if (local_state._child_block->rows() == 0 &&
             local_state._child_source_state != SourceState::FINISHED) {
@@ -338,7 +337,8 @@ DECLARE_OPERATOR_X(HashJoinProbeLocalState)
 DECLARE_OPERATOR_X(OlapScanLocalState)
 DECLARE_OPERATOR_X(AnalyticLocalState)
 DECLARE_OPERATOR_X(SortLocalState)
-DECLARE_OPERATOR_X(AggLocalState)
+DECLARE_OPERATOR_X(BlockingAggLocalState)
+DECLARE_OPERATOR_X(StreamingAggLocalState)
 DECLARE_OPERATOR_X(ExchangeLocalState)
 DECLARE_OPERATOR_X(RepeatLocalState)
 DECLARE_OPERATOR_X(NestedLoopJoinProbeLocalState)
@@ -368,6 +368,7 @@ template class PipelineXLocalState<SortDependency>;
 template class PipelineXLocalState<NestedLoopJoinDependency>;
 template class PipelineXLocalState<AnalyticDependency>;
 template class PipelineXLocalState<AggDependency>;
+template class PipelineXLocalState<StreamingAggDependency>;
 template class PipelineXLocalState<FakeDependency>;
 template class PipelineXLocalState<UnionDependency>;
 
