@@ -407,7 +407,7 @@ public class NativeInsertStmt extends InsertStmt {
             TUniqueId loadId = analyzer.getContext().queryId();
             int sendBatchParallelism = analyzer.getContext().getSessionVariable().getSendBatchParallelism();
             boolean isInsertStrict = analyzer.getContext().getSessionVariable().getEnableInsertStrict()
-                    && !isFromDeleteOrUpdateStmt; 
+                    && !isFromDeleteOrUpdateStmt;
             sink.init(loadId, transactionId, db.getId(), timeoutSecond,
                     sendBatchParallelism, false, isInsertStrict, isInsertIgnore);
         }
