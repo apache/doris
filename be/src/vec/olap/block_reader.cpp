@@ -214,8 +214,8 @@ Status BlockReader::init(const ReaderParams& read_params) {
 
     auto status = _init_collect_iter(read_params);
     if (!status.ok()) {
-        if (UNLIKELY(!res.ok() && !res.is<ErrorCode::END_OF_FILE>())) {
-            _tablet->report_error(res);
+        if (UNLIKELY(!status.ok() && !status.is<ErrorCode::END_OF_FILE>())) {
+            _tablet->report_error(status);
         }
 
         return status;
