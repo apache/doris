@@ -19,63 +19,57 @@
 
 #include <openssl/sha.h>
 
-#include <string>
+#include <string_view>
 
 namespace doris {
 
+class SHA1Digest {
+public:
+    void reset(const void* data, size_t length);
+    std::string_view digest();
+
+private:
+    SHA_CTX _sha_ctx;
+    char _reuse_hex[2 * SHA_DIGEST_LENGTH];
+};
+
 class SHA224Digest {
 public:
-    SHA224Digest();
-
-    void update(const void* data, size_t length);
-    void digest();
-
-    [[nodiscard]] const std::string& hex() const { return _hex; }
+    void reset(const void* data, size_t length);
+    std::string_view digest();
 
 private:
     SHA256_CTX _sha224_ctx;
-    std::string _hex;
+    char _reuse_hex[2 * SHA224_DIGEST_LENGTH];
 };
 
 class SHA256Digest {
 public:
-    SHA256Digest();
-
-    void update(const void* data, size_t length);
-    void digest();
-
-    [[nodiscard]] const std::string& hex() const { return _hex; }
+    void reset(const void* data, size_t length);
+    std::string_view digest();
 
 private:
     SHA256_CTX _sha256_ctx;
-    std::string _hex;
+    char _reuse_hex[2 * SHA256_DIGEST_LENGTH];
 };
 
 class SHA384Digest {
 public:
-    SHA384Digest();
-
-    void update(const void* data, size_t length);
-    void digest();
-
-    [[nodiscard]] const std::string& hex() const { return _hex; }
+    void reset(const void* data, size_t length);
+    std::string_view digest();
 
 private:
     SHA512_CTX _sha384_ctx;
-    std::string _hex;
+    char _reuse_hex[2 * SHA384_DIGEST_LENGTH];
 };
 
 class SHA512Digest {
 public:
-    SHA512Digest();
-
-    void update(const void* data, size_t length);
-    void digest();
-
-    [[nodiscard]] const std::string& hex() const { return _hex; }
+    void reset(const void* data, size_t length);
+    std::string_view digest();
 
 private:
     SHA512_CTX _sha512_ctx;
-    std::string _hex;
+    char _reuse_hex[2 * SHA512_DIGEST_LENGTH];
 };
 } // namespace doris

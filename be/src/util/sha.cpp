@@ -17,90 +17,102 @@
 
 #include "util/sha.h"
 
-#include <iomanip>
-#include <iostream>
-#include <string>
+#include <openssl/sha.h>
+
+#include <string_view>
 
 namespace doris {
 
-SHA224Digest::SHA224Digest() {
-    SHA224_Init(&_sha224_ctx);
+static char dig_vec_lower[] = "0123456789abcdef";
+
+void SHA1Digest::reset(const void* data, size_t length) {
+    SHA1_Init(&_sha_ctx);
+    SHA1_Update(&_sha_ctx, data, length);
 }
 
-void SHA224Digest::update(const void* data, size_t length) {
+std::string_view SHA1Digest::digest() {
+    unsigned char buf[SHA_DIGEST_LENGTH];
+    SHA1_Final(buf, &_sha_ctx);
+
+    char* to = _reuse_hex;
+    for (int i = 0; i < SHA_DIGEST_LENGTH; ++i) {
+        *to++ = dig_vec_lower[buf[i] >> 4];
+        *to++ = dig_vec_lower[buf[i] & 0x0F];
+    }
+
+    return std::string_view {_reuse_hex, _reuse_hex + 2 * SHA_DIGEST_LENGTH};
+}
+
+void SHA224Digest::reset(const void* data, size_t length) {
+    SHA224_Init(&_sha224_ctx);
     SHA224_Update(&_sha224_ctx, data, length);
 }
 
-void SHA224Digest::digest() {
-    unsigned char hash[SHA224_DIGEST_LENGTH];
-    SHA224_Final(hash, &_sha224_ctx);
+std::string_view SHA224Digest::digest() {
+    unsigned char buf[SHA224_DIGEST_LENGTH];
+    SHA224_Final(buf, &_sha224_ctx);
 
-    std::stringstream ss;
-    for (unsigned char i : hash) {
-        ss << std::hex << std::setw(2) << std::setfill('0') << (int)i;
+    char* to = _reuse_hex;
+    for (int i = 0; i < SHA224_DIGEST_LENGTH; ++i) {
+        *to++ = dig_vec_lower[buf[i] >> 4];
+        *to++ = dig_vec_lower[buf[i] & 0x0F];
     }
 
-    _hex.assign(ss.str());
+    return std::string_view {_reuse_hex, _reuse_hex + 2 * SHA224_DIGEST_LENGTH};
 }
 
-SHA256Digest::SHA256Digest() {
+void SHA256Digest::reset(const void* data, size_t length) {
     SHA256_Init(&_sha256_ctx);
-}
-
-void SHA256Digest::update(const void* data, size_t length) {
     SHA256_Update(&_sha256_ctx, data, length);
 }
 
-void SHA256Digest::digest() {
-    unsigned char hash[SHA256_DIGEST_LENGTH];
-    SHA256_Final(hash, &_sha256_ctx);
+std::string_view SHA256Digest::digest() {
+    unsigned char buf[SHA256_DIGEST_LENGTH];
+    SHA256_Final(buf, &_sha256_ctx);
 
-    std::stringstream ss;
-    for (unsigned char i : hash) {
-        ss << std::hex << std::setw(2) << std::setfill('0') << (int)i;
+    char* to = _reuse_hex;
+    for (int i = 0; i < SHA256_DIGEST_LENGTH; ++i) {
+        *to++ = dig_vec_lower[buf[i] >> 4];
+        *to++ = dig_vec_lower[buf[i] & 0x0F];
     }
 
-    _hex.assign(ss.str());
+    return std::string_view {_reuse_hex, _reuse_hex + 2 * SHA256_DIGEST_LENGTH};
 }
 
-SHA384Digest::SHA384Digest() {
+void SHA384Digest::reset(const void* data, size_t length) {
     SHA384_Init(&_sha384_ctx);
-}
-
-void SHA384Digest::update(const void* data, size_t length) {
     SHA384_Update(&_sha384_ctx, data, length);
 }
 
-void SHA384Digest::digest() {
-    unsigned char hash[SHA384_DIGEST_LENGTH];
-    SHA384_Final(hash, &_sha384_ctx);
+std::string_view SHA384Digest::digest() {
+    unsigned char buf[SHA384_DIGEST_LENGTH];
+    SHA384_Final(buf, &_sha384_ctx);
 
-    std::stringstream ss;
-    for (unsigned char i : hash) {
-        ss << std::hex << std::setw(2) << std::setfill('0') << (int)i;
+    char* to = _reuse_hex;
+    for (int i = 0; i < SHA384_DIGEST_LENGTH; ++i) {
+        *to++ = dig_vec_lower[buf[i] >> 4];
+        *to++ = dig_vec_lower[buf[i] & 0x0F];
     }
 
-    _hex.assign(ss.str());
+    return std::string_view {_reuse_hex, _reuse_hex + 2 * SHA384_DIGEST_LENGTH};
 }
 
-SHA512Digest::SHA512Digest() {
+void SHA512Digest::reset(const void* data, size_t length) {
     SHA512_Init(&_sha512_ctx);
-}
-
-void SHA512Digest::update(const void* data, size_t length) {
     SHA512_Update(&_sha512_ctx, data, length);
 }
 
-void SHA512Digest::digest() {
-    unsigned char hash[SHA512_DIGEST_LENGTH];
-    SHA512_Final(hash, &_sha512_ctx);
+std::string_view SHA512Digest::digest() {
+    unsigned char buf[SHA512_DIGEST_LENGTH];
+    SHA512_Final(buf, &_sha512_ctx);
 
-    std::stringstream ss;
-    for (unsigned char i : hash) {
-        ss << std::hex << std::setw(2) << std::setfill('0') << (int)i;
+    char* to = _reuse_hex;
+    for (int i = 0; i < SHA512_DIGEST_LENGTH; ++i) {
+        *to++ = dig_vec_lower[buf[i] >> 4];
+        *to++ = dig_vec_lower[buf[i] & 0x0F];
     }
 
-    _hex.assign(ss.str());
+    return std::string_view {_reuse_hex, _reuse_hex + 2 * SHA512_DIGEST_LENGTH};
 }
 
 } // namespace doris

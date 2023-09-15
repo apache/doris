@@ -1030,6 +1030,10 @@ public interface ScalarFunctionVisitor<R, C> {
         return visitScalarFunction(secondsDiff, context);
     }
 
+    default R visitSha1(Sha1 sha1, C context) {
+        return visitScalarFunction(sha1, context);
+    }
+
     default R visitSha2(Sha2 sha2, C context) {
         return visitScalarFunction(sha2, context);
     }

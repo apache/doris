@@ -292,6 +292,7 @@ public class BuiltinScalarFunctions implements FunctionHelper {
             scalar(SecondTimestamp.class, "second_timestamp"),
             scalar(MilliSecondTimestamp.class, "millisecond_timestamp"),
             scalar(MicroSecondTimestamp.class, "microsecond_timestamp"),
+            scalar(Sha1.class, "sha1", "sha"),
             scalar(Sha2.class, "sha2"),
             scalar(Sign.class, "sign"),
             scalar(Sin.class, "sin"),

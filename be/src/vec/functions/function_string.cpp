@@ -981,6 +981,7 @@ void register_function_string(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionMoneyFormat<MoneyFormatDecimalImpl>>();
     factory.register_function<FunctionStringDigestOneArg<SM3Sum>>();
     factory.register_function<FunctionStringDigestOneArg<MD5Sum>>();
+    factory.register_function<FunctionStringDigestSHA1>();
     factory.register_function<FunctionStringDigestSHA2>();
     factory.register_function<FunctionReplace>();
     factory.register_function<FunctionMask>();
@@ -997,6 +998,7 @@ void register_function_string(SimpleFunctionFactory& factory) {
     factory.register_alias(FunctionStringDigestOneArg<MD5Sum>::name, "md5");
     factory.register_alias(FunctionStringUTF8Length::name, "character_length");
     factory.register_alias(FunctionStringDigestOneArg<SM3Sum>::name, "sm3");
+    factory.register_alias(FunctionStringDigestSHA1::name, "sha");
 
     /// @TEMPORARY: for be_exec_version=2
     factory.register_alternative_function<FunctionStringEltOld>();

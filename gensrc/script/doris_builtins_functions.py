@@ -1905,6 +1905,10 @@ visible_functions = {
         [['sm3'], 'VARCHAR', ['STRING'], ''],
         [['sm3sum'], 'VARCHAR', ['STRING', '...'], ''],
 
+        [['sha'], 'VARCHAR', ['VARCHAR'], ''],
+        [['sha'], 'VARCHAR', ['STRING'], ''],
+        [['sha1'], 'VARCHAR', ['VARCHAR'], ''],
+        [['sha1'], 'VARCHAR', ['STRING'], ''],
         [['sha2'], 'VARCHAR', ['VARCHAR', 'INT'], ''],
         [['sha2'], 'VARCHAR', ['STRING', 'INT'], ''],
     ],
