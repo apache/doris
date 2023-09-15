@@ -37,6 +37,7 @@ import org.apache.doris.nereids.rules.expression.rules.FunctionBinder;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
+import org.apache.doris.nereids.trees.expressions.functions.udf.AliasUdfBuilder.SlotReplacer;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionRewriter;
@@ -147,13 +148,28 @@ public class BindSink implements AnalysisRuleFactory {
                                                     column.getName()
                                             ));
                                         } else {
-                                            columnToOutput.put(column.getName(),
-                                                    new Alias(Literal.of(column.getDefaultValue())
-                                                            .checkedCastTo(DataType.fromCatalogType(column.getType())),
-                                                            column.getName()));
+                                            if (column.getDefaultValueExpr() == null) {
+                                                columnToOutput.put(column.getName(),
+                                                        new Alias(Literal.of(column.getDefaultValue())
+                                                                .checkedCastTo(
+                                                                        DataType.fromCatalogType(column.getType())),
+                                                                column.getName()));
+                                            } else {
+                                                Expression defualtValueExpression = FunctionBinder.INSTANCE.rewrite(
+                                                        new NereidsParser().parseExpression(
+                                                                column.getDefaultValueExpr().toSql()),
+                                                        new ExpressionRewriteContext(ctx.cascadesContext));
+                                                NamedExpression slot = defualtValueExpression instanceof NamedExpression
+                                                        ? ((NamedExpression) defualtValueExpression)
+                                                        : new Alias(defualtValueExpression);
+
+                                                columnToOutput.put(column.getName(), slot);
+                                            }
                                         }
                                     }
                                 }
+                            } catch (Exception e) {
+                                throw new AnalysisException(e.getMessage(), e.getCause());
                             } finally {
                                 if (ConnectContext.get() != null) {
                                     // this is a trick way to avoid legacy planner's slotRef toSql output include label
