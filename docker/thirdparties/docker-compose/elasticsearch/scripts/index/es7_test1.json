@@ -41,6 +41,9 @@
       "test9": {
         "type": "long"
       },
+      "test10": {
+        "type": "text"
+      },
       "c_bool": {
         "type": "boolean"
       },

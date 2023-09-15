@@ -249,6 +249,12 @@ public final class QueryBuilders {
             }
         } else if (leftExpr instanceof SlotRef) {
             column = ((SlotRef) leftExpr).getColumnName();
+            // Do not pushdown ES text field, term query on text field may return unexpected results. Further read:
+            // https://www.elastic.co/guide/en/elasticsearch/reference/current/query-dsl-term-query.html#term-query-notes
+            if (leftExpr.getType().isStringType() && !fieldsContext.containsKey(column)) {
+                notPushDownList.add(expr);
+                return null;
+            }
         } else {
             notPushDownList.add(expr);
             return null;
