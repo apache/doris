@@ -204,7 +204,6 @@ public class SimpleScheduler {
                 try {
                     Thread.sleep(1000L);
                     SystemInfoService clusterInfoService = Env.getCurrentSystemInfo();
-                    LOG.debug("UpdateBlacklistThread retry begin");
 
                     Iterator<Map.Entry<Long, Pair<Integer, String>>> iterator = blacklistBackends.entrySet().iterator();
                     while (iterator.hasNext()) {
@@ -227,9 +226,6 @@ public class SimpleScheduler {
                             }
                         }
                     }
-
-                    LOG.debug("UpdateBlacklistThread retry end");
-
                 } catch (Throwable ex) {
                     LOG.warn("blacklist thread exception", ex);
                 }

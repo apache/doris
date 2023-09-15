@@ -686,11 +686,11 @@ Status FragmentMgr::exec_plan_fragment(const TPipelineFragmentParams& params,
     auto cur_span = opentelemetry::trace::Tracer::GetCurrentSpan();
     cur_span->SetAttribute("query_id", print_id(params.query_id));
 
-    VLOG_ROW << "exec_plan_fragment params is "
+    VLOG_ROW << "query: " << print_id(params.query_id) << " exec_plan_fragment params is "
              << apache::thrift::ThriftDebugString(params).c_str();
     // sometimes TExecPlanFragmentParams debug string is too long and glog
     // will truncate the log line, so print query options seperately for debuggin purpose
-    VLOG_ROW << "query options is "
+    VLOG_ROW << "query: " << print_id(params.query_id) << "query options is "
              << apache::thrift::ThriftDebugString(params.query_options).c_str();
 
     std::shared_ptr<QueryContext> query_ctx;

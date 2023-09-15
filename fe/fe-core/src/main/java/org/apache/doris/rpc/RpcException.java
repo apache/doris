@@ -21,23 +21,23 @@ import com.google.common.base.Strings;
 
 public class RpcException extends Exception {
 
-    private String host;
+    private String address;
 
-    public RpcException(String host, String message) {
+    public RpcException(String address, String message) {
         super(message);
-        this.host = host;
+        this.address = address;
     }
 
-    public RpcException(String host, String message, Exception e) {
+    public RpcException(String address, String message, Exception e) {
         super(message, e);
-        this.host = host;
+        this.address = address;
     }
 
     @Override
     public String getMessage() {
-        if (Strings.isNullOrEmpty(host)) {
+        if (Strings.isNullOrEmpty(address)) {
             return super.getMessage();
         }
-        return super.getMessage() + ", host: " + host;
+        return super.getMessage() + ", address: " + address;
     }
 }

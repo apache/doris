@@ -257,8 +257,9 @@ Status PipelineFragmentContext::prepare(const doris::TPipelineFragmentParams& re
     std::vector<ExecNode*> scan_nodes;
     std::vector<TScanRangeParams> no_scan_ranges;
     _root_plan->collect_scan_nodes(&scan_nodes);
-    VLOG_CRITICAL << "scan_nodes.size()=" << scan_nodes.size();
-    VLOG_CRITICAL << "params.per_node_scan_ranges.size()="
+    VLOG_CRITICAL << "query " << print_id(get_query_id())
+                  << " scan_nodes.size()=" << scan_nodes.size();
+    VLOG_CRITICAL << "query " << print_id(get_query_id()) << " params.per_node_scan_ranges.size()="
                   << local_params.per_node_scan_ranges.size();
 
     // set scan range in ScanNode
@@ -283,7 +284,8 @@ Status PipelineFragmentContext::prepare(const doris::TPipelineFragmentParams& re
             auto scan_ranges = find_with_default(local_params.per_node_scan_ranges, scan_node->id(),
                                                  no_scan_ranges);
             scan_node->set_scan_ranges(scan_ranges);
-            VLOG_CRITICAL << "scan_node_Id=" << scan_node->id()
+            VLOG_CRITICAL << "query " << print_id(get_query_id())
+                          << "scan_node_Id=" << scan_node->id()
                           << " size=" << scan_ranges.get().size();
         }
     }
@@ -359,7 +361,8 @@ void PipelineFragmentContext::_stop_report_thread() {
 
 void PipelineFragmentContext::report_profile() {
     SCOPED_ATTACH_TASK(_runtime_state.get());
-    VLOG_FILE << "report_profile(): instance_id=" << _runtime_state->fragment_instance_id();
+    VLOG_CRITICAL << "query " << print_id(get_query_id())
+                  << "report_profile(): instance_id=" << _runtime_state->fragment_instance_id();
 
     _report_thread_active = true;
 
@@ -384,14 +387,16 @@ void PipelineFragmentContext::report_profile() {
             _stop_report_thread_cv.wait_for(l,
                                             std::chrono::seconds(config::status_report_interval));
         } else {
-            LOG(WARNING) << "config::status_report_interval is equal to or less than zero, exiting "
+            LOG(WARNING) << "config::status_report_interval=" << config::status_report_interval
+                         << " is equal to or less than zero, exiting "
                             "reporting thread.";
             break;
         }
 
         if (VLOG_FILE_IS_ON) {
-            VLOG_FILE << "Reporting " << (!_report_thread_active ? "final " : " ")
-                      << "profile for instance " << _runtime_state->fragment_instance_id();
+            VLOG_FILE << "query " << print_id(get_query_id()) << "Reporting "
+                      << (!_report_thread_active ? "final " : " ") << "profile for instance "
+                      << _runtime_state->fragment_instance_id();
             std::stringstream ss;
             _runtime_state->runtime_profile()->compute_time_in_profile();
             _runtime_state->runtime_profile()->pretty_print(&ss);
@@ -399,7 +404,7 @@ void PipelineFragmentContext::report_profile() {
                 // _runtime_state->load_channel_profile()->compute_time_in_profile(); // TODO load channel profile add timer
                 _runtime_state->load_channel_profile()->pretty_print(&ss);
             }
-            VLOG_FILE << ss.str();
+            VLOG_FILE << "query " << print_id(get_query_id()) << ss.str();
         }
 
         if (!_report_thread_active) {
@@ -409,7 +414,8 @@ void PipelineFragmentContext::report_profile() {
         send_report(false);
     }
 
-    VLOG_FILE << "exiting reporting thread: instance_id=" << _runtime_state->fragment_instance_id();
+    VLOG_FILE << "query " << print_id(get_query_id())
+              << "exiting reporting thread: instance_id=" << _runtime_state->fragment_instance_id();
 }
 
 // TODO: use virtual function to do abstruct
@@ -715,7 +721,9 @@ void PipelineFragmentContext::close_if_prepare_failed() {
     }
     for (auto& task : _tasks) {
         DCHECK(!task->is_pending_finish());
-        WARN_IF_ERROR(task->close(), "close_if_prepare_failed failed: ");
+        std::stringstream msg;
+        msg << "query " << print_id(_query_id) << " closed since prepare failed";
+        WARN_IF_ERROR(task->close(), msg.str());
         close_a_pipeline();
     }
 }
@@ -817,6 +825,8 @@ void PipelineFragmentContext::_close_action() {
     send_report(true);
     _stop_report_thread();
     // all submitted tasks done
+    // TODO(zhiqiang): if pipeline is closed since prepare failed, it will be cancelled again by fe
+    // i dont know whether this should happend.
     _exec_env->fragment_mgr()->remove_pipeline_context(shared_from_this());
 }
 

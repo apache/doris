@@ -1322,6 +1322,8 @@ public class StmtExecutor {
 
     // Process a select statement.
     private void handleQueryStmt() throws Exception {
+        LOG.info("Handling query {} with query id {}",
+                          originStmt.originStmt, DebugUtil.printId(context.queryId));
         // Every time set no send flag and clean all data in buffer
         context.getMysqlChannel().reset();
         Queriable queryStmt = (Queriable) parsedStmt;
