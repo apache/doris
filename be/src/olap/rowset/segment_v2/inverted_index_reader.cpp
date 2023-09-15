@@ -32,7 +32,6 @@
 #include <CLucene/store/Directory.h>
 #include <CLucene/store/IndexInput.h>
 #include <CLucene/util/CLStreams.h>
-#include <CLucene/util/FutureArrays.h>
 #include <CLucene/util/bkd/bkd_docid_iterator.h>
 #include <CLucene/util/stringUtil.h>
 #include <string.h>
@@ -46,8 +45,8 @@
 #include "common/config.h"
 #include "common/logging.h"
 #include "io/fs/file_system.h"
-#include "olap/inverted_index_parser.h"
 #include "olap/column_predicate.h"
+#include "olap/inverted_index_parser.h"
 #include "olap/key_coder.h"
 #include "olap/olap_common.h"
 #include "olap/rowset/segment_v2/inverted_index/char_filter/char_filter_factory.h"
@@ -316,26 +315,26 @@ Status FullTextIndexReader::_query(OlapReaderStatistics* stats, RuntimeState* ru
                 InvertedIndexQueryCacheHandle cache_handler;
                 auto cache_status = handle_cache(cache, cache_key, &cache_handler, stats, bit_map);
                 if (cache_status.ok()) {
-                    return Status::OK();
+                    term_match_bitmap = cache_handler.get_bitmap();
+                } else {
+                    term_match_bitmap = std::make_shared<roaring::Roaring>();
+                    // unique_ptr with custom deleter
+                    std::unique_ptr<lucene::index::Term, void (*)(lucene::index::Term*)> term {
+                            _CLNEW lucene::index::Term(field_ws.c_str(), token_ws.c_str()),
+                            [](lucene::index::Term* term) { _CLDECDELETE(term); }};
+                    query.reset(new lucene::search::TermQuery(term.get()));
+
+                    Status res =
+                            normal_index_search(stats, query_type, index_searcher,
+                                                null_bitmap_already_read, query, term_match_bitmap);
+                    if (!res.ok()) {
+                        return res;
+                    }
+
+                    // add to cache
+                    term_match_bitmap->runOptimize();
+                    cache->insert(cache_key, term_match_bitmap, &cache_handler);
                 }
-
-                term_match_bitmap = std::make_shared<roaring::Roaring>();
-                // unique_ptr with custom deleter
-                std::unique_ptr<lucene::index::Term, void (*)(lucene::index::Term*)> term {
-                        _CLNEW lucene::index::Term(field_ws.c_str(), token_ws.c_str()),
-                        [](lucene::index::Term* term) { _CLDECDELETE(term); }};
-                query.reset(new lucene::search::TermQuery(term.get()));
-
-                Status res =
-                        normal_index_search(stats, query_type, index_searcher,
-                                            null_bitmap_already_read, query, term_match_bitmap);
-                if (!res.ok()) {
-                    return res;
-                }
-
-                // add to cache
-                term_match_bitmap->runOptimize();
-                cache->insert(cache_key, term_match_bitmap, &cache_handler);
 
                 // add to query_match_bitmap
                 if (first) {
@@ -376,10 +375,14 @@ Status FullTextIndexReader::query(OlapReaderStatistics* stats, RuntimeState* run
     auto query_type = tmp->get_query_type();
     auto query_bitmap = std::make_shared<roaring::Roaring>();
 
-    for (auto& value : values) {
+    for (auto it = values.begin(); it != values.end(); ++it) {
         RETURN_IF_ERROR(
-                _query(stats, runtime_state, column_name, value, query_type, query_bitmap.get()));
-        *bit_map |= *query_bitmap;
+                _query(stats, runtime_state, column_name, *it, query_type, query_bitmap.get()));
+        if (it == values.begin()) {
+            *bit_map = *query_bitmap;
+        } else {
+            *bit_map |= *query_bitmap;
+        }
     }
     return Status::OK();
 }
