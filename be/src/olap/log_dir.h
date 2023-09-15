@@ -21,7 +21,6 @@
 
 #include "common/status.h"
 #include "io/fs/file_system.h"
-#include "io/fs/fs_utils.h"
 #include "olap/olap_common.h"
 
 namespace doris {
