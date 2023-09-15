@@ -125,7 +125,7 @@ suite("test_full_compaction_by_table_id") {
             def times = 1
 
             do{
-                (code, out, err) = be_run_full_compaction_by_table_id(backendId_to_backendIP.get(backend_id), backendId_to_backendHttpPort.get(backend_id), table_id)
+                def (code, out, err) = be_run_full_compaction_by_table_id(backendId_to_backendIP.get(backend_id), backendId_to_backendHttpPort.get(backend_id), table_id)
                 logger.info("Run compaction: code=" + code + ", out=" + out + ", err=" + err)
                 ++times
                 sleep(2000)
