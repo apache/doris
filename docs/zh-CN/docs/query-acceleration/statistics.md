@@ -26,23 +26,8 @@ under the License.
 
 # 统计信息
 
-## 统计信息简介
 
-
-Doris 查询优化器使用统计信息来确定查询最有效的执行计划。Doris 维护的统计信息包括表级别的统计信息和列级别的统计信息。
-
-表统计信息：
-
-| 信息                | 描述                       |
-| :------------------ | :------------------------- |
-| `row_count`         | 表的行数                   |
-| `data_size`         | 表的⼤⼩（单位 byte）      |
-| `update_rows`       | 收集统计信息后所更新的行数 |
-| `healthy`           | 表的健康度                 |
-| `update_time`       | 最近更新的时间             |
-| `last_analyze_time` | 上次收集统计信息的时间     |
-
-> 表的健康度：表示表统计信息的健康程度。当 `update_rows` 大于等于 `row_count` 时，健康度为 0；当 `update_rows` 小于 `row_count` 时，健康度为 `100 * (1 - update_rows / row_count)` 。
+通过收集统计信息有助于优化器了解数据分布特性，在进行CBO（基于成本优化）时优化器会利用这些统计信息来计算谓词的选择性，并估算每个执行计划的成本。从而选择更优的计划以大幅提升查询效率。
 
 列统计信息：
 
@@ -58,7 +43,7 @@ Doris 查询优化器使用统计信息来确定查询最有效的执行计划�
 
 ## 收集统计信息
 
-### 手动收集
+### 使用ANALYZE语句
 
 ⽤户通过 `ANALYZE` 语句触发手动收集任务，根据提供的参数，收集指定的表或列的统计信息。
 
@@ -68,7 +53,7 @@ Doris 查询优化器使用统计信息来确定查询最有效的执行计划�
 ANALYZE < TABLE | DATABASE table_name | db_name > 
     [ PARTITIONS [(*) | (partition_name [, ...]) | WITH RECENT COUNT] ]
     [ (column_name [, ...]) ]
-    [ [ WITH SYNC ] [WITH INCREMENTAL] [ WITH SAMPLE PERCENT | ROWS ] [ WITH PERIOD ] ]
+    [ [ WITH SYNC ] [ WITH SAMPLE PERCENT | ROWS ]]
     [ PROPERTIES ("key" = "value", ...) ];
 ```
 
@@ -78,168 +63,13 @@ ANALYZE < TABLE | DATABASE table_name | db_name >
 - partition_name: 指定的目标分区（目前只针对Hive外表）。必须是  `table_name`  中存在的分区，多个列名称用逗号分隔。分区名样例: 单层分区PARTITIONS(`event_date=20230706`)，多层分区PARTITIONS(`nation=CN/city=Beijing`)。PARTITIONS (*)指定所有分区，PARTITIONS WITH RECENT 100指定最新的100个分区。
 - column_name: 指定的目标列。必须是  `table_name`  中存在的列，多个列名称用逗号分隔。
 - sync：同步收集统计信息。收集完后返回。若不指定则异步执行并返回任务 ID。
-- period：周期性收集统计信息。单位为秒，指定后会定期收集相应的统计信息。
 - sample percent | rows：抽样收集统计信息。可以指定抽样比例或者抽样行数。
 
-#### 全量收集
-
-##### 收集列统计信息
-
-列统计信息主要包括列的行数、最大值、最小值、NULL 值个数等，通过 `ANALYZE TABLE` 语句进行收集。
-
-示例：
-
-- 收集 `example_tbl` 表所有列的统计信息，使用以下语法：
-
-```SQL
-mysql> ANALYZE TABLE stats_test.example_tbl;
-+--------+
-| job_id |
-+--------+
-| 51730  |
-+--------+
-```
-
-- 收集 `example_tbl` 表 `city`, `age`, `sex` 列的统计信息，使用以下语法：
-
-```SQL
-mysql> ANALYZE TABLE stats_test.example_tbl(city, age, sex);
-+--------+
-| job_id |
-+--------+
-| 51808  |
-+--------+
-```
-
-
-
-#### 增量收集
-
-对于分区表，在进行全量收集后，如果新增分区或者删除分区，可以使用增量收集来提高统计信息收集的速度。
-
-使用增量收集时系统会自动检查新增的分区或者已删除的分区。有以下三种情形：
-
-- 对于新增分区，收集新分区的统计信息后和历史统计信息合并/汇总。
-- 对于已删除的分区，重新刷新历史统计信息。
-- 无新增/删除的分区，不做任何操作。
-
-增量收集适合类似时间列这样的单调不减列作为分区的表，或者历史分区数据不会更新的表。
-
-注意：
-
-- 直方图统计信息不支持增量收集。
-- 使用增量收集时，必须保证表存量的统计信息可用（即其他历史分区数据不发生变化），否则会导致统计信息有误差。
-
-示例：
-
-- 增量收集 `example_tbl` 表的统计信息，使用以下语法：
-
-```SQL
--- 使用with incremental
-mysql> ANALYZE TABLE stats_test.example_tbl WITH INCREMENTAL;
-+--------+
-| job_id |
-+--------+
-| 51910  |
-+--------+
-
--- 配置incremental
-mysql> ANALYZE TABLE stats_test.example_tbl PROPERTIES("incremental" = "true");
-+--------+
-| job_id |
-+--------+
-| 51910  |
-+--------+
-```
-
-#### 抽样收集
-
-在表数据量较大时，系统收集统计信息可能会比较耗时，可以使用抽样收集来提高统计信息收集的速度。根据实际情况指定抽样的比例或者抽样的行数。
-
-示例：
-
-- 抽样收集 `example_tbl` 表的统计信息，使用以下语法：
-
-```SQL
--- 使用with sample rows抽样行数
-mysql> ANALYZE TABLE stats_test.example_tbl WITH SAMPLE ROWS 5;
-+--------+
-| job_id |
-+--------+
-| 52120  |
-+--------+
-
--- 使用with sample percent抽样比例
-mysql> ANALYZE TABLE stats_test.example_tbl WITH SAMPLE PERCENT 50;
-+--------+
-| job_id |
-+--------+
-| 52201  |
-+--------+
-
--- 配置sample.row抽样行数
-mysql> ANALYZE TABLE stats_test.example_tbl PROPERTIES("sample.rows" = "5");
-+--------+
-| job_id |
-+--------+
-| 52279  |
-+--------+
-
--- 配置sample.percent抽样比例
-mysql> ANALYZE TABLE stats_test.example_tbl PROPERTIES("sample.percent" = "50");
-+--------+
-| job_id |
-+--------+
-| 52282  |
-+--------+
-```
-
-
-#### 同步收集
-
-一般执行 `ANALYZE` 语句后系统会启动异步任务去收集统计信息并立刻返回统计任务 ID。如果想要等待统计信息收集结束后返会，可以使用同步收集方式。
-
-示例：
-
-- 抽样收集 `example_tbl` 表的统计信息，使用以下语法：
-
-```SQL
--- 使用with sync
-mysql> ANALYZE TABLE stats_test.example_tbl WITH SYNC;
-
--- 配置sync
-mysql> ANALYZE TABLE stats_test.example_tbl PROPERTIES("sync" = "true");
-```
 
 ### 自动收集
 
-自动收集是指用户在执行 `ANALYZE` 语句时，指定 `PERIOD` 或者 `AUTO` 关键字或者进行相关配置时，系统后续将自动生成任务，进行统计信息的收集。
+// TODO
 
-#### 周期性收集
-
-周期性收集是指在一定时间间隔内，重新收集表相应的统计信息。
-
-示例：
-
-- 周期性（每隔一天）收集 `example_tbl` 表的统计信息，使用以下语法：
-
-```SQL
--- 使用with period
-mysql> ANALYZE TABLE stats_test.example_tbl WITH PERIOD 86400;
-+--------+
-| job_id |
-+--------+
-| 52409  |
-+--------+
-
--- 配置period.seconds
-mysql> ANALYZE TABLE stats_test.example_tbl PROPERTIES("period.seconds" = "86400");
-+--------+
-| job_id |
-+--------+
-| 52535  |
-+--------+
-```
 
 ### 管理任务
 
@@ -254,12 +84,10 @@ SHOW ANALYZE < table_name | job_id >
     [ WHERE [ STATE = [ "PENDING" | "RUNNING" | "FINISHED" | "FAILED" ] ] ];
 ```
 
-其中：
-
 - table_name：表名，指定后可查看该表对应的统计任务信息。可以是  `db_name.table_name`  形式。不指定时返回所有统计任务信息。
 - job_id：统计信息任务 ID，执行 `ANALYZE` 非同步收集统计信息时所返回的值。不指定时返回所有统计任务信息。
 
-目前 `SHOW ANALYZE` 会输出 11 列，具体如下：
+输出：
 
 | 列名                   | 说明         |
 | :--------------------- | :----------- |
@@ -275,21 +103,6 @@ SHOW ANALYZE < table_name | job_id >
 | `state`                | 任务状态     |
 | `schedule_type`        | 调度方式     |
 
-> 在系统中，统计信息任务包含多个子任务，每个子任务单独收集一列的统计信息。
-
-示例：
-
-- 查看 ID 为 `20038` 的统计任务信息，使用以下语法：
-
-```SQL
-mysql> SHOW ANALYZE 20038 
-+--------+--------------+----------------------+----------+-----------------------+----------+---------------+---------+----------------------+----------+---------------+
-| job_id | catalog_name | db_name              | tbl_name | col_name              | job_type | analysis_type | message | last_exec_time_in_ms | state    | schedule_type |
-+--------+--------------+----------------------+----------+-----------------------+----------+---------------+---------+----------------------+----------+---------------+
-| 20038  | internal     | default_cluster:test | t3       | [col4,col2,col3,col1] | MANUAL   | FUNDAMENTALS  |         | 2023-06-01 17:22:15  | FINISHED | ONCE          |
-+--------+--------------+----------------------+----------+-----------------------+----------+---------------+---------+----------------------+----------+---------------+
-
-```
 
 可通过`SHOW ANALYZE TASK STATUS [job_id]`，查看具体每个列统计信息的收集完成情况。
 
@@ -305,38 +118,6 @@ mysql> show analyze task status  20038 ;
 +---------+----------+---------+----------------------+----------+
 
 
-```
-
-- 查看 `example_tbl` 表的的统计任务信息，使用以下语法：
-
-```SQL
-mysql> SHOW ANALYZE stats_test.example_tbl;
-+--------+--------------+----------------------------+-------------+-----------------+----------+---------------+---------+----------------------+----------+---------------+
-| job_id | catalog_name | db_name                    | tbl_name    | col_name        | job_type | analysis_type | message | last_exec_time_in_ms | state    | schedule_type |
-+--------+--------------+----------------------------+-------------+-----------------+----------+---------------+---------+----------------------+----------+---------------+
-| 68603  | internal     | default_cluster:stats_test | example_tbl |                 | MANUAL   | INDEX         |         | 2023-05-05 17:53:27  | FINISHED | ONCE          |
-| 68603  | internal     | default_cluster:stats_test | example_tbl | last_visit_date | MANUAL   | COLUMN        |         | 2023-05-05 17:53:26  | FINISHED | ONCE          |
-| 68603  | internal     | default_cluster:stats_test | example_tbl | age             | MANUAL   | COLUMN        |         | 2023-05-05 17:53:27  | FINISHED | ONCE          |
-| 68603  | internal     | default_cluster:stats_test | example_tbl | city            | MANUAL   | COLUMN        |         | 2023-05-05 17:53:25  | FINISHED | ONCE          |
-| 68603  | internal     | default_cluster:stats_test | example_tbl | cost            | MANUAL   | COLUMN        |         | 2023-05-05 17:53:27  | FINISHED | ONCE          |
-| 68603  | internal     | default_cluster:stats_test | example_tbl | min_dwell_time  | MANUAL   | COLUMN        |         | 2023-05-05 17:53:24  | FINISHED | ONCE          |
-| 68603  | internal     | default_cluster:stats_test | example_tbl | date            | MANUAL   | COLUMN        |         | 2023-05-05 17:53:27  | FINISHED | ONCE          |
-| 68603  | internal     | default_cluster:stats_test | example_tbl | user_id         | MANUAL   | COLUMN        |         | 2023-05-05 17:53:25  | FINISHED | ONCE          |
-| 68603  | internal     | default_cluster:stats_test | example_tbl | max_dwell_time  | MANUAL   | COLUMN        |         | 2023-05-05 17:53:26  | FINISHED | ONCE          |
-| 68603  | internal     | default_cluster:stats_test | example_tbl | sex             | MANUAL   | COLUMN        |         | 2023-05-05 17:53:26  | FINISHED | ONCE          |
-```
-
-- 查看所有的统计任务信息，并按照上次完成时间降序，返回前 3 条信息，使用以下语法：
-
-```SQL
-mysql> SHOW ANALYZE WHERE state = "FINISHED" ORDER BY last_exec_time_in_ms DESC LIMIT 3;
-+--------+--------------+----------------------------+-------------+-----------------+----------+---------------+---------+----------------------+----------+---------------+
-| job_id | catalog_name | db_name                    | tbl_name    | col_name        | job_type | analysis_type | message | last_exec_time_in_ms | state    | schedule_type |
-+--------+--------------+----------------------------+-------------+-----------------+----------+---------------+---------+----------------------+----------+---------------+
-| 68603  | internal     | default_cluster:stats_test | example_tbl | age             | MANUAL   | COLUMN        |         | 2023-05-05 17:53:27  | FINISHED | ONCE          |
-| 68603  | internal     | default_cluster:stats_test | example_tbl | sex             | MANUAL   | COLUMN        |         | 2023-05-05 17:53:26  | FINISHED | ONCE          |
-| 68603  | internal     | default_cluster:stats_test | example_tbl | last_visit_date | MANUAL   | COLUMN        |         | 2023-05-05 17:53:26  | FINISHED | ONCE          |
-+--------+--------------+----------------------------+-------------+-----------------+----------+---------------+---------+----------------------+----------+---------------+
 ```
 
 #### 终止统计任务
@@ -361,26 +142,24 @@ KILL ANALYZE job_id;
 mysql> KILL ANALYZE 52357;
 ```
 
-## 查看统计信息
+#### 查看统计信息
 
-### 表统计信息
+#### 表统计信息
 
-> 暂不可用。
 
-通过 `SHOW TABLE STATS` 来查看表的总行数以及统计信息健康度等信息。
+通过 `SHOW TABLE STATS` 表的统计信息收集概况。
 
 语法如下：
 
 ```SQL
-SHOW TABLE STATS table_name [ PARTITION (partition_name) ];
+SHOW TABLE STATS table_name [ PARTITION ];
 ```
 
 其中：
 
 - table_name: 导入数据的目标表。可以是  `db_name.table_name`  形式。
-- partition_name: 指定的目标分区。必须是  `table_name`  中存在的分区，只能指定一个分区。
 
-目前 `SHOW TABLE STATS` 会输出 6 列，具体如下：
+输出：
 
 | 列名                | 说明                   |
 | :------------------ | :--------------------- |
@@ -391,31 +170,8 @@ SHOW TABLE STATS table_name [ PARTITION (partition_name) ];
 | `update_time`       | 更新时间               |
 | `last_analyze_time` | 上次收集统计信息的时间 |
 
-示例：
 
-- 查看 `example_tbl` 表的统计信息，使用以下语法：
-
-```SQL
-mysql> SHOW TABLE STATS stats_test.example_tbl;
-+-----------+-------------+---------+-----------+---------------------+---------------------+
-| row_count | update_rows | healthy | data_size | update_time         | last_analyze_time   |
-+-----------+-------------+---------+-----------+---------------------+---------------------+
-| 8         | 0           | 100     | 6999      | 2023-04-08 15:40:47 | 2023-04-08 17:43:28 |
-+-----------+-------------+---------+-----------+---------------------+---------------------+
-```
-
-- 查看 `example_tbl` 表 `p_201701` 分区的统计信息，使用以下语法：
-
-```SQL
-mysql> SHOW TABLE STATS stats_test.example_tbl PARTITION (p_201701);
-+-----------+-------------+---------+-----------+---------------------+---------------------+
-| row_count | update_rows | healthy | data_size | update_time         | last_analyze_time   |
-+-----------+-------------+---------+-----------+---------------------+---------------------+
-| 4         | 0           | 100     | 2805      | 2023-04-08 11:48:02 | 2023-04-08 17:43:27 |
-+-----------+-------------+---------+-----------+---------------------+---------------------+
-```
-
-### 查看列统计信息
+#### 查看列统计信息
 
 通过 `SHOW COLUMN STATS` 来查看列的不同值数以及 `NULL` 数量等信息。
 
@@ -445,73 +201,8 @@ SHOW COLUMN [cached] STATS table_name [ (column_name [, ...]) ] [ PARTITION (par
 | `min`           | 列最小值                   |
 | `max`           | 列最⼤值                   |
 
-示例：
 
-- 查看 `example_tbl` 表所有列的统计信息，使用以下语法：
-
-```SQL
-mysql> SHOW COLUMN STATS stats_test.example_tbl;
-+-----------------+-------+------+----------+-------------------+-------------------+-----------------------+-----------------------+
-| column_name     | count | ndv  | num_null | data_size         | avg_size_byte     | min                   | max                   |
-+-----------------+-------+------+----------+-------------------+-------------------+-----------------------+-----------------------+
-| date            | 6.0   | 3.0  | 0.0      | 28.0              | 4.0               | '2017-10-01'          | '2017-10-03'          |
-| cost            | 6.0   | 6.0  | 0.0      | 56.0              | 8.0               | 2                     | 200                   |
-| min_dwell_time  | 6.0   | 6.0  | 0.0      | 28.0              | 4.0               | 2                     | 22                    |
-| city            | 6.0   | 4.0  | 0.0      | 54.0              | 7.0               | 'Beijing'             | 'Shenzhen'            |
-| user_id         | 6.0   | 5.0  | 0.0      | 112.0             | 16.0              | 10000                 | 10004                 |
-| sex             | 6.0   | 2.0  | 0.0      | 7.0               | 1.0               | 0                     | 1                     |
-| max_dwell_time  | 6.0   | 6.0  | 0.0      | 28.0              | 4.0               | 3                     | 22                    |
-| last_visit_date | 6.0   | 6.0  | 0.0      | 112.0             | 16.0              | '2017-10-01 06:00:00' | '2017-10-03 10:20:22' |
-| age             | 6.0   | 4.0  | 0.0      | 14.0              | 2.0               | 20                    | 35                    |
-+-----------------+-------+------+----------+-------------------+-------------------+-----------------------+-----------------------+
-```
-
-- 查看 `example_tbl` 表 `p_201701` 分区的统计信息，使用以下语法：
-
-```SQL
-mysql> SHOW COLUMN STATS stats_test.example_tbl PARTITION (p_201701);
-+-----------------+-------+------+----------+--------------------+-------------------+-----------------------+-----------------------+
-| column_name     | count | ndv  | num_null | data_size          | avg_size_byte     | min                   | max                   |
-+-----------------+-------+------+----------+--------------------+-------------------+-----------------------+-----------------------+
-| date            | 3.0   | 1.0  | 0.0      | 16.0               | 4.0               | '2017-10-01'          | '2017-10-01'          |
-| cost            | 3.0   | 3.0  | 0.0      | 32.0               | 8.0               | 2                     | 100                   |
-| min_dwell_time  | 3.0   | 3.0  | 0.0      | 16.0               | 4.0               | 2                     | 22                    |
-| city            | 3.0   | 2.0  | 0.0      | 29.0               | 7.0               | 'Beijing'             | 'Shenzhen'            |
-| user_id         | 3.0   | 3.0  | 0.0      | 64.0               | 16.0              | 10000                 | 10004                 |
-| sex             | 3.0   | 2.0  | 0.0      | 4.0                | 1.0               | 0                     | 1                     |
-| max_dwell_time  | 3.0   | 3.0  | 0.0      | 16.0               | 4.0               | 3                     | 22                    |
-| last_visit_date | 3.0   | 3.0  | 0.0      | 64.0               | 16.0              | '2017-10-01 06:00:00' | '2017-10-01 17:05:45' |
-| age             | 3.0   | 3.0  | 0.0      | 8.0                | 2.0               | 20                    | 35                    |
-+-----------------+-------+------+----------+--------------------+-------------------+-----------------------+-----------------------+
-```
-
-- 查看 `example_tbl` 表 `city`, `age`, `sex` 列的统计信息，使用以下语法：
-
-```SQL
-mysql> SHOW COLUMN STATS stats_test.example_tbl(city, age, sex);
-+-------------+-------+------+----------+-------------------+-------------------+-----------+------------+
-| column_name | count | ndv  | num_null | data_size         | avg_size_byte     | min       | max        |
-+-------------+-------+------+----------+-------------------+-------------------+-----------+------------+
-| city        | 6.0   | 4.0  | 0.0      | 54.0              | 7.0               | 'Beijing' | 'Shenzhen' |
-| sex         | 6.0   | 2.0  | 0.0      | 7.0               | 1.0               | 0         | 1          |
-| age         | 6.0   | 4.0  | 0.0      | 14.0              | 2.0               | 20        | 35         |
-+-------------+-------+------+----------+-------------------+-------------------+-----------+------------+
-```
-
-- 查看 `example_tbl` 表 `p_201701` 分区 `city`, `age`, `sex` 列的统计信息，使用以下语法：
-
-```SQL
-mysql> SHOW COLUMN STATS stats_test.example_tbl(city, age, sex) PARTITION (p_201701);
-+-------------+-------+------+----------+--------------------+-------------------+-----------+------------+
-| column_name | count | ndv  | num_null | data_size          | avg_size_byte     | min       | max        |
-+-------------+-------+------+----------+--------------------+-------------------+-----------+------------+
-| city        | 3.0   | 2.0  | 0.0      | 29.0               | 7.0               | 'Beijing' | 'Shenzhen' |
-| sex         | 3.0   | 2.0  | 0.0      | 4.0                | 1.0               | 0         | 1          |
-| age         | 3.0   | 3.0  | 0.0      | 8.0                | 2.0               | 20        | 35         |
-+-------------+-------+------+----------+--------------------+-------------------+-----------+------------+
-```
-
-## 修改统计信息
+#### 修改统计信息
 
 ⽤户可以通过 `ALTER` 语句调整统计信息。
 
@@ -552,7 +243,7 @@ mysql> SHOW COLUMN STATS stats_test.example_tbl(age);
 +-------------+-----------+------+----------+-----------+---------------+------+------+
 ```
 
-## 删除统计信息
+#### 删除统计信息
 
 ⽤户通过 `DROP` 语句删除统计信息，根据提供的参数，删除指定的表、分区或列的统计信息。删除时会同时删除列统计信息和列直方图信息。
 
@@ -588,7 +279,7 @@ mysql> DROP STATS stats_test.example_tbl;
 mysql> DROP STATS stats_test.example_tbl(city, age, sex);
 ```
 
-## 删除Analyze Job
+#### 删除Analyze Job
 
 用于根据job id删除自动/周期Analyze作业
 
