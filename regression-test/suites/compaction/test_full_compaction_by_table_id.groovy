@@ -50,7 +50,7 @@ suite("test_full_compaction_by_table_id") {
             `user_id` INT NOT NULL, `value` INT NOT NULL)
             UNIQUE KEY(`user_id`) 
             DISTRIBUTED BY HASH(`user_id`) 
-            BUCKETS 32 
+            BUCKETS 8 
             PROPERTIES ("replication_allocation" = "tag.location.default: 1",
             "disable_auto_compaction" = "true",
             "enable_unique_key_merge_on_write" = "true");"""
