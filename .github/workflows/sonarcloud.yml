@@ -21,7 +21,7 @@ on: [push]
 
 jobs:
   sonar-cloud-java:
-    name: Build
+    name: "SonarCloud on java"
     runs-on: ubuntu-latest
     env:
       BUILD_WRAPPER_OUT_DIR: build_wrapper_output_directory # Directory where build-wrapper output will be placed
@@ -145,16 +145,18 @@ jobs:
           export PATH="${DEFAULT_DIR}/ldb-toolchain/bin/:$(pwd)/thirdparty/installed/bin/:${PATH}"
           DISABLE_JAVA_UDF=ON ENABLE_PCH=OFF DORIS_TOOLCHAIN=clang OUTPUT_BE_BINARY=0 ./build.sh --be
 
-      - name: SonarCloud Scan
+      - name:  Install sonar-scanner and build-wrapper
         if: ${{ steps.filter.outputs.be_changes == 'true' }}
-        uses: sonarsource/sonarcloud-github-action@master
-        with:
-          projectBaseDir: be
-          args: >
-            -Dsonar.host.url=https://sonarcloud.io 
-            -Dsonar.organization=apache 
-            -Dsonar.projectKey=apache_incubator-doris
-            -Dsonar.cfamily.compile-commands=be/build_Release/compile_commands.json
+        uses: sonarsource/sonarcloud-github-c-cpp@v2
+
+      - name: Run sonar-scanner
+        if: ${{ steps.filter.outputs.be_changes == 'true' }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+        run: sonar-scanner \
+              --define sonar.cfamily.compile-commands=be/build_Release/compile_commands.json \
+              --define sonar.organization=apache  \
+              --define sonar.projectKey=apache_incubator-doris \
+              --define sonar.sources=be
+
