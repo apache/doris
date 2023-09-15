@@ -1188,7 +1188,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         if (!Env.getCurrentEnv().isMaster()) {
             status.setStatusCode(TStatusCode.NOT_MASTER);
             status.addToErrorMsgs(NOT_MASTER_ERR_MSG);
-            LOG.error("failed to get binlog: {}", NOT_MASTER_ERR_MSG);
+            LOG.error("failed to get beginTxn: {}", NOT_MASTER_ERR_MSG);
             return result;
         }
 
@@ -1293,6 +1293,13 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         TLoadTxnCommitResult result = new TLoadTxnCommitResult();
         TStatus status = new TStatus(TStatusCode.OK);
         result.setStatus(status);
+        if (!Env.getCurrentEnv().isMaster()) {
+            status.setStatusCode(TStatusCode.NOT_MASTER);
+            status.addToErrorMsgs(NOT_MASTER_ERR_MSG);
+            LOG.error("failed to loadTxnPreCommit:{}, request:{}, backend:{}",
+                    NOT_MASTER_ERR_MSG, request, clientAddr);
+            return result;
+        }
         try {
             loadTxnPreCommitImpl(request);
         } catch (UserException e) {
@@ -1389,6 +1396,14 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         TLoadTxn2PCResult result = new TLoadTxn2PCResult();
         TStatus status = new TStatus(TStatusCode.OK);
         result.setStatus(status);
+        if (!Env.getCurrentEnv().isMaster()) {
+            status.setStatusCode(TStatusCode.NOT_MASTER);
+            status.addToErrorMsgs(NOT_MASTER_ERR_MSG);
+            LOG.error("failed to loadTxn2PC:{}, request:{}, backend:{}",
+                    NOT_MASTER_ERR_MSG, request, clientAddr);
+            return result;
+        }
+
         try {
             loadTxn2PCImpl(request);
         } catch (UserException e) {
@@ -1467,6 +1482,14 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         TLoadTxnCommitResult result = new TLoadTxnCommitResult();
         TStatus status = new TStatus(TStatusCode.OK);
         result.setStatus(status);
+        if (!Env.getCurrentEnv().isMaster()) {
+            status.setStatusCode(TStatusCode.NOT_MASTER);
+            status.addToErrorMsgs(NOT_MASTER_ERR_MSG);
+            LOG.error("failed to loadTxnCommit:{}, request:{}, backend:{}",
+                    NOT_MASTER_ERR_MSG, request, clientAddr);
+            return result;
+        }
+
         try {
             if (!loadTxnCommitImpl(request)) {
                 // committed success but not visible
@@ -1543,7 +1566,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         if (!Env.getCurrentEnv().isMaster()) {
             status.setStatusCode(TStatusCode.NOT_MASTER);
             status.addToErrorMsgs(NOT_MASTER_ERR_MSG);
-            LOG.error("failed to get binlog: {}", NOT_MASTER_ERR_MSG);
+            LOG.error("failed to get commitTxn: {}", NOT_MASTER_ERR_MSG);
             return result;
         }
 
@@ -1652,6 +1675,13 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         TLoadTxnRollbackResult result = new TLoadTxnRollbackResult();
         TStatus status = new TStatus(TStatusCode.OK);
         result.setStatus(status);
+        if (!Env.getCurrentEnv().isMaster()) {
+            status.setStatusCode(TStatusCode.NOT_MASTER);
+            status.addToErrorMsgs(NOT_MASTER_ERR_MSG);
+            LOG.error("failed to loadTxnRollback:{}, request:{}, backend:{}",
+                    NOT_MASTER_ERR_MSG, request, clientAddr);
+            return result;
+        }
         try {
             loadTxnRollbackImpl(request);
         } catch (UserException e) {
@@ -1720,11 +1750,10 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         TRollbackTxnResult result = new TRollbackTxnResult();
         TStatus status = new TStatus(TStatusCode.OK);
         result.setStatus(status);
-
         if (!Env.getCurrentEnv().isMaster()) {
             status.setStatusCode(TStatusCode.NOT_MASTER);
             status.addToErrorMsgs(NOT_MASTER_ERR_MSG);
-            LOG.error("failed to get binlog: {}", NOT_MASTER_ERR_MSG);
+            LOG.error("failed to get rollbackTxn: {}", NOT_MASTER_ERR_MSG);
             return result;
         }
 
@@ -2610,7 +2639,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         if (!Env.getCurrentEnv().isMaster()) {
             status.setStatusCode(TStatusCode.NOT_MASTER);
             status.addToErrorMsgs(NOT_MASTER_ERR_MSG);
-            LOG.error("failed to get binlog: {}", NOT_MASTER_ERR_MSG);
+            LOG.error("failed to get getSnapshot: {}", NOT_MASTER_ERR_MSG);
             return result;
         }
 
@@ -2697,7 +2726,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         if (!Env.getCurrentEnv().isMaster()) {
             status.setStatusCode(TStatusCode.NOT_MASTER);
             status.addToErrorMsgs(NOT_MASTER_ERR_MSG);
-            LOG.error("failed to get binlog: {}", NOT_MASTER_ERR_MSG);
+            LOG.error("failed to get restoreSnapshot: {}", NOT_MASTER_ERR_MSG);
             return result;
         }
 
@@ -2815,6 +2844,12 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         TGetMasterTokenResult result = new TGetMasterTokenResult();
         TStatus status = new TStatus(TStatusCode.OK);
         result.setStatus(status);
+        if (!Env.getCurrentEnv().isMaster()) {
+            status.setStatusCode(TStatusCode.NOT_MASTER);
+            status.addToErrorMsgs(NOT_MASTER_ERR_MSG);
+            LOG.error("failed to get getMasterToken: {}", NOT_MASTER_ERR_MSG);
+            return result;
+        }
 
         try {
             checkPassword(request.getCluster(), request.getUser(), request.getPassword(), clientAddr);
