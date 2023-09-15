@@ -53,17 +53,12 @@ Status HashJoinProbeLocalState::init(RuntimeState* state, LocalStateInfo& info) 
     _probe_arena_memory_usage =
             profile()->AddHighWaterMarkCounter("ProbeKeyArena", TUnit::BYTES, "MemoryUsage");
     // Probe phase
-    auto probe_phase_profile = _probe_phase_profile;
-    _probe_next_timer = ADD_TIMER(probe_phase_profile, "ProbeFindNextTime");
-    _probe_expr_call_timer = ADD_TIMER(probe_phase_profile, "ProbeExprCallTime");
-    _search_hashtable_timer =
-            ADD_CHILD_TIMER(probe_phase_profile, "ProbeWhenSearchHashTableTime", "ProbeTime");
-    _build_side_output_timer =
-            ADD_CHILD_TIMER(probe_phase_profile, "ProbeWhenBuildSideOutputTime", "ProbeTime");
-    _probe_side_output_timer =
-            ADD_CHILD_TIMER(probe_phase_profile, "ProbeWhenProbeSideOutputTime", "ProbeTime");
-    _probe_process_hashtable_timer =
-            ADD_CHILD_TIMER(probe_phase_profile, "ProbeWhenProcessHashTableTime", "ProbeTime");
+    _probe_next_timer = ADD_TIMER(profile(), "ProbeFindNextTime");
+    _probe_expr_call_timer = ADD_TIMER(profile(), "ProbeExprCallTime");
+    _search_hashtable_timer = ADD_TIMER(profile(), "ProbeWhenSearchHashTableTime");
+    _build_side_output_timer = ADD_TIMER(profile(), "ProbeWhenBuildSideOutputTime");
+    _probe_side_output_timer = ADD_TIMER(profile(), "ProbeWhenProbeSideOutputTime");
+    _probe_process_hashtable_timer = ADD_TIMER(profile(), "ProbeWhenProcessHashTableTime");
     _process_other_join_conjunct_timer = ADD_TIMER(profile(), "OtherJoinConjunctTime");
     return Status::OK();
 }

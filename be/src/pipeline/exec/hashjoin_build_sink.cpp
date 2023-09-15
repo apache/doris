@@ -87,10 +87,9 @@ Status HashJoinBuildSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo
             profile()->AddHighWaterMarkCounter("BuildKeyArena", TUnit::BYTES, "MemoryUsage");
 
     // Build phase
-    auto record_profile = _should_build_hash_table ? _build_phase_profile : faker_runtime_profile();
-    _build_table_timer = ADD_CHILD_TIMER(_build_phase_profile, "BuildTableTime", "BuildTime");
-    _build_side_merge_block_timer =
-            ADD_CHILD_TIMER(_build_phase_profile, "BuildSideMergeBlockTime", "BuildTime");
+    auto record_profile = _should_build_hash_table ? profile() : faker_runtime_profile();
+    _build_table_timer = ADD_TIMER(profile(), "BuildTableTime");
+    _build_side_merge_block_timer = ADD_TIMER(profile(), "BuildSideMergeBlockTime");
     _build_table_insert_timer = ADD_TIMER(record_profile, "BuildTableInsertTime");
     _build_expr_call_timer = ADD_TIMER(record_profile, "BuildExprCallTime");
     _build_table_expanse_timer = ADD_TIMER(record_profile, "BuildTableExpanseTime");
@@ -545,13 +544,12 @@ Status HashJoinBuildSinkOperatorX::sink(RuntimeState* state, vectorized::Block* 
     } else if (!local_state._should_build_hash_table) {
         DCHECK(_shared_hashtable_controller != nullptr);
         DCHECK(_shared_hash_table_context != nullptr);
-        auto wait_timer = ADD_CHILD_TIMER(local_state._build_phase_profile,
-                                          "WaitForSharedHashTableTime", "BuildTime");
+        auto wait_timer = ADD_TIMER(local_state.profile(), "WaitForSharedHashTableTime");
         SCOPED_TIMER(wait_timer);
         RETURN_IF_ERROR(
                 _shared_hashtable_controller->wait_for_signal(state, _shared_hash_table_context));
 
-        local_state._build_phase_profile->add_info_string(
+        local_state.profile()->add_info_string(
                 "SharedHashTableFrom",
                 print_id(_shared_hashtable_controller->get_builder_fragment_instance_id(id())));
         local_state._short_circuit_for_null_in_probe_side =
