@@ -77,7 +77,7 @@ suite("test_hive_basic_type", "external_docker,hive,external_docker_hive,p0,exte
         // hive tables of json classes do not necessarily support column separation to identify errors
         //order_qt_8 """select * from ${catalog_name}.${ex_db_name}.json_all_types limit 1;"""
 
-        // 目前doris 外表 仅支持 orc parquet textfile 三种格式，其他的暂不支持 2023-08-18
+        // At present, doris only supports three formats of orc parquet textfile, while others are not supported
 
         // hive tables in avro format are not supported
         //order_qt_34 """select * from ${catalog_name}.${ex_db_name}.avro_all_types limit 1;"""

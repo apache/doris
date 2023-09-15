@@ -260,8 +260,14 @@ fi
 
 if [[ "${RUN_HIVE}" -eq 1 ]]; then
     # hive
+    # If the doris cluster you need to test is single-node, you can use the default values; If the doris cluster you need to test is composed of multiple nodes, then you need to set the IP_HOST according to the actual situation of your machine
+    #default value
+    IP_HOST="127.0.0.1"
     eth0_num=$(ifconfig -a|grep flags=|grep -n ^eth0|awk -F ':' '{print $1}')
     IP_HOST=$(ifconfig -a|grep inet|grep -v 127.0.0.1|grep -v inet6|awk '{print $2}'|tr -d "addr:"|tail -n +${eth0_num}|head -n 1)
+    if [ "_${IP_HOST}" == "_" ];then
+        echo "please set IP_HOST according to your actual situation"
+    fi
     # before start it, you need to download parquet file package, see "README" in "docker-compose/hive/scripts/"
     cp "${ROOT}"/docker-compose/hive/gen_env.sh.tpl "${ROOT}"/docker-compose/hive/gen_env.sh
     sed -i "s/doris--/${CONTAINER_UID}/g" "${ROOT}"/docker-compose/hive/gen_env.sh
