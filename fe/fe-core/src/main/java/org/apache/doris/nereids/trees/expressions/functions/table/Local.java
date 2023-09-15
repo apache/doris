@@ -22,36 +22,37 @@ import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.TVFProperties;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.coercion.AnyDataType;
-import org.apache.doris.tablefunction.HdfsTableValuedFunction;
+import org.apache.doris.tablefunction.LocalTableValuedFunction;
 import org.apache.doris.tablefunction.TableValuedFunctionIf;
 
-import java.util.List;
 import java.util.Map;
 
-/** hdfs */
-public class Hdfs extends TableValuedFunction {
-    public Hdfs(TVFProperties properties) {
-        super("hdfs", properties);
+/**
+ * local
+ */
+public class Local extends TableValuedFunction {
+    public Local(TVFProperties properties) {
+        super("local", properties);
     }
 
     @Override
     public FunctionSignature customSignature() {
-        return FunctionSignature.of(AnyDataType.INSTANCE, (List) getArgumentsTypes());
+        return FunctionSignature.of(AnyDataType.INSTANCE, getArgumentsTypes());
     }
 
     @Override
     protected TableValuedFunctionIf toCatalogFunction() {
         try {
             Map<String, String> arguments = getTVFProperties().getMap();
-            return new HdfsTableValuedFunction(arguments);
+            return new LocalTableValuedFunction(arguments);
         } catch (Throwable t) {
-            throw new AnalysisException("Can not build HdfsTableValuedFunction by "
-                + this + ": " + t.getMessage(), t);
+            throw new AnalysisException("Can not build LocalTableValuedFunction by "
+                    + this + ": " + t.getMessage(), t);
         }
     }
 
     @Override
     public <R, C> R accept(ExpressionVisitor<R, C> visitor, C context) {
-        return visitor.visitHdfs(this, context);
+        return visitor.visitLocal(this, context);
     }
 }
