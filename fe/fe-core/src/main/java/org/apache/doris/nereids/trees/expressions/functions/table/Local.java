@@ -22,15 +22,17 @@ import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Properties;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.coercion.AnyDataType;
-import org.apache.doris.tablefunction.S3TableValuedFunction;
+import org.apache.doris.tablefunction.LocalTableValuedFunction;
 import org.apache.doris.tablefunction.TableValuedFunctionIf;
 
 import java.util.Map;
 
-/** s3 */
-public class S3 extends TableValuedFunction {
-    public S3(Properties properties) {
-        super("s3", properties);
+/**
+ * local
+ */
+public class Local extends TableValuedFunction {
+    public Local(Properties properties) {
+        super("local", properties);
     }
 
     @Override
@@ -42,15 +44,15 @@ public class S3 extends TableValuedFunction {
     protected TableValuedFunctionIf toCatalogFunction() {
         try {
             Map<String, String> arguments = getTVFProperties().getMap();
-            return new S3TableValuedFunction(arguments);
+            return new LocalTableValuedFunction(arguments);
         } catch (Throwable t) {
-            throw new AnalysisException("Can not build S3TableValuedFunction by "
-                + this + ": " + t.getMessage(), t);
+            throw new AnalysisException("Can not build LocalTableValuedFunction by "
+                    + this + ": " + t.getMessage(), t);
         }
     }
 
     @Override
     public <R, C> R accept(ExpressionVisitor<R, C> visitor, C context) {
-        return visitor.visitS3(this, context);
+        return visitor.visitLocal(this, context);
     }
 }
