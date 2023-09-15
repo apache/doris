@@ -590,7 +590,7 @@ public class SelectStmt extends QueryStmt {
                 } else {
                     resultExprs.add(rewriteQueryExprByMvColumnExpr(expr, analyzer));
                 }
-                colLabels.add(expr.toColumnLabel());
+                colLabels.add("col_" + colLabels.size());
             }
         }
         // analyze valueList if exists
