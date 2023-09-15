@@ -31,11 +31,15 @@
 #include <utility>
 #include <vector>
 
+#include "common/object_pool.h"
+#include "exec/olap_common.h"
+#include "gtest/gtest_pred_impl.h"
 #include "util/slice.h"
 #include "vec/exec/format/csv/csv_reader.h"
 
 namespace doris {
 namespace vectorized {
+class VExprContext;
 
 class CsvReaderTest : public testing::Test {
 public:
@@ -49,16 +53,16 @@ TEST_F(CsvReaderTest, multibyte_sep_with_null) {
     int value_separator_length = value_separator.size();
     doris::Slice line_data = "1900-02-04WWWWW51639WWWWWWWWWW886";
     std::vector<doris::Slice> split_values;
-    PlainCsvTextFieldSplitter fields_splitter = PlainCsvTextFieldSplitter>(
+    PlainCsvTextFieldSplitter fields_splitter = PlainCsvTextFieldSplitter(
                 trim_tailing_spaces, trim_double_quotes, value_separator,
                 value_separator_length);
     fields_splitter.split_line(line_data, &split_values);
-    ASSERT_EQ(split_values.size(), 4);
+    EXPECT_TRUE(split_values.size() == 4);
 	int idx = 0;
-    EXPECT_EQ(split_values[idx++].to_string(), "1900-02-04");
-    EXPECT_EQ(split_values[idx++].to_string(), "51639");
-    EXPECT_EQ(split_values[idx++].to_string(), "");
-    EXPECT_EQ(split_values[idx++].to_string(), "886");
+    EXPECT_TRUE(split_values[idx++].to_string() == "1900-02-04");
+    EXPECT_TRUE(split_values[idx++].to_string() == "51639");
+    EXPECT_TRUE(split_values[idx++].to_string() == "");
+    EXPECT_TRUE(split_values[idx++].to_string() == "886");
 }
 
 } // namespace vectorized
