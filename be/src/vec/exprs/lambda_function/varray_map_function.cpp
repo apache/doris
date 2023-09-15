@@ -183,6 +183,23 @@ public:
                               result_type, res_name};
             }
         }
+        // if (res_type->is_nullable()) {
+        //     result_arr = {ColumnNullable::create(
+        //                           ColumnArray::create(res_col, std::move(array_column_offset)),
+        //                           std::move(outside_null_map)),
+        //                   result_type, res_name};
+
+        // } else {
+        //     // deal with eg: select array_map(x -> x is null, [null, 1, 2]);
+        //     // need to create the nested column null map for column array
+        //     auto nested_null_map = ColumnUInt8::create(res_col->size(), 0);
+        //     result_arr = {ColumnNullable::create(
+        //                           ColumnArray::create(ColumnNullable::create(
+        //                                                       res_col, std::move(nested_null_map)),
+        //                                               std::move(array_column_offset)),
+        //                           std::move(outside_null_map)),
+        //                   result_type, res_name};
+        // }
         block->insert(std::move(result_arr));
         *result_column_id = block->columns() - 1;
         return Status::OK();
