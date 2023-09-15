@@ -2519,12 +2519,12 @@ public class Coordinator {
 
     // map from a BE host address to the per-node assigned scan ranges;
     // records scan range assignment for a single fragment
-    class FragmentScanRangeAssignment
+    static class FragmentScanRangeAssignment
             extends HashMap<TNetworkAddress, Map<Integer, List<TScanRangeParams>>> {
     }
 
     // Bucket sequence -> (scan node id -> list of TScanRangeParams)
-    class BucketSeqToScanRange extends HashMap<Integer, Map<Integer, List<TScanRangeParams>>> {
+    static class BucketSeqToScanRange extends HashMap<Integer, Map<Integer, List<TScanRangeParams>>> {
 
     }
 
