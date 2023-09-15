@@ -448,32 +448,34 @@ Status Compaction::do_compaction_impl(int64_t permits) {
             std::for_each(
                     ctx.skip_inverted_index.cbegin(), ctx.skip_inverted_index.cend(),
                     [&src_segment_num, &dest_segment_num, &index_writer_path, &src_index_files,
-                            &dest_index_files, &fs, &tablet_path, &trans_vec, &dest_segment_num_rows,
-                            this](int32_t column_uniq_id) {
+                     &dest_index_files, &fs, &tablet_path, &trans_vec, &dest_segment_num_rows,
+                     this](int32_t column_uniq_id) {
                         auto st = compact_column(
                                 _cur_tablet_schema->get_inverted_index(column_uniq_id)->index_id(),
-                                src_segment_num, dest_segment_num, src_index_files, dest_index_files,
-                                fs, index_writer_path, tablet_path, trans_vec, dest_segment_num_rows);
+                                src_segment_num, dest_segment_num, src_index_files,
+                                dest_index_files, fs, index_writer_path, tablet_path, trans_vec,
+                                dest_segment_num_rows);
                         if (!st.ok()) {
                             LOG(ERROR) << "failed to do index compaction"
                                        << ". tablet=" << _tablet->full_name()
                                        << ". column uniq id=" << column_uniq_id << ". index_id= "
                                        << _cur_tablet_schema->get_inverted_index(column_uniq_id)
-                                               ->index_id();
+                                                  ->index_id();
                         }
                     });
 
             LOG(INFO) << "succeed to do index compaction"
-                      << ". tablet=" << _tablet->full_name() << ", input row number=" << _input_row_num
+                      << ". tablet=" << _tablet->full_name()
+                      << ", input row number=" << _input_row_num
                       << ", output row number=" << _output_rowset->num_rows()
-                    << ". elapsed time=" << inverted_watch.get_elapse_second() << "s.";
+                      << ". elapsed time=" << inverted_watch.get_elapse_second() << "s.";
         } else {
             LOG(INFO) << "skip doing index compaction due to no output segments"
-                      << ". tablet=" << _tablet->full_name() << ", input row number=" << _input_row_num
+                      << ". tablet=" << _tablet->full_name()
+                      << ", input row number=" << _input_row_num
                       << ", output row number=" << _output_rowset->num_rows()
                       << ". elapsed time=" << inverted_watch.get_elapse_second() << "s.";
         }
-
     }
 
     // 4. modify rowsets in memory
