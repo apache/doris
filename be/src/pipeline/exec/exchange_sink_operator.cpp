@@ -272,7 +272,6 @@ void ExchangeSinkOperatorX::_handle_eof_channel(RuntimeState* state, ChannelPtrT
 Status ExchangeSinkOperatorX::sink(RuntimeState* state, vectorized::Block* block,
                                    SourceState source_state) {
     CREATE_SINK_LOCAL_STATE_RETURN_IF_ERROR(local_state);
-    SCOPED_TIMER(_profile->total_time_counter());
     COUNTER_UPDATE(local_state.rows_input_counter(), (int64_t)block->rows());
     local_state._peak_memory_usage_counter->set(_mem_tracker->peak_consumption());
     bool all_receiver_eof = true;
