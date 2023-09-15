@@ -38,6 +38,7 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalFilter;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHashAggregate;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHashJoin;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalNestedLoopJoin;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalPartitionTopN;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalProject;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalSetOperation;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
@@ -151,6 +152,23 @@ public class ChildrenPropertiesRegulator extends PlanVisitor<Boolean, Void> {
         visit(agg, context);
         // process agg
         return true;
+    }
+
+    @Override
+    public Boolean visitPhysicalPartitionTopN(PhysicalPartitionTopN<? extends Plan> partitionTopN, Void context) {
+        if (partitionTopN.getPhase().isOnePhaseGlobal() && children.get(0).getPlan() instanceof PhysicalDistribute) {
+            // one phase partition topn, if the child is an enforced distribution, discard this
+            // and use two phase candidate.
+            return false;
+        } else if (partitionTopN.getPhase().isTwoPhaseGlobal()
+                && !(children.get(0).getPlan() instanceof PhysicalDistribute)) {
+            // two phase partition topn, if global's child is not distribution, which means
+            // the local distribution has met final requirement, discard this candidate.
+            return false;
+        } else {
+            visit(partitionTopN, context);
+            return true;
+        }
     }
 
     @Override
