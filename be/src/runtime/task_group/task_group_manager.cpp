@@ -28,9 +28,6 @@
 
 namespace doris::taskgroup {
 
-TaskGroupManager::TaskGroupManager() = default;
-TaskGroupManager::~TaskGroupManager() = default;
-
 TaskGroupPtr TaskGroupManager::get_or_create_task_group(const TaskGroupInfo& task_group_info) {
     {
         std::shared_lock<std::shared_mutex> r_lock(_group_mutex);

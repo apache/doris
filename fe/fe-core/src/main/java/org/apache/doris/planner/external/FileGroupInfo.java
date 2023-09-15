@@ -24,7 +24,6 @@ import org.apache.doris.catalog.FsBroker;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
-import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.BrokerUtil;
 import org.apache.doris.common.util.Util;
@@ -207,6 +206,9 @@ public class FileGroupInfo {
             // header_type
             TFileFormatType formatType = formatType(context.fileGroup.getFileFormat(), fileStatus.path);
             context.params.setFormatType(formatType);
+            context.params.setCompressType(
+                    Util.getOrInferCompressType(context.fileGroup.getCompressType(), fileStatus.path)
+            );
             List<String> columnsFromPath = BrokerUtil.parseColumnsFromPath(fileStatus.path,
                     context.fileGroup.getColumnNamesFromPath());
             // Assign scan range locations only for broker load.
@@ -293,26 +295,15 @@ public class FileGroupInfo {
     }
 
     private TFileFormatType formatType(String fileFormat, String path) throws UserException {
-        if (fileFormat != null) {
-            if (fileFormat.equalsIgnoreCase("parquet")) {
-                return TFileFormatType.FORMAT_PARQUET;
-            } else if (fileFormat.equalsIgnoreCase("orc")) {
-                return TFileFormatType.FORMAT_ORC;
-            } else if (fileFormat.equalsIgnoreCase("json")) {
-                return TFileFormatType.FORMAT_JSON;
-                // csv/csv_with_name/csv_with_names_and_types treat as csv format
-            } else if (fileFormat.equalsIgnoreCase(FeConstants.csv) || fileFormat.toLowerCase()
-                    .equals(FeConstants.csv_with_names) || fileFormat.toLowerCase()
-                    .equals(FeConstants.csv_with_names_and_types)
-                    // TODO: Add TEXTFILE to TFileFormatType to Support hive text file format.
-                    || fileFormat.equalsIgnoreCase(FeConstants.text)) {
-                return TFileFormatType.FORMAT_CSV_PLAIN;
-            } else {
-                throw new UserException("Not supported file format: " + fileFormat);
-            }
+        if (fileFormat == null) {
+            // get file format by the file path
+            return Util.getFileFormatTypeFromPath(path);
         }
-
-        return Util.getFileFormatType(path);
+        TFileFormatType formatType = Util.getFileFormatTypeFromName(fileFormat);
+        if (formatType == TFileFormatType.FORMAT_UNKNOWN) {
+            throw new UserException("Not supported file format: " + fileFormat);
+        }
+        return formatType;
     }
 
     private TFileRangeDesc createFileRangeDesc(long curFileOffset, TBrokerFileStatus fileStatus, long rangeBytes,

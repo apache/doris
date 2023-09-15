@@ -64,6 +64,8 @@
 #include "pipeline/exec/sort_source_operator.h"
 #include "pipeline/exec/streaming_aggregation_sink_operator.h"
 #include "pipeline/exec/streaming_aggregation_source_operator.h"
+#include "pipeline/exec/union_sink_operator.h"
+#include "pipeline/exec/union_source_operator.h"
 #include "pipeline/task_scheduler.h"
 #include "runtime/exec_env.h"
 #include "runtime/fragment_mgr.h"
@@ -296,7 +298,6 @@ Status PipelineXFragmentContext::_build_pipeline_tasks(
         }
 
         _runtime_states[i]->set_desc_tbl(_query_ctx->desc_tbl);
-
         std::map<PipelineId, PipelineXTask*> pipeline_id_to_task;
         for (size_t pip_idx = 0; pip_idx < _pipelines.size(); pip_idx++) {
             auto task = std::make_unique<PipelineXTask>(_pipelines[pip_idx], _total_tasks++,
@@ -360,6 +361,7 @@ Status PipelineXFragmentContext::_build_pipeline_tasks(
         }
     }
     _build_side_pipelines.clear();
+    _union_child_pipelines.clear();
     _dag.clear();
     // register the profile of child data stream sender
     //    for (auto& sender : _multi_cast_stream_sink_senders) {
@@ -504,6 +506,9 @@ Status PipelineXFragmentContext::_create_operator(ObjectPool* pool, const TPlanN
     if (_build_side_pipelines.find(parent_idx) != _build_side_pipelines.end() && child_idx > 0) {
         cur_pipe = _build_side_pipelines[parent_idx];
     }
+    if (_union_child_pipelines.find(parent_idx) != _union_child_pipelines.end()) {
+        cur_pipe = _union_child_pipelines[parent_idx][child_idx];
+    }
     std::stringstream error_msg;
     switch (tnode.node_type) {
     case TPlanNodeType::OLAP_SCAN_NODE: {
@@ -586,6 +591,32 @@ Status PipelineXFragmentContext::_create_operator(ObjectPool* pool, const TPlanN
         RETURN_IF_ERROR(build_side_pipe->set_sink(sink));
         RETURN_IF_ERROR(build_side_pipe->sink_x()->init(tnode, _runtime_state.get()));
         _build_side_pipelines.insert({sink->id(), build_side_pipe});
+        break;
+    }
+    case TPlanNodeType::UNION_NODE: {
+        int child_count = tnode.num_children;
+        op.reset(new UnionSourceOperatorX(pool, tnode, descs));
+        RETURN_IF_ERROR(cur_pipe->add_operator(op));
+
+        const auto downstream_pipeline_id = cur_pipe->id();
+        if (_dag.find(downstream_pipeline_id) == _dag.end()) {
+            _dag.insert({downstream_pipeline_id, {}});
+        }
+        int father_id = tnode.node_id;
+        for (int i = 0; i < child_count; i++) {
+            PipelinePtr build_side_pipe = add_pipeline();
+            _dag[downstream_pipeline_id].push_back(build_side_pipe->id());
+            DataSinkOperatorXPtr sink;
+            sink.reset(new UnionSinkOperatorX(i, father_id + 1000 * (i + 1), pool, tnode, descs));
+            RETURN_IF_ERROR(build_side_pipe->set_sink(sink));
+            RETURN_IF_ERROR(build_side_pipe->sink_x()->init(tnode, _runtime_state.get()));
+            if (_union_child_pipelines.find(father_id) == _union_child_pipelines.end()) {
+                _union_child_pipelines.insert({father_id, {build_side_pipe}});
+            } else {
+                _union_child_pipelines[father_id].push_back(build_side_pipe);
+            }
+        }
+
         break;
     }
     case TPlanNodeType::SORT_NODE: {

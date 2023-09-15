@@ -259,7 +259,7 @@ suite("test_bitmap_filter", "query_p1,p1") {
              'where k2 in (select bm_k4 from test_k1_bitmap)) b order by b.k3, a.k1, a.k4 limit 5'
     qt_sql33 'select * from bm_dup_data a join (select k3 from test_k1_k2_k3_bitmap ' +
              'where k2 in (select bm_k4 from test_k1_bitmap)) b on b.k3=a.k3 order by b.k3, a.k1, a.k4 limit 5'
-    qt_sql34 'select * from (select k3 from bm_dup_data where k4 not in (select bm_k4 from test_k1_bitmap)) a ' +
+    qt_sql34 'select /*+SET_VAR(disable_join_reorder=true)*/ * from (select k3 from bm_dup_data where k4 not in (select bm_k4 from test_k1_bitmap)) a ' +
              'join (select k3 from test_k1_k2_k3_bitmap where k2 in (select bm_k4 from test_k1_bitmap)) b on b.k3=a.k3'
     qt_sql35 'select * from (select k3 from bm_dup_data where k4 not in (select bm_k4 from test_k1_bitmap)) a ' +
              'left join (select k3 from test_k1_k2_k3_bitmap where k2 in (select bm_k4 from test_k1_bitmap)) b on b.k3=a.k3 order by a.k3, b.k3'

@@ -125,7 +125,8 @@ public class UpdateStmt extends DdlStmt {
                 cols,
                 new InsertSource(selectStmt),
                 null,
-                isPartialUpdate);
+                isPartialUpdate,
+                false);
     }
 
     private void analyzeTargetTable(Analyzer analyzer) throws UserException {

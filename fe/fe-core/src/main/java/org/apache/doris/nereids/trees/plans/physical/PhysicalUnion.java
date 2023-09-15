@@ -21,6 +21,7 @@ import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
+import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.algebra.Union;
@@ -43,31 +44,34 @@ public class PhysicalUnion extends PhysicalSetOperation implements Union {
     private final List<List<NamedExpression>> constantExprsList;
 
     public PhysicalUnion(Qualifier qualifier,
-                         List<NamedExpression> outputs,
-                         List<List<NamedExpression>> constantExprsList,
-                         LogicalProperties logicalProperties,
-                         List<Plan> inputs) {
-        super(PlanType.PHYSICAL_UNION, qualifier, outputs, logicalProperties, inputs);
+            List<NamedExpression> outputs,
+            List<List<SlotReference>> childrenOutputs,
+            List<List<NamedExpression>> constantExprsList,
+            LogicalProperties logicalProperties,
+            List<Plan> children) {
+        super(PlanType.PHYSICAL_UNION, qualifier, outputs, childrenOutputs, logicalProperties, children);
         this.constantExprsList = ImmutableList.copyOf(
                 Objects.requireNonNull(constantExprsList, "constantExprsList should not be null"));
     }
 
     public PhysicalUnion(Qualifier qualifier,
-                         List<NamedExpression> outputs,
-                         List<List<NamedExpression>> constantExprsList,
-                         Optional<GroupExpression> groupExpression,
-                         LogicalProperties logicalProperties,
-                         List<Plan> inputs) {
-        super(PlanType.PHYSICAL_UNION, qualifier, outputs, groupExpression, logicalProperties, inputs);
+            List<NamedExpression> outputs,
+            List<List<SlotReference>> childrenOutputs,
+            List<List<NamedExpression>> constantExprsList,
+            Optional<GroupExpression> groupExpression,
+            LogicalProperties logicalProperties,
+            List<Plan> children) {
+        super(PlanType.PHYSICAL_UNION, qualifier, outputs, childrenOutputs,
+                groupExpression, logicalProperties, children);
         this.constantExprsList = ImmutableList.copyOf(
                 Objects.requireNonNull(constantExprsList, "constantExprsList should not be null"));
     }
 
     public PhysicalUnion(Qualifier qualifier, List<NamedExpression> outputs,
-                         List<List<NamedExpression>> constantExprsList,
-                         Optional<GroupExpression> groupExpression, LogicalProperties logicalProperties,
-                         PhysicalProperties physicalProperties, Statistics statistics, List<Plan> inputs) {
-        super(PlanType.PHYSICAL_UNION, qualifier, outputs,
+            List<List<SlotReference>> childrenOutputs, List<List<NamedExpression>> constantExprsList,
+            Optional<GroupExpression> groupExpression, LogicalProperties logicalProperties,
+            PhysicalProperties physicalProperties, Statistics statistics, List<Plan> inputs) {
+        super(PlanType.PHYSICAL_UNION, qualifier, outputs, childrenOutputs,
                 groupExpression, logicalProperties, physicalProperties, statistics, inputs);
         this.constantExprsList = ImmutableList.copyOf(
                 Objects.requireNonNull(constantExprsList, "constantExprsList should not be null"));
@@ -86,38 +90,41 @@ public class PhysicalUnion extends PhysicalSetOperation implements Union {
     public String toString() {
         return Utils.toSqlString("PhysicalUnion" + getGroupIdWithPrefix(),
                 "qualifier", qualifier,
+                "outputs", outputs,
+                "regularChildrenOutputs", regularChildrenOutputs,
                 "constantExprsList", constantExprsList,
                 "stats", statistics);
     }
 
     @Override
     public PhysicalUnion withChildren(List<Plan> children) {
-        return new PhysicalUnion(qualifier, outputs, constantExprsList, getLogicalProperties(), children);
+        return new PhysicalUnion(qualifier, outputs, regularChildrenOutputs, constantExprsList,
+                getLogicalProperties(), children);
     }
 
     @Override
     public PhysicalUnion withGroupExpression(Optional<GroupExpression> groupExpression) {
-        return new PhysicalUnion(qualifier, outputs, constantExprsList, groupExpression,
-                getLogicalProperties(), children);
+        return new PhysicalUnion(qualifier, outputs, regularChildrenOutputs, constantExprsList,
+                groupExpression, getLogicalProperties(), children);
     }
 
     @Override
     public Plan withGroupExprLogicalPropChildren(Optional<GroupExpression> groupExpression,
             Optional<LogicalProperties> logicalProperties, List<Plan> children) {
-        return new PhysicalUnion(qualifier, outputs, constantExprsList, groupExpression,
-                logicalProperties.get(), children);
+        return new PhysicalUnion(qualifier, outputs, regularChildrenOutputs, constantExprsList,
+                groupExpression, logicalProperties.get(), children);
     }
 
     @Override
     public PhysicalUnion withPhysicalPropertiesAndStats(
             PhysicalProperties physicalProperties, Statistics statistics) {
-        return new PhysicalUnion(qualifier, outputs, constantExprsList, Optional.empty(),
-                getLogicalProperties(), physicalProperties, statistics, children);
+        return new PhysicalUnion(qualifier, outputs, regularChildrenOutputs, constantExprsList,
+                Optional.empty(), getLogicalProperties(), physicalProperties, statistics, children);
     }
 
     @Override
     public PhysicalUnion resetLogicalProperties() {
-        return new PhysicalUnion(qualifier, outputs, constantExprsList, Optional.empty(),
-                null, physicalProperties, statistics, children);
+        return new PhysicalUnion(qualifier, outputs, regularChildrenOutputs, constantExprsList,
+                Optional.empty(), null, physicalProperties, statistics, children);
     }
 }

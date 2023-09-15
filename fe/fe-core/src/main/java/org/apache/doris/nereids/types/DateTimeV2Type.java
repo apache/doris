@@ -20,6 +20,7 @@ package org.apache.doris.nereids.types;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.nereids.exceptions.AnalysisException;
+import org.apache.doris.nereids.trees.expressions.literal.DateTimeLiteral;
 import org.apache.doris.nereids.types.coercion.DateLikeType;
 import org.apache.doris.nereids.types.coercion.IntegralType;
 
@@ -85,7 +86,8 @@ public class DateTimeV2Type extends DateLikeType {
         if (!s.contains(".")) {
             return DateTimeV2Type.SYSTEM_DEFAULT;
         }
-        return DateTimeV2Type.of(s.length() - s.lastIndexOf(".") - 1);
+        int scale = DateTimeLiteral.determineScale(s);
+        return DateTimeV2Type.of(scale);
     }
 
     @Override

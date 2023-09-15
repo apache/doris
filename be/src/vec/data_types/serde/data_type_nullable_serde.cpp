@@ -88,7 +88,6 @@ Status DataTypeNullableSerDe::deserialize_one_cell_from_hive_text(IColumn& colum
                                                                   const FormatOptions& options,
                                                                   int nesting_level) const {
     auto& null_column = assert_cast<ColumnNullable&>(column);
-    // TODO(Amory) make null literal configurable
     if (slice.size == 2 && slice[0] == '\\' && slice[1] == 'N') {
         null_column.insert_data(nullptr, 0);
         return Status::OK();
@@ -121,10 +120,11 @@ Status DataTypeNullableSerDe::deserialize_one_cell_from_json(IColumn& column, Sl
     auto& null_column = assert_cast<ColumnNullable&>(column);
     // TODO(Amory) make null literal configurable
 
+    // only slice trim quote return true make sure slice is quoted and converted_from_string make
+    // sure slice is from string parse , we can parse this "null" literal as string "null" to
+    // nested column , otherwise we insert null to null column
     if (!(options.converted_from_string && slice.trim_quote())) {
-        //for map<string,string> type : {"abc","NULL"} , the NULL is string , instead of null values
-        if (slice.size == 4 && slice[0] == 'N' && slice[1] == 'U' && slice[2] == 'L' &&
-            slice[3] == 'L') {
+        if (slice.size == 4 && Slice::mem_equal("null", slice.data, 4)) {
             null_column.insert_data(nullptr, 0);
             return Status::OK();
         } else if (slice.size == 2 && slice[0] == '\\' && slice[1] == 'N') {

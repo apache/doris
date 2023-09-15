@@ -137,6 +137,28 @@ message ZoneMapPB {
     optional bool pass_all = 5 [default = false];
 }
 
+message ColumnPathPartInfo {
+    // key represent a part of key in full parts info
+    optional string key = 1;
+    // is_nested indicates that the part if a nested array
+    optional bool is_nested = 2;
+    // anonymous_array_level indicates the nested level of array
+    optional uint32 anonymous_array_level = 3;
+}
+
+// Persist info for PathInData that represents path in document, e.g. JSON.
+// Each variant's subcolumn must persist it's path info to storage, since it only
+// uses path info to identify a column in storage instead of column unique id
+message ColumnPathInfo {
+    // The full path string representation
+    optional string path = 1;
+    // A list of parts, each part indicate a sub path of the whole path
+    repeated ColumnPathPartInfo path_part_infos = 2;
+    optional bool has_nested = 3;
+    // The original parent variant's unique id, used to distinguish from different variants
+    optional uint32 parrent_column_unique_id = 4;
+}
+
 message ColumnMetaPB {
     // column id in table schema
     optional uint32 column_id = 1;
@@ -162,6 +184,13 @@ message ColumnMetaPB {
     optional uint64 num_rows = 11;
     repeated string children_column_names = 12;
 
+    // persist info for PathInData that represents path in document, e.g. JSON.
+    optional ColumnPathInfo column_path_info = 13;
+
+    // Extra type info to be compatible with tabet schema
+    optional bytes default_value = 14; // ColumnMessage.default_value ?
+    optional int32 precision = 15; // ColumnMessage.precision
+    optional int32 frac = 16; // ColumnMessag
 }
 
 message PrimaryKeyIndexMetaPB {

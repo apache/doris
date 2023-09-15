@@ -201,7 +201,8 @@ public class DeleteStmt extends DdlStmt {
                 cols,
                 new InsertSource(selectStmt),
                 null,
-                isPartialUpdate);
+                isPartialUpdate,
+                false);
     }
 
     private void analyzeTargetTable(Analyzer analyzer) throws UserException {
@@ -237,7 +238,12 @@ public class DeleteStmt extends DdlStmt {
         }
         if (predicate instanceof BinaryPredicate) {
             BinaryPredicate binaryPredicate = (BinaryPredicate) predicate;
+            binaryPredicate.getChild(0).analyze(analyzer);
+            binaryPredicate.getChild(1).analyze(analyzer);
+
+            binaryPredicate.setChild(1, binaryPredicate.getChild(1).castTo(binaryPredicate.getChild(0).getType()));
             binaryPredicate.analyze(analyzer);
+
             ExprRewriter exprRewriter = new ExprRewriter(FoldConstantsRule.INSTANCE);
             binaryPredicate.setChild(1, exprRewriter.rewrite(binaryPredicate.getChild(1), analyzer, null));
             Expr leftExpr = binaryPredicate.getChild(0);

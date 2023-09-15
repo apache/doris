@@ -109,6 +109,8 @@ public:
     GroupCommitMgr(ExecEnv* exec_env);
     virtual ~GroupCommitMgr();
 
+    void stop();
+
     // insert into
     Status group_commit_insert(int64_t table_id, const TPlan& plan,
                                const TDescriptorTable& desc_tbl,

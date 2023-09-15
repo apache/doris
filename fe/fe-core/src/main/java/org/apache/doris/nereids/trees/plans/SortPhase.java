@@ -18,8 +18,8 @@
 package org.apache.doris.nereids.trees.plans;
 
 /**
- * Represents different phase of agg and map it to the
- * enum of agg phase definition of stale optimizer.
+ * Represents different phase of sort and map it to the
+ * enum of sort phase definition of stale optimizer.
  */
 public enum SortPhase {
     MERGE_SORT("MergeSort"),

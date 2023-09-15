@@ -24,8 +24,23 @@ import java.time.format.DateTimeFormatter;
 import java.time.format.DateTimeParseException;
 import java.time.temporal.ChronoField;
 import java.time.temporal.TemporalAccessor;
+import java.util.function.Consumer;
 
 class DateTimeFormatterUtilsTest {
+    @Test
+    void test() {
+        DateTimeFormatter formatter = DateTimeFormatterUtils.ZONE_FORMATTER;
+
+        formatter.parse("");
+
+        formatter.parse("UTC+01:00");
+        formatter.parse("UTC+01:00:00");
+
+        formatter.parse("GMT+01:00");
+        formatter.parse("Asia/Shanghai");
+        formatter.parse("Z");
+    }
+
     private void assertDatePart(TemporalAccessor dateTime) {
         Assertions.assertEquals(2020, dateTime.get(ChronoField.YEAR));
         Assertions.assertEquals(2, dateTime.get(ChronoField.MONTH_OF_YEAR));
@@ -34,49 +49,66 @@ class DateTimeFormatterUtilsTest {
 
     @Test
     void testBasicDateTimeFormatter() {
-        DateTimeFormatter formatter = DateTimeFormatterUtils.BASIC_DATE_TIME_FORMATTER;
+        DateTimeFormatter formatter = DateTimeFormatterUtils.BASIC_FORMATTER_WITHOUT_T;
         TemporalAccessor dateTime = formatter.parse("20200219");
         assertDatePart(dateTime);
         dateTime = formatter.parse("20200219010101");
         assertDatePart(dateTime);
-        dateTime = formatter.parse("20200219T010101");
+        dateTime = formatter.parse("20200219010101.1");
         assertDatePart(dateTime);
-        // failed case
-        Assertions.assertThrows(DateTimeParseException.class, () -> formatter.parse("20200219 010101"));
-
-        // microsecond
         dateTime = formatter.parse("20200219010101.000001");
-        assertDatePart(dateTime);
-        dateTime = formatter.parse("20200219T010101.000001");
         assertDatePart(dateTime);
         dateTime = formatter.parse("20200219010101.1");
         assertDatePart(dateTime);
+
+        formatter = DateTimeFormatterUtils.BASIC_DATE_TIME_FORMATTER;
+        dateTime = formatter.parse("20200219T010101");
+        assertDatePart(dateTime);
         dateTime = formatter.parse("20200219T010101.1");
         assertDatePart(dateTime);
-        Assertions.assertThrows(DateTimeParseException.class, () -> formatter.parse("20200219010101."));
-        Assertions.assertThrows(DateTimeParseException.class, () -> formatter.parse("20200219010101.0000001"));
-        Assertions.assertThrows(DateTimeParseException.class, () -> formatter.parse("20200219T010101."));
-        Assertions.assertThrows(DateTimeParseException.class, () -> formatter.parse("20200219T010101.0000001"));
+        dateTime = formatter.parse("20200219T010101.000001");
+        assertDatePart(dateTime);
+        dateTime = formatter.parse("20200219T010101.1");
+        assertDatePart(dateTime);
+
+        // failed case
+        DateTimeFormatter withT = DateTimeFormatterUtils.BASIC_DATE_TIME_FORMATTER;
+        Assertions.assertThrows(DateTimeParseException.class, () -> withT.parse("20200219 010101"));
+        Assertions.assertThrows(DateTimeParseException.class, () -> withT.parse("20200219010101."));
+        Assertions.assertThrows(DateTimeParseException.class, () -> withT.parse("20200219010101.0000001"));
+        Assertions.assertThrows(DateTimeParseException.class, () -> withT.parse("20200219T010101."));
+        Assertions.assertThrows(DateTimeParseException.class, () -> withT.parse("20200219T010101.0000001"));
+        DateTimeFormatter withoutT = DateTimeFormatterUtils.BASIC_FORMATTER_WITHOUT_T;
+        Assertions.assertThrows(DateTimeParseException.class, () -> withoutT.parse("20200219 010101"));
+        Assertions.assertThrows(DateTimeParseException.class, () -> withoutT.parse("20200219010101."));
+        Assertions.assertThrows(DateTimeParseException.class, () -> withoutT.parse("20200219010101.0000001"));
+        Assertions.assertThrows(DateTimeParseException.class, () -> withoutT.parse("20200219T010101."));
+        Assertions.assertThrows(DateTimeParseException.class, () -> withoutT.parse("20200219T010101.0000001"));
     }
 
     @Test
-    void testTwoDigitalDate() {
-        DateTimeFormatter formatter = DateTimeFormatterUtils.DATE_FORMATTER;
-        // Year values in the range 00-69 become 2000-2069.
-        // Year values in the range 70-99 become 1970-199
-        for (int i = 0; i < 100; i++) {
-            String str;
-            if (i < 10) {
-                str = "0" + i + "-02-19";
-            } else {
-                str = i + "-02-19";
-            }
-            TemporalAccessor dateTime = formatter.parse(str);
-            if (i < 70) {
-                Assertions.assertEquals(2000 + i, dateTime.get(ChronoField.YEAR));
-            } else {
-                Assertions.assertEquals(1900 + i, dateTime.get(ChronoField.YEAR));
-            }
-        }
+    void testDateTimeFormatter() {
+        DateTimeFormatter formatter = DateTimeFormatterUtils.DATE_TIME_FORMATTER;
+        TemporalAccessor dateTime = formatter.parse("2020-02-19 01:01:01");
+        assertDatePart(dateTime);
+        Assertions.assertThrows(DateTimeParseException.class, () -> formatter.parse("2020-02-19T01:01:01"));
+        Assertions.assertThrows(DateTimeParseException.class, () -> formatter.parse("2020-02-1901:01:01"));
+    }
+
+    @Test
+    void testTimeFormatter() {
+        // use lambda function to assert time is correct.
+        Consumer<TemporalAccessor> assertTime = (dateTime) ->
+                Assertions.assertEquals(1, dateTime.get(ChronoField.HOUR_OF_DAY));
+
+        DateTimeFormatter timeFormatter = DateTimeFormatterUtils.TIME_FORMATTER;
+        TemporalAccessor dateTime = timeFormatter.parse("01:01:01.000001");
+        assertTime.accept(dateTime);
+        dateTime = timeFormatter.parse("01:01:01.1");
+        assertTime.accept(dateTime);
+        dateTime = timeFormatter.parse("01:01:01");
+        assertTime.accept(dateTime);
+        Assertions.assertThrows(DateTimeParseException.class, () -> timeFormatter.parse("01:01"));
+        Assertions.assertThrows(DateTimeParseException.class, () -> timeFormatter.parse("01"));
     }
 }

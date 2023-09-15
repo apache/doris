@@ -76,12 +76,15 @@ RoutineLoadTaskExecutor::RoutineLoadTaskExecutor(ExecEnv* exec_env)
 }
 
 RoutineLoadTaskExecutor::~RoutineLoadTaskExecutor() {
+    LOG(INFO) << _task_map.size() << " not executed tasks left, cleanup";
+    _task_map.clear();
+}
+
+void RoutineLoadTaskExecutor::stop() {
     DEREGISTER_HOOK_METRIC(routine_load_task_count);
     _thread_pool.shutdown();
     _thread_pool.join();
-
-    LOG(INFO) << _task_map.size() << " not executed tasks left, cleanup";
-    _task_map.clear();
+    _data_consumer_pool.stop();
 }
 
 // Create a temp StreamLoadContext and set some kafka connection info in it.

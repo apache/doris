@@ -49,6 +49,7 @@ VMatchPredicate::VMatchPredicate(const TExprNode& node) : VExpr(node) {
     _inverted_index_ctx->parser_type =
             get_inverted_index_parser_type_from_string(node.match_predicate.parser_type);
     _inverted_index_ctx->parser_mode = node.match_predicate.parser_mode;
+    _inverted_index_ctx->char_filter_map = node.match_predicate.char_filter_map;
 }
 
 Status VMatchPredicate::prepare(RuntimeState* state, const RowDescriptor& desc,

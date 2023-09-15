@@ -22,6 +22,7 @@ import org.apache.doris.nereids.rules.rewrite.ColumnPruning.PruneContext;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.algebra.Aggregate;
 import org.apache.doris.nereids.trees.plans.algebra.SetOperation.Qualifier;
@@ -47,7 +48,6 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
-import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
@@ -117,36 +117,31 @@ public class ColumnPruning extends DefaultPlanRewriter<PruneContext> implements 
         }
 
         LogicalUnion prunedOutputUnion = pruneOutput(union, union.getOutputs(), union::pruneOutputs, context);
+        if (prunedOutputUnion == union) {
+            return union;
+        }
 
         // start prune children of union
         List<Slot> originOutput = union.getOutput();
         Set<Slot> prunedOutput = prunedOutputUnion.getOutputSet();
-        Set<Integer> prunedOutputIndexes = IntStream.range(0, originOutput.size())
+        List<Integer> prunedOutputIndexes = IntStream.range(0, originOutput.size())
                 .filter(index -> prunedOutput.contains(originOutput.get(index)))
                 .boxed()
-                .collect(ImmutableSet.toImmutableSet());
-
-        AtomicBoolean changed = new AtomicBoolean(false);
-        List<Plan> prunedChildren = prunedOutputUnion.children().stream()
-                .map(child -> {
-                    List<Slot> childOutput = child.getOutput();
-                    Set<Slot> prunedChildOutput = prunedOutputIndexes.stream()
-                            .map(childOutput::get)
-                            .collect(ImmutableSet.toImmutableSet());
-
-                    Plan prunedChild = doPruneChild(prunedOutputUnion, child, prunedChildOutput);
-                    if (prunedChild != child) {
-                        changed.set(true);
-                    }
-                    return prunedChild;
-                })
                 .collect(ImmutableList.toImmutableList());
 
-        if (!changed.get()) {
-            return prunedOutputUnion;
+        ImmutableList.Builder<Plan> prunedChildren = ImmutableList.builder();
+        ImmutableList.Builder<List<SlotReference>> prunedChildrenOutputs = ImmutableList.builder();
+        for (int i = 0; i < prunedOutputUnion.arity(); i++) {
+            List<SlotReference> regularChildOutputs = prunedOutputUnion.getRegularChildOutput(i);
+            List<SlotReference> prunedChildOutput = prunedOutputIndexes.stream()
+                    .map(regularChildOutputs::get)
+                    .collect(ImmutableList.toImmutableList());
+            Set<Slot> prunedChildOutputSet = ImmutableSet.copyOf(prunedChildOutput);
+            Plan prunedChild = doPruneChild(prunedOutputUnion, prunedOutputUnion.child(i), prunedChildOutputSet);
+            prunedChildrenOutputs.add(prunedChildOutput);
+            prunedChildren.add(prunedChild);
         }
-
-        return prunedOutputUnion.withChildren(prunedChildren);
+        return prunedOutputUnion.withChildrenAndTheirOutputs(prunedChildren.build(), prunedChildrenOutputs.build());
     }
 
     // we should keep the output of LogicalSetOperation and all the children

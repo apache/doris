@@ -137,7 +137,7 @@ public:
 
     TPushAggOp::type get_push_down_agg_type() { return _push_down_agg_type; }
 
-    int64_t get_push_down_count() { return _push_down_count; }
+    int64_t get_push_down_count() const { return _push_down_count; }
 
     // Get next block.
     // If eos is true, no more data will be read and block should be empty.

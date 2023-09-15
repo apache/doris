@@ -314,7 +314,7 @@ public class IntLiteral extends LiteralExpr {
                 return res;
             }
             return this;
-        } else if (targetType.isDateLike()) {
+        } else if (targetType.isDateType()) {
             try {
                 //int like 20200101 can be cast to date(2020,01,01)
                 DateLiteral res = new DateLiteral("" + value, targetType);

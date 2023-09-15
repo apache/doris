@@ -41,7 +41,9 @@ public:
     DataConsumerPool(int64_t max_pool_size)
             : _max_pool_size(max_pool_size), _stop_background_threads_latch(1) {}
 
-    ~DataConsumerPool() {
+    ~DataConsumerPool() = default;
+
+    void stop() {
         _stop_background_threads_latch.count_down();
         if (_clean_idle_consumer_thread) {
             _clean_idle_consumer_thread->join();

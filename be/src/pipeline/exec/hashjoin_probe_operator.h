@@ -22,7 +22,6 @@
 #include "operator.h"
 #include "pipeline/exec/join_probe_operator.h"
 #include "pipeline/pipeline_x/operator.h"
-#include "vec/exec/join/vhash_join_node.h"
 
 namespace doris {
 class ExecNode;
@@ -53,7 +52,7 @@ public:
     using Parent = HashJoinProbeOperatorX;
     ENABLE_FACTORY_CREATOR(HashJoinProbeLocalState);
     HashJoinProbeLocalState(RuntimeState* state, OperatorXBase* parent);
-    ~HashJoinProbeLocalState() = default;
+    ~HashJoinProbeLocalState() override = default;
 
     Status init(RuntimeState* state, LocalStateInfo& info) override;
     Status close(RuntimeState* state) override;
@@ -71,6 +70,7 @@ private:
     friend struct vectorized::HashJoinProbeContext;
 
     int _probe_index = -1;
+    int _ready_probe_index = -1;
     bool _probe_eos = false;
     std::atomic<bool> _probe_inited = false;
 

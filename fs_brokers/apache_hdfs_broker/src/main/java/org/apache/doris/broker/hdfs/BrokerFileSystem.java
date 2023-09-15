@@ -55,7 +55,8 @@ public class BrokerFileSystem {
         try {
             if (this.dfsFileSystem != null) {
                 try {
-                    this.dfsFileSystem.close();
+                    // do not close file system, it will be closed automatically.
+                    // this.dfsFileSystem.close();
                 } catch (Exception e) {
                     logger.error("errors while close file system", e);
                 } finally {

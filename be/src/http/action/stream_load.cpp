@@ -555,6 +555,13 @@ Status StreamLoadAction::_process_put(HttpRequest* http_req,
         bool value = iequal(http_req->header(HTTP_MEMTABLE_ON_SINKNODE), "true");
         request.__set_memtable_on_sink_node(value);
     }
+    if (!http_req->header(HTTP_IGNORE_MODE).empty()) {
+        if (iequal(http_req->header(HTTP_IGNORE_MODE), "true")) {
+            request.__set_ignore_mode(true);
+        } else {
+            request.__set_ignore_mode(false);
+        }
+    }
 
 #ifndef BE_TEST
     // plan this load

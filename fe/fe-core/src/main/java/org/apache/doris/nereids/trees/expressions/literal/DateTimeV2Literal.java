@@ -23,6 +23,7 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.DateTimeV2Type;
 import org.apache.doris.nereids.util.DateUtils;
+import org.apache.doris.nereids.util.StandardDateFormat;
 
 import java.time.LocalDateTime;
 
@@ -76,50 +77,57 @@ public class DateTimeV2Literal extends DateTimeLiteral {
     @Override
     public String getStringValue() {
         return String.format("%04d-%02d-%02d %02d:%02d:%02d"
-                + (getDataType().getScale() > 0 ? ".%0" + getDataType().getScale() + "d" : ""),
+                        + (getDataType().getScale() > 0 ? ".%0" + getDataType().getScale() + "d" : ""),
                 year, month, day, hour, minute, second,
                 (int) (microSecond / Math.pow(10, DateTimeV2Type.MAX_SCALE - getDataType().getScale())));
     }
 
     @Override
     public Expression plusYears(long years) {
-        return fromJavaDateType(DateUtils.getTime(DATE_TIME_FORMATTER_TO_MICRO_SECOND, getStringValue())
-                .plusYears(years), getDataType().getScale());
+        return fromJavaDateType(
+                DateUtils.getTime(StandardDateFormat.DATE_TIME_FORMATTER_TO_MICRO_SECOND, getStringValue())
+                        .plusYears(years), getDataType().getScale());
     }
 
     @Override
     public Expression plusMonths(long months) {
-        return fromJavaDateType(DateUtils.getTime(DATE_TIME_FORMATTER_TO_MICRO_SECOND, getStringValue())
-                .plusMonths(months), getDataType().getScale());
+        return fromJavaDateType(
+                DateUtils.getTime(StandardDateFormat.DATE_TIME_FORMATTER_TO_MICRO_SECOND, getStringValue())
+                        .plusMonths(months), getDataType().getScale());
     }
 
     @Override
     public Expression plusDays(long days) {
-        return fromJavaDateType(DateUtils.getTime(DATE_TIME_FORMATTER_TO_MICRO_SECOND, getStringValue())
-                .plusDays(days), getDataType().getScale());
+        return fromJavaDateType(
+                DateUtils.getTime(StandardDateFormat.DATE_TIME_FORMATTER_TO_MICRO_SECOND, getStringValue())
+                        .plusDays(days), getDataType().getScale());
     }
 
     @Override
     public Expression plusHours(long hours) {
-        return fromJavaDateType(DateUtils.getTime(DATE_TIME_FORMATTER_TO_MICRO_SECOND, getStringValue())
-                .plusHours(hours), getDataType().getScale());
+        return fromJavaDateType(
+                DateUtils.getTime(StandardDateFormat.DATE_TIME_FORMATTER_TO_MICRO_SECOND, getStringValue())
+                        .plusHours(hours), getDataType().getScale());
     }
 
     @Override
     public Expression plusMinutes(long minutes) {
-        return fromJavaDateType(DateUtils.getTime(DATE_TIME_FORMATTER_TO_MICRO_SECOND, getStringValue())
-                .plusMinutes(minutes), getDataType().getScale());
+        return fromJavaDateType(
+                DateUtils.getTime(StandardDateFormat.DATE_TIME_FORMATTER_TO_MICRO_SECOND, getStringValue())
+                        .plusMinutes(minutes), getDataType().getScale());
     }
 
     @Override
     public Expression plusSeconds(long seconds) {
-        return fromJavaDateType(DateUtils.getTime(DATE_TIME_FORMATTER_TO_MICRO_SECOND, getStringValue())
-                .plusSeconds(seconds), getDataType().getScale());
+        return fromJavaDateType(
+                DateUtils.getTime(StandardDateFormat.DATE_TIME_FORMATTER_TO_MICRO_SECOND, getStringValue())
+                        .plusSeconds(seconds), getDataType().getScale());
     }
 
     public Expression plusMicroSeconds(long microSeconds) {
-        return fromJavaDateType(DateUtils.getTime(DATE_TIME_FORMATTER_TO_MICRO_SECOND, getStringValue())
-                .plusNanos(microSeconds * 1000L), getDataType().getScale());
+        return fromJavaDateType(
+                DateUtils.getTime(StandardDateFormat.DATE_TIME_FORMATTER_TO_MICRO_SECOND, getStringValue())
+                        .plusNanos(microSeconds * 1000L), getDataType().getScale());
     }
 
     /**

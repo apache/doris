@@ -31,7 +31,7 @@ class JoinBuildSinkOperatorX;
 template <typename DependencyType, typename Derived>
 class JoinBuildSinkLocalState : public PipelineXSinkLocalState<DependencyType> {
 public:
-    virtual Status init(RuntimeState* state, LocalSinkStateInfo& info) override;
+    Status init(RuntimeState* state, LocalSinkStateInfo& info) override;
 
 protected:
     JoinBuildSinkLocalState(DataSinkOperatorXBase* parent, RuntimeState* state)

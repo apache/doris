@@ -52,7 +52,10 @@ import java.util.List;
 import java.util.Optional;
 import java.util.stream.Collectors;
 
-class SlotBinder extends SubExprAnalyzer {
+/**
+ * SlotBinder is used to bind slot
+ */
+public class SlotBinder extends SubExprAnalyzer {
     /*
     bounded={table.a, a}
     unbound=a

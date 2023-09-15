@@ -38,6 +38,8 @@ import java.util.Set;
 
 public class ColumnStatistic {
 
+    public static final double STATS_ERROR = 0.1D;
+
     public static final StatsType NDV = StatsType.NDV;
     public static final StatsType AVG_SIZE = StatsType.AVG_SIZE;
     public static final StatsType MAX_SIZE = StatsType.MAX_SIZE;
@@ -161,7 +163,7 @@ public class ColumnStatistic {
             String colName = row.get(5);
             Column col = StatisticsUtil.findColumn(catalogId, dbID, tblId, idxId, colName);
             if (col == null) {
-                LOG.warn("Failed to deserialize column statistics, ctlId: {} dbId: {}"
+                LOG.debug("Failed to deserialize column statistics, ctlId: {} dbId: {}"
                                 + "tblId: {} column: {} not exists",
                         catalogId, dbID, tblId, colName);
                 return ColumnStatistic.UNKNOWN;
@@ -200,13 +202,6 @@ public class ColumnStatistic {
 
     public static boolean isAlmostUnique(double ndv, double rowCount) {
         return rowCount * 0.9 < ndv && ndv < rowCount * 1.1;
-    }
-
-    public ColumnStatistic copy() {
-        return new ColumnStatisticBuilder().setCount(count).setNdv(ndv).setAvgSizeByte(avgSizeByte)
-                .setNumNulls(numNulls).setDataSize(dataSize).setMinValue(minValue)
-                .setMaxValue(maxValue).setMinExpr(minExpr).setMaxExpr(maxExpr)
-                .setIsUnknown(isUnKnown).build();
     }
 
     public ColumnStatistic updateByLimit(long limit, double rowCount) {

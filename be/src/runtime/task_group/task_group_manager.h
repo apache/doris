@@ -29,8 +29,8 @@ namespace taskgroup {
 
 class TaskGroupManager {
 public:
-    TaskGroupManager();
-    ~TaskGroupManager();
+    TaskGroupManager() = default;
+    ~TaskGroupManager() = default;
 
     TaskGroupPtr get_or_create_task_group(const TaskGroupInfo& task_group_info);
 

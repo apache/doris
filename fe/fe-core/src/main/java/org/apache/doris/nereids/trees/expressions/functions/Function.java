@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.trees.expressions.functions;
 
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Lambda;
 
 import java.util.List;
 
@@ -31,5 +32,9 @@ public abstract class Function extends Expression {
 
     public Function(List<Expression> children) {
         super(children);
+    }
+
+    public boolean isHighOrder() {
+        return !children.isEmpty() && children.get(0) instanceof Lambda;
     }
 }

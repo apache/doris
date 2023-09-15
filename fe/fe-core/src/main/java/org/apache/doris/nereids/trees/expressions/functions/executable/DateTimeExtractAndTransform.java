@@ -320,6 +320,16 @@ public class DateTimeExtractAndTransform {
         return DateTimeV2Literal.fromJavaDateType(dateTruncHelper(date.toJavaDateType(), trunc.getValue()));
     }
 
+    @ExecFunction(name = "date_trunc", argTypes = { "DATE", "VARCHAR" }, returnType = "DATE")
+    public static Expression dateTrunc(DateLiteral date, VarcharLiteral trunc) {
+        return DateLiteral.fromJavaDateType(dateTruncHelper(date.toJavaDateType(), trunc.getValue()));
+    }
+
+    @ExecFunction(name = "date_trunc", argTypes = { "DATEV2", "VARCHAR" }, returnType = "DATEV2")
+    public static Expression dateTrunc(DateV2Literal date, VarcharLiteral trunc) {
+        return DateV2Literal.fromJavaDateType(dateTruncHelper(date.toJavaDateType(), trunc.getValue()));
+    }
+
     private static LocalDateTime dateTruncHelper(LocalDateTime dateTime, String trunc) {
         int year = dateTime.getYear();
         int month = dateTime.getMonthValue();

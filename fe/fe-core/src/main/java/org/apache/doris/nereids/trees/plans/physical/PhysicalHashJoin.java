@@ -202,11 +202,11 @@ public class PhysicalHashJoin<
 
     @Override
     public boolean pushDownRuntimeFilter(CascadesContext context, IdGenerator<RuntimeFilterId> generator,
-                                         AbstractPhysicalJoin builderNode, Expression srcExpr, Expression probeExpr,
-                                         TRuntimeFilterType type, long buildSideNdv, int exprOrder) {
+            AbstractPhysicalJoin<?, ?> builderNode, Expression srcExpr, Expression probeExpr,
+            TRuntimeFilterType type, long buildSideNdv, int exprOrder) {
         if (RuntimeFilterGenerator.DENIED_JOIN_TYPES.contains(getJoinType()) || isMarkJoin()) {
             if (builderNode instanceof PhysicalHashJoin) {
-                PhysicalHashJoin builderJion = (PhysicalHashJoin) builderNode;
+                PhysicalHashJoin<?, ?> builderJion = (PhysicalHashJoin<?, ?>) builderNode;
                 if (builderJion.id.asInt() == id.asInt()) {
                     return false;
                 }

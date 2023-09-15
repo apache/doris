@@ -60,14 +60,27 @@ suite("test_date_trunc") {
     qt_select_date_trunc_quarter """ SELECT k11, date_trunc(k11,'quarter') FROM baseall order by k1,k2,k3;"""
     qt_select_date_trunc_year """ SELECT k11, date_trunc(k11,'YeaR') FROM baseall order by k1,k2,k3;"""
 
+    qt_date_week """ SELECT k10, date_trunc(k10,'Week') FROM baseall order by k1,k2,k3;"""
+    qt_date_year """ SELECT k10, date_trunc(k10,'YeaR') FROM baseall order by k1,k2,k3;"""
+
     try {
         sql """ SELECT date_trunc(k11,k7) FROM baseall ; """
     } catch (Exception e) {
         assertTrue(e.getMessage().contains("must be a string constant"), e.getMessage())
     }
-
     try {
         sql """ SELECT date_trunc(k11,'AAAA') FROM baseall ; """
+    } catch (Exception e) {
+        assertTrue(e.getMessage().contains("param only support argument"), e.getMessage())
+    }
+
+    try {
+        sql """ SELECT date_trunc(k10,k7) FROM baseall ; """
+    } catch (Exception e) {
+        assertTrue(e.getMessage().contains("must be a string constant"), e.getMessage())
+    }
+    try {
+        sql """ SELECT date_trunc(k10,'yearr') FROM baseall ; """
     } catch (Exception e) {
         assertTrue(e.getMessage().contains("param only support argument"), e.getMessage())
     }

@@ -144,7 +144,7 @@ public class ShowTableStatsStmt extends ShowStmt {
         row.add(tableStatistic.analysisMethod.toString());
         row.add(tableStatistic.analysisType.toString());
         row.add(new Date(tableStatistic.updatedTime).toString());
-        row.add(tableStatistic.columns);
+        row.add(tableStatistic.analyzeColumns().toString());
         row.add(tableStatistic.jobType.toString());
         result.add(row);
         return new ShowResultSet(getMetaData(), result);

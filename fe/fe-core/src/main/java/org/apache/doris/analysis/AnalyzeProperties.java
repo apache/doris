@@ -31,6 +31,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.TimeUnit;
 
+// TODO: Remove map
 public class AnalyzeProperties {
 
     public static final String PROPERTY_SYNC = "sync";
@@ -41,6 +42,8 @@ public class AnalyzeProperties {
     public static final String PROPERTY_NUM_BUCKETS = "num.buckets";
     public static final String PROPERTY_ANALYSIS_TYPE = "analysis.type";
     public static final String PROPERTY_PERIOD_SECONDS = "period.seconds";
+
+    public static final String PROPERTY_FORCE_FULL = "force.full";
 
     public static final AnalyzeProperties DEFAULT_PROP = new AnalyzeProperties(new HashMap<String, String>() {
         {
@@ -67,6 +70,7 @@ public class AnalyzeProperties {
             .add(PROPERTY_ANALYSIS_TYPE)
             .add(PROPERTY_PERIOD_SECONDS)
             .add(PROPERTY_PERIOD_CRON)
+            .add(PROPERTY_FORCE_FULL)
             .build();
 
     public AnalyzeProperties(Map<String, String> properties) {
@@ -262,6 +266,10 @@ public class AnalyzeProperties {
     public boolean isSample() {
         return properties.containsKey(PROPERTY_SAMPLE_PERCENT)
                 || properties.containsKey(PROPERTY_SAMPLE_ROWS);
+    }
+
+    public boolean forceFull() {
+        return properties.containsKey(PROPERTY_FORCE_FULL);
     }
 
     public String toSQL() {

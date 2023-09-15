@@ -17,7 +17,14 @@
 
 package org.apache.doris.nereids.util;
 
+import org.apache.doris.nereids.trees.expressions.Add;
 import org.apache.doris.nereids.trees.expressions.Cast;
+import org.apache.doris.nereids.trees.expressions.Divide;
+import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.Multiply;
+import org.apache.doris.nereids.trees.expressions.Subtract;
+import org.apache.doris.nereids.trees.expressions.literal.DecimalLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.DecimalV3Literal;
 import org.apache.doris.nereids.trees.expressions.literal.DoubleLiteral;
 import org.apache.doris.nereids.types.ArrayType;
 import org.apache.doris.nereids.types.BigIntType;
@@ -49,6 +56,7 @@ import org.apache.doris.nereids.types.coercion.IntegralType;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
+import java.math.BigDecimal;
 import java.util.Optional;
 
 public class TypeCoercionUtilsTest {
@@ -687,5 +695,32 @@ public class TypeCoercionUtilsTest {
                 TypeCoercionUtils.castIfNotMatchType(new DoubleLiteral(5L), DoubleType.INSTANCE));
         Assertions.assertEquals(new Cast(new DoubleLiteral(5L), BooleanType.INSTANCE),
                 TypeCoercionUtils.castIfNotMatchType(new DoubleLiteral(5L), BooleanType.INSTANCE));
+    }
+
+    @Test
+    public void testDecimalArithmetic() {
+        Multiply multiply = new Multiply(new DecimalLiteral(new BigDecimal("987654.321")),
+                new DecimalV3Literal(new BigDecimal("123.45")));
+        Expression expression = TypeCoercionUtils.processBinaryArithmetic(multiply);
+        Assertions.assertEquals(expression.child(0),
+                new Cast(multiply.child(0), DecimalV3Type.createDecimalV3Type(9, 3)));
+
+        Divide divide = new Divide(new DecimalLiteral(new BigDecimal("987654.321")),
+                new DecimalV3Literal(new BigDecimal("123.45")));
+        expression = TypeCoercionUtils.processBinaryArithmetic(divide);
+        Assertions.assertEquals(expression.child(0),
+                new Cast(multiply.child(0), DecimalV3Type.createDecimalV3Type(9, 3)));
+
+        Add add = new Add(new DecimalLiteral(new BigDecimal("987654.321")),
+                new DecimalV3Literal(new BigDecimal("123.45")));
+        expression = TypeCoercionUtils.processBinaryArithmetic(add);
+        Assertions.assertEquals(expression.child(0),
+                new Cast(multiply.child(0), DecimalV3Type.createDecimalV3Type(9, 3)));
+
+        Subtract sub = new Subtract(new DecimalLiteral(new BigDecimal("987654.321")),
+                new DecimalV3Literal(new BigDecimal("123.45")));
+        expression = TypeCoercionUtils.processBinaryArithmetic(sub);
+        Assertions.assertEquals(expression.child(0),
+                new Cast(multiply.child(0), DecimalV3Type.createDecimalV3Type(9, 3)));
     }
 }

@@ -101,6 +101,7 @@ struct ProcessHashTableProbe {
     size_t _serialized_key_buffer_size {0};
     uint8_t* _serialized_key_buffer;
     std::unique_ptr<Arena> _serialize_key_arena;
+    std::vector<size_t> _probe_side_hash_values;
 
     RuntimeProfile::Counter* _rows_returned_counter;
     RuntimeProfile::Counter* _search_hashtable_timer;

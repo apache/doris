@@ -83,14 +83,15 @@ struct HashTableBuild {
         }
 
         for (size_t k = 0; k < _rows; ++k) {
-            if (k % 65536 == 0) {
+            if (k % CHECK_FRECUENCY == 0) {
                 RETURN_IF_CANCELLED(_state);
             }
             auto emplace_result = key_getter.emplace_key(hash_table_ctx.hash_table, k,
                                                          *(_operation_node->_arena));
 
             if (k + 1 < _rows) {
-                key_getter.prefetch(hash_table_ctx.hash_table, k + 1, *(_operation_node->_arena));
+                key_getter.prefetch_by_key(hash_table_ctx.hash_table, k + 1,
+                                           *(_operation_node->_arena));
             }
 
             if (emplace_result.is_inserted()) { //only inserted once as the same key, others skip
@@ -754,7 +755,7 @@ Status VSetOperationNode<is_intersected>::get_data_in_hashtable(HashTableContext
             }
         }
     } else {
-        LOG(FATAL) << "Invalid RowRefListType!";
+        return Status::InternalError("Invalid RowRefListType!");
     }
 
     *eos = iter == hash_table_ctx.hash_table.end();

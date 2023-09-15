@@ -761,7 +761,6 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
 
     @Override
     public double getMaxFilterRatio() {
-        // for kafka routine load, the max filter ratio is always 1, because it use max error num instead of this.
-        return 1.0;
+        return maxFilterRatio;
     }
 }

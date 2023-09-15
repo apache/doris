@@ -47,7 +47,7 @@ ResultBufferMgr::ResultBufferMgr() : _stop_background_threads_latch(1) {
     });
 }
 
-ResultBufferMgr::~ResultBufferMgr() {
+void ResultBufferMgr::stop() {
     DEREGISTER_HOOK_METRIC(result_buffer_block_count);
     _stop_background_threads_latch.count_down();
     if (_clean_thread) {

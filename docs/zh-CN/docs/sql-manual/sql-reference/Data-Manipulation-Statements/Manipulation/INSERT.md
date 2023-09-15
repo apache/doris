@@ -35,7 +35,7 @@ INSERT
 该语句是完成数据插入操作。
 
 ```sql
-INSERT INTO table_name
+INSERT [IGNORE] INTO table_name
     [ PARTITION (p1, ...) ]
     [ WITH LABEL label]
     [ (column [, ...]) ]
@@ -44,7 +44,8 @@ INSERT INTO table_name
 ```
 
  Parameters
-
+> IGNORE: insert ignore模式，仅当目标表为开启merge-on-write的unique表时有效。开启后，对于插入的行，如果该行的key在表中不存在，则插入该行数据。如果key在表中不存在，则丢弃这行数据。当目标表中存在sequence列时无法通过insert ignore语句进行插入操作。
+>
 > tablet_name: 导入数据的目的表。可以是 `db_name.table_name` 形式
 >
 > partitions: 指定待导入的分区，必须是 `table_name` 中存在的分区，多个分区名称用逗号分隔

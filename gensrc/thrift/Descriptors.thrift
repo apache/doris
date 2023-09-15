@@ -60,6 +60,8 @@ struct TSlotDescriptor {
   // materialize them.Used to optmize to read less data and less memory usage
   13: optional bool need_materialize = true
   14: optional bool is_auto_increment = false;
+  // subcolumn path info list for semi structure column(variant)
+  15: optional list<string> column_paths
 }
 
 struct TTupleDescriptor {
@@ -228,6 +230,7 @@ struct TOlapTableSchemaParam {
     8: optional bool is_partial_update
     9: optional list<string> partial_update_input_columns
     10: optional bool is_strict_mode = false;
+    11: optional bool is_unique_key_ignore_mode = false;
 }
 
 struct TTabletLocation {

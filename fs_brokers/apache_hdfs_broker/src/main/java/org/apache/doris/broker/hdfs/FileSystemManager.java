@@ -66,6 +66,7 @@ public class FileSystemManager {
             .getLogger(FileSystemManager.class.getName());
     // supported scheme
     private static final String HDFS_SCHEME = "hdfs";
+    private static final String VIEWFS_SCHEME = "viewfs";
     private static final String S3A_SCHEME = "s3a";
     private static final String KS3_SCHEME = "ks3";
     private static final String CHDFS_SCHEME = "ofs";
@@ -210,7 +211,7 @@ public class FileSystemManager {
                 "invalid path. scheme is null");
         }
         BrokerFileSystem brokerFileSystem = null;
-        if (scheme.equals(HDFS_SCHEME)) {
+        if (scheme.equals(HDFS_SCHEME) || scheme.equals(VIEWFS_SCHEME)) {
             brokerFileSystem = getDistributedFileSystem(path, properties);
         } else if (scheme.equals(S3A_SCHEME)) {
             brokerFileSystem = getS3AFileSystem(path, properties);

@@ -27,7 +27,6 @@
 #include "common/status.h"
 #include "io/cache/block/block_file_cache.h"
 #include "io/fs/file_reader.h"
-#include "io/fs/file_reader_writer_fwd.h"
 #include "io/fs/file_system.h"
 #include "io/fs/path.h"
 #include "util/slice.h"
@@ -39,7 +38,7 @@ struct FileCacheStatistics;
 
 class CachedRemoteFileReader final : public FileReader {
 public:
-    CachedRemoteFileReader(FileReaderSPtr remote_file_reader, const FileReaderOptions* opts);
+    CachedRemoteFileReader(FileReaderSPtr remote_file_reader, const FileReaderOptions& opts);
 
     ~CachedRemoteFileReader() override;
 

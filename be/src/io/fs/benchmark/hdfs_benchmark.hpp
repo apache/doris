@@ -19,7 +19,6 @@
 
 #include "io/file_factory.h"
 #include "io/fs/benchmark/base_benchmark.h"
-#include "io/fs/file_reader_writer_fwd.h"
 #include "io/fs/file_writer.h"
 #include "io/fs/hdfs_file_reader.h"
 #include "io/fs/hdfs_file_system.h"
@@ -48,9 +47,9 @@ public:
         auto start = std::chrono::high_resolution_clock::now();
         std::shared_ptr<io::FileSystem> fs;
         io::FileReaderSPtr reader;
-        io::FileReaderOptions reader_opts = FileFactory::get_reader_options(nullptr);
+        io::FileReaderOptions reader_opts;
         THdfsParams hdfs_params = parse_properties(_conf_map);
-        io::FileDescription fd;
+        FileDescription fd;
         fd.path = file_path;
         RETURN_IF_ERROR(FileFactory::create_hdfs_reader(hdfs_params, fd, reader_opts, &fs, &reader,
                                                         nullptr));

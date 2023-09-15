@@ -25,6 +25,7 @@ import org.apache.doris.analysis.BoolLiteral;
 import org.apache.doris.analysis.CaseExpr;
 import org.apache.doris.analysis.CaseWhenClause;
 import org.apache.doris.analysis.CastExpr;
+import org.apache.doris.analysis.ColumnRefExpr;
 import org.apache.doris.analysis.CompoundPredicate;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.FunctionCallExpr;
@@ -33,12 +34,15 @@ import org.apache.doris.analysis.FunctionParams;
 import org.apache.doris.analysis.IndexDef;
 import org.apache.doris.analysis.InvertedIndexUtil;
 import org.apache.doris.analysis.IsNullPredicate;
+import org.apache.doris.analysis.LambdaFunctionCallExpr;
+import org.apache.doris.analysis.LambdaFunctionExpr;
 import org.apache.doris.analysis.MatchPredicate;
 import org.apache.doris.analysis.OrderByElement;
 import org.apache.doris.analysis.SlotDescriptor;
 import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.TimestampArithmeticExpr;
 import org.apache.doris.analysis.TupleDescriptor;
+import org.apache.doris.catalog.ArrayType;
 import org.apache.doris.catalog.Function;
 import org.apache.doris.catalog.Function.NullableMode;
 import org.apache.doris.catalog.Index;
@@ -48,6 +52,7 @@ import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.AggregateExpression;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.And;
+import org.apache.doris.nereids.trees.expressions.ArrayItemReference;
 import org.apache.doris.nereids.trees.expressions.AssertNumRowsElement;
 import org.apache.doris.nereids.trees.expressions.BinaryArithmetic;
 import org.apache.doris.nereids.trees.expressions.CaseWhen;
@@ -82,6 +87,7 @@ import org.apache.doris.nereids.trees.expressions.functions.combinator.MergeComb
 import org.apache.doris.nereids.trees.expressions.functions.combinator.StateCombinator;
 import org.apache.doris.nereids.trees.expressions.functions.combinator.UnionCombinator;
 import org.apache.doris.nereids.trees.expressions.functions.generator.TableGeneratingFunction;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Lambda;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ScalarFunction;
 import org.apache.doris.nereids.trees.expressions.functions.udf.JavaUdaf;
 import org.apache.doris.nereids.trees.expressions.functions.udf.JavaUdf;
@@ -96,7 +102,9 @@ import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.stream.Collectors;
 
@@ -188,6 +196,7 @@ public class ExpressionTranslator extends DefaultExpressionVisitor<Expr, PlanTra
     public Expr visitMatch(Match match, PlanTranslatorContext context) {
         String invertedIndexParser = InvertedIndexUtil.INVERTED_INDEX_PARSER_UNKNOWN;
         String invertedIndexParserMode = InvertedIndexUtil.INVERTED_INDEX_PARSER_FINE_GRANULARITY;
+        Map<String, String> invertedIndexCharFilter = new HashMap<>();
         SlotRef left = (SlotRef) match.left().accept(this, context);
         OlapTable olapTbl = Optional.ofNullable(getOlapTableFromSlotDesc(left.getDesc()))
                                     .orElse(getOlapTableDirectly(left));
@@ -204,6 +213,7 @@ public class ExpressionTranslator extends DefaultExpressionVisitor<Expr, PlanTra
                     if (columns != null && !columns.isEmpty() && left.getColumnName().equals(columns.get(0))) {
                         invertedIndexParser = index.getInvertedIndexParser();
                         invertedIndexParserMode = index.getInvertedIndexParserMode();
+                        invertedIndexCharFilter = index.getInvertedIndexCharFilter();
                         break;
                     }
                 }
@@ -217,7 +227,8 @@ public class ExpressionTranslator extends DefaultExpressionVisitor<Expr, PlanTra
             match.getDataType().toCatalogDataType(),
             NullableMode.DEPEND_ON_ARGUMENT,
             invertedIndexParser,
-            invertedIndexParserMode);
+            invertedIndexParserMode,
+            invertedIndexCharFilter);
     }
 
     @Override
@@ -260,6 +271,16 @@ public class ExpressionTranslator extends DefaultExpressionVisitor<Expr, PlanTra
     @Override
     public Expr visitSlotReference(SlotReference slotReference, PlanTranslatorContext context) {
         return context.findSlotRef(slotReference.getExprId());
+    }
+
+    @Override
+    public Expr visitArrayItemSlot(SlotReference slotReference, PlanTranslatorContext context) {
+        return context.findColumnRef(slotReference.getExprId());
+    }
+
+    @Override
+    public Expr visitArrayItemReference(ArrayItemReference arrayItemReference, PlanTranslatorContext context) {
+        return context.findColumnRef(arrayItemReference.getExprId());
     }
 
     @Override
@@ -377,7 +398,58 @@ public class ExpressionTranslator extends DefaultExpressionVisitor<Expr, PlanTra
     }
 
     @Override
+    public Expr visitLambda(Lambda lambda, PlanTranslatorContext context) {
+        Expr func = lambda.getLambdaFunction().accept(this, context);
+        List<Expr> arguments = lambda.getLambdaArguments().stream().map(e -> e.accept(this, context))
+                .collect(Collectors.toList());
+        return new LambdaFunctionExpr(func, lambda.getLambdaArgumentNames(), arguments);
+    }
+
+    private Expr visitHighOrderFunction(ScalarFunction function, PlanTranslatorContext context) {
+        Lambda lambda = (Lambda) function.child(0);
+        List<Expr> arguments = new ArrayList<>(function.children().size());
+        arguments.add(null);
+        int columnId = 0;
+        for (ArrayItemReference arrayItemReference : lambda.getLambdaArguments()) {
+            String argName = arrayItemReference.getName();
+            Expr expr = arrayItemReference.getArrayExpression().accept(this, context);
+            arguments.add(expr);
+
+            ColumnRefExpr column = new ColumnRefExpr();
+            column.setName(argName);
+            column.setColumnId(columnId);
+            column.setNullable(true);
+            column.setType(((ArrayType) expr.getType()).getItemType());
+            context.addExprIdColumnRefPair(arrayItemReference.getExprId(), column);
+            columnId += 1;
+        }
+
+        List<Type> argTypes = function.getArguments().stream()
+                .map(Expression::getDataType)
+                .map(DataType::toCatalogDataType)
+                .collect(Collectors.toList());
+        lambda.getLambdaArguments().stream()
+                .map(ArrayItemReference::getArrayExpression)
+                .map(Expression::getDataType)
+                .map(DataType::toCatalogDataType)
+                .forEach(argTypes::add);
+        org.apache.doris.catalog.Function catalogFunction = new Function(
+                new FunctionName(function.getName()), argTypes,
+                ArrayType.create(lambda.getRetType().toCatalogDataType(), true),
+                true, true, NullableMode.DEPEND_ON_ARGUMENT);
+
+        // create catalog FunctionCallExpr without analyze again
+        Expr lambdaBody = visitLambda(lambda, context);
+        arguments.set(0, lambdaBody);
+        return new LambdaFunctionCallExpr(catalogFunction, new FunctionParams(false, arguments));
+    }
+
+    @Override
     public Expr visitScalarFunction(ScalarFunction function, PlanTranslatorContext context) {
+        if (function.isHighOrder()) {
+            return visitHighOrderFunction(function, context);
+        }
+
         List<Expr> arguments = function.getArguments().stream()
                 .map(arg -> arg.accept(this, context))
                 .collect(Collectors.toList());

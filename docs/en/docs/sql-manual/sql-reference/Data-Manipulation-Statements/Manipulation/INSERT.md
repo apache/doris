@@ -35,7 +35,7 @@ INSERT
 The change statement is to complete the data insertion operation.
 
 ```sql
-INSERT INTO table_name
+INSERT [IGNORE] INTO table_name
     [ PARTITION (p1, ...) ]
     [ WITH LABEL label]
     [ (column [, ...]) ]
@@ -44,7 +44,7 @@ INSERT INTO table_name
 ````
 
  Parameters
-
+> IGNORE: insert ignore mode, only effective when the target table is a unique table with merge-on-write enabled. When insert ignore mode is enabled, for the inserted rows, if the key of the row does not exist in the table, the row will be inserted. If the key already exists in the table, the row will be discarded. When sequence column exists in the target table, the `insert ignore` statements are forbidden.
 > tablet_name: The destination table for importing data. Can be of the form `db_name.table_name`
 >
 > partitions: Specify the partitions to be imported, which must be partitions that exist in `table_name`. Multiple partition names are separated by commas

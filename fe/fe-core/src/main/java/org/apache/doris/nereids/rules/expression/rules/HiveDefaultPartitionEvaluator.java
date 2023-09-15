@@ -60,4 +60,9 @@ public class HiveDefaultPartitionEvaluator implements OnePartitionEvaluator {
     public Expression evaluate(Expression expression, Map<Slot, PartitionSlotInput> currentInputs) {
         return BooleanLiteral.TRUE;
     }
+
+    @Override
+    public boolean isDefaultPartition() {
+        return true;
+    }
 }

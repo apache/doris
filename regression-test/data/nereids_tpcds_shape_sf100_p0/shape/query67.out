@@ -6,7 +6,7 @@ PhysicalResultSink
 ------PhysicalTopN
 --------filter((rk <= 100))
 ----------PhysicalWindow
-------------PhysicalQuickSort
+------------PhysicalPartitionTopN
 --------------PhysicalDistribute
 ----------------PhysicalPartitionTopN
 ------------------PhysicalProject

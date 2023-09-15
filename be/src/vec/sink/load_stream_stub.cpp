@@ -108,6 +108,7 @@ Status LoadStreamStub::open(BrpcClientCache<PBackendService_Stub>* client_cache,
                             const NodeInfo& node_info, int64_t txn_id,
                             const OlapTableSchemaParam& schema,
                             const std::vector<PTabletID>& tablets_for_schema, bool enable_profile) {
+    _num_open++;
     std::unique_lock<bthread::Mutex> lock(_mutex);
     if (_is_init) {
         return Status::OK();
@@ -188,6 +189,9 @@ Status LoadStreamStub::add_segment(int64_t partition_id, int64_t index_id, int64
 
 // CLOSE_LOAD
 Status LoadStreamStub::close_load(const std::vector<PTabletID>& tablets_to_commit) {
+    if (--_num_open > 0) {
+        return Status::OK();
+    }
     PStreamHeader header;
     *header.mutable_load_id() = _load_id;
     header.set_src_id(_src_id);

@@ -246,10 +246,18 @@ FROM data_source [data_source_properties]
 
   11. `load_to_single_tablet`
 
-      布尔类型，为 true 表示支持一个任务只导入数据到对应分区的一个 tablet，默认值为 false，该参数只允许在对带有 random 分区的 olap 表导数的时候设置。
+      布尔类型，为 true 表示支持一个任务只导入数据到对应分区的一个 tablet，默认值为 false，该参数只允许在对带有 random 分桶的 olap 表导数的时候设置。
 
   12. `partial_columns`
       布尔类型，为 true 表示使用部分列更新，默认值为 false，该参数只允许在表模型为 Unique 且采用 Merge on Write 时设置。一流多表不支持此参数。
+
+  13. `max_filter_ratio`
+
+      采样窗口内，允许的最大过滤率。必须在大于等于0到小于等于1之间。默认值是 1.0。
+
+      采样窗口为 `max_batch_rows * 10`。即如果在采样窗口内，错误行数/总行数大于 `max_filter_ratio`，则会导致例行作业被暂停，需要人工介入检查数据质量问题。
+
+      被 where 条件过滤掉的行不算错误行。
 
 - `FROM data_source [data_source_properties]`
 

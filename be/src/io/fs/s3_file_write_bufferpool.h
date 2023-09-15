@@ -28,6 +28,7 @@
 #include "common/config.h"
 #include "common/status.h"
 #include "io/fs/s3_common.h"
+#include "runtime/exec_env.h"
 #include "util/slice.h"
 
 namespace doris {
@@ -126,8 +127,7 @@ public:
               doris::ThreadPool* thread_pool);
 
     static S3FileBufferPool* GetInstance() {
-        static S3FileBufferPool _pool;
-        return &_pool;
+        return ExecEnv::GetInstance()->get_s3_file_buffer_pool();
     }
 
     void reclaim(Slice buf) {

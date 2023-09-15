@@ -665,4 +665,9 @@ public class OneRangePartitionEvaluator
             this.childrenResult = childrenResult;
         }
     }
+
+    @Override
+    public boolean isDefaultPartition() {
+        return partitionItem.isDefaultPartition();
+    }
 }

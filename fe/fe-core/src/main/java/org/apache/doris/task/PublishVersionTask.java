@@ -26,6 +26,7 @@ import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 
 public class PublishVersionTask extends AgentTask {
     private static final Logger LOG = LogManager.getLogger(PublishVersionTask.class);
@@ -34,11 +35,15 @@ public class PublishVersionTask extends AgentTask {
     private List<TPartitionVersionInfo> partitionVersionInfos;
     private List<Long> errorTablets;
 
+    // tabletId => version, current version = 0
+    private Map<Long, Long> succTablets;
+
     public PublishVersionTask(long backendId, long transactionId, long dbId,
             List<TPartitionVersionInfo> partitionVersionInfos, long createTime) {
         super(null, backendId, TTaskType.PUBLISH_VERSION, dbId, -1L, -1L, -1L, -1L, transactionId, createTime);
         this.transactionId = transactionId;
         this.partitionVersionInfos = partitionVersionInfos;
+        this.succTablets = null;
         this.errorTablets = new ArrayList<Long>();
         this.isFinished = false;
     }
@@ -55,6 +60,14 @@ public class PublishVersionTask extends AgentTask {
 
     public List<TPartitionVersionInfo> getPartitionVersionInfos() {
         return partitionVersionInfos;
+    }
+
+    public Map<Long, Long> getSuccTablets() {
+        return succTablets;
+    }
+
+    public void setSuccTablets(Map<Long, Long> succTablets) {
+        this.succTablets = succTablets;
     }
 
     public synchronized List<Long> getErrorTablets() {

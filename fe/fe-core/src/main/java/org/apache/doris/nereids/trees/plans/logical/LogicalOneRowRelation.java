@@ -52,8 +52,6 @@ public class LogicalOneRowRelation extends LogicalRelation implements OneRowRela
     private LogicalOneRowRelation(RelationId relationId, List<NamedExpression> projects,
             Optional<GroupExpression> groupExpression, Optional<LogicalProperties> logicalProperties) {
         super(relationId, PlanType.LOGICAL_ONE_ROW_RELATION, groupExpression, logicalProperties);
-        Preconditions.checkArgument(projects.stream().noneMatch(p -> p.containsType(Slot.class)),
-                "OneRowRelation can not contains any slot");
         Preconditions.checkArgument(projects.stream().noneMatch(p -> p.containsType(AggregateFunction.class)),
                 "OneRowRelation can not contains any aggregate function");
         this.projects = ImmutableList.copyOf(Objects.requireNonNull(projects, "projects can not be null"));

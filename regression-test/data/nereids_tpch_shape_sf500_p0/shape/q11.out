@@ -20,21 +20,20 @@ PhysicalResultSink
 --------------------------filter((nation.n_name = 'GERMANY'))
 ----------------------------PhysicalOlapScan[nation]
 ------------PhysicalDistribute
---------------PhysicalAssertNumRows
-----------------PhysicalProject
-------------------hashAgg[GLOBAL]
---------------------PhysicalDistribute
-----------------------hashAgg[LOCAL]
-------------------------PhysicalProject
---------------------------hashJoin[INNER_JOIN](partsupp.ps_suppkey = supplier.s_suppkey)
-----------------------------PhysicalProject
-------------------------------PhysicalOlapScan[partsupp]
-----------------------------PhysicalDistribute
-------------------------------hashJoin[INNER_JOIN](supplier.s_nationkey = nation.n_nationkey)
+--------------PhysicalProject
+----------------hashAgg[GLOBAL]
+------------------PhysicalDistribute
+--------------------hashAgg[LOCAL]
+----------------------PhysicalProject
+------------------------hashJoin[INNER_JOIN](partsupp.ps_suppkey = supplier.s_suppkey)
+--------------------------PhysicalProject
+----------------------------PhysicalOlapScan[partsupp]
+--------------------------PhysicalDistribute
+----------------------------hashJoin[INNER_JOIN](supplier.s_nationkey = nation.n_nationkey)
+------------------------------PhysicalProject
+--------------------------------PhysicalOlapScan[supplier]
+------------------------------PhysicalDistribute
 --------------------------------PhysicalProject
-----------------------------------PhysicalOlapScan[supplier]
---------------------------------PhysicalDistribute
-----------------------------------PhysicalProject
-------------------------------------filter((nation.n_name = 'GERMANY'))
---------------------------------------PhysicalOlapScan[nation]
+----------------------------------filter((nation.n_name = 'GERMANY'))
+------------------------------------PhysicalOlapScan[nation]
 

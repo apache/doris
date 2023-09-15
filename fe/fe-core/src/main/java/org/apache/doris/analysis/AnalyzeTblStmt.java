@@ -181,6 +181,9 @@ public class AnalyzeTblStmt extends AnalyzeStmt {
             throw new AnalysisException("Automatic collection "
                     + "and period statistics collection cannot be set at same time");
         }
+        if (analyzeProperties.isSample() && analyzeProperties.forceFull()) {
+            throw new AnalysisException("Impossible to analyze with sample and full simultaneously");
+        }
     }
 
     private void checkColumn() throws AnalysisException {

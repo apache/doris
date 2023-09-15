@@ -33,6 +33,7 @@
 #include "olap/storage_engine.h"
 #include "olap/tablet_manager.h"
 #include "olap/tablet_schema.h"
+#include "runtime/exec_env.h"
 #include "runtime/runtime_state.h"
 #include "util/key_util.h"
 #include "util/runtime_profile.h"
@@ -101,14 +102,11 @@ int64_t Reusable::mem_size() const {
     return _mem_size;
 }
 
-LookupConnectionCache* LookupConnectionCache::_s_instance = nullptr;
-void LookupConnectionCache::create_global_instance(size_t capacity) {
-    DCHECK(_s_instance == nullptr);
-    static LookupConnectionCache instance(capacity);
-    _s_instance = &instance;
+LookupConnectionCache* LookupConnectionCache::create_global_instance(size_t capacity) {
+    DCHECK(ExecEnv::GetInstance()->get_lookup_connection_cache() == nullptr);
+    LookupConnectionCache* res = new LookupConnectionCache(capacity);
+    return res;
 }
-
-RowCache* RowCache::_s_instance = nullptr;
 
 RowCache::RowCache(int64_t capacity, int num_shards) {
     // Create Row Cache
@@ -117,14 +115,14 @@ RowCache::RowCache(int64_t capacity, int num_shards) {
 }
 
 // Create global instance of this class
-void RowCache::create_global_cache(int64_t capacity, uint32_t num_shards) {
-    DCHECK(_s_instance == nullptr);
-    static RowCache instance(capacity, num_shards);
-    _s_instance = &instance;
+RowCache* RowCache::create_global_cache(int64_t capacity, uint32_t num_shards) {
+    DCHECK(ExecEnv::GetInstance()->get_row_cache() == nullptr);
+    RowCache* res = new RowCache(capacity, num_shards);
+    return res;
 }
 
 RowCache* RowCache::instance() {
-    return _s_instance;
+    return ExecEnv::GetInstance()->get_row_cache();
 }
 
 bool RowCache::lookup(const RowCacheKey& key, CacheHandle* handle) {

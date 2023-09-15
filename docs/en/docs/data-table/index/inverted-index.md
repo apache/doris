@@ -84,6 +84,11 @@ The features for inverted index is as follows:
       - "true" indicates that support is needed, but needs more storage for index.
       - "false" indicates that support is not needed, and less storage for index. MATCH_ALL can be used for matching multi words without order.
       - default mode is "false".
+    - char_filter: the main function is to pre-process the string before word segmentation
+      - char_filter_type: specify char_filters with different functions (currently only char_replace is supported)
+        - char_replace: replace each char in the pattern with a char in the replacement
+          - char_filter_pattern: character array to be replaced
+          - char_filter_replacement: replaced character array, can be left unset, defaults to a space character
   - COMMENT is optional
 
 ```sql
@@ -94,6 +99,8 @@ CREATE TABLE table_name
   INDEX idx_name2(column_name2) USING INVERTED [PROPERTIES("parser" = "english|chinese|unicode")] [COMMENT 'your comment']
   INDEX idx_name3(column_name3) USING INVERTED [PROPERTIES("parser" = "chinese", "parser_mode" = "fine_grained|coarse_grained")] [COMMENT 'your comment']
   INDEX idx_name4(column_name4) USING INVERTED [PROPERTIES("parser" = "english|chinese|unicode", "support_phrase" = "true|false")] [COMMENT 'your comment']
+  INDEX idx_name5(column_name4) USING INVERTED [PROPERTIES("char_filter_type" = "char_replace", "char_filter_pattern" = "._"), "char_filter_replacement" = " "] [COMMENT 'your comment']
+  INDEX idx_name5(column_name4) USING INVERTED [PROPERTIES("char_filter_type" = "char_replace", "char_filter_pattern" = "._")] [COMMENT 'your comment']
 )
 table_properties;
 ```

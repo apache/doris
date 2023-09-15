@@ -39,6 +39,7 @@
 #include "http/http_client.h"
 #include "io/fs/file_system.h"
 #include "io/fs/local_file_system.h"
+#include "runtime/exec_env.h"
 #include "util/dynamic_util.h"
 #include "util/md5.h"
 #include "util/spinlock.h"
@@ -122,8 +123,7 @@ UserFunctionCache::~UserFunctionCache() {
 }
 
 UserFunctionCache* UserFunctionCache::instance() {
-    static UserFunctionCache s_cache;
-    return &s_cache;
+    return ExecEnv::GetInstance()->user_function_cache();
 }
 
 Status UserFunctionCache::init(const std::string& lib_dir) {

@@ -81,7 +81,7 @@ public:
         // offset column
         MutableColumnPtr array_column_offset;
         int nested_array_column_rows = 0;
-        const ColumnArray::Offsets64* array_offsets = nullptr;
+        ColumnPtr first_array_offsets = nullptr;
         //2. get the result column from executed expr, and the needed is nested column of array
         Block lambda_block;
         for (int i = 0; i < arguments.size(); ++i) {
@@ -113,17 +113,20 @@ public:
 
             if (i == 0) {
                 nested_array_column_rows = col_array.get_data_ptr()->size();
-                array_offsets = &col_array.get_offsets();
+                first_array_offsets = col_array.get_offsets_ptr();
                 auto& off_data = assert_cast<const ColumnArray::ColumnOffsets&>(
                         col_array.get_offsets_column());
                 array_column_offset = off_data.clone_resized(col_array.get_offsets_column().size());
             } else {
                 // select array_map((x,y)->x+y,c_array1,[0,1,2,3]) from array_test2;
                 // c_array1: [0,1,2,3,4,5,6,7,8,9]
+                auto& array_offsets =
+                        assert_cast<const ColumnArray::ColumnOffsets&>(*first_array_offsets)
+                                .get_data();
                 if (nested_array_column_rows != col_array.get_data_ptr()->size() ||
-                    (array_offsets->size() > 0 &&
-                     memcmp(array_offsets->data(), col_array.get_offsets().data(),
-                            sizeof((*array_offsets)[0]) * array_offsets->size()) != 0)) {
+                    (array_offsets.size() > 0 &&
+                     memcmp(array_offsets.data(), col_array.get_offsets().data(),
+                            sizeof(array_offsets[0]) * array_offsets.size()) != 0)) {
                     return Status::InternalError(
                             "in array map function, the input column size "
                             "are "

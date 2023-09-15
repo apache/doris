@@ -298,6 +298,34 @@ public class Replica implements Writable {
         updateReplicaInfo(newVersion, lastFailedVersion, lastSuccessVersion, dataSize, remoteDataSize, rowCount);
     }
 
+    public synchronized void adminUpdateVersionInfo(Long version, Long lastFailedVersion, Long lastSuccessVersion,
+            long updateTime) {
+        if (version != null) {
+            this.version = version;
+        }
+        if (lastSuccessVersion != null) {
+            this.lastSuccessVersion = lastSuccessVersion;
+        }
+        if (lastFailedVersion != null) {
+            if (this.lastFailedVersion < lastFailedVersion) {
+                this.lastFailedTimestamp = updateTime;
+            }
+            this.lastFailedVersion = lastFailedVersion;
+        }
+        if (this.lastFailedVersion < this.version) {
+            this.lastFailedVersion = -1;
+            this.lastFailedTimestamp  = -1;
+            this.lastFailedVersionHash = 0;
+        }
+        if (this.lastFailedVersion > 0
+                && this.lastSuccessVersion > this.lastFailedVersion) {
+            this.lastSuccessVersion = this.version;
+        }
+        if (this.lastSuccessVersion < this.version) {
+            this.lastSuccessVersion = this.version;
+        }
+    }
+
     /* last failed version:  LFV
      * last success version: LSV
      * version:              V

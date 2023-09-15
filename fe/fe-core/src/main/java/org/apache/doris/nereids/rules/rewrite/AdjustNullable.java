@@ -147,13 +147,21 @@ public class AdjustNullable extends DefaultPlanRewriter<Map<ExprId, Slot>> imple
         }
         List<Boolean> inputNullable = setOperation.child(0).getOutput().stream()
                 .map(ExpressionTrait::nullable).collect(Collectors.toList());
-        for (int i = 1; i < setOperation.arity(); i++) {
-            List<Slot> childOutput = setOperation.getChildOutput(i);
-            for (int j = 0; j < childOutput.size(); j++) {
-                if (childOutput.get(j).nullable()) {
-                    inputNullable.set(j, true);
+        ImmutableList.Builder<List<SlotReference>> newChildrenOutputs = ImmutableList.builder();
+        for (int i = 0; i < setOperation.arity(); i++) {
+            List<Slot> childOutput = setOperation.child(i).getOutput();
+            List<SlotReference> setChildOutput = setOperation.getRegularChildOutput(i);
+            ImmutableList.Builder<SlotReference> newChildOutputs = ImmutableList.builder();
+            for (int j = 0; j < setChildOutput.size(); j++) {
+                for (Slot slot : childOutput) {
+                    if (slot.getExprId().equals(setChildOutput.get(j).getExprId())) {
+                        inputNullable.set(j, slot.nullable() || inputNullable.get(j));
+                        newChildOutputs.add((SlotReference) slot);
+                        break;
+                    }
                 }
             }
+            newChildrenOutputs.add(newChildOutputs.build());
         }
         if (setOperation instanceof LogicalUnion) {
             LogicalUnion logicalUnion = (LogicalUnion) setOperation;
@@ -176,7 +184,9 @@ public class AdjustNullable extends DefaultPlanRewriter<Map<ExprId, Slot>> imple
             newOutputs.add(ne instanceof Alias ? (NamedExpression) ne.withChildren(slot) : slot);
         }
         newOutputs.forEach(o -> replaceMap.put(o.getExprId(), o.toSlot()));
-        return setOperation.withNewOutputs(newOutputs).recomputeLogicalProperties();
+        return setOperation.withNewOutputs(newOutputs)
+                .withChildrenAndTheirOutputs(setOperation.children(), newChildrenOutputs.build())
+                .recomputeLogicalProperties();
     }
 
     @Override

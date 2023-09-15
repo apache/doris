@@ -70,6 +70,7 @@ public class Profile {
             executionProfile.update(startTime, isFinished);
         }
         rootProfile.computeTimeInProfile();
+        rootProfile.setProfileLevel();
         ProfileManager.getInstance().pushProfile(rootProfile);
         this.isFinished = isFinished;
     }

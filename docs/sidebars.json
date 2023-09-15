@@ -210,8 +210,8 @@
                 "lakehouse/file",
                 "lakehouse/filecache",
                 "lakehouse/external-statistics",
-                "lakehouse/faq",
-                "lakehouse/fs-benchmark-tool"
+                "lakehouse/fs-benchmark-tool",
+                "lakehouse/faq"
             ]
         },
         {
@@ -822,6 +822,7 @@
                                 "sql-manual/sql-reference/Database-Administration-Statements/INSTALL-PLUGIN",
                                 "sql-manual/sql-reference/Database-Administration-Statements/UNINSTALL-PLUGIN",
                                 "sql-manual/sql-reference/Database-Administration-Statements/ADMIN-SET-REPLICA-STATUS",
+                                "sql-manual/sql-reference/Database-Administration-Statements/ADMIN-SET-REPLICA-VERSION",
                                 "sql-manual/sql-reference/Database-Administration-Statements/ADMIN-SET-PARTITION-VERSION",
                                 "sql-manual/sql-reference/Database-Administration-Statements/ADMIN-SET-TABLE-STATUS",
                                 "sql-manual/sql-reference/Database-Administration-Statements/ADMIN-SHOW-REPLICA-DISTRIBUTION",

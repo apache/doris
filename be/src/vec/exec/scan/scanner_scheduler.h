@@ -64,9 +64,11 @@ public:
     ScannerScheduler();
     ~ScannerScheduler();
 
-    Status init(ExecEnv* env);
+    [[nodiscard]] Status init();
 
     [[nodiscard]] Status submit(ScannerContext* ctx);
+
+    void stop();
 
     std::unique_ptr<ThreadPoolToken> new_limited_scan_pool_token(ThreadPool::ExecutionMode mode,
                                                                  int max_concurrency);

@@ -28,7 +28,7 @@ namespace doris {
 class Daemon {
 public:
     Daemon() : _stop_background_threads_latch(1) {}
-    ~Daemon();
+    ~Daemon() = default;
 
     // Start background threads
     void start();

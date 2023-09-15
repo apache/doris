@@ -241,8 +241,7 @@ void CsvReader::_init_system_properties() {
 
 void CsvReader::_init_file_description() {
     _file_description.path = _range.path;
-    _file_description.start_offset = _range.start_offset;
-    _file_description.file_size = _range.__isset.file_size ? _range.file_size : 0;
+    _file_description.file_size = _range.__isset.file_size ? _range.file_size : -1;
     if (_range.__isset.fs_name) {
         _file_description.fs_name = _range.fs_name;
     }
@@ -276,13 +275,12 @@ Status CsvReader::init_reader(bool is_load) {
         _skip_lines = 1;
     }
 
-    _file_description.start_offset = start_offset;
-
     if (_params.file_type == TFileType::FILE_STREAM) {
         RETURN_IF_ERROR(FileFactory::create_pipe_reader(_range.load_id, &_file_reader, _state));
     } else {
-        io::FileReaderOptions reader_options = FileFactory::get_reader_options(_state);
         _file_description.mtime = _range.__isset.modification_time ? _range.modification_time : 0;
+        io::FileReaderOptions reader_options =
+                FileFactory::get_reader_options(_state, _file_description);
         RETURN_IF_ERROR(io::DelegateReader::create_file_reader(
                 _profile, _system_properties, _file_description, reader_options, &_file_system,
                 &_file_reader, io::DelegateReader::AccessMode::SEQUENTIAL, _io_ctx,
@@ -767,9 +765,9 @@ Status CsvReader::_prepare_parse(size_t* read_line, bool* is_parse_name) {
         }
     }
 
-    _file_description.start_offset = start_offset;
-    io::FileReaderOptions reader_options = FileFactory::get_reader_options(_state);
     _file_description.mtime = _range.__isset.modification_time ? _range.modification_time : 0;
+    io::FileReaderOptions reader_options =
+            FileFactory::get_reader_options(_state, _file_description);
     if (_params.file_type == TFileType::FILE_STREAM) {
         RETURN_IF_ERROR(FileFactory::create_pipe_reader(_params.load_id, &_file_reader, _state));
     } else {

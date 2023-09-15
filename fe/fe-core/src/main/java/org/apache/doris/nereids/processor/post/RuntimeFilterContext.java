@@ -56,6 +56,7 @@ import java.util.Set;
  * runtime filter context used at post process and translation.
  */
 public class RuntimeFilterContext {
+    public List<RuntimeFilter> prunedRF = Lists.newArrayList();
 
     private final IdGenerator<RuntimeFilterId> generator = RuntimeFilterId.createGenerator();
 
@@ -153,8 +154,11 @@ public class RuntimeFilterContext {
         if (filters != null) {
             Iterator<RuntimeFilter> iter = filters.iterator();
             while (iter.hasNext()) {
-                if (iter.next().getBuilderNode().equals(builderNode)) {
+                RuntimeFilter rf = iter.next();
+                if (rf.getBuilderNode().equals(builderNode)) {
+                    builderNode.getRuntimeFilters().remove(rf);
                     iter.remove();
+                    prunedRF.add(rf);
                 }
             }
         }

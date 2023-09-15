@@ -87,7 +87,7 @@
 
 
 -- !sql_regexp_extract_all_Varchar_Varchar --
-
+\N
 
 
 
@@ -116,7 +116,7 @@
 
 
 -- !sql_regexp_extract_all_String_String --
-
+\N
 
 
 
@@ -145,7 +145,7 @@
 
 
 -- !sql_regexp_replace_Varchar_Varchar_Varchar --
-null
+\N
 varchar11
 varchar11
 varchar11
@@ -174,7 +174,7 @@ varchar13
 varchar13
 
 -- !sql_regexp_replace_String_String_String --
-null
+\N
 string1
 string1
 string1
@@ -203,7 +203,7 @@ string3
 string3
 
 -- !sql_regexp_replace_one_Varchar_Varchar_Varchar --
-null
+\N
 varchar11
 varchar11
 varchar11
@@ -232,7 +232,7 @@ varchar13
 varchar13
 
 -- !sql_regexp_replace_one_String_String_String --
-null
+\N
 string1
 string1
 string1
@@ -319,7 +319,7 @@ string3string3string3string3string3string3string3string3string3
 string3string3string3string3string3string3string3string3string3string3string3string3
 
 -- !sql_replace_Varchar_Varchar_Varchar --
-null
+\N
 varchar11
 varchar11
 varchar11
@@ -348,7 +348,7 @@ varchar13
 varchar13
 
 -- !sql_replace_String_String_String --
-null
+\N
 string1
 string1
 string1
@@ -377,7 +377,7 @@ string3
 string3
 
 -- !sql_right_Varchar_Integer --
-
+\N
 1
 ar11
 rchar11
@@ -406,7 +406,7 @@ varchar13
 varchar13
 
 -- !sql_right_String_Integer --
-
+\N
 1
 ing1
 string1
@@ -957,7 +957,7 @@ string3st
 string3strin
 
 -- !sql_rtrim_Varchar --
-null
+\N
 varchar11
 varchar11
 varchar11
@@ -986,7 +986,7 @@ varchar13
 varchar13
 
 -- !sql_rtrim_String --
-null
+\N
 string1
 string1
 string1

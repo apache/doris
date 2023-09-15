@@ -97,74 +97,6 @@ std::string DataTypeStruct::do_get_name() const {
     return s.str();
 }
 
-bool next_slot_from_string(ReadBuffer& rb, StringRef& output, bool& is_name, bool& has_quota) {
-    StringRef element(rb.position(), 0);
-    has_quota = false;
-    is_name = false;
-    if (rb.eof()) {
-        return false;
-    }
-
-    // ltrim
-    while (!rb.eof() && isspace(*rb.position())) {
-        ++rb.position();
-        element.data = rb.position();
-    }
-
-    // parse string
-    if (*rb.position() == '"' || *rb.position() == '\'') {
-        const char str_sep = *rb.position();
-        size_t str_len = 1;
-        // search until next '"' or '\''
-        while (str_len < rb.count() && *(rb.position() + str_len) != str_sep) {
-            ++str_len;
-        }
-        // invalid string
-        if (str_len >= rb.count()) {
-            rb.position() = rb.end();
-            return false;
-        }
-        has_quota = true;
-        rb.position() += str_len + 1;
-        element.size += str_len + 1;
-    }
-
-    // parse element until separator ':' or ',' or end '}'
-    while (!rb.eof() && (*rb.position() != ':') && (*rb.position() != ',') &&
-           (rb.count() != 1 || *rb.position() != '}')) {
-        if (has_quota && !isspace(*rb.position())) {
-            return false;
-        }
-        ++rb.position();
-        ++element.size;
-    }
-    // invalid element
-    if (rb.eof()) {
-        return false;
-    }
-
-    if (*rb.position() == ':') {
-        is_name = true;
-    }
-
-    // adjust read buffer position to first char of next element
-    ++rb.position();
-
-    // rtrim
-    while (element.size > 0 && isspace(element.data[element.size - 1])) {
-        --element.size;
-    }
-
-    // trim '"' and '\'' for string
-    if (element.size >= 2 && (element.data[0] == '"' || element.data[0] == '\'') &&
-        element.data[0] == element.data[element.size - 1]) {
-        ++element.data;
-        element.size -= 2;
-    }
-    output = element;
-    return true;
-}
-
 Status DataTypeStruct::from_string(ReadBuffer& rb, IColumn* column) const {
     DCHECK(!rb.eof());
     auto* struct_column = assert_cast<ColumnStruct*>(column);
@@ -197,13 +129,13 @@ Status DataTypeStruct::from_string(ReadBuffer& rb, IColumn* column) const {
         StringRef slot(rb.position(), rb.count());
         bool has_quota = false;
         bool is_name = false;
-        if (!next_slot_from_string(rb, slot, is_name, has_quota)) {
+        if (!DataTypeStructSerDe::next_slot_from_string(rb, slot, is_name, has_quota)) {
             return Status::InvalidArgument("Cannot read struct field from text '{}'",
                                            slot.to_string());
         }
         if (is_name) {
             std::string name = slot.to_string();
-            if (!next_slot_from_string(rb, slot, is_name, has_quota)) {
+            if (!DataTypeStructSerDe::next_slot_from_string(rb, slot, is_name, has_quota)) {
                 return Status::InvalidArgument("Cannot read struct field from text '{}'",
                                                slot.to_string());
             }

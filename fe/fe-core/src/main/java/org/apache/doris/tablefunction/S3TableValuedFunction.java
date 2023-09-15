@@ -25,6 +25,7 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.S3URI;
 import org.apache.doris.datasource.credentials.CloudCredentialWithEndpoint;
 import org.apache.doris.datasource.property.PropertyConverter;
+import org.apache.doris.datasource.property.S3ClientBEProperties;
 import org.apache.doris.datasource.property.constants.S3Properties;
 import org.apache.doris.fs.FileSystemFactory;
 import org.apache.doris.thrift.TFileType;
@@ -57,7 +58,7 @@ public class S3TableValuedFunction extends ExternalFileTableValuedFunction {
             ImmutableSet.of(S3Properties.SESSION_TOKEN, PropertyConverter.USE_PATH_STYLE, S3Properties.REGION,
                     PATH_PARTITION_KEYS);
 
-    private static final ImmutableSet<String> PROPERTIES_SET = ImmutableSet.<String>builder()
+    private static final ImmutableSet<String> LOCATION_PROPERTIES = ImmutableSet.<String>builder()
             .add(S3_URI)
             .add(S3Properties.ENDPOINT)
             .addAll(DEPRECATED_KEYS)
@@ -70,56 +71,63 @@ public class S3TableValuedFunction extends ExternalFileTableValuedFunction {
     private String virtualBucket = "";
 
     public S3TableValuedFunction(Map<String, String> params) throws AnalysisException {
-        Map<String, String> tvfParams = getValidParams(params);
-        forceVirtualHosted = isVirtualHosted(tvfParams);
-        s3uri = getS3Uri(tvfParams);
+
+        Map<String, String> fileParams = new HashMap<>();
+        for (Map.Entry<String, String> entry : params.entrySet()) {
+            String key = entry.getKey();
+            String lowerKey = key.toLowerCase();
+            if (!LOCATION_PROPERTIES.contains(lowerKey) && !FILE_FORMAT_PROPERTIES.contains(lowerKey)) {
+                throw new AnalysisException("Invalid property: " + key);
+            }
+            if (DEPRECATED_KEYS.contains(lowerKey)) {
+                lowerKey = S3Properties.S3_PREFIX + lowerKey;
+            }
+            fileParams.put(lowerKey, entry.getValue());
+        }
+
+        if (!fileParams.containsKey(S3_URI)) {
+            throw new AnalysisException("Missing required property: " + S3_URI);
+        }
+
+        forceVirtualHosted = isVirtualHosted(fileParams);
+        s3uri = getS3Uri(fileParams);
         final String endpoint = forceVirtualHosted
                 ? getEndpointAndSetVirtualBucket(params)
                 : s3uri.getBucketScheme();
-        if (!tvfParams.containsKey(S3Properties.REGION)) {
+        if (!fileParams.containsKey(S3Properties.REGION)) {
             String region = S3Properties.getRegionOfEndpoint(endpoint);
-            tvfParams.put(S3Properties.REGION, region);
+            fileParams.put(S3Properties.REGION, region);
         }
         CloudCredentialWithEndpoint credential = new CloudCredentialWithEndpoint(endpoint,
-                tvfParams.get(S3Properties.REGION),
-                tvfParams.get(S3Properties.ACCESS_KEY),
-                tvfParams.get(S3Properties.SECRET_KEY));
-        if (tvfParams.containsKey(S3Properties.SESSION_TOKEN)) {
-            credential.setSessionToken(tvfParams.get(S3Properties.SESSION_TOKEN));
+                fileParams.get(S3Properties.REGION),
+                fileParams.get(S3Properties.ACCESS_KEY),
+                fileParams.get(S3Properties.SECRET_KEY));
+        if (fileParams.containsKey(S3Properties.SESSION_TOKEN)) {
+            credential.setSessionToken(fileParams.get(S3Properties.SESSION_TOKEN));
         }
 
         // set S3 location properties
         // these five properties is necessary, no one can be lost.
         locationProperties = S3Properties.credentialToMap(credential);
-        String usePathStyle = tvfParams.getOrDefault(PropertyConverter.USE_PATH_STYLE, "false");
+        String usePathStyle = fileParams.getOrDefault(PropertyConverter.USE_PATH_STYLE, "false");
         locationProperties.put(PropertyConverter.USE_PATH_STYLE, usePathStyle);
+        this.locationProperties.putAll(S3ClientBEProperties.getBeFSProperties(this.locationProperties));
 
-        parseProperties(tvfParams);
+        super.parseProperties(fileParams);
+
+        if (forceVirtualHosted) {
+            filePath = NAME + S3URI.SCHEME_DELIM + virtualBucket + S3URI.PATH_DELIM
+                + s3uri.getBucket() + S3URI.PATH_DELIM + s3uri.getKey();
+        } else {
+            filePath = NAME + S3URI.SCHEME_DELIM + s3uri.getKey();
+        }
+
         if (FeConstants.runningUnitTest) {
             // Just check
             FileSystemFactory.getS3FileSystem(locationProperties);
         } else {
             parseFile();
         }
-    }
-
-    private static Map<String, String> getValidParams(Map<String, String> params) throws AnalysisException {
-        Map<String, String> validParams = new HashMap<>();
-        for (Map.Entry<String, String> entry : params.entrySet()) {
-            String key = entry.getKey();
-            String lowerKey = key.toLowerCase();
-            if (!PROPERTIES_SET.contains(lowerKey) && !FILE_FORMAT_PROPERTIES.contains(lowerKey)) {
-                throw new AnalysisException("Invalid property: " + key);
-            }
-            if (DEPRECATED_KEYS.contains(lowerKey)) {
-                lowerKey = S3Properties.S3_PREFIX + lowerKey;
-            }
-            validParams.put(lowerKey, entry.getValue());
-        }
-        if (!validParams.containsKey(S3_URI)) {
-            throw new AnalysisException("Missing required property: " + S3_URI);
-        }
-        return S3Properties.requiredS3TVFProperties(validParams);
     }
 
     private String getEndpointAndSetVirtualBucket(Map<String, String> params) throws AnalysisException {
@@ -167,11 +175,7 @@ public class S3TableValuedFunction extends ExternalFileTableValuedFunction {
     @Override
     public String getFilePath() {
         // must be "s3://..."
-        if (forceVirtualHosted) {
-            return NAME + S3URI.SCHEME_DELIM + virtualBucket + S3URI.PATH_DELIM
-                    + s3uri.getBucket() + S3URI.PATH_DELIM + s3uri.getKey();
-        }
-        return NAME + S3URI.SCHEME_DELIM + s3uri.getKey();
+        return filePath;
     }
 
     @Override

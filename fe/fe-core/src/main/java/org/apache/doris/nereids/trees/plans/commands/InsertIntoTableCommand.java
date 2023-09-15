@@ -150,7 +150,7 @@ public class InsertIntoTableCommand extends Command implements ForwardWithSync, 
         sink.init(ctx.queryId(), txn.getTxnId(),
                 physicalOlapTableSink.getDatabase().getId(),
                 ctx.getExecTimeout(),
-                ctx.getSessionVariable().getSendBatchParallelism(), false, false);
+                ctx.getSessionVariable().getSendBatchParallelism(), false, false, false);
 
         sink.complete(new Analyzer(Env.getCurrentEnv(), ctx));
         TransactionState state = Env.getCurrentGlobalTransactionMgr().getTransactionState(

@@ -24,12 +24,8 @@
 
 namespace doris {
 
-SegmentLoader* SegmentLoader::_s_instance = nullptr;
-
-void SegmentLoader::create_global_instance(size_t capacity) {
-    DCHECK(_s_instance == nullptr);
-    static SegmentLoader instance(capacity);
-    _s_instance = &instance;
+SegmentLoader* SegmentLoader::instance() {
+    return ExecEnv::GetInstance()->segment_loader();
 }
 
 bool SegmentCache::lookup(const SegmentCache::CacheKey& key, SegmentCacheHandle* handle) {

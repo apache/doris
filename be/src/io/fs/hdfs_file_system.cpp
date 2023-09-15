@@ -138,7 +138,7 @@ HdfsFileSystem::HdfsFileSystem(const THdfsParams& hdfs_params, const std::string
           _hdfs_params(hdfs_params),
           _fs_handle(nullptr),
           _profile(profile) {
-    if (_hdfs_params.__isset.fs_name) {
+    if (fs_name.empty() && _hdfs_params.__isset.fs_name) {
         _fs_name = _hdfs_params.fs_name;
     } else {
         _fs_name = fs_name;
@@ -164,22 +164,23 @@ Status HdfsFileSystem::connect_impl() {
     return Status::OK();
 }
 
-Status HdfsFileSystem::create_file_impl(const Path& file, FileWriterPtr* writer) {
+Status HdfsFileSystem::create_file_impl(const Path& file, FileWriterPtr* writer,
+                                        const FileWriterOptions*) {
     *writer = std::make_unique<HdfsFileWriter>(file, getSPtr());
     return Status::OK();
 }
 
-Status HdfsFileSystem::open_file_internal(const FileDescription& fd, const Path& abs_path,
-                                          FileReaderSPtr* reader) {
+Status HdfsFileSystem::open_file_internal(const Path& file, FileReaderSPtr* reader,
+                                          const FileReaderOptions& opts) {
     CHECK_HDFS_HANDLE(_fs_handle);
-    Path real_path = convert_path(abs_path, _fs_name);
+    Path real_path = convert_path(file, _fs_name);
 
     FileHandleCache::Accessor accessor;
     RETURN_IF_ERROR(HdfsFileHandleCache::instance()->get_file(
-            std::static_pointer_cast<HdfsFileSystem>(shared_from_this()), real_path, fd.mtime,
-            fd.file_size, &accessor));
+            std::static_pointer_cast<HdfsFileSystem>(shared_from_this()), real_path, opts.mtime,
+            opts.file_size, &accessor));
 
-    *reader = std::make_shared<HdfsFileReader>(abs_path, _fs_name, std::move(accessor), _profile);
+    *reader = std::make_shared<HdfsFileReader>(file, _fs_name, std::move(accessor), _profile);
     return Status::OK();
 }
 
@@ -315,7 +316,7 @@ Status HdfsFileSystem::upload_impl(const Path& local_file, const Path& remote_fi
 
     // 2. open remote file for write
     FileWriterPtr hdfs_writer = nullptr;
-    RETURN_IF_ERROR(create_file_impl(remote_file, &hdfs_writer));
+    RETURN_IF_ERROR(create_file_impl(remote_file, &hdfs_writer, nullptr));
 
     constexpr size_t buf_sz = 1024 * 1024;
     char read_buf[buf_sz];
@@ -362,9 +363,7 @@ Status HdfsFileSystem::upload_with_checksum_impl(const Path& local, const Path& 
 Status HdfsFileSystem::download_impl(const Path& remote_file, const Path& local_file) {
     // 1. open remote file for read
     FileReaderSPtr hdfs_reader = nullptr;
-    FileDescription fd;
-    fd.path = remote_file;
-    RETURN_IF_ERROR(open_file_internal(fd, remote_file, &hdfs_reader));
+    RETURN_IF_ERROR(open_file_internal(remote_file, &hdfs_reader, FileReaderOptions::DEFAULT));
 
     // 2. remove the existing local file if exist
     if (std::filesystem::remove(local_file)) {
@@ -401,9 +400,7 @@ Status HdfsFileSystem::download_impl(const Path& remote_file, const Path& local_
 Status HdfsFileSystem::direct_download_impl(const Path& remote_file, std::string* content) {
     // 1. open remote file for read
     FileReaderSPtr hdfs_reader = nullptr;
-    FileDescription fd;
-    fd.path = remote_file;
-    RETURN_IF_ERROR(open_file_internal(fd, remote_file, &hdfs_reader));
+    RETURN_IF_ERROR(open_file_internal(remote_file, &hdfs_reader, FileReaderOptions::DEFAULT));
 
     constexpr size_t buf_sz = 1024 * 1024;
     std::unique_ptr<char[]> read_buf(new char[buf_sz]);
@@ -512,11 +509,7 @@ Status HdfsFileSystemCache::get_connection(const THdfsParams& hdfs_params,
 uint64 HdfsFileSystemCache::_hdfs_hash_code(const THdfsParams& hdfs_params,
                                             const std::string& fs_name) {
     uint64 hash_code = 0;
-    if (hdfs_params.__isset.fs_name) {
-        hash_code += Fingerprint(hdfs_params.fs_name);
-    } else {
-        hash_code += Fingerprint(fs_name);
-    }
+    hash_code += Fingerprint(fs_name);
     if (hdfs_params.__isset.user) {
         hash_code += Fingerprint(hdfs_params.user);
     }

@@ -121,7 +121,7 @@ public class PartitionExprUtil {
             filterPartitionValues.add(value);
             if (partitionType == PartitionType.RANGE) {
                 String beginTime = value;
-                DateLiteral beginDateTime = new DateLiteral(beginTime, Type.DATETIMEV2);
+                DateLiteral beginDateTime = new DateLiteral(beginTime, partitionColumnType);
                 partitionName += String.format(DATETIME_NAME_FORMATTER,
                         beginDateTime.getYear(), beginDateTime.getMonth(), beginDateTime.getDay(),
                         beginDateTime.getHour(), beginDateTime.getMinute(), beginDateTime.getSecond());

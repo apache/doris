@@ -48,12 +48,11 @@ PhysicalCteAnchor ( cteId=CTEId#0 )
 ------------------------filter((cast(i_color as VARCHAR(*)) = 'beige'))
 --------------------------PhysicalCteConsumer ( cteId=CTEId#0 )
 --------------PhysicalDistribute
-----------------PhysicalAssertNumRows
-------------------PhysicalProject
---------------------hashAgg[GLOBAL]
-----------------------PhysicalDistribute
-------------------------hashAgg[LOCAL]
---------------------------PhysicalDistribute
-----------------------------PhysicalProject
-------------------------------PhysicalCteConsumer ( cteId=CTEId#0 )
+----------------PhysicalProject
+------------------hashAgg[GLOBAL]
+--------------------PhysicalDistribute
+----------------------hashAgg[LOCAL]
+------------------------PhysicalDistribute
+--------------------------PhysicalProject
+----------------------------PhysicalCteConsumer ( cteId=CTEId#0 )
 

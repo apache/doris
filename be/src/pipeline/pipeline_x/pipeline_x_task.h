@@ -104,7 +104,11 @@ public:
 
     DependencySPtr& get_downstream_dependency() { return _downstream_dependency; }
     void set_upstream_dependency(DependencySPtr& upstream_dependency) {
-        _upstream_dependency.insert({upstream_dependency->id(), upstream_dependency});
+        if (_upstream_dependency.contains(upstream_dependency->id())) {
+            upstream_dependency = _upstream_dependency[upstream_dependency->id()];
+        } else {
+            _upstream_dependency.insert({upstream_dependency->id(), upstream_dependency});
+        }
     }
 
     Dependency* get_upstream_dependency(int id) {

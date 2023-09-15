@@ -17,6 +17,8 @@
 
 package org.apache.doris.common;
 
+import java.util.concurrent.TimeUnit;
+
 public class Config extends ConfigBase {
 
     @ConfField(description = {"用户自定义配置文件的路径，用于存放 fe_custom.conf。该文件中的配置会覆盖 fe.conf 中的配置",
@@ -268,16 +270,6 @@ public class Config extends ConfigBase {
                     + "This is a semicolon-separated list, "
                     + "each element is a CIDR representation of the network address"})
     public static String priority_networks = "";
-
-    @ConfField(description = {"是否重置 BDBJE 的复制组，如果所有的可选节点都无法启动，"
-            + "可以将元数据拷贝到另一个节点，并将这个配置设置为 true，尝试重启 FE。更多信息请参阅官网的元数据故障恢复文档。",
-            "If true, FE will reset bdbje replication group(that is, to remove all electable nodes info) "
-                    + "and is supposed to start as Master. "
-                    + "If all the electable nodes can not start, we can copy the meta data "
-                    + "to another node and set this config to true to try to restart the FE. "
-                    + "For more information, please refer to the metadata failure recovery document "
-                    + "on the official website."})
-    public static String metadata_failure_recovery = "false";
 
     @ConfField(mutable = true, description = {"是否忽略元数据延迟，如果 FE 的元数据延迟超过这个阈值，"
             + "则非 Master FE 仍然提供读服务。这个配置可以用于当 Master FE 因为某些原因停止了较长时间，"
@@ -1516,8 +1508,12 @@ public class Config extends ConfigBase {
     /*
      * the system automatically checks the time interval for statistics
      */
-    @ConfField(mutable = true, masterOnly = true)
-    public static int auto_check_statistics_in_minutes = 1;
+    @ConfField(mutable = true, masterOnly = true, description = {
+            "该参数控制自动收集作业检查库表统计信息健康度并触发自动收集的时间间隔",
+            "This parameter controls the time interval for automatic collection jobs to check the health of table"
+                    + "statistics and trigger automatic collection"
+    })
+    public static int auto_check_statistics_in_minutes = 10;
 
     /**
      * If this configuration is enabled, you should also specify the trace_export_url.
@@ -2172,4 +2168,33 @@ public class Config extends ConfigBase {
                     + "The larger the value, the more uniform the distribution of the hash algorithm, "
                     + "but it will increase the memory overhead."})
     public static int virtual_node_number = 2048;
+
+    @ConfField(description = {"控制对大表的自动ANALYZE的最小时间间隔，"
+            + "在该时间间隔内大小超过huge_table_lower_bound_size_in_bytes的表仅ANALYZE一次",
+            "This controls the minimum time interval for automatic ANALYZE on large tables. Within this interval,"
+                    + "tables larger than huge_table_lower_bound_size_in_bytes are analyzed only once."})
+    public static long huge_table_auto_analyze_interval_in_millis = TimeUnit.HOURS.toMillis(12);
+
+    @ConfField(description = {"定义大表的大小下界，在开启enable_auto_sample的情况下，"
+            + "大小超过该值的表将会自动通过采样收集统计信息", "This defines the lower size bound for large tables. "
+            + "When enable_auto_sample is enabled, tables larger than this value will automatically collect "
+            + "statistics through sampling"})
+    public static long huge_table_lower_bound_size_in_bytes = 5L * 1024 * 1024 * 1024;
+
+    @ConfField(description = {"定义开启开启大表自动sample后，对大表的采样行数",
+            "This defines the number of sample rows for large tables when automatic sampling for"
+                    + "large tables is enabled"})
+    public static int huge_table_default_sample_rows = 20_0000;
+
+    @ConfField(description = {"是否开启大表自动sample，开启后对于大小超过huge_table_lower_bound_size_in_bytes会自动通过采样收集"
+            + "统计信息", "Whether to enable automatic sampling for large tables, which, when enabled, automatically"
+            + "collects statistics through sampling for tables larger than 'huge_table_lower_bound_size_in_bytes'"})
+    public static boolean enable_auto_sample = false;
+
+    @ConfField(description = {
+            "控制统计信息的自动触发作业执行记录的持久化行数",
+            "Determine the persist number of automatic triggered analyze job execution status"
+    })
+    public static long auto_analyze_job_record_count = 20000;
+
 }

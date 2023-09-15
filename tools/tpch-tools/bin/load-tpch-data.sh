@@ -108,6 +108,7 @@ check_prerequest "curl --version" "curl"
 source "${CURDIR}/../conf/doris-cluster.conf"
 export MYSQL_PWD=${PASSWORD}
 
+echo "Parallelism: ${PARALLEL}"
 echo "FE_HOST: ${FE_HOST}"
 echo "FE_HTTP_PORT: ${FE_HTTP_PORT}"
 echo "USER: ${USER}"

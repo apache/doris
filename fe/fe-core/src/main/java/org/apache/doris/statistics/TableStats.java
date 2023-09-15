@@ -29,6 +29,9 @@ import com.google.gson.annotations.SerializedName;
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
+import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.atomic.AtomicLong;
 
 public class TableStats implements Writable {
@@ -57,8 +60,8 @@ public class TableStats implements Writable {
     @SerializedName("updateTime")
     public long updatedTime;
 
-    @SerializedName("columns")
-    public String columns;
+    @SerializedName("colLastUpdatedTime")
+    private ConcurrentMap<String, Long> colLastUpdatedTime = new ConcurrentHashMap<>();
 
     @SerializedName("trigger")
     public JobType jobType;
@@ -72,7 +75,14 @@ public class TableStats implements Writable {
         analysisMethod = analyzedJob.analysisMethod;
         analysisType = analyzedJob.analysisType;
         updatedTime = System.currentTimeMillis();
-        columns = analyzedJob.colName;
+        String cols = analyzedJob.colName;
+        // colName field AnalyzeJob's format likes: "[col1, col2]", we need to remove brackets here
+        if (analyzedJob.colName.startsWith("[") && analyzedJob.colName.endsWith("]")) {
+            cols = cols.substring(1, cols.length() - 1);
+        }
+        for (String col : cols.split(",")) {
+            colLastUpdatedTime.put(col, updatedTime);
+        }
         jobType = analyzedJob.jobType;
     }
 
@@ -84,6 +94,28 @@ public class TableStats implements Writable {
 
     public static TableStats read(DataInput dataInput) throws IOException {
         String json = Text.readString(dataInput);
-        return GsonUtils.GSON.fromJson(json, TableStats.class);
+        TableStats tableStats = GsonUtils.GSON.fromJson(json, TableStats.class);
+        // Might be null counterintuitively, for compatible
+        if (tableStats.colLastUpdatedTime == null) {
+            tableStats.colLastUpdatedTime = new ConcurrentHashMap<>();
+        }
+        return tableStats;
+    }
+
+    public long findColumnLastUpdateTime(String colName) {
+        return colLastUpdatedTime.getOrDefault(colName, 0L);
+    }
+
+    public void removeColumn(String colName) {
+        colLastUpdatedTime.remove(colName);
+    }
+
+    public Set<String> analyzeColumns() {
+        return colLastUpdatedTime.keySet();
+    }
+
+    public void reset() {
+        updatedTime = 0;
+        colLastUpdatedTime.replaceAll((k, v) -> 0L);
     }
 }

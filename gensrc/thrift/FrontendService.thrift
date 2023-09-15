@@ -628,6 +628,7 @@ struct TStreamLoadPutRequest {
     // only valid when file type is CSV
     52: optional i8 escape
     53: optional bool memtable_on_sink_node;
+    54: optional bool ignore_mode = false
 }
 
 struct TStreamLoadPutResult {

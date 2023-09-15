@@ -32,6 +32,37 @@ suite('test_cast') {
         result([[869930357, 20200101123445l, ((float) 20200101123445l), ((double) 20200101123445l)]])
     }
 
+    test {
+        sql " select cast('9999e-1' as DECIMALV3(2, 1)) "
+        result([[9.9]])
+    }
+
+    test {
+        sql " select cast('100000' as DECIMALV3(2, 1)) "
+        result([[9.9]])
+    }
+
+    test {
+        sql " select cast('-9999e-1' as DECIMALV3(2, 1)) "
+        result([[-9.9]])
+    }
+
+
+    test {
+        sql " select cast('100000' as DECIMALV3(2, 1)) "
+        result([[9.9]])
+    }
+
+    test {
+        sql "select cast('0.2147483648e3' as DECIMALV3(2, 1))"
+        result([[9.9]])
+    }
+
+    test {
+        sql "select cast('0.2147483648e-3' as DECIMALV3(2, 1))"
+        result([[0.0]])
+    }
+
     def tbl = "test_cast"
 
     sql """ DROP TABLE IF EXISTS ${tbl}"""

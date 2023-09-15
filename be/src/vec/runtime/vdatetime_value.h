@@ -26,6 +26,7 @@
 #include <cstddef>
 #include <iostream>
 #include <iterator>
+#include <shared_mutex>
 #include <string>
 #include <string_view>
 #include <tuple>
@@ -34,7 +35,6 @@
 #include "util/hash_util.hpp"
 #include "util/time_lut.h"
 #include "util/timezone_utils.h"
-#include "vec/common/hash_table/phmap_fwd_decl.h"
 
 namespace cctz {
 class time_zone;
@@ -482,7 +482,7 @@ public:
     uint32_t year_week(uint8_t mode) const;
 
     // Add interval
-    template <TimeUnit unit>
+    template <TimeUnit unit, bool need_check = true>
     bool date_add_interval(const TimeInterval& interval);
 
     // set interval
@@ -943,7 +943,7 @@ public:
     template <TimeUnit unit, typename TO>
     bool date_add_interval(const TimeInterval& interval, DateV2Value<TO>& to_value);
 
-    template <TimeUnit unit>
+    template <TimeUnit unit, bool need_check = true>
     bool date_add_interval(const TimeInterval& interval);
 
     template <TimeUnit unit>

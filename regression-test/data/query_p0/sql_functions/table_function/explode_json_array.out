@@ -89,3 +89,9 @@
 \N	80	{"id":2,"name":"Mary"}
 \N	80	{"id":3,"name":"Bob"}
 
+-- !explode_json_array12 --
+9223372036854775807	8
+
+-- !explode_json_array13 --
+-9223372036854775808	8
+

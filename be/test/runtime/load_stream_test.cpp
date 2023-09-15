@@ -29,6 +29,7 @@
 #include <unistd.h>
 
 #include <functional>
+#include <memory>
 
 #include "common/config.h"
 #include "common/status.h"
@@ -582,10 +583,10 @@ public:
 
         doris::EngineOptions options;
         options.store_paths = paths;
-        Status s = doris::StorageEngine::open(options, &k_engine);
+        k_engine = std::make_unique<StorageEngine>(options);
+        Status s = k_engine->open();
         EXPECT_TRUE(s.ok()) << s.to_string();
-
-        _env = doris::ExecEnv::GetInstance();
+        doris::ExecEnv::GetInstance()->set_storage_engine(k_engine.get());
 
         EXPECT_TRUE(io::global_local_filesystem()->create_directory(zTestDir).ok());
 
@@ -611,6 +612,7 @@ public:
     }
 
     void TearDown() override {
+        ExecEnv::GetInstance()->set_storage_engine(nullptr);
         k_engine.reset();
         _server->Stop(1000);
         _load_stream_mgr.reset();

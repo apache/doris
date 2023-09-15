@@ -54,6 +54,7 @@ import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.task.AgentBatchTask;
 import org.apache.doris.task.AgentTaskExecutor;
 import org.apache.doris.task.ClearTransactionTask;
+import org.apache.doris.task.PublishVersionTask;
 import org.apache.doris.thrift.TUniqueId;
 
 import com.google.common.annotations.VisibleForTesting;
@@ -868,7 +869,7 @@ public class DatabaseTransactionMgr {
         }
     }
 
-    public void finishTransaction(long transactionId, Set<Long> errorReplicaIds) throws UserException {
+    public void finishTransaction(long transactionId) throws UserException {
         TransactionState transactionState = null;
         readLock();
         try {
@@ -876,14 +877,10 @@ public class DatabaseTransactionMgr {
         } finally {
             readUnlock();
         }
+
         // add all commit errors and publish errors to a single set
-        if (errorReplicaIds == null) {
-            errorReplicaIds = Sets.newHashSet();
-        }
-        Set<Long> originalErrorReplicas = transactionState.getErrorReplicas();
-        if (originalErrorReplicas != null) {
-            errorReplicaIds.addAll(originalErrorReplicas);
-        }
+        Set<Long> errorReplicaIds = transactionState.getErrorReplicas();
+        Map<Long, PublishVersionTask> publishTasks = transactionState.getPublishVersionTasks();
 
         long now = System.currentTimeMillis();
         long firstPublishOneSuccTime = transactionState.getFirstPublishOneSuccTime();
@@ -980,21 +977,10 @@ public class DatabaseTransactionMgr {
                             tabletWriteFailedReplicas.clear();
                             tabletVersionFailedReplicas.clear();
                             for (Replica replica : tablet.getReplicas()) {
-                                if (!errorReplicaIds.contains(replica.getId())) {
-                                    if (replica.checkVersionCatchUp(partition.getVisibleVersion(), true)) {
-                                        tabletSuccReplicas.add(replica);
-                                    } else {
-                                        tabletVersionFailedReplicas.add(replica);
-                                    }
-                                } else if (replica.getVersion() >= partitionCommitInfo.getVersion()) {
-                                    // the replica's version is larger than or equal to current transaction
-                                    // partition's version the replica is normal, then remove it from error replica ids
-                                    // TODO(cmy): actually I have no idea why we need this check
-                                    tabletSuccReplicas.add(replica);
-                                    errorReplicaIds.remove(replica.getId());
-                                } else {
-                                    tabletWriteFailedReplicas.add(replica);
-                                }
+                                checkReplicaContinuousVersionSucc(tablet.getId(), replica,
+                                        partitionCommitInfo.getVersion(), publishTasks.get(replica.getBackendId()),
+                                        errorReplicaIds, tabletSuccReplicas, tabletWriteFailedReplicas,
+                                        tabletVersionFailedReplicas);
                             }
 
                             int healthReplicaNum = tabletSuccReplicas.size();
@@ -1005,7 +991,7 @@ public class DatabaseTransactionMgr {
                                     LOG.info("publish version quorum succ for transaction {} on tablet {} with version"
                                             + " {}, and has failed replicas, quorum num {}. table {}, partition {},"
                                             + " tablet detail: {}",
-                                            transactionState, tablet, partitionCommitInfo.getVersion(),
+                                            transactionState, tablet.getId(), partitionCommitInfo.getVersion(),
                                             quorumReplicaNum, tableId, partitionId, writeDetail);
                                 }
                                 continue;
@@ -1033,8 +1019,8 @@ public class DatabaseTransactionMgr {
                                 LOG.info("publish version timeout succ for transaction {} on tablet {} with version"
                                         + " {}, and has failed replicas, quorum num {}. table {}, partition {},"
                                         + " tablet detail: {}",
-                                        transactionState, tablet, partitionCommitInfo.getVersion(), quorumReplicaNum,
-                                        tableId, partitionId, writeDetail);
+                                        transactionState, tablet.getId(), partitionCommitInfo.getVersion(),
+                                        quorumReplicaNum, tableId, partitionId, writeDetail);
                             } else {
                                 publishResult = PublishResult.FAILED;
                                 String errMsg = String.format("publish on tablet %d failed."
@@ -1046,8 +1032,8 @@ public class DatabaseTransactionMgr {
                                 LOG.info("publish version failed for transaction {} on tablet {} with version"
                                         + " {}, and has failed replicas, quorum num {}. table {}, partition {},"
                                         + " tablet detail: {}",
-                                        transactionState, tablet, partitionCommitInfo.getVersion(), quorumReplicaNum,
-                                        tableId, partitionId, writeDetail);
+                                        transactionState, tablet.getId(), partitionCommitInfo.getVersion(),
+                                        quorumReplicaNum, tableId, partitionId, writeDetail);
                             }
                         }
                     }
@@ -1091,6 +1077,43 @@ public class DatabaseTransactionMgr {
         // even if we call "sync" before querying.
         transactionState.countdownVisibleLatch();
         LOG.info("finish transaction {} successfully, publish result: {}", transactionState, publishResult.name());
+    }
+
+    private void checkReplicaContinuousVersionSucc(long tabletId, Replica replica, long version,
+            PublishVersionTask backendPublishTask, Set<Long> errorReplicaIds, List<Replica> tabletSuccReplicas,
+            List<Replica> tabletWriteFailedReplicas, List<Replica> tabletVersionFailedReplicas) {
+        if (backendPublishTask == null || !backendPublishTask.isFinished()) {
+            errorReplicaIds.add(replica.getId());
+        } else {
+            Map<Long, Long> backendSuccTablets = backendPublishTask.getSuccTablets();
+            // new doris BE will report succ tablets
+            if (backendSuccTablets != null) {
+                if (backendSuccTablets.containsKey(tabletId)) {
+                    errorReplicaIds.remove(replica.getId());
+                } else {
+                    errorReplicaIds.add(replica.getId());
+                }
+            } else {
+                // for compatibility, old doris BE report only error tablets
+                List<Long> backendErrorTablets = backendPublishTask.getErrorTablets();
+                if (backendErrorTablets != null && backendErrorTablets.contains(tabletId)) {
+                    errorReplicaIds.add(replica.getId());
+                }
+            }
+        }
+
+        if (!errorReplicaIds.contains(replica.getId())) {
+            if (replica.checkVersionCatchUp(version - 1, true)) {
+                tabletSuccReplicas.add(replica);
+            } else {
+                tabletVersionFailedReplicas.add(replica);
+            }
+        } else if (replica.getVersion() >= version) {
+            tabletSuccReplicas.add(replica);
+            errorReplicaIds.remove(replica.getId());
+        } else {
+            tabletWriteFailedReplicas.add(replica);
+        }
     }
 
     protected void unprotectedPreCommitTransaction2PC(TransactionState transactionState, Set<Long> errorReplicaIds,

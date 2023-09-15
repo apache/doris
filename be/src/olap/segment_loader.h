@@ -95,6 +95,8 @@ public:
 
 class SegmentLoader {
 public:
+    static SegmentLoader* instance();
+
     // Create global instance of this class.
     // "capacity" is the capacity of lru cache.
     // TODO: Currently we use the number of rowset as the cache capacity.
@@ -102,11 +104,6 @@ public:
     // This is because currently we cannot accurately estimate the memory occupied by a segment.
     // After the estimation of segment memory usage is provided later, it is recommended
     // to use Memory as the capacity limit of the cache.
-    static void create_global_instance(size_t capacity);
-
-    // Return global instance.
-    // Client should call create_global_cache before.
-    static SegmentLoader* instance() { return _s_instance; }
 
     SegmentLoader(size_t capacity) { _segment_cache = std::make_unique<SegmentCache>(capacity); }
 
@@ -121,8 +118,6 @@ public:
 
 private:
     SegmentLoader();
-
-    static SegmentLoader* _s_instance;
     std::unique_ptr<SegmentCache> _segment_cache = nullptr;
 };
 

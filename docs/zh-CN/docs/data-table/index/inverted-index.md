@@ -82,6 +82,11 @@ Doris倒排索引的功能简要介绍如下：
       - true为支持，但是索引需要更多的存储空间
       - false为不支持，更省存储空间，可以用MATCH_ALL查询多个关键字
       - 默认false
+    - char_filter：功能主要在分词前对字符串提前处理
+      - char_filter_type：指定使用不同功能的char_filter（目前仅支持char_replace）
+        - char_replace 将pattern中每个char替换为一个replacement中的char
+          - char_filter_pattern：需要被替换掉的字符数组
+          - char_filter_replacement：替换后的字符数组，可以不用配置，默认为一个空格字符
   - COMMENT 是可选的，用于指定注释
 
 ```sql
@@ -92,6 +97,8 @@ CREATE TABLE table_name
   INDEX idx_name2(column_name2) USING INVERTED [PROPERTIES("parser" = "english|unicode|chinese")] [COMMENT 'your comment']
   INDEX idx_name3(column_name3) USING INVERTED [PROPERTIES("parser" = "chinese", "parser_mode" = "fine_grained|coarse_grained")] [COMMENT 'your comment']
   INDEX idx_name4(column_name4) USING INVERTED [PROPERTIES("parser" = "english|unicode|chinese", "support_phrase" = "true|false")] [COMMENT 'your comment']
+  INDEX idx_name5(column_name4) USING INVERTED [PROPERTIES("char_filter_type" = "char_replace", "char_filter_pattern" = "._"), "char_filter_replacement" = " "] [COMMENT 'your comment']
+  INDEX idx_name5(column_name4) USING INVERTED [PROPERTIES("char_filter_type" = "char_replace", "char_filter_pattern" = "._")] [COMMENT 'your comment']
 )
 table_properties;
 ```

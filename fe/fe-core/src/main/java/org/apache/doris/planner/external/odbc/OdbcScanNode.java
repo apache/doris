@@ -104,6 +104,10 @@ public class OdbcScanNode extends ExternalScanNode {
             return output.toString();
         }
         output.append(prefix).append("QUERY: ").append(getOdbcQueryStr()).append("\n");
+        if (!conjuncts.isEmpty()) {
+            Expr expr = convertConjunctsToAndCompoundPredicate(conjuncts);
+            output.append(prefix).append("PREDICATES: ").append(expr.toSql()).append("\n");
+        }
         return output.toString();
     }
 

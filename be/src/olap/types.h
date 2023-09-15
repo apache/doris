@@ -731,6 +731,10 @@ struct CppTypeTraits<FieldType::OLAP_FIELD_TYPE_JSONB> {
     using CppType = Slice;
 };
 template <>
+struct CppTypeTraits<FieldType::OLAP_FIELD_TYPE_VARIANT> {
+    using CppType = Slice;
+};
+template <>
 struct CppTypeTraits<FieldType::OLAP_FIELD_TYPE_HLL> {
     using CppType = Slice;
 };
@@ -1382,6 +1386,15 @@ struct FieldTypeTraits<FieldType::OLAP_FIELD_TYPE_JSONB>
     static void set_to_max(void* buf) {
         auto slice = reinterpret_cast<Slice*>(buf);
         slice->size = 0;
+    }
+};
+
+template <>
+struct FieldTypeTraits<FieldType::OLAP_FIELD_TYPE_VARIANT>
+        : public FieldTypeTraits<FieldType::OLAP_FIELD_TYPE_JSONB> {
+    static int cmp(const void* left, const void* right) {
+        LOG(WARNING) << "can not compare VARIANT values";
+        return -1; // always update ?
     }
 };
 

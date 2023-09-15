@@ -5,17 +5,16 @@ PhysicalResultSink
 ----PhysicalProject
 ------hashJoin[INNER_JOIN](partsupp.ps_suppkey = supplier.s_suppkey)
 --------hashJoin[INNER_JOIN](nation.n_nationkey = supplier.s_suppkey)
-----------PhysicalDistribute
-------------hashJoin[INNER_JOIN](region.r_regionkey = nation.n_regionkey)
---------------PhysicalOlapScan[region]
---------------PhysicalDistribute
-----------------filter(( not n_nationkey IS NULL)(nation.n_nationkey > 1))
-------------------PhysicalOlapScan[nation]
+----------hashJoin[INNER_JOIN](region.r_regionkey = nation.n_regionkey)
+------------PhysicalOlapScan[region]
+------------PhysicalDistribute
+--------------filter(( not n_nationkey IS NULL)(nation.n_nationkey > 1))
+----------------PhysicalOlapScan[nation]
 ----------PhysicalDistribute
 ------------filter((supplier.s_suppkey > 1)( not s_suppkey IS NULL))
 --------------PhysicalOlapScan[supplier]
 --------PhysicalDistribute
-----------filter((partsupp.ps_suppkey > 1)( not ps_suppkey IS NULL))
+----------filter(( not ps_suppkey IS NULL)(partsupp.ps_suppkey > 1))
 ------------PhysicalOlapScan[partsupp]
 
 -- !2 --
@@ -28,13 +27,14 @@ PhysicalResultSink
 ------------hashJoin[FULL_OUTER_JOIN](nation.n_nationkey = supplier.s_suppkey)
 --------------PhysicalDistribute
 ----------------hashJoin[FULL_OUTER_JOIN](region.r_regionkey = nation.n_regionkey)
-------------------PhysicalOlapScan[region]
+------------------PhysicalDistribute
+--------------------PhysicalOlapScan[region]
 ------------------PhysicalDistribute
 --------------------PhysicalOlapScan[nation]
 --------------PhysicalDistribute
 ----------------PhysicalOlapScan[supplier]
 --------PhysicalDistribute
-----------filter((partsupp.ps_suppkey > 1)( not ps_suppkey IS NULL))
+----------filter(( not ps_suppkey IS NULL)(partsupp.ps_suppkey > 1))
 ------------PhysicalOlapScan[partsupp]
 
 -- !3 --
@@ -45,15 +45,15 @@ PhysicalResultSink
 --------PhysicalDistribute
 ----------filter((supplier.s_suppkey > 1))
 ------------hashJoin[LEFT_OUTER_JOIN](nation.n_nationkey = supplier.s_suppkey)
---------------PhysicalDistribute
-----------------hashJoin[FULL_OUTER_JOIN](region.r_regionkey = nation.n_regionkey)
+--------------hashJoin[FULL_OUTER_JOIN](region.r_regionkey = nation.n_regionkey)
+----------------PhysicalDistribute
 ------------------PhysicalOlapScan[region]
-------------------PhysicalDistribute
---------------------PhysicalOlapScan[nation]
+----------------PhysicalDistribute
+------------------PhysicalOlapScan[nation]
 --------------PhysicalDistribute
 ----------------PhysicalOlapScan[supplier]
 --------PhysicalDistribute
-----------filter((partsupp.ps_suppkey > 1)( not ps_suppkey IS NULL))
+----------filter(( not ps_suppkey IS NULL)(partsupp.ps_suppkey > 1))
 ------------PhysicalOlapScan[partsupp]
 
 -- !4 --
@@ -71,12 +71,11 @@ PhysicalResultSink
 --PhysicalDistribute
 ----PhysicalProject
 ------hashJoin[LEFT_OUTER_JOIN](nation.n_nationkey = supplier.s_suppkey)
---------PhysicalDistribute
-----------hashJoin[LEFT_OUTER_JOIN](region.r_regionkey = nation.n_regionkey)
-------------filter(( not r_name IS NULL)(region.r_name = ''))
---------------PhysicalOlapScan[region]
-------------PhysicalDistribute
---------------PhysicalOlapScan[nation]
+--------hashJoin[LEFT_OUTER_JOIN](region.r_regionkey = nation.n_regionkey)
+----------filter(( not r_name IS NULL)(region.r_name = ''))
+------------PhysicalOlapScan[region]
+----------PhysicalDistribute
+------------PhysicalOlapScan[nation]
 --------PhysicalDistribute
 ----------PhysicalOlapScan[supplier]
 
@@ -85,16 +84,14 @@ PhysicalResultSink
 --PhysicalDistribute
 ----PhysicalProject
 ------hashJoin[LEFT_OUTER_JOIN](partsupp.ps_suppkey = supplier.s_suppkey)
---------PhysicalDistribute
-----------hashJoin[LEFT_OUTER_JOIN](nation.n_nationkey = supplier.s_suppkey)
+--------hashJoin[LEFT_OUTER_JOIN](nation.n_nationkey = supplier.s_suppkey)
+----------hashJoin[LEFT_OUTER_JOIN](region.r_regionkey = nation.n_regionkey)
+------------filter(( not r_name IS NULL)(region.r_name = ''))
+--------------PhysicalOlapScan[region]
 ------------PhysicalDistribute
---------------hashJoin[LEFT_OUTER_JOIN](region.r_regionkey = nation.n_regionkey)
-----------------filter(( not r_name IS NULL)(region.r_name = ''))
-------------------PhysicalOlapScan[region]
-----------------PhysicalDistribute
-------------------PhysicalOlapScan[nation]
-------------PhysicalDistribute
---------------PhysicalOlapScan[supplier]
+--------------PhysicalOlapScan[nation]
+----------PhysicalDistribute
+------------PhysicalOlapScan[supplier]
 --------PhysicalDistribute
 ----------PhysicalOlapScan[partsupp]
 
@@ -105,13 +102,12 @@ PhysicalResultSink
 ------hashJoin[FULL_OUTER_JOIN](partsupp.ps_suppkey = supplier.s_suppkey)
 --------PhysicalDistribute
 ----------hashJoin[LEFT_OUTER_JOIN](nation.n_nationkey = supplier.s_suppkey)
-------------PhysicalDistribute
---------------hashJoin[INNER_JOIN](region.r_regionkey = nation.n_regionkey)
-----------------filter(( not r_regionkey IS NULL))
-------------------PhysicalOlapScan[region]
-----------------PhysicalDistribute
-------------------filter(( not n_regionkey IS NULL))
---------------------PhysicalOlapScan[nation]
+------------hashJoin[INNER_JOIN](region.r_regionkey = nation.n_regionkey)
+--------------filter(( not r_regionkey IS NULL))
+----------------PhysicalOlapScan[region]
+--------------PhysicalDistribute
+----------------filter(( not n_regionkey IS NULL))
+------------------PhysicalOlapScan[nation]
 ------------PhysicalDistribute
 --------------PhysicalOlapScan[supplier]
 --------PhysicalDistribute
@@ -122,17 +118,16 @@ PhysicalResultSink
 --PhysicalDistribute
 ----PhysicalProject
 ------hashJoin[LEFT_OUTER_JOIN](partsupp.ps_suppkey = supplier.s_suppkey)
---------PhysicalDistribute
-----------hashJoin[LEFT_OUTER_JOIN](nation.n_nationkey = supplier.s_suppkey)
+--------hashJoin[LEFT_OUTER_JOIN](nation.n_nationkey = supplier.s_suppkey)
+----------hashJoin[INNER_JOIN](region.r_regionkey = nation.n_regionkey)
 ------------PhysicalDistribute
---------------hashJoin[INNER_JOIN](region.r_regionkey = nation.n_regionkey)
-----------------filter(( not r_regionkey IS NULL)( not r_name IS NULL)(region.r_name = ''))
-------------------PhysicalOlapScan[region]
-----------------PhysicalDistribute
-------------------filter(( not n_regionkey IS NULL))
---------------------PhysicalOlapScan[nation]
+--------------filter(( not r_regionkey IS NULL)( not r_name IS NULL)(region.r_name = ''))
+----------------PhysicalOlapScan[region]
 ------------PhysicalDistribute
---------------PhysicalOlapScan[supplier]
+--------------filter(( not n_regionkey IS NULL))
+----------------PhysicalOlapScan[nation]
+----------PhysicalDistribute
+------------PhysicalOlapScan[supplier]
 --------PhysicalDistribute
 ----------PhysicalOlapScan[partsupp]
 
@@ -142,13 +137,12 @@ PhysicalResultSink
 ----PhysicalProject
 ------hashJoin[LEFT_OUTER_JOIN](partsupp.ps_suppkey = supplier.s_suppkey)
 --------hashJoin[INNER_JOIN](nation.n_nationkey = supplier.s_suppkey)
-----------PhysicalDistribute
-------------hashJoin[INNER_JOIN](region.r_regionkey = nation.n_regionkey)
---------------filter(( not r_regionkey IS NULL)( not r_name IS NULL)(region.r_name = ''))
-----------------PhysicalOlapScan[region]
---------------PhysicalDistribute
-----------------filter(( not n_regionkey IS NULL))
-------------------PhysicalOlapScan[nation]
+----------hashJoin[INNER_JOIN](region.r_regionkey = nation.n_regionkey)
+------------filter(( not r_regionkey IS NULL)( not r_name IS NULL)(region.r_name = ''))
+--------------PhysicalOlapScan[region]
+------------PhysicalDistribute
+--------------filter(( not n_regionkey IS NULL))
+----------------PhysicalOlapScan[nation]
 ----------PhysicalDistribute
 ------------PhysicalOlapScan[supplier]
 --------PhysicalDistribute

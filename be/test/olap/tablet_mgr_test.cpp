@@ -41,6 +41,7 @@
 #include "olap/tablet_manager.h"
 #include "olap/tablet_meta.h"
 #include "olap/tablet_meta_manager.h"
+#include "runtime/exec_env.h"
 #include "util/uid_util.h"
 
 using ::testing::_;
@@ -66,6 +67,7 @@ public:
         // won't open engine, options.path is needless
         options.backend_uid = UniqueId::gen_uid();
         k_engine = new StorageEngine(options);
+        ExecEnv::GetInstance()->set_storage_engine(k_engine);
         _data_dir = new DataDir(_engine_data_path, 1000000000);
         _data_dir->init();
         _tablet_mgr = k_engine->tablet_manager();
@@ -77,6 +79,7 @@ public:
         if (k_engine != nullptr) {
             k_engine->stop();
         }
+        ExecEnv::GetInstance()->set_storage_engine(nullptr);
         SAFE_DELETE(k_engine);
         _tablet_mgr = nullptr;
     }

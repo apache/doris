@@ -72,9 +72,7 @@ Status Segment::open(io::FileSystemSPtr fs, const std::string& path, uint32_t se
                      const io::FileReaderOptions& reader_options,
                      std::shared_ptr<Segment>* output) {
     io::FileReaderSPtr file_reader;
-    io::FileDescription fd;
-    fd.path = path;
-    RETURN_IF_ERROR(fs->open_file(fd, reader_options, &file_reader));
+    RETURN_IF_ERROR(fs->open_file(path, &file_reader, &reader_options));
     std::shared_ptr<Segment> segment(new Segment(segment_id, rowset_id, tablet_schema));
     segment->_file_reader = std::move(file_reader);
     RETURN_IF_ERROR(segment->_open());

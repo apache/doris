@@ -80,11 +80,11 @@ Suppose there is an order table in Doris, where the order id is the Key column, 
 | 1        | 100          | Pending Payment |
 
 ```sql
-+----------+--------------+--------------+
-| order_id | order_amount | order_status |
-+----------+--------------+--------------+
-| 1        |          100 | 待付款       |
-+----------+--------------+--------------+
++----------+--------------+-----------------+
+| order_id | order_amount | order_status    |
++----------+--------------+-----------------+
+| 1        | 100          | Pending Payment |
++----------+--------------+-----------------+
 1 row in set (0.01 sec)
 ```
 

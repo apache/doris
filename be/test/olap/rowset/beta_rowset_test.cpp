@@ -100,13 +100,18 @@ public:
 
         doris::EngineOptions options;
         options.store_paths = paths;
-        Status s = doris::StorageEngine::open(options, &k_engine);
+        k_engine = std::make_unique<StorageEngine>(options);
+        Status s = k_engine->open();
         EXPECT_TRUE(s.ok()) << s.to_string();
+        ExecEnv::GetInstance()->set_storage_engine(k_engine.get());
 
         EXPECT_TRUE(io::global_local_filesystem()->create_directory(kTestDir).ok());
     }
 
-    static void TearDownTestSuite() { k_engine.reset(); }
+    static void TearDownTestSuite() {
+        ExecEnv::GetInstance()->set_storage_engine(nullptr);
+        k_engine.reset();
+    }
 
 protected:
     OlapReaderStatistics _stats;
