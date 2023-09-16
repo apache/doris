@@ -859,7 +859,7 @@ public class Env {
                         // to see which thread held this lock for long time.
                         Thread owner = lock.getOwner();
                         if (owner != null) {
-                            LOG.debug("catalog lock is held by: {}", Util.dumpThread(owner, 10));
+                            LOG.info("catalog lock is held by: {}", Util.dumpThread(owner, 10));
                         }
                     }
 
