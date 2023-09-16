@@ -40,6 +40,7 @@ import org.apache.doris.thrift.TTableType;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
+import lombok.Getter;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.hadoop.hive.metastore.api.ColumnStatisticsData;
 import org.apache.hadoop.hive.metastore.api.ColumnStatisticsObj;
@@ -73,6 +74,7 @@ import java.util.stream.Collectors;
 /**
  * Hive metastore external table.
  */
+@Getter
 public class HMSExternalTable extends ExternalTable {
     private static final Logger LOG = LogManager.getLogger(HMSExternalTable.class);
 
@@ -110,6 +112,9 @@ public class HMSExternalTable extends ExternalTable {
 
     // No as precise as row count in TableStats, but better than none.
     private long estimatedRowCount = -1;
+
+    // record the partition update time when enable hms event listener
+    protected volatile long lastPartitionUpdateTime;
 
     public enum DLAType {
         UNKNOWN, HIVE, HUDI, ICEBERG, DELTALAKE
@@ -628,6 +633,10 @@ public class HMSExternalTable extends ExternalTable {
         } else {
             builder.setMaxValue(Double.MAX_VALUE);
         }
+    }
+
+    public void updatePartitionUpdateTime(long updateTime) {
+        this.lastPartitionUpdateTime = updateTime;
     }
 
     @Override
