@@ -117,8 +117,7 @@ public class DFSFileSystem extends RemoteFileSystem {
                     return ugi;
                 }
             } catch (IOException e) {
-                LOG.warn("A SecurityException occurs when invoke ugi.doAs(), "
-                        + "relogin and retry immediately.", e);
+                LOG.warn("A SecurityException occurs with kerberos, do login immediately.", e);
                 return doLogin(conf);
             }
         }
