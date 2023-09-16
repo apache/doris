@@ -1950,7 +1950,8 @@ visible_functions = {
     ],
 
     "UUID": [
-        [['uuid'], 'VARCHAR', [], 'ALWAYS_NOT_NULLABLE']
+        [['uuid'], 'VARCHAR', [], 'ALWAYS_NOT_NULLABLE'],
+        [['uuid_numeric'], 'LARGEINT', [], 'ALWAYS_NOT_NULLABLE']
     ],
 
     #ip functions
