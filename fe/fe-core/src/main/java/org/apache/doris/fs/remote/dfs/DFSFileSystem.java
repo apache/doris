@@ -92,8 +92,6 @@ public class DFSFileSystem extends RemoteFileSystem {
                 }
             });
         } catch (SecurityException e) {
-            LOG.warn("A SecurityException occurs when invoke ugi.doAs(), "
-                    + "relogin and retry immediately.", e);
             throw new UserException(e);
         }
 
