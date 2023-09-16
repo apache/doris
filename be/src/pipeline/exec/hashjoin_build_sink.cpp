@@ -97,7 +97,6 @@ Status HashJoinBuildSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo
     _build_side_compute_hash_timer = ADD_TIMER(record_profile, "BuildSideHashComputingTime");
     _build_runtime_filter_timer = ADD_TIMER(record_profile, "BuildRuntimeFilterTime");
 
-    _open_timer = ADD_TIMER(profile(), "OpenTime");
     _allocate_resource_timer = ADD_TIMER(profile(), "AllocateResourceTime");
 
     _build_buckets_counter = ADD_COUNTER(profile(), "BuildBuckets", TUnit::UNIT);

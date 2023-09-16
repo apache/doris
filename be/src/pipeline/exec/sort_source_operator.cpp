@@ -48,6 +48,9 @@ Status SortSourceOperatorX::get_block(RuntimeState* state, vectorized::Block* bl
     bool eos;
     RETURN_IF_ERROR_OR_CATCH_EXCEPTION(
             local_state._shared_state->sorter->get_next(state, block, &eos));
+    if (eos) {
+        source_state = SourceState::FINISHED;
+    }
     local_state.reached_limit(block, source_state);
     return Status::OK();
 }
