@@ -70,6 +70,10 @@ public:
     virtual ~InvertedIndexQueryBase() = default;
     virtual QueryCategory get_query_category() = 0;
     [[nodiscard]] virtual PredicateType get_predicate_type() const = 0;
+    template <PredicateType PT>
+    static Status create_and_add_value_from_field_type(
+            const TypeInfo* type_info, char* value, InvertedIndexQueryType t,
+            std::unique_ptr<InvertedIndexQueryBase>& result);
 };
 
 template <PrimitiveType Type, PredicateType PT>
@@ -96,10 +100,6 @@ public:
         LOG_FATAL("Execution reached an undefined behavior code path in InvertedIndexPointQueryI");
         __builtin_unreachable();
     };
-    template <PredicateType PT>
-    static Status create_and_add_value_from_field_type(
-            const TypeInfo* type_info, char* value, InvertedIndexQueryType t,
-            std::unique_ptr<InvertedIndexPointQueryI>& result);
 };
 
 template <PrimitiveType Type, PredicateType PT>
@@ -139,7 +139,7 @@ template <PrimitiveType Type, PredicateType PT>
 struct Helper {
     static void create_and_add_value(const TypeInfo* type_info, char* value,
                                      InvertedIndexQueryType t,
-                                     std::unique_ptr<InvertedIndexPointQueryI>& result);
+                                     std::unique_ptr<InvertedIndexQueryBase>& result);
 };
 
 class InvertedIndexRangeQueryI : public InvertedIndexQueryBase {

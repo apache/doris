@@ -37,17 +37,30 @@ namespace segment_v2 {
 template <PrimitiveType Type, PredicateType PT>
 void Helper<Type, PT>::create_and_add_value(const TypeInfo* type_info, char* value,
                                             InvertedIndexQueryType t,
-                                            std::unique_ptr<InvertedIndexPointQueryI>& result) {
+                                            std::unique_ptr<InvertedIndexQueryBase>& result) {
     using CppType = typename PredicatePrimitiveTypeTraits<Type>::PredicateFieldType;
-    auto query_ptr = std::make_unique<InvertedIndexPointQuery<Type, PT>>(type_info);
-    query_ptr->add_value(*reinterpret_cast<CppType*>(value), t);
+
+    auto create_and_add_value = [&value, &t](auto query_ptr) {
+        query_ptr->add_value(*reinterpret_cast<CppType*>(value), t);
+        return query_ptr;
+    };
+
+    std::unique_ptr<InvertedIndexQueryBase> query_ptr;
+
+    if (is_range_query(t)) {
+        query_ptr = create_and_add_value(
+                std::make_unique<InvertedIndexRangeQuery<Type, PT>>(type_info));
+    } else {
+        query_ptr = create_and_add_value(
+                std::make_unique<InvertedIndexPointQuery<Type, PT>>(type_info));
+    }
     result = std::move(query_ptr);
 }
 
 template <PredicateType PT>
-Status InvertedIndexPointQueryI::create_and_add_value_from_field_type(
+Status InvertedIndexQueryBase::create_and_add_value_from_field_type(
         const TypeInfo* type_info, char* value, InvertedIndexQueryType t,
-        std::unique_ptr<InvertedIndexPointQueryI>& result) {
+        std::unique_ptr<InvertedIndexQueryBase>& result) {
     switch (type_info->type()) {
     case FieldType::OLAP_FIELD_TYPE_DATETIME: {
         Helper<PrimitiveType::TYPE_DATETIME, PT>::create_and_add_value(type_info, value, t, result);
@@ -132,9 +145,8 @@ Status InvertedIndexPointQueryI::create_and_add_value_from_field_type(
     return Status::OK();
 }
 
-template Status
-InvertedIndexPointQueryI::create_and_add_value_from_field_type<PredicateType::MATCH>(
-        const TypeInfo*, char*, InvertedIndexQueryType, std::unique_ptr<InvertedIndexPointQueryI>&);
+template Status InvertedIndexQueryBase::create_and_add_value_from_field_type<PredicateType::MATCH>(
+        const TypeInfo*, char*, InvertedIndexQueryType, std::unique_ptr<InvertedIndexQueryBase>&);
 
 template <PrimitiveType Type, PredicateType PT>
 InvertedIndexPointQuery<Type, PT>::InvertedIndexPointQuery(const TypeInfo* type_info) {

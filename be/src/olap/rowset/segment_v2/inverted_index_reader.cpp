@@ -74,19 +74,6 @@
 namespace doris {
 namespace segment_v2 {
 
-bool InvertedIndexReader::_is_range_query(InvertedIndexQueryType query_type) {
-    return (query_type == InvertedIndexQueryType::GREATER_THAN_QUERY ||
-            query_type == InvertedIndexQueryType::GREATER_EQUAL_QUERY ||
-            query_type == InvertedIndexQueryType::LESS_THAN_QUERY ||
-            query_type == InvertedIndexQueryType::LESS_EQUAL_QUERY);
-}
-
-bool InvertedIndexReader::_is_match_query(InvertedIndexQueryType query_type) {
-    return (query_type == InvertedIndexQueryType::MATCH_ANY_QUERY ||
-            query_type == InvertedIndexQueryType::MATCH_ALL_QUERY ||
-            query_type == InvertedIndexQueryType::MATCH_PHRASE_QUERY);
-}
-
 bool InvertedIndexReader::indexExists(io::Path& index_file_path) {
     bool exists = false;
     RETURN_IF_ERROR(_fs->exists(index_file_path, &exists));
@@ -763,46 +750,6 @@ InvertedIndexVisitor::InvertedIndexVisitor(roaring::Roaring* h, InvertedIndexQue
     }
 }
 
-/*bool InvertedIndexVisitor::_matches(uint8_t* packed_value, const uint8_t* qmax,
-                                    const uint8_t* qmin) {
-    for (int dim = 0; dim < _reader->num_data_dims_; dim++) {
-        int offset = dim * _reader->bytes_per_dim_;
-        if (_high_op == PredicateType::LT) {
-            if (lucene::util::FutureArrays::CompareUnsigned(
-                        packed_value, offset, offset + _reader->bytes_per_dim_, qmax, offset,
-                        offset + _reader->bytes_per_dim_) >= 0) {
-                // Doc's value is too high, in this dimension
-                return false;
-            }
-        }
-        if (_low_op == PredicateType::GT) {
-            if (lucene::util::FutureArrays::CompareUnsigned(
-                        packed_value, offset, offset + _reader->bytes_per_dim_, qmin, offset,
-                        offset + _reader->bytes_per_dim_) <= 0) {
-                // Doc's value is too high, in this dimension
-                return false;
-            }
-        }
-        if (_high_op == PredicateType::GE) {
-            if (lucene::util::FutureArrays::CompareUnsigned(
-                        packed_value, offset, offset + _reader->bytes_per_dim_, qmin, offset,
-                        offset + _reader->bytes_per_dim_) < 0) {
-                // Doc's value is too low, in this dimension
-                return false;
-            }
-        }
-        if (_high_op == PredicateType::LE) {
-            if (lucene::util::FutureArrays::CompareUnsigned(
-                        packed_value, offset, offset + _reader->bytes_per_dim_, qmax, offset,
-                        offset + _reader->bytes_per_dim_) > 0) {
-                // Doc's value is too high, in this dimension
-                return false;
-            }
-        }
-    }
-    return true;
-}*/
-
 bool InvertedIndexVisitor::_matches(const BinaryType& packed_value, const BinaryType& qmax,
                                     const BinaryType& qmin) {
     bool minInside = (_low_op == PredicateType::GE ? packed_value >= qmin : packed_value > qmin);
@@ -814,17 +761,26 @@ bool InvertedIndexVisitor::_matches(const BinaryType& packed_value, const Binary
 }
 
 bool InvertedIndexVisitor::matches(uint8_t* packed_value) {
+    auto point_match = [&](const BinaryType& qmax, const BinaryType& qmin) -> bool {
+        for (int dim = 0; dim < _reader->num_data_dims_; dim++) {
+            int offset = dim * _reader->bytes_per_dim_;
+            if (!_matches(BinaryType(packed_value + offset, _reader->bytes_per_dim_),
+                          BinaryType(qmax._data + offset, _reader->bytes_per_dim_),
+                          BinaryType(qmin._data + offset, _reader->bytes_per_dim_))) {
+                return false;
+            }
+        }
+        return true;
+    };
     if (!query_points.empty()) {
         for (auto query_point : query_points) {
-            if (_matches(BinaryType(packed_value, _reader->bytes_per_dim_), query_point,
-                         query_point)) {
+            if (point_match(query_point, query_point)) {
                 return true;
             }
         }
         return false;
     } else {
-        auto bin_value = BinaryType(packed_value, _reader->bytes_per_dim_);
-        return _matches(bin_value, query_max, query_min);
+        return point_match(query_max, query_min);
     }
 }
 
@@ -892,70 +848,6 @@ void InvertedIndexVisitor::visit(int row_id, std::vector<uint8_t>& packed_value)
     }
 }
 
-/*lucene::util::bkd::relation InvertedIndexVisitor::_compare(std::vector<uint8_t>& min_packed,
-                                                           std::vector<uint8_t>& max_packed,
-                                                           const uint8_t* qmax,
-                                                           const uint8_t* qmin) {
-    bool crosses = false;
-
-    for (int dim = 0; dim < _reader->num_data_dims_; dim++) {
-        int offset = dim * _reader->bytes_per_dim_;
-
-        if (_high_op == PredicateType::LT) {
-            if (lucene::util::FutureArrays::CompareUnsigned(
-                        min_packed.data(), offset, offset + _reader->bytes_per_dim_, qmax, offset,
-                        offset + _reader->bytes_per_dim_) >= 0) {
-                return lucene::util::bkd::relation::CELL_OUTSIDE_QUERY;
-            }
-        }
-        if (_low_op == PredicateType::GT) {
-            if (lucene::util::FutureArrays::CompareUnsigned(
-                        max_packed.data(), offset, offset + _reader->bytes_per_dim_, qmin, offset,
-                        offset + _reader->bytes_per_dim_) <= 0) {
-                return lucene::util::bkd::relation::CELL_OUTSIDE_QUERY;
-            }
-        }
-        if (_high_op == PredicateType::LE) {
-            if (lucene::util::FutureArrays::CompareUnsigned(
-                        min_packed.data(), offset, offset + _reader->bytes_per_dim_, qmax, offset,
-                        offset + _reader->bytes_per_dim_) > 0 ) {
-                return lucene::util::bkd::relation::CELL_OUTSIDE_QUERY;
-            }
-        }
-        if (_high_op == PredicateType::GE) {
-                if (lucene::util::FutureArrays::CompareUnsigned(
-                        max_packed.data(), offset, offset + _reader->bytes_per_dim_, qmin, offset,
-                        offset + _reader->bytes_per_dim_) < 0) {
-                return lucene::util::bkd::relation::CELL_OUTSIDE_QUERY;
-            }
-        }
-        if (_high_op == PredicateType::GT) {
-            crosses |= lucene::util::FutureArrays::CompareUnsigned(
-                               min_packed.data(), offset, offset + _reader->bytes_per_dim_, qmin,
-                               offset, offset + _reader->bytes_per_dim_) <= 0;
-        }
-        if (_low_op == PredicateType::LT) {
-            crosses |=  lucene::util::FutureArrays::CompareUnsigned(
-                               max_packed.data(), offset, offset + _reader->bytes_per_dim_, qmax,
-                               offset, offset + _reader->bytes_per_dim_) >= 0;
-        }
-        if (_high_op == PredicateType::GE) {
-            crosses |= lucene::util::FutureArrays::CompareUnsigned(
-                               min_packed.data(), offset, offset + _reader->bytes_per_dim_, qmin,
-                               offset, offset + _reader->bytes_per_dim_) < 0;
-        }
-        if (_low_op == PredicateType::LE) {
-            crosses |=  lucene::util::FutureArrays::CompareUnsigned(
-                               max_packed.data(), offset, offset + _reader->bytes_per_dim_, qmax,
-                               offset, offset + _reader->bytes_per_dim_) > 0;
-        }
-    }
-    if (crosses) {
-        return lucene::util::bkd::relation::CELL_CROSSES_QUERY;
-    } else {
-        return lucene::util::bkd::relation::CELL_INSIDE_QUERY;
-    }
-}*/
 lucene::util::bkd::relation InvertedIndexVisitor::_compare(const BinaryType& min_packed,
                                                            const BinaryType& max_packed,
                                                            const BinaryType& qmax,
@@ -978,12 +870,29 @@ lucene::util::bkd::relation InvertedIndexVisitor::_compare(const BinaryType& min
 
 lucene::util::bkd::relation InvertedIndexVisitor::compare(std::vector<uint8_t>& min_packed,
                                                           std::vector<uint8_t>& max_packed) {
-    lucene::util::bkd::relation final_relation = lucene::util::bkd::relation::CELL_OUTSIDE_QUERY;
+    auto point_match = [&](const BinaryType& qmax,
+                           const BinaryType& qmin) -> lucene::util::bkd::relation {
+        lucene::util::bkd::relation final_relation = lucene::util::bkd::relation::CELL_INSIDE_QUERY;
+        for (int dim = 0; dim < _reader->num_data_dims_; dim++) {
+            int offset = dim * _reader->bytes_per_dim_;
+            auto relation =
+                    _compare(BinaryType(min_packed.data() + offset, _reader->bytes_per_dim_),
+                             BinaryType(max_packed.data() + offset, _reader->bytes_per_dim_),
+                             BinaryType(qmax._data + offset, _reader->bytes_per_dim_),
+                             BinaryType(qmin._data + offset, _reader->bytes_per_dim_));
+            if (relation == lucene::util::bkd::relation::CELL_OUTSIDE_QUERY) {
+                return relation;
+            } else if (relation == lucene::util::bkd::relation::CELL_CROSSES_QUERY) {
+                final_relation = lucene::util::bkd::relation::CELL_CROSSES_QUERY;
+            }
+        }
+        return final_relation;
+    };
     if (!query_points.empty()) {
+        lucene::util::bkd::relation final_relation =
+                lucene::util::bkd::relation::CELL_OUTSIDE_QUERY;
         for (auto query_point : query_points) {
-            auto relation = _compare(BinaryType(min_packed.data(), min_packed.size()),
-                                     BinaryType(max_packed.data(), max_packed.size()), query_point,
-                                     query_point);
+            lucene::util::bkd::relation relation = point_match(query_point, query_point);
             if (relation == lucene::util::bkd::relation::CELL_INSIDE_QUERY) {
                 return relation;
             } else if (relation == lucene::util::bkd::relation::CELL_CROSSES_QUERY) {
@@ -992,9 +901,7 @@ lucene::util::bkd::relation InvertedIndexVisitor::compare(std::vector<uint8_t>& 
         }
         return final_relation;
     } else {
-        auto bin_min = BinaryType(min_packed.data(), min_packed.size());
-        auto bin_max = BinaryType(max_packed.data(), max_packed.size());
-        return _compare(bin_min, bin_max, query_max, query_min);
+        return point_match(query_max, query_min);
     }
 }
 

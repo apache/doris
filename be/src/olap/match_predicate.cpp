@@ -71,10 +71,12 @@ Status MatchPredicate::evaluate(const Schema& schema, InvertedIndexIterator* ite
                is_numeric_type(column_desc->get_sub_field(0)->type_info()->type())) {
         char buf[column_desc->get_sub_field(0)->type_info()->size()];
         column_desc->get_sub_field(0)->from_string(buf, _value);
-        std::unique_ptr<InvertedIndexPointQueryI> query_value = nullptr;
-        RETURN_IF_ERROR(InvertedIndexPointQueryI::create_and_add_value_from_field_type<
-                        PredicateType::MATCH>(column_desc->get_sub_field(0)->type_info(), buf,
-                                              inverted_index_query_type, query_value));
+
+        std::unique_ptr<InvertedIndexQueryBase> query_value = nullptr;
+        RETURN_IF_ERROR(
+                InvertedIndexQueryBase::create_and_add_value_from_field_type<PredicateType::MATCH>(
+                        column_desc->get_sub_field(0)->type_info(), buf, inverted_index_query_type,
+                        query_value));
         RETURN_IF_ERROR(iterator->read_from_inverted_index(column_desc->name(), query_value.get(),
                                                            num_rows, &roaring, true));
     }
