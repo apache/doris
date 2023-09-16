@@ -79,14 +79,17 @@ Status RangeQuery::add(const std::wstring& field_name, InvertedIndexRangeQueryI*
             } else {
                 break;
             }
+            _CLDECDELETE(lastTerm);
         } while (_enumerator->next());
     } catch (CLuceneError& e) {
+        _CLDECDELETE(lastTerm);
         _enumerator->close();
         _CLDELETE(_enumerator);
         return Status::Error<ErrorCode::INVERTED_INDEX_CLUCENE_ERROR>(
                 "CLuceneError occured, error msg: {}, search_str: {}", e.what(),
                 query->to_string());
     }
+    _CLDECDELETE(lastTerm);
     _enumerator->close();
     _CLDELETE(_enumerator);
     return Status::OK();
