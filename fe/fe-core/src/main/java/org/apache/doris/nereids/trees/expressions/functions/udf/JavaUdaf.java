@@ -69,7 +69,7 @@ public class JavaUdaf extends AggregateFunction implements ExplicitlyCastableSig
      */
     public JavaUdaf(String name, long functionId, String dbName, TFunctionBinaryType binaryType,
             FunctionSignature signature,
-            DataType intermediateType, NullableMode nullableMode,
+            AbstractDataType intermediateType, NullableMode nullableMode,
             String objectFile, String symbol,
             String initFn, String updateFn, String mergeFn,
             String serializeFn, String finalizeFn, String getValueFn, String removeFn,
