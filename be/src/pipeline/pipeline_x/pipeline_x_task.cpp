@@ -62,6 +62,10 @@ Status PipelineXTask::prepare(RuntimeState* state, const TPipelineInstanceParams
     SCOPED_CPU_TIMER(_task_cpu_timer);
     SCOPED_TIMER(_prepare_timer);
 
+    LocalSinkStateInfo sink_info {_pipeline->pipeline_profile(), local_params.sender_id,
+                                  get_downstream_dependency().get()};
+    RETURN_IF_ERROR(_sink->setup_local_state(state, sink_info));
+
     std::vector<TScanRangeParams> no_scan_ranges;
     auto scan_ranges = find_with_default(local_params.per_node_scan_ranges,
                                          _operators.front()->id(), no_scan_ranges);
@@ -73,10 +77,6 @@ Status PipelineXTask::prepare(RuntimeState* state, const TPipelineInstanceParams
                 scan_ranges, get_upstream_dependency(_operators[op_idx]->id())};
         RETURN_IF_ERROR(_operators[op_idx]->setup_local_state(state, info));
     }
-
-    LocalSinkStateInfo info {_pipeline->pipeline_profile(), local_params.sender_id,
-                             get_downstream_dependency().get()};
-    RETURN_IF_ERROR(_sink->setup_local_state(state, info));
 
     _block = doris::vectorized::Block::create_unique();
 
@@ -105,7 +105,6 @@ void PipelineXTask::_init_profile() {
     _finalize_timer = ADD_CHILD_TIMER(_task_profile, "FinalizeTime", exec_time);
     _close_timer = ADD_CHILD_TIMER(_task_profile, "CloseTime", exec_time);
 
-    _wait_source_timer = ADD_TIMER(_task_profile, "WaitSourceTime");
     _wait_bf_timer = ADD_TIMER(_task_profile, "WaitBfTime");
     _wait_sink_timer = ADD_TIMER(_task_profile, "WaitSinkTime");
     _wait_worker_timer = ADD_TIMER(_task_profile, "WaitWorkerTime");
@@ -119,7 +118,6 @@ void PipelineXTask::_init_profile() {
 }
 
 void PipelineXTask::_fresh_profile_counter() {
-    COUNTER_SET(_wait_source_timer, (int64_t)_wait_source_watcher.elapsed_time());
     COUNTER_SET(_wait_bf_timer, (int64_t)_wait_bf_watcher.elapsed_time());
     COUNTER_SET(_schedule_counts, (int64_t)_schedule_time);
     COUNTER_SET(_wait_sink_timer, (int64_t)_wait_sink_watcher.elapsed_time());
