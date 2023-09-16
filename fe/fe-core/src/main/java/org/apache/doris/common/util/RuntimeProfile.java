@@ -265,7 +265,7 @@ public class RuntimeProfile {
 
         counterLock.readLock().lock();
         try {
-            Counter rowsReturnedCounter = counterMap.get("RowsReturned") ;
+            Counter rowsReturnedCounter = counterMap.get("RowsReturned");
             if (rowsReturnedCounter != null) {
                 brief.rowsReturned = rowsReturnedCounter.getValue();
             }
@@ -288,6 +288,7 @@ public class RuntimeProfile {
 
         return brief;
     }
+
     // Print the profile:
     // 1. Profile Name
     // 2. Info Strings
