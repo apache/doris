@@ -2653,14 +2653,6 @@ public class Env {
             LOG.warn("replay journal cost too much time: {} replayedJournalId: {}", cost, replayedJournalId);
         }
 
-        if (replayedJournalId.get() != newToJournalId) {
-            String msg = "replayedJournalId:" + replayedJournalId.get() + " not equal with newToJournalId:"
-                    + newToJournalId + " , will exit";
-            LOG.error(msg);
-            Util.stdoutWithTime(msg);
-            System.exit(-1);
-        }
-
         return hasLog;
     }
 
