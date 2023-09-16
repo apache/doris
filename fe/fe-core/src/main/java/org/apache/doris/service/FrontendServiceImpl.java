@@ -2680,6 +2680,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
     }
 
     // Restore Snapshot
+    @Override
     public TRestoreSnapshotResult restoreSnapshot(TRestoreSnapshotRequest request) throws TException {
         String clientAddr = getClientAddrAsString();
         LOG.trace("receive restore snapshot info request: {}", request);
@@ -2706,6 +2707,8 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             status.setStatusCode(TStatusCode.INTERNAL_ERROR);
             status.addToErrorMsgs(Strings.nullToEmpty(e.getMessage()));
             return result;
+        } finally {
+            ConnectContext.remove();
         }
 
         return result;
@@ -2770,6 +2773,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             ctx.setCluster(cluster);
             ctx.setQualifiedUser(request.getUser());
             UserIdentity currentUserIdentity = new UserIdentity(request.getUser(), "%");
+            currentUserIdentity.setIsAnalyzed();
             ctx.setCurrentUserIdentity(currentUserIdentity);
 
             Analyzer analyzer = new Analyzer(ctx.getEnv(), ctx);
