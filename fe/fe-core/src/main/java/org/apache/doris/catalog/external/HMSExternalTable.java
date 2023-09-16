@@ -635,7 +635,7 @@ public class HMSExternalTable extends ExternalTable {
         }
     }
 
-    public void updatePartitionUpdateTime(long updateTime) {
+    public void setPartitionUpdateTime(long updateTime) {
         this.lastPartitionUpdateTime = updateTime;
     }
 

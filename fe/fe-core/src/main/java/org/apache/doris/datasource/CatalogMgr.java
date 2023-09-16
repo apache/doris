@@ -937,7 +937,7 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
         HMSExternalTable hmsTable = (HMSExternalTable) table;
         Env.getCurrentEnv().getExtMetaCacheMgr().addPartitionsCache(catalog.getId(), hmsTable, partitionNames);
         long lastPartitionUpdateTime = System.currentTimeMillis();
-        hmsTable.updatePartitionUpdateTime(lastPartitionUpdateTime);
+        hmsTable.setPartitionUpdateTime(lastPartitionUpdateTime);
         ExternalObjectLog log = new ExternalObjectLog();
         log.setCatalogId(catalog.getId());
         log.setDbId(db.getId());
@@ -974,7 +974,7 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
         try {
             Env.getCurrentEnv().getExtMetaCacheMgr()
                         .addPartitionsCache(catalog.getId(), hmsTable, log.getPartitionNames());
-            hmsTable.updatePartitionUpdateTime(log.getLastUpdateTime());
+            hmsTable.setPartitionUpdateTime(log.getLastUpdateTime());
         } catch (HMSClientException e) {
             LOG.warn("Network problem occurs or hms table has been deleted, fallback to invalidate table cache", e);
             Env.getCurrentEnv().getExtMetaCacheMgr().invalidateTableCache(catalog.getId(),
@@ -1043,7 +1043,7 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
         HMSExternalTable hmsTable = (HMSExternalTable) table;
         Env.getCurrentEnv().getExtMetaCacheMgr()
                 .dropPartitionsCache(catalog.getId(), hmsTable, log.getPartitionNames());
-        hmsTable.updatePartitionUpdateTime(log.getLastUpdateTime());
+        hmsTable.setPartitionUpdateTime(log.getLastUpdateTime());
     }
 
     public void refreshExternalPartitions(String catalogName, String dbName, String tableName,
@@ -1110,7 +1110,7 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
         Env.getCurrentEnv().getExtMetaCacheMgr()
                 .invalidatePartitionsCache(catalog.getId(), db.getFullName(), table.getName(),
                         log.getPartitionNames());
-        ((HMSExternalTable) table).updatePartitionUpdateTime(log.getLastUpdateTime());
+        ((HMSExternalTable) table).setPartitionUpdateTime(log.getLastUpdateTime());
     }
 
     public void registerCatalogRefreshListener(Env env) {
