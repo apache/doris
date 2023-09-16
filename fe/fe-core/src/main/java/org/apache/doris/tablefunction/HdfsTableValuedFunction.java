@@ -70,7 +70,7 @@ public class HdfsTableValuedFunction extends ExternalFileTableValuedFunction {
                 // because HADOOP_FS_NAME contains upper and lower case
                 locationProperties.put(HdfsResource.HADOOP_FS_NAME, params.get(key));
             } else {
-                throw new AnalysisException(key + " is invalid property");
+                locationProperties.put(key, params.get(key));
             }
         }
 
