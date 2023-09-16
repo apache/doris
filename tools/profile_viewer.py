@@ -245,9 +245,9 @@ def print_usage():
     print("""
     USAGE:
     1. execute a sql file, and draw its profile  
-          python3 profile_viewer.py -sql [path to sql file]
+          python3 profile_viewer.py -f [path to sql file]
     2. draw a given profile
-          python3 profile_viewer.py -query_id [query_id]
+          python3 profile_viewer.py -qid [query_id]
     
     graphviz is required(https://graphviz.org/)
     on linux: apt install graphviz
