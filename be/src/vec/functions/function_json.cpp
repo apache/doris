@@ -1131,21 +1131,24 @@ public:
     }
 };
 
+enum class JsonModifyType {
+    JSON_INSERT = 0,
+    JSON_REPLACE,
+    JSON_SET,
+};
+
 struct FunctionJsonInsert {
     static constexpr auto name = "json_insert";
-    static constexpr auto is_insert = true;
-    static constexpr auto is_replace = false;
+    static constexpr auto modify_type = JsonModifyType::JSON_INSERT;
 };
 
 struct FunctionJsonReplace {
     static constexpr auto name = "json_replace";
-    static constexpr auto is_insert = false;
-    static constexpr auto is_replace = true;
+    static constexpr auto modify_type = JsonModifyType::JSON_REPLACE;
 };
 struct FunctionJsonSet {
     static constexpr auto name = "json_set";
-    static constexpr auto is_insert = true;
-    static constexpr auto is_replace = true;
+    static constexpr auto modify_type = JsonModifyType::JSON_SET;
 };
 
 template <typename Kind>
@@ -1163,7 +1166,7 @@ private:
 
         if (path_exprs[0] != "$") {
             // keep same behaviour with get_parsed_paths(),
-            // '$[0]' is not invalid path, '$.[0]' is invalid
+            // '$[0]' is invalid path, '$.[0]' is valid
             return Status::RuntimeError(
                     "Invalid JSON path expression. The error is around character position 1");
         }
@@ -1209,10 +1212,7 @@ private:
                 auto tok = get_json_token(path_string);
 #endif
                 std::vector<std::string> paths(tok.begin(), tok.end());
-                auto status = get_parsed_paths_with_status(paths, &parsed_paths);
-                if (UNLIKELY(status != Status::OK())) {
-                    return status;
-                }
+                RETURN_IF_ERROR(get_parsed_paths_with_status(paths, &parsed_paths));
                 json_paths[col / 2].emplace_back(parsed_paths);
             }
         }
@@ -1234,7 +1234,8 @@ public:
 
     DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
         bool is_nullable = false;
-        for (auto col = 2; col < arguments.size(); col += 2) {
+        // arguments: (json_str, path, val[, path, val...], type_flag)
+        for (auto col = 2; col < arguments.size() - 1; col += 2) {
             if (arguments[col]->is_nullable()) {
                 is_nullable = true;
                 break;
@@ -1275,13 +1276,9 @@ public:
             }
         }
 
-        auto status = execute_process(
+        RETURN_IF_ERROR(execute_process(
                 data_columns, *assert_cast<ColumnString*>(result_column.get()), input_rows_count,
-                nullmaps, is_nullable, *assert_cast<ColumnUInt8*>(ret_null_map));
-
-        if (UNLIKELY(status != Status::OK())) {
-            return status;
-        }
+                nullmaps, is_nullable, *assert_cast<ColumnUInt8*>(ret_null_map.get())));
 
         if (is_nullable) {
             block.replace_by_position(result, ColumnNullable::create(std::move(result_column),
@@ -1305,15 +1302,13 @@ public:
             std::string_view json_str(json_doc.data, json_doc.size);
             objects[row].Parse(json_str.data(), json_str.size());
             if (UNLIKELY(objects[row].HasParseError())) {
-                return Status::RuntimeError("invalid json doc function {}", get_name());
+                return Status::RuntimeError("invalid json str {}: function {}", json_str,
+                                            get_name());
             }
         }
 
         std::vector<std::vector<std::vector<JsonPath>>> json_paths;
-        auto status = get_parsed_path_columns(json_paths, data_columns, input_rows_count);
-        if (UNLIKELY(status != Status::OK())) {
-            return status;
-        }
+        RETURN_IF_ERROR(get_parsed_path_columns(json_paths, data_columns, input_rows_count));
 
         execute_parse(type_flags, data_columns, objects, json_paths, nullmaps);
 
@@ -1390,6 +1385,7 @@ public:
                         // output: null
                         if (is_replace && index == 0) {
                             *root = *value;
+                            return;
                         }
                         // convert to array, example:
                         // json_insert({"a": 1}, '$.[1]', 3);
@@ -1438,8 +1434,20 @@ public:
                                        objects[row].GetAllocator());
             }
 
-            modify_value(*parsed_paths, &objects[row], objects[row].GetAllocator(), Kind::is_insert,
-                         Kind::is_replace, &value);
+            switch (Kind::modify_type) {
+            case JsonModifyType::JSON_INSERT:
+                modify_value(*parsed_paths, &objects[row], objects[row].GetAllocator(), true, false,
+                             &value);
+                break;
+            case JsonModifyType::JSON_REPLACE:
+                modify_value(*parsed_paths, &objects[row], objects[row].GetAllocator(), false, true,
+                             &value);
+                break;
+            case JsonModifyType::JSON_SET:
+                modify_value(*parsed_paths, &objects[row], objects[row].GetAllocator(), true, true,
+                             &value);
+                break;
+            }
         }
     }
 };
