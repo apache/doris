@@ -22,7 +22,7 @@
 namespace doris {
 class TExpr;
 
-namespace stream_load {
+namespace vectorized {
 
 DeltaWriterV2Map::DeltaWriterV2Map(UniqueId load_id) : _load_id(load_id), _use_cnt(1) {}
 
@@ -83,5 +83,5 @@ std::shared_ptr<DeltaWriterV2Map> DeltaWriterV2Pool::get_or_create(PUniqueId loa
     return map;
 }
 
-} // namespace stream_load
+} // namespace vectorized
 } // namespace doris

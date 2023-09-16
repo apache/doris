@@ -210,7 +210,7 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths) {
     _file_meta_cache = new FileMetaCache(config::max_external_file_meta_cache_num);
     _memtable_memory_limiter = std::make_unique<MemTableMemoryLimiter>();
     _load_stream_stub_pool = std::make_unique<stream_load::LoadStreamStubPool>();
-    _delta_writer_v2_pool = std::make_unique<stream_load::DeltaWriterV2Pool>();
+    _delta_writer_v2_pool = std::make_unique<vectorized::DeltaWriterV2Pool>();
 
     _backend_client_cache->init_metrics("backend");
     _frontend_client_cache->init_metrics("frontend");

@@ -1531,7 +1531,7 @@ Status VTabletWriter::close(Status exec_status) {
                 if (Status st = index_channel->check_tablet_filtered_rows_consistency(); !st.ok()) {
                     status = st;
                 } else {
-                    state->set_num_rows_filtered_in_strict_mode_partial_update(
+                    _state->set_num_rows_filtered_in_strict_mode_partial_update(
                             index_channel->num_rows_filtered());
                 }
             }
