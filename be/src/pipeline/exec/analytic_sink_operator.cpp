@@ -28,6 +28,8 @@ OPERATOR_CODE_GENERATOR(AnalyticSinkOperator, StreamingOperator)
 
 Status AnalyticSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& info) {
     RETURN_IF_ERROR(PipelineXSinkLocalState<AnalyticDependency>::init(state, info));
+    SCOPED_TIMER(profile()->total_time_counter());
+    SCOPED_TIMER(_open_timer);
     auto& p = _parent->cast<AnalyticSinkOperatorX>();
     _shared_state->partition_by_column_idxs.resize(p._partition_by_eq_expr_ctxs.size());
     _shared_state->ordey_by_column_idxs.resize(p._order_by_eq_expr_ctxs.size());
@@ -138,6 +140,8 @@ Status AnalyticSinkOperatorX::open(RuntimeState* state) {
 Status AnalyticSinkOperatorX::sink(doris::RuntimeState* state, vectorized::Block* input_block,
                                    SourceState source_state) {
     auto& local_state = state->get_sink_local_state(id())->cast<AnalyticSinkLocalState>();
+    SCOPED_TIMER(local_state.profile()->total_time_counter());
+    COUNTER_UPDATE(local_state.rows_input_counter(), (int64_t)input_block->rows());
     local_state._shared_state->input_eos = source_state == SourceState::FINISHED;
     if (local_state._shared_state->input_eos && input_block->rows() == 0) {
         local_state._shared_state->need_more_input = false;
