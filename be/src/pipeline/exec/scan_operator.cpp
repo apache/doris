@@ -151,8 +151,7 @@ Status ScanLocalState<Derived>::init(RuntimeState* state, LocalStateInfo& info) 
     _open_timer = ADD_TIMER(_runtime_profile, "OpenTime");
     _alloc_resource_timer = ADD_TIMER(_runtime_profile, "AllocateResourceTime");
 
-    static const std::string timer_name =
-            "WaitForDependency[" + _source_dependency->name() + "]Time";
+    static const std::string timer_name = "WaitForDependencyTime";
     _wait_for_dependency_timer = ADD_TIMER(_runtime_profile, timer_name);
     _wait_for_data_timer = ADD_CHILD_TIMER(_runtime_profile, "WaitForData", timer_name);
     _wait_for_scanner_done_timer =
@@ -164,6 +163,7 @@ Status ScanLocalState<Derived>::init(RuntimeState* state, LocalStateInfo& info) 
 template <typename Derived>
 Status ScanLocalState<Derived>::open(RuntimeState* state) {
     SCOPED_TIMER(profile()->total_time_counter());
+    SCOPED_TIMER(_open_timer);
     if (_open_dependency == nullptr) {
         return Status::OK();
     }

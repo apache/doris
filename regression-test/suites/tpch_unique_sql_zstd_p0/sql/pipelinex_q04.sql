@@ -1,5 +1,5 @@
 -- tables: orders,lineitem
-SELECT /*+SET_VAR(experimental_enable_pipeline_x_engine=true, disable_streaming_preaggregations=true) */
+SELECT /*+SET_VAR(experimental_enable_pipeline_x_engine=true) */
   o_orderpriority,
   count(*) AS order_count
 FROM orders

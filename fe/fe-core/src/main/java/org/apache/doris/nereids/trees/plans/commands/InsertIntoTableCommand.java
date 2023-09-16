@@ -333,6 +333,6 @@ public class InsertIntoTableCommand extends Command implements ForwardWithSync, 
 
     @Override
     public <R, C> R accept(PlanVisitor<R, C> visitor, C context) {
-        return visitor.visitInsertIntoCommand(this, context);
+        return visitor.visitInsertIntoTableCommand(this, context);
     }
 }

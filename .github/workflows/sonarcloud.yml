@@ -155,8 +155,8 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
         run: sonar-scanner \
-              --define sonar.cfamily.compile-commands=be/build_Release/compile_commands.json \
-              --define sonar.organization=apache  \
-              --define sonar.projectKey=apache_incubator-doris \
-              --define sonar.sources=be
+              -Dsonar.cfamily.compile-commands=be/build_Release/compile_commands.json \
+              -Dsonar.organization=apache  \
+              -Dsonar.projectKey=apache_incubator-doris \
+              -Dsonar.sources=be
 

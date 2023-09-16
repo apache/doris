@@ -30,7 +30,7 @@
 namespace doris {
 namespace pipeline {
 
-DataQueue::DataQueue(int child_count, StreamingAggDependency* agg_dependency,
+DataQueue::DataQueue(int child_count, AggDependency* agg_dependency,
                      UnionDependency* union_dependency)
         : _queue_blocks_lock(child_count),
           _queue_blocks(child_count),
