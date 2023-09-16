@@ -27,7 +27,6 @@
 #include <CLucene/search/IndexSearcher.h>
 #include <CLucene/search/PhraseQuery.h>
 #include <CLucene/search/Query.h>
-#include <CLucene/search/RangeQuery.h>
 #include <CLucene/search/TermQuery.h>
 #include <CLucene/store/Directory.h>
 #include <CLucene/store/IndexInput.h>
@@ -52,6 +51,7 @@
 #include "olap/rowset/segment_v2/inverted_index/char_filter/char_filter_factory.h"
 #include "olap/rowset/segment_v2/inverted_index/query/conjunction_query.h"
 #include "olap/rowset/segment_v2/inverted_index/query/disjunction_query.h"
+#include "olap/rowset/segment_v2/inverted_index/query/range_query.h"
 #include "olap/rowset/segment_v2/inverted_index_cache.h"
 #include "olap/rowset/segment_v2/inverted_index_compound_directory.h"
 #include "olap/types.h"
@@ -466,41 +466,9 @@ Status StringTypeInvertedIndexReader::handle_range_query(const std::string& colu
                                                          OlapReaderStatistics* stats,
                                                          InvertedIndexRangeQueryI* query,
                                                          roaring::Roaring* bit_map) {
-    // unique_ptr with custom deleter
-    std::unique_ptr<lucene::index::Term, void (*)(lucene::index::Term*)> low_term(
-            nullptr, [](lucene::index::Term* term) { _CLDECDELETE(term); });
-    std::unique_ptr<lucene::index::Term, void (*)(lucene::index::Term*)> high_term(
-            nullptr, [](lucene::index::Term* term) { _CLDECDELETE(term); });
-    std::wstring column_name_ws = std::wstring(column_name.begin(), column_name.end());
-
-    if (query->low_value_is_null() && query->high_value_is_null()) {
-        return Status::Error<ErrorCode::INVERTED_INDEX_INVALID_PARAMETERS>(
-                "StringTypeInvertedIndexReader::handle_range_query error: both low_value and "
-                "high_value is null");
-    }
-    auto search_low = query->get_low_value();
-    if (!query->low_value_is_null()) {
-        std::wstring search_low_ws = StringUtil::string_to_wstring(search_low);
-        low_term.reset(_CLNEW lucene::index::Term(column_name_ws.c_str(), search_low_ws.c_str()));
-    }
-    auto search_high = query->get_high_value();
-    if (!query->high_value_is_null()) {
-        std::wstring search_high_ws = StringUtil::string_to_wstring(search_high);
-        high_term.reset(_CLNEW lucene::index::Term(column_name_ws.c_str(), search_high_ws.c_str()));
-    }
-
     // std::string search_str = reinterpret_cast<const StringRef*>(query_value)->to_string();
     VLOG_DEBUG << "begin to query the inverted index from clucene"
-               << ", column_name: " << column_name << ", search_low: " << search_low
-               << ", search_high" << search_high;
-    //TODO: how to solve high_value_conclusive? need to change clucene
-    std::unique_ptr<lucene::search::Query> lucene_query;
-    if (query->get_predicate_type() == PredicateType::EQ) {
-        lucene_query.reset(new lucene::search::TermQuery(low_term.get()));
-    } else {
-        lucene_query.reset(new lucene::search::RangeQuery(low_term.get(), high_term.get(),
-                                                          query->is_low_value_inclusive()));
-    }
+               << ", column_name: " << column_name << ", search_str: " << query->to_string();
 
     InvertedIndexQueryCache::CacheKey cache_key {
             _file_full_path, column_name, InvertedIndexQueryType::RANGE_QUERY, query->to_string()};
@@ -516,6 +484,16 @@ Status StringTypeInvertedIndexReader::handle_range_query(const std::string& colu
     InvertedIndexSearcherCache::instance()->get_index_searcher(_fs, _file_dir, _file_name,
                                                                &inverted_index_cache_handle, stats);
     auto index_searcher = inverted_index_cache_handle.get_index_searcher();
+    RangeQuery range_query(index_searcher->getReader());
+    std::wstring column_name_ws = std::wstring(column_name.begin(), column_name.end());
+
+    RETURN_IF_ERROR(range_query.add(column_name_ws, query));
+    if (range_query.get_terms_size() > config::inverted_index_max_terms) {
+        return Status::Error<ErrorCode::INVERTED_INDEX_BYPASS>(
+                "range query term exceeds limits, try to downgrade from inverted index, column "
+                "name:{}, search_str:{}",
+                column_name, query->to_string());
+    }
 
     // try to reuse index_searcher's directory to read null_bitmap to cache
     // to avoid open directory additionally for null_bitmap
@@ -524,11 +502,7 @@ Status StringTypeInvertedIndexReader::handle_range_query(const std::string& colu
 
     try {
         SCOPED_RAW_TIMER(&stats->inverted_index_searcher_search_timer);
-        index_searcher->_search(lucene_query.get(),
-                                [&result](const int32_t docid, const float_t /*score*/) {
-                                    // docid equal to rowid in segment
-                                    result.add(docid);
-                                });
+        range_query.search(result);
 
     } catch (const CLuceneError& e) {
         if (e.number() == CL_ERR_TooManyClauses) {
@@ -544,10 +518,10 @@ Status StringTypeInvertedIndexReader::handle_range_query(const std::string& colu
     }
 
     // add to cache
-    std::shared_ptr<roaring::Roaring> term_match_bitmap =
+    std::shared_ptr<roaring::Roaring> range_query_bitmap =
             std::make_shared<roaring::Roaring>(result);
-    term_match_bitmap->runOptimize();
-    cache->insert(cache_key, term_match_bitmap, &cache_handler);
+    range_query_bitmap->runOptimize();
+    cache->insert(cache_key, range_query_bitmap, &cache_handler);
 
     bit_map->swap(result);
     return Status::OK();

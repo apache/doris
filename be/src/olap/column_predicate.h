@@ -143,6 +143,14 @@ public:
             : _column_id(column_id), _opposite(opposite) {
         _predicate_params = std::make_shared<PredicateParams>();
     }
+    virtual bool Equal(const ColumnPredicate* col_pred) const {
+        if (_predicate_params->value == col_pred->_predicate_params->value &&
+            type() == col_pred->type() && _column_id == col_pred->_column_id &&
+            _opposite == col_pred->_opposite) {
+            return true;
+        }
+        return false;
+    }
 
     virtual ~ColumnPredicate() = default;
 

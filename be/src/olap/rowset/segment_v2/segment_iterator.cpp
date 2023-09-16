@@ -855,6 +855,10 @@ inline bool SegmentIterator::_inverted_index_not_support_pred_type(const Predica
         return const_cast<ColumnPredicate*>(p)->predicate_params()->marked_by_runtime_filter; \
     })
 
+#define any_predicates_match(predicate_set, pred)           \
+    std::any_of(predicate_set.begin(), predicate_set.end(), \
+                [&pred](const ColumnPredicate* p) { return p->Equal(pred); })
+
 Status SegmentIterator::_apply_inverted_index_on_column_predicate(
         ColumnPredicate* pred, std::vector<ColumnPredicate*>& remaining_predicates,
         bool* continue_apply) {
@@ -1012,7 +1016,7 @@ Status SegmentIterator::_apply_inverted_index() {
     }
 
     for (auto pred : _col_predicates) {
-        if (no_need_to_pass_column_predicate_set.count(pred) > 0) {
+        if (any_predicates_match(no_need_to_pass_column_predicate_set, pred)) {
             continue;
         } else {
             bool continue_apply = true;
