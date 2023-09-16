@@ -21,13 +21,6 @@ def sql(query):
     result = execute_command(cmd)
     return result
 
-def get_sql(id) :
-    path = "../queries/sf100/query" + str(id) + ".sql"
-    with open(path) as qfile:
-        content = qfile.read()
-        content = content.split(";")[0]
-        return content
-
 def last_query_id():
     # 'YWRtaW46' is the base64 encoded result for 'admin:'
     headers = {'Authorization': 'BASIC YWRtaW46'}
