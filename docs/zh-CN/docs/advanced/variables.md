@@ -679,6 +679,12 @@ try (Connection conn = DriverManager.getConnection("jdbc:mysql://127.0.0.1:9030/
   在 DataSink 节点上构建 MemTable，并通过 brpc streaming 发送 segment 到其他 BE。
   该方法减少了多副本之间的重复工作，并且节省了数据序列化和反序列化的时间。
 
+* `enable_unique_key_partial_update`
+
+  <version since="2.0.2">
+  是否在对insert into语句启用部分列更新的语义，默认为 false
+  </version>
+
 ***
 
 #### 关于语句执行超时控制的补充说明

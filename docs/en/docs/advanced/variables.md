@@ -692,6 +692,12 @@ Translated with www.DeepL.com/Translator (free version)
   Build MemTable on DataSink node, and send segments to other backends through brpc streaming.
   It reduces duplicate work among replicas, and saves time in data serialization & deserialization.
 
+* `enable_unique_key_partial_update`
+
+  <version since="2.0.2">
+  Whether to enable partial columns update semantics for native insert into statement, default is false.
+  </version>
+
 ***
 
 #### Supplementary instructions on statement execution timeout control
