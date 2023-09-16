@@ -202,6 +202,7 @@ public class DeleteStmt extends DdlStmt {
                 new InsertSource(selectStmt),
                 null,
                 isPartialUpdate);
+        ((NativeInsertStmt) insertStmt).setIsFromDeleteOrUpdateStmt(true);
     }
 
     private void analyzeTargetTable(Analyzer analyzer) throws UserException {

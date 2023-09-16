@@ -683,6 +683,12 @@ Translated with www.DeepL.com/Translator (free version)
   
   It is used for the ReplacingMergeTree table engine of ClickHouse to deduplicate queries.
 
+* `enable_unique_key_partial_update`
+
+  <version since="2.0.2">
+  Whether to enable partial columns update semantics for native insert into statement, default is false.
+  </version>
+
 ***
 
 #### Supplementary instructions on statement execution timeout control
