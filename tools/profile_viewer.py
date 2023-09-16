@@ -287,8 +287,8 @@ def print_usage():
         python profile_viewer.py [PATH_TO_PROFILE]
     
     graphviz is required(https://graphviz.org/)
-    on linux: apt install graphvize
-    on mac: brew install graphvize
+    on linux: apt install graphviz
+    on mac: brew install graphviz
     """)
 
 if __name__ == '__main__':
