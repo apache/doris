@@ -201,6 +201,7 @@ public class SchemaChangeHandlerTest extends TestWithFeService {
             Env.getCurrentEnv().getAlterInstance().processAlterTable(dropRollUpValColStmt);
             Assertions.assertTrue(false);
         } catch (Exception e) {
+            LOG.info("{}", e);
         }
         //check alter job, need create job
         LOG.info("alterJobs:{}", alterJobs);
