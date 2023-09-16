@@ -27,6 +27,23 @@
 #include "vec/functions/array/function_array_utils.h"
 #include "vec/functions/function_helpers.h"
 
+#define FILL_MAP_DATA_INTO_DEFAULT_COLUMN()                                \
+    ++dst_off;                                                             \
+    auto& dst_data = static_cast<ColumnType&>(*dst.nested_col).get_data(); \
+    dst_data.push_back(entry.get_first());                                 \
+    if (dst.nested_nullmap_data) {                                         \
+        dst.nested_nullmap_data->push_back(0);                             \
+    }
+
+#define FILL_MAP_DATA_INTO_STRING_COLUMN()                       \
+    auto& dst_col = static_cast<ColumnString&>(*dst.nested_col); \
+    StringRef key = entry.get_first();                           \
+    ++dst_off;                                                   \
+    dst_col.insert_data(key.data, key.size);                     \
+    if (dst.nested_nullmap_data) {                               \
+        dst.nested_nullmap_data->push_back(0);                   \
+    }
+
 namespace doris::vectorized {
 
 enum class MapOperation { INTERSECT, UNION };
@@ -86,21 +103,11 @@ struct OpenMapImpl {
             for (const auto& entry : map) {
                 if constexpr (operation == MapOperation::INTERSECT) {
                     if (entry.get_mapped() == params.size()) {
-                        ++dst_off;
-                        auto& dst_data = static_cast<ColumnType&>(*dst.nested_col).get_data();
-                        dst_data.push_back(entry.get_first());
-                        if (dst.nested_nullmap_data) {
-                            dst.nested_nullmap_data->push_back(0);
-                        }
+                        FILL_MAP_DATA_INTO_DEFAULT_COLUMN()
                     }
                 } else if constexpr (operation == MapOperation::UNION) {
                     // union in map all key
-                    ++dst_off;
-                    auto& dst_data = static_cast<ColumnType&>(*dst.nested_col).get_data();
-                    dst_data.push_back(entry.get_first());
-                    if (dst.nested_nullmap_data) {
-                        dst.nested_nullmap_data->push_back(0);
-                    }
+                    FILL_MAP_DATA_INTO_DEFAULT_COLUMN()
                 }
             }
             dst.offsets_ptr->push_back(dst_off);
@@ -141,22 +148,10 @@ struct OpenMapImpl<operation, ColumnString> {
             for (const auto& entry : map) {
                 if constexpr (operation == MapOperation::INTERSECT) {
                     if (entry.get_mapped() == params.size()) {
-                        auto& dst_col = static_cast<ColumnString&>(*dst.nested_col);
-                        StringRef key = entry.get_first();
-                        ++dst_off;
-                        dst_col.insert_data(key.data, key.size);
-                        if (dst.nested_nullmap_data) {
-                            dst.nested_nullmap_data->push_back(0);
-                        }
+                        FILL_MAP_DATA_INTO_STRING_COLUMN()
                     }
                 } else if constexpr (operation == MapOperation::UNION) {
-                    auto& dst_col = static_cast<ColumnString&>(*dst.nested_col);
-                    StringRef key = entry.get_first();
-                    ++dst_off;
-                    dst_col.insert_data(key.data, key.size);
-                    if (dst.nested_nullmap_data) {
-                        dst.nested_nullmap_data->push_back(0);
-                    }
+                    FILL_MAP_DATA_INTO_STRING_COLUMN()
                 }
             }
             dst.offsets_ptr->push_back(dst_off);

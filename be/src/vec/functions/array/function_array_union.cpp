@@ -38,15 +38,12 @@ struct UnionAction {
     bool current_null_flag = false;
     // True if result_set has null element
     bool result_null_flag = false;
-    // True if it should execute the left array first.
-    typename Map::mapped_type* value = nullptr;
 
     // Handle Null element.
     bool apply_null() { return result_null_flag; }
 
     // Handle Non-Null element.
-    void apply(Map& map, const int arg_idx, const int row_idx,
-               const ColumnArrayExecutionData& param) {
+    void apply(Map& map, size_t arg_idx, size_t row_idx, const ColumnArrayExecutionData& param) {
         current_null_flag = false;
         size_t start_off = (*param.offsets_ptr)[row_idx - 1];
         size_t end_off = (*param.offsets_ptr)[row_idx];
@@ -55,10 +52,10 @@ struct UnionAction {
                 current_null_flag = true;
             } else {
                 if constexpr (std::is_same_v<ColumnString, ColumnType>) {
-                    value = &map[param.nested_col->get_data_at(off)];
+                    map[param.nested_col->get_data_at(off)];
                 } else {
                     auto& data_col = static_cast<const ColumnType&>(*param.nested_col);
-                    value = &map[data_col.get_element(off)];
+                    map[data_col.get_element(off)];
                 }
             }
         }
