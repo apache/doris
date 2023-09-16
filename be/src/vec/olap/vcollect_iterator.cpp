@@ -789,10 +789,13 @@ Status VCollectIterator::Level1Iterator::_merge_next(Block* block) {
         // clear block column data
         if (pre_row_ref.row_pos + continuous_row_in_block == pre_row_ref.block->rows()) {
             const auto& src_block = pre_row_ref.block;
-            for (size_t i = 0; i < column_count; ++i) {
-                target_columns[i]->insert_range_from(*(src_block->get_by_position(i).column),
-                                                     pre_row_ref.row_pos, continuous_row_in_block);
-            }
+            RETURN_IF_CATCH_EXCEPTION({
+                for (size_t i = 0; i < column_count; ++i) {
+                    target_columns[i]->insert_range_from(*(src_block->get_by_position(i).column),
+                                                         pre_row_ref.row_pos,
+                                                         continuous_row_in_block);
+                }
+            });
             continuous_row_in_block = 0;
             pre_row_ref.reset();
         }
