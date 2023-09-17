@@ -313,8 +313,8 @@ public class ExportStmt extends StatementBase {
                 throw new AnalysisException("Invalid export path. please use valid 's3://' path.");
             }
         } else if (type == StorageBackend.StorageType.HDFS) {
-            if (schema == null || !schema.equalsIgnoreCase("hdfs")) {
-                throw new AnalysisException("Invalid export path. please use valid 'HDFS://' path.");
+            if (schema == null || (!schema.equalsIgnoreCase("hdfs") && !schema.equalsIgnoreCase("viewfs"))) {
+                throw new AnalysisException("Invalid export path. please use valid 'HDFS://' or 'viewfs://' path.");
             }
         } else if (type == StorageBackend.StorageType.LOCAL) {
             if (schema != null && !schema.equalsIgnoreCase("file")) {
