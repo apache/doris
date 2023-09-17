@@ -32,7 +32,6 @@
 
 #include "common/status.h"
 #include "io/fs/file_system.h"
-#include "io/fs/fs_utils.h"
 #include "olap/olap_common.h"
 #include "util/metrics.h"
 
@@ -138,7 +137,11 @@ public:
 
     void update_remote_data_size(int64_t size);
 
-    size_t tablet_size() const;
+    size_t disk_capacity() const;
+
+    size_t disk_available() const;
+
+    size_t tablet_num() const;
 
     void disks_compaction_score_increment(int64_t delta);
 

@@ -156,38 +156,32 @@ admin set frontend config("disable_tablet_scheduler" = "true");
    echo "cluster_id=123456" >> ${DORIS_NEW_HOME}/conf/fe.conf
    ```
 
-4. 在 fe.conf 添加元数据故障恢复配置
-
-   ```shell
-   echo "metadata_failure_recovery=true" >> ${DORIS_NEW_HOME}/conf/fe.conf
-   ```
-
-5. 拷贝线上环境 Master FE 的元数据目录 doris-meta 到测试环境
+4. 拷贝线上环境 Master FE 的元数据目录 doris-meta 到测试环境
 
    ```shell
    cp ${DORIS_OLD_HOME}/fe/doris-meta/* ${DORIS_NEW_HOME}/fe/doris-meta
    ```
 
-6. 将拷贝到测试环境中的 VERSION 文件中的 cluster_id 修改为 123456（即与第3步中相同）
+5. 将拷贝到测试环境中的 VERSION 文件中的 cluster_id 修改为 123456（即与第3步中相同）
 
    ```shell
    vi ${DORIS_NEW_HOME}/fe/doris-meta/image/VERSION
    clusterId=123456
    ```
 
-7. 在测试环境中，运行启动 FE
+6. 在测试环境中，运行启动 FE
 
    ```shell
-   sh ${DORIS_NEW_HOME}/bin/start_fe.sh --daemon
+   sh ${DORIS_NEW_HOME}/bin/start_fe.sh --daemon --metadata_failure_recovery
    ```
 
-8. 通过 FE 日志 fe.log 观察是否启动成功
+7. 通过 FE 日志 fe.log 观察是否启动成功
 
    ```shell
    tail -f ${DORIS_NEW_HOME}/log/fe.log
    ```
 
-9. 如果启动成功，则代表兼容性没有问题，停止测试环境的 FE 进程，准备升级
+8. 如果启动成功，则代表兼容性没有问题，停止测试环境的 FE 进程，准备升级
 
    ```
    sh ${DORIS_NEW_HOME}/bin/stop_fe.sh

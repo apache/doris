@@ -43,6 +43,8 @@ class TupleDescriptor;
 
 namespace pipeline {
 class ScanLocalStateBase;
+struct ScannerDoneDependency;
+struct DataReadyDependency;
 } // namespace pipeline
 
 namespace taskgroup {
@@ -100,13 +102,13 @@ public:
         return _process_status;
     }
 
+    virtual void set_dependency(
+            std::shared_ptr<pipeline::DataReadyDependency> dependency,
+            std::shared_ptr<pipeline::ScannerDoneDependency> scanner_done_dependency) {}
+
     // Called by ScanNode.
     // Used to notify the scheduler that this ScannerContext can stop working.
-    void set_should_stop() {
-        std::lock_guard l(_transfer_lock);
-        _should_stop = true;
-        _blocks_queue_added_cv.notify_one();
-    }
+    void set_should_stop();
 
     // Return true if this ScannerContext need no more process
     virtual bool done() { return _is_finished || _should_stop; }
@@ -131,7 +133,7 @@ public:
 
     bool no_schedule();
 
-    std::string debug_string();
+    virtual std::string debug_string();
 
     RuntimeState* state() { return _state; }
 
@@ -264,6 +266,8 @@ protected:
     RuntimeProfile::HighWaterMarkCounter* _queued_blocks_memory_usage = nullptr;
     RuntimeProfile::Counter* _newly_create_free_blocks_num = nullptr;
     RuntimeProfile::Counter* _scanner_wait_batch_timer = nullptr;
+
+    std::shared_ptr<pipeline::ScannerDoneDependency> _scanner_done_dependency = nullptr;
 };
 } // namespace vectorized
 } // namespace doris

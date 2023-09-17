@@ -24,6 +24,7 @@ import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.AggregateType;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.common.Config;
+import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.Pair;
 import org.apache.doris.load.loadv2.LoadTask;
 import org.apache.doris.nereids.DorisParser;
@@ -78,6 +79,7 @@ import org.apache.doris.nereids.DorisParser.IdentifierSeqContext;
 import org.apache.doris.nereids.DorisParser.InPartitionDefContext;
 import org.apache.doris.nereids.DorisParser.IndexDefContext;
 import org.apache.doris.nereids.DorisParser.IndexDefsContext;
+import org.apache.doris.nereids.DorisParser.InlineTableContext;
 import org.apache.doris.nereids.DorisParser.InsertIntoQueryContext;
 import org.apache.doris.nereids.DorisParser.IntegerLiteralContext;
 import org.apache.doris.nereids.DorisParser.IntervalContext;
@@ -85,6 +87,7 @@ import org.apache.doris.nereids.DorisParser.Is_not_null_predContext;
 import org.apache.doris.nereids.DorisParser.IsnullContext;
 import org.apache.doris.nereids.DorisParser.JoinCriteriaContext;
 import org.apache.doris.nereids.DorisParser.JoinRelationContext;
+import org.apache.doris.nereids.DorisParser.LambdaExpressionContext;
 import org.apache.doris.nereids.DorisParser.LateralViewContext;
 import org.apache.doris.nereids.DorisParser.LessThanPartitionDefContext;
 import org.apache.doris.nereids.DorisParser.LimitClauseContext;
@@ -117,6 +120,7 @@ import org.apache.doris.nereids.DorisParser.RegularQuerySpecificationContext;
 import org.apache.doris.nereids.DorisParser.RelationContext;
 import org.apache.doris.nereids.DorisParser.RollupDefContext;
 import org.apache.doris.nereids.DorisParser.RollupDefsContext;
+import org.apache.doris.nereids.DorisParser.RowConstructorContext;
 import org.apache.doris.nereids.DorisParser.SelectClauseContext;
 import org.apache.doris.nereids.DorisParser.SelectColumnClauseContext;
 import org.apache.doris.nereids.DorisParser.SelectHintContext;
@@ -168,6 +172,7 @@ import org.apache.doris.nereids.properties.SelectHint;
 import org.apache.doris.nereids.properties.SelectHintLeading;
 import org.apache.doris.nereids.properties.SelectHintSetVar;
 import org.apache.doris.nereids.trees.expressions.Add;
+import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.And;
 import org.apache.doris.nereids.trees.expressions.BitAnd;
 import org.apache.doris.nereids.trees.expressions.BitNot;
@@ -229,6 +234,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.HourFloor;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.HoursAdd;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.HoursDiff;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.HoursSub;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Lambda;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MinuteCeil;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MinuteFloor;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MinutesAdd;
@@ -410,6 +416,8 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                 colNames,
                 ImmutableList.of(),
                 partitions,
+                false,
+                true,
                 visitQuery(ctx.query()));
         if (ctx.explain() != null) {
             return withExplain(sink, ctx.explain());
@@ -813,6 +821,15 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         });
     }
 
+    @Override
+    public LogicalPlan visitInlineTable(InlineTableContext ctx) {
+        List<LogicalPlan> exprsList = ctx.rowConstructor().stream()
+                .map(this::visitRowConstructor)
+                .map(LogicalPlan.class::cast)
+                .collect(ImmutableList.toImmutableList());
+        return reduceToLogicalPlanTree(0, exprsList.size() - 1, exprsList, Qualifier.ALL);
+    }
+
     /**
      * Create an aliased table reference. This is typically used in FROM clauses.
      */
@@ -1031,6 +1048,15 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             // Create a balanced tree.
             return reduceToExpressionTree(0, expressions.size() - 1, expressions, ctx);
         });
+    }
+
+    @Override
+    public Expression visitLambdaExpression(LambdaExpressionContext ctx) {
+        ImmutableList<String> args = ctx.args.stream()
+                .map(RuleContext::getText)
+                .collect(ImmutableList.toImmutableList());
+        Expression body = (Expression) visit(ctx.body);
+        return new Lambda(args, body);
     }
 
     private Expression expressionCombiner(Expression left, Expression right, LogicalBinaryContext ctx) {
@@ -1748,6 +1774,18 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     }
 
     @Override
+    public UnboundOneRowRelation visitRowConstructor(RowConstructorContext ctx) {
+        return new UnboundOneRowRelation(
+                StatementScopeIdGenerator.newRelationId(),
+                ctx.namedExpression().stream()
+                .map(this::visitNamedExpression)
+                .map(e -> (e instanceof NamedExpression)
+                        ? ((NamedExpression) e)
+                        : new Alias(e, e.toSql()))
+                .collect(ImmutableList.toImmutableList()));
+    }
+
+    @Override
     public List<Expression> visitNamedExpressionSeq(NamedExpressionSeqContext namedCtx) {
         return visit(namedCtx.namedExpression(), Expression.class);
     }
@@ -1858,9 +1896,13 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             keysType = KeysType.UNIQUE_KEYS;
         }
         String engineName = ctx.engine != null ? ctx.engine.getText().toLowerCase() : "olap";
-        DistributionDescriptor desc = new DistributionDescriptor(ctx.HASH() != null, ctx.AUTO() != null,
-                Integer.parseInt(ctx.INTEGER_VALUE().getText()),
-                ctx.HASH() != null ? visitIdentifierList(ctx.hashKeys) : null);
+        boolean isHash = ctx.HASH() != null || ctx.RANDOM() == null;
+        int bucketNum = FeConstants.default_bucket_num;
+        if (isHash && ctx.INTEGER_VALUE() != null) {
+            bucketNum = Integer.parseInt(ctx.INTEGER_VALUE().getText());
+        }
+        DistributionDescriptor desc = new DistributionDescriptor(isHash, ctx.AUTO() != null,
+                bucketNum, ctx.HASH() != null ? visitIdentifierList(ctx.hashKeys) : null);
         Map<String, String> properties = ctx.propertyClause() != null
                 ? visitPropertyClause(ctx.propertyClause()) : null;
         String partitionType = null;
@@ -2586,7 +2628,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             String dataType = ctx.primitiveColType().type.getText().toLowerCase(Locale.ROOT);
             List<String> l = Lists.newArrayList(dataType);
             ctx.INTEGER_VALUE().stream().map(ParseTree::getText).forEach(l::add);
-            return DataType.convertPrimitiveFromStrings(l);
+            return DataType.convertPrimitiveFromStrings(l, ctx.primitiveColType().UNSIGNED() != null);
         });
     }
 

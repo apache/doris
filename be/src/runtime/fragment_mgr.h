@@ -75,6 +75,8 @@ public:
     FragmentMgr(ExecEnv* exec_env);
     ~FragmentMgr() override;
 
+    void stop();
+
     // execute one plan fragment
     Status exec_plan_fragment(const TExecPlanFragmentParams& params);
 

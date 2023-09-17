@@ -130,15 +130,12 @@ public class S3TvfLoadStmtTest extends TestWithFeService {
     @Injectable
     Table targetTable;
 
-    @Injectable
-    DataDescription dataDescription;
-
     @Test
     public void testColumnMappings() throws Exception {
         // c1/c2/c3 in both file and table, and c5 is only in table
         final List<ImportColumnDesc> columnsDescList = getColumnsDescList(
                 "c1,c2,c3,c1=upper(c1), tmp_c4=c1 + 1, c5 = tmp_c4+1");
-        //        DataDescription dataDescription = buildDataDesc(colNames, null, null, null);
+        DataDescription dataDescription = buildDataDesc(colNames, null, null, null);
         new Expectations() {
             {
                 dataDescription.getParsedColumnExprList();

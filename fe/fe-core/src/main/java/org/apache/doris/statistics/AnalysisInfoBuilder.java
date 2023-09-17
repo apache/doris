@@ -59,6 +59,8 @@ public class AnalysisInfoBuilder {
 
     private CronExpression cronExpression;
 
+    private boolean forceFull;
+
     public AnalysisInfoBuilder() {
     }
 
@@ -90,6 +92,7 @@ public class AnalysisInfoBuilder {
         partitionOnly = info.partitionOnly;
         samplingPartition = info.samplingPartition;
         cronExpression = info.cronExpression;
+        forceFull = info.forceFull;
     }
 
     public AnalysisInfoBuilder setJobId(long jobId) {
@@ -226,37 +229,14 @@ public class AnalysisInfoBuilder {
         this.cronExpression = cronExpression;
     }
 
+    public void setForceFull(boolean forceFull) {
+        this.forceFull = forceFull;
+    }
+
     public AnalysisInfo build() {
         return new AnalysisInfo(jobId, taskId, taskIds, catalogName, dbName, tblName, colToPartitions, partitionNames,
                 colName, indexId, jobType, analysisMode, analysisMethod, analysisType, samplePercent,
                 sampleRows, maxBucketNum, periodTimeInMs, message, lastExecTimeInMs, timeCostInMs, state, scheduleType,
-                externalTableLevelTask, partitionOnly, samplingPartition, cronExpression);
-    }
-
-    public AnalysisInfoBuilder copy() {
-        return new AnalysisInfoBuilder()
-                .setJobId(jobId)
-                .setTaskId(taskId)
-                .setTaskIds(taskIds)
-                .setCatalogName(catalogName)
-                .setDbName(dbName)
-                .setTblName(tblName)
-                .setColToPartitions(colToPartitions)
-                .setColName(colName)
-                .setIndexId(indexId)
-                .setJobType(jobType)
-                .setAnalysisMode(analysisMode)
-                .setAnalysisMethod(analysisMethod)
-                .setAnalysisType(analysisType)
-                .setSamplePercent(samplePercent)
-                .setSampleRows(sampleRows)
-                .setPeriodTimeInMs(periodTimeInMs)
-                .setMaxBucketNum(maxBucketNum)
-                .setMessage(message)
-                .setLastExecTimeInMs(lastExecTimeInMs)
-                .setTimeCostInMs(timeCostInMs)
-                .setState(state)
-                .setScheduleType(scheduleType)
-                .setExternalTableLevelTask(externalTableLevelTask);
+                externalTableLevelTask, partitionOnly, samplingPartition, cronExpression, forceFull);
     }
 }

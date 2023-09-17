@@ -84,7 +84,7 @@ namespace doris {
 class RuntimeState;
 
 namespace io {
-class IOContext;
+struct IOContext;
 enum class FileCachePolicy : uint8_t;
 } // namespace io
 } // namespace doris
@@ -218,9 +218,10 @@ void OrcReader::_init_profile() {
 Status OrcReader::_create_file_reader() {
     if (_file_input_stream == nullptr) {
         io::FileReaderSPtr inner_reader;
-        io::FileReaderOptions reader_options = FileFactory::get_reader_options(_state);
         _file_description.mtime =
                 _scan_range.__isset.modification_time ? _scan_range.modification_time : 0;
+        io::FileReaderOptions reader_options =
+                FileFactory::get_reader_options(_state, _file_description);
         RETURN_IF_ERROR(io::DelegateReader::create_file_reader(
                 _profile, _system_properties, _file_description, reader_options, &_file_system,
                 &inner_reader, io::DelegateReader::AccessMode::RANDOM, _io_ctx));
@@ -244,8 +245,6 @@ Status OrcReader::_create_file_reader() {
         }
         return Status::InternalError("Init OrcReader failed. reason = {}", _err_msg);
     }
-    _remaining_rows = _reader->getNumberOfRows();
-
     return Status::OK();
 }
 
@@ -788,6 +787,9 @@ Status OrcReader::set_fill_columns(
         auto& selected_type = _row_reader->getSelectedType();
         int idx = 0;
         _init_select_types(selected_type, idx);
+
+        _remaining_rows = _row_reader->getNumberOfRows();
+
     } catch (std::exception& e) {
         return Status::InternalError("Failed to create orc row reader. reason = {}", e.what());
     }
@@ -907,8 +909,7 @@ void OrcReader::_init_system_properties() {
 
 void OrcReader::_init_file_description() {
     _file_description.path = _scan_range.path;
-    _file_description.start_offset = _scan_range.start_offset;
-    _file_description.file_size = _scan_range.__isset.file_size ? _scan_range.file_size : 0;
+    _file_description.file_size = _scan_range.__isset.file_size ? _scan_range.file_size : -1;
     if (_scan_range.__isset.fs_name) {
         _file_description.fs_name = _scan_range.fs_name;
     }

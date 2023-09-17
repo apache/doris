@@ -18,6 +18,7 @@
 package org.apache.doris.tablefunction;
 
 import org.apache.doris.analysis.BrokerDesc;
+import org.apache.doris.analysis.Separator;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.catalog.ArrayType;
 import org.apache.doris.catalog.Column;
@@ -123,6 +124,8 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
             .add(TRIM_DOUBLE_QUOTES)
             .add(SKIP_LINES)
             .add(CSV_SCHEMA)
+            .add(COMPRESS_TYPE)
+            .add(PATH_PARTITION_KEYS)
             .build();
 
     // Columns got from file and path(if has)
@@ -135,6 +138,8 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
 
     protected List<TBrokerFileStatus> fileStatuses = Lists.newArrayList();
     protected Map<String, String> locationProperties;
+    protected String filePath;
+
 
     private TFileFormatType fileFormatType;
     private TFileCompressType compressionType;
@@ -198,8 +203,9 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
         }
     }
 
+    //The keys in the passed validParams map need to be lowercase.
     protected void parseProperties(Map<String, String> validParams) throws AnalysisException {
-        String formatString = validParams.getOrDefault(FORMAT, "").toLowerCase();
+        String formatString = validParams.getOrDefault(FORMAT, "");
         switch (formatString) {
             case "csv":
                 this.fileFormatType = TFileFormatType.FORMAT_CSV_PLAIN;
@@ -233,13 +239,18 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
                 throw new AnalysisException("format:" + formatString + " is not supported.");
         }
 
-        if (getTFileType() == TFileType.FILE_STREAM && (formatString.equals("parquet")
-                || formatString.equals("avro")
-                || formatString.equals("orc"))) {
-            throw new AnalysisException("current http_stream does not yet support parquet, avro and orc");
-        }
         columnSeparator = validParams.getOrDefault(COLUMN_SEPARATOR, DEFAULT_COLUMN_SEPARATOR);
+        if (Strings.isNullOrEmpty(columnSeparator)) {
+            throw new AnalysisException("column_separator can not be empty.");
+        }
+        columnSeparator = Separator.convertSeparator(columnSeparator);
+
         lineDelimiter = validParams.getOrDefault(LINE_DELIMITER, DEFAULT_LINE_DELIMITER);
+        if (Strings.isNullOrEmpty(lineDelimiter)) {
+            throw new AnalysisException("line_delimiter can not be empty.");
+        }
+        lineDelimiter = Separator.convertSeparator(lineDelimiter);
+
         jsonRoot = validParams.getOrDefault(JSON_ROOT, "");
         jsonPaths = validParams.getOrDefault(JSON_PATHS, "");
         readJsonByLine = Boolean.valueOf(validParams.get(READ_JSON_BY_LINE)).booleanValue();
@@ -248,6 +259,7 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
         fuzzyParse = Boolean.valueOf(validParams.get(FUZZY_PARSE)).booleanValue();
         trimDoubleQuotes = Boolean.valueOf(validParams.get(TRIM_DOUBLE_QUOTES)).booleanValue();
         skipLines = Integer.valueOf(validParams.getOrDefault(SKIP_LINES, "0")).intValue();
+
         try {
             compressionType = Util.getFileCompressType(validParams.getOrDefault(COMPRESS_TYPE, "UNKNOWN"));
         } catch (IllegalArgumentException e) {
