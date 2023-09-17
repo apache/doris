@@ -1389,19 +1389,25 @@ public class StmtExecutor {
         //
         // 2. If this is a query, send the result expr fields first, and send result data back to client.
         RowBatch batch;
-        coord = new Coordinator(context, analyzer, planner, context.getStatsErrorEstimator());
-        if (Config.enable_workload_group && context.sessionVariable.getEnablePipelineEngine()) {
-            coord.setTWorkloadGroups(context.getEnv().getWorkloadGroupMgr().getWorkloadGroup(context));
+        CoordInterface coordBase = null;
+        if (queryStmt instanceof SelectStmt && ((SelectStmt) parsedStmt).isPointQueryShortCircuit()) {
+            coordBase = new PointQueryExec(planner, analyzer);
         } else {
-            context.setWorkloadGroupName("");
+            coord = new Coordinator(context, analyzer, planner, context.getStatsErrorEstimator());
+            if (Config.enable_workload_group && context.sessionVariable.getEnablePipelineEngine()) {
+                coord.setTWorkloadGroups(context.getEnv().getWorkloadGroupMgr().getWorkloadGroup(context));
+            } else {
+                context.setWorkloadGroupName("");
+            }
+            QeProcessorImpl.INSTANCE.registerQuery(context.queryId(),
+                    new QeProcessorImpl.QueryInfo(context, originStmt.originStmt, coord));
+            profile.addExecutionProfile(coord.getExecutionProfile());
+            coordBase = coord;
         }
-        QeProcessorImpl.INSTANCE.registerQuery(context.queryId(),
-                new QeProcessorImpl.QueryInfo(context, originStmt.originStmt, coord));
-        profile.addExecutionProfile(coord.getExecutionProfile());
         Span queryScheduleSpan =
                 context.getTracer().spanBuilder("query schedule").setParent(Context.current()).startSpan();
         try (Scope scope = queryScheduleSpan.makeCurrent()) {
-            coord.exec();
+            coordBase.exec();
         } catch (Exception e) {
             queryScheduleSpan.recordException(e);
             throw e;
@@ -1410,12 +1416,12 @@ public class StmtExecutor {
         }
         profile.getSummaryProfile().setQueryScheduleFinishTime();
         updateProfile(false);
-        if (coord.getInstanceTotalNum() > 1 && LOG.isDebugEnabled()) {
+        if (coordBase.getInstanceTotalNum() > 1 && LOG.isDebugEnabled()) {
             try {
                 LOG.debug("Start to execute fragment. user: {}, db: {}, sql: {}, fragment instance num: {}",
                         context.getQualifiedUser(), context.getDatabase(),
                         parsedStmt.getOrigStmt().originStmt.replace("\n", " "),
-                        coord.getInstanceTotalNum());
+                        coordBase.getInstanceTotalNum());
             } catch (Exception e) {
                 LOG.warn("Fail to print fragment concurrency for Query.", e);
             }
@@ -1426,7 +1432,7 @@ public class StmtExecutor {
             while (true) {
                 // register the fetch result time.
                 profile.getSummaryProfile().setTempStartTime();
-                batch = coord.getNext();
+                batch = coordBase.getNext();
                 profile.getSummaryProfile().freshFetchResultConsumeTime();
 
                 // for outfile query, there will be only one empty batch send back with eos flag
@@ -1494,17 +1500,17 @@ public class StmtExecutor {
             // in some case may block all fragment handle threads
             // details see issue https://github.com/apache/doris/issues/16203
             LOG.warn("cancel fragment query_id:{} cause {}", DebugUtil.printId(context.queryId()), e.getMessage());
-            coord.cancel(Types.PPlanFragmentCancelReason.INTERNAL_ERROR);
+            coordBase.cancel(Types.PPlanFragmentCancelReason.INTERNAL_ERROR);
             fetchResultSpan.recordException(e);
             throw e;
         } finally {
             fetchResultSpan.end();
-            if (coord.getInstanceTotalNum() > 1 && LOG.isDebugEnabled()) {
+            if (coordBase.getInstanceTotalNum() > 1 && LOG.isDebugEnabled()) {
                 try {
                     LOG.debug("Finish to execute fragment. user: {}, db: {}, sql: {}, fragment instance num: {}",
                             context.getQualifiedUser(), context.getDatabase(),
                             parsedStmt.getOrigStmt().originStmt.replace("\n", " "),
-                            coord.getInstanceTotalNum());
+                            coordBase.getInstanceTotalNum());
                 } catch (Exception e) {
                     LOG.warn("Fail to print fragment concurrency for Query.", e);
                 }
@@ -2590,12 +2596,7 @@ public class StmtExecutor {
             }
             planner.getFragments();
             RowBatch batch;
-            CoordInterface coor = null; 
-            if (planner.isPointQuery()) {
-                coord = new PointQueryExec(planner, analyzer);
-            } else {
-                coord = new Coordinator(context, analyzer, planner, context.getStatsErrorEstimator());
-            }
+            coord = new Coordinator(context, analyzer, planner, context.getStatsErrorEstimator());
             profile.addExecutionProfile(coord.getExecutionProfile());
             try {
                 QeProcessorImpl.INSTANCE.registerQuery(context.queryId(),

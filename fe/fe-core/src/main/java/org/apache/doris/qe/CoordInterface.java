@@ -15,10 +15,17 @@
 // specific language governing permissions and limitations
 // under the License.
 
-import org.apache.doris.common.AnalysisException;
+package org.apache.doris.qe;
+
+import org.apache.doris.proto.Types;
 
 public interface CoordInterface {
     public void exec() throws Exception;
+
     public RowBatch getNext() throws Exception;
+
+    public int getInstanceTotalNum();
+
+    public void cancel(Types.PPlanFragmentCancelReason cancelReason);
 }
 

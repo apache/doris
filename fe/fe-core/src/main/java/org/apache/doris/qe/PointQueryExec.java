@@ -17,24 +17,33 @@
 
 package org.apache.doris.qe;
 
+import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.DescriptorTable;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.LiteralExpr;
+import org.apache.doris.analysis.PrepareStmt;
 import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.Status;
+import org.apache.doris.common.UserException;
+import org.apache.doris.planner.OlapScanNode;
+import org.apache.doris.planner.PlanFragment;
 import org.apache.doris.planner.Planner;
 import org.apache.doris.proto.InternalService;
 import org.apache.doris.proto.InternalService.KeyTuple;
+import org.apache.doris.proto.Types;
 import org.apache.doris.rpc.BackendServiceProxy;
 import org.apache.doris.rpc.RpcException;
 import org.apache.doris.system.Backend;
 import org.apache.doris.thrift.TExpr;
 import org.apache.doris.thrift.TExprList;
 import org.apache.doris.thrift.TResultBatch;
+import org.apache.doris.thrift.TScanRangeLocations;
 import org.apache.doris.thrift.TStatusCode;
 
+import com.google.common.base.Preconditions;
+import com.google.common.base.Strings;
 import com.google.protobuf.ByteString;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -44,7 +53,6 @@ import org.apache.thrift.TSerializer;
 
 import java.util.ArrayList;
 import java.util.Collections;
-import java.util.HashSet;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
@@ -54,7 +62,7 @@ import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 
-public class PointQueryExec extends CoordInterface {
+public class PointQueryExec implements CoordInterface {
     private static final Logger LOG = LogManager.getLogger(PointQueryExec.class);
     // SlotRef sorted by column id
     private Map<SlotRef, Expr> equalPredicats;
@@ -70,51 +78,55 @@ public class PointQueryExec extends CoordInterface {
     private boolean isBinaryProtocol = false;
 
     private List<Backend> candidateBackends;
+    Planner planner;
 
     // For parepared statement cached structure,
     // there are some pre caculated structure in Backend TabletFetch service
     // using this ID to find for this prepared statement
     private UUID cacheID;
 
-    public PointQueryExec(Planner planner, Analyzer analyzer) {
-        // init from planner
-        List<ScanNode> scanNodes = planner.getScanNodes();
+    private OlapScanNode getPlanRoot() {
         List<PlanFragment> fragments = planner.getFragments();
-        OlapScanNode olapScanNode = (OlapScanNode) (this.scanNodes.get(0));
-
         PlanFragment fragment = fragments.get(0);
         LOG.debug("execPointGet fragment {}", fragment);
         OlapScanNode planRoot = (OlapScanNode) fragment.getPlanRoot();
         Preconditions.checkNotNull(planRoot);
+        return planRoot;
+    }
 
+    public PointQueryExec(Planner planner, Analyzer analyzer) {
+        // init from planner
+        this.planner = planner;
+        List<PlanFragment> fragments = planner.getFragments();
+        PlanFragment fragment = fragments.get(0);
+        OlapScanNode planRoot = getPlanRoot();
         this.equalPredicats = planRoot.getPointQueryEqualPredicates();
         this.descriptorTable = planRoot.getDescTable();
         this.outputExprs = fragment.getOutputExprs();
 
         PrepareStmt prepareStmt = analyzer == null ? null : analyzer.getPrepareStmt();
-        if (prepareStmt != null && prepareStmt.getPreparedType() == PreparedType.FULL_PREPARED) {
+        if (prepareStmt != null && prepareStmt.getPreparedType() == PrepareStmt.PreparedType.FULL_PREPARED) {
             // Used cached or better performance
-            setCacheID(prepareStmt.getID());
-            setSerializedDescTable(prepareStmt.getSerializedDescTable());
-            setSerializedOutputExpr(prepareStmt.getSerializedOutputExprs());
-            setBinaryProtocol(prepareStmt.isBinaryProtocol());
+            this.cacheID = prepareStmt.getID();
+            this.serializedDescTable = prepareStmt.getSerializedDescTable();
+            this.serializedOutputExpr = prepareStmt.getSerializedOutputExprs();
+            this.isBinaryProtocol = prepareStmt.isBinaryProtocol();
         } else {
             // TODO
             // planner.getDescTable().toThrift();
         }
-
-        Preconditions.checkState(planRoot.getScanTabletIds().size() == 1);
-        setCandidateBackends(planRoot.getScanBackendIds());
-        setTabletId(planRoot.getScanTabletIds().get(0));
-
-        // compute scan range
-        List<TScanRangeLocations> locations = planRoot.lazyEvaluateRangeLocations();
-        Preconditions.checkNotNull(locations);
     }
 
-    void setCandidateBackends(HashSet<Long> backendsIds) {
+    void setScanRangeLocations() throws Exception {
+        OlapScanNode planRoot = getPlanRoot();
+        // compute scan range
+        List<TScanRangeLocations> locations = planRoot.lazyEvaluateRangeLocations();
+        Preconditions.checkState(planRoot.getScanTabletIds().size() == 1);
+        this.tabletID = planRoot.getScanTabletIds().get(0);
+
+        Preconditions.checkNotNull(locations);
         candidateBackends = new ArrayList<>();
-        for (Long backendID : backendsIds) {
+        for (Long backendID : planRoot.getScanBackendIds()) {
             Backend backend = Env.getCurrentSystemInfo().getBackend(backendID);
             if (SimpleScheduler.isAvailable(backend)) {
                 candidateBackends.add(backend);
@@ -122,30 +134,11 @@ public class PointQueryExec extends CoordInterface {
         }
         // Random read replicas
         Collections.shuffle(this.candidateBackends);
-    }
-
-    public void setSerializedDescTable(ByteString serializedDescTable) {
-        this.serializedDescTable = serializedDescTable;
-    }
-
-    public void setSerializedOutputExpr(ByteString serializedOutputExpr) {
-        this.serializedOutputExpr = serializedOutputExpr;
-    }
-
-    public void setCacheID(UUID cacheID) {
-        this.cacheID = cacheID;
-    }
-
-    public void setTabletId(long tabletID) {
-        this.tabletID = tabletID;
+        LOG.debug("set scan locations, backend ids {}, tablet id {}", candidateBackends, tabletID);
     }
 
     public void setTimeout(long timeoutMs) {
         this.timeoutMs = timeoutMs;
-    }
-
-    public void setBinaryProtocol(boolean isBinaryProtocol) {
-        this.isBinaryProtocol = isBinaryProtocol;
     }
 
     void addKeyTuples(
@@ -158,13 +151,27 @@ public class PointQueryExec extends CoordInterface {
         }
         requestBuilder.addKeyTuples(kBuilder);
     }
-    
+
+    @Override
+    public int getInstanceTotalNum() {
+        // TODO
+        return 1;
+    }
+
+    @Override
+    public void cancel(Types.PPlanFragmentCancelReason cancelReason) {
+        // Do nothing
+    }
+
+
     @Override
     public RowBatch getNext() throws Exception {
+        setScanRangeLocations();
         Iterator<Backend> backendIter = candidateBackends.iterator();
         RowBatch rowBatch = null;
         int tryCount = 0;
         int maxTry = Math.min(Config.max_point_query_retry_time, candidateBackends.size());
+        Status status = new Status();
         do {
             Backend backend = backendIter.next();
             rowBatch = getNextInternal(status, backend);
@@ -179,7 +186,7 @@ public class PointQueryExec extends CoordInterface {
         } while (true);
         // handle status code
         if (!status.ok()) {
-            if (status.isNullOrEmpty(status.getErrorMsg())) {
+            if (Strings.isNullOrEmpty(status.getErrorMsg())) {
                 status.rewriteErrorMsg();
             }
             if (status.isRpcError()) {
