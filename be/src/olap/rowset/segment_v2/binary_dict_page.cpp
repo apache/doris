@@ -294,7 +294,7 @@ Status BinaryDictPageDecoder::next_batch(size_t* n, vectorized::MutableColumnPtr
 
 Status BinaryDictPageDecoder::read_by_rowids(const rowid_t* rowids, ordinal_t page_first_ordinal,
                                              size_t* n, vectorized::MutableColumnPtr& dst) {
-    if (_encoding_type == PLAIN_ENCODING) {
+    if (_encoding_type != DICT_ENCODING) {
         return _data_page_decoder->read_by_rowids(rowids, page_first_ordinal, n, dst);
     }
     DCHECK(_parsed);
