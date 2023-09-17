@@ -75,7 +75,7 @@ public:
         EXPECT_EQ(slices.size(), dict_page_decoder->count());
 
         StringRef dict_word_info[dict_page_decoder->_num_elems];
-        dict_page_decoder->get_dict_word_info(dict_word_info);
+        dict_page_decoder->get_string_ref(dict_word_info);
 
         // decode
         PageDecoderOptions decoder_options;
@@ -181,7 +181,7 @@ public:
             EXPECT_TRUE(status.ok());
 
             StringRef dict_word_info[dict_page_decoder->_num_elems];
-            dict_page_decoder->get_dict_word_info(dict_word_info);
+            dict_page_decoder->get_string_ref(dict_word_info);
 
             // decode
             PageDecoderOptions decoder_options;

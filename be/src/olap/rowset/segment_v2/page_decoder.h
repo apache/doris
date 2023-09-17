@@ -94,6 +94,10 @@ public:
 
     bool has_remaining() const { return current_index() < count(); }
 
+    virtual Status get_string_ref(StringRef* dict_word_info) {
+        return Status::NotSupported("get_dict_word_info not implemented");
+    }
+
 private:
     DISALLOW_COPY_AND_ASSIGN(PageDecoder);
 };

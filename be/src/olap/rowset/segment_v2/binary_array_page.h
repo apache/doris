@@ -200,6 +200,14 @@ public:
         return Status::OK();
     }
 
+    Status get_string_ref(StringRef* dict_word_info) override {
+        for (size_t i = 0; i < _num_elems; ++i) {
+            dict_word_info[i].data = &_data[i * _elem_length];
+            dict_word_info[i].size = _elem_length;
+        }
+        return Status::OK();
+    }
+
 private:
     Slice _data;
     bool _parsed;

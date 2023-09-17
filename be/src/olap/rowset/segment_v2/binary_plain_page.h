@@ -29,6 +29,7 @@
 #pragma once
 
 #include "common/logging.h"
+#include "common/status.h"
 #include "gutil/strings/substitute.h"
 #include "olap/olap_common.h"
 #include "olap/rowset/segment_v2/options.h"
@@ -293,9 +294,9 @@ public:
         return Slice(&_data[start_offset], len);
     }
 
-    void get_dict_word_info(StringRef* dict_word_info) {
+    Status get_string_ref(StringRef* dict_word_info) override {
         if (UNLIKELY(_num_elems <= 0)) {
-            return;
+            return Status::OK();
         }
 
         char* data_begin = (char*)&_data[0];
@@ -313,6 +314,7 @@ public:
 
         dict_word_info[_num_elems - 1].size =
                 (data_begin + _offsets_pos) - (char*)dict_word_info[_num_elems - 1].data;
+        return Status::OK();
     }
 
 private:
