@@ -17,6 +17,8 @@
 
 import argparse
 import command
+import sys
+import traceback
 import utils
 
 
@@ -30,19 +32,35 @@ def parse_args():
 
 
 def run(args, help):
-    timer = utils.Timer()
     for cmd in command.ALL_COMMANDS:
         if args.command == cmd.name:
-            return cmd.run(args)
-    timer.cancel()
+            timer = utils.Timer()
+            result = cmd.run(args)
+            if utils.is_enable_log():
+                timer.show()
+            return result
     print(help)
-    return -1
+    return ""
 
 
 def main():
     args, help = parse_args()
-    run(args, help)
+    if getattr(args, "output_json", False):
+        utils.set_enable_log(False)
+    return run(args, help)
 
 
 if __name__ == '__main__':
-    main()
+    try:
+        data = main()
+        if not utils.is_enable_log():
+            print(utils.pretty_json({"code": 0, "data": data}))
+    except:
+        if not utils.is_enable_log():
+            print(utils.pretty_json({
+                "code": 1,
+                "err": traceback.format_exc()
+            }))
+        else:
+            traceback.print_exception(*sys.exc_info())
+        sys.exit(1)

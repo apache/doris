@@ -56,6 +56,7 @@ import org.junit.Assert
 @Slf4j
 class Suite implements GroovyInterceptable {
     final SuiteContext context
+    final SuiteCluster cluster
     final String name
     final String group
     final Logger logger = LoggerFactory.getLogger(this.class)
@@ -70,6 +71,7 @@ class Suite implements GroovyInterceptable {
         this.name = name
         this.group = group
         this.context = context
+        this.cluster = new SuiteCluster(name, context.config)
     }
 
     String getConf(String key, String defaultValue = null) {
@@ -190,6 +192,20 @@ class Suite implements GroovyInterceptable {
     public <T> T connect(String user = context.config.jdbcUser, String password = context.config.jdbcPassword,
                          String url = context.config.jdbcUrl, Closure<T> actionSupplier) {
         return context.connect(user, password, url, actionSupplier)
+    }
+
+    public void newDocker(int feNum = 1, int beNum = 3, Closure actionSupplier) throws Exception {
+        try {
+            cluster.destroy()
+            cluster.add(feNum, beNum)
+            def masterFe = cluster.getMasterFe()
+            def url = String.format("jdbc:mysql://%s:%s/?useLocalSessionState=true&allowLoadLocalInfile=true",
+                    masterFe.host, masterFe.queryPort)
+            logger.info("connect to docker cluster: suite={}, url={}", name, url)
+            connect("root", "", url, actionSupplier)
+        } finally {
+            cluster.destroy()
+        }
     }
 
     String get_ccr_body(String table) {

@@ -60,6 +60,8 @@ class Config {
     public boolean enableCacheData
     public String pluginPath
     public String sslCertificatePath
+    public String dorisComposePath
+    public String image
 
     public String testGroups
     public String excludeGroups
@@ -157,6 +159,8 @@ class Config {
         config.enableCacheData = Boolean.parseBoolean(cmd.getOptionValue(enableCacheDataOpt, "true"))
         config.pluginPath = FileUtils.getCanonicalPath(cmd.getOptionValue(pluginOpt, config.pluginPath))
         config.sslCertificatePath = FileUtils.getCanonicalPath(cmd.getOptionValue(sslCertificateOpt, config.sslCertificatePath))
+        config.dorisComposePath = FileUtils.getCanonicalPath(config.dorisComposePath)
+        config.image = cmd.getOptionValue(imageOpt, config.image)
         config.suiteWildcard = cmd.getOptionValue(suiteOpt, config.testSuites)
                 .split(",")
                 .collect({s -> s.trim()})
@@ -303,6 +307,8 @@ class Config {
             configToString(obj.sslCertificatePath)
         )
 
+        config.image = configToString(obj.image)
+
         def declareFileNames = config.getClass()
                 .getDeclaredFields()
                 .collect({f -> f.name})
@@ -416,6 +422,11 @@ class Config {
         if (config.sslCertificatePath == null) {
             config.sslCertificatePath = "regression-test/ssl_default_certificate"
             log.info("Set sslCertificatePath to '${config.sslCertificatePath}' because not specify.".toString())
+        }
+
+        if (config.dorisComposePath == null) {
+            config.dorisComposePath = "docker/runtime/doris-compose/doris-compose.py"
+            log.info("Set dorisComposePath to '${config.dorisComposePath}' because not specify.".toString())
         }
 
         if (config.testGroups == null) {

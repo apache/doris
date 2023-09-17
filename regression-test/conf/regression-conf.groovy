@@ -46,6 +46,7 @@ dataPath = "${DORIS_HOME}/regression-test/data"
 pluginPath = "${DORIS_HOME}/regression-test/plugins"
 realDataPath = "${DORIS_HOME}/regression-test/realdata"
 sslCertificatePath = "${DORIS_HOME}/regression-test/ssl_default_certificate"
+dorisComposePath = "${DORIS_HOME}/docker/runtime/doris-compose/doris-compose.py"
 
 // will test <group>/<suite>.groovy
 // empty group will test all group

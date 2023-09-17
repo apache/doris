@@ -160,6 +160,7 @@ class Node(object):
                 conf_dir)
             assert not utils.is_dir_empty(conf_dir), "conf directory {} is empty, " \
                     "check doris path in image is correct".format(conf_dir)
+            utils.enable_dir_with_rw_perm(conf_dir)
         for sub_dir in self.expose_sub_dirs():
             os.makedirs(os.path.join(path, sub_dir), exist_ok=True)
 
@@ -229,6 +230,9 @@ class Node(object):
     def docker_ports(self):
         raise Exception("No implemented")
 
+    def info(self, db_mgr):
+        raise Exception("No implemented")
+
     def compose(self):
         return {
             "cap_add": ["SYS_PTRACE"],
@@ -288,6 +292,19 @@ class FE(Node):
     def expose_sub_dirs(self):
         return super().expose_sub_dirs() + ["doris-meta"]
 
+    def info(self, db_mgr):
+        state = db_mgr.get_fe(self.id)
+        return {
+            "index": self.id,
+            "host": self.get_ip(),
+            "http_port": FE_HTTP_PORT,
+            "editlog_port": FE_EDITLOG_PORT,
+            "rpc_port": FE_RPC_PORT,
+            "query_port": FE_QUERY_PORT,
+            "alive": state.alive if state else False,
+            "is_master": state.is_master if state else False,
+        }
+
 
 class BE(Node):
 
@@ -306,6 +323,20 @@ class BE(Node):
 
     def expose_sub_dirs(self):
         return super().expose_sub_dirs() + ["storage"]
+
+    def info(self, db_mgr):
+        state = db_mgr.get_be(self.id)
+        return {
+            "index": self.id,
+            "backend_id": state.backend_id if state else -1,
+            "alive": state.alive if state else False,
+            "tablet_num": state.tablet_num if state else 0,
+            "host": self.get_ip(),
+            "http_port": BE_WEBSVR_PORT,
+            "brpc_port": BE_BRPC_PORT,
+            "heartbeat_port": BE_HEARTBEAT_PORT,
+            "port": BE_PORT,
+        }
 
 
 class Cluster(object):
