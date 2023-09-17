@@ -70,7 +70,7 @@ public class DorisFE {
     public static final String PID_DIR = System.getenv("PID_DIR");
 
 
-    private static final String LOCK_FILE_PATH = Config.meta_dir + "/.process.lock";
+    private static final String LOCK_FILE_PATH = Config.meta_dir + "/process.lock";
     private static FileChannel processLockFileChannel;
     private static FileLock processFileLock;
 
@@ -430,7 +430,9 @@ public class DorisFE {
      * that only one FE process can occupy a metadata directory, and other processes will fail to start.
      */
     private static void tryLockProcess() {
-
+        if (null == System.getenv("DORIS_HOME")) {
+            return;
+        }
         try {
             processLockFileChannel = FileChannel.open(new File(LOCK_FILE_PATH).toPath(), StandardOpenOption.WRITE,
                     StandardOpenOption.CREATE);
