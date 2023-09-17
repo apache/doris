@@ -40,7 +40,6 @@ import org.apache.doris.thrift.TTableType;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
-import lombok.Getter;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.hadoop.hive.metastore.api.ColumnStatisticsData;
 import org.apache.hadoop.hive.metastore.api.ColumnStatisticsObj;
@@ -74,7 +73,6 @@ import java.util.stream.Collectors;
 /**
  * Hive metastore external table.
  */
-@Getter
 public class HMSExternalTable extends ExternalTable {
     private static final Logger LOG = LogManager.getLogger(HMSExternalTable.class);
 
@@ -114,7 +112,7 @@ public class HMSExternalTable extends ExternalTable {
     private long estimatedRowCount = -1;
 
     // record the partition update time when enable hms event listener
-    protected volatile long lastPartitionUpdateTime;
+    protected volatile long partitionUpdateTime;
 
     public enum DLAType {
         UNKNOWN, HIVE, HUDI, ICEBERG, DELTALAKE
@@ -272,11 +270,6 @@ public class HMSExternalTable extends ExternalTable {
 
     @Override
     public long getCreateTime() {
-        return 0;
-    }
-
-    @Override
-    public long getUpdateTime() {
         return 0;
     }
 
@@ -636,7 +629,14 @@ public class HMSExternalTable extends ExternalTable {
     }
 
     public void setPartitionUpdateTime(long updateTime) {
-        this.lastPartitionUpdateTime = updateTime;
+        this.partitionUpdateTime = updateTime;
+    }
+
+    @Override
+    // get the max value of `schemaUpdateTime` and `partitionUpdateTime`
+    // partitionUpdateTime will be refreshed after processing partition events with hms event listener enabled
+    public long getUpdateTime() {
+        return Math.max(this.schemaUpdateTime, this.partitionUpdateTime);
     }
 
     @Override

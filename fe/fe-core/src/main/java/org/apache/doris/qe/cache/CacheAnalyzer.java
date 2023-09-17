@@ -36,7 +36,6 @@ import org.apache.doris.catalog.PartitionType;
 import org.apache.doris.catalog.RangePartitionInfo;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.View;
-import org.apache.doris.catalog.external.HMSExternalTable;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.Status;
 import org.apache.doris.common.UserException;
@@ -608,8 +607,7 @@ public class CacheAnalyzer {
         CacheTable cacheTable = new CacheTable();
         cacheTable.table = node.getTargetTable();
         cacheTable.partitionNum = node.getReadPartitionNum();
-        cacheTable.latestTime = Math.max(cacheTable.table.getLastUpdateTime(),
-                    ((HMSExternalTable) cacheTable.table).getLastPartitionUpdateTime());
+        cacheTable.latestTime = cacheTable.table.getUpdateTime();
         return cacheTable;
     }
 
