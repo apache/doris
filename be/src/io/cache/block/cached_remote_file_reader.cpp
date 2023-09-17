@@ -211,7 +211,7 @@ Status CachedRemoteFileReader::_read_from_cache(size_t offset, Slice result, siz
                     break;
                 }
                 if (segment_state != FileBlock::State::DOWNLOADING) {
-                    return Status::IOError(
+                    return Status::InternalError(
                             "File Cache State is {}, the cache downloader encounters an error, "
                             "please "
                             "retry it",
@@ -220,7 +220,7 @@ Status CachedRemoteFileReader::_read_from_cache(size_t offset, Slice result, siz
             } while (++wait_time < MAX_WAIT_TIME);
         }
         if (UNLIKELY(wait_time) == MAX_WAIT_TIME) {
-            return Status::IOError("Waiting too long for the download to complete");
+            return Status::InternalError("Waiting too long for the download to complete");
         }
         size_t file_offset = current_offset - left;
         {
@@ -244,7 +244,7 @@ Status CachedRemoteFileReader::read_at_impl(size_t offset, Slice result, size_t*
     DCHECK(!closed());
     DCHECK(io_ctx);
     if (offset > size()) {
-        return Status::IOError(
+        return Status::InvalidArgument(
                 fmt::format("offset exceeds file size(offset: {), file size: {}, path: {})", offset,
                             size(), path().native()));
     }
