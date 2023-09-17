@@ -219,6 +219,8 @@ Status AndBlockColumnPredicate::evaluate(const Schema& schema, InvertedIndexIter
     get_all_column_predicate(predicates);
     std::unique_ptr<InvertedIndexQueryBase> query_value = nullptr;
     uint32_t column_id = 0;
+    roaring::Roaring roaring;
+
     for (auto& pred : predicates) {
         pred->set_inverted_index_query_value(query_value, schema);
         column_id = pred->column_id();
@@ -227,7 +229,7 @@ Status AndBlockColumnPredicate::evaluate(const Schema& schema, InvertedIndexIter
         auto column_desc = schema.column(column_id);
         std::string column_name = column_desc->name();
         RETURN_IF_ERROR(iterator->read_from_inverted_index(column_name, query_value.get(), num_rows,
-                                                           bitmap));
+                                                           &roaring));
 
         // mask out null_bitmap, since NULL cmp VALUE will produce NULL
         //  and be treated as false in WHERE
@@ -238,6 +240,7 @@ Status AndBlockColumnPredicate::evaluate(const Schema& schema, InvertedIndexIter
         if (null_bitmap) {
             *bitmap -= *null_bitmap;
         }
+        *bitmap &= roaring;
         return Status::OK();
     }
     DCHECK(false);

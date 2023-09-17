@@ -761,7 +761,7 @@ bool InvertedIndexVisitor::_matches(const BinaryType& packed_value, const Binary
 }
 
 bool InvertedIndexVisitor::matches(uint8_t* packed_value) {
-    auto point_match = [&](const BinaryType& qmax, const BinaryType& qmin) -> bool {
+    auto dim_match = [&](const BinaryType& qmax, const BinaryType& qmin) -> bool {
         for (int dim = 0; dim < _reader->num_data_dims_; dim++) {
             int offset = dim * _reader->bytes_per_dim_;
             if (!_matches(BinaryType(packed_value + offset, _reader->bytes_per_dim_),
@@ -774,13 +774,13 @@ bool InvertedIndexVisitor::matches(uint8_t* packed_value) {
     };
     if (!query_points.empty()) {
         for (auto query_point : query_points) {
-            if (point_match(query_point, query_point)) {
+            if (dim_match(query_point, query_point)) {
                 return true;
             }
         }
         return false;
     } else {
-        return point_match(query_max, query_min);
+        return dim_match(query_max, query_min);
     }
 }
 
@@ -870,7 +870,7 @@ lucene::util::bkd::relation InvertedIndexVisitor::_compare(const BinaryType& min
 
 lucene::util::bkd::relation InvertedIndexVisitor::compare(std::vector<uint8_t>& min_packed,
                                                           std::vector<uint8_t>& max_packed) {
-    auto point_match = [&](const BinaryType& qmax,
+    auto dim_compare = [&](const BinaryType& qmax,
                            const BinaryType& qmin) -> lucene::util::bkd::relation {
         lucene::util::bkd::relation final_relation = lucene::util::bkd::relation::CELL_INSIDE_QUERY;
         for (int dim = 0; dim < _reader->num_data_dims_; dim++) {
@@ -892,7 +892,7 @@ lucene::util::bkd::relation InvertedIndexVisitor::compare(std::vector<uint8_t>& 
         lucene::util::bkd::relation final_relation =
                 lucene::util::bkd::relation::CELL_OUTSIDE_QUERY;
         for (auto query_point : query_points) {
-            lucene::util::bkd::relation relation = point_match(query_point, query_point);
+            lucene::util::bkd::relation relation = dim_compare(query_point, query_point);
             if (relation == lucene::util::bkd::relation::CELL_INSIDE_QUERY) {
                 return relation;
             } else if (relation == lucene::util::bkd::relation::CELL_CROSSES_QUERY) {
@@ -901,7 +901,7 @@ lucene::util::bkd::relation InvertedIndexVisitor::compare(std::vector<uint8_t>& 
         }
         return final_relation;
     } else {
-        return point_match(query_max, query_min);
+        return dim_compare(query_max, query_min);
     }
 }
 
