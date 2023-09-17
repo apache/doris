@@ -59,7 +59,7 @@ enum { BINARY_DICT_PAGE_HEADER_SIZE = 4 };
 // to string plain page automatically.
 class BinaryDictPageBuilder : public PageBuilder {
 public:
-    BinaryDictPageBuilder(const PageBuilderOptions& options);
+    BinaryDictPageBuilder(const PageBuilderOptions& options, bool is_char_type);
 
     bool is_page_full() override;
 
@@ -85,7 +85,8 @@ private:
 
     std::unique_ptr<PageBuilder> _data_page_builder;
 
-    std::unique_ptr<BinaryPlainPageBuilder<FieldType::OLAP_FIELD_TYPE_VARCHAR>> _dict_builder;
+    std::unique_ptr<PageBuilder> _dict_builder;
+    bool _is_char_type;
 
     EncodingTypePB _encoding_type;
     struct HashOfSlice {
@@ -133,7 +134,7 @@ private:
     Slice _data;
     PageDecoderOptions _options;
     std::unique_ptr<PageDecoder> _data_page_decoder;
-    BinaryPlainPageDecoder<FieldType::OLAP_FIELD_TYPE_VARCHAR>* _dict_decoder = nullptr;
+    PageDecoder* _dict_decoder = nullptr;
     BitShufflePageDecoder<FieldType::OLAP_FIELD_TYPE_INT>* _bit_shuffle_ptr = nullptr;
     bool _parsed;
     EncodingTypePB _encoding_type;

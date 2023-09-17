@@ -104,7 +104,8 @@ struct TypeEncodingTraits<FieldType::OLAP_FIELD_TYPE_BOOL, RLE, bool> {
 template <FieldType type>
 struct TypeEncodingTraits<type, DICT_ENCODING, Slice> {
     static Status create_page_builder(const PageBuilderOptions& opts, PageBuilder** builder) {
-        *builder = new BinaryDictPageBuilder(opts);
+        bool is_char_type = type == FieldType::OLAP_FIELD_TYPE_CHAR;
+        *builder = new BinaryDictPageBuilder(opts, is_char_type);
         return Status::OK();
     }
     static Status create_page_decoder(const Slice& data, const PageDecoderOptions& opts,

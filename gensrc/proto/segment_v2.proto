@@ -40,6 +40,7 @@ enum EncodingTypePB {
     DICT_ENCODING = 5;
     BIT_SHUFFLE = 6;
     FOR_ENCODING = 7; // Frame-Of-Reference
+    ARRAY_ENCODING = 8;
 }
 
 enum CompressionTypePB {

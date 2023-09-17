@@ -80,12 +80,18 @@ public:
     // Return the first value in this page.
     // This method could only be called between finish() and reset().
     // Status::Error<ENTRY_NOT_FOUND> if no values have been added.
-    virtual Status get_first_value(void* value) const = 0;
+    virtual Status get_first_value(void* value) const {
+        return Status::NotSupported("get_first_value not implemented");
+    }
 
     // Return the last value in this page.
     // This method could only be called between finish() and reset().
     // Status::Error<ENTRY_NOT_FOUND> if no values have been added.
-    virtual Status get_last_value(void* value) const = 0;
+    virtual Status get_last_value(void* value) const {
+        return Status::NotSupported("get_last_value not implemented");
+    }
+
+    virtual inline Slice get(std::size_t idx) const { throw std::runtime_error("not implemented"); }
 
 private:
     DISALLOW_COPY_AND_ASSIGN(PageBuilder);

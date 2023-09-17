@@ -146,7 +146,7 @@ public:
         return Slice(&_buffer[_offsets[idx]], value_size);
     }
 
-    inline Slice get(std::size_t idx) const { return (*this)[idx]; }
+    inline Slice get(std::size_t idx) const override { return (*this)[idx]; }
 
 private:
     void _copy_value_at(size_t idx, faststring* value) const {
