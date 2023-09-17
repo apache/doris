@@ -33,6 +33,7 @@ import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.resource.Tag;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.SystemInfoService;
+import org.apache.doris.thrift.TStorageMedium;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
@@ -157,7 +158,11 @@ public class ColocateTableCheckerAndBalancerTest {
                 minTimes = 0;
 
                 statistic.getBackendLoadStatistic(anyLong);
-                result = null;
+                result = new Delegate<BackendLoadStatistic>() {
+                    BackendLoadStatistic delegate(Long beId) {
+                        return new FakeBackendLoadStatistic(beId, null, null);
+                    }
+                };
                 minTimes = 0;
             }
         };
@@ -183,7 +188,7 @@ public class ColocateTableCheckerAndBalancerTest {
                 colocateTableIndex, infoService, statistic, globalColocateStatistic,
                 balancedBackendsPerBucketSeq, false);
         List<List<Long>> expected = Lists.partition(
-                Lists.newArrayList(9L, 5L, 3L, 4L, 6L, 8L, 7L, 6L, 1L, 2L, 9L, 4L, 1L, 2L, 3L), 3);
+                Lists.newArrayList(8L, 5L, 6L, 5L, 6L, 7L, 9L, 4L, 1L, 2L, 3L, 4L, 1L, 2L, 3L), 3);
         Assert.assertTrue("" + globalColocateStatistic, changed);
         Assert.assertEquals(expected, balancedBackendsPerBucketSeq);
 
@@ -235,7 +240,11 @@ public class ColocateTableCheckerAndBalancerTest {
                 result = backend9;
                 minTimes = 0;
                 statistic.getBackendLoadStatistic(anyLong);
-                result = null;
+                result = new Delegate<BackendLoadStatistic>() {
+                    BackendLoadStatistic delegate(Long beId) {
+                        return new FakeBackendLoadStatistic(beId, null, null);
+                    }
+                };
                 minTimes = 0;
             }
         };
@@ -349,6 +358,12 @@ public class ColocateTableCheckerAndBalancerTest {
         @Override
         public double getMixLoadScore() {
             return mixLoadScores.get(getBeId());
+        }
+
+        @Override
+        public BalanceStatus isFit(long tabletSize, TStorageMedium medium, List<RootPathLoadStatistic> result,
+                boolean isSupplement) {
+            return BalanceStatus.OK;
         }
     }
 

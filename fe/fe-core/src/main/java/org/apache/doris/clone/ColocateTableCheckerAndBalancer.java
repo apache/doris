@@ -1109,7 +1109,12 @@ public class ColocateTableCheckerAndBalancer extends MasterDaemon {
                     }
                     double loadScore1 = beStat1.getMixLoadScore();
                     double loadScore2 = beStat2.getMixLoadScore();
-                    return Double.compare(loadScore2, loadScore1);
+                    int cmp = Double.compare(loadScore2, loadScore1);
+                    if (cmp != 0) {
+                        return cmp;
+                    }
+
+                    return Long.compare(entry1.getKey(), entry2.getKey());
                 })
                 .collect(Collectors.toList());
     }

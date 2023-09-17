@@ -56,6 +56,7 @@ public class ColocateTableCheckerAndBalancerPerfTest {
         FeConstants.runningUnitTest = true;
         FeConstants.enableInternalSchemaDb = false;
         FeConstants.tablet_checker_interval_ms = 100;
+        FeConstants.tablet_schedule_interval_ms = 100;
         Config.enable_round_robin_create_tablet = false;
         Config.disable_balance = true;
         Config.schedule_batch_size = 400;
