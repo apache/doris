@@ -21,6 +21,7 @@
 
 suite("having") {
     sql "set enable_nereids_planner=false;"
+    sql """DROP TABLE IF EXISTS supplier"""
     sql """CREATE TABLE `supplier` (
             `s_suppkey` int(11) NOT NULL,
             `s_name` varchar(25) NOT NULL,
