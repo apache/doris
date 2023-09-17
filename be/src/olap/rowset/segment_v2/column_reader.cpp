@@ -1232,12 +1232,16 @@ Status FileColumnIterator::_read_dict_data() {
     RETURN_IF_ERROR(_reader->read_page(_opts, _reader->get_dict_page_pointer(), &_dict_page_handle,
                                        &dict_data, &dict_footer, _compress_codec));
     switch (dict_footer.dict_page_footer().encoding()) {
-    case PLAIN_ENCODING:
+    case PLAIN_ENCODING: {
         _dict_decoder =
                 std::make_unique<BinaryPlainPageDecoder<FieldType::OLAP_FIELD_TYPE_VARCHAR>>(
                         dict_data);
-    case ARRAY_ENCODING:
+        break;
+    }
+    case ARRAY_ENCODING: {
         _dict_decoder = std::make_unique<BinaryArrayPageDecoder>(dict_data);
+        break;
+    }
     default:
         return Status::NotSupported("unsupported dict encoding: %d",
                                     dict_footer.dict_page_footer().encoding());
