@@ -23,6 +23,9 @@
 namespace doris {
 
 bool DebugPoints::is_enable(const std::string& name) {
+    if (!config::enable_debug_points) {
+        return false;
+    }
     std::lock_guard<std::mutex> lock(_mutex);
     auto it = _debug_points.find(name);
     if (it == _debug_points.end()) {
