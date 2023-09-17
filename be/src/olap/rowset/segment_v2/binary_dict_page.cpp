@@ -259,7 +259,7 @@ bool BinaryDictPageDecoder::is_dict_encoding() const {
 }
 
 void BinaryDictPageDecoder::set_dict_decoder(PageDecoder* dict_decoder, StringRef* dict_word_info) {
-    _dict_decoder = (BinaryPlainPageDecoder<FieldType::OLAP_FIELD_TYPE_VARCHAR>*)dict_decoder;
+    _dict_decoder = dict_decoder;
     _dict_word_info = dict_word_info;
 };
 
