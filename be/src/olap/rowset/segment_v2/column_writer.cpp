@@ -28,6 +28,7 @@
 #include "gutil/strings/substitute.h"
 #include "io/fs/file_writer.h"
 #include "olap/olap_common.h"
+#include "olap/rowset/segment_v2/binary_dict_page.h"
 #include "olap/rowset/segment_v2/bitmap_index_writer.h"
 #include "olap/rowset/segment_v2/bloom_filter.h"
 #include "olap/rowset/segment_v2/bloom_filter_index_writer.h"
@@ -604,10 +605,13 @@ Status ScalarColumnWriter::write_data() {
         OwnedSlice dict_body;
         RETURN_IF_ERROR(_page_builder->get_dictionary_page(&dict_body));
 
+        auto page_builder = dynamic_cast<BinaryDictPageBuilder*>(_page_builder.get());
+        auto dict_encoding = page_builder->is_char_type() ? ARRAY_ENCODING : PLAIN_ENCODING;
+
         PageFooterPB footer;
         footer.set_type(DICTIONARY_PAGE);
         footer.set_uncompressed_size(dict_body.slice().get_size());
-        footer.mutable_dict_page_footer()->set_encoding(PLAIN_ENCODING);
+        footer.mutable_dict_page_footer()->set_encoding(dict_encoding);
 
         PagePointer dict_pp;
         RETURN_IF_ERROR(PageIO::compress_and_write_page(

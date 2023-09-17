@@ -91,7 +91,7 @@ public:
 
     uint64_t size() const override { return _size_estimate; }
 
-    inline Slice get(std::size_t idx) const override {
+    Slice get(std::size_t idx) const override {
         DCHECK(!_finished);
         DCHECK_LT(idx, _num_elem);
         return Slice(&_buffer[idx * _elem_length], _elem_length);

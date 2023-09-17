@@ -34,6 +34,7 @@
 #include "olap/inverted_index_parser.h"
 #include "olap/iterators.h"
 #include "olap/olap_common.h"
+#include "olap/rowset/segment_v2/binary_array_page.h"
 #include "olap/rowset/segment_v2/binary_dict_page.h" // for BinaryDictPageDecoder
 #include "olap/rowset/segment_v2/binary_plain_page.h"
 #include "olap/rowset/segment_v2/bitmap_index_reader.h"
@@ -1230,10 +1231,17 @@ Status FileColumnIterator::_read_dict_data() {
     _opts.type = INDEX_PAGE;
     RETURN_IF_ERROR(_reader->read_page(_opts, _reader->get_dict_page_pointer(), &_dict_page_handle,
                                        &dict_data, &dict_footer, _compress_codec));
-    // ignore dict_footer.dict_page_footer().encoding() due to only
-    // PLAIN_ENCODING is supported for dict page right now
-    _dict_decoder =
-            std::make_unique<BinaryPlainPageDecoder<FieldType::OLAP_FIELD_TYPE_VARCHAR>>(dict_data);
+    switch (dict_footer.dict_page_footer().encoding()) {
+    case PLAIN_ENCODING:
+        _dict_decoder =
+                std::make_unique<BinaryPlainPageDecoder<FieldType::OLAP_FIELD_TYPE_VARCHAR>>(
+                        dict_data);
+    case ARRAY_ENCODING:
+        _dict_decoder = std::make_unique<BinaryArrayPageDecoder>(dict_data);
+    default:
+        return Status::NotSupported("unsupported dict encoding: %d",
+                                    dict_footer.dict_page_footer().encoding());
+    }
     RETURN_IF_ERROR(_dict_decoder->init());
 
     auto* pd_decoder =

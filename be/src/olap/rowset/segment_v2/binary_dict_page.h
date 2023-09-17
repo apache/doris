@@ -79,6 +79,8 @@ public:
 
     Status get_last_value(void* value) const override;
 
+    bool is_char_type() const { return _is_char_type; }
+
 private:
     PageBuilderOptions _options;
     bool _finished;

@@ -91,7 +91,7 @@ public:
         return Status::NotSupported("get_last_value not implemented");
     }
 
-    virtual inline Slice get(std::size_t idx) const { throw std::runtime_error("not implemented"); }
+    virtual Slice get(std::size_t idx) const { throw std::runtime_error("not implemented"); }
 
 private:
     DISALLOW_COPY_AND_ASSIGN(PageBuilder);
