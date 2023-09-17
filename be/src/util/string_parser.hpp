@@ -722,7 +722,7 @@ T StringParser::string_to_decimal(const char* s, int len, int type_precision, in
                 }
                 // here to handle
                 *result = StringParser::PARSE_SUCCESS;
-                if (type_scale > scale) {
+                if (type_scale >= scale) {
                     value *= get_scale_multiplier<T>(type_scale - scale);
                     // here meet non-valid character, should return the value, keep going to meet
                     // the E/e character because we make right user-given type_precision
