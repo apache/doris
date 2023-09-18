@@ -310,6 +310,16 @@ public class RuntimeFilterTest extends SSBTestBase {
         }
     }
 
+    private void checkRuntimeFilterExprs(List<RuntimeFilter> filters, Set<Pair<String, Set<String>>> srcTargets) {
+        Assertions.assertEquals(filters.size(), srcTargets.size());
+        for (RuntimeFilter filter : filters) {
+            srcTargets.contains(Pair.of(
+                    filter.getSrcExpr().toSql(),
+                    filter.getTargetExprs().stream().collect(Collectors.toSet())
+            ));
+        }
+    }
+
     @Test
     public void testRuntimeFilterBlockByWindow() {
         String sql = "SELECT * FROM (select rank() over(partition by lo_partkey), lo_custkey from lineorder) t JOIN customer on lo_custkey = c_custkey";
@@ -331,17 +341,4 @@ public class RuntimeFilterTest extends SSBTestBase {
         Assertions.assertEquals(0, filters.size());
     }
 
-    private void checkRuntimeFilterExprs(List<RuntimeFilter> filters, Set<Pair<String, Set<String>>> srcTargets) {
-        Assertions.assertEquals(filters.size(), srcTargets.size());
-        for (RuntimeFilter filter : filters) {
-            srcTargets.contains(Pair.of(
-                    filter.getSrcExpr().toSql(),
-                    filter.getTargetExprs().stream().collect(Collectors.toSet())
-            ));
-            // Set<String> targets = srcTargets.get(filter.getSrcExpr().toSql());
-            // Assertions.assertNotNull(targets);
-            // targets.containsAll(
-            //         filter.getTargetExprs().stream().map(expr -> expr.toSql()).collect(Collectors.toList()));
-        }
-    }
 }
