@@ -634,6 +634,13 @@ Status VerticalSegmentWriter::write_batch() {
         }
     }
 
+    if (_opts.write_type == DataWriteType::TYPE_DIRECT && _opts.enable_unique_key_merge_on_write &&
+        !_tablet_schema->has_sequence_col() && _tablet_schema->delete_sign_idx() != -1) {
+        for (auto& data : _batched_blocks) {
+            _handle_delete_sign_col(data.block, data.row_pos, data.num_rows);
+        }
+    }
+
     std::vector<vectorized::IOlapColumnDataAccessor*> key_columns;
     vectorized::IOlapColumnDataAccessor* seq_column = nullptr;
     for (uint32_t cid = 0; cid < _tablet_schema->num_columns(); ++cid) {
@@ -710,13 +717,6 @@ Status VerticalSegmentWriter::write_batch() {
         _num_rows_written += data.num_rows;
     }
 
-    if (_opts.write_type == DataWriteType::TYPE_DIRECT && _opts.enable_unique_key_merge_on_write &&
-        !_tablet_schema->has_sequence_col() && _tablet_schema->delete_sign_idx() != -1) {
-        for (auto& data : _batched_blocks) {
-            _handle_delete_sign_col(data.block, data.row_pos, data.num_rows);
-        }
-    }
-
     _batched_blocks.clear();
     return Status::OK();
 }
@@ -729,8 +729,8 @@ void VerticalSegmentWriter::_handle_delete_sign_col(const vectorized::Block* blo
             reinterpret_cast<const vectorized::ColumnInt8&>(*(delete_sign_column.column));
     if (delete_sign_col.size() >= row_pos + num_rows) {
         const vectorized::Int8* delete_sign_column_data = delete_sign_col.get_data().data();
-        uint32_t segment_start_pos =
-                _column_writers[_tablet_schema->delete_sign_idx()]->get_next_rowid();
+        // segment start pos was _column_writers[_tablet_schema->delete_sign_idx()]->get_next_rowid();
+        uint32_t segment_start_pos = 0;
         for (size_t block_pos = row_pos, seg_pos = segment_start_pos;
              seg_pos < segment_start_pos + num_rows; block_pos++, seg_pos++) {
             // we can directly use delete bitmap to mark the rows with delete sign as deleted
