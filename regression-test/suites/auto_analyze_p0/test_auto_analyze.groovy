@@ -1,7 +1,19 @@
-import java.nio.file.Files
-import java.nio.file.Paths
-import java.net.URL
-import java.io.File
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
+//
+//   http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied.  See the License for the
+// specific language governing permissions and limitations
+// under the License.
 
 // auto analyze test case
 suite("test_auto_analyze") {
@@ -72,7 +84,7 @@ suite("test_auto_analyze") {
             }
             // check analyze result is accuracy
             def r = sql """SHOW COLUMN STATS t1(col1);"""
-            if ((r[0][1] as float as int) == 7) {
+            if (r != [] && (r[0][1] as float as int) == 7) {
                 logger.info("Add some data rows is work")
                 break
             }
@@ -119,7 +131,7 @@ suite("test_auto_analyze") {
             }
             // check analyze result is accuracy
             def res = sql """show column stats ${auto_analyze_change_schema_test_tbl_name};"""
-            if (res.size == 4 && res[0][1] as float as int == 4) { // stats 4 cols, and 4 rows
+            if (res != [] && res.size == 4 && res[0][1] as float as int == 4) { // stats 4 cols, and 4 rows
                 break
             }
         }
@@ -150,6 +162,7 @@ suite("test_auto_analyze") {
         sql """insert into ${auto_analyze_change_tbl_name_1} values(7, 1, 9);"""
         sql """analyze table ${auto_analyze_change_tbl_name_1} with sync;"""
         def res3 = sql """show column stats ${auto_analyze_change_tbl_name_1};"""
+        sleep(3 * 1000)
         assertTrue(res3[0][1] as float as int == 3)
 
         sql """DROP TABLE IF EXISTS ${auto_analyze_change_tbl_name_2}"""
@@ -168,6 +181,7 @@ suite("test_auto_analyze") {
         sql """insert into ${auto_analyze_change_tbl_name_2} values(54, 5, 6);"""
         sql """analyze table ${auto_analyze_change_tbl_name_2} with sync;"""
         def res4 = sql """show column stats ${auto_analyze_change_tbl_name_2};"""
+        sleep(3 * 1000)
         assertTrue(res4[0][1] as float as int == 4)
 
         sql """ALTER TABLE ${auto_analyze_change_tbl_name_1} REPLACE WITH TABLE ${auto_analyze_change_tbl_name_2} PROPERTIES('swap' = 'true');"""
