@@ -384,11 +384,11 @@ public class AnalysisManager extends Daemon implements Writable {
 
     private void sendJobId(List<AnalysisInfo> analysisInfos, boolean proxy) {
         List<Column> columns = new ArrayList<>();
+        columns.add(new Column("Job_Id", ScalarType.createVarchar(19)));
         columns.add(new Column("Catalog_Name", ScalarType.createVarchar(1024)));
         columns.add(new Column("DB_Name", ScalarType.createVarchar(1024)));
         columns.add(new Column("Table_Name", ScalarType.createVarchar(1024)));
         columns.add(new Column("Columns", ScalarType.createVarchar(1024)));
-        columns.add(new Column("Job_Id", ScalarType.createVarchar(19)));
         ShowResultSetMetaData commonResultSetMetaData = new ShowResultSetMetaData(columns);
         List<List<String>> resultRows = new ArrayList<>();
         for (AnalysisInfo analysisInfo : analysisInfos) {
@@ -396,11 +396,11 @@ public class AnalysisManager extends Daemon implements Writable {
                 continue;
             }
             List<String> row = new ArrayList<>();
+            row.add(String.valueOf(analysisInfo.jobId));
             row.add(analysisInfo.catalogName);
             row.add(analysisInfo.dbName);
             row.add(analysisInfo.tblName);
             row.add(analysisInfo.colName);
-            row.add(String.valueOf(analysisInfo.jobId));
             resultRows.add(row);
         }
         ShowResultSet commonResultSet = new ShowResultSet(commonResultSetMetaData, resultRows);
