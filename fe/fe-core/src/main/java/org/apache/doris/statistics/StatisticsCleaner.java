@@ -228,11 +228,11 @@ public class StatisticsCleaner extends MasterDaemon {
                         continue;
                     }
                     OlapTable olapTable = (OlapTable) t;
-                    Long partId = statsId.partId;
+                    String partId = statsId.partId;
                     if (partId == null) {
                         continue;
                     }
-                    if (!olapTable.getPartitionIds().contains(partId)) {
+                    if (!olapTable.getPartitionIds().contains(Long.parseLong(partId))) {
                         expiredStats.ids.add(id);
                     }
                 } catch (Exception e) {

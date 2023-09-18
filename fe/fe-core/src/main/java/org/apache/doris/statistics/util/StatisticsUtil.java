@@ -103,6 +103,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.Set;
 import java.util.StringJoiner;
 import java.util.UUID;
 import java.util.function.Function;
@@ -439,6 +440,15 @@ public class StatisticsUtil {
                 ));
     }
 
+    public static Set<String> getPartitionIds(TableIf table) {
+        if (table instanceof OlapTable) {
+            return ((OlapTable) table).getPartitionIds().stream().map(String::valueOf).collect(Collectors.toSet());
+        } else if (table instanceof ExternalTable) {
+            return table.getPartitionNames();
+        }
+        throw new RuntimeException(String.format("Not supported Table %s", table.getClass().getName()));
+    }
+
     public static <T> String joinElementsToString(Collection<T> values, String delimiter) {
         StringJoiner builder = new StringJoiner(delimiter);
         values.forEach(v -> builder.add(String.valueOf(v)));
@@ -512,7 +522,11 @@ public class StatisticsUtil {
         }
         // Table parameters contains row count, simply get and return it.
         if (parameters.containsKey(NUM_ROWS)) {
-            return Long.parseLong(parameters.get(NUM_ROWS));
+            long rows = Long.parseLong(parameters.get(NUM_ROWS));
+            // Sometimes, the NUM_ROWS in hms is 0 but actually is not. Need to check TOTAL_SIZE if NUM_ROWS is 0.
+            if (rows != 0) {
+                return rows;
+            }
         }
         if (!parameters.containsKey(TOTAL_SIZE) || isInit) {
             return -1;

@@ -66,7 +66,7 @@ Doris 查询优化器使用统计信息来确定查询最有效的执行计划�
 
 ```SQL
 ANALYZE < TABLE | DATABASE table_name | db_name > 
-    [ PARTITIONS (partition_name [, ...]) ]
+    [ PARTITIONS [(*) | (partition_name [, ...]) | WITH RECENT COUNT] ]
     [ (column_name [, ...]) ]
     [ [ WITH SYNC ] [WITH INCREMENTAL] [ WITH SAMPLE PERCENT | ROWS ] [ WITH PERIOD ] ]
     [ PROPERTIES ("key" = "value", ...) ];
@@ -75,7 +75,7 @@ ANALYZE < TABLE | DATABASE table_name | db_name >
 其中：
 
 - table_name: 指定的的目标表。可以是  `db_name.table_name`  形式。
-- partition_name: 指定的目标分区（目前只针对Hive外表）。必须是  `table_name`  中存在的分区，多个列名称用逗号分隔。分区名样例:event_date=20230706, nation=CN/city=Beijing
+- partition_name: 指定的目标分区（目前只针对Hive外表）。必须是  `table_name`  中存在的分区，多个列名称用逗号分隔。分区名样例: 单层分区PARTITIONS(`event_date=20230706`)，多层分区PARTITIONS(`nation=CN/city=Beijing`)。PARTITIONS (*)指定所有分区，PARTITIONS WITH RECENT 100指定最新的100个分区。
 - column_name: 指定的目标列。必须是  `table_name`  中存在的列，多个列名称用逗号分隔。
 - sync：同步收集统计信息。收集完后返回。若不指定则异步执行并返回任务 ID。
 - period：周期性收集统计信息。单位为秒，指定后会定期收集相应的统计信息。
