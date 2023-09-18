@@ -97,7 +97,6 @@ protected:
 
     RuntimeProfile::Counter* _build_collisions_counter;
 
-    RuntimeProfile::Counter* _open_timer;
     RuntimeProfile::Counter* _allocate_resource_timer;
 
     RuntimeProfile::Counter* _memory_usage_counter;

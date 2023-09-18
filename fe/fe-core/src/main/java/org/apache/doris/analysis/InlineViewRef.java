@@ -231,11 +231,21 @@ public class InlineViewRef extends TableRef {
             String colName = getColLabels().get(i);
             SlotDescriptor slotDesc = analyzer.registerColumnRef(getAliasAsName(), colName);
             Expr colExpr = queryStmt.getResultExprs().get(i);
-            slotDesc.setSourceExpr(colExpr);
+            if (queryStmt instanceof SelectStmt && ((SelectStmt) queryStmt).getValueList() != null) {
+                ValueList valueList = ((SelectStmt) queryStmt).getValueList();
+                for (int j = 0; j < valueList.getRows().size(); ++j) {
+                    slotDesc.addSourceExpr(valueList.getRows().get(j).get(i));
+                }
+            } else {
+                slotDesc.setSourceExpr(colExpr);
+            }
             slotDesc.setIsNullable(slotDesc.getIsNullable() || colExpr.isNullable());
             SlotRef slotRef = new SlotRef(slotDesc);
-            sMap.put(slotRef, colExpr);
-            baseTblSmap.put(slotRef, queryStmt.getBaseTblResultExprs().get(i));
+            // to solve select * from (values(1, 2, 3), (4, 5, 6)) a returns only one row.
+            if (slotDesc.getSourceExprs().size() == 1) {
+                sMap.put(slotRef, colExpr);
+                baseTblSmap.put(slotRef, queryStmt.getBaseTblResultExprs().get(i));
+            }
             if (createAuxPredicate(colExpr)) {
                 analyzer.createAuxEquivPredicate(new SlotRef(slotDesc), colExpr.clone());
             }

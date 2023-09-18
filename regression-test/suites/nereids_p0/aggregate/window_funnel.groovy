@@ -19,6 +19,8 @@
 // /testing/trino-product-tests/src/main/resources/sql-tests/testcases/aggregate
 // and modified by Doris.
 
+import org.codehaus.groovy.runtime.IOGroovyMethods
+
 suite("window_funnel") {
     sql "SET enable_nereids_planner=true"
     sql "SET enable_fallback_to_original_planner=false"
@@ -105,14 +107,31 @@ suite("window_funnel") {
     """
     sql """ DROP TABLE IF EXISTS ${tableName} """
 
-    String backend_id;
-    def backendId_to_backendIP = [:]
-    def backendId_to_backendHttpPort = [:]
-    getBackendIpHttpPort(backendId_to_backendIP, backendId_to_backendHttpPort);
-    for (String backendId in backendId_to_backendIP.keySet()) {
-        String be_host = backendId_to_backendIP[backendId]
-        String be_http_port = backendId_to_backendHttpPort[backendId]
-        curl("POST", "http://${be_host}:${be_http_port}/api/update_config?enable_window_funnel_function_v2=true")
+    StringBuilder strBuilder = new StringBuilder()
+    strBuilder.append("curl --location-trusted -u " + context.config.jdbcUser + ":" + context.config.jdbcPassword)
+    strBuilder.append(" http://" + context.config.feHttpAddress + "/rest/v1/config/fe?conf_item=be_exec_version")
+
+    String command = strBuilder.toString()
+    def process = command.toString().execute()
+    def code = process.waitFor()
+    def err = IOGroovyMethods.getText(new BufferedReader(new InputStreamReader(process.getErrorStream())));
+    def out = process.getText()
+    logger.info("Request FE Config: code=" + code + ", out=" + out + ", err=" + err)
+    assertEquals(code, 0)
+    def response = parseJson(out.trim())
+    assertEquals(response.code, 0)
+    assertEquals(response.msg, "success")
+    def configJson = response.data.rows
+    def beExecVersion = 0
+    for (Object conf: configJson) {
+        assert conf instanceof Map
+        if (((Map<String, String>) conf).get("Name").toLowerCase() == "be_exec_version") {
+            beExecVersion = ((Map<String, String>) conf).get("Value").toInteger()
+        }
+    }
+    if (beExecVersion < 3) {
+        logger.warn("Be exec version(${beExecVersion}) is less than 3, skip window_funnel mode test")
+        return
     }
 
     sql """ DROP TABLE IF EXISTS ${tableName} """

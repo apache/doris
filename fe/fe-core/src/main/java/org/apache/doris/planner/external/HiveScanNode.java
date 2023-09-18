@@ -85,6 +85,7 @@ public class HiveScanNode extends FileQueryScanNode {
     protected final HMSExternalTable hmsTable;
     private HiveTransaction hiveTransaction = null;
 
+    // will only be set in Nereids, for lagency planner, it should be null
     @Setter
     private SelectedPartitions selectedPartitions = null;
 
@@ -127,7 +128,7 @@ public class HiveScanNode extends FileQueryScanNode {
         List<Type> partitionColumnTypes = hmsTable.getPartitionColumnTypes();
         if (!partitionColumnTypes.isEmpty()) {
             // partitioned table
-            boolean isPartitionPruned = selectedPartitions == null ? false : selectedPartitions.isPartitionPruned;
+            boolean isPartitionPruned = selectedPartitions == null ? false : selectedPartitions.isPruned;
             Collection<PartitionItem> partitionItems;
             if (!isPartitionPruned) {
                 // partitionItems is null means that the partition is not pruned by Nereids,

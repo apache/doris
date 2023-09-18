@@ -433,10 +433,13 @@ public class ExpressionTranslator extends DefaultExpressionVisitor<Expr, PlanTra
                 .map(Expression::getDataType)
                 .map(DataType::toCatalogDataType)
                 .forEach(argTypes::add);
+        NullableMode nullableMode = function.nullable()
+                ? NullableMode.ALWAYS_NULLABLE
+                : NullableMode.ALWAYS_NOT_NULLABLE;
         org.apache.doris.catalog.Function catalogFunction = new Function(
                 new FunctionName(function.getName()), argTypes,
                 ArrayType.create(lambda.getRetType().toCatalogDataType(), true),
-                true, true, NullableMode.DEPEND_ON_ARGUMENT);
+                true, true, nullableMode);
 
         // create catalog FunctionCallExpr without analyze again
         Expr lambdaBody = visitLambda(lambda, context);

@@ -137,13 +137,13 @@ static constexpr int STREAMING_HT_MIN_REDUCTION_SIZE =
 
 StreamingAggSinkLocalState::StreamingAggSinkLocalState(DataSinkOperatorXBase* parent,
                                                        RuntimeState* state)
-        : AggSinkLocalState<StreamingAggSinkLocalState>(parent, state),
+        : Base(parent, state),
           _queue_byte_size_counter(nullptr),
           _queue_size_counter(nullptr),
           _streaming_agg_timer(nullptr) {}
 
 Status StreamingAggSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& info) {
-    RETURN_IF_ERROR(AggSinkLocalState::init(state, info));
+    RETURN_IF_ERROR(Base::init(state, info));
     _queue_byte_size_counter = ADD_COUNTER(profile(), "MaxSizeInBlockQueue", TUnit::BYTES);
     _queue_size_counter = ADD_COUNTER(profile(), "MaxSizeOfBlockQueue", TUnit::UNIT);
     _streaming_agg_timer = ADD_TIMER(profile(), "StreamingAggTime");
@@ -351,7 +351,7 @@ Status StreamingAggSinkLocalState::_pre_agg_with_serialized_key(
 
 StreamingAggSinkOperatorX::StreamingAggSinkOperatorX(ObjectPool* pool, const TPlanNode& tnode,
                                                      const DescriptorTbl& descs)
-        : AggSinkOperatorX(pool, tnode, descs) {}
+        : AggSinkOperatorX<StreamingAggSinkLocalState>(pool, tnode, descs) {}
 
 bool StreamingAggSinkOperatorX::can_write(RuntimeState* state) {
     // sink and source in diff threads
@@ -360,9 +360,17 @@ bool StreamingAggSinkOperatorX::can_write(RuntimeState* state) {
             ._shared_state->data_queue->has_enough_space_to_push();
 }
 
+Status StreamingAggSinkOperatorX::init(const TPlanNode& tnode, RuntimeState* state) {
+    RETURN_IF_ERROR(AggSinkOperatorX<StreamingAggSinkLocalState>::init(tnode, state));
+    _name = "STREAMING_AGGREGATION_SINK_OPERATOR";
+    return Status::OK();
+}
+
 Status StreamingAggSinkOperatorX::sink(RuntimeState* state, vectorized::Block* in_block,
                                        SourceState source_state) {
     auto& local_state = state->get_sink_local_state(id())->cast<StreamingAggSinkLocalState>();
+    SCOPED_TIMER(local_state.profile()->total_time_counter());
+    COUNTER_UPDATE(local_state.rows_input_counter(), (int64_t)in_block->rows());
     local_state._shared_state->input_num_rows += in_block->rows();
     Status ret = Status::OK();
     if (in_block && in_block->rows() > 0) {
@@ -394,7 +402,7 @@ Status StreamingAggSinkLocalState::close(RuntimeState* state) {
         COUNTER_SET(_queue_byte_size_counter, _shared_state->data_queue->max_bytes_in_queue());
     }
     _preagg_block.clear();
-    return AggSinkLocalState::close(state);
+    return Base::close(state);
 }
 
 } // namespace doris::pipeline

@@ -62,7 +62,7 @@ class IColumn;
 } // namespace vectorized
 
 namespace io {
-class IOContext;
+struct IOContext;
 enum class FileCachePolicy : uint8_t;
 } // namespace io
 } // namespace doris

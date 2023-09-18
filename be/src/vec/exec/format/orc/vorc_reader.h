@@ -58,7 +58,7 @@ class TFileScanRangeParams;
 
 namespace io {
 class FileSystem;
-class IOContext;
+struct IOContext;
 } // namespace io
 namespace vectorized {
 class Block;
@@ -489,6 +489,8 @@ private:
     void set_remaining_rows(int64_t rows) { _remaining_rows = rows; }
 
 private:
+    // This is only for count(*) short circuit read.
+    // save the total number of rows in range
     int64_t _remaining_rows = 0;
     RuntimeProfile* _profile = nullptr;
     RuntimeState* _state = nullptr;

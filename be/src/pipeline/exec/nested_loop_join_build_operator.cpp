@@ -32,6 +32,8 @@ NestedLoopJoinBuildSinkLocalState::NestedLoopJoinBuildSinkLocalState(DataSinkOpe
 
 Status NestedLoopJoinBuildSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& info) {
     RETURN_IF_ERROR(JoinBuildSinkLocalState::init(state, info));
+    SCOPED_TIMER(profile()->total_time_counter());
+    SCOPED_TIMER(_open_timer);
     auto& p = _parent->cast<NestedLoopJoinBuildSinkOperatorX>();
     _filter_src_expr_ctxs.resize(p._filter_src_expr_ctxs.size());
     for (size_t i = 0; i < _filter_src_expr_ctxs.size(); i++) {
@@ -87,6 +89,8 @@ Status NestedLoopJoinBuildSinkOperatorX::sink(doris::RuntimeState* state, vector
                                               SourceState source_state) {
     auto& local_state =
             state->get_sink_local_state(id())->cast<NestedLoopJoinBuildSinkLocalState>();
+    SCOPED_TIMER(local_state.profile()->total_time_counter());
+    COUNTER_UPDATE(local_state.rows_input_counter(), (int64_t)block->rows());
     SCOPED_TIMER(local_state._build_timer);
     auto rows = block->rows();
     auto mem_usage = block->allocated_bytes();
@@ -113,7 +117,7 @@ Status NestedLoopJoinBuildSinkOperatorX::sink(doris::RuntimeState* state, vector
                                            !local_state._shared_state->build_blocks.empty()))) {
             local_state._shared_state->left_side_eos = true;
         }
-        local_state._dependency->set_done();
+        local_state._dependency->set_ready_for_read();
     }
 
     return Status::OK();

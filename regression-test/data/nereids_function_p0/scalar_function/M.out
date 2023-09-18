@@ -29,7 +29,7 @@
 0012-01-12
 
 -- !sql_mask_Varchar --
-\N
+xxxx
 xxxxxxxnn
 xxxxxxxnn
 xxxxxxxnn
@@ -58,7 +58,7 @@ xxxxxxxnn
 xxxxxxxnn
 
 -- !sql_mask_String --
-\N
+xxxx
 xxxxxxn
 xxxxxxn
 xxxxxxn
@@ -87,7 +87,7 @@ xxxxxxn
 xxxxxxn
 
 -- !sql_mask_first_n_Varchar --
-\N
+xxxx
 xxxxxxxnn
 xxxxxxxnn
 xxxxxxxnn
@@ -116,7 +116,7 @@ xxxxxxxnn
 xxxxxxxnn
 
 -- !sql_mask_first_n_String --
-\N
+xxxx
 xxxxxxn
 xxxxxxn
 xxxxxxn
@@ -145,7 +145,7 @@ xxxxxxn
 xxxxxxn
 
 -- !sql_mask_last_n_Varchar --
-\N
+xxxx
 xxxxxxxnn
 xxxxxxxnn
 xxxxxxxnn
@@ -174,7 +174,7 @@ xxxxxxxnn
 xxxxxxxnn
 
 -- !sql_mask_last_n_String --
-\N
+xxxx
 xxxxxxn
 xxxxxxn
 xxxxxxn
@@ -203,7 +203,7 @@ xxxxxxn
 xxxxxxn
 
 -- !sql_md5_Varchar --
-\N
+37a6259cc0c1dae299a7866489dff0bd
 8507af7854a1ef7feca8e5cdbce5e613
 8507af7854a1ef7feca8e5cdbce5e613
 8507af7854a1ef7feca8e5cdbce5e613
@@ -232,7 +232,7 @@ dc5f80c371451aa4fc81c930adc64f60
 73c837059107caff646284f85ac126c3
 
 -- !sql_md5_String --
-\N
+37a6259cc0c1dae299a7866489dff0bd
 34b577be20fbc15477aadb9a08101ff9
 34b577be20fbc15477aadb9a08101ff9
 34b577be20fbc15477aadb9a08101ff9
@@ -261,7 +261,7 @@ dc5f80c371451aa4fc81c930adc64f60
 9e6dc8685bf3c1b338f2011ace904887
 
 -- !sql_md5sum_Varchar --
-\N
+37a6259cc0c1dae299a7866489dff0bd
 8507af7854a1ef7feca8e5cdbce5e613
 8507af7854a1ef7feca8e5cdbce5e613
 8507af7854a1ef7feca8e5cdbce5e613
@@ -290,7 +290,7 @@ dc5f80c371451aa4fc81c930adc64f60
 73c837059107caff646284f85ac126c3
 
 -- !sql_md5sum_String --
-\N
+37a6259cc0c1dae299a7866489dff0bd
 34b577be20fbc15477aadb9a08101ff9
 34b577be20fbc15477aadb9a08101ff9
 34b577be20fbc15477aadb9a08101ff9
@@ -2842,7 +2842,7 @@ March
 2011-03-12
 
 -- !sql_murmur_hash3_32_Varchar --
-\N
+-460753941
 1382328699
 1382328699
 1382328699
@@ -2871,7 +2871,7 @@ March
 -1704245912
 
 -- !sql_murmur_hash3_32_String --
-\N
+-460753941
 1105201137
 1105201137
 1105201137
@@ -2900,7 +2900,7 @@ March
 -1328370272
 
 -- !sql_murmur_hash3_64_Varchar --
-\N
+-202406785360068664
 8683832286507167489
 8683832286507167489
 8683832286507167489
@@ -2929,7 +2929,7 @@ March
 3951582574031518507
 
 -- !sql_murmur_hash3_64_String --
-\N
+-202406785360068664
 -7629742527255288609
 -7629742527255288609
 -7629742527255288609

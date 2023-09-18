@@ -36,8 +36,6 @@ public class StatisticConstants {
 
     public static final int STATISTICS_CACHE_REFRESH_INTERVAL = 24 * 2;
 
-    public static final int ROW_COUNT_CACHE_VALID_DURATION_IN_HOURS = 12;
-
     /**
      * Bucket count fot column_statistics and analysis_job table.
      */
@@ -58,12 +56,6 @@ public class StatisticConstants {
     public static final int FETCH_INTERVAL_IN_MS = 500;
 
     public static final int HISTOGRAM_MAX_BUCKET_NUM = 128;
-
-    /**
-     * The health of the table indicates the health of the table statistics, rang in [0, 100].
-     * Below this threshold will automatically re-collect statistics. TODO make it in fe.conf
-     */
-    public static final int TABLE_STATS_HEALTH_THRESHOLD = 80;
 
     public static final int ANALYZE_MANAGER_INTERVAL_IN_SECS = 60;
 

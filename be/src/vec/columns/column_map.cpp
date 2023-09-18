@@ -416,7 +416,7 @@ Status ColumnMap::filter_by_selector(const uint16_t* sel, size_t sel_size, IColu
         max_offset = std::max(max_offset, offset_at(sel[i]));
     }
     if (max_offset > std::numeric_limits<uint16_t>::max()) {
-        return Status::IOError("map elements too large than uint16_t::max");
+        return Status::Corruption("map elements too large than uint16_t::max");
     }
 
     to_offsets.reserve(to_offsets.size() + sel_size);

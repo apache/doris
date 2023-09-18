@@ -20,14 +20,11 @@ package org.apache.doris.nereids.trees.expressions.functions.table;
 import org.apache.doris.catalog.FunctionSignature;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Properties;
-import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.coercion.AnyDataType;
-import org.apache.doris.statistics.Statistics;
 import org.apache.doris.tablefunction.HdfsTableValuedFunction;
 import org.apache.doris.tablefunction.TableValuedFunctionIf;
 
-import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -51,11 +48,6 @@ public class Hdfs extends TableValuedFunction {
             throw new AnalysisException("Can not build HdfsTableValuedFunction by "
                 + this + ": " + t.getMessage(), t);
         }
-    }
-
-    @Override
-    public Statistics computeStats(List<Slot> slots) {
-        return new Statistics(0, new HashMap<>());
     }
 
     @Override

@@ -29,7 +29,7 @@
 1100
 
 -- !sql_bit_length_Varchar --
-\N
+32
 72
 72
 72
@@ -58,7 +58,7 @@
 72
 
 -- !sql_bit_length_String --
-\N
+32
 56
 56
 56

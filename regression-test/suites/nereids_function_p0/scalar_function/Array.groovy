@@ -825,6 +825,24 @@ suite("nereids_scalar_fn_Array") {
     order_qt_sql_tokenize_String "select tokenize(kstr, '') from fn_test"
     order_qt_sql_tokenize_String_notnull "select tokenize(kstr, null) from fn_test_not_nullable"
 
+    // test array_map
+    order_qt_sql_array_map_Double "select array_map(x -> x is not null, kadbl) from fn_test"
+    order_qt_sql_array_map_Double_notnull "select array_map(x -> x is not null, kadbl) from fn_test_not_nullable"
+    order_qt_sql_array_map_Float "select array_map(x -> x is not null, kafloat) from fn_test"
+    order_qt_sql_array_map_Float_notnull "select array_map(x -> x is not null, kafloat) from fn_test_not_nullable"
+    order_qt_sql_array_map_LargeInt "select array_map(x -> x is not null, kalint) from fn_test"
+    order_qt_sql_array_map_LargeInt_notnull "select array_map(x -> x is not null, kalint) from fn_test_not_nullable"
+    order_qt_sql_array_map_BigInt "select array_map(x -> x is not null, kabint) from fn_test"
+    order_qt_sql_array_map_BigInt_notnull "select array_map(x -> x is not null, kabint) from fn_test_not_nullable"
+    order_qt_sql_array_map_SmallInt "select array_map(x -> x is not null, kasint) from fn_test"
+    order_qt_sql_array_map_SmallInt_notnull "select array_map(x -> x is not null, kasint) from fn_test_not_nullable"
+    order_qt_sql_array_map_Integer "select array_map(x -> x is not null, kaint) from fn_test"
+    order_qt_sql_array_map_Integer_notnull "select array_map(x -> x is not null, kaint) from fn_test_not_nullable"
+    order_qt_sql_array_map_TinyInt "select array_map(x -> x is not null, katint) from fn_test"
+    order_qt_sql_array_map_TinyInt_notnull "select array_map(x -> x is not null, katint) from fn_test_not_nullable"
+    order_qt_sql_array_map_DecimalV3 "select array_map(x -> x is not null, kadcml) from fn_test"
+    order_qt_sql_array_map_DecimalV3_notnull "select array_map(x -> x is not null, kadcml) from fn_test_not_nullable"
+
     test {
         sql "select tokenize('arg1','xxx = yyy,zzz');"
         check{result, exception, startTime, endTime ->

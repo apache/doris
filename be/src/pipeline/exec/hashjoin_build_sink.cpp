@@ -47,6 +47,8 @@ HashJoinBuildSinkLocalState::HashJoinBuildSinkLocalState(DataSinkOperatorXBase* 
 
 Status HashJoinBuildSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& info) {
     RETURN_IF_ERROR(JoinBuildSinkLocalState::init(state, info));
+    SCOPED_TIMER(profile()->total_time_counter());
+    SCOPED_TIMER(_open_timer);
     auto& p = _parent->cast<HashJoinBuildSinkOperatorX>();
     _shared_state->join_op_variants = p._join_op_variants;
     _shared_state->probe_key_sz = p._build_key_sz;
@@ -85,10 +87,9 @@ Status HashJoinBuildSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo
             profile()->AddHighWaterMarkCounter("BuildKeyArena", TUnit::BYTES, "MemoryUsage");
 
     // Build phase
-    auto record_profile = _should_build_hash_table ? _build_phase_profile : faker_runtime_profile();
-    _build_table_timer = ADD_CHILD_TIMER(_build_phase_profile, "BuildTableTime", "BuildTime");
-    _build_side_merge_block_timer =
-            ADD_CHILD_TIMER(_build_phase_profile, "BuildSideMergeBlockTime", "BuildTime");
+    auto record_profile = _should_build_hash_table ? profile() : faker_runtime_profile();
+    _build_table_timer = ADD_TIMER(profile(), "BuildTableTime");
+    _build_side_merge_block_timer = ADD_TIMER(profile(), "BuildSideMergeBlockTime");
     _build_table_insert_timer = ADD_TIMER(record_profile, "BuildTableInsertTime");
     _build_expr_call_timer = ADD_TIMER(record_profile, "BuildExprCallTime");
     _build_table_expanse_timer = ADD_TIMER(record_profile, "BuildTableExpanseTime");
@@ -96,7 +97,6 @@ Status HashJoinBuildSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo
     _build_side_compute_hash_timer = ADD_TIMER(record_profile, "BuildSideHashComputingTime");
     _build_runtime_filter_timer = ADD_TIMER(record_profile, "BuildRuntimeFilterTime");
 
-    _open_timer = ADD_TIMER(profile(), "OpenTime");
     _allocate_resource_timer = ADD_TIMER(profile(), "AllocateResourceTime");
 
     _build_buckets_counter = ADD_COUNTER(profile(), "BuildBuckets", TUnit::UNIT);
@@ -118,6 +118,8 @@ Status HashJoinBuildSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo
 }
 
 Status HashJoinBuildSinkLocalState::open(RuntimeState* state) {
+    SCOPED_TIMER(profile()->total_time_counter());
+    SCOPED_TIMER(_open_timer);
     RETURN_IF_ERROR(JoinBuildSinkLocalState::open(state));
     auto& p = _parent->cast<HashJoinBuildSinkOperatorX>();
 
@@ -438,6 +440,8 @@ Status HashJoinBuildSinkOperatorX::open(RuntimeState* state) {
 Status HashJoinBuildSinkOperatorX::sink(RuntimeState* state, vectorized::Block* in_block,
                                         SourceState source_state) {
     auto& local_state = state->get_sink_local_state(id())->cast<HashJoinBuildSinkLocalState>();
+    SCOPED_TIMER(local_state.profile()->total_time_counter());
+    COUNTER_UPDATE(local_state.rows_input_counter(), (int64_t)in_block->rows());
     SCOPED_TIMER(local_state._build_timer);
 
     // make one block for each 4 gigabytes
@@ -539,13 +543,12 @@ Status HashJoinBuildSinkOperatorX::sink(RuntimeState* state, vectorized::Block* 
     } else if (!local_state._should_build_hash_table) {
         DCHECK(_shared_hashtable_controller != nullptr);
         DCHECK(_shared_hash_table_context != nullptr);
-        auto wait_timer = ADD_CHILD_TIMER(local_state._build_phase_profile,
-                                          "WaitForSharedHashTableTime", "BuildTime");
+        auto wait_timer = ADD_TIMER(local_state.profile(), "WaitForSharedHashTableTime");
         SCOPED_TIMER(wait_timer);
         RETURN_IF_ERROR(
                 _shared_hashtable_controller->wait_for_signal(state, _shared_hash_table_context));
 
-        local_state._build_phase_profile->add_info_string(
+        local_state.profile()->add_info_string(
                 "SharedHashTableFrom",
                 print_id(_shared_hashtable_controller->get_builder_fragment_instance_id(id())));
         local_state._short_circuit_for_null_in_probe_side =
@@ -585,7 +588,7 @@ Status HashJoinBuildSinkOperatorX::sink(RuntimeState* state, vectorized::Block* 
 
     local_state.init_short_circuit_for_probe();
     if (source_state == SourceState::FINISHED) {
-        local_state._dependency->set_done();
+        local_state._dependency->set_ready_for_read();
     }
 
     return Status::OK();

@@ -51,6 +51,9 @@ public class Counter {
     }
 
     public void addValue(Counter other) {
+        if (other == null) {
+            return;
+        }
         this.value += other.value;
     }
 

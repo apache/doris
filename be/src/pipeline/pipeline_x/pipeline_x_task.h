@@ -52,7 +52,11 @@ public:
     PipelineXTask(PipelinePtr& pipeline, uint32_t index, RuntimeState* state,
                   PipelineFragmentContext* fragment_context, RuntimeProfile* parent_profile);
 
-    Status prepare(RuntimeState* state) override;
+    Status prepare(RuntimeState* state) override {
+        return Status::InternalError("Should not reach here!");
+    }
+
+    Status prepare(RuntimeState* state, const TPipelineInstanceParams& local_params);
 
     Status execute(bool* eos) override;
 
@@ -68,7 +72,9 @@ public:
             return true;
         }
         for (auto& op : _operators) {
-            if (!op->can_read(_state)) {
+            auto dep = op->wait_for_dependency(_state);
+            if (dep != nullptr) {
+                dep->start_read_watcher();
                 return false;
             }
         }
@@ -118,6 +124,9 @@ public:
     }
 
 private:
+    void set_close_pipeline_time() override {}
+    void _init_profile() override;
+    void _fresh_profile_counter() override;
     using DependencyMap = std::map<int, DependencySPtr>;
     Status _open() override;
 

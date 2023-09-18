@@ -78,6 +78,7 @@ struct WindowFunnelState {
     bool sorted;
     int64_t window;
     WindowFunnelMode window_funnel_mode;
+    bool enable_mode;
 
     WindowFunnelState() {
         sorted = true;
@@ -97,7 +98,7 @@ struct WindowFunnelState {
              WindowFunnelMode mode) {
         window = win;
         max_event_level = event_num;
-        window_funnel_mode = mode;
+        window_funnel_mode = enable_mode ? mode : WindowFunnelMode::DEFAULT;
 
         if (sorted && events.size() > 0) {
             if (events.back().first == timestamp) {
@@ -203,16 +204,20 @@ struct WindowFunnelState {
         std::inplace_merge(begin, middle, end);
         max_event_level = max_event_level > 0 ? max_event_level : other.max_event_level;
         window = window > 0 ? window : other.window;
-        window_funnel_mode = window_funnel_mode == WindowFunnelMode::INVALID
-                                     ? other.window_funnel_mode
-                                     : window_funnel_mode;
+        if (enable_mode) {
+            window_funnel_mode = window_funnel_mode == WindowFunnelMode::INVALID
+                                         ? other.window_funnel_mode
+                                         : window_funnel_mode;
+        } else {
+            window_funnel_mode = WindowFunnelMode::DEFAULT;
+        }
         sorted = true;
     }
 
     void write(BufferWritable& out) const {
         write_var_int(max_event_level, out);
         write_var_int(window, out);
-        if (config::enable_window_funnel_function_v2) {
+        if (enable_mode) {
             write_var_int(static_cast<std::underlying_type_t<WindowFunnelMode>>(window_funnel_mode),
                           out);
         }
@@ -232,7 +237,7 @@ struct WindowFunnelState {
         max_event_level = (int)event_level;
         read_var_int(window, in);
         window_funnel_mode = WindowFunnelMode::DEFAULT;
-        if (config::enable_window_funnel_function_v2) {
+        if (enable_mode) {
             int64_t mode;
             read_var_int(mode, in);
             window_funnel_mode = static_cast<WindowFunnelMode>(mode);
@@ -261,6 +266,12 @@ public:
             : IAggregateFunctionDataHelper<
                       WindowFunnelState<DateValueType, NativeType>,
                       AggregateFunctionWindowFunnel<DateValueType, NativeType>>(argument_types_) {}
+
+    void create(AggregateDataPtr __restrict place) const override {
+        auto data = new (place) WindowFunnelState<DateValueType, NativeType>();
+        /// support window funnel mode from 2.0. See `BeExecVersionManager::max_be_exec_version`
+        data->enable_mode = version >= 3;
+    }
 
     String get_name() const override { return "window_funnel"; }
 
@@ -310,6 +321,9 @@ public:
                         AggregateFunctionWindowFunnel<DateValueType, NativeType>>::data(place)
                         .get());
     }
+
+protected:
+    using IAggregateFunction::version;
 };
 
 } // namespace doris::vectorized

@@ -117,7 +117,7 @@ suite("test_analyze") {
 
     try {
         sql """
-            SELECT COUNT(*) FROM ${tbl};
+            SELECT * FROM ${tbl};
         """
     } catch (Exception e) {
         exception = e
@@ -958,5 +958,82 @@ PARTITION `p599` VALUES IN (599)
         SHOW COLUMN CACHED STATS a_partitioned_table_for_analyze_test(id)
     """
     expected_col_stats(col_id_res, 3, 1)
+
+    sql """DROP TABLE IF EXISTS `some_complex_type_test`"""
+
+    sql """
+       CREATE TABLE `some_complex_type_test` (
+          `id` int(11) NULL COMMENT "",
+          `c_array` ARRAY<int(11)> NULL COMMENT ""
+        ) ENGINE=OLAP
+        DUPLICATE KEY(`id`)
+        COMMENT "OLAP"
+        DISTRIBUTED BY HASH(`id`) BUCKETS 1
+        PROPERTIES (
+        "replication_allocation" = "tag.location.default: 1",
+        "in_memory" = "false",
+        "storage_format" = "V2"
+        );
+    """
+
+    sql """INSERT INTO `some_complex_type_test` VALUES (1, [1,2,3,4,5]);"""
+    sql """INSERT INTO `some_complex_type_test` VALUES (2, [6,7,8]), (3, []), (4, null);"""
+
+    sql """
+        ANALYZE TABLE `some_complex_type_test` WITH SYNC;
+
+    """
+
+    sql """
+        SELECT COUNT(1) FROM `some_complex_type_test`
+    """
+
+    sql """DROP TABLE IF EXISTS `analyze_test_with_schema_update`"""
+
+    sql """
+        CREATE TABLE `analyze_test_with_schema_update` (
+        col1 varchar(11451) not null, col2 int not null, col3 int not null)
+        DUPLICATE KEY(col1)
+        DISTRIBUTED BY HASH(col1)
+        BUCKETS 3
+        PROPERTIES(
+            "replication_num"="1"
+        );
+    """
+
+    sql """insert into analyze_test_with_schema_update values(1, 2, 3);"""
+    sql """insert into analyze_test_with_schema_update values(4, 5, 6);"""
+    sql """insert into analyze_test_with_schema_update values(7, 1, 9);"""
+    sql """insert into analyze_test_with_schema_update values(3, 8, 2);"""
+    sql """insert into analyze_test_with_schema_update values(5, 2, 1);"""
+
+    sql """
+        ANALYZE TABLE analyze_test_with_schema_update WITH SYNC
+    """
+
+    sql """
+        ALTER TABLE analyze_test_with_schema_update ADD COLUMN tbl_name VARCHAR(256) DEFAULT NULL;
+    """
+
+    sql """
+        ANALYZE TABLE analyze_test_with_schema_update WITH SYNC
+    """
+
+    sql """
+        SELECT * FROM analyze_test_with_schema_update;
+    """
+
+    sql """
+        DROP STATS analyze_test_with_schema_update(col3);
+    """
+
+    sql """
+        ANALYZE TABLE analyze_test_with_schema_update WITH SYNC
+    """
+
+    sql """
+        SELECT * FROM analyze_test_with_schema_update;
+    """
+
 
 }

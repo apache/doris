@@ -24,7 +24,7 @@
 
 namespace doris {
 namespace io {
-class IOContext;
+struct IOContext;
 } // namespace io
 
 NewPlainBinaryLineReader::NewPlainBinaryLineReader(io::FileReaderSPtr file_reader)

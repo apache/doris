@@ -30,7 +30,7 @@ namespace doris {
 class PDataRow;
 
 namespace io {
-class IOContext;
+struct IOContext;
 } // namespace io
 
 // only used for FORMAT_PROTO type, which used for insert

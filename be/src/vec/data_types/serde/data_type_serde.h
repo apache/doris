@@ -49,13 +49,13 @@ class time_zone;
         serialize_one_cell_to_json(column, i, bw, options);                   \
     }
 
-#define DESERIALIZE_COLUMN_FROM_JSON_VECTOR()                                       \
-    for (int i = 0; i < slices.size(); ++i) {                                       \
-        if (Status st = deserialize_one_cell_from_json(column, slices[i], options); \
-            st != Status::OK()) {                                                   \
-            return st;                                                              \
-        }                                                                           \
-        ++*num_deserialized;                                                        \
+#define DESERIALIZE_COLUMN_FROM_JSON_VECTOR()                                                      \
+    for (int i = 0; i < slices.size(); ++i) {                                                      \
+        if (Status st = deserialize_one_cell_from_json(column, slices[i], options, nesting_level); \
+            st != Status::OK()) {                                                                  \
+            return st;                                                                             \
+        }                                                                                          \
+        ++*num_deserialized;                                                                       \
     }
 
 #define DESERIALIZE_COLUMN_FROM_HIVE_TEXT_VECTOR()                                      \
@@ -168,23 +168,26 @@ public:
                                           BufferWritable& bw, FormatOptions& options) const = 0;
 
     virtual Status deserialize_one_cell_from_json(IColumn& column, Slice& slice,
-                                                  const FormatOptions& options) const = 0;
+                                                  const FormatOptions& options,
+                                                  int nesting_level = 1) const = 0;
     // deserialize text vector is to avoid virtual function call in complex type nested loop
     virtual Status deserialize_column_from_json_vector(IColumn& column, std::vector<Slice>& slices,
                                                        int* num_deserialized,
-                                                       const FormatOptions& options) const = 0;
+                                                       const FormatOptions& options,
+                                                       int nesting_level = 1) const = 0;
 
     virtual Status deserialize_one_cell_from_hive_text(IColumn& column, Slice& slice,
                                                        const FormatOptions& options,
                                                        int nesting_level = 1) const {
-        return deserialize_one_cell_from_json(column, slice, options);
+        return deserialize_one_cell_from_json(column, slice, options, nesting_level);
     };
     virtual Status deserialize_column_from_hive_text_vector(IColumn& column,
                                                             std::vector<Slice>& slices,
                                                             int* num_deserialized,
                                                             const FormatOptions& options,
                                                             int nesting_level = 1) const {
-        return deserialize_column_from_json_vector(column, slices, num_deserialized, options);
+        return deserialize_column_from_json_vector(column, slices, num_deserialized, options,
+                                                   nesting_level);
     };
     virtual void serialize_one_cell_to_hive_text(const IColumn& column, int row_num,
                                                  BufferWritable& bw, FormatOptions& options,

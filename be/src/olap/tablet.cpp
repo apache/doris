@@ -1639,9 +1639,10 @@ void Tablet::build_tablet_report_info(TTabletInfo* tablet_info,
     }
 
     if (tablet_state() == TABLET_RUNNING) {
-        if (has_version_cross || is_io_error_too_times()) {
+        if (has_version_cross || is_io_error_too_times() || !data_dir()->is_used()) {
             LOG(INFO) << "report " << full_name() << " as bad, version_cross=" << has_version_cross
-                      << ", ioe times=" << get_io_error_times();
+                      << ", ioe times=" << get_io_error_times() << ", data_dir used "
+                      << data_dir()->is_used();
             tablet_info->__set_used(false);
         }
 
@@ -2654,11 +2655,12 @@ Status Tablet::_get_segment_column_iterator(
     }
     segment_v2::SegmentSharedPtr segment = *it;
     RETURN_IF_ERROR(segment->new_column_iterator(target_column, column_iterator));
-    segment_v2::ColumnIteratorOptions opt;
-    opt.file_reader = segment->file_reader().get();
-    opt.stats = stats;
-    opt.use_page_cache = !config::disable_storage_page_cache;
-    opt.io_ctx.reader_type = ReaderType::READER_QUERY;
+    segment_v2::ColumnIteratorOptions opt {
+            .use_page_cache = !config::disable_storage_page_cache,
+            .file_reader = segment->file_reader().get(),
+            .stats = stats,
+            .io_ctx = io::IOContext {.reader_type = ReaderType::READER_QUERY},
+    };
     (*column_iterator)->init(opt);
     return Status::OK();
 }

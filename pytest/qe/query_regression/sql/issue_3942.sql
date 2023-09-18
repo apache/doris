@@ -1,0 +1,17 @@
+-- https://github.com/apache/incubator-doris/issues/3942
+drop database if exists issue_3942
+
+create database issue_3942
+use issue_3942
+-- create table
+DROP TABLE IF EXISTS `test_beta`
+
+CREATE TABLE `test_beta` (`month` datetime NOT NULL, `service_name` varchar(100) NOT NULL, `cluster_name` varchar(100) NOT NULL) ENGINE=OLAP DUPLICATE KEY(`month`, `service_name`, `cluster_name`) COMMENT "OLAP" PARTITION BY RANGE(`month`) (PARTITION p202004 VALUES [('2020-04-01 00:00:00'), ('2020-05-01 00:00:00'))) DISTRIBUTED BY HASH(`service_name`) BUCKETS 1 PROPERTIES ("replication_num" = "1", "in_memory" = "false", "storage_format" = "DEFAULT")
+
+insert into test_beta values("2020-04-01 00:00:00", "shop11", "xxxxx"), ("2020-04-01 00:00:00", "shop12", "11")
+
+delete from test_beta partition p202004 where service_name="shop11" and month="2020-04-01 00:00:00"
+
+select * from test_beta
+
+drop database issue_3942

@@ -83,7 +83,7 @@ public class PhysicalFileScan extends PhysicalCatalogRelation {
                 "stats", statistics,
                 "conjuncts", conjuncts,
                 "selected partitions num",
-                selectedPartitions.isPartitionPruned ? selectedPartitions.selectedPartitions.size() : "unknown"
+                selectedPartitions.isPruned ? selectedPartitions.selectedPartitions.size() : "unknown"
         );
     }
 

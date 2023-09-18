@@ -139,6 +139,8 @@ public class OutFileClause {
     public static final String PROP_MAX_FILE_SIZE = "max_file_size";
     private static final String PROP_SUCCESS_FILE_NAME = "success_file_name";
     public static final String PROP_DELETE_EXISTING_FILES = "delete_existing_files";
+    public static final String PROP_FILE_SUFFIX = "file_suffix";
+
     private static final String PARQUET_PROP_PREFIX = "parquet.";
     private static final String SCHEMA = "schema";
 
@@ -156,6 +158,7 @@ public class OutFileClause {
     private TFileFormatType fileFormatType;
     private long maxFileSizeBytes = DEFAULT_MAX_FILE_SIZE_BYTES;
     private boolean deleteExistingFiles = false;
+    private String fileSuffix = "";
     private BrokerDesc brokerDesc = null;
     // True if result is written to local disk.
     // If set to true, the brokerDesc must be null.
@@ -643,6 +646,11 @@ public class OutFileClause {
             processedPropKeys.add(PROP_DELETE_EXISTING_FILES);
         }
 
+        if (properties.containsKey(PROP_FILE_SUFFIX)) {
+            fileSuffix = properties.get(PROP_FILE_SUFFIX);
+            processedPropKeys.add(PROP_FILE_SUFFIX);
+        }
+
         if (properties.containsKey(PROP_SUCCESS_FILE_NAME)) {
             successFileName = properties.get(PROP_SUCCESS_FILE_NAME);
             FeNameFormat.checkCommonName("file name", successFileName);
@@ -880,6 +888,8 @@ public class OutFileClause {
         }
         sinkOptions.setMaxFileSizeBytes(maxFileSizeBytes);
         sinkOptions.setDeleteExistingFiles(deleteExistingFiles);
+        sinkOptions.setFileSuffix(fileSuffix);
+
         if (brokerDesc != null) {
             sinkOptions.setBrokerProperties(brokerDesc.getProperties());
             // broker_addresses of sinkOptions will be set in Coordinator.

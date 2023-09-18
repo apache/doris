@@ -45,11 +45,12 @@ public:
                                   BufferWritable& bw, FormatOptions& options) const override;
 
     Status deserialize_one_cell_from_json(IColumn& column, Slice& slice,
-                                          const FormatOptions& options) const override;
+                                          const FormatOptions& options,
+                                          int nesting_level = 1) const override;
 
     Status deserialize_column_from_json_vector(IColumn& column, std::vector<Slice>& slices,
-                                               int* num_deserialized,
-                                               const FormatOptions& options) const override;
+                                               int* num_deserialized, const FormatOptions& options,
+                                               int nesting_level = 1) const override;
     Status deserialize_one_cell_from_hive_text(IColumn& column, Slice& slice,
                                                const FormatOptions& options,
                                                int nesting_level = 1) const override;

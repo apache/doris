@@ -131,3 +131,11 @@ CREATE TABLE doris_test.final_test
 )
     ENGINE = ReplacingMergeTree
 ORDER BY key;
+
+CREATE TABLE doris_test.ts
+(
+    id Int64,
+    ts UInt64
+)
+ENGINE = MergeTree
+ORDER BY id;

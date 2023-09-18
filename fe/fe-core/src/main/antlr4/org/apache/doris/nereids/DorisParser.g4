@@ -145,6 +145,7 @@ setQuantifier
 queryPrimary
     : querySpecification                                                   #queryPrimaryDefault
     | LEFT_PAREN query RIGHT_PAREN                                         #subquery
+    | inlineTable                                                          #valuesTable
     ;
 
 querySpecification
@@ -396,6 +397,11 @@ aggTypeDef
 tabletList
     : TABLET LEFT_PAREN tabletIdList+=INTEGER_VALUE (COMMA tabletIdList+=INTEGER_VALUE)*  RIGHT_PAREN
     ;
+    
+
+inlineTable
+    : VALUES rowConstructor (COMMA rowConstructor)*
+    ;
 
 // -----------------Expression-----------------
 namedExpression
@@ -430,7 +436,9 @@ booleanExpression
     | left=booleanExpression operator=DOUBLEPIPES right=booleanExpression           #doublePipes
     ;
 
-
+rowConstructor
+    : LEFT_PAREN namedExpression (COMMA namedExpression)+ RIGHT_PAREN
+    ;
 
 predicate
     : NOT? kind=BETWEEN lower=valueExpression AND upper=valueExpression

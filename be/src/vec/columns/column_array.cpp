@@ -819,7 +819,7 @@ Status ColumnArray::filter_by_selector(const uint16_t* sel, size_t sel_size, ICo
         max_offset = std::max(max_offset, offset_at(sel[i]));
     }
     if (max_offset > std::numeric_limits<uint16_t>::max()) {
-        return Status::IOError("array elements too large than uint16_t::max");
+        return Status::Corruption("array elements too large than uint16_t::max");
     }
 
     to_offsets.reserve(to_offsets.size() + sel_size);

@@ -36,8 +36,8 @@ Doris is built on a columnar storage format engine. In high-concurrency service 
 
 We support a row format for olap table to reduce point lookup io cost,
 but to enable this format, you need to spend more disk space for row format store.
-Currently, we store row in an extra column called `row column` for simplicity.Row store is disabled by default,
-users can enable it by adding the following property when create table
+Currently, we store row in an extra column called `row column` for simplicity.
+The Row Storage mode can only be turned on when creating a table. You need to specify the following properties in the property of the table creation statement:
 
 ```
 "store_row_column" = "true"

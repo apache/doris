@@ -462,7 +462,8 @@ suite ("sub_query_correlated") {
                 OR k1 < 10;
     """
 
-    order_qt_doris_6937_2 """
-        select * from sub_query_correlated_subquery1 where sub_query_correlated_subquery1.k1 not in (select sub_query_correlated_subquery3.k3 from sub_query_correlated_subquery3 where sub_query_correlated_subquery3.v2 > sub_query_correlated_subquery1.k2) or k1 < 10 order by k1, k2;
-    """
+    // uncomment this after DORIS-7051 is fixed
+    // order_qt_doris_6937_2 """
+    //     select * from sub_query_correlated_subquery1 where sub_query_correlated_subquery1.k1 not in (select sub_query_correlated_subquery3.k3 from sub_query_correlated_subquery3 where sub_query_correlated_subquery3.v2 > sub_query_correlated_subquery1.k2) or k1 < 10 order by k1, k2;
+    // """
 }

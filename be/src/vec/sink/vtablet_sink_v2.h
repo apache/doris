@@ -168,6 +168,7 @@ private:
     int _sender_id = -1;
     int _num_senders = -1;
     bool _is_high_priority = false;
+    bool _write_file_cache = false;
 
     // TODO(zc): think about cache this data
     std::shared_ptr<OlapTableSchemaParam> _schema;

@@ -1416,6 +1416,7 @@ visible_functions = {
         [['if'], 'DECIMAL128', ['BOOLEAN', 'DECIMAL128', 'DECIMAL128'], 'CUSTOM'],
         [['if'], 'BITMAP', ['BOOLEAN', 'BITMAP', 'BITMAP'], 'CUSTOM'],
         [['if'], 'HLL', ['BOOLEAN', 'HLL', 'HLL'], 'CUSTOM'],
+        [['if'], 'JSONB', ['BOOLEAN', 'JSONB', 'JSONB'], 'CUSTOM'],
         # The priority of varchar should be lower than decimal in IS_SUPERTYPE_OF mode.
         [['if'], 'VARCHAR', ['BOOLEAN', 'VARCHAR', 'VARCHAR'], 'CUSTOM'],
         [['if'], 'STRING', ['BOOLEAN', 'STRING', 'STRING'], 'CUSTOM'],
@@ -1976,7 +1977,8 @@ visible_functions = {
     ],
 
     "UUID": [
-        [['uuid'], 'VARCHAR', [], 'ALWAYS_NOT_NULLABLE']
+        [['uuid'], 'VARCHAR', [], 'ALWAYS_NOT_NULLABLE'],
+        [['uuid_numeric'], 'LARGEINT', [], 'ALWAYS_NOT_NULLABLE']
     ],
 
     #ip functions

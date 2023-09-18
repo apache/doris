@@ -22,7 +22,7 @@
 
 namespace doris {
 namespace io {
-class IOContext;
+struct IOContext;
 }
 // This class is used to read content line by line
 class LineReader {

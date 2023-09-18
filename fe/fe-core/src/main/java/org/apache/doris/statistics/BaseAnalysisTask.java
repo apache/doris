@@ -185,7 +185,11 @@ public abstract class BaseAnalysisTask {
         if (killed) {
             return;
         }
-        Env.getCurrentEnv().getStatisticsCache().syncLoadColStats(tbl.getId(), -1, col.getName());
+        long tblId = tbl.getId();
+        String colName = col.getName();
+        if (!Env.getCurrentEnv().getStatisticsCache().syncLoadColStats(tblId, -1, colName)) {
+            Env.getCurrentEnv().getAnalysisManager().removeColStatsStatus(tblId, colName);
+        }
     }
 
     protected void setTaskStateToRunning() {

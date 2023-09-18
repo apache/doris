@@ -1659,10 +1659,12 @@ Status PInternalServiceImpl::_multi_get(const PMultiGetRequest& request,
                     result_block.get_by_position(x).column->assume_mutable();
             RETURN_IF_ERROR(
                     segment->new_column_iterator(full_read_schema.column(index), &column_iterator));
-            segment_v2::ColumnIteratorOptions opt;
-            opt.file_reader = segment->file_reader().get();
-            opt.stats = &stats;
-            opt.use_page_cache = !config::disable_storage_page_cache;
+            segment_v2::ColumnIteratorOptions opt {
+                    .use_page_cache = !config::disable_storage_page_cache,
+                    .file_reader = segment->file_reader().get(),
+                    .stats = &stats,
+                    .io_ctx = io::IOContext {.reader_type = ReaderType::READER_QUERY},
+            };
             column_iterator->init(opt);
             std::vector<segment_v2::rowid_t> single_row_loc {
                     static_cast<segment_v2::rowid_t>(row_loc.ordinal_id())};

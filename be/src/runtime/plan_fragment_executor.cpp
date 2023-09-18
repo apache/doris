@@ -536,7 +536,9 @@ void PlanFragmentExecutor::send_report(bool done) {
         return;
     }
     ReportStatusRequest report_req = {
+            false,
             status,
+            {},
             _runtime_state->enable_profile() ? _runtime_state->runtime_profile() : nullptr,
             _runtime_state->enable_profile() ? _runtime_state->load_channel_profile() : nullptr,
             done || !status.ok(),

@@ -34,7 +34,7 @@
 
 namespace doris {
 namespace io {
-class IOContext;
+struct IOContext;
 
 // add bvar to capture the download bytes per second by buffered reader
 bvar::Adder<uint64_t> g_bytes_downloaded("buffered_reader", "bytes_downloaded");

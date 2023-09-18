@@ -55,13 +55,15 @@ inline std::ostream& operator<<(std::ostream& ostr, const TabletStream& tablet_s
 }
 
 Status TabletStream::init(OlapTableSchemaParam* schema, int64_t index_id, int64_t partition_id) {
-    WriteRequest req;
-    req.tablet_id = _id;
-    req.index_id = index_id;
-    req.txn_id = _txn_id;
-    req.partition_id = partition_id;
-    req.load_id = _load_id;
-    req.table_schema_param = schema;
+    WriteRequest req {
+            .tablet_id = _id,
+            .txn_id = _txn_id,
+            .index_id = index_id,
+            .partition_id = partition_id,
+            .load_id = _load_id,
+            .table_schema_param = schema,
+            // TODO(plat1ko): write_file_cache
+    };
 
     _load_stream_writer = std::make_shared<LoadStreamWriter>(&req, _profile);
     auto st = _load_stream_writer->init();

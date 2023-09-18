@@ -19,6 +19,7 @@ package org.apache.doris.planner.external.jdbc;
 
 import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.BinaryPredicate;
+import org.apache.doris.analysis.BoolLiteral;
 import org.apache.doris.analysis.DateLiteral;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.ExprSubstitutionMap;
@@ -113,7 +114,7 @@ public class JdbcScanNode extends ExternalScanNode {
                 break;
             }
         }
-        //clean conjusts cause graph sannnode no need conjuncts
+        // clean conjusts cause graph sannnode no need conjuncts
         conjuncts = Lists.newArrayList();
     }
 
@@ -133,19 +134,32 @@ public class JdbcScanNode extends ExternalScanNode {
         }
 
         ArrayList<Expr> conjunctsList = Expr.cloneList(conjuncts, sMap);
+        List<String> errors = Lists.newArrayList();
+        List<Expr> pushDownConjuncts = collectConjunctsToPushDown(conjunctsList, errors);
+
+        for (Expr individualConjunct : pushDownConjuncts) {
+            String filter = conjunctExprToString(jdbcType, individualConjunct);
+            filters.add(filter);
+            conjuncts.remove(individualConjunct);
+        }
+    }
+
+    private List<Expr> collectConjunctsToPushDown(List<Expr> conjunctsList, List<String> errors) {
+        List<Expr> pushDownConjuncts = new ArrayList<>();
         for (Expr p : conjunctsList) {
             if (shouldPushDownConjunct(jdbcType, p)) {
-                String filter = conjunctExprToString(jdbcType, p);
-                if (filter.equals("TRUE")) {
-                    filter = "1 = 1";
+                List<Expr> individualConjuncts = p.getConjuncts();
+                for (Expr individualConjunct : individualConjuncts) {
+                    Expr newp = JdbcFunctionPushDownRule.processFunctions(jdbcType, individualConjunct, errors);
+                    if (!errors.isEmpty()) {
+                        errors.clear();
+                        continue;
+                    }
+                    pushDownConjuncts.add(newp);
                 }
-                if (JdbcFunctionPushDownRule.isUnsupportedFunctions(jdbcType, filter)) {
-                    continue;
-                }
-                filters.add(filter);
-                conjuncts.remove(p);
             }
         }
+        return pushDownConjuncts;
     }
 
     private void createJdbcColumns() {
@@ -282,7 +296,7 @@ public class JdbcScanNode extends ExternalScanNode {
     @Override
     public int getNumInstances() {
         return ConnectContext.get().getSessionVariable().getEnablePipelineEngine()
-            ? ConnectContext.get().getSessionVariable().getParallelExecInstanceNum() : 1;
+                ? ConnectContext.get().getSessionVariable().getParallelExecInstanceNum() : 1;
     }
 
     @Override
@@ -292,17 +306,22 @@ public class JdbcScanNode extends ExternalScanNode {
                 tbl.getId(), -1L);
     }
 
-    // Now some database have different function call like doris, now doris do not
-    // push down the function call except MYSQL
-    public static boolean shouldPushDownConjunct(TOdbcTableType tableType, Expr expr) {
-        if (!tableType.equals(TOdbcTableType.MYSQL)) {
-            List<FunctionCallExpr> fnExprList = Lists.newArrayList();
-            expr.collect(FunctionCallExpr.class, fnExprList);
-            if (!fnExprList.isEmpty()) {
+    private static boolean shouldPushDownConjunct(TOdbcTableType tableType, Expr expr) {
+        if (containsFunctionCallExpr(expr)) {
+            if (tableType.equals(TOdbcTableType.MYSQL) || tableType.equals(TOdbcTableType.CLICKHOUSE)) {
+                return Config.enable_func_pushdown;
+            } else {
                 return false;
             }
+        } else {
+            return true;
         }
-        return Config.enable_func_pushdown;
+    }
+
+    private static boolean containsFunctionCallExpr(Expr expr) {
+        List<FunctionCallExpr> fnExprList = Lists.newArrayList();
+        expr.collect(FunctionCallExpr.class, fnExprList);
+        return !fnExprList.isEmpty();
     }
 
     public static String conjunctExprToString(TOdbcTableType tableType, Expr expr) {
@@ -336,6 +355,11 @@ public class JdbcScanNode extends ExternalScanNode {
                 filter += "timestamp '" + children.get(1).getStringValue() + "'";
                 return filter;
             }
+        }
+
+        // only for old planner
+        if (expr.contains(BoolLiteral.class) && expr.getStringValue().equals("1") && expr.getChildren().isEmpty()) {
+            return "1 = 1";
         }
 
         return expr.toMySql();

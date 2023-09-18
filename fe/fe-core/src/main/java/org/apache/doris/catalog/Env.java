@@ -859,7 +859,7 @@ public class Env {
                         // to see which thread held this lock for long time.
                         Thread owner = lock.getOwner();
                         if (owner != null) {
-                            LOG.debug("catalog lock is held by: {}", Util.dumpThread(owner, 10));
+                            LOG.info("catalog lock is held by: {}", Util.dumpThread(owner, 10));
                         }
                     }
 
@@ -2651,14 +2651,6 @@ public class Env {
         long cost = System.currentTimeMillis() - startTime;
         if (cost >= 1000) {
             LOG.warn("replay journal cost too much time: {} replayedJournalId: {}", cost, replayedJournalId);
-        }
-
-        if (replayedJournalId.get() != newToJournalId) {
-            String msg = "replayedJournalId:" + replayedJournalId.get() + " not equal with newToJournalId:"
-                    + newToJournalId + " , will exit";
-            LOG.error(msg);
-            Util.stdoutWithTime(msg);
-            System.exit(-1);
         }
 
         return hasLog;

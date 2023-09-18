@@ -2355,6 +2355,14 @@ public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
         if (fn.functionName().equalsIgnoreCase("array_sortby")) {
             return children.get(0).isNullable();
         }
+        if (fn.functionName().equalsIgnoreCase("array_map")) {
+            for (int i = 1; i < children.size(); ++i) {
+                if (children.get(i).isNullable()) {
+                    return true;
+                }
+            }
+            return false;
+        }
         return true;
     }
 

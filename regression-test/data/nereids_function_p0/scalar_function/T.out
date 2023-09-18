@@ -348,7 +348,7 @@
 2012-03-12T12:11:12
 
 -- !sql_to_base64_String --
-\N
+bnVsbA==
 c3RyaW5nMQ==
 c3RyaW5nMQ==
 c3RyaW5nMQ==
@@ -725,7 +725,7 @@ c3RyaW5nMw==
 2012-03-12
 
 -- !sql_trim_Varchar --
-\N
+null
 varchar11
 varchar11
 varchar11
@@ -754,7 +754,7 @@ varchar13
 varchar13
 
 -- !sql_trim_String --
-\N
+null
 string1
 string1
 string1

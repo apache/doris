@@ -37,7 +37,7 @@
 
 namespace doris {
 namespace io {
-class IOContext;
+struct IOContext;
 
 BrokerFileReader::BrokerFileReader(const TNetworkAddress& broker_addr, const Path& path,
                                    size_t file_size, TBrokerFD fd,

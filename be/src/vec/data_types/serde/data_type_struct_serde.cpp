@@ -40,8 +40,11 @@ std::optional<size_t> DataTypeStructSerDe::try_get_position_by_name(const String
 }
 
 Status DataTypeStructSerDe::deserialize_one_cell_from_json(IColumn& column, Slice& slice,
-                                                           const FormatOptions& options) const {
-    DCHECK(!slice.empty());
+                                                           const FormatOptions& options,
+                                                           int nesting_level) const {
+    if (slice.empty()) {
+        return Status::InvalidArgument("slice is empty!");
+    }
     auto& struct_column = assert_cast<ColumnStruct&>(column);
 
     if (slice[0] != '{') {
@@ -166,9 +169,11 @@ Status DataTypeStructSerDe::deserialize_one_cell_from_json(IColumn& column, Slic
     return Status::OK();
 }
 
-Status DataTypeStructSerDe::deserialize_column_from_json_vector(
-        IColumn& column, std::vector<Slice>& slices, int* num_deserialized,
-        const FormatOptions& options) const {
+Status DataTypeStructSerDe::deserialize_column_from_json_vector(IColumn& column,
+                                                                std::vector<Slice>& slices,
+                                                                int* num_deserialized,
+                                                                const FormatOptions& options,
+                                                                int nesting_level) const {
     DESERIALIZE_COLUMN_FROM_JSON_VECTOR()
     return Status::OK();
 }

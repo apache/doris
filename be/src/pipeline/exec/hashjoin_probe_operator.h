@@ -109,7 +109,7 @@ public:
     Status init(const TPlanNode& tnode, RuntimeState* state) override;
     Status prepare(RuntimeState* state) override;
     Status open(RuntimeState* state) override;
-    bool can_read(RuntimeState* state) override;
+    Dependency* wait_for_dependency(RuntimeState* state) override;
 
     Status push(RuntimeState* state, vectorized::Block* input_block,
                 SourceState source_state) const override;
