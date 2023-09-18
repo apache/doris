@@ -17,11 +17,8 @@
 
 package org.apache.doris.datasource;
 
-import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.EsResource;
 import org.apache.doris.catalog.external.EsExternalDatabase;
-import org.apache.doris.catalog.external.ExternalDatabase;
-import org.apache.doris.catalog.external.ExternalTable;
 import org.apache.doris.external.elasticsearch.EsRestClient;
 
 import com.google.common.collect.Lists;
@@ -121,26 +118,6 @@ public class EsExternalCatalog extends ExternalCatalog {
     }
 
     @Override
-    protected void init() {
-        InitCatalogLog initCatalogLog = new InitCatalogLog();
-        initCatalogLog.setCatalogId(id);
-        initCatalogLog.setType(logType);
-        if (dbNameToId != null && dbNameToId.containsKey(DEFAULT_DB)) {
-            idToDb.get(dbNameToId.get(DEFAULT_DB)).setUnInitialized(invalidCacheInInit);
-            initCatalogLog.addRefreshDb(dbNameToId.get(DEFAULT_DB));
-        } else {
-            dbNameToId = Maps.newConcurrentMap();
-            idToDb = Maps.newConcurrentMap();
-            long defaultDbId = Env.getCurrentEnv().getNextId();
-            dbNameToId.put(DEFAULT_DB, defaultDbId);
-            ExternalDatabase<? extends ExternalTable> db = getDbForInit(DEFAULT_DB, defaultDbId, logType);
-            idToDb.put(defaultDbId, db);
-            initCatalogLog.addCreateDb(defaultDbId, DEFAULT_DB);
-        }
-        Env.getCurrentEnv().getEditLog().logInitCatalog(initCatalogLog);
-    }
-
-    @Override
     public List<String> listTableNames(SessionContext ctx, String dbName) {
         makeSureInitialized();
         EsExternalDatabase db = (EsExternalDatabase) idToDb.get(dbNameToId.get(dbName));
@@ -156,5 +133,10 @@ public class EsExternalCatalog extends ExternalCatalog {
     @Override
     public boolean tableExist(SessionContext ctx, String dbName, String tblName) {
         return esRestClient.existIndex(this.esRestClient.getClient(), tblName);
+    }
+
+    @Override
+    protected List<String> listDatabaseNames() {
+        return Lists.newArrayList(DEFAULT_DB);
     }
 }
