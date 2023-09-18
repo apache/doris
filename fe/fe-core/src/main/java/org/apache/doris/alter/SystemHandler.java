@@ -245,11 +245,15 @@ public class SystemHandler extends AlterHandler {
         // check decommission disk request
         List<DiskInfo> decommissionDisks = checkDecommissionDisks(be, rootPaths, true);
         // set disk's 'decommissioned' state as true
+        boolean isChanged = false;
         for (DiskInfo disk : decommissionDisks) {
             if (disk.setDecommissioned(true)) {
-                Env.getCurrentEnv().getEditLog().logBackendStateChange(backend);
+                isChanged = true;
                 LOG.info("set disk {} on backend {} to decommissioned.", disk.getRootPath(), be.getId());
             }
+        }
+        if (isChanged) {
+            Env.getCurrentEnv().getEditLog().logBackendStateChange(be);
         }
     }
 
@@ -310,12 +314,16 @@ public class SystemHandler extends AlterHandler {
         // check decommission disk request
         List<DiskInfo> decommissionedDisks = checkDecommissionDisks(be, rootPaths, false);
         // set disk's 'decommissioned' state as false
+        boolean isChanged = false;
         for (DiskInfo disk : decommissionedDisks) {
             if (disk.setDecommissioned(false)) {
-                Env.getCurrentEnv().getEditLog().logBackendStateChange(backend);
+                isChanged = true;
                 LOG.info("cancel decommission disk {} on backend {}.",
                         disk.getRootPath(), be.getId());
             }
+        }
+        if (isChanged) {
+            Env.getCurrentEnv().getEditLog().logBackendStateChange(be);
         }
     }
 
