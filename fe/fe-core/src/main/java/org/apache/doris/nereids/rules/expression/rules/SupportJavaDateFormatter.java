@@ -22,6 +22,7 @@ import org.apache.doris.nereids.rules.expression.ExpressionRewriteContext;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.DateFormat;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.FromUnixtime;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.UnixTimestamp;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
 
@@ -68,6 +69,18 @@ public class SupportJavaDateFormatter extends AbstractExpressionRewriteRule {
             return function.withChildren(newArguments);
         }
         return function;
+    }
+
+    public Expression visitUnixTimestamp(UnixTimestamp unixTimestamp, ExpressionRewriteContext context) {
+        Expression expr = super.visitUnixTimestamp(unixTimestamp, context);
+        if (!(expr instanceof UnixTimestamp)) {
+            return expr;
+        }
+        unixTimestamp = (UnixTimestamp) expr;
+        if (unixTimestamp.arity() > 1) {
+            return translateJavaFormatter(unixTimestamp, 1);
+        }
+        return unixTimestamp;
     }
 
     private Expression translateJavaFormatter(Expression formatterExpr) {
