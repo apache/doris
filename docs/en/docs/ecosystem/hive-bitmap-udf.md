@@ -72,7 +72,7 @@ mvn package -Dmaven.test.skip=true
 --You can also just package the hive-udf module
 mvn package -pl hive-udf -am -Dmaven.test.skip=true
 ```
-After packaging and compiling, enter the hive-udf directory and there will be a target directory,There will be hive-udf-jar-with-dependencies.jar package
+After packaging and compiling, enter the hive-udf directory and there will be a target directory,There will be hive-udf.jar package
 
 ```sql
 -- Load the Hive Bitmap Udf jar package (Upload the compiled hive-udf jar package to HDFS)

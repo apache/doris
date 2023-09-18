@@ -74,7 +74,7 @@ mvn package -Dmaven.test.skip=true
 --也可以只打hive-udf module
 mvn package -pl hive-udf -am -Dmaven.test.skip=true
 ```
-打包编译完成进入hive-udf目录会有target目录，里面就会有打包完成的hive-udf-jar-with-dependencies.jar包
+打包编译完成进入hive-udf目录会有target目录，里面就会有打包完成的hive-udf.jar包
 
 ```sql
 
