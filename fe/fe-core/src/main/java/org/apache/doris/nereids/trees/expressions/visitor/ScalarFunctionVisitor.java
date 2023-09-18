@@ -365,7 +365,6 @@ import org.apache.doris.nereids.trees.expressions.functions.udf.AliasUdf;
 import org.apache.doris.nereids.trees.expressions.functions.udf.JavaUdf;
 
 /** ScalarFunctionVisitor. */
-@SuppressWarnings("checkstyle:RegexpSingleline")
 public interface ScalarFunctionVisitor<R, C> {
 
     R visitScalarFunction(ScalarFunction scalarFunction, C context);
