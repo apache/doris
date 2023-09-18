@@ -321,3 +321,248 @@ CREATE TABLE show_test_do_not_modify.ex_tb2 (
   id int,
   count_value varchar(20)
 );
+
+create table doris_test.test_bit_type(
+ bit_01 bit,
+ bit_02 bit,
+ bit_03 bit
+);
+
+create table doris_test.test_boolean_type(
+ boolean_01 boolean,
+ boolean_02 boolean,
+ boolean_03 boolean,
+ boolean_04 boolean,
+ boolean_05 boolean
+);
+
+create table doris_test.test_tinyint_type(
+ t_01 tinyint,
+ t_02 tinyint,
+ t_03 tinyint,
+ t_04 tinyint
+);
+
+
+create table doris_test.test_smallint_type(
+s_01 smallint,
+s_02 smallint,
+s_03 smallint,
+s_04 smallint
+);
+
+create table doris_test.test_integer_type(
+ i_01 integer,
+ i_02 integer,
+ i_03 integer,
+ i_04 integer,
+ i_05 bigint,
+ i_06 bigint,
+ i_07 bigint,
+ i_08 bigint
+);
+
+create table doris_test.test_varchar2_type(
+  v_01 tinytext,
+  v_02 text,
+  v_03 mediumtext,
+  v_04 longtext,
+  v_05 varchar(32),
+  v_06 varchar(15000)
+);
+
+create table doris_test.test_varchar3_type(
+  v_01 tinytext CHARACTER SET utf8,
+  v_02 text CHARACTER SET utf8,
+  v_03 mediumtext CHARACTER SET utf8,
+  v_04 longtext CHARACTER SET utf8,
+  v_05 varchar(30) CHARACTER SET utf8,
+  v_06 varchar(32) CHARACTER SET utf8,
+  v_07 varchar(20000) CHARACTER SET utf8
+)ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+create table doris_test.test_char_type(
+  v_01 char,
+  v_02 char,
+  v_03 char(1),
+  v_04 char(1),
+  v_05 char(8),
+  v_06 char(8),
+  v_07 char(255),
+  v_08 char,
+  v_09 char(255)
+)ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+create table doris_test.test_char1_type(
+    v_01 char(5),
+    v_02 char(20),
+    v_03 char(20)
+)ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+create table doris_test.test_decimal_type(
+ d_01 decimal(3, 0),
+ d_02 decimal(3, 1),
+ d_03 decimal(4, 2),
+ d_04 decimal(24, 2),
+ d_05 decimal(24, 2),
+ d_06 decimal(30, 5),
+ d_07 decimal(38, 0),
+ d_08 decimal(3, 0)
+);
+
+create table doris_test.test_binary_type(
+b_01 binary(18),
+b_02 binary(18),
+b_03 binary(18),
+b_04 binary(18),
+b_05 binary(18),
+b_06 binary(18),
+b_07 binary(18)
+);
+
+
+create table doris_test.test_date_type(
+  d_01 date,
+  d_02 date,
+  d_03 date,
+  d_04 time,
+  d_05 time,
+  d_06 time(1),
+  d_07 time(2),
+  d_08 time(3),
+  d_09 datetime(3),
+  d_10 datetime(6),
+  d_11 time,
+  d_12 time
+);
+
+create table doris_test.test_date1_type(
+d_13 timestamp DEFAULT CURRENT_TIMESTAMP,
+d_14 timestamp DEFAULT CURRENT_TIMESTAMP,
+d_15 timestamp DEFAULT CURRENT_TIMESTAMP,
+d_16 timestamp DEFAULT CURRENT_TIMESTAMP
+);
+
+
+create table doris_test.test_date2_type(
+d_01 date,
+d_02 date,
+d_03 date,
+d_04 time
+);
+
+create table doris_test.test_json_type(
+  j_01 json,
+  j_02 json,
+  j_03 json,
+  j_04 json,
+  j_05 json,
+  j_06 json,
+  j_07 json,
+  j_08 json,
+  j_09 json,
+  j_10 json
+);
+
+
+create table doris_test.test_json1_type(
+j_01 json,
+j_02 json,
+j_03 json,
+j_04 json,
+j_05 json,
+j_06 json,
+j_07 json,
+j_08 json,
+j_09 json,
+j_10 json
+);
+
+
+create table doris_test.test_real_type(
+  r_01 real,
+  r_02 real,
+  r_03 real,
+  f_01 float,
+  f_02 float,
+  f_03 float,
+  d_01 double,
+  d_02 double,
+  d_03 double
+);
+
+create table doris_test.test_Unsigned_type(
+  i_01 TINYINT UNSIGNED,
+  i_02 SMALLINT UNSIGNED,
+  i_03 INT UNSIGNED,
+  i_04 INTEGER UNSIGNED,
+  i_05 BIGINT UNSIGNED
+);
+
+CREATE TABLE doris_test.test_enum(id int, enum_column ENUM ('b','a','C'));
+
+
+create table doris_test.testImplementCount(
+  v_bigint BIGINT,
+  v_double double
+);
+
+create table  doris_test.test_nation(
+regionkey bigint,
+nationkey bigint,
+name varchar(255)
+);
+
+create table doris_test.binary_test(
+x int,
+y varbinary(50)
+);
+
+create table doris_test.in_test(
+x bigint,
+y bigint
+);
+
+create table doris_test.test_insert_unicode(test varchar(50) CHARACTER SET utf8mb4)ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+create table doris_test.test_insert_unicode1(t_varchar varchar(50),t_char char(50))ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+create table doris_test.test_load(t_varchar varchar(50),t_char char(50))ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE doris_test.nation_load (
+    n_nationkey int NOT NULL,
+    n_name varchar(250) NOT NULL,
+    n_regionkey int NOT NULL,
+    n_comment varchar(152) NOT NULL
+);
+
+CREATE  VIEW doris_test.test_view AS SELECT * FROM doris_test.nation_load;
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
