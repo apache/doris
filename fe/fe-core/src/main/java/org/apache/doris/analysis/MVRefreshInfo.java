@@ -30,8 +30,4 @@ public class MVRefreshInfo {
     public enum RefreshTrigger {
         MANUAL, SCHEDULE
     }
-
-    public enum RefreshUnit {
-        SECOND, MINUTE, HOUR, DAY
-    }
 }
