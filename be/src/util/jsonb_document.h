@@ -1238,6 +1238,7 @@ inline unsigned int JsonbValue::size() const {
 }
 
 inline int JsonbValue::length() const {
+    if ((JsonbValue*)this == nullptr) return 0;
     switch (type_) {
     case JsonbType::T_Int8:
     case JsonbType::T_Int16:
@@ -1265,7 +1266,7 @@ inline int JsonbValue::length() const {
 }
 
 inline bool JsonbValue::contains(JsonbValue* rhs) const {
-    if (rhs == nullptr) return false;
+    if ((JsonbValue*)this == nullptr || rhs == nullptr) return false;
     switch (type_) {
     case JsonbType::T_Int8:
     case JsonbType::T_Int16:
