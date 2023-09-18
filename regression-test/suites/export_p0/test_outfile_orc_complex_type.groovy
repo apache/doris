@@ -103,8 +103,6 @@ suite("test_outfile_orc_complex_type", "p0") {
                         """
 
     } finally {
-        sql """ DROP TABLE IF EXISTS ${export_table_name} """
-        sql """ DROP TABLE IF EXISTS ${load_table_name} """
     }
 
 
@@ -138,8 +136,6 @@ suite("test_outfile_orc_complex_type", "p0") {
             );
             """
     } finally {
-        sql """ DROP TABLE IF EXISTS ${export_table_name} """
-        sql """ DROP TABLE IF EXISTS ${load_table_name} """
     }
 
     // 3. test NULL Map
@@ -172,8 +168,6 @@ suite("test_outfile_orc_complex_type", "p0") {
             );
             """
     } finally {
-        sql """ DROP TABLE IF EXISTS ${export_table_name} """
-        sql """ DROP TABLE IF EXISTS ${load_table_name} """
     }
 
     // 4. test NOT NULL Map
@@ -204,8 +198,6 @@ suite("test_outfile_orc_complex_type", "p0") {
             );
             """
     } finally {
-        sql """ DROP TABLE IF EXISTS ${export_table_name} """
-        sql """ DROP TABLE IF EXISTS ${load_table_name} """
     }
 
 
@@ -242,8 +234,6 @@ suite("test_outfile_orc_complex_type", "p0") {
             );
             """
     } finally {
-        sql """ DROP TABLE IF EXISTS ${export_table_name} """
-        sql """ DROP TABLE IF EXISTS ${load_table_name} """
     }
 
     // 6. test NOT NULL ARRAY
@@ -276,8 +266,6 @@ suite("test_outfile_orc_complex_type", "p0") {
             );
             """
     } finally {
-        sql """ DROP TABLE IF EXISTS ${export_table_name} """
-        sql """ DROP TABLE IF EXISTS ${load_table_name} """
     }
 
 
@@ -320,8 +308,6 @@ suite("test_outfile_orc_complex_type", "p0") {
                         """
 
     } finally {
-        sql """ DROP TABLE IF EXISTS ${export_table_name} """
-        sql """ DROP TABLE IF EXISTS ${load_table_name} """
     }
 
 }

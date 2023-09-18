@@ -101,8 +101,6 @@ suite("test_outfile_orc_array_type", "p0") {
             );
             """
     } finally {
-        sql """ DROP TABLE IF EXISTS ${export_table_name} """
-        sql """ DROP TABLE IF EXISTS ${load_table_name} """
     }
 
 
@@ -136,8 +134,6 @@ suite("test_outfile_orc_array_type", "p0") {
             );
             """
     } finally {
-        sql """ DROP TABLE IF EXISTS ${export_table_name} """
-        sql """ DROP TABLE IF EXISTS ${load_table_name} """
     }
 
     // 3. test NULL ARRAY of date
@@ -170,8 +166,6 @@ suite("test_outfile_orc_array_type", "p0") {
             );
             """
     } finally {
-        sql """ DROP TABLE IF EXISTS ${export_table_name} """
-        sql """ DROP TABLE IF EXISTS ${load_table_name} """
     }
 
     // 4. test NULL ARRAY of datetime
@@ -204,8 +198,6 @@ suite("test_outfile_orc_array_type", "p0") {
             );
             """
     } finally {
-        sql """ DROP TABLE IF EXISTS ${export_table_name} """
-        sql """ DROP TABLE IF EXISTS ${load_table_name} """
     }
 
 
@@ -241,8 +233,6 @@ suite("test_outfile_orc_array_type", "p0") {
             );
             """
     } finally {
-        sql """ DROP TABLE IF EXISTS ${export_table_name} """
-        sql """ DROP TABLE IF EXISTS ${load_table_name} """
     }
 
     
@@ -277,8 +267,6 @@ suite("test_outfile_orc_array_type", "p0") {
             );
             """
     } finally {
-        sql """ DROP TABLE IF EXISTS ${export_table_name} """
-        sql """ DROP TABLE IF EXISTS ${load_table_name} """
     }
 
 
@@ -312,8 +300,6 @@ suite("test_outfile_orc_array_type", "p0") {
             );
             """
     } finally {
-        sql """ DROP TABLE IF EXISTS ${export_table_name} """
-        sql """ DROP TABLE IF EXISTS ${load_table_name} """
     }
 
 
@@ -347,8 +333,6 @@ suite("test_outfile_orc_array_type", "p0") {
             );
             """
     } finally {
-        sql """ DROP TABLE IF EXISTS ${export_table_name} """
-        sql """ DROP TABLE IF EXISTS ${load_table_name} """
     }
 
 
@@ -382,8 +366,6 @@ suite("test_outfile_orc_array_type", "p0") {
             );
             """
     } finally {
-        sql """ DROP TABLE IF EXISTS ${export_table_name} """
-        sql """ DROP TABLE IF EXISTS ${load_table_name} """
     }
 
     // 11. test NULL ARRAY of largeint
@@ -416,8 +398,6 @@ suite("test_outfile_orc_array_type", "p0") {
             );
             """
     } finally {
-        sql """ DROP TABLE IF EXISTS ${export_table_name} """
-        sql """ DROP TABLE IF EXISTS ${load_table_name} """
     }
 
 
@@ -451,8 +431,6 @@ suite("test_outfile_orc_array_type", "p0") {
             );
             """
     } finally {
-        sql """ DROP TABLE IF EXISTS ${export_table_name} """
-        sql """ DROP TABLE IF EXISTS ${load_table_name} """
     }
 
     // 13. test NULL ARRAY of double
@@ -485,8 +463,6 @@ suite("test_outfile_orc_array_type", "p0") {
             );
             """
     } finally {
-        sql """ DROP TABLE IF EXISTS ${export_table_name} """
-        sql """ DROP TABLE IF EXISTS ${load_table_name} """
     }
 
     // 14. test NULL ARRAY of CHAR(10)
@@ -519,8 +495,6 @@ suite("test_outfile_orc_array_type", "p0") {
             );
             """
     } finally {
-        sql """ DROP TABLE IF EXISTS ${export_table_name} """
-        sql """ DROP TABLE IF EXISTS ${load_table_name} """
     }
 
 
@@ -554,7 +528,5 @@ suite("test_outfile_orc_array_type", "p0") {
             );
             """
     } finally {
-        sql """ DROP TABLE IF EXISTS ${export_table_name} """
-        sql """ DROP TABLE IF EXISTS ${load_table_name} """
     }
 }
