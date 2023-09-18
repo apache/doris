@@ -34,18 +34,18 @@ public class QeService {
     // MySQL protocol service
     private MysqlServer mysqlServer;
 
-    private int flightsqlPort;
+    private int arrowFlightSQLPort;
     private FlightSqlService flightSqlService;
 
     @Deprecated
-    public QeService(int port, int flightsqlPort) {
+    public QeService(int port, int arrowFlightSQLPort) {
         this.port = port;
-        this.flightsqlPort = flightsqlPort;
+        this.arrowFlightSQLPort = arrowFlightSQLPort;
     }
 
-    public QeService(int port, int flightsqlPort, ConnectScheduler scheduler) {
+    public QeService(int port, int arrowFlightSQLPort, ConnectScheduler scheduler) {
         this.port = port;
-        this.flightsqlPort = flightsqlPort;
+        this.arrowFlightSQLPort = arrowFlightSQLPort;
         this.mysqlServer = new MysqlServer(port, scheduler);
     }
 
@@ -62,8 +62,8 @@ public class QeService {
             LOG.error("mysql server start failed");
             System.exit(-1);
         }
-        if (flightsqlPort != -1) {
-            this.flightSqlService = new FlightSqlService(flightsqlPort);
+        if (arrowFlightSQLPort != -1) {
+            this.flightSqlService = new FlightSqlService(arrowFlightSQLPort);
             if (!flightSqlService.start()) {
                 System.exit(-1);
             }

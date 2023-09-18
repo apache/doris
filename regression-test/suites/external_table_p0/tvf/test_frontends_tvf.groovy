@@ -43,7 +43,7 @@ suite("test_frontends_tvf","p0,external,tvf,external_docker") {
     assertTrue(res[0][0] > 0)
 
     sql """ select Name, Host, EditLogPort
-            HttpPort, QueryPort, RpcPort, `Role`, IsMaster, ClusterId
+            HttpPort, QueryPort, RpcPort, ArrowFlightSqlPort, `Role`, IsMaster, ClusterId
             `Join`, Alive, ReplayedJournalId, LastHeartbeat
             IsHelper, ErrMsg, Version, CurrentConnected from frontends();
     """

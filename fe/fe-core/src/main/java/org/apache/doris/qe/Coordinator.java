@@ -1627,10 +1627,10 @@ public class Coordinator implements CoordInterface {
         if (backend == null) {
             throw new UserException(SystemInfoService.NO_BACKEND_LOAD_AVAILABLE_MSG);
         }
-        if (backend.getArrowFlightSQLPort() < 0) {
+        if (backend.getArrowFlightSqlPort() < 0) {
             return null;
         }
-        return new TNetworkAddress(backend.getHost(), backend.getArrowFlightSQLPort());
+        return new TNetworkAddress(backend.getHost(), backend.getArrowFlightSqlPort());
     }
 
     // estimate if this fragment contains UnionNode

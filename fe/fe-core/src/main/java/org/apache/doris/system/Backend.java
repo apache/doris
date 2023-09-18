@@ -76,8 +76,8 @@ public class Backend implements Writable {
     private volatile int beRpcPort; // be rpc port
     @SerializedName("brpcPort")
     private volatile int brpcPort = -1;
-    @SerializedName("arrowFlightSQLPort")
-    private volatile int arrowFlightSQLPort = -1;
+    @SerializedName("arrowFlightSqlPort")
+    private volatile int arrowFlightSqlPort = -1;
 
     @SerializedName("lastUpdateMs")
     private volatile long lastUpdateMs;
@@ -206,8 +206,8 @@ public class Backend implements Writable {
         return brpcPort;
     }
 
-    public int getArrowFlightSQLPort() {
-        return arrowFlightSQLPort;
+    public int getArrowFlightSqlPort() {
+        return arrowFlightSqlPort;
     }
 
     public String getHeartbeatErrMsg() {
@@ -295,8 +295,8 @@ public class Backend implements Writable {
         this.brpcPort = brpcPort;
     }
 
-    public void setArrowFlightSQLPort(int arrowFlightSQLPort) {
-        this.arrowFlightSQLPort = arrowFlightSQLPort;
+    public void setArrowFlightSqlPort(int arrowFlightSqlPort) {
+        this.arrowFlightSqlPort = arrowFlightSqlPort;
     }
 
     public void setCpuCores(int cpuCores) {
@@ -680,9 +680,9 @@ public class Backend implements Writable {
                 this.brpcPort = hbResponse.getBrpcPort();
             }
 
-            if (this.arrowFlightSQLPort != hbResponse.getArrowFlightSQLPort() && !FeConstants.runningUnitTest) {
+            if (this.arrowFlightSqlPort != hbResponse.getArrowFlightSqlPort() && !FeConstants.runningUnitTest) {
                 isChanged = true;
-                this.arrowFlightSQLPort = hbResponse.getArrowFlightSQLPort();
+                this.arrowFlightSqlPort = hbResponse.getArrowFlightSqlPort();
             }
 
             if (this.isShutDown.get() != hbResponse.isShutDown()) {
@@ -816,7 +816,7 @@ public class Backend implements Writable {
     }
 
     public TNetworkAddress getArrowFlightAddress() {
-        return new TNetworkAddress(getHost(), getArrowFlightSQLPort());
+        return new TNetworkAddress(getHost(), getArrowFlightSqlPort());
     }
 
     public String getTagMapString() {
