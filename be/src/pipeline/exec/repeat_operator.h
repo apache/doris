@@ -44,6 +44,7 @@ public:
 
     Status close(RuntimeState* state) override;
 };
+
 class RepeatOperatorX;
 
 class RepeatLocalState final : public PipelineXLocalState<FakeDependency> {

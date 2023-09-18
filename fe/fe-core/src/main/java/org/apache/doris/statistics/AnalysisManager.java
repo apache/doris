@@ -384,11 +384,11 @@ public class AnalysisManager extends Daemon implements Writable {
 
     private void sendJobId(List<AnalysisInfo> analysisInfos, boolean proxy) {
         List<Column> columns = new ArrayList<>();
+        columns.add(new Column("Job_Id", ScalarType.createVarchar(19)));
         columns.add(new Column("Catalog_Name", ScalarType.createVarchar(1024)));
         columns.add(new Column("DB_Name", ScalarType.createVarchar(1024)));
         columns.add(new Column("Table_Name", ScalarType.createVarchar(1024)));
         columns.add(new Column("Columns", ScalarType.createVarchar(1024)));
-        columns.add(new Column("Job_Id", ScalarType.createVarchar(19)));
         ShowResultSetMetaData commonResultSetMetaData = new ShowResultSetMetaData(columns);
         List<List<String>> resultRows = new ArrayList<>();
         for (AnalysisInfo analysisInfo : analysisInfos) {
@@ -396,11 +396,11 @@ public class AnalysisManager extends Daemon implements Writable {
                 continue;
             }
             List<String> row = new ArrayList<>();
+            row.add(String.valueOf(analysisInfo.jobId));
             row.add(analysisInfo.catalogName);
             row.add(analysisInfo.dbName);
             row.add(analysisInfo.tblName);
             row.add(analysisInfo.colName);
-            row.add(String.valueOf(analysisInfo.jobId));
             resultRows.add(row);
         }
         ShowResultSet commonResultSet = new ShowResultSet(commonResultSetMetaData, resultRows);
@@ -480,6 +480,8 @@ public class AnalysisManager extends Daemon implements Writable {
         return columnToPartitions;
     }
 
+    // Make sure colName of job has all the column as this AnalyzeStmt specified, no matter whether it will be analyzed
+    // or not.
     @VisibleForTesting
     public AnalysisInfo buildAnalysisJobInfo(AnalyzeTblStmt stmt) throws DdlException {
         AnalysisInfoBuilder infoBuilder = new AnalysisInfoBuilder();
@@ -733,7 +735,6 @@ public class AnalysisManager extends Daemon implements Writable {
         }
         logCreateTableStats(tableStats);
         StatisticsRepository.dropStatistics(tblId, cols);
-
     }
 
     public void handleKillAnalyzeStmt(KillAnalysisJobStmt killAnalysisJobStmt) throws DdlException {
@@ -1042,6 +1043,15 @@ public class AnalysisManager extends Daemon implements Writable {
                     // DO NOTHING
                     return null;
                 }, null);
+    }
+
+    // Remove col stats status from TableStats if failed load some col stats after analyze corresponding column so that
+    // we could make sure it would be analyzed again soon if user or system submit job for that column again.
+    public void removeColStatsStatus(long tblId, String colName) {
+        TableStats tableStats = findTableStatsStatus(tblId);
+        if (tableStats != null) {
+            tableStats.removeColumn(colName);
+        }
     }
 
 }

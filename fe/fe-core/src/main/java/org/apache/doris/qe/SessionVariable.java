@@ -68,6 +68,7 @@ public class SessionVariable implements Serializable, Writable {
     public static final String EXEC_MEM_LIMIT = "exec_mem_limit";
     public static final String SCAN_QUEUE_MEM_LIMIT = "scan_queue_mem_limit";
     public static final String QUERY_TIMEOUT = "query_timeout";
+    public static final String ANALYZE_TIMEOUT = "analyze_timeout";
 
     public static final String MAX_EXECUTION_TIME = "max_execution_time";
     public static final String INSERT_TIMEOUT = "insert_timeout";
@@ -400,6 +401,8 @@ public class SessionVariable implements Serializable, Writable {
     public static final String ENABLE_MEMTABLE_ON_SINK_NODE =
             "enable_memtable_on_sink_node";
 
+    public static final String ENABLE_UNIQUE_KEY_PARTIAL_UPDATE = "enable_unique_key_partial_update";
+
     public static final String INVERTED_INDEX_CONJUNCTION_OPT_THRESHOLD = "inverted_index_conjunction_opt_threshold";
 
     public static final String FULL_AUTO_ANALYZE_START_TIME = "full_auto_analyze_start_time";
@@ -449,7 +452,11 @@ public class SessionVariable implements Serializable, Writable {
 
     // query timeout in second.
     @VariableMgr.VarAttr(name = QUERY_TIMEOUT)
-    public int queryTimeoutS = 300;
+    public int queryTimeoutS = 900;
+
+    // query timeout in second.
+    @VariableMgr.VarAttr(name = ANALYZE_TIMEOUT, needForward = true)
+    public int analyzeTimeoutS = 43200;
 
     // The global max_execution_time value provides the default for the session value for new connections.
     // The session value applies to SELECT executions executed within the session that include
@@ -1192,6 +1199,9 @@ public class SessionVariable implements Serializable, Writable {
             flag = VariableMgr.GLOBAL)
     public String fullAutoAnalyzeEndTime = "";
 
+    @VariableMgr.VarAttr(name = ENABLE_UNIQUE_KEY_PARTIAL_UPDATE, needForward = false)
+    public boolean enableUniqueKeyPartialUpdate = false;
+
     // If this fe is in fuzzy mode, then will use initFuzzyModeVariables to generate some variables,
     // not the default value set in the code.
     public void initFuzzyModeVariables() {
@@ -1366,6 +1376,10 @@ public class SessionVariable implements Serializable, Writable {
 
     public int getQueryTimeoutS() {
         return queryTimeoutS;
+    }
+
+    public int getAnalyzeTimeoutS() {
+        return analyzeTimeoutS;
     }
 
     public void setEnableTwoPhaseReadOpt(boolean enable) {
@@ -1545,6 +1559,10 @@ public class SessionVariable implements Serializable, Writable {
 
     public void setQueryTimeoutS(int queryTimeoutS) {
         this.queryTimeoutS = queryTimeoutS;
+    }
+
+    public void setAnalyzeTimeoutS(int analyzeTimeoutS) {
+        this.analyzeTimeoutS = analyzeTimeoutS;
     }
 
     public void setMaxExecutionTimeMS(int maxExecutionTimeMS) {
@@ -2198,6 +2216,14 @@ public class SessionVariable implements Serializable, Writable {
         this.truncateCharOrVarcharColumns = truncateCharOrVarcharColumns;
     }
 
+    public boolean isEnableUniqueKeyPartialUpdate() {
+        return enableUniqueKeyPartialUpdate;
+    }
+
+    public void setEnableUniqueKeyPartialUpdate(boolean enableUniqueKeyPartialUpdate) {
+        this.enableUniqueKeyPartialUpdate = enableUniqueKeyPartialUpdate;
+    }
+
     /**
      * Serialize to thrift object.
      * Used for rest api.
@@ -2473,6 +2499,9 @@ public class SessionVariable implements Serializable, Writable {
         if (queryOptions.isSetInsertTimeout()) {
             setInsertTimeoutS(queryOptions.getInsertTimeout());
         }
+        if (queryOptions.isSetAnalyzeTimeout()) {
+            setAnalyzeTimeoutS(queryOptions.getAnalyzeTimeout());
+        }
     }
 
     /**
@@ -2484,6 +2513,7 @@ public class SessionVariable implements Serializable, Writable {
         queryOptions.setScanQueueMemLimit(Math.min(maxScanQueueMemByte, maxExecMemByte / 20));
         queryOptions.setQueryTimeout(queryTimeoutS);
         queryOptions.setInsertTimeout(insertTimeoutS);
+        queryOptions.setAnalyzeTimeout(analyzeTimeoutS);
         return queryOptions;
     }
 

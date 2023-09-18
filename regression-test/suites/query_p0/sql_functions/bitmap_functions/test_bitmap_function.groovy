@@ -1003,4 +1003,10 @@ suite("test_bitmap_function") {
     qt_sql_bitmap_remove_not_null8 """ select bitmap_to_string(bitmap_remove(id, 4294967296)) s from test_bitmap_remove_not_null order by s; """
     qt_sql_bitmap_remove_not_null9 """ select bitmap_to_string(bitmap_remove(id, null)) s from test_bitmap_remove_not_null order by s; """
 
+    // BITMAP_FROM_ARRAY
+    sql """ set experimental_enable_nereids_planner=false; """
+    qt_sql """ select bitmap_to_string(BITMAP_FROM_ARRAY([]));"""
+
+    sql """ set experimental_enable_nereids_planner=true; """
+    qt_sql """ select bitmap_to_string(BITMAP_FROM_ARRAY([]));"""
 }

@@ -196,16 +196,6 @@ bool PipelineXLocalStateBase::reached_limit() const {
     return _parent->_limit != -1 && _num_rows_returned >= _parent->_limit;
 }
 
-void PipelineXLocalStateBase::reached_limit(vectorized::Block* block, bool* eos) {
-    if (_parent->_limit != -1 and _num_rows_returned + block->rows() >= _parent->_limit) {
-        block->set_num_rows(_parent->_limit - _num_rows_returned);
-        *eos = true;
-    }
-
-    _num_rows_returned += block->rows();
-    COUNTER_SET(_rows_returned_counter, _num_rows_returned);
-}
-
 void PipelineXLocalStateBase::reached_limit(vectorized::Block* block, SourceState& source_state) {
     if (_parent->_limit != -1 and _num_rows_returned + block->rows() >= _parent->_limit) {
         block->set_num_rows(_parent->_limit - _num_rows_returned);
@@ -213,6 +203,7 @@ void PipelineXLocalStateBase::reached_limit(vectorized::Block* block, SourceStat
     }
 
     _num_rows_returned += block->rows();
+    COUNTER_UPDATE(_blocks_returned_counter, 1);
     COUNTER_SET(_rows_returned_counter, _num_rows_returned);
 }
 
@@ -281,8 +272,6 @@ Status StreamingOperatorX<LocalStateType>::get_block(RuntimeState* state, vector
                                                      SourceState& source_state) {
     RETURN_IF_ERROR(OperatorX<LocalStateType>::_child_x->get_next_after_projects(state, block,
                                                                                  source_state));
-    COUNTER_UPDATE(state->get_local_state(OperatorX<LocalStateType>::id())->rows_input_counter(),
-                   (int64_t)block->rows());
     return pull(state, block, source_state);
 }
 
@@ -295,7 +284,6 @@ Status StatefulOperatorX<LocalStateType>::get_block(RuntimeState* state, vectori
         local_state._child_block->clear_column_data();
         RETURN_IF_ERROR(OperatorX<LocalStateType>::_child_x->get_next_after_projects(
                 state, local_state._child_block.get(), local_state._child_source_state));
-        COUNTER_UPDATE(local_state.rows_input_counter(), (int64_t)local_state._child_block->rows());
         source_state = local_state._child_source_state;
         if (local_state._child_block->rows() == 0 &&
             local_state._child_source_state != SourceState::FINISHED) {
@@ -337,8 +325,7 @@ DECLARE_OPERATOR_X(HashJoinProbeLocalState)
 DECLARE_OPERATOR_X(OlapScanLocalState)
 DECLARE_OPERATOR_X(AnalyticLocalState)
 DECLARE_OPERATOR_X(SortLocalState)
-DECLARE_OPERATOR_X(BlockingAggLocalState)
-DECLARE_OPERATOR_X(StreamingAggLocalState)
+DECLARE_OPERATOR_X(AggLocalState)
 DECLARE_OPERATOR_X(ExchangeLocalState)
 DECLARE_OPERATOR_X(RepeatLocalState)
 DECLARE_OPERATOR_X(NestedLoopJoinProbeLocalState)
@@ -368,7 +355,6 @@ template class PipelineXLocalState<SortDependency>;
 template class PipelineXLocalState<NestedLoopJoinDependency>;
 template class PipelineXLocalState<AnalyticDependency>;
 template class PipelineXLocalState<AggDependency>;
-template class PipelineXLocalState<StreamingAggDependency>;
 template class PipelineXLocalState<FakeDependency>;
 template class PipelineXLocalState<UnionDependency>;
 
