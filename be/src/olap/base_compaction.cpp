@@ -28,6 +28,7 @@
 #include "common/config.h"
 #include "common/logging.h"
 #include "olap/olap_define.h"
+#include "olap/rowset/beta_rowset.h"
 #include "olap/rowset/rowset_meta.h"
 #include "runtime/thread_context.h"
 #include "util/doris_metrics.h"
@@ -88,6 +89,16 @@ Status BaseCompaction::execute_compact_impl() {
 
     // 3. set state to success
     _state = CompactionState::SUCCESS;
+
+    // Remove old rowset's segments from cache.
+    for (const auto& rowset : _input_rowsets) {
+        SegmentLoader::instance()->erase_segments(SegmentCache::CacheKey(rowset->rowset_id()));
+    }
+
+    // load new rowset's segments to cache.
+    SegmentCacheHandle handle;
+    RETURN_IF_ERROR(SegmentLoader::instance()->load_segments(
+            std::static_pointer_cast<BetaRowset>(_output_rowset), &handle, true));
 
     // 4. add metric to base compaction
     DorisMetrics::instance()->base_compaction_deltas_total->increment(_input_rowsets.size());

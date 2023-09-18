@@ -160,7 +160,10 @@ Status Segment::new_iterator(SchemaSPtr schema, const StorageReadOptions& read_o
     return iter->get()->init(read_options);
 }
 
-Status Segment::_parse_footer(SegmentFooterPB* footer) {
+Status Segment::_parse_footer() {
+    MonotonicStopWatch timer;
+    timer.start();
+    auto t0 = timer.elapsed_time();
     // Footer := SegmentFooterPB, FooterPBSize(4), FooterPBChecksum(4), MagicNumber(4)
     auto file_size = _file_reader->size();
     if (file_size < 12) {
@@ -170,11 +173,13 @@ Status Segment::_parse_footer(SegmentFooterPB* footer) {
 
     uint8_t fixed_buf[12];
     size_t bytes_read = 0;
-    // TODO(plat1ko): Support session variable `enable_file_cache`
-    io::IOContext io_ctx {.is_index_data = true};
+    // Block / Whole / Sub file cache will use it while read segment footer
+    io::IOContext io_ctx;
+    auto t1 = timer.elapsed_time();
     RETURN_IF_ERROR(
             _file_reader->read_at(file_size - 12, Slice(fixed_buf, 12), &bytes_read, &io_ctx));
     DCHECK_EQ(bytes_read, 12);
+    auto t2 = timer.elapsed_time();
 
     if (memcmp(fixed_buf + 8, k_segment_magic, k_segment_magic_length) != 0) {
         return Status::Corruption("Bad segment file {}: magic number not match",
@@ -183,6 +188,7 @@ Status Segment::_parse_footer(SegmentFooterPB* footer) {
 
     // read footer PB
     uint32_t footer_length = decode_fixed32_le(fixed_buf);
+    auto t3 = timer.elapsed_time();
     if (file_size < 12 + footer_length) {
         return Status::Corruption("Bad segment file {}: file size {} < {}",
                                   _file_reader->path().native(), file_size, 12 + footer_length);
@@ -193,10 +199,13 @@ Status Segment::_parse_footer(SegmentFooterPB* footer) {
     RETURN_IF_ERROR(_file_reader->read_at(file_size - 12 - footer_length, footer_buf, &bytes_read,
                                           &io_ctx));
     DCHECK_EQ(bytes_read, footer_length);
+    auto t4 = timer.elapsed_time();
 
     // validate footer PB's checksum
     uint32_t expect_checksum = decode_fixed32_le(fixed_buf + 4);
+    auto t5 = timer.elapsed_time();
     uint32_t actual_checksum = crc32c::Value(footer_buf.data(), footer_buf.size());
+    auto t6 = timer.elapsed_time();
     if (actual_checksum != expect_checksum) {
         return Status::Corruption(
                 "Bad segment file {}: footer checksum not match, actual={} vs expect={}",
@@ -208,6 +217,10 @@ Status Segment::_parse_footer(SegmentFooterPB* footer) {
         return Status::Corruption("Bad segment file {}: failed to parse SegmentFooterPB",
                                   _file_reader->path().native());
     }
+    auto t7 = timer.elapsed_time();
+    LOG(INFO) << "parse footer timer0 " << t0 / 1000 << "timer1 " << t1 / 1000 << "timer2 "
+              << t2 / 1000 << "timer3 " << t3 / 1000 << "timer4 " << t4 / 1000 << "timer5 "
+              << t5 / 1000 << "timer6 " << t6 / 1000 << "timer7 " << t7 / 1000;
     return Status::OK();
 }
 
