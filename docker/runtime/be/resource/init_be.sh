@@ -95,7 +95,8 @@ register_be_to_fe() {
   set +e
   # check fe status
   local is_fe_start=false
-  for i in {1..300}; do
+  # 300 seconds is a long time for a register operation
+  for i in {1..200}; do
     docker_process_sql <<<"alter system add backend '${CURRENT_BE_IP}:${CURRENT_BE_PORT}'"
     register_be_status=$?
     if [[ $register_be_status == 0 ]]; then
@@ -103,7 +104,9 @@ register_be_to_fe() {
       is_fe_start=true
       break
     else
-      check_be_status
+      # check_be_status will take a lot of time if the be state is always abnormal
+      # check_be_status
+      doris_note "BE failed registered to FE, the BE registration status will be checked! "
       if [ -n "$BE_ALREADY_EXISTS" ]; then
         doris_warn "Same backend already exists! No need to register again！"
         break
@@ -148,6 +151,29 @@ check_be_status() {
     fi
 }
 
+check_be_started() {
+    set +e
+    local is_be_start=false
+    for i in {1..20} ; do
+        if [[ $(($i % 5)) == 1 ]]; then
+            doris_note "start check be startup! "
+            doris_proc_num=`ps -ef|grep doris_be|grep -v grep|wc -l`
+            if [ 0 -eq $doris_proc_num ]; then
+                doris_note "BE start failed! try again!"
+            else
+                doris_note "BE start successfully!"
+                is_be_start=true
+                return
+            fi
+        fi
+        sleep 1
+    done
+    if [[ $is_be_start == false ]]; then
+        doris_error "Failed to start be, please check whether the image and system versions are compatible!"
+    fi
+    
+}
+
 cleanup() {
     doris_note "Container stopped, running stop_be script"
     ${DORIS_HOME}/be/bin/stop_be.sh
@@ -169,6 +195,8 @@ _main() {
         check_be_status
         doris_note "Ready to start BE！"
         start_be.sh &
+        doris_note "Ready to check whether the BE startup is successful"
+        check_be_started
         child_pid=$!
     fi
     wait $child_pid
