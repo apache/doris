@@ -1147,6 +1147,10 @@ DECLARE_mBool(exit_on_exception);
 
 DECLARE_mInt32(tablet_schema_cache_recycle_interval);
 
+// The configuration item is used to lower the priority of the scanner thread,
+// typically employed to ensure CPU scheduling for write operations.
+DECLARE_mBool(enable_scan_thread_low_thread_priority);
+
 #ifdef BE_TEST
 // test s3
 DECLARE_String(test_s3_resource);
