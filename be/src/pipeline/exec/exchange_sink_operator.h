@@ -66,6 +66,85 @@ private:
     int _mult_cast_id = -1;
 };
 
+class ExchangeSinkQueueDependency final : public WriteDependency {
+public:
+    ENABLE_FACTORY_CREATOR(ExchangeSinkQueueDependency);
+    ExchangeSinkQueueDependency(int id) : WriteDependency(id, "ResultQueueDependency") {}
+    ~ExchangeSinkQueueDependency() = default;
+
+    void* shared_state() override { return nullptr; }
+};
+
+class BroadcastDependency final : public WriteDependency {
+public:
+    ENABLE_FACTORY_CREATOR(BroadcastDependency);
+    BroadcastDependency(int id) : WriteDependency(id, "BroadcastDependency"), _available_block(0) {}
+    virtual ~BroadcastDependency() = default;
+
+    [[nodiscard]] WriteDependency* write_blocked_by() override {
+        return _available_block > 0 ? nullptr : this;
+    }
+
+    void set_available_block(int available_block) { _available_block = available_block; }
+
+    void return_available_block() { _available_block++; }
+
+    void take_available_block() { _available_block--; }
+
+    void* shared_state() override {
+        throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR, "Should not reach here!");
+        return nullptr;
+    }
+
+    void set_ready_for_write() override {
+        throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR, "Should not reach here!");
+    }
+
+    void block_writing() override {
+        throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR, "Should not reach here!");
+    }
+
+private:
+    std::atomic<int> _available_block;
+};
+
+class ChannelDependency final : public WriteDependency {
+public:
+    ENABLE_FACTORY_CREATOR(ChannelDependency);
+    ChannelDependency(int id, int sender_id, vectorized::VDataStreamRecvr* local_recvr)
+            : WriteDependency(id, "ChannelDependency"),
+              _sender_id(sender_id),
+              _local_recvr(local_recvr) {}
+    virtual ~ChannelDependency() = default;
+
+    void* shared_state() override { return nullptr; }
+
+    void try_set_ready_for_write() {
+        if (_ready_for_write) {
+            return;
+        }
+        if (_is_runnable()) {
+            _write_dependency_watcher.stop();
+            _ready_for_write = true;
+        }
+    }
+
+    void try_block_writing() {
+        if (!_is_runnable()) {
+            _ready_for_write = false;
+        }
+    }
+
+private:
+    bool _is_runnable() {
+        return _local_recvr->is_closed() || !_local_recvr->exceeds_limit(0) ||
+               _local_recvr->sender_queue_empty(_sender_id);
+    }
+
+    int _sender_id;
+    vectorized::VDataStreamRecvr* _local_recvr;
+};
+
 class ExchangeSinkLocalState : public PipelineXSinkLocalState<> {
     ENABLE_FACTORY_CREATOR(ExchangeSinkLocalState);
 
@@ -147,6 +226,11 @@ private:
     int _broadcast_pb_block_idx;
 
     vectorized::BlockSerializer<ExchangeSinkLocalState> _serializer;
+
+    std::shared_ptr<ExchangeSinkQueueDependency> _queue_dependency;
+    std::shared_ptr<AndDependency> _exchange_sink_dependency;
+    std::shared_ptr<BroadcastDependency> _broadcast_dependency;
+    std::vector<std::shared_ptr<ChannelDependency>> _channels_dependency;
 };
 
 class ExchangeSinkOperatorX final : public DataSinkOperatorX<ExchangeSinkLocalState> {
@@ -174,7 +258,7 @@ public:
                            int num_receivers = 1);
 
     Status try_close(RuntimeState* state) override;
-    bool can_write(RuntimeState* state) override;
+    WriteDependency* wait_for_dependency(RuntimeState* state) override;
     bool is_pending_finish(RuntimeState* state) const override;
 
 private:
