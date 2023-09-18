@@ -191,6 +191,7 @@ public class BindSink implements AnalysisRuleFactory {
                             // add cast project
                             List<NamedExpression> castExprs = Lists.newArrayList();
                             for (int i = 0; i < table.getFullSchema().size(); ++i) {
+                                maybeFallbackCastUnsupportedType(fullOutputExprs.get(i), ctx.connectContext);
                                 Expression castExpr = TypeCoercionUtils.castIfNotSameType(fullOutputExprs.get(i),
                                         DataType.fromCatalogType(table.getFullSchema().get(i).getType()));
                                 if (castExpr instanceof NamedExpression) {
@@ -260,6 +261,17 @@ public class BindSink implements AnalysisRuleFactory {
                     }
                     return column;
                 }).collect(Collectors.toList());
+    }
+
+    private void maybeFallbackCastUnsupportedType(Expression expression, ConnectContext ctx) {
+        if (expression.getDataType().isMapType()) {
+            try {
+                ctx.getSessionVariable().enableFallbackToOriginalPlannerOnce();
+            } catch (Exception e) {
+                throw new AnalysisException("failed to try to fall back to original planner");
+            }
+            throw new AnalysisException("failed to cast type when binding sink, type is: " + expression.getDataType());
+        }
     }
 
     private static class SlotReplacer extends DefaultExpressionRewriter<Map<String, NamedExpression>> {
