@@ -729,17 +729,18 @@ void VerticalSegmentWriter::_handle_delete_sign_col(const vectorized::Block* blo
             block->get_by_position(_tablet_schema->delete_sign_idx());
     auto& delete_sign_col =
             reinterpret_cast<const vectorized::ColumnInt8&>(*(delete_sign_column.column));
-    if (delete_sign_col.size() >= row_pos + num_rows) {
-        const vectorized::Int8* delete_sign_column_data = delete_sign_col.get_data().data();
-        for (size_t block_pos = row_pos, seg_pos = segment_start_pos;
-             seg_pos < segment_start_pos + num_rows; block_pos++, seg_pos++) {
-            // we can directly use delete bitmap to mark the rows with delete sign as deleted
-            // if sequence column doesn't exist to eliminate reading delete sign columns in later reads
-            if (delete_sign_column_data[block_pos]) {
-                _mow_context->delete_bitmap->add({_opts.rowset_ctx->rowset_id, _segment_id,
-                                                  DeleteBitmap::TEMP_VERSION_FOR_DELETE_SIGN},
-                                                 seg_pos);
-            }
+    if (delete_sign_col.size() < row_pos + num_rows) {
+        return;
+    }
+    const vectorized::Int8* delete_sign_column_data = delete_sign_col.get_data().data();
+    for (size_t block_pos = row_pos, seg_pos = segment_start_pos;
+         seg_pos < segment_start_pos + num_rows; block_pos++, seg_pos++) {
+        // we can directly use delete bitmap to mark the rows with delete sign as deleted
+        // if sequence column doesn't exist to eliminate reading delete sign columns in later reads
+        if (delete_sign_column_data[block_pos]) {
+            _mow_context->delete_bitmap->add({_opts.rowset_ctx->rowset_id, _segment_id,
+                                              DeleteBitmap::TEMP_VERSION_FOR_DELETE_SIGN},
+                                             seg_pos);
         }
     }
 }
