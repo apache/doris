@@ -127,48 +127,23 @@ class TExpr;
 namespace vectorized {
 
 VOlapTableSink::VOlapTableSink(ObjectPool* pool, const RowDescriptor& row_desc,
-                               const std::vector<TExpr>& texprs, bool group_commit, Status* status)
-        : DataSink(row_desc), _pool(pool), _group_commit(group_commit) {
-    // From the thrift expressions create the real exprs.
-    *status = vectorized::VExpr::create_expr_trees(texprs, _output_vexpr_ctxs);
-    _name = "VOlapTableSink";
-}
+                               const std::vector<TExpr>& texprs, bool group_commit)
+        : AsyncWriterSink<VTabletWriter, VOLAP_TABLE_SINK>(row_desc, texprs),
+          _pool(pool),
+          _group_commit(group_commit) {}
 
 Status VOlapTableSink::init(const TDataSink& t_sink) {
-    _writer.reset(new VTabletWriter(t_sink, _pool, _output_vexpr_ctxs, _group_commit));
+    RETURN_IF_ERROR(AsyncWriterSink::init(t_sink));
+    _writer->init_properties(_pool, _group_commit);
     return Status::OK();
-}
-
-Status VOlapTableSink::prepare(RuntimeState* state) {
-    RETURN_IF_ERROR(DataSink::prepare(state));
-    _profile = state->obj_pool()->add(new RuntimeProfile("OlapTableSink"));
-    return VExpr::prepare(_output_vexpr_ctxs, state, _row_desc);
-}
-
-Status VOlapTableSink::open(RuntimeState* state) {
-    // Prepare the exprs to run.
-    RETURN_IF_ERROR(vectorized::VExpr::open(_output_vexpr_ctxs, state));
-    return _writer->open(state, _profile);
-}
-
-Status VOlapTableSink::send(RuntimeState* state, vectorized::Block* input_block, bool eos) {
-    return _writer->append_block(*input_block);
-}
-
-Status VOlapTableSink::try_close(RuntimeState* state, Status exec_status) {
-    return _writer->try_close(state, exec_status);
-}
-
-bool VOlapTableSink::is_close_done() {
-    return _writer->is_close_done();
 }
 
 Status VOlapTableSink::close(RuntimeState* state, Status exec_status) {
     if (_closed) {
         return _close_status;
     }
-    RETURN_IF_ERROR(_writer->close(exec_status));
-    return DataSink::close(state, exec_status);
+    _close_status = AsyncWriterSink::close(state, exec_status);
+    return _close_status;
 }
 
 } // namespace vectorized
