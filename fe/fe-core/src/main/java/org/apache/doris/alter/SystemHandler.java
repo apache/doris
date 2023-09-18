@@ -21,7 +21,8 @@ import org.apache.doris.analysis.AddBackendClause;
 import org.apache.doris.analysis.AddFollowerClause;
 import org.apache.doris.analysis.AddObserverClause;
 import org.apache.doris.analysis.AlterClause;
-import org.apache.doris.analysis.CancelAlterSystemStmt;
+import org.apache.doris.analysis.CancelDecommissionBackendStmt;
+import org.apache.doris.analysis.CancelDecommissionDiskStmt;
 import org.apache.doris.analysis.CancelStmt;
 import org.apache.doris.analysis.DecommissionBackendClause;
 import org.apache.doris.analysis.DecommissionDiskClause;
@@ -33,6 +34,7 @@ import org.apache.doris.analysis.ModifyBackendHostNameClause;
 import org.apache.doris.analysis.ModifyBrokerClause;
 import org.apache.doris.analysis.ModifyFrontendHostNameClause;
 import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.DiskInfo;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.TabletInvertedIndex;
@@ -45,10 +47,12 @@ import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.system.SystemInfoService.HostInfo;
 
 import com.google.common.base.Preconditions;
+import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Lists;
 import org.apache.commons.lang3.NotImplementedException;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.jetbrains.annotations.NotNull;
 
 import java.util.List;
 
@@ -144,7 +148,7 @@ public class SystemHandler extends AlterHandler {
         } else if (alterClause instanceof DecommissionDiskClause) {
             // decommission disks
             DecommissionDiskClause decommissionDiskClause = (DecommissionDiskClause) alterClause;
-            Env.getCurrentSystemInfo().decommissionBackendDisk(decommissionDiskClause);
+            handleDecommissionBackendStmt(decommissionDiskClause);
         } else if (alterClause instanceof AddObserverClause) {
             AddObserverClause clause = (AddObserverClause) alterClause;
             Env.getCurrentEnv().addFrontend(FrontendNodeType.OBSERVER, clause.getHost(),
@@ -231,13 +235,40 @@ public class SystemHandler extends AlterHandler {
         return decommissionBackends;
     }
 
+    private void handleDecommissionBackendStmt(DecommissionDiskClause clause) throws DdlException {
+        HostInfo hostInfo = clause.getHostInfo();
+        SystemInfoService infoService = Env.getCurrentSystemInfo();
+        List<String> rootPaths = clause.getRootPaths();
+        Backend be = infoService.getBackendWithHeartbeatPort(hostInfo.getHost(), hostInfo.getPort());
+        if (be == null) {
+            throw new DdlException("backend does not exists[" + hostInfo.getHost() + ":" + hostInfo.getPort() + "]");
+        }
+        // check decommission disk request
+        List<DiskInfo> decommissionDisks = checkDecommissionDisks(be, rootPaths, true);
+        // set disk's 'decommissioned' state as true
+        for (DiskInfo disk : decommissionDisks) {
+            if (disk.setDecommissioned(true)) {
+                LOG.info("set disk {} on backend {} to decommissioned.", disk.getRootPath(), be.getId());
+            }
+        }
+    }
+
     @Override
     public synchronized void cancel(CancelStmt stmt) throws DdlException {
-        CancelAlterSystemStmt cancelAlterSystemStmt = (CancelAlterSystemStmt) stmt;
+        if (stmt instanceof CancelDecommissionBackendStmt) {
+            handleCancelDecommissionBackendStmt((CancelDecommissionBackendStmt) stmt);
+        } else if (stmt instanceof CancelDecommissionDiskStmt) {
+            handleCancelDecommissionDiskClause((CancelDecommissionDiskStmt) stmt);
+        } else {
+            Preconditions.checkState(false, stmt.getClass());
+        }
+    }
+
+    private void handleCancelDecommissionBackendStmt(CancelDecommissionBackendStmt stmt) throws DdlException {
         SystemInfoService infoService = Env.getCurrentSystemInfo();
         // check if backends is under decommission
         List<Backend> backends = Lists.newArrayList();
-        List<HostInfo> hostInfos = cancelAlterSystemStmt.getHostInfos();
+        List<HostInfo> hostInfos = stmt.getHostInfos();
         for (HostInfo hostInfo : hostInfos) {
             // check if exist
             Backend backend = infoService.getBackendWithHeartbeatPort(hostInfo.getHost(),
@@ -263,5 +294,45 @@ public class SystemHandler extends AlterHandler {
                 LOG.info("backend is not decommissioned[{}]", backend.getHost());
             }
         }
+    }
+
+    private void handleCancelDecommissionDiskClause(CancelDecommissionDiskStmt alterClause) throws DdlException {
+        SystemInfoService infoService = Env.getCurrentSystemInfo();
+        // check if disks is under decommission
+        List<String> rootPaths = alterClause.getRootPaths();
+        HostInfo hostInfo = alterClause.getHostInfo();
+        Backend be = infoService.getBackendWithHeartbeatPort(hostInfo.getHost(), hostInfo.getPort());
+        if (be == null) {
+            throw new DdlException("Backend does not exist["
+                    + hostInfo.getHost() + ":" + hostInfo.getPort() + "]");
+        }
+
+        // check decommission disk request
+        List<DiskInfo> decommissionedDisks = checkDecommissionDisks(be, rootPaths, false);
+        // set disk's 'decommissioned' state as false
+        for (DiskInfo disk : decommissionedDisks) {
+            if (disk.setDecommissioned(false)) {
+                LOG.info("cancel decommission disk {} on backend {}.",
+                        disk.getRootPath(), be.getId());
+            }
+        }
+    }
+
+    private static List<DiskInfo> checkDecommissionDisks(Backend be, List<String> rootPaths,
+                                                         boolean isDecommission) throws DdlException {
+        List<DiskInfo> decommissionDisks = Lists.newArrayList();
+        ImmutableMap<String, DiskInfo> disks = be.getDisks();
+        for (String rootPath : rootPaths) {
+            DiskInfo disk = disks.get(rootPath);
+            if (disk == null) {
+                throw new DdlException("disk " + rootPath + " does not exists on backend[" + be.getHost()
+                        + ":" + be.getHeartbeatPort() + "]");
+            }
+            if (disk.isDecommissioned() == isDecommission) {
+                continue;
+            }
+            decommissionDisks.add(disk);
+        }
+        return decommissionDisks;
     }
 }

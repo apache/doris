@@ -18,7 +18,6 @@
 package org.apache.doris.analysis;
 
 import org.apache.doris.common.AnalysisException;
-import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.system.SystemInfoService.HostInfo;
 
 import com.google.common.base.Preconditions;
@@ -26,26 +25,40 @@ import com.google.common.collect.Lists;
 
 import java.util.List;
 
-public class CancelAlterSystemStmt extends CancelStmt {
+public class CancelDecommissionDiskStmt extends CancelAlterSystemStmt {
 
-    protected List<String> hostPorts;
-    protected List<HostInfo> hostInfos;
+    protected List<String> rootPaths;
 
-    public CancelAlterSystemStmt(List<String> hostPorts) {
-        this.hostPorts = hostPorts;
-        this.hostInfos = Lists.newArrayList();
+    protected CancelDecommissionDiskStmt(String hostPort, List<String> rootPaths) {
+        super(Lists.newArrayList(hostPort));
+        this.rootPaths = rootPaths;
     }
 
-    public List<HostInfo> getHostInfos() {
-        return hostInfos;
+    public HostInfo getHostInfo() {
+        return hostInfos.get(0);
+    }
+
+    public List<String> getRootPaths() {
+        return rootPaths;
     }
 
     @Override
     public void analyze(Analyzer analyzer) throws AnalysisException {
-        for (String hostPort : hostPorts) {
-            HostInfo hostInfo = SystemInfoService.getHostAndPort(hostPort);
-            this.hostInfos.add(hostInfo);
+        super.analyze(analyzer);
+        Preconditions.checkState(!rootPaths.isEmpty());
+    }
+
+    @Override
+    public String toSql() {
+        StringBuilder sb = new StringBuilder();
+        sb.append("CANCEL DECOMMISSION DISK ");
+        for (int i = 0; i < rootPaths.size(); i++) {
+            sb.append("\"").append(rootPaths.get(i)).append("\"");
+            if (i != rootPaths.size() - 1) {
+                sb.append(", ");
+            }
         }
-        Preconditions.checkState(!this.hostInfos.isEmpty());
+        sb.append(" ON BACKEND ").append("\"").append(hostPorts.get(0)).append("\" ");
+        return sb.toString();
     }
 }

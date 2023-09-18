@@ -336,7 +336,8 @@ public class BeLoadRebalancer extends Rebalancer {
             beStat.getPathStatisticByClass(pathLow, pathMid, pathHigh, tabletCtx.getStorageMedium());
 
             pathLow.addAll(pathMid);
-            pathLow.stream().forEach(path -> candFitPaths.add(new BePathLoadStatPair(beStat, path)));
+            pathLow.stream().filter(path -> !path.isDecommissioned())
+                    .forEach(path -> candFitPaths.add(new BePathLoadStatPair(beStat, path)));
         }
 
         BePathLoadStatPairComparator comparator = new BePathLoadStatPairComparator(candFitPaths);

@@ -4551,7 +4551,11 @@ cancel_param ::=
     :}
     | KW_DECOMMISSION KW_BACKEND string_list:hostPorts
     {:
-        RESULT = new CancelAlterSystemStmt(hostPorts);
+        RESULT = new CancelDecommissionBackendStmt(hostPorts);
+    :}
+    | KW_DECOMMISSION KW_DISK string_list:rootPaths KW_ON KW_BACKEND STRING_LITERAL:hostPort
+    {:
+        RESULT = new CancelDecommissionDiskStmt(hostPort, rootPaths);
     :}
     | KW_BACKUP opt_db:db
     {:
