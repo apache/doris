@@ -416,7 +416,7 @@ public:
         std::set<std::string> output_set;
         service->_output_set = &output_set;
 
-        VOlapTableSink sink(&obj_pool, row_desc, {}, false, &st);
+        VOlapTableSink sink(&obj_pool, row_desc, {}, false);
         ASSERT_TRUE(st.ok());
 
         // init
@@ -556,7 +556,7 @@ TEST_F(VOlapTableSinkTest, convert) {
     exprs[2].nodes[0].slot_ref.slot_id = 2;
     exprs[2].nodes[0].slot_ref.tuple_id = 1;
 
-    VOlapTableSink sink(&obj_pool, row_desc, exprs, false, &st);
+    VOlapTableSink sink(&obj_pool, row_desc, exprs, false);
     ASSERT_TRUE(st.ok());
 
     // set output tuple_id
@@ -683,7 +683,7 @@ TEST_F(VOlapTableSinkTest, add_block_failed) {
     exprs[2].nodes[0].slot_ref.slot_id = 2;
     exprs[2].nodes[0].slot_ref.tuple_id = 1;
 
-    VOlapTableSink sink(&obj_pool, row_desc, exprs, false, &st);
+    VOlapTableSink sink(&obj_pool, row_desc, exprs, false);
     ASSERT_TRUE(st.ok());
 
     // set output tuple_id
@@ -777,7 +777,7 @@ TEST_F(VOlapTableSinkTest, decimal) {
     std::set<std::string> output_set;
     service->_output_set = &output_set;
 
-    VOlapTableSink sink(&obj_pool, row_desc, {}, false, &st);
+    VOlapTableSink sink(&obj_pool, row_desc, {}, false);
     ASSERT_TRUE(st.ok());
 
     // init
