@@ -44,7 +44,7 @@
 #include "vec/core/types.h"
 #include "vec/data_types/data_type.h"
 #include "vec/data_types/data_type_nullable.h"
-
+// for test only
 class SipHash;
 
 namespace doris {
