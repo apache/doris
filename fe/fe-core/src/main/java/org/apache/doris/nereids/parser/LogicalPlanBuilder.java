@@ -351,10 +351,12 @@ import java.math.BigDecimal;
 import java.math.BigInteger;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.LinkedList;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Queue;
 import java.util.function.Supplier;
 import java.util.stream.Collectors;
 
@@ -654,7 +656,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                 }
                 Collections.reverse(contexts);
                 List<LogicalPlan> logicalPlans = contexts.stream().map(this::plan).collect(Collectors.toList());
-                return reduceToLogicalPlanTree(0, logicalPlans.size() - 1, logicalPlans, qualifier);
+                return reduceToLogicalPlanTree(logicalPlans, qualifier);
             } else {
                 LogicalPlan leftQuery = plan(ctx.left);
                 LogicalPlan rightQuery = plan(ctx.right);
@@ -688,21 +690,12 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         return new LogicalUnion(qualifier, ImmutableList.of(left, right));
     }
 
-    private LogicalPlan reduceToLogicalPlanTree(int low, int high,
-            List<LogicalPlan> logicalPlans, Qualifier qualifier) {
-        switch (high - low) {
-            case 0:
-                return logicalPlans.get(low);
-            case 1:
-                return logicalPlanCombiner(logicalPlans.get(low), logicalPlans.get(high), qualifier);
-            default:
-                int mid = low + (high - low) / 2;
-                return logicalPlanCombiner(
-                        reduceToLogicalPlanTree(low, mid, logicalPlans, qualifier),
-                        reduceToLogicalPlanTree(mid + 1, high, logicalPlans, qualifier),
-                        qualifier
-                );
+    private LogicalPlan reduceToLogicalPlanTree(List<LogicalPlan> logicalPlans, Qualifier qualifier) {
+        Queue<LogicalPlan> q = new LinkedList<>(logicalPlans);
+        while (q.size() > 1) {
+            q.add(logicalPlanCombiner(q.poll(), q.poll(), qualifier));
         }
+        return q.poll();
     }
 
     @Override
@@ -742,7 +735,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                 .map(this::visitRowConstructor)
                 .map(LogicalPlan.class::cast)
                 .collect(ImmutableList.toImmutableList());
-        return reduceToLogicalPlanTree(0, exprsList.size() - 1, exprsList, Qualifier.ALL);
+        return reduceToLogicalPlanTree(exprsList, Qualifier.ALL);
     }
 
     /**
