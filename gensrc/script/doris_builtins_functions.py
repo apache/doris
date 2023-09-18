@@ -2096,7 +2096,9 @@ null_result_with_one_null_param_functions = [
     'ST_GeometryFromText',
     'ST_LineFromText',
     'ST_Polygon',
-    'ST_Contains'
+    'ST_Contains',
+    'json_length',
+    'json_contains'
 ]
 
 invisible_functions = [
