@@ -620,7 +620,7 @@ public class Coordinator implements CoordInterface {
             Env.getCurrentEnv().getLoadManager().initJobProgress(jobId, queryId, instanceIds,
                     relatedBackendIds);
             Env.getCurrentEnv().getProgressManager().addTotalScanNums(String.valueOf(jobId), scanRangeNum);
-            LOG.info("dispatch load job: {} to {}", DebugUtil.printId(queryId), addressToBackendID.keySet());
+            LOG.info("dispatch load job: {} to {}.", DebugUtil.printId(queryId), addressToBackendID.keySet());
         }
         executionProfile.markInstances(instanceIds);
         if (enablePipelineEngine) {

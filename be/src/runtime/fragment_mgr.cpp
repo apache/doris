@@ -493,7 +493,7 @@ Status FragmentMgr::_get_query_ctx(const Params& params, TUniqueId query_id, boo
         if (search == _query_ctx_map.end()) {
             return Status::InternalError(
                     "Failed to get query fragments context. Query may be "
-                    "timeout or be cancelled. host: {}",
+                    "timeout or be cancelled. host: {}.",
                     BackendOptions::get_localhost());
         }
         query_ctx = search->second;
