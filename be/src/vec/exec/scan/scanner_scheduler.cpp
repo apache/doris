@@ -278,6 +278,11 @@ void ScannerScheduler::_scanner_scan(ScannerScheduler* scheduler, ScannerContext
         Thread::set_self_name("_scanner_scan");
     }
 #endif
+#ifndef __APPLE__
+    if (config::enable_scan_thread_low_thread_priority && scanner->get_name() != VFileScanner::NAME) {
+        Thread::set_low_priority();
+    }
+#endif
     scanner->update_wait_worker_timer();
     scanner->start_scan_cpu_timer();
     Status status = Status::OK();

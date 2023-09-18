@@ -93,6 +93,8 @@ public:
 
 #ifndef __APPLE__
     static void set_idle_sched();
+
+    static void set_low_priority();
 #endif
 
     ~Thread();
