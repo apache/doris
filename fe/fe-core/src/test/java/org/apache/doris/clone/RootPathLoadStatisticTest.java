@@ -32,9 +32,9 @@ public class RootPathLoadStatisticTest {
     @Test
     public void test() {
         RootPathLoadStatistic usage1 = new RootPathLoadStatistic(0L, "/home/disk1", 12345L, TStorageMedium.HDD, 4096L,
-                1024L, DiskState.ONLINE, false);
+                1024L, DiskState.ONLINE);
         RootPathLoadStatistic usage2 = new RootPathLoadStatistic(0L, "/home/disk2", 67890L, TStorageMedium.HDD,
-                4096L, 2048L, DiskState.ONLINE, false);
+                4096L, 2048L, DiskState.ONLINE);
 
         List<RootPathLoadStatistic> list = Lists.newArrayList();
         list.add(usage1);

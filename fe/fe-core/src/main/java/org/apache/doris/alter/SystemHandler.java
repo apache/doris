@@ -52,7 +52,6 @@ import com.google.common.collect.Lists;
 import org.apache.commons.lang3.NotImplementedException;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
-import org.jetbrains.annotations.NotNull;
 
 import java.util.List;
 
@@ -248,6 +247,7 @@ public class SystemHandler extends AlterHandler {
         // set disk's 'decommissioned' state as true
         for (DiskInfo disk : decommissionDisks) {
             if (disk.setDecommissioned(true)) {
+                Env.getCurrentEnv().getEditLog().logBackendStateChange(backend);
                 LOG.info("set disk {} on backend {} to decommissioned.", disk.getRootPath(), be.getId());
             }
         }
@@ -312,6 +312,7 @@ public class SystemHandler extends AlterHandler {
         // set disk's 'decommissioned' state as false
         for (DiskInfo disk : decommissionedDisks) {
             if (disk.setDecommissioned(false)) {
+                Env.getCurrentEnv().getEditLog().logBackendStateChange(backend);
                 LOG.info("cancel decommission disk {} on backend {}.",
                         disk.getRootPath(), be.getId());
             }
