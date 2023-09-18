@@ -79,7 +79,7 @@ public class JdbcScanNode extends ExternalScanNode {
             tbl = (JdbcTable) (desc.getTable());
         }
         jdbcType = tbl.getJdbcTableType();
-        tableName = JdbcTable.databaseProperName(jdbcType, tbl.getJdbcTable());
+        tableName = tbl.getProperRealFullTableName(jdbcType);
     }
 
     @Override
@@ -129,7 +129,7 @@ public class JdbcScanNode extends ExternalScanNode {
         for (SlotRef slotRef : slotRefs) {
             SlotRef slotRef1 = (SlotRef) slotRef.clone();
             slotRef1.setTblName(null);
-            slotRef1.setLabel(JdbcTable.databaseProperName(jdbcType, slotRef1.getColumnName()));
+            slotRef1.setLabel(JdbcTable.properNameWithRealName(jdbcType, slotRef1.getColumnName()));
             sMap.put(slotRef, slotRef1);
         }
 
