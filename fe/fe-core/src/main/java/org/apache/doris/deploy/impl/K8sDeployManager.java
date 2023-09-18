@@ -39,7 +39,6 @@ import io.fabric8.kubernetes.client.KubernetesClientException;
 import io.fabric8.kubernetes.client.Watch;
 import io.fabric8.kubernetes.client.Watcher;
 import io.fabric8.kubernetes.client.WatcherException;
-import jline.internal.Log;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -123,7 +122,7 @@ public class K8sDeployManager extends DeployManager {
             NodeTypeAttr nodeTypeAttr = nodeTypeAttrMap.get(nodeType);
             if (nodeTypeAttr.hasService()) {
                 String statefulSetEnvName = getStatefulSetEnvName(nodeType);
-                Log.info("Env name of: {} is: {}", nodeType.name(), statefulSetEnvName);
+                LOG.info("Env name of: {} is: {}", nodeType.name(), statefulSetEnvName);
                 String statefulSetName = Strings.nullToEmpty(System.getenv(statefulSetEnvName));
                 if (Strings.isNullOrEmpty(statefulSetName)) {
                     LOG.error("failed to init statefulSetName: {}", statefulSetEnvName);
