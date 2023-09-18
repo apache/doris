@@ -70,12 +70,17 @@ public:
         }
 
         {
-            if (!_blocks_queues[id].try_dequeue(*block)) {
+            std::unique_lock<std::mutex> l(*_queue_mutexs[id]);
+            if (_blocks_queues[id].empty()) {
                 *eos = _is_finished || _should_stop;
                 return Status::OK();
-            }
-            if (_blocks_queues[id].size_approx() == 0 && _data_dependency) {
-                _data_dependency->block_reading();
+            } else {
+                *block = std::move(_blocks_queues[id].front());
+                _blocks_queues[id].pop_front();
+
+                if (_blocks_queues[id].empty() && _data_dependency) {
+                    _data_dependency->block_reading();
+                }
             }
         }
         _current_used_bytes -= (*block)->allocated_bytes();
@@ -133,8 +138,9 @@ public:
             for (int i = 0; i < queue_size && i < block_size; ++i) {
                 int queue = _next_queue_to_feed;
                 {
+                    std::lock_guard<std::mutex> l(*_queue_mutexs[queue]);
                     for (int j = i; j < block_size; j += queue_size) {
-                        _blocks_queues[queue].enqueue(std::move(blocks[j]));
+                        _blocks_queues[queue].emplace_back(std::move(blocks[j]));
                     }
                 }
                 _next_queue_to_feed = queue + 1 < queue_size ? queue + 1 : 0;
@@ -146,11 +152,15 @@ public:
         _current_used_bytes += local_bytes;
     }
 
-    bool empty_in_queue(int id) override { return _blocks_queues[id].size_approx() == 0; }
+    bool empty_in_queue(int id) override {
+        std::unique_lock<std::mutex> l(*_queue_mutexs[id]);
+        return _blocks_queues[id].empty();
+    }
 
     Status init() override {
         for (int i = 0; i < _num_parallel_instances; ++i) {
-            _blocks_queues.emplace_back(moodycamel::ConcurrentQueue<vectorized::BlockUPtr>());
+            _queue_mutexs.emplace_back(std::make_unique<std::mutex>());
+            _blocks_queues.emplace_back(std::list<vectorized::BlockUPtr>());
         }
         RETURN_IF_ERROR(ScannerContext::init());
         if (_need_colocate_distribute) {
@@ -182,9 +192,10 @@ public:
     void _dispose_coloate_blocks_not_in_queue() override {
         if (_need_colocate_distribute) {
             for (int i = 0; i < _num_parallel_instances; ++i) {
+                std::scoped_lock s(*_colocate_block_mutexs[i], *_queue_mutexs[i]);
                 if (_colocate_blocks[i] && !_colocate_blocks[i]->empty()) {
                     _current_used_bytes += _colocate_blocks[i]->allocated_bytes();
-                    _blocks_queues[i].enqueue(std::move(_colocate_blocks[i]));
+                    _blocks_queues[i].emplace_back(std::move(_colocate_blocks[i]));
                     _colocate_mutable_blocks[i]->clear();
                 }
                 if (_data_dependency) {
@@ -198,14 +209,15 @@ public:
         auto res = ScannerContext::debug_string();
         for (int i = 0; i < _blocks_queues.size(); ++i) {
             res += " queue " + std::to_string(i) + ":size " +
-                   std::to_string(_blocks_queues[i].size_approx());
+                   std::to_string(_blocks_queues[i].size());
         }
         return res;
     }
 
 private:
     int _next_queue_to_feed = 0;
-    std::vector<moodycamel::ConcurrentQueue<vectorized::BlockUPtr>> _blocks_queues;
+    std::vector<std::unique_ptr<std::mutex>> _queue_mutexs;
+    std::vector<std::list<vectorized::BlockUPtr>> _blocks_queues;
     std::atomic_int64_t _current_used_bytes = 0;
 
     const std::vector<int>& _col_distribute_ids;
@@ -238,7 +250,10 @@ private:
 
             if (row_add == max_add) {
                 _current_used_bytes += _colocate_blocks[loc]->allocated_bytes();
-                _blocks_queues[loc].enqueue(std::move(_colocate_blocks[loc]));
+                {
+                    std::lock_guard<std::mutex> queue_l(*_queue_mutexs[loc]);
+                    _blocks_queues[loc].emplace_back(std::move(_colocate_blocks[loc]));
+                }
                 if (_data_dependency) {
                     _data_dependency->set_ready_for_read();
                 }
