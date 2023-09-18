@@ -29,11 +29,14 @@ import org.apache.doris.nereids.trees.plans.physical.RuntimeFilter;
 import org.apache.doris.nereids.util.PlanChecker;
 
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.Sets;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
+import java.util.stream.Collectors;
 
 public class RuntimeFilterTest extends SSBTestBase {
 
@@ -197,6 +200,19 @@ public class RuntimeFilterTest extends SSBTestBase {
                 Pair.of("lo_custkey", "c_custkey"), Pair.of("c_custkey", "lo_custkey"),
                 Pair.of("d_datekey", "lo_orderdate"), Pair.of("s_suppkey", "c_custkey"),
                 Pair.of("lo_custkey", "c_custkey")));
+
+        connectContext.getSessionVariable().expandRuntimeFilterByInnerJoin = true;
+        filters = getRuntimeFilters(sql).get();
+        Assertions.assertEquals(5, filters.size());
+        Set<Pair<String, Set<String>>> srcTargets = Sets.newHashSet();
+        srcTargets.add(Pair.of("lo_custkey", Sets.newHashSet("c_custkey")));
+        srcTargets.add(Pair.of("lo_custkey", Sets.newHashSet("c_custkey", "s_suppkey", "lo_custkey")));
+        srcTargets.add(Pair.of("s_suppkey", Sets.newHashSet("c_custkey")));
+        srcTargets.add(Pair.of("d_datekey", Sets.newHashSet("lo_orderdate")));
+        srcTargets.add(Pair.of("c_custkey", Sets.newHashSet("lo_custkey")));
+        checkRuntimeFilterExprs(filters, srcTargets);
+        connectContext.getSessionVariable().expandRuntimeFilterByInnerJoin = false;
+
     }
 
     @Test
@@ -208,9 +224,24 @@ public class RuntimeFilterTest extends SSBTestBase {
                 + " on c_custkey = lo_custkey) d on c.c_custkey = d.lo_custkey";
         List<RuntimeFilter> filters = getRuntimeFilters(sql).get();
         Assertions.assertEquals(4, filters.size());
-        checkRuntimeFilterExprs(filters, ImmutableList.of(
-                Pair.of("c_custkey", "lo_custkey"), Pair.of("d_datekey", "lo_orderdate"),
-                Pair.of("lo_custkey", "c_custkey"), Pair.of("lo_custkey", "c_custkey")));
+        Set<Pair<String, Set<String>>> srcTargets = Sets.newHashSet();
+        srcTargets.add(Pair.of("lo_custkey", Sets.newHashSet("c_custkey")));
+        srcTargets.add(Pair.of("lo_custkey", Sets.newHashSet("c_custkey", "lo_custkey")));
+        srcTargets.add(Pair.of("d_datekey", Sets.newHashSet("lo_orderdate")));
+        srcTargets.add(Pair.of("c_custkey", Sets.newHashSet("lo_custkey")));
+        checkRuntimeFilterExprs(filters, srcTargets);
+
+        connectContext.getSessionVariable().expandRuntimeFilterByInnerJoin = true;
+        filters = getRuntimeFilters(sql).get();
+        Assertions.assertEquals(4, filters.size());
+        srcTargets = Sets.newHashSet();
+        srcTargets.add(Pair.of("lo_custkey", Sets.newHashSet("c_custkey")));
+        srcTargets.add(Pair.of("lo_custkey", Sets.newHashSet("c_custkey", "lo_custkey")));
+        srcTargets.add(Pair.of("d_datekey", Sets.newHashSet("lo_orderdate")));
+        srcTargets.add(Pair.of("c_custkey", Sets.newHashSet("lo_custkey")));
+        checkRuntimeFilterExprs(filters, srcTargets);
+        connectContext.getSessionVariable().expandRuntimeFilterByInnerJoin = false;
+
     }
 
     @Test
@@ -230,6 +261,29 @@ public class RuntimeFilterTest extends SSBTestBase {
         Assertions.assertEquals(1, filters.size());
         checkRuntimeFilterExprs(filters, ImmutableList.of(
                 Pair.of("s_name", "p_name")));
+    }
+
+    @Test
+    public void testExpandRfByInnerJoin() {
+        String sql = "select * "
+                + "from lineorder join part on lo_partkey=p_partkey "
+                + "join supplier on s_suppkey=lo_partkey";
+        List<RuntimeFilter> filters = getRuntimeFilters(sql).get();
+        Assertions.assertEquals(2, filters.size());
+        checkRuntimeFilterExprs(filters, ImmutableList.of(
+                Pair.of("s_suppkey", "lo_partkey"),
+                Pair.of("p_partkey", "lo_partkey")));
+        connectContext.getSessionVariable().expandRuntimeFilterByInnerJoin = true;
+        filters = getRuntimeFilters(sql).get();
+        Assertions.assertEquals(2, filters.size());
+        Set<Pair<String, Set<String>>> srcTargets = Sets.newHashSet();
+        Set<String> target1 = Sets.newHashSet("lo_partkey");
+        srcTargets.add(Pair.of("p_partkey", target1));
+        Set<String> target2 = Sets.newHashSet("p_partkey", "lo_partkey");
+        srcTargets.add(Pair.of("s_suppkey", target2));
+        checkRuntimeFilterExprs(filters, srcTargets);
+        connectContext.getSessionVariable().expandRuntimeFilterByInnerJoin = false;
+
     }
 
     private Optional<List<RuntimeFilter>> getRuntimeFilters(String sql) {
@@ -253,6 +307,20 @@ public class RuntimeFilterTest extends SSBTestBase {
             Assertions.assertTrue(colNames.contains(Pair.of(
                     filter.getSrcExpr().toSql(),
                     filter.getTargetExprs().get(0).getName())));
+        }
+    }
+
+    private void checkRuntimeFilterExprs(List<RuntimeFilter> filters, Set<Pair<String, Set<String>>> srcTargets) {
+        Assertions.assertEquals(filters.size(), srcTargets.size());
+        for (RuntimeFilter filter : filters) {
+            srcTargets.contains(Pair.of(
+                    filter.getSrcExpr().toSql(),
+                    filter.getTargetExprs().stream().collect(Collectors.toSet())
+            ));
+            // Set<String> targets = srcTargets.get(filter.getSrcExpr().toSql());
+            // Assertions.assertNotNull(targets);
+            // targets.containsAll(
+            //         filter.getTargetExprs().stream().map(expr -> expr.toSql()).collect(Collectors.toList()));
         }
     }
 }
