@@ -17,6 +17,7 @@
 
 package org.apache.doris.system;
 
+import org.apache.doris.analysis.DecommissionDiskClause;
 import org.apache.doris.analysis.ModifyBackendClause;
 import org.apache.doris.analysis.ModifyBackendHostNameClause;
 import org.apache.doris.catalog.Database;
@@ -48,6 +49,8 @@ import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Multimap;
 import com.google.common.collect.Sets;
+
+import org.apache.hadoop.yarn.webapp.hamlet2.Hamlet;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.NotNull;
@@ -861,6 +864,45 @@ public class SystemInfoService {
             }
         }
         return Status.OK;
+    }
+
+    public DiskInfo getDisk(long pathHash) {
+        return pathHashToDishInfoRef.get(pathHash);
+    }
+
+    public void decommissionBackendDisk(DecommissionDiskClause clause) throws UserException {
+        HostInfo hostInfo = clause.getHostInfo();
+        Backend be = getBackendWithHeartbeatPort(hostInfo.getHost(), hostInfo.getPort());
+        if (be == null) {
+            throw new DdlException("backend does not exists[" + hostInfo.getHost() + ":" + hostInfo.getPort() + "]");
+        }
+        // check decommission disk request
+        List<DiskInfo> decommissionDisks = checkDecommissionBackendDisks(be, clause.getRootPaths(), hostInfo);
+        // set disk's state as 'decommissioned'
+        for (DiskInfo disk : decommissionDisks) {
+            if (disk.setDecommissioned(true)) {
+                LOG.info("set root path {} on backend {} to decommission.", disk.getRootPath(), be.getId());
+            }
+        }
+    }
+
+    public static List<DiskInfo> checkDecommissionBackendDisks(Backend be, List<String> rootPaths, HostInfo hostInfo)
+            throws UserException {
+        List<DiskInfo> decommissionDisks = Lists.newArrayList();
+        ImmutableMap<String, DiskInfo> disks = be.getDisks();
+        for (String rootPath : rootPaths) {
+            DiskInfo disk = disks.get(rootPath);
+            if (disk == null) {
+                throw new DdlException(rootPath + " does not exists on[" + hostInfo.getHost()
+                        + ":" + hostInfo.getPort() + "]");
+            }
+            if (disk.isDecommissioned()) {
+                continue;
+            }
+            decommissionDisks.add(disk);
+        }
+
+        return decommissionDisks;
     }
 
     // update the path info when disk report

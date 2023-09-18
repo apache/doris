@@ -1651,6 +1651,10 @@ alter_system_clause ::=
     {:
         RESULT = new DecommissionBackendClause(hostPorts);
     :}
+    | KW_DECOMMISSION KW_DISK string_list:rootPaths KW_ON KW_BACKEND STRING_LITERAL:hostPort
+    {:
+        RESULT = new DecommissionDiskClause(hostPort, rootPaths);
+    :}
     | KW_ADD KW_OBSERVER STRING_LITERAL:hostPort
     {:
         RESULT = new AddObserverClause(hostPort);

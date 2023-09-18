@@ -24,6 +24,7 @@ import org.apache.doris.analysis.AlterClause;
 import org.apache.doris.analysis.CancelAlterSystemStmt;
 import org.apache.doris.analysis.CancelStmt;
 import org.apache.doris.analysis.DecommissionBackendClause;
+import org.apache.doris.analysis.DecommissionDiskClause;
 import org.apache.doris.analysis.DropBackendClause;
 import org.apache.doris.analysis.DropFollowerClause;
 import org.apache.doris.analysis.DropObserverClause;
@@ -53,7 +54,7 @@ import java.util.List;
 
 /*
  * SystemHandler is for
- * 1. add/drop/decommission backends
+ * 1. add/drop/decommission backends/decommission disks
  * 2. add/drop frontends
  * 3. add/drop/modify brokers
  */
@@ -140,6 +141,10 @@ public class SystemHandler extends AlterHandler {
                 LOG.info("set backend {} to decommission", backend.getId());
             }
 
+        } else if (alterClause instanceof DecommissionDiskClause) {
+            // decommission disks
+            DecommissionDiskClause decommissionDiskClause = (DecommissionDiskClause) alterClause;
+            Env.getCurrentSystemInfo().decommissionBackendDisk(decommissionDiskClause);
         } else if (alterClause instanceof AddObserverClause) {
             AddObserverClause clause = (AddObserverClause) alterClause;
             Env.getCurrentEnv().addFrontend(FrontendNodeType.OBSERVER, clause.getHost(),

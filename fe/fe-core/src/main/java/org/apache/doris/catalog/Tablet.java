@@ -506,6 +506,10 @@ public class Tablet extends MetaObject implements Writable {
             }
 
             if (backend.isScheduleAvailable()) {
+                DiskInfo disk = systemInfoService.getDisk(replica.getPathHash());
+                if (disk != null && disk.isDecommissioned()) {
+                    continue;
+                }
                 if (replica.needFurtherRepair() && (needFurtherRepairReplica == null || !versionCompleted)) {
                     needFurtherRepairReplica = replica;
                 }

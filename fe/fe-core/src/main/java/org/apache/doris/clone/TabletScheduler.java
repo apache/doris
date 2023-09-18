@@ -22,6 +22,7 @@ import org.apache.doris.analysis.AdminRebalanceDiskStmt;
 import org.apache.doris.catalog.ColocateTableIndex;
 import org.apache.doris.catalog.ColocateTableIndex.GroupId;
 import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.DiskInfo;
 import org.apache.doris.catalog.DiskInfo.DiskState;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.MaterializedIndex;
@@ -705,8 +706,11 @@ public class TabletScheduler extends MasterDaemon {
             Backend be = infoService.getBackend(replica.getBackendId());
             if (be != null && be.isScheduleAvailable() && replica.isAlive() && !replica.tooSlow()
                     && be.isMixNode()) {
-                Short num = currentAllocMap.getOrDefault(be.getLocationTag(), (short) 0);
-                currentAllocMap.put(be.getLocationTag(), (short) (num + 1));
+                DiskInfo disk = infoService.getDisk(replica.getPathHash());
+                if (disk != null && disk.isScheduleAvailable()) {
+                    Short num = currentAllocMap.getOrDefault(be.getLocationTag(), (short) 0);
+                    currentAllocMap.put(be.getLocationTag(), (short) (num + 1));
+                }
             }
         }
 
@@ -804,6 +808,7 @@ public class TabletScheduler extends MasterDaemon {
         if (deleteBackendDropped(tabletCtx, force)
                 || deleteBadReplica(tabletCtx, force)
                 || deleteBackendUnavailable(tabletCtx, force)
+                || deleteDiskUnavailable(tabletCtx, force)
                 || deleteTooSlowReplica(tabletCtx, force)
                 || deleteCloneOrDecommissionReplica(tabletCtx, force)
                 || deleteReplicaWithFailedVersion(tabletCtx, force)
@@ -859,6 +864,20 @@ public class TabletScheduler extends MasterDaemon {
             }
             if (!be.isScheduleAvailable()) {
                 deleteReplicaInternal(tabletCtx, replica, "backend unavailable", force);
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private boolean deleteDiskUnavailable(TabletSchedCtx tabletCtx, boolean force) throws SchedException {
+        for (Replica replica : tabletCtx.getReplicas()) {
+            DiskInfo disk = infoService.getDisk(replica.getPathHash());
+            if (disk == null) {
+                continue;
+            }
+            if (!disk.isScheduleAvailable()) {
+                deleteReplicaInternal(tabletCtx, replica, "disk unavailable", force);
                 return true;
             }
         }
