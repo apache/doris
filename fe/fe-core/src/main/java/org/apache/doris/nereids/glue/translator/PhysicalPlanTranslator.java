@@ -292,16 +292,10 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
                     multiCastDataSink.getDataStreamSinks().size() - 1);
             if (!(distribute.child() instanceof PhysicalProject)) {
                 List<Expr> projectionExprs = new ArrayList<>();
-                PhysicalCTEConsumer con = null;
-                if (distribute.child() instanceof PhysicalCTEConsumer) {
-                    con = (PhysicalCTEConsumer) distribute.child();
-                } else {
-                    Preconditions.checkState(distribute.child().child(0) instanceof PhysicalCTEConsumer,
-                            "distribute child's child is not cte consumer");
-                    con = (PhysicalCTEConsumer) distribute.child().child(0);
-                }
+                PhysicalCTEConsumer consumer = getCTEConsumerChild(distribute);
+                Preconditions.checkState(consumer != null, "consumer not found");
                 for (Slot slot : distribute.getOutput()) {
-                    projectionExprs.add(ExpressionTranslator.translate(con.getProducerSlot(slot), context));
+                    projectionExprs.add(ExpressionTranslator.translate(consumer.getProducerSlot(slot), context));
                 }
                 TupleDescriptor projectionTuple = generateTupleDesc(distribute.getOutput(), null, context);
                 dataStreamSink.setProjections(projectionExprs);
@@ -2320,5 +2314,17 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
     private boolean isComplexDataType(DataType dataType) {
         return dataType instanceof ArrayType || dataType instanceof MapType || dataType instanceof JsonType
                 || dataType instanceof StructType;
+    }
+
+    private PhysicalCTEConsumer getCTEConsumerChild(PhysicalPlan root) {
+        if (root == null) {
+            return null;
+        } else if (root instanceof PhysicalCTEConsumer) {
+            return (PhysicalCTEConsumer) root;
+        } else if (root.children().size() != 1) {
+            return null;
+        } else {
+            return getCTEConsumerChild((PhysicalPlan) root.child(0));
+        }
     }
 }
