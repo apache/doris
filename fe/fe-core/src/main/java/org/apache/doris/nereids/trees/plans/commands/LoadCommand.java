@@ -39,8 +39,6 @@ import org.apache.doris.nereids.trees.expressions.Properties;
 import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.If;
 import org.apache.doris.nereids.trees.expressions.literal.TinyIntLiteral;
-import org.apache.doris.nereids.trees.plans.Explainable;
-import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.commands.info.BulkLoadDataDesc;
 import org.apache.doris.nereids.trees.plans.commands.info.BulkStorageDesc;
@@ -60,7 +58,7 @@ import org.apache.doris.tablefunction.S3TableValuedFunction;
 
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.ImmutableList;
-import org.apache.commons.lang3.StringUtils;
+import com.google.common.collect.ImmutableMap;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -77,8 +75,10 @@ import java.util.stream.Collectors;
 /**
  * load OLAP table data from external bulk file
  */
-public class LoadCommand extends Command implements ForwardWithSync, Explainable {
+public class LoadCommand extends Command implements ForwardWithSync {
+
     public static final Logger LOG = LogManager.getLogger(LoadCommand.class);
+
     private final String labelName;
     private final BulkStorageDesc bulkStorageDesc;
     private final List<BulkLoadDataDesc> sourceInfos;
@@ -94,14 +94,15 @@ public class LoadCommand extends Command implements ForwardWithSync, Explainable
                        Map<String, String> properties, String comment) {
         super(PlanType.LOAD_COMMAND);
         this.labelName = Objects.requireNonNull(labelName.trim(), "labelName should not null");
-        this.sourceInfos = Objects.requireNonNull(sourceInfos, "sourceInfos should not null");
-        this.properties = Objects.requireNonNull(properties, "properties should not null");
+        this.sourceInfos = Objects.requireNonNull(ImmutableList.copyOf(sourceInfos), "sourceInfos should not null");
+        this.properties = Objects.requireNonNull(ImmutableMap.copyOf(properties), "properties should not null");
         this.bulkStorageDesc = Objects.requireNonNull(bulkStorageDesc, "bulkStorageDesc should not null");
         this.comment = Objects.requireNonNull(comment, "comment should not null");
     }
 
     /**
      * for test print
+     *
      * @param ctx context
      * @return parsed insert into plan
      */
@@ -130,7 +131,7 @@ public class LoadCommand extends Command implements ForwardWithSync, Explainable
     private LogicalPlan completeQueryPlan(ConnectContext ctx, BulkLoadDataDesc dataDesc)
             throws AnalysisException {
         if (LOG.isDebugEnabled()) {
-            LOG.debug("nereids load stmt before conversion: {}", dataDesc.toSql());
+            LOG.debug("nereids load stmt before conversion: {}", dataDesc::toSql);
         }
         // 1. build source projects plan (select col1,col2... from tvf where prefilter)
         Map<String, String> tvfProperties = getTvfProperties(dataDesc, bulkStorageDesc);
@@ -153,8 +154,8 @@ public class LoadCommand extends Command implements ForwardWithSync, Explainable
         Map<String, Expression> mappingExpressions = dataDesc.getColumnMappings();
         // 2. build sink where
         Set<Expression> conjuncts = new HashSet<>();
-        if (dataDesc.getWhereExpr() != null) {
-            Set<Expression> whereParts = ExpressionUtils.extractConjunctionToSet(dataDesc.getWhereExpr());
+        if (dataDesc.getWhereExpr().isPresent()) {
+            Set<Expression> whereParts = ExpressionUtils.extractConjunctionToSet(dataDesc.getWhereExpr().get());
             for (Expression wherePart : whereParts) {
                 if (!(wherePart instanceof ComparisonPredicate)) {
                     throw new AnalysisException("WHERE clause must be comparison expression");
@@ -191,17 +192,22 @@ public class LoadCommand extends Command implements ForwardWithSync, Explainable
                 UnboundSlot sourceCol = (UnboundSlot) tvfProjects.get(i);
                 // check sourceCol is slot and check olapColumn beyond index.
                 String olapColumn = olapColumns.get(i);
-                fillSinkBySourceCols(dataDesc, olapTable, mappingExpressions, olapColumn,
+                fillSinkBySourceCols(mappingExpressions, olapColumn,
                         sourceCol, sinkCols, selectLists);
             }
+            fillDeleteOnColumn(dataDesc, olapTable, sinkCols, selectLists, Column.DELETE_SIGN);
         } else {
             for (String olapColumn : olapColumns) {
                 if (olapColumn.equalsIgnoreCase(Column.VERSION_COL)
                         || olapColumn.equalsIgnoreCase(Column.SEQUENCE_COL)) {
                     continue;
                 }
-                fillSinkBySourceCols(dataDesc, olapTable, mappingExpressions, olapColumn,
-                        new UnboundSlot(olapColumn), sinkCols, selectLists);
+                if (olapColumn.equalsIgnoreCase(Column.DELETE_SIGN)) {
+                    fillDeleteOnColumn(dataDesc, olapTable, sinkCols, selectLists, olapColumn);
+                    continue;
+                }
+                fillSinkBySourceCols(mappingExpressions, olapColumn, new UnboundSlot(olapColumn),
+                        sinkCols, selectLists);
             }
         }
         if (sinkCols.isEmpty() && selectLists.isEmpty()) {
@@ -222,6 +228,21 @@ public class LoadCommand extends Command implements ForwardWithSync, Explainable
                 dataDesc.getPartitionNames(), isPartialUpdate, tvfLogicalPlan);
     }
 
+    private static void fillDeleteOnColumn(BulkLoadDataDesc dataDesc, OlapTable olapTable,
+                                           List<String> sinkCols,
+                                           List<NamedExpression> selectLists,
+                                           String olapColumn) throws AnalysisException {
+        if (olapTable.hasDeleteSign() && dataDesc.getDeleteCondition().isPresent()) {
+            checkDeleteOnConditions(dataDesc.getMergeType(), dataDesc.getDeleteCondition().get());
+            Optional<If> deleteIf = createDeleteOnIfCall(olapTable, olapColumn, dataDesc);
+            if (deleteIf.isPresent()) {
+                sinkCols.add(olapColumn);
+                selectLists.add(new UnboundAlias(deleteIf.get(), olapColumn));
+            }
+            sinkCols.add(olapColumn);
+        }
+    }
+
     /**
      * use to get unquoted column name
      * @return unquoted slot name
@@ -236,20 +257,9 @@ public class LoadCommand extends Command implements ForwardWithSync, Explainable
         return slot.getName();
     }
 
-    private static void fillSinkBySourceCols(BulkLoadDataDesc dataDesc, OlapTable olapTable,
-                                             Map<String, Expression> mappingExpressions,
+    private static void fillSinkBySourceCols(Map<String, Expression> mappingExpressions,
                                              String olapColumn, UnboundSlot tvfColumn,
-                                             List<String> sinkCols, List<NamedExpression> selectLists)
-                throws AnalysisException {
-        if (olapTable.hasDeleteSign() && dataDesc.getDeleteCondition() != null) {
-            checkDeleteOnConditions(dataDesc.getMergeType(), dataDesc.getDeleteCondition());
-            Optional<If> deleteIf = createDeleteOnIfCall(olapTable, olapColumn, dataDesc);
-            if (deleteIf.isPresent()) {
-                sinkCols.add(olapColumn);
-                selectLists.add(new UnboundAlias(deleteIf.get(), olapColumn));
-                return;
-            }
-        }
+                                             List<String> sinkCols, List<NamedExpression> selectLists) {
         sinkCols.add(olapColumn);
         if (mappingExpressions.containsKey(olapColumn)) {
             selectLists.add(new UnboundAlias(mappingExpressions.get(olapColumn), olapColumn));
@@ -276,8 +286,9 @@ public class LoadCommand extends Command implements ForwardWithSync, Explainable
                                                  Map<String, String> tvfProperties,
                                                  LogicalPlan tvfLogicalPlan) throws AnalysisException {
         // build tvf column filter
-        if (dataDesc.getPrecedingFilterExpr() != null) {
-            Set<Expression> preConjuncts = ExpressionUtils.extractConjunctionToSet(dataDesc.getPrecedingFilterExpr());
+        if (dataDesc.getPrecedingFilterExpr().isPresent()) {
+            Set<Expression> preConjuncts =
+                    ExpressionUtils.extractConjunctionToSet(dataDesc.getPrecedingFilterExpr().get());
             if (!preConjuncts.isEmpty()) {
                 tvfLogicalPlan = new LogicalFilter<>(preConjuncts, tvfLogicalPlan);
             }
@@ -300,10 +311,10 @@ public class LoadCommand extends Command implements ForwardWithSync, Explainable
                     }
                     return new LogicalProject<>(csvColumns, tvfLogicalPlan);
                 }
-            }
-            if (dataDesc.getPrecedingFilterExpr() != null) {
-                throw new AnalysisException("Required property 'csv_schema' for csv file, "
-                        + "when no column list specified and use PRECEDING FILTER");
+                if (!dataDesc.getPrecedingFilterExpr().isPresent()) {
+                    throw new AnalysisException("Required property 'csv_schema' for csv file, "
+                            + "when no column list specified and use PRECEDING FILTER");
+                }
             }
             return getStarProjectPlan(tvfLogicalPlan);
         }
@@ -326,11 +337,11 @@ public class LoadCommand extends Command implements ForwardWithSync, Explainable
     private static Optional<If> createDeleteOnIfCall(OlapTable olapTable, String olapColName,
                                                      BulkLoadDataDesc dataDesc) throws AnalysisException {
         if (olapTable.hasDeleteSign()
-                && dataDesc.getDeleteCondition() != null) {
-            if (!(dataDesc.getDeleteCondition() instanceof ComparisonPredicate)) {
+                && dataDesc.getDeleteCondition().isPresent()) {
+            if (!(dataDesc.getDeleteCondition().get() instanceof ComparisonPredicate)) {
                 throw new AnalysisException("DELETE ON clause must be comparison expression.");
             }
-            ComparisonPredicate deleteOn = (ComparisonPredicate) dataDesc.getDeleteCondition();
+            ComparisonPredicate deleteOn = (ComparisonPredicate) dataDesc.getDeleteCondition().get();
             Expression deleteOnCol = deleteOn.left();
             if (!(deleteOnCol instanceof UnboundSlot)) {
                 throw new AnalysisException("DELETE ON column must be an undecorated OLAP column.");
@@ -358,18 +369,19 @@ public class LoadCommand extends Command implements ForwardWithSync, Explainable
     private static void checkAndAddSequenceCol(OlapTable olapTable, BulkLoadDataDesc dataDesc,
                                                List<String> sinkCols, List<NamedExpression> selectLists)
                 throws AnalysisException {
-        if (!dataDesc.hasSequenceCol() && !olapTable.hasSequenceCol()) {
+        Optional<String> optSequenceCol = dataDesc.getSequenceCol();
+        if (!optSequenceCol.isPresent() && !olapTable.hasSequenceCol()) {
             return;
         }
         // check olapTable schema and sequenceCol
-        if (olapTable.hasSequenceCol() && !dataDesc.hasSequenceCol()) {
+        if (olapTable.hasSequenceCol() && !optSequenceCol.isPresent()) {
             throw new AnalysisException("Table " + olapTable.getName()
                     + " has sequence column, need to specify the sequence column");
         }
-        if (dataDesc.hasSequenceCol() && !olapTable.hasSequenceCol()) {
+        if (optSequenceCol.isPresent() && !olapTable.hasSequenceCol()) {
             throw new AnalysisException("There is no sequence column in the table " + olapTable.getName());
         }
-        String sequenceCol = dataDesc.getSequenceCol();
+        String sequenceCol = dataDesc.getSequenceCol().get();
         // check source sequence column is in parsedColumnExprList or Table base schema
         boolean hasSourceSequenceCol = false;
         if (!sinkCols.isEmpty()) {
@@ -381,13 +393,12 @@ public class LoadCommand extends Command implements ForwardWithSync, Explainable
                     break;
                 }
             }
-        } else {
-            List<Column> columns = olapTable.getBaseSchema();
-            for (Column column : columns) {
-                if (column.getName().equals(sequenceCol)) {
-                    hasSourceSequenceCol = true;
-                    break;
-                }
+        }
+        List<Column> columns = olapTable.getBaseSchema();
+        for (Column column : columns) {
+            if (column.getName().equals(sequenceCol)) {
+                hasSourceSequenceCol = true;
+                break;
             }
         }
         if (!hasSourceSequenceCol) {
@@ -426,9 +437,8 @@ public class LoadCommand extends Command implements ForwardWithSync, Explainable
 
     private static Map<String, String> getTvfProperties(BulkLoadDataDesc dataDesc, BulkStorageDesc bulkStorageDesc) {
         Map<String, String> tvfProperties = new HashMap<>(bulkStorageDesc.getProperties());
-        String fileFormat = dataDesc.getFormatDesc().getFileFormat();
-        if (StringUtils.isEmpty(fileFormat)) {
-            fileFormat = "csv";
+        String fileFormat = dataDesc.getFormatDesc().getFileFormat().orElse("csv");
+        if ("csv".equalsIgnoreCase(fileFormat)) {
             dataDesc.getFormatDesc().getColumnSeparator().ifPresent(sep ->
                     tvfProperties.put(ExternalFileTableValuedFunction.COLUMN_SEPARATOR, sep.getSeparator()));
             dataDesc.getFormatDesc().getLineDelimiter().ifPresent(sep ->
@@ -459,7 +469,7 @@ public class LoadCommand extends Command implements ForwardWithSync, Explainable
         return tvfProperties;
     }
 
-    private void executeInsertStmtPlan(ConnectContext ctx, StmtExecutor executor, List<LogicalPlan> plans) {
+    private void executeInsertStmtPlan(ConnectContext ctx, StmtExecutor executor, List<InsertIntoTableCommand> plans) {
         try {
             for (LogicalPlan logicalPlan : plans) {
                 ((Command) logicalPlan).run(ctx, executor);
@@ -476,12 +486,6 @@ public class LoadCommand extends Command implements ForwardWithSync, Explainable
             ctx.getState().setError(ErrorCode.ERR_UNKNOWN_ERROR, e.getMessage());
             throw new NereidsException("Command process failed.", new AnalysisException(e.getMessage(), e));
         }
-    }
-
-    @Override
-    public Plan getExplainPlan(ConnectContext ctx) {
-        return null;
-        // return completeQueryPlan(dataDesc, logicalQuery);
     }
 
     @Override

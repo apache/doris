@@ -569,7 +569,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                         bulkProperties);
             }
         }
-        List<BulkLoadDataDesc> dataDescriptions = new ArrayList<>();
+        ImmutableList.Builder<BulkLoadDataDesc> dataDescriptions = new ImmutableList.Builder<>();
         for (DorisParser.DataDescContext ddc : ctx.dataDescs) {
             List<String> tableName = RelationUtil.getQualifierName(ConnectContext.get(),
                     visitMultipartIdentifier(ddc.tableName));
@@ -596,11 +596,11 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             LoadTask.MergeType mergeType = ddc.mergeType() == null ? LoadTask.MergeType.APPEND
                         : LoadTask.MergeType.valueOf(ddc.mergeType().getText());
 
-            String fileFormat = ddc.format == null ? null : ddc.format.getText();
-            String separator = ddc.separator == null ? null : ddc.separator.getText()
-                        .substring(1, ddc.separator.getText().length() - 1);
-            String comma = ddc.comma == null ? null : ddc.comma.getText()
-                        .substring(1, ddc.comma.getText().length() - 1);
+            Optional<String> fileFormat = ddc.format == null ? Optional.empty() : Optional.of(ddc.format.getText());
+            Optional<String> separator = ddc.separator == null ? Optional.empty() : Optional.of(ddc.separator.getText()
+                        .substring(1, ddc.separator.getText().length() - 1));
+            Optional<String> comma = ddc.comma == null ? Optional.empty() : Optional.of(ddc.comma.getText()
+                        .substring(1, ddc.comma.getText().length() - 1));
             Map<String, String> dataProperties = ddc.propertyClause() == null ? new HashMap<>()
                         : visitPropertyClause(ddc.propertyClause());
             dataDescriptions.add(new BulkLoadDataDesc(
@@ -612,18 +612,18 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                     colMappings,
                     new BulkLoadDataDesc.FileFormatDesc(separator, comma, fileFormat),
                     false,
-                    ddc.preFilter == null ? null : getExpression(ddc.preFilter.expression()),
-                    ddc.where == null ? null : getExpression(ddc.where.booleanExpression()),
+                    ddc.preFilter == null ? Optional.empty() : Optional.of(getExpression(ddc.preFilter.expression())),
+                    ddc.where == null ? Optional.empty() : Optional.of(getExpression(ddc.where.booleanExpression())),
                     mergeType,
-                    ddc.deleteOn == null ? null : getExpression(ddc.deleteOn.expression()),
-                    ddc.sequenceColumn == null ? null : ddc.sequenceColumn.identifier().getText(),
-                    dataProperties));
+                    ddc.deleteOn == null ? Optional.empty() : Optional.of(getExpression(ddc.deleteOn.expression())),
+                    ddc.sequenceColumn == null ? Optional.empty()
+                            : Optional.of(ddc.sequenceColumn.identifier().getText()), dataProperties));
         }
         String labelName = ctx.lableName.getText();
         Map<String, String> properties = visitPropertyItemList(ctx.properties);
         String commentSpec = ctx.commentSpec() == null ? "" : ctx.commentSpec().STRING_LITERAL().getText();
         String comment = escapeBackSlash(commentSpec.substring(1, commentSpec.length() - 1));
-        return new LoadCommand(labelName, dataDescriptions, bulkDesc, properties, comment);
+        return new LoadCommand(labelName, dataDescriptions.build(), bulkDesc, properties, comment);
     }
 
     /* ********************************************************************************************

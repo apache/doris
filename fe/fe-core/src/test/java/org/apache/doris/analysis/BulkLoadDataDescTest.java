@@ -461,7 +461,7 @@ public class BulkLoadDataDescTest extends TestWithFeService {
                 + "     PRECEDING FILTER c_nationkey=\"CHINA\"     "
                 + "     WHERE custkey > 100"
                 + "     DELETE ON c_custkey < 120     "
-                + "     ORDER BY c_custkey "
+                + "     ORDER BY custkey "
                 + "  ) "
                 + "  WITH S3(  "
                 + "     \"s3.access_key\" = \"AK\", "
@@ -487,7 +487,7 @@ public class BulkLoadDataDescTest extends TestWithFeService {
                 + "     SET ( custkey=c_custkey+1 )   "
                 + "     PRECEDING FILTER c_nationkey=\"CHINA\"     "
                 + "     WHERE custkey > 100"
-                + "     ORDER BY c_custkey "
+                + "     ORDER BY custkey "
                 + "  ) "
                 + "  WITH S3(  "
                 + "     \"s3.access_key\" = \"AK\", "
@@ -552,6 +552,7 @@ public class BulkLoadDataDescTest extends TestWithFeService {
 
         List<String> expectedSinkColumns = new ArrayList<>(sinkCols1);
         expectedSinkColumns.add(Column.SEQUENCE_COL);
+        expectedSinkColumns.add(Column.DELETE_SIGN);
         List<NamedExpression> expectedProjects = new ArrayList<>();
         List<Expression> expectedConjuncts = new ArrayList<>();
         assertInsertIntoPlan(statements, expectedSinkColumns, expectedProjects, expectedConjuncts, true);

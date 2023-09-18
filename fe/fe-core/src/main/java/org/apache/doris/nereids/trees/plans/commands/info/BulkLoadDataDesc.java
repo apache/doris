@@ -24,7 +24,6 @@ import org.apache.doris.load.loadv2.LoadTask;
 import org.apache.doris.nereids.trees.expressions.Expression;
 
 import com.google.common.base.Joiner;
-import com.google.common.base.Strings;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -36,36 +35,35 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.stream.Collectors;
 
-// used to describe data info which is needed to import.
-//
-//      data_desc:
-//          DATA INFILE ('file_path', ...)
-//          [NEGATIVE]
-//          INTO TABLE tbl_name
-//          [PARTITION (p1, p2)]
-//          [COLUMNS TERMINATED BY separator]
-//          [FORMAT AS format]
-//          [(tmp_col1, tmp_col2, col3, ...)]
-//          [COLUMNS FROM PATH AS (col1, ...)]
-//          [SET (k1=f1(xx), k2=f2(xxx))]
-//          [where_clause]
-//
-//          DATA FROM TABLE external_hive_tbl_name
-//          [NEGATIVE]
-//          INTO TABLE tbl_name
-//          [PARTITION (p1, p2)]
-//          [SET (k1=f1(xx), k2=f2(xxx))]
-//          [where_clause]
-
 /**
+ * used to describe data info which is needed to import.
  * The transform of columns should be added after the keyword named COLUMNS.
  * The transform after the keyword named SET is the old ways which only supports the hadoop function.
- * It old way of transform will be removed gradually. It
+ * It old way of transform will be removed gradually.
+ *       data_desc:
+ *           DATA INFILE ('file_path', ...)
+ *           [NEGATIVE]
+ *           INTO TABLE tbl_name
+ *           [PARTITION (p1, p2)]
+ *           [COLUMNS TERMINATED BY separator]
+ *           [FORMAT AS format]
+ *           [(tmp_col1, tmp_col2, col3, ...)]
+ *           [COLUMNS FROM PATH AS (col1, ...)]
+ *           [SET (k1=f1(xx), k2=f2(xxx))]
+ *           [where_clause]
+ *           DATA FROM TABLE external_hive_tbl_name
+ *           [NEGATIVE]
+ *           INTO TABLE tbl_name
+ *           [PARTITION (p1, p2)]
+ *           [SET (k1=f1(xx), k2=f2(xxx))]
+ *           [where_clause]
  */
 public class BulkLoadDataDesc {
+
     public static final String EXPECT_MERGE_DELETE_ON = "not support DELETE ON clause when merge type is not MERGE.";
     public static final String EXPECT_DELETE_ON = "Excepted DELETE ON clause when merge type is MERGE.";
     private static final Logger LOG = LogManager.getLogger(BulkLoadDataDesc.class);
+
     private final List<String> nameParts;
     private final String tableName;
     private final String dbName;
@@ -76,17 +74,17 @@ public class BulkLoadDataDesc {
     private final List<String> columnsFromPath;
     // save column mapping in SET(xxx = xxx) clause
     private final Map<String, Expression> columnMappings;
-    private final Expression precedingFilterExpr;
-    private final Expression whereExpr;
+    private final Optional<Expression> precedingFilterExpr;
+    private final Optional<Expression> whereExpr;
     private final LoadTask.MergeType mergeType;
     private final String srcTableName;
     // column names of source files
     private final List<String> fileFieldNames;
-    private final String sequenceCol;
+    private final Optional<String> sequenceCol;
     private final FileFormatDesc formatDesc;
     // Merged from fileFieldNames, columnsFromPath and columnMappingList
     // ImportColumnDesc: column name to (expr or null)
-    private final Expression deleteCondition;
+    private final Optional<Expression> deleteCondition;
     private final Map<String, String> dataProperties;
     private boolean isMysqlLoad = false;
 
@@ -101,11 +99,11 @@ public class BulkLoadDataDesc {
                             Map<String, Expression> columnMappings,
                             FileFormatDesc formatDesc,
                             boolean isNegative,
-                            Expression fileFilterExpr,
-                            Expression whereExpr,
+                            Optional<Expression> fileFilterExpr,
+                            Optional<Expression> whereExpr,
                             LoadTask.MergeType mergeType,
-                            Expression deleteCondition,
-                            String sequenceColName,
+                            Optional<Expression> deleteCondition,
+                            Optional<String> sequenceColName,
                             Map<String, String> dataProperties) {
         this.nameParts = Objects.requireNonNull(fullTableName, "nameParts should not null");
         this.dbName = Objects.requireNonNull(fullTableName.get(1), "dbName should not null");
@@ -135,12 +133,12 @@ public class BulkLoadDataDesc {
         private final Separator columnSeparator;
         private final String fileFormat;
 
-        public FileFormatDesc(String fileFormat) {
-            this(null, null, fileFormat);
+        public FileFormatDesc(Optional<String> fileFormat) {
+            this(Optional.empty(), Optional.empty(), fileFormat);
         }
 
-        public FileFormatDesc(String lineDelimiter, String columnSeparator) {
-            this(lineDelimiter, columnSeparator, null);
+        public FileFormatDesc(Optional<String> lineDelimiter, Optional<String> columnSeparator) {
+            this(lineDelimiter, columnSeparator, Optional.empty());
         }
 
         /**
@@ -149,9 +147,10 @@ public class BulkLoadDataDesc {
          * @param columnSeparator text format column separator
          * @param fileFormat file format
          */
-        public FileFormatDesc(String lineDelimiter, String columnSeparator, String fileFormat) {
-            this.lineDelimiter = new Separator(lineDelimiter);
-            this.columnSeparator = new Separator(columnSeparator);
+        public FileFormatDesc(Optional<String> lineDelimiter, Optional<String> columnSeparator,
+                              Optional<String> fileFormat) {
+            this.lineDelimiter = new Separator(lineDelimiter.orElse(null));
+            this.columnSeparator = new Separator(columnSeparator.orElse(null));
             try {
                 if (!StringUtils.isEmpty(this.lineDelimiter.getOriSeparator())) {
                     this.lineDelimiter.analyze();
@@ -162,7 +161,7 @@ public class BulkLoadDataDesc {
             } catch (AnalysisException e) {
                 throw new RuntimeException("Fail to parse separator. ", e);
             }
-            this.fileFormat = fileFormat;
+            this.fileFormat = fileFormat.orElse(null);
         }
 
         public Optional<Separator> getLineDelimiter() {
@@ -179,8 +178,8 @@ public class BulkLoadDataDesc {
             return Optional.of(columnSeparator);
         }
 
-        public String getFileFormat() {
-            return fileFormat;
+        public Optional<String> getFileFormat() {
+            return Optional.ofNullable(fileFormat);
         }
     }
 
@@ -216,11 +215,11 @@ public class BulkLoadDataDesc {
         return columnMappings;
     }
 
-    public Expression getPrecedingFilterExpr() {
+    public Optional<Expression> getPrecedingFilterExpr() {
         return precedingFilterExpr;
     }
 
-    public Expression getWhereExpr() {
+    public Optional<Expression> getWhereExpr() {
         return whereExpr;
     }
 
@@ -228,15 +227,14 @@ public class BulkLoadDataDesc {
         return fileFieldNames;
     }
 
-    public String getSequenceCol() {
+    public Optional<String> getSequenceCol() {
+        if (sequenceCol.isPresent() && StringUtils.isBlank(sequenceCol.get())) {
+            return Optional.empty();
+        }
         return sequenceCol;
     }
 
-    public boolean hasSequenceCol() {
-        return !Strings.isNullOrEmpty(sequenceCol);
-    }
-
-    public Expression getDeleteCondition() {
+    public Optional<Expression> getDeleteCondition() {
         return deleteCondition;
     }
 
@@ -315,12 +313,12 @@ public class BulkLoadDataDesc {
             Joiner.on(", ").appendTo(sb, columnMappings.entrySet().stream()
                     .map(e -> e.getKey() + "=" + e.getValue().toSql()).collect(Collectors.toList())).append(")");
         }
-        if (whereExpr != null) {
-            sb.append(" WHERE ").append(whereExpr.toSql());
-        }
-        if (deleteCondition != null && mergeType == LoadTask.MergeType.MERGE) {
-            sb.append(" DELETE ON ").append(deleteCondition.toSql());
-        }
+        whereExpr.ifPresent(e -> sb.append(" WHERE ").append(e.toSql()));
+        deleteCondition.ifPresent(e -> {
+            if (mergeType == LoadTask.MergeType.MERGE) {
+                sb.append(" DELETE ON ").append(e.toSql());
+            }
+        });
         return sb.toString();
     }
 

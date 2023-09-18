@@ -136,13 +136,35 @@ planType
     | ALL // default type
     ;
 
-mergeType : APPEND | DELETE | MERGE ;
-preFilterClause : PRECEDING FILTER expression ;
-deleteOnClause : DELETE ON expression ;
-sequenceColClause : ORDER BY identifier ;
-colFromPath : COLUMNS FROM PATH AS identifierList ;
-colMappingList : SET LEFT_PAREN mappingSet+=mappingExpr (COMMA mappingSet+=mappingExpr)* RIGHT_PAREN ;
-mappingExpr: (mappingCol=identifier EQ expression) ;
+mergeType
+    : APPEND
+    | DELETE
+    | MERGE
+    ;
+
+preFilterClause
+    : PRECEDING FILTER expression
+    ;
+
+deleteOnClause
+    : DELETE ON expression
+    ;
+
+sequenceColClause
+    : ORDER BY identifier
+    ;
+
+colFromPath
+    : COLUMNS FROM PATH AS identifierList
+    ;
+
+colMappingList
+    : SET LEFT_PAREN mappingSet+=mappingExpr (COMMA mappingSet+=mappingExpr)* RIGHT_PAREN
+    ;
+
+mappingExpr
+    : (mappingCol=identifier EQ expression)
+    ;
 
 withRemoteStorageSystem
     : WITH S3 LEFT_PAREN
@@ -160,19 +182,21 @@ withRemoteStorageSystem
         RIGHT_PAREN)?
     ;
 
-resourceDesc : WITH RESOURCE resourceName=identifierOrText (LEFT_PAREN propertyItemList RIGHT_PAREN)? ;
+resourceDesc
+    : WITH RESOURCE resourceName=identifierOrText (LEFT_PAREN propertyItemList RIGHT_PAREN)?
+    ;
 
 mysqlDataDesc
     : DATA (LOCAL booleanValue)?
-    INFILE filePath=STRING_LITERAL
-    INTO TABLE tableName=multipartIdentifier
-    (PARTITION partition=identifierList)?
-    (COLUMNS TERMINATED BY comma=STRING_LITERAL)?
-    (LINES TERMINATED BY separator=STRING_LITERAL)?
-    (skipLines)?
-    (columns=identifierList)?
-    (colMappingList)?
-    (propertyClause)?
+        INFILE filePath=STRING_LITERAL
+        INTO TABLE tableName=multipartIdentifier
+        (PARTITION partition=identifierList)?
+        (COLUMNS TERMINATED BY comma=STRING_LITERAL)?
+        (LINES TERMINATED BY separator=STRING_LITERAL)?
+        (skipLines)?
+        (columns=identifierList)?
+        (colMappingList)?
+        (propertyClause)?
     ;
 
 skipLines : IGNORE lines=INTEGER_VALUE LINES | IGNORE lines=INTEGER_VALUE ROWS ;
