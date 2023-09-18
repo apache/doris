@@ -17,12 +17,16 @@
 
 #pragma once
 
+#include <mutex>
+
 #include "pipeline/exec/data_queue.h"
+#include "vec/common/sort/partition_sorter.h"
 #include "vec/common/sort/sorter.h"
 #include "vec/exec/join/process_hash_table_probe.h"
 #include "vec/exec/join/vhash_join_node.h"
 #include "vec/exec/vaggregation_node.h"
 #include "vec/exec/vanalytic_eval_node.h"
+#include "vec/exec/vpartition_sort_node.h"
 
 namespace doris {
 namespace pipeline {
@@ -63,6 +67,8 @@ public:
         _read_dependency_watcher.stop();
         _ready_for_read = true;
     }
+
+    bool is_ready_for_read() { return _ready_for_read; }
 
     // Notify downstream pipeline tasks this dependency is blocked.
     virtual void block_reading() { _ready_for_read = false; }
@@ -518,6 +524,26 @@ public:
 
 private:
     NestedLoopJoinSharedState _join_state;
+};
+
+struct PartitionSortNodeSharedState {
+public:
+    std::queue<vectorized::Block> _blocks_buffer;
+    std::mutex _buffer_mutex;
+    std::vector<std::unique_ptr<vectorized::PartitionSorter>> _partition_sorts;
+    std::unique_ptr<vectorized::SortCursorCmp> _previous_row = nullptr;
+    int _sort_idx = 0;
+};
+
+class PartitionSortDependency final : public Dependency {
+public:
+    using SharedState = PartitionSortNodeSharedState;
+    PartitionSortDependency(int id) : Dependency(id, "PartitionSortDependency") {}
+    ~PartitionSortDependency() override = default;
+    void* shared_state() override { return (void*)&_partition_sort_state; };
+
+private:
+    PartitionSortNodeSharedState _partition_sort_state;
 };
 
 } // namespace pipeline
