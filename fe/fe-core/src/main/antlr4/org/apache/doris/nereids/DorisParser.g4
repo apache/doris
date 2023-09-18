@@ -73,7 +73,7 @@ statement
         REFRESH refreshMethod refreshTrigger
         (KEY keys=identifierList)?
         (COMMENT STRING_LITERAL)?
-        DISTRIBUTED BY (HASH hashKeys=identifierList | RANDOM) BUCKETS (INTEGER_VALUE | AUTO)?
+        (DISTRIBUTED BY (HASH hashKeys=identifierList | RANDOM) (BUCKETS INTEGER_VALUE | AUTO)?)?
         propertyClause?
         AS query                                                        #createMTMV
     ;

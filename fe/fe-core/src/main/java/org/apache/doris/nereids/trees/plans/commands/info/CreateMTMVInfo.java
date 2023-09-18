@@ -127,6 +127,7 @@ public class CreateMTMVInfo {
         // analyze distribute
         Map<String, ColumnDefinition> columnMap = new TreeMap<>(String.CASE_INSENSITIVE_ORDER);
         columns.forEach(c -> columnMap.put(c.getName(), c));
+        distribution.updateCols(columns.get(0).getName());
         distribution.validate(columnMap, KeysType.DUP_KEYS);
         // analyze
         refreshTriggerInfo.validate();
