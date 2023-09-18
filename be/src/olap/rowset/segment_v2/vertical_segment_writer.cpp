@@ -634,13 +634,6 @@ Status VerticalSegmentWriter::write_batch() {
         }
     }
 
-    if (_opts.write_type == DataWriteType::TYPE_DIRECT && _opts.enable_unique_key_merge_on_write &&
-        !_tablet_schema->has_sequence_col() && _tablet_schema->delete_sign_idx() != -1) {
-        for (auto& data : _batched_blocks) {
-            _handle_delete_sign_col(data.block, data.row_pos, data.num_rows);
-        }
-    }
-
     std::vector<vectorized::IOlapColumnDataAccessor*> key_columns;
     vectorized::IOlapColumnDataAccessor* seq_column = nullptr;
     for (uint32_t cid = 0; cid < _tablet_schema->num_columns(); ++cid) {
@@ -715,6 +708,13 @@ Status VerticalSegmentWriter::write_batch() {
         }
         _olap_data_convertor->clear_source_content();
         _num_rows_written += data.num_rows;
+    }
+
+    if (_opts.write_type == DataWriteType::TYPE_DIRECT && _opts.enable_unique_key_merge_on_write &&
+        !_tablet_schema->has_sequence_col() && _tablet_schema->delete_sign_idx() != -1) {
+        for (auto& data : _batched_blocks) {
+            _handle_delete_sign_col(data.block, data.row_pos, data.num_rows);
+        }
     }
 
     _batched_blocks.clear();
