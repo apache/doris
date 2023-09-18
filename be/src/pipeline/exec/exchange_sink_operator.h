@@ -77,7 +77,6 @@ public:
               _serializer(this) {}
 
     Status init(RuntimeState* state, LocalSinkStateInfo& info) override;
-    Status open(RuntimeState* state) override;
     Status close(RuntimeState* state) override;
 
     Status serialize_block(vectorized::Block* src, PBlock* dest, int num_receivers = 1);
@@ -152,14 +151,14 @@ private:
 
 class ExchangeSinkOperatorX final : public DataSinkOperatorX<ExchangeSinkLocalState> {
 public:
-    ExchangeSinkOperatorX(RuntimeState* state, ObjectPool* pool, const RowDescriptor& row_desc,
+    ExchangeSinkOperatorX(RuntimeState* state, const RowDescriptor& row_desc,
                           const TDataStreamSink& sink,
                           const std::vector<TPlanFragmentDestination>& destinations,
                           bool send_query_statistics_with_every_batch);
-    ExchangeSinkOperatorX(ObjectPool* pool, const RowDescriptor& row_desc, PlanNodeId dest_node_id,
+    ExchangeSinkOperatorX(const RowDescriptor& row_desc, PlanNodeId dest_node_id,
                           const std::vector<TPlanFragmentDestination>& destinations,
                           bool send_query_statistics_with_every_batch);
-    ExchangeSinkOperatorX(ObjectPool* pool, const RowDescriptor& row_desc,
+    ExchangeSinkOperatorX(const RowDescriptor& row_desc,
                           bool send_query_statistics_with_every_batch);
     Status init(const TDataSink& tsink) override;
 
@@ -198,7 +197,6 @@ private:
                             bool eos);
     RuntimeState* _state = nullptr;
 
-    ObjectPool* _pool;
     const RowDescriptor& _row_desc;
 
     TPartitionType::type _part_type;

@@ -599,9 +599,11 @@ T StringParser::string_to_decimal(const char* s, int len, int type_precision, in
     }
 
     // Ignore leading zeros.
+    bool leading_zero = false;
     bool found_value = false;
     while (len > 0 && UNLIKELY(*s == '0')) {
         found_value = true;
+        leading_zero = true;
         ++s;
         --len;
     }
@@ -677,7 +679,9 @@ T StringParser::string_to_decimal(const char* s, int len, int type_precision, in
         for (int i = 0; i < len; ++i) {
             const char& c = s[i];
             // keep a rounding precision to round the decimal value
-            if (LIKELY('0' <= c && c <= '9') && LIKELY(type_precision >= precision)) {
+            if (LIKELY('0' <= c && c <= '9') &&
+                ((!leading_zero && LIKELY(type_precision >= precision)) ||
+                 (leading_zero && type_precision > precision))) {
                 found_value = true;
                 // Ignore digits once the type's precision limit is reached. This avoids
                 // overflowing the underlying storage while handling a string like
@@ -689,8 +693,10 @@ T StringParser::string_to_decimal(const char* s, int len, int type_precision, in
                 if (!found_dot && max_digit < (precision - scale)) {
                     // parse_overflow should only happen when the digit part reached the max
                     *result = StringParser::PARSE_OVERFLOW;
-                    value = is_negative ? type_limit<vectorized::Decimal<T>>::min()
-                                        : type_limit<vectorized::Decimal<T>>::max();
+                    value = is_negative ? vectorized::min_decimal_value<vectorized::Decimal<T>>(
+                                                  type_precision)
+                                        : vectorized::max_decimal_value<vectorized::Decimal<T>>(
+                                                  type_precision);
                     return value;
                 }
                 // keep a rounding precision to round the decimal value
@@ -714,9 +720,9 @@ T StringParser::string_to_decimal(const char* s, int len, int type_precision, in
                     return 0;
                 }
                 *result = StringParser::PARSE_SUCCESS;
-                value *= get_scale_multiplier<T>(type_scale - scale);
-
-                return is_negative ? T(-value) : T(value);
+                if (type_scale > scale) {
+                    value *= get_scale_multiplier<T>(type_scale - scale);
+                }
             }
         }
     }
@@ -746,6 +752,13 @@ T StringParser::string_to_decimal(const char* s, int len, int type_precision, in
     *result = StringParser::PARSE_SUCCESS;
     if (UNLIKELY(precision - scale > type_precision - type_scale)) {
         *result = StringParser::PARSE_OVERFLOW;
+        if constexpr (TYPE_DECIMALV2 != P) {
+            // decimalv3 overflow will return max min value for type precision
+            value = is_negative
+                            ? vectorized::min_decimal_value<vectorized::Decimal<T>>(type_precision)
+                            : vectorized::max_decimal_value<vectorized::Decimal<T>>(type_precision);
+            return value;
+        }
     } else if (UNLIKELY(scale > type_scale)) {
         *result = StringParser::PARSE_UNDERFLOW;
         int shift = scale - type_scale;

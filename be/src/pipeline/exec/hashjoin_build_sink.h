@@ -80,7 +80,7 @@ protected:
     std::shared_ptr<VRuntimeFilterSlots> _runtime_filter_slots = nullptr;
     bool _has_set_need_null_map_for_build = false;
     bool _build_side_ignore_null = false;
-    size_t _build_bf_cardinality = 0;
+    size_t _build_rf_cardinality = 0;
     std::unordered_map<const vectorized::Block*, std::vector<int>> _inserted_rows;
 
     RuntimeProfile::Counter* _build_table_timer;
@@ -97,7 +97,6 @@ protected:
 
     RuntimeProfile::Counter* _build_collisions_counter;
 
-    RuntimeProfile::Counter* _open_timer;
     RuntimeProfile::Counter* _allocate_resource_timer;
 
     RuntimeProfile::Counter* _memory_usage_counter;

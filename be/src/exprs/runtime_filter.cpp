@@ -622,7 +622,6 @@ public:
             break;
         }
         default:
-            DCHECK(false);
             return Status::InternalError("unknown runtime filter");
         }
         return Status::OK();

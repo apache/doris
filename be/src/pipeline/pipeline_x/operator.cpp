@@ -39,6 +39,8 @@
 #include "pipeline/exec/sort_source_operator.h"
 #include "pipeline/exec/streaming_aggregation_sink_operator.h"
 #include "pipeline/exec/streaming_aggregation_source_operator.h"
+#include "pipeline/exec/union_sink_operator.h"
+#include "pipeline/exec/union_source_operator.h"
 #include "util/debug_util.h"
 
 namespace doris::pipeline {
@@ -87,7 +89,6 @@ Status OperatorXBase::init(const TPlanNode& tnode, RuntimeState* /*state*/) {
     std::string node_name = print_plan_node_type(tnode.node_type);
     auto substr = node_name.substr(0, node_name.find("_NODE"));
     _op_name = substr + "_OPERATOR";
-    _init_runtime_profile();
 
     if (tnode.__isset.vconjunct) {
         vectorized::VExprContextSPtr context;
@@ -132,13 +133,6 @@ Status OperatorXBase::open(RuntimeState* state) {
         RETURN_IF_ERROR(_child_x->open(state));
     }
     return Status::OK();
-}
-
-void OperatorXBase::_init_runtime_profile() {
-    std::stringstream ss;
-    ss << get_name() << " (id=" << _id << ")";
-    _runtime_profile.reset(new RuntimeProfile(ss.str()));
-    _runtime_profile->set_metadata(_id);
 }
 
 Status OperatorXBase::close(RuntimeState* state) {
@@ -202,16 +196,6 @@ bool PipelineXLocalStateBase::reached_limit() const {
     return _parent->_limit != -1 && _num_rows_returned >= _parent->_limit;
 }
 
-void PipelineXLocalStateBase::reached_limit(vectorized::Block* block, bool* eos) {
-    if (_parent->_limit != -1 and _num_rows_returned + block->rows() >= _parent->_limit) {
-        block->set_num_rows(_parent->_limit - _num_rows_returned);
-        *eos = true;
-    }
-
-    _num_rows_returned += block->rows();
-    COUNTER_SET(_rows_returned_counter, _num_rows_returned);
-}
-
 void PipelineXLocalStateBase::reached_limit(vectorized::Block* block, SourceState& source_state) {
     if (_parent->_limit != -1 and _num_rows_returned + block->rows() >= _parent->_limit) {
         block->set_num_rows(_parent->_limit - _num_rows_returned);
@@ -219,6 +203,7 @@ void PipelineXLocalStateBase::reached_limit(vectorized::Block* block, SourceStat
     }
 
     _num_rows_returned += block->rows();
+    COUNTER_UPDATE(_blocks_returned_counter, 1);
     COUNTER_SET(_rows_returned_counter, _num_rows_returned);
 }
 
@@ -268,7 +253,11 @@ Status DataSinkOperatorX<LocalStateType>::setup_local_state(RuntimeState* state,
 
 template <typename LocalStateType>
 void DataSinkOperatorX<LocalStateType>::get_dependency(DependencySPtr& dependency) {
-    dependency.reset(new typename LocalStateType::Dependency(id()));
+    if constexpr (!std::is_same_v<typename LocalStateType::Dependency, FakeDependency>) {
+        dependency.reset(new typename LocalStateType::Dependency(dest_id()));
+    } else {
+        dependency.reset((typename LocalStateType::Dependency*)nullptr);
+    }
 }
 
 template <typename LocalStateType>
@@ -327,6 +316,7 @@ DECLARE_OPERATOR_X(BlockingAggSinkLocalState)
 DECLARE_OPERATOR_X(StreamingAggSinkLocalState)
 DECLARE_OPERATOR_X(ExchangeSinkLocalState)
 DECLARE_OPERATOR_X(NestedLoopJoinBuildSinkLocalState)
+DECLARE_OPERATOR_X(UnionSinkLocalState)
 
 #undef DECLARE_OPERATOR_X
 
@@ -341,6 +331,7 @@ DECLARE_OPERATOR_X(RepeatLocalState)
 DECLARE_OPERATOR_X(NestedLoopJoinProbeLocalState)
 DECLARE_OPERATOR_X(AssertNumRowsLocalState)
 DECLARE_OPERATOR_X(EmptySetLocalState)
+DECLARE_OPERATOR_X(UnionSourceLocalState)
 
 #undef DECLARE_OPERATOR_X
 
@@ -357,6 +348,7 @@ template class PipelineXSinkLocalState<NestedLoopJoinDependency>;
 template class PipelineXSinkLocalState<AnalyticDependency>;
 template class PipelineXSinkLocalState<AggDependency>;
 template class PipelineXSinkLocalState<FakeDependency>;
+template class PipelineXSinkLocalState<UnionDependency>;
 
 template class PipelineXLocalState<HashJoinDependency>;
 template class PipelineXLocalState<SortDependency>;
@@ -364,5 +356,6 @@ template class PipelineXLocalState<NestedLoopJoinDependency>;
 template class PipelineXLocalState<AnalyticDependency>;
 template class PipelineXLocalState<AggDependency>;
 template class PipelineXLocalState<FakeDependency>;
+template class PipelineXLocalState<UnionDependency>;
 
 } // namespace doris::pipeline

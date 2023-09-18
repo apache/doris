@@ -41,12 +41,12 @@ statement
         TO (user=userIdentify | ROLE roleName=identifier)
         USING LEFT_PAREN booleanExpression RIGHT_PAREN                 #createRowPolicy
     | CREATE TABLE (IF NOT EXISTS)? name=multipartIdentifier
-        ((LEFT_PAREN columnDefs indexDefs? RIGHT_PAREN) | (ctasCols=identifierList)?)
+        ((ctasCols=identifierList)? | (LEFT_PAREN columnDefs indexDefs? RIGHT_PAREN))
         (ENGINE EQ engine=identifier)?
         ((AGGREGATE | UNIQUE | DUPLICATE) KEY keys=identifierList)?
         (COMMENT STRING_LITERAL)?
         (PARTITION BY (RANGE | LIST) partitionKeys=identifierList LEFT_PAREN partitions=partitionsDef RIGHT_PAREN)?
-        DISTRIBUTED BY (HASH hashKeys=identifierList | RANDOM) BUCKETS (INTEGER_VALUE | AUTO)?
+        (DISTRIBUTED BY (HASH hashKeys=identifierList | RANDOM) (BUCKETS INTEGER_VALUE | AUTO)?)?
         (ROLLUP LEFT_PAREN rollupDefs RIGHT_PAREN)?
         propertyClause?
         (AS query)?                                                    #createTable
@@ -172,6 +172,7 @@ setQuantifier
 queryPrimary
     : querySpecification                                                   #queryPrimaryDefault
     | LEFT_PAREN query RIGHT_PAREN                                         #subquery
+    | inlineTable                                                          #valuesTable
     ;
 
 querySpecification
@@ -423,6 +424,11 @@ aggTypeDef
 tabletList
     : TABLET LEFT_PAREN tabletIdList+=INTEGER_VALUE (COMMA tabletIdList+=INTEGER_VALUE)*  RIGHT_PAREN
     ;
+    
+
+inlineTable
+    : VALUES rowConstructor (COMMA rowConstructor)*
+    ;
 
 // -----------------Expression-----------------
 namedExpression
@@ -435,6 +441,15 @@ namedExpressionSeq
 
 expression
     : booleanExpression
+    | lambdaExpression
+    ;
+
+lambdaExpression
+    : args+=errorCapturingIdentifier ARROW body=booleanExpression
+    | LEFT_PAREN
+        args+=errorCapturingIdentifier (COMMA args+=errorCapturingIdentifier)+
+      RIGHT_PAREN
+        ARROW body=booleanExpression
     ;
 
 booleanExpression
@@ -448,7 +463,9 @@ booleanExpression
     | left=booleanExpression operator=DOUBLEPIPES right=booleanExpression           #doublePipes
     ;
 
-
+rowConstructor
+    : LEFT_PAREN namedExpression (COMMA namedExpression)+ RIGHT_PAREN
+    ;
 
 predicate
     : NOT? kind=BETWEEN lower=valueExpression AND upper=valueExpression

@@ -277,7 +277,29 @@ Status ProcessHashTableProbe<JoinOpType>::do_process(HashTableType& hash_table_c
             }
         }
 
+        auto empty = decltype(key_getter.find_key(hash_table_ctx.hash_table, probe_index,
+                                                  *_arena)) {nullptr, false};
+
         if (current_offset < _batch_size) {
+            if (*(_join_context->_ready_probe_index) < probe_rows) {
+                _probe_side_hash_values.resize(probe_rows);
+                for (size_t k = *(_join_context->_ready_probe_index); k < probe_rows; ++k) {
+                    if constexpr (ignore_null && need_null_map_for_probe) {
+                        if ((*null_map)[k]) {
+                            continue;
+                        }
+                    }
+                    if constexpr (ColumnsHashing::IsPreSerializedKeysHashMethodTraits<
+                                          KeyGetter>::value) {
+                        _probe_side_hash_values[k] = hash_table_ctx.hash_table.hash(
+                                key_getter.get_key_holder(k, *_arena).key);
+                    } else {
+                        _probe_side_hash_values[k] = hash_table_ctx.hash_table.hash(
+                                key_getter.get_key_holder(k, *_arena));
+                    }
+                }
+                *(_join_context->_ready_probe_index) = probe_rows;
+            }
             while (probe_index < probe_rows) {
                 if constexpr (ignore_null && need_null_map_for_probe) {
                     if ((*null_map)[probe_index]) {
@@ -305,18 +327,16 @@ Status ProcessHashTableProbe<JoinOpType>::do_process(HashTableType& hash_table_c
                     }
                 }
                 int last_offset = current_offset;
-                auto find_result = !need_null_map_for_probe
-                                           ? key_getter.find_key(hash_table_ctx.hash_table,
-                                                                 probe_index, *_arena)
-                                   : (*null_map)[probe_index]
-                                           ? decltype(key_getter.find_key(hash_table_ctx.hash_table,
-                                                                          probe_index,
-                                                                          *_arena)) {nullptr, false}
-                                           : key_getter.find_key(hash_table_ctx.hash_table,
-                                                                 probe_index, *_arena);
-                if (probe_index + PREFETCH_STEP < probe_rows) {
-                    key_getter.template prefetch<true>(hash_table_ctx.hash_table,
-                                                       probe_index + PREFETCH_STEP, *_arena);
+                auto find_result = (need_null_map_for_probe && (*null_map)[probe_index])
+                                           ? empty
+                                           : key_getter.find_key_with_hash(
+                                                     hash_table_ctx.hash_table,
+                                                     _probe_side_hash_values[probe_index],
+                                                     probe_index, *_arena);
+                if (probe_index + HASH_MAP_PREFETCH_DIST < probe_rows) {
+                    key_getter.template prefetch_by_hash<true>(
+                            hash_table_ctx.hash_table,
+                            _probe_side_hash_values[probe_index + HASH_MAP_PREFETCH_DIST]);
                 }
 
                 auto current_probe_index = probe_index;
@@ -351,7 +371,7 @@ Status ProcessHashTableProbe<JoinOpType>::do_process(HashTableType& hash_table_c
                         auto& mapped = find_result.get_mapped();
                         // TODO: Iterators are currently considered to be a heavy operation and have a certain impact on performance.
                         // We should rethink whether to use this iterator mode in the future. Now just opt the one row case
-                        if (mapped.get_row_count() == 1) {
+                        if (mapped.is_single() == 1) {
                             if constexpr (std::is_same_v<Mapped, RowRefListWithFlag>) {
                                 mapped.visited = true;
                             }
@@ -428,7 +448,7 @@ Status ProcessHashTableProbe<JoinOpType>::do_process(HashTableType& hash_table_c
                     break;
                 }
             }
-            probe_size = probe_index - last_probe_index + (probe_row_match_iter.ok() ? 1 : 0);
+            probe_size = probe_index - last_probe_index + probe_row_match_iter.ok();
         }
     }
 
@@ -530,8 +550,32 @@ Status ProcessHashTableProbe<JoinOpType>::do_process_with_other_join_conjuncts(
             }
             probe_size = 1;
         }
+
         int multi_matched_output_row_count = 0;
         if (current_offset < _batch_size) {
+            auto empty = decltype(key_getter.find_key(hash_table_ctx.hash_table, probe_index,
+                                                      *_arena)) {nullptr, false};
+
+            if (*(_join_context->_ready_probe_index) < probe_rows) {
+                _probe_side_hash_values.resize(probe_rows);
+                for (size_t k = *(_join_context->_ready_probe_index); k < probe_rows; ++k) {
+                    if constexpr (ignore_null && need_null_map_for_probe) {
+                        if ((*null_map)[k]) {
+                            continue;
+                        }
+                    }
+                    if constexpr (ColumnsHashing::IsPreSerializedKeysHashMethodTraits<
+                                          KeyGetter>::value) {
+                        _probe_side_hash_values[k] = hash_table_ctx.hash_table.hash(
+                                key_getter.get_key_holder(k, *_arena).key);
+                    } else {
+                        _probe_side_hash_values[k] = hash_table_ctx.hash_table.hash(
+                                key_getter.get_key_holder(k, *_arena));
+                    }
+                }
+                *(_join_context->_ready_probe_index) = probe_rows;
+            }
+
             SCOPED_TIMER(_search_hashtable_timer);
             while (probe_index < probe_rows) {
                 // ignore null rows
@@ -564,18 +608,16 @@ Status ProcessHashTableProbe<JoinOpType>::do_process_with_other_join_conjuncts(
                 }
 
                 auto last_offset = current_offset;
-                auto find_result = !need_null_map_for_probe
-                                           ? key_getter.find_key(hash_table_ctx.hash_table,
-                                                                 probe_index, *_arena)
-                                   : (*null_map)[probe_index]
-                                           ? decltype(key_getter.find_key(hash_table_ctx.hash_table,
-                                                                          probe_index,
-                                                                          *_arena)) {nullptr, false}
-                                           : key_getter.find_key(hash_table_ctx.hash_table,
-                                                                 probe_index, *_arena);
-                if (probe_index + PREFETCH_STEP < probe_rows) {
-                    key_getter.template prefetch<true>(hash_table_ctx.hash_table,
-                                                       probe_index + PREFETCH_STEP, *_arena);
+                auto find_result = (need_null_map_for_probe && (*null_map)[probe_index])
+                                           ? empty
+                                           : key_getter.find_key_with_hash(
+                                                     hash_table_ctx.hash_table,
+                                                     _probe_side_hash_values[probe_index],
+                                                     probe_index, *_arena);
+                if (probe_index + HASH_MAP_PREFETCH_DIST < probe_rows) {
+                    key_getter.template prefetch_by_hash<true>(
+                            hash_table_ctx.hash_table,
+                            _probe_side_hash_values[probe_index + HASH_MAP_PREFETCH_DIST]);
                 }
 
                 auto current_probe_index = probe_index;
@@ -584,7 +626,7 @@ Status ProcessHashTableProbe<JoinOpType>::do_process_with_other_join_conjuncts(
                     auto origin_offset = current_offset;
                     // TODO: Iterators are currently considered to be a heavy operation and have a certain impact on performance.
                     // We should rethink whether to use this iterator mode in the future. Now just opt the one row case
-                    if (mapped.get_row_count() == 1) {
+                    if (mapped.is_single() == 1) {
                         if (LIKELY(current_offset < _build_block_rows.size())) {
                             _build_block_offsets[current_offset] = mapped.block_offset;
                             _build_block_rows[current_offset] = mapped.row_num;
@@ -721,7 +763,7 @@ Status ProcessHashTableProbe<JoinOpType>::do_process_with_other_join_conjuncts(
             SCOPED_TIMER(_join_context->_process_other_join_conjunct_timer);
             int orig_columns = output_block->columns();
             IColumn::Filter other_conjunct_filter(row_count, 1);
-            bool can_be_filter_all;
+            bool can_be_filter_all = false;
             RETURN_IF_ERROR(VExprContext::execute_conjuncts(
                     *_join_context->_other_join_conjuncts, nullptr, output_block,
                     &other_conjunct_filter, &can_be_filter_all));
@@ -949,7 +991,7 @@ Status ProcessHashTableProbe<JoinOpType>::do_process_with_other_join_conjuncts(
                     matched_map.push_back(!filter_map[row_count - 1]);
                     filter_map[row_count - 1] = true;
                 } else {
-                    int end_row_idx;
+                    int end_row_idx = 0;
                     if (row_count_from_last_probe > 0) {
                         end_row_idx = row_count - multi_matched_output_row_count;
                         if (!*_join_context->_is_any_probe_match_row_output) {

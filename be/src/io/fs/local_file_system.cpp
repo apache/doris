@@ -54,31 +54,30 @@ LocalFileSystem::LocalFileSystem(Path&& root_path, std::string&& id)
 
 LocalFileSystem::~LocalFileSystem() = default;
 
-Status LocalFileSystem::create_file_impl(const Path& file, FileWriterPtr* writer) {
+Status LocalFileSystem::create_file_impl(const Path& file, FileWriterPtr* writer,
+                                         const FileWriterOptions* opts) {
     int fd = ::open(file.c_str(), O_TRUNC | O_WRONLY | O_CREAT | O_CLOEXEC, 0666);
     if (-1 == fd) {
         return Status::IOError("failed to open {}: {}", file.native(), errno_to_str());
     }
     *writer = std::make_unique<LocalFileWriter>(
-            std::move(file), fd, std::static_pointer_cast<LocalFileSystem>(shared_from_this()));
+            file, fd, std::static_pointer_cast<LocalFileSystem>(shared_from_this()));
     return Status::OK();
 }
 
-Status LocalFileSystem::open_file_impl(const FileDescription& file_desc, const Path& abs_path,
-                                       const FileReaderOptions& /*reader_options*/,
-                                       FileReaderSPtr* reader) {
-    int64_t fsize = file_desc.file_size;
-    if (fsize <= 0) {
-        RETURN_IF_ERROR(file_size_impl(abs_path, &fsize));
+Status LocalFileSystem::open_file_impl(const Path& file, FileReaderSPtr* reader,
+                                       const FileReaderOptions* opts) {
+    int64_t fsize = opts ? opts->file_size : -1;
+    if (fsize < 0) {
+        RETURN_IF_ERROR(file_size_impl(file, &fsize));
     }
     int fd = -1;
-    RETRY_ON_EINTR(fd, open(abs_path.c_str(), O_RDONLY));
+    RETRY_ON_EINTR(fd, open(file.c_str(), O_RDONLY));
     if (fd < 0) {
-        return Status::IOError("failed to open {}: {}", abs_path.native(), errno_to_str());
+        return Status::IOError("failed to open {}: {}", file.native(), errno_to_str());
     }
     *reader = std::make_shared<LocalFileReader>(
-            std::move(abs_path), fsize, fd,
-            std::static_pointer_cast<LocalFileSystem>(shared_from_this()));
+            file, fsize, fd, std::static_pointer_cast<LocalFileSystem>(shared_from_this()));
     return Status::OK();
 }
 
@@ -408,9 +407,7 @@ bool LocalFileSystem::contain_path(const Path& parent_, const Path& sub_) {
 
 Status LocalFileSystem::read_file_to_string(const Path& file, std::string* content) {
     FileReaderSPtr file_reader;
-    FileDescription fd;
-    fd.path = file.native();
-    RETURN_IF_ERROR(open_file(fd, &file_reader));
+    RETURN_IF_ERROR(open_file(file, &file_reader));
     size_t file_size = file_reader->size();
     content->resize(file_size);
     size_t bytes_read = 0;

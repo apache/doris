@@ -40,7 +40,7 @@ public interface CommandVisitor<R, C> {
         return visitCommand(createPolicy, context);
     }
 
-    default R visitInsertIntoCommand(InsertIntoTableCommand insertIntoSelectCommand,
+    default R visitInsertIntoTableCommand(InsertIntoTableCommand insertIntoSelectCommand,
             C context) {
         return visitCommand(insertIntoSelectCommand, context);
     }

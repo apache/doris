@@ -51,8 +51,10 @@
 #include "common/config.h"
 #include "common/logging.h"
 #include "io/fs/file_system.h"
+#include "olap/inverted_index_parser.h"
 #include "olap/key_coder.h"
 #include "olap/olap_common.h"
+#include "olap/rowset/segment_v2/inverted_index/char_filter/char_filter_factory.h"
 #include "olap/rowset/segment_v2/inverted_index/query/conjunction_query.h"
 #include "olap/rowset/segment_v2/inverted_index_cache.h"
 #include "olap/rowset/segment_v2/inverted_index_compound_directory.h"
@@ -124,7 +126,15 @@ std::vector<std::wstring> InvertedIndexReader::get_analyse_result(
         // default
         analyzer = std::make_shared<lucene::analysis::SimpleAnalyzer<char>>();
     }
-    reader.reset(new lucene::util::SStringReader<char>(value.data(), value.size(), false));
+    reader.reset(new lucene::util::SStringReader<char>());
+    CharFilterMap& char_filter_map = inverted_index_ctx->char_filter_map;
+    if (!char_filter_map.empty()) {
+        reader.reset(CharFilterFactory::create(
+                char_filter_map[INVERTED_INDEX_PARSER_CHAR_FILTER_TYPE], reader.release(),
+                char_filter_map[INVERTED_INDEX_PARSER_CHAR_FILTER_PATTERN],
+                char_filter_map[INVERTED_INDEX_PARSER_CHAR_FILTER_REPLACEMENT]));
+    }
+    reader->init(value.data(), value.size(), false);
 
     std::wstring field_ws = std::wstring(field_name.begin(), field_name.end());
     std::unique_ptr<lucene::analysis::TokenStream> token_stream(
@@ -232,6 +242,8 @@ Status FullTextIndexReader::query(OlapReaderStatistics* stats, RuntimeState* run
             get_parser_string_from_properties(_index_meta.properties()));
     inverted_index_ctx->parser_mode =
             get_parser_mode_string_from_properties(_index_meta.properties());
+    inverted_index_ctx->char_filter_map =
+            get_parser_char_filter_map_from_properties(_index_meta.properties());
     try {
         std::vector<std::wstring> analyse_result =
                 get_analyse_result(column_name, search_str, query_type, inverted_index_ctx.get());
@@ -268,7 +280,8 @@ Status FullTextIndexReader::query(OlapReaderStatistics* stats, RuntimeState* run
         roaring::Roaring query_match_bitmap;
         bool null_bitmap_already_read = false;
         if (query_type == InvertedIndexQueryType::MATCH_PHRASE_QUERY ||
-            query_type == InvertedIndexQueryType::MATCH_ALL_QUERY) {
+            query_type == InvertedIndexQueryType::MATCH_ALL_QUERY ||
+            query_type == InvertedIndexQueryType::EQUAL_QUERY) {
             std::wstring wstr_tokens;
             for (auto& token : analyse_result) {
                 wstr_tokens += token;
@@ -367,11 +380,6 @@ Status FullTextIndexReader::query(OlapReaderStatistics* stats, RuntimeState* run
                 case InvertedIndexQueryType::MATCH_ANY_QUERY: {
                     SCOPED_RAW_TIMER(&stats->inverted_index_query_bitmap_op_timer);
                     query_match_bitmap |= *term_match_bitmap;
-                    break;
-                }
-                case InvertedIndexQueryType::EQUAL_QUERY: {
-                    SCOPED_RAW_TIMER(&stats->inverted_index_query_bitmap_op_timer);
-                    query_match_bitmap &= *term_match_bitmap;
                     break;
                 }
                 default: {

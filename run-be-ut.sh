@@ -133,11 +133,39 @@ echo "Get params:
 "
 echo "Build Backend UT"
 
+update_submodule() {
+    local submodule_path=$1
+    local submodule_name=$2
+    local archive_url=$3
+
+    set +e
+    cd "${DORIS_HOME}"
+    echo "Update ${submodule_name} submodule ..."
+    git submodule update --init --recursive "${submodule_path}"
+    exit_code=$?
+    set -e
+    if [[ "${exit_code}" -ne 0 ]]; then
+        # try to get submodule's current commit
+        submodule_commit=$(git ls-tree HEAD "${submodule_path}" | awk '{print $3}')
+
+        commit_specific_url=$(echo "${archive_url}" | sed "s/refs\/heads/${submodule_commit}/")
+        echo "Update ${submodule_name} submodule failed, start to download and extract ${commit_specific_url}"
+
+        mkdir -p "${DORIS_HOME}/${submodule_path}"
+        curl -L "${commit_specific_url}" | tar -xz -C "${DORIS_HOME}/${submodule_path}" --strip-components=1
+    fi
+}
+
+update_submodule "be/src/apache-orc" "apache-orc" "https://github.com/apache/doris-thirdparty/archive/refs/heads/orc.tar.gz"
+update_submodule "be/src/clucene" "clucene" "https://github.com/apache/doris-thirdparty/archive/refs/heads/clucene.tar.gz"
+
 if [[ "_${DENABLE_CLANG_COVERAGE}" == "_ON" ]]; then
     echo "export DORIS_TOOLCHAIN=clang" >>custom_env.sh
 fi
 
-CMAKE_BUILD_DIR="${DORIS_HOME}/be/ut_build_${CMAKE_BUILD_TYPE}"
+if [[ -z ${CMAKE_BUILD_DIR} ]]; then
+    CMAKE_BUILD_DIR="${DORIS_HOME}/be/ut_build_${CMAKE_BUILD_TYPE}"
+fi
 if [[ "${CLEAN}" -eq 1 ]]; then
     pushd "${DORIS_HOME}/gensrc"
     make clean

@@ -71,6 +71,7 @@ private:
     void _schedule();
     void _make_task_run(std::list<PipelineTask*>& local_tasks,
                         std::list<PipelineTask*>::iterator& task_itr,
+                        std::vector<PipelineTask*>& ready_tasks,
                         PipelineTaskState state = PipelineTaskState::RUNNABLE);
 };
 
@@ -89,7 +90,7 @@ public:
 
     Status start();
 
-    void shutdown();
+    void stop();
 
     TaskQueue* task_queue() const { return _task_queue.get(); }
 
