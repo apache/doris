@@ -51,6 +51,7 @@ public:
         _size_estimate = sizeof(uint32_t) * 2;
         _finished = false;
         _elem_length = 0;
+        _num_elem = 0;
     }
 
     Status add(const uint8_t* vals, size_t* count) override {
