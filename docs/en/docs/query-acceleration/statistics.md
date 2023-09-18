@@ -69,7 +69,7 @@ Column statistics collection syntax:
 
 ```SQL
 ANALYZE < TABLE | DATABASE table_name | db_name >
-    [ PARTITIONS (partition_name [, ...]) ]
+    [ PARTITIONS [(*) | (partition_name [, ...]) | WITH RECENT COUNT] ]
     [ (column_name [, ...]) ]
     [ [ WITH SYNC ] [ WITH INCREMENTAL ] [ WITH SAMPLE PERCENT | ROWS ] [ WITH PERIOD ]]
     [ PROPERTIES ("key" = "value", ...) ];
@@ -78,7 +78,7 @@ ANALYZE < TABLE | DATABASE table_name | db_name >
 Explanation:
 
 - Table_name: The target table for the specified. It can be a `db_name.table_name` form.
-- partition_name: The specified target partitions（for hive external table only）。Must be partitions exist in `table_name`. Multiple partition names are separated by commas. e.g. (nation=US/city=Washington)
+- partition_name: The specified target partitions（for hive external table only）。Must be partitions exist in `table_name`. Multiple partition names are separated by commas. e.g. for single level partition: PARTITIONS(`event_date=20230706`), for multi level partition: PARTITIONS(`nation=US/city=Washington`). PARTITIONS(*) specifies all partitions, PARTITIONS WITH RECENT 30 specifies the latest 30 partitions.
 - Column_name: The specified target column. Must be `table_name` a column that exists in. Multiple column names are separated by commas.
 - Sync: Synchronizes the collection of statistics. Return after collection. If not specified, it will be executed asynchronously and the job ID will be returned.
 - Incremental: Incrementally gather statistics.

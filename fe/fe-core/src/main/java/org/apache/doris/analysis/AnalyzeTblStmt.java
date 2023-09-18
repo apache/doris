@@ -84,7 +84,7 @@ public class AnalyzeTblStmt extends AnalyzeStmt {
 
     private final TableName tableName;
     private List<String> columnNames;
-    private List<String> partitionNames;
+    private PartitionNames partitionNames;
     private boolean isAllColumns;
 
     // after analyzed
@@ -97,7 +97,7 @@ public class AnalyzeTblStmt extends AnalyzeStmt {
             AnalyzeProperties properties) {
         super(properties);
         this.tableName = tableName;
-        this.partitionNames = partitionNames == null ? null : partitionNames.getPartitionNames();
+        this.partitionNames = partitionNames;
         this.columnNames = columnNames;
         this.analyzeProperties = properties;
         this.isAllColumns = columnNames == null;
@@ -240,12 +240,32 @@ public class AnalyzeTblStmt extends AnalyzeStmt {
     }
 
     public Set<String> getPartitionNames() {
-        Set<String> partitions = partitionNames == null ? table.getPartitionNames() : Sets.newHashSet(partitionNames);
-        if (isSamplingPartition()) {
-            int partNum = ConnectContext.get().getSessionVariable().getExternalTableAnalyzePartNum();
-            partitions = partitions.stream().limit(partNum).collect(Collectors.toSet());
+        if (partitionNames == null || partitionNames.getPartitionNames() == null) {
+            return null;
         }
+        Set<String> partitions = Sets.newHashSet();
+        partitions.addAll(partitionNames.getPartitionNames());
+        /*
+            if (isSamplingPartition()) {
+                int partNum = ConnectContext.get().getSessionVariable().getExternalTableAnalyzePartNum();
+                partitions = partitions.stream().limit(partNum).collect(Collectors.toSet());
+            }
+        */
         return partitions;
+    }
+
+    public boolean isAllPartitions() {
+        if (partitionNames == null) {
+            return false;
+        }
+        return partitionNames.isAllPartitions();
+    }
+
+    public long getPartitionCount() {
+        if (partitionNames == null) {
+            return 0;
+        }
+        return partitionNames.getCount();
     }
 
     public boolean isPartitionOnly() {
