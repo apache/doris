@@ -1040,7 +1040,7 @@ struct JsonbLengthUtil {
         std::tie(jsonb_data_column, jsonb_data_const) =
                 unpack_if_const(block.get_by_position(arguments[0]).column);
         check_set_nullable(jsonb_data_column, null_map, jsonb_data_const);
-        LOG(INFO) << "jsonb_data_column" << jsonb_data_column->is_null_at(0) ;
+        LOG(INFO) << "jsonb_data_column(" << block.get_by_position(arguments[0]).column->is_null_at(0) << ")" ;
         LOG(INFO) << "null_map" << null_map->get_data()[0] ;
 
         ColumnPtr path_column;
@@ -1059,7 +1059,7 @@ struct JsonbLengthUtil {
                                          path_value.size));
             }
         }
-        auto res = ColumnInt32::create();
+        auto res = ColumnInt32::create(input_rows_count,0);
 
         for (size_t i = 0; i < input_rows_count; ++i) {
             if (null_map->get_data()[i]) {
