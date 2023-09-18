@@ -405,6 +405,13 @@ public class StmtExecutor {
         return parsedStmt instanceof InsertStmt;
     }
 
+    public boolean isAnalyzeStmt() {
+        if (parsedStmt == null) {
+            return false;
+        }
+        return parsedStmt instanceof AnalyzeStmt;
+    }
+
     /**
      * Used for audit in ConnectProcessor.
      * <p>
@@ -2564,6 +2571,9 @@ public class StmtExecutor {
 
     public List<ResultRow> executeInternalQuery() {
         LOG.debug("INTERNAL QUERY: " + originStmt.toString());
+        UUID uuid = UUID.randomUUID();
+        TUniqueId queryId = new TUniqueId(uuid.getMostSignificantBits(), uuid.getLeastSignificantBits());
+        context.setQueryId(queryId);
         try {
             List<ResultRow> resultRows = new ArrayList<>();
             try {
