@@ -115,7 +115,6 @@ if [[ -z "${JAVA_HOME}" ]]; then
     else
         JAVA="$(command -v java)"
     fi
-    #JAVA="$(command -v java)"
 else
     JAVA="${JAVA_HOME}/bin/java"
 fi
