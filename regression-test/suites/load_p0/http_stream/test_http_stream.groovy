@@ -602,7 +602,7 @@ suite("test_http_stream", "p0") {
 
     // 14. test label 
     def tableName14 = "test_http_stream_label"
-    def label = label = UUID.randomUUID().toString().replaceAll("-", "")
+    def label = UUID.randomUUID().toString().replaceAll("-", "")
 
     try {
         sql """
