@@ -207,7 +207,7 @@ public class PhysicalHashJoin<
         if (RuntimeFilterGenerator.DENIED_JOIN_TYPES.contains(getJoinType()) || isMarkJoin()) {
             if (builderNode instanceof PhysicalHashJoin) {
                 PhysicalHashJoin<?, ?> builderJion = (PhysicalHashJoin<?, ?>) builderNode;
-                if (builderJion.id.asInt() == id.asInt()) {
+                if (builderJion == this) {
                     return false;
                 }
             }
