@@ -87,7 +87,7 @@ struct OpenMapImpl {
                std::vector<bool>& col_const, int start_row, int end_row) {
         size_t dst_off = 0;
         for (int row = start_row; row < end_row; ++row) {
-            map.clear();
+            reset();
             for (int i = 0; i < params.size(); ++i) {
                 action.apply(map, i, index_check_const(row, col_const[i]), params[i]);
             }
@@ -132,7 +132,7 @@ struct OpenMapImpl<operation, ColumnString> {
                std::vector<bool>& col_const, int start_row, int end_row) {
         size_t dst_off = 0;
         for (int row = start_row; row < end_row; ++row) {
-            map.clear();
+            reset();
             for (int i = 0; i < params.size(); ++i) {
                 action.apply(map, i, index_check_const(row, col_const[i]), params[i]);
             }
