@@ -1464,7 +1464,7 @@ public class SessionVariable implements Serializable, Writable {
     }
 
     public void setMaxScanQueueMemByte(long scanQueueMemByte) {
-        this.maxScanQueueMemByte = Math.min(scanQueueMemByte, maxExecMemByte / 20);
+        this.maxScanQueueMemByte = Math.min(scanQueueMemByte, maxExecMemByte / 2);
     }
 
     public boolean isSqlQuoteShowCreate() {
