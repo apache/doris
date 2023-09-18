@@ -43,6 +43,7 @@ class time_zone;
 namespace doris {
 
 namespace vectorized {
+class CalcFirstWeekPolicy;
 
 using ZoneList = std::unordered_map<std::string, cctz::time_zone>;
 
@@ -382,6 +383,11 @@ public:
     // Convert this datetime value to string by the format string
     bool to_format_string(const char* format, int len, char* to) const;
 
+    // Convert this datetime value to string by the format string. support year and week calulate.
+    bool year_week_format_string(uint8_t first_day_of_week,
+                                 CalcFirstWeekPolicy* policy_of_first_week,
+                                 const char* format, int len, char* to) const;
+
     // compute the length of data format pattern
     static int compute_format_len(const char* format, int len);
 
@@ -704,6 +710,9 @@ private:
 
     static uint8_t calc_week(const VecDateTimeValue& value, uint8_t mode, uint32_t* year,
                              bool disable_lut = false);
+
+
+    static uint8_t calc_weekday(uint64_t day_nr, uint8_t first_day_of_week);
 
     // Helper to set max, min, zero
     void set_zero(int type);
@@ -1182,6 +1191,13 @@ private:
                              const uint8_t& day, uint8_t mode, uint16_t* to_year,
                              bool disable_lut = false);
 
+    // Calculate the week num
+    //     first_day_of_week is the first day of the week. from 0(Mon) to 6(Sun).
+    //     first_week_day_of_year is a daynr which is the first day of the first week of the year.
+    //     Maybe January 1, the first Sunday or the first day of the first week of more than four days
+    static uint8_t calc_week(const VecDateTimeValue& value, uint8_t first_day_of_week,
+                             CalcFirstWeekPolicy* policy, uint32_t* year);
+
     bool from_date_str_base(const char* date_str, int len, int scale,
                             const cctz::time_zone* local_time_zone, ZoneList* time_zone_cache,
                             std::shared_mutex* cache_lock);
@@ -1537,6 +1553,57 @@ template <>
 struct DateTraits<uint64_t> {
     using T = DateV2Value<DateTimeV2ValueType>;
     using DateType = DataTypeDateTimeV2;
+};
+
+class CalcFirstWeekPolicy {
+public:
+    virtual uint64_t daynr(uint32_t year, uint8_t first_day_of_week) = 0;
+    virtual ~CalcFirstWeekPolicy() {}
+    static CalcFirstWeekPolicy* get_policy_by_code(uint8_t code);
+};
+/**
+ * The week in which the specified date resides is the first week. The default week is January 1
+ */
+class ExactDatePolicy : public CalcFirstWeekPolicy {
+public:
+    ExactDatePolicy() : _month(1), _day(1) {}
+    ExactDatePolicy(uint8_t _month, uint8_t _day) : _month(_month), _day(_day) {}
+    static ExactDatePolicy* get_instance();
+    uint64_t daynr(uint32_t year, uint8_t first_day_of_week) override {
+        uint64_t daynr_first_day = calc_daynr(year, _month, _day);
+        uint8_t weekday_first_day = calc_weekday(daynr_first_day, first_day_of_week);
+        return daynr_first_day - weekday_first_day;
+    }
+    uint8_t _month;
+    uint8_t _day;
+};
+/**
+ * The week X in the first week of the year is the first week,
+ * and first_day_of_week is the start week number of the week
+ */
+class WeekNumPolicy : public CalcFirstWeekPolicy {
+public:
+    static WeekNumPolicy* get_instance();
+    uint64_t daynr(uint32_t year, uint8_t first_day_of_week) override {
+        uint64_t daynr_first_day = calc_daynr(year, 1, 1);
+        uint8_t weekday_of_first_day = calc_weekday(daynr_first_day, first_day_of_week);
+        daynr_first_day += (7 - weekday_of_first_day);
+        return daynr_first_day;
+    }
+};
+/**
+ * The first week of the year with more than four days is the first week
+ */
+class MoreThanFourDaysPolicy : public CalcFirstWeekPolicy {
+public:
+    static MoreThanFourDaysPolicy* get_instance();
+    uint64_t daynr(uint32_t year, uint8_t first_day_of_week) override {
+        uint64_t daynr_first_day = calc_daynr(year, 1, 1);
+        uint8_t weekday_of_first_day = calc_weekday(daynr_first_day, first_day_of_week);
+        if (weekday_of_first_day < 4) daynr_first_day -= weekday_of_first_day;
+        else daynr_first_day += (7 - weekday_of_first_day);
+        return daynr_first_day;
+    }
 };
 
 } // namespace vectorized

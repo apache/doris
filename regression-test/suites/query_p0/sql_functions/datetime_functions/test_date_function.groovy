@@ -719,4 +719,16 @@ suite("test_date_function") {
     assertFalse(res.contains("date_trunc"))
 
     qt_sql """ select date_add("2023-08-17T01:41:18Z", interval 8 hour) """
+
+    // YEAR_WEEK_FORMAT
+    sql """
+        select year_week_format(20240101), mdbi_week_of_year(20240101), 
+        year_week_format(20240101,0,0,'%YWK%W'), mdbi_week_of_year(20240101,0,0,'%YWK%W')
+    """
+    sql """
+        select year_week_format(20240101,1,1,'%YWK%W'), mdbi_week_of_year(20240101,1,1,'%YWK%W')
+    """
+    sql """
+        select year_week_format(20240101,3,2,'%YWK%W'), mdbi_week_of_year(20240101,3,2,'%YWK%W')
+    """
 }

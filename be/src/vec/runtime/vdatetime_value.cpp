@@ -3910,4 +3910,32 @@ template bool DateV2Value<DateTimeV2ValueType>::datetime_trunc<TimeUnit::YEAR>()
 template bool DateV2Value<DateTimeV2ValueType>::datetime_trunc<TimeUnit::QUARTER>();
 template bool DateV2Value<DateTimeV2ValueType>::datetime_trunc<TimeUnit::WEEK>();
 
+CalcFirstWeekPolicy* CalcFirstWeekPolicy::get_policy_by_code(uint8_t code) {
+    static std::unordered_map<uint8_t, CalcFirstWeekPolicy*> instances;
+    if (instances.find(code) == instances.end()) {
+        if (code == 0) {
+            instances[code] = ExactDatePolicy::get_instance();
+        } else if (code == 1) {
+            instances[code] = WeekNumPolicy::get_instance();
+        } else if (code == 2){
+            instances[code] = MoreThanFourDaysPolicy::get_instance();
+        } else {
+            return nullptr;
+        }
+    }
+    return instances[code];
+}
+ExactDatePolicy* ExactDatePolicy::get_instance() {
+    static ExactDatePolicy instance;
+    return &instance;
+}
+WeekNumPolicy* WeekNumPolicy::get_instance() {
+    static WeekNumPolicy instance;
+    return &instance;
+}
+MoreThanFourDaysPolicy* MoreThanFourDaysPolicy::get_instance() {
+    static MoreThanFourDaysPolicy instance;
+    return &instance;
+}
+
 } // namespace doris::vectorized

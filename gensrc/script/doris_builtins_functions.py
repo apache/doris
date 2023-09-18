@@ -945,6 +945,10 @@ visible_functions = {
         [['str_to_date'], 'DATETIME', ['STRING', 'STRING'], 'ALWAYS_NULLABLE'],
         [['date_format'], 'VARCHAR', ['DATETIME', 'VARCHAR'], 'ALWAYS_NULLABLE'],
         [['date_format'], 'VARCHAR', ['DATE', 'VARCHAR'], 'ALWAYS_NULLABLE'],
+        [['year_week_format'], 'VARCHAR', ['DATETIME', 'INT', 'INT', 'VARCHAR'], 'ALWAYS_NULLABLE'],
+        [['year_week_format'], 'VARCHAR', ['DATETIME'], 'ALWAYS_NULLABLE'],
+        [['year_week_format'], 'VARCHAR', ['DATE', 'INT', 'INT', 'VARCHAR'], 'ALWAYS_NULLABLE'],
+        [['year_week_format'], 'VARCHAR', ['DATE'], 'ALWAYS_NULLABLE'],
         [['date', 'to_date'], 'DATE', ['DATETIME'], 'ALWAYS_NULLABLE'],
 
         [['dayname'], 'VARCHAR', ['DATETIME'], 'ALWAYS_NULLABLE'],

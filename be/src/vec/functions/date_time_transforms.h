@@ -35,6 +35,7 @@
 #include "vec/data_types/data_type_string.h"
 #include "vec/runtime/vdatetime_value.h"
 #include "vec/utils/util.hpp"
+#include "vec/data_types/data_type_number.h"
 
 namespace doris::vectorized {
 
@@ -210,6 +211,61 @@ struct DateFormatImpl {
     }
 };
 
+struct YearWeekFormatImpl {
+    using FromType = Int64;
+    static constexpr auto name = "year_week_format";
+    static inline auto execute(const Int64& t, uint8_t first_day_of_week, CalcFirstWeekPolicy* policy,
+                               StringRef format, ColumnString::Chars& res_data, size_t& offset) {
+        const auto& dt = (VecDateTimeValue&) t;
+        if (format.size > 16) {
+            offset += 1;
+            res_data.emplace_back(0);
+            return std::pair{offset, true};
+        }
+        char buf[16];
+        if (!dt.year_week_format_string(first_day_of_week, policy,
+                                        format.data, format.size, buf)) {
+            offset += 1;
+            res_data.emplace_back(0);
+            return std::pair{offset, true};
+        }
+        auto len = strlen(buf) + 1;
+        res_data.insert(buf, buf + len);
+        offset += len;
+        return std::pair{offset, false};
+    }
+    static DataTypes get_variadic_argument_types() {
+        return {std::make_shared<DataTypeDateTime>(), std::make_shared<DataTypeInt32>(),
+                std::make_shared<DataTypeInt32>(), std::make_shared<DataTypeString>()};
+    }
+};
+struct YearWeekFormatDefaultImpl {
+    using FromType = Int64;
+    static constexpr auto name = "year_week_format";
+    static constexpr auto max_size = 16;
+    static constexpr auto default_format = "%YWK%W";
+    static inline auto execute(const VecDateTimeValue& dt, ColumnString::Chars& res_data, size_t& offset, bool& is_null) {
+        char buf[16];
+        StringRef format(default_format);
+        if (!dt.year_week_format_string(0,
+                                        ExactDatePolicy::get_instance(), format.data, format.size, buf)) {
+            offset += 1;
+            res_data[offset - 1] = 0;
+            is_null = true;
+            return offset;
+        }
+        auto len = strlen(buf) + 1;
+        memcpy(&res_data[offset], buf, len);
+        offset += (len + 1);
+        res_data[offset - 1] = 0;
+        is_null = false;
+        return offset;
+    }
+    static DataTypes get_variadic_argument_types() {
+        return {std::make_shared<DataTypeDateTime>()};
+    }
+};
+
 // TODO: This function should be depend on arguments not always nullable
 template <typename DateType>
 struct FromUnixTimeImpl {
@@ -300,6 +356,28 @@ struct TransformerToStringTwoArgument {
             } else {
                 std::tie(new_offset, is_null) = Transform::execute(t, format, res_data, offset);
             }
+            res_offsets[i] = new_offset;
+            null_map[i] = is_null;
+        }
+    }
+};
+
+template <typename Transform>
+struct TransformerToStringFourArgument {
+    static void vector_constant(const PaddedPODArray<typename Transform::FromType>& ts,
+                                uint8_t first_day_of_week, uint8_t policy_of_first_week,
+                                const std::string& format, ColumnString::Chars& res_data,
+                                ColumnString::Offsets& res_offsets,
+                                PaddedPODArray<UInt8>& null_map) {
+        auto len = ts.size();
+        res_offsets.resize(len);
+        null_map.resize_fill(len, false);
+        CalcFirstWeekPolicy* policy = CalcFirstWeekPolicy::get_policy_by_code(policy_of_first_week);
+        size_t offset = 0;
+        for (int i = 0; i < len; ++i) {
+            const auto& t = ts[i];
+            const auto [new_offset, is_null] = Transform::execute(t, first_day_of_week, policy,
+                                                                  StringRef(format.c_str(), format.size()), res_data, offset);
             res_offsets[i] = new_offset;
             null_map[i] = is_null;
         }

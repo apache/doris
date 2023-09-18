@@ -467,6 +467,7 @@ public class BuiltinScalarFunctions implements FunctionHelper {
             scalar(Date.class, "date"),
             scalar(DateDiff.class, "datediff"),
             scalar(DateFormat.class, "date_format"),
+            scalar(YearWeekFormat.class, "year_week_format"),
             scalar(DateTrunc.class, "date_trunc"),
             scalar(DateV2.class, "datev2"),
             scalar(DayCeil.class, "day_ceil"),
