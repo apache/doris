@@ -285,6 +285,29 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
             keys.addAll(validOutputIds);
             validOutputIds = keys;
         }
+        if (inputFragment instanceof MultiCastPlanFragment) {
+            // TODO: remove this logic when we split to multi-window in logical window to physical window conversion
+            MultiCastDataSink multiCastDataSink = (MultiCastDataSink) inputFragment.getSink();
+            DataStreamSink dataStreamSink = multiCastDataSink.getDataStreamSinks().get(
+                    multiCastDataSink.getDataStreamSinks().size() - 1);
+            if (!(distribute.child() instanceof PhysicalProject)) {
+                List<Expr> projectionExprs = new ArrayList<>();
+                PhysicalCTEConsumer con = null;
+                if (distribute.child() instanceof PhysicalCTEConsumer) {
+                    con = (PhysicalCTEConsumer) distribute.child();
+                } else {
+                    Preconditions.checkState(distribute.child().child(0) instanceof PhysicalCTEConsumer,
+                            "distribute child's child is not cte consumer");
+                    con = (PhysicalCTEConsumer) distribute.child().child(0);
+                }
+                for (Slot slot : distribute.getOutput()) {
+                    projectionExprs.add(ExpressionTranslator.translate(con.getProducerSlot(slot), context));
+                }
+                TupleDescriptor projectionTuple = generateTupleDesc(distribute.getOutput(), null, context);
+                dataStreamSink.setProjections(projectionExprs);
+                dataStreamSink.setOutputTupleDesc(projectionTuple);
+            }
+        }
         DataPartition dataPartition = toDataPartition(distribute.getDistributionSpec(), validOutputIds, context);
         PlanFragment parentFragment = new PlanFragment(context.nextFragmentId(), exchangeNode, dataPartition);
         exchangeNode.setNumInstances(inputFragment.getPlanRoot().getNumInstances());
