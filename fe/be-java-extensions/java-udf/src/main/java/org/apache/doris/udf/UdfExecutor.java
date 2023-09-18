@@ -21,8 +21,8 @@ import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.exception.UdfRuntimeException;
+import org.apache.doris.common.jni.utils.JavaUdfDataType;
 import org.apache.doris.common.jni.utils.UdfUtils;
-import org.apache.doris.common.jni.utils.UdfUtils.JavaUdfDataType;
 import org.apache.doris.thrift.TJavaUdfExecutorCtorParams;
 
 import com.esotericsoftware.reflectasm.MethodAccess;
@@ -104,6 +104,7 @@ public class UdfExecutor extends BaseExecutor {
                 }
                 result[i] = methodAccess.invoke(udf, evaluateIndex, parameters);
             }
+            LOG.info("yxc udf evaluate" + debugString());
             return result;
         } catch (Exception e) {
             LOG.info("evaluate exception: " + debugString());
