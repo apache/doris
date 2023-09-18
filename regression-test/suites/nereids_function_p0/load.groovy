@@ -105,9 +105,7 @@ suite("load") {
             `km_tint_vchr` map<tinyint, varchar(50)> null,
             `km_tint_str` map<tinyint, string> null,
             `km_tint_date` map<tinyint, date> null,
-            `km_tint_dtm` map<tinyint, datetime> null,
-            `kjson` json,
-            `kjsonb` jsonb
+            `km_tint_dtm` map<tinyint, datetime> null
         ) engine=olap
         DISTRIBUTED BY HASH(`id`) BUCKETS 4
         properties("replication_num" = "1")
@@ -217,7 +215,7 @@ suite("load") {
             km_bool_tint, km_tint_tint, km_sint_tint, km_int_tint, km_bint_tint, km_lint_tint, km_float_tint,
             km_dbl_tint, km_dcml_tint, km_chr_tint, km_vchr_tint, km_str_tint, km_date_tint, km_dtm_tint,
             km_tint_bool, km_int_int, km_tint_sint, km_tint_int, km_tint_bint, km_tint_lint, km_tint_float,
-            km_tint_dbl, km_tint_dcml, km_tint_chr, km_tint_vchr, km_tint_str, km_tint_date, km_tint_dtm, kjson, kjsonb
+            km_tint_dbl, km_tint_dcml, km_tint_chr, km_tint_vchr, km_tint_str, km_tint_date, km_tint_dtm
             '''
         file "fn_test.dat"
     }

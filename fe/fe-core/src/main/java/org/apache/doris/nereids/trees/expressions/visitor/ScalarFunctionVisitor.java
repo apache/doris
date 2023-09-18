@@ -1148,7 +1148,8 @@ public interface ScalarFunctionVisitor<R, C> {
 
     default R visitJsonContains(JsonContains jsonContains, C context) {
         return visitScalarFunction(jsonContains, context);
-    
+    }
+
     default R visitJsonbValid(JsonbValid jsonbValid, C context) {
         return visitScalarFunction(jsonbValid, context);
     }
