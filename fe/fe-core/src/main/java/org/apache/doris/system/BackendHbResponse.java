@@ -37,8 +37,8 @@ public class BackendHbResponse extends HeartbeatResponse implements Writable {
     private int httpPort;
     @SerializedName(value = "brpcPort")
     private int brpcPort;
-    @SerializedName(value = "arrowFlightPort")
-    private int arrowFlightPort;
+    @SerializedName(value = "arrowFlightSQLPort")
+    private int arrowFlightSQLPort;
     @SerializedName(value = "nodeRole")
     private String nodeRole = Tag.VALUE_MIX;
 
@@ -56,7 +56,7 @@ public class BackendHbResponse extends HeartbeatResponse implements Writable {
     }
 
     public BackendHbResponse(long beId, int bePort, int httpPort, int brpcPort, long hbTime, long beStartTime,
-            String version, String nodeRole, boolean isShutDown, int arrowFlightPort) {
+            String version, String nodeRole, boolean isShutDown, int arrowFlightSQLPort) {
         super(HeartbeatResponse.Type.BACKEND);
         this.beId = beId;
         this.status = HbStatus.OK;
@@ -68,7 +68,7 @@ public class BackendHbResponse extends HeartbeatResponse implements Writable {
         this.version = version;
         this.nodeRole = nodeRole;
         this.isShutDown = isShutDown;
-        this.arrowFlightPort = arrowFlightPort;
+        this.arrowFlightSQLPort = arrowFlightSQLPort;
     }
 
     public BackendHbResponse(long beId, String errMsg) {
@@ -102,8 +102,8 @@ public class BackendHbResponse extends HeartbeatResponse implements Writable {
         return brpcPort;
     }
 
-    public int getArrowFlightPort() {
-        return arrowFlightPort;
+    public int getArrowFlightSQLPort() {
+        return arrowFlightSQLPort;
     }
 
     public long getBeStartTime() {
@@ -129,7 +129,7 @@ public class BackendHbResponse extends HeartbeatResponse implements Writable {
         bePort = in.readInt();
         httpPort = in.readInt();
         brpcPort = in.readInt();
-        arrowFlightPort = in.readInt();
+        arrowFlightSQLPort = in.readInt();
     }
 
     @Override
@@ -141,7 +141,7 @@ public class BackendHbResponse extends HeartbeatResponse implements Writable {
         sb.append(", bePort: ").append(bePort);
         sb.append(", httpPort: ").append(httpPort);
         sb.append(", brpcPort: ").append(brpcPort);
-        sb.append(", arrowFlightPort: ").append(arrowFlightPort);
+        sb.append(", arrowFlightSQLPort: ").append(arrowFlightSQLPort);
         return sb.toString();
     }
 

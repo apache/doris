@@ -146,7 +146,7 @@ import org.apache.doris.rewrite.mvrewrite.MVSelectFailedException;
 import org.apache.doris.rpc.BackendServiceProxy;
 import org.apache.doris.rpc.RpcException;
 import org.apache.doris.service.FrontendOptions;
-import org.apache.doris.service.arrowflight.FlightStatementContext;
+import org.apache.doris.service.arrowflight.FlightStatementExecutor;
 import org.apache.doris.statistics.ResultRow;
 import org.apache.doris.statistics.util.InternalQueryBuffer;
 import org.apache.doris.system.Backend;
@@ -2658,7 +2658,7 @@ public class StmtExecutor {
         }
     }
 
-    public void executeArrowFlightQuery(FlightStatementContext flightStatementContext) {
+    public void executeArrowFlightQuery(FlightStatementExecutor flightStatementExecutor) {
         LOG.debug("ARROW FLIGHT QUERY: " + originStmt.toString());
         try {
             try {
@@ -2710,10 +2710,10 @@ public class StmtExecutor {
         } finally {
             QeProcessorImpl.INSTANCE.unregisterQuery(context.queryId()); // TODO for query profile
         }
-        flightStatementContext.setFinstId(coord.getFinstId());
-        flightStatementContext.setResultFlightServerAddr(coord.getResultFlightServerAddr());
-        flightStatementContext.setResultInternalServiceAddr(coord.getResultInternalServiceAddr());
-        flightStatementContext.setResultOutputExprs(coord.getResultOutputExprs());
+        flightStatementExecutor.setFinstId(coord.getFinstId());
+        flightStatementExecutor.setResultFlightServerAddr(coord.getResultFlightServerAddr());
+        flightStatementExecutor.setResultInternalServiceAddr(coord.getResultInternalServiceAddr());
+        flightStatementExecutor.setResultOutputExprs(coord.getResultOutputExprs());
     }
 
     private List<ResultRow> convertResultBatchToResultRows(TResultBatch batch) {

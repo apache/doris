@@ -89,7 +89,7 @@ public class MockedBackendFactory {
 
     // create a mocked backend with customize parameters
     public static MockedBackend createBackend(String host, int heartbeatPort, int thriftPort, int brpcPort,
-                                              int httpPort, int arrowFlightPort,
+                                              int httpPort, int arrowFlightSQLPort,
                                               HeartbeatService.Iface hbService, BeThriftService beThriftService,
                                               PBackendServiceGrpc.PBackendServiceImplBase pBackendService)
             throws IOException {
@@ -105,20 +105,20 @@ public class MockedBackendFactory {
         private int beHttpPort;
         private int beBrpcPort;
 
-        private int beArrowFlightPort;
+        private int beArrowFlightSQLPort;
 
-        public DefaultHeartbeatServiceImpl(int beThriftPort, int beHttpPort, int beBrpcPort, int beArrowFlightPort) {
+        public DefaultHeartbeatServiceImpl(int beThriftPort, int beHttpPort, int beBrpcPort, int beArrowFlightSQLPort) {
             this.beThriftPort = beThriftPort;
             this.beHttpPort = beHttpPort;
             this.beBrpcPort = beBrpcPort;
-            this.beArrowFlightPort = beArrowFlightPort;
+            this.beArrowFlightSQLPort = beArrowFlightSQLPort;
         }
 
         @Override
         public THeartbeatResult heartbeat(TMasterInfo masterInfo) throws TException {
             TBackendInfo backendInfo = new TBackendInfo(beThriftPort, beHttpPort);
             backendInfo.setBrpcPort(beBrpcPort);
-            backendInfo.setArrowFlightPort(beArrowFlightPort);
+            backendInfo.setArrowFlightSQLPort(beArrowFlightSQLPort);
             THeartbeatResult result = new THeartbeatResult(new TStatus(TStatusCode.OK), backendInfo);
             return result;
         }

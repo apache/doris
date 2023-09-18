@@ -44,7 +44,7 @@ public class BackendsProcDir implements ProcDirInterface {
     private static final Logger LOG = LogManager.getLogger(BackendsProcDir.class);
 
     public static final ImmutableList<String> TITLE_NAMES = new ImmutableList.Builder<String>().add("BackendId")
-            .add("Host").add("HeartbeatPort").add("BePort").add("HttpPort").add("BrpcPort").add("ArrowFlightPort")
+            .add("Host").add("HeartbeatPort").add("BePort").add("HttpPort").add("BrpcPort").add("ArrowFlightSQLPort")
             .add("LastStartTime").add("LastHeartbeat").add("Alive").add("SystemDecommissioned").add("TabletNum")
             .add("DataUsedCapacity").add("TrashUsedCapcacity").add("AvailCapacity").add("TotalCapacity").add("UsedPct")
             .add("MaxDiskUsedPct").add("RemoteUsedCapacity").add("Tag").add("ErrMsg").add("Version").add("Status")
@@ -107,7 +107,7 @@ public class BackendsProcDir implements ProcDirInterface {
             backendInfo.add(String.valueOf(backend.getBePort()));
             backendInfo.add(String.valueOf(backend.getHttpPort()));
             backendInfo.add(String.valueOf(backend.getBrpcPort()));
-            backendInfo.add(String.valueOf(backend.getArrowFlightPort()));
+            backendInfo.add(String.valueOf(backend.getArrowFlightSQLPort()));
             backendInfo.add(TimeUtils.longToTimeString(backend.getLastStartTime()));
             backendInfo.add(TimeUtils.longToTimeString(backend.getLastUpdateMs()));
             backendInfo.add(String.valueOf(backend.isAlive()));

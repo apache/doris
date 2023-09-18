@@ -105,21 +105,21 @@ public class FlightSqlServiceImpl implements FlightSqlProducer, AutoCloseable {
             final FlightDescriptor descriptor) {
         try {
             final String query = request.getQuery();
-            final FlightStatementContext flightStatementContext = new FlightStatementContext(query);
+            final FlightStatementExecutor flightStatementExecutor = new FlightStatementExecutor(query);
 
-            flightStatementContext.executeQuery();
+            flightStatementExecutor.executeQuery();
 
             TicketStatementQuery ticketStatement = TicketStatementQuery.newBuilder()
                     .setStatementHandle(ByteString.copyFromUtf8(
-                            DebugUtil.printId(flightStatementContext.getFinstId()) + ":" + query)).build();
+                            DebugUtil.printId(flightStatementExecutor.getFinstId()) + ":" + query)).build();
             final Ticket ticket = new Ticket(Any.pack(ticketStatement).toByteArray());
             // TODO Support multiple endpoints.
-            Location location = Location.forGrpcInsecure(flightStatementContext.getResultFlightServerAddr().hostname,
-                    flightStatementContext.getResultFlightServerAddr().port);
+            Location location = Location.forGrpcInsecure(flightStatementExecutor.getResultFlightServerAddr().hostname,
+                    flightStatementExecutor.getResultFlightServerAddr().port);
             List<FlightEndpoint> endpoints = Collections.singletonList(new FlightEndpoint(ticket, location));
 
             Schema schema;
-            schema = flightStatementContext.fetchArrowFlightSchema(5000);
+            schema = flightStatementExecutor.fetchArrowFlightSchema(5000);
             if (schema == null) {
                 throw CallStatus.INTERNAL.withDescription("fetch arrow flight schema is null").toRuntimeException();
             }

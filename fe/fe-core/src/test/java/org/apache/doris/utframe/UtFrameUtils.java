@@ -278,11 +278,11 @@ public class UtFrameUtils {
         int beThriftPort = findValidPort();
         int beBrpcPort = findValidPort();
         int beHttpPort = findValidPort();
-        int beArrowFlightPort = findValidPort();
+        int beArrowFlightSQLPort = findValidPort();
 
         // start be
         MockedBackend backend = MockedBackendFactory.createBackend(beHost, beHeartbeatPort, beThriftPort, beBrpcPort,
-                beHttpPort, beArrowFlightPort, new DefaultHeartbeatServiceImpl(beThriftPort, beHttpPort, beBrpcPort, beArrowFlightPort),
+                beHttpPort, beArrowFlightSQLPort, new DefaultHeartbeatServiceImpl(beThriftPort, beHttpPort, beBrpcPort, beArrowFlightSQLPort),
                 new DefaultBeThriftServiceImpl(), new DefaultPBackendServiceImpl());
         backend.setFeAddress(new TNetworkAddress("127.0.0.1", feRpcPort));
         backend.start();
@@ -300,7 +300,7 @@ public class UtFrameUtils {
         be.setBePort(beThriftPort);
         be.setHttpPort(beHttpPort);
         be.setBrpcPort(beBrpcPort);
-        be.setArrowFlightPort(beArrowFlightPort);
+        be.setArrowFlightSQLPort(beArrowFlightSQLPort);
         Env.getCurrentSystemInfo().addBackend(be);
         return be;
     }

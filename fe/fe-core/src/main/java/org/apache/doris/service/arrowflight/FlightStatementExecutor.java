@@ -55,7 +55,7 @@ import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 
-public final class FlightStatementContext {
+public final class FlightStatementExecutor {
     private AutoCloseConnectContext acConnectContext;
     private final String query;
     private TUniqueId queryId;
@@ -64,7 +64,7 @@ public final class FlightStatementContext {
     private TNetworkAddress resultInternalServiceAddr;
     private ArrayList<Expr> resultOutputExprs;
 
-    public FlightStatementContext(final String query) {
+    public FlightStatementExecutor(final String query) {
         this.query = query;
         acConnectContext = buildConnectContext();
     }
@@ -115,7 +115,7 @@ public final class FlightStatementContext {
 
     @Override
     public boolean equals(final Object other) {
-        if (!(other instanceof FlightStatementContext)) {
+        if (!(other instanceof FlightStatementExecutor)) {
             return false;
         }
         return this == other;

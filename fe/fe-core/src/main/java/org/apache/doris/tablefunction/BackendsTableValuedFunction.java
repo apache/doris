@@ -45,7 +45,7 @@ public class BackendsTableValuedFunction extends MetadataTableValuedFunction {
             new Column("BePort", ScalarType.createType(PrimitiveType.INT)),
             new Column("HttpPort", ScalarType.createType(PrimitiveType.INT)),
             new Column("BrpcPort", ScalarType.createType(PrimitiveType.INT)),
-            new Column("ArrowFlightPort", ScalarType.createType(PrimitiveType.INT)),
+            new Column("ArrowFlightSQLPort", ScalarType.createType(PrimitiveType.INT)),
             new Column("LastStartTime", ScalarType.createStringType()),
             new Column("LastHeartbeat", ScalarType.createStringType()),
             new Column("Alive", ScalarType.createType(PrimitiveType.BOOLEAN)),

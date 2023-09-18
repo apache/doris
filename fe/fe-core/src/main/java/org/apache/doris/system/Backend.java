@@ -76,8 +76,8 @@ public class Backend implements Writable {
     private volatile int beRpcPort; // be rpc port
     @SerializedName("brpcPort")
     private volatile int brpcPort = -1;
-    @SerializedName("arrowFlightPort")
-    private volatile int arrowFlightPort = -1;
+    @SerializedName("arrowFlightSQLPort")
+    private volatile int arrowFlightSQLPort = -1;
 
     @SerializedName("lastUpdateMs")
     private volatile long lastUpdateMs;
@@ -206,8 +206,8 @@ public class Backend implements Writable {
         return brpcPort;
     }
 
-    public int getArrowFlightPort() {
-        return arrowFlightPort;
+    public int getArrowFlightSQLPort() {
+        return arrowFlightSQLPort;
     }
 
     public String getHeartbeatErrMsg() {
@@ -295,8 +295,8 @@ public class Backend implements Writable {
         this.brpcPort = brpcPort;
     }
 
-    public void setArrowFlightPort(int arrowFlightPort) {
-        this.arrowFlightPort = arrowFlightPort;
+    public void setArrowFlightSQLPort(int arrowFlightSQLPort) {
+        this.arrowFlightSQLPort = arrowFlightSQLPort;
     }
 
     public void setCpuCores(int cpuCores) {
@@ -680,9 +680,9 @@ public class Backend implements Writable {
                 this.brpcPort = hbResponse.getBrpcPort();
             }
 
-            if (this.arrowFlightPort != hbResponse.getArrowFlightPort() && !FeConstants.runningUnitTest) {
+            if (this.arrowFlightSQLPort != hbResponse.getArrowFlightSQLPort() && !FeConstants.runningUnitTest) {
                 isChanged = true;
-                this.arrowFlightPort = hbResponse.getArrowFlightPort();
+                this.arrowFlightSQLPort = hbResponse.getArrowFlightSQLPort();
             }
 
             if (this.isShutDown.get() != hbResponse.isShutDown()) {
@@ -816,7 +816,7 @@ public class Backend implements Writable {
     }
 
     public TNetworkAddress getArrowFlightAddress() {
-        return new TNetworkAddress(getHost(), getArrowFlightPort());
+        return new TNetworkAddress(getHost(), getArrowFlightSQLPort());
     }
 
     public String getTagMapString() {

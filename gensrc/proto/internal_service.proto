@@ -250,11 +250,11 @@ message PFetchDataResult {
 };
 
 message PFetchArrowFlightSchemaRequest {
-    required PUniqueId finst_id = 1;
+    optional PUniqueId finst_id = 1;
 };
 
 message PFetchArrowFlightSchemaResult {
-    required PStatus status = 1;
+    optional PStatus status = 1;
     // valid when status is ok
     optional bytes schema = 2;
 };

@@ -67,6 +67,8 @@ public class QeService {
             if (!flightSqlService.start()) {
                 System.exit(-1);
             }
+        } else {
+            LOG.info("No Arrow Flight SQL service that needs to be started.");
         }
         LOG.info("QE service start.");
     }
