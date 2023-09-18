@@ -17,7 +17,6 @@
 
 package org.apache.doris.nereids.postprocess;
 
-import com.clearspring.analytics.util.Lists;
 import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.datasets.ssb.SSBTestBase;
 import org.apache.doris.nereids.datasets.ssb.SSBUtils;
@@ -30,13 +29,11 @@ import org.apache.doris.nereids.trees.plans.physical.RuntimeFilter;
 import org.apache.doris.nereids.util.PlanChecker;
 
 import com.google.common.collect.ImmutableList;
-import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
-import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
@@ -229,7 +226,7 @@ public class RuntimeFilterTest extends SSBTestBase {
         Assertions.assertEquals(4, filters.size());
         Set<Pair<String, Set<String>>> srcTargets = Sets.newHashSet();
         srcTargets.add(Pair.of("lo_custkey", Sets.newHashSet("c_custkey")));
-        srcTargets.add(Pair.of("lo_custkey", Sets.newHashSet( "c_custkey", "lo_custkey")));
+        srcTargets.add(Pair.of("lo_custkey", Sets.newHashSet("c_custkey", "lo_custkey")));
         srcTargets.add(Pair.of("d_datekey", Sets.newHashSet("lo_orderdate")));
         srcTargets.add(Pair.of("c_custkey", Sets.newHashSet("lo_custkey")));
         checkRuntimeFilterExprs(filters, srcTargets);
@@ -239,7 +236,7 @@ public class RuntimeFilterTest extends SSBTestBase {
         Assertions.assertEquals(4, filters.size());
         srcTargets = Sets.newHashSet();
         srcTargets.add(Pair.of("lo_custkey", Sets.newHashSet("c_custkey")));
-        srcTargets.add(Pair.of("lo_custkey", Sets.newHashSet( "c_custkey", "lo_custkey")));
+        srcTargets.add(Pair.of("lo_custkey", Sets.newHashSet("c_custkey", "lo_custkey")));
         srcTargets.add(Pair.of("d_datekey", Sets.newHashSet("lo_orderdate")));
         srcTargets.add(Pair.of("c_custkey", Sets.newHashSet("lo_custkey")));
         checkRuntimeFilterExprs(filters, srcTargets);
