@@ -171,8 +171,11 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.Initcap;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Instr;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonArray;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonExtract;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonInsert;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonObject;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonQuote;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonReplace;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonSet;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonUnQuote;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonbExistsPath;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonbExtract;
@@ -362,6 +365,7 @@ import org.apache.doris.nereids.trees.expressions.functions.udf.AliasUdf;
 import org.apache.doris.nereids.trees.expressions.functions.udf.JavaUdf;
 
 /** ScalarFunctionVisitor. */
+@SuppressWarnings("checkstyle:RegexpSingleline")
 public interface ScalarFunctionVisitor<R, C> {
 
     R visitScalarFunction(ScalarFunction scalarFunction, C context);
@@ -992,6 +996,18 @@ public interface ScalarFunctionVisitor<R, C> {
 
     default R visitJsonExtract(JsonExtract jsonExtract, C context) {
         return visitScalarFunction(jsonExtract, context);
+    }
+
+    default R visitJsonInsert(JsonInsert jsonInsert, C context) {
+        return visitScalarFunction(jsonInsert, context);
+    }
+
+    default R visitJsonReplace(JsonReplace jsonReplace, C context) {
+        return visitScalarFunction(jsonReplace, context);
+    }
+
+    default R visitJsonSet(JsonSet jsonSet, C context) {
+        return visitScalarFunction(jsonSet, context);
     }
 
     default R visitJsonQuote(JsonQuote jsonQuote, C context) {
