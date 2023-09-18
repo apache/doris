@@ -1035,5 +1035,26 @@ PARTITION `p599` VALUES IN (599)
         SELECT * FROM analyze_test_with_schema_update;
     """
 
+    sql """
+        DROP TABLE IF EXISTS two_thousand_partition_table_test
+    """
+
+    sql """
+        CREATE TABLE two_thousand_partition_table_test (col1 int(11451) not null)
+        DUPLICATE KEY(col1)
+          PARTITION BY RANGE(`col1`)
+                  (
+                  from (0) to (1000001) INTERVAL 500
+                  )
+        DISTRIBUTED BY HASH(col1)
+        BUCKETS 3
+        PROPERTIES(
+            "replication_num"="1"
+        );
+    """
+
+    sql """
+        ANALYZE TABLE two_thousand_partition_table_test WITH SYNC;
+    """
 
 }
