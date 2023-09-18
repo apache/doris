@@ -18,6 +18,7 @@
 package org.apache.doris.common.proc;
 
 import org.apache.doris.catalog.DiskInfo;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.util.DebugUtil;
@@ -33,7 +34,8 @@ import java.util.Map;
 public class BackendProcNode implements ProcNodeInterface {
     public static final ImmutableList<String> TITLE_NAMES = new ImmutableList.Builder<String>()
             .add("RootPath").add("DataUsedCapacity").add("OtherUsedCapacity").add("AvailCapacity")
-            .add("TotalCapacity").add("TotalUsedPct").add("State").add("PathHash")
+            .add("TotalCapacity").add("TotalUsedPct").add("State").add("SystemDecommissioned")
+            .add("TabletNum").add("PathHash")
             .build();
 
     private Backend backend;
@@ -52,6 +54,9 @@ public class BackendProcNode implements ProcNodeInterface {
         for (Map.Entry<String, DiskInfo> entry : backend.getDisks().entrySet()) {
             List<String> info = Lists.newArrayList();
             info.add(entry.getKey());
+
+            long tabletNum = Env.getCurrentInvertedIndex().getTabletIdNumByBackendIdAndPathHash(
+                    backend.getId(), entry.getValue().getPathHash());
 
             // data used
             long dataUsedB = entry.getValue().getDataUsedCapacityB();
@@ -83,6 +88,8 @@ public class BackendProcNode implements ProcNodeInterface {
             info.add(String.format("%.2f", used) + " %");
 
             info.add(entry.getValue().getState().name());
+            info.add(String.valueOf(entry.getValue().isDecommissioned()));
+            info.add(String.valueOf(tabletNum));
             info.add(String.valueOf(entry.getValue().getPathHash()));
 
             result.addRow(info);

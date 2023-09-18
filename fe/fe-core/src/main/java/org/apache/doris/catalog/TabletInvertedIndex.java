@@ -659,6 +659,19 @@ public class TabletInvertedIndex {
         return 0;
     }
 
+    public long getTabletIdNumByBackendIdAndPathHash(long backendId, long pathHash) {
+        long stamp = readLock();
+        try {
+            Map<Long, Replica> replicaMetaWithBackend = backingReplicaMetaTable.row(backendId);
+            return replicaMetaWithBackend.entrySet().stream()
+                    .filter(a -> a.getValue().getPathHash() == pathHash)
+                    .map(Map.Entry::getKey)
+                    .count();
+        } finally {
+            readUnlock(stamp);
+        }
+    }
+
     public Map<TStorageMedium, Long> getReplicaNumByBeIdAndStorageMedium(long backendId) {
         Map<TStorageMedium, Long> replicaNumMap = Maps.newHashMap();
         long hddNum = 0;
