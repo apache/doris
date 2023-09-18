@@ -77,31 +77,6 @@ suite("test_export_parquet", "p0") {
     order_qt_select_export1 """ SELECT * FROM ${table_export_name} t ORDER BY user_id; """
 
 
-    def check_path_exists = { dir_path ->
-        File path = new File(dir_path)
-        if (!path.exists()) {
-            assert path.mkdirs()
-        } else {
-            throw new IllegalStateException("""${dir_path} already exists! """)
-        }
-    }
-
-    def check_file_amounts = { dir_path, amount ->
-        File path = new File(dir_path)
-        File[] files = path.listFiles()
-        assert files.length == amount
-    }
-
-    def delete_files = { dir_path ->
-        File path = new File(dir_path)
-        if (path.exists()) {
-            for (File f: path.listFiles()) {
-                f.delete();
-            }
-            path.delete();
-        }
-    }
-
     def waiting_export = { export_label ->
         while (true) {
             def res = sql """ show export where label = "${export_label}" """
@@ -125,9 +100,6 @@ suite("test_export_parquet", "p0") {
     def outFilePath = """${outfile_path_prefix}_${uuid}"""
     def label = "label_${uuid}"
     try {
-        // check export path
-        check_path_exists.call("${outFilePath}")
-
         // exec export
         sql """
             EXPORT TABLE ${table_export_name} TO "s3://${outFilePath}/"
