@@ -1060,8 +1060,7 @@ struct JsonbLengthUtil {
         auto res = ColumnInt32::create();
 
         for (size_t i = 0; i < input_rows_count; ++i) {
-            if (jsonb_data_column->is_null_at(i) || path_column->is_null_at(i)) {
-                null_map->get_data()[i] = 1;
+            if (null_map->get_data()[i]) {
                 res->insert_data(nullptr, 0);
                 continue;
             }
@@ -1084,7 +1083,6 @@ struct JsonbLengthUtil {
             JsonbDocument* doc = JsonbDocument::createDocument(jsonb_value.data, jsonb_value.size);
             JsonbValue* value = doc->getValue()->findValue(path, nullptr);
             if (UNLIKELY(jsonb_value.size == 0 || !value)) {
-                null_map->get_data()[i] = 1;
                 res->insert_data(nullptr, 0);
                 continue;
             }
