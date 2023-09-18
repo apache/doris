@@ -74,7 +74,7 @@ ANALYZE < TABLE | DATABASE table_name | db_name >
 
 对于数据量较大（默认为5GiB）的表，Doris会自动采取采样的方式去收集，以尽可能降低对系统造成的负担并尽快完成收集作业，用户可通过设置FE参数`huge_table_lower_bound_size_in_bytes`来调节此行为。如果希望对所有的表都采取全量收集，可配置FE参数`enable_auto_sample`为false。同时对于数据量大于`huge_table_lower_bound_size_in_bytes`的表，Doris保证其收集时间间隔不小于12小时（该时间可通过FE参数`huge_table_auto_analyze_interval_in_millis`控制）。
 
-自动采样默认采样200000行，但由于实现方式的原因实际采样数可能大于该值。如果希望采样更多的行以获得更准备的数据分布信息，可通过FE参数`auto_analyze_job_record_count`配置。
+自动采样默认采样200000行，但由于实现方式的原因实际采样数可能大于该值。如果希望采样更多的行以获得更准确的数据分布信息，可通过FE参数`auto_analyze_job_record_count`配置。
 
 ### 任务管理
 
@@ -286,4 +286,4 @@ SQL执行时间受`query_timeout`会话变量控制，该变量默认值为300�
 
 ### 大表ANALYZE失败
 
-由于ANALYZE能够使用的资源受到比较严格的限制，对一些大表的ANALYZE操作有可能超时或者超出BE内存限制。这些情况下，建议使用 `ANALYZE ... WITH SAMPLE...`。此外对于动态分区表的场景，强烈建议使用`ANALYZE ... WITH INCREMENTAL...`，该语句仅增量的处理数据更新的分区，能够避免大量的重复计算从而提高效率。
+由于ANALYZE能够使用的资源受到比较严格的限制，对一些大表的ANALYZE操作有可能超时或者超出BE内存限制。这些情况下，建议使用 `ANALYZE ... WITH SAMPLE...`。
