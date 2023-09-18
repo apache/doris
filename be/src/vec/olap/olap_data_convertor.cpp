@@ -220,7 +220,6 @@ void OlapBlockDataConvertor::set_source_content_with_specifid_columns(
     DCHECK(block != nullptr);
     DCHECK(num_rows > 0);
     DCHECK(row_pos + num_rows <= block->rows());
-    DCHECK(block->columns() <= _convertors.size());
     for (auto i : cids) {
         _convertors[i]->set_source_column(block->get_by_position(i), row_pos, num_rows);
     }
