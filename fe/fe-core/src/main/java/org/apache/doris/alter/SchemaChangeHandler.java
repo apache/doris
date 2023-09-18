@@ -405,29 +405,28 @@ public class SchemaChangeHandler extends AlterHandler {
                 throw new DdlException("Column does not exists: " + dropColName);
             }
 
-            // remove column in rollup index if exists (i = 1 to skip base index)
             for (int i = 1; i < indexIds.size(); i++) {
                 List<Column> rollupSchema = indexSchemaMap.get(indexIds.get(i));
                 Iterator<Column> iter = rollupSchema.iterator();
                 while (iter.hasNext()) {
                     Column column = iter.next();
-                    boolean needDrop = column.getName().equalsIgnoreCase(dropColName);
-                    if (!needDrop && column.getDefineExpr() != null) {
+                    boolean containedByMV = column.getName().equalsIgnoreCase(dropColName);
+                    if (!containedByMV && column.getDefineExpr() != null) {
                         List<SlotRef> slots = new ArrayList<>();
                         column.getDefineExpr().collect(SlotRef.class, slots);
                         for (SlotRef slot : slots) {
                             if (slot.getColumnName().equalsIgnoreCase(dropColName)) {
-                                needDrop = true;
+                                containedByMV = true;
                                 break;
                             }
                         }
                     }
-                    if (needDrop) {
+                    if (containedByMV) {
                         throw new DdlException("Can not drop column contained by mv, mv="
                                 + olapTable.getIndexNameById(indexIds.get(i)));
                     }
                 }
-            } // end for index names
+            }
         } else {
             // if specify rollup index, only drop column from specified rollup index
             // find column
