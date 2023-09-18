@@ -525,8 +525,9 @@ namespace doris::vectorized {
 // write result to file
 class VTabletWriter final : public AsyncResultWriter {
 public:
-    VTabletWriter(const TDataSink& t_sink, ObjectPool* pool, const VExprContextSPtrs& output_exprs,
-                  bool group_commit);
+    VTabletWriter(const TDataSink& t_sink, const VExprContextSPtrs& output_exprs);
+
+    void init_properties(ObjectPool* pool, bool group_commit);
 
     Status append_block(Block& block) override;
 
