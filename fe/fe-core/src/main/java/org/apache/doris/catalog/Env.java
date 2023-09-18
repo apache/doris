@@ -859,6 +859,8 @@ public class Env {
                     Thread owner = lock.getOwner();
                     if (owner != null) {
                         LOG.info("catalog lock is held by: {}", Util.dumpThread(owner, 10));
+                    } else {
+                        LOG.info("catalog lock is held by self");
                     }
 
                     if (mustLock) {
