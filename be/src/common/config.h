@@ -1161,7 +1161,9 @@ DECLARE_mInt32(group_commit_insert_threads);
 
 // The configuration item is used to lower the priority of the scanner thread,
 // typically employed to ensure CPU scheduling for write operations.
-DECLARE_mBool(enable_scan_thread_low_thread_priority);
+// Default is 0, which is default value of thread nice value, increase this value
+// to lower the priority of scan threads
+DECLARE_Int32(scan_thread_nice_value);
 
 #ifdef BE_TEST
 // test s3

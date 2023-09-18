@@ -1088,7 +1088,7 @@ DEFINE_Int16(bitmap_serialize_version, "1");
 // the count of thread to group commit insert
 DEFINE_Int32(group_commit_insert_threads, "10");
 
-DEFINE_mBool(enable_scan_thread_low_thread_priority, "false");
+DEFINE_mInt32(scan_thread_nice_value, "0");
 
 #ifdef BE_TEST
 // test s3
