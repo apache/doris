@@ -28,7 +28,9 @@
 #include "common/logging.h"
 #include "olap/cumulative_compaction_policy.h"
 #include "olap/olap_define.h"
+#include "olap/rowset/beta_rowset.h"
 #include "olap/rowset/rowset_meta.h"
+#include "olap/segment_loader.h"
 #include "runtime/thread_context.h"
 #include "util/doris_metrics.h"
 #include "util/time.h"
@@ -94,6 +96,16 @@ Status CumulativeCompaction::execute_compact_impl() {
             _tablet.get(), _input_rowsets, _output_rowset, _last_delete_version);
     VLOG_CRITICAL << "after cumulative compaction, current cumulative point is "
                   << _tablet->cumulative_layer_point() << ", tablet=" << _tablet->full_name();
+
+    // Remove old rowset's segments from cache.
+    for (const auto& rowset : _input_rowsets) {
+        SegmentLoader::instance()->erase_segments(SegmentCache::CacheKey(rowset->rowset_id()));
+    }
+
+    // load new rowset's segments to cache.
+    SegmentCacheHandle handle;
+    RETURN_IF_ERROR(SegmentLoader::instance()->load_segments(
+            std::static_pointer_cast<BetaRowset>(_output_rowset), &handle, true));
 
     // 6. add metric to cumulative compaction
     DorisMetrics::instance()->cumulative_compaction_deltas_total->increment(_input_rowsets.size());
