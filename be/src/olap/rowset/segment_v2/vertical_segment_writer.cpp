@@ -225,9 +225,6 @@ Status VerticalSegmentWriter::init() {
     _olap_data_convertor = std::make_unique<vectorized::OlapBlockDataConvertor>();
     _olap_data_convertor->reserve(_tablet_schema->num_columns());
     _column_writers.reserve(_tablet_schema->columns().size());
-    for (uint32_t cid = 0; cid < _tablet_schema->num_columns(); ++cid) {
-        RETURN_IF_ERROR(_create_column_writer(cid, _tablet_schema->column(cid)));
-    }
     // we don't need the short key index for unique key merge on write table.
     if (_tablet_schema->keys_type() == UNIQUE_KEYS && _opts.enable_unique_key_merge_on_write) {
         size_t seq_col_length = 0;
@@ -614,6 +611,9 @@ Status VerticalSegmentWriter::batch_block(const vectorized::Block* block, size_t
 
 Status VerticalSegmentWriter::write_batch() {
     if (_tablet_schema->is_partial_update() && _opts.write_type == DataWriteType::TYPE_DIRECT) {
+        for (uint32_t cid = 0; cid < _tablet_schema->num_columns(); ++cid) {
+            RETURN_IF_ERROR(_create_column_writer(cid, _tablet_schema->column(cid)));
+        }
         for (auto& data : _batched_blocks) {
             RETURN_IF_ERROR(_append_block_with_partial_content(data));
         }
@@ -644,8 +644,10 @@ Status VerticalSegmentWriter::write_batch() {
     std::vector<vectorized::IOlapColumnDataAccessor*> key_columns;
     vectorized::IOlapColumnDataAccessor* seq_column = nullptr;
     for (uint32_t cid = 0; cid < _tablet_schema->num_columns(); ++cid) {
+        RETURN_IF_ERROR(_create_column_writer(cid, _tablet_schema->column(cid)));
         for (auto& data : _batched_blocks) {
-            _olap_data_convertor->set_source_content(data.block, data.row_pos, data.num_rows);
+            _olap_data_convertor->set_source_content_with_specifid_columns(
+                    data.block, data.row_pos, data.num_rows, std::vector<uint32_t> {cid});
 
             // convert column data from engine format to storage layer format
             auto [status, column] = _olap_data_convertor->convert_column_data(cid);
