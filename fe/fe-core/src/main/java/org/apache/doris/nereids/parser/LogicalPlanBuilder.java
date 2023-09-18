@@ -448,7 +448,8 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         String originSql = getOriginSql(ctx);
 
         // TODO: 2023/9/13  if auto ,set bucketNum is 0,but get error:
-        //  InternalCatalog.addPartitionLike(InternalCatalog.java:1383) Cannot assign hash distribution buckets less than 1
+        //  InternalCatalog.addPartitionLike(InternalCatalog.java:1383)
+        //  Cannot assign hash distribution buckets less than 1
         // so we set it is 2 temporary until `CreateTable` fix it
         DistributionDescriptor distributionDesc = new DistributionDescriptor(ctx.HASH() != null, ctx.AUTO() != null,
                 ctx.INTEGER_VALUE() == null ? 2 : Integer.parseInt(ctx.INTEGER_VALUE().getText()),
