@@ -60,17 +60,7 @@ public class SupportJavaDateFormatter extends AbstractExpressionRewriteRule {
         return fromUnixtime;
     }
 
-    private Expression translateJavaFormatter(Expression function, int formatterIndex) {
-        Expression formatterExpr = function.getArgument(formatterIndex);
-        Expression newFormatterExpr = translateJavaFormatter(formatterExpr);
-        if (newFormatterExpr != formatterExpr) {
-            List<Expression> newArguments = Lists.newArrayList(function.getArguments());
-            newArguments.set(formatterIndex, newFormatterExpr);
-            return function.withChildren(newArguments);
-        }
-        return function;
-    }
-
+    @Override
     public Expression visitUnixTimestamp(UnixTimestamp unixTimestamp, ExpressionRewriteContext context) {
         Expression expr = super.visitUnixTimestamp(unixTimestamp, context);
         if (!(expr instanceof UnixTimestamp)) {
@@ -81,6 +71,17 @@ public class SupportJavaDateFormatter extends AbstractExpressionRewriteRule {
             return translateJavaFormatter(unixTimestamp, 1);
         }
         return unixTimestamp;
+    }
+
+    private Expression translateJavaFormatter(Expression function, int formatterIndex) {
+        Expression formatterExpr = function.getArgument(formatterIndex);
+        Expression newFormatterExpr = translateJavaFormatter(formatterExpr);
+        if (newFormatterExpr != formatterExpr) {
+            List<Expression> newArguments = Lists.newArrayList(function.getArguments());
+            newArguments.set(formatterIndex, newFormatterExpr);
+            return function.withChildren(newArguments);
+        }
+        return function;
     }
 
     private Expression translateJavaFormatter(Expression formatterExpr) {
