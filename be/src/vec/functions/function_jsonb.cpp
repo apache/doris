@@ -1062,7 +1062,7 @@ struct JsonbLengthUtil {
         for (size_t i = 0; i < input_rows_count; ++i) {
             if (jsonb_data_column->is_null_at(i) || path_column->is_null_at(i)) {
                 null_map->get_data()[i] = 1;
-                res->insert_data("0", 0);
+                res->insert_data(nullptr, 0);
                 continue;
             }
 
@@ -1085,7 +1085,7 @@ struct JsonbLengthUtil {
             JsonbValue* value = doc->getValue()->findValue(path, nullptr);
             if (UNLIKELY(jsonb_value.size == 0 || !value)) {
                 null_map->get_data()[i] = 1;
-                res->insert_data("0", 0);
+                res->insert_data(nullptr, 0);
                 continue;
             }
             auto length = value->length();
@@ -1190,7 +1190,7 @@ struct JsonbContainsUtil {
             if (jsonb_data1_column->is_null_at(i) || jsonb_data2_column->is_null_at(i) ||
                 path_column->is_null_at(i)) {
                 null_map->get_data()[i] = 1;
-                res->insert_data("0", 0);
+                res->insert_data(nullptr, 0);
                 continue;
             }
 
@@ -1219,7 +1219,7 @@ struct JsonbContainsUtil {
             JsonbValue* value2 = doc2->getValue();
             if (UNLIKELY(jsonb_value1.size == 0 || jsonb_value2.size == 0 || !value1 || !value2)) {
                 null_map->get_data()[i] = 1;
-                res->insert_data("0", 0);
+                res->insert_data(nullptr, 0);
                 continue;
             }
             auto contains_value = value1->contains(value2);
