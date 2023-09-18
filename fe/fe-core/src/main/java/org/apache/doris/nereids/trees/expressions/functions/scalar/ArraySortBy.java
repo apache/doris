@@ -18,17 +18,13 @@
 package org.apache.doris.nereids.trees.expressions.functions.scalar;
 
 import org.apache.doris.catalog.FunctionSignature;
+import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Expression;
-import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
-import org.apache.doris.nereids.trees.expressions.typecoercion.ExpectsInputTypes;
+import org.apache.doris.nereids.trees.expressions.functions.PropagateNullable;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.ArrayType;
-import org.apache.doris.nereids.types.DataType;
-import org.apache.doris.nereids.types.LambdaType;
 import org.apache.doris.nereids.types.coercion.AnyDataType;
-import org.apache.doris.nereids.types.coercion.FollowToAnyDataType;
 
-import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 
 import java.util.List;
@@ -37,38 +33,32 @@ import java.util.List;
  * ScalarFunction 'array_sortby'.
  */
 public class ArraySortBy extends ScalarFunction
-        implements ExplicitlyCastableSignature, ExpectsInputTypes {
+        implements HighOrderFunction, PropagateNullable {
 
     public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
-            FunctionSignature.ret(new FollowToAnyDataType(0)).args(LambdaType.INSTANCE)
+            FunctionSignature.retArgType(0).args(ArrayType.of(AnyDataType.INSTANCE_WITHOUT_INDEX),
+                ArrayType.of(AnyDataType.INSTANCE_WITHOUT_INDEX))
     );
-
-    /**
-     * constructor with arguments.
-     * array_sortby(lambda, a1, ...) = array_sortby(a1, array_map(lambda, a1, ...))
-     */
-    private ArraySortBy(Lambda lambda) {
-        super("array_sortby", lambda.getLambdaArgument(0).getArrayExpression(), new ArrayMap(lambda));
-    }
 
     private ArraySortBy(List<Expression> expressions) {
         super("array_sortby", expressions);
     }
 
+    /**
+     * constructor with arguments.
+     * array_sortby(lambda, a1, ...) = array_sortby(a1, array_map(lambda, a1, ...))
+     */
     public ArraySortBy(Expression arg) {
-        this((Lambda) arg);
+        super("array_sortby", arg.child(1).child(0), new ArrayMap(arg));
+        if (!(arg instanceof Lambda)) {
+            throw new AnalysisException(
+                    String.format("The 1st arg of %s must be lambda but is %s", getName(), arg));
+        }
     }
 
     @Override
     public ArraySortBy withChildren(List<Expression> children) {
-        Preconditions.checkArgument(children.size() == 2 && !(children.get(0) instanceof Lambda),
-                getName() + " accept wrong arguments " + children);
         return new ArraySortBy(children);
-    }
-
-    @Override
-    public DataType getDataType() {
-        return children.get(0).getDataType();
     }
 
     @Override
@@ -77,23 +67,7 @@ public class ArraySortBy extends ScalarFunction
     }
 
     @Override
-    public List<FunctionSignature> getSignatures() {
+    public List<FunctionSignature> getImplSignature() {
         return SIGNATURES;
-    }
-
-    @Override
-    public List<DataType> expectedInputTypes() {
-        return ImmutableList.of(ArrayType.of(AnyDataType.INSTANCE_WITHOUT_INDEX),
-                ArrayType.of(AnyDataType.INSTANCE_WITHOUT_INDEX));
-    }
-
-    @Override
-    public boolean nullable() {
-        return child(0).nullable();
-    }
-
-    @Override
-    public boolean hasVarArguments() {
-        return false;
     }
 }

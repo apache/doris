@@ -18,18 +18,14 @@
 package org.apache.doris.nereids.trees.expressions.functions.scalar;
 
 import org.apache.doris.catalog.FunctionSignature;
+import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Expression;
-import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
-import org.apache.doris.nereids.trees.expressions.functions.PropagateNullable;
+import org.apache.doris.nereids.trees.expressions.functions.AlwaysNotNullable;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.ArrayType;
 import org.apache.doris.nereids.types.BigIntType;
 import org.apache.doris.nereids.types.BooleanType;
-import org.apache.doris.nereids.types.DataType;
-import org.apache.doris.nereids.types.LambdaType;
-import org.apache.doris.nereids.types.coercion.FollowToAnyDataType;
 
-import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 
 import java.util.List;
@@ -38,26 +34,26 @@ import java.util.List;
  * ScalarFunction 'array_last_index'.
  */
 public class ArrayLastIndex extends ScalarFunction
-        implements ExplicitlyCastableSignature, PropagateNullable {
+        implements HighOrderFunction, AlwaysNotNullable {
 
     public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
-            FunctionSignature.ret(new FollowToAnyDataType(0)).args(LambdaType.INSTANCE)
+            FunctionSignature.ret(BigIntType.INSTANCE).args(ArrayType.of(BooleanType.INSTANCE))
     );
-
-    /**
-     * constructor with arguments.
-     * array_last_index(lambda, a1, ...) = array_last_index(array_map(lambda, a1, ...))
-     */
-    private ArrayLastIndex(Lambda lambda) {
-        super("array_last_index", new ArrayMap(lambda));
-    }
 
     private ArrayLastIndex(List<Expression> expressions) {
         super("array_last_index", expressions);
     }
 
+    /**
+     * constructor with arguments.
+     * array_last_index(lambda, a1, ...) = array_last_index(array_map(lambda, a1, ...))
+     */
     public ArrayLastIndex(Expression arg) {
-        this((Lambda) arg);
+        super("array_last_index", new ArrayMap(arg));
+        if (!(arg instanceof Lambda)) {
+            throw new AnalysisException(
+                    String.format("The 1st arg of %s must be lambda but is %s", getName(), arg));
+        }
     }
 
     /**
@@ -65,14 +61,7 @@ public class ArrayLastIndex extends ScalarFunction
      */
     @Override
     public ArrayLastIndex withChildren(List<Expression> children) {
-        Preconditions.checkArgument(children.size() == 1 && !(children.get(0) instanceof Lambda),
-                getName() + " accept wrong arguments " + children);
         return new ArrayLastIndex(children);
-    }
-
-    @Override
-    public DataType getDataType() {
-        return BigIntType.INSTANCE;
     }
 
     @Override
@@ -81,22 +70,7 @@ public class ArrayLastIndex extends ScalarFunction
     }
 
     @Override
-    public List<FunctionSignature> getSignatures() {
+    public List<FunctionSignature> getImplSignature() {
         return SIGNATURES;
-    }
-
-    @Override
-    public boolean nullable() {
-        return child(0).nullable();
-    }
-
-    @Override
-    public List<DataType> expectedInputTypes() {
-        return ImmutableList.of(ArrayType.of(BooleanType.INSTANCE));
-    }
-
-    @Override
-    public boolean hasVarArguments() {
-        return false;
     }
 }
