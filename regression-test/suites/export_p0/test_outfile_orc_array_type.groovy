@@ -33,8 +33,8 @@ suite("test_outfile_orc_array_type", "p0") {
     String bucket = context.config.otherConfigs.get("s3BucketName");
 
 
-    def export_table_name = "outfile_orc_complex_type_export_test"
-    def load_table_name = "outfile_orc_complex_type_load_test"
+    def export_table_name = "outfile_orc_array_export_test"
+    def load_table_name = "outfile_orc_array_type_load_test"
     def outFilePath = "${bucket}/outfile/orc/complex_type/exp_"
 
 
