@@ -357,10 +357,6 @@ public class TypeCoercionUtils {
     }
 
     private static boolean canCastTo(DataType input, DataType target) {
-        // see Expr.java, 1532 line
-        if (input.isStringLikeType() && target.isStringLikeType()) {
-            return true;
-        }
         return Type.canCastTo(input.toCatalogDataType(), target.toCatalogDataType());
     }
 
