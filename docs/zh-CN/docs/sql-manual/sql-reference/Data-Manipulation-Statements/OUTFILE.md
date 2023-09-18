@@ -84,6 +84,7 @@ INTO OUTFILE "file_path"
         line_delimiter: 行分隔符，只支持csv格式。在 1.2 版本开始支持多字节分隔符，如："\\x01", "abc"。
         max_file_size: 单个文件大小限制，如果结果超过这个值，将切割成多个文件, max_file_size取值范围是[5MB, 2GB], 默认为1GB。（当指定导出为orc文件格式时，实际切分文件的大小将是64MB的倍数，如：指定max_file_size = 5MB, 实际将以64MB为切分；指定max_file_size = 65MB, 实际将以128MB为切分）
         delete_existing_files: 默认为false，若指定为true,则会先删除file_path指定的目录下的所有文件，然后导出数据到该目录下。例如："file_path" = "/user/tmp", 则会删除"/user/"下所有文件及目录；"file_path" = "/user/tmp/", 则会删除"/user/tmp/"下所有文件及目录
+        file_suffix: 指定导出文件的后缀
     
     Broker 相关属性需加前缀 `broker.`:
         broker.name: broker名称
