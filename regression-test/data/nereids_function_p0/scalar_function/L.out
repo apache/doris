@@ -464,7 +464,7 @@
 1.200
 
 -- !sql_least_Varchar --
-\N
+null
 varchar11
 varchar11
 varchar11
@@ -493,7 +493,7 @@ varchar13
 varchar13
 
 -- !sql_least_String --
-\N
+null
 string1
 string1
 string1
@@ -580,7 +580,7 @@ string3
 string3
 
 -- !sql_length_Varchar --
-\N
+4
 9
 9
 9
@@ -609,7 +609,7 @@ string3
 9
 
 -- !sql_length_String --
-\N
+4
 7
 7
 7
@@ -667,7 +667,7 @@ string3
 0.1823215567939546
 
 -- !sql_locate_Varchar_Varchar --
-\N
+1
 1
 1
 1
@@ -696,7 +696,7 @@ string3
 1
 
 -- !sql_locate_String_String --
-\N
+1
 1
 1
 1
@@ -870,7 +870,7 @@ string3
 0.2630344058337938
 
 -- !sql_lower_Varchar --
-\N
+null
 varchar11
 varchar11
 varchar11
@@ -899,7 +899,7 @@ varchar13
 varchar13
 
 -- !sql_lower_String --
-\N
+null
 string1
 string1
 string1
@@ -986,7 +986,7 @@ ststring3
 strinstring3
 
 -- !sql_ltrim_Varchar --
-\N
+null
 varchar11
 varchar11
 varchar11
@@ -1015,7 +1015,7 @@ varchar13
 varchar13
 
 -- !sql_ltrim_String --
-\N
+null
 string1
 string1
 string1

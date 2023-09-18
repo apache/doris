@@ -97,6 +97,8 @@ bool ExchangeSinkLocalState::transfer_large_data_by_brpc() const {
 
 Status ExchangeSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& info) {
     RETURN_IF_ERROR(PipelineXSinkLocalState<>::init(state, info));
+    SCOPED_TIMER(profile()->total_time_counter());
+    SCOPED_TIMER(_open_timer);
     _sender_id = info.sender_id;
 
     _bytes_sent_counter = ADD_COUNTER(_profile, "BytesSent", TUnit::BYTES);
@@ -144,8 +146,6 @@ Status ExchangeSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& inf
                     channel_shared_ptrs[fragment_id_to_channel_index[fragment_instance_id.lo]]);
         }
     }
-
-    SCOPED_TIMER(_profile->total_time_counter());
     SCOPED_CONSUME_MEM_TRACKER(_mem_tracker.get());
 
     int local_size = 0;
@@ -273,6 +273,7 @@ Status ExchangeSinkOperatorX::sink(RuntimeState* state, vectorized::Block* block
                                    SourceState source_state) {
     auto& local_state = state->get_sink_local_state(id())->cast<ExchangeSinkLocalState>();
     COUNTER_UPDATE(local_state.rows_input_counter(), (int64_t)block->rows());
+    SCOPED_TIMER(local_state.profile()->total_time_counter());
     local_state._peak_memory_usage_counter->set(_mem_tracker->peak_consumption());
     bool all_receiver_eof = true;
     for (auto channel : local_state.channels) {
@@ -533,6 +534,8 @@ Status ExchangeSinkOperatorX::try_close(RuntimeState* state) {
 }
 
 Status ExchangeSinkLocalState::close(RuntimeState* state) {
+    SCOPED_TIMER(profile()->total_time_counter());
+    SCOPED_TIMER(_close_timer);
     if (_closed) {
         return Status::OK();
     }
