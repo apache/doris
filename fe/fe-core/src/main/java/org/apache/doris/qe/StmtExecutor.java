@@ -1443,7 +1443,7 @@ public class StmtExecutor {
                 profile.getSummaryProfile().freshFetchResultConsumeTime();
 
                 // for outfile query, there will be only one empty batch send back with eos flag
-                // call `copyRowBatch()` first, because batch.getBatch() may be null, it result set is empty
+                // call `copyRowBatch()` first, because batch.getBatch() may be null, if result set is empty
                 if (cacheAnalyzer != null && !isOutfileQuery) {
                     cacheAnalyzer.copyRowBatch(batch);
                 }

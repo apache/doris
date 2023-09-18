@@ -38,6 +38,7 @@ import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.View;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.Status;
+import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.nereids.glue.LogicalPlanAdapter;
@@ -423,7 +424,7 @@ public class CacheAnalyzer {
         return tblTimeList;
     }
 
-    public InternalService.PFetchCacheResult getCacheData() {
+    public InternalService.PFetchCacheResult getCacheData() throws UserException {
         if (parsedStmt instanceof LogicalPlanAdapter) {
             cacheMode = innerCheckCacheModeForNereids(0);
         } else if (parsedStmt instanceof SelectStmt) {
@@ -456,6 +457,12 @@ public class CacheAnalyzer {
         } else {
             LOG.debug("miss cache, mode {}, queryid {}, code {}, msg {}", cacheMode,
                     DebugUtil.printId(queryId), status.getErrorCode(), status.getErrorMsg());
+            if (ConnectContext.get() != null
+                    && !ConnectContext.get().getSessionVariable().testQueryCacheHit.equals("none")) {
+                throw new UserException("The variable test_query_cache_hit is set to "
+                        + ConnectContext.get().getSessionVariable().testQueryCacheHit
+                        + ", but the query cache is not hit.");
+            }
             cacheResult = null;
         }
         return cacheResult;
