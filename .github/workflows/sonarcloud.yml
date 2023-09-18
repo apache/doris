@@ -154,5 +154,5 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
-        run: sonar-scanner -Dsonar.cfamily.compile-commands=be/build_Release/compile_commands.json -Dsonar.sources=be
+        run: sonar-scanner -Dsonar.cfamily.compile-commands=be/build_Release/compile_commands.json
 
