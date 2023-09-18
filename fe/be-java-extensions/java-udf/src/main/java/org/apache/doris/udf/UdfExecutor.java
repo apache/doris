@@ -104,7 +104,6 @@ public class UdfExecutor extends BaseExecutor {
                 }
                 result[i] = methodAccess.invoke(udf, evaluateIndex, parameters);
             }
-            LOG.info("yxc udf evaluate" + debugString());
             return result;
         } catch (Exception e) {
             LOG.info("evaluate exception: " + debugString());
