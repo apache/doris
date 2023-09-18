@@ -69,9 +69,12 @@ public class CheckCast extends AbstractExpressionRewriteRule {
             return true;
         } else if (originalType instanceof CharacterType && targetType instanceof StructType) {
             return true;
-        } else {
-            return checkPrimitiveType(originalType, targetType);
+        } else if (originalType.isNullType()) {
+            if (targetType.isArrayType()) {
+                return true;
+            }
         }
+        return checkPrimitiveType(originalType, targetType);
     }
 
     /**
