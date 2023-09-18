@@ -43,6 +43,7 @@ std::unordered_map<std::string, std::string> TimezoneUtils::timezone_names_map_;
 bool TimezoneUtils::inited_ = false;
 
 const std::string TimezoneUtils::default_time_zone = "+08:00";
+static const char* tzdir = "/usr/share/zoneinfo"; // default value, may change by TZDIR env var
 
 void TimezoneUtils::load_timezone_names() {
     if (inited_) {
@@ -51,7 +52,6 @@ void TimezoneUtils::load_timezone_names() {
 
     inited_ = true;
     std::string path;
-    const char* tzdir = "/usr/share/zoneinfo";
     char* tzdir_env = std::getenv("TZDIR");
     if (tzdir_env && *tzdir_env) {
         tzdir = tzdir_env;
@@ -210,7 +210,6 @@ void TimezoneUtils::load_timezones_to_cache(vectorized::ZoneList& cache_list) {
     cache_list["CST"] = cctz::fixed_time_zone(cctz::seconds(8 * 3600));
 
     std::string base_str;
-    const char* tzdir = "/usr/share/zoneinfo"; // default
     // try get from System
     char* tzdir_env = std::getenv("TZDIR");
     if (tzdir_env && *tzdir_env) {
@@ -221,6 +220,11 @@ void TimezoneUtils::load_timezones_to_cache(vectorized::ZoneList& cache_list) {
     base_str += '/';
 
     const auto root_path = std::filesystem::path {base_str};
+    if (!std::filesystem::exists(root_path)) {
+        LOG_WARNING("Cannot find system tzfile. Abandon to preload timezone cache.");
+        return;
+    }
+
     std::set<std::string> ignore_paths = {"posix", "right"}; // duplications
 
     for (std::filesystem::recursive_directory_iterator it {base_str}; it != end(it); it++) {
@@ -295,11 +299,11 @@ bool TimezoneUtils::find_cctz_time_zone(const std::string& timezone, cctz::time_
             tz_parsed = true;
         } else {
             auto it = timezone_names_map_.find(timezone_lower);
-            if (it == timezone_names_map_.end()) {
-                VLOG_DEBUG << "Illegal timezone " << timezone_lower;
-                return false;
+            if (it != timezone_names_map_.end()) {
+                tz_parsed = cctz::load_time_zone(it->second, &ctz);
+            } else{
+                tz_parsed = cctz::load_time_zone(timezone, &ctz);
             }
-            tz_parsed = cctz::load_time_zone(it->second, &ctz);
         }
         if (tz_parsed) {
             if (!have_both) { // GMT only
