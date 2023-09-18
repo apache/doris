@@ -664,12 +664,15 @@ public class StmtExecutor {
         profile.getSummaryProfile().setQueryBeginTime();
         context.setStmtId(STMT_ID_GENERATOR.incrementAndGet());
         context.setQueryId(queryId);
+
         // set isQuery first otherwise this state will be lost if some error occurs
         if (parsedStmt instanceof QueryStmt) {
             context.getState().setIsQuery(true);
         }
 
         try {
+            // parsedStmt maybe null here, we parse it. Or the predicate will not work.
+            parseByLegacy();
             if (context.isTxnModel() && !(parsedStmt instanceof InsertStmt)
                     && !(parsedStmt instanceof TransactionStmt)) {
                 throw new TException("This is in a transaction, only insert, commit, rollback is acceptable.");
