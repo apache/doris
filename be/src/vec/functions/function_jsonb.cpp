@@ -1039,8 +1039,8 @@ struct JsonbLengthUtil {
         // prepare jsonb data column
         std::tie(jsonb_data_column, jsonb_data_const) =
                 unpack_if_const(block.get_by_position(arguments[0]).column);
+        LOG(INFO) << "jsonb_data_column(" << jsonb_data_column->is_null_at(0) << ")" ;
         check_set_nullable(jsonb_data_column, null_map, jsonb_data_const);
-        LOG(INFO) << "jsonb_data_column(" << block.get_by_position(arguments[0]).column->is_null_at(0) << ")" ;
         LOG(INFO) << "jsonb_data_const(" << jsonb_data_const << ")" ;
         LOG(INFO) << "null_map" << null_map->get_data()[0] ;
 
