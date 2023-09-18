@@ -75,7 +75,7 @@ public class ShowJobTaskStmt extends ShowStmt {
         CreateJobStmt.checkAuth();
         checkLabelName(analyzer);
         if (StringUtils.isBlank(jobCategoryName)) {
-            this.jobCategory = JobCategory.MTMV;
+            this.jobCategory = JobCategory.SQL;
         } else {
             this.jobCategory = JobCategory.valueOf(jobCategoryName.toUpperCase());
         }
