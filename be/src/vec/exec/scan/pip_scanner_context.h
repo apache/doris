@@ -185,11 +185,6 @@ public:
         _free_blocks_memory_usage->add(free_blocks_memory_usage);
     }
 
-    bool should_be_scheduled() const override {
-        return (_current_used_bytes < _max_bytes_in_queue / 2 * _num_parallel_instances) &&
-               (_serving_blocks_num < allowed_blocks_num());
-    }
-
     void _dispose_coloate_blocks_not_in_queue() override {
         if (_need_colocate_distribute) {
             for (int i = 0; i < _num_parallel_instances; ++i) {

@@ -55,7 +55,7 @@ ScannerContext::ScannerContext(doris::RuntimeState* state_, doris::vectorized::V
           _process_status(Status::OK()),
           _batch_size(state_->batch_size()),
           limit(limit_),
-          _max_bytes_in_queue(max_bytes_in_blocks_queue_),
+          _max_bytes_in_queue(max_bytes_in_blocks_queue_ * num_parallel_instances),
           _scanner_scheduler(state_->exec_env()->scanner_scheduler()),
           _scanners(scanners_),
           _num_parallel_instances(num_parallel_instances) {
@@ -66,27 +66,21 @@ ScannerContext::ScannerContext(doris::RuntimeState* state_, doris::vectorized::V
     if (limit < 0) {
         limit = -1;
     }
-}
-
-// After init function call, should not access _parent
-Status ScannerContext::init() {
-    // 1. Calculate max concurrency
-    // TODO: now the max thread num <= config::doris_scanner_thread_pool_thread_num / 4
-    // should find a more reasonable value.
     _max_thread_num = config::doris_scanner_thread_pool_thread_num / 4;
-    if (_parent && _parent->_shared_scan_opt) {
-        DCHECK(_num_parallel_instances > 0);
-        _max_thread_num *= _num_parallel_instances;
-    }
+    _max_thread_num *= num_parallel_instances;
     _max_thread_num = _max_thread_num == 0 ? 1 : _max_thread_num;
     DCHECK(_max_thread_num > 0);
     _max_thread_num = std::min(_max_thread_num, (int32_t)_scanners.size());
+    // 1. Calculate max concurrency
     // For select * from table limit 10; should just use one thread.
     if ((_parent && _parent->should_run_serial()) ||
         (_local_state && _local_state->should_run_serial())) {
         _max_thread_num = 1;
     }
+}
 
+// After init function call, should not access _parent
+Status ScannerContext::init() {
     if (_parent) {
         _scanner_profile = _parent->_scanner_profile;
         _scanner_sched_counter = _parent->_scanner_sched_counter;

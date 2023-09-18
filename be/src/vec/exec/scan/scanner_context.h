@@ -72,7 +72,7 @@ public:
     ScannerContext(RuntimeState* state_, VScanNode* parent,
                    const TupleDescriptor* output_tuple_desc,
                    const std::list<VScannerSPtr>& scanners_, int64_t limit_,
-                   int64_t max_bytes_in_blocks_queue_, const int num_parallel_instances = 0,
+                   int64_t max_bytes_in_blocks_queue_, const int num_parallel_instances = 1,
                    pipeline::ScanLocalStateBase* local_state = nullptr);
 
     virtual ~ScannerContext() = default;
@@ -146,7 +146,7 @@ public:
     virtual bool empty_in_queue(int id);
 
     // todo(wb) rethinking how to calculate ```_max_bytes_in_queue``` when executing shared scan
-    virtual inline bool should_be_scheduled() const {
+    inline bool should_be_scheduled() const {
         return (_cur_bytes_in_queue < _max_bytes_in_queue / 2) &&
                (_serving_blocks_num < allowed_blocks_num());
     }

@@ -373,10 +373,6 @@ void ScannerScheduler::_scanner_scan(ScannerScheduler* scheduler, ScannerContext
         }
 
         BlockUPtr block = ctx->get_free_block();
-        if (block == nullptr) {
-            LOG(INFO) << " get free block returns nullptr " << (void*)ctx;
-            break;
-        }
 
         status = scanner->get_block(state, block.get(), &eos);
         VLOG_ROW << "VScanNode input rows: " << block->rows() << ", eos: " << eos;
