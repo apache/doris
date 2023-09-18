@@ -1057,7 +1057,7 @@ struct JsonbLengthUtil {
         }
 
         auto null_map = ColumnUInt8::create(input_rows_count, 0);
-        auto res = ColumnUInt32::create();
+        auto res = ColumnInt32::create();
 
         for (size_t i = 0; i < input_rows_count; ++i) {
             if (jsonb_data_column->is_null_at(i) || path_column->is_null_at(i)) {

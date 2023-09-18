@@ -547,7 +547,7 @@ public:
     unsigned int size() const;
 
     //Get the number of jsonbvalue elements
-    unsigned int length() const;
+    int length() const;
 
     //Whether to include the jsonbvalue rhs
     bool contains(JsonbValue* rhs) const;
@@ -906,7 +906,7 @@ public:
     }
 
     // Get number of elements in object
-    unsigned int numElem() const {
+    int numElem() const {
         const char* pch = payload_;
         const char* fence = payload_ + size_;
 
@@ -1017,7 +1017,7 @@ public:
     }
 
     // Get number of elements in array
-    unsigned int numElem() const {
+    int numElem() const {
         const char* pch = payload_;
         const char* fence = payload_ + size_;
 
@@ -1237,7 +1237,7 @@ inline unsigned int JsonbValue::size() const {
     }
 }
 
-inline unsigned int JsonbValue::length() const {
+inline int JsonbValue::length() const {
     switch (type_) {
     case JsonbType::T_Int8:
     case JsonbType::T_Int16:
