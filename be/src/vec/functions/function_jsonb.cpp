@@ -1031,6 +1031,7 @@ struct JsonbLengthUtil {
     static Status jsonb_length_execute(FunctionContext* context, Block& block,
                                        const ColumnNumbers& arguments, size_t result,
                                        size_t input_rows_count) {
+        auto null_map = ColumnUInt8::create(input_rows_count, 0);
         DCHECK_GE(arguments.size(), 2);
 
         ColumnPtr jsonb_data_column;
@@ -1038,6 +1039,7 @@ struct JsonbLengthUtil {
         // prepare jsonb data column
         std::tie(jsonb_data_column, jsonb_data_const) =
                 unpack_if_const(block.get_by_position(arguments[0]).column);
+        check_set_nullable(jsonb_data_column, null_map, jsonb_data_const);
 
         ColumnPtr path_column;
         bool is_const = false;
@@ -1055,8 +1057,6 @@ struct JsonbLengthUtil {
                                          path_value.size));
             }
         }
-
-        auto null_map = ColumnUInt8::create(input_rows_count, 0);
         auto res = ColumnInt32::create();
 
         for (size_t i = 0; i < input_rows_count; ++i) {
