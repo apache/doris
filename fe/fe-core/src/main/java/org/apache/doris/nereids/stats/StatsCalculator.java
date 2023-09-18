@@ -222,22 +222,13 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
     private void estimate() {
         Plan plan = groupExpression.getPlan();
         Statistics newStats = plan.accept(this, null);
-        Statistics oldStats = groupExpression.getOwnerGroup().getStatistics();
-        /*
-        in an ideal cost model, every group expression in a group are equivalent, but in fact the cost are different.
-        we record the lowest expression cost as group cost to avoid missing this group.
-        */
-        if (oldStats == null) {
+        // We ensure that the rowCount remains unchanged in order to make the cost of each plan comparable.
+        if (groupExpression.getOwnerGroup().getStatistics() == null) {
             groupExpression.getOwnerGroup().setStatistics(newStats);
+            groupExpression.setEstOutputRowCount(newStats.getRowCount());
         } else {
-            Statistics discardStats = newStats;
-            if (oldStats.getRowCount() > newStats.getRowCount()) {
-                groupExpression.getOwnerGroup().setStatistics(newStats);
-                discardStats = oldStats;
-            }
-            groupExpression.getOwnerGroup().getStatistics().updateNdv(discardStats);
+            groupExpression.getOwnerGroup().getStatistics().updateNdv(newStats);
         }
-        groupExpression.setEstOutputRowCount(newStats.getRowCount());
         groupExpression.setStatDerived(true);
     }
 

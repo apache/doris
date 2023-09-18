@@ -281,6 +281,9 @@ public class AnalysisManager extends Daemon implements Writable {
     }
 
     public void createAnalyze(AnalyzeStmt analyzeStmt, boolean proxy) throws DdlException {
+        if (!StatisticsUtil.statsTblAvailable() && !FeConstants.runningUnitTest) {
+            throw new DdlException("Stats table not available, please make sure your cluster status is normal");
+        }
         if (analyzeStmt instanceof AnalyzeDBStmt) {
             createAnalysisJobs((AnalyzeDBStmt) analyzeStmt, proxy);
         } else if (analyzeStmt instanceof AnalyzeTblStmt) {
@@ -350,11 +353,7 @@ public class AnalysisManager extends Daemon implements Writable {
 
     @Nullable
     @VisibleForTesting
-    public AnalysisInfo buildAndAssignJob(AnalyzeTblStmt stmt) throws DdlException {
-        if (!StatisticsUtil.statsTblAvailable() && !FeConstants.runningUnitTest) {
-            throw new DdlException("Stats table not available, please make sure your cluster status is normal");
-        }
-
+    protected AnalysisInfo buildAndAssignJob(AnalyzeTblStmt stmt) throws DdlException {
         AnalysisInfo jobInfo = buildAnalysisJobInfo(stmt);
         if (jobInfo.colToPartitions.isEmpty()) {
             // No statistics need to be collected or updated
@@ -481,6 +480,8 @@ public class AnalysisManager extends Daemon implements Writable {
         return columnToPartitions;
     }
 
+    // Make sure colName of job has all the column as this AnalyzeStmt specified, no matter whether it will be analyzed
+    // or not.
     @VisibleForTesting
     public AnalysisInfo buildAnalysisJobInfo(AnalyzeTblStmt stmt) throws DdlException {
         AnalysisInfoBuilder infoBuilder = new AnalysisInfoBuilder();
@@ -734,7 +735,6 @@ public class AnalysisManager extends Daemon implements Writable {
         }
         logCreateTableStats(tableStats);
         StatisticsRepository.dropStatistics(tblId, cols);
-
     }
 
     public void handleKillAnalyzeStmt(KillAnalysisJobStmt killAnalysisJobStmt) throws DdlException {
@@ -1043,6 +1043,15 @@ public class AnalysisManager extends Daemon implements Writable {
                     // DO NOTHING
                     return null;
                 }, null);
+    }
+
+    // Remove col stats status from TableStats if failed load some col stats after analyze corresponding column so that
+    // we could make sure it would be analyzed again soon if user or system submit job for that column again.
+    public void removeColStatsStatus(long tblId, String colName) {
+        TableStats tableStats = findTableStatsStatus(tblId);
+        if (tableStats != null) {
+            tableStats.removeColumn(colName);
+        }
     }
 
 }

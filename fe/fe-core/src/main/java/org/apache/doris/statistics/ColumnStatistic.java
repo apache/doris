@@ -24,7 +24,6 @@ import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.statistics.util.StatisticsUtil;
 
-import com.google.common.base.Preconditions;
 import com.google.common.collect.Sets;
 import com.google.gson.annotations.SerializedName;
 import org.apache.logging.log4j.LogManager;
@@ -136,7 +135,9 @@ public class ColumnStatistic {
             LOG.debug("Failed to deserialize column stats", t);
             return ColumnStatistic.UNKNOWN;
         }
-        Preconditions.checkState(columnStatistic != null, "Column stats is null");
+        if (columnStatistic == null) {
+            return ColumnStatistic.UNKNOWN;
+        }
         columnStatistic.partitionIdToColStats.putAll(partitionIdToColStats);
         return columnStatistic;
     }
@@ -202,13 +203,6 @@ public class ColumnStatistic {
 
     public static boolean isAlmostUnique(double ndv, double rowCount) {
         return rowCount * 0.9 < ndv && ndv < rowCount * 1.1;
-    }
-
-    public ColumnStatistic copy() {
-        return new ColumnStatisticBuilder().setCount(count).setNdv(ndv).setAvgSizeByte(avgSizeByte)
-                .setNumNulls(numNulls).setDataSize(dataSize).setMinValue(minValue)
-                .setMaxValue(maxValue).setMinExpr(minExpr).setMaxExpr(maxExpr)
-                .setIsUnknown(isUnKnown).build();
     }
 
     public ColumnStatistic updateByLimit(long limit, double rowCount) {

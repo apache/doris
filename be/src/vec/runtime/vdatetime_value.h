@@ -482,7 +482,7 @@ public:
     uint32_t year_week(uint8_t mode) const;
 
     // Add interval
-    template <TimeUnit unit>
+    template <TimeUnit unit, bool need_check = true>
     bool date_add_interval(const TimeInterval& interval);
 
     // set interval
@@ -943,7 +943,7 @@ public:
     template <TimeUnit unit, typename TO>
     bool date_add_interval(const TimeInterval& interval, DateV2Value<TO>& to_value);
 
-    template <TimeUnit unit>
+    template <TimeUnit unit, bool need_check = true>
     bool date_add_interval(const TimeInterval& interval);
 
     template <TimeUnit unit>
