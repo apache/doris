@@ -229,7 +229,7 @@ Status ExchangeSinkBuffer::_send_rpc(InstanceLoId id) {
             }
         }
         if (request.block) {
-            brpc_request->release_block();
+            static_cast<void>(brpc_request->release_block());
         }
         q.pop();
     } else if (!broadcast_q.empty()) {
@@ -282,7 +282,7 @@ Status ExchangeSinkBuffer::_send_rpc(InstanceLoId id) {
             }
         }
         if (request.block_holder->get_block()) {
-            brpc_request->release_block();
+            static_cast<void>(brpc_request->release_block());
         }
         broadcast_q.pop();
     } else {
