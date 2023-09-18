@@ -266,6 +266,8 @@ public:
 
     ColumnPtr index(const IColumn& indexes, size_t limit) const override;
 
+    double get_ratio_of_default_rows(double sample_ratio) const override;
+
 private:
     // [[2,1,5,9,1], [1,2,4]] --> data column [2,1,5,9,1,1,2,4], offset[-1] = 0, offset[0] = 5, offset[1] = 8
     // [[[2,1,5],[9,1]], [[1,2]]] --> data column [3 column array], offset[-1] = 0, offset[0] = 2, offset[1] = 3

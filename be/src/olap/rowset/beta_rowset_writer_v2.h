@@ -103,6 +103,7 @@ public:
     }
 
     PUniqueId load_id() override { return _context.load_id; }
+    RowsetWriterContext& mutable_context() override { LOG(FATAL) << "not implemented"; }
 
     Version version() override { return _context.version; }
 

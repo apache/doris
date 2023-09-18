@@ -60,6 +60,10 @@ public:
         return TPrimitiveType::INVALID_TYPE;
     }
 
+    doris::FieldType get_type_as_field_type() const override {
+        return doris::FieldType::OLAP_FIELD_TYPE_NONE;
+    }
+
     Field get_default() const override { return String(); }
 
     [[noreturn]] Field get_field(const TExprNode& node) const override {

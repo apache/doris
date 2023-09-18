@@ -20,6 +20,8 @@
 
 #pragma once
 #include <glog/logging.h>
+#include <rapidjson/document.h>
+#include <rapidjson/stringbuffer.h>
 #include <sys/types.h>
 
 #include <algorithm>
@@ -39,7 +41,10 @@
 #include "vec/core/field.h"
 #include "vec/core/types.h"
 #include "vec/data_types/data_type.h"
+#include "vec/data_types/data_type_jsonb.h"
 #include "vec/data_types/data_type_nullable.h"
+#include "vec/data_types/serde/data_type_serde.h"
+#include "vec/io/reader_buffer.h"
 #include "vec/json/path_in_data.h"
 
 class SipHash;
@@ -82,13 +87,17 @@ public:
      * After insertion of all values subcolumn should be finalized
      * for writing and other operations.
      */
+
+    // Using jsonb type as most common type, since it's adopted all types of json
+    using MostCommonType = DataTypeJsonb;
     class Subcolumn {
     public:
         Subcolumn() = default;
 
-        Subcolumn(size_t size_, bool is_nullable_);
+        Subcolumn(size_t size_, bool is_nullable_, bool is_root = false);
 
-        Subcolumn(MutableColumnPtr&& data_, bool is_nullable_);
+        Subcolumn(MutableColumnPtr&& data_, DataTypePtr type, bool is_nullable_,
+                  bool is_root = false);
 
         size_t size() const;
 
@@ -100,7 +109,13 @@ public:
 
         const DataTypePtr& get_least_common_type() const { return least_common_type.get(); }
 
-        const DataTypePtr& get_least_common_typeBase() const { return least_common_type.getBase(); }
+        const DataTypePtr& get_least_common_typeBase() const {
+            return least_common_type.get_base();
+        }
+
+        const DataTypeSerDeSPtr& get_least_common_type_serde() const {
+            return least_common_type.get_serde();
+        }
 
         size_t get_dimensions() const { return least_common_type.get_dimensions(); }
 
@@ -126,12 +141,12 @@ public:
         /// creates a single column that stores all values.
         void finalize();
 
+        bool check_if_sparse_column(size_t num_rows);
+
         /// Returns last inserted field.
         Field get_last_field() const;
 
-        /// Recreates subcolumn with default scalar values and keeps sizes of arrays.
-        /// Used to create columns of type Nested with consistent array sizes.
-        Subcolumn recreate_with_default_values(const FieldInfo& field_info) const;
+        FieldInfo get_subcolumn_field_info() const;
 
         /// Returns single column if subcolumn in finalizes.
         /// Otherwise -- undefined behaviour.
@@ -141,7 +156,11 @@ public:
 
         const ColumnPtr& get_finalized_column_ptr() const;
 
+        ColumnPtr& get_finalized_column_ptr();
+
         void remove_nullable();
+
+        void add_new_column_part(DataTypePtr type);
 
         friend class ColumnObject;
 
@@ -154,18 +173,22 @@ public:
 
             const DataTypePtr& get() const { return type; }
 
-            const DataTypePtr& getBase() const { return base_type; }
+            const DataTypePtr& get_base() const { return base_type; }
 
             size_t get_dimensions() const { return num_dimensions; }
 
             void remove_nullable() { type = doris::vectorized::remove_nullable(type); }
 
+            const DataTypeSerDeSPtr& get_serde() const { return least_common_type_serder; }
+
         private:
             DataTypePtr type;
             DataTypePtr base_type;
             size_t num_dimensions = 0;
+            DataTypeSerDeSPtr least_common_type_serder;
         };
-        void add_new_column_part(DataTypePtr type);
+
+        void wrapp_array_nullable();
 
         /// Current least common type of all values inserted to this subcolumn.
         LeastCommonType least_common_type;
@@ -176,10 +199,14 @@ public:
         /// That means that the least common type for i-th prefix is the type of i-th part
         /// and it's the supertype for all type of column from 0 to i-1.
         std::vector<WrappedPtr> data;
+        std::vector<DataTypePtr> data_types;
         /// Until we insert any non-default field we don't know further
         /// least common type and we count number of defaults in prefix,
         /// which will be converted to the default type of final common type.
         size_t num_of_defaults_in_prefix = 0;
+        // If it is the root subcolumn of SubcolumnsTree,
+        // the root Node should be JSONB type when finalize
+        bool is_root = false;
     };
     using Subcolumns = SubcolumnsTree<Subcolumn>;
 
@@ -188,22 +215,67 @@ private:
     const bool is_nullable;
     Subcolumns subcolumns;
     size_t num_rows;
+    // sparse columns will be merge and encoded into root column
+    Subcolumns sparse_columns;
+    // The rapidjson document format of Subcolumns tree structure
+    // the leaves is null.In order to display whole document, copy
+    // this structure and fill with Subcolumns sub items
+    mutable std::shared_ptr<rapidjson::Document> doc_structure;
 
 public:
     static constexpr auto COLUMN_NAME_DUMMY = "_dummy";
 
-    explicit ColumnObject(bool is_nullable_);
+    explicit ColumnObject(bool is_nullable_, bool create_root = true);
 
     ColumnObject(Subcolumns&& subcolumns_, bool is_nullable_);
 
     ~ColumnObject() override = default;
 
-    bool can_be_inside_nullable() const override { return true; }
+    bool can_be_inside_nullable() const override { return false; }
 
     /// Checks that all subcolumns have consistent sizes.
     void check_consistency() const;
 
+    MutableColumnPtr get_root() {
+        if (subcolumns.empty() || is_nothing(subcolumns.get_root()->data.get_least_common_type())) {
+            return nullptr;
+        }
+        return subcolumns.get_mutable_root()->data.get_finalized_column_ptr()->assume_mutable();
+    }
+
+    bool serialize_one_row_to_string(int row, std::string* output) const;
+
+    bool serialize_one_row_to_string(int row, BufferWritable& output) const;
+
+    // serialize one row to json format
+    bool serialize_one_row_to_json_format(int row, rapidjson::StringBuffer* output,
+                                          bool* is_null) const;
+
+    // merge multiple sub sparse columns into root
+    void merge_sparse_to_root_column();
+
+    // ensure root node is a certain type
+    void ensure_root_node_type(const DataTypePtr& type);
+
+    // create jsonb root if missing
+    void create_root();
+
+    // create root with type and column if missing
+    void create_root(const DataTypePtr& type, MutableColumnPtr&& column);
+
+    // root is null or type nothing
+    bool is_null_root() const;
+
+    // Only single scalar root column
+    bool is_scalar_variant() const;
+
+    ColumnPtr get_root() const { return subcolumns.get_root()->data.get_finalized_column_ptr(); }
+
     bool has_subcolumn(const PathInData& key) const;
+
+    DataTypePtr get_root_type() const;
+
+    bool is_variant() const override { return true; }
 
     // return null if not found
     const Subcolumn* get_subcolumn(const PathInData& key) const;
@@ -226,14 +298,10 @@ public:
     size_t rows() const { return num_rows; }
 
     /// Adds a subcolumn from existing IColumn.
-    bool add_sub_column(const PathInData& key, MutableColumnPtr&& subcolumn);
+    bool add_sub_column(const PathInData& key, MutableColumnPtr&& subcolumn, DataTypePtr type);
 
     /// Adds a subcolumn of specific size with default values.
     bool add_sub_column(const PathInData& key, size_t new_size);
-
-    /// Adds a subcolumn of type Nested of specific size with default values.
-    /// It cares about consistency of sizes of Nested arrays.
-    bool add_nested_subcolumn(const PathInData& key, const FieldInfo& field_info, size_t new_size);
 
     const Subcolumns& get_subcolumns() const { return subcolumns; }
 
@@ -258,10 +326,14 @@ public:
 
     void remove_subcolumns(const std::unordered_set<std::string>& keys);
 
+    void finalize(bool ignore_sparse);
+
     /// Finalizes all subcolumns.
-    void finalize();
+    void finalize() override;
 
     bool is_finalized() const;
+
+    void clear() override;
 
     /// Part of interface
     const char* get_family_name() const override { return "Variant"; }
@@ -279,8 +351,6 @@ public:
     // Do nothing, call try_insert instead
     void insert(const Field& field) override { try_insert(field); }
 
-    void insert_range_from(const IColumn& src, size_t start, size_t length) override;
-
     void append_data_by_selector(MutableColumnPtr& res,
                                  const IColumn::Selector& selector) const override;
 
@@ -290,18 +360,16 @@ public:
     // May throw execption
     void try_insert(const Field& field);
 
-    void try_insert_from(const IColumn& src, size_t n);
+    void insert_from(const IColumn& src, size_t n) override;
 
-    void try_insert_range_from(const IColumn& src, size_t start, size_t length);
+    void insert_range_from(const IColumn& src, size_t start, size_t length) override;
 
     void insert_default() override;
 
     // Revise this column to specified num_rows
     void revise_to(int num_rows);
 
-    [[noreturn]] ColumnPtr replicate(const Offsets& offsets) const override {
-        LOG(FATAL) << "should not call the method replicate in column object";
-    }
+    ColumnPtr replicate(const Offsets& offsets) const override;
 
     void pop_back(size_t length) override;
 
@@ -339,12 +407,11 @@ public:
 
     ColumnPtr filter(const Filter&, ssize_t) const override;
 
+    Status filter_by_selector(const uint16_t* sel, size_t sel_size, IColumn* col_ptr) override;
+
     size_t filter(const Filter&) override;
 
-    ColumnPtr permute(const Permutation&, size_t) const override {
-        LOG(FATAL) << "should not call the method in column object";
-        return nullptr;
-    }
+    ColumnPtr permute(const Permutation&, size_t) const override;
 
     int compare_at(size_t n, size_t m, const IColumn& rhs, int nan_direction_hint) const override {
         LOG(FATAL) << "should not call the method in column object";
@@ -378,9 +445,16 @@ public:
     }
 
     template <typename Func>
-    ColumnPtr apply_for_subcolumns(Func&& func, std::string_view func_name) const;
+    MutableColumnPtr apply_for_subcolumns(Func&& func) const;
 
     ColumnPtr index(const IColumn& indexes, size_t limit) const override;
+
+    // Extract path from root column and replace root with new extracted column,
+    // root must be jsonb type
+    Status extract_root(const PathInData& path);
+
+    // Extract path from root column and output to dst
+    Status extract_root(const PathInData& path, MutableColumnPtr& dst) const;
 
     void strip_outer_array();
 

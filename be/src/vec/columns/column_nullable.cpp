@@ -564,9 +564,7 @@ bool ColumnNullable::has_null(size_t size) const {
 }
 
 ColumnPtr make_nullable(const ColumnPtr& column, bool is_nullable) {
-    if (is_column_nullable(*column)) {
-        return column;
-    }
+    if (is_column_nullable(*column) || !column->can_be_inside_nullable()) return column;
 
     if (is_column_const(*column)) {
         return ColumnConst::create(

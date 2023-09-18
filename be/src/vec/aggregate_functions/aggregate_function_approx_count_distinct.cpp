@@ -22,6 +22,7 @@
 #include "vec/columns/column_array.h"
 #include "vec/columns/column_decimal.h"
 #include "vec/columns/column_map.h"
+#include "vec/columns/column_object.h"
 #include "vec/columns/column_string.h"
 #include "vec/columns/column_struct.h"
 #include "vec/data_types/data_type.h"

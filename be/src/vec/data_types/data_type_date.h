@@ -53,6 +53,10 @@ public:
     TPrimitiveType::type get_type_as_tprimitive_type() const override {
         return TPrimitiveType::DATE;
     }
+
+    doris::FieldType get_type_as_field_type() const override {
+        return doris::FieldType::OLAP_FIELD_TYPE_DATE;
+    }
     const char* get_family_name() const override { return "DateTime"; }
     std::string do_get_name() const override { return "Date"; }
 

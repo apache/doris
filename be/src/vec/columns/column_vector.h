@@ -412,6 +412,10 @@ public:
     template <typename Type>
     ColumnPtr index_impl(const PaddedPODArray<Type>& indexes, size_t limit) const;
 
+    double get_ratio_of_default_rows(double sample_ratio) const override {
+        return this->template get_ratio_of_default_rows_impl<Self>(sample_ratio);
+    }
+
     ColumnPtr replicate(const IColumn::Offsets& offsets) const override;
 
     void replicate(const uint32_t* indexs, size_t target_size, IColumn& column) const override;

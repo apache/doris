@@ -32,6 +32,8 @@
 
 #include "common/exception.h"
 #include "common/status.h"
+#include "util/bitmap_value.h"
+#include "util/jsonb_writer.h"
 #include "vec/common/field_visitors.h"
 #include "vec/common/typeid_cast.h"
 #include "vec/core/accurate_comparison.h"
@@ -85,7 +87,75 @@ public:
     [[noreturn]] String operator()(const DecimalField<Decimal256>& x) const {
         LOG(FATAL) << "not implemeted";
     }
+    [[noreturn]] String operator()(const JsonbField& x) const { LOG(FATAL) << "not implemeted"; }
 };
+
+class FieldVisitorToJsonb : public StaticVisitor<void> {
+public:
+    void operator()(const Null& x, JsonbWriter* writer) const { writer->writeNull(); }
+    void operator()(const UInt64& x, JsonbWriter* writer) const { writer->writeInt64(x); }
+    void operator()(const UInt128& x, JsonbWriter* writer) const {
+        writer->writeInt128(int128_t(x));
+    }
+    void operator()(const Int128& x, JsonbWriter* writer) const {
+        writer->writeInt128(int128_t(x));
+    }
+    void operator()(const Int64& x, JsonbWriter* writer) const { writer->writeInt64(x); }
+    void operator()(const Float64& x, JsonbWriter* writer) const { writer->writeDouble(x); }
+    void operator()(const String& x, JsonbWriter* writer) const {
+        writer->writeStartString();
+        writer->writeString(x);
+        writer->writeEndString();
+    }
+    void operator()(const Array& x, JsonbWriter* writer) const;
+
+    void operator()(const Tuple& x, JsonbWriter* writer) const {
+        throw doris::Exception(doris::ErrorCode::NOT_IMPLEMENTED_ERROR, "Not implemeted");
+    }
+    void operator()(const DecimalField<Decimal32>& x, JsonbWriter* writer) const {
+        throw doris::Exception(doris::ErrorCode::NOT_IMPLEMENTED_ERROR, "Not implemeted");
+    }
+    void operator()(const DecimalField<Decimal64>& x, JsonbWriter* writer) const {
+        throw doris::Exception(doris::ErrorCode::NOT_IMPLEMENTED_ERROR, "Not implemeted");
+    }
+    void operator()(const DecimalField<Decimal128>& x, JsonbWriter* writer) const {
+        throw doris::Exception(doris::ErrorCode::NOT_IMPLEMENTED_ERROR, "Not implemeted");
+    }
+    void operator()(const DecimalField<Decimal128I>& x, JsonbWriter* writer) const {
+        throw doris::Exception(doris::ErrorCode::NOT_IMPLEMENTED_ERROR, "Not implemeted");
+    }
+    void operator()(const DecimalField<Decimal256>& x, JsonbWriter* writer) const {
+        throw doris::Exception(doris::ErrorCode::NOT_IMPLEMENTED_ERROR, "Not implemeted");
+    }
+    void operator()(const doris::QuantileState& x, JsonbWriter* writer) const {
+        throw doris::Exception(doris::ErrorCode::NOT_IMPLEMENTED_ERROR, "Not implemeted");
+    }
+    void operator()(const HyperLogLog& x, JsonbWriter* writer) const {
+        throw doris::Exception(doris::ErrorCode::NOT_IMPLEMENTED_ERROR, "Not implemeted");
+    }
+    void operator()(const BitmapValue& x, JsonbWriter* writer) const {
+        throw doris::Exception(doris::ErrorCode::NOT_IMPLEMENTED_ERROR, "Not implemeted");
+    }
+    void operator()(const VariantMap& x, JsonbWriter* writer) const {
+        throw doris::Exception(doris::ErrorCode::NOT_IMPLEMENTED_ERROR, "Not implemeted");
+    }
+    void operator()(const Map& x, JsonbWriter* writer) const {
+        throw doris::Exception(doris::ErrorCode::NOT_IMPLEMENTED_ERROR, "Not implemeted");
+    }
+    void operator()(const JsonbField& x, JsonbWriter* writer) const {
+        throw doris::Exception(doris::ErrorCode::NOT_IMPLEMENTED_ERROR, "Not implemeted");
+    }
+};
+
+void FieldVisitorToJsonb::operator()(const Array& x, JsonbWriter* writer) const {
+    const size_t size = x.size();
+    writer->writeStartArray();
+    for (size_t i = 0; i < size; ++i) {
+        Field::dispatch([writer](const auto& value) { FieldVisitorToJsonb()(value, writer); },
+                        x[i]);
+    }
+    writer->writeEndArray();
+}
 
 namespace {
 template <typename From, typename To>
@@ -175,6 +245,16 @@ void convert_field_to_typeImpl(const Field& src, const IDataType& type,
         // TODO this is a very simple translator, support more complex types
         *to = apply_visitor(FieldVisitorToStringSimple(), src);
         return;
+    } else if (which_type.is_json()) {
+        if (src.get_type() == Field::Types::JSONB) {
+            *to = src;
+            return;
+        }
+        JsonbWriter writer;
+        Field::dispatch([&writer](const auto& value) { FieldVisitorToJsonb()(value, &writer); },
+                        src);
+        *to = JsonbField(writer.getOutput()->getBuffer(), writer.getOutput()->getSize());
+        return;
     } else if (const DataTypeArray* type_array = typeid_cast<const DataTypeArray*>(&type)) {
         if (src.get_type() == Field::Types::Array) {
             const Array& src_arr = src.get<Array>();
@@ -192,45 +272,6 @@ void convert_field_to_typeImpl(const Field& src, const IDataType& type,
             return;
         }
     }
-    // else if (const DataTypeTuple* type_tuple = typeid_cast<const DataTypeTuple*>(&type)) {
-    //     if (src.get_type() == Field::Types::Tuple) {
-    //         const auto& src_tuple = src.get<Tuple>();
-    //         size_t src_tuple_size = src_tuple.size();
-    //         size_t dst_tuple_size = type_tuple->get_elements().size();
-    //         if (dst_tuple_size != src_tuple_size) {
-    //             return Status::InvalidArgument("Bad size of tuple in IN or VALUES section");
-    //         }
-    //         Tuple res(dst_tuple_size);
-    //         bool have_unconvertible_element = false;
-    //         for (size_t i = 0; i < dst_tuple_size; ++i) {
-    //             const auto& element_type = *(type_tuple->get_elements()[i]);
-    //             RETURN_IF_ERROR(convert_field_to_type(src_tuple[i], element_type, &res[i]));
-    //             if (!res[i].is_null() || element_type.is_nullable()) continue;
-    //             /*
-    //              * Either the source element was Null, or the conversion did not
-    //              * succeed, because the source and the requested types of the
-    //              * element are compatible, but the value is not convertible
-    //              * (e.g. trying to convert -1 from Int8 to UInt8). In these
-    //              * cases, consider the whole tuple also compatible but not
-    //              * convertible. According to the specification of this function,
-    //              * we must return Null in this case.
-    //              *
-    //              * The following elements might be not even compatible, so it
-    //              * makes sense to check them to detect user errors. Remember
-    //              * that there is an unconvertible element, and try to process
-    //              * the remaining ones. The convert_field_to_type for each element
-    //              * will throw if it detects incompatibility.
-    //              */
-    //             have_unconvertible_element = true;
-    //         }
-    //         if (have_unconvertible_element) {
-    //             return Status::InvalidArgument(fmt::format("Cannot convert {} to {}",
-    //                                                        src.get_type_name(), type.get_name()));
-    //         }
-    //         *to = Field(res);
-    //         return Status::OK();
-    //     }
-    // }
     throw doris::Exception(ErrorCode::INVALID_ARGUMENT,
                            "Type mismatch in IN or VALUES section. Expected: {}. Got: {}",
                            type.get_name(), src.get_type());

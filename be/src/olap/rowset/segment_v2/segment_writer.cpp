@@ -109,12 +109,16 @@ SegmentWriter::~SegmentWriter() {
 void SegmentWriter::init_column_meta(ColumnMetaPB* meta, uint32_t column_id,
                                      const TabletColumn& column, TabletSchemaSPtr tablet_schema) {
     meta->set_column_id(column_id);
-    meta->set_unique_id(column.unique_id());
     meta->set_type(int(column.type()));
     meta->set_length(column.length());
     meta->set_encoding(DEFAULT_ENCODING);
     meta->set_compression(_opts.compression_type);
     meta->set_is_nullable(column.is_nullable());
+    meta->set_default_value(column.default_value());
+    meta->set_precision(column.precision());
+    meta->set_frac(column.frac());
+    column.path_info().to_protobuf(meta->mutable_column_path_info(), column.parent_unique_id());
+    meta->set_unique_id(column.unique_id());
     for (uint32_t i = 0; i < column.get_subtype_count(); ++i) {
         init_column_meta(meta->add_children_columns(), column_id, column.get_sub_column(i),
                          tablet_schema);
@@ -181,57 +185,30 @@ Status SegmentWriter::init(const std::vector<uint32_t>& col_ids, bool has_key) {
                 break;
             }
         }
-        if (column.type() == FieldType::OLAP_FIELD_TYPE_STRUCT) {
-            opts.need_zone_map = false;
-            if (opts.need_bloom_filter) {
-                return Status::NotSupported("Do not support bloom filter for struct type");
-            }
-            if (opts.need_bitmap_index) {
-                return Status::NotSupported("Do not support bitmap index for struct type");
-            }
-        }
-        if (column.type() == FieldType::OLAP_FIELD_TYPE_ARRAY) {
-            opts.need_zone_map = false;
-            if (opts.need_bloom_filter) {
-                return Status::NotSupported("Do not support bloom filter for array type");
-            }
-            if (opts.need_bitmap_index) {
-                return Status::NotSupported("Do not support bitmap index for array type");
-            }
-        }
-        if (column.type() == FieldType::OLAP_FIELD_TYPE_JSONB) {
-            opts.need_zone_map = false;
-            if (opts.need_bloom_filter) {
-                return Status::NotSupported("Do not support bloom filter for jsonb type");
-            }
-            if (opts.need_bitmap_index) {
-                return Status::NotSupported("Do not support bitmap index for jsonb type");
-            }
-        }
-        if (column.type() == FieldType::OLAP_FIELD_TYPE_AGG_STATE) {
-            opts.need_zone_map = false;
-            if (opts.need_bloom_filter) {
-                return Status::NotSupported("Do not support bloom filter for agg_state type");
-            }
-            if (opts.need_bitmap_index) {
-                return Status::NotSupported("Do not support bitmap index for agg_state type");
-            }
-        }
-        if (column.type() == FieldType::OLAP_FIELD_TYPE_MAP) {
-            opts.need_zone_map = false;
-            if (opts.need_bloom_filter) {
-                return Status::NotSupported("Do not support bloom filter for map type");
-            }
-            if (opts.need_bitmap_index) {
-                return Status::NotSupported("Do not support bitmap index for map type");
-            }
-        }
+#define CHECK_FIELD_TYPE(TYPE, type_name)                                                      \
+    if (column.type() == FieldType::OLAP_FIELD_TYPE_##TYPE) {                                  \
+        opts.need_zone_map = false;                                                            \
+        if (opts.need_bloom_filter) {                                                          \
+            return Status::NotSupported("Do not support bloom filter for " type_name " type"); \
+        }                                                                                      \
+        if (opts.need_bitmap_index) {                                                          \
+            return Status::NotSupported("Do not support bitmap index for " type_name " type"); \
+        }                                                                                      \
+    }
+
+        CHECK_FIELD_TYPE(STRUCT, "struct")
+        CHECK_FIELD_TYPE(ARRAY, "array")
+        CHECK_FIELD_TYPE(JSONB, "jsonb")
+        CHECK_FIELD_TYPE(AGG_STATE, "agg_state")
+        CHECK_FIELD_TYPE(MAP, "map")
+        CHECK_FIELD_TYPE(VARIANT, "variant")
+
+#undef CHECK_FIELD_TYPE
 
         if (column.is_row_store_column()) {
             // smaller page size for row store column
             opts.data_page_size = config::row_column_page_size;
         }
-
         std::unique_ptr<ColumnWriter> writer;
         RETURN_IF_ERROR(ColumnWriter::create(opts, &column, _file_writer, &writer));
         RETURN_IF_ERROR(writer->init());
@@ -641,7 +618,8 @@ Status SegmentWriter::fill_missing_columns(vectorized::MutableColumns& mutable_f
                 if (tablet_column.has_default_value()) {
                     mutable_full_columns[cids_missing[i]]->insert_from(
                             *mutable_default_value_columns[i].get(), 0);
-                } else if (tablet_column.is_nullable()) {
+                } else if (tablet_column.is_nullable() &&
+                           mutable_full_columns[cids_missing[i]]->can_be_inside_nullable()) {
                     auto nullable_column = assert_cast<vectorized::ColumnNullable*>(
                             mutable_full_columns[cids_missing[i]].get());
                     nullable_column->insert_null_elements(1);

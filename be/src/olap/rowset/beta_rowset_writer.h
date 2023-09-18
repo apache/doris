@@ -103,6 +103,8 @@ public:
 
     RowsetId rowset_id() override { return _context.rowset_id; }
 
+    RowsetWriterContext& mutable_context() override { return _context; }
+
     RowsetTypePB type() const override { return RowsetTypePB::BETA_ROWSET; }
 
     Status get_segment_num_rows(std::vector<uint32_t>* segment_num_rows) const override {
@@ -162,6 +164,13 @@ private:
     Status _rename_compacted_segments(int64_t begin, int64_t end);
     Status _rename_compacted_segment_plain(uint64_t seg_id);
     Status _rename_compacted_indices(int64_t begin, int64_t end, uint64_t seg_id);
+
+    // Unfold variant column to Block
+    // Eg. [A | B | C | (D, E, F)]
+    // After unfold block structure changed to -> [A | B | C | D | E | F]
+    // The expanded D, E, F is dynamic part of the block
+    // The flushed Block columns should match exactly from the same type of frontend meta
+    Status expand_variant_to_subcolumns(vectorized::Block& block, TabletSchemaSPtr& flush_schema);
 
     // build a tmp rowset for load segment to calc delete_bitmap
     // for this segment

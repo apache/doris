@@ -60,6 +60,10 @@ public:
         return TPrimitiveType::JSONB;
     }
 
+    doris::FieldType get_type_as_field_type() const override {
+        return doris::FieldType::OLAP_FIELD_TYPE_JSONB;
+    }
+
     int64_t get_uncompressed_serialized_bytes(const IColumn& column,
                                               int data_version) const override;
     char* serialize(const IColumn& column, char* buf, int data_version) const override;
