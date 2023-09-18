@@ -326,13 +326,21 @@ public class OutFileClause {
                     orcType = String.format("decimal(%d, %d)", ((ScalarType) dorisType).getPrecision(),
                             ((ScalarType) dorisType).decimalScale());
                 } else {
-                    throw new AnalysisException("currently ORC writer do not support WildcardDecimal!");
+                    throw new AnalysisException("currently ORC outfile do not support WildcardDecimal!");
                 }
                 break;
             case STRUCT: {
+                StructType structType = (StructType) dorisType;
+                ArrayList<StructField> fields = structType.getFields();
+                for (StructField field : fields) {
+                    if (!(field.getType() instanceof ScalarType)) {
+                        throw new AnalysisException("currently ORC outfile do not support field type: "
+                                + field.getType().toSql() + " for STRUCT");
+                    }
+                }
+
                 StringBuilder sb = new StringBuilder();
                 sb.append("struct<");
-                StructType structType = (StructType) dorisType;
                 for (int i = 0; i < structType.getFields().size(); ++i) {
                     if (i != 0) {
                         sb.append(",");
@@ -347,8 +355,13 @@ public class OutFileClause {
                 break;
             }
             case MAP: {
-                StringBuilder sb = new StringBuilder();
                 MapType mapType = (MapType) dorisType;
+                if ((!(mapType.getKeyType() instanceof ScalarType)
+                        || !(mapType.getValueType() instanceof ScalarType))) {
+                    throw new AnalysisException("currently ORC outfile do not support data type: MAP<"
+                            + mapType.getKeyType().toSql() + "," + mapType.getValueType().toSql() + ">");
+                }
+                StringBuilder sb = new StringBuilder();
                 sb.append("map<")
                         .append(dorisTypeToOrcTypeMap(mapType.getKeyType()))
                         .append(",")
@@ -358,6 +371,11 @@ public class OutFileClause {
                 break;
             }
             case ARRAY: {
+                Type itemType = ((ArrayType) dorisType).getItemType();
+                if (!(itemType instanceof ScalarType)) {
+                    throw new AnalysisException("currently ORC outfile do not support data type: ARRAY<"
+                            + itemType.toSql() + ">");
+                }
                 StringBuilder sb = new StringBuilder();
                 ArrayType arrayType = (ArrayType) dorisType;
                 sb.append("array<")
