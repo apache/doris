@@ -88,7 +88,7 @@ struct BitmapTypeCode {
                     fmt::format("BitmapTypeCode invalid, should between: {} and {} actrual is {}",
                                 BitmapTypeCode::EMPTY, BitmapTypeCode::BITMAP64, bitmap_type);
             LOG(ERROR) << err_msg;
-            return Status::IOError(err_msg);
+            return Status::Corruption(err_msg);
         }
         return Status::OK();
     }

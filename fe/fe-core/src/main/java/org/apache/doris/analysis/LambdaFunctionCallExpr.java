@@ -113,7 +113,7 @@ public class LambdaFunctionCallExpr extends FunctionCallExpr {
                         + lambda.debugString());
             }
             fn = new Function(fnName, Arrays.asList(argTypes), ArrayType.create(lambda.getChild(0).getType(), true),
-                    true, true, NullableMode.DEPEND_ON_ARGUMENT);
+                    true, true, NullableMode.CUSTOM);
         } else if (fnName.getFunction().equalsIgnoreCase("array_exists")
                 || fnName.getFunction().equalsIgnoreCase("array_first_index")
                 || fnName.getFunction().equalsIgnoreCase("array_last_index")

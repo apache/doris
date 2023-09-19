@@ -23,6 +23,7 @@ import org.apache.doris.planner.RuntimeFilterId;
 import org.apache.doris.thrift.TRuntimeFilterType;
 
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.Lists;
 
 import java.util.List;
 
@@ -61,8 +62,8 @@ public class RuntimeFilter {
             long buildSideNdv) {
         this.id = id;
         this.srcSlot = src;
-        this.targetSlots = ImmutableList.copyOf(targets);
-        this.targetExpressions = ImmutableList.copyOf(targetExpressions);
+        this.targetSlots = Lists.newArrayList(targets);
+        this.targetExpressions = Lists.newArrayList(targetExpressions);
         this.type = type;
         this.exprOrder = exprOrder;
         this.builderNode = builderNode;
@@ -105,6 +106,14 @@ public class RuntimeFilter {
 
     public long getBuildSideNdv() {
         return buildSideNdv;
+    }
+
+    public void addTargetSlot(Slot target) {
+        targetSlots.add(target);
+    }
+
+    public void addTargetExpressoin(Expression targetExpr) {
+        targetExpressions.add(targetExpr);
     }
 
     @Override

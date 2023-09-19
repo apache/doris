@@ -46,6 +46,7 @@ ExchangeLocalState::ExchangeLocalState(RuntimeState* state, OperatorXBase* paren
 Status ExchangeLocalState::init(RuntimeState* state, LocalStateInfo& info) {
     RETURN_IF_ERROR(PipelineXLocalState<>::init(state, info));
     SCOPED_TIMER(profile()->total_time_counter());
+    SCOPED_TIMER(_open_timer);
     auto& p = _parent->cast<ExchangeSourceOperatorX>();
     stream_recvr = state->exec_env()->vstream_mgr()->create_recvr(
             state, p.input_row_desc(), state->fragment_instance_id(), p.id(), p.num_senders(),
@@ -72,6 +73,7 @@ Status ExchangeLocalState::init(RuntimeState* state, LocalStateInfo& info) {
 
 Status ExchangeLocalState::open(RuntimeState* state) {
     SCOPED_TIMER(profile()->total_time_counter());
+    SCOPED_TIMER(_open_timer);
     RETURN_IF_ERROR(PipelineXLocalState<>::open(state));
     return Status::OK();
 }
@@ -156,6 +158,7 @@ Status ExchangeSourceOperatorX::get_block(RuntimeState* state, vectorized::Block
             local_state.set_num_rows_returned(_limit);
         }
         COUNTER_SET(local_state.rows_returned_counter(), local_state.num_rows_returned());
+        COUNTER_UPDATE(local_state.blocks_returned_counter(), 1);
     }
     if (eos) {
         source_state = SourceState::FINISHED;
@@ -175,6 +178,7 @@ bool ExchangeSourceOperatorX::is_pending_finish(RuntimeState* /*state*/) const {
 
 Status ExchangeLocalState::close(RuntimeState* state) {
     SCOPED_TIMER(profile()->total_time_counter());
+    SCOPED_TIMER(_close_timer);
     if (_closed) {
         return Status::OK();
     }

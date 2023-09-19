@@ -66,6 +66,7 @@ Status AggSinkLocalState<DependencyType, Derived>::init(RuntimeState* state,
                                                         LocalSinkStateInfo& info) {
     RETURN_IF_ERROR(Base::init(state, info));
     SCOPED_TIMER(Base::profile()->total_time_counter());
+    SCOPED_TIMER(Base::_open_timer);
     _agg_data = Base::_shared_state->agg_data.get();
     _agg_arena_pool = Base::_shared_state->agg_arena_pool.get();
     auto& p = Base::_parent->template cast<typename Derived::Parent>();
@@ -160,6 +161,7 @@ Status AggSinkLocalState<DependencyType, Derived>::init(RuntimeState* state,
 template <typename DependencyType, typename Derived>
 Status AggSinkLocalState<DependencyType, Derived>::open(RuntimeState* state) {
     SCOPED_TIMER(Base::profile()->total_time_counter());
+    SCOPED_TIMER(Base::_open_timer);
     RETURN_IF_ERROR(Base::open(state));
     _agg_data = Base::_shared_state->agg_data.get();
     // move _create_agg_status to open not in during prepare,
@@ -927,6 +929,7 @@ Status AggSinkOperatorX<LocalStateType>::sink(doris::RuntimeState* state,
 template <typename DependencyType, typename Derived>
 Status AggSinkLocalState<DependencyType, Derived>::close(RuntimeState* state) {
     SCOPED_TIMER(Base::profile()->total_time_counter());
+    SCOPED_TIMER(Base::_close_timer);
     if (Base::_closed) {
         return Status::OK();
     }

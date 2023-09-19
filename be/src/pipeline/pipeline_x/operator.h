@@ -84,7 +84,6 @@ public:
     void clear_origin_block();
 
     bool reached_limit() const;
-    void reached_limit(vectorized::Block* block, bool* eos);
     void reached_limit(vectorized::Block* block, SourceState& source_state);
     RuntimeProfile* profile() { return _runtime_profile.get(); }
 
@@ -94,7 +93,7 @@ public:
     RuntimeProfile::Counter* memory_used_counter() { return _memory_used_counter; }
     RuntimeProfile::Counter* projection_timer() { return _projection_timer; }
     RuntimeProfile::Counter* wait_for_dependency_timer() { return _wait_for_dependency_timer; }
-    RuntimeProfile::Counter* rows_input_counter() { return _rows_input_counter; }
+    RuntimeProfile::Counter* blocks_returned_counter() { return _rows_returned_counter; }
 
     OperatorXBase* parent() { return _parent; }
     RuntimeState* state() { return _state; }
@@ -119,7 +118,7 @@ protected:
     std::unique_ptr<MemTracker> _mem_tracker;
 
     RuntimeProfile::Counter* _rows_returned_counter;
-    RuntimeProfile::Counter* _rows_input_counter;
+    RuntimeProfile::Counter* _blocks_returned_counter;
     RuntimeProfile::Counter* _rows_returned_rate;
     RuntimeProfile::Counter* _wait_for_dependency_timer;
     // Account for peak memory used by this node
@@ -127,6 +126,8 @@ protected:
     RuntimeProfile::Counter* _projection_timer;
     // Account for peak memory used by this node
     RuntimeProfile::Counter* _peak_memory_usage_counter;
+    RuntimeProfile::Counter* _open_timer = nullptr;
+    RuntimeProfile::Counter* _close_timer = nullptr;
 
     OpentelemetrySpan _span;
     OperatorXBase* _parent;
@@ -325,8 +326,10 @@ public:
             RETURN_IF_ERROR(_parent->_projections[i]->clone(state, _projections[i]));
         }
         _rows_returned_counter = ADD_COUNTER(_runtime_profile, "RowsReturned", TUnit::UNIT);
-        _rows_input_counter = ADD_COUNTER(_runtime_profile, "InputRows", TUnit::UNIT);
+        _blocks_returned_counter = ADD_COUNTER(_runtime_profile, "BlocksReturned", TUnit::UNIT);
         _projection_timer = ADD_TIMER(_runtime_profile, "ProjectionTime");
+        _open_timer = ADD_TIMER(_runtime_profile, "OpenTime");
+        _close_timer = ADD_TIMER(_runtime_profile, "CloseTime");
         _rows_returned_rate = profile()->add_derived_counter(
                 doris::ExecNode::ROW_THROUGHPUT_COUNTER, TUnit::UNIT_PER_SECOND,
                 std::bind<int64_t>(&RuntimeProfile::units_per_second, _rows_returned_counter,
@@ -423,6 +426,8 @@ protected:
             std::make_unique<RuntimeProfile>("faker profile");
 
     RuntimeProfile::Counter* _rows_input_counter;
+    RuntimeProfile::Counter* _open_timer = nullptr;
+    RuntimeProfile::Counter* _close_timer = nullptr;
 };
 
 class DataSinkOperatorXBase : public OperatorBase {
@@ -554,6 +559,8 @@ public:
         _profile = state->obj_pool()->add(new RuntimeProfile(
                 _parent->get_name() + " (id=" + std::to_string(_parent->id()) + ")"));
         _rows_input_counter = ADD_COUNTER(_profile, "InputRows", TUnit::UNIT);
+        _open_timer = ADD_TIMER(_profile, "OpenTime");
+        _close_timer = ADD_TIMER(_profile, "CloseTime");
         info.parent_profile->add_child(_profile, true, nullptr);
         _mem_tracker = std::make_unique<MemTracker>(_parent->get_name());
         return Status::OK();

@@ -250,6 +250,8 @@ public class InsertIntoTableCommand extends Command implements ForwardWithSync, 
                     sink.getColNames(),
                     sink.getHints(),
                     tempPartitionNames,
+                    sink.isPartialUpdate(),
+                    sink.isFromNativeInsertStmt(),
                     (LogicalPlan) (sink.child(0)));
             new InsertIntoTableCommand(copySink, labelName, false).run(ctx, executor);
             if (ctx.getState().getStateType() == MysqlStateType.ERR) {

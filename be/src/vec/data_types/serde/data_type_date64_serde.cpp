@@ -61,15 +61,18 @@ void DataTypeDate64SerDe::serialize_one_cell_to_json(const IColumn& column, int 
     }
 }
 
-Status DataTypeDate64SerDe::deserialize_column_from_json_vector(
-        IColumn& column, std::vector<Slice>& slices, int* num_deserialized,
-        const FormatOptions& options) const {
-    DESERIALIZE_COLUMN_FROM_JSON_VECTOR()
+Status DataTypeDate64SerDe::deserialize_column_from_json_vector(IColumn& column,
+                                                                std::vector<Slice>& slices,
+                                                                int* num_deserialized,
+                                                                const FormatOptions& options,
+                                                                int nesting_level) const {
+    DESERIALIZE_COLUMN_FROM_JSON_VECTOR();
     return Status::OK();
 }
 
 Status DataTypeDate64SerDe::deserialize_one_cell_from_json(IColumn& column, Slice& slice,
-                                                           const FormatOptions& options) const {
+                                                           const FormatOptions& options,
+                                                           int nesting_level) const {
     auto& column_data = assert_cast<ColumnInt64&>(column);
     Int64 val = 0;
     if (options.date_olap_format) {
@@ -128,15 +131,18 @@ void DataTypeDateTimeSerDe::serialize_one_cell_to_json(const IColumn& column, in
     }
 }
 
-Status DataTypeDateTimeSerDe::deserialize_column_from_json_vector(
-        IColumn& column, std::vector<Slice>& slices, int* num_deserialized,
-        const FormatOptions& options) const {
+Status DataTypeDateTimeSerDe::deserialize_column_from_json_vector(IColumn& column,
+                                                                  std::vector<Slice>& slices,
+                                                                  int* num_deserialized,
+                                                                  const FormatOptions& options,
+                                                                  int nesting_level) const {
     DESERIALIZE_COLUMN_FROM_JSON_VECTOR()
     return Status::OK();
 }
 
 Status DataTypeDateTimeSerDe::deserialize_one_cell_from_json(IColumn& column, Slice& slice,
-                                                             const FormatOptions& options) const {
+                                                             const FormatOptions& options,
+                                                             int nesting_level) const {
     auto& column_data = assert_cast<ColumnInt64&>(column);
     Int64 val = 0;
     if (options.date_olap_format) {
