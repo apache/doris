@@ -755,6 +755,14 @@ visible_functions = [
         '_ZN5doris18TimestampFunctions9weeks_subEPN9doris_udf'
         '15FunctionContextERKNS1_11DateTimeValERKNS1_6IntValE',
         '', '', 'vec', 'ALWAYS_NULLABLE'],
+    [['days_add', 'date_add', 'adddate'], 'DATE', ['DATE', 'INT'],
+     '_ZN5doris18TimestampFunctions8days_addEPN9doris_udf'
+     '15FunctionContextERKNS1_11DateTimeV2ValERKNS1_6IntValE',
+     '', '', 'vec', ''],
+    [['days_sub', 'date_sub', 'subdate'], 'DATE', ['DATE', 'INT'],
+     '_ZN5doris18TimestampFunctions8days_subEPN9doris_udf'
+     '15FunctionContextERKNS1_11DateTimeV2ValERKNS1_6IntValE',
+     '', '', 'vec', ''],
     [['days_add', 'date_add', 'adddate'], 'DATETIME', ['DATETIME', 'INT'],
         '_ZN5doris18TimestampFunctions8days_addEPN9doris_udf'
         '15FunctionContextERKNS1_11DateTimeValERKNS1_6IntValE',
