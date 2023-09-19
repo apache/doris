@@ -594,7 +594,8 @@ void PlanFragmentExecutor::cancel(const PPlanFragmentCancelReason& reason, const
             .tag("reason", reason)
             .tag("error message", msg);
     if (_runtime_state->is_cancelled()) {
-        LOG(INFO) << "instance is already cancelled, skip cancel again";
+        LOG(INFO) << "instance << " << print_id(_runtime_state->fragment_instance_id())
+                  << "is already cancelled, skip cancel again";
         return;
     }
     DCHECK(_prepared);
@@ -608,7 +609,8 @@ void PlanFragmentExecutor::cancel(const PPlanFragmentCancelReason& reason, const
     _query_ctx->set_ready_to_execute(true);
 
     // must close stream_mgr to avoid dead lock in Exchange Node
-    _exec_env->vstream_mgr()->cancel(_fragment_instance_id);
+    Status cancel_status = Status::Cancelled(msg);
+    _exec_env->vstream_mgr()->cancel(_fragment_instance_id, cancel_status);
     // Cancel the result queue manager used by spark doris connector
     _exec_env->result_queue_mgr()->update_queue_status(_fragment_instance_id, Status::Aborted(msg));
 #ifndef BE_TEST

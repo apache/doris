@@ -101,7 +101,7 @@ public:
                                   const PPlanFragmentCancelReason& reason,
                                   const std::unique_lock<std::mutex>& state_lock,
                                   const std::string& msg = "");
-    Status trigger_pipeline_context_report(const ReportStatusRequest&,
+    Status trigger_pipeline_context_report(const ReportStatusRequest,
                                            std::shared_ptr<pipeline::PipelineFragmentContext>&&);
 
     // Pipeline version, cancel a fragment instance.
@@ -207,7 +207,7 @@ private:
     UIntGauge* timeout_canceled_fragment_count = nullptr;
 
     RuntimeFilterMergeController _runtimefilter_controller;
-    std::unique_ptr<pipeline::PipelineContextReportExecutor> _pipeline_ctx_report_executor;
+    std::unique_ptr<ThreadPool> _async_report_thread_pool; // used for pipeliine context report
 };
 
 } // namespace doris

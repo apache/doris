@@ -166,7 +166,7 @@ void PipelineFragmentContext::cancel(const PPlanFragmentCancelReason& reason,
                          << " is canceled, cancel message: " << msg;
 
         } else {
-            _set_is_report_on_cancel(false);
+            _set_is_report_on_cancel(false); // TODO bug llj fix this not projected by lock
         }
 
         _runtime_state->set_process_status(_query_ctx->exec_status());
@@ -178,7 +178,9 @@ void PipelineFragmentContext::cancel(const PPlanFragmentCancelReason& reason,
         }
 
         // must close stream_mgr to avoid dead lock in Exchange Node
-        _exec_env->vstream_mgr()->cancel(_fragment_instance_id);
+        // TODO bug llj  fix this other instance will not cancel
+        Status cancel_status = Status::Cancelled(msg);
+        _exec_env->vstream_mgr()->cancel(_fragment_instance_id, cancel_status);
         // Cancel the result queue manager used by spark doris connector
         // TODO pipeline incomp
         // _exec_env->result_queue_mgr()->update_queue_status(id, Status::Aborted(msg));
@@ -362,34 +364,55 @@ Status PipelineFragmentContext::_build_pipeline_tasks(
 }
 
 void PipelineFragmentContext::_init_next_report_time() {
-    if (_is_report_success && config::status_report_interval > 0) {
+    auto interval_s = config::pipeline_status_report_interval;
+    if (_is_report_success && interval_s > 0 && _query_ctx->timeout_second > interval_s) {
         std::vector<string> ins_ids;
         instance_ids(ins_ids);
-        VLOG_FILE << "report_profile(): instance_id="
+        VLOG_FILE << "enable period report: instance_id="
                   << fmt::format("{}", fmt::join(ins_ids, ", "));
-        uint64_t report_fragment_offset =
-                (uint64_t)(rand() % config::status_report_interval) * NANOS_PER_SEC;
+        uint64_t report_fragment_offset = (uint64_t)(rand() % interval_s) * NANOS_PER_SEC;
         // We don't want to wait longer than it takes to run the entire fragment.
-        _next_report_time = MonotonicNanos() + report_fragment_offset;
+        _previous_report_time =
+                MonotonicNanos() + report_fragment_offset - (uint64_t)(interval_s)*NANOS_PER_SEC;
+        _disable_period_report = false;
     }
 }
 
+void PipelineFragmentContext::refresh_next_report_time() {
+    auto disable = _disable_period_report.load(std::memory_order_acq_rel);
+    DCHECK(disable == true);
+    _previous_report_time = MonotonicNanos();
+    _disable_period_report.compare_exchange_strong(disable, false);
+}
+
 void PipelineFragmentContext::trigger_report_if_necessary() {
-    if (_next_report_time == 0) {
+    if (!_is_report_success) {
         return;
     }
-    auto interval_s = config::status_report_interval;
+    auto disable = _disable_period_report.load(std::memory_order_acq_rel);
+    if (disable) {
+        return;
+    }
+    int32_t interval_s = config::pipeline_status_report_interval;
     if (interval_s <= 0) {
         LOG(WARNING)
                 << "config::status_report_interval is equal to or less than zero, do not trigger "
                    "report.";
     }
-    auto now = MonotonicNanos();
-    if (now > _next_report_time) {
-        _next_report_time = now + (uint64_t)(interval_s)*NANOS_PER_SEC;
+    uint64_t next_report_time = _previous_report_time.load(std::memory_order_acq_rel) +
+                                (uint64_t)(interval_s)*NANOS_PER_SEC;
+    if (MonotonicNanos() > next_report_time) {
+        if (!_disable_period_report.compare_exchange_strong(disable, true,
+                                                            std::memory_order_acq_rel)) {
+            return;
+        }
         if (VLOG_FILE_IS_ON) {
+            std::vector<string> ins_ids;
+            instance_ids(ins_ids);
             VLOG_FILE << "Reporting "
-                      << "profile for instance " << _runtime_state->fragment_instance_id();
+                      << "profile for query_id " << print_id(_query_id)
+                      << ", instance ids: " << fmt::format("{}", fmt::join(ins_ids, ", "));
+
             std::stringstream ss;
             _runtime_state->runtime_profile()->compute_time_in_profile();
             _runtime_state->runtime_profile()->pretty_print(&ss);
@@ -399,7 +422,12 @@ void PipelineFragmentContext::trigger_report_if_necessary() {
             }
             VLOG_FILE << ss.str();
         }
-        send_report(false);
+        auto st = send_report(false);
+        if (!st.ok()) {
+            disable = true;
+            _disable_period_report.compare_exchange_strong(disable, false,
+                                                           std::memory_order_acq_rel);
+        }
     }
 }
 
@@ -819,7 +847,7 @@ void PipelineFragmentContext::close_a_pipeline() {
     }
 }
 
-void PipelineFragmentContext::send_report(bool done) {
+Status PipelineFragmentContext::send_report(bool done) {
     Status exec_status = Status::OK();
     {
         std::lock_guard<std::mutex> l(_status_lock);
@@ -829,7 +857,7 @@ void PipelineFragmentContext::send_report(bool done) {
     // If plan is done successfully, but _is_report_success is false,
     // no need to send report.
     if (!_is_report_success && done && exec_status.ok()) {
-        return;
+        return Status::NeedSendAgain("");
     }
 
     // If both _is_report_success and _is_report_on_cancel are false,
@@ -837,10 +865,10 @@ void PipelineFragmentContext::send_report(bool done) {
     // This may happen when the query limit reached and
     // a internal cancellation being processed
     if (!_is_report_success && !_is_report_on_cancel) {
-        return;
+        return Status::NeedSendAgain("");
     }
 
-    _report_status_cb(
+    return _report_status_cb(
             {false,
              exec_status,
              {},

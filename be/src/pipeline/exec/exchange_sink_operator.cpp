@@ -278,7 +278,8 @@ template <typename ChannelPtrType>
 void ExchangeSinkOperatorX::_handle_eof_channel(RuntimeState* state, ChannelPtrType channel,
                                                 Status st) {
     channel->set_receiver_eof(st);
-    channel->close(state);
+    Status ok = Status::OK();
+    channel->close(state, ok);
 }
 
 Status ExchangeSinkOperatorX::sink(RuntimeState* state, vectorized::Block* block,
@@ -337,8 +338,8 @@ Status ExchangeSinkOperatorX::sink(RuntimeState* state, vectorized::Block* block
                                 status = channel->send_local_block(&cur_block);
                             } else {
                                 SCOPED_CONSUME_MEM_TRACKER(_mem_tracker.get());
-                                status = channel->send_block(block_holder, &sent,
-                                                             source_state == SourceState::FINISHED);
+                                status = channel->send_broadcast_block(
+                                        block_holder, &sent, source_state == SourceState::FINISHED);
                             }
                             HANDLE_CHANNEL_STATUS(state, channel, status);
                         }
@@ -365,8 +366,8 @@ Status ExchangeSinkOperatorX::sink(RuntimeState* state, vectorized::Block* block
                 SCOPED_CONSUME_MEM_TRACKER(_mem_tracker.get());
                 RETURN_IF_ERROR(local_state._serializer.serialize_block(
                         block, current_channel->ch_cur_pb_block()));
-                auto status = current_channel->send_block(current_channel->ch_cur_pb_block(),
-                                                          source_state == SourceState::FINISHED);
+                auto status = current_channel->send_remote_block(
+                        current_channel->ch_cur_pb_block(), source_state == SourceState::FINISHED);
                 HANDLE_CHANNEL_STATUS(state, current_channel, status);
                 current_channel->ch_roll_pb_block();
             }
@@ -520,8 +521,9 @@ Status ExchangeSinkOperatorX::try_close(RuntimeState* state, Status exec_status)
     CREATE_SINK_LOCAL_STATE_RETURN_IF_ERROR(local_state);
     local_state._serializer.reset_block();
     Status final_st = Status::OK();
+    auto exec_status = state->query_status();
     for (int i = 0; i < local_state.channels.size(); ++i) {
-        Status st = local_state.channels[i]->close(state);
+        Status st = local_state.channels[i]->close(state, exec_status);
         if (!st.ok() && final_st.ok()) {
             final_st = st;
         }

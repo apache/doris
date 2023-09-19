@@ -245,7 +245,7 @@ void TaskScheduler::_do_work(size_t index) {
 
             // If pipeline is canceled caused by memory limit, we should send report to FE in order
             // to cancel all pipeline tasks in this query
-            fragment_ctx->send_report(true);
+            // fragment_ctx->send_report(true);
             _try_close_task(task, PipelineTaskState::CANCELED);
             continue;
         }
@@ -276,7 +276,6 @@ void TaskScheduler::_do_work(size_t index) {
 
             // exec failed，cancel all fragment instance
             fragment_ctx->cancel(PPlanFragmentCancelReason::INTERNAL_ERROR, status.to_string());
-            fragment_ctx->send_report(true);
             _try_close_task(task, PipelineTaskState::CANCELED, status);
             continue;
         }

@@ -59,7 +59,6 @@
 #include "gutil/strings/substitute.h"
 #include "io/fs/stream_load_pipe.h"
 #include "opentelemetry/trace/scope.h"
-#include "pipeline/pipeline_context_report_executor.h"
 #include "pipeline/pipeline_fragment_context.h"
 #include "runtime/client_cache.h"
 #include "runtime/descriptors.h"
@@ -139,7 +138,12 @@ FragmentMgr::FragmentMgr(ExecEnv* exec_env)
                          [this]() { return _thread_pool->get_queue_size(); });
     CHECK(s.ok()) << s.to_string();
 
-    _pipeline_ctx_report_executor = std::make_unique<pipeline::PipelineContextReportExecutor>();
+    s = ThreadPoolBuilder("FragmentInstanceReportThreadPool")
+                .set_min_threads(48)
+                .set_max_threads(512)
+                .set_max_queue_size(102400)
+                .build(&_async_report_thread_pool);
+    CHECK(s.ok()) << s.to_string();
 }
 
 FragmentMgr::~FragmentMgr() = default;
@@ -165,7 +169,7 @@ void FragmentMgr::stop() {
         }
         _pipeline_map.clear();
     }
-    _pipeline_ctx_report_executor->close();
+    _async_report_thread_pool->shutdown();
 }
 
 std::string FragmentMgr::to_http_path(const std::string& file_name) {
@@ -177,10 +181,13 @@ std::string FragmentMgr::to_http_path(const std::string& file_name) {
 }
 
 Status FragmentMgr::trigger_pipeline_context_report(
-        const ReportStatusRequest& req, std::shared_ptr<pipeline::PipelineFragmentContext>&& ctx) {
-    return _pipeline_ctx_report_executor->submit_report_task(
-            {req.fragment_instance_id, [this, req]() { coordinator_callback(req); }, ctx},
-            !req.done);
+        const ReportStatusRequest req, std::shared_ptr<pipeline::PipelineFragmentContext>&& ctx) {
+    return _async_report_thread_pool->submit_func([this, req, ctx]() {
+        coordinator_callback(req);
+        if (!req.done) {
+            ctx->refresh_next_report_time();
+        }
+    });
 }
 
 // There can only be one of these callbacks in-flight at any moment, because
@@ -550,7 +557,7 @@ void FragmentMgr::remove_pipeline_context(
     f_context->instance_ids(ins_ids);
     bool all_done = q_context->countdown(ins_ids.size());
     for (const auto& ins_id : ins_ids) {
-        LOG(INFO) << "remove pipeline context " << print_id(ins_id);
+        VLOG_DEBUG << "remove pipeline context " << print_id(ins_id) << ", all_done:" << all_done;
         _pipeline_map.erase(ins_id);
     }
     if (all_done) {
@@ -786,8 +793,9 @@ Status FragmentMgr::exec_plan_fragment(const TPipelineFragmentParams& params,
         std::shared_ptr<pipeline::PipelineFragmentContext> context =
                 std::make_shared<pipeline::PipelineXFragmentContext>(
                         query_ctx->query_id(), params.fragment_id, query_ctx, _exec_env, cb,
-                        std::bind<void>(std::mem_fn(&FragmentMgr::trigger_pipeline_context_report),
-                                        this, std::placeholders::_1, std::placeholders::_2),
+                        std::bind<Status>(
+                                std::mem_fn(&FragmentMgr::trigger_pipeline_context_report), this,
+                                std::placeholders::_1, std::placeholders::_2),
                         params.group_commit);
         {
             SCOPED_RAW_TIMER(&duration_ns);
@@ -864,7 +872,7 @@ Status FragmentMgr::exec_plan_fragment(const TPipelineFragmentParams& params,
                     std::make_shared<pipeline::PipelineFragmentContext>(
                             query_ctx->query_id(), fragment_instance_id, params.fragment_id,
                             local_params.backend_num, query_ctx, _exec_env, cb,
-                            std::bind<void>(
+                            std::bind<Status>(
                                     std::mem_fn(&FragmentMgr::trigger_pipeline_context_report),
                                     this, std::placeholders::_1, std::placeholders::_2));
             {

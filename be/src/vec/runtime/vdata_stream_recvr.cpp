@@ -46,7 +46,9 @@ VDataStreamRecvr::SenderQueue::SenderQueue(VDataStreamRecvr* parent_recvr, int n
         : _recvr(parent_recvr),
           _is_cancelled(false),
           _num_remaining_senders(num_senders),
-          _received_first_batch(false) {}
+          _received_first_batch(false) {
+    _cancel_status = Status::OK();
+}
 
 VDataStreamRecvr::SenderQueue::~SenderQueue() {
     // Check pending closures, if it is not empty, should clear it here. but it should not happen.
@@ -81,6 +83,7 @@ Status VDataStreamRecvr::SenderQueue::get_batch(Block* block, bool* eos) {
 
 Status VDataStreamRecvr::SenderQueue::_inner_get_batch_without_lock(Block* block, bool* eos) {
     if (_is_cancelled) {
+        RETURN_IF_ERROR(_cancel_status);
         return Status::Cancelled("Cancelled");
     }
 
@@ -270,13 +273,14 @@ void VDataStreamRecvr::SenderQueue::decrement_senders(int be_number) {
     }
 }
 
-void VDataStreamRecvr::SenderQueue::cancel() {
+void VDataStreamRecvr::SenderQueue::cancel(Status& cancel_status) {
     {
         std::lock_guard<std::mutex> l(_lock);
         if (_is_cancelled) {
             return;
         }
         _is_cancelled = true;
+        _cancel_status = cancel_status;
         if (_dependency) {
             _dependency->set_always_done();
         }
@@ -444,14 +448,18 @@ Status VDataStreamRecvr::get_next(Block* block, bool* eos) {
     }
 }
 
-void VDataStreamRecvr::remove_sender(int sender_id, int be_number) {
+void VDataStreamRecvr::remove_sender(int sender_id, int be_number, Status& exec_status) {
+    if (!exec_status.ok()) {
+        cancel_stream(exec_status);
+        return;
+    }
     int use_sender_id = _is_merging ? sender_id : 0;
     _sender_queues[use_sender_id]->decrement_senders(be_number);
 }
 
-void VDataStreamRecvr::cancel_stream() {
+void VDataStreamRecvr::cancel_stream(Status& exec_status) {
     for (int i = 0; i < _sender_queues.size(); ++i) {
-        _sender_queues[i]->cancel();
+        _sender_queues[i]->cancel(exec_status);
     }
 }
 

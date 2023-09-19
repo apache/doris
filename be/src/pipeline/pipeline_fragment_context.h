@@ -58,8 +58,8 @@ public:
     // Note: this does not take a const RuntimeProfile&, because it might need to call
     // functions like PrettyPrint() or to_thrift(), neither of which is const
     // because they take locks.
-    using report_status_callback = std::function<void(
-            const ReportStatusRequest&, std::shared_ptr<pipeline::PipelineFragmentContext>&&)>;
+    using report_status_callback = std::function<Status(
+            const ReportStatusRequest, std::shared_ptr<pipeline::PipelineFragmentContext>&&)>;
     PipelineFragmentContext(const TUniqueId& query_id, const TUniqueId& instance_id,
                             const int fragment_id, int backend_num,
                             std::shared_ptr<QueryContext> query_ctx, ExecEnv* exec_env,
@@ -119,7 +119,7 @@ public:
     virtual void add_merge_controller_handler(
             std::shared_ptr<RuntimeFilterMergeControllerEntity>& handler) {}
 
-    virtual void send_report(bool);
+    virtual Status send_report(bool);
 
     Status update_status(Status status) {
         std::lock_guard<std::mutex> l(_status_lock);
@@ -143,6 +143,7 @@ public:
         ins_ids.resize(1);
         ins_ids[0] = print_id(_fragment_instance_id);
     }
+    void refresh_next_report_time();
 
 protected:
     Status _create_sink(int sender_id, const TDataSink& t_data_sink, RuntimeState* state);
@@ -208,7 +209,9 @@ protected:
     // This executor will not report status to FE on being cancelled.
     bool _is_report_on_cancel;
 
-    std::atomic_uint64_t _next_report_time = 0;
+    // 0 indicates reporting is in progress or not required
+    std::atomic_bool _disable_period_report = true;
+    std::atomic_uint64_t _previous_report_time = 0;
 
     // profile reporting-related
     report_status_callback _report_status_cb;

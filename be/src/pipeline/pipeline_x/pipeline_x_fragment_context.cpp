@@ -122,7 +122,7 @@ PipelineXFragmentContext::~PipelineXFragmentContext() {
 void PipelineXFragmentContext::cancel(const PPlanFragmentCancelReason& reason,
                                       const std::string& msg) {
     LOG_INFO("PipelineXFragmentContext::cancel")
-            .tag("query_id", print_id(_query_ctx->query_id()))
+            .tag("query_id", print_id(_query_id))
             .tag("fragment_id", _fragment_id)
             .tag("reason", reason)
             .tag("error message", msg);
@@ -131,7 +131,7 @@ void PipelineXFragmentContext::cancel(const PPlanFragmentCancelReason& reason,
             FOR_EACH_RUNTIME_STATE(LOG(WARNING) << "PipelineXFragmentContext cancel instance: "
                                                 << print_id(runtime_state->fragment_instance_id());)
         } else {
-            _set_is_report_on_cancel(false);
+            _set_is_report_on_cancel(false); // TODO bug llj
         }
         // Get pipe from new load stream manager and send cancel to it or the fragment may hang to wait read from pipe
         // For stream load the fragment's query_id == load id, it is set in FE.
@@ -163,7 +163,7 @@ Status PipelineXFragmentContext::prepare(const doris::TPipelineFragmentParams& r
     }
 
     LOG_INFO("PipelineXFragmentContext::prepare")
-            .tag("query_id", _query_id)
+            .tag("query_id", print_id(_query_id))
             .tag("fragment_id", _fragment_id)
             .tag("pthread_id", (uintptr_t)pthread_self());
 
@@ -801,7 +801,7 @@ void PipelineXFragmentContext::_close_action() {
     _exec_env->fragment_mgr()->remove_pipeline_context(shared_from_this());
 }
 
-void PipelineXFragmentContext::send_report(bool done) {
+Status PipelineXFragmentContext::send_report(bool done) {
     Status exec_status = Status::OK();
     {
         std::lock_guard<std::mutex> l(_status_lock);
@@ -811,7 +811,7 @@ void PipelineXFragmentContext::send_report(bool done) {
     // If plan is done successfully, but _is_report_success is false,
     // no need to send report.
     if (!_is_report_success && done && exec_status.ok()) {
-        return;
+        return Status::NeedSendAgain("");
     }
 
     // If both _is_report_success and _is_report_on_cancel are false,
@@ -819,7 +819,7 @@ void PipelineXFragmentContext::send_report(bool done) {
     // This may happen when the query limit reached and
     // a internal cancellation being processed
     if (!_is_report_success && !_is_report_on_cancel) {
-        return;
+        return Status::NeedSendAgain("");
     }
 
     std::vector<RuntimeState*> runtime_states(_runtime_states.size());

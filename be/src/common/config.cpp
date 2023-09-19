@@ -225,6 +225,8 @@ DEFINE_mBool(compress_rowbatches, "true");
 DEFINE_mBool(rowbatch_align_tuple_offset, "false");
 // interval between profile reports; in seconds
 DEFINE_mInt32(status_report_interval, "5");
+// The pipeline task has a high concurrency, therefore reducing its report frequency
+DEFINE_mInt32(pipeline_status_report_interval, "10");
 // if true, each disk will have a separate thread pool for scanner
 DEFINE_Bool(doris_enable_scanner_thread_pool_per_disk, "true");
 // the timeout of a work thread to wait the blocking priority queue to get a task

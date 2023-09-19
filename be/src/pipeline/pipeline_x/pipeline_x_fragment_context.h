@@ -100,7 +100,7 @@ public:
     void cancel(const PPlanFragmentCancelReason& reason = PPlanFragmentCancelReason::INTERNAL_ERROR,
                 const std::string& msg = "") override;
 
-    void send_report(bool) override;
+    Status send_report(bool) override;
 
     RuntimeState* get_runtime_state(UniqueId fragment_instance_id) override {
         std::lock_guard<std::mutex> l(_state_map_lock);
