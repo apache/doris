@@ -7,7 +7,7 @@ import argparse
 
 FE_HOST = "http://127.0.0.1:8030"
 MYSQL = "mysql -h:: -P9030 -u root "
-DB = "tpch_sf1"
+DB = "tpcds_sf1"
 WORK_DIR="./tmp/"
 
 
@@ -61,7 +61,7 @@ class Fragment:
         self.merged.clear()
         self.merge_instances()
         
-        m=re.search(" ([\w|\d]{16}-[\w|\d]{16}) ", self.merged.name)
+        m=re.search("Instance ([\w|\d]+-[\w|\d]+) ", self.merged.name)
         assert m != None, "cannot find instance id: " + self.merged.name
         self.first_inst_id = m.group(1)
         
@@ -168,31 +168,47 @@ class Node:
 
     def to_dot(self):
         content = ""
-        for child in self.children:
+        list = self.children
+        if list != None:
+            list.reverse()
+        for child in list:
             if child.id != -1:
                 content += "{}->{}[label={}]\n".format(child.caption, self.caption, child.rows)
-        for child in self.children:
+        for child in list:
             if child.id != -1:
                 content += child.to_dot()
         return content
             
-    
-def to_dot_file(root, dot_file):
+def keep_alpha_numeric(input_str):  
+    # 使用正则表达式只保留大写字母、小写字母和数字  
+    pattern = r'[^A-Za-z0-9]'  
+    result = re.sub(pattern, '', input_str)  
+    return result 
+
+def to_dot_file(root, dot_file, title):
+    title = keep_alpha_numeric(title)
     header = """
             digraph BPMN {
                 rankdir=BT;
                 node[style="rounded,filled" color="lightgoldenrodyellow" ]
             """
+    label = "label = \"" + title + "\"\n"
     tail = "}"
     with open(dot_file, 'w') as f:
         f.write(header)
+        f.write(label)
         f.write(root.to_dot())
         f.write(tail)
 
-def draw_proile(query_id):
+def draw_proile(query_id, title=""):
     print("query_id: " + query_id)
     prof = get_profile(query_id)
-    with open(WORK_DIR + query_id, "w") as f:
+    if title == "":
+        title = query_id
+    prf_file = WORK_DIR + title + ".profile"
+    png_file = WORK_DIR + title + ".png"
+    dot_file = WORK_DIR + title + ".dot"
+    with open(prf_file, "w") as f:
         f.write(prof)
     obj = json.loads(prof.replace("\n", ""))
     fragments = []
@@ -207,11 +223,10 @@ def draw_proile(query_id):
         exchange.children.append(fr.merged.root)
     
     root_fr.merged.root.tree("")
-    dot_file = query_id + ".dot"
-    png_file = query_id + ".png"
-
-    to_dot_file(root_fr.merged.root, dot_file)
+    
+    to_dot_file(root_fr.merged.root, dot_file, title)
     cmd = "dot {} -T png -o {}".format(dot_file, png_file)
+    print(cmd)
     status = os.system(cmd)
     if status != 0:
         print("convert to png failed")
@@ -257,9 +272,9 @@ def print_usage():
 if __name__ == '__main__':
     USAGE ="""
     1. execute a sql file, and draw its profile  
-          python3 profile_viewer.py -sql [path to sql file]
+          python3 profile_viewer.py -f [path to sql file] -o [output png file]
     2. draw a given profile
-          python3 profile_viewer.py -query_id [query_id]
+          python3 profile_viewer.py -qid [query_id] -o [output png file]
     
     graphviz is required(https://graphviz.org/)
     on linux: apt install graphviz
@@ -267,16 +282,17 @@ if __name__ == '__main__':
     """
     parser = argparse.ArgumentParser()
     parser.add_argument("-f", "--file", help="sql file", dest="sql_file", type=str, default ="")
-    parser.add_argument("-qid", "--query_id", help="query_id", dest="query_id", type=str, default="")
+    parser.add_argument("-qid", "--query_id", help="query id", dest="query_id", type=str, default="")
+    parser.add_argument("-t", "--title", help="query title", dest="title", type=str, default="")
+
     args = parser.parse_args()
-    print("sql_", args.sql_file)
-    print("qid", args.query_id)
     if args.sql_file == ""  and args.query_id == "":
         print(USAGE)
         exit(0)
+    title = args.title
     if args.query_id == "":
         query_id = exec_sql_and_draw(args.sql_file)
-        draw_proile(query_id)
+        draw_proile(query_id, title)
     else:
-        draw_proile(args.query_id)
+        draw_proile(args.query_id, title)
 
