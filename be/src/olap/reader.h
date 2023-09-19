@@ -103,6 +103,8 @@ public:
                     !rs_splits[1].rs_reader->rowset()->rowset_meta()->is_segments_overlapping());
         }
 
+        void fill_delete_predicates_with_rs_splits();
+
         TabletSharedPtr tablet;
         TabletSchemaSPtr tablet_schema;
         ReaderType reader_type = ReaderType::READER_QUERY;
