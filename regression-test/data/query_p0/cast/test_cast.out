@@ -17,3 +17,15 @@
 -- !sql_decimalv3 --
 0.0
 
+-- !sql_decimalv3 --
+1001.000000000
+
+-- !sql_decimalv3 --
+1001
+
+-- !sql_decimalv3 --
+99
+
+-- !sql_decimalv3 --
+9
+

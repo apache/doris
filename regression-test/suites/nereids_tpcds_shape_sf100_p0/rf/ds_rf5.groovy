@@ -178,5 +178,5 @@ suite("ds_rf5") {
     // File file = new File(outFile)
     // file.write(getRuntimeFilters(plan))
 
-     assertEquals("RF2[s_store_sk->[ss_store_sk],RF3[s_store_sk->[sr_store_sk],RF0[d_date_sk->[ss_sold_date_sk],RF1[d_date_sk->[sr_returned_date_sk],RF6[cp_catalog_page_sk->[cs_catalog_page_sk],RF7[cp_catalog_page_sk->[cr_catalog_page_sk],RF4[d_date_sk->[cs_sold_date_sk],RF5[d_date_sk->[cr_returned_date_sk],RF12[web_site_sk->[ws_web_site_sk],RF13[web_site_sk->[ws_web_site_sk],RF10[d_date_sk->[ws_sold_date_sk],RF11[d_date_sk->[wr_returned_date_sk],RF8[wr_item_sk->[ws_item_sk],RF9[wr_order_number->[ws_order_number]", getRuntimeFilters(plan))
+     assertEquals("RF1[s_store_sk->[ss_store_sk, sr_store_sk],RF0[d_date_sk->[ss_sold_date_sk, sr_returned_date_sk],RF3[cp_catalog_page_sk->[cs_catalog_page_sk, cr_catalog_page_sk],RF2[d_date_sk->[cs_sold_date_sk, cr_returned_date_sk],RF7[web_site_sk->[ws_web_site_sk, ws_web_site_sk],RF6[d_date_sk->[ws_sold_date_sk, wr_returned_date_sk],RF4[wr_item_sk->[ws_item_sk],RF5[wr_order_number->[ws_order_number]", getRuntimeFilters(plan))
 }
