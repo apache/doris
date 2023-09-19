@@ -35,6 +35,7 @@ import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.rules.expression.ExpressionRewriteContext;
 import org.apache.doris.nereids.rules.expression.rules.FunctionBinder;
 import org.apache.doris.nereids.trees.expressions.Alias;
+import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Substring;
@@ -46,6 +47,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalOlapTableSink;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.types.DataType;
+import org.apache.doris.nereids.types.StringType;
 import org.apache.doris.nereids.types.coercion.CharacterType;
 import org.apache.doris.nereids.util.RelationUtil;
 import org.apache.doris.nereids.util.TypeCoercionUtils;
@@ -202,8 +204,9 @@ public class BindSink implements AnalysisRuleFactory {
                                     int targetLength = ((CharacterType) targetType).getLen();
                                     if (sourceLength >= targetLength && targetLength >= 0) {
                                         castExpr = new Substring(castExpr, Literal.of(1), Literal.of(targetLength));
+                                    } else if (targetType.isStringType()) {
+                                        castExpr = new Cast(castExpr, StringType.INSTANCE);
                                     }
-                                    // else, we keep it.
                                 } else {
                                     castExpr = TypeCoercionUtils.castIfNotSameType(castExpr, targetType);
                                 }
