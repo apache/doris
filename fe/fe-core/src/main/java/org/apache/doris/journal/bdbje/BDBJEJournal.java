@@ -136,7 +136,7 @@ public class BDBJEJournal implements Journal { // CHECKSTYLE IGNORE THIS LINE: B
         // entity is the value
         DataOutputBuffer buffer = new DataOutputBuffer(OUTPUT_BUFFER_INIT_SIZE);
         entity.write(buffer);
-
+        LOG.info("edit log size {}", buffer.getData().length);
         DatabaseEntry theData = new DatabaseEntry(buffer.getData());
         if (MetricRepo.isInit) {
             MetricRepo.COUNTER_EDIT_LOG_SIZE_BYTES.increase((long) theData.getSize());

@@ -1504,6 +1504,7 @@ public class EditLog {
 
     // for TransactionState
     public void logInsertTransactionState(TransactionState transactionState) {
+        LOG.info("begin to write transaction state");
         long start = System.currentTimeMillis();
         long logId = logEdit(OperationType.OP_UPSERT_TRANSACTION_STATE, transactionState);
         long logEditEnd = System.currentTimeMillis();
@@ -1513,6 +1514,7 @@ public class EditLog {
             Env.getCurrentEnv().getBinlogManager().addUpsertRecord(record);
             end = System.currentTimeMillis();
         }
+        LOG.info("finish to write transaction state");
         if (end - start > Config.lock_reporting_threshold_ms) {
             LOG.warn("edit log insert transaction take a lot time, write bdb {} ms, write binlog {} ms",
                     logEditEnd - start, end - logEditEnd);
