@@ -70,7 +70,9 @@ public class DorisFE {
     public static final String PID_DIR = System.getenv("PID_DIR");
 
 
-    private static final String LOCK_FILE_PATH = Config.meta_dir + "/process.lock";
+    private static String LOCK_FILE_PATH;
+
+    private static final String LOCK_FILE_NAME = "process.lock";
     private static FileChannel processLockFileChannel;
     private static FileLock processFileLock;
 
@@ -95,12 +97,6 @@ public class DorisFE {
             System.err.println("env PID_DIR is not set.");
             return;
         }
-        try {
-            tryLockProcess();
-        } catch (Exception e) {
-            LOG.error("start doris failed.", e);
-            System.exit(-1);
-        }
 
         CommandLineOptions cmdLineOpts = parseArgs(args);
 
@@ -116,7 +112,13 @@ public class DorisFE {
             // Must init custom config after init config, separately.
             // Because the path of custom config file is defined in fe.conf
             config.initCustom(Config.custom_config_dir + "/fe_custom.conf");
-
+            LOCK_FILE_PATH = Config.meta_dir + "/" + LOCK_FILE_NAME;
+            try {
+                tryLockProcess();
+            } catch (Exception e) {
+                LOG.error("start doris failed.", e);
+                System.exit(-1);
+            }
             LdapConfig ldapConfig = new LdapConfig();
             if (new File(dorisHomeDir + "/conf/ldap.conf").exists()) {
                 ldapConfig.init(dorisHomeDir + "/conf/ldap.conf");
@@ -430,9 +432,6 @@ public class DorisFE {
      * that only one FE process can occupy a metadata directory, and other processes will fail to start.
      */
     private static void tryLockProcess() {
-        if (null == System.getenv("DORIS_HOME")) {
-            return;
-        }
         try {
             processLockFileChannel = FileChannel.open(new File(LOCK_FILE_PATH).toPath(), StandardOpenOption.WRITE,
                     StandardOpenOption.CREATE);
