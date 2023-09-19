@@ -253,9 +253,7 @@ protected:
                 }
                 num_rows++;
             }
-            s = rowset_writer->add_block(&block);
-            EXPECT_TRUE(s.ok());
-            s = rowset_writer->flush();
+            s = rowset_writer->flush_single_block(&block);
             EXPECT_TRUE(s.ok());
         }
 
