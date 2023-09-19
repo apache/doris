@@ -66,7 +66,7 @@ public class SparkLoadStmt extends InsertStmt {
     }
 
     @Override
-    public void analyzeProperties() throws DdlException {
+    protected void analyzeProperties() throws DdlException {
 
     }
 

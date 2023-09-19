@@ -81,7 +81,7 @@ public abstract class AlterHandler extends MasterDaemon {
         lock.unlock();
     }
 
-    protected void addAlterJobV2(AlterJobV2 alterJob) {
+    public void addAlterJobV2(AlterJobV2 alterJob) {
         this.alterJobsV2.put(alterJob.getJobId(), alterJob);
         LOG.info("add {} job {}", alterJob.getType(), alterJob.getJobId());
     }

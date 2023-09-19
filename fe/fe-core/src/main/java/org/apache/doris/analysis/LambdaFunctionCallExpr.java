@@ -72,7 +72,7 @@ public class LambdaFunctionCallExpr extends FunctionCallExpr {
     }
 
     @Override
-    public void analyzeImpl(Analyzer analyzer) throws AnalysisException {
+    protected void analyzeImpl(Analyzer analyzer) throws AnalysisException {
         FunctionName fnName = getFnName();
         FunctionParams fnParams = getFnParams();
         if (!LAMBDA_FUNCTION_SET.contains(fnName.getFunction().toLowerCase())) {

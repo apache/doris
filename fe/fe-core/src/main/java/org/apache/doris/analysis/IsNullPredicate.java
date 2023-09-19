@@ -110,7 +110,7 @@ public class IsNullPredicate extends Predicate {
     }
 
     @Override
-    public String toDigestImpl() {
+    protected String toDigestImpl() {
         return getChild(0).toDigest() + (isNotNull ? " IS NOT NULL" : " IS NULL");
     }
 
@@ -119,7 +119,7 @@ public class IsNullPredicate extends Predicate {
     }
 
     @Override
-    public void analyzeImpl(Analyzer analyzer) throws AnalysisException {
+    protected void analyzeImpl(Analyzer analyzer) throws AnalysisException {
         super.analyzeImpl(analyzer);
         if (isNotNull) {
             fn = getBuiltinFunction(IS_NOT_NULL, collectChildReturnTypes(), Function.CompareMode.IS_INDISTINGUISHABLE);

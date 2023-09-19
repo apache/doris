@@ -47,12 +47,12 @@ public class MiniLoadJob extends LoadJob {
     }
 
     @Override
-    public Set<String> getTableNamesForShow() {
+    protected Set<String> getTableNamesForShow() {
         return Sets.newHashSet(tableName);
     }
 
     @Override
-    public Set<String> getTableNames() throws MetaNotFoundException {
+    protected Set<String> getTableNames() {
         return Sets.newHashSet(tableName);
     }
 

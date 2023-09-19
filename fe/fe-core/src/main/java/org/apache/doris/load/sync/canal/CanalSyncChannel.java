@@ -96,7 +96,7 @@ public class CanalSyncChannel extends SyncChannel {
             this.rows = rows;
         }
 
-        public void exec() throws Exception {
+        protected void exec() throws Exception {
             TransactionEntry txnEntry = executor.getTxnEntry();
             txnEntry.setDataToSend(rows.getDatas());
             executor.sendData();
@@ -109,7 +109,7 @@ public class CanalSyncChannel extends SyncChannel {
             super(signature, index, callback);
         }
 
-        public void exec() throws Exception {
+        protected void exec() throws Exception {
             callback.onFinished(signature);
         }
     }

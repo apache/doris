@@ -56,7 +56,7 @@ public class BitmapFilterPredicate extends Predicate {
     }
 
     @Override
-    public void analyzeImpl(Analyzer analyzer) throws AnalysisException {
+    protected void analyzeImpl(Analyzer analyzer) throws AnalysisException {
         super.analyzeImpl(analyzer);
 
         Expr targetExpr = children.get(0);
@@ -83,7 +83,7 @@ public class BitmapFilterPredicate extends Predicate {
     }
 
     @Override
-    protected String toSqlImpl() {
+    public String toSqlImpl() {
         return (notIn ? "not " : "") + "BitmapFilterPredicate(" + children.get(0).toSql() + ", " + children.get(1)
                 .toSql() + ")";
     }

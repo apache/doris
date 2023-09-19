@@ -235,7 +235,7 @@ public class MatchPredicate extends Predicate {
     }
 
     @Override
-    public void analyzeImpl(Analyzer analyzer) throws AnalysisException {
+    protected void analyzeImpl(Analyzer analyzer) throws AnalysisException {
         super.analyzeImpl(analyzer);
         if (isMatchElement(op) && !getChild(0).getType().isArrayType()) {
             throw new AnalysisException(

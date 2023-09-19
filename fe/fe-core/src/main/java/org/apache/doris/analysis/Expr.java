@@ -979,7 +979,7 @@ public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
      * Returns a SQL string representing this expr. Subclasses should override this method
      * instead of toSql() to ensure that parenthesis are properly added around the toSql().
      */
-    protected abstract String toSqlImpl();
+    public abstract String toSqlImpl();
 
     /**
      * !!!!!! Important !!!!!!

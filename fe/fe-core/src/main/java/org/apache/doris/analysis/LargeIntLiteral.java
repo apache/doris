@@ -124,7 +124,7 @@ public class LargeIntLiteral extends LiteralExpr {
     }
 
     @Override
-    public void analyzeImpl(Analyzer analyzer) throws AnalysisException {
+    protected void analyzeImpl(Analyzer analyzer) throws AnalysisException {
         if (value.compareTo(LARGE_INT_MIN) < 0 || value.compareTo(LARGE_INT_MAX) > 0) {
             throw new AnalysisException("Number Overflow. literal: " + value);
         }

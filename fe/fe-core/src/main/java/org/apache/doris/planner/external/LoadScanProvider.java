@@ -69,7 +69,7 @@ public class LoadScanProvider {
         return null;
     }
 
-    public TFileType getLocationType() throws DdlException, MetaNotFoundException {
+    protected TFileType getLocationType() throws DdlException, MetaNotFoundException {
         return null;
     }
 

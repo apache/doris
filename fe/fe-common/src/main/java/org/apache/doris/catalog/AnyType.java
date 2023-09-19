@@ -27,7 +27,7 @@ import org.apache.doris.thrift.TTypeDesc;
 public class AnyType extends Type {
 
     @Override
-    protected String toSql(int depth) {
+    public String toSql(int depth) {
         return null;
     }
 

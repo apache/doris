@@ -701,7 +701,7 @@ public class FunctionCallExpr extends Expr {
     }
 
     @Override
-    public String toDigestImpl() {
+    protected String toDigestImpl() {
         Expr expr;
         if (originStmtFnExpr != null) {
             expr = originStmtFnExpr;
@@ -1306,7 +1306,7 @@ public class FunctionCallExpr extends Expr {
     }
 
     @Override
-    public void analyzeImpl(Analyzer analyzer) throws AnalysisException {
+    protected void analyzeImpl(Analyzer analyzer) throws AnalysisException {
         if (isMergeAggFn) {
             // This is the function call expr after splitting up to a merge aggregation.
             // The function has already been analyzed so just do the minimal sanity

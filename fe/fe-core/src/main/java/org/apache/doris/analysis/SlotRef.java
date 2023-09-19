@@ -200,7 +200,7 @@ public class SlotRef extends Expr {
     }
 
     @Override
-    public void analyzeImpl(Analyzer analyzer) throws AnalysisException {
+    protected void analyzeImpl(Analyzer analyzer) throws AnalysisException {
         desc = analyzer.registerColumnRef(tblName, col);
         type = desc.getType();
         if (this.type.equals(Type.CHAR)) {

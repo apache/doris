@@ -91,7 +91,7 @@ public class TVFScanNode extends FileQueryScanNode {
     }
 
     @Override
-    public TFileFormatType getFileFormatType() throws DdlException, MetaNotFoundException {
+    protected TFileFormatType getFileFormatType() throws DdlException, MetaNotFoundException {
         return tableValuedFunction.getTFileFormatType();
     }
 
@@ -102,7 +102,7 @@ public class TVFScanNode extends FileQueryScanNode {
     }
 
     @Override
-    public TFileType getLocationType() throws DdlException, MetaNotFoundException {
+    protected TFileType getLocationType() throws DdlException, MetaNotFoundException {
         return getLocationType(null);
     }
 
@@ -117,7 +117,7 @@ public class TVFScanNode extends FileQueryScanNode {
     }
 
     @Override
-    public List<String> getPathPartitionKeys() {
+    protected List<String> getPathPartitionKeys() {
         return tableValuedFunction.getPathPartitionKeys();
     }
 
@@ -127,7 +127,7 @@ public class TVFScanNode extends FileQueryScanNode {
     }
 
     @Override
-    public List<Split> getSplits() throws UserException {
+    protected List<Split> getSplits() throws UserException {
         List<Split> splits = Lists.newArrayList();
         if (tableValuedFunction.getTFileType() == TFileType.FILE_STREAM) {
             return splits;

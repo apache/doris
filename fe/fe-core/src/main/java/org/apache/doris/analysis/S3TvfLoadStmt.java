@@ -200,7 +200,7 @@ public class S3TvfLoadStmt extends NativeInsertStmt {
     // --------------------------------------------------------------------------------------
 
     @Override
-    public void convertSemantic(Analyzer analyzer) throws UserException {
+    protected void convertSemantic(Analyzer analyzer) throws UserException {
         label.analyze(analyzer);
         initTargetTable(analyzer);
         analyzeColumns(analyzer);

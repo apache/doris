@@ -113,7 +113,7 @@ public class RepeatNode extends PlanNode {
     }
 
     @Override
-    public void computeStats(Analyzer analyzer) throws UserException {
+    protected void computeStats(Analyzer analyzer) throws UserException {
         avgRowSize = 0;
         numNodes = 1;
 

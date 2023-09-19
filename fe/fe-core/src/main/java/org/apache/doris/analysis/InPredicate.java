@@ -168,7 +168,7 @@ public class InPredicate extends Predicate {
     }
 
     @Override
-    public void analyzeImpl(Analyzer analyzer) throws AnalysisException {
+    protected void analyzeImpl(Analyzer analyzer) throws AnalysisException {
         super.analyzeImpl(analyzer);
 
         if (contains(Subquery.class)) {
@@ -289,7 +289,7 @@ public class InPredicate extends Predicate {
     }
 
     @Override
-    public String toDigestImpl() {
+    protected String toDigestImpl() {
         StringBuilder strBuilder = new StringBuilder();
         String notStr = (isNotIn) ? "NOT " : "";
         strBuilder.append(getChild(0).toDigest() + " " + notStr + "IN (");

@@ -93,7 +93,7 @@ public class CompoundPredicate extends Predicate {
     }
 
     @Override
-    public String toDigestImpl() {
+    protected String toDigestImpl() {
         if (children.size() == 1) {
             return "NOT " + getChild(0).toDigest();
         } else {
@@ -108,7 +108,7 @@ public class CompoundPredicate extends Predicate {
     }
 
     @Override
-    public void analyzeImpl(Analyzer analyzer) throws AnalysisException {
+    protected void analyzeImpl(Analyzer analyzer) throws AnalysisException {
         super.analyzeImpl(analyzer);
 
         // Check that children are predicates.

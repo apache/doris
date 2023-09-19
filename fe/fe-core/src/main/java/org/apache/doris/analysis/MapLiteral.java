@@ -115,7 +115,7 @@ public class MapLiteral extends LiteralExpr {
     }
 
     @Override
-    public Expr uncheckedCastTo(Type targetType) throws AnalysisException {
+    protected Expr uncheckedCastTo(Type targetType) throws AnalysisException {
         if (!targetType.isMapType()) {
             return super.uncheckedCastTo(targetType);
         }
@@ -160,7 +160,7 @@ public class MapLiteral extends LiteralExpr {
     }
 
     @Override
-    protected String toSqlImpl() {
+    public String toSqlImpl() {
         List<String> list = new ArrayList<>(children.size());
         for (int i = 0; i < children.size() && i + 1 < children.size(); i += 2) {
             list.add(children.get(i).toSqlImpl() + ":" + children.get(i + 1).toSqlImpl());

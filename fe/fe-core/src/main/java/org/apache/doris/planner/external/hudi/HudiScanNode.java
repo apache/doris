@@ -99,7 +99,7 @@ public class HudiScanNode extends HiveScanNode {
     }
 
     @Override
-    public TFileFormatType getFileFormatType() throws UserException {
+    protected TFileFormatType getFileFormatType() throws UserException {
         if (isCowOrRoTable) {
             return super.getFileFormatType();
         } else {
@@ -204,7 +204,7 @@ public class HudiScanNode extends HiveScanNode {
     }
 
     @Override
-    public List<Split> getSplits() throws UserException {
+    protected List<Split> getSplits() throws UserException {
         HoodieTableMetaClient hudiClient = HiveMetaStoreClientHelper.getHudiClient(hmsTable);
         hudiClient.reloadActiveTimeline();
         String basePath = hmsTable.getRemoteTable().getSd().getLocation();

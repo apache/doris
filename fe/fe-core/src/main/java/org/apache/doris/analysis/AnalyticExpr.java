@@ -460,7 +460,7 @@ public class AnalyticExpr extends Expr {
     }
 
     @Override
-    public void analyzeImpl(Analyzer analyzer) throws AnalysisException {
+    protected void analyzeImpl(Analyzer analyzer) throws AnalysisException {
         fnCall.analyze(analyzer);
         type = getFnCall().getType();
 
@@ -902,7 +902,7 @@ public class AnalyticExpr extends Expr {
     }
 
     @Override
-    public String toDigestImpl() {
+    protected String toDigestImpl() {
         StringBuilder sb = new StringBuilder();
         sb.append(fnCall.toDigest()).append(" OVER (");
         boolean needsSpace = false;

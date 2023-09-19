@@ -269,7 +269,7 @@ public class JdbcScanNode extends ExternalScanNode {
     }
 
     @Override
-    public void computeStats(Analyzer analyzer) throws UserException {
+    protected void computeStats(Analyzer analyzer) throws UserException {
         super.computeStats(analyzer);
         // even if current node scan has no data,at least on backend will be assigned when the fragment actually execute
         numNodes = numNodes <= 0 ? 1 : numNodes;

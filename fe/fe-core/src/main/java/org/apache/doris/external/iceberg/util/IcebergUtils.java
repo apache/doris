@@ -75,7 +75,7 @@ public class IcebergUtils {
     private static final Logger LOG = LogManager.getLogger(IcebergUtils.class);
     private static ThreadLocal<Integer> columnIdThreadLocal = new ThreadLocal<Integer>() {
         @Override
-        public Integer initialValue() {
+        protected Integer initialValue() {
             return 0;
         }
     };

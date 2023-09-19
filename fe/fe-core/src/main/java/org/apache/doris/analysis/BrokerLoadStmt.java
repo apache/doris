@@ -63,7 +63,7 @@ public class BrokerLoadStmt extends InsertStmt {
     }
 
     @Override
-    public void analyzeProperties() throws DdlException {
+    protected void analyzeProperties() throws DdlException {
         // public check should be in base class
     }
 

@@ -249,7 +249,7 @@ public abstract class LiteralExpr extends Expr implements Comparable<LiteralExpr
     }
 
     @Override
-    public String toDigestImpl() {
+    protected String toDigestImpl() {
         return " ? ";
     }
 

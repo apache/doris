@@ -57,14 +57,14 @@ public class StructLiteral extends LiteralExpr {
     }
 
     @Override
-    protected String toSqlImpl() {
+    public String toSqlImpl() {
         List<String> list = new ArrayList<>(children.size());
         children.forEach(v -> list.add(v.toSqlImpl()));
         return "STRUCT(" + StringUtils.join(list, ", ") + ")";
     }
 
     @Override
-    public String toDigestImpl() {
+    protected String toDigestImpl() {
         List<String> list = new ArrayList<>(children.size());
         children.forEach(v -> list.add(v.toDigestImpl()));
         return "STRUCT(" + StringUtils.join(list, ", ") + ")";
@@ -139,7 +139,7 @@ public class StructLiteral extends LiteralExpr {
     }
 
     @Override
-    public Expr uncheckedCastTo(Type targetType) throws AnalysisException {
+    protected Expr uncheckedCastTo(Type targetType) throws AnalysisException {
         if (!targetType.isStructType()) {
             return super.uncheckedCastTo(targetType);
         }

@@ -146,7 +146,7 @@ public class CaseExpr extends Expr {
     }
 
     @Override
-    public String toDigestImpl() {
+    protected String toDigestImpl() {
         StringBuilder sb = new StringBuilder("CASE");
         int childIdx = 0;
         if (hasCaseExpr) {
@@ -170,7 +170,7 @@ public class CaseExpr extends Expr {
     }
 
     @Override
-    public void analyzeImpl(Analyzer analyzer) throws AnalysisException {
+    protected void analyzeImpl(Analyzer analyzer) throws AnalysisException {
         // Keep track of maximum compatible type of case expr and all when exprs.
         Type whenType = null;
         // Keep track of maximum compatible type of else expr and all then exprs.

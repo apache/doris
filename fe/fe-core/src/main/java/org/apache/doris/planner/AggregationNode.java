@@ -186,7 +186,7 @@ public class AggregationNode extends PlanNode {
     }
 
     @Override
-    public void computeStats(Analyzer analyzer) throws UserException {
+    protected void computeStats(Analyzer analyzer) throws UserException {
         super.computeStats(analyzer);
         if (!analyzer.safeIsEnableJoinReorderBasedCost()) {
             return;

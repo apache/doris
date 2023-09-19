@@ -74,7 +74,7 @@ public class ExistsPredicate extends Predicate {
     }
 
     @Override
-    public String toDigestImpl() {
+    protected String toDigestImpl() {
         StringBuilder strBuilder = new StringBuilder();
         if (notExists) {
             strBuilder.append("NOT ");

@@ -258,7 +258,7 @@ public abstract class FileQueryScanNode extends FileScanNode {
     }
 
     @Override
-    public void createScanRangeLocations() throws UserException {
+    protected void createScanRangeLocations() throws UserException {
         long start = System.currentTimeMillis();
         if (ConnectContext.get().getExecutor() != null) {
             ConnectContext.get().getExecutor().getSummaryProfile().setGetSplitsStartTime();
@@ -470,7 +470,7 @@ public abstract class FileQueryScanNode extends FileScanNode {
 
     protected abstract List<String> getPathPartitionKeys() throws UserException;
 
-    protected abstract TableIf getTargetTable() throws UserException;
+    public abstract TableIf getTargetTable() throws UserException;
 
     protected abstract Map<String, String> getLocationProperties() throws UserException;
 

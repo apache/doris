@@ -170,7 +170,7 @@ public abstract class BulkLoadJob extends LoadJob {
     }
 
     @Override
-    public Set<String> getTableNamesForShow() {
+    protected Set<String> getTableNamesForShow() {
         Optional<Database> db = Env.getCurrentInternalCatalog().getDb(dbId);
         return fileGroupAggInfo.getAllTableIds().stream()
                 .map(tableId -> db.flatMap(d -> d.getTable(tableId)).map(TableIf::getName)
@@ -180,7 +180,7 @@ public abstract class BulkLoadJob extends LoadJob {
 
     @LogException
     @Override
-    public Set<String> getTableNames() throws MetaNotFoundException {
+    protected Set<String> getTableNames() throws MetaNotFoundException {
         Set<String> result = Sets.newHashSet();
         Database database = Env.getCurrentInternalCatalog().getDbOrMetaException(dbId);
         // The database will not be locked in here.

@@ -266,7 +266,7 @@ public class ArithmeticExpr extends Expr {
     }
 
     @Override
-    public String toDigestImpl() {
+    protected String toDigestImpl() {
         if (children.size() == 1) {
             return op.toString() + " " + getChild(0).toDigest();
         } else {
@@ -553,7 +553,7 @@ public class ArithmeticExpr extends Expr {
     }
 
     @Override
-    public void analyzeImpl(Analyzer analyzer) throws AnalysisException {
+    protected void analyzeImpl(Analyzer analyzer) throws AnalysisException {
         // bitnot is the only unary op, deal with it here
         if (op == Operator.BITNOT) {
             Type t = getChild(0).getType();

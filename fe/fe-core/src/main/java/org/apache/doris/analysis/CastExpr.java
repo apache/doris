@@ -215,7 +215,7 @@ public class CastExpr extends Expr {
     }
 
     @Override
-    public String toDigestImpl() {
+    protected String toDigestImpl() {
         boolean isVerbose = ConnectContext.get() != null
                 && ConnectContext.get().getExecutor() != null
                 && ConnectContext.get().getExecutor().getParsedStmt() != null
@@ -340,7 +340,7 @@ public class CastExpr extends Expr {
     }
 
     @Override
-    public void analyzeImpl(Analyzer analyzer) throws AnalysisException {
+    protected void analyzeImpl(Analyzer analyzer) throws AnalysisException {
         if (isImplicit) {
             return;
         }

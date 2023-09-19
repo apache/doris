@@ -109,7 +109,7 @@ public class LikePredicate extends Predicate {
     }
 
     @Override
-    public String toDigestImpl() {
+    protected String toDigestImpl() {
         return getChild(0).toDigest() + " " + op.toString() + " " + getChild(1).toDigest();
     }
 
@@ -120,7 +120,7 @@ public class LikePredicate extends Predicate {
     }
 
     @Override
-    public void analyzeImpl(Analyzer analyzer) throws AnalysisException {
+    protected void analyzeImpl(Analyzer analyzer) throws AnalysisException {
         super.analyzeImpl(analyzer);
         if (getChild(0).getType().isObjectStored()) {
             throw new AnalysisException(

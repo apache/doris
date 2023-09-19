@@ -107,7 +107,7 @@ public class PaimonScanNode extends FileQueryScanNode {
     }
 
     @Override
-    public List<Split> getSplits() throws UserException {
+    protected List<Split> getSplits() {
         List<Split> splits = new ArrayList<>();
         int[] projected = desc.getSlots().stream().mapToInt(
                 slot -> (source.getPaimonTable().rowType().getFieldNames().indexOf(slot.getColumn().getName())))
@@ -140,7 +140,7 @@ public class PaimonScanNode extends FileQueryScanNode {
     }
 
     @Override
-    public TFileType getLocationType() throws DdlException, MetaNotFoundException {
+    protected TFileType getLocationType() throws DdlException, MetaNotFoundException {
         return getLocationType(((AbstractFileStoreTable) source.getPaimonTable()).location().toString());
     }
 
@@ -151,12 +151,12 @@ public class PaimonScanNode extends FileQueryScanNode {
     }
 
     @Override
-    public TFileFormatType getFileFormatType() throws DdlException, MetaNotFoundException {
+    protected TFileFormatType getFileFormatType() throws DdlException, MetaNotFoundException {
         return TFileFormatType.FORMAT_JNI;
     }
 
     @Override
-    public List<String> getPathPartitionKeys() throws DdlException, MetaNotFoundException {
+    protected List<String> getPathPartitionKeys() throws DdlException, MetaNotFoundException {
         //                return new ArrayList<>(source.getPaimonTable().partitionKeys());
         //Paymon is not aware of partitions and bypasses some existing logic by returning an empty list
         return new ArrayList<>();

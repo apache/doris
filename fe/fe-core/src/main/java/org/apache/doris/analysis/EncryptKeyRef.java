@@ -81,7 +81,7 @@ public class EncryptKeyRef extends Expr {
     }
 
     @Override
-    protected String toSqlImpl() {
+    public String toSqlImpl() {
         StringBuilder sb = new StringBuilder();
         sb.append(encryptKeyName.toSql());
         return sb.toString();

@@ -59,7 +59,7 @@ public class BetweenPredicate extends Predicate {
     }
 
     @Override
-    public void analyzeImpl(Analyzer analyzer) throws AnalysisException {
+    protected void analyzeImpl(Analyzer analyzer) throws AnalysisException {
         super.analyzeImpl(analyzer);
         if (children.get(0) instanceof Subquery
                 && (children.get(1) instanceof Subquery || children.get(2) instanceof Subquery)) {
@@ -89,7 +89,7 @@ public class BetweenPredicate extends Predicate {
     }
 
     @Override
-    public String toDigestImpl() {
+    protected String toDigestImpl() {
         String notStr = (isNotBetween) ? "NOT " : "";
         return children.get(0).toDigest() + " " + notStr + "BETWEEN "
                 + children.get(1).toDigest() + " AND " + children.get(2).toDigest();

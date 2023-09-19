@@ -29,7 +29,7 @@ import org.junit.jupiter.api.Test;
 
 public class TopNRuntimeFilterTest extends SSBTestBase {
     @Override
-    public void runBeforeAll() throws Exception {
+    protected void runBeforeAll() throws Exception {
         super.runBeforeAll();
     }
 

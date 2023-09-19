@@ -481,7 +481,7 @@ public class HashJoinNode extends JoinNodeBase {
 
 
     @Override
-    public void computeStats(Analyzer analyzer) throws UserException {
+    protected void computeStats(Analyzer analyzer) throws UserException {
         super.computeStats(analyzer);
         if (LOG.isDebugEnabled()) {
             LOG.debug("stats HashJoin:" + id + ", cardinality: " + cardinality);

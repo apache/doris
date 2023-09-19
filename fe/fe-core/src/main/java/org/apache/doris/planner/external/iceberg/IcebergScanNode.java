@@ -169,7 +169,7 @@ public class IcebergScanNode extends FileQueryScanNode {
     }
 
     @Override
-    public List<Split> getSplits() throws UserException {
+    protected List<Split> getSplits() throws UserException {
         return HiveMetaStoreClientHelper.ugiDoAs(source.getCatalog().getConfiguration(), this::doGetSplits);
     }
 
@@ -311,13 +311,13 @@ public class IcebergScanNode extends FileQueryScanNode {
     }
 
     @Override
-    public TFileType getLocationType() throws UserException {
+    protected TFileType getLocationType() throws UserException {
         String location = icebergTable.location();
         return getLocationType(location);
     }
 
     @Override
-    public TFileType getLocationType(String location) throws UserException {
+    protected TFileType getLocationType(String location) throws UserException {
         final String fLocation = normalizeLocation(location);
         return getTFileType(fLocation).orElseThrow(() ->
                 new DdlException("Unknown file location " + fLocation + " for iceberg table " + icebergTable.name()));
@@ -336,7 +336,7 @@ public class IcebergScanNode extends FileQueryScanNode {
     }
 
     @Override
-    public TFileFormatType getFileFormatType() throws UserException {
+    protected TFileFormatType getFileFormatType() throws UserException {
         TFileFormatType type;
         String icebergFormat = source.getFileFormat();
         if (icebergFormat.equalsIgnoreCase("parquet")) {
@@ -355,7 +355,7 @@ public class IcebergScanNode extends FileQueryScanNode {
     }
 
     @Override
-    public List<String> getPathPartitionKeys() throws UserException {
+    protected List<String> getPathPartitionKeys() {
         return icebergTable.spec().fields().stream().map(PartitionField::name).map(String::toLowerCase)
                 .collect(Collectors.toList());
     }

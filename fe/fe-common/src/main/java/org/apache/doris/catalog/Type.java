@@ -319,7 +319,7 @@ public abstract class Type {
      * Recursive helper for toSql() to be implemented by subclasses. Keeps track of the
      * nesting depth and terminates the recursion if MAX_NESTING_DEPTH is reached.
      */
-    protected abstract String toSql(int depth);
+    public abstract String toSql(int depth);
 
     /**
      * Same as toSql() but adds newlines and spaces for better readability of nested types.

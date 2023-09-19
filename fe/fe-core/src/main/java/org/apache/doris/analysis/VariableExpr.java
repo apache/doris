@@ -75,7 +75,7 @@ public class VariableExpr extends Expr {
     }
 
     @Override
-    public void analyzeImpl(Analyzer analyzer) throws AnalysisException {
+    protected void analyzeImpl(Analyzer analyzer) throws AnalysisException {
         if (setType == SetType.USER) {
             VariableMgr.fillValueForUserDefinedVar(this);
         } else {

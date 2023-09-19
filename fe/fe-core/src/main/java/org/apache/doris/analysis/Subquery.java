@@ -62,7 +62,7 @@ public class Subquery extends Expr {
     }
 
     @Override
-    public String toDigestImpl() {
+    protected String toDigestImpl() {
         return "(" + stmt.toDigest() + ")";
     }
 
@@ -89,7 +89,7 @@ public class Subquery extends Expr {
      * Analyzes the subquery in a child analyzer.
      */
     @Override
-    public void analyzeImpl(Analyzer parentAnalyzer) throws AnalysisException {
+    protected void analyzeImpl(Analyzer parentAnalyzer) throws AnalysisException {
         if (!(stmt instanceof SelectStmt)) {
             throw new AnalysisException("A subquery must contain a single select block: " + toSql());
         }

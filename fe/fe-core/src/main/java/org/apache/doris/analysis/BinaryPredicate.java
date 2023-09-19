@@ -280,7 +280,7 @@ public class BinaryPredicate extends Predicate implements Writable {
     }
 
     @Override
-    public String toDigestImpl() {
+    protected String toDigestImpl() {
         return getChild(0).toDigest() + " " + op.toString() + " " + getChild(1).toDigest();
     }
 
@@ -472,7 +472,7 @@ public class BinaryPredicate extends Predicate implements Writable {
     }
 
     @Override
-    public void analyzeImpl(Analyzer analyzer) throws AnalysisException {
+    protected void analyzeImpl(Analyzer analyzer) throws AnalysisException {
         super.analyzeImpl(analyzer);
 
         // Ignore placeholder

@@ -27,7 +27,7 @@ public class DefaultValueExpr extends Expr {
     }
 
     @Override
-    protected String toSqlImpl() {
+    public String toSqlImpl() {
         return null;
     }
 

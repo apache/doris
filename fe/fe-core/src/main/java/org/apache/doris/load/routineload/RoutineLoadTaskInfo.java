@@ -208,7 +208,7 @@ public abstract class RoutineLoadTaskInfo {
         return row;
     }
 
-    abstract String getTaskDataSourceProperties();
+    protected abstract String getTaskDataSourceProperties();
 
     abstract boolean hasMoreDataToConsume();
 

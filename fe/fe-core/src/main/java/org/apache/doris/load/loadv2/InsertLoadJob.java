@@ -79,7 +79,7 @@ public class InsertLoadJob extends LoadJob {
     }
 
     @Override
-    public Set<String> getTableNamesForShow() {
+    protected Set<String> getTableNamesForShow() {
         String name = Env.getCurrentInternalCatalog().getDb(dbId).flatMap(db -> db.getTable(tableId))
                 .map(TableIf::getName).orElse(String.valueOf(tableId));
         return Sets.newHashSet(name);
@@ -87,7 +87,7 @@ public class InsertLoadJob extends LoadJob {
 
     @LogException
     @Override
-    public Set<String> getTableNames() throws MetaNotFoundException {
+    protected Set<String> getTableNames() throws MetaNotFoundException {
         Database database = Env.getCurrentInternalCatalog().getDbOrMetaException(dbId);
         Table table = database.getTableOrMetaException(tableId);
         return Sets.newHashSet(table.getName());

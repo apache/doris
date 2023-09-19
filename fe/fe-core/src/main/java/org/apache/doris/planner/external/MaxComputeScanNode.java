@@ -66,17 +66,17 @@ public class MaxComputeScanNode extends FileQueryScanNode {
     }
 
     @Override
-    public TFileFormatType getFileFormatType() {
+    protected TFileFormatType getFileFormatType() {
         return TFileFormatType.FORMAT_JNI;
     }
 
     @Override
-    public List<String> getPathPartitionKeys() {
+    protected List<String> getPathPartitionKeys() {
         return Collections.emptyList();
     }
 
     @Override
-    protected TableIf getTargetTable() throws UserException {
+    public TableIf getTargetTable() throws UserException {
         return table;
     }
 

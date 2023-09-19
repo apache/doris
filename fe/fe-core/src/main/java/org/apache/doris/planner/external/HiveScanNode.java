@@ -291,7 +291,7 @@ public class HiveScanNode extends FileQueryScanNode {
     }
 
     @Override
-    public List<String> getPathPartitionKeys() {
+    protected List<String> getPathPartitionKeys() {
         return hmsTable.getRemoteTable().getPartitionKeys().stream()
                 .map(FieldSchema::getName).filter(partitionKey -> !"".equals(partitionKey))
                 .map(String::toLowerCase).collect(Collectors.toList());
@@ -314,7 +314,7 @@ public class HiveScanNode extends FileQueryScanNode {
     }
 
     @Override
-    public TFileFormatType getFileFormatType() throws UserException {
+    protected TFileFormatType getFileFormatType() throws UserException {
         TFileFormatType type = null;
         String inputFormatName = hmsTable.getRemoteTable().getSd().getInputFormat();
         String hiveFormat = HiveMetaStoreClientHelper.HiveFileFormat.getFormat(inputFormatName);

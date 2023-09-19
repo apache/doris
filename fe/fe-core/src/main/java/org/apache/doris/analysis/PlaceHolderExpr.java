@@ -127,7 +127,7 @@ public class PlaceHolderExpr extends LiteralExpr {
     }
 
     @Override
-    public String toDigestImpl() {
+    protected String toDigestImpl() {
         return "?";
     }
 

@@ -99,7 +99,7 @@ public class ArrayLiteral extends LiteralExpr {
     }
 
     @Override
-    protected String toSqlImpl() {
+    public String toSqlImpl() {
         List<String> list = new ArrayList<>(children.size());
         children.forEach(v -> list.add(v.toSqlImpl()));
 
@@ -107,7 +107,7 @@ public class ArrayLiteral extends LiteralExpr {
     }
 
     @Override
-    public String toDigestImpl() {
+    protected String toDigestImpl() {
         List<String> list = new ArrayList<>(children.size());
         children.forEach(v -> list.add(v.toDigestImpl()));
 
@@ -176,7 +176,7 @@ public class ArrayLiteral extends LiteralExpr {
     }
 
     @Override
-    public Expr uncheckedCastTo(Type targetType) throws AnalysisException {
+    protected Expr uncheckedCastTo(Type targetType) throws AnalysisException {
         if (!targetType.isArrayType()) {
             return super.uncheckedCastTo(targetType);
         }

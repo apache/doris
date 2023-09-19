@@ -60,7 +60,7 @@ public class GroupingFunctionCallExpr extends FunctionCallExpr {
     }
 
     @Override
-    public void analyzeImpl(Analyzer analyzer) throws AnalysisException {
+    protected void analyzeImpl(Analyzer analyzer) throws AnalysisException {
         if (children.size() < 1) {
             throw new AnalysisException("GROUPING functions required at least one parameters");
         }

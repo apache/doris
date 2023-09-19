@@ -162,7 +162,7 @@ public class TimestampArithmeticExpr extends Expr {
     }
 
     @Override
-    public void analyzeImpl(Analyzer analyzer) throws AnalysisException {
+    protected void analyzeImpl(Analyzer analyzer) throws AnalysisException {
         // Check if name of function call is date_sub or date_add.
         String funcOpName;
         if (funcName != null && funcName.equalsIgnoreCase("TIMESTAMPDIFF")) {
@@ -388,7 +388,7 @@ public class TimestampArithmeticExpr extends Expr {
     }
 
     @Override
-    public String toDigestImpl() {
+    protected String toDigestImpl() {
         StringBuilder strBuilder = new StringBuilder();
         if (funcName != null) {
             if (funcName.equalsIgnoreCase("TIMESTAMPDIFF") || funcName.equalsIgnoreCase("TIMESTAMPADD")) {
