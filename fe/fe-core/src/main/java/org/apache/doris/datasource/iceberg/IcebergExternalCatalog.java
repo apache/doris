@@ -47,11 +47,9 @@ public abstract class IcebergExternalCatalog extends ExternalCatalog {
     protected String icebergCatalogType;
     protected Catalog catalog;
     protected SupportsNamespaces nsCatalog;
-    protected long catalogId;
 
     public IcebergExternalCatalog(long catalogId, String name, String comment) {
         super(catalogId, name, InitCatalogLog.Type.ICEBERG, comment);
-        this.catalogId = catalogId;
     }
 
     @Override
@@ -108,6 +106,6 @@ public abstract class IcebergExternalCatalog extends ExternalCatalog {
         return Env.getCurrentEnv()
                 .getExtMetaCacheMgr()
                 .getIcebergMetadataCache()
-                .getIcebergTable(catalog, catalogId, dbName, tblName);
+                .getIcebergTable(catalog, id, dbName, tblName);
     }
 }

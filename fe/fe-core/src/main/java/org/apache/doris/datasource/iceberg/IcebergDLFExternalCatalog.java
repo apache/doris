@@ -46,7 +46,5 @@ public class IcebergDLFExternalCatalog extends IcebergExternalCatalog {
         String dlfUid = catalogProperties.get(DataLakeConfig.CATALOG_USER_ID);
         dlfCatalog.initialize(dlfUid, catalogProperties);
         catalog = dlfCatalog;
-        // catalogId is 0 when loading from image.
-        catalogId = id;
     }
 }

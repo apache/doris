@@ -48,7 +48,5 @@ public class IcebergHMSExternalCatalog extends IcebergExternalCatalog {
         catalogProperties.put(CatalogProperties.URI, metastoreUris);
         hiveCatalog.initialize(icebergCatalogType, catalogProperties);
         catalog = hiveCatalog;
-        // catalogId is 0 when loading from image.
-        catalogId = id;
     }
 }

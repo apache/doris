@@ -58,7 +58,5 @@ public class IcebergHadoopExternalCatalog extends IcebergExternalCatalog {
         catalogProperties.put(CatalogProperties.WAREHOUSE_LOCATION, warehouse);
         hadoopCatalog.initialize(icebergCatalogType, catalogProperties);
         catalog = hadoopCatalog;
-        // catalogId is 0 when loading from image.
-        catalogId = id;
     }
 }
