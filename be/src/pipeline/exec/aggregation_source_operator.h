@@ -64,6 +64,7 @@ public:
 protected:
     friend class AggSourceOperatorX;
     friend class StreamingAggSourceOperatorX;
+    friend class StreamingAggSinkOperatorX;
 
     void _close_without_key();
     void _close_with_serialized_key();

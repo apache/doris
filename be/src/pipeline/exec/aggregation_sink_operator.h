@@ -346,8 +346,6 @@ public:
     virtual Status sink(RuntimeState* state, vectorized::Block* in_block,
                         SourceState source_state) override;
 
-    virtual bool can_write(RuntimeState* state) override { return true; }
-
     using DataSinkOperatorX<LocalStateType>::id;
 
 protected:
