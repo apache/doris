@@ -23,6 +23,8 @@
 #include <chrono> // IWYU pragma: keep
 #include <utility>
 
+#include "pipeline/exec/hashjoin_build_sink.h"
+
 namespace doris {
 namespace vectorized {
 
@@ -68,6 +70,9 @@ void SharedHashTableController::signal(int my_node_id, Status status) {
         it->second->status = status;
         _shared_contexts.erase(it);
     }
+    for (auto& dep : _dependencies) {
+        dep->set_ready_for_write();
+    }
     _cv.notify_all();
 }
 
@@ -77,6 +82,9 @@ void SharedHashTableController::signal(int my_node_id) {
     if (it != _shared_contexts.cend()) {
         it->second->signaled = true;
         _shared_contexts.erase(it);
+    }
+    for (auto& dep : _dependencies) {
+        dep->set_ready_for_write();
     }
     _cv.notify_all();
 }

@@ -144,6 +144,7 @@ StreamingAggSinkLocalState::StreamingAggSinkLocalState(DataSinkOperatorXBase* pa
 
 Status StreamingAggSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& info) {
     RETURN_IF_ERROR(Base::init(state, info));
+    _shared_state->data_queue.reset(new DataQueue(1, _dependency));
     _queue_byte_size_counter = ADD_COUNTER(profile(), "MaxSizeInBlockQueue", TUnit::BYTES);
     _queue_size_counter = ADD_COUNTER(profile(), "MaxSizeOfBlockQueue", TUnit::UNIT);
     _streaming_agg_timer = ADD_TIMER(profile(), "StreamingAggTime");
@@ -352,13 +353,6 @@ Status StreamingAggSinkLocalState::_pre_agg_with_serialized_key(
 StreamingAggSinkOperatorX::StreamingAggSinkOperatorX(ObjectPool* pool, const TPlanNode& tnode,
                                                      const DescriptorTbl& descs)
         : AggSinkOperatorX<StreamingAggSinkLocalState>(pool, tnode, descs) {}
-
-bool StreamingAggSinkOperatorX::can_write(RuntimeState* state) {
-    // sink and source in diff threads
-    return state->get_sink_local_state(id())
-            ->cast<StreamingAggSinkLocalState>()
-            ._shared_state->data_queue->has_enough_space_to_push();
-}
 
 Status StreamingAggSinkOperatorX::init(const TPlanNode& tnode, RuntimeState* state) {
     RETURN_IF_ERROR(AggSinkOperatorX<StreamingAggSinkLocalState>::init(tnode, state));
