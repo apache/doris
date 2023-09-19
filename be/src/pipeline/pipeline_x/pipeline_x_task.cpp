@@ -106,7 +106,6 @@ void PipelineXTask::_init_profile() {
     _close_timer = ADD_CHILD_TIMER(_task_profile, "CloseTime", exec_time);
 
     _wait_bf_timer = ADD_TIMER(_task_profile, "WaitBfTime");
-    _wait_sink_timer = ADD_TIMER(_task_profile, "WaitSinkTime");
     _wait_worker_timer = ADD_TIMER(_task_profile, "WaitWorkerTime");
 
     _block_counts = ADD_COUNTER(_task_profile, "NumBlockedTimes", TUnit::UNIT);
@@ -120,7 +119,6 @@ void PipelineXTask::_init_profile() {
 void PipelineXTask::_fresh_profile_counter() {
     COUNTER_SET(_wait_bf_timer, (int64_t)_wait_bf_watcher.elapsed_time());
     COUNTER_SET(_schedule_counts, (int64_t)_schedule_time);
-    COUNTER_SET(_wait_sink_timer, (int64_t)_wait_sink_watcher.elapsed_time());
     COUNTER_SET(_wait_worker_timer, (int64_t)_wait_worker_watcher.elapsed_time());
 }
 
