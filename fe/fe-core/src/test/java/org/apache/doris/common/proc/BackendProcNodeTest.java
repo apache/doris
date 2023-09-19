@@ -19,6 +19,7 @@ package org.apache.doris.common.proc;
 
 import org.apache.doris.catalog.DiskInfo;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.TabletInvertedIndex;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.persist.EditLog;
 import org.apache.doris.system.Backend;
@@ -41,6 +42,8 @@ public class BackendProcNodeTest {
     private Env env;
     @Mocked
     private EditLog editLog;
+    @Mocked
+    private TabletInvertedIndex tabletInvertedIndex;
 
     @Before
     public void setUp() {
@@ -62,6 +65,10 @@ public class BackendProcNodeTest {
                 env.getEditLog();
                 minTimes = 0;
                 result = editLog;
+
+                tabletInvertedIndex.getTabletNumByBackendId(anyLong);
+                minTimes = 0;
+                result = 2;
             }
         };
 
@@ -70,6 +77,10 @@ public class BackendProcNodeTest {
                 Env.getCurrentEnv();
                 minTimes = 0;
                 result = env;
+
+                Env.getCurrentInvertedIndex();
+                minTimes = 0;
+                result = tabletInvertedIndex;
             }
         };
 
@@ -97,7 +108,8 @@ public class BackendProcNodeTest {
 
         Assert.assertTrue(result.getRows().size() >= 1);
         Assert.assertEquals(Lists.newArrayList("RootPath", "DataUsedCapacity", "OtherUsedCapacity", "AvailCapacity",
-                "TotalCapacity", "TotalUsedPct", "State", "PathHash"), result.getColumnNames());
+                "TotalCapacity", "TotalUsedPct", "State", "SystemDecommissioned", "TabletNum", "PathHash"),
+                result.getColumnNames());
     }
 
 }
