@@ -174,7 +174,7 @@ inline void ThreadMemTrackerMgr::consume(int64_t size, bool large_memory_check) 
         !_stop_consume) {
         flush_untracked_mem();
     }
-    // Large memory alloc should use allocator.h
+    // Large memory alloc should use allocator.h and catch std::bad_alloc
     // Direct malloc or new large memory, unable to catch std::bad_alloc, BE may OOM.
     if (large_memory_check && size > doris::config::large_memory_check_bytes) {
         _stop_consume = true;
