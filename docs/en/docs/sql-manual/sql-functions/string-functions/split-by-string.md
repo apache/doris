@@ -33,7 +33,7 @@ under the License.
 
 `ARRAY<STRING> split_by_string(STRING s, STRING separator)`
 
-Splits a string into substrings separated by a string. It uses a constant string separator of multiple characters as the separator. If the string separator is empty, it will split the string s into an array of single characters.
+Splits a string into substrings separated by a string. It uses a constant string separator of multiple characters as the separator. If the string separator is empty, it will split the string s into an array of characters corresponding to a single byte.
 
 #### Arguments
 `separator` — The separator. Type: `String`
@@ -108,6 +108,13 @@ select split_by_string(',,a,,b,,c,,',',,');
 +--------------------------------------+
 | ['', 'a', 'b', 'c', '']              |
 +--------------------------------------+
+
+select split_by_string('你好Doris','');
++-------------------------------------------------------------------+
+| split_by_string('你好Doris', '')                                  |
++-------------------------------------------------------------------+
+| ["�", "�", "�", "�", "�", "�", "D", "o", "r", "i", "s"]      |
++-------------------------------------------------------------------+
 ```
 ### keywords
 
