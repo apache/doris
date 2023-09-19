@@ -327,7 +327,15 @@ public:
     void set_make_nullable_keys(std::vector<size_t>& make_nullable_keys) {
         _make_nullable_keys = make_nullable_keys;
     }
-
+    void _make_nullable_output_key(vectorized::Block* block) {
+        if (block->rows() != 0) {
+            for (auto cid : _make_nullable_keys) {
+                block->get_by_position(cid).column =
+                        make_nullable(block->get_by_position(cid).column);
+                block->get_by_position(cid).type = make_nullable(block->get_by_position(cid).type);
+            }
+        }
+    }
     const std::vector<size_t>& make_nullable_keys() { return _make_nullable_keys; }
     void release_tracker();
 
@@ -528,11 +536,11 @@ private:
 
 struct PartitionSortNodeSharedState {
 public:
-    std::queue<vectorized::Block> _blocks_buffer;
-    std::mutex _buffer_mutex;
-    std::vector<std::unique_ptr<vectorized::PartitionSorter>> _partition_sorts;
-    std::unique_ptr<vectorized::SortCursorCmp> _previous_row = nullptr;
-    int _sort_idx = 0;
+    std::queue<vectorized::Block> blocks_buffer;
+    std::mutex buffer_mutex;
+    std::vector<std::unique_ptr<vectorized::PartitionSorter>> partition_sorts;
+    std::unique_ptr<vectorized::SortCursorCmp> previous_row = nullptr;
+    int sort_idx = 0;
 };
 
 class PartitionSortDependency final : public Dependency {

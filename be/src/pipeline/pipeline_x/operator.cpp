@@ -24,6 +24,7 @@
 #include "pipeline/exec/analytic_sink_operator.h"
 #include "pipeline/exec/analytic_source_operator.h"
 #include "pipeline/exec/assert_num_rows_operator.h"
+#include "pipeline/exec/distinct_streaming_aggregation_sink_operator.h"
 #include "pipeline/exec/empty_set_operator.h"
 #include "pipeline/exec/exchange_sink_operator.h"
 #include "pipeline/exec/exchange_source_operator.h"
@@ -316,6 +317,7 @@ DECLARE_OPERATOR_X(AnalyticSinkLocalState)
 DECLARE_OPERATOR_X(SortSinkLocalState)
 DECLARE_OPERATOR_X(BlockingAggSinkLocalState)
 DECLARE_OPERATOR_X(StreamingAggSinkLocalState)
+DECLARE_OPERATOR_X(DistinctStreamingAggSinkLocalState)
 DECLARE_OPERATOR_X(ExchangeSinkLocalState)
 DECLARE_OPERATOR_X(NestedLoopJoinBuildSinkLocalState)
 DECLARE_OPERATOR_X(UnionSinkLocalState)

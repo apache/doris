@@ -63,7 +63,7 @@ public:
         RETURN_IF_ERROR(PipelineXLocalState<PartitionSortDependency>::init(state, info));
         _get_next_timer = ADD_TIMER(profile(), "GetResultTime");
         _get_sorted_timer = ADD_TIMER(profile(), "GetSortedTime");
-        _shared_state->_previous_row = std::make_unique<vectorized::SortCursorCmp>();
+        _shared_state->previous_row = std::make_unique<vectorized::SortCursorCmp>();
         return Status::OK();
     }
 
@@ -93,7 +93,7 @@ public:
 
 private:
     friend class PartitionSortSourceLocalState;
-    Status get_sorted_block(RuntimeState* state, vectorized::Block* output_block, bool* eos,
+    Status get_sorted_block(RuntimeState* state, vectorized::Block* output_block,
                             PartitionSortSourceLocalState& local_state);
 };
 

@@ -33,8 +33,8 @@ Status PartitionSortSourceLocalState::close(RuntimeState* state) {
     if (_closed) {
         return Status::OK();
     }
-    _shared_state->_previous_row = nullptr;
-    _shared_state->_partition_sorts.clear();
+    _shared_state->previous_row = nullptr;
+    _shared_state->partition_sorts.clear();
     return PipelineXLocalState<PartitionSortDependency>::close(state);
 }
 
@@ -44,28 +44,25 @@ Status PartitionSortSourceOperatorX::get_block(RuntimeState* state, vectorized::
     auto& local_state = state->get_local_state(id())->cast<PartitionSortSourceLocalState>();
     output_block->clear_column_data();
     {
-        std::lock_guard<std::mutex> lock(local_state._shared_state->_buffer_mutex);
-        if (local_state._shared_state->_blocks_buffer.empty() == false) {
-            local_state._shared_state->_blocks_buffer.front().swap(*output_block);
-            local_state._shared_state->_blocks_buffer.pop();
+        std::lock_guard<std::mutex> lock(local_state._shared_state->buffer_mutex);
+        if (local_state._shared_state->blocks_buffer.empty() == false) {
+            local_state._shared_state->blocks_buffer.front().swap(*output_block);
+            local_state._shared_state->blocks_buffer.pop();
             //if buffer have no data, block reading and wait for signal again
-            if (local_state._shared_state->_blocks_buffer.empty()) {
+            if (local_state._shared_state->blocks_buffer.empty()) {
                 local_state._dependency->block_reading();
             }
             return Status::OK();
         }
     }
 
-    // this is set by sink node using: local_state._dependency->set_ready_for_read()
-    if (local_state._dependency->is_ready_for_read()) {
-        bool current_eos = false;
-        RETURN_IF_ERROR(get_sorted_block(state, output_block, &current_eos, local_state));
-    }
+    // is_ready_for_read: this is set by sink node using: local_state._dependency->set_ready_for_read()
+    RETURN_IF_ERROR(get_sorted_block(state, output_block, local_state));
     {
-        std::lock_guard<std::mutex> lock(local_state._shared_state->_buffer_mutex);
-        if (local_state._shared_state->_blocks_buffer.empty() &&
-            local_state._shared_state->_sort_idx >=
-                    local_state._shared_state->_partition_sorts.size()) {
+        std::lock_guard<std::mutex> lock(local_state._shared_state->buffer_mutex);
+        if (local_state._shared_state->blocks_buffer.empty() &&
+            local_state._shared_state->sort_idx >=
+                    local_state._shared_state->partition_sorts.size()) {
             source_state = SourceState::FINISHED;
         }
     }
@@ -79,25 +76,24 @@ Dependency* PartitionSortSourceOperatorX::wait_for_dependency(RuntimeState* stat
 
 Status PartitionSortSourceOperatorX::get_sorted_block(RuntimeState* state,
                                                       vectorized::Block* output_block,
-                                                      bool* current_eos,
                                                       PartitionSortSourceLocalState& local_state) {
     SCOPED_TIMER(local_state._get_sorted_timer);
     //sorter output data one by one
-    if (local_state._shared_state->_sort_idx < local_state._shared_state->_partition_sorts.size()) {
+    bool current_eos = false;
+    if (local_state._shared_state->sort_idx < local_state._shared_state->partition_sorts.size()) {
         RETURN_IF_ERROR(
-                local_state._shared_state->_partition_sorts[local_state._shared_state->_sort_idx]
-                        ->get_next(state, output_block, current_eos));
+                local_state._shared_state->partition_sorts[local_state._shared_state->sort_idx]
+                        ->get_next(state, output_block, &current_eos));
     }
-    if (*current_eos) {
+    if (current_eos) {
         //current sort have eos, so get next idx
-        local_state._shared_state->_previous_row->reset();
-        auto rows =
-                local_state._shared_state->_partition_sorts[local_state._shared_state->_sort_idx]
-                        ->get_output_rows();
+        local_state._shared_state->previous_row->reset();
+        auto rows = local_state._shared_state->partition_sorts[local_state._shared_state->sort_idx]
+                            ->get_output_rows();
         local_state._num_rows_returned += rows;
-        local_state._shared_state->_partition_sorts[local_state._shared_state->_sort_idx].reset(
+        local_state._shared_state->partition_sorts[local_state._shared_state->sort_idx].reset(
                 nullptr);
-        local_state._shared_state->_sort_idx++;
+        local_state._shared_state->sort_idx++;
     }
 
     return Status::OK();

@@ -108,8 +108,8 @@ Status PartitionSortSinkOperatorX::sink(RuntimeState* state, vectorized::Block* 
             if (local_state._num_partition > config::partition_topn_partition_threshold &&
                 local_state.child_input_rows < 10000 * local_state._num_partition) {
                 {
-                    std::lock_guard<std::mutex> lock(local_state._shared_state->_buffer_mutex);
-                    local_state._shared_state->_blocks_buffer.push(std::move(*input_block));
+                    std::lock_guard<std::mutex> lock(local_state._shared_state->buffer_mutex);
+                    local_state._shared_state->blocks_buffer.push(std::move(*input_block));
                     // buffer have data, source could read this.
                     local_state._dependency->set_ready_for_read();
                 }
@@ -133,7 +133,7 @@ Status PartitionSortSinkOperatorX::sink(RuntimeState* state, vectorized::Block* 
                     _vsort_exec_exprs, _limit, 0, _pool, _is_asc_order, _nulls_first,
                     _child_x->row_desc(), state, i == 0 ? local_state._profile : nullptr,
                     _has_global_limit, _partition_inner_limit, _top_n_algorithm,
-                    local_state._shared_state->_previous_row.get());
+                    local_state._shared_state->previous_row.get());
 
             DCHECK(_child_x->row_desc().num_materialized_slots() ==
                    local_state._value_places[i]->blocks.back()->columns());
@@ -143,7 +143,7 @@ Status PartitionSortSinkOperatorX::sink(RuntimeState* state, vectorized::Block* 
             }
             sorter->init_profile(local_state._profile);
             RETURN_IF_ERROR(sorter->prepare_for_read());
-            local_state._shared_state->_partition_sorts.push_back(std::move(sorter));
+            local_state._shared_state->partition_sorts.push_back(std::move(sorter));
         }
 
         COUNTER_SET(local_state._hash_table_size_counter, int64_t(local_state._num_partition));
