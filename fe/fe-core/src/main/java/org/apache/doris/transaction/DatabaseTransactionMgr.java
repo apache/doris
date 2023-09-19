@@ -51,6 +51,7 @@ import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.persist.BatchRemoveTransactionsOperationV2;
 import org.apache.doris.persist.EditLog;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.statistics.AnalysisManager;
 import org.apache.doris.task.AgentBatchTask;
 import org.apache.doris.task.AgentTaskExecutor;
 import org.apache.doris.task.ClearTransactionTask;
@@ -1791,6 +1792,9 @@ public class DatabaseTransactionMgr {
                 }
             }
         }
+        AnalysisManager analysisManager = Env.getCurrentEnv().getAnalysisManager();
+        LOG.debug("table id to loaded rows:{}", transactionState.getTableIdToNumDeltaRows());
+        transactionState.getTableIdToNumDeltaRows().forEach(analysisManager::updateUpdatedRows);
         return true;
     }
 
