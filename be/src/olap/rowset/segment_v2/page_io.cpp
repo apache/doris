@@ -204,8 +204,8 @@ Status PageIO::read_and_decompress_page(const PageReadOptions& opts, PageHandle*
         auto* pre_decoder = opts.encoding_info->get_data_page_pre_decoder();
         if (pre_decoder) {
             RETURN_IF_ERROR(pre_decoder->decode(
-                    &page, &page_slice,
-                    footer->data_page_footer().nullmap_size() + footer_size + 4, footer->data_page_footer()));
+                    &page, &page_slice, footer->data_page_footer().nullmap_size() + footer_size + 4,
+                    footer->data_page_footer()));
         }
     }
 
