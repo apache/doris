@@ -100,6 +100,7 @@ suite("test_partial_update_native_insert_stmt", "p0") {
     sql """insert into ${tableName3} values(2, "doris2", 2000, 223, 1),(1, "doris", 1000, 123, 1);"""
     qt_3 """ select * from ${tableName3} order by id; """
     sql "set enable_unique_key_partial_update=true;"
+    sql "set enable_insert_strict = false;"
     sql "sync;"
     // in partial update, the unmentioned columns should have default values or be nullable
     // but field `name` is not nullable and doesn't have default value
