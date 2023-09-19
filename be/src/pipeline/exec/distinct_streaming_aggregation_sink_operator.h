@@ -26,6 +26,7 @@
 #include "common/status.h"
 #include "operator.h"
 #include "pipeline/exec/aggregation_sink_operator.h"
+#include "pipeline/exec/aggregation_source_operator.h"
 #include "util/runtime_profile.h"
 #include "vec/core/block.h"
 #include "vec/exec/distinct_vaggregation_node.h"
@@ -83,6 +84,11 @@ public:
     using Base = AggSinkLocalState<AggDependency, DistinctStreamingAggSinkLocalState>;
     ENABLE_FACTORY_CREATOR(DistinctStreamingAggSinkLocalState);
     DistinctStreamingAggSinkLocalState(DataSinkOperatorXBase* parent, RuntimeState* state);
+    Status init(RuntimeState* state, LocalSinkStateInfo& info) override {
+        RETURN_IF_ERROR(Base::init(state, info));
+        _shared_state->data_queue.reset(new DataQueue(1, _dependency));
+        return Status::OK();
+    }
 
     Status close(RuntimeState* state) override;
     Status _distinct_pre_agg_with_serialized_key(vectorized::Block* in_block,
@@ -109,7 +115,9 @@ public:
     Status sink(RuntimeState* state, vectorized::Block* in_block,
                 SourceState source_state) override;
 
-    bool can_write(RuntimeState* state) override;
+    WriteDependency* wait_for_dependency(RuntimeState* state) override {
+        return state->get_local_state(id())->cast<AggLocalState>()._dependency->write_blocked_by();
+    }
 };
 
 } // namespace pipeline

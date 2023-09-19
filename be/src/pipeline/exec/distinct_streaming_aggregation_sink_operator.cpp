@@ -202,13 +202,6 @@ DistinctStreamingAggSinkOperatorX::DistinctStreamingAggSinkOperatorX(ObjectPool*
                                                                      const DescriptorTbl& descs)
         : AggSinkOperatorX<DistinctStreamingAggSinkLocalState>(pool, tnode, descs) {}
 
-bool DistinctStreamingAggSinkOperatorX::can_write(RuntimeState* state) {
-    // sink and source in diff threads
-    return state->get_sink_local_state(id())
-            ->cast<DistinctStreamingAggSinkLocalState>()
-            ._shared_state->data_queue->has_enough_space_to_push();
-}
-
 Status DistinctStreamingAggSinkOperatorX::init(const TPlanNode& tnode, RuntimeState* state) {
     RETURN_IF_ERROR(AggSinkOperatorX<DistinctStreamingAggSinkLocalState>::init(tnode, state));
     _name = "DISTINCT_STREAMING_AGGREGATION_SINK_OPERATOR";

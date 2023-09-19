@@ -543,12 +543,14 @@ public:
     int sort_idx = 0;
 };
 
-class PartitionSortDependency final : public Dependency {
+class PartitionSortDependency final : public WriteDependency {
 public:
     using SharedState = PartitionSortNodeSharedState;
-    PartitionSortDependency(int id) : Dependency(id, "PartitionSortDependency") {}
+    PartitionSortDependency(int id) : WriteDependency(id, "PartitionSortDependency") {}
     ~PartitionSortDependency() override = default;
     void* shared_state() override { return (void*)&_partition_sort_state; };
+    void set_ready_for_write() override {}
+    void block_writing() override {}
 
 private:
     PartitionSortNodeSharedState _partition_sort_state;
