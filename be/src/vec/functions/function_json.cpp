@@ -1064,6 +1064,188 @@ public:
     }
 };
 
+class FunctionJsonMergePatch : public IFunction {
+public:
+    static constexpr auto name = "json_merge_patch";
+    static FunctionPtr create() { return std::make_shared<FunctionJsonMergePatch>(); }
+
+    String get_name() const override { return name; }
+
+    size_t get_number_of_arguments() const override { return 0; }
+
+    bool is_variadic() const override { return true; }
+
+    DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
+        return make_nullable(std::make_shared<DataTypeString>());
+    }
+
+    bool use_default_implementation_for_nulls() const override { return false; }
+
+    rapidjson::Value* array_merge(std::vector<rapidjson::Value*> jsons,
+                                  rapidjson::Document::AllocatorType& allocator) {
+        rapidjson::Value* result =
+                static_cast<rapidjson::Value*>(allocator.Malloc(sizeof(rapidjson::Value)));
+
+        (*result).SetArray();
+        for (auto json : jsons) {
+            if (json->IsArray()) {
+                result = jsons.back();
+                break;
+            } else {
+                result = jsons.back();
+                break;
+            }
+        }
+        return result;
+    }
+
+    rapidjson::Value* json_merge(std::vector<rapidjson::Value*> jsons,
+                                 rapidjson::Document::AllocatorType& allocator) {
+        // Use two layers of loops to iterate through each rapidjson::Value object in jsons.
+        // For each object, the code iterates over its members and stores the key and value of each member in key and value respectively
+        // converts the key to a std::string type and checks whether the result already contains the key.
+        // If yes, get the value exist_value that already exists.
+        // If value is null, the key is removed from result.
+        // If exist_value and value are both object types, recursively call the json_merge function to merge them, and copy the merged value to exist_value.
+        // If exist_value and value are not object types, copy value directly to exist_value
+        rapidjson::Value* result =
+                static_cast<rapidjson::Value*>(allocator.Malloc(sizeof(rapidjson::Value)));
+        result->SetObject();
+
+        std::vector<rapidjson::Value*> json_data;
+        for (rapidjson::Value* json : jsons) {
+            for (auto itr = json->MemberBegin(); itr != json->MemberEnd(); ++itr) {
+                rapidjson::Value key(itr->name, allocator);
+                rapidjson::Value value(itr->value, allocator);
+
+                std::string key_string = key.GetString();
+                if (result->HasMember(key)) {
+                    rapidjson::Value& exist_value = (*result)[key];
+                    if (value.IsNull()) {
+                        result->RemoveMember(key);
+                    } else if (exist_value.IsObject() && value.IsObject()) {
+                        rapidjson::Value* merge_value =
+                                json_merge({&exist_value, &value}, allocator);
+
+                        exist_value.CopyFrom(*merge_value, allocator);
+                        allocator.Free(merge_value);
+                    } else {
+                        exist_value.CopyFrom(value, allocator);
+                    }
+                } else {
+                    rapidjson::Value newKey(key, allocator);
+                    rapidjson::Value newValue(value, allocator);
+                    result->AddMember(newKey, newValue, allocator);
+                }
+            }
+        }
+        return result;
+    }
+
+    rapidjson::Value* json_or_array_merge(std::vector<rapidjson::Value*> jsons,
+                                          rapidjson::Document::AllocatorType& allocator) {
+        rapidjson::Value* result =
+                static_cast<rapidjson::Value*>(allocator.Malloc(sizeof(rapidjson::Value)));
+
+        if (jsons.empty()) {
+            return result;
+        }
+
+        if (jsons.size() == 1) {
+            return jsons[0];
+        }
+
+        bool is_all_obj = true;
+
+        for (auto json : jsons) {
+            if (!(*json).IsObject()) {
+                is_all_obj = false;
+            }
+        }
+
+        if (!is_all_obj) {
+            result = array_merge(jsons, allocator);
+        } else {
+            result = json_merge(jsons, allocator);
+        }
+
+        return result;
+    }
+
+    Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
+                        size_t result, size_t input_rows_count) override {
+        std::vector<const IColumn*> col_change_jsons;
+
+        for (int i = 0; i < arguments.size(); i++) {
+            col_change_jsons.push_back(block.get_by_position(arguments[i]).column.get());
+        }
+
+        auto result_null_map = ColumnUInt8::create(input_rows_count, 0);
+
+        std::vector<const ColumnString*> col_json_strings;
+
+        for (int i = 0; i < col_change_jsons.size(); i++) {
+            auto* col_json_string = check_and_get_column<ColumnString>(*col_change_jsons[i]);
+            if (auto* nullable = check_and_get_column<ColumnNullable>(*col_change_jsons[i])) {
+                col_json_string =
+                        check_and_get_column<ColumnString>(*nullable->get_nested_column_ptr());
+            }
+
+            if (!col_json_string) {
+                return Status::RuntimeError("Illegal column should be ColumnString");
+            }
+
+            col_json_strings.push_back(col_json_string);
+        }
+
+        auto result_col = ColumnString::create();
+
+        rapidjson::Document docs;
+        rapidjson::Writer<rapidjson::StringBuffer> writer;
+        for (size_t i = 0; i < input_rows_count; ++i) {
+            std::vector<std::unique_ptr<rapidjson::Value>> jsons;
+            for (int j = 0; j < col_json_strings.size(); j++) {
+                if (col_change_jsons[j]->is_null_at(i)) {
+                    result_null_map->get_data()[i] = 1;
+                    result_col->insert_data("", 0);
+                    break;
+                }
+
+                const auto& json_value = col_json_strings[j]->get_data_at(i);
+
+                std::string json_string(json_value.data, json_value.size);
+                auto doc = std::make_unique<rapidjson::Document>();
+                if (doc->Parse(json_string.c_str()).HasParseError()) {
+                    return Status::RuntimeError("Illegal json string {} in column {}", json_string,
+                                                col_json_strings[j]->get_name());
+                }
+                jsons.emplace_back(std::move(doc));
+            }
+
+            if (result_null_map->get_data()[i] == 1) {
+                continue;
+            }
+
+            std::vector<rapidjson::Value*> json_final;
+            for (auto& json : jsons) {
+                json_final.emplace_back(json.get());
+            }
+
+            auto json_merge = json_or_array_merge(json_final, docs.GetAllocator());
+            rapidjson::StringBuffer buffer;
+            buffer.Clear();
+            writer.Reset(buffer);
+            (*json_merge).Accept(writer);
+            result_col->insert_data(buffer.GetString(), buffer.GetSize());
+        }
+
+        block.replace_by_position(
+                result, ColumnNullable::create(std::move(result_col), std::move(result_null_map)));
+
+        return Status::OK();
+    }
+};
+
 class FunctionJsonUnquote : public IFunction {
 public:
     static constexpr auto name = "json_unquote";
@@ -1145,6 +1327,8 @@ void register_function_json(SimpleFunctionFactory& factory) {
 
     factory.register_function<FunctionJsonValid>();
     factory.register_function<FunctionJsonContains>();
+
+    factory.register_function<FunctionJsonMergePatch>();
 }
 
 } // namespace doris::vectorized
