@@ -386,7 +386,7 @@ void PipelineTask::set_state(PipelineTaskState state) {
             COUNTER_UPDATE(_block_by_source_counts, 1);
         } else if (state == PipelineTaskState::BLOCKED_FOR_SINK) {
             _wait_sink_watcher.start();
-            COUNTER_UPDATE(_block_by_sink_counts, 1)
+            COUNTER_UPDATE(_block_by_sink_counts, 1);
         } else if (state == PipelineTaskState::BLOCKED_FOR_RF) {
             _wait_bf_watcher.start();
             COUNTER_UPDATE(_block_by_rf_counts, 1);
