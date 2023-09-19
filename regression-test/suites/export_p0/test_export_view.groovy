@@ -105,7 +105,7 @@ suite("test_export_view", "p0") {
 
     def table_export_name = "test_export_base_table"
     def table_export_view_name = "test_export_view_table"
-    def table_load_name = "test_load_basic"
+    def table_load_name = "test_load_view_basic"
     def outfile_path_prefix = """/tmp/test_export"""
 
     // create table and insert
@@ -339,7 +339,7 @@ suite("test_export_view", "p0") {
             }
         }
 
-        order_qt_select_load3 """ SELECT * FROM ${table_load_name} t; """
+        order_qt_select_load3 """ SELECT * FROM ${table_load_name}; """
     
     } finally {
         try_sql("DROP TABLE IF EXISTS ${table_load_name}")
