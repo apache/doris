@@ -220,6 +220,10 @@ private:
     RuntimeProfile::Counter* _memory_usage_counter;
     RuntimeProfile::Counter* _peak_memory_usage_counter;
 
+    RuntimeProfile::Counter* _wait_queue_timer;
+    RuntimeProfile::Counter* _wait_broadcast_buffer_timer;
+    std::vector<RuntimeProfile::Counter*> _wait_channel_timer;
+
     // Sender instance id, unique within a fragment.
     int _sender_id;
     std::vector<vectorized::BroadcastPBlockHolder> _broadcast_pb_blocks;
@@ -227,9 +231,9 @@ private:
 
     vectorized::BlockSerializer<ExchangeSinkLocalState> _serializer;
 
-    std::shared_ptr<ExchangeSinkQueueDependency> _queue_dependency;
-    std::shared_ptr<AndDependency> _exchange_sink_dependency;
-    std::shared_ptr<BroadcastDependency> _broadcast_dependency;
+    std::shared_ptr<ExchangeSinkQueueDependency> _queue_dependency = nullptr;
+    std::shared_ptr<AndDependency> _exchange_sink_dependency = nullptr;
+    std::shared_ptr<BroadcastDependency> _broadcast_dependency = nullptr;
     std::vector<std::shared_ptr<ChannelDependency>> _channels_dependency;
 };
 

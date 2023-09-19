@@ -124,6 +124,10 @@ Status ExchangeSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& inf
     _peak_memory_usage_counter =
             _profile->AddHighWaterMarkCounter("PeakMemoryUsage", TUnit::BYTES, "MemoryUsage");
 
+    static const std::string timer_name = "WaitForDependencyTime";
+    _wait_for_dependency_timer = ADD_TIMER(_profile, timer_name);
+    _wait_queue_timer = ADD_CHILD_TIMER(_profile, "WaitForRpcBufferQueue", timer_name);
+
     auto& p = _parent->cast<ExchangeSinkOperatorX>();
 
     std::map<int64_t, int64_t> fragment_id_to_channel_index;
@@ -186,9 +190,13 @@ Status ExchangeSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& inf
                     vectorized::BroadcastPBlockHolder(_broadcast_dependency.get()));
         }
         _exchange_sink_dependency->add_child(_broadcast_dependency);
+
+        _wait_broadcast_buffer_timer =
+                ADD_CHILD_TIMER(_profile, "WaitForBroadcastBuffer", timer_name);
     } else if (local_size > 0) {
         size_t dep_id = 0;
         _channels_dependency.resize(local_size);
+        _wait_channel_timer.resize(local_size);
         auto deps_for_channels = AndDependency::create_shared(_parent->id());
         for (auto channel : channels) {
             if (channel->is_local()) {
@@ -196,6 +204,8 @@ Status ExchangeSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& inf
                         _parent->id(), _sender_id, channel->local_recvr());
                 channel->set_dependency(_channels_dependency[dep_id]);
                 deps_for_channels->add_child(_channels_dependency[dep_id]);
+                _wait_channel_timer[dep_id] =
+                        ADD_CHILD_TIMER(_profile, "WaitForLocalExchangeBuffer", timer_name);
                 dep_id++;
             }
         }
@@ -542,10 +552,19 @@ Status ExchangeSinkOperatorX::try_close(RuntimeState* state) {
 }
 
 Status ExchangeSinkLocalState::close(RuntimeState* state) {
-    SCOPED_TIMER(profile()->total_time_counter());
-    SCOPED_TIMER(_close_timer);
     if (_closed) {
         return Status::OK();
+    }
+    SCOPED_TIMER(profile()->total_time_counter());
+    SCOPED_TIMER(_close_timer);
+    COUNTER_UPDATE(_wait_queue_timer, _queue_dependency->write_watcher_elapse_time());
+    if (_broadcast_dependency) {
+        COUNTER_UPDATE(_wait_broadcast_buffer_timer,
+                       _broadcast_dependency->write_watcher_elapse_time());
+    }
+    for (size_t i = 0; i < _channels_dependency.size(); i++) {
+        COUNTER_UPDATE(_wait_channel_timer[i],
+                       _channels_dependency[i]->write_watcher_elapse_time());
     }
     _sink_buffer->update_profile(profile());
     _sink_buffer->close();

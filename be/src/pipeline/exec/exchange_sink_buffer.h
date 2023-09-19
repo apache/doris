@@ -70,8 +70,8 @@ struct AtomicWrapper {
 // PBlock is available for next serialization.
 class BroadcastPBlockHolder {
 public:
-    BroadcastPBlockHolder() : _ref_count(0) {}
-    BroadcastPBlockHolder(pipeline::BroadcastDependency* dep) : _ref_count(0) {}
+    BroadcastPBlockHolder() : _ref_count(0), _dep(nullptr) {}
+    BroadcastPBlockHolder(pipeline::BroadcastDependency* dep) : _ref_count(0), _dep(dep) {}
     ~BroadcastPBlockHolder() noexcept = default;
 
     void unref() noexcept;
