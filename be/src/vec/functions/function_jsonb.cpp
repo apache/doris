@@ -1031,17 +1031,16 @@ struct JsonbLengthUtil {
     static Status jsonb_length_execute(FunctionContext* context, Block& block,
                                        const ColumnNumbers& arguments, size_t result,
                                        size_t input_rows_count) {
-        auto null_map = ColumnUInt8::create(input_rows_count, 0);
         DCHECK_GE(arguments.size(), 2);
-
+        ColumnPtr jsonb_data_column;
+        bool jsonb_data_const = false;
         // prepare jsonb data column
-        auto jsonb_data_column = block.get_by_position(arguments[0]).column;
-
+        std::tie(jsonb_data_column, jsonb_data_const) =
+                unpack_if_const(block.get_by_position(arguments[0]).column);
         ColumnPtr path_column;
         bool is_const = false;
         std::tie(path_column, is_const) =
                 unpack_if_const(block.get_by_position(arguments[1]).column);
-
         JsonbPath path;
         if (is_const) {
             auto path_value = path_column->get_data_at(0);
@@ -1053,14 +1052,16 @@ struct JsonbLengthUtil {
                                          path_value.size));
             }
         }
-        auto res = ColumnInt32::create(input_rows_count,0);
+        auto null_map = ColumnUInt8::create(input_rows_count, 0);
+        auto return_type = block.get_data_type(result);
+        MutableColumnPtr res = return_type->create_column();
 
         for (size_t i = 0; i < input_rows_count; ++i) {
             if (jsonb_data_column->is_null_at(i) || path_column->is_null_at(i)) {
-                res->insert_data("", 0);
+                null_map->get_data()[i] = 1;
+                res->insert_data(nullptr, 0);
                 continue;
             }
-
             if (!is_const) {
                 auto path_value = path_column->get_data_at(i);
                 path.clean();
@@ -1072,20 +1073,18 @@ struct JsonbLengthUtil {
                                              path_value.size));
                 }
             }
-
             auto jsonb_value = jsonb_data_column->get_data_at(i);
-
             // doc is NOT necessary to be deleted since JsonbDocument will not allocate memory
             JsonbDocument* doc = JsonbDocument::createDocument(jsonb_value.data, jsonb_value.size);
             JsonbValue* value = doc->getValue()->findValue(path, nullptr);
-            if (UNLIKELY(jsonb_value.size == 0 || value == nullptr)) {
-                res->insert_data("", 0);
+            if (UNLIKELY(jsonb_value.size == 0 || !value)) {
+                null_map->get_data()[i] = 1;
+                res->insert_data(nullptr, 0);
                 continue;
             }
             auto length = value->length();
             res->insert_data(const_cast<const char*>((char*)&length), 0);
         }
-
         block.replace_by_position(result,
                                   ColumnNullable::create(std::move(res), std::move(null_map)));
         return Status::OK();
@@ -1178,7 +1177,8 @@ struct JsonbContainsUtil {
             }
         }
         auto null_map = ColumnUInt8::create(input_rows_count, 0);
-        auto res = ColumnUInt8::create();
+        auto return_type = block.get_data_type(result);
+        MutableColumnPtr res = return_type->create_column();
 
         for (size_t i = 0; i < input_rows_count; ++i) {
             if (jsonb_data1_column->is_null_at(i) || jsonb_data2_column->is_null_at(i) ||

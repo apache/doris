@@ -107,7 +107,7 @@ public:
                 l[i] = 1;
             }
         } else {
-            for (size_t i = 0; i < size; ++i) {;
+            for (size_t i = 0; i < size; ++i) {
                 l[i] |= r[i];
             }
         }
