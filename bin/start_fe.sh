@@ -33,11 +33,13 @@ OPTS="$(getopt \
     -l 'image:' \
     -l 'version' \
     -l 'metadata_failure_recovery' \
+    -l 'console' \
     -- "$@")"
 
 eval set -- "${OPTS}"
 
 RUN_DAEMON=0
+RUN_CONSOLE=0
 HELPER=''
 IMAGE_PATH=''
 IMAGE_TOOL=''
@@ -47,6 +49,10 @@ while true; do
     case "$1" in
     --daemon)
         RUN_DAEMON=1
+        shift
+        ;;
+    --console)
+        RUN_CONSOLE=1
         shift
         ;;
     --version)
@@ -227,9 +233,11 @@ if [[ "${IMAGE_TOOL}" -eq 1 ]]; then
     fi
 elif [[ "${RUN_DAEMON}" -eq 1 ]]; then
     nohup ${LIMIT:+${LIMIT}} "${JAVA}" ${final_java_opt:+${final_java_opt}} -XX:-OmitStackTraceInFastThrow -XX:OnOutOfMemoryError="kill -9 %p" org.apache.doris.DorisFE ${HELPER:+${HELPER}} "${METADATA_FAILURE_RECOVERY}" "$@" >>"${LOG_DIR}/fe.out" 2>&1 </dev/null &
-else
+elif [[ "${RUN_CONSOLE}" -eq 1 ]]; then
     export DORIS_LOG_TO_STDERR=1
     ${LIMIT:+${LIMIT}} "${JAVA}" ${final_java_opt:+${final_java_opt}} -XX:-OmitStackTraceInFastThrow -XX:OnOutOfMemoryError="kill -9 %p" org.apache.doris.DorisFE ${HELPER:+${HELPER}} ${OPT_VERSION:+${OPT_VERSION}} "${METADATA_FAILURE_RECOVERY}" "$@" </dev/null
+else
+    ${LIMIT:+${LIMIT}} "${JAVA}" ${final_java_opt:+${final_java_opt}} -XX:-OmitStackTraceInFastThrow -XX:OnOutOfMemoryError="kill -9 %p" org.apache.doris.DorisFE ${HELPER:+${HELPER}} ${OPT_VERSION:+${OPT_VERSION}} "$@" >>"${LOG_DIR}/fe.out" 2>&1 </dev/null
 fi
 
 echo $! >"${pidfile}"
