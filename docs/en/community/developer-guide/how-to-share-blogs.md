@@ -1,6 +1,6 @@
 ---
 {
-  "title": "How to share blogs", 
+  "title": "How to Share Blogs", 
   "language": "en"
 }
 ---
@@ -24,7 +24,7 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# How to share a blog
+# How to Share Blogs
 
 The Doris community welcomes the sharing of Doris-related articles. Once merged, these articles will appear on the official Doris website.
 

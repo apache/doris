@@ -1,6 +1,6 @@
 ---
 {
-    "title": "Doris BE存储层Benchmark工具",
+    "title": "Doris BE 存储层 Benchmark 工具",
     "language": "zh-CN"
 }
 

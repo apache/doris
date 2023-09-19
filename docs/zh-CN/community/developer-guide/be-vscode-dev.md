@@ -1,5 +1,5 @@
 ---
-{ 'title': 'Doris BE开发调试环境 -- vscode', 'language': 'zh-CN' }
+{ 'title': 'Doris BE开发调试环境 - VSCode', 'language': 'zh-CN' }
 ---
 
 <!--

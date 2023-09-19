@@ -1,5 +1,5 @@
 ---
-{ 'title': 'Doris BE 开发调试环境 -- clion', 'language': 'zh-CN' }
+{ 'title': 'Doris BE 开发调试环境 - clion', 'language': 'zh-CN' }
 ---
 
 <!--

@@ -1,6 +1,6 @@
 ---
 {
-    "title": "BE development and debugging environment under Linux",
+    "title": "BE Development and Debugging Environment under Linux",
     "language": "en"
 }
 ---

@@ -1,6 +1,6 @@
 ---
 {
-    "title": "Doris Docker quick build development environment",
+    "title": "Doris Docker Quick Build Development Environment",
     "language": "en"
 }
 

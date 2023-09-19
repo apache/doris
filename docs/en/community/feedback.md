@@ -24,7 +24,6 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# Feedback
 
 ## Feedback Tips
 

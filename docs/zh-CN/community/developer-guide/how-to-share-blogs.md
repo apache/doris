@@ -1,6 +1,6 @@
 ---
 {
-  "title": "如何分享Blog", 
+  "title": "如何分享 Blog", 
   "language": "zh-CN"
 }
 ---

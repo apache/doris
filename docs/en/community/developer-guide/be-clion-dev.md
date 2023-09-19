@@ -1,5 +1,5 @@
 ---
-{ 'title': 'Development and Debugging of Apache Doris BE -- Clion', 'language': 'en' }
+{ 'title': 'Development and Debugging of Apache Doris BE - Clion', 'language': 'en' }
 ---
 
 <!--

@@ -1,6 +1,6 @@
 ---
 {
-    "title": "Setting FE dev env - Eclipse",
+    "title": "Setting FE Dev Env - Eclipse",
     "language": "en"
 }
 ---

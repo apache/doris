@@ -1,6 +1,6 @@
 ---
 {
-"title": "Bitmap/HLL data format",
+"title": "Bitmap/HLL Data Format",
 "language": "en"
 }
 

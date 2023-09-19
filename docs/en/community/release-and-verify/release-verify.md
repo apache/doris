@@ -1,6 +1,6 @@
 ---
 {
-    "title": "Verify the Apache release version",
+    "title": "Verify the Apache Release Version",
     "language": "en"
 }
 ---

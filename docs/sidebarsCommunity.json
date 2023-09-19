@@ -34,16 +34,6 @@
         "security",
         {
             "type": "category",
-            "label": "Design Documents",
-            "items": [
-                "design/doris_storage_optimization",
-                "design/grouping_sets_design",
-                "design/metadata-design",
-                "design/spark_load"
-            ]
-        },
-        {
-            "type": "category",
             "label": "Developer Guide",
             "items": [
                 "developer-guide/debug-tool",

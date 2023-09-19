@@ -1,6 +1,6 @@
 ---
 {
-    'title': 'Setting Up Dev Env on Mac for Doris BE - CLion', 
+    'title': 'Setting up Dev Env on Mac for Doris BE - CLion', 
     'language': 'en'
 }
 ---

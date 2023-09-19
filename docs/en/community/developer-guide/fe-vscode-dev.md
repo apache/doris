@@ -1,6 +1,6 @@
 ---
 {
-    "title": "FE development and debugging environment - Visual Studio Code (VSCode)",
+    "title": "FE Development and Debugging Environment - Visual Studio Code (VSCode)",
     "language": "en"
 }
 ---

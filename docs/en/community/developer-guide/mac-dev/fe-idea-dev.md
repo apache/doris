@@ -1,6 +1,6 @@
 ---
 {
-  "title": "Setting Up Dev Env on Mac for Doris FE - IntelliJ IDEA",
+  "title": "Setting up Dev Env on Mac for Doris FE - IntelliJ IDEA",
   "language": "en"
 }
 ---

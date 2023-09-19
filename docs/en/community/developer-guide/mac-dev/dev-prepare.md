@@ -1,6 +1,6 @@
 ---
 {
-    'title': 'Dev & Debug prepare on Mac', 
+    'title': 'Dev & Debug Prepare on Mac', 
     'language': 'en'
 }
 ---
