@@ -395,6 +395,14 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String INVERTED_INDEX_CONJUNCTION_OPT_THRESHOLD = "inverted_index_conjunction_opt_threshold";
 
+    public static final String FULL_AUTO_ANALYZE_START_TIME = "full_auto_analyze_start_time";
+
+    public static final String FULL_AUTO_ANALYZE_END_TIME = "full_auto_analyze_end_time";
+
+    public static final String EXPAND_RUNTIME_FILTER_BY_INNER_JION = "expand_runtime_filter_by_inner_join";
+
+    public static final String TEST_QUERY_CACHE_HIT = "test_query_cache_hit";
+
     public static final List<String> DEBUG_VARIABLES = ImmutableList.of(
             SKIP_DELETE_PREDICATE,
             SKIP_DELETE_BITMAP,
@@ -1126,6 +1134,13 @@ public class SessionVariable implements Serializable, Writable {
 
     @VariableMgr.VarAttr(name = ENABLE_UNIQUE_KEY_PARTIAL_UPDATE, needForward = true)
     public boolean enableUniqueKeyPartialUpdate = false;
+
+    @VariableMgr.VarAttr(name = TEST_QUERY_CACHE_HIT, description = {
+            "用于测试查询缓存是否命中，如果未命中指定类型的缓存，则会报错",
+            "Used to test whether the query cache is hit. "
+                    + "If the specified type of cache is not hit, an error will be reported."},
+            options = {"none", "sql_cache", "partition_cache"})
+    public String testQueryCacheHit = "none";
 
     // If this fe is in fuzzy mode, then will use initFuzzyModeVariables to generate some variables,
     // not the default value set in the code.
