@@ -385,9 +385,15 @@ static void toStringEveryLineImpl([[maybe_unused]] const std::string dwarf_locat
             out << " ";
         }
 
-        if (shouldShowAddress(physical_addr)) {
-            out << "@ ";
-            writePointerHex(physical_addr, out);
+        if (std::error_code ec; object && std::filesystem::exists(object->name, ec) && !ec) {
+            auto dwarf_it = dwarfs.try_emplace(object->name, object->elf).first;
+
+            doris::Dwarf::LocationInfo location;
+
+            if (dwarf_it->second.findAddress(uintptr_t(physical_addr), location, mode,
+                                             inline_frames)) {
+                out << location.file.toString() << ":" << location.line;
+            }
         }
 
         if (const auto* const symbol = symbol_index.findSymbol(virtual_addr)) {
@@ -396,15 +402,9 @@ static void toStringEveryLineImpl([[maybe_unused]] const std::string dwarf_locat
             out << " ?";
         }
 
-        if (std::error_code ec; object && std::filesystem::exists(object->name, ec) && !ec) {
-            auto dwarf_it = dwarfs.try_emplace(object->name, object->elf).first;
-
-            doris::Dwarf::LocationInfo location;
-
-            if (dwarf_it->second.findAddress(uintptr_t(physical_addr), location, mode,
-                                             inline_frames)) {
-                out << "  " << location.file.toString() << ":" << location.line;
-            }
+        if (shouldShowAddress(physical_addr)) {
+            out << " @ ";
+            writePointerHex(physical_addr, out);
         }
 
         out << "  in " << (object ? object->name : "?");
@@ -458,11 +458,16 @@ std::string toStringCached(const StackTrace::FramePointers& pointers, size_t off
     }
 }
 
-std::string StackTrace::toString() const {
-    // Delete the first three frame pointers, which are inside the stacktrace.
-    StackTrace::FramePointers frame_pointers_raw {};
-    std::copy(frame_pointers.begin() + 3, frame_pointers.end(), frame_pointers_raw.begin());
-    return toStringCached(frame_pointers_raw, offset, size - 3);
+std::string StackTrace::toString(int start_pointers_index) const {
+    if (start_pointers_index == 0) {
+        return toStringCached(frame_pointers, offset, size);
+    } else {
+        // Start output from the start_pointers_index position of frame pointers.
+        StackTrace::FramePointers frame_pointers_raw {};
+        std::copy(frame_pointers.begin() + start_pointers_index, frame_pointers.end(),
+                  frame_pointers_raw.begin());
+        return toStringCached(frame_pointers_raw, offset, size - start_pointers_index);
+    }
 }
 
 std::string StackTrace::toString(void** frame_pointers_raw, size_t offset, size_t size) {
