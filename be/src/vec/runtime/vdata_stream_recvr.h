@@ -57,12 +57,19 @@ class MemTrackerLimiter;
 class PQueryStatistics;
 class RuntimeState;
 
+namespace pipeline {
+struct ExchangeDataDependency;
+}
+
 namespace vectorized {
 class VDataStreamMgr;
 class VSortedRunMerger;
 
+class VDataStreamRecvr;
+
 class VDataStreamRecvr {
 public:
+    class SenderQueue;
     VDataStreamRecvr(VDataStreamMgr* stream_mgr, RuntimeState* state, const RowDescriptor& row_desc,
                      const TUniqueId& fragment_instance_id, PlanNodeId dest_node_id,
                      int num_senders, bool is_merging, RuntimeProfile* profile,
@@ -74,6 +81,8 @@ public:
                          const std::vector<bool>& is_asc_order,
                          const std::vector<bool>& nulls_first, size_t batch_size, int64_t limit,
                          size_t offset);
+
+    std::vector<SenderQueue*> sender_queues() const { return _sender_queues; }
 
     Status add_block(const PBlock& pblock, int sender_id, int be_number, int64_t packet_seq,
                      ::google::protobuf::Closure** done);
@@ -102,15 +111,21 @@ public:
 
     void close();
 
+    // Careful: stream sender will call this function for a local receiver,
+    // accessing members of receiver that are allocated by Object pool
+    // in this function is not safe.
     bool exceeds_limit(int batch_size) {
-        return _blocks_memory_usage->current_value() + batch_size >
+        return _blocks_memory_usage_current_value + batch_size >
                config::exchg_node_buffer_size_bytes;
     }
 
     bool is_closed() const { return _is_closed; }
 
 private:
-    class SenderQueue;
+    void update_blocks_memory_usage(int64_t size) {
+        _blocks_memory_usage->add(size);
+        _blocks_memory_usage_current_value = _blocks_memory_usage->current_value();
+    }
     class PipSenderQueue;
 
     friend struct BlockSupplierSortCursorImpl;
@@ -154,6 +169,7 @@ private:
     RuntimeProfile::Counter* _decompress_bytes;
     RuntimeProfile::Counter* _memory_usage_counter;
     RuntimeProfile::HighWaterMarkCounter* _blocks_memory_usage;
+    std::atomic<int64_t> _blocks_memory_usage_current_value = 0;
     RuntimeProfile::Counter* _peak_memory_usage_counter;
 
     // Number of rows received
@@ -201,6 +217,10 @@ public:
         return _block_queue.empty();
     }
 
+    void set_dependency(std::shared_ptr<pipeline::ExchangeDataDependency> dependency) {
+        _dependency = dependency;
+    }
+
 protected:
     Status _inner_get_batch_without_lock(Block* block, bool* eos);
 
@@ -220,6 +240,8 @@ protected:
     std::unordered_map<int, int64_t> _packet_seq_map;
     std::deque<std::pair<google::protobuf::Closure*, MonotonicStopWatch>> _pending_closures;
     std::unordered_map<std::thread::id, std::unique_ptr<ThreadClosure>> _local_closure;
+
+    std::shared_ptr<pipeline::ExchangeDataDependency> _dependency = nullptr;
 };
 
 class VDataStreamRecvr::PipSenderQueue : public SenderQueue {
@@ -236,42 +258,7 @@ public:
         return _inner_get_batch_without_lock(block, eos);
     }
 
-    void add_block(Block* block, bool use_move) override {
-        if (block->rows() == 0) {
-            return;
-        }
-        {
-            std::unique_lock<std::mutex> l(_lock);
-            if (_is_cancelled) {
-                return;
-            }
-        }
-        BlockUPtr nblock = Block::create_unique(block->get_columns_with_type_and_name());
-
-        // local exchange should copy the block contented if use move == false
-        if (use_move) {
-            block->clear();
-        } else {
-            auto rows = block->rows();
-            for (int i = 0; i < nblock->columns(); ++i) {
-                nblock->get_by_position(i).column =
-                        nblock->get_by_position(i).column->clone_resized(rows);
-            }
-        }
-        materialize_block_inplace(*nblock);
-
-        auto block_mem_size = nblock->allocated_bytes();
-        {
-            std::unique_lock<std::mutex> l(_lock);
-            if (_is_cancelled) {
-                return;
-            }
-            _block_queue.emplace_back(std::move(nblock), block_mem_size);
-            COUNTER_UPDATE(_recvr->_local_bytes_received_counter, block_mem_size);
-            _recvr->_blocks_memory_usage->add(block_mem_size);
-            _data_arrival_cv.notify_one();
-        }
-    }
+    void add_block(Block* block, bool use_move) override;
 };
 } // namespace vectorized
 } // namespace doris

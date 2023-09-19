@@ -98,6 +98,11 @@ arrow::Result<std::unique_ptr<arrow::flight::FlightDataStream>> FlightSqlServer:
 }
 
 Status FlightSqlServer::init(int port) {
+    if (port == -1) {
+        LOG(INFO) << "Arrow Flight Service not start";
+        return Status::OK();
+    }
+    _inited = true;
     arrow::flight::Location bind_location;
     RETURN_DORIS_STATUS_IF_ERROR(
             arrow::flight::Location::ForGrpcTcp(BackendOptions::get_service_bind_address(), port)
@@ -110,6 +115,10 @@ Status FlightSqlServer::init(int port) {
 }
 
 Status FlightSqlServer::join() {
+    if (!_inited) {
+        // Flight not inited, not need shutdown
+        return Status::OK();
+    }
     RETURN_DORIS_STATUS_IF_ERROR(Shutdown());
     return Status::OK();
 }

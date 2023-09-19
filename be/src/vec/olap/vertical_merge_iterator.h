@@ -164,8 +164,8 @@ public:
     Status block_reset(const std::shared_ptr<Block>& block);
     Status init(const StorageReadOptions& opts);
     bool compare(const VerticalMergeIteratorContext& rhs) const;
-    void copy_rows(Block* block, bool advanced = true);
-    void copy_rows(Block* block, size_t count);
+    Status copy_rows(Block* block, bool advanced = true);
+    Status copy_rows(Block* block, size_t count);
 
     Status advance();
 

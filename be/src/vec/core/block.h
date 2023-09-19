@@ -89,6 +89,12 @@ public:
     Block(const std::vector<SlotDescriptor*>& slots, size_t block_size,
           bool ignore_trivial_slot = false);
 
+    virtual ~Block() = default;
+    Block(const Block& block) = default;
+    Block& operator=(const Block& p) = default;
+    Block(Block&& block) = default;
+    Block& operator=(Block&& other) = default;
+
     void reserve(size_t count);
     // Make sure the nammes is useless when use block
     void clear_names();
@@ -283,7 +289,7 @@ public:
     // copy a new block by the offset column
     Block copy_block(const std::vector<int>& column_offset) const;
 
-    void append_block_by_selector(MutableBlock* dst, const IColumn::Selector& selector) const;
+    void append_to_block_by_selector(MutableBlock* dst, const IColumn::Selector& selector) const;
 
     // need exception safety
     static void filter_block_internal(Block* block, const std::vector<uint32_t>& columns_to_filter,

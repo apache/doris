@@ -16,6 +16,11 @@
 // under the License.
 
 suite("test_create_table_with_binlog_config") {
+    def syncer = getSyncer()
+    if (!syncer.checkEnableFeatureBinlog()) {
+        logger.info("fe enable_feature_binlog is false, skip case test_create_table_with_binlog_config")
+        return
+    }
     sql "drop database if exists test_table_binlog"
 
     sql """

@@ -98,4 +98,9 @@ public class OneListPartitionEvaluator
     public Expression evaluate(Expression expression, Map<Slot, PartitionSlotInput> currentInputs) {
         return expression.accept(this, currentInputs);
     }
+
+    @Override
+    public boolean isDefaultPartition() {
+        return partitionItem.isDefaultPartition();
+    }
 }

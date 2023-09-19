@@ -451,8 +451,8 @@ public class Repository implements Writable {
         // get md5usm of local file
         File file = new File(localFilePath);
         String md5sum = null;
-        try {
-            md5sum = DigestUtils.md5Hex(new FileInputStream(file));
+        try (FileInputStream fis = new FileInputStream(file)) {
+            md5sum = DigestUtils.md5Hex(fis);
         } catch (FileNotFoundException e) {
             return new Status(ErrCode.NOT_FOUND, "file " + localFilePath + " does not exist");
         } catch (IOException e) {
@@ -558,8 +558,8 @@ public class Repository implements Writable {
 
         // 3. verify checksum
         String localMd5sum = null;
-        try {
-            localMd5sum = DigestUtils.md5Hex(new FileInputStream(localFilePath));
+        try (FileInputStream fis = new FileInputStream(localFilePath)) {
+            localMd5sum = DigestUtils.md5Hex(fis);
         } catch (FileNotFoundException e) {
             return new Status(ErrCode.NOT_FOUND, "file " + localFilePath + " does not exist");
         } catch (IOException e) {

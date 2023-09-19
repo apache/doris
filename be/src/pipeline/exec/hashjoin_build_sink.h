@@ -55,6 +55,7 @@ public:
     ~HashJoinBuildSinkLocalState() = default;
 
     Status init(RuntimeState* state, LocalSinkStateInfo& info) override;
+    Status open(RuntimeState* state) override;
     Status process_build_block(RuntimeState* state, vectorized::Block& block, uint8_t offset);
 
     void init_short_circuit_for_probe();
@@ -79,7 +80,7 @@ protected:
     std::shared_ptr<VRuntimeFilterSlots> _runtime_filter_slots = nullptr;
     bool _has_set_need_null_map_for_build = false;
     bool _build_side_ignore_null = false;
-    size_t _build_bf_cardinality = 0;
+    size_t _build_rf_cardinality = 0;
     std::unordered_map<const vectorized::Block*, std::vector<int>> _inserted_rows;
 
     RuntimeProfile::Counter* _build_table_timer;
@@ -96,7 +97,6 @@ protected:
 
     RuntimeProfile::Counter* _build_collisions_counter;
 
-    RuntimeProfile::Counter* _open_timer;
     RuntimeProfile::Counter* _allocate_resource_timer;
 
     RuntimeProfile::Counter* _memory_usage_counter;
@@ -122,9 +122,22 @@ public:
 
     Status sink(RuntimeState* state, vectorized::Block* in_block,
                 SourceState source_state) override;
-    Status close(RuntimeState* state) override;
 
-    bool can_write(RuntimeState* state) override { return true; }
+    bool can_write(RuntimeState* state) override {
+        if (state->get_sink_local_state(id())
+                    ->cast<HashJoinBuildSinkLocalState>()
+                    ._should_build_hash_table) {
+            return true;
+        }
+        return _shared_hash_table_context && _shared_hash_table_context->signaled;
+    }
+
+    bool should_dry_run(RuntimeState* state) override {
+        auto tmp = _is_broadcast_join && !state->get_sink_local_state(id())
+                                                  ->cast<HashJoinBuildSinkLocalState>()
+                                                  ._should_build_hash_table;
+        return tmp;
+    }
 
 private:
     friend class HashJoinBuildSinkLocalState;

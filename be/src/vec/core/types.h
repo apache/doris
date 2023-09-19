@@ -33,11 +33,10 @@ namespace doris {
 
 class BitmapValue;
 class HyperLogLog;
+class QuantileState;
+
 struct decimal12_t;
 struct uint24_t;
-
-template <typename T>
-class QuantileState;
 
 namespace vectorized {
 
@@ -215,7 +214,7 @@ struct TypeName<HyperLogLog> {
 };
 
 template <>
-struct TypeName<QuantileState<double>> {
+struct TypeName<QuantileState> {
     static const char* get() { return "QuantileState"; }
 };
 
@@ -703,13 +702,14 @@ inline const char* getTypeName(TypeIndex idx) {
     case TypeIndex::Struct:
         return "Struct";
     case TypeIndex::QuantileState:
-        return TypeName<QuantileState<double>>::get();
+        return TypeName<QuantileState>::get();
     case TypeIndex::AggState:
         return "AggState";
     case TypeIndex::Time:
         return "Time";
     }
 
+    LOG(FATAL) << "__builtin_unreachable";
     __builtin_unreachable();
 }
 } // namespace vectorized

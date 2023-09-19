@@ -123,7 +123,9 @@ Status ScannerContext::init() {
 
 #ifndef BE_TEST
     // 3. get thread token
-    thread_token = _state->get_query_ctx()->get_token();
+    if (_state->get_query_ctx()) {
+        thread_token = _state->get_query_ctx()->get_token();
+    }
 #endif
 
     // 4. This ctx will be submitted to the scanner scheduler right after init.
@@ -192,11 +194,6 @@ bool ScannerContext::empty_in_queue(int id) {
 Status ScannerContext::get_block_from_queue(RuntimeState* state, vectorized::BlockUPtr* block,
                                             bool* eos, int id, bool wait) {
     std::unique_lock l(_transfer_lock);
-    // debug case failure, to be removed
-    if (state->enable_profile()) {
-        LOG(WARNING) << "debug case failure " << print_id(state->query_id()) << " "
-                     << _parent->get_name() << ": ScannerContext::get_block_from_queue";
-    }
     // Normally, the scanner scheduler will schedule ctx.
     // But when the amount of data in the blocks queue exceeds the upper limit,
     // the scheduler will stop scheduling.
@@ -242,6 +239,15 @@ Status ScannerContext::get_block_from_queue(RuntimeState* state, vectorized::Blo
     return Status::OK();
 }
 
+void ScannerContext::set_should_stop() {
+    if (_scanner_done_dependency) {
+        _scanner_done_dependency->set_ready_for_read();
+    }
+    std::lock_guard l(_transfer_lock);
+    _should_stop = true;
+    _blocks_queue_added_cv.notify_one();
+}
+
 bool ScannerContext::set_status_on_error(const Status& status, bool need_lock) {
     std::unique_lock l(_transfer_lock, std::defer_lock);
     if (need_lock) {
@@ -251,6 +257,9 @@ bool ScannerContext::set_status_on_error(const Status& status, bool need_lock) {
         _process_status = status;
         _status_error = true;
         _blocks_queue_added_cv.notify_one();
+        if (_scanner_done_dependency) {
+            _scanner_done_dependency->set_ready_for_read();
+        }
         _should_stop = true;
         return true;
     }
@@ -318,7 +327,9 @@ void ScannerContext::clear_and_join(Parent* parent, RuntimeState* state) {
         if (_num_running_scanners == 0 && _num_scheduling_ctx == 0) {
             break;
         } else {
-            DCHECK(!state->enable_pipeline_exec());
+            DCHECK(!state->enable_pipeline_exec())
+                    << " _num_running_scanners: " << _num_running_scanners
+                    << " _num_scheduling_ctx: " << _num_scheduling_ctx;
             while (!(_num_running_scanners == 0 && _num_scheduling_ctx == 0)) {
                 _ctx_finish_cv.wait(l);
             }
@@ -388,6 +399,9 @@ void ScannerContext::push_back_scanner_and_reschedule(VScannerSPtr scanner) {
         (--_num_unfinished_scanners) == 0) {
         _dispose_coloate_blocks_not_in_queue();
         _is_finished = true;
+        if (_scanner_done_dependency) {
+            _scanner_done_dependency->set_ready_for_read();
+        }
         _blocks_queue_added_cv.notify_one();
     }
     // In pipeline engine, doris will close scanners when `no_schedule`.

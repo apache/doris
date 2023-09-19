@@ -41,6 +41,7 @@ public:
 private:
     class Impl;
     std::shared_ptr<Impl> impl_;
+    bool _inited = false;
 
     explicit FlightSqlServer(std::shared_ptr<Impl> impl);
 };
