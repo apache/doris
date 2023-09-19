@@ -38,6 +38,7 @@ import com.sleepycat.je.OperationStatus;
 import com.sleepycat.je.rep.InsufficientLogException;
 import com.sleepycat.je.rep.NetworkRestore;
 import com.sleepycat.je.rep.NetworkRestoreConfig;
+import com.sleepycat.je.rep.ReplicaWriteException;
 import com.sleepycat.je.rep.RollbackException;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -155,6 +156,26 @@ public class BDBJEJournal implements Journal { // CHECKSTYLE IGNORE THIS LINE: B
                     }
                     break;
                 }
+            } catch (ReplicaWriteException e) {
+                /**
+                 * This exception indicates that an update operation or transaction commit
+                 * or abort was attempted while in the
+                 * {@link ReplicatedEnvironment.State#REPLICA} state. The transaction is marked
+                 * as being invalid.
+                 * <p>
+                 * The exception is the result of either an error in the application logic or
+                 * the result of a transition of the node from Master to Replica while a
+                 * transaction was in progress.
+                 * <p>
+                 * The application must abort the current transaction and redirect all
+                 * subsequent update operations to the Master.
+                 */
+                LOG.error("catch ReplicaWriteException when writing to database, will exit. journal id {}", id, e);
+                String msg = "write bdb failed. will exit. journalId: " + id + ", bdb database Name: "
+                        + currentJournalDB.getDatabaseName();
+                LOG.error(msg);
+                Util.stdoutWithTime(msg);
+                System.exit(-1);
             } catch (DatabaseException e) {
                 LOG.error("catch an exception when writing to database. sleep and retry. journal id {}", id, e);
                 try {
@@ -312,7 +333,7 @@ public class BDBJEJournal implements Journal { // CHECKSTYLE IGNORE THIS LINE: B
                         Env.getServingEnv().isElectable());
             } catch (Exception e) {
                 if (e instanceof DatabaseNotFoundException) {
-                    LOG.error("It is not allowed to set metadata_failure_recovery to true "
+                    LOG.error("It is not allowed to set metadata_failure_recovery"
                             + "when meta dir or bdbje dir is empty， which may mean it is "
                             + "the first time to start this node");
                 }

@@ -47,6 +47,7 @@
 #include "olap/rowset/segment_v2/segment.h"
 #include "olap/tablet.h"
 #include "olap/task/index_builder.h"
+#include "runtime/exec_env.h"
 #include "runtime/heartbeat_flags.h"
 #include "util/countdown_latch.h"
 
@@ -81,9 +82,9 @@ public:
     StorageEngine(const EngineOptions& options);
     ~StorageEngine();
 
-    static Status open(const EngineOptions& options, std::unique_ptr<StorageEngine>* engine_ptr);
+    [[nodiscard]] Status open();
 
-    static StorageEngine* instance() { return _s_instance; }
+    static StorageEngine* instance() { return ExecEnv::GetInstance()->get_storage_engine(); }
 
     Status create_tablet(const TCreateTabletReq& request, RuntimeProfile* profile);
 
@@ -178,6 +179,7 @@ public:
     // option: update disk usage after sweep
     Status start_trash_sweep(double* usage, bool ignore_guard = false);
 
+    // Must call stop() before storage_engine is deconstructed
     void stop();
 
     void get_tablet_rowset_versions(const PGetTabletVersionsRequest* request,
@@ -373,8 +375,7 @@ private:
     int32_t _effective_cluster_id;
     bool _is_all_cluster_id_exist;
 
-    static StorageEngine* _s_instance;
-    bool _stopped;
+    std::atomic_bool _stopped {false};
 
     std::mutex _gc_mutex;
     // map<rowset_id(str), RowsetSharedPtr>, if we use RowsetId as the key, we need custom hash func
@@ -485,6 +486,8 @@ private:
     bool _clear_segment_cache = false;
 
     std::atomic<bool> _need_clean_trash {false};
+    // next index for create tablet
+    std::map<TStorageMedium::type, int> _store_next_index;
 
     DISALLOW_COPY_AND_ASSIGN(StorageEngine);
 };

@@ -68,6 +68,7 @@ public class PruneOlapScanPartition extends OneRewriteRuleFactory {
             List<Long> prunedPartitions = new ArrayList<>(PartitionPruner.prune(
                     partitionSlots, filter.getPredicate(), partitionInfo, ctx.cascadesContext,
                     PartitionTableType.OLAP));
+
             List<Long> manuallySpecifiedPartitions = scan.getManuallySpecifiedPartitions();
             if (!CollectionUtils.isEmpty(manuallySpecifiedPartitions)) {
                 prunedPartitions.retainAll(manuallySpecifiedPartitions);

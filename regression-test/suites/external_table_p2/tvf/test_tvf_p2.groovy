@@ -53,5 +53,14 @@ suite("test_tvf_p2", "p2,external,tvf,external_remote,external_remote_tvf") {
             "uri" = "hdfs://${nameNodeHost}:${hdfsPort}/catalog/tvf/parquet/row_cross_pages.parquet",
             "format" = "parquet",
             "fs.defaultFS" = "hdfs://${nameNodeHost}:${hdfsPort}")"""
+
+        // viewfs
+        qt_viewfs """select count(id), count(m1), count(m2)
+            from hdfs(
+            "uri" = "viewfs://my-cluster/ns1/catalog/tvf/parquet/row_cross_pages.parquet",
+            "format" = "parquet",
+            "fs.defaultFS" = "viewfs://my-cluster",
+            "fs.viewfs.mounttable.my-cluster.link./ns1" = "hdfs://${nameNodeHost}:${hdfsPort}/",
+            "fs.viewfs.mounttable.my-cluster.homedir" = "/ns1")"""
     }
 }

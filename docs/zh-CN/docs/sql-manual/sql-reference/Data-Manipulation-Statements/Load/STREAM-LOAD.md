@@ -142,7 +142,7 @@ curl --location-trusted -u user:passwd [-H ""...] -T data.file -XPUT http://fe_h
       系统会使用用户指定的数据导入数据。在上述用例中，导入数据中最后一列数据为__DORIS_SEQUENCE_COL__。
       ```
 
-24. load_to_single_tablet: 布尔类型，为true表示支持一个任务只导入数据到对应分区的一个 tablet，默认值为 false，该参数只允许在对带有 random 分区的 olap 表导数的时候设置。
+24. load_to_single_tablet: 布尔类型，为true表示支持一个任务只导入数据到对应分区的一个 tablet，默认值为 false，该参数只允许在对带有 random 分桶的 olap 表导数的时候设置。
 
 25. compress_type: 指定文件的压缩格式。目前只支持 csv 文件的压缩。支持 gz, lzo, bz2, lz4, lzop, deflate 压缩格式。
 
@@ -151,6 +151,8 @@ curl --location-trusted -u user:passwd [-H ""...] -T data.file -XPUT http://fe_h
 27. skip_lines: <version since="dev" type="inline"> 整数类型, 默认值为0, 含义为跳过csv文件的前几行. 当设置format设置为 `csv_with_names` 或、`csv_with_names_and_types` 时, 该参数会失效. </version>
 
 28. comment: <version since="1.2.3" type="inline"> 字符串类型, 默认值为空. 给任务增加额外的信息. </version>
+
+29. ignore_mode: <version since="dev" type="inline"> ignore模式，仅当目标表为开启merge-on-write的unique表时有效。开启后，对于插入的行，如果该行的key在表中不存在，则插入该行数据。如果key在表中不存在，则丢弃这行数据。当目标表中存在sequence列时stream无法开启ignore mode。</version>
 
 ### Example
 

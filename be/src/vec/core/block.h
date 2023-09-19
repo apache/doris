@@ -289,7 +289,7 @@ public:
     // copy a new block by the offset column
     Block copy_block(const std::vector<int>& column_offset) const;
 
-    void append_block_by_selector(MutableBlock* dst, const IColumn::Selector& selector) const;
+    void append_to_block_by_selector(MutableBlock* dst, const IColumn::Selector& selector) const;
 
     // need exception safety
     static void filter_block_internal(Block* block, const std::vector<uint32_t>& columns_to_filter,

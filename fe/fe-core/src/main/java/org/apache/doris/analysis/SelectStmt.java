@@ -589,7 +589,7 @@ public class SelectStmt extends QueryStmt {
                 } else {
                     resultExprs.add(rewriteQueryExprByMvColumnExpr(expr, analyzer));
                 }
-                colLabels.add(expr.toColumnLabel());
+                colLabels.add("col_" + colLabels.size());
             }
         }
         // analyze valueList if exists
@@ -1811,10 +1811,12 @@ public class SelectStmt extends QueryStmt {
             whereClause.collect(Subquery.class, subqueryExprs);
 
         }
-        if (havingClause != null) {
-            havingClause = rewriter.rewrite(havingClause, analyzer);
+
+        if (havingClauseAfterAnalyzed != null) {
+            havingClauseAfterAnalyzed = rewriter.rewrite(havingClauseAfterAnalyzed, analyzer);
             havingClauseAfterAnalyzed.collect(Subquery.class, subqueryExprs);
         }
+
         for (Subquery subquery : subqueryExprs) {
             subquery.getStatement().rewriteExprs(rewriter);
         }

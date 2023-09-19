@@ -60,6 +60,7 @@ public:
     ~S3FileSystem() override;
     // Guarded by external lock.
     void set_conf(S3Conf s3_conf) { _s3_conf = std::move(s3_conf); }
+    const S3Conf& s3_conf() const { return _s3_conf; }
 
     std::shared_ptr<Aws::S3::S3Client> get_client() const {
         std::lock_guard lock(_client_mu);
@@ -68,9 +69,10 @@ public:
 
 protected:
     Status connect_impl() override;
-    Status create_file_impl(const Path& file, FileWriterPtr* writer) override;
-    Status open_file_internal(const FileDescription& fd, const Path& abs_path,
-                              FileReaderSPtr* reader) override;
+    Status create_file_impl(const Path& file, FileWriterPtr* writer,
+                            const FileWriterOptions* opts) override;
+    Status open_file_internal(const Path& file, FileReaderSPtr* reader,
+                              const FileReaderOptions& opts) override;
     Status create_directory_impl(const Path& dir, bool failed_if_exists = false) override;
     Status delete_file_impl(const Path& file) override;
     Status delete_directory_impl(const Path& dir) override;

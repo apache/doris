@@ -45,7 +45,6 @@
 #include "common/logging.h"
 #include "common/status.h"
 #include "io/fs/file_reader.h"
-#include "io/fs/file_reader_writer_fwd.h"
 #include "io/fs/file_writer.h"
 #include "io/fs/local_file_system.h"
 #include "olap/olap_common.h"
@@ -430,14 +429,14 @@ Status read_write_test_file(const std::string& test_file_path) {
     if (access(test_file_path.c_str(), F_OK) == 0) {
         if (remove(test_file_path.c_str()) != 0) {
             char errmsg[64];
-            return Status::Error<IO_ERROR>("fail to access test file. path={}, errno={}, err={}",
-                                           test_file_path, errno, strerror_r(errno, errmsg, 64));
+            return Status::IOError("fail to access test file. path={}, errno={}, err={}",
+                                   test_file_path, errno, strerror_r(errno, errmsg, 64));
         }
     } else {
         if (errno != ENOENT) {
             char errmsg[64];
-            return Status::Error<IO_ERROR>("fail to access test file. path={}, errno={}, err={}",
-                                           test_file_path, errno, strerror_r(errno, errmsg, 64));
+            return Status::IOError("fail to access test file. path={}, errno={}, err={}",
+                                   test_file_path, errno, strerror_r(errno, errmsg, 64));
         }
     }
 

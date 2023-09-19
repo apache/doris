@@ -169,6 +169,7 @@ Status RowsetBuilder::init() {
     context.tablet = _tablet;
     context.write_type = DataWriteType::TYPE_DIRECT;
     context.mow_context = mow_context;
+    context.write_file_cache = _req.write_file_cache;
     std::unique_ptr<RowsetWriter> rowset_writer;
     RETURN_IF_ERROR(_tablet->create_rowset_writer(context, &rowset_writer));
     _rowset_writer = std::move(rowset_writer);
@@ -322,6 +323,7 @@ void RowsetBuilder::_build_current_tablet_schema(int64_t index_id,
     _tablet_schema->set_partial_update_info(table_schema_param->is_partial_update(),
                                             table_schema_param->partial_update_input_columns());
     _tablet_schema->set_is_strict_mode(table_schema_param->is_strict_mode());
+    _tablet_schema->set_is_unique_key_ignore_mode(table_schema_param->is_unique_key_ignore_mode());
 }
 
 } // namespace doris

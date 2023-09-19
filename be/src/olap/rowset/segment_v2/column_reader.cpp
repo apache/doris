@@ -260,22 +260,20 @@ Status ColumnReader::read_page(const ColumnIteratorOptions& iter_opts, const Pag
                                PageHandle* handle, Slice* page_body, PageFooterPB* footer,
                                BlockCompressionCodec* codec) const {
     iter_opts.sanity_check();
-    PageReadOptions opts;
-    opts.file_reader = iter_opts.file_reader;
-    opts.page_pointer = pp;
-    opts.codec = codec;
-    opts.stats = iter_opts.stats;
-    opts.verify_checksum = _opts.verify_checksum;
-    opts.use_page_cache = iter_opts.use_page_cache;
-    opts.kept_in_memory = _opts.kept_in_memory;
-    opts.type = iter_opts.type;
-    opts.encoding_info = _encoding_info;
-    opts.io_ctx = iter_opts.io_ctx;
+    PageReadOptions opts {
+            .verify_checksum = _opts.verify_checksum,
+            .use_page_cache = iter_opts.use_page_cache,
+            .kept_in_memory = _opts.kept_in_memory,
+            .type = iter_opts.type,
+            .file_reader = iter_opts.file_reader,
+            .page_pointer = pp,
+            .codec = codec,
+            .stats = iter_opts.stats,
+            .encoding_info = _encoding_info,
+            .io_ctx = iter_opts.io_ctx,
+    };
     // index page should not pre decode
-    if (iter_opts.type == INDEX_PAGE) {
-        opts.pre_decode = false;
-    }
-
+    if (iter_opts.type == INDEX_PAGE) opts.pre_decode = false;
     return PageIO::read_and_decompress_page(opts, handle, page_body, footer);
 }
 
@@ -511,16 +509,31 @@ Status ColumnReader::_load_inverted_index_index(const TabletIndex* index_meta) {
 
     if (is_string_type(type)) {
         if (parser_type != InvertedIndexParserType::PARSER_NONE) {
-            _inverted_index = FullTextIndexReader::create_shared(
-                    _file_reader->fs(), _file_reader->path().native(), index_meta);
-            return Status::OK();
+            try {
+                _inverted_index = FullTextIndexReader::create_shared(
+                        _file_reader->fs(), _file_reader->path().native(), index_meta);
+                return Status::OK();
+            } catch (const CLuceneError& e) {
+                return Status::Error<ErrorCode::INVERTED_INDEX_CLUCENE_ERROR>(
+                        "create FullTextIndexReader error: {}", e.what());
+            }
         } else {
-            _inverted_index = StringTypeInvertedIndexReader::create_shared(
-                    _file_reader->fs(), _file_reader->path().native(), index_meta);
+            try {
+                _inverted_index = StringTypeInvertedIndexReader::create_shared(
+                        _file_reader->fs(), _file_reader->path().native(), index_meta);
+            } catch (const CLuceneError& e) {
+                return Status::Error<ErrorCode::INVERTED_INDEX_CLUCENE_ERROR>(
+                        "create StringTypeInvertedIndexReader error: {}", e.what());
+            }
         }
     } else if (is_numeric_type(type)) {
-        _inverted_index = BkdIndexReader::create_shared(_file_reader->fs(),
-                                                        _file_reader->path().native(), index_meta);
+        try {
+            _inverted_index = BkdIndexReader::create_shared(
+                    _file_reader->fs(), _file_reader->path().native(), index_meta);
+        } catch (const CLuceneError& e) {
+            return Status::Error<ErrorCode::INVERTED_INDEX_CLUCENE_ERROR>(
+                    "create BkdIndexReader error: {}", e.what());
+        }
     } else {
         _inverted_index.reset();
     }
