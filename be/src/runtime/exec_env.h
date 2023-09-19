@@ -116,7 +116,8 @@ public:
     ~ExecEnv();
 
     // Initial exec environment. must call this to init all
-    [[nodiscard]] static Status init(ExecEnv* env, const std::vector<StorePath>& store_paths);
+    [[nodiscard]] static Status init(ExecEnv* env, const std::vector<StorePath>& store_paths,
+                                     const std::set<std::string>& broken_paths);
 
     // Stop all threads and delete resources.
     void destroy();
@@ -268,7 +269,8 @@ public:
 private:
     ExecEnv();
 
-    [[nodiscard]] Status _init(const std::vector<StorePath>& store_paths);
+    [[nodiscard]] Status _init(const std::vector<StorePath>& store_paths,
+                               const std::set<std::string>& broken_paths);
     void _destroy();
 
     Status _init_mem_env();

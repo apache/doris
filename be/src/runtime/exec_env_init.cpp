@@ -133,11 +133,12 @@ static void init_doris_metrics(const std::vector<StorePath>& store_paths) {
     DorisMetrics::instance()->initialize(init_system_metrics, disk_devices, network_interfaces);
 }
 
-Status ExecEnv::init(ExecEnv* env, const std::vector<StorePath>& store_paths) {
-    return env->_init(store_paths);
+Status ExecEnv::init(ExecEnv* env, const std::vector<StorePath>& store_paths,
+                     const std::set<std::string>& broken_paths) {
+    return env->_init(store_paths, broken_paths);
 }
 
-Status ExecEnv::_init(const std::vector<StorePath>& store_paths) {
+Status ExecEnv::_init(const std::vector<StorePath>& store_paths, const std::set<std::string>& broken_paths) {
     //Only init once before be destroyed
     if (ready()) {
         return Status::OK();
@@ -205,7 +206,7 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths) {
     _stream_load_executor = StreamLoadExecutor::create_shared(this);
     _routine_load_task_executor = new RoutineLoadTaskExecutor(this);
     _small_file_mgr = new SmallFileMgr(this, config::small_file_dir);
-    _block_spill_mgr = new BlockSpillManager(_store_paths);
+    _block_spill_mgr = new BlockSpillManager(store_paths);
     _group_commit_mgr = new GroupCommitMgr(this);
     _file_meta_cache = new FileMetaCache(config::max_external_file_meta_cache_num);
     _memtable_memory_limiter = std::make_unique<MemTableMemoryLimiter>();
@@ -247,6 +248,7 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths) {
     // Storage engine
     doris::EngineOptions options;
     options.store_paths = store_paths;
+    options.broken_paths = broken_paths;
     options.backend_uid = doris::UniqueId::gen_uid();
     _storage_engine = new StorageEngine(options);
     auto st = _storage_engine->open();
