@@ -160,7 +160,7 @@ Status Segment::new_iterator(SchemaSPtr schema, const StorageReadOptions& read_o
     return iter->get()->init(read_options);
 }
 
-Status Segment::_parse_footer() {
+Status Segment::_parse_footer(SegmentFooterPB* footer) {
     // Footer := SegmentFooterPB, FooterPBSize(4), FooterPBChecksum(4), MagicNumber(4)
     auto file_size = _file_reader->size();
     if (file_size < 12) {
@@ -170,8 +170,8 @@ Status Segment::_parse_footer() {
 
     uint8_t fixed_buf[12];
     size_t bytes_read = 0;
-    // Block / Whole / Sub file cache will use it while read segment footer
-    io::IOContext io_ctx;
+    // TODO(plat1ko): Support session variable `enable_file_cache`
+    io::IOContext io_ctx {.is_index_data = true};
     RETURN_IF_ERROR(
             _file_reader->read_at(file_size - 12, Slice(fixed_buf, 12), &bytes_read, &io_ctx));
     DCHECK_EQ(bytes_read, 12);
