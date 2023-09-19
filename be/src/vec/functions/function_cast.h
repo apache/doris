@@ -1933,6 +1933,8 @@ private:
             if (!jsonb_string_as_string) {
                 // Conversion from String through parsing.
                 return &ConvertImplGenericToString::execute2;
+            } else {
+                return ConvertImplGenericFromJsonb::execute;
             }
         default:
             return ConvertImplGenericFromJsonb::execute;
@@ -2292,13 +2294,16 @@ private:
         if (from_type->get_type_id() == TypeIndex::VARIANT) {
             return create_variant_wrapper(static_cast<const DataTypeObject&>(*from_type), to_type);
         }
+
         if (from_type->get_type_id() == TypeIndex::JSONB) {
+            bool jsonb_string_as_string = context ? context->jsonb_string_as_string() : false;
             return create_jsonb_wrapper(static_cast<const DataTypeJsonb&>(*from_type), to_type,
-                                        context->jsonb_string_as_string());
+                                        jsonb_string_as_string);
         }
         if (to_type->get_type_id() == TypeIndex::JSONB) {
+            bool string_as_jsonb_string = context ? context->string_as_jsonb_string() : false;
             return create_jsonb_wrapper(from_type, static_cast<const DataTypeJsonb&>(*to_type),
-                                        context->string_as_jsonb_string());
+                                        string_as_jsonb_string);
         }
 
         WrapperType ret;
