@@ -100,7 +100,6 @@ public:
     // is_single: whether src is null map of a ColumnConst
     static void update_null_map(NullMap& dst, const NullMap& src, bool is_single = false) {
         size_t size = dst.size();
-        LOG(INFO) << "size(" << size << ")" ;
         auto* __restrict l = dst.data();
         auto* __restrict r = src.data();
         if (is_single && r[0]) {
@@ -108,9 +107,7 @@ public:
                 l[i] = 1;
             }
         } else {
-            for (size_t i = 0; i < size; ++i) {
-                LOG(INFO) << "l["<< i <<"](" << l[i] << ")" ;
-                LOG(INFO) << "r["<< i <<"](" << r[i] << ")" ;
+            for (size_t i = 0; i < size; ++i) {;
                 l[i] |= r[i];
             }
         }

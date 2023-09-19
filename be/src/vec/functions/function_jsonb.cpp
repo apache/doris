@@ -1034,15 +1034,8 @@ struct JsonbLengthUtil {
         auto null_map = ColumnUInt8::create(input_rows_count, 0);
         DCHECK_GE(arguments.size(), 2);
 
-        ColumnPtr jsonb_data_column;
-        bool jsonb_data_const = false;
         // prepare jsonb data column
-        std::tie(jsonb_data_column, jsonb_data_const) =
-                unpack_if_const(block.get_by_position(arguments[0]).column);
-        LOG(INFO) << "jsonb_data_column(" << jsonb_data_column->is_null_at(0) << ")" ;
-        check_set_nullable(jsonb_data_column, null_map, jsonb_data_const);
-        LOG(INFO) << "jsonb_data_const(" << jsonb_data_const << ")" ;
-        LOG(INFO) << "null_map" << null_map->get_data()[0] ;
+        auto jsonb_data_column = block.get_by_position(arguments[0]).column;
 
         ColumnPtr path_column;
         bool is_const = false;
@@ -1063,8 +1056,8 @@ struct JsonbLengthUtil {
         auto res = ColumnInt32::create(input_rows_count,0);
 
         for (size_t i = 0; i < input_rows_count; ++i) {
-            if (null_map->get_data()[i]) {
-                res->insert_data(nullptr, 0);
+            if (jsonb_data_column->is_null_at(i) || path_column->is_null_at(i)) {
+                res->insert_data("", 0);
                 continue;
             }
 
@@ -1086,7 +1079,7 @@ struct JsonbLengthUtil {
             JsonbDocument* doc = JsonbDocument::createDocument(jsonb_value.data, jsonb_value.size);
             JsonbValue* value = doc->getValue()->findValue(path, nullptr);
             if (UNLIKELY(jsonb_value.size == 0 || value == nullptr)) {
-                res->insert_data(nullptr, 0);
+                res->insert_data("", 0);
                 continue;
             }
             auto length = value->length();
