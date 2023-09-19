@@ -112,7 +112,6 @@ Status UnionSourceLocalState::init(RuntimeState* state, LocalStateInfo& info) {
 Status UnionSourceOperatorX::get_block(RuntimeState* state, vectorized::Block* block,
                                        SourceState& source_state) {
     CREATE_LOCAL_STATE_RETURN_IF_ERROR(local_state);
-    bool eos = false;
     SCOPED_TIMER(local_state.profile()->total_time_counter());
     std::unique_ptr<vectorized::Block> output_block = vectorized::Block::create_unique();
     int child_idx = 0;
