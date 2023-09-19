@@ -48,7 +48,7 @@
     "description": "The label for category Import Way in sidebar docs"
   },
   "sidebar.docs.category.Export": {
-    "message": "导出",
+    "message": "数据导出",
     "description": "The label for category Export in sidebar docs"
   },
   "sidebar.docs.category.Update and Delete": {
