@@ -28,7 +28,6 @@
 #include "common/config.h"
 #include "common/logging.h"
 #include "olap/olap_define.h"
-#include "olap/rowset/beta_rowset.h"
 #include "olap/rowset/rowset_meta.h"
 #include "runtime/thread_context.h"
 #include "util/doris_metrics.h"
