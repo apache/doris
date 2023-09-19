@@ -74,7 +74,7 @@ class SubExprAnalyzer extends DefaultExpressionRewriter<CascadesContext> {
     public Expression visitExistsSubquery(Exists exists, CascadesContext context) {
         AnalyzedResult analyzedResult = analyzeSubquery(exists);
         if (analyzedResult.rootIsLimitZero()) {
-            return BooleanLiteral.of(false);
+            return BooleanLiteral.of(exists.isNot());
         }
         if (analyzedResult.isCorrelated() && analyzedResult.rootIsLimitWithOffset()) {
             throw new AnalysisException("Unsupported correlated subquery with a LIMIT clause with offset > 0 "
