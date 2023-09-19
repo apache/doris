@@ -138,7 +138,8 @@ Status ExecEnv::init(ExecEnv* env, const std::vector<StorePath>& store_paths,
     return env->_init(store_paths, broken_paths);
 }
 
-Status ExecEnv::_init(const std::vector<StorePath>& store_paths, const std::set<std::string>& broken_paths) {
+Status ExecEnv::_init(const std::vector<StorePath>& store_paths,
+                      const std::set<std::string>& broken_paths) {
     //Only init once before be destroyed
     if (ready()) {
         return Status::OK();

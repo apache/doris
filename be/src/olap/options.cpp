@@ -167,7 +167,8 @@ Status parse_conf_store_paths(const string& config_path, std::vector<StorePath>*
                 paths->emplace_back(std::move(path));
             } else {
                 LOG(WARNING) << "a duplicated path is found " << path.path;
-                return Status::Error<INVALID_ARGUMENT>("a duplicated path is found, path={}", path.path);
+                return Status::Error<INVALID_ARGUMENT>("a duplicated path is found, path={}",
+                                                       path.path);
             }
         } else {
             LOG(WARNING) << "failed to parse store path " << item << ", res=" << res;

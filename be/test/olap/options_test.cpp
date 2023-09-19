@@ -156,7 +156,9 @@ TEST_F(OptionsTest, parse_conf_store_path) {
         std::vector<StorePath> paths;
         std::string config_path = path1 + ";" + path1;
         auto st = parse_conf_store_paths(config_path, &paths);
-        EXPECT_EQ(Status::Error<ErrorCode::INVALID_ARGUMENT>("a duplicated path is found, path={}", path1), st);
+        EXPECT_EQ(Status::Error<ErrorCode::INVALID_ARGUMENT>("a duplicated path is found, path={}",
+                                                             path1),
+                  st);
     }
     {
         std::vector<StorePath> paths;
