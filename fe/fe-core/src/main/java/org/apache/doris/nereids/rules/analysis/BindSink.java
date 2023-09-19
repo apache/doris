@@ -37,6 +37,7 @@ import org.apache.doris.nereids.rules.expression.rules.FunctionBinder;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Substring;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionRewriter;
@@ -45,6 +46,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalOlapTableSink;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.types.DataType;
+import org.apache.doris.nereids.types.coercion.CharacterType;
 import org.apache.doris.nereids.util.RelationUtil;
 import org.apache.doris.nereids.util.TypeCoercionUtils;
 import org.apache.doris.qe.ConnectContext;
@@ -192,8 +194,19 @@ public class BindSink implements AnalysisRuleFactory {
                             List<NamedExpression> castExprs = Lists.newArrayList();
                             for (int i = 0; i < table.getFullSchema().size(); ++i) {
                                 maybeFallbackCastUnsupportedType(fullOutputExprs.get(i), ctx.connectContext);
-                                Expression castExpr = TypeCoercionUtils.castIfNotSameType(fullOutputExprs.get(i),
-                                        DataType.fromCatalogType(table.getFullSchema().get(i).getType()));
+                                DataType inputType = fullOutputExprs.get(i).getDataType();
+                                DataType targetType = DataType.fromCatalogType(table.getFullSchema().get(i).getType());
+                                Expression castExpr = fullOutputExprs.get(i);
+                                if (isSourceAndTargetStringLikeType(inputType, targetType)) {
+                                    int sourceLength = ((CharacterType) inputType).getLen();
+                                    int targetLength = ((CharacterType) targetType).getLen();
+                                    if (sourceLength >= targetLength) {
+                                        castExpr = new Substring(castExpr, Literal.of(0), Literal.of(targetLength));
+                                    }
+                                    // else, we keep it.
+                                } else {
+                                    castExpr = TypeCoercionUtils.castIfNotSameType(castExpr, targetType);
+                                }
                                 if (castExpr instanceof NamedExpression) {
                                     castExprs.add(((NamedExpression) castExpr));
                                 } else {
@@ -272,6 +285,10 @@ public class BindSink implements AnalysisRuleFactory {
             }
             throw new AnalysisException("failed to cast type when binding sink, type is: " + expression.getDataType());
         }
+    }
+
+    private boolean isSourceAndTargetStringLikeType(DataType input, DataType target) {
+        return input.isStringLikeType() && target.isStringLikeType();
     }
 
     private static class SlotReplacer extends DefaultExpressionRewriter<Map<String, NamedExpression>> {
