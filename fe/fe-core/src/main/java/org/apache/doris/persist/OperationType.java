@@ -314,6 +314,11 @@ public class OperationType {
 
     public static final short OP_BARRIER = 436;
 
+    // For backward compatible with 2.0.3
+    public static final short OP_UPDATE_TABLE_STATS = 455;
+
+    // For backward compatible with 2.0.3
+    public static final short OP_PERSIST_AUTO_JOB = 456;
 
     /**
      * Get opcode name by op code.
