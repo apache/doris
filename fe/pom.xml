@@ -275,6 +275,7 @@ under the License.
         <iceberg.version>1.1.0</iceberg.version>
         <delta.version>3.0.0rc1</delta.version>
         <maxcompute.version>0.43.3-public</maxcompute.version>
+        <bigquery.version>2.27.0</bigquery.version>
         <arrow.version>9.0.0</arrow.version>
         <avro.version>1.11.1</avro.version>
         <!-- hudi -->
@@ -1202,6 +1203,11 @@ under the License.
                         <artifactId>arrow-vector</artifactId>
                     </exclusion>
                 </exclusions>
+            </dependency>
+            <dependency>
+                <groupId>com.google.cloud</groupId>
+                <artifactId>google-cloud-bigquery</artifactId>
+                <version>${bigquery.version}</version>
             </dependency>
             <!-- For Iceberg, must be consistent with Iceberg version -->
             <dependency>

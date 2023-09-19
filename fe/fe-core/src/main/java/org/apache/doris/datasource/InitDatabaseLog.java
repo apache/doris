@@ -41,6 +41,7 @@ public class InitDatabaseLog implements Writable {
         HUDI,
         PAIMON,
         DELTALAKE,
+        BIGQUERY,
         TEST,
         UNKNOWN;
     }

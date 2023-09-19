@@ -44,6 +44,8 @@ import org.apache.doris.catalog.SinglePartitionInfo;
 import org.apache.doris.catalog.SparkResource;
 import org.apache.doris.catalog.StructType;
 import org.apache.doris.catalog.TableIf;
+import org.apache.doris.catalog.external.BigQueryExternalDatabase;
+import org.apache.doris.catalog.external.BigQueryExternalTable;
 import org.apache.doris.catalog.external.DeltaLakeExternalDataBase;
 import org.apache.doris.catalog.external.DeltaLakeExternalTable;
 import org.apache.doris.catalog.external.EsExternalDatabase;
@@ -61,6 +63,7 @@ import org.apache.doris.catalog.external.MaxComputeExternalTable;
 import org.apache.doris.catalog.external.PaimonExternalDatabase;
 import org.apache.doris.catalog.external.PaimonExternalTable;
 import org.apache.doris.common.util.RangeUtils;
+import org.apache.doris.datasource.BigQueryExternalCatalog;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.EsExternalCatalog;
 import org.apache.doris.datasource.HMSExternalCatalog;
@@ -213,7 +216,8 @@ public class GsonUtils {
             .registerSubtype(PaimonExternalCatalog.class, PaimonExternalCatalog.class.getSimpleName())
             .registerSubtype(PaimonHMSExternalCatalog.class, PaimonHMSExternalCatalog.class.getSimpleName())
             .registerSubtype(MaxComputeExternalCatalog.class, MaxComputeExternalCatalog.class.getSimpleName())
-            .registerSubtype(DeltaLakeExternalCatalog.class, DeltaLakeExternalCatalog.class.getSimpleName());
+            .registerSubtype(DeltaLakeExternalCatalog.class, DeltaLakeExternalCatalog.class.getSimpleName())
+            .registerSubtype(BigQueryExternalCatalog.class, BigQueryExternalCatalog.class.getSimpleName());
     // routine load data source
     private static RuntimeTypeAdapterFactory<AbstractDataSourceProperties> rdsTypeAdapterFactory =
             RuntimeTypeAdapterFactory.of(
@@ -233,7 +237,8 @@ public class GsonUtils {
             .registerSubtype(IcebergExternalDatabase.class, IcebergExternalDatabase.class.getSimpleName())
             .registerSubtype(PaimonExternalDatabase.class, PaimonExternalDatabase.class.getSimpleName())
             .registerSubtype(MaxComputeExternalDatabase.class, MaxComputeExternalDatabase.class.getSimpleName())
-            .registerSubtype(DeltaLakeExternalDataBase.class, DeltaLakeExternalDataBase.class.getSimpleName());
+            .registerSubtype(DeltaLakeExternalDataBase.class, DeltaLakeExternalDataBase.class.getSimpleName())
+            .registerSubtype(BigQueryExternalDatabase.class, BigQueryExternalDatabase.class.getSimpleName());
 
     private static RuntimeTypeAdapterFactory<TableIf> tblTypeAdapterFactory = RuntimeTypeAdapterFactory.of(
                     TableIf.class, "clazz").registerSubtype(ExternalTable.class, ExternalTable.class.getSimpleName())
@@ -244,7 +249,8 @@ public class GsonUtils {
             .registerSubtype(IcebergExternalTable.class, IcebergExternalTable.class.getSimpleName())
             .registerSubtype(PaimonExternalTable.class, PaimonExternalTable.class.getSimpleName())
             .registerSubtype(MaxComputeExternalTable.class, MaxComputeExternalTable.class.getSimpleName())
-            .registerSubtype(DeltaLakeExternalTable.class, DeltaLakeExternalTable.class.getSimpleName());
+            .registerSubtype(DeltaLakeExternalTable.class, DeltaLakeExternalTable.class.getSimpleName())
+            .registerSubtype(BigQueryExternalTable.class, BigQueryExternalTable.class.getSimpleName());
 
     // runtime adapter for class "PartitionInfo"
     private static RuntimeTypeAdapterFactory<PartitionInfo> partitionInfoTypeAdapterFactory

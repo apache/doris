@@ -134,6 +134,9 @@ public class CatalogFactory {
             case "deltalake":
                 catalog = new DeltaLakeExternalCatalog(catalogId, name, resource, props, comment);
                 break;
+            case "bigquery":
+                catalog = new BigQueryExternalCatalog(catalogId, name, resource, props, comment);
+                break;
             case "test":
                 if (!FeConstants.runningUnitTest) {
                     throw new DdlException("test catalog is only for FE unit test");
