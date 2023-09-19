@@ -23,7 +23,7 @@
 
 namespace doris {
 
-static char dig_vec_lower[] = "0123456789abcdef";
+constexpr static char dig_vec_lower[] = "0123456789abcdef";
 
 void SHA1Digest::reset(const void* data, size_t length) {
     SHA1_Init(&_sha_ctx);

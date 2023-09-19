@@ -2059,7 +2059,7 @@ public:
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         size_t result, size_t input_rows_count) override {
-        DCHECK(arguments.size() == 1);
+        DCHECK_EQ(arguments.size(), 1);
 
         ColumnPtr str_col = block.get_by_position(arguments[0]).column;
         auto& data = assert_cast<const ColumnString*>(str_col.get())->get_chars();
