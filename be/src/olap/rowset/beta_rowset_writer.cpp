@@ -716,7 +716,11 @@ Status BetaRowsetWriter::add_segment(uint32_t segment_id, SegmentStatistics& seg
     if (_context.mow_context != nullptr) {
         RETURN_IF_ERROR(_generate_delete_bitmap(segment_id));
     }
-    RETURN_IF_ERROR(_segcompaction_if_necessary());
+    // TODO: this condition is a workaround,
+    // we should replace it with a more explicit check
+    if (_context.tablet != nullptr) {
+        RETURN_IF_ERROR(_segcompaction_if_necessary());
+    }
     return Status::OK();
 }
 
