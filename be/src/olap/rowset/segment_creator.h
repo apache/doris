@@ -100,30 +100,6 @@ public:
 
     Status close();
 
-public:
-    class Writer {
-        friend class SegmentFlusher;
-
-    public:
-        ~Writer();
-
-        Status add_rows(const vectorized::Block* block, size_t row_offset, size_t input_row_num) {
-            return _flusher->_add_rows(_writer, block, row_offset, input_row_num);
-        }
-
-        Status flush();
-
-        int64_t max_row_to_add(size_t row_avg_size_in_bytes);
-
-    private:
-        Writer(SegmentFlusher* flusher, std::unique_ptr<segment_v2::SegmentWriter>& segment_writer);
-
-        SegmentFlusher* _flusher;
-        std::unique_ptr<segment_v2::SegmentWriter> _writer;
-    };
-
-    Status create_writer(std::unique_ptr<SegmentFlusher::Writer>& writer, uint32_t segment_id);
-
 private:
     Status _add_rows(std::unique_ptr<segment_v2::SegmentWriter>& segment_writer,
                      const vectorized::Block* block, size_t row_offset, size_t row_num);
@@ -180,7 +156,6 @@ public:
 private:
     std::atomic<int32_t> _next_segment_id = 0;
     SegmentFlusher _segment_flusher;
-    std::unique_ptr<SegmentFlusher::Writer> _flush_writer;
 };
 
 } // namespace doris

@@ -155,29 +155,6 @@ Status SegmentFlusher::_flush_segment_writer(std::unique_ptr<segment_v2::Segment
     return Status::OK();
 }
 
-Status SegmentFlusher::create_writer(std::unique_ptr<SegmentFlusher::Writer>& writer,
-                                     uint32_t segment_id) {
-    std::unique_ptr<segment_v2::SegmentWriter> segment_writer;
-    RETURN_IF_ERROR(_create_segment_writer(segment_writer, segment_id));
-    DCHECK(segment_writer != nullptr);
-    writer.reset(new SegmentFlusher::Writer(this, segment_writer));
-    return Status::OK();
-}
-
-SegmentFlusher::Writer::Writer(SegmentFlusher* flusher,
-                               std::unique_ptr<segment_v2::SegmentWriter>& segment_writer)
-        : _flusher(flusher), _writer(std::move(segment_writer)) {};
-
-SegmentFlusher::Writer::~Writer() = default;
-
-Status SegmentFlusher::Writer::flush() {
-    return _flusher->_flush_segment_writer(_writer);
-}
-
-int64_t SegmentFlusher::Writer::max_row_to_add(size_t row_avg_size_in_bytes) {
-    return _writer->max_row_to_add(row_avg_size_in_bytes);
-}
-
 Status SegmentCreator::init(const RowsetWriterContext& rowset_writer_context) {
     _segment_flusher.init(rowset_writer_context);
     return Status::OK();
