@@ -139,10 +139,6 @@ Status get_block_arrow_schema(const vectorized::Block& block,
                               std::shared_ptr<arrow::Schema>* result) {
     std::vector<std::shared_ptr<arrow::Field>> fields;
     for (const auto& type_and_name : block) {
-        //// TODO handle nested type
-        //if (is_complex_type(vectorized::remove_nullable(type_and_name.type))) {
-        //    return Status::InvalidArgument("Unknown type({})", type_and_name.type->get_name());
-        //}
         std::shared_ptr<arrow::DataType> arrow_type;
         RETURN_IF_ERROR(convert_to_arrow_type(type_and_name.type->get_type_as_type_descriptor(),
                                               &arrow_type));
