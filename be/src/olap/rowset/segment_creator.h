@@ -154,10 +154,6 @@ public:
 
     void set_segment_start_id(uint32_t start_id) { _next_segment_id = start_id; }
 
-    Status add_block(const vectorized::Block* block);
-
-    Status flush();
-
     int32_t allocate_segment_id() { return _next_segment_id.fetch_add(1); }
 
     int32_t next_segment_id() const { return _next_segment_id.load(); }

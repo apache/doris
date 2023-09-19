@@ -1935,11 +1935,6 @@ Status Tablet::create_initial_rowset(const int64_t req_version) {
             LOG(WARNING) << "failed to init rowset writer for tablet " << full_name();
             break;
         }
-        res = rs_writer->flush();
-        if (!res.ok()) {
-            LOG(WARNING) << "failed to flush rowset writer for tablet " << full_name();
-            break;
-        }
 
         new_rowset = rs_writer->build();
         res = add_rowset(new_rowset);

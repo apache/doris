@@ -276,7 +276,7 @@ Status PushHandler::_convert_v2(TabletSharedPtr cur_tablet, RowsetSharedPtr* cur
                     if (reader->eof()) {
                         break;
                     }
-                    if (!(res = rowset_writer->add_block(&block))) {
+                    if (!(res = rowset_writer->flush_single_block(&block))) {
                         LOG(WARNING) << "fail to attach block to rowset_writer. "
                                      << "res=" << res << ", tablet=" << cur_tablet->full_name()
                                      << ", read_rows=" << num_rows;
@@ -290,10 +290,6 @@ Status PushHandler::_convert_v2(TabletSharedPtr cur_tablet, RowsetSharedPtr* cur
             reader->close();
         }
 
-        if (!rowset_writer->flush().ok()) {
-            LOG(WARNING) << "failed to finalize writer";
-            break;
-        }
         *cur_rowset = rowset_writer->build();
         if (*cur_rowset == nullptr) {
             res = Status::Error<MEM_ALLOC_FAILED>("fail to build rowset");

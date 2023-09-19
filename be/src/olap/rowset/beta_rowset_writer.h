@@ -72,8 +72,6 @@ public:
 
     Status init(const RowsetWriterContext& rowset_writer_context) override;
 
-    Status add_block(const vectorized::Block* block) override;
-
     // add rowset by create hard link
     Status add_rowset(RowsetSharedPtr rowset) override;
 
@@ -82,8 +80,6 @@ public:
     Status create_file_writer(uint32_t segment_id, io::FileWriterPtr& writer) override;
 
     Status add_segment(uint32_t segment_id, SegmentStatistics& segstat) override;
-
-    Status flush() override;
 
     Status flush_memtable(vectorized::Block* block, int32_t segment_id,
                           int64_t* flush_size) override;

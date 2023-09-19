@@ -127,10 +127,6 @@ Status BetaRowsetWriter::init(const RowsetWriterContext& rowset_writer_context) 
     return Status::OK();
 }
 
-Status BetaRowsetWriter::add_block(const vectorized::Block* block) {
-    return _segment_creator.add_block(block);
-}
-
 Status BetaRowsetWriter::_generate_delete_bitmap(int32_t segment_id) {
     SCOPED_RAW_TIMER(&_delete_bitmap_ns);
     if (!_context.tablet->enable_unique_key_merge_on_write() ||
@@ -424,10 +420,6 @@ Status BetaRowsetWriter::add_rowset(RowsetSharedPtr rowset) {
 Status BetaRowsetWriter::add_rowset_for_linked_schema_change(RowsetSharedPtr rowset) {
     // TODO use schema_mapping to transfer zonemap
     return add_rowset(rowset);
-}
-
-Status BetaRowsetWriter::flush() {
-    return _segment_creator.flush();
 }
 
 Status BetaRowsetWriter::flush_memtable(vectorized::Block* block, int32_t segment_id,

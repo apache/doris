@@ -70,10 +70,6 @@ public:
 
     Status init(const RowsetWriterContext& rowset_writer_context) override;
 
-    Status add_block(const vectorized::Block* block) override {
-        return Status::Error<ErrorCode::NOT_IMPLEMENTED_ERROR>("add_block is not implemented");
-    }
-
     // add rowset by create hard link
     Status add_rowset(RowsetSharedPtr rowset) override {
         return Status::Error<ErrorCode::NOT_IMPLEMENTED_ERROR>("add_rowset is not implemented");
@@ -85,10 +81,6 @@ public:
     }
 
     Status create_file_writer(uint32_t segment_id, io::FileWriterPtr& writer) override;
-
-    Status flush() override {
-        return Status::Error<ErrorCode::NOT_IMPLEMENTED_ERROR>("flush is not implemented");
-    }
 
     Status flush_memtable(vectorized::Block* block, int32_t segment_id,
                           int64_t* flush_size) override;

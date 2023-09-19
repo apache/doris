@@ -366,7 +366,6 @@ Status TxnManager::publish_txn(OlapMeta* meta, TPartitionId partition_id,
         stats->calc_delete_bitmap_time_us = t3 - t2;
         if (rowset->tablet_schema()->is_partial_update()) {
             // build rowset writer and merge transient rowset
-            RETURN_IF_ERROR(rowset_writer->flush());
             RowsetSharedPtr transient_rowset = rowset_writer->build();
             rowset->merge_rowset_meta(transient_rowset->rowset_meta());
 

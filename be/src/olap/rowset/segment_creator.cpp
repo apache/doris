@@ -183,46 +183,6 @@ Status SegmentCreator::init(const RowsetWriterContext& rowset_writer_context) {
     return Status::OK();
 }
 
-Status SegmentCreator::add_block(const vectorized::Block* block) {
-    if (block->rows() == 0) {
-        return Status::OK();
-    }
-
-    size_t block_size_in_bytes = block->bytes();
-    size_t block_row_num = block->rows();
-    size_t row_avg_size_in_bytes = std::max((size_t)1, block_size_in_bytes / block_row_num);
-    size_t row_offset = 0;
-
-    if (_flush_writer == nullptr) {
-        RETURN_IF_ERROR(_segment_flusher.create_writer(_flush_writer, allocate_segment_id()));
-    }
-
-    do {
-        auto max_row_add = _flush_writer->max_row_to_add(row_avg_size_in_bytes);
-        if (UNLIKELY(max_row_add < 1)) {
-            // no space for another single row, need flush now
-            RETURN_IF_ERROR(flush());
-            RETURN_IF_ERROR(_segment_flusher.create_writer(_flush_writer, allocate_segment_id()));
-            max_row_add = _flush_writer->max_row_to_add(row_avg_size_in_bytes);
-            DCHECK(max_row_add > 0);
-        }
-        size_t input_row_num = std::min(block_row_num - row_offset, size_t(max_row_add));
-        RETURN_IF_ERROR(_flush_writer->add_rows(block, row_offset, input_row_num));
-        row_offset += input_row_num;
-    } while (row_offset < block_row_num);
-
-    return Status::OK();
-}
-
-Status SegmentCreator::flush() {
-    if (_flush_writer == nullptr) {
-        return Status::OK();
-    }
-    RETURN_IF_ERROR(_flush_writer->flush());
-    _flush_writer.reset();
-    return Status::OK();
-}
-
 Status SegmentCreator::flush_single_block(const vectorized::Block* block, int32_t segment_id,
                                           int64_t* flush_size, TabletSchemaSPtr flush_schema) {
     if (block->rows() == 0) {
@@ -234,7 +194,6 @@ Status SegmentCreator::flush_single_block(const vectorized::Block* block, int32_
 }
 
 Status SegmentCreator::close() {
-    RETURN_IF_ERROR(flush());
     RETURN_IF_ERROR(_segment_flusher.close());
     return Status::OK();
 }

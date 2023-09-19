@@ -110,7 +110,7 @@ Status Merger::vmerge_rowsets(TabletSharedPtr tablet, ReaderType reader_type,
                 reader.next_block_with_aggregation(&block, &eof),
                 "failed to read next block when merging rowsets of tablet " + tablet->full_name());
         RETURN_NOT_OK_STATUS_WITH_WARN(
-                dst_rowset_writer->add_block(&block),
+                dst_rowset_writer->flush_single_block(&block),
                 "failed to write block when merging rowsets of tablet " + tablet->full_name());
 
         if (reader_params.record_rowids && block.rows() > 0) {
@@ -133,10 +133,6 @@ Status Merger::vmerge_rowsets(TabletSharedPtr tablet, ReaderType reader_type,
         stats_output->merged_rows = reader.merged_rows();
         stats_output->filtered_rows = reader.filtered_rows();
     }
-
-    RETURN_NOT_OK_STATUS_WITH_WARN(
-            dst_rowset_writer->flush(),
-            "failed to flush rowset when merging rowsets of tablet " + tablet->full_name());
 
     return Status::OK();
 }

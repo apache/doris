@@ -71,10 +71,6 @@ public:
 
     virtual Status init(const RowsetWriterContext& rowset_writer_context) = 0;
 
-    virtual Status add_block(const vectorized::Block* block) {
-        return Status::Error<ErrorCode::NOT_IMPLEMENTED_ERROR>(
-                "RowsetWriter not support add_block");
-    }
     virtual Status add_columns(const vectorized::Block* block, const std::vector<uint32_t>& col_ids,
                                bool is_key, uint32_t max_rows_per_segment) {
         return Status::Error<ErrorCode::NOT_IMPLEMENTED_ERROR>(
@@ -93,7 +89,6 @@ public:
 
     // explicit flush all buffered rows into segment file.
     // note that `add_row` could also trigger flush when certain conditions are met
-    virtual Status flush() = 0;
     virtual Status flush_columns(bool is_key) {
         return Status::Error<ErrorCode::NOT_IMPLEMENTED_ERROR>(
                 "RowsetWriter not support flush_columns");

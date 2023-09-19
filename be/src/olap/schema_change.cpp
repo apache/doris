@@ -170,7 +170,7 @@ public:
 
                     if (i == rows - 1 || finalized_block.rows() == ALTER_TABLE_BATCH_SIZE) {
                         *merged_rows -= finalized_block.rows();
-                        rowset_writer->add_block(&finalized_block);
+                        rowset_writer->flush_single_block(&finalized_block);
                         finalized_block.clear_column_data();
                     }
                 }
@@ -202,12 +202,11 @@ public:
                         column->insert_from(*row_ref.get_column(idx), row_ref.position);
                     }
                 }
-                rowset_writer->add_block(&finalized_block);
+                rowset_writer->flush_single_block(&finalized_block);
                 finalized_block.clear_column_data();
             }
         }
 
-        RETURN_IF_ERROR(rowset_writer->flush());
         return Status::OK();
     }
 
@@ -487,10 +486,9 @@ Status VSchemaChangeDirectly::_inner_process(RowsetReaderSharedPtr rowset_reader
         }
 
         RETURN_IF_ERROR(_changer.change_block(ref_block.get(), new_block.get()));
-        RETURN_IF_ERROR(rowset_writer->add_block(new_block.get()));
+        RETURN_IF_ERROR(rowset_writer->flush_single_block(new_block.get()));
     } while (true);
 
-    RETURN_IF_ERROR(rowset_writer->flush());
     return Status::OK();
 }
 
@@ -579,8 +577,6 @@ Status VSchemaChangeWithSorting::_inner_process(RowsetReaderSharedPtr rowset_rea
     RETURN_IF_ERROR(create_rowset());
 
     if (src_rowsets.empty()) {
-        RETURN_IF_ERROR(rowset_writer->flush());
-    } else {
         RETURN_IF_ERROR(_external_sorting(src_rowsets, rowset_writer, new_tablet));
     }
 
