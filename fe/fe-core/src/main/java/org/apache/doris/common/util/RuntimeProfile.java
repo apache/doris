@@ -399,7 +399,7 @@ public class RuntimeProfile {
 
             mergeProfileCounter(src, childCounterName, rhs);
             mergeCounter(src, childCounterName, counter, rhsCounter);
-            removeZeroeCounter(childCounterSet, childCounterName, counter);
+            removeCounter(childCounterSet, childCounterName, counter);
 
         }
     }
@@ -423,8 +423,8 @@ public class RuntimeProfile {
         }
     }
 
-    private static void removeZeroeCounter(Set<String> childCounterSet, String childCounterName, Counter counter) {
-        if (counter.getValue() == 0) {
+    private static void removeCounter(Set<String> childCounterSet, String childCounterName, Counter counter) {
+        if (counter.isRemove()) {
             childCounterSet.remove(childCounterName);
         }
     }
@@ -476,7 +476,7 @@ public class RuntimeProfile {
                         + MIN_TIME_PRE + printCounter(minCounter.getValue(), minCounter.getType()) + " ]";
                 src.infoStrings.put(counterName, infoString);
             }
-            counter.setValue(0); // value 0 will remove in removeZeroeCounter
+            counter.setCanRemove(); // value will remove in removeCounter
         } else {
             if (rhsCounter.size() == 0) {
                 return;
