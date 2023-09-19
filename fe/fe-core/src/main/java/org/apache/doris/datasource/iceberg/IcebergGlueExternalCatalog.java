@@ -59,6 +59,8 @@ public class IcebergGlueExternalCatalog extends IcebergExternalCatalog {
 
         glueCatalog.initialize(icebergCatalogType, catalogProperties);
         catalog = glueCatalog;
+        // catalogId is 0 when loading from image.
+        catalogId = id;
     }
 
     @Override

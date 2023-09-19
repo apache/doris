@@ -49,6 +49,8 @@ public class IcebergRestExternalCatalog extends IcebergExternalCatalog {
         restCatalog.setConf(conf);
         restCatalog.initialize(icebergCatalogType, restProperties);
         catalog = restCatalog;
+        // catalogId is 0 when loading from image.
+        catalogId = id;
     }
 
     private Configuration replaceS3Properties(Configuration conf) {
