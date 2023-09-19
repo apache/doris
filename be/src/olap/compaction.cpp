@@ -421,7 +421,6 @@ Status Compaction::do_compaction_impl(int64_t permits) {
 
         auto src_segment_num = src_seg_to_id_map.size();
         auto dest_segment_num = dest_segment_num_rows.size();
-
         if (dest_segment_num > 0) {
             // src index files
             // format: rowsetId_segmentId
@@ -470,10 +469,9 @@ Status Compaction::do_compaction_impl(int64_t permits) {
                     });
 
             LOG(INFO) << "succeed to do index compaction"
-                      << ". tablet=" << _tablet->full_name()
-                      << ", input row number=" << _input_row_num
-                      << ", output row number=" << _output_rowset->num_rows()
-                      << ". elapsed time=" << inverted_watch.get_elapse_second() << "s.";
+                  << ". tablet=" << _tablet->full_name() << ", input row number=" << _input_row_num
+                  << ", output row number=" << _output_rowset->num_rows()
+                  << ". elapsed time=" << inverted_watch.get_elapse_second() << "s.";
         } else {
             LOG(INFO) << "skip doing index compaction due to no output segments"
                       << ". tablet=" << _tablet->full_name()
