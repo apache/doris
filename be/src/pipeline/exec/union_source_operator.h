@@ -101,7 +101,7 @@ public:
 private:
     bool _has_data(RuntimeState* state) {
         auto& local_state = state->get_local_state(id())->cast<UnionSourceLocalState>();
-        return local_state._shared_state->_data_queue->remaining_has_data();
+        return local_state._shared_state->data_queue->remaining_has_data();
     }
     bool has_more_const(const RuntimeState* state) const {
         return state->per_fragment_instance_idx() == 0;
