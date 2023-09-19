@@ -32,7 +32,7 @@ public class Config extends ConfigBase {
 
     /**
      * sys_log_dir:
-     *      This specifies FE log dir. FE will produces 2 log files:
+     *      This specifies FE log dir. FE will produce 2 log files:
      *      fe.log:      all logs of FE process.
      *      fe.warn.log  all WARN and ERROR log of FE process.
      *
