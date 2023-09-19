@@ -17,7 +17,7 @@
 // This file is copied from
 // https://github.com/ClickHouse/ClickHouse/blob/master/src/Core/ColumnNumbers.h
 // and modified by Doris
-
+// for test only
 #pragma once
 
 #include <string>
