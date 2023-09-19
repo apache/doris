@@ -17,11 +17,11 @@
 
 package org.apache.doris.catalog;
 
-import org.apache.doris.analysis.MVRefreshInfo.BuildMode;
-import org.apache.doris.analysis.MVRefreshInfo.RefreshMethod;
-import org.apache.doris.analysis.MVRefreshTriggerInfo;
 import org.apache.doris.catalog.OlapTableFactory.MaterializedViewParams;
 import org.apache.doris.common.io.Text;
+import org.apache.doris.nereids.trees.plans.commands.info.MVRefreshInfo.BuildMode;
+import org.apache.doris.nereids.trees.plans.commands.info.MVRefreshInfo.RefreshMethod;
+import org.apache.doris.nereids.trees.plans.commands.info.MVRefreshTriggerInfo;
 import org.apache.doris.persist.gson.GsonUtils;
 
 import com.google.common.collect.Lists;

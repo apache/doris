@@ -15,15 +15,18 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.analysis;
+package org.apache.doris.nereids.trees.plans.commands.info;
 
-import org.apache.doris.analysis.MVRefreshInfo.RefreshTrigger;
 import org.apache.doris.nereids.exceptions.AnalysisException;
+import org.apache.doris.nereids.trees.plans.commands.info.MVRefreshInfo.RefreshTrigger;
 
 import com.google.gson.annotations.SerializedName;
 
 import java.util.Objects;
 
+/**
+ * refresh trigger info in mtmv
+ */
 public class MVRefreshTriggerInfo {
     @SerializedName("refreshTrigger")
     private RefreshTrigger refreshTrigger;
@@ -42,14 +45,25 @@ public class MVRefreshTriggerInfo {
         this.intervalTrigger = intervalTrigger;
     }
 
+    /**
+     * getRefreshTrigger
+     * @return RefreshTrigger
+     */
     public RefreshTrigger getRefreshTrigger() {
         return refreshTrigger;
     }
 
+    /**
+     * getIntervalTrigger
+     * @return MVRefreshSchedule
+     */
     public MVRefreshSchedule getIntervalTrigger() {
         return intervalTrigger;
     }
 
+    /**
+     * validate
+     */
     public void validate() {
         if (refreshTrigger.equals(RefreshTrigger.SCHEDULE)) {
             if (intervalTrigger == null) {

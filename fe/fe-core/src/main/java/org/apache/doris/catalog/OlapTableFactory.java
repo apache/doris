@@ -20,11 +20,11 @@ package org.apache.doris.catalog;
 import org.apache.doris.analysis.CreateMultiTableMaterializedViewStmt;
 import org.apache.doris.analysis.CreateTableStmt;
 import org.apache.doris.analysis.DdlStmt;
-import org.apache.doris.analysis.MVRefreshInfo;
-import org.apache.doris.analysis.MVRefreshInfo.BuildMode;
-import org.apache.doris.analysis.MVRefreshInfo.RefreshMethod;
-import org.apache.doris.analysis.MVRefreshTriggerInfo;
 import org.apache.doris.catalog.TableIf.TableType;
+import org.apache.doris.nereids.trees.plans.commands.info.MVRefreshInfo;
+import org.apache.doris.nereids.trees.plans.commands.info.MVRefreshInfo.BuildMode;
+import org.apache.doris.nereids.trees.plans.commands.info.MVRefreshInfo.RefreshMethod;
+import org.apache.doris.nereids.trees.plans.commands.info.MVRefreshTriggerInfo;
 
 import com.google.common.base.Preconditions;
 

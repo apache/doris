@@ -15,19 +15,33 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.analysis;
+package org.apache.doris.nereids.trees.plans.commands.info;
 
+/**
+ * refresh info in mtmv
+ */
 public class MVRefreshInfo {
 
+    /**
+     * RefreshMethod
+     */
     public enum RefreshMethod {
-        COMPLETE
+        COMPLETE //complete
     }
 
+    /**
+     * BuildMode
+     */
     public enum BuildMode {
-        IMMEDIATE, DEFERRED
+        IMMEDIATE, //right now
+        DEFERRED // deferred
     }
 
+    /**
+     * RefreshTrigger
+     */
     public enum RefreshTrigger {
-        MANUAL, SCHEDULE
+        MANUAL, //manual
+        SCHEDULE // schedule
     }
 }

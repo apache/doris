@@ -19,9 +19,6 @@ package org.apache.doris.nereids.trees.plans.commands.info;
 
 import org.apache.doris.analysis.CreateMultiTableMaterializedViewStmt;
 import org.apache.doris.analysis.KeysDesc;
-import org.apache.doris.analysis.MVRefreshInfo.BuildMode;
-import org.apache.doris.analysis.MVRefreshInfo.RefreshMethod;
-import org.apache.doris.analysis.MVRefreshTriggerInfo;
 import org.apache.doris.analysis.TableName;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
@@ -33,6 +30,8 @@ import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.glue.LogicalPlanAdapter;
 import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.trees.plans.commands.info.MVRefreshInfo.BuildMode;
+import org.apache.doris.nereids.trees.plans.commands.info.MVRefreshInfo.RefreshMethod;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.util.Utils;
 import org.apache.doris.planner.ScanNode;

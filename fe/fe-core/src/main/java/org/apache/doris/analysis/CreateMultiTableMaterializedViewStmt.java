@@ -17,11 +17,12 @@
 
 package org.apache.doris.analysis;
 
-import org.apache.doris.analysis.MVRefreshInfo.BuildMode;
-import org.apache.doris.analysis.MVRefreshInfo.RefreshMethod;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Index;
 import org.apache.doris.catalog.TableIf;
+import org.apache.doris.nereids.trees.plans.commands.info.MVRefreshInfo.BuildMode;
+import org.apache.doris.nereids.trees.plans.commands.info.MVRefreshInfo.RefreshMethod;
+import org.apache.doris.nereids.trees.plans.commands.info.MVRefreshTriggerInfo;
 
 import java.util.ArrayList;
 import java.util.List;

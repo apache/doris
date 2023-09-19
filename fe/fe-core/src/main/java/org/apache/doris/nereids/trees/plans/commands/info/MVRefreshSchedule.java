@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.analysis;
+package org.apache.doris.nereids.trees.plans.commands.info;
 
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.nereids.exceptions.AnalysisException;
@@ -26,6 +26,9 @@ import org.apache.commons.lang3.StringUtils;
 
 import java.util.Objects;
 
+/**
+ * refresh schedule in mtmv
+ */
 public class MVRefreshSchedule {
     @SerializedName("startTime")
     private String startTime;
@@ -44,18 +47,33 @@ public class MVRefreshSchedule {
         this.timeUnit = Objects.requireNonNull(timeUnit, "require timeUnit object");
     }
 
+    /**
+     * getStartTime
+     * @return startTime
+     */
     public String getStartTime() {
         return startTime;
     }
 
+    /**
+     * getInterval
+     * @return interval
+     */
     public long getInterval() {
         return interval;
     }
 
+    /**
+     * getTimeUnit
+     * @return timeUnit
+     */
     public IntervalUnit getTimeUnit() {
         return timeUnit;
     }
 
+    /**
+     * validate
+     */
     public void validate() {
         if (interval <= 0) {
             throw new AnalysisException("interval must be greater than 0");

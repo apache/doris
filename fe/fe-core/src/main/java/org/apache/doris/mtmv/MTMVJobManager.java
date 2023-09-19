@@ -17,9 +17,6 @@
 
 package org.apache.doris.mtmv;
 
-import org.apache.doris.analysis.MVRefreshInfo.BuildMode;
-import org.apache.doris.analysis.MVRefreshInfo.RefreshTrigger;
-import org.apache.doris.analysis.MVRefreshSchedule;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.MaterializedView;
@@ -28,6 +25,9 @@ import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.util.TimeUtils;
+import org.apache.doris.nereids.trees.plans.commands.info.MVRefreshInfo.BuildMode;
+import org.apache.doris.nereids.trees.plans.commands.info.MVRefreshInfo.RefreshTrigger;
+import org.apache.doris.nereids.trees.plans.commands.info.MVRefreshSchedule;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.scheduler.constants.JobCategory;
 import org.apache.doris.scheduler.executor.SqlJobExecutor;
