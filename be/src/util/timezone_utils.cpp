@@ -45,6 +45,11 @@ bool TimezoneUtils::inited_ = false;
 const std::string TimezoneUtils::default_time_zone = "+08:00";
 static const char* tzdir = "/usr/share/zoneinfo"; // default value, may change by TZDIR env var
 
+void TimezoneUtils::clear_timezone_names() {
+    timezone_names_map_.clear();
+    inited_ = false;
+}
+
 void TimezoneUtils::load_timezone_names() {
     if (inited_) {
         return;
@@ -301,7 +306,7 @@ bool TimezoneUtils::find_cctz_time_zone(const std::string& timezone, cctz::time_
             auto it = timezone_names_map_.find(timezone_lower);
             if (it != timezone_names_map_.end()) {
                 tz_parsed = cctz::load_time_zone(it->second, &ctz);
-            } else{
+            } else {
                 tz_parsed = cctz::load_time_zone(timezone, &ctz);
             }
         }
