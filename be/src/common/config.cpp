@@ -1052,7 +1052,7 @@ DEFINE_Bool(allow_invalid_decimalv2_literal, "false");
 DEFINE_mInt64(kerberos_expiration_time_seconds, "43200");
 
 DEFINE_mString(get_stack_trace_tool, "libunwind");
-DEFINE_mString(dwarf_location_info_mode, "FAST");
+DEFINE_mString(dwarf_location_info_mode, "FULL_WITH_INLINE");
 
 // the ratio of _prefetch_size/_batch_size in AutoIncIDBuffer
 DEFINE_mInt64(auto_inc_prefetch_size_ratio, "10");
