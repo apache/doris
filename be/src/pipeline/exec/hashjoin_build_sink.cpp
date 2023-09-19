@@ -49,6 +49,7 @@ Status HashJoinBuildSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo
     RETURN_IF_ERROR(JoinBuildSinkLocalState::init(state, info));
     SCOPED_TIMER(profile()->total_time_counter());
     SCOPED_TIMER(_open_timer);
+    _shared_hash_table_dependency = SharedHashTableDependency::create_shared(_parent->id());
     auto& p = _parent->cast<HashJoinBuildSinkOperatorX>();
     _shared_state->join_op_variants = p._join_op_variants;
     _shared_state->probe_key_sz = p._build_key_sz;
