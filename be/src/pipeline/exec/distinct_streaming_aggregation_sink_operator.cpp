@@ -97,14 +97,8 @@ OperatorPtr DistinctStreamingAggSinkOperatorBuilder::build_operator() {
 
 DistinctStreamingAggSinkLocalState::DistinctStreamingAggSinkLocalState(
         DataSinkOperatorXBase* parent, RuntimeState* state)
-        : AggSinkLocalState<AggDependency, DistinctStreamingAggSinkLocalState>(parent, state) {
-    dummy_mapped_data = std::make_shared<char>('A');
-}
-
-Status DistinctStreamingAggSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& info) {
-    RETURN_IF_ERROR(Base::init(state, info));
-    return Status::OK();
-}
+        : AggSinkLocalState<AggDependency, DistinctStreamingAggSinkLocalState>(parent, state),
+          dummy_mapped_data(std::make_shared<char>('A')) {}
 
 Status DistinctStreamingAggSinkLocalState::_distinct_pre_agg_with_serialized_key(
         doris::vectorized::Block* in_block, doris::vectorized::Block* out_block) {

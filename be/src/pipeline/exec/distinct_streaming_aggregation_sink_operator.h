@@ -84,7 +84,6 @@ public:
     ENABLE_FACTORY_CREATOR(DistinctStreamingAggSinkLocalState);
     DistinctStreamingAggSinkLocalState(DataSinkOperatorXBase* parent, RuntimeState* state);
 
-    Status init(RuntimeState* state, LocalSinkStateInfo& info) override;
     Status close(RuntimeState* state) override;
     Status _distinct_pre_agg_with_serialized_key(vectorized::Block* in_block,
                                                  vectorized::Block* out_block);
