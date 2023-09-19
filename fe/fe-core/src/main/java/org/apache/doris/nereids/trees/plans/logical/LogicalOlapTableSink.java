@@ -46,13 +46,11 @@ public class LogicalOlapTableSink<CHILD_TYPE extends Plan> extends LogicalSink<C
     private List<Column> cols;
     private List<Long> partitionIds;
     private boolean isPartialUpdate;
-    private boolean isFromNativeInsertStmt;
 
     public LogicalOlapTableSink(Database database, OlapTable targetTable, List<Column> cols, List<Long> partitionIds,
-            List<NamedExpression> outputExprs, boolean isPartialUpdate, boolean isFromNativeInsertStmt,
-                    CHILD_TYPE child) {
-        this(database, targetTable, cols, partitionIds, outputExprs, isPartialUpdate, isFromNativeInsertStmt,
-                Optional.empty(), Optional.empty(), child);
+            List<NamedExpression> outputExprs, boolean isPartialUpdate, CHILD_TYPE child) {
+        this(database, targetTable, cols, partitionIds, outputExprs, isPartialUpdate, Optional.empty(),
+                Optional.empty(), child);
     }
 
     /**
@@ -60,14 +58,13 @@ public class LogicalOlapTableSink<CHILD_TYPE extends Plan> extends LogicalSink<C
      */
     public LogicalOlapTableSink(Database database, OlapTable targetTable, List<Column> cols,
             List<Long> partitionIds, List<NamedExpression> outputExprs, boolean isPartialUpdate,
-            boolean isFromNativeInsertStmt, Optional<GroupExpression> groupExpression,
-            Optional<LogicalProperties> logicalProperties, CHILD_TYPE child) {
+            Optional<GroupExpression> groupExpression, Optional<LogicalProperties> logicalProperties,
+            CHILD_TYPE child) {
         super(PlanType.LOGICAL_OLAP_TABLE_SINK, outputExprs, groupExpression, logicalProperties, child);
         this.database = Objects.requireNonNull(database, "database != null in LogicalOlapTableSink");
         this.targetTable = Objects.requireNonNull(targetTable, "targetTable != null in LogicalOlapTableSink");
         this.cols = Utils.copyRequiredList(cols);
         this.isPartialUpdate = isPartialUpdate;
-        this.isFromNativeInsertStmt = isFromNativeInsertStmt;
         this.partitionIds = Utils.copyRequiredList(partitionIds);
     }
 
@@ -76,14 +73,14 @@ public class LogicalOlapTableSink<CHILD_TYPE extends Plan> extends LogicalSink<C
                 .map(NamedExpression.class::cast)
                 .collect(ImmutableList.toImmutableList());
         return new LogicalOlapTableSink<>(database, targetTable, cols, partitionIds, output, isPartialUpdate,
-                isFromNativeInsertStmt, Optional.empty(), Optional.empty(), child);
+                Optional.empty(), Optional.empty(), child);
     }
 
     @Override
     public Plan withChildren(List<Plan> children) {
         Preconditions.checkArgument(children.size() == 1, "LogicalOlapTableSink only accepts one child");
         return new LogicalOlapTableSink<>(database, targetTable, cols, partitionIds, outputExprs, isPartialUpdate,
-                isFromNativeInsertStmt, Optional.empty(), Optional.empty(), children.get(0));
+                Optional.empty(), Optional.empty(), children.get(0));
     }
 
     public Database getDatabase() {
@@ -106,10 +103,6 @@ public class LogicalOlapTableSink<CHILD_TYPE extends Plan> extends LogicalSink<C
         return isPartialUpdate;
     }
 
-    public boolean isFromNativeInsertStmt() {
-        return isFromNativeInsertStmt;
-    }
-
     @Override
     public boolean equals(Object o) {
         if (this == o) {
@@ -122,7 +115,7 @@ public class LogicalOlapTableSink<CHILD_TYPE extends Plan> extends LogicalSink<C
             return false;
         }
         LogicalOlapTableSink<?> that = (LogicalOlapTableSink<?>) o;
-        return isPartialUpdate == that.isPartialUpdate && isFromNativeInsertStmt == that.isFromNativeInsertStmt
+        return isPartialUpdate == that.isPartialUpdate
                 && Objects.equals(database, that.database)
                 && Objects.equals(targetTable, that.targetTable) && Objects.equals(cols, that.cols)
                 && Objects.equals(partitionIds, that.partitionIds);
@@ -130,8 +123,7 @@ public class LogicalOlapTableSink<CHILD_TYPE extends Plan> extends LogicalSink<C
 
     @Override
     public int hashCode() {
-        return Objects.hash(super.hashCode(), database, targetTable, cols, partitionIds,
-                isPartialUpdate, isFromNativeInsertStmt);
+        return Objects.hash(super.hashCode(), database, targetTable, cols, partitionIds, isPartialUpdate);
     }
 
     @Override
@@ -142,13 +134,13 @@ public class LogicalOlapTableSink<CHILD_TYPE extends Plan> extends LogicalSink<C
     @Override
     public Plan withGroupExpression(Optional<GroupExpression> groupExpression) {
         return new LogicalOlapTableSink<>(database, targetTable, cols, partitionIds, outputExprs, isPartialUpdate,
-                isFromNativeInsertStmt, groupExpression, Optional.of(getLogicalProperties()), child());
+                groupExpression, Optional.of(getLogicalProperties()), child());
     }
 
     @Override
     public Plan withGroupExprLogicalPropChildren(Optional<GroupExpression> groupExpression,
             Optional<LogicalProperties> logicalProperties, List<Plan> children) {
         return new LogicalOlapTableSink<>(database, targetTable, cols, partitionIds, outputExprs, isPartialUpdate,
-                isFromNativeInsertStmt, groupExpression, logicalProperties, children.get(0));
+                groupExpression, logicalProperties, children.get(0));
     }
 }

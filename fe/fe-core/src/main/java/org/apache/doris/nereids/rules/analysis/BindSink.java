@@ -55,6 +55,7 @@ import com.google.common.collect.Maps;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
+import java.util.Optional;
 
 /**
  * bind an unbound logicalOlapTableSink represent the target table of an insert command
@@ -82,7 +83,6 @@ public class BindSink implements AnalysisRuleFactory {
                                             .map(NamedExpression.class::cast)
                                             .collect(ImmutableList.toImmutableList()),
                                     sink.isPartialUpdate(),
-                                    sink.isFromNativeInsertStmt(),
                                     sink.child());
 
                             // we need to insert all the columns of the target table
@@ -135,6 +135,8 @@ public class BindSink implements AnalysisRuleFactory {
                                                     .filter(col -> col.getName().equals(table.getSequenceMapCol()))
                                                     .findFirst().get();
                                             columnToOutput.put(column.getName(), columnToOutput.get(seqCol.getName()));
+                                        } else if (sink.isPartialUpdate()) {
+                                            continue;
                                         } else if (column.getDefaultValue() == null) {
                                             columnToOutput.put(column.getName(), new Alias(
                                                     new NullLiteral(DataType.fromCatalogType(column.getType())),
@@ -162,8 +164,14 @@ public class BindSink implements AnalysisRuleFactory {
                             // add cast project
                             List<NamedExpression> castExprs = Lists.newArrayList();
                             for (int i = 0; i < table.getFullSchema().size(); ++i) {
-                                Expression castExpr = TypeCoercionUtils.castIfNotSameType(fullOutputExprs.get(i),
-                                        DataType.fromCatalogType(table.getFullSchema().get(i).getType()));
+                                Column col = table.getFullSchema().get(i);
+                                NamedExpression expr = (NamedExpression) columnToOutput.get(col.getName());
+                                if (expr == null) {
+                                    continue;
+                                }
+                                Expression castExpr = TypeCoercionUtils.castIfNotSameType(
+                                        expr,
+                                        DataType.fromCatalogType(col.getType()));
                                 if (castExpr instanceof NamedExpression) {
                                     castExprs.add(((NamedExpression) castExpr));
                                 } else {
