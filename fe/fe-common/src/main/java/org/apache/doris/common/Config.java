@@ -699,10 +699,6 @@ public class Config extends ConfigBase {
             "Maximal number of connections of MySQL server per FE."})
     public static int qe_max_connection = 1024;
 
-    @ConfField(description = {"MySQL 连接调度线程池的最大线程数。",
-            "Maximal number of thread in MySQL connection-scheduler-pool."})
-    public static int max_connection_scheduler_threads_num = 4096;
-
     @ConfField(mutable = true, description = {"Colocate join 每个 instance 的内存 penalty 系数。"
             + "计算方式：`exec_mem_limit / min (query_colocate_join_memory_limit_penalty_factor, instance_num)`",
             "Colocate join PlanFragment instance memory limit penalty factor.",

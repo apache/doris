@@ -431,14 +431,6 @@ FE https 使能标志位，false 表示支持 http，true 表示同时支持 htt
 
 每个 FE 的最大连接数
 
-#### `max_connection_scheduler_threads_num`
-
-默认值：4096
-
-查询请求调度器中的最大线程数。
-
-目前的策略是，有请求过来，就为其单独申请一个线程进行服务
-
 #### `check_java_version`
 
 默认值：true

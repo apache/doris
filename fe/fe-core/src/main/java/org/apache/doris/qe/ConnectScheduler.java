@@ -47,8 +47,6 @@ public class ConnectScheduler {
     private final AtomicInteger nextConnectionId;
     private final Map<Integer, ConnectContext> connectionMap = Maps.newConcurrentMap();
     private final Map<String, AtomicInteger> connByUser = Maps.newConcurrentMap();
-    private final ExecutorService executor = ThreadPoolManager.newDaemonCacheThreadPool(
-            Config.max_connection_scheduler_threads_num, "connect-scheduler-pool", true);
 
     // valid trace id -> query id
     private final Map<String, TUniqueId> traceId2QueryId = Maps.newConcurrentMap();
