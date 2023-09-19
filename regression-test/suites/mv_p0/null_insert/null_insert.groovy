@@ -55,6 +55,15 @@ suite ("null_insert") {
 
     sql """INSERT INTO `test` (`date`) VALUES ('2023-07-19');"""
 
+    streamLoad {
+        table "test"
+
+        set 'columns', 'date'
+
+        file './test'
+        time 10000 // limit inflight 10s
+    }
+
     explain {
         sql("""SELECT date, vid, os, ver, ip_country, hll_union(hll_hash(uid))
                 FROM test
