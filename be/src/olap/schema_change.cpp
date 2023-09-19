@@ -576,7 +576,7 @@ Status VSchemaChangeWithSorting::_inner_process(RowsetReaderSharedPtr rowset_rea
 
     RETURN_IF_ERROR(create_rowset());
 
-    if (src_rowsets.empty()) {
+    if (!src_rowsets.empty()) {
         RETURN_IF_ERROR(_external_sorting(src_rowsets, rowset_writer, new_tablet));
     }
 
