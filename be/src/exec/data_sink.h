@@ -31,7 +31,7 @@
 #include "runtime/descriptors.h"
 #include "util/runtime_profile.h"
 #include "util/telemetry/telemetry.h"
-
+// for test only
 namespace doris {
 
 class ObjectPool;
