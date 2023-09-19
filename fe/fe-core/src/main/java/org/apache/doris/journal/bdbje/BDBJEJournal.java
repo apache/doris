@@ -136,16 +136,16 @@ public class BDBJEJournal implements Journal { // CHECKSTYLE IGNORE THIS LINE: B
         // entity is the value
         DataOutputBuffer buffer = new DataOutputBuffer(OUTPUT_BUFFER_INIT_SIZE);
         entity.write(buffer);
-        LOG.info("edit log size {}", buffer.getData().length);
         DatabaseEntry theData = new DatabaseEntry(buffer.getData());
         if (MetricRepo.isInit) {
             MetricRepo.COUNTER_EDIT_LOG_SIZE_BYTES.increase((long) theData.getSize());
             MetricRepo.COUNTER_CURRENT_EDIT_LOG_SIZE_BYTES.increase((long) theData.getSize());
         }
-        LOG.debug("opCode = {}, journal size = {}", op, theData.getSize());
+        LOG.info("opCode = {}, journal size = {}", op, theData.getSize());
         // Write the key value pair to bdb.
         boolean writeSucceed = false;
         for (int i = 0; i < RETRY_TIME; i++) {
+            LOG.info("try {} time", i);
             try {
                 // Parameter null means auto commit
                 if (currentJournalDB.put(null, theKey, theData) == OperationStatus.SUCCESS) {
