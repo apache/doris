@@ -94,7 +94,7 @@ protected:
 
 class WriteDependency : public Dependency {
 public:
-    WriteDependency(int id, std::string name) : Dependency(id, name), _ready_for_write(false) {}
+    WriteDependency(int id, std::string name) : Dependency(id, name), _ready_for_write(true) {}
     virtual ~WriteDependency() = default;
 
     bool is_write_dependency() override { return true; }
@@ -111,7 +111,7 @@ public:
         return _write_dependency_watcher.elapsed_time();
     }
 
-    [[nodiscard]] virtual Dependency* write_blocked_by() {
+    [[nodiscard]] virtual WriteDependency* write_blocked_by() {
         return _ready_for_write ? nullptr : this;
     }
 
@@ -159,7 +159,7 @@ public:
         return nullptr;
     }
 
-    [[nodiscard]] Dependency* write_blocked_by() override {
+    [[nodiscard]] WriteDependency* write_blocked_by() override {
         std::unique_lock<std::mutex> l(_lock);
         for (auto& child : _children) {
             CHECK(child->is_write_dependency());
@@ -204,8 +204,8 @@ public:
         return res;
     }
 
-    [[nodiscard]] Dependency* write_blocked_by() override {
-        Dependency* res = nullptr;
+    [[nodiscard]] WriteDependency* write_blocked_by() override {
+        WriteDependency* res = nullptr;
         std::unique_lock<std::mutex> l(_lock);
         for (auto& child : _children) {
             CHECK(child->is_write_dependency());
@@ -254,17 +254,47 @@ public:
     size_t input_num_rows = 0;
     std::vector<vectorized::AggregateDataPtr> values;
     std::unique_ptr<vectorized::Arena> agg_profile_arena;
-    std::unique_ptr<DataQueue> data_queue;
+    std::unique_ptr<DataQueue> data_queue = nullptr;
 };
 
-class AggDependency : public Dependency {
+class AggDependency : public WriteDependency {
 public:
     using SharedState = AggSharedState;
-    AggDependency(int id) : Dependency(id, "AggDependency") {
+    AggDependency(int id) : WriteDependency(id, "AggDependency") {
         _mem_tracker = std::make_unique<MemTracker>("AggregateOperator:");
-        _agg_state.data_queue = std::make_unique<DataQueue>(1, this);
     }
     ~AggDependency() override = default;
+
+    void block_reading() override {
+        if (_is_streaming_agg_state()) {
+            if (_agg_state.data_queue->_cur_blocks_nums_in_queue[0] == 0 &&
+                !_agg_state.data_queue->_is_finished[0]) {
+                _ready_for_read = false;
+            }
+        } else {
+            _ready_for_read = false;
+        }
+    }
+
+    void block_writing() override {
+        if (_is_streaming_agg_state()) {
+            if (!_agg_state.data_queue->has_enough_space_to_push()) {
+                _ready_for_write = false;
+            }
+        } else {
+            _ready_for_write = false;
+        }
+    }
+
+    void set_ready_for_write() override {
+        if (_is_streaming_agg_state()) {
+            if (_agg_state.data_queue->has_enough_space_to_push()) {
+                WriteDependency::set_ready_for_write();
+            }
+        } else {
+            WriteDependency::set_ready_for_write();
+        }
+    }
 
     void* shared_state() override { return (void*)&_agg_state; };
 
@@ -316,6 +346,7 @@ protected:
     std::unique_ptr<MemTracker> _mem_tracker;
 
 private:
+    bool _is_streaming_agg_state() { return _agg_state.data_queue != nullptr; }
     AggSharedState _agg_state;
 };
 
@@ -324,10 +355,10 @@ public:
     std::unique_ptr<vectorized::Sorter> sorter;
 };
 
-class SortDependency final : public Dependency {
+class SortDependency final : public WriteDependency {
 public:
     using SharedState = SortSharedState;
-    SortDependency(int id) : Dependency(id, "SortDependency") {}
+    SortDependency(int id) : WriteDependency(id, "SortDependency") {}
     ~SortDependency() override = default;
     void* shared_state() override { return (void*)&_sort_state; };
 
@@ -337,15 +368,30 @@ private:
 
 struct UnionSharedState {
 public:
-    std::shared_ptr<DataQueue> _data_queue;
+    std::shared_ptr<DataQueue> data_queue;
 };
 
-class UnionDependency final : public Dependency {
+class UnionDependency final : public WriteDependency {
 public:
     using SharedState = UnionSharedState;
-    UnionDependency(int id) : Dependency(id, "UnionDependency") {}
+    UnionDependency(int id) : WriteDependency(id, "UnionDependency") {}
     ~UnionDependency() override = default;
-    void* shared_state() override { return (void*)&_union_state; };
+    void* shared_state() override { return (void*)&_union_state; }
+
+    void set_ready_for_write() override {}
+    void set_ready_for_read() override {
+        if (!_union_state.data_queue->is_all_finish()) {
+            return;
+        }
+        if (_ready_for_read) {
+            return;
+        }
+        _read_dependency_watcher.stop();
+        _ready_for_read = true;
+    }
+
+    void block_reading() override {}
+    void block_writing() override {}
 
 private:
     UnionSharedState _union_state;
@@ -362,7 +408,6 @@ public:
     vectorized::BlockRowPos all_block_end;
     std::vector<vectorized::Block> input_blocks;
     bool input_eos = false;
-    std::atomic_bool need_more_input = true;
     vectorized::BlockRowPos found_partition_end;
     std::vector<int64_t> origin_cols;
     vectorized::VExprContextSPtrs order_by_eq_expr_ctxs;
@@ -374,10 +419,10 @@ public:
     std::vector<int64_t> ordey_by_column_idxs;
 };
 
-class AnalyticDependency final : public Dependency {
+class AnalyticDependency final : public WriteDependency {
 public:
     using SharedState = AnalyticSharedState;
-    AnalyticDependency(int id) : Dependency(id, "AnalyticDependency") {}
+    AnalyticDependency(int id) : WriteDependency(id, "AnalyticDependency") {}
     ~AnalyticDependency() override = default;
 
     void* shared_state() override { return (void*)&_analytic_state; };
@@ -385,14 +430,13 @@ public:
     vectorized::BlockRowPos get_partition_by_end();
 
     bool refresh_need_more_input() {
-        _analytic_state.need_more_input =
-                whether_need_next_partition(_analytic_state.found_partition_end);
-        if (_analytic_state.need_more_input) {
+        auto need_more_input = whether_need_next_partition(_analytic_state.found_partition_end);
+        if (need_more_input) {
             block_reading();
         } else {
             set_ready_for_read();
         }
-        return _analytic_state.need_more_input;
+        return need_more_input;
     }
 
     bool whether_need_next_partition(vectorized::BlockRowPos& found_partition_end);
@@ -432,10 +476,10 @@ struct HashJoinSharedState : public JoinSharedState {
             std::make_shared<std::vector<vectorized::Block>>();
 };
 
-class HashJoinDependency final : public Dependency {
+class HashJoinDependency final : public WriteDependency {
 public:
     using SharedState = HashJoinSharedState;
-    HashJoinDependency(int id) : Dependency(id, "HashJoinDependency") {}
+    HashJoinDependency(int id) : WriteDependency(id, "HashJoinDependency") {}
     ~HashJoinDependency() override = default;
 
     void* shared_state() override { return (void*)&_join_state; }
@@ -464,10 +508,10 @@ struct NestedLoopJoinSharedState : public JoinSharedState {
     vectorized::Blocks build_blocks;
 };
 
-class NestedLoopJoinDependency final : public Dependency {
+class NestedLoopJoinDependency final : public WriteDependency {
 public:
     using SharedState = NestedLoopJoinSharedState;
-    NestedLoopJoinDependency(int id) : Dependency(id, "NestedLoopJoinDependency") {}
+    NestedLoopJoinDependency(int id) : WriteDependency(id, "NestedLoopJoinDependency") {}
     ~NestedLoopJoinDependency() override = default;
 
     void* shared_state() override { return (void*)&_join_state; }

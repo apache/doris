@@ -166,11 +166,9 @@ public class AnalyzeTblStmt extends AnalyzeStmt {
         analyzeProperties.check();
 
         // TODO support external table
-        if (analyzeProperties.isSample()) {
-            if (!(table instanceof OlapTable)) {
-                throw new AnalysisException("Sampling statistics "
-                        + "collection of external tables is not supported");
-            }
+        if (analyzeProperties.isSampleRows() && !(table instanceof OlapTable)) {
+            throw new AnalysisException("Sampling statistics "
+                    + "collection of external tables is not supported with rows, use percent instead.");
         }
         if (analyzeProperties.isSync()
                 && (analyzeProperties.isAutomatic() || analyzeProperties.getPeriodTimeInMs() != 0)) {

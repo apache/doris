@@ -32,13 +32,18 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.Array;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayAvg;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayCompact;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayContains;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayCount;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayCumSum;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayDifference;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayDistinct;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayEnumerate;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayExcept;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayExists;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayFilter;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayFirstIndex;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayIntersect;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayJoin;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayLastIndex;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayMap;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayMax;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayMin;
@@ -51,6 +56,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayRemove;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayReverseSort;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArraySlice;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArraySort;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.ArraySortBy;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArraySum;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayUnion;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayWithConstant;
@@ -411,6 +417,10 @@ public interface ScalarFunctionVisitor<R, C> {
         return visitScalarFunction(arrayContains, context);
     }
 
+    default R visitArrayCount(ArrayCount arrayCount, C context) {
+        return visitScalarFunction(arrayCount, context);
+    }
+
     default R visitArrayCumSum(ArrayCumSum arrayCumSum, C context) {
         return visitScalarFunction(arrayCumSum, context);
     }
@@ -431,12 +441,28 @@ public interface ScalarFunctionVisitor<R, C> {
         return visitScalarFunction(arrayExcept, context);
     }
 
+    default R visitArrayExists(ArrayExists arrayExists, C context) {
+        return visitScalarFunction(arrayExists, context);
+    }
+
+    default R visitArrayFilter(ArrayFilter arrayFilter, C context) {
+        return visitScalarFunction(arrayFilter, context);
+    }
+
+    default R visitArrayFirstIndex(ArrayFirstIndex arrayFirstIndex, C context) {
+        return visitScalarFunction(arrayFirstIndex, context);
+    }
+
     default R visitArrayIntersect(ArrayIntersect arrayIntersect, C context) {
         return visitScalarFunction(arrayIntersect, context);
     }
 
     default R visitArrayJoin(ArrayJoin arrayJoin, C context) {
         return visitScalarFunction(arrayJoin, context);
+    }
+
+    default R visitArrayLastIndex(ArrayLastIndex arrayLastIndex, C context) {
+        return visitScalarFunction(arrayLastIndex, context);
     }
 
     default R visitArrayMax(ArrayMax arrayMax, C context) {
@@ -477,6 +503,10 @@ public interface ScalarFunctionVisitor<R, C> {
 
     default R visitArraySort(ArraySort arraySort, C context) {
         return visitScalarFunction(arraySort, context);
+    }
+
+    default R visitArraySortBy(ArraySortBy arraySortBy, C context) {
+        return visitScalarFunction(arraySortBy, context);
     }
 
     default R visitArrayMap(ArrayMap arraySort, C context) {
