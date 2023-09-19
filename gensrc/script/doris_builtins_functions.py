@@ -919,7 +919,10 @@ visible_functions = {
         [['hour'], 'TINYINT', ['DATETIME'], 'ALWAYS_NULLABLE'],
         [['minute'], 'TINYINT', ['DATETIME'], 'ALWAYS_NULLABLE'],
         [['second'], 'TINYINT', ['DATETIME'], 'ALWAYS_NULLABLE'],
-
+        
+        [['days_add', 'date_add', 'adddate'], 'DATE', ['DATE', 'INT'], ''],
+        [['days_sub', 'date_sub', 'subdate'], 'DATE', ['DATE', 'INT'], ''],
+        
         [['makedate'], 'DATE', ['INT', 'INT'], 'ALWAYS_NULLABLE'],
         [['years_add'], 'DATETIME', ['DATETIME', 'INT'], 'ALWAYS_NULLABLE'],
         [['years_sub'], 'DATETIME', ['DATETIME', 'INT'], 'ALWAYS_NULLABLE'],
