@@ -237,8 +237,8 @@ under the License.
         <!--The dependence of transitive dependence cannot be ruled out, only Saving the nation through twisted ways.-->
         <netty-3-test.version>3.10.6.Final</netty-3-test.version>
         <objenesis.version>2.1</objenesis.version>
-        <grpc.version>1.30.0</grpc.version>
-        <check.freamework.version>3.32.0</check.freamework.version>
+        <grpc.version>1.58.0</grpc.version>
+        <check.freamework.version>3.38.0</check.freamework.version>
         <protobuf.version>3.21.12</protobuf.version>
         <!-- we use protoc-jar-maven-plugin to generate protobuf generated code -->
         <!-- see https://repo.maven.apache.org/maven2/com/google/protobuf/protoc/ to get correct version -->
@@ -274,9 +274,9 @@ under the License.
          you can find avro version info in iceberg mvn repository -->
         <iceberg.version>1.1.0</iceberg.version>
         <delta.version>3.0.0rc1</delta.version>
-        <maxcompute.version>0.43.3-public</maxcompute.version>
+        <maxcompute.version>0.45.2-public</maxcompute.version>
         <arrow.version>9.0.0</arrow.version>
-        <avro.version>1.11.1</avro.version>
+        <avro.version>1.11.2</avro.version>
         <!-- hudi -->
         <hudi.version>0.13.1</hudi.version>
         <presto.hadoop.version>2.7.4-11</presto.hadoop.version>
@@ -310,6 +310,8 @@ under the License.
         <kerby.version>2.0.3</kerby.version>
         <jettison.version>1.5.4</jettison.version>
         <vesoft.client.version>3.0.0</vesoft.client.version>
+        <!--todo waiting release-->
+        <quartz.version>2.5.0-rc1</quartz.version>
         <!-- paimon -->
         <paimon.version>0.4.0-incubating</paimon.version>
         <disruptor.version>3.4.4</disruptor.version>
@@ -354,6 +356,11 @@ under the License.
     </profiles>
     <dependencyManagement>
         <dependencies>
+            <dependency>
+                <groupId>org.quartz-scheduler</groupId>
+                <artifactId>quartz</artifactId>
+                <version>${quartz.version}</version>
+            </dependency>
             <dependency>
                 <groupId>com.amazonaws</groupId>
                 <artifactId>aws-java-sdk-bundle</artifactId>
@@ -1209,7 +1216,11 @@ under the License.
                 <artifactId>avro</artifactId>
                 <version>${avro.version}</version>
             </dependency>
-
+            <dependency>
+                <groupId>org.apache.avro</groupId>
+                <artifactId>avro-ipc</artifactId>
+                <version>${avro.version}</version>
+            </dependency>
             <!-- https://mvnrepository.com/artifact/org.apache.hudi/hudi-common -->
             <dependency>
                 <groupId>org.apache.hudi</groupId>
