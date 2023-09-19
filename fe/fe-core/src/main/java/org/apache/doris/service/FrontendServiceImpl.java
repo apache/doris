@@ -208,6 +208,7 @@ import org.apache.doris.transaction.TabletCommitInfo;
 import org.apache.doris.transaction.TransactionState;
 import org.apache.doris.transaction.TransactionState.TxnCoordinator;
 import org.apache.doris.transaction.TransactionState.TxnSourceType;
+import org.apache.doris.transaction.TransactionStatus;
 import org.apache.doris.transaction.TxnCommitAttachment;
 
 import com.google.common.base.Preconditions;
@@ -1473,13 +1474,22 @@ public class FrontendServiceImpl implements FrontendService.Iface {
 
         DatabaseTransactionMgr dbTransactionMgr = Env.getCurrentGlobalTransactionMgr()
                 .getDatabaseTransactionMgr(database.getId());
+        String txnOperation = request.getOperation().trim();
+        if (!request.isSetTxnId()) {
+            if (txnOperation.equalsIgnoreCase("commit")) {
+                request.setTxnId(dbTransactionMgr.getTransactionId(request.getLabel(), TransactionStatus.PRECOMMITTED));
+            } else if (txnOperation.equalsIgnoreCase("abort")) {
+                request.setTxnId(dbTransactionMgr.getTransactionId(request.getLabel(), TransactionStatus.PREPARE));
+            } else {
+                throw new UserException("transaction operation should be \'commit\' or \'abort\'");
+            }
+        }
         TransactionState transactionState = dbTransactionMgr.getTransactionState(request.getTxnId());
         LOG.debug("txn {} has multi table {}", request.getTxnId(), transactionState.getTableIdList());
         if (transactionState == null) {
             throw new UserException("transaction [" + request.getTxnId() + "] not found");
         }
         List<Long> tableIdList = transactionState.getTableIdList();
-        String txnOperation = request.getOperation().trim();
         List<Table> tableList = new ArrayList<>();
         // if table was dropped, stream load must can abort.
         if (txnOperation.equalsIgnoreCase("abort")) {

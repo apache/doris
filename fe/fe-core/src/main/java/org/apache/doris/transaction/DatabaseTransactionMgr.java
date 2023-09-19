@@ -841,6 +841,32 @@ public class DatabaseTransactionMgr {
         }
     }
 
+    public Long getTransactionId(String label, TransactionStatus status) throws UserException {
+        readLock();
+        try {
+            Set<Long> existingTxns = unprotectedGetTxnIdsByLabel(label);
+            if (existingTxns == null || existingTxns.isEmpty()) {
+                throw new TransactionNotFoundException("transaction not found, label=" + label);
+            }
+            TransactionState findTxn = null;
+            for (Long txnId : existingTxns) {
+                TransactionState txn = unprotectedGetTransactionState(txnId);
+                if (txn.getTransactionStatus() == status) {
+                    findTxn = txn;
+                    break;
+                }
+            }
+
+            if (findTxn == null) {
+                throw new TransactionNotFoundException("running transaction not found, label=" + label);
+            }
+
+            return findTxn.getTransactionId();
+        } finally {
+            readUnlock();
+        }
+    }
+
     public List<TransactionState> getPreCommittedTxnList() {
         readLock();
         try {
@@ -1297,31 +1323,7 @@ public class DatabaseTransactionMgr {
 
     public void abortTransaction(String label, String reason) throws UserException {
         Preconditions.checkNotNull(label);
-        long transactionId = -1;
-        readLock();
-        try {
-            Set<Long> existingTxns = unprotectedGetTxnIdsByLabel(label);
-            if (existingTxns == null || existingTxns.isEmpty()) {
-                throw new TransactionNotFoundException("transaction not found, label=" + label);
-            }
-            // find PREPARE txn. For one load label, there should be only one PREPARE txn.
-            TransactionState prepareTxn = null;
-            for (Long txnId : existingTxns) {
-                TransactionState txn = unprotectedGetTransactionState(txnId);
-                if (txn.getTransactionStatus() == TransactionStatus.PREPARE) {
-                    prepareTxn = txn;
-                    break;
-                }
-            }
-
-            if (prepareTxn == null) {
-                throw new TransactionNotFoundException("running transaction not found, label=" + label);
-            }
-
-            transactionId = prepareTxn.getTransactionId();
-        } finally {
-            readUnlock();
-        }
+        long transactionId = getTransactionId(label, TransactionStatus.PREPARE);
         abortTransaction(transactionId, reason, null);
     }
 

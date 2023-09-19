@@ -119,6 +119,7 @@ public:
     std::string brief(bool detail = false) const;
 
 public:
+    static const int default_txn_id = -1;
     // load type, eg: ROUTINE LOAD/MANUAL LOAD
     TLoadType::type load_type;
     // load data source: eg: KAFKA/RAW
@@ -158,7 +159,7 @@ public:
     size_t body_bytes = 0;
     size_t receive_bytes = 0;
 
-    int64_t txn_id = -1;
+    int64_t txn_id = default_txn_id;
 
     // http stream
     bool need_schema = false;
