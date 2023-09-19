@@ -91,7 +91,6 @@ protected:
     Status do_compact_ordered_rowsets();
     bool is_rowset_tidy(std::string& pre_max_key, const RowsetSharedPtr& rhs);
     void build_basic_info();
-    Status load_segment_to_cache();
 
     void init_profile(const std::string& label);
     [[nodiscard]] bool allow_delete_in_cumu_compaction() const {
@@ -100,6 +99,7 @@ protected:
 
 private:
     bool _check_if_includes_input_rowsets(const RowsetIdUnorderedSet& commit_rowset_ids_set) const;
+    Status _load_segment_to_cache();
 
 protected:
     // the root tracker for this compaction

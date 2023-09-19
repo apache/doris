@@ -134,6 +134,7 @@ Status Compaction::do_compaction(int64_t permits) {
                          << ", before=" << checksum_before << ", checksum_after=" << checksum_after;
         }
     }
+    _load_segment_to_cache();
     return st;
 }
 
@@ -825,20 +826,18 @@ int64_t Compaction::get_compaction_permits() {
     return permits;
 }
 
-Status Compaction::load_segment_to_cache() {
-    if (_tablet->enable_unique_key_merge_on_write()) {
-        // Remove old rowset's segments from cache.
-        for (const auto& rowset : _input_rowsets) {
-            for (int64_t i = 0; i < rowset->num_segments(); i++) {
-                SegmentLoader::instance()->erase_segment(
-                        SegmentCache::CacheKey(rowset->rowset_id(), i));
-            }
+Status Compaction::_load_segment_to_cache() {
+    // Remove old rowset's segments from cache.
+    for (const auto& rowset : _input_rowsets) {
+        for (int64_t i = 0; i < rowset->num_segments(); i++) {
+            SegmentLoader::instance()->erase_segment(
+                    SegmentCache::CacheKey(rowset->rowset_id(), i));
         }
-        // load new rowset's segments to cache.
-        SegmentCacheHandle handle;
-        RETURN_IF_ERROR(SegmentLoader::instance()->load_segments(
-                std::static_pointer_cast<BetaRowset>(_output_rowset), &handle, true));
     }
+    // load new rowset's segments to cache.
+    SegmentCacheHandle handle;
+    RETURN_IF_ERROR(SegmentLoader::instance()->load_segments(
+            std::static_pointer_cast<BetaRowset>(_output_rowset), &handle, true));
     return Status::OK();
 }
 

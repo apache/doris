@@ -83,8 +83,6 @@ Status FullCompaction::execute_compact_impl() {
     // 3. set state to success
     _state = CompactionState::SUCCESS;
 
-    load_segment_to_cache();
-
     // 4. set cumulative point
     Version last_version = _input_rowsets.back()->version();
     _tablet->cumulative_compaction_policy()->update_cumulative_point(_tablet.get(), _input_rowsets,

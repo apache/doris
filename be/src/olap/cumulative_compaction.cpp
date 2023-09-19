@@ -97,8 +97,6 @@ Status CumulativeCompaction::execute_compact_impl() {
     VLOG_CRITICAL << "after cumulative compaction, current cumulative point is "
                   << _tablet->cumulative_layer_point() << ", tablet=" << _tablet->full_name();
 
-    load_segment_to_cache();
-
     // 6. add metric to cumulative compaction
     DorisMetrics::instance()->cumulative_compaction_deltas_total->increment(_input_rowsets.size());
     DorisMetrics::instance()->cumulative_compaction_bytes_total->increment(_input_rowsets_size);
