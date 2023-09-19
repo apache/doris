@@ -200,7 +200,7 @@ public class BindSink implements AnalysisRuleFactory {
                                 if (isSourceAndTargetStringLikeType(inputType, targetType)) {
                                     int sourceLength = ((CharacterType) inputType).getLen();
                                     int targetLength = ((CharacterType) targetType).getLen();
-                                    if (sourceLength >= targetLength) {
+                                    if (sourceLength >= targetLength && targetLength >= 0) {
                                         castExpr = new Substring(castExpr, Literal.of(1), Literal.of(targetLength));
                                     }
                                     // else, we keep it.
