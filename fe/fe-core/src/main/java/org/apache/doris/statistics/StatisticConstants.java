@@ -97,6 +97,7 @@ public class StatisticConstants {
         }
         return false;
     }
+
     public static boolean shouldIgnoreCol(TableIf tableIf, Column c) {
         if (isSystemTable(tableIf)) {
             return true;
