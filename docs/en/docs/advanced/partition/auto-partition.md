@@ -93,9 +93,9 @@ When building a table, use the following syntax to populate [CREATE-TABLE](../..
 ### Using constraints
 
 1. Currently the AUTO RANGE PARTITION function supports only one partition column;
-2. in AUTO RANGE PARTITION, the partition function supports only `date_trunc` and the partition column supports only `DATEV2` or `DATETIMEV2` format;
-3. in AUTO LIST PARTITION, function calls are not supported and partition column supports only string types;
-4. in AUTO LIST PARTITION, a separate new PARTITION is created for each fetch of a partition column for which the corresponding partition does not currently exist.
+2. In AUTO RANGE PARTITION, the partition function supports only `date_trunc` and the partition column supports only `DATEV2` or `DATETIMEV2` format;
+3. In AUTO LIST PARTITION, function calls are not supported. Partitioned columns support BOOLEAN, TINYINT, SMALLINT, INT, BIGINT, LARGEINT, DATE, DATETIME, CHAR, VARCHAR datatypes, and partitioned values are enum values.
+4. In AUTO LIST PARTITION, a separate new PARTITION is created for each fetch of a partition column for which the corresponding partition does not currently exist.
 
 ## Sample Scenarios
 
