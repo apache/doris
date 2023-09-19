@@ -987,6 +987,7 @@ public class AnalysisManager extends Daemon implements Writable {
         TableStats statsStatus = idToTblStats.get(tblId);
         if (statsStatus != null) {
             statsStatus.updatedRows.addAndGet(rows);
+            logCreateTableStats(statsStatus);
         }
     }
 
