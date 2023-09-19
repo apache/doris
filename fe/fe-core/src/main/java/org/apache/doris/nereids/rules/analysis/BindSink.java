@@ -201,7 +201,7 @@ public class BindSink implements AnalysisRuleFactory {
                                     int sourceLength = ((CharacterType) inputType).getLen();
                                     int targetLength = ((CharacterType) targetType).getLen();
                                     if (sourceLength >= targetLength) {
-                                        castExpr = new Substring(castExpr, Literal.of(0), Literal.of(targetLength));
+                                        castExpr = new Substring(castExpr, Literal.of(1), Literal.of(targetLength));
                                     }
                                     // else, we keep it.
                                 } else {
