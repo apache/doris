@@ -250,6 +250,8 @@ public class InsertIntoTableCommand extends Command implements ForwardWithSync, 
                     sink.getColNames(),
                     sink.getHints(),
                     tempPartitionNames,
+                    sink.isPartialUpdate(),
+                    sink.isFromNativeInsertStmt(),
                     (LogicalPlan) (sink.child(0)));
             new InsertIntoTableCommand(copySink, labelName, false).run(ctx, executor);
             if (ctx.getState().getStateType() == MysqlStateType.ERR) {
@@ -333,6 +335,6 @@ public class InsertIntoTableCommand extends Command implements ForwardWithSync, 
 
     @Override
     public <R, C> R accept(PlanVisitor<R, C> visitor, C context) {
-        return visitor.visitInsertIntoCommand(this, context);
+        return visitor.visitInsertIntoTableCommand(this, context);
     }
 }

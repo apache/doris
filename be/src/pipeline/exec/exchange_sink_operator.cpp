@@ -97,6 +97,8 @@ bool ExchangeSinkLocalState::transfer_large_data_by_brpc() const {
 
 Status ExchangeSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& info) {
     RETURN_IF_ERROR(PipelineXSinkLocalState<>::init(state, info));
+    SCOPED_TIMER(profile()->total_time_counter());
+    SCOPED_TIMER(_open_timer);
     _sender_id = info.sender_id;
 
     _bytes_sent_counter = ADD_COUNTER(_profile, "BytesSent", TUnit::BYTES);
@@ -121,11 +123,7 @@ Status ExchangeSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& inf
     _memory_usage_counter = ADD_LABEL_COUNTER(_profile, "MemoryUsage");
     _peak_memory_usage_counter =
             _profile->AddHighWaterMarkCounter("PeakMemoryUsage", TUnit::BYTES, "MemoryUsage");
-    return Status::OK();
-}
 
-Status ExchangeSinkLocalState::open(RuntimeState* state) {
-    RETURN_IF_ERROR(PipelineXSinkLocalState<>::open(state));
     _broadcast_pb_blocks.resize(config::num_broadcast_buffer);
     _broadcast_pb_block_idx = 0;
     auto& p = _parent->cast<ExchangeSinkOperatorX>();
@@ -148,8 +146,6 @@ Status ExchangeSinkLocalState::open(RuntimeState* state) {
                     channel_shared_ptrs[fragment_id_to_channel_index[fragment_instance_id.lo]]);
         }
     }
-
-    SCOPED_TIMER(_profile->total_time_counter());
     SCOPED_CONSUME_MEM_TRACKER(_mem_tracker.get());
 
     int local_size = 0;
@@ -178,7 +174,6 @@ Status ExchangeSinkLocalState::open(RuntimeState* state) {
             id, p._dest_node_id, _sender_id, _state->be_number(), state->get_query_ctx());
 
     register_channels(_sink_buffer.get());
-
     return Status::OK();
 }
 
@@ -187,11 +182,10 @@ segment_v2::CompressionTypePB& ExchangeSinkLocalState::compression_type() {
 }
 
 ExchangeSinkOperatorX::ExchangeSinkOperatorX(
-        RuntimeState* state, ObjectPool* pool, const RowDescriptor& row_desc,
-        const TDataStreamSink& sink, const std::vector<TPlanFragmentDestination>& destinations,
+        RuntimeState* state, const RowDescriptor& row_desc, const TDataStreamSink& sink,
+        const std::vector<TPlanFragmentDestination>& destinations,
         bool send_query_statistics_with_every_batch)
         : DataSinkOperatorX(sink.dest_node_id),
-          _pool(pool),
           _row_desc(row_desc),
           _part_type(sink.output_partition.type),
           _dests(destinations),
@@ -208,11 +202,10 @@ ExchangeSinkOperatorX::ExchangeSinkOperatorX(
 }
 
 ExchangeSinkOperatorX::ExchangeSinkOperatorX(
-        ObjectPool* pool, const RowDescriptor& row_desc, PlanNodeId dest_node_id,
+        const RowDescriptor& row_desc, PlanNodeId dest_node_id,
         const std::vector<TPlanFragmentDestination>& destinations,
         bool send_query_statistics_with_every_batch)
         : DataSinkOperatorX(dest_node_id),
-          _pool(pool),
           _row_desc(row_desc),
           _part_type(TPartitionType::UNPARTITIONED),
           _dests(destinations),
@@ -222,10 +215,9 @@ ExchangeSinkOperatorX::ExchangeSinkOperatorX(
     _name = "ExchangeSinkOperatorX";
 }
 
-ExchangeSinkOperatorX::ExchangeSinkOperatorX(ObjectPool* pool, const RowDescriptor& row_desc,
+ExchangeSinkOperatorX::ExchangeSinkOperatorX(const RowDescriptor& row_desc,
                                              bool send_query_statistics_with_every_batch)
         : DataSinkOperatorX(0),
-          _pool(pool),
           _row_desc(row_desc),
           _send_query_statistics_with_every_batch(send_query_statistics_with_every_batch),
           _dest_node_id(0) {
@@ -251,9 +243,6 @@ Status ExchangeSinkOperatorX::init(const TDataSink& tsink) {
 Status ExchangeSinkOperatorX::prepare(RuntimeState* state) {
     _state = state;
 
-    std::string title = fmt::format("VDataStreamSender (dst_id={})", _dest_node_id);
-    _profile = _pool->add(new RuntimeProfile(title));
-    SCOPED_TIMER(_profile->total_time_counter());
     _mem_tracker = std::make_unique<MemTracker>("ExchangeSinkOperatorX:");
     SCOPED_CONSUME_MEM_TRACKER(_mem_tracker.get());
 
@@ -283,7 +272,8 @@ void ExchangeSinkOperatorX::_handle_eof_channel(RuntimeState* state, ChannelPtrT
 Status ExchangeSinkOperatorX::sink(RuntimeState* state, vectorized::Block* block,
                                    SourceState source_state) {
     auto& local_state = state->get_sink_local_state(id())->cast<ExchangeSinkLocalState>();
-    SCOPED_TIMER(_profile->total_time_counter());
+    COUNTER_UPDATE(local_state.rows_input_counter(), (int64_t)block->rows());
+    SCOPED_TIMER(local_state.profile()->total_time_counter());
     local_state._peak_memory_usage_counter->set(_mem_tracker->peak_consumption());
     bool all_receiver_eof = true;
     for (auto channel : local_state.channels) {
@@ -544,6 +534,8 @@ Status ExchangeSinkOperatorX::try_close(RuntimeState* state) {
 }
 
 Status ExchangeSinkLocalState::close(RuntimeState* state) {
+    SCOPED_TIMER(profile()->total_time_counter());
+    SCOPED_TIMER(_close_timer);
     if (_closed) {
         return Status::OK();
     }

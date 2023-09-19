@@ -38,6 +38,8 @@ AnalyticLocalState::AnalyticLocalState(RuntimeState* state, OperatorXBase* paren
 
 Status AnalyticLocalState::init(RuntimeState* state, LocalStateInfo& info) {
     RETURN_IF_ERROR(PipelineXLocalState<AnalyticDependency>::init(state, info));
+    SCOPED_TIMER(profile()->total_time_counter());
+    SCOPED_TIMER(_open_timer);
     _agg_arena_pool = std::make_unique<vectorized::Arena>();
 
     auto& p = _parent->cast<AnalyticSourceOperatorX>();
@@ -390,6 +392,7 @@ Status AnalyticSourceOperatorX::init(const TPlanNode& tnode, RuntimeState* state
 Status AnalyticSourceOperatorX::get_block(RuntimeState* state, vectorized::Block* block,
                                           SourceState& source_state) {
     auto& local_state = state->get_local_state(id())->cast<AnalyticLocalState>();
+    SCOPED_TIMER(local_state.profile()->total_time_counter());
     if (local_state._shared_state->input_eos &&
         (local_state._output_block_index == local_state._shared_state->input_blocks.size() ||
          local_state._shared_state->input_total_rows == 0)) {
@@ -404,10 +407,7 @@ Status AnalyticSourceOperatorX::get_block(RuntimeState* state, vectorized::Block
             local_state._shared_state->found_partition_end =
                     local_state._dependency->get_partition_by_end();
         }
-        local_state._shared_state->need_more_input =
-                local_state._dependency->whether_need_next_partition(
-                        local_state._shared_state->found_partition_end);
-        if (local_state._shared_state->need_more_input) {
+        if (local_state._dependency->refresh_need_more_input()) {
             return Status::OK();
         }
         local_state._next_partition =
@@ -427,15 +427,14 @@ Status AnalyticSourceOperatorX::get_block(RuntimeState* state, vectorized::Block
     return Status::OK();
 }
 
-bool AnalyticSourceOperatorX::can_read(RuntimeState* state) {
+Dependency* AnalyticSourceOperatorX::wait_for_dependency(RuntimeState* state) {
     auto& local_state = state->get_local_state(id())->cast<AnalyticLocalState>();
-    if (local_state._shared_state->need_more_input) {
-        return false;
-    }
-    return true;
+    return local_state._dependency->read_blocked_by();
 }
 
 Status AnalyticLocalState::close(RuntimeState* state) {
+    SCOPED_TIMER(profile()->total_time_counter());
+    SCOPED_TIMER(_close_timer);
     if (_closed) {
         return Status::OK();
     }

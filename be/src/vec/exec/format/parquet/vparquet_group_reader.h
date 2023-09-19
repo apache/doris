@@ -46,7 +46,7 @@ class SlotDescriptor;
 class TupleDescriptor;
 
 namespace io {
-class IOContext;
+struct IOContext;
 } // namespace io
 namespace vectorized {
 class Block;

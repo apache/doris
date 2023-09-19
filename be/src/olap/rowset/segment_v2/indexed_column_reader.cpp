@@ -23,6 +23,7 @@
 
 #include "common/status.h"
 #include "gutil/strings/substitute.h" // for Substitute
+#include "io/io_common.h"
 #include "olap/key_coder.h"
 #include "olap/olap_common.h"
 #include "olap/rowset/segment_v2/encoding_info.h" // for EncodingInfo
@@ -109,21 +110,22 @@ Status IndexedColumnReader::load_index_page(const PagePointerPB& pp, PageHandle*
 Status IndexedColumnReader::read_page(const PagePointer& pp, PageHandle* handle, Slice* body,
                                       PageFooterPB* footer, PageTypePB type,
                                       BlockCompressionCodec* codec, bool pre_decode) const {
-    PageReadOptions opts;
-    opts.file_reader = _file_reader.get();
-    opts.page_pointer = pp;
-    opts.codec = codec;
     OlapReaderStatistics tmp_stats;
-    opts.stats = &tmp_stats;
-    opts.use_page_cache = _use_page_cache;
-    opts.kept_in_memory = _kept_in_memory;
-    opts.type = type;
+    PageReadOptions opts {
+            .use_page_cache = _use_page_cache,
+            .kept_in_memory = _kept_in_memory,
+            .pre_decode = pre_decode,
+            .type = type,
+            .file_reader = _file_reader.get(),
+            .page_pointer = pp,
+            .codec = codec,
+            .stats = &tmp_stats,
+            .encoding_info = _encoding_info,
+            .io_ctx = io::IOContext {.is_index_data = true},
+    };
     if (_is_pk_index) {
         opts.type = PRIMARY_KEY_INDEX_PAGE;
     }
-    opts.encoding_info = _encoding_info;
-    opts.pre_decode = pre_decode;
-
     auto st = PageIO::read_and_decompress_page(opts, handle, body, footer);
     g_index_reader_compressed_bytes << pp.size;
     g_index_reader_bytes << footer->uncompressed_size();

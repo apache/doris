@@ -100,8 +100,11 @@ Status UnionSourceOperator::get_block(RuntimeState* state, vectorized::Block* bl
 
 Status UnionSourceLocalState::init(RuntimeState* state, LocalStateInfo& info) {
     RETURN_IF_ERROR(Base::init(state, info));
+    SCOPED_TIMER(profile()->total_time_counter());
+    SCOPED_TIMER(_open_timer);
     auto& p = _parent->cast<Parent>();
-    std::shared_ptr<DataQueue> data_queue = std::make_shared<DataQueue>(p._child_size);
+    std::shared_ptr<DataQueue> data_queue =
+            std::make_shared<DataQueue>(p._child_size, nullptr, _dependency);
     _shared_state->_data_queue.swap(data_queue);
     return Status::OK();
 }
@@ -109,7 +112,7 @@ Status UnionSourceLocalState::init(RuntimeState* state, LocalStateInfo& info) {
 Status UnionSourceOperatorX::get_block(RuntimeState* state, vectorized::Block* block,
                                        SourceState& source_state) {
     auto& local_state = state->get_local_state(id())->cast<UnionSourceLocalState>();
-    bool eos = false;
+    SCOPED_TIMER(local_state.profile()->total_time_counter());
     std::unique_ptr<vectorized::Block> output_block = vectorized::Block::create_unique();
     int child_idx = 0;
     local_state._shared_state->_data_queue->get_block_from_queue(&output_block, &child_idx);
@@ -120,7 +123,7 @@ Status UnionSourceOperatorX::get_block(RuntimeState* state, vectorized::Block* b
     output_block->clear_column_data(row_desc().num_materialized_slots());
     local_state._shared_state->_data_queue->push_free_block(std::move(output_block), child_idx);
 
-    local_state.reached_limit(block, &eos);
+    local_state.reached_limit(block, source_state);
     //have exectue const expr, queue have no data any more, and child could be colsed
     if ((!_has_data(state) && local_state._shared_state->_data_queue->is_all_finish())) {
         source_state = SourceState::FINISHED;

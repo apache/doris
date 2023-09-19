@@ -680,6 +680,14 @@ void PInternalServiceImpl::fetch_table_schema(google::protobuf::RpcController* c
             st.to_protobuf(result->mutable_status());
             return;
         }
+        if (params.file_type == TFileType::FILE_STREAM) {
+            auto stream_load_ctx =
+                    ExecEnv::GetInstance()->new_load_stream_mgr()->get(params.load_id);
+            if (!stream_load_ctx) {
+                st = Status::InternalError("unknown stream load id: {}",
+                                           UniqueId(params.load_id).to_string());
+            }
+        }
         result->set_column_nums(col_names.size());
         for (size_t idx = 0; idx < col_names.size(); ++idx) {
             result->add_column_names(col_names[idx]);
@@ -1436,7 +1444,7 @@ void PInternalServiceImpl::request_slave_tablet_pull_rowset(
         Status commit_txn_status = StorageEngine::instance()->txn_manager()->commit_txn(
                 tablet->data_dir()->get_meta(), rowset_meta->partition_id(), rowset_meta->txn_id(),
                 rowset_meta->tablet_id(), tablet->tablet_uid(), rowset_meta->load_id(), rowset,
-                true);
+                false);
         if (!commit_txn_status && !commit_txn_status.is<PUSH_TRANSACTION_ALREADY_EXIST>()) {
             LOG(WARNING) << "failed to add committed rowset for slave replica. rowset_id="
                          << rowset_meta->rowset_id() << ", tablet_id=" << rowset_meta->tablet_id()
@@ -1651,10 +1659,12 @@ Status PInternalServiceImpl::_multi_get(const PMultiGetRequest& request,
                     result_block.get_by_position(x).column->assume_mutable();
             RETURN_IF_ERROR(
                     segment->new_column_iterator(full_read_schema.column(index), &column_iterator));
-            segment_v2::ColumnIteratorOptions opt;
-            opt.file_reader = segment->file_reader().get();
-            opt.stats = &stats;
-            opt.use_page_cache = !config::disable_storage_page_cache;
+            segment_v2::ColumnIteratorOptions opt {
+                    .use_page_cache = !config::disable_storage_page_cache,
+                    .file_reader = segment->file_reader().get(),
+                    .stats = &stats,
+                    .io_ctx = io::IOContext {.reader_type = ReaderType::READER_QUERY},
+            };
             column_iterator->init(opt);
             std::vector<segment_v2::rowid_t> single_row_loc {
                     static_cast<segment_v2::rowid_t>(row_loc.ordinal_id())};

@@ -208,8 +208,6 @@ public:
     Status next_batch(Block* block) override { return _next_batch(block); }
     Status next_block_view(BlockView* block_view) override { return _next_batch(block_view); }
 
-    bool support_return_data_by_ref() override { return true; }
-
     const Schema& schema() const override { return *_schema; }
 
     Status current_block_row_locations(std::vector<RowLocation>* block_row_locations) override {

@@ -82,5 +82,5 @@ limit 100;
     // File file = new File(outFile)
     // file.write(getRuntimeFilters(plan))
 
-     assertEquals("RF0[ws_order_number->[ws_order_number],RF5[wr_order_number->[ws_order_number],RF7[wr_order_number->[ws_order_number, ws_order_number],RF4[ws_order_number->[ws_order_number],RF6[ws_order_number->[ws_order_number, ws_order_number],RF3[web_site_sk->[ws_web_site_sk],RF2[d_date_sk->[ws_ship_date_sk],RF1[ca_address_sk->[ws_ship_addr_sk]", getRuntimeFilters(plan))
+     assertEquals("RF0[ws_order_number->[ws_order_number],RF5[ws_order_number->[wr_order_number],RF4[wr_order_number->[ws_order_number],RF3[web_site_sk->[ws_web_site_sk],RF2[d_date_sk->[ws_ship_date_sk],RF1[ca_address_sk->[ws_ship_addr_sk]", getRuntimeFilters(plan))
 }

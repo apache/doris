@@ -63,6 +63,7 @@ import org.apache.logging.log4j.Logger;
 
 import java.io.IOException;
 import java.util.Collection;
+import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
@@ -85,6 +86,7 @@ public class HiveScanNode extends FileQueryScanNode {
     protected final HMSExternalTable hmsTable;
     private HiveTransaction hiveTransaction = null;
 
+    // will only be set in Nereids, for lagency planner, it should be null
     @Setter
     private SelectedPartitions selectedPartitions = null;
 
@@ -127,7 +129,7 @@ public class HiveScanNode extends FileQueryScanNode {
         List<Type> partitionColumnTypes = hmsTable.getPartitionColumnTypes();
         if (!partitionColumnTypes.isEmpty()) {
             // partitioned table
-            boolean isPartitionPruned = selectedPartitions == null ? false : selectedPartitions.isPartitionPruned;
+            boolean isPartitionPruned = selectedPartitions == null ? false : selectedPartitions.isPruned;
             Collection<PartitionItem> partitionItems;
             if (!isPartitionPruned) {
                 // partitionItems is null means that the partition is not pruned by Nereids,
@@ -217,6 +219,11 @@ public class HiveScanNode extends FileQueryScanNode {
         if (ConnectContext.get().getExecutor() != null) {
             ConnectContext.get().getExecutor().getSummaryProfile().setGetPartitionFilesFinishTime();
         }
+        if (tableSample != null) {
+            List<HiveMetaStoreCache.HiveFileStatus> hiveFileStatuses = selectFiles(fileCaches);
+            splitAllFiles(allFiles, hiveFileStatuses);
+            return;
+        }
         for (HiveMetaStoreCache.FileCacheValue fileCacheValue : fileCaches) {
             // This if branch is to support old splitter, will remove later.
             if (fileCacheValue.getSplits() != null) {
@@ -232,6 +239,42 @@ public class HiveScanNode extends FileQueryScanNode {
                 }
             }
         }
+    }
+
+    private void splitAllFiles(List<Split> allFiles,
+                               List<HiveMetaStoreCache.HiveFileStatus> hiveFileStatuses) throws IOException {
+        for (HiveMetaStoreCache.HiveFileStatus status : hiveFileStatuses) {
+            allFiles.addAll(splitFile(status.getPath(), status.getBlockSize(),
+                    status.getBlockLocations(), status.getLength(), status.getModificationTime(),
+                    status.isSplittable(), status.getPartitionValues(),
+                new HiveSplitCreator(status.getAcidInfo())));
+        }
+    }
+
+    private List<HiveMetaStoreCache.HiveFileStatus> selectFiles(List<FileCacheValue> inputCacheValue) {
+        List<HiveMetaStoreCache.HiveFileStatus> fileList = Lists.newArrayList();
+        long totalSize = 0;
+        for (FileCacheValue value : inputCacheValue) {
+            for (HiveMetaStoreCache.HiveFileStatus file : value.getFiles()) {
+                file.setSplittable(value.isSplittable());
+                file.setPartitionValues(value.getPartitionValues());
+                file.setAcidInfo(value.getAcidInfo());
+                fileList.add(file);
+                totalSize += file.getLength();
+            }
+        }
+        long sampleSize = totalSize * tableSample.getSampleValue() / 100;
+        long selectedSize = 0;
+        Collections.shuffle(fileList);
+        int index = 0;
+        for (HiveMetaStoreCache.HiveFileStatus file : fileList) {
+            selectedSize += file.getLength();
+            index += 1;
+            if (selectedSize >= sampleSize) {
+                break;
+            }
+        }
+        return fileList.subList(0, index);
     }
 
     private List<FileCacheValue> getFileSplitByTransaction(HiveMetaStoreCache cache, List<HivePartition> partitions) {
