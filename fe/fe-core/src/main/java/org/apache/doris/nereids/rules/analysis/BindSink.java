@@ -78,11 +78,13 @@ public class BindSink implements AnalysisRuleFactory {
                             OlapTable table = pair.second;
 
                             LogicalPlan child = ((LogicalPlan) sink.child());
+                            boolean isNeedSequenceCol = child.getOutput().stream()
+                                    .anyMatch(slot -> slot.getName().equals(Column.SEQUENCE_COL));
 
                             LogicalOlapTableSink<?> boundSink = new LogicalOlapTableSink<>(
                                     database,
                                     table,
-                                    bindTargetColumns(table, sink.getColNames()),
+                                    bindTargetColumns(table, sink.getColNames(), isNeedSequenceCol),
                                     bindPartitionIds(table, sink.getPartitions()),
                                     child.getOutput().stream()
                                             .map(NamedExpression.class::cast)
