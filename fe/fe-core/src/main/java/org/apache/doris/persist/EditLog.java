@@ -1059,6 +1059,14 @@ public class EditLog {
                     env.getBinlogManager().addBarrierLog(log, logId);
                     break;
                 }
+                // For backward compatible with 2.0.3
+                case OperationType.OP_UPDATE_TABLE_STATS: {
+                    break;
+                }
+                // For backward compatible with 2.0.3
+                case OperationType.OP_PERSIST_AUTO_JOB: {
+                    break;
+                }
                 default: {
                     IOException e = new IOException();
                     LOG.error("UNKNOWN Operation Type {}", opCode, e);
