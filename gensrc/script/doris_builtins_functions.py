@@ -1801,6 +1801,8 @@ visible_functions = {
         [['get_json_string'], 'STRING', ['STRING', 'STRING'], 'ALWAYS_NULLABLE'],
         [['get_json_bigint'], 'BIGINT', ['VARCHAR', 'VARCHAR'], 'ALWAYS_NULLABLE'],
         [['get_json_bigint'], 'BIGINT', ['STRING', 'STRING'], 'ALWAYS_NULLABLE'],
+        [['get_json_string'], 'STRING', ['JSONB', 'VARCHAR'], 'ALWAYS_NULLABLE'],
+        [['get_json_string'], 'STRING', ['JSONB', 'STRING'], 'ALWAYS_NULLABLE'],
 
         [['json_array'], 'VARCHAR', ['VARCHAR', '...'], 'ALWAYS_NOT_NULLABLE'],
         [['json_object'], 'VARCHAR', ['VARCHAR', '...'], 'ALWAYS_NOT_NULLABLE'],

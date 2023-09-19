@@ -25,6 +25,7 @@
 #include <string>
 #include <string_view>
 #include <tuple>
+#include <type_traits>
 #include <utility>
 
 // IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
@@ -351,6 +352,13 @@ public:
     size_t get_number_of_arguments() const override { return 0; }
     DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
         return make_nullable(std::make_shared<typename Impl::ReturnType>());
+    }
+    DataTypes get_variadic_argument_types_impl() const override {
+        if constexpr (vectorized::HasGetImpl<Impl>) {
+            return Impl::get_variadic_argument_types_impl();
+        } else {
+            return {};
+        }
     }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
@@ -978,6 +986,10 @@ struct JsonbExtractDouble : public JsonbExtractImpl<JsonbTypeDouble> {
 struct JsonbExtractString : public JsonbExtractStringImpl<JsonbTypeString> {
     static constexpr auto name = "json_extract_string";
     static constexpr auto alias = "jsonb_extract_string";
+    static constexpr auto name2 = "get_json_string";
+    static DataTypes get_variadic_argument_types_impl() {
+        return {std::make_shared<DataTypeJsonb>(), std::make_shared<DataTypeString>()};
+    }
 };
 
 struct JsonbExtractJsonb : public JsonbExtractStringImpl<JsonbTypeJson> {
@@ -1318,6 +1330,7 @@ void register_function_jsonb(SimpleFunctionFactory& factory) {
     factory.register_alias(FunctionJsonbExtractDouble::name, FunctionJsonbExtractDouble::alias);
     factory.register_function<FunctionJsonbExtractString>();
     factory.register_alias(FunctionJsonbExtractString::name, FunctionJsonbExtractString::alias);
+    factory.register_function<FunctionJsonbExtractString>(JsonbExtractString::name2);
     factory.register_function<FunctionJsonbExtractJsonb>();
     // factory.register_alias(FunctionJsonbExtractJsonb::name, FunctionJsonbExtractJsonb::alias);
 
