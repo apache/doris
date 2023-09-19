@@ -416,7 +416,8 @@ public:
         std::set<std::string> output_set;
         service->_output_set = &output_set;
 
-        VOlapTableSink sink(&obj_pool, row_desc, {}, false);
+        std::vector<TExpr> exprs;
+        VOlapTableSink sink(&obj_pool, row_desc, exprs, false);
         ASSERT_TRUE(st.ok());
 
         // init
@@ -777,7 +778,8 @@ TEST_F(VOlapTableSinkTest, decimal) {
     std::set<std::string> output_set;
     service->_output_set = &output_set;
 
-    VOlapTableSink sink(&obj_pool, row_desc, {}, false);
+    std::vector<TExpr> exprs;
+    VOlapTableSink sink(&obj_pool, row_desc, exprs, false);
     ASSERT_TRUE(st.ok());
 
     // init

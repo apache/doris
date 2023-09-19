@@ -966,14 +966,12 @@ void VNodeChannel::mark_close() {
     _eos_is_produced = true;
 }
 
-VTabletWriter::VTabletWriter(const TDataSink& t_sink,
-                             const VExprContextSPtrs& output_exprs)
-        : AsyncResultWriter(output_exprs),
-          _t_sink(t_sink) {
+VTabletWriter::VTabletWriter(const TDataSink& t_sink, const VExprContextSPtrs& output_exprs)
+        : AsyncResultWriter(output_exprs), _t_sink(t_sink) {
     _transfer_large_data_by_brpc = config::transfer_large_data_by_brpc;
 }
 
-void VTabletWriter::init_properties(doris::ObjectPool *pool, bool group_commit) {
+void VTabletWriter::init_properties(doris::ObjectPool* pool, bool group_commit) {
     _pool = pool;
     _group_commit = group_commit;
 }
