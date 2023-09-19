@@ -73,6 +73,7 @@ message DataPageFooterPB {
     // only for array column
     // Save the offset of next page 
     optional uint64 next_array_item_ordinal = 4;
+    optional bool is_bitshuffle_not_compressed = 5 [default = false];
 }
 
 message IndexPageFooterPB {

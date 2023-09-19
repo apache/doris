@@ -17,6 +17,7 @@
 
 #pragma once
 
+#include <gen_cpp/segment_v2.pb.h>
 #include <stddef.h>
 
 #include <functional>
@@ -42,8 +43,8 @@ enum EncodingTypePB : int;
 // For better performance, some encodings (like BitShuffle) need to be decoded before being added to the PageCache.
 class DataPagePreDecoder {
 public:
-    virtual Status decode(std::unique_ptr<DataPage>* page, Slice* page_slice,
-                          size_t size_of_tail) = 0;
+    virtual Status decode(std::unique_ptr<DataPage>* page, Slice* page_slice, size_t size_of_tail,
+                          const DataPageFooterPB& footer) = 0;
     virtual ~DataPagePreDecoder() = default;
 };
 

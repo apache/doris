@@ -17,6 +17,8 @@
 
 #pragma once
 
+#include <cstdint>
+
 #include "olap/page_cache.h"
 #include "olap/rowset/segment_v2/binary_dict_page.h"
 #include "olap/rowset/segment_v2/bitshuffle_page.h"
@@ -39,8 +41,8 @@ struct BitShufflePagePreDecoder : public DataPagePreDecoder {
      * @param size_of_tail including size of footer and null map
      * @return Status
      */
-    virtual Status decode(std::unique_ptr<DataPage>* page, Slice* page_slice,
-                          size_t size_of_tail) override {
+    virtual Status decode(std::unique_ptr<DataPage>* page, Slice* page_slice, size_t size_of_tail,
+                          const DataPageFooterPB& footer) override {
         size_t num_elements, compressed_size, num_element_after_padding;
         int size_of_element;
 
@@ -76,10 +78,19 @@ struct BitShufflePagePreDecoder : public DataPagePreDecoder {
 
         memcpy(decoded_slice.data + size_of_dict_header, data.data, BITSHUFFLE_PAGE_HEADER_SIZE);
 
-        auto bytes = bitshuffle::bitunshuffle(
-                &data.data[BITSHUFFLE_PAGE_HEADER_SIZE],
-                decoded_slice.data + BITSHUFFLE_PAGE_HEADER_SIZE + size_of_dict_header,
-                num_element_after_padding, size_of_element, 0);
+        int64_t bytes = 0;
+        if (footer.is_bitshuffle_not_compressed()) {
+            bytes = bitshuffle::bitunshuffle(
+                    &data.data[BITSHUFFLE_PAGE_HEADER_SIZE],
+                    decoded_slice.data + BITSHUFFLE_PAGE_HEADER_SIZE + size_of_dict_header,
+                    num_element_after_padding, size_of_element, 0);
+        } else {
+            bytes = bitshuffle::decompress_lz4(
+                    &data.data[BITSHUFFLE_PAGE_HEADER_SIZE],
+                    decoded_slice.data + BITSHUFFLE_PAGE_HEADER_SIZE + size_of_dict_header,
+                    num_element_after_padding, size_of_element, 1);
+        }
+
         if (PREDICT_FALSE(bytes < 0)) {
             // Ideally, this should not happen.
             warn_with_bitshuffle_error(bytes);

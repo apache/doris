@@ -708,6 +708,7 @@ Status ScalarColumnWriter::finish_current_page() {
     data_page_footer->set_first_ordinal(_first_rowid);
     data_page_footer->set_num_values(_next_rowid - _first_rowid);
     data_page_footer->set_nullmap_size(nullmap.slice().size);
+    data_page_footer->set_is_bitshuffle_not_compressed(true);
     if (_new_page_callback != nullptr) {
         _new_page_callback->put_extra_info_in_page(data_page_footer);
     }
