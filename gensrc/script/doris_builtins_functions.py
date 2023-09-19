@@ -872,6 +872,12 @@ visible_functions = {
         [['from_unixtime'], 'VARCHAR', ['INT'], 'ALWAYS_NULLABLE'],
         [['from_unixtime'], 'VARCHAR', ['INT', 'VARCHAR'], 'ALWAYS_NULLABLE'],
         [['from_unixtime'], 'VARCHAR', ['INT', 'STRING'], 'ALWAYS_NULLABLE'],
+        [['from_microsecond'], 'DATETIMEV2', ['BIGINT'], 'ALWAYS_NULLABLE'],
+        [['from_millisecond'], 'DATETIMEV2', ['BIGINT'], 'ALWAYS_NULLABLE'],
+        [['from_second'], 'DATETIMEV2', ['BIGINT'], 'ALWAYS_NULLABLE'],
+        [['second_timestamp'], 'BIGINT', ['DATETIMEV2'], 'ALWAYS_NULLABLE'],
+        [['millisecond_timestamp'], 'BIGINT', ['DATETIMEV2'], 'ALWAYS_NULLABLE'],
+        [['microsecond_timestamp'], 'BIGINT', ['DATETIMEV2'], 'ALWAYS_NULLABLE'],
         [['now', 'current_timestamp', 'localtime', 'localtimestamp'], 'DATETIME', [], 'DEPEND_ON_ARGUMENT'],
         [['now', 'current_timestamp', 'localtime', 'localtimestamp'], 'DATETIMEV2', ['INT'], 'DEPEND_ON_ARGUMENT'],
         [['curtime', 'current_time'], 'TIME', [], 'ALWAYS_NOT_NULLABLE'],
@@ -895,6 +901,8 @@ visible_functions = {
         [['date_ceil'], 'DATETIMEV2', ['DATETIMEV2', 'INT'], 'ALWAYS_NULLABLE'],
         [['date_trunc'], 'DATETIMEV2', ['DATETIMEV2', 'VARCHAR'], 'ALWAYS_NULLABLE'],
         [['date_trunc'], 'DATETIME', ['DATETIME', 'VARCHAR'], 'ALWAYS_NULLABLE'],
+        [['date_trunc'], 'DATEV2', ['DATEV2', 'VARCHAR'], 'ALWAYS_NULLABLE'],
+        [['date_trunc'], 'DATE', ['DATE', 'VARCHAR'], 'ALWAYS_NULLABLE'],
 
         [['year'], 'SMALLINT', ['DATETIME'], 'ALWAYS_NULLABLE'],
         [['month'], 'TINYINT', ['DATETIME'], 'ALWAYS_NULLABLE'],
@@ -1408,6 +1416,7 @@ visible_functions = {
         [['if'], 'DECIMAL128', ['BOOLEAN', 'DECIMAL128', 'DECIMAL128'], 'CUSTOM'],
         [['if'], 'BITMAP', ['BOOLEAN', 'BITMAP', 'BITMAP'], 'CUSTOM'],
         [['if'], 'HLL', ['BOOLEAN', 'HLL', 'HLL'], 'CUSTOM'],
+        [['if'], 'JSONB', ['BOOLEAN', 'JSONB', 'JSONB'], 'CUSTOM'],
         # The priority of varchar should be lower than decimal in IS_SUPERTYPE_OF mode.
         [['if'], 'VARCHAR', ['BOOLEAN', 'VARCHAR', 'VARCHAR'], 'CUSTOM'],
         [['if'], 'STRING', ['BOOLEAN', 'STRING', 'STRING'], 'CUSTOM'],
@@ -1796,12 +1805,12 @@ visible_functions = {
 
     #bitmap function
     "Bitmap": [
-        [['to_bitmap'], 'BITMAP', ['VARCHAR'], 'ALWAYS_NOT_NULLABLE'],
-        [['to_bitmap_with_check'], 'BITMAP', ['VARCHAR'], 'ALWAYS_NOT_NULLABLE'],
-        [['to_bitmap'], 'BITMAP', ['STRING'], 'ALWAYS_NOT_NULLABLE'],
-        [['to_bitmap_with_check'], 'BITMAP', ['STRING'], 'ALWAYS_NOT_NULLABLE'],
         [['to_bitmap'], 'BITMAP', ['BIGINT'], 'ALWAYS_NOT_NULLABLE'],
+        [['to_bitmap'], 'BITMAP', ['VARCHAR'], 'ALWAYS_NOT_NULLABLE'],
+        [['to_bitmap'], 'BITMAP', ['STRING'], 'ALWAYS_NOT_NULLABLE'],
         [['to_bitmap_with_check'], 'BITMAP', ['BIGINT'], 'ALWAYS_NOT_NULLABLE'],
+        [['to_bitmap_with_check'], 'BITMAP', ['STRING'], 'ALWAYS_NOT_NULLABLE'],
+        [['to_bitmap_with_check'], 'BITMAP', ['VARCHAR'], 'ALWAYS_NOT_NULLABLE'],
         [['bitmap_hash'], 'BITMAP', ['VARCHAR'], 'ALWAYS_NOT_NULLABLE'],
         [['bitmap_hash64'], 'BITMAP', ['VARCHAR'], 'ALWAYS_NOT_NULLABLE'],
         [['bitmap_hash'], 'BITMAP', ['STRING'], 'ALWAYS_NOT_NULLABLE'],
@@ -1830,6 +1839,7 @@ visible_functions = {
         [['bitmap_from_array'], 'BITMAP', ['ARRAY_INT'], 'ALWAYS_NULLABLE'],
         [['bitmap_from_array'], 'BITMAP', ['ARRAY_BIGINT'], 'ALWAYS_NULLABLE'],
         [['bitmap_contains'], 'BOOLEAN', ['BITMAP','BIGINT'], ''],
+        [['bitmap_remove'], 'BITMAP', ['BITMAP','BIGINT'], ''],
         [['bitmap_has_any'], 'BOOLEAN', ['BITMAP','BITMAP'], ''],
         [['bitmap_has_all'], 'BOOLEAN', ['BITMAP','BITMAP'], ''],
         [['bitmap_min'], 'BIGINT', ['BITMAP'], 'ALWAYS_NULLABLE'],
@@ -1847,10 +1857,7 @@ visible_functions = {
 
     # quantile_function
     "quantile" : [
-        [['to_quantile_state'], 'QUANTILE_STATE', ['VARCHAR', 'FLOAT'], 'ALWAYS_NOT_NULLABLE'],
         [['to_quantile_state'], 'QUANTILE_STATE', ['DOUBLE', 'FLOAT'], 'ALWAYS_NOT_NULLABLE'],
-        [['to_quantile_state'], 'QUANTILE_STATE', ['FLOAT', 'FLOAT'], 'ALWAYS_NOT_NULLABLE'],
-        [['to_quantile_state'], 'QUANTILE_STATE', ['BIGINT', 'FLOAT'], 'ALWAYS_NOT_NULLABLE'],
         [['quantile_percent'], 'DOUBLE', ['QUANTILE_STATE', 'FLOAT'], 'ALWAYS_NOT_NULLABLE']
     ],
 
@@ -1970,7 +1977,8 @@ visible_functions = {
     ],
 
     "UUID": [
-        [['uuid'], 'VARCHAR', [], 'ALWAYS_NOT_NULLABLE']
+        [['uuid'], 'VARCHAR', [], 'ALWAYS_NOT_NULLABLE'],
+        [['uuid_numeric'], 'LARGEINT', [], 'ALWAYS_NOT_NULLABLE']
     ],
 
     #ip functions

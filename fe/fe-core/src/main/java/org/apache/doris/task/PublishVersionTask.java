@@ -21,11 +21,13 @@ import org.apache.doris.thrift.TPartitionVersionInfo;
 import org.apache.doris.thrift.TPublishVersionRequest;
 import org.apache.doris.thrift.TTaskType;
 
+import com.google.common.collect.Maps;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 
 public class PublishVersionTask extends AgentTask {
     private static final Logger LOG = LogManager.getLogger(PublishVersionTask.class);
@@ -34,11 +36,20 @@ public class PublishVersionTask extends AgentTask {
     private List<TPartitionVersionInfo> partitionVersionInfos;
     private List<Long> errorTablets;
 
+    // tabletId => version, current version = 0
+    private Map<Long, Long> succTablets;
+
+    /**
+     * To collect loaded rows for each tablet from each BE
+     */
+    private final Map<Long, Long> tabletIdToDeltaNumRows = Maps.newHashMap();
+
     public PublishVersionTask(long backendId, long transactionId, long dbId,
             List<TPartitionVersionInfo> partitionVersionInfos, long createTime) {
         super(null, backendId, TTaskType.PUBLISH_VERSION, dbId, -1L, -1L, -1L, -1L, transactionId, createTime);
         this.transactionId = transactionId;
         this.partitionVersionInfos = partitionVersionInfos;
+        this.succTablets = null;
         this.errorTablets = new ArrayList<Long>();
         this.isFinished = false;
     }
@@ -57,6 +68,14 @@ public class PublishVersionTask extends AgentTask {
         return partitionVersionInfos;
     }
 
+    public Map<Long, Long> getSuccTablets() {
+        return succTablets;
+    }
+
+    public void setSuccTablets(Map<Long, Long> succTablets) {
+        this.succTablets = succTablets;
+    }
+
     public synchronized List<Long> getErrorTablets() {
         return errorTablets;
     }
@@ -67,5 +86,13 @@ public class PublishVersionTask extends AgentTask {
             return;
         }
         this.errorTablets.addAll(errorTablets);
+    }
+
+    public void setTabletIdToDeltaNumRows(Map<Long, Long> tabletIdToDeltaNumRows) {
+        this.tabletIdToDeltaNumRows.putAll(tabletIdToDeltaNumRows);
+    }
+
+    public Map<Long, Long> getTabletIdToDeltaNumRows() {
+        return tabletIdToDeltaNumRows;
     }
 }

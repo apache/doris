@@ -21,17 +21,49 @@
 
 namespace doris::pipeline {
 
-template Status JoinDependency::extract_join_column<true>(
+template Status HashJoinDependency::extract_join_column<true>(
         vectorized::Block&,
         COW<vectorized::IColumn>::mutable_ptr<vectorized::ColumnVector<unsigned char>>&,
         std::vector<vectorized::IColumn const*, std::allocator<vectorized::IColumn const*>>&,
         std::vector<int, std::allocator<int>> const&);
 
-template Status JoinDependency::extract_join_column<false>(
+template Status HashJoinDependency::extract_join_column<false>(
         vectorized::Block&,
         COW<vectorized::IColumn>::mutable_ptr<vectorized::ColumnVector<unsigned char>>&,
         std::vector<vectorized::IColumn const*, std::allocator<vectorized::IColumn const*>>&,
         std::vector<int, std::allocator<int>> const&);
+
+std::string Dependency::debug_string(int indentation_level) {
+    fmt::memory_buffer debug_string_buffer;
+    fmt::format_to(debug_string_buffer, "{}{}: id={}, done={}",
+                   std::string(indentation_level * 2, ' '), _name, _id,
+                   read_blocked_by() == nullptr);
+    return fmt::to_string(debug_string_buffer);
+}
+
+std::string AndDependency::debug_string(int indentation_level) {
+    fmt::memory_buffer debug_string_buffer;
+    fmt::format_to(debug_string_buffer, "{}{}: id={}, done={}, children=[",
+                   std::string(indentation_level * 2, ' '), _name, _id,
+                   read_blocked_by() == nullptr);
+    for (auto& child : _children) {
+        fmt::format_to(debug_string_buffer, "{}, \n", child->debug_string(indentation_level = 1));
+    }
+    fmt::format_to(debug_string_buffer, "{}]", std::string(indentation_level * 2, ' '));
+    return fmt::to_string(debug_string_buffer);
+}
+
+std::string OrDependency::debug_string(int indentation_level) {
+    fmt::memory_buffer debug_string_buffer;
+    fmt::format_to(debug_string_buffer, "{}{}: id={}, done={}, children=[",
+                   std::string(indentation_level * 2, ' '), _name, _id,
+                   read_blocked_by() == nullptr);
+    for (auto& child : _children) {
+        fmt::format_to(debug_string_buffer, "{}, \n", child->debug_string(indentation_level = 1));
+    }
+    fmt::format_to(debug_string_buffer, "{}]", std::string(indentation_level * 2, ' '));
+    return fmt::to_string(debug_string_buffer);
+}
 
 Status AggDependency::reset_hash_table() {
     return std::visit(
@@ -211,7 +243,7 @@ vectorized::BlockRowPos AnalyticDependency::compare_row_to_find_end(int idx,
     return start;
 }
 
-bool AnalyticDependency::whether_need_next_partition(vectorized::BlockRowPos found_partition_end) {
+bool AnalyticDependency::whether_need_next_partition(vectorized::BlockRowPos& found_partition_end) {
     if (_analytic_state.input_eos ||
         (_analytic_state.current_row_position <
          _analytic_state.partition_by_end.pos)) { //now still have partition data
@@ -229,9 +261,10 @@ bool AnalyticDependency::whether_need_next_partition(vectorized::BlockRowPos fou
     return false;
 }
 
-Status JoinDependency::do_evaluate(vectorized::Block& block, vectorized::VExprContextSPtrs& exprs,
-                                   RuntimeProfile::Counter& expr_call_timer,
-                                   std::vector<int>& res_col_ids) {
+Status HashJoinDependency::do_evaluate(vectorized::Block& block,
+                                       vectorized::VExprContextSPtrs& exprs,
+                                       RuntimeProfile::Counter& expr_call_timer,
+                                       std::vector<int>& res_col_ids) {
     for (size_t i = 0; i < exprs.size(); ++i) {
         int result_col_id = -1;
         // execute build column
@@ -248,7 +281,7 @@ Status JoinDependency::do_evaluate(vectorized::Block& block, vectorized::VExprCo
     return Status::OK();
 }
 
-std::vector<uint16_t> JoinDependency::convert_block_to_null(vectorized::Block& block) {
+std::vector<uint16_t> HashJoinDependency::convert_block_to_null(vectorized::Block& block) {
     std::vector<uint16_t> results;
     for (int i = 0; i < block.columns(); ++i) {
         if (auto& column_type = block.safe_get_by_position(i); !column_type.type->is_nullable()) {
@@ -262,10 +295,10 @@ std::vector<uint16_t> JoinDependency::convert_block_to_null(vectorized::Block& b
 }
 
 template <bool BuildSide>
-Status JoinDependency::extract_join_column(vectorized::Block& block,
-                                           vectorized::ColumnUInt8::MutablePtr& null_map,
-                                           vectorized::ColumnRawPtrs& raw_ptrs,
-                                           const std::vector<int>& res_col_ids) {
+Status HashJoinDependency::extract_join_column(vectorized::Block& block,
+                                               vectorized::ColumnUInt8::MutablePtr& null_map,
+                                               vectorized::ColumnRawPtrs& raw_ptrs,
+                                               const std::vector<int>& res_col_ids) {
     for (size_t i = 0; i < _join_state.build_exprs_size; ++i) {
         if (_join_state.is_null_safe_eq_join[i]) {
             raw_ptrs[i] = block.get_by_position(res_col_ids[i]).column.get();

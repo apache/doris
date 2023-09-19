@@ -40,7 +40,11 @@ template <typename K>
 struct AggregateFunctionMapAggData {
     using KeyType = std::conditional_t<std::is_same_v<K, String>, StringRef, K>;
     using Map = phmap::flat_hash_map<StringRef, int64_t>;
-    AggregateFunctionMapAggData() { __builtin_unreachable(); }
+
+    AggregateFunctionMapAggData() {
+        LOG(FATAL) << "__builtin_unreachable";
+        __builtin_unreachable();
+    }
 
     AggregateFunctionMapAggData(const DataTypes& argument_types) {
         _key_type = remove_nullable(argument_types[0]);
@@ -213,11 +217,13 @@ public:
 
     void serialize(ConstAggregateDataPtr /* __restrict place */,
                    BufferWritable& /* buf */) const override {
+        LOG(FATAL) << "__builtin_unreachable";
         __builtin_unreachable();
     }
 
     void deserialize(AggregateDataPtr /* __restrict place */, BufferReadable& /* buf */,
                      Arena*) const override {
+        LOG(FATAL) << "__builtin_unreachable";
         __builtin_unreachable();
     }
 

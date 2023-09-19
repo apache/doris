@@ -69,7 +69,7 @@ namespace doris {
 class RuntimeState;
 
 namespace io {
-class IOContext;
+struct IOContext;
 } // namespace io
 } // namespace doris
 

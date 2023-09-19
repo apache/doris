@@ -113,9 +113,7 @@ public:
         size_t count = 0;
         if (_is_partitioned) {
             for (auto i = 0u; i < this->NUM_LEVEL1_SUB_TABLES; ++i) {
-                for (auto& v : this->level1_sub_tables[i]) {
-                    count += v.get_second().get_row_count();
-                }
+                count += this->level1_sub_tables[i].size();
             }
         } else {
             count = level0_sub_table.get_size();
@@ -389,14 +387,14 @@ public:
     }
 
     template <typename KeyHolder>
-    void ALWAYS_INLINE prefetch(KeyHolder& key_holder) {
+    void ALWAYS_INLINE prefetch_by_key(KeyHolder& key_holder) {
         if (_is_partitioned) {
             const auto& key = key_holder_get_key(key_holder);
             const auto key_hash = hash(key);
             const auto sub_table_idx = get_sub_table_from_hash(key_hash);
-            level1_sub_tables[sub_table_idx].prefetch(key_holder);
+            level1_sub_tables[sub_table_idx].prefetch_by_key(key_holder);
         } else {
-            level0_sub_table.prefetch(key_holder);
+            level0_sub_table.prefetch_by_key(key_holder);
         }
     }
 
@@ -422,14 +420,14 @@ public:
     }
 
     template <bool READ, typename KeyHolder>
-    void ALWAYS_INLINE prefetch(KeyHolder& key_holder) {
+    void ALWAYS_INLINE prefetch_by_key(KeyHolder& key_holder) {
         if (_is_partitioned) {
             const auto& key = key_holder_get_key(key_holder);
             const auto key_hash = hash(key);
             const auto sub_table_idx = get_sub_table_from_hash(key_hash);
-            level1_sub_tables[sub_table_idx].template prefetch<READ>(key_holder);
+            level1_sub_tables[sub_table_idx].template prefetch_by_key<READ>(key_holder);
         } else {
-            level0_sub_table.template prefetch<READ>(key_holder);
+            level0_sub_table.template prefetch_by_key<READ>(key_holder);
         }
     }
 
@@ -526,7 +524,9 @@ public:
     size_t size() const {
         if (_is_partitioned) {
             size_t res = 0;
-            for (size_t i = 0; i < NUM_LEVEL1_SUB_TABLES; ++i) res += level1_sub_tables[i].size();
+            for (size_t i = 0; i < NUM_LEVEL1_SUB_TABLES; ++i) {
+                res += level1_sub_tables[i].size();
+            }
             return res;
         } else {
             return level0_sub_table.size();

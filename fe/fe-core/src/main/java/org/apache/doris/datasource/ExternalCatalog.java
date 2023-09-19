@@ -64,6 +64,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
+import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * The abstract class for all types of external catalogs.
@@ -607,5 +608,10 @@ public abstract class ExternalCatalog
             ret = true;
         }
         return ret;
+    }
+
+    @Override
+    public ConcurrentHashMap<Long, DatabaseIf> getIdToDb() {
+        return new ConcurrentHashMap<>(idToDb);
     }
 }

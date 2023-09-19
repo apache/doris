@@ -18,6 +18,7 @@
 #include "join_build_sink_operator.h"
 
 #include "pipeline/exec/hashjoin_build_sink.h"
+#include "pipeline/exec/nested_loop_join_build_operator.h"
 #include "pipeline/pipeline_x/operator.h"
 
 namespace doris::pipeline {
@@ -31,11 +32,11 @@ Status JoinBuildSinkLocalState<DependencyType, Derived>::init(RuntimeState* stat
 
     PipelineXSinkLocalState<DependencyType>::profile()->add_info_string("JoinType",
                                                                         to_string(p._join_op));
-    _build_phase_profile = PipelineXSinkLocalState<DependencyType>::profile()->create_child(
-            "BuildPhase", true, true);
-    _build_get_next_timer = ADD_TIMER(_build_phase_profile, "BuildGetNextTime");
-    _build_timer = ADD_TIMER(_build_phase_profile, "BuildTime");
-    _build_rows_counter = ADD_COUNTER(_build_phase_profile, "BuildRows", TUnit::UNIT);
+    _build_get_next_timer =
+            ADD_TIMER(PipelineXSinkLocalState<DependencyType>::profile(), "BuildGetNextTime");
+    _build_timer = ADD_TIMER(PipelineXSinkLocalState<DependencyType>::profile(), "BuildTime");
+    _build_rows_counter = ADD_COUNTER(PipelineXSinkLocalState<DependencyType>::profile(),
+                                      "BuildRows", TUnit::UNIT);
 
     _push_down_timer = ADD_TIMER(PipelineXSinkLocalState<DependencyType>::profile(),
                                  "PublishRuntimeFilterTime");
@@ -117,6 +118,8 @@ void JoinBuildSinkOperatorX<LocalStateType>::_init_join_op() {
 }
 
 template class JoinBuildSinkOperatorX<HashJoinBuildSinkLocalState>;
-template class JoinBuildSinkLocalState<JoinDependency, HashJoinBuildSinkLocalState>;
+template class JoinBuildSinkLocalState<HashJoinDependency, HashJoinBuildSinkLocalState>;
+template class JoinBuildSinkOperatorX<NestedLoopJoinBuildSinkLocalState>;
+template class JoinBuildSinkLocalState<NestedLoopJoinDependency, NestedLoopJoinBuildSinkLocalState>;
 
 } // namespace doris::pipeline

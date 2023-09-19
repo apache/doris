@@ -150,19 +150,20 @@ public:
             null_map->get_data().resize_fill(input_rows_count, false);
 
             if constexpr (ArgNum == 1) {
-                Impl::template vector<NativeType>(sources->get_data(), col_to->get_data(),
-                                                  null_map->get_data());
+                Impl::template vector<NativeType>(sources->get_data(), col_to->get_data());
             } else if constexpr (ArgNum == 2) {
                 const IColumn& delta_column = *block.get_by_position(arguments[1]).column;
                 if (const auto* delta_const_column =
                             typeid_cast<const ColumnConst*>(&delta_column)) {
                     if (block.get_by_position(arguments[1]).type->get_type_id() !=
                         TypeIndex::Int32) {
+                        // time_round(datetime, const(origin))
                         Impl::template vector_constant<NativeType>(
                                 sources->get_data(),
                                 delta_const_column->get_field().get<NativeType>(),
-                                col_to->get_data(), null_map->get_data());
+                                col_to->get_data());
                     } else {
+                        // time_round(datetime,const(period))
                         Impl::template vector_constant_delta<NativeType, DeltaValueType>(
                                 sources->get_data(), delta_const_column->get_field().get<Int32>(),
                                 col_to->get_data(), null_map->get_data());
@@ -170,31 +171,64 @@ public:
                 } else {
                     if (const auto* delta_vec_column0 =
                                 check_and_get_column<ColumnVector<NativeType>>(delta_column)) {
+                        // time_round(datetime, origin)
                         Impl::vector_vector(sources->get_data(), delta_vec_column0->get_data(),
-                                            col_to->get_data(), null_map->get_data());
+                                            col_to->get_data());
                     } else {
                         const auto* delta_vec_column1 =
                                 check_and_get_column<ColumnVector<DeltaValueType>>(delta_column);
                         DCHECK(delta_vec_column1 != nullptr);
+                        // time_round(datetime, period)
                         Impl::vector_vector(sources->get_data(), delta_vec_column1->get_data(),
                                             col_to->get_data(), null_map->get_data());
                     }
                 }
             } else {
-                auto arg1_column_ptr = block.get_by_position(arguments[1])
-                                               .column->convert_to_full_column_if_const();
-                auto arg2_column_ptr = block.get_by_position(arguments[2])
-                                               .column->convert_to_full_column_if_const();
+                ColumnPtr arg1_col, arg2_col;
+                bool arg1_const, arg2_const;
+                std::tie(arg1_col, arg1_const) =
+                        unpack_if_const(block.get_by_position(arguments[1]).column);
+                std::tie(arg2_col, arg2_const) =
+                        unpack_if_const(block.get_by_position(arguments[2]).column);
+                if (arg1_const && arg2_const) {
+                    Field arg1, arg2;
+                    arg1_col->get(0, arg1);
+                    arg2_col->get(0, arg2);
+                    // time_round(datetime,const(period) , const(origin))
+                    Impl::template vector_const_const<NativeType, DeltaValueType>(
+                            sources->get_data(), arg1.get<Int32>(), arg2.get<NativeType>(),
+                            col_to->get_data(), null_map->get_data());
 
-                const auto arg1_column =
-                        check_and_get_column<ColumnVector<DeltaValueType>>(*arg1_column_ptr);
-                const auto arg2_column =
-                        check_and_get_column<ColumnVector<NativeType>>(*arg2_column_ptr);
-                DCHECK(arg1_column != nullptr);
-                DCHECK(arg2_column != nullptr);
-                Impl::template vector_vector<NativeType, DeltaValueType>(
-                        sources->get_data(), arg1_column->get_data(), arg2_column->get_data(),
-                        col_to->get_data(), null_map->get_data());
+                } else if (arg1_const && !arg2_const) {
+                    Field arg1;
+                    arg1_col->get(0, arg1);
+                    const auto arg2_column =
+                            check_and_get_column<ColumnVector<NativeType>>(*arg2_col);
+                    // time_round(datetime,const(period) , origin)
+                    Impl::template vector_const_vector<NativeType, DeltaValueType>(
+                            sources->get_data(), arg1.get<Int32>(), arg2_column->get_data(),
+                            col_to->get_data(), null_map->get_data());
+                } else if (!arg1_const && arg2_const) {
+                    Field arg2;
+                    arg2_col->get(0, arg2);
+                    const auto arg1_column =
+                            check_and_get_column<ColumnVector<DeltaValueType>>(*arg1_col);
+                    // time_round(datetime, period , const(origin))
+                    Impl::template vector_vector_const<NativeType, DeltaValueType>(
+                            sources->get_data(), arg1_column->get_data(), arg2.get<NativeType>(),
+                            col_to->get_data(), null_map->get_data());
+                } else {
+                    const auto arg1_column =
+                            check_and_get_column<ColumnVector<DeltaValueType>>(*arg1_col);
+                    const auto arg2_column =
+                            check_and_get_column<ColumnVector<NativeType>>(*arg2_col);
+                    DCHECK(arg1_column != nullptr);
+                    DCHECK(arg2_column != nullptr);
+                    // time_round(datetime, period, origin)
+                    Impl::template vector_vector<NativeType, DeltaValueType>(
+                            sources->get_data(), arg1_column->get_data(), arg2_column->get_data(),
+                            col_to->get_data(), null_map->get_data());
+                }
             }
 
             block.get_by_position(result).column =
@@ -213,35 +247,34 @@ struct FloorCeilImpl {
     static constexpr auto name = Impl::name;
 
     template <typename NativeType>
-    static void vector(const PaddedPODArray<NativeType>& dates, PaddedPODArray<NativeType>& res,
-                       NullMap& null_map) {
-        // vector_constant_delta<NativeType, Int32>(dates, Int32(1), res, null_map);
+    static void vector(const PaddedPODArray<NativeType>& dates, PaddedPODArray<NativeType>& res) {
+        // time_round(datetime)
         for (int i = 0; i < dates.size(); ++i) {
             if constexpr (std::is_same_v<NativeType, UInt32>) {
-                Impl::template time_round<UInt32, DateV2Value<DateV2ValueType>>(dates[i], res[i],
-                                                                                null_map[i]);
+                Impl::template time_round<UInt32, DateV2Value<DateV2ValueType>>(dates[i], res[i]);
             } else if constexpr (std::is_same_v<NativeType, UInt64>) {
-                Impl::template time_round<UInt64, DateV2Value<DateTimeV2ValueType>>(
-                        dates[i], res[i], null_map[i]);
+                Impl::template time_round<UInt64, DateV2Value<DateTimeV2ValueType>>(dates[i],
+                                                                                    res[i]);
             } else {
-                Impl::template time_round<Int64, VecDateTimeValue>(dates[i], res[i], null_map[i]);
+                Impl::template time_round<Int64, VecDateTimeValue>(dates[i], res[i]);
             }
         }
     }
 
     template <typename NativeType>
     static void vector_constant(const PaddedPODArray<NativeType>& dates, NativeType origin_date,
-                                PaddedPODArray<NativeType>& res, NullMap& null_map) {
+                                PaddedPODArray<NativeType>& res) {
+        // time_round(datetime, const(origin))
         for (int i = 0; i < dates.size(); ++i) {
             if constexpr (std::is_same_v<NativeType, UInt32>) {
-                Impl::template time_round<UInt32, DateV2Value<DateV2ValueType>>(
-                        dates[i], Int32(1), origin_date, res[i], null_map[i]);
+                Impl::template time_round_with_constant_optimization<
+                        UInt32, DateV2Value<DateV2ValueType>, 1>(dates[i], origin_date, res[i]);
             } else if constexpr (std::is_same_v<NativeType, UInt64>) {
-                Impl::template time_round<UInt64, DateV2Value<DateTimeV2ValueType>>(
-                        dates[i], Int32(1), origin_date, res[i], null_map[i]);
+                Impl::template time_round_with_constant_optimization<
+                        UInt64, DateV2Value<DateTimeV2ValueType>, 1>(dates[i], origin_date, res[i]);
             } else {
-                Impl::template time_round<Int64, VecDateTimeValue>(dates[i], Int32(1), origin_date,
-                                                                   res[i], null_map[i]);
+                Impl::template time_round_with_constant_optimization<Int64, VecDateTimeValue, 1>(
+                        dates[i], origin_date, res[i]);
             }
         }
     }
@@ -249,16 +282,170 @@ struct FloorCeilImpl {
     template <typename NativeType, typename DeltaType>
     static void vector_constant_delta(const PaddedPODArray<NativeType>& dates, DeltaType period,
                                       PaddedPODArray<NativeType>& res, NullMap& null_map) {
+        // time_round(datetime,const(period))
+        if (period < 1) {
+            null_map.resize_fill(dates.size(), true);
+            return;
+        }
+        for (int i = 0; i < dates.size(); ++i) {
+            if constexpr (std::is_same_v<NativeType, UInt32>) {
+                Impl::template time_round<UInt32, DateV2Value<DateV2ValueType>>(dates[i], period,
+                                                                                res[i]);
+            } else if constexpr (std::is_same_v<NativeType, UInt64>) {
+                Impl::template time_round<UInt64, DateV2Value<DateTimeV2ValueType>>(dates[i],
+                                                                                    period, res[i]);
+            } else {
+                Impl::template time_round<Int64, VecDateTimeValue>(dates[i], period, res[i]);
+            }
+        }
+    }
+
+    template <typename NativeType, typename DeltaType, UInt32 period>
+    static void vector_const_const_with_constant_optimization(
+            const PaddedPODArray<NativeType>& dates, NativeType origin_date,
+            PaddedPODArray<NativeType>& res) {
+        for (int i = 0; i < dates.size(); ++i) {
+            if constexpr (std::is_same_v<NativeType, UInt32>) {
+                Impl::template time_round_with_constant_optimization<
+                        UInt32, DateV2Value<DateV2ValueType>, period>(dates[i], origin_date,
+                                                                      res[i]);
+            } else if constexpr (std::is_same_v<NativeType, UInt64>) {
+                Impl::template time_round_with_constant_optimization<
+                        UInt64, DateV2Value<DateTimeV2ValueType>, period>(dates[i], origin_date,
+                                                                          res[i]);
+            } else {
+                Impl::template time_round_with_constant_optimization<Int64, VecDateTimeValue,
+                                                                     period>(dates[i], origin_date,
+                                                                             res[i]);
+            }
+        }
+    }
+    template <typename NativeType, typename DeltaType>
+    static void vector_const_const(const PaddedPODArray<NativeType>& dates, const DeltaType period,
+                                   NativeType origin_date, PaddedPODArray<NativeType>& res,
+                                   NullMap& null_map) {
+        if (period < 1) {
+            null_map.resize_fill(dates.size(), true);
+            return;
+        }
+        switch (period) {
+        case 1: {
+            vector_const_const_with_constant_optimization<NativeType, DeltaType, 1>(
+                    dates, origin_date, res);
+            break;
+        }
+        case 2: {
+            vector_const_const_with_constant_optimization<NativeType, DeltaType, 2>(
+                    dates, origin_date, res);
+            break;
+        }
+        case 3: {
+            vector_const_const_with_constant_optimization<NativeType, DeltaType, 3>(
+                    dates, origin_date, res);
+            break;
+        }
+        case 4: {
+            vector_const_const_with_constant_optimization<NativeType, DeltaType, 4>(
+                    dates, origin_date, res);
+            break;
+        }
+        case 5: {
+            vector_const_const_with_constant_optimization<NativeType, DeltaType, 5>(
+                    dates, origin_date, res);
+            break;
+        }
+        case 6: {
+            vector_const_const_with_constant_optimization<NativeType, DeltaType, 6>(
+                    dates, origin_date, res);
+            break;
+        }
+        case 7: {
+            vector_const_const_with_constant_optimization<NativeType, DeltaType, 7>(
+                    dates, origin_date, res);
+            break;
+        }
+        case 8: {
+            vector_const_const_with_constant_optimization<NativeType, DeltaType, 8>(
+                    dates, origin_date, res);
+            break;
+        }
+        case 9: {
+            vector_const_const_with_constant_optimization<NativeType, DeltaType, 9>(
+                    dates, origin_date, res);
+            break;
+        }
+        case 10: {
+            vector_const_const_with_constant_optimization<NativeType, DeltaType, 10>(
+                    dates, origin_date, res);
+            break;
+        }
+        case 11: {
+            vector_const_const_with_constant_optimization<NativeType, DeltaType, 11>(
+                    dates, origin_date, res);
+            break;
+        }
+        case 12: {
+            vector_const_const_with_constant_optimization<NativeType, DeltaType, 12>(
+                    dates, origin_date, res);
+            break;
+        }
+        default:
+            for (int i = 0; i < dates.size(); ++i) {
+                if constexpr (std::is_same_v<NativeType, UInt32>) {
+                    Impl::template time_round<UInt32, DateV2Value<DateV2ValueType>>(
+                            dates[i], period, origin_date, res[i]);
+                } else if constexpr (std::is_same_v<NativeType, UInt64>) {
+                    Impl::template time_round<UInt64, DateV2Value<DateTimeV2ValueType>>(
+                            dates[i], period, origin_date, res[i]);
+                } else {
+                    Impl::template time_round<Int64, VecDateTimeValue>(dates[i], period,
+                                                                       origin_date, res[i]);
+                }
+            }
+        }
+    }
+
+    template <typename NativeType, typename DeltaType>
+    static void vector_const_vector(const PaddedPODArray<NativeType>& dates, const DeltaType period,
+                                    const PaddedPODArray<NativeType>& origin_dates,
+                                    PaddedPODArray<NativeType>& res, NullMap& null_map) {
+        if (period < 1) {
+            null_map.resize_fill(dates.size(), true);
+            return;
+        }
         for (int i = 0; i < dates.size(); ++i) {
             if constexpr (std::is_same_v<NativeType, UInt32>) {
                 Impl::template time_round<UInt32, DateV2Value<DateV2ValueType>>(
-                        dates[i], period, res[i], null_map[i]);
+                        dates[i], period, origin_dates[i], res[i]);
             } else if constexpr (std::is_same_v<NativeType, UInt64>) {
                 Impl::template time_round<UInt64, DateV2Value<DateTimeV2ValueType>>(
-                        dates[i], period, res[i], null_map[i]);
+                        dates[i], period, origin_dates[i], res[i]);
             } else {
-                Impl::template time_round<Int64, VecDateTimeValue>(dates[i], period, res[i],
-                                                                   null_map[i]);
+                Impl::template time_round<Int64, VecDateTimeValue>(dates[i], period,
+                                                                   origin_dates[i], res[i]);
+            }
+        }
+    }
+
+    template <typename NativeType, typename DeltaType>
+    static void vector_vector_const(const PaddedPODArray<NativeType>& dates,
+                                    const PaddedPODArray<DeltaType>& periods,
+                                    NativeType origin_date, PaddedPODArray<NativeType>& res,
+                                    NullMap& null_map) {
+        for (int i = 0; i < dates.size(); ++i) {
+            if (periods[i] < 1) {
+                null_map[i] = true;
+                continue;
+            }
+            if constexpr (std::is_same_v<NativeType, UInt32>) {
+                Impl::template time_round<UInt32, DateV2Value<DateV2ValueType>>(
+                        dates[i], periods[i], origin_date, res[i]);
+            } else if constexpr (std::is_same_v<NativeType, UInt64>) {
+                Impl::template time_round<UInt64, DateV2Value<DateTimeV2ValueType>>(
+                        dates[i], periods[i], origin_date, res[i]);
+            } else {
+                Impl::template time_round<Int64, VecDateTimeValue>(dates[i], periods[i],
+                                                                   origin_date, res[i]);
             }
         }
     }
@@ -266,17 +453,19 @@ struct FloorCeilImpl {
     template <typename NativeType>
     static void vector_vector(const PaddedPODArray<NativeType>& dates,
                               const PaddedPODArray<NativeType>& origin_dates,
-                              PaddedPODArray<NativeType>& res, NullMap& null_map) {
+                              PaddedPODArray<NativeType>& res) {
+        // time_round(datetime, origin)
         for (int i = 0; i < dates.size(); ++i) {
             if constexpr (std::is_same_v<NativeType, UInt32>) {
-                Impl::template time_round<UInt32, DateV2Value<DateV2ValueType>>(
-                        dates[i], Int32(1), origin_dates[i], res[i], null_map[i]);
+                Impl::template time_round_with_constant_optimization<
+                        UInt32, DateV2Value<DateV2ValueType>, 1>(dates[i], origin_dates[i], res[i]);
             } else if constexpr (std::is_same_v<NativeType, UInt64>) {
-                Impl::template time_round<UInt64, DateV2Value<DateTimeV2ValueType>>(
-                        dates[i], Int32(1), origin_dates[i], res[i], null_map[i]);
+                Impl::template time_round_with_constant_optimization<
+                        UInt64, DateV2Value<DateTimeV2ValueType>, 1>(dates[i], origin_dates[i],
+                                                                     res[i]);
             } else {
-                Impl::template time_round<Int64, VecDateTimeValue>(
-                        dates[i], Int32(1), origin_dates[i], res[i], null_map[i]);
+                Impl::template time_round_with_constant_optimization<Int64, VecDateTimeValue, 1>(
+                        dates[i], origin_dates[i], res[i]);
             }
         }
     }
@@ -285,16 +474,20 @@ struct FloorCeilImpl {
     static void vector_vector(const PaddedPODArray<NativeType>& dates,
                               const PaddedPODArray<DeltaType>& periods,
                               PaddedPODArray<NativeType>& res, NullMap& null_map) {
+        // time_round(datetime, period)
         for (int i = 0; i < dates.size(); ++i) {
+            if (periods[i] < 1) {
+                null_map[i] = true;
+                continue;
+            }
             if constexpr (std::is_same_v<NativeType, UInt32>) {
-                Impl::template time_round<UInt32, DateV2Value<DateV2ValueType>>(
-                        dates[i], periods[i], res[i], null_map[i]);
+                Impl::template time_round<UInt32, DateV2Value<DateV2ValueType>>(dates[i],
+                                                                                periods[i], res[i]);
             } else if constexpr (std::is_same_v<NativeType, UInt64>) {
                 Impl::template time_round<UInt64, DateV2Value<DateTimeV2ValueType>>(
-                        dates[i], periods[i], res[i], null_map[i]);
+                        dates[i], periods[i], res[i]);
             } else {
-                Impl::template time_round<Int64, VecDateTimeValue>(dates[i], periods[i], res[i],
-                                                                   null_map[i]);
+                Impl::template time_round<Int64, VecDateTimeValue>(dates[i], periods[i], res[i]);
             }
         }
     }
@@ -304,16 +497,21 @@ struct FloorCeilImpl {
                               const PaddedPODArray<DeltaType>& periods,
                               const PaddedPODArray<NativeType>& origin_dates,
                               PaddedPODArray<NativeType>& res, NullMap& null_map) {
+        // time_round(datetime, period, origin)
         for (int i = 0; i < dates.size(); ++i) {
+            if (periods[i] < 1) {
+                null_map[i] = true;
+                continue;
+            }
             if constexpr (std::is_same_v<NativeType, UInt32>) {
                 Impl::template time_round<UInt32, DateV2Value<DateV2ValueType>>(
-                        dates[i], periods[i], origin_dates[i], res[i], null_map[i]);
+                        dates[i], periods[i], origin_dates[i], res[i]);
             } else if constexpr (std::is_same_v<NativeType, UInt64>) {
                 Impl::template time_round<UInt64, DateV2Value<DateTimeV2ValueType>>(
-                        dates[i], periods[i], origin_dates[i], res[i], null_map[i]);
+                        dates[i], periods[i], origin_dates[i], res[i]);
             } else {
-                Impl::template time_round<Int64, VecDateTimeValue>(
-                        dates[i], periods[i], origin_dates[i], res[i], null_map[i]);
+                Impl::template time_round<Int64, VecDateTimeValue>(dates[i], periods[i],
+                                                                   origin_dates[i], res[i]);
             }
         }
     }
@@ -332,15 +530,12 @@ struct TimeRound {
 
     static constexpr uint64_t MASK_YEAR_FOR_DATETIMEV2 = ((uint64_t)-1) >> 18;
     static constexpr uint64_t MASK_YEAR_MONTH_FOR_DATETIMEV2 = ((uint64_t)-1) >> 22;
+    static constexpr uint64_t MASK_YEAR_MONTH_DAY_FOR_DATETIMEV2 = ((uint64_t)-1) >> 27;
+    static constexpr uint64_t MASK_YEAR_MONTH_DAY_HOUR_FOR_DATETIMEV2 = ((uint64_t)-1) >> 32;
+    static constexpr uint64_t MASK_YEAR_MONTH_DAY_HOUR_MINUTE_FOR_DATETIMEV2 = ((uint64_t)-1) >> 38;
 
     template <typename NativeType, typename DateValueType>
-    static void time_round(const DateValueType& ts2, Int32 period, DateValueType& ts1,
-                           UInt8& is_null) {
-        if (period < 1) {
-            is_null = true;
-            return;
-        }
-
+    static void time_round(const DateValueType& ts2, const Int32 period, DateValueType& ts1) {
         int64_t diff;
         int64_t trivial_part_ts1;
         int64_t trivial_part_ts2;
@@ -442,24 +637,26 @@ struct TimeRound {
             }
             if constexpr (Impl::Unit == DAY) {
                 diff = ts2.daynr() - ts1.daynr();
-                trivial_part_ts2 = ts2.hour() * 3600 + ts2.minute() * 60 + ts2.second();
-                trivial_part_ts1 = ts1.hour() * 3600 + ts1.minute() * 60 + ts1.second();
+                trivial_part_ts2 = ts2.to_date_int_val() & MASK_YEAR_MONTH_DAY_FOR_DATETIMEV2;
+                trivial_part_ts1 = ts1.to_date_int_val() & MASK_YEAR_MONTH_DAY_FOR_DATETIMEV2;
             }
             if constexpr (Impl::Unit == HOUR) {
                 diff = (ts2.daynr() - ts1.daynr()) * 24 + (ts2.hour() - ts1.hour());
-                trivial_part_ts2 = ts2.minute() * 60 + ts2.second();
-                trivial_part_ts1 = ts1.minute() * 60 + ts1.second();
+                trivial_part_ts2 = ts2.to_date_int_val() & MASK_YEAR_MONTH_DAY_HOUR_FOR_DATETIMEV2;
+                trivial_part_ts1 = ts1.to_date_int_val() & MASK_YEAR_MONTH_DAY_HOUR_FOR_DATETIMEV2;
             }
             if constexpr (Impl::Unit == MINUTE) {
                 diff = (ts2.daynr() - ts1.daynr()) * 24 * 60 + (ts2.hour() - ts1.hour()) * 60 +
                        (ts2.minute() - ts1.minute());
-                trivial_part_ts2 = ts2.second();
-                trivial_part_ts1 = ts1.second();
+                trivial_part_ts2 =
+                        ts2.to_date_int_val() & MASK_YEAR_MONTH_DAY_HOUR_MINUTE_FOR_DATETIMEV2;
+                trivial_part_ts1 =
+                        ts1.to_date_int_val() & MASK_YEAR_MONTH_DAY_HOUR_MINUTE_FOR_DATETIMEV2;
             }
             if constexpr (Impl::Unit == SECOND) {
                 diff = ts2.second_diff(ts1);
-                trivial_part_ts1 = 0;
-                trivial_part_ts2 = 0;
+                trivial_part_ts2 = ts2.microsecond();
+                trivial_part_ts1 = ts1.microsecond();
             }
         }
 
@@ -482,7 +679,13 @@ struct TimeRound {
                                                    : count);
         bool is_neg = step < 0;
         TimeInterval interval(Impl::Unit, is_neg ? -step : step, is_neg);
-        is_null = !ts1.template date_add_interval<Impl::Unit>(interval);
+        ts1.template date_add_interval<Impl::Unit, false>(interval);
+    }
+
+    template <typename NativeType, typename DateValueType, Int32 period>
+    static void time_round_with_constant_optimization(const DateValueType& ts2,
+                                                      DateValueType& ts1) {
+        time_round<NativeType, DateValueType>(ts2, period, ts1);
     }
 
     static constexpr uint64_t MASK_DAY_FLOOR =
@@ -514,12 +717,11 @@ struct TimeRound {
         }
     }
     template <typename NativeType, typename DateValueType>
-    static void time_round(const DateValueType& ts2, DateValueType& ts1, UInt8& is_null) {
+    static void time_round(const DateValueType& ts2, DateValueType& ts1) {
         static_assert(Impl::Unit != WEEK);
         if constexpr (std::is_same_v<DateValueType, DateV2Value<DateTimeV2ValueType>> &&
                       Impl::Type == FLOOR && USE_OPTIMIZE_FLOOR) {
             datetimev2_floor<NativeType, DateValueType>(ts2, ts1);
-            is_null = false;
             return;
         };
         if constexpr (std::is_same_v<DateValueType, VecDateTimeValue>) {
@@ -562,29 +764,30 @@ struct TimeRound {
             }
         }
         TimeInterval interval(Impl::Unit, diff, 1);
-        is_null = !ts1.template date_set_interval<Impl::Unit>(interval);
+        ts1.template date_set_interval<Impl::Unit>(interval);
     }
 
     template <typename NativeType, typename DateValueType>
-    static void time_round(NativeType date, Int32 period, NativeType origin_date, NativeType& res,
-                           UInt8& is_null) {
+    static void time_round(NativeType date, Int32 period, NativeType origin_date, NativeType& res) {
         res = origin_date;
         auto ts2 = binary_cast<NativeType, DateValueType>(date);
         auto& ts1 = (DateValueType&)(res);
-        if (!ts2.is_valid_date() || !ts1.is_valid_date()) {
-            is_null = true;
-            return;
-        }
-        TimeRound<Impl>::template time_round<NativeType, DateValueType>(ts2, period, ts1, is_null);
+        TimeRound<Impl>::template time_round<NativeType, DateValueType>(ts2, period, ts1);
+    }
+
+    template <typename NativeType, typename DateValueType, Int32 period>
+    static void time_round_with_constant_optimization(NativeType date, NativeType origin_date,
+                                                      NativeType& res) {
+        res = origin_date;
+        auto ts2 = binary_cast<NativeType, DateValueType>(date);
+        auto& ts1 = (DateValueType&)(res);
+        TimeRound<Impl>::template time_round_with_constant_optimization<NativeType, DateValueType,
+                                                                        period>(ts2, ts1);
     }
 
     template <typename NativeType, typename DateValueType>
-    static void time_round(NativeType date, Int32 period, NativeType& res, UInt8& is_null) {
+    static void time_round(NativeType date, Int32 period, NativeType& res) {
         auto ts2 = binary_cast<NativeType, DateValueType>(date);
-        if (!ts2.is_valid_date()) {
-            is_null = true;
-            return;
-        }
         auto& ts1 = (DateValueType&)(res);
         if constexpr (Impl::Unit != WEEK) {
             ts1.from_olap_datetime(FIRST_DAY);
@@ -593,23 +796,19 @@ struct TimeRound {
             ts1.from_olap_datetime(FIRST_SUNDAY);
         }
 
-        TimeRound<Impl>::template time_round<NativeType, DateValueType>(ts2, period, ts1, is_null);
+        TimeRound<Impl>::template time_round<NativeType, DateValueType>(ts2, period, ts1);
     }
 
     template <typename NativeType, typename DateValueType>
-    static void time_round(NativeType date, NativeType& res, UInt8& is_null) {
+    static void time_round(NativeType date, NativeType& res) {
         auto ts2 = binary_cast<NativeType, DateValueType>(date);
-        if (!ts2.is_valid_date()) {
-            is_null = true;
-            return;
-        }
         auto& ts1 = (DateValueType&)(res);
         if constexpr (Impl::Unit != WEEK) {
-            TimeRound<Impl>::template time_round<NativeType, DateValueType>(ts2, ts1, is_null);
+            TimeRound<Impl>::template time_round<NativeType, DateValueType>(ts2, ts1);
         } else {
             // Only week use the FIRST SUNDAY
             ts1.from_olap_datetime(FIRST_SUNDAY);
-            TimeRound<Impl>::template time_round<NativeType, DateValueType>(ts2, 1, ts1, is_null);
+            TimeRound<Impl>::template time_round<NativeType, DateValueType>(ts2, 1, ts1);
         }
     }
 };

@@ -281,8 +281,8 @@ public:
         _num_rows_load_unselected.fetch_add(num_rows);
     }
 
-    void update_num_rows_filtered_in_strict_mode_partial_update(int64_t num_rows) {
-        _num_rows_filtered_in_strict_mode_partial_update += num_rows;
+    void set_num_rows_filtered_in_strict_mode_partial_update(int64_t num_rows) {
+        _num_rows_filtered_in_strict_mode_partial_update = num_rows;
     }
 
     void set_per_fragment_instance_idx(int idx) { _per_fragment_instance_idx = idx; }
@@ -352,6 +352,11 @@ public:
         return _query_options.__isset.skip_delete_bitmap && _query_options.skip_delete_bitmap;
     }
 
+    bool enable_page_cache() const {
+        return !config::disable_storage_page_cache &&
+               (_query_options.__isset.enable_page_cache && _query_options.enable_page_cache);
+    }
+
     int partitioned_hash_join_rows_threshold() const {
         if (!_query_options.__isset.partitioned_hash_join_rows_threshold) {
             return 0;
@@ -394,7 +399,9 @@ public:
 
     void set_tracer(OpentelemetryTracer&& tracer) { _tracer = std::move(tracer); }
 
-    bool enable_profile() const { return _query_options.is_report_success; }
+    bool enable_profile() const {
+        return _query_options.__isset.enable_profile && _query_options.enable_profile;
+    }
 
     bool enable_scan_node_run_serial() const {
         return _query_options.__isset.enable_scan_node_run_serial &&

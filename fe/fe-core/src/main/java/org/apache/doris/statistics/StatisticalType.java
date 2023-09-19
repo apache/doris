@@ -56,4 +56,5 @@ public enum StatisticalType {
     JDBC_SCAN_NODE,
     TEST_EXTERNAL_TABLE,
     CASSANDRA_SCAN_NODE,
+    GROUP_COMMIT_SCAN_NODE
 }

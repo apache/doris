@@ -150,7 +150,7 @@ public class BeLoadRebalancer extends Rebalancer {
             }
 
             if (remainingPaths.isEmpty()) {
-                return alternativeTablets;
+                continue;
             }
 
             // select tablet from shuffled tablets

@@ -55,12 +55,66 @@ public:
     Status try_close(RuntimeState* state) override;
 };
 
+struct OpenDependency : public Dependency {
+public:
+    ENABLE_FACTORY_CREATOR(OpenDependency);
+    OpenDependency(int id) : Dependency(id, "OpenDependency") {}
+    void* shared_state() override { return nullptr; }
+    [[nodiscard]] Dependency* read_blocked_by() override { return nullptr; }
+    [[nodiscard]] int64_t read_watcher_elapse_time() override { return 0; }
+};
+
+struct EosDependency : public Dependency {
+public:
+    ENABLE_FACTORY_CREATOR(EosDependency);
+    EosDependency(int id) : Dependency(id, "EosDependency") {}
+    void* shared_state() override { return nullptr; }
+};
+
+struct ScannerDoneDependency : public Dependency {
+public:
+    ENABLE_FACTORY_CREATOR(ScannerDoneDependency);
+    ScannerDoneDependency(int id, vectorized::ScannerContext* scanner_ctx)
+            : Dependency(id, "ScannerDoneDependency"), _scanner_ctx(scanner_ctx) {}
+    void* shared_state() override { return nullptr; }
+    [[nodiscard]] Dependency* read_blocked_by() override {
+        return _scanner_ctx->done() ? nullptr : this;
+    }
+    void set_ready_for_read() override {
+        // ScannerContext is set done outside this function now and only stop watcher here.
+        _read_dependency_watcher.stop();
+    }
+
+private:
+    vectorized::ScannerContext* _scanner_ctx;
+};
+
+struct DataReadyDependency : public Dependency {
+public:
+    ENABLE_FACTORY_CREATOR(DataReadyDependency);
+    DataReadyDependency(int id, vectorized::ScannerContext* scanner_ctx)
+            : Dependency(id, "DataReadyDependency"), _scanner_ctx(scanner_ctx) {}
+
+    void* shared_state() override { return nullptr; }
+
+    [[nodiscard]] Dependency* read_blocked_by() override {
+        if (_scanner_ctx->get_num_running_scanners() == 0 &&
+            _scanner_ctx->has_enough_space_in_blocks_queue()) {
+            _scanner_ctx->reschedule_scanner_ctx();
+        }
+        return _ready_for_read ? nullptr : this;
+    }
+
+private:
+    vectorized::ScannerContext* _scanner_ctx;
+};
+
 class ScanLocalStateBase : public PipelineXLocalState<>, public vectorized::RuntimeFilterConsumer {
 public:
     ScanLocalStateBase(RuntimeState* state, OperatorXBase* parent)
             : PipelineXLocalState<>(state, parent),
               vectorized::RuntimeFilterConsumer(parent->id(), parent->runtime_filter_descs(),
-                                                parent->row_descriptor(), parent->conjuncts()) {}
+                                                parent->row_descriptor(), _conjuncts) {}
     virtual ~ScanLocalStateBase() = default;
 
     virtual bool ready_to_read() = 0;
@@ -81,11 +135,19 @@ public:
 
     virtual TPushAggOp::type get_push_down_agg_type() = 0;
 
+    [[nodiscard]] std::string get_name() { return _parent->get_name(); }
+
 protected:
     friend class vectorized::ScannerContext;
     friend class vectorized::VScanner;
 
     virtual Status _init_profile() = 0;
+
+    std::shared_ptr<OpenDependency> _open_dependency;
+    std::shared_ptr<EosDependency> _eos_dependency;
+    std::shared_ptr<OrDependency> _source_dependency;
+    std::shared_ptr<ScannerDoneDependency> _scanner_done_dependency;
+    std::shared_ptr<DataReadyDependency> _data_ready_dependency;
 
     std::shared_ptr<RuntimeProfile> _scanner_profile;
     RuntimeProfile::Counter* _scanner_sched_counter = nullptr;
@@ -115,6 +177,11 @@ protected:
     // Wall based aggregate read throughput [rows/sec]
     RuntimeProfile::Counter* _total_throughput_counter;
     RuntimeProfile::Counter* _num_scanners;
+
+    RuntimeProfile::Counter* _wait_for_data_timer = nullptr;
+    RuntimeProfile::Counter* _wait_for_scanner_done_timer = nullptr;
+    // time of prefilter input block from scanner
+    RuntimeProfile::Counter* _wait_for_eos_timer = nullptr;
 };
 
 template <typename LocalStateType>
@@ -126,6 +193,7 @@ class ScanLocalState : public ScanLocalStateBase {
     virtual ~ScanLocalState() = default;
 
     Status init(RuntimeState* state, LocalStateInfo& info) override;
+    Status open(RuntimeState* state) override;
     Status close(RuntimeState* state) override;
 
     bool ready_to_read() override;
@@ -292,9 +360,6 @@ protected:
 
     std::shared_ptr<vectorized::ScannerContext> _scanner_ctx;
 
-    // indicate this scan node has no more data to return
-    bool _eos = false;
-
     vectorized::FilterPredicates _filter_predicates {};
 
     // Save all function predicates which may be pushed down to data source.
@@ -308,6 +373,7 @@ protected:
     // We use _colname_to_value_range to store a column and its conresponding value ranges.
     std::unordered_map<std::string, ColumnValueRangeType> _colname_to_value_range;
 
+    std::unordered_map<std::string, int> _colname_to_slot_id;
     /**
      * _colname_to_value_range only store the leaf of and in the conjunct expr tree,
      * we use _compound_value_ranges to store conresponding value ranges
@@ -329,7 +395,6 @@ protected:
     std::vector<ColumnValueRangeType> _not_in_value_ranges;
 
     RuntimeProfile::Counter* _get_next_timer = nullptr;
-    RuntimeProfile::Counter* _open_timer = nullptr;
     RuntimeProfile::Counter* _alloc_resource_timer = nullptr;
     RuntimeProfile::Counter* _acquire_runtime_filter_timer = nullptr;
 
@@ -339,11 +404,11 @@ protected:
 template <typename LocalStateType>
 class ScanOperatorX : public OperatorX<LocalStateType> {
 public:
-    //    bool runtime_filters_are_ready_or_timeout() override;
+    bool runtime_filters_are_ready_or_timeout(RuntimeState* state) const override;
 
     Status try_close(RuntimeState* state) override;
 
-    bool can_read(RuntimeState* state) override;
+    Dependency* wait_for_dependency(RuntimeState* state) override;
     bool is_pending_finish(RuntimeState* state) const override;
 
     Status init(const TPlanNode& tnode, RuntimeState* state) override;
@@ -391,7 +456,6 @@ protected:
     // If sort info is set, push limit to each scanner;
     int64_t _limit_per_scanner = -1;
 
-    std::unordered_map<std::string, int> _colname_to_slot_id;
     std::vector<int> _col_distribute_ids;
     std::vector<TRuntimeFilterDesc> _runtime_filter_descs;
 

@@ -239,8 +239,12 @@ Status HttpService::start() {
 }
 
 void HttpService::stop() {
+    if (stopped) {
+        return;
+    }
     _ev_http_server->stop();
     _pool.clear();
+    stopped = true;
 }
 
 } // namespace doris

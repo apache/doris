@@ -136,6 +136,7 @@ Field DataTypeNumberBase<T>::get_field(const TExprNode& node) const {
     if constexpr (std::is_same_v<TypeId<T>, TypeId<Float64>>) {
         return Float64(node.float_literal.value);
     }
+    LOG(FATAL) << "__builtin_unreachable";
     __builtin_unreachable();
 }
 

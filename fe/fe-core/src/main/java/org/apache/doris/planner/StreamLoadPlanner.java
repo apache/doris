@@ -212,6 +212,11 @@ public class StreamLoadPlanner {
             }
         }
 
+        scanTupleDesc.setTable(destTable);
+        analyzer.registerTupleDescriptor(scanTupleDesc);
+        if (null != taskInfo.getWhereExpr()) {
+            taskInfo.getWhereExpr().analyze(analyzer);
+        }
         // create scan node
         FileLoadScanNode fileScanNode = new FileLoadScanNode(new PlanNodeId(0), scanTupleDesc);
         // 1. create file group
@@ -251,8 +256,8 @@ public class StreamLoadPlanner {
         List<Long> partitionIds = getAllPartitionIds();
         OlapTableSink olapTableSink = new OlapTableSink(destTable, tupleDesc, partitionIds,
                 Config.enable_single_replica_load);
-        olapTableSink.init(loadId, taskInfo.getTxnId(), db.getId(), timeout,
-                taskInfo.getSendBatchParallelism(), taskInfo.isLoadToSingleTablet(), taskInfo.isStrictMode());
+        olapTableSink.init(loadId, taskInfo.getTxnId(), db.getId(), timeout, taskInfo.getSendBatchParallelism(),
+                taskInfo.isLoadToSingleTablet(), taskInfo.isStrictMode(), taskInfo.isIgnoreMode());
         olapTableSink.setPartialUpdateInputColumns(isPartialUpdate, partialUpdateInputColumns);
         olapTableSink.complete(analyzer);
 
@@ -416,7 +421,11 @@ public class StreamLoadPlanner {
                 throw new DdlException("Column is not SUM AggregateType. column:" + col.getName());
             }
         }
-
+        scanTupleDesc.setTable(destTable);
+        analyzer.registerTupleDescriptor(scanTupleDesc);
+        if (null != taskInfo.getWhereExpr()) {
+            taskInfo.getWhereExpr().analyze(analyzer);
+        }
         // create scan node
         FileLoadScanNode fileScanNode = new FileLoadScanNode(new PlanNodeId(0), scanTupleDesc);
         // 1. create file group
@@ -456,8 +465,8 @@ public class StreamLoadPlanner {
         List<Long> partitionIds = getAllPartitionIds();
         OlapTableSink olapTableSink = new OlapTableSink(destTable, tupleDesc, partitionIds,
                 Config.enable_single_replica_load);
-        olapTableSink.init(loadId, taskInfo.getTxnId(), db.getId(), timeout,
-                taskInfo.getSendBatchParallelism(), taskInfo.isLoadToSingleTablet(), taskInfo.isStrictMode());
+        olapTableSink.init(loadId, taskInfo.getTxnId(), db.getId(), timeout, taskInfo.getSendBatchParallelism(),
+                taskInfo.isLoadToSingleTablet(), taskInfo.isStrictMode(), taskInfo.isIgnoreMode());
         olapTableSink.setPartialUpdateInputColumns(isPartialUpdate, partialUpdateInputColumns);
         olapTableSink.complete(analyzer);
 
@@ -567,6 +576,10 @@ public class StreamLoadPlanner {
             return partitionIds;
         }
         return null;
+    }
+
+    public DescriptorTable getDescTable() {
+        return descTable;
     }
 }
 

@@ -52,10 +52,22 @@ bool ResultSinkOperator::can_write() {
 
 Status ResultSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& info) {
     RETURN_IF_ERROR(PipelineXSinkLocalState<>::init(state, info));
-    auto& p = _parent->cast<ResultSinkOperatorX>();
+    SCOPED_TIMER(profile()->total_time_counter());
+    SCOPED_TIMER(_open_timer);
     auto fragment_instance_id = state->fragment_instance_id();
     // create sender
-    _sender = info.sender;
+    std::shared_ptr<BufferControlBlock> sender = nullptr;
+    RETURN_IF_ERROR(state->exec_env()->result_mgr()->create_sender(
+            state->fragment_instance_id(), vectorized::RESULT_SINK_BUFFER_SIZE, &_sender, true,
+            state->execution_timeout()));
+    return Status::OK();
+}
+
+Status ResultSinkLocalState::open(RuntimeState* state) {
+    SCOPED_TIMER(profile()->total_time_counter());
+    SCOPED_TIMER(_open_timer);
+    RETURN_IF_ERROR(PipelineXSinkLocalState<>::open(state));
+    auto& p = _parent->cast<ResultSinkOperatorX>();
     _output_vexpr_ctxs.resize(p._output_vexpr_ctxs.size());
     for (size_t i = 0; i < _output_vexpr_ctxs.size(); i++) {
         RETURN_IF_ERROR(p._output_vexpr_ctxs[i]->clone(state, _output_vexpr_ctxs[i]));
@@ -91,8 +103,6 @@ Status ResultSinkOperatorX::prepare(RuntimeState* state) {
     auto fragment_instance_id = state->fragment_instance_id();
     auto title = fmt::format("VDataBufferSender (dst_fragment_instance_id={:x}-{:x})",
                              fragment_instance_id.hi, fragment_instance_id.lo);
-    // create profile
-    _profile = state->obj_pool()->add(new RuntimeProfile(title));
     // prepare output_expr
     // From the thrift expressions create the real exprs.
     RETURN_IF_ERROR(vectorized::VExpr::create_expr_trees(_t_output_expr, _output_vexpr_ctxs));
@@ -114,6 +124,7 @@ Status ResultSinkOperatorX::open(RuntimeState* state) {
 Status ResultSinkOperatorX::sink(RuntimeState* state, vectorized::Block* block,
                                  SourceState source_state) {
     auto& local_state = state->get_sink_local_state(id())->cast<ResultSinkLocalState>();
+    SCOPED_TIMER(local_state.profile()->total_time_counter());
     if (_fetch_option.use_two_phase_fetch && block->rows() > 0) {
         RETURN_IF_ERROR(_second_phase_fetch_data(state, block));
     }
@@ -142,6 +153,8 @@ Status ResultSinkOperatorX::_second_phase_fetch_data(RuntimeState* state,
 }
 
 Status ResultSinkLocalState::close(RuntimeState* state) {
+    SCOPED_TIMER(profile()->total_time_counter());
+    SCOPED_TIMER(_close_timer);
     if (_closed) {
         return Status::OK();
     }

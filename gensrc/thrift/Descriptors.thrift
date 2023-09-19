@@ -20,6 +20,7 @@ namespace java org.apache.doris.thrift
 
 include "Types.thrift"
 include "Exprs.thrift"
+include "Partitions.thrift"
 
 struct TColumn {
     1: required string column_name
@@ -59,6 +60,8 @@ struct TSlotDescriptor {
   // materialize them.Used to optmize to read less data and less memory usage
   13: optional bool need_materialize = true
   14: optional bool is_auto_increment = false;
+  // subcolumn path info list for semi structure column(variant)
+  15: optional list<string> column_paths
 }
 
 struct TTupleDescriptor {
@@ -191,6 +194,9 @@ struct TOlapTablePartitionParam {
     6: required list<TOlapTablePartition> partitions
 
     7: optional list<string> partition_columns
+    8: optional list<Exprs.TExpr> partition_function_exprs
+    9: optional bool enable_automatic_partition
+    10: optional Partitions.TPartitionType partition_type
 }
 
 struct TOlapTableIndex {
@@ -224,6 +230,7 @@ struct TOlapTableSchemaParam {
     8: optional bool is_partial_update
     9: optional list<string> partial_update_input_columns
     10: optional bool is_strict_mode = false;
+    11: optional bool is_unique_key_ignore_mode = false;
 }
 
 struct TTabletLocation {
