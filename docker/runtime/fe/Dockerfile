@@ -24,7 +24,8 @@ ENV JAVA_HOME="/usr/local/openjdk-8/" \
 	PATH="/opt/apache-doris/fe/bin:${PATH}"
 
 # download the software to the mirror and replace it as needed
-ADD ./resource/apache-doris-fe-x.x.x-bin.tar.gz /opt/
+COPY ./resource/apache-doris-x.x.x-bin-x64.tar.gz /opt/doris.tar.gz
+COPY ./resource/init_fe.sh /opt/
 
 # deploy software
 RUN apt-get update && \
@@ -32,9 +33,12 @@ RUN apt-get update && \
 	apt-get clean && \
 	mkdir /opt/apache-doris && \
 	cd /opt && \
-	mv apache-doris-fe-x.x.x-bin /opt/apache-doris/fe
-
-ADD resource/init_fe.sh /opt/apache-doris/fe/bin
-RUN chmod 755 /opt/apache-doris/fe/bin/init_fe.sh
+	mkdir doris && \
+        tar zxf doris.tar.gz -C doris --strip-components=1 && \
+        mv doris/fe /opt/apache-doris && \
+        rm doris.tar.gz && \
+        rm -rf doris && \
+        mv init_fe.sh /opt/apache-doris/fe/bin && \
+        chmod 755 /opt/apache-doris/fe/bin/init_fe.sh
 
 ENTRYPOINT ["/opt/apache-doris/fe/bin/init_fe.sh"]

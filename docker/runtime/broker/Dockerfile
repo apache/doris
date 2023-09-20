@@ -23,9 +23,9 @@ FROM openjdk:8u342-jdk
 ENV JAVA_HOME="/usr/local/openjdk-8/" \
     PATH="/opt/apache-doris/broker/bin:$PATH"
 
-# Download the software to the mirror, where the broker directory is synchronously compressed to the binary package of FE,
-# which needs to be decompressed and repackaged by itself, and can be replaced as needed
-ADD ./resource/apache_hdfs_broker.tar.gz /opt/
+# download the software to the mirror and replace it as needed
+COPY ./resource/apache-doris-x.x.x-bin-x64.tar.gz /opt/doris.tar.gz
+COPY ./resource/init_broker.sh /opt/
 
 # deploy software
 RUN apt-get update && \
@@ -33,9 +33,12 @@ RUN apt-get update && \
     apt-get clean && \
     mkdir /opt/apache-doris && \
     cd /opt && \
-    mv apache_hdfs_broker /opt/apache-doris/broker
-
-ADD ./resource/init_broker.sh /opt/apache-doris/broker/bin
-RUN chmod 755 /opt/apache-doris/broker/bin/init_broker.sh
+    mkdir doris && \
+    tar zxf doris.tar.gz -C doris --strip-components=1 && \
+    mv doris/extensions/apache_hdfs_broker /opt/apache-doris/broker && \
+    rm doris.tar.gz && \
+    rm -rf doris && \
+    mv init_broker.sh /opt/apache-doris/broker/bin && \
+    chmod 755 /opt/apache-doris/broker/bin/init_broker.sh
 
 ENTRYPOINT ["/opt/apache-doris/broker/bin/init_broker.sh"]

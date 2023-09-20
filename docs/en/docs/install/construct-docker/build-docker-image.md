@@ -85,10 +85,10 @@ The build environment directory is as follows:
 ```sql
 └── docker-build                                       // build root directory
      └── fe                                            // FE build directory
-         ├── dockerfile                                // dockerfile script
+         ├── Dockerfile                                // Dockerfile script
          └── resource                                  // resource directory
              ├── init_fe.sh                            // startup and registration script
-             └── apache-doris-x.x.x-bin-fe.tar.gz      // binary package
+             └── apache-doris-x.x.x-bin-x64.tar.gz     // binary package
 ```
 1. Create a build environment directory
 
@@ -102,29 +102,7 @@ The build environment directory is as follows:
 
 3. Write the Dockerfile script for FE
 
-   ```powershell
-   # Select the base image
-   FROM openjdk:8u342-jdk
-   
-   # Set environment variables
-   ENV JAVA_HOME="/usr/local/openjdk-8/" \
-       PATH="/opt/apache-doris/fe/bin:$PATH"
-   
-   # Download the software into the image (you can modify based on your own needs)
-   ADD ./resource/apache-doris-fe-${x.x.x}-bin.tar.gz /opt/
-   
-   RUN apt-get update && \
-       apt-get install -y default-mysql-client && \
-       apt-get clean && \
-       mkdir /opt/apache-doris && \
-       cd /opt && \
-       mv apache-doris-fe-${x.x.x}-bin /opt/apache-doris/fe
-   
-   ADD ./resource/init_fe.sh /opt/apache-doris/fe/bin
-   RUN chmod 755 /opt/apache-doris/fe/bin/init_fe.sh
-   
-   ENTRYPOINT ["/opt/apache-doris/fe/bin/init_fe.sh"]
-   ```
+   You can refer to [Dockerfile](https://github.com/apache/doris/tree/master/docker/runtime/fe/Dockerfile).
 
    After writing, name it `Dockerfile` and save it to the `./docker-build/fe` directory.
 
@@ -136,7 +114,7 @@ The build environment directory is as follows:
 
 5. Execute the build
 
-   Please note that `${tagName}` needs to be replaced with the tag name you want to package and name, such as: `apache-doris:1.1.3-fe`
+   Please note that `${fe-tagName}` needs to be replaced with the tag name you want to package and name, such as: `apache-doris:2.0.1-fe`
 
    Build FE:
 
@@ -144,6 +122,13 @@ The build environment directory is as follows:
    cd ./docker-build/fe
    docker build . -t ${fe-tagName}
    ```
+   
+   After the build process is completed, you will see the prompt  `Success`. Then, you can check the built image using the following command.
+
+   ```shell
+   docker images
+   ```
+
 #### Build BE
 
 1. Create a build environment directory
@@ -156,37 +141,16 @@ mkdir -p ./docker-build/be/resource
    ```sql
    └── docker-build                                            // build root directory
        └── be                                                  // BE build directory
-           ├── dockerfile                                      // dockerfile script
+           ├── Dockerfile                                      // Dockerfile script
            └── resource                                        // resource directory
+               ├── entry_point.sh                              // entry point script
                ├── init_be.sh                                  // startup and registration script
-               └── apache-doris-x.x.x-bin-x86_64/arm-be.tar.gz // binary package
+               └── apache-doris-x.x.x-bin-x64.tar.gz           // binary package
    ```
 
 3. Write the Dockerfile script for BE
 
-   ```powershell
-   # Select the base image
-   FROM openjdk:8u342-jdk
-   
-   # Set environment variables
-   ENV JAVA_HOME="/usr/local/openjdk-8/" \
-       PATH="/opt/apache-doris/be/bin:$PATH"
-   
-   # Download the software into the image (you can modify based on your own needs)
-   ADD ./resource/apache-doris-be-${x.x.x}-bin-x86_64.tar.gz /opt/
-   
-   RUN apt-get update && \
-       apt-get install -y default-mysql-client && \
-       apt-get clean && \
-       mkdir /opt/apache-doris && \
-       cd /opt && \
-       mv apache-doris-be-${x.x.x}-bin-x86_64 /opt/apache-doris/be
-   
-   ADD ./resource/init_be.sh /opt/apache-doris/be/bin
-   RUN chmod 755 /opt/apache-doris/be/bin/init_be.sh
-   
-   ENTRYPOINT ["/opt/apache-doris/be/bin/init_be.sh"]
-   ```
+   You can refer to [Dockerfile](https://github.com/apache/doris/tree/master/docker/runtime/be/Dockerfile).
 
    After writing, name it `Dockerfile` and save it to the `./docker-build/be` directory
 
@@ -198,7 +162,7 @@ mkdir -p ./docker-build/be/resource
 
 5. Execute the build
 
-   Please note that `${tagName}` needs to be replaced with the tag name you want to package and name, such as: `apache-doris:1.1.3-be`
+   Please note that `${be-tagName}` needs to be replaced with the tag name you want to package and name, such as: `apache-doris:2.0.1-be`
 
    Build BE:
 
@@ -225,37 +189,15 @@ mkdir -p ./docker-build/broker/resource
    ```sql
    └── docker-build                                     // build root directory
        └── broker                                       // BROKER build directory
-           ├── dockerfile                               // dockerfile script
+           ├── Dockerfile                               // Dockerfile script
            └── resource                                 // resource directory
                ├── init_broker.sh                       // startup and registration script
-               └── apache-doris-x.x.x-bin-broker.tar.gz // binary package
+               └── apache-doris-x.x.x-bin-x64.tar.gz    // binary package
    ```
 
 3. Write the Dockerfile script for Broker
 
-   ```powershell
-   # Select the base image
-   FROM openjdk:8u342-jdk
-   
-   # Set environment variables
-   ENV JAVA_HOME="/usr/local/openjdk-8/" \
-       PATH="/opt/apache-doris/broker/bin:$PATH"
-   
-   # Download the software into the image, where the broker directory is synchronously compressed to the binary package of FE, which needs to be decompressed and repackaged (you can modify based on your own needs)
-   ADD ./resource/apache_hdfs_broker.tar.gz /opt/
-   
-   RUN apt-get update && \
-       apt-get install -y default-mysql-client && \
-       apt-get clean && \
-       mkdir /opt/apache-doris && \
-       cd /opt && \
-       mv apache_hdfs_broker /opt/apache-doris/broker
-   
-   ADD ./resource/init_broker.sh /opt/apache-doris/broker/bin
-   RUN chmod 755 /opt/apache-doris/broker/bin/init_broker.sh
-   
-   ENTRYPOINT ["/opt/apache-doris/broker/bin/init_broker.sh"]
-   ```
+   You can refer to [Dockerfile](https://github.com/apache/doris/tree/master/docker/runtime/broker/Dockerfile).
 
    After writing, name it `Dockerfile` and save it to the `./docker-build/broker` directory
 
@@ -267,7 +209,7 @@ mkdir -p ./docker-build/broker/resource
 
 5. Execute the build
 
-   Please note that `${tagName}` needs to be replaced with the tag name you want to package and name, such as: `apache-doris:1.1.3-broker`
+   Please note that `${broker-tagName}` needs to be replaced with the tag name you want to package and name, such as: `apache-doris:2.0.1-broker`
 
    Build Broker:
 

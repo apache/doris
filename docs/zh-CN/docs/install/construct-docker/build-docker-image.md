@@ -87,10 +87,10 @@ Dockerfile 脚本编写需要注意以下几点：
 ```sql
 └── docker-build                                                // 构建根目录 
     └── fe                                                      // FE 构建目录
-        ├── dockerfile                                          // dockerfile 脚本
+        ├── Dockerfile                                          // Dockerfile 脚本
         └── resource                                            // 资源目录
             ├── init_fe.sh                                      // 启动及注册脚本
-            └── apache-doris-x.x.x-bin-fe.tar.gz                // 二进制程序包
+            └── apache-doris-x.x.x-bin-x64.tar.gz               // 二进制程序包
 ```
 
 1. 创建构建环境目录
@@ -105,29 +105,7 @@ Dockerfile 脚本编写需要注意以下几点：
 
 3. 编写 FE 的 Dockerfile 脚本
 
-   ```powershell
-   # 选择基础镜像
-   FROM openjdk:8u342-jdk
-   
-   # 设置环境变量
-   ENV JAVA_HOME="/usr/local/openjdk-8/" \
-       PATH="/opt/apache-doris/fe/bin:$PATH"
-   
-   # 下载软件至镜像内，可根据需要替换
-   ADD ./resource/apache-doris-fe-${x.x.x}-bin.tar.gz /opt/
-   
-   RUN apt-get update && \
-       apt-get install -y default-mysql-client && \
-       apt-get clean && \
-       mkdir /opt/apache-doris && \
-       cd /opt && \
-       mv apache-doris-fe-${x.x.x}-bin /opt/apache-doris/fe
-   
-   ADD ./resource/init_fe.sh /opt/apache-doris/fe/bin
-   RUN chmod 755 /opt/apache-doris/fe/bin/init_fe.sh
-   
-   ENTRYPOINT ["/opt/apache-doris/fe/bin/init_fe.sh"]
-   ```
+   可参考复制 [Dockerfile](https://github.com/apache/doris/tree/master/docker/runtime/fe/Dockerfile) 的内容
 
    编写后命名为 `Dockerfile` 并保存至 `./docker-build/fe` 目录下
 
@@ -139,7 +117,7 @@ Dockerfile 脚本编写需要注意以下几点：
 
 5. 执行构建
 
-   需要注意的是，`${tagName}` 需替换为你想要打包命名的 tag 名称，如：`apache-doris:1.1.3-fe`
+   需要注意的是，`${fe-tagName}` 需替换为你想要打包命名的 tag 名称，如：`apache-doris:2.0.1-fe`
 
    构建 FE：
 
@@ -147,7 +125,12 @@ Dockerfile 脚本编写需要注意以下几点：
    cd ./docker-build/fe
    docker build . -t ${fe-tagName}
    ```
+   
+   构建完成后，会有 `Success` 字样提示，这时候通过以下命令可查看刚构建完成的 Image 镜像
 
+   ```shell
+   docker images
+   ```
 
 #### 构建 BE
 
@@ -161,37 +144,16 @@ mkdir -p ./docker-build/be/resource
    ```sql
    └── docker-build                                                // 构建根目录 
        └── be                                                      // BE 构建目录
-           ├── dockerfile                                          // dockerfile 脚本
+           ├── Dockerfile                                          // Dockerfile 脚本
            └── resource                                            // 资源目录
+               ├── entry_point.sh                                  // 镜像入口脚本
                ├── init_be.sh                                      // 启动及注册脚本
-               └── apache-doris-x.x.x-bin-x86_64/arm-be.tar.gz     // 二进制程序包
+               └── apache-doris-x.x.x-bin-x64.tar.gz               // 二进制程序包
    ```
 
 3. 编写 BE 的 Dockerfile 脚本
 
-   ```powershell
-   # 选择基础镜像
-   FROM openjdk:8u342-jdk
-   
-   # 设置环境变量
-   ENV JAVA_HOME="/usr/local/openjdk-8/" \
-       PATH="/opt/apache-doris/be/bin:$PATH"
-   
-   # 下载软件至镜像内，可根据需要替换
-   ADD ./resource/apache-doris-be-${x.x.x}-bin-x86_64.tar.gz /opt/
-   
-   RUN apt-get update && \
-       apt-get install -y default-mysql-client && \
-       apt-get clean && \
-       mkdir /opt/apache-doris && \
-       cd /opt && \
-       mv apache-doris-be-${x.x.x}-bin-x86_64 /opt/apache-doris/be
-   
-   ADD ./resource/init_be.sh /opt/apache-doris/be/bin
-   RUN chmod 755 /opt/apache-doris/be/bin/init_be.sh
-   
-   ENTRYPOINT ["/opt/apache-doris/be/bin/init_be.sh"]
-   ```
+   可参考复制 [Dockerfile](https://github.com/apache/doris/tree/master/docker/runtime/be/Dockerfile) 的内容
 
    编写后命名为 `Dockerfile` 并保存至 `./docker-build/be` 目录下
 
@@ -203,7 +165,7 @@ mkdir -p ./docker-build/be/resource
 
 5. 执行构建
 
-   需要注意的是，`${tagName}` 需替换为你想要打包命名的 tag 名称，如：`apache-doris:1.1.3-be`
+   需要注意的是，`${be-tagName}` 需替换为你想要打包命名的 tag 名称，如：`apache-doris:2.0.1-be`
 
    构建 BE：
 
@@ -231,37 +193,15 @@ mkdir -p ./docker-build/broker/resource
    ```sql
    └── docker-build                                                // 构建根目录 
        └── broker                                                  // BROKER 构建目录
-           ├── dockerfile                                          // dockerfile 脚本
+           ├── Dockerfile                                          // Dockerfile 脚本
            └── resource                                            // 资源目录
                ├── init_broker.sh                                  // 启动及注册脚本
-               └── apache-doris-x.x.x-bin-broker.tar.gz            // 二进制程序包
+               └── apache-doris-x.x.x-bin-x64.tar.gz               // 二进制程序包
    ```
 
 3. 编写 Broker 的 Dockerfile 脚本
 
-   ```powershell
-   # 选择基础镜像
-   FROM openjdk:8u342-jdk
-   
-   # 设置环境变量
-   ENV JAVA_HOME="/usr/local/openjdk-8/" \
-       PATH="/opt/apache-doris/broker/bin:$PATH"
-   
-   # 下载软件至镜像内，此处 broker 目录被同步压缩至 FE 的二进制包，需要自行解压重新打包，可根据需要替换
-   ADD ./resource/apache_hdfs_broker.tar.gz /opt/
-   
-   RUN apt-get update && \
-       apt-get install -y default-mysql-client && \
-       apt-get clean && \
-       mkdir /opt/apache-doris && \
-       cd /opt && \
-       mv apache_hdfs_broker /opt/apache-doris/broker
-   
-   ADD ./resource/init_broker.sh /opt/apache-doris/broker/bin
-   RUN chmod 755 /opt/apache-doris/broker/bin/init_broker.sh
-   
-   ENTRYPOINT ["/opt/apache-doris/broker/bin/init_broker.sh"]
-   ```
+   可参考复制 [Dockerfile](https://github.com/apache/doris/tree/master/docker/runtime/broker/Dockerfile) 的内容
 
    编写后命名为 `Dockerfile` 并保存至 `./docker-build/broker` 目录下
 
@@ -273,7 +213,7 @@ mkdir -p ./docker-build/broker/resource
 
 5. 执行构建
 
-   需要注意的是，`${tagName}` 需替换为你想要打包命名的 tag 名称，如：`apache-doris:1.1.3-broker`
+   需要注意的是，`${broker-tagName}` 需替换为你想要打包命名的 tag 名称，如：`apache-doris:2.0.1-broker`
 
    构建 Broker：
 
