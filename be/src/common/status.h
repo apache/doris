@@ -352,8 +352,9 @@ public:
 
     template <bool stacktrace = true>
     Status static create(const TStatus& status) {
-        return Error<stacktrace>(status.status_code,
-                           "TStatus: " + (status.error_msgs.empty() ? "" : status.error_msgs[0]));
+        return Error<stacktrace>(
+                status.status_code,
+                "TStatus: " + (status.error_msgs.empty() ? "" : status.error_msgs[0]));
     }
 
     template <bool stacktrace = true>
