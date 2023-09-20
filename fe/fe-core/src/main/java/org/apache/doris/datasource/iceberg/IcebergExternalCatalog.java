@@ -106,6 +106,6 @@ public abstract class IcebergExternalCatalog extends ExternalCatalog {
         return Env.getCurrentEnv()
                 .getExtMetaCacheMgr()
                 .getIcebergMetadataCache()
-                .getIcebergTable(catalog, catalogId, dbName, tblName, getProperties());
+                .getIcebergTable(catalog, id, dbName, tblName, getProperties());
     }
 }
