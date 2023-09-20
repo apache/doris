@@ -10,15 +10,15 @@ PhysicalResultSink
 --------------hashAgg[LOCAL]
 ----------------PhysicalRepeat
 ------------------PhysicalProject
---------------------hashJoin[INNER_JOIN](customer.c_current_cdemo_sk = cd2.cd_demo_sk)
+--------------------hashJoin[INNER_JOIN](catalog_sales.cs_item_sk = item.i_item_sk)
+----------------------PhysicalProject
+------------------------PhysicalOlapScan[item]
 ----------------------PhysicalDistribute
 ------------------------PhysicalProject
---------------------------PhysicalOlapScan[customer_demographics]
-----------------------PhysicalDistribute
-------------------------PhysicalProject
---------------------------hashJoin[INNER_JOIN](catalog_sales.cs_item_sk = item.i_item_sk)
-----------------------------PhysicalProject
-------------------------------PhysicalOlapScan[item]
+--------------------------hashJoin[INNER_JOIN](customer.c_current_cdemo_sk = cd2.cd_demo_sk)
+----------------------------PhysicalDistribute
+------------------------------PhysicalProject
+--------------------------------PhysicalOlapScan[customer_demographics]
 ----------------------------PhysicalDistribute
 ------------------------------PhysicalProject
 --------------------------------hashJoin[INNER_JOIN](catalog_sales.cs_sold_date_sk = date_dim.d_date_sk)
